@@ -1,0 +1,77 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Poetry
+# poetry.lock
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+ENV/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+static_root/
+
+# Django migrations (optionnel, à activer si tu régénères les migrations)
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# DRF / API
+*.pot
+
+# Variables d'environnement
+.env
+.env.*
+!.env.example
+
+# Tests / couverture
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# Outils qualité de code
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# IDE / éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Celery (si utilisé avec Django)
+celerybeat-schedule
+celerybeat.pid
+
+# Fichiers de secrets / clés
+*.pem
+secrets.json
