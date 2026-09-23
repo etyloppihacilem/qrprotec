@@ -54,6 +54,8 @@ class ItemType(models.Model):
     type = models.CharField(max_length=6, primary_key=True, editable=False)
     name = models.CharField(max_length=64)
     description = models.TextField()
+    min_quantity = models.PositiveIntegerField(default=0) # minimum value that should be in stock
+    perissable = models.BooleanField(default=False) # if false, date is not mandatory
 
 
 class ItemsPacks(models.Model):
@@ -61,6 +63,7 @@ class ItemsPacks(models.Model):
     item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT, db_column="type", to_field="type")
     peremption = models.DateField(blank=True, null=True)
     last_sequence = models.PositiveIntegerField(default=0)
+
     objects = ItemsPacksManager()
 
     def save(self, *args, **kwargs):
@@ -83,7 +86,7 @@ class Items(models.Model):
         related_name='items',
     )
     last_seen = models.DateTimeField()
-    last_seen_by = models.CharField(max_length=32) # should be user id but could be something else
+    last_seen_by = models.CharField(max_length=64) # should be user id but could be something else
     last_seen_while = models.CharField(max_length=8) # TODO: certainement une enum...
     added = models.DateTimeField()
     added_by = models.CharField(max_length=32) # should be user as well (and admin)
