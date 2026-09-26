@@ -44,6 +44,7 @@ target_include_directories(QRProtecPrinter PUBLIC src)
 # -----------------------------------------------------------------------------
 add_executable(${PROJECT_NAME}
     src/main.cpp
+    src/core/glob_utils.cpp
     src/core/template.cpp
     src/core/template_io.cpp
     src/render/raster.cpp

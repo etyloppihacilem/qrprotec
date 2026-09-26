@@ -1,8 +1,11 @@
 #include "template.hpp"
+#include "core/template_io.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <set>
+#include <string>
 
 namespace qrprotec {
 
@@ -87,7 +90,8 @@ std::vector<std::string> find_placeholders(const TemplateDocument& document)
         std::size_t position = 0;
         while ((position = value.find("{{", position)) != std::string::npos) {
             const std::size_t end = value.find("}}", position + 2);
-            if (end == std::string::npos) break;
+            if (std::string::npos == end)
+              break;
             const std::string name = value.substr(position + 2, end - position - 2);
             if (!name.empty()) names.insert(name);
             position = end + 2;

@@ -48,6 +48,7 @@ struct TemplateElement {
 
 struct TemplateDocument {
     std::string name = "Nouveau template";
+    std::string path;
     MediaSettings media;
     std::vector<TemplateElement> elements;
     std::unordered_map<std::string, std::string> parameters;
