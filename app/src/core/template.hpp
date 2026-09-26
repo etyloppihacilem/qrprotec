@@ -62,5 +62,6 @@ struct ValidationIssue {
 std::vector<ValidationIssue> validate(const TemplateDocument& document);
 std::string resolve_parameters(const std::string& input, const std::unordered_map<std::string, std::string>& parameters);
 std::vector<std::string> find_placeholders(const TemplateDocument& document);
+// std::vector<std::string> extract_placeholders(const std::string &str);
 
 } // namespace qrprotec

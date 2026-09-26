@@ -24,6 +24,7 @@ void copy_to_buffer(char *buffer, std::size_t size, const std::string &value) {
 Editor::Editor() {
   reload_templates();
   new_template();
+  placeholder_names_ = find_placeholders(document_);
 }
 
 Editor::~Editor() {
@@ -41,6 +42,7 @@ void Editor::new_template() {
   );
   document_.elements.push_back({ "qr", ElementKind::QrCode, QrElement{ "{{code}}", 12.0f, 12.0f, 16.0f } });
   template_path_ = "";
+  placeholder_names_ = find_placeholders(document_);
 }
 
 void Editor::reload_templates() {
@@ -118,12 +120,23 @@ void Editor::draw_document_panel() {
   ImGui::Text("Resolution: %d x %d px", document_.media.width_pixels(), document_.media.height_pixels());
   ImGui::Separator();
   ImGui::TextUnformatted("Parametres");
-  char code[256];
-  copy_to_buffer(code, sizeof(code), document_.parameters["code"]);
-  if (ImGui::InputText("code", code, sizeof(code))) {
-    document_.parameters["code"] = code;
-    preview_dirty_               = true;
+  for (std::string &placeholder : placeholder_names_) {
+    char code[256];
+    if (document_.parameters.find(placeholder) !=  document_.parameters.end())
+      copy_to_buffer(code, 256, document_.parameters[placeholder]);
+    else
+      copy_to_buffer(code, 256, "default");
+    if (ImGui::InputText(placeholder.c_str(), code, sizeof(code))) {
+      document_.parameters[placeholder] = code;
+      preview_dirty_                    = true;
+    }
   }
+  // char code[256];
+  // copy_to_buffer(code, sizeof(code), document_.parameters["code"]);
+  // if (ImGui::InputText("code", code, sizeof(code))) {
+  //   document_.parameters["code"] = code;
+  //   preview_dirty_               = true;
+  // }
   if (ImGui::Button("Ajouter texte")) {
     document_.elements.push_back(
       { "texte-" + std::to_string(document_.elements.size()),
@@ -172,8 +185,12 @@ void Editor::draw_element_panel() {
     char         value[4096];
     copy_to_buffer(value, sizeof(value), text.text);
     if (ImGui::InputTextMultiline("Texte", value, sizeof(value), ImVec2(-1, 140))) {
-      text.text      = value;
-      preview_dirty_ = true;
+      text.text          = value;
+      preview_dirty_     = true;
+      placeholder_names_ = find_placeholders(document_);
+      // std::cerr << "found" << std::endl;
+      // for (auto pl: placeholder_names_)
+      //   std::cerr << pl << std::endl;
     }
     if (ImGui::DragFloat("X (mm)", &text.x_mm, 0.1f))
       preview_dirty_ = true;
@@ -196,6 +213,7 @@ void Editor::draw_element_panel() {
     if (ImGui::InputTextMultiline("Payload", payload, sizeof(payload), ImVec2(-1, 70))) {
       qr.payload     = payload;
       preview_dirty_ = true;
+      placeholder_names_ = find_placeholders(document_);
     }
     if (ImGui::DragFloat("X (mm)", &qr.x_mm, 0.1f))
       preview_dirty_ = true;
@@ -347,6 +365,7 @@ void Editor::draw() {
             document_      = doc;
             template_path_ = doc.path;
             preview_dirty_ = true;
+            placeholder_names_ = find_placeholders(document_);
             std::cerr << "Loaded template " << doc.name << std::endl;
           }
         ImGui::Separator();
