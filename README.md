@@ -29,7 +29,7 @@ cd database
 poetry install --no-root          # ou : pip install django djangorestframework
 python manage.py migrate
 python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001
-python manage.py createadmin M001 Nom Prenom   # premier responsable (ou badge responsable perdu)
+python manage.py createadmin M001 Nom Prenom   # premier administrateur (ou badge admin perdu)
 python manage.py serve --https    # API publique en HTTPS (certificat de développement, tests sur téléphone)
 python manage.py test inventory
 ```
@@ -93,7 +93,20 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`, `lots/<id>/`,
 `lots/<id>/verif/` (POST items, key), `lots/<id>/add/` (POST items, key), `lots/<id>/unseal/` (POST
 key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
-`unsealed`.
+`unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
+`lots/summary/` (lots actifs et leur état, tout badge valide) et `stock/summary/` (état des stocks,
+rôles gestion et admin).
+
+### Rôles
+
+| Rôle | Front ordinateur | Téléphone |
+|---|---|---|
+| `normal` (Secouriste) | vérifs, pile de scans, ajout aux lots | vérifs, liste des lots |
+| `gestion` | mode privilégié : stocks, inventaire, paquets, lots, éditeur d'étiquettes ; **pas** les Réglages ni les Utilisateurs | + onglet **Stock** (lecture seule) |
+| `admin` | tout, dont Réglages (serveur, étiquettes, notifications SMS…) et Utilisateurs | + onglet **Stock** |
+
+Le rôle se choisit dans **Gestion > Utilisateurs** (admin). La migration `0003_roles` transforme les
+anciens responsables en administrateurs ; `createadmin` crée ou répare un administrateur.
 
 Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), `items/batch/`
 (réception), `items/to-stock/`, `items/<iid>/delete/`, `items/<iid>/restore/`, `stock/`,
@@ -159,9 +172,15 @@ ouvre donc directement la bonne vue. Les fichiers sont dans `database/inventory/
   le propose, sinon [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0, fourni dans `web/vendor/`,
   aucun CDN). Lampe si le téléphone le permet, écran maintenu allumé pendant le scan.
 - **Moitié basse** : informations du dernier scan (item : type, péremption, emplacement ; lot : état,
-  dernière vérif) et trois onglets : **À scanner** (items attendus du lot, en orange, les périmés en
-  rouge), **Scannés** (avec ✕ par ligne, « Annuler le dernier », « Vider la liste ») et **Lot**
-  (exigences scannées / attendues).
+  dernière vérif) et les onglets :
+  - **Accueil** (affiché quand aucun lot n'est en cours) : utilisateur connecté, **liste des lots**
+    avec leur état (après scan du badge) — toucher un lot l'ouvre pour commencer sa vérif —, et accès
+    à la **douchette du poste** : scanner le QR code affiché par le poste (Douchette > Téléphone comme
+    douchette) ouvre la page de scan qui envoie les codes au poste ;
+  - **À scanner** (items attendus du lot, en orange, les périmés en rouge), **Scannés** (avec ✕ par
+    ligne, « Annuler le dernier », « Vider la liste ») et **Lot** (exigences scannées / attendues) ;
+  - **Stock** (rôles gestion et admin, après scan du badge) : état des stocks en lecture seule, les
+    types les plus critiques en premier.
 - **Produit périmé ou code inconnu** : écran rouge qui clignote, bip grave et vibration (la vibration
   n'existe pas sur iPhone). Un item déjà scanné n'est pas ajouté une seconde fois.
 - **Badge** : scanner son badge connecte l'utilisateur (conservé sur le téléphone jusqu'à
@@ -193,8 +212,8 @@ Dépendances : GLFW, OpenGL, libpng, FreeType, libxdo (SDK Inateck). L'encodeur 
 ([Nayuki](https://www.nayuki.io/page/qr-code-generator-library), MIT) et `stb_image` (PNG/JPEG,
 domaine public) sont fournis dans `app/third_party/`.
 
-**Première utilisation** : tant qu'aucun responsable n'a de badge valide, le logiciel propose de créer
-le compte du responsable technique ; il est connecté directement en mode privilégié et peut imprimer
+**Première utilisation** : tant qu'aucun administrateur n'a de badge valide, le logiciel propose de créer
+le compte de l'administrateur ; il est connecté directement en mode privilégié et peut imprimer
 son badge (ou utiliser `manage.py createadmin` sur le serveur).
 
 La police DejaVu Sans (accents) est fournie dans `app/third_party/fonts/` et copiée à côté de
@@ -238,9 +257,9 @@ disposition par défaut des fenêtres, signal de mauvais scan.
 - **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté et les
   fenêtres remises à leur place par défaut.
 
-### Mode privilégié (badge responsable)
+### Mode privilégié (badge gestion ou admin)
 
-Fond orange. Menu **Gestion** :
+Fond orange. Menu **Gestion** (Réglages et Utilisateurs réservés au rôle admin) :
 
 - **État des stocks** : barre par type, verte au-dessus du minimum, orange en dessous, rouge à 0,
   avec « quantité/minimum » (ex : `32/100`).
@@ -252,7 +271,8 @@ Fond orange. Menu **Gestion** :
 - **Gestion des lots** : types de lots et contenu attendu (avec emplacement), création de lots,
   étiquettes publique et privée, régénération de la clé, scellage (numéro du scellé, étiquette du
   scellé) et bris du scellé.
-- **Utilisateurs** : création, droits responsable, renouvellement et impression des badges.
+- **Utilisateurs** (admin) : création, rôle (secouriste, gestion, admin), renouvellement et impression
+  des badges.
 - **Éditeur d'étiquettes** : modèles avec usage (item, paquet, lot public, lot privé, scellé, badge),
   onglet **Placeholders** listant les `{{placeholders}}` disponibles, textes, QR codes et images
   (logo PNG ou JPEG).

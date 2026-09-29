@@ -17,10 +17,20 @@ namespace qrprotec {
 
 namespace {
 
+const char *const kRoles[] = { "normal", "gestion", "admin" };
+
+int role_index(const std::string &role) {
+  return role == "admin" ? 2 : role == "gestion" ? 1 : 0;
+}
+
+const char *role_label(const std::string &role) {
+  return role == "admin" ? "Administrateur" : role == "gestion" ? "Gestion" : "Secouriste";
+}
+
 // Gestion des secouristes : creation, droits, renouvellement des badges (valables un an).
 class UsersWindow final : public AppWindow {
   public:
-    UsersWindow() : AppWindow("users", "Utilisateurs", true, true) {}
+    UsersWindow() : AppWindow("users", "Utilisateurs", true, true) { admin_only = true; }
 
     void on_open(App &app) override { app.refresh_users(); }
 
@@ -61,7 +71,7 @@ class UsersWindow final : public AppWindow {
           ImGui::TableNextColumn();
           ImGui::Text("%s %s", user["prenom"].str().c_str(), user["nom"].str().c_str());
           ImGui::TableNextColumn();
-          ImGui::TextUnformatted(user["privileged"].boolean() ? "Responsable" : "Secouriste");
+          ImGui::TextUnformatted(role_label(user["role"].str(user["privileged"].boolean() ? "admin" : "normal")));
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(expires ? expires->display().c_str() : "-");
         }
@@ -81,7 +91,7 @@ class UsersWindow final : public AppWindow {
       matricule_  = selected_;
       nom_        = user["nom"].str();
       prenom_     = user["prenom"].str();
-      privileged_ = user["privileged"].boolean();
+      role_       = role_index(user["role"].str(user["privileged"].boolean() ? "admin" : "normal"));
       active_     = user["active"].boolean(true);
     }
 
@@ -93,14 +103,17 @@ class UsersWindow final : public AppWindow {
       ImGui::EndDisabled();
       ImGui::InputText("Prénom", &prenom_);
       ImGui::InputText("Nom", &nom_);
-      ImGui::Checkbox("Responsable (mode privilégié)", &privileged_);
+      ImGui::SetNextItemWidth(220.0f);
+      ImGui::Combo("Rôle", &role_, "Secouriste\0Gestion\0Administrateur\0");
+      help_marker("Secouriste : vérifs et scans. Gestion : mode privilégié (stocks, inventaire, lots, étiquettes) et "
+                  "état des stocks sur le téléphone, sans les Réglages ni les Utilisateurs. Administrateur : tout.");
       if (!creating)
         ImGui::Checkbox("Compte actif", &active_);
 
       Json body;
       body["nom"]        = nom_;
       body["prenom"]     = prenom_;
-      body["privileged"] = privileged_;
+      body["role"]       = kRoles[role_];
       if (creating) {
         ImGui::BeginDisabled(matricule_.empty() || nom_.empty() || prenom_.empty());
         if (primary_button("Créer et voir le badge")) {
@@ -156,7 +169,7 @@ class UsersWindow final : public AppWindow {
     std::string matricule_;
     std::string nom_;
     std::string prenom_;
-    bool        privileged_ = false;
+    int         role_       = 0; // index dans kRoles
     bool        active_     = true;
 };
 

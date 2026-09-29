@@ -33,7 +33,7 @@ from .idendity import identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .models import (
     TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings, SealedPacks,
-    Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
+    Role, Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -92,6 +92,31 @@ def iid_list(data):
     if not isinstance(items, list) or not all(isinstance(iid, str) for iid in items):
         raise ApiError("items : liste d'iids attendue")
     return [iid.strip() for iid in items if iid.strip()]
+
+
+def parse_role(data):
+    """Role demande ('role', ou l'ancien booleen 'privileged' = admin), None si absent."""
+    if 'role' in data:
+        role = str(data['role'])
+        if role not in Role.values:
+            raise ApiError(f"Role inconnu : {role} (normal, gestion ou admin)")
+        return role
+    if 'privileged' in data:
+        return Role.ADMIN if data['privileged'] else Role.NORMAL
+    return None
+
+
+def badge_user(request, roles=None):
+    """Secouriste authentifie par son badge ({"user": {"matricule", "key"}}), avec l'un des roles donnes."""
+    credentials = request.data.get('user')
+    if not isinstance(credentials, dict):
+        raise ApiError("Scannez votre badge", status.HTTP_403_FORBIDDEN)
+    user = Secouristes.objects.filter(matricule=str(credentials.get('matricule', ''))).first()
+    if user is None or not user.check_key(credentials.get('key')):
+        raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
+    if roles and user.role not in roles:
+        raise ApiError("Réservé aux rôles gestion et admin", status.HTTP_403_FORBIDDEN)
+    return user
 
 
 def require_lot_key(request, lot):
@@ -179,6 +204,26 @@ def lot_add_items(request, lot_id):
     require_lot_key(request, lot)
     identity = identity_from_request(request.data, is_local(request))
     return Response(services.move_items(iid_list(request.data), lot, identity, SeenWhile.ADD))
+
+
+@api_view(['POST'])
+@handle_errors
+def lots_summary(request):
+    """Liste des lots actifs et de leur etat (lecture seule) pour choisir un lot a verifier.
+    Tout badge valide ; les cles des lots ne sont jamais renvoyees."""
+    badge_user(request)
+    today = timezone.localdate()
+    queryset = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
+    return Response([ser.lot_dict(lot, today=today) for lot in queryset])
+
+
+@api_view(['POST'])
+@handle_errors
+def stock_summary(request):
+    """Etat des stocks en lecture seule, reserve aux roles gestion et admin (badge)."""
+    badge_user(request, (Role.GESTION, Role.ADMIN))
+    soon = parse_int(request.data.get('soon_days', 30), 'soon_days', 0, 3650)
+    return Response(services.stock_status(soon))
 
 
 @api_view(['GET'])
@@ -508,7 +553,7 @@ def setup(request):
     """Etat de premiere configuration : le front propose de creer un responsable s'il n'y en a aucun
     avec un badge valide (premiere installation, ou tous les badges responsables expires)."""
     today = timezone.localdate()
-    admins = Secouristes.objects.filter(privileged=True, active=True, key_expires__gte=today).count()
+    admins = Secouristes.objects.filter(role=Role.ADMIN, active=True, key_expires__gte=today).count()
     return Response({
         'users': Secouristes.objects.count(),
         'admins': admins,
@@ -531,9 +576,7 @@ def users(request):
     prenom = str(data.get('prenom', '')).strip()
     if not nom or not prenom:
         raise ApiError("Nom et prenom obligatoires")
-    user = Secouristes(
-        matricule=matricule, nom=nom[:32], prenom=prenom[:32], privileged=bool(data.get('privileged', False))
-    )
+    user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=parse_role(data) or Role.NORMAL)
     user.renew_key()
     user.save()
     return Response(ser.user_dict(user, local=True), status=status.HTTP_201_CREATED)
@@ -548,9 +591,11 @@ def user_detail(request, matricule):
         for field in ('nom', 'prenom'):
             if field in data:
                 setattr(user, field, str(data[field]).strip()[:32])
-        for field in ('privileged', 'active'):
-            if field in data:
-                setattr(user, field, bool(data[field]))
+        role = parse_role(data)
+        if role:
+            user.role = role
+        if 'active' in data:
+            user.active = bool(data['active'])
         user.save()
     return Response(ser.user_dict(user, local=True))
 

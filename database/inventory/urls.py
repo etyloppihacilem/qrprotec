@@ -17,6 +17,8 @@ public_patterns = [
     path('health/', views.health),
     path('auth/', views.auth),
     path('items/<str:iid>/', views.item_detail),
+    path('lots/summary/', views.lots_summary),   # avant lots/<id>/
+    path('stock/summary/', views.stock_summary),
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/verif/', views.lot_verif),
     path('lots/<str:lot_id>/add/', views.lot_add_items),

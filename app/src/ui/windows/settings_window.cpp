@@ -23,7 +23,7 @@ namespace {
 
 class SettingsWindow final : public AppWindow {
   public:
-    SettingsWindow() : AppWindow("settings", "Réglages", true, true) {}
+    SettingsWindow() : AppWindow("settings", "Réglages", true, true) { admin_only = true; }
 
     void on_open(App &app) override {
       scan_templates();
@@ -70,7 +70,7 @@ class SettingsWindow final : public AppWindow {
         ImGui::SetNextItemWidth(150.0f);
         ImGui::SliderFloat("Taille du texte", &settings.font_size, 12.0f, 32.0f, "%.0f px");
         ImGui::GetStyle().FontSizeBase = settings.font_size;
-        ImGui::Checkbox("Exiger l'étiquette privée pour valider une vérif (hors responsable)",
+        ImGui::Checkbox("Exiger l'étiquette privée pour valider une vérif (hors gestion et admin)",
                         &settings.require_private_label);
       }
 

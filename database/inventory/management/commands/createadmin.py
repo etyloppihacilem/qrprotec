@@ -8,24 +8,24 @@
 #
 # ######################################################################################################################
 
-"""Cree (ou repare) un compte responsable et affiche l'URL de son badge.
+"""Cree (ou repare) un compte administrateur et affiche l'URL de son badge.
 
     python manage.py createadmin M001 Dupont Jeanne
-    python manage.py createadmin M001            # compte existant : repasse responsable, nouvelle cle
+    python manage.py createadmin M001            # compte existant : repasse administrateur, nouvelle cle
 
-Utile a la premiere installation ou si tous les badges responsables sont perdus ou expires. Le front
-propose aussi de creer le premier responsable quand il n'y en a aucun.
+Utile a la premiere installation ou si tous les badges administrateur sont perdus ou expires. Le front
+propose aussi de creer le premier administrateur quand il n'y en a aucun.
 """
 
 from django.core.management.base import BaseCommand, CommandError
 
-from inventory.models import Secouristes
+from inventory.models import Role, Secouristes
 from inventory.serializers import user_dict
 from inventory.views import MATRICULE_RE
 
 
 class Command(BaseCommand):
-    help = "Cree un responsable (mode privilegie) et affiche l'URL de son badge."
+    help = "Cree un administrateur (mode privilegie complet) et affiche l'URL de son badge."
 
     def add_arguments(self, parser):
         parser.add_argument('matricule')
@@ -40,14 +40,14 @@ class Command(BaseCommand):
             if not nom or not prenom:
                 raise CommandError("Nouveau compte : indiquez aussi le nom et le prenom")
             user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32])
-            self.stdout.write(f"Creation du responsable {prenom} {nom}.")
+            self.stdout.write(f"Creation de l'administrateur {prenom} {nom}.")
         else:
             if nom:
                 user.nom = nom[:32]
             if prenom:
                 user.prenom = prenom[:32]
-            self.stdout.write(f"Compte {matricule} existant : nouvelle cle de badge, droits responsable.")
-        user.privileged = True
+            self.stdout.write(f"Compte {matricule} existant : nouvelle cle de badge, droits administrateur.")
+        user.role = Role.ADMIN
         user.active = True
         user.renew_key()
         user.save()

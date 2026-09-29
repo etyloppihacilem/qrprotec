@@ -230,7 +230,7 @@ void App::draw_menu_bar() {
     }
     if (privileged() && ImGui::BeginMenu("Gestion")) {
       for (auto &window : windows)
-        if (window->privileged && ImGui::MenuItem(window->title.c_str(), nullptr, window->open))
+        if (window->privileged && can_open(*window) && ImGui::MenuItem(window->title.c_str(), nullptr, window->open))
           window->open ? (void)(window->open = false) : open_window(window->id);
       ImGui::EndMenu();
     }
@@ -254,7 +254,7 @@ void App::draw_menu_bar() {
                              : remote.phone_connected ? "Téléphone connecté"
                              : remote.phone_seen      ? "Téléphone déconnecté"
                                                       : "Téléphone en attente";
-    const std::string who    = logged_in() ? user->display() + (privileged() ? " (responsable)" : "") : "Non connecté : scannez votre badge";
+    const std::string who    = logged_in() ? user->display() + user->role_suffix() : "Non connecté : scannez votre badge";
     const float       button = logged_in() ? ImGui::CalcTextSize("Se déconnecter").x + ImGui::GetStyle().FramePadding.x * 2 : 0.0f;
     const float       width  = ImGui::CalcTextSize((printing + phone + status + who).c_str()).x + button + 100.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - width));
@@ -303,7 +303,7 @@ void App::draw_windows() {
   ImVec2 origin, size;
   work_area(origin, size);
   for (auto &window : windows) {
-    if ((window->privileged && !privileged()) || !window->open) {
+    if (!can_open(*window) || !window->open) {
       window->was_open = false;
       continue;
     }
@@ -395,7 +395,7 @@ void App::create_first_admin() {
   body["matricule"]  = setup_matricule_;
   body["nom"]        = setup_nom_;
   body["prenom"]     = setup_prenom_;
-  body["privileged"] = true;
+  body["role"]       = "admin";
   setup_busy_        = true;
   api.post("/api/users/", body, [this](const ApiResult &result) {
     setup_busy_ = false;
@@ -412,10 +412,11 @@ void App::create_first_admin() {
     session.prenom      = result.data["prenom"].str();
     session.key_expires = result.data["key_expires"].str();
     session.privileged  = true;
+    session.role        = "admin";
     user                = session;
     refresh_item_types();
     refresh_lot_types();
-    notify("Responsable créé : mode privilégié activé.");
+    notify("Administrateur créé : mode privilégié activé.");
   });
 }
 
@@ -430,9 +431,9 @@ void App::draw_setup_modal() {
     return;
   if (setup_created_.is_null()) {
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
-    ImGui::TextUnformatted("Aucun responsable n'a de badge valide");
+    ImGui::TextUnformatted("Aucun administrateur n'a de badge valide");
     ImGui::PopFont();
-    ImGui::TextWrapped("Créez le compte du responsable technique. Il sera connecté tout de suite en mode "
+    ImGui::TextWrapped("Créez le compte de l'administrateur (responsable technique). Il sera connecté tout de suite en mode "
                        "privilégié pour configurer le logiciel et imprimer son badge.");
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f));
     ImGui::InputText("Matricule", &setup_matricule_, ImGuiInputTextFlags_CharsNoBlank);
@@ -440,7 +441,7 @@ void App::draw_setup_modal() {
     ImGui::InputText("Nom", &setup_nom_);
     ImGui::PopStyleColor();
     ImGui::BeginDisabled(setup_busy_ || setup_matricule_.empty() || setup_nom_.empty() || setup_prenom_.empty());
-    if (ImGui::Button("Créer le responsable", ImVec2(-1, 0)))
+    if (ImGui::Button("Créer l'administrateur", ImVec2(-1, 0)))
       create_first_admin();
     ImGui::EndDisabled();
     ImGui::TextDisabled("Alternative : python manage.py createadmin MATRICULE NOM PRENOM sur le serveur.");
@@ -559,8 +560,10 @@ void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
     session.prenom      = result.data["prenom"].str();
     session.key_expires = result.data["key_expires"].str();
     session.privileged  = result.data["privileged"].boolean();
+    session.role        = result.data["role"].str(session.privileged ? "admin" : "normal");
     user                = session;
-    notify("Bonjour " + session.display() + (session.privileged ? " : mode privilégié activé." : "."));
+    notify("Bonjour " + session.display()
+           + (session.admin() ? " : mode administrateur activé." : session.privileged ? " : mode gestion activé." : "."));
     if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
       notify("Votre badge expire le " + expires->display() + ", demandez son renouvellement.", true);
     login_prompt_ = false;

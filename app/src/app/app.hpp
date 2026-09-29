@@ -48,6 +48,7 @@ class AppWindow {
     const std::string title;
     const bool        privileged;
     const bool        closable;
+    bool              admin_only = false; // reserve au role admin (Reglages, Utilisateurs)
     bool              open = false;
     ImVec2            last_pos{ 0, 0 };
     ImVec2            last_size{ 0, 0 };
@@ -61,9 +62,13 @@ struct SessionUser {
     std::string nom;
     std::string prenom;
     std::string key_expires;
-    bool        privileged = false;
+    bool        privileged = false; // role gestion ou admin : mode privilegie
+    std::string role       = "normal"; // normal, gestion, admin
 
     std::string display() const { return prenom + " " + nom; }
+    bool        admin() const { return role == "admin"; }
+    // " (gestion)", " (admin)" ou vide
+    std::string role_suffix() const { return role == "admin" ? " (admin)" : privileged ? " (gestion)" : ""; }
 };
 
 struct VerifSession {
@@ -141,6 +146,10 @@ class App {
     // Session
     bool        logged_in() const { return user.has_value(); }
     bool        privileged() const { return user && user->privileged; }
+    bool        admin() const { return user && user->admin(); } // reglages du front, utilisateurs
+    bool        can_open(const AppWindow &window) const {
+      return (!window.privileged || privileged()) && (!window.admin_only || admin());
+    }
     void        logout(const std::string &reason = {});
     void        reset_session(); // retour a l'etat initial (inactivite)
     void        require_login(const std::string &what, std::function< void() > action);

@@ -161,7 +161,9 @@ def user_dict(user, local=False):
         'matricule': user.matricule,
         'nom': user.nom,
         'prenom': user.prenom,
-        'privileged': user.privileged,
+        'role': user.role,
+        'role_label': user.get_role_display(),
+        'privileged': user.privileged,  # gestion ou admin (mode privilegie du front)
         'active': user.active,
         'key_expires': _date(user.key_expires),
     }

@@ -35,7 +35,7 @@ class ScanWindow final : public AppWindow {
     void draw_user(App &app) {
       if (app.logged_in()) {
         ImGui::TextColored(app.privileged() ? colors::orange : colors::green, "Connecté : %s%s",
-                           app.user_name().c_str(), app.privileged() ? " (responsable)" : "");
+                           app.user_name().c_str(), app.user ? app.user->role_suffix().c_str() : "");
         if (danger_button("Se déconnecter", ImVec2(-1, ImGui::GetFrameHeight() * 1.3f)))
           app.logout("Déconnecté.");
       } else {

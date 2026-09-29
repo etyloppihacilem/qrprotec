@@ -242,9 +242,45 @@ class SetupTests(ApiTestCase):
         self.assertFalse(body['needs_admin'])
         admin = Secouristes.objects.get(matricule='R001')
         self.assertTrue(admin.privileged)
+        self.assertEqual(admin.role, 'admin')
         old_key = admin.key
         call_command('createadmin', 'R001', stdout=StringIO())
         self.assertNotEqual(Secouristes.objects.get(matricule='R001').key, old_key)
+
+
+class RoleTests(ApiTestCase):
+    def badge(self, user):
+        return {'matricule': user.matricule, 'key': user.key}
+
+    def test_roles_and_public_summaries(self):
+        code, body = self.call('POST', '/api/users/', {'matricule': 'G001', 'nom': 'Gest', 'prenom': 'Ion',
+                                                       'role': 'gestion'})
+        self.assertEqual(code, 201)
+        self.assertEqual(body['role'], 'gestion')
+        self.assertTrue(body['privileged'])
+        code, _ = self.call('POST', '/api/users/', {'matricule': 'X001', 'nom': 'a', 'prenom': 'b', 'role': 'chef'})
+        self.assertEqual(code, 400)
+        gestion = Secouristes.objects.get(matricule='G001')
+        # etat des stocks : lecture seule, gestion ou admin seulement
+        code, stock = self.call('POST', '/api/stock/summary/', {'user': self.badge(gestion)}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual({row['type'] for row in stock}, {'compre', 'garrot'})
+        code, _ = self.call('POST', '/api/stock/summary/', {'user': self.badge(self.user)}, local=False)
+        self.assertEqual(code, 403)
+        code, _ = self.call('POST', '/api/stock/summary/', {}, local=False)
+        self.assertEqual(code, 403)
+        # liste des lots : tout badge valide, sans les cles
+        code, lots = self.call('POST', '/api/lots/summary/', {'user': self.badge(self.user)}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(lots[0]['id'], self.lot.id)
+        self.assertNotIn('verif_key', lots[0])
+        code, _ = self.call('POST', '/api/lots/summary/', {'user': {'matricule': 'M001', 'key': 'faux'}}, local=False)
+        self.assertEqual(code, 403)
+        # changement de role, et ancien champ privileged = admin
+        code, body = self.call('PATCH', '/api/users/M001/', {'role': 'admin'})
+        self.assertEqual(body['role'], 'admin')
+        code, body = self.call('PATCH', '/api/users/M001/', {'privileged': False})
+        self.assertEqual(body['role'], 'normal')
 
 
 class SealTests(ApiTestCase):

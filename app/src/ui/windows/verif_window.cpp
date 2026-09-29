@@ -59,7 +59,7 @@ class VerifWindow final : public AppWindow {
       if (!verif.key.empty())
         ImGui::TextColored(colors::green, "Étiquette privée scannée : la vérif peut être validée.");
       else if (app.verif_key_ok())
-        ImGui::TextColored(colors::green, "Mode responsable : validation autorisée sans étiquette privée.");
+        ImGui::TextColored(colors::green, "Mode gestion : validation autorisée sans étiquette privée.");
       else
         ImGui::TextColored(colors::orange, "Scannez l'étiquette privée du lot pour pouvoir valider.");
       ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
