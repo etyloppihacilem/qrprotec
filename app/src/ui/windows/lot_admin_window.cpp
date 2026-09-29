@@ -36,6 +36,18 @@ class LotAdminWindow final : public AppWindow {
     }
 
     void draw(App &app) override {
+      // listes rechargees : on recharge aussi le lot et le type de lot affiches
+      if (seen_lots_version_ != app.catalog.lots_version) {
+        seen_lots_version_ = app.catalog.lots_version;
+        if (!selected_lot_.empty())
+          select_lot(app, selected_lot_);
+      }
+      if (seen_lot_types_version_ != app.catalog.lot_types_version) {
+        seen_lot_types_version_ = app.catalog.lot_types_version;
+        for (const Json &lot_type : app.catalog.lot_types.items())
+          if (!editing_lot_type_.empty() && lot_type["type"].str() == editing_lot_type_)
+            edit_lot_type(lot_type);
+      }
       if (!ImGui::BeginTabBar("lot_tabs"))
         return;
       if (ImGui::BeginTabItem("Lots")) {
@@ -53,8 +65,10 @@ class LotAdminWindow final : public AppWindow {
     // ---------------------------------------------------------------------------------------------------------------
     void draw_lots(App &app) {
       ImGui::BeginChild("lots_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.4f, 0), ImGuiChildFlags_Borders);
-      if (ImGui::Button("Rafraîchir"))
+      if (ImGui::Button("Rafraîchir")) {
         app.refresh_lots();
+        app.refresh_lot_types();
+      }
       ImGui::SameLine();
       if (ImGui::Button("Nouveau lot"))
         selected_lot_.clear();
@@ -155,6 +169,11 @@ class LotAdminWindow final : public AppWindow {
       ImGui::PopFont();
       ImGui::TextDisabled("%s - %s - version %d", lot_["id"].str().c_str(), lot_["lot_type_name"].str().c_str(),
                           lot_["version"].integer());
+      const LotStatus status = lot_status(lot_);
+      status_banner(status == LotStatus::Verified ? "✔ Lot vérifié et complet"
+                    : status == LotStatus::Never  ? "✘ Lot jamais vérifié"
+                                                  : "✘ Lot incomplet",
+                    lot_status_color(status), 1.1f);
 
       ImGui::SeparatorText("Étiquettes");
       if (primary_button("Étiquette publique"))
@@ -338,6 +357,8 @@ class LotAdminWindow final : public AppWindow {
 
     // Lots
     std::string selected_lot_;
+    int         seen_lots_version_      = -1;
+    int         seen_lot_types_version_ = -1;
     Json        lot_;
     std::string edit_name_;
     std::string edit_short_;

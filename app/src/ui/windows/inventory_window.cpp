@@ -46,6 +46,12 @@ class InventoryWindow final : public AppWindow {
     }
 
     void draw(App &app) override {
+      if (seen_types_version_ != app.catalog.item_types_version) {
+        seen_types_version_ = app.catalog.item_types_version;
+        for (const Json &item_type : app.catalog.item_types.items())
+          if (!editing_type_.empty() && item_type["type"].str() == editing_type_)
+            edit_type(item_type);
+      }
       if (!ImGui::BeginTabBar("inventory_tabs"))
         return;
       if (ImGui::BeginTabItem("Réception")) {
@@ -287,6 +293,12 @@ class InventoryWindow final : public AppWindow {
       app.api.get(query, [this, &app](const ApiResult &result) {
         if (result.ok)
           items_ = result.data;
+          // l'item selectionne est remplace par sa version a jour
+          const std::string selected = selected_item_["iid"].str();
+          selected_item_             = Json();
+          for (const Json &item : items_.items())
+            if (!selected.empty() && item["iid"].str() == selected)
+              selected_item_ = item;
         else
           app.notify("Items : " + result.error, true);
       });
@@ -467,6 +479,7 @@ class InventoryWindow final : public AppWindow {
     Json        last_batch_;
     // Types
     std::string editing_type_;
+    int         seen_types_version_ = -1;
     std::string form_code_;
     std::string form_name_;
     std::string form_description_;

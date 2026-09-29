@@ -882,15 +882,19 @@ void App::stock_verif() {
 
 void App::refresh_item_types() {
   api.get("/api/item-types/", [this](const ApiResult &result) {
-    if (result.ok)
+    if (result.ok) {
       catalog.item_types = result.data;
+      ++catalog.item_types_version;
+    }
   });
 }
 
 void App::refresh_lot_types() {
   api.get("/api/lot-types/", [this](const ApiResult &result) {
-    if (result.ok)
+    if (result.ok) {
       catalog.lot_types = result.data;
+      ++catalog.lot_types_version;
+    }
     else
       notify("Types de lots : " + result.error, true);
   });
@@ -900,8 +904,10 @@ void App::refresh_lots() {
   catalog.loading_lots = true;
   api.get("/api/lots/", [this](const ApiResult &result) {
     catalog.loading_lots = false;
-    if (result.ok)
+    if (result.ok) {
       catalog.lots = result.data;
+      ++catalog.lots_version;
+    }
     else
       notify("Lots : " + result.error, true);
   });
@@ -909,8 +915,10 @@ void App::refresh_lots() {
 
 void App::refresh_users() {
   api.get("/api/users/", [this](const ApiResult &result) {
-    if (result.ok)
+    if (result.ok) {
       catalog.users = result.data;
+      ++catalog.users_version;
+    }
     else
       notify("Utilisateurs : " + result.error, true);
   });

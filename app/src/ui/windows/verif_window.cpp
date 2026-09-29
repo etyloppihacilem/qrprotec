@@ -11,8 +11,10 @@
 #include "../widgets.hpp"
 #include "windows.hpp"
 
+#include <algorithm>
 #include <map>
 #include <set>
+#include <vector>
 
 namespace qrprotec {
 
@@ -61,73 +63,119 @@ class VerifWindow final : public AppWindow {
       ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
                          "Scannez aussi les items périmés que vous retirez, puis leurs remplaçants.");
 
-      // Progression par type : items frais scannes vs quantite exigee
+      // Attendus : d'abord la definition du type de lot (quantite par type d'item), puis les items deja
+      // connus dans le lot. Un type peut etre attendu sans qu'aucun item du lot ne soit connu.
       std::map< std::string, int > fresh_by_type;
       const Date                   today = app.today();
+      std::set< std::string >      scanned;
       for (const std::string &iid : app.stack.iids()) {
+        scanned.insert(iid);
         const ParsedScan scan = parse_scan(iid);
         if (!is_expired(scan, today))
           ++fresh_by_type[scan.item_type];
       }
-      ImGui::SeparatorText("Exigences du lot");
-      if (ImGui::BeginTable("req", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Scannés / attendus", ImGuiTableColumnFlags_WidthFixed, 180.0f);
-        ImGui::TableHeadersRow();
-        for (const Json &row : verif.lot["requirements"].items()) {
-          ImGui::TableNextRow();
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted(row["type_name"].str().c_str());
-          ImGui::TableNextColumn();
-          stock_bar(fresh_by_type[row["type"].str()], row["required"].integer(), ImVec2(-1, 0));
-        }
-        ImGui::EndTable();
+      std::map< std::string, std::vector< const Json * > > known_by_type; // items du lot pas encore scannes
+      std::set< std::string >                               expected;
+      for (const Json &item : verif.lot["items"].items()) {
+        expected.insert(item["iid"].str());
+        if (!scanned.count(item["iid"].str()))
+          known_by_type[item["type"].str()].push_back(&item);
       }
-
-      // Items attendus (connus dans le lot) pas encore scannes
-      std::set< std::string > expected;
+      std::set< std::string > required_types;
       int                     remaining = 0;
-      ImGui::SeparatorText("Items attendus");
-      const float footer = ImGui::GetFrameHeightWithSpacing() * 2.5f;
+
+      const auto item_row = [&](const Json &item) {
+        ImGui::TableNextRow();
+        if (item["expired"].boolean())
+          row_color(colors::red, 0.45f);
+        ImGui::TableNextColumn();
+        ImGui::Indent();
+        ImGui::TextUnformatted(item["type_name"].str().c_str());
+        if (item["expired"].boolean()) {
+          ImGui::SameLine();
+          ImGui::TextColored(colors::red, "(périmé : à remplacer)");
+        } else if (item["missed_verifs"].integer() > 0) {
+          ImGui::SameLine();
+          ImGui::TextDisabled("(non vu à la dernière vérif)");
+        }
+        ImGui::Unindent();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(display_date(item["peremption"]).c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("%s", item["iid"].str().c_str());
+      };
+
+      ImGui::SeparatorText("À scanner");
+      const float footer = ImGui::GetFrameHeightWithSpacing() * 3.2f;
       if (ImGui::BeginTable("expected", 3,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, -footer))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Produit", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-        ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 220.0f);
+        ImGui::TableSetupColumn("Scannés / attendus", ImGuiTableColumnFlags_WidthFixed, 220.0f);
         ImGui::TableHeadersRow();
-        for (const Json &item : verif.lot["items"].items()) {
-          const std::string iid = item["iid"].str();
-          expected.insert(iid);
-          if (app.stack.contains_iid(iid))
-            continue;
-          ++remaining;
+        for (const Json &row : verif.lot["requirements"].items()) {
+          const std::string type     = row["type"].str();
+          const int         required = row["required"].integer();
+          const int         done     = fresh_by_type[type];
+          const int         missing  = std::max(0, required - done);
+          required_types.insert(type);
+          remaining += missing;
+          // ligne du type : progression coloree (rouge = rien, orange = partiel, vert = complet)
           ImGui::TableNextRow();
-          if (item["expired"].boolean())
-            row_color(colors::red, 0.45f);
+          row_color(missing == 0 ? colors::green : done == 0 ? colors::red : colors::orange, 0.25f);
           ImGui::TableNextColumn();
-          ImGui::TextUnformatted(item["type_name"].str().c_str());
-          if (item["missed_verifs"].integer() > 0) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(non vu à la dernière vérif)");
+          ImGui::Text("%s", row["type_name"].str().c_str());
+          ImGui::TableNextColumn();
+          if (missing == 0)
+            ImGui::TextColored(colors::green, "complet");
+          else
+            ImGui::TextColored(done == 0 ? colors::red : colors::orange, "encore %d", missing);
+          ImGui::TableNextColumn();
+          stock_bar(done, required, ImVec2(-1, 0));
+          // items connus du lot pour ce type, puis ce qu'il faut ajouter depuis le stock
+          int known_fresh = 0;
+          for (const Json *item : known_by_type[type]) {
+            item_row(*item);
+            known_fresh += (*item)["expired"].boolean() ? 0 : 1;
           }
-          if (item["expired"].boolean()) {
-            ImGui::SameLine();
-            ImGui::TextColored(colors::red, "(périmé : à remplacer)");
+          if (missing > known_fresh) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Indent();
+            ImGui::TextColored(colors::orange, "+ %d à prendre dans le stock", missing - known_fresh);
+            ImGui::Unindent();
           }
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted(display_date(item["peremption"]).c_str());
-          ImGui::TableNextColumn();
-          ImGui::TextDisabled("%s", iid.c_str());
+        }
+        // items du lot dont le type n'est pas (ou plus) dans la definition
+        bool header = false;
+        for (const auto &[type, items] : known_by_type) {
+          if (required_types.count(type))
+            continue;
+          if (!header) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("Autres items du lot (hors définition du type de lot)");
+            header = true;
+          }
+          for (const Json *item : items) {
+            item_row(*item);
+            ++remaining;
+          }
         }
         ImGui::EndTable();
       }
       int added = 0;
-      for (const std::string &iid : app.stack.iids())
+      for (const std::string &iid : scanned)
         if (!expected.count(iid))
           ++added;
-      ImGui::Text("%d attendu(s) restant(s), %d nouvel(s) item(s) scanné(s).", remaining, added);
+      if (remaining == 0)
+        status_banner("✔ Tout est scanné : le lot sera complet", colors::green, 1.0f);
+      else
+        status_banner(std::to_string(remaining) + " item(s) encore attendu(s) – " + std::to_string(added)
+                        + " nouvel(s) item(s) scanné(s)",
+                      colors::red, 1.0f);
 
       ImGui::BeginDisabled(!app.verif_key_ok() || verif.submitting);
       if (primary_button(verif.submitting ? "Envoi..." : "Valider la vérif", ImVec2(ImGui::GetContentRegionAvail().x * 0.6f, 0)))
@@ -155,9 +203,9 @@ class VerifWindow final : public AppWindow {
       ImGui::Text("Compte rendu : %s", app.last_report_lot.c_str());
       ImGui::PopFont();
       if (report["complete"].boolean())
-        ImGui::TextColored(colors::green, "Lot complet et à jour.");
+        status_banner("✔ VÉRIF ENREGISTRÉE : LOT COMPLET", colors::green, 1.4f);
       else
-        ImGui::TextColored(colors::red, "Lot incomplet ou contenant des périmés : voir ci-dessous.");
+        status_banner("✘ VÉRIF ENREGISTRÉE : LOT INCOMPLET – voir ci-dessous", colors::red, 1.4f);
       ImGui::Text("%zu item(s) présent(s).", report["present"].size());
       for (const Json &row : report["requirements"].items()) {
         ImGui::TextUnformatted(row["type_name"].str().c_str());

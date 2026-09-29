@@ -25,6 +25,12 @@ class UsersWindow final : public AppWindow {
     void on_open(App &app) override { app.refresh_users(); }
 
     void draw(App &app) override {
+      if (seen_users_version_ != app.catalog.users_version) {
+        seen_users_version_ = app.catalog.users_version;
+        for (const Json &user : app.catalog.users.items())
+          if (!selected_.empty() && user["matricule"].str() == selected_)
+            select(user); // fiche mise a jour avec la liste
+      }
       ImGui::BeginChild("users_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.55f, 0), ImGuiChildFlags_Borders);
       if (ImGui::Button("Rafraîchir"))
         app.refresh_users();
@@ -143,6 +149,7 @@ class UsersWindow final : public AppWindow {
     }
 
     std::string selected_;
+    int         seen_users_version_ = -1;
     Json        user_;
     std::string matricule_;
     std::string nom_;

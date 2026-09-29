@@ -89,6 +89,11 @@ struct Catalog {
     Json stock      = Json::array();
     bool loading_lots  = false;
     bool loading_stock = false;
+    // incrementes a chaque rechargement : les fenetres rechargent alors leur volet de detail
+    int item_types_version = 0;
+    int lot_types_version  = 0;
+    int lots_version       = 0;
+    int users_version      = 0;
 
     std::string item_type_name(const std::string &type) const;
 };

@@ -30,6 +30,20 @@ int main() {
     classifier.feed_character('\n', start + std::chrono::milliseconds(80));
     assert(!classifier.finish().has_value());
 
+    // Frame lente : 45 ms entre deux caracteres traites, dont 40 ms ou l'application ne lisait pas le
+    // clavier. Avec la tolerance, le scan n'est pas coupe (sans elle, il l'est).
+    classifier.reset();
+    classifier.feed_character('S', start + std::chrono::milliseconds(200));
+    classifier.feed_character('C', start + std::chrono::milliseconds(245), std::chrono::milliseconds(40));
+    classifier.feed_character('N', start + std::chrono::milliseconds(250));
+    const auto slow = classifier.finish();
+    assert(slow.has_value() && *slow == "SCN");
+    classifier.feed_character('S', start + std::chrono::milliseconds(300));
+    classifier.feed_character('C', start + std::chrono::milliseconds(345));
+    classifier.feed_character('N', start + std::chrono::milliseconds(350));
+    assert(!classifier.finish().has_value());
+    classifier.reset();
+
     classifier.set_enabled(false);
     classifier.feed_character('Q', start + std::chrono::milliseconds(90));
     assert(!classifier.finish().has_value());

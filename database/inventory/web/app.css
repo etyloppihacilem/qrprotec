@@ -109,3 +109,17 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   max-width: 90vw; opacity: 0; transition: opacity .2s; pointer-events: none; }
 #toast.show { opacity: 1; }
 #toast.bad { background: var(--red); }
+
+/* Groupes d'attendus par type d'item (definition du type de lot) */
+.list li.group { font-weight: 600; color: #fff; border: 0; }
+.list li.group .sub { color: rgba(255, 255, 255, .9); }
+.list li.group.ok { background: var(--green); }
+.list li.group.bad { background: var(--red); }
+.list li.group.partial { background: var(--orange); }
+.list li.group.other { background: #8a8f94; }
+.list li.group .count { font-size: 1.05rem; }
+.list li.stock { font-style: italic; }
+/* Bandeau d'etat du lot */
+.banner { color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 6px 0; }
+.banner.ok { background: var(--green); }
+.banner.bad { background: var(--red); }

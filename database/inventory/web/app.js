@@ -411,10 +411,18 @@
     render();
   }
 
+  // Etat d'un lot : verifie et complet (vert), sinon incomplet ou jamais verifie (rouge)
+  function lotStatus(lot) {
+    if (!lot.last_verif) return { ok: false, label: '✘ Jamais vérifié' };
+    if (!lot.complete) return { ok: false, label: lot.expired_count ? '✘ Incomplet (périmés)' : '✘ Incomplet' };
+    return { ok: true, label: '✔ Vérifié, complet' };
+  }
+
   function showLotInfo() {
     const lot = state.lot;
     if (!lot) return;
-    showInfo('lot', lot.name,
+    const status = lotStatus(lot);
+    showInfo(status.ok ? 'ok' : 'bad', `${status.label} – ${lot.name}`,
       `${lot.lot_type_name} · ${lot.item_count} item(s)` + (lot.expired_count ? ` · ${lot.expired_count} périmé(s)` : ''),
       'Dernière vérif : ' + (lot.last_verif ? fmtDate(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
       state.lotKey ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
@@ -449,8 +457,8 @@
   async function validate() {
     const missing = blockers(false);
     if (missing.length) { feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return; }
-    const expected = (state.lot.items || []).filter((item) => !scannedIids().has(item.iid)).length;
-    if (expected && !confirm(`${expected} item(s) attendu(s) n'ont pas été scannés. Ils seront signalés absents. Valider quand même ?`)) return;
+    const expected = expectedGroups().remaining;
+    if (expected && !confirm(`${expected} item(s) attendu(s) manquent : le lot sera incomplet. Valider quand même ?`)) return;
     state.busy = true;
     render();
     try {
@@ -590,25 +598,79 @@
         el('span', { style: present <= 0 ? 'color:#fff' : '' }, `${present}/${required}`)));
   }
 
+  // Items frais scannes par type (un paquet compte pour son nombre d'items)
+  function freshByType() {
+    const fresh = {};
+    for (const entry of state.scanned) {
+      if (entry.error || entry.expired) continue;
+      const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
+      const count = entry.kind === 'pack' ? (entry.items || []).length : 1;
+      if (type) fresh[type] = (fresh[type] || 0) + count;
+    }
+    return fresh;
+  }
+
+  // Attendus : la definition du type de lot (quantite par type), puis les items deja connus du lot
+  function expectedGroups() {
+    const done = scannedIids();
+    const fresh = freshByType();
+    const known = {};
+    for (const item of (state.lot && state.lot.items) || []) {
+      if (done.has(item.iid)) continue;
+      (known[item.type] = known[item.type] || []).push(item);
+    }
+    let remaining = 0;
+    const groups = (state.lot.requirements || []).map((row) => {
+      const items = (known[row.type] || []).sort((a, b) => b.expired - a.expired);
+      delete known[row.type];
+      const scanned = fresh[row.type] || 0;
+      const missing = Math.max(0, row.required - scanned);
+      const knownFresh = items.filter((item) => !item.expired).length;
+      remaining += missing;
+      return { row, items, scanned, missing, fromStock: Math.max(0, missing - knownFresh) };
+    });
+    const others = Object.values(known).flat();
+    remaining += others.length;
+    return { groups, others, remaining };
+  }
+
+  function todoItem(item) {
+    return el('li', { class: item.expired ? 'expired' : 'todo' },
+      el('div', { class: 'main' },
+        el('div', { class: 'name' }, item.type_name),
+        el('div', { class: 'sub' }, `${item.peremption ? fmtDate(item.peremption) : 'Non périssable'} · ${item.iid}`)),
+      item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
+      item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null);
+  }
+
   function renderTodo() {
     const list = $('#todo-list');
-    const done = scannedIids();
     if (!state.lot) {
       list.replaceChildren(el('li', { class: 'empty' }, "Scannez l'étiquette d'un lot pour afficher son contenu."));
       return 0;
     }
-    const todo = (state.lot.items || []).filter((item) => !done.has(item.iid));
-    // perimes (a remplacer) en premier
-    todo.sort((a, b) => (b.expired - a.expired) || a.type_name.localeCompare(b.type_name));
-    list.replaceChildren(...(todo.length
-      ? todo.map((item) => el('li', { class: item.expired ? 'expired' : 'todo' },
+    const { groups, others, remaining } = expectedGroups();
+    const rows = [];
+    for (const group of groups) {
+      const state_ = group.missing === 0 ? 'ok' : group.scanned === 0 ? 'bad' : 'partial';
+      rows.push(el('li', { class: 'group ' + state_ },
         el('div', { class: 'main' },
-          el('div', { class: 'name' }, item.type_name),
-          el('div', { class: 'sub' }, `${item.peremption ? fmtDate(item.peremption) : 'Non périssable'} · ${item.iid}`)),
-        item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
-        item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null))
-      : [el('li', { class: 'empty' }, '✅ Tous les items attendus ont été scannés.')]));
-    return todo.length;
+          el('div', { class: 'name' }, group.row.type_name),
+          el('div', { class: 'sub' }, group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`)),
+        el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)));
+      rows.push(...group.items.map(todoItem));
+      if (group.fromStock > 0) {
+        rows.push(el('li', { class: 'todo stock' },
+          el('div', { class: 'main' }, el('div', { class: 'name' }, `+ ${group.fromStock} à prendre dans le stock`))));
+      }
+    }
+    if (others.length) {
+      rows.push(el('li', { class: 'group other' }, el('div', { class: 'main' }, 'Autres items du lot (hors définition)')));
+      rows.push(...others.map(todoItem));
+    }
+    if (!remaining) rows.unshift(el('li', { class: 'group ok' }, '✅ Tout est scanné : le lot sera complet.'));
+    list.replaceChildren(...rows);
+    return remaining;
   }
 
   function renderDone() {
@@ -646,17 +708,11 @@
       view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette publique ou privée d'un lot, ou saisissez son identifiant (menu ⋯)."));
       return;
     }
-    // exigences : items frais scannes par type
-    const fresh = {};
-    for (const entry of state.scanned) {
-      if (entry.error || entry.expired) continue;
-      const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
-      const count = entry.kind === 'pack' ? (entry.items || []).length : 1;
-      if (type) fresh[type] = (fresh[type] || 0) + count;
-    }
+    const fresh = freshByType();
     view.replaceChildren(
       el('h2', {}, lot.name),
       el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`),
+      el('div', { class: 'banner ' + (lotStatus(lot).ok ? 'ok' : 'bad') }, lotStatus(lot).label),
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDate(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
         el('br'), state.lotKey ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider.'),
       el('h3', {}, 'Scannés / attendus'),

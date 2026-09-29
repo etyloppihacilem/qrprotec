@@ -138,6 +138,7 @@ int main(int argc, char** argv)
     active_app = app.get();
     load_font(app->settings.font_size);
     while (!glfwWindowShouldClose(window)) {
+        inateck.begin_poll();
         glfwPollEvents();
         for (const unsigned int character : inateck.flush_hid_characters())
             ImGui_ImplGlfw_CharCallback(window, character);

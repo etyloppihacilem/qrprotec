@@ -105,6 +105,45 @@ bool confirm_button(const char *label, const char *question, const char *popup_i
   return confirmed;
 }
 
+void status_banner(const std::string &text, const ImVec4 &color, float scale) {
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * scale);
+  const ImVec2 padding(ImGui::GetStyle().FramePadding.x * 2.0f, ImGui::GetStyle().FramePadding.y * 2.0f);
+  const float  width  = ImGui::GetContentRegionAvail().x;
+  const ImVec2 size   = ImGui::CalcTextSize(text.c_str(), nullptr, false, width - padding.x * 2.0f);
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const ImVec2 end(origin.x + width, origin.y + size.y + padding.y * 2.0f);
+  ImDrawList  *draw = ImGui::GetWindowDrawList();
+  draw->AddRectFilled(origin, end, ImGui::GetColorU32(color), 6.0f);
+  ImGui::SetCursorScreenPos(ImVec2(origin.x + padding.x, origin.y + padding.y));
+  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+  ImGui::PushTextWrapPos(origin.x + width - padding.x - ImGui::GetWindowPos().x);
+  ImGui::TextUnformatted(text.c_str());
+  ImGui::PopTextWrapPos();
+  ImGui::PopStyleColor();
+  ImGui::SetCursorScreenPos(ImVec2(origin.x, end.y + ImGui::GetStyle().ItemSpacing.y));
+  ImGui::Dummy(ImVec2(0, 0));
+  ImGui::PopFont();
+}
+
+LotStatus lot_status(const Json &lot) {
+  if (lot["last_verif"].is_null())
+    return LotStatus::Never;
+  return lot["complete"].boolean() ? LotStatus::Verified : LotStatus::Incomplete;
+}
+
+ImVec4 lot_status_color(LotStatus status) {
+  return status == LotStatus::Verified ? colors::green : colors::red;
+}
+
+const char *lot_status_label(LotStatus status) {
+  switch (status) {
+    case LotStatus::Verified: return "✔ Complet";
+    case LotStatus::Incomplete: return "✘ Incomplet";
+    case LotStatus::Never: return "✘ Jamais vérifié";
+  }
+  return "";
+}
+
 void help_marker(const char *text) {
   ImGui::SameLine();
   ImGui::TextDisabled("(?)");

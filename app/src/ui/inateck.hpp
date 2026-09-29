@@ -37,6 +37,8 @@ class Inateck {
     bool sdk_connected() const { return inateck_worker_.snapshot().authenticated; }
     std::vector<unsigned int> handle_hid_character(unsigned int character);
     std::vector<unsigned int> flush_hid_characters();
+    // A appeler juste avant glfwPollEvents : mesure le temps ecoule depuis la lecture precedente
+    void begin_poll();
     struct HidKeyResult {
       bool consume = false;
       std::vector<unsigned int> replay;
@@ -54,7 +56,7 @@ class Inateck {
     bool inateck_vibration_ = false;
     bool inateck_sdk_output_ = true;
     bool hid_enabled_ = false;
-    int hid_timeout_ms_ = 30;
+    int hid_timeout_ms_ = 50;
     int hid_minimum_length_ = 3;
     char inateck_prefix_[64] = {};
     char inateck_suffix_[64] = {};
@@ -63,6 +65,9 @@ class Inateck {
     std::vector<unsigned int> pending_hid_characters_;
     HidScanClassifier::TimePoint last_hid_character_{};
     bool has_last_hid_character_ = false;
+    HidScanClassifier::TimePoint last_poll_{};
+    HidScanClassifier::Clock::duration poll_slack_{};
+    bool has_last_poll_ = false;
 
     void load_hid_settings();
     void save_hid_settings() const;

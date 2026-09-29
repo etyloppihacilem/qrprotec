@@ -23,11 +23,11 @@ void HidScanClassifier::reset() {
     has_last_character_ = false;
 }
 
-std::optional<std::string> HidScanClassifier::feed_character(char32_t character, TimePoint now) {
+std::optional<std::string> HidScanClassifier::feed_character(char32_t character, TimePoint now, Clock::duration slack) {
     if (!enabled_ || character < 0x20 || character > 0x7e)
         return std::nullopt;
 
-    if (has_last_character_ && now - last_character_ > config_.max_intercharacter)
+    if (has_last_character_ && now - last_character_ > config_.max_intercharacter + slack)
         reset();
 
     buffer_.push_back(static_cast<char>(character));

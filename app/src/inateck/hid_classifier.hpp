@@ -23,7 +23,11 @@ public:
     void set_config(HidScanConfig config);
     void reset();
 
-    std::optional<std::string> feed_character(char32_t character, TimePoint now);
+    // `slack` : temps pendant lequel l'application n'a pas lu les evenements clavier (duree de la frame
+    // precedente). Les caracteres sont horodates a leur traitement, pas a leur arrivee : un ecart
+    // mesure entre deux frames peut donc etre surestime d'autant.
+    std::optional<std::string> feed_character(char32_t character, TimePoint now,
+                                              Clock::duration slack = Clock::duration::zero());
     std::optional<std::string> finish();
 
 private:

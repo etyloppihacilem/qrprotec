@@ -93,19 +93,26 @@ std::vector<unsigned int> Inateck::handle_hid_character(unsigned int character) 
     return replay;
   }
   const HidScanClassifier::TimePoint now = HidScanClassifier::Clock::now();
-  if (has_last_hid_character_ && now - last_hid_character_ > std::chrono::milliseconds(hid_timeout_ms_)) {
+  if (has_last_hid_character_ && now - last_hid_character_ > std::chrono::milliseconds(hid_timeout_ms_) + poll_slack_) {
+    // ecart trop long : ce qui precede etait une frappe humaine, rendue telle quelle ; le caractere
+    // courant commence une nouvelle sequence (c'est peut-etre le debut d'un scan)
     replay = pending_hid_characters_;
-    replay.push_back(character);
     pending_hid_characters_.clear();
     has_last_hid_character_ = false;
     hid_classifier_.reset();
-    return replay;
   }
-  hid_classifier_.feed_character(character, now);
+  hid_classifier_.feed_character(character, now, poll_slack_);
   pending_hid_characters_.push_back(character);
   last_hid_character_ = now;
   has_last_hid_character_ = true;
   return replay;
+}
+
+void Inateck::begin_poll() {
+  const HidScanClassifier::TimePoint now = HidScanClassifier::Clock::now();
+  poll_slack_ = has_last_poll_ ? now - last_poll_ : HidScanClassifier::Clock::duration::zero();
+  last_poll_ = now;
+  has_last_poll_ = true;
 }
 
 std::vector<unsigned int> Inateck::flush_hid_characters() {

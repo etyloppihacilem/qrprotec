@@ -32,6 +32,12 @@ class LotsWindow final : public AppWindow {
     void on_open(App &app) override { app.refresh_lots(); }
 
     void draw(App &app) override {
+      // liste rechargee (Rafraichir, fin de verif...) : la fiche affichee est rechargee aussi
+      if (seen_lots_version_ != app.catalog.lots_version) {
+        seen_lots_version_ = app.catalog.lots_version;
+        if (!selected_.empty())
+          select(app, selected_);
+      }
       if (const std::string id = app.take_lot_to_show(); !id.empty())
         select(app, id); // etiquette publique scannee
       if (ImGui::Button("Rafraîchir"))
@@ -71,7 +77,7 @@ class LotsWindow final : public AppWindow {
       if (!compact)
         ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthFixed, 60.0f);
       ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, compact ? 70.0f : 80.0f);
-      ImGui::TableSetupColumn("Complet", ImGuiTableColumnFlags_WidthFixed, compact ? 70.0f : 80.0f);
+      ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, compact ? 150.0f : 160.0f);
       if (!compact)
         ImGui::TableSetupColumn("Dernière vérif", ImGuiTableColumnFlags_WidthFixed, 150.0f);
       ImGui::TableHeadersRow();
@@ -81,16 +87,14 @@ class LotsWindow final : public AppWindow {
         const std::string name = lot["name"].str();
         const int         expired = lot["expired_count"].integer();
         const int         soon    = lot["expiring_soon_count"].integer();
-        const bool        complete = lot["complete"].boolean();
+        const LotStatus   status   = lot_status(lot);
         if (!needle.empty() && lower(name + " " + id + " " + lot["lot_type_name"].str()).find(needle) == std::string::npos)
           continue;
-        if (only_problems_ && complete && soon == 0)
+        if (only_problems_ && status == LotStatus::Verified && soon == 0)
           continue;
         ImGui::TableNextRow();
-        if (expired > 0)
-          row_color(colors::red, 0.35f);
-        else if (!complete)
-          row_color(colors::red, 0.30f);
+        // vert = verifie et complet, rouge sinon (incomplet, perimes, jamais verifie)
+        row_color(lot_status_color(status), status == LotStatus::Verified ? 0.22f : 0.30f);
         ImGui::TableNextColumn();
         if (ImGui::Selectable((name + "##" + id).c_str(), selected_ == id, ImGuiSelectableFlags_SpanAllColumns))
           select(app, id);
@@ -110,7 +114,11 @@ class LotsWindow final : public AppWindow {
         else
           ImGui::TextUnformatted("0");
         ImGui::TableNextColumn();
-        ImGui::TextColored(complete ? colors::green : colors::red, complete ? "oui" : "non");
+        // cellule d'etat en couleur pleine
+        ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(lot_status_color(status)));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+        ImGui::TextUnformatted(lot_status_label(status));
+        ImGui::PopStyleColor();
         if (!compact) {
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(display_datetime(lot["last_verif"]).c_str());
@@ -143,11 +151,13 @@ class LotsWindow final : public AppWindow {
       ImGui::TextDisabled("%s - %s", details_["lot_type_name"].str().c_str(), details_["id"].str().c_str());
       ImGui::Text("Dernière vérif : %s par %s", display_datetime(details_["last_verif"]).c_str(),
                   details_["last_verif_by"].str("-").c_str());
-      if (details_["complete"].boolean())
-        ImGui::TextColored(colors::green, "Lot complet");
-      else
-        ImGui::TextColored(colors::red, "Lot NON complet%s",
-                           details_["expired_count"].integer() > 0 ? " (contient des périmés)" : "");
+      const LotStatus status = lot_status(details_);
+      std::string     banner = status == LotStatus::Verified ? "✔ LOT VÉRIFIÉ ET COMPLET"
+                             : status == LotStatus::Never   ? "✘ LOT JAMAIS VÉRIFIÉ"
+                                                            : "✘ LOT INCOMPLET";
+      if (details_["expired_count"].integer() > 0)
+        banner += " – contient des périmés";
+      status_banner(banner, lot_status_color(status));
       if (primary_button("Lancer une vérif", ImVec2(-1, 0)))
         app.start_verif(details_["id"].str(), "");
       if (ImGui::Button("Fermer", ImVec2(-1, 0)))
@@ -217,6 +227,7 @@ class LotsWindow final : public AppWindow {
     std::string filter_;
     bool        only_problems_ = false;
     std::string selected_;
+    int         seen_lots_version_ = -1;
     Json        details_;
 };
 

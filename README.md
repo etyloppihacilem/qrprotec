@@ -147,11 +147,17 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   d'une vérif.
 - **Vérif** : le scan de l'étiquette **publique** d'un lot ouvre sa fiche (état, contenu, bouton
   « Lancer une vérif ») ; le scan de l'étiquette **privée** lance directement la vérif, clé
-  pré-remplie. Un lot non complet est affiché en rouge. Liste des items attendus : chaque item scanné bascule dans la pile et disparaît de la
+  pré-remplie. L'état de chaque lot est affiché en vert (vérifié et complet) ou en rouge
+  (incomplet, périmés, jamais vérifié). Les attendus suivent la définition du type de lot : pour
+  chaque type d'item, scannés / attendus, puis les items connus du lot et ce qu'il faut prendre dans
+  le stock. Liste des items attendus : chaque item scanné bascule dans la pile et disparaît de la
   liste. Hors mode responsable, la validation exige l'étiquette privée du lot.
 - **Connexion** : scanner son badge. Le nom de l'utilisateur connecté est affiché en haut à droite et
   dans la pile, avec un bouton **Se déconnecter**. La connexion n'est demandée qu'au moment de valider une vérif ou un
   ajout (badge scanné ou code saisi dans la fenêtre de connexion).
+- **Mode HID** : une douchette en mode clavier est reconnue à la vitesse de frappe (délai réglable,
+  50 ms par défaut, dans Douchette > Paramètres) ; le temps pendant lequel l'application dessine
+  une image est déduit, pour ne plus couper le début des scans quand l'interface est chargée.
 - **Mauvais scan** (produit périmé, code inconnu) : bip et LED de la douchette via le SDK Inateck ;
   en mode HID, bip de l'ordinateur et clignotement rouge de l'écran.
 - **Douchette** : la recherche et la connexion sont accessibles à tous ; les paramètres (mode HID,

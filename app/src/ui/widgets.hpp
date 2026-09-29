@@ -46,4 +46,13 @@ bool confirm_button(const char *label, const char *question, const char *popup_i
 
 void help_marker(const char *text);
 
+// Bandeau pleine largeur de couleur vive, texte blanc agrandi (etat d'un lot, resultat d'une verif)
+void status_banner(const std::string &text, const ImVec4 &color, float scale = 1.25f);
+
+// Etat d'un lot (objet JSON de l'API) : jamais verifie, incomplet (ou perimes), verifie et complet
+enum class LotStatus { Never, Incomplete, Verified };
+LotStatus   lot_status(const Json &lot);
+ImVec4      lot_status_color(LotStatus status);
+const char *lot_status_label(LotStatus status);
+
 } // namespace qrprotec
