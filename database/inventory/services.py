@@ -31,12 +31,19 @@ def _location_filter(lot):
 
 
 def requirements_status(lot, today=None):
-    """Compare le contenu d'un lot aux exigences de son type."""
+    """Compare le contenu d'un lot aux exigences de son type.
+
+    Seuls les items vus lors de la derniere verif (ou ajoutes depuis) comptent comme presents : un item
+    manque a la derniere verif est encore attendu mais n'est plus considere comme fiable.
+    """
     today = today or timezone.localdate()
     fresh = defaultdict(int)
     expired = defaultdict(int)
+    unconfirmed = defaultdict(int)
     for item in _items_queryset().filter(location=lot, status=ItemStatus.ACTIVE):
-        if item.is_expired(today):
+        if item.missed_verifs > 0:
+            unconfirmed[item.pack.item_type_id] += 1
+        elif item.is_expired(today):
             expired[item.pack.item_type_id] += 1
         else:
             fresh[item.pack.item_type_id] += 1
@@ -49,6 +56,7 @@ def requirements_status(lot, today=None):
             'required': requirement.quantity,
             'present': fresh.get(type_id, 0),
             'expired': expired.get(type_id, 0),
+            'unconfirmed': unconfirmed.get(type_id, 0),
         })
     return rows
 

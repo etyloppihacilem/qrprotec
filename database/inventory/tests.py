@@ -124,6 +124,12 @@ class VerifTests(ApiTestCase):
         self.assertEqual(report['unknown'], ['inconnu'])
         self.assertTrue(report['complete'])
         self.assertEqual(Items.objects.get(iid=old.iid).status, ItemStatus.REPLACED)
+        # un item non vu ne compte plus dans les exigences
+        LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.garrot, quantity=1)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        garrot_row = next(row for row in body['requirements'] if row['type'] == 'garrot')
+        self.assertEqual((garrot_row['present'], garrot_row['unconfirmed']), (0, 1))
+        self.assertFalse(body['complete'])
         self.assertIsNone(Items.objects.get(iid=old.iid).location)
         self.assertEqual(Items.objects.get(iid=new.iid).location_id, self.lot.id)
 
