@@ -28,6 +28,7 @@ public:
     virtual bool connect(const PrintSettings& settings, std::string& error) = 0;
     virtual void disconnect() = 0;
     virtual bool print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error) = 0;
+    virtual bool send_command(const PrintSettings& settings, const std::string& command, std::string& error) = 0;
 };
 
 class NiimbotB1Printer final : public Printer {
@@ -35,6 +36,7 @@ public:
     bool connect(const PrintSettings& settings, std::string& error) override;
     void disconnect() override;
     bool print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error) override;
+    bool send_command(const PrintSettings& settings, const std::string& command, std::string& error) override;
 
 private:
     SerialPort serial_;

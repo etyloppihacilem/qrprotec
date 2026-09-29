@@ -44,6 +44,15 @@ void NiimbotB1Printer::disconnect()
     serial_.close();
 }
 
+bool NiimbotB1Printer::send_command(const PrintSettings& settings, const std::string& command, std::string& error)
+{
+    if (!connect(settings, error)) return false;
+    const std::vector<std::uint8_t> bytes(command.begin(), command.end());
+    const bool sent = serial_.write_bytes(bytes, error);
+    disconnect();
+    return sent;
+}
+
 bool NiimbotB1Printer::print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error)
 {
     if (request.image.width != request.media.width_pixels() || request.image.height != request.media.height_pixels()) {

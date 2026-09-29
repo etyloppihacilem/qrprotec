@@ -340,6 +340,16 @@ void Editor::draw_print_test_popup() {
       });
       message_    = "Impression en cours...";
     }
+    // ImGui::SameLine();
+    // if (!print_task_.valid() && ImGui::Button("Envoyer #20012")) {
+    //   const PrintSettings settings = print_settings_;
+    //   print_task_ = std::async(std::launch::async, [this, settings]() {
+    //     std::string error;
+    //     const bool sent = printer_.send_command(settings, "#20012", error);
+    //     return PrintResult{ sent, sent ? "Commande #20012 envoyee." : "Envoi de #20012: " + error };
+    //   });
+    //   message_ = "Envoi de #20012 en cours...";
+    // }
     if (!message_.empty())
       ImGui::TextWrapped("%s", message_.c_str());
     ImGui::SameLine();

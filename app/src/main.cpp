@@ -3,6 +3,7 @@
 #include "imgui_impl_opengl3.h"
 #include "ui/editor.hpp"
 #include "printer/logging.hpp"
+#include "ui/inateck.hpp"
 
 #include <GLFW/glfw3.h>
 
@@ -49,12 +50,15 @@ int main(int argc, char** argv)
     ImGui_ImplOpenGL3_Init(nullptr);
 
     qrprotec::Editor editor;
+    qrprotec::Inateck inateck; // la douchette
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         editor.draw();
+        inateck.draw();
+
         ImGui::Render();
 
         int display_width = 0;
