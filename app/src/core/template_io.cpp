@@ -1,4 +1,5 @@
 #include "template_io.hpp"
+#include "json.hpp"
 #include "placeholders.hpp"
 
 #include <cctype>
@@ -171,17 +172,10 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
     std::string orientation;
     if (find_value(json, "orientation", orientation))
         loaded.media.orientation = orientation.rfind("portrait", 0) == 0 ? Orientation::Portrait : Orientation::Landscape;
-    const std::string parameters = object_for_key(json, "parameters");
-    std::size_t position = 0;
-    while ((position = parameters.find('"', position)) != std::string::npos) {
-        const std::size_t key_end = parameters.find('"', position + 1);
-        if (key_end == std::string::npos) break;
-        const std::string key = parameters.substr(position + 1, key_end - position - 1);
-        std::string value;
-        if (!find_value(parameters.substr(position), key, value)) break;
-        loaded.parameters[key] = value;
-        position = key_end + 1;
-    }
+    // valeurs d'apercu des placeholders : objet JSON {"nom": "valeur", ...}
+    const Json parameters = Json::parse(object_for_key(json, "parameters"));
+    for (const auto& [key, value] : parameters.members())
+        loaded.parameters[key] = value.str();
     const std::size_t elements_start = json.find("\"elements\"");
     if (elements_start != std::string::npos) {
         const std::size_t array_start = json.find('[', elements_start);

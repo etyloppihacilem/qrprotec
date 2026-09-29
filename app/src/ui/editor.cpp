@@ -27,7 +27,7 @@ void copy_to_buffer(char *buffer, std::size_t size, const std::string &value) {
 Editor::Editor() {
   reload_templates();
   new_template();
-  placeholder_names_ = find_placeholders(document_);
+  refresh_placeholders();
 }
 
 Editor::~Editor() {
@@ -35,6 +35,27 @@ Editor::~Editor() {
     print_task_.wait();
   if (texture_ != 0)
     glDeleteTextures(1, &texture_);
+}
+
+// Liste les placeholders du modele et donne une valeur d'apercu a ceux qui n'en ont pas (exemple de
+// l'usage du modele, sinon d'un autre usage), pour que l'apercu ne montre jamais "{{...}}".
+void Editor::refresh_placeholders() {
+  placeholder_names_ = find_placeholders(document_);
+  Parameters examples = example_parameters(document_.category);
+  for (const CategoryInfo &info : template_categories())
+    for (const PlaceholderInfo &placeholder : info.placeholders)
+      examples.emplace(placeholder.name, placeholder.example);
+  for (const std::string &name : placeholder_names_) {
+    if (name == "titre") {
+      document_.parameters[name] = label_title_; // toujours le titre des Reglages
+      continue;
+    }
+    if (document_.parameters.find(name) != document_.parameters.end())
+      continue;
+    const auto example         = examples.find(name);
+    document_.parameters[name] = example != examples.end() ? example->second : name;
+    preview_dirty_             = true;
+  }
 }
 
 void Editor::set_label_title(const std::string &title) {
@@ -64,7 +85,7 @@ void Editor::new_template() {
   );
   document_.elements.push_back({ "qr", ElementKind::QrCode, QrElement{ "{{code}}", (width - qr) / 2.0f, height - qr - 2.0f, qr } });
   template_path_ = "";
-  placeholder_names_ = find_placeholders(document_);
+  refresh_placeholders();
 }
 
 void Editor::reload_templates() {
@@ -165,10 +186,7 @@ void Editor::draw_document_panel() {
   ImGui::PushID("parameters"); // un parametre peut porter le meme nom qu'un element
   for (std::string &placeholder : placeholder_names_) {
     char code[256];
-    if (document_.parameters.find(placeholder) !=  document_.parameters.end())
-      copy_to_buffer(code, 256, document_.parameters[placeholder]);
-    else
-      copy_to_buffer(code, 256, "default");
+    copy_to_buffer(code, 256, document_.parameters[placeholder]);
     if (ImGui::InputText(placeholder.c_str(), code, sizeof(code))) {
       document_.parameters[placeholder] = code;
       preview_dirty_                    = true;
@@ -269,7 +287,7 @@ void Editor::draw_properties(TemplateElement &element) {
     if (ImGui::InputTextMultiline("##texte", value, sizeof(value), ImVec2(-FLT_MIN, 100))) {
       text.text          = value;
       preview_dirty_     = true;
-      placeholder_names_ = find_placeholders(document_);
+      refresh_placeholders();
       // std::cerr << "found" << std::endl;
       // for (auto pl: placeholder_names_)
       //   std::cerr << pl << std::endl;
@@ -303,7 +321,7 @@ void Editor::draw_properties(TemplateElement &element) {
     if (ImGui::InputTextMultiline("##payload", payload, sizeof(payload), ImVec2(-FLT_MIN, 60))) {
       qr.payload     = payload;
       preview_dirty_ = true;
-      placeholder_names_ = find_placeholders(document_);
+      refresh_placeholders();
     }
     if (ImGui::DragFloat("X (mm)", &qr.x_mm, 0.1f))
       preview_dirty_ = true;
@@ -367,7 +385,7 @@ void Editor::insert_placeholder(const std::string &name) {
     const auto       example  = examples.find(name);
     document_.parameters[name] = example != examples.end() ? example->second : name;
   }
-  placeholder_names_ = find_placeholders(document_);
+  refresh_placeholders();
   preview_dirty_     = true;
 }
 
@@ -454,7 +472,7 @@ void Editor::draw_preview_panel() {
 }
 
 void Editor::open_print_test() {
-  placeholder_names_ = find_placeholders(document_);
+  refresh_placeholders();
   print_values_.clear();
   for (const std::string &name : placeholder_names_)
     print_values_[name] = document_.parameters[name];
@@ -572,7 +590,7 @@ void Editor::draw_contents() {
             document_      = doc;
             template_path_ = doc.path;
             preview_dirty_ = true;
-            placeholder_names_ = find_placeholders(document_);
+            refresh_placeholders();
             std::cerr << "Loaded template " << doc.name << std::endl;
           }
         ImGui::Separator();

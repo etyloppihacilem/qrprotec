@@ -39,6 +39,7 @@ private:
     void draw_properties(TemplateElement &element);
     void draw_placeholders_panel();
     void insert_placeholder(const std::string &name);
+    void refresh_placeholders();
     void draw_preview_panel();
     void draw_print_test_popup();
     void open_print_test();

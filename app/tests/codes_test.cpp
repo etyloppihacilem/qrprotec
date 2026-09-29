@@ -128,6 +128,12 @@ static void test_text_and_label_fit() {
   assert(load_template(loaded, "/tmp/qrprotec-bold.qr", error));
   const TextElement &text = std::get< TextElement >(loaded.elements[0].content);
   assert(text.bold && text.align == TextAlign::Center);
+  // plusieurs valeurs d'apercu (dont une sur deux lignes) relues sans melange
+  document.parameters = { { "iid", "compre20271231000000A1" }, { "titre", "A\nB" }, { "type_name", "Sérum \"phy\"" } };
+  assert(save_template(document, "/tmp/qrprotec-bold.qr", error));
+  assert(load_template(loaded, "/tmp/qrprotec-bold.qr", error));
+  assert(loaded.parameters.size() == 3 && loaded.parameters["titre"] == "A\nB");
+  assert(loaded.parameters["type_name"] == "Sérum \"phy\"" && loaded.parameters["iid"] == "compre20271231000000A1");
   std::remove("/tmp/qrprotec-bold.qr");
   const RasterImage image = render_template(document);
   // texte centre : de l'encre des deux cotes du milieu, marges vides a gauche
