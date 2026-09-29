@@ -246,7 +246,8 @@ class LotAdminWindow final : public AppWindow {
       ImGui::InputText("Code (6 caractères)", &type_code_, ImGuiInputTextFlags_CharsNoBlank);
       ImGui::EndDisabled();
       ImGui::InputText("Nom", &type_name_);
-      ImGui::InputTextMultiline("Description", &type_description_, ImVec2(-1, 50));
+      ImGui::TextUnformatted("Description");
+      ImGui::InputTextMultiline("##description", &type_description_, ImVec2(-FLT_MIN, 50));
       if (editing_lot_type_.empty()) {
         ImGui::BeginDisabled(type_code_.size() != 6 || type_name_.empty());
         if (primary_button("Créer le type de lot")) {

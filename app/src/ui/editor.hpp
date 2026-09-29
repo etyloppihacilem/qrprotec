@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <string>
 #include <future>
+#include <functional>
 
 namespace qrprotec {
 
@@ -19,6 +20,12 @@ public:
 
     void draw();          // fenetre autonome
     void draw_contents(); // contenu seul (la fenetre est geree par l'application)
+
+    // Reglages de l'application : titre ({{titre}}), taille d'etiquette par defaut, impression via la
+    // file de l'application (adaptation au sens de l'etiquette physique)
+    void set_label_title(const std::string &title);
+    void set_default_media(double width_mm, double height_mm);
+    void set_print_callback(std::function< void(const TemplateDocument &) > callback) { print_callback_ = std::move(callback); }
 
 private:
     struct PrintResult {
@@ -58,6 +65,11 @@ private:
     PrintSettings print_settings_;
     NiimbotB1Printer printer_;
     std::future<PrintResult> print_task_;
+
+    std::string label_title_ = "PROTECTION CIVILE\nPARIS CENTRE";
+    double default_width_mm_ = 40.0;
+    double default_height_mm_ = 30.0;
+    std::function< void(const TemplateDocument &) > print_callback_;
 
     std::vector<std::filesystem::path> qr_files_;
     std::vector<std::filesystem::path> image_files_;

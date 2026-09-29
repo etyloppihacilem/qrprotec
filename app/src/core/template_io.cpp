@@ -130,7 +130,9 @@ bool save_template(const TemplateDocument& document, const std::string& path, st
             const TextElement& text = std::get<TextElement>(element.content);
             output << "\"text\": \"" << escape_json(text.text) << "\", \"x_mm\": " << text.x_mm
                     << ", \"y_mm\": " << text.y_mm << ", \"width_mm\": " << text.width_mm
-                    << ", \"height_mm\": " << text.height_mm << ", \"font_size_mm\": " << text.font_size_mm;
+                    << ", \"height_mm\": " << text.height_mm << ", \"font_size_mm\": " << text.font_size_mm
+                    << ", \"bold\": " << (text.bold ? 1 : 0) << ", \"align\": \""
+                    << (text.align == TextAlign::Center ? "center" : text.align == TextAlign::Right ? "right" : "left") << "\"";
         } else if (element.kind == ElementKind::QrCode) {
             const QrElement& qr = std::get<QrElement>(element.content);
             output << "\"payload\": \"" << escape_json(qr.payload) << "\", \"x_mm\": " << qr.x_mm
@@ -197,6 +199,10 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
                 find_number(object, "width_mm", x); text.width_mm = static_cast<float>(x);
                 find_number(object, "height_mm", x); text.height_mm = static_cast<float>(x);
                 find_number(object, "font_size_mm", x); text.font_size_mm = static_cast<float>(x);
+                if (find_number(object, "bold", x)) text.bold = x != 0.0;
+                std::string align;
+                if (find_value(object, "align", align))
+                    text.align = align == "center" ? TextAlign::Center : align == "right" ? TextAlign::Right : TextAlign::Left;
                 loaded.elements.push_back({id, ElementKind::Text, text});
             } else if (kind == "qr") {
                 QrElement qr;

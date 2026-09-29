@@ -6,6 +6,7 @@
 #include "net/http.hpp"
 #include "render/raster.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <string>
@@ -111,12 +112,72 @@ static void test_qr_and_categories() {
   assert(category_from_id("lot_private") == TemplateCategory::LotPrivate);
 }
 
+static void test_text_and_label_fit() {
+  // gras + centre : persistance et rendu
+  TemplateDocument document;
+  TextElement      title{ "PROTECTION CIVILE\nPARIS CENTRE", 1.0f, 1.0f, 38.0f, 10.0f, 3.0f };
+  title.bold  = true;
+  title.align = TextAlign::Center;
+  document.elements.push_back({ "titre", ElementKind::Text, title });
+  std::string error;
+  assert(save_template(document, "/tmp/qrprotec-bold.qr", error));
+  TemplateDocument loaded;
+  assert(load_template(loaded, "/tmp/qrprotec-bold.qr", error));
+  const TextElement &text = std::get< TextElement >(loaded.elements[0].content);
+  assert(text.bold && text.align == TextAlign::Center);
+  std::remove("/tmp/qrprotec-bold.qr");
+  const RasterImage image = render_template(document);
+  // texte centre : de l'encre des deux cotes du milieu, marges vides a gauche
+  int leftmost = image.width;
+  for (int y = 0; y < 60; ++y)
+    for (int x = 0; x < image.width; ++x)
+      if (image.at(x, y) == 0)
+        leftmost = std::min(leftmost, x);
+  assert(leftmost > 20 && leftmost < image.width / 2);
+  // bold plus epais que normal
+  TemplateDocument regular = document;
+  std::get< TextElement >(regular.elements[0].content).bold = false;
+  const RasterImage thin = render_template(regular);
+  int ink_bold = 0, ink_regular = 0;
+  for (std::size_t i = 0; i < image.pixels.size(); ++i) {
+    ink_bold += image.pixels[i] == 0;
+    ink_regular += thin.pixels[i] == 0;
+  }
+  assert(ink_bold > ink_regular);
+
+  // modele portrait (30x40) sur etiquette paysage 40x30 : quart de tour automatique
+  TemplateDocument portrait;
+  portrait.media.orientation = Orientation::Portrait;
+  RasterImage marker = render_template(portrait);
+  assert(marker.width == 240 && marker.height == 320);
+  marker.at(0, 0) = 0; // coin haut gauche du modele
+  PhysicalLabel label; // 40 x 30 mm
+  RasterImage   out;
+  MediaSettings media;
+  assert(fit_to_label(marker, label, out, media, error));
+  assert(out.width == 320 && out.height == 240 && media.width_pixels() == 320 && media.height_pixels() == 240);
+  assert(out.at(319, 0) == 0); // horaire : le haut gauche passe en haut a droite
+  label.rotate_counterclockwise = true;
+  assert(fit_to_label(marker, label, out, media, error) && out.at(0, 239) == 0);
+  // modele deja dans le bon sens : inchange
+  TemplateDocument landscape;
+  RasterImage      straight = render_template(landscape);
+  straight.at(5, 5) = 0;
+  label.rotate_counterclockwise = false;
+  assert(fit_to_label(straight, label, out, media, error) && out.at(5, 5) == 0);
+  // modele trop grand
+  TemplateDocument big;
+  big.media.width_mm = 80.0;
+  assert(!fit_to_label(render_template(big), label, out, media, error) && !error.empty());
+}
+
 int main() {
   test_json();
   test_dates();
   test_scans();
   test_http();
   test_qr_and_categories();
+  test_text_and_label_fit();
   std::puts("codes_test OK");
   return 0;
 }

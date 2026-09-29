@@ -116,6 +116,24 @@ class SettingsWindow final : public AppWindow {
             ImGui::EndCombo();
           }
         }
+        ImGui::SeparatorText("Étiquettes chargées dans l'imprimante");
+        ImGui::SetNextItemWidth(150.0f);
+        ImGui::InputFloat("Largeur (mm, sens de la tête)", &settings.label_width_mm, 1.0f, 5.0f, "%.1f");
+        ImGui::SetNextItemWidth(150.0f);
+        ImGui::InputFloat("Hauteur (mm, sens du défilement)", &settings.label_height_mm, 1.0f, 5.0f, "%.1f");
+        settings.label_width_mm  = std::clamp(settings.label_width_mm, 5.0f, 48.0f);
+        settings.label_height_mm = std::clamp(settings.label_height_mm, 5.0f, 500.0f);
+        help_marker("La Niimbot B1 imprime au plus 48 mm de large. Un modèle dessiné dans l'autre sens (portrait / "
+                    "paysage) est tourné d'un quart de tour à l'impression pour tenir sur l'étiquette.");
+        int rotation = settings.rotate_counterclockwise ? 1 : 0;
+        ImGui::SetNextItemWidth(200.0f);
+        if (ImGui::Combo("Sens du quart de tour", &rotation, "Horaire\0Anti-horaire\0"))
+          settings.rotate_counterclockwise = rotation == 1;
+        ImGui::Checkbox("Retourner les étiquettes (180°)", &settings.flip_labels);
+        ImGui::SeparatorText("Titre des étiquettes");
+        ImGui::TextUnformatted("Texte de {{titre}} (bouton « Ajouter le titre » de l'éditeur) :");
+        ImGui::InputTextMultiline("##titre", &settings.label_title, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 3.5f));
+
         ImGui::SeparatorText("Imprimante Niimbot B1");
         ImGui::InputText("Port série", &settings.print.serial.device);
         ImGui::SetNextItemWidth(150.0f);
@@ -187,10 +205,21 @@ class EditorWindow final : public AppWindow {
     EditorWindow() : AppWindow("editor", "Éditeur d'étiquettes", true, true) {}
 
     ImGuiWindowFlags flags() const override { return ImGuiWindowFlags_MenuBar; }
-    void             draw(App &) override { editor_.draw_contents(); }
+    void             draw(App &app) override {
+      if (!connected_) {
+        editor_.set_print_callback([&app](const TemplateDocument &document) {
+          app.print_documents({ PrintJob{ "Test " + document.name, document } });
+        });
+        connected_ = true;
+      }
+      editor_.set_label_title(app.settings.label_title);
+      editor_.set_default_media(app.settings.label_width_mm, app.settings.label_height_mm);
+      editor_.draw_contents();
+    }
 
   private:
     Editor editor_;
+    bool   connected_ = false;
 };
 
 } // namespace

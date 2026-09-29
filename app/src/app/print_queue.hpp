@@ -12,6 +12,7 @@
 
 #include "../core/template.hpp"
 #include "../printer/printer.hpp"
+#include "../render/raster.hpp"
 
 #include <condition_variable>
 #include <deque>
@@ -45,7 +46,8 @@ class PrintQueue {
     PrintQueue(const PrintQueue &)            = delete;
     PrintQueue &operator=(const PrintQueue &) = delete;
 
-    void             enqueue(std::vector< PrintJob > jobs, const PrintSettings &settings);
+    // Chaque modele est adapte a l'etiquette physique (quart de tour si besoin) avant impression.
+    void             enqueue(std::vector< PrintJob > jobs, const PrintSettings &settings, const PhysicalLabel &label);
     PrintQueueStatus status() const;
     void             resume();
     void             cancel();
@@ -57,6 +59,7 @@ class PrintQueue {
     std::condition_variable condition_;
     std::deque< PrintJob >  jobs_;
     PrintSettings           settings_;
+    PhysicalLabel           label_;
     PrintQueueStatus        status_;
     bool                    stopping_ = false;
     NiimbotB1Printer        printer_;

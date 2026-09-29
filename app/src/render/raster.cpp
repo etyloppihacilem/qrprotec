@@ -7,10 +7,12 @@
 #include <png.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_SYNTHESIS_H
 
 #include <algorithm>
 #include <cstdio>
 #include <array>
+#include <cmath>
 #include <string>
 
 namespace qrprotec {
@@ -50,11 +52,15 @@ void draw_text(RasterImage& image, const TextElement& text, const std::string& v
 {
     const int left = static_cast<int>(text.x_mm * scale);
     const int top = static_cast<int>(text.y_mm * scale);
-    const int text_width = std::max(1, static_cast<int>(text.width_mm * scale));
+    const int max_width = std::max(1, static_cast<int>(text.width_mm * scale));
+    const int bottom = top + static_cast<int>(text.height_mm * scale);
     FT_Library library = nullptr;
     FT_Face face = nullptr;
     if (FT_Init_FreeType(&library) != 0) return;
-    const std::string& font_path = ui_font_path();
+    // gras : police grasse si disponible, sinon gras synthetique sur la police normale
+    const std::string& bold_path = text.bold ? bold_font_path() : std::string();
+    const bool synthetic_bold = text.bold && bold_path.empty();
+    const std::string& font_path = bold_path.empty() ? ui_font_path() : bold_path;
     if (font_path.empty() || FT_New_Face(library, font_path.c_str(), 0, &face) != 0) face = nullptr;
     if (face == nullptr) {
         if (library) FT_Done_FreeType(library);
@@ -62,41 +68,69 @@ void draw_text(RasterImage& image, const TextElement& text, const std::string& v
     }
     const int pixel_size = std::max(1, static_cast<int>(text.font_size_mm * scale));
     FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(pixel_size));
-    int pen_x = left;
-    int pen_y = top + pixel_size;
     const int line_height = pixel_size + 2;
-    const int right = left + text_width;
-    const int bottom = top + static_cast<int>(text.height_mm * scale);
-    const std::vector<char32_t> characters = decode_utf8(value);
-    const auto advance = [&](char32_t character) {
-        return FT_Load_Char(face, character, FT_LOAD_DEFAULT) == 0 ? static_cast<int>(face->glyph->advance.x >> 6) : 0;
+    const auto load = [&](char32_t character) {
+        if (FT_Load_Char(face, character, FT_LOAD_DEFAULT) != 0) return false;
+        if (synthetic_bold) FT_GlyphSlot_Embolden(face->glyph);
+        return true;
     };
-    for (std::size_t index = 0; index < characters.size(); ++index) {
-        const char32_t character = characters[index];
-        if (character == '\n') { pen_x = left; pen_y += line_height; continue; }
-        // retour a la ligne avant un mot qui ne tient pas (coupure au milieu seulement s'il est trop long)
-        if (character != ' ' && (index == 0 || characters[index - 1] == ' ' || characters[index - 1] == '\n')) {
-            int word = 0;
-            for (std::size_t end = index; end < characters.size() && characters[end] != ' ' && characters[end] != '\n'; ++end)
-                word += advance(characters[end]);
-            if (pen_x > left && pen_x + word > right) { pen_x = left; pen_y += line_height; }
+    const auto advance = [&](char32_t character) {
+        return load(character) ? static_cast<int>(face->glyph->advance.x >> 6) : 0;
+    };
+
+    // 1. mise en page : coupure aux espaces (au milieu d'un mot seulement s'il est trop long)
+    struct Line { std::vector<char32_t> characters; int width = 0; };
+    std::vector<Line> lines(1);
+    const int space = advance(' ');
+    const std::vector<char32_t> characters = decode_utf8(value);
+    std::size_t index = 0;
+    while (index < characters.size()) {
+        if (characters[index] == '\n') { lines.emplace_back(); ++index; continue; }
+        if (characters[index] == ' ') { ++index; continue; }
+        std::vector<char32_t> word;
+        int word_width = 0;
+        while (index < characters.size() && characters[index] != ' ' && characters[index] != '\n') {
+            word.push_back(characters[index]);
+            word_width += advance(characters[index]);
+            ++index;
         }
-        if (character == ' ' && pen_x == left) continue; // pas d'espace en debut de ligne
-        if (FT_Load_Char(face, character, FT_LOAD_RENDER) != 0) continue;
-        const FT_GlyphSlot glyph = face->glyph;
-        if (pen_x + static_cast<int>(glyph->bitmap.width) > right && pen_x > left) {
-            pen_x = left;
-            pen_y += line_height;
+        Line* line = &lines.back();
+        if (!line->characters.empty() && line->width + space + word_width > max_width) {
+            lines.emplace_back();
+            line = &lines.back();
         }
-        if (pen_y - glyph->bitmap_top >= bottom) break;
-        for (unsigned int y = 0; y < glyph->bitmap.rows; ++y)
-            for (unsigned int x = 0; x < glyph->bitmap.width; ++x)
-                if (glyph->bitmap.buffer[y * glyph->bitmap.pitch + x] >= 128)
-                    fill_rect(image, pen_x + glyph->bitmap_left + static_cast<int>(x),
-                              pen_y - glyph->bitmap_top + static_cast<int>(y),
-                              pen_x + glyph->bitmap_left + static_cast<int>(x) + 1,
-                              pen_y - glyph->bitmap_top + static_cast<int>(y) + 1, 0);
-        pen_x += glyph->advance.x >> 6;
+        if (!line->characters.empty()) { line->characters.push_back(' '); line->width += space; }
+        for (const char32_t character : word) {
+            const int width = advance(character);
+            if (!line->characters.empty() && line->width + width > max_width && word_width > max_width) {
+                lines.emplace_back();
+                line = &lines.back();
+            }
+            line->characters.push_back(character);
+            line->width += width;
+        }
+    }
+
+    // 2. dessin ligne par ligne selon l'alignement
+    for (std::size_t row = 0; row < lines.size(); ++row) {
+        const Line& line = lines[row];
+        const int pen_y = top + pixel_size + static_cast<int>(row) * line_height;
+        if (pen_y - pixel_size >= bottom) break;
+        int pen_x = left;
+        if (text.align == TextAlign::Center) pen_x += std::max(0, (max_width - line.width) / 2);
+        else if (text.align == TextAlign::Right) pen_x += std::max(0, max_width - line.width);
+        for (const char32_t character : line.characters) {
+            if (!load(character) || FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL) != 0) continue;
+            const FT_GlyphSlot glyph = face->glyph;
+            for (unsigned int y = 0; y < glyph->bitmap.rows; ++y)
+                for (unsigned int x = 0; x < glyph->bitmap.width; ++x)
+                    if (glyph->bitmap.buffer[y * glyph->bitmap.pitch + x] >= 128) {
+                        const int px = pen_x + glyph->bitmap_left + static_cast<int>(x);
+                        const int py = pen_y - glyph->bitmap_top + static_cast<int>(y);
+                        if (py < bottom) fill_rect(image, px, py, px + 1, py + 1, 0);
+                    }
+            pen_x += glyph->advance.x >> 6;
+        }
     }
     FT_Done_Face(face);
     FT_Done_FreeType(library);
@@ -200,6 +234,64 @@ RasterImage render_template(const TemplateDocument& document)
         }
     }
     return image;
+}
+
+bool fit_to_label(const RasterImage& image, const PhysicalLabel& label, RasterImage& out, MediaSettings& media,
+                  std::string& error)
+{
+    // l'etiquette physique est exprimee dans le sens de la tete d'impression (largeur) et du defilement
+    const double ppmm = label.pixels_per_mm > 0.0 ? label.pixels_per_mm : 8.0;
+    const int width = std::max(1, static_cast<int>(std::lround(label.width_mm * ppmm)));
+    const int height = std::max(1, static_cast<int>(std::lround(label.height_mm * ppmm)));
+    const int tolerance = static_cast<int>(ppmm); // 1 mm
+    const auto fits = [&](int w, int h) { return w <= width + tolerance && h <= height + tolerance; };
+    const auto fill_ratio = [&](int w, int h) {
+        return static_cast<double>(std::min(w, width) * std::min(h, height)) / (static_cast<double>(width) * height);
+    };
+    // on garde le sens du modele s'il remplit l'etiquette, sinon on le tourne d'un quart de tour
+    const bool straight_ok = fits(image.width, image.height);
+    const bool rotated_ok = fits(image.height, image.width);
+    if (!straight_ok && !rotated_ok) {
+        error = "Le modèle (" + std::to_string(image.width) + "x" + std::to_string(image.height)
+              + " px) est plus grand que l'étiquette réglée (" + std::to_string(width) + "x" + std::to_string(height) + " px).";
+        return false;
+    }
+    const bool rotate = !straight_ok || (rotated_ok && fill_ratio(image.height, image.width) > fill_ratio(image.width, image.height) + 1e-6);
+    RasterImage source = image;
+    if (rotate) {
+        RasterImage turned{image.height, image.width, std::vector<std::uint8_t>(image.pixels.size(), 255)};
+        for (int y = 0; y < image.height; ++y)
+            for (int x = 0; x < image.width; ++x) {
+                // quart de tour horaire : (x, y) -> (H-1-y, x) ; anti-horaire : (x, y) -> (y, W-1-x)
+                if (label.rotate_counterclockwise) turned.at(y, image.width - 1 - x) = image.at(x, y);
+                else turned.at(image.height - 1 - y, x) = image.at(x, y);
+            }
+        source = std::move(turned);
+    }
+    if (label.flip) {
+        RasterImage flipped = source;
+        for (int y = 0; y < source.height; ++y)
+            for (int x = 0; x < source.width; ++x)
+                flipped.at(source.width - 1 - x, source.height - 1 - y) = source.at(x, y);
+        source = std::move(flipped);
+    }
+    // centre sur l'etiquette (marges blanches si le modele est plus petit)
+    out = RasterImage{width, height, std::vector<std::uint8_t>(static_cast<std::size_t>(width * height), 255)};
+    const int offset_x = (width - source.width) / 2;
+    const int offset_y = (height - source.height) / 2;
+    for (int y = 0; y < source.height; ++y)
+        for (int x = 0; x < source.width; ++x) {
+            const int tx = x + offset_x;
+            const int ty = y + offset_y;
+            if (tx >= 0 && ty >= 0 && tx < width && ty < height)
+                out.at(tx, ty) = source.at(x, y);
+        }
+    media = MediaSettings{};
+    media.width_mm = static_cast<double>(width) / ppmm;
+    media.height_mm = static_cast<double>(height) / ppmm;
+    media.pixels_per_mm = ppmm;
+    media.orientation = Orientation::Landscape;
+    return true;
 }
 
 bool write_png(const RasterImage& image, const std::string& path, std::string& error)

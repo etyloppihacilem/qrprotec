@@ -36,13 +36,32 @@ Editor::~Editor() {
     glDeleteTextures(1, &texture_);
 }
 
+void Editor::set_label_title(const std::string &title) {
+  if (title == label_title_)
+    return;
+  label_title_                  = title;
+  document_.parameters["titre"] = title;
+  preview_dirty_                = true;
+}
+
+void Editor::set_default_media(double width_mm, double height_mm) {
+  default_width_mm_  = width_mm;
+  default_height_mm_ = height_mm;
+}
+
 void Editor::new_template() {
-  document_.parameters["code"] = "QRProtec default";
-  document_.elements.clear();
+  document_                          = TemplateDocument{};
+  document_.media.width_mm           = default_width_mm_;
+  document_.media.height_mm          = default_height_mm_;
+  document_.parameters["code"]       = "QRProtec default";
+  document_.parameters["titre"]      = label_title_;
+  const float width                  = static_cast< float >(default_width_mm_);
+  const float height                 = static_cast< float >(default_height_mm_);
+  const float qr                     = std::max(5.0f, std::min(width, height) * 0.5f);
   document_.elements.push_back(
-    { "title", ElementKind::Text, TextElement{ "{{code}}", 2.0f, 2.0f, 36.0f, 8.0f, 3.0f } }
+    { "title", ElementKind::Text, TextElement{ "{{code}}", 2.0f, 2.0f, width - 4.0f, 8.0f, 3.0f } }
   );
-  document_.elements.push_back({ "qr", ElementKind::QrCode, QrElement{ "{{code}}", 12.0f, 12.0f, 16.0f } });
+  document_.elements.push_back({ "qr", ElementKind::QrCode, QrElement{ "{{code}}", (width - qr) / 2.0f, height - qr - 2.0f, qr } });
   template_path_ = "";
   placeholder_names_ = find_placeholders(document_);
 }
@@ -91,6 +110,8 @@ void Editor::rebuild_preview() {
 
 void Editor::draw_document_panel() {
   ImGui::BeginChild("DocumentPanel", ImVec2(0, 0), true);
+  // champs limites pour que leur libelle reste lisible dans une colonne etroite
+  ImGui::PushItemWidth(-ImGui::GetFontSize() * 7.0f);
   ImGui::TextUnformatted("Template");
   ImGui::Separator();
   char name[128];
@@ -139,6 +160,7 @@ void Editor::draw_document_panel() {
   ImGui::Text("Résolution: %d x %d px", document_.media.width_pixels(), document_.media.height_pixels());
   ImGui::Separator();
   ImGui::TextUnformatted("Paramètres");
+  ImGui::PushID("parameters"); // un parametre peut porter le meme nom qu'un element
   for (std::string &placeholder : placeholder_names_) {
     char code[256];
     if (document_.parameters.find(placeholder) !=  document_.parameters.end())
@@ -150,17 +172,31 @@ void Editor::draw_document_panel() {
       preview_dirty_                    = true;
     }
   }
+  ImGui::PopID();
   // char code[256];
   // copy_to_buffer(code, sizeof(code), document_.parameters["code"]);
   // if (ImGui::InputText("code", code, sizeof(code))) {
   //   document_.parameters["code"] = code;
   //   preview_dirty_               = true;
   // }
+  if (ImGui::Button("Ajouter le titre")) {
+    // titre des Reglages, centre et en gras sur toute la largeur
+    const float width = static_cast< float >(document_.media.oriented_width_mm());
+    TextElement title{ "{{titre}}", 1.0f, 1.0f, width - 2.0f, 8.0f, 3.0f };
+    title.bold  = true;
+    title.align = TextAlign::Center;
+    document_.elements.push_back({ "titre", ElementKind::Text, title });
+    document_.parameters["titre"] = label_title_;
+    placeholder_names_            = find_placeholders(document_);
+    selected_element_             = static_cast< int >(document_.elements.size()) - 1;
+    preview_dirty_                = true;
+  }
+  ImGui::SetItemTooltip("Ajoute {{titre}} (texte défini dans Gestion > Réglages), centré et en gras.");
   if (ImGui::Button("Ajouter texte")) {
     document_.elements.push_back(
       { "texte-" + std::to_string(document_.elements.size()),
         ElementKind::Text,
-        TextElement{ "{{code}}", 2.0f, 2.0f, 36.0f, 8.0f, 3.0f } }
+        TextElement{ "{{code}}", 2.0f, 2.0f, static_cast< float >(document_.media.oriented_width_mm()) - 4.0f, 8.0f, 3.0f } }
     );
     selected_element_ = static_cast< int >(document_.elements.size()) - 1;
     preview_dirty_    = true;
@@ -188,14 +224,18 @@ void Editor::draw_document_panel() {
   for (int index = 0; index < static_cast< int >(document_.elements.size()); ++index) {
     const bool        selected = selected_element_ == index;
     const std::string label    = document_.elements[static_cast< std::size_t >(index)].id;
+    ImGui::PushID(index); // deux elements peuvent avoir le meme identifiant
     if (ImGui::Selectable(label.c_str(), selected))
       selected_element_ = index;
+    ImGui::PopID();
   }
+  ImGui::PopItemWidth();
   ImGui::EndChild();
 }
 
 void Editor::draw_element_panel() {
   ImGui::BeginChild("PropertiesPanel", ImVec2(0, 0), true);
+  ImGui::PushItemWidth(-ImGui::GetFontSize() * 8.0f);
   if (ImGui::BeginTabBar("element_tabs")) {
     if (ImGui::BeginTabItem("Propriétés")) {
       if (selected_element_ < 0 || selected_element_ >= static_cast< int >(document_.elements.size()))
@@ -210,6 +250,7 @@ void Editor::draw_element_panel() {
     }
     ImGui::EndTabBar();
   }
+  ImGui::PopItemWidth();
   ImGui::EndChild();
 }
 
@@ -222,7 +263,8 @@ void Editor::draw_properties(TemplateElement &element) {
     TextElement &text = std::get< TextElement >(element.content);
     char         value[4096];
     copy_to_buffer(value, sizeof(value), text.text);
-    if (ImGui::InputTextMultiline("Texte", value, sizeof(value), ImVec2(-1, 140))) {
+    ImGui::TextUnformatted("Texte (Entrée = nouvelle ligne)");
+    if (ImGui::InputTextMultiline("##texte", value, sizeof(value), ImVec2(-FLT_MIN, 100))) {
       text.text          = value;
       preview_dirty_     = true;
       placeholder_names_ = find_placeholders(document_);
@@ -244,11 +286,19 @@ void Editor::draw_properties(TemplateElement &element) {
     }
     if (ImGui::DragFloat("Taille police (mm)", &text.font_size_mm, 0.1f, 0.5f, 30.0f))
       preview_dirty_ = true;
+    if (ImGui::Checkbox("Gras", &text.bold))
+      preview_dirty_ = true;
+    int align = static_cast< int >(text.align);
+    if (ImGui::Combo("Alignement", &align, "Gauche\0Centré\0Droite\0")) {
+      text.align     = static_cast< TextAlign >(align);
+      preview_dirty_ = true;
+    }
   } else if (element.kind == ElementKind::QrCode) {
     QrElement &qr = std::get< QrElement >(element.content);
     char       payload[512];
     copy_to_buffer(payload, sizeof(payload), qr.payload);
-    if (ImGui::InputTextMultiline("Payload", payload, sizeof(payload), ImVec2(-1, 70))) {
+    ImGui::TextUnformatted("Contenu du QR code");
+    if (ImGui::InputTextMultiline("##payload", payload, sizeof(payload), ImVec2(-FLT_MIN, 60))) {
       qr.payload     = payload;
       preview_dirty_ = true;
       placeholder_names_ = find_placeholders(document_);
@@ -438,34 +488,45 @@ void Editor::draw_print_test_popup() {
       if (ImGui::InputText(name.c_str(), buffer, sizeof(buffer)))
         value = buffer;
     }
-    char device[256];
-    copy_to_buffer(device, sizeof(device), print_settings_.serial.device);
-    if (ImGui::InputText("Port série", device, sizeof(device)))
-      print_settings_.serial.device = device;
-    int baud = print_settings_.serial.baud_rate;
-    if (ImGui::InputInt("Débit", &baud))
-      print_settings_.serial.baud_rate = baud;
-    int density = print_settings_.density;
-    if (ImGui::SliderInt("Densité", &density, 1, 5))
-      print_settings_.density = density;
-    if (print_task_.valid()) {
-      ImGui::TextUnformatted("Impression en cours...");
-    } else if (ImGui::Button("Imprimer")) {
-      TemplateDocument test_document = document_;
-      test_document.parameters       = print_values_;
-      const RasterImage   test_image = render_template(test_document);
-      const PrintSettings settings   = print_settings_;
-      print_task_ = std::async(std::launch::async, [this, image = test_image, media = test_document.media, settings]() {
-        std::string error;
-        if (!printer_.connect(settings, error))
-          return PrintResult{ false, "Connexion imprimante: " + error };
+    if (print_callback_) {
+      // impression par la file de l'application (reglages d'imprimante et d'etiquette communs)
+      ImGui::TextDisabled("Imprimante et taille d'étiquette : Gestion > Réglages.");
+      if (ImGui::Button("Imprimer")) {
+        TemplateDocument test_document = document_;
+        test_document.parameters       = print_values_;
+        print_callback_(test_document);
+        print_test_open_ = false;
+      }
+    } else {
+      char device[256];
+      copy_to_buffer(device, sizeof(device), print_settings_.serial.device);
+      if (ImGui::InputText("Port série", device, sizeof(device)))
+        print_settings_.serial.device = device;
+      int baud = print_settings_.serial.baud_rate;
+      if (ImGui::InputInt("Débit", &baud))
+        print_settings_.serial.baud_rate = baud;
+      int density = print_settings_.density;
+      if (ImGui::SliderInt("Densité", &density, 1, 5))
+        print_settings_.density = density;
+      if (print_task_.valid()) {
+        ImGui::TextUnformatted("Impression en cours...");
+      } else if (ImGui::Button("Imprimer")) {
+        TemplateDocument test_document = document_;
+        test_document.parameters       = print_values_;
+        const RasterImage   test_image = render_template(test_document);
+        const PrintSettings settings   = print_settings_;
+        print_task_ = std::async(std::launch::async, [this, image = test_image, media = test_document.media, settings]() {
+          std::string error;
+          if (!printer_.connect(settings, error))
+            return PrintResult{ false, "Connexion imprimante: " + error };
 
-        const PrintRequest request{ image, media, settings };
-        const bool         printed = printer_.print(request, {}, error);
-        printer_.disconnect();
-        return PrintResult{ printed, error };
-      });
-      message_    = "Impression en cours...";
+          const PrintRequest request{ image, media, settings };
+          const bool         printed = printer_.print(request, {}, error);
+          printer_.disconnect();
+          return PrintResult{ printed, error };
+        });
+        message_    = "Impression en cours...";
+      }
     }
     // ImGui::SameLine();
     // if (!print_task_.valid() && ImGui::Button("Envoyer #20012")) {
@@ -541,9 +602,9 @@ void Editor::draw_contents() {
       ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp
     )
   ) {
-    ImGui::TableSetupColumn("Template", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-    ImGui::TableSetupColumn("Propriétés", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-    ImGui::TableSetupColumn("Aperçu", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+    ImGui::TableSetupColumn("Template", ImGuiTableColumnFlags_WidthStretch, 1.25f);
+    ImGui::TableSetupColumn("Propriétés", ImGuiTableColumnFlags_WidthStretch, 1.35f);
+    ImGui::TableSetupColumn("Aperçu", ImGuiTableColumnFlags_WidthStretch, 1.6f);
     ImGui::TableNextColumn();
     draw_document_panel();
     ImGui::TableNextColumn();

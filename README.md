@@ -174,6 +174,15 @@ Fond orange. Menu **Gestion** :
   (logo PNG ou JPEG).
 - **Réglages**.
 
+**Impression** : la taille des étiquettes chargées dans l'imprimante (largeur dans le sens de la tête,
+hauteur dans le sens du défilement) se règle dans **Réglages**. Un modèle dessiné dans l'autre sens
+(portrait / paysage) est tourné d'un quart de tour à l'impression (sens réglable, retournement à 180°
+possible) et centré. Sans modèle choisi pour un usage, seul le QR code est imprimé, centré.
+
+Dans l'éditeur, les textes peuvent être en **gras** et alignés (gauche, centré, droite). Le bouton
+**Ajouter le titre** insère `{{titre}}` centré et en gras ; son texte (« PROTECTION CIVILE / PARIS
+CENTRE » par défaut) se change dans les Réglages et s'applique à toutes les étiquettes.
+
 `app/templates/` contient un modèle d'exemple par usage (40 × 30 mm). Les modèles de lot public et
 de badge affichent `logo.png` : copier le logo de la protection civile sous ce nom dans le dossier
 des modèles.

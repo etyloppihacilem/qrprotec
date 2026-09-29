@@ -207,7 +207,8 @@ class InventoryWindow final : public AppWindow {
       ImGui::EndDisabled();
       help_marker("Début de l'identifiant de chaque item, ex: serphy pour du sérum phy. Non modifiable ensuite.");
       ImGui::InputText("Nom", &form_name_);
-      ImGui::InputTextMultiline("Description", &form_description_, ImVec2(-1, 60));
+      ImGui::TextUnformatted("Description");
+      ImGui::InputTextMultiline("##description", &form_description_, ImVec2(-FLT_MIN, 60));
       ImGui::SetNextItemWidth(150.0f);
       ImGui::InputInt("Quantité minimale en stock", &form_min_);
       ImGui::SetNextItemWidth(150.0f);

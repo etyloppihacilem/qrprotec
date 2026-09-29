@@ -897,6 +897,36 @@ void App::refresh_stock() {
   });
 }
 
+namespace {
+// Payload du QR code principal de chaque usage (utilise quand aucun modele n'est configure)
+std::string main_qr_payload(TemplateCategory category) {
+  switch (category) {
+    case TemplateCategory::Item: return "{{iid}}";
+    case TemplateCategory::ItemPack: return "{{pack_url}}";
+    case TemplateCategory::LotPublic: return "{{lot_url}}";
+    case TemplateCategory::LotPrivate: return "{{lot_private_url}}";
+    case TemplateCategory::User: return "{{badge_url}}";
+    case TemplateCategory::Generic: break;
+  }
+  return "{{iid}}";
+}
+} // namespace
+
+TemplateDocument App::qr_only_template(TemplateCategory category) const {
+  TemplateDocument document;
+  document.name             = "QR seul";
+  document.category         = category;
+  document.media.width_mm   = settings.label_width_mm;
+  document.media.height_mm  = settings.label_height_mm;
+  document.media.orientation = Orientation::Landscape;
+  const float margin = 1.5f;
+  const float size   = std::max(5.0f, std::min(settings.label_width_mm, settings.label_height_mm) - 2.0f * margin);
+  QrElement   qr{ main_qr_payload(category), (settings.label_width_mm - size) / 2.0f,
+                (settings.label_height_mm - size) / 2.0f, size };
+  document.elements.push_back({ "qr", ElementKind::QrCode, qr });
+  return document;
+}
+
 bool App::print_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what) {
   if (labels.empty())
     return false;
@@ -904,10 +934,12 @@ bool App::print_labels(TemplateCategory category, const std::vector< Parameters 
   const auto          path = settings.label_templates.find(info.id);
   TemplateDocument    model;
   std::string         error;
-  if (path == settings.label_templates.end() || !build_label(path->second, {}, model, error)) {
-    notify("Modèle d'étiquette \"" + info.label + "\" : " + (error.empty() ? "aucun modèle configuré" : error)
-             + " (Gestion > Réglages).",
-           true);
+  if (path == settings.label_templates.end() || path->second.empty()) {
+    // pas de modele : on imprime simplement le QR code centre sur l'etiquette
+    model = qr_only_template(category);
+    notify("Aucun modèle « " + info.label + " » : impression du QR code seul (Gestion > Réglages pour en choisir un).");
+  } else if (!build_label(path->second, {}, model, error)) {
+    notify("Modèle d'étiquette « " + info.label + " » : " + error + " (Gestion > Réglages).", true);
     return false;
   }
   std::vector< PrintJob > jobs;
@@ -917,13 +949,19 @@ bool App::print_labels(TemplateCategory category, const std::vector< Parameters 
     job.document    = model;
     job.document.parameters["today"]      = today().display();
     job.document.parameters["printed_by"] = user_name();
+    job.document.parameters["titre"]      = settings.label_title;
     for (const auto &[name, value] : labels[index])
       job.document.parameters[name] = value;
     jobs.push_back(std::move(job));
   }
-  printer.enqueue(std::move(jobs), settings.print);
-  notify(std::to_string(labels.size()) + " étiquette(s) envoyée(s) à l'imprimante.");
+  print_documents(std::move(jobs));
   return true;
+}
+
+void App::print_documents(std::vector< PrintJob > jobs) {
+  const std::size_t count = jobs.size();
+  printer.enqueue(std::move(jobs), settings.print, settings.physical_label());
+  notify(std::to_string(count) + " étiquette(s) envoyée(s) à l'imprimante.");
 }
 
 } // namespace qrprotec

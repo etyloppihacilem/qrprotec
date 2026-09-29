@@ -19,4 +19,7 @@ namespace qrprotec {
 // (third_party/fonts), polices systeme courantes, puis fontconfig (fc-match).
 const std::string &ui_font_path();
 
+// Variante grasse (DejaVuSans-Bold.ttf), ou vide : le rendu applique alors un gras synthetique.
+const std::string &bold_font_path();
+
 } // namespace qrprotec

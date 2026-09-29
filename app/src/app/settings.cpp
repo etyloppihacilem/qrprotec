@@ -40,16 +40,16 @@ float to_float(const std::string &value, float fallback) {
 
 AppSettings AppSettings::defaults() {
   AppSettings settings;
-  // pile de scans en colonne a droite, lots publics sur le reste de l'ecran
-  settings.layout["scan"] = { true, 0.70f, 0.0f, 0.30f, 1.0f };
-  settings.layout["lots"] = { true, 0.0f, 0.0f, 0.70f, 1.0f };
-  settings.layout["verif"] = { false, 0.0f, 0.0f, 0.70f, 1.0f };
-  settings.layout["stock"] = { false, 0.0f, 0.0f, 0.70f, 1.0f };
-  settings.layout["inventory"] = { false, 0.0f, 0.0f, 0.70f, 1.0f };
-  settings.layout["lot_admin"] = { false, 0.0f, 0.0f, 0.70f, 1.0f };
-  settings.layout["users"] = { false, 0.0f, 0.0f, 0.70f, 1.0f };
-  settings.layout["settings"] = { false, 0.1f, 0.05f, 0.55f, 0.9f };
-  settings.layout["editor"] = { false, 0.0f, 0.0f, 0.70f, 1.0f };
+  // pile de scans en colonne a droite ; les autres fenetres s'ouvrent en taille moyenne, en cascade
+  settings.layout["scan"] = { true, 0.72f, 0.0f, 0.28f, 1.0f };
+  settings.layout["lots"] = { true, 0.01f, 0.02f, 0.60f, 0.70f };
+  settings.layout["verif"] = { false, 0.03f, 0.05f, 0.58f, 0.80f };
+  settings.layout["stock"] = { false, 0.05f, 0.06f, 0.55f, 0.65f };
+  settings.layout["inventory"] = { false, 0.07f, 0.08f, 0.58f, 0.75f };
+  settings.layout["lot_admin"] = { false, 0.09f, 0.10f, 0.58f, 0.75f };
+  settings.layout["users"] = { false, 0.11f, 0.12f, 0.52f, 0.65f };
+  settings.layout["settings"] = { false, 0.20f, 0.05f, 0.45f, 0.85f };
+  settings.layout["editor"] = { false, 0.02f, 0.03f, 0.70f, 0.85f };
   return settings;
 }
 
@@ -60,9 +60,42 @@ std::filesystem::path AppSettings::file_path() {
   return std::filesystem::path(home) / ".config" / "qrprotec" / "app.conf";
 }
 
+namespace {
+std::string escape_line(const std::string &value) {
+  std::string output;
+  for (const char character : value)
+    output += character == '\n' ? std::string("\\n") : character == '\\' ? std::string("\\\\") : std::string(1, character);
+  return output;
+}
+
+std::string unescape_line(const std::string &value) {
+  std::string output;
+  for (std::size_t index = 0; index < value.size(); ++index) {
+    if (value[index] == '\\' && index + 1 < value.size()) {
+      output += value[index + 1] == 'n' ? '\n' : value[index + 1];
+      ++index;
+    } else {
+      output += value[index];
+    }
+  }
+  return output;
+}
+} // namespace
+
+PhysicalLabel AppSettings::physical_label() const {
+  PhysicalLabel label;
+  label.width_mm                = label_width_mm;
+  label.height_mm               = label_height_mm;
+  label.rotate_counterclockwise = rotate_counterclockwise;
+  label.flip                    = flip_labels;
+  return label;
+}
+
 void AppSettings::load() {
   std::ifstream input(file_path());
   std::string   line;
+  int           layout_version = 0;
+  std::map< std::string, WindowLayout > saved_layout;
   while (std::getline(input, line)) {
     const std::size_t separator = line.find('=');
     if (separator == std::string::npos || line[0] == '#')
@@ -113,6 +146,18 @@ void AppSettings::load() {
       scanner_signal.led_off = to_int(value, scanner_signal.led_off);
     else if (key == "scanner_led_count")
       scanner_signal.led_count = to_int(value, scanner_signal.led_count);
+    else if (key == "label_width_mm")
+      label_width_mm = std::clamp(to_float(value, label_width_mm), 5.0f, 200.0f);
+    else if (key == "label_height_mm")
+      label_height_mm = std::clamp(to_float(value, label_height_mm), 5.0f, 500.0f);
+    else if (key == "rotate_counterclockwise")
+      rotate_counterclockwise = to_int(value, 0) != 0;
+    else if (key == "flip_labels")
+      flip_labels = to_int(value, 0) != 0;
+    else if (key == "label_title")
+      label_title = unescape_line(value);
+    else if (key == "layout_version")
+      layout_version = to_int(value, 0);
     else if (key.rfind("layout.", 0) == 0) {
       WindowLayout       layout;
       int                open = 0;
@@ -120,10 +165,14 @@ void AppSettings::load() {
       char               comma = 0;
       if (stream >> open >> comma >> layout.x >> comma >> layout.y >> comma >> layout.w >> comma >> layout.h) {
         layout.open             = open != 0;
-        this->layout[key.substr(7)] = layout;
+        saved_layout[key.substr(7)] = layout;
       }
     }
   }
+  // une disposition enregistree par une version precedente (fenetres plein ecran) est ignoree
+  if (layout_version >= kLayoutVersion)
+    for (const auto &[id, window] : saved_layout)
+      layout[id] = window;
 }
 
 bool AppSettings::save(std::string &error) const {
@@ -133,7 +182,7 @@ bool AppSettings::save(std::string &error) const {
     std::filesystem::create_directories(path.parent_path(), code);
   std::ofstream output(path);
   if (!output) {
-    error = "Impossible d'ecrire " + path.string();
+    error = "Impossible d'écrire " + path.string();
     return false;
   }
   output << "# Réglages QRProtec (édités depuis la fenêtre Réglages)\n"
@@ -157,7 +206,13 @@ bool AppSettings::save(std::string &error) const {
          << "scanner_led_color=" << scanner_signal.led_color << '\n'
          << "scanner_led_on=" << scanner_signal.led_on << '\n'
          << "scanner_led_off=" << scanner_signal.led_off << '\n'
-         << "scanner_led_count=" << scanner_signal.led_count << '\n';
+         << "scanner_led_count=" << scanner_signal.led_count << '\n'
+         << "label_width_mm=" << label_width_mm << '\n'
+         << "label_height_mm=" << label_height_mm << '\n'
+         << "rotate_counterclockwise=" << (rotate_counterclockwise ? 1 : 0) << '\n'
+         << "flip_labels=" << (flip_labels ? 1 : 0) << '\n'
+         << "label_title=" << escape_line(label_title) << '\n'
+         << "layout_version=" << kLayoutVersion << '\n';
   for (const auto &[category, template_path] : label_templates)
     output << "template." << category << '=' << template_path << '\n';
   for (const auto &[id, window] : layout)

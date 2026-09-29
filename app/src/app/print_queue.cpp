@@ -26,12 +26,13 @@ PrintQueue::~PrintQueue() {
     thread_.join();
 }
 
-void PrintQueue::enqueue(std::vector< PrintJob > jobs, const PrintSettings &settings) {
+void PrintQueue::enqueue(std::vector< PrintJob > jobs, const PrintSettings &settings, const PhysicalLabel &label) {
   {
     std::lock_guard< std::mutex > lock(mutex_);
     if (jobs_.empty() && !status_.busy)
       status_.printed = 0;
     settings_ = settings;
+    label_    = label;
     for (PrintJob &job : jobs)
       jobs_.push_back(std::move(job));
     status_.pending = jobs_.size();
@@ -66,6 +67,7 @@ void PrintQueue::run() {
   for (;;) {
     PrintJob      job;
     PrintSettings settings;
+    PhysicalLabel label;
     {
       std::unique_lock< std::mutex > lock(mutex_);
       if (jobs_.empty() || status_.paused) {
@@ -81,18 +83,24 @@ void PrintQueue::run() {
         break;
       job             = jobs_.front();
       settings        = settings_;
+      label           = label_;
       status_.busy    = true;
       status_.current = job.description;
     }
-    std::string error;
-    bool        ok = connected || printer_.connect(settings, error);
+    std::string   error;
+    RasterImage   image;
+    MediaSettings media;
+    label.pixels_per_mm = job.document.media.pixels_per_mm;
+    bool ok = fit_to_label(render_template(job.document), label, image, media, error);
     if (ok) {
-      connected                  = true;
-      const RasterImage   image  = render_template(job.document);
-      const PrintRequest request{ image, job.document.media, settings };
-      ok = printer_.print(request, {}, error);
-    } else {
-      error = "Connexion imprimante : " + error;
+      ok = connected || printer_.connect(settings, error);
+      if (ok) {
+        connected = true;
+        const PrintRequest request{ image, media, settings };
+        ok = printer_.print(request, {}, error);
+      } else {
+        error = "Connexion imprimante : " + error;
+      }
     }
     std::lock_guard< std::mutex > lock(mutex_);
     if (ok) {

@@ -27,6 +27,8 @@ struct MediaSettings {
     double oriented_height_mm() const;
 };
 
+enum class TextAlign { Left, Center, Right };
+
 struct TextElement {
     std::string text;
     float x_mm = 2.0f;
@@ -34,6 +36,8 @@ struct TextElement {
     float width_mm = 36.0f;
     float height_mm = 8.0f;
     float font_size_mm = 3.0f;
+    bool bold = false;
+    TextAlign align = TextAlign::Left;
 };
 
 struct QrElement {

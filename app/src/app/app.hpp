@@ -133,6 +133,8 @@ class App {
 
     // Impression : un jeu de parametres par etiquette
     bool print_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what);
+    void print_documents(std::vector< PrintJob > jobs); // documents deja remplis (test de l'editeur)
+    TemplateDocument qr_only_template(TemplateCategory category) const;
 
     // Interface
     void        notify(const std::string &message, bool error = false);

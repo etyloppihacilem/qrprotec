@@ -37,17 +37,27 @@ std::string fontconfig_match() {
   return result;
 }
 
-std::string find_font() {
+std::string find_font(bool bold) {
+  const char *file = bold ? "DejaVuSans-Bold.ttf" : "DejaVuSans.ttf";
   std::vector< std::filesystem::path > candidates;
-  if (const char *env = std::getenv("QRPROTEC_FONT"))
+  if (const char *env = std::getenv(bold ? "QRPROTEC_FONT_BOLD" : "QRPROTEC_FONT"))
     candidates.emplace_back(env);
   std::error_code error;
   const auto      executable = std::filesystem::read_symlink("/proc/self/exe", error);
   if (!error)
-    candidates.push_back(executable.parent_path() / "fonts" / "DejaVuSans.ttf");
+    candidates.push_back(executable.parent_path() / "fonts" / file);
 #ifdef QRPROTEC_FONT_DIR
-  candidates.push_back(std::filesystem::path(QRPROTEC_FONT_DIR) / "DejaVuSans.ttf");
+  candidates.push_back(std::filesystem::path(QRPROTEC_FONT_DIR) / file);
 #endif
+  for (const std::string dir : { "/usr/share/fonts/truetype/dejavu/", "/usr/share/fonts/dejavu-sans-fonts/",
+                                 "/usr/share/fonts/dejavu/", "/usr/share/fonts/TTF/" })
+    candidates.emplace_back(dir + file);
+  if (bold) {
+    for (const auto &candidate : candidates)
+      if (usable(candidate))
+        return candidate.string();
+    return {};
+  }
   for (const char *path : { "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                             "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
                             "/usr/share/fonts/dejavu/DejaVuSans.ttf",
@@ -66,7 +76,12 @@ std::string find_font() {
 } // namespace
 
 const std::string &ui_font_path() {
-  static const std::string path = find_font();
+  static const std::string path = find_font(false);
+  return path;
+}
+
+const std::string &bold_font_path() {
+  static const std::string path = find_font(true);
   return path;
 }
 

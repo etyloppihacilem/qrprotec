@@ -118,6 +118,7 @@ TemplateCategory category_from_id(const std::string &id) {
 
 const std::vector< PlaceholderInfo > &common_placeholders() {
   static const std::vector< PlaceholderInfo > placeholders = {
+    { "titre", "Titre défini dans les Réglages (bouton « Ajouter le titre » de l'éditeur)", "PROTECTION CIVILE\nPARIS CENTRE" },
     { "today", "Date d'impression JJ/MM/AAAA", "29/09/2026" },
     { "printed_by", "Utilisateur connecté au moment de l'impression", "Jeanne Dupont" },
   };
