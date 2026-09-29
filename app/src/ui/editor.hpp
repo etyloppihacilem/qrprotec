@@ -71,6 +71,7 @@ private:
     double default_height_mm_ = 30.0;
     std::function< void(const TemplateDocument &) > print_callback_;
 
+    std::string loaded_templates_dir_;
     std::vector<std::filesystem::path> qr_files_;
     std::vector<std::filesystem::path> image_files_;
     std::vector<TemplateDocument> document_list_;

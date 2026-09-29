@@ -50,6 +50,7 @@ struct AppSettings {
     bool                                 flip_labels             = false;
     std::string                          label_title = "PROTECTION CIVILE\nPARIS CENTRE"; // {{titre}}
     std::map< std::string, std::string > label_templates; // id de categorie -> fichier .qr
+    std::string                          templates_dir; // vide = app/templates du depot (voir core/paths.hpp)
 
     // Signal de mauvais scan
     bool               sound_enabled = true;

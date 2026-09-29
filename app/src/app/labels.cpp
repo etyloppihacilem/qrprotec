@@ -11,6 +11,7 @@
 #include "labels.hpp"
 
 #include "../core/codes.hpp"
+#include "../core/paths.hpp"
 #include "../core/template_io.hpp"
 
 namespace qrprotec {
@@ -86,7 +87,7 @@ bool build_label(const std::string &template_path, const Parameters &values, Tem
     return false;
   }
   TemplateDocument document;
-  if (!load_template(document, template_path, error)) {
+  if (!load_template(document, resolve_template_path(template_path).string(), error)) {
     error = template_path + " : " + error;
     return false;
   }

@@ -14,6 +14,7 @@
 #include "../ui/widgets.hpp"
 #include "../ui/windows/windows.hpp"
 #include "labels.hpp"
+#include "../core/paths.hpp"
 
 #include "imgui_stdlib.h"
 
@@ -70,6 +71,7 @@ App::~App() = default;
 
 void App::apply_settings() {
   api.configure(settings.api_url, settings.api_token);
+  set_templates_dir(settings.templates_dir);
 }
 
 bool App::save_settings() {

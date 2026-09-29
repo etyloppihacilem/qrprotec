@@ -1,5 +1,6 @@
 #include "core/codes.hpp"
 #include "core/json.hpp"
+#include "core/paths.hpp"
 #include "core/placeholders.hpp"
 #include "core/template.hpp"
 #include "core/template_io.hpp"
@@ -9,6 +10,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 using namespace qrprotec;
@@ -171,6 +174,24 @@ static void test_text_and_label_fit() {
   assert(!fit_to_label(render_template(big), label, out, media, error) && !error.empty());
 }
 
+static void test_templates_dir() {
+  const std::filesystem::path dir = std::filesystem::temp_directory_path() / "qrprotec-templates-test";
+  std::filesystem::remove_all(dir);
+  set_templates_dir(dir.string()); // cree le dossier
+  assert(std::filesystem::is_directory(dir));
+  assert(resolve_template_path("item.qr") == dir / "item.qr");
+  assert(resolve_template_path("/abs/item.qr") == std::filesystem::path("/abs/item.qr"));
+  TemplateDocument document;
+  std::string      error;
+  assert(save_template(document, resolve_template_path("b.qr").string(), error));
+  assert(save_template(document, resolve_template_path("a.QR").string(), error));
+  std::ofstream(dir / "logo.png") << "x";
+  const auto found = glob_templates("*.qr");
+  assert(found.size() == 2 && found[0].filename() == "a.QR" && found[1].filename() == "b.qr");
+  std::filesystem::remove_all(dir);
+  set_templates_dir("");
+}
+
 int main() {
   test_json();
   test_dates();
@@ -178,6 +199,7 @@ int main() {
   test_http();
   test_qr_and_categories();
   test_text_and_label_fit();
+  test_templates_dir();
   std::puts("codes_test OK");
   return 0;
 }

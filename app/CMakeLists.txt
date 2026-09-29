@@ -59,6 +59,7 @@ add_library(QRProtecCore STATIC
     src/core/fonts.cpp
     src/core/glob_utils.cpp
     src/core/json.cpp
+    src/core/paths.cpp
     src/core/placeholders.cpp
     src/core/template.cpp
     src/core/template_io.cpp
@@ -76,7 +77,10 @@ target_include_directories(QRProtecCore PUBLIC
 )
 target_link_libraries(QRProtecCore PUBLIC PNG::PNG Freetype::Freetype Threads::Threads)
 # Police avec accents fournie avec les sources (copiee aussi a cote de l'executable)
-target_compile_definitions(QRProtecCore PRIVATE QRPROTEC_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts")
+target_compile_definitions(QRProtecCore PRIVATE
+    QRPROTEC_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts"
+    # modeles d'etiquettes suivis par git (app/templates)
+    QRPROTEC_TEMPLATES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/templates")
 
 add_library(QRProtecPrinter STATIC
     src/printer/niimbot_protocol.cpp

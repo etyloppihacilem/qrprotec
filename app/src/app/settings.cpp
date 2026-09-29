@@ -122,6 +122,8 @@ void AppSettings::load() {
       print.density = std::clamp(to_int(value, print.density), 1, 5);
     else if (key == "printer_label_type")
       print.label_type = std::clamp(to_int(value, print.label_type), 1, 3);
+    else if (key == "templates_dir")
+      templates_dir = value;
     else if (key.rfind("template.", 0) == 0)
       label_templates[key.substr(9)] = value;
     else if (key == "sound_enabled")
@@ -211,6 +213,7 @@ bool AppSettings::save(std::string &error) const {
          << "label_height_mm=" << label_height_mm << '\n'
          << "rotate_counterclockwise=" << (rotate_counterclockwise ? 1 : 0) << '\n'
          << "flip_labels=" << (flip_labels ? 1 : 0) << '\n'
+         << "templates_dir=" << templates_dir << '\n'
          << "label_title=" << escape_line(label_title) << '\n'
          << "layout_version=" << kLayoutVersion << '\n';
   for (const auto &[category, template_path] : label_templates)

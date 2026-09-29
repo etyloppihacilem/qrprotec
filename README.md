@@ -118,7 +118,7 @@ cd app
 git submodule update --init
 cmake -S . -B build && cmake --build build -j
 cd build && ctest
-cd ../templates && ../build/QRProtecApp   # les modèles *.qr sont lus dans le dossier courant
+./build/QRProtecApp   # les modèles *.qr sont lus et enregistrés dans app/templates/
 ```
 
 Dépendances : GLFW, OpenGL, libpng, FreeType, libxdo (SDK Inateck). L'encodeur QR
@@ -182,6 +182,10 @@ possible) et centré. Sans modèle choisi pour un usage, seul le QR code est imp
 Dans l'éditeur, les textes peuvent être en **gras** et alignés (gauche, centré, droite). Le bouton
 **Ajouter le titre** insère `{{titre}}` centré et en gras ; son texte (« PROTECTION CIVILE / PARIS
 CENTRE » par défaut) se change dans les Réglages et s'applique à toutes les étiquettes.
+
+**Modèles versionnés** : les modèles `*.qr` et leurs images (logo) sont lus et enregistrés dans
+`app/templates/`, quel que soit le dossier de lancement. Commitez-y vos modèles pour les retrouver à
+chaque clone (autre dossier possible dans les Réglages ou via `QRPROTEC_TEMPLATES_DIR`).
 
 `app/templates/` contient un modèle d'exemple par usage (40 × 30 mm). Les modèles de lot public et
 de badge affichent `logo.png` : copier le logo de la protection civile sous ce nom dans le dossier

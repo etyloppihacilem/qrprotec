@@ -1,6 +1,7 @@
 #include "editor.hpp"
 #include "../core/glob_utils.hpp"
 #include "../core/template_io.hpp"
+#include "../core/paths.hpp"
 #include "../core/placeholders.hpp"
 #include "core/template.hpp"
 #include "imgui.h"
@@ -68,16 +69,17 @@ void Editor::new_template() {
 
 void Editor::reload_templates() {
   image_files_.clear();
-  for (const char *pattern : { "*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG" })
-    for (const auto &path : glob_current_dir(pattern))
+  for (const char *pattern : { "*.png", "*.jpg", "*.jpeg" })
+    for (const auto &path : glob_templates(pattern))
       image_files_.push_back(path);
-  qr_files_ = glob_current_dir("*.qr");
+  loaded_templates_dir_ = templates_dir().string();
+  qr_files_             = glob_templates("*.qr");
   document_list_.clear();
   for (auto path : qr_files_) {
     TemplateDocument new_template;
     std::string      error;
     if (load_template(new_template, path, error)) {
-      new_template.path = path;
+      new_template.path = path.filename().string(); // relatif au dossier des modeles
       document_list_.push_back(new_template);
     } else
       ; // TODO: faire un truc avec l'erreur
@@ -560,6 +562,8 @@ void Editor::draw() {
 }
 
 void Editor::draw_contents() {
+  if (loaded_templates_dir_ != templates_dir().string())
+    reload_templates(); // dossier des modeles change dans les Reglages
   if (ImGui::BeginMenuBar()) {
     if (ImGui::BeginMenu("File")) {
       if (ImGui::BeginMenu("Open")) {
@@ -580,12 +584,16 @@ void Editor::draw_contents() {
       }
       if (ImGui::MenuItem("Save", "Ctrl+S")) {
         std::string error;
+        if (!template_path_.empty() && std::filesystem::path(template_path_).extension() != ".qr")
+          template_path_ += ".qr";
         if (template_path_ != "")
-          message_ = save_template(document_, template_path_, error) ? "Template enregistre." : error;
+          message_ = save_template(document_, resolve_template_path(template_path_).string(), error)
+                       ? "Modèle enregistré dans " + resolve_template_path(template_path_).string()
+                       : error;
         if (template_path_ != "")
           reload_templates();
         else
-          message_ = "Entrez un nom de fichier terminant par .qr.";
+          message_ = "Entrez un nom de fichier (ex: item.qr) : il sera enregistré dans le dossier des modèles.";
       }
       if (ImGui::MenuItem("New", "Ctrl+N")) {
         new_template();

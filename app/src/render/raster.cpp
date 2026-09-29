@@ -1,6 +1,8 @@
 #include "raster.hpp"
 #include "image_loader.hpp"
 #include "../core/fonts.hpp"
+#include "../core/paths.hpp"
+#include <filesystem>
 
 #include "qrcodegen.hpp"
 
@@ -162,7 +164,11 @@ void draw_qr(RasterImage& image, const QrElement& qr, const std::string& payload
 void draw_image(RasterImage& image, const ImageElement& element, double scale)
 {
     std::string error;
-    const std::shared_ptr<const GrayImage> source = load_gray_image(element.path, error);
+    // chemin relatif : cherche d'abord dans le dossier des modeles (logo commite avec les modeles)
+    std::error_code exists_error;
+    const std::filesystem::path in_templates = resolve_template_path(element.path);
+    const std::string image_path = std::filesystem::exists(in_templates, exists_error) ? in_templates.string() : element.path;
+    const std::shared_ptr<const GrayImage> source = load_gray_image(image_path, error);
     if (!source || source->width <= 0 || source->height <= 0) return;
     const int box_left = static_cast<int>(element.x_mm * scale);
     const int box_top = static_cast<int>(element.y_mm * scale);

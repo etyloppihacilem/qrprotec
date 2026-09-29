@@ -8,7 +8,7 @@
 
 ##################################################################################################################### */
 
-#include "../../core/glob_utils.hpp"
+#include "../../core/paths.hpp"
 #include "../../core/template_io.hpp"
 #include "../editor.hpp"
 #include "../widgets.hpp"
@@ -94,10 +94,18 @@ class SettingsWindow final : public AppWindow {
       }
 
       if (ImGui::CollapsingHeader("Étiquettes et impression", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextUnformatted("Dossier des modèles (fichiers .qr et images, à commiter avec le dépôt) :");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputTextWithHint("##templates_dir", default_templates_dir().c_str(), &settings.templates_dir,
+                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
+          set_templates_dir(settings.templates_dir);
+          scan_templates();
+        }
+        ImGui::TextDisabled("Utilisé : %s (vide = app/templates du dépôt)", templates_dir().string().c_str());
         if (ImGui::Button("Relire les modèles"))
           scan_templates();
         ImGui::SameLine();
-        ImGui::TextDisabled("Modèles *.qr du dossier courant (créés dans l'Éditeur d'étiquettes)");
+        ImGui::TextDisabled("Modèles *.qr du dossier ci-dessus (créés dans l'Éditeur d'étiquettes)");
         for (const CategoryInfo &info : template_categories()) {
           if (info.category == TemplateCategory::Generic)
             continue;
@@ -188,7 +196,7 @@ class SettingsWindow final : public AppWindow {
   private:
     void scan_templates() {
       templates_.clear();
-      for (const auto &path : glob_current_dir("*.qr")) {
+      for (const auto &path : glob_templates("*.qr")) {
         TemplateDocument document;
         std::string      error;
         if (load_template(document, path.string(), error))
