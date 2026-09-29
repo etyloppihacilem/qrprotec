@@ -11,7 +11,8 @@ après chaque clone.
   variable d'environnement `QRPROTEC_TEMPLATES_DIR`.
 - Les images d'un modèle (ex : `logo.png`) sont cherchées d'abord dans ce dossier : placez-y le logo de
   la protection civile pour qu'il soit versionné avec les modèles.
-- Le modèle utilisé pour chaque usage (item, paquet, lot public/privé, badge) se choisit dans les
+- Le modèle utilisé pour chaque usage (item, paquet, lot public/privé, scellé, badge) se choisit dans les
   Réglages.
 
-Modèles fournis (40 × 30 mm) : `item.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `badge.qr`.
+Modèles fournis (40 × 30 mm) : `item.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
+`badge.qr`.

@@ -34,7 +34,7 @@ class LotsWindow final : public AppWindow {
           select(app, selected_);
       }
       if (const std::string id = app.take_lot_to_show(); !id.empty())
-        select(app, id); // etiquette publique scannee
+        select(app, id, app.take_seal_to_show()); // etiquette publique ou scelle scanne
       if (ImGui::Button("Rafraîchir"))
         app.refresh_lots();
       ImGui::SameLine();
@@ -84,11 +84,11 @@ class LotsWindow final : public AppWindow {
         const LotStatus   status   = lot_status(lot);
         if (!search_matches(filter_, name + " " + id + " " + lot["lot_type_name"].str()))
           continue;
-        if (only_problems_ && status == LotStatus::Verified && soon == 0)
+        if (only_problems_ && lot_ok(status) && soon == 0)
           continue;
         ImGui::TableNextRow();
         // vert = verifie et complet, rouge sinon (incomplet, perimes, jamais verifie)
-        row_color(lot_status_color(status), status == LotStatus::Verified ? 0.22f : 0.30f);
+        row_color(lot_status_color(status), lot_ok(status) ? 0.22f : 0.30f);
         ImGui::TableNextColumn();
         if (ImGui::Selectable((name + "##" + id).c_str(), selected_ == id, ImGuiSelectableFlags_SpanAllColumns))
           select(app, id);
@@ -121,14 +121,18 @@ class LotsWindow final : public AppWindow {
       ImGui::EndTable();
     }
 
-    void select(App &app, const std::string &id) {
-      selected_ = id;
-      details_  = Json();
-      app.api.get("/api/lots/" + url_encode(id) + "/", [this, &app, id](const ApiResult &result) {
+    void select(App &app, const std::string &id, const std::string &seal = {}) {
+      selected_   = id;
+      details_    = Json();
+      seal_check_.clear();
+      const std::string query = seal.empty() ? "" : "?seal=" + url_encode(seal);
+      app.api.get("/api/lots/" + url_encode(id) + "/" + query, [this, &app, id](const ApiResult &result) {
         if (selected_ != id)
           return;
-        if (result.ok)
-          details_ = result.data;
+        if (result.ok) {
+          details_    = result.data;
+          seal_check_ = result.data["seal_check"].str();
+        }
         else
           app.notify(result.error, true);
       });
@@ -146,13 +150,27 @@ class LotsWindow final : public AppWindow {
       ImGui::Text("Dernière vérif : %s par %s", display_datetime(details_["last_verif"]).c_str(),
                   details_["last_verif_by"].str("-").c_str());
       const LotStatus status = lot_status(details_);
-      std::string     banner = status == LotStatus::Verified ? "✔ LOT VÉRIFIÉ ET COMPLET"
-                             : status == LotStatus::Never   ? "✘ LOT JAMAIS VÉRIFIÉ"
-                                                            : "✘ LOT INCOMPLET";
-      if (details_["expired_count"].integer() > 0)
-        banner += " – contient des périmés";
-      status_banner(banner, lot_status_color(status));
-      if (primary_button("Lancer une vérif", ImVec2(-1, 0)))
+      // QR code de scelle scanne : resultat du controle
+      if (!seal_check_.empty()) {
+        if (seal_check_ == "valid")
+          status_banner("✔ SCELLÉ INTACT : pas de vérif nécessaire", colors::green);
+        else if (seal_check_ == "wrong")
+          status_banner("✘ ÉTIQUETTE D'UN ANCIEN SCELLÉ", colors::red);
+        else
+          status_banner("✘ SCELLÉ BRISÉ : vérif nécessaire", colors::red);
+      }
+      status_banner(lot_status_banner(details_), lot_status_color(status));
+      if (details_["is_sealed"].boolean()) {
+        ImGui::TextWrapped("Scellé le %s par %s. Tant que le scellé est intact, le lot n'a pas besoin de vérif.",
+                           display_datetime(details_["sealed"]).c_str(), details_["sealed_by"].str("-").c_str());
+      } else if (!details_["unsealed"].is_null()) {
+        ImGui::TextDisabled("Dernier scellé brisé le %s par %s", display_datetime(details_["unsealed"]).c_str(),
+                            details_["unsealed_by"].str("-").c_str());
+      }
+      if (details_["is_sealed"].boolean()) {
+        if (ImGui::Button("Lancer une vérif (brise le scellé)", ImVec2(-1, 0)))
+          app.start_verif(details_["id"].str(), "");
+      } else if (primary_button("Lancer une vérif", ImVec2(-1, 0)))
         app.start_verif(details_["id"].str(), "");
       if (ImGui::Button("Fermer", ImVec2(-1, 0)))
         selected_.clear();
@@ -223,6 +241,7 @@ class LotsWindow final : public AppWindow {
     std::string selected_;
     int         seen_lots_version_ = -1;
     Json        details_;
+    std::string seal_check_; // resultat du QR de scelle scanne ("valid", "wrong", "unsealed")
 };
 
 } // namespace

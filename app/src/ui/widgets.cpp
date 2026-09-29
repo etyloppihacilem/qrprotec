@@ -10,6 +10,7 @@
 
 #include "widgets.hpp"
 
+#include "../core/codes.hpp"
 #include "../core/search.hpp"
 #include "imgui_internal.h"
 #include "imgui_stdlib.h"
@@ -248,13 +249,19 @@ void status_banner(const std::string &text, const ImVec4 &color, float scale) {
 }
 
 LotStatus lot_status(const Json &lot) {
+  if (lot["is_sealed"].boolean())
+    return lot["expired_count"].integer() > 0 ? LotStatus::SealedExpired : LotStatus::Sealed;
   if (lot["last_verif"].is_null())
     return LotStatus::Never;
   return lot["complete"].boolean() ? LotStatus::Verified : LotStatus::Incomplete;
 }
 
+bool lot_ok(LotStatus status) {
+  return status == LotStatus::Verified || status == LotStatus::Sealed;
+}
+
 ImVec4 lot_status_color(LotStatus status) {
-  return status == LotStatus::Verified ? colors::green : colors::red;
+  return lot_ok(status) ? colors::green : colors::red;
 }
 
 const char *lot_status_label(LotStatus status) {
@@ -262,8 +269,32 @@ const char *lot_status_label(LotStatus status) {
     case LotStatus::Verified: return "✔ Complet";
     case LotStatus::Incomplete: return "✘ Incomplet";
     case LotStatus::Never: return "✘ Jamais vérifié";
+    case LotStatus::Sealed: return "✔ Scellé";
+    case LotStatus::SealedExpired: return "✘ Scellé, périmés";
   }
   return "";
+}
+
+std::string lot_status_banner(const Json &lot) {
+  const LotStatus status = lot_status(lot);
+  std::string     banner;
+  switch (status) {
+    case LotStatus::Sealed: {
+      banner = "✔ LOT SCELLÉ";
+      if (!lot["seal_number"].str().empty())
+        banner += " n°" + lot["seal_number"].str();
+      if (const auto until = Date::parse(lot["valid_until"].str()))
+        banner += " – valide jusqu'au " + until->display();
+      return banner;
+    }
+    case LotStatus::SealedExpired: return "✘ LOT SCELLÉ MAIS CONTIENT DES PÉRIMÉS – à ouvrir";
+    case LotStatus::Verified: return "✔ LOT VÉRIFIÉ ET COMPLET";
+    case LotStatus::Never: banner = "✘ LOT JAMAIS VÉRIFIÉ"; break;
+    case LotStatus::Incomplete: banner = "✘ LOT INCOMPLET"; break;
+  }
+  if (lot["expired_count"].integer() > 0)
+    banner += " – contient des périmés";
+  return banner;
 }
 
 void help_marker(const char *text) {

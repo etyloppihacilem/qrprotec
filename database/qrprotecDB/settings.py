@@ -71,6 +71,8 @@ QRPROTEC = {
     'LOT_KEY_VALIDITY_DAYS': int(os.environ.get('QRPROTEC_LOT_KEY_VALIDITY_DAYS', '3650')),
     # Un item non perime est considere disparu apres ce nombre de verifs sans etre scanne
     'MISSING_AFTER_VERIFS': int(os.environ.get('QRPROTEC_MISSING_AFTER_VERIFS', '3')),
+    # Envoi des SMS dans la requete (1) ou dans un thread (0, defaut)
+    'SMS_SYNC': os.environ.get('QRPROTEC_SMS_SYNC', '0') == '1',
 }
 
 REST_FRAMEWORK = {

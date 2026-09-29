@@ -13,7 +13,7 @@ enum class Orientation { Portrait, Landscape };
 enum class ElementKind { Text, QrCode, Image };
 
 // Usage d'un modele : determine les placeholders disponibles (voir placeholders.hpp).
-enum class TemplateCategory { Generic, Item, ItemPack, LotPublic, LotPrivate, User };
+enum class TemplateCategory { Generic, Item, ItemPack, LotPublic, LotPrivate, LotSeal, User };
 
 struct MediaSettings {
     double width_mm = 40.0;

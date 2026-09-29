@@ -22,6 +22,7 @@ namespace {
 struct RequirementRow {
     std::string type;
     int         quantity = 1;
+    std::string location; // emplacement dans le lot (ex: pochette bleue)
 };
 
 // Creation et agrement des lots, types de lots et edition des etiquettes publique / privee.
@@ -157,6 +158,68 @@ class LotAdminWindow final : public AppWindow {
         app.print_labels(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privée)");
     }
 
+    // Scelle : un lot scelle est valide sans verif ; une verif, un ajout ou un retrait d'items brise le scelle.
+    void draw_seal(App &app) {
+      ImGui::SeparatorText("Scellé");
+      const std::string name = lot_["name"].str();
+      if (lot_["is_sealed"].boolean()) {
+        ImGui::Text("Scellé%s le %s par %s", lot_["seal_number"].str().empty() ? "" : (" n°" + lot_["seal_number"].str()).c_str(),
+                    display_datetime(lot_["sealed"]).c_str(), lot_["sealed_by"].str("-").c_str());
+        if (ImGui::Button("Étiquette du scellé"))
+          app.preview_labels(TemplateCategory::LotSeal, { lot_parameters(lot_) }, "Scellé " + name);
+        ImGui::SameLine();
+        if (confirm_button("Briser le scellé", "Le lot devra être vérifié avant utilisation. Continuer ?", "unseal")) {
+          Json body;
+          body["user"]   = app.user_ref();
+          body["reason"] = "ouverture";
+          app.api.post("/api/lots/" + url_encode(selected_lot_) + "/unseal/", body, [this, &app](const ApiResult &result) {
+            if (!result.ok) {
+              app.notify(result.error, true);
+              return;
+            }
+            lot_ = result.data;
+            app.notify("Scellé brisé : le lot doit être vérifié.");
+            app.refresh_lots();
+          });
+        }
+        return;
+      }
+      if (!lot_["unsealed"].is_null())
+        ImGui::TextDisabled("Dernier scellé brisé le %s par %s", display_datetime(lot_["unsealed"]).c_str(),
+                            lot_["unsealed_by"].str("-").c_str());
+      ImGui::TextWrapped("Un lot scellé est valide sans vérif tant que le scellé est intact. Faites une vérif "
+                         "complète, fermez le lot avec un scellé puis imprimez l'étiquette du scellé.");
+      ImGui::SetNextItemWidth(160.0f);
+      ImGui::InputTextWithHint("Numéro du scellé", "facultatif", &seal_number_);
+      const bool ok = lot_ok(lot_status(lot_));
+      if (!ok)
+      {
+        ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
+        ImGui::TextWrapped("Lot incomplet ou jamais vérifié : faites d'abord une vérif complète.");
+        ImGui::PopStyleColor();
+      }
+      if (ok ? primary_button("Sceller le lot et imprimer l'étiquette") : ImGui::Button("Sceller quand même"))
+        seal(app, !ok);
+    }
+
+    void seal(App &app, bool force) {
+      Json body;
+      body["user"]        = app.user_ref();
+      body["seal_number"] = seal_number_;
+      body["force"]       = force;
+      app.api.post("/api/lots/" + url_encode(selected_lot_) + "/seal/", body, [this, &app](const ApiResult &result) {
+        if (!result.ok) {
+          app.notify(result.error, true);
+          return;
+        }
+        lot_ = result.data;
+        seal_number_.clear();
+        app.notify("Lot scellé : collez l'étiquette sur le scellé.");
+        app.preview_labels(TemplateCategory::LotSeal, { lot_parameters(lot_) }, "Scellé " + lot_["name"].str());
+        app.refresh_lots();
+      });
+    }
+
     void update_lot(App &app, const Json &body) {
       app.api.patch("/api/lots/" + url_encode(selected_lot_) + "/update/", body, [this, &app](const ApiResult &result) {
         if (!result.ok) {
@@ -182,10 +245,8 @@ class LotAdminWindow final : public AppWindow {
       ImGui::Text("Dernière vérif : %s%s", display_datetime(lot_["last_verif"]).c_str(),
                   lot_["last_verif_by"].str().empty() ? "" : (" par " + lot_["last_verif_by"].str()).c_str());
       const LotStatus status = lot_status(lot_);
-      status_banner(status == LotStatus::Verified ? "✔ Lot vérifié et complet"
-                    : status == LotStatus::Never  ? "✘ Lot jamais vérifié"
-                                                  : "✘ Lot incomplet",
-                    lot_status_color(status), 1.1f);
+      status_banner(lot_status_banner(lot_), lot_status_color(status), 1.1f);
+      draw_seal(app);
 
       ImGui::SeparatorText("Étiquettes");
       if (primary_button("Aperçu des étiquettes publique et privée", ImVec2(-FLT_MIN, 0)))
@@ -231,14 +292,26 @@ class LotAdminWindow final : public AppWindow {
         update_lot(app, body);
       }
       ImGui::SameLine();
-      if (ImGui::Button("Lancer une vérif"))
+      if (ImGui::Button(lot_["is_sealed"].boolean() ? "Lancer une vérif (brise le scellé)" : "Lancer une vérif"))
         app.start_verif(selected_lot_, lot_["verif_key"].str());
 
       ImGui::SeparatorText("Contenu");
-      for (const Json &row : lot_["requirements"].items()) {
-        ImGui::TextUnformatted(row["type_name"].str().c_str());
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.55f);
-        stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(-FLT_MIN, 0));
+      if (ImGui::BeginTable("lot_requirements", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Emplacement", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Quantité", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+        ImGui::TableHeadersRow();
+        for (const Json &row : lot_["requirements"].items()) {
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row["type_name"].str().c_str());
+          ImGui::TableNextColumn();
+          const std::string location = row["location"].str();
+          ImGui::TextDisabled("%s", location.empty() ? "-" : location.c_str());
+          ImGui::TableNextColumn();
+          stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(-FLT_MIN, 0));
+        }
+        ImGui::EndTable();
       }
       ImGui::Text("%d item(s), dont %d périmé(s).", lot_["item_count"].integer(), lot_["expired_count"].integer());
       if (ImGui::BeginTable("lot_items", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
@@ -316,14 +389,19 @@ class LotAdminWindow final : public AppWindow {
       }
 
       ImGui::SeparatorText("Contenu attendu");
+      ImGui::TextDisabled("Type d'item, emplacement dans le lot (facultatif, affiché pendant la vérif), quantité.");
       int remove = -1;
       for (std::size_t index = 0; index < requirements_.size(); ++index) {
         RequirementRow &row = requirements_[index];
         ImGui::PushID(static_cast< int >(index));
+        const float width = ImGui::GetContentRegionAvail().x;
         search_select("type", app.catalog.item_types, "type", "name", row.type, "Tapez le nom du type d'item…",
-                      nullptr, ImGui::GetContentRegionAvail().x * 0.6f);
+                      nullptr, width * 0.42f);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(110.0f);
+        ImGui::SetNextItemWidth(width * 0.28f);
+        ImGui::InputTextWithHint("##location", "Emplacement (ex : pochette bleue)", &row.location);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90.0f);
         ImGui::InputInt("##qty", &row.quantity);
         row.quantity = std::max(1, row.quantity);
         ImGui::SameLine();
@@ -345,6 +423,7 @@ class LotAdminWindow final : public AppWindow {
           Json entry;
           entry["type"]     = row.type;
           entry["quantity"] = row.quantity;
+          entry["location"] = row.location;
           body["requirements"].push_back(entry);
         }
         app.api.put("/api/lot-types/" + url_encode(editing_lot_type_) + "/requirements/", body,
@@ -368,7 +447,7 @@ class LotAdminWindow final : public AppWindow {
       type_description_ = lot_type["description"].str();
       requirements_.clear();
       for (const Json &row : lot_type["requirements"].items())
-        requirements_.push_back({ row["type"].str(), row["quantity"].integer(1) });
+        requirements_.push_back({ row["type"].str(), row["quantity"].integer(1), row["location"].str() });
     }
 
     // Lots
@@ -382,6 +461,7 @@ class LotAdminWindow final : public AppWindow {
     std::string new_lot_name_;
     std::string new_lot_short_;
     bool        print_new_ = true;
+    std::string seal_number_;
     // Types de lots
     std::string                   editing_lot_type_;
     std::string                   type_code_;

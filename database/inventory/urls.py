@@ -20,6 +20,7 @@ public_patterns = [
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/verif/', views.lot_verif),
     path('lots/<str:lot_id>/add/', views.lot_add_items),
+    path('lots/<str:lot_id>/unseal/', views.lot_unseal),
     path('packs/<str:pack_id>/', views.sealed_pack_detail),
 ]
 
@@ -43,11 +44,16 @@ local_patterns = [
     path('lots/', views.lots),
     path('lots/<str:lot_id>/update/', views.lot_update),
     path('lots/<str:lot_id>/rotate-key/', views.lot_rotate_key),
+    path('lots/<str:lot_id>/seal/', views.lot_seal),
     path('lots/<str:lot_id>/verifs/', views.lot_verifs),
     path('setup/', views.setup),
     path('users/', views.users),
     path('users/<str:matricule>/', views.user_detail),
     path('users/<str:matricule>/renew-key/', views.user_renew_key),
+    path('notifications/', views.notification_settings),
+    path('notifications/recipients/', views.sms_recipients),
+    path('notifications/recipients/<int:recipient_id>/', views.sms_recipient_detail),
+    path('notifications/test/', views.sms_test),
 ]
 
 # Front web mobile : repond aux URLs des QR codes (a la racine du domaine public)
@@ -56,5 +62,6 @@ web_patterns = [
     path('verif', web_views.page),
     path('badge', web_views.page),
     path('pack', web_views.page),
+    path('seal', web_views.page),
     path('web/<path:name>', web_views.asset),
 ]

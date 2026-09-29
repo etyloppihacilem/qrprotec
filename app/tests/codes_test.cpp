@@ -71,6 +71,9 @@ static void test_scans() {
   assert(badge.kind == ScanKind::User && badge.id == "M001" && badge.key == "K");
   const ParsedScan pack = parse_scan("https://example.com/pack?id=0000002B");
   assert(pack.kind == ScanKind::SealedPack && pack.id == "0000002B");
+  const ParsedScan seal = parse_scan("https://example.com/seal?lot=sacpse00000001&s=AbC123");
+  assert(seal.kind == ScanKind::LotSeal && seal.id == "sacpse00000001" && seal.key == "AbC123");
+  assert(parse_scan("https://example.com/seal?lot=sacpse00000001").kind == ScanKind::Unknown);
   assert(parse_scan("n'importe quoi").kind == ScanKind::Unknown);
   assert(parse_scan("compre2026123100000!A1").kind == ScanKind::Unknown);
 }

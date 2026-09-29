@@ -16,6 +16,7 @@
 #include "../ui/windows/windows.hpp"
 #include "labels.hpp"
 #include "../core/paths.hpp"
+#include "../core/template_io.hpp"
 
 #include "imgui_stdlib.h"
 
@@ -569,6 +570,7 @@ void App::handle_scan(const std::string &code, ScanSource source) {
   switch (scan.kind) {
     case ScanKind::User: login_with_badge(scan, source); return;
     case ScanKind::Lot: scan_lot(scan, source); return;
+    case ScanKind::LotSeal: scan_lot_seal(scan, source); return;
     case ScanKind::Item: {
       ScanEntry &entry = stack.add(scan, source);
       const int  id    = entry.id;
@@ -677,6 +679,32 @@ void App::resolve_pack(int entry_id) {
   });
 }
 
+// QR code d'un scelle : le lot est valide sans verif tant que le scelle est intact.
+void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
+  show_lot(scan.id, scan.key);
+  api.get("/api/lots/" + url_encode(scan.id) + "/?seal=" + url_encode(scan.key),
+          [this, id = scan.id, source](const ApiResult &result) {
+            if (!result.ok) {
+              feedback.error(source, settings);
+              notify("Lot inconnu : " + id, true);
+              return;
+            }
+            const std::string check = result.data["seal_check"].str();
+            const std::string name  = result.data["name"].str();
+            if (check != "valid") {
+              feedback.error(source, settings);
+              notify(check == "wrong" ? name + " : étiquette d'un ancien scellé, vérif nécessaire."
+                                      : name + " : scellé brisé, vérif nécessaire.",
+                     true);
+            } else if (result.data["expired_count"].integer() > 0) {
+              feedback.error(source, settings);
+              notify(name + " : scellé intact mais contient des périmés, à ouvrir.", true);
+            } else {
+              notify(name + " : scellé intact, lot valide.");
+            }
+          });
+}
+
 void App::scan_lot(const ParsedScan &scan, ScanSource source) {
   if (!scan.key.empty()) {
     stack.target = { scan.id, scan.key, scan.id };
@@ -724,9 +752,16 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Verifs et mouvements
 
-void App::show_lot(const std::string &lot_id) {
-  lot_to_show_ = lot_id;
+void App::show_lot(const std::string &lot_id, const std::string &seal_code) {
+  lot_to_show_  = lot_id;
+  seal_to_show_ = seal_code;
   open_window("lots");
+}
+
+std::string App::take_seal_to_show() {
+  std::string code;
+  code.swap(seal_to_show_);
+  return code;
 }
 
 std::string App::take_lot_to_show() {
@@ -975,6 +1010,7 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::ItemPack: return "{{pack_url}}";
     case TemplateCategory::LotPublic: return "{{lot_url}}";
     case TemplateCategory::LotPrivate: return "{{lot_private_url}}";
+    case TemplateCategory::LotSeal: return "{{seal_url}}";
     case TemplateCategory::User: return "{{badge_url}}";
     case TemplateCategory::Generic: break;
   }
@@ -1002,14 +1038,25 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
   if (labels.empty())
     return false;
   const CategoryInfo &info = category_info(category);
-  const auto          path = settings.label_templates.find(info.id);
-  TemplateDocument    model;
-  std::string         error;
-  if (path == settings.label_templates.end() || path->second.empty()) {
+  std::string         path;
+  if (const auto configured = settings.label_templates.find(info.id); configured != settings.label_templates.end())
+    path = configured->second;
+  // pas de modele choisi : premier modele du dossier fait pour cet usage (ex : scelle.qr)
+  for (const auto &candidate : path.empty() ? glob_templates("*.qr") : std::vector< std::filesystem::path >{}) {
+    TemplateDocument document;
+    std::string      ignored;
+    if (load_template(document, candidate.string(), ignored) && document.category == category) {
+      path = candidate.filename().string();
+      break;
+    }
+  }
+  TemplateDocument model;
+  std::string      error;
+  if (path.empty()) {
     // pas de modele : on imprime simplement le QR code centre sur l'etiquette
     model = qr_only_template(category);
     notify("Aucun modèle « " + info.label + " » : QR code seul (Gestion > Réglages pour en choisir un).");
-  } else if (!build_label(path->second, {}, model, error)) {
+  } else if (!build_label(path, {}, model, error)) {
     notify("Modèle d'étiquette « " + info.label + " » : " + error + " (Gestion > Réglages).", true);
     return false;
   }

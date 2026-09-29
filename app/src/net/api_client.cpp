@@ -70,6 +70,10 @@ void ApiClient::patch(const std::string &path, const Json &body, Callback callba
   enqueue("PATCH", path, &body, std::move(callback));
 }
 
+void ApiClient::remove(const std::string &path, Callback callback) {
+  enqueue("DELETE", path, nullptr, std::move(callback));
+}
+
 void ApiClient::put(const std::string &path, const Json &body, Callback callback) {
   enqueue("PUT", path, &body, std::move(callback));
 }

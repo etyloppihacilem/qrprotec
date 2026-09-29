@@ -98,8 +98,13 @@ def lot_type_dict(lot_type):
         'description': lot_type.description,
         'version': lot_type.version,
         'requirements': [
-            {'type': requirement.item_type_id, 'type_name': requirement.item_type.name, 'quantity': requirement.quantity}
-            for requirement in lot_type.requirements.select_related('item_type').order_by('item_type__name')
+            {
+                'type': requirement.item_type_id,
+                'type_name': requirement.item_type.name,
+                'quantity': requirement.quantity,
+                'location': requirement.location,
+            }
+            for requirement in lot_type.requirements.select_related('item_type').order_by('location', 'item_type__name')
         ],
     }
 
@@ -120,6 +125,13 @@ def lot_dict(lot, local=False, with_items=False, today=None):
         'version': lot.version,
         'active': lot.active,
         'is_sealed': lot.is_sealed,
+        'sealed': _date(lot.sealed) if lot.is_sealed else None,
+        'sealed_by': _who(lot.sealed_by) if lot.is_sealed else '',
+        'seal_number': lot.seal_number if lot.is_sealed else '',
+        'unsealed': _date(lot.unsealed),
+        'unsealed_by': _who(lot.unsealed_by),
+        # un lot scelle reste valide jusqu'a la premiere peremption de son contenu
+        'valid_until': _date(min((item.pack.peremption for item in items if item.pack.peremption), default=None)),
         'created': _date(lot.created),
         'last_verif': _date(lot.last_verif),
         'last_verif_by': _who(lot.last_verif_by),
@@ -140,6 +152,7 @@ def lot_dict(lot, local=False, with_items=False, today=None):
         data['verif_key'] = lot.verif_key
         data['verif_key_expires'] = _date(lot.verif_key_expires)
         data['private_url'] = public_url('verif', lot=lot.id, key=lot.verif_key)
+        data['seal_url'] = public_url('seal', lot=lot.id, s=lot.seal_code) if lot.is_sealed else ''
     return data
 
 
@@ -169,4 +182,30 @@ def verif_dict(verif):
         'missing_count': verif.missing_count,
         'expired_count': verif.expired_count,
         'replaced_count': verif.replaced_count,
+    }
+
+
+def recipient_dict(recipient):
+    # la cle d'identification n'est jamais renvoyee
+    return {
+        'id': recipient.id,
+        'name': recipient.name,
+        'user': recipient.user,
+        'has_password': bool(recipient.password),
+        'active': recipient.active,
+        'last_sent': _date(recipient.last_sent),
+        'last_status': recipient.last_status,
+    }
+
+
+def notification_settings_dict(settings_row, recipients):
+    return {
+        'enabled': settings_row.enabled,
+        'events': {
+            'stock_low': settings_row.stock_low,
+            'verif_problem': settings_row.verif_problem,
+            'seal_broken': settings_row.seal_broken,
+            'expired_daily': settings_row.expired_daily,
+        },
+        'recipients': [recipient_dict(recipient) for recipient in recipients],
     }

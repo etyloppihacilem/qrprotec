@@ -61,9 +61,12 @@ void help_marker(const char *text);
 void status_banner(const std::string &text, const ImVec4 &color, float scale = 1.25f);
 
 // Etat d'un lot (objet JSON de l'API) : jamais verifie, incomplet (ou perimes), verifie et complet
-enum class LotStatus { Never, Incomplete, Verified };
+// Scelle : valide sans verif ; SealedExpired : scelle mais contient des perimes (a ouvrir)
+enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired };
+bool        lot_ok(LotStatus status); // vert
 LotStatus   lot_status(const Json &lot);
 ImVec4      lot_status_color(LotStatus status);
 const char *lot_status_label(LotStatus status);
+std::string lot_status_banner(const Json &lot); // texte du bandeau de la fiche d'un lot
 
 } // namespace qrprotec

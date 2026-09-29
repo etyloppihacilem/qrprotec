@@ -66,6 +66,10 @@ Parameters lot_parameters(const Json &lot) {
   parameters["lot_key"]         = lot["verif_key"].str();
   parameters["lot_private_url"] = lot["private_url"].str();
   parameters["key_expires"]     = label_date(lot["verif_key_expires"]);
+  parameters["seal_url"]        = lot["seal_url"].str();
+  parameters["seal_number"]     = lot["seal_number"].str();
+  parameters["sealed_date"]     = label_date(lot["sealed"]);
+  parameters["valid_until"]     = label_date(lot["valid_until"]);
   return parameters;
 }
 

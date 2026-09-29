@@ -54,6 +54,8 @@ class VerifWindow final : public AppWindow {
         ImGui::TextDisabled("Chargement du contenu du lot...");
         return;
       }
+      if (verif.lot["is_sealed"].boolean())
+        status_banner("Lot scellé : valider cette vérif brisera le scellé", colors::orange, 1.0f);
       if (!verif.key.empty())
         ImGui::TextColored(colors::green, "Étiquette privée scannée : la vérif peut être validée.");
       else if (app.verif_key_ok())
@@ -127,6 +129,10 @@ class VerifWindow final : public AppWindow {
           row_color(missing == 0 ? colors::green : done == 0 ? colors::red : colors::orange, 0.25f);
           ImGui::TableNextColumn();
           ImGui::Text("%s", row["type_name"].str().c_str());
+          if (!row["location"].str().empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(colors::grey, "– %s", row["location"].str().c_str());
+          }
           ImGui::TableNextColumn();
           if (missing == 0)
             ImGui::TextColored(colors::green, "complet");
@@ -206,6 +212,8 @@ class VerifWindow final : public AppWindow {
         status_banner("✔ VÉRIF ENREGISTRÉE : LOT COMPLET", colors::green, 1.4f);
       else
         status_banner("✘ VÉRIF ENREGISTRÉE : LOT INCOMPLET – voir ci-dessous", colors::red, 1.4f);
+      if (report["unsealed"].boolean())
+        ImGui::TextColored(colors::orange, "Le scellé du lot a été brisé : resceller le lot depuis la Gestion des lots.");
       ImGui::Text("%zu item(s) présent(s).", report["present"].size());
       for (const Json &row : report["requirements"].items()) {
         ImGui::TextUnformatted(row["type_name"].str().c_str());

@@ -26,12 +26,13 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from . import notifications
 from . import serializers as ser
 from . import services
 from .idendity import identity_from_request
 from .models import (
-    TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, SealedPacks, Secouristes,
-    SeenWhile, Verifs, qrprotec_setting,
+    TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings, SealedPacks,
+    Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -139,7 +140,24 @@ def lot_detail(request, lot_id):
     local = is_local(request)
     if not local and not lot.active:
         raise ApiError("Lot inconnu", status.HTTP_404_NOT_FOUND)
-    return Response(ser.lot_dict(lot, local=local, with_items=True))
+    data = ser.lot_dict(lot, local=local, with_items=True)
+    # QR code de scelle : ?seal=CODE -> 'valid' (scelle intact), 'unsealed' (brise), 'wrong' (ancien scelle)
+    seal = request.query_params.get('seal')
+    if seal is not None:
+        data['seal_check'] = 'valid' if lot.check_seal(seal) else ('wrong' if lot.is_sealed else 'unsealed')
+    return Response(data)
+
+
+@api_view(['POST'])
+@handle_errors
+def lot_unseal(request, lot_id):
+    """Scelle brise (ouverture du lot). Sur l'API publique, exige la cle du lot (etiquette privee)."""
+    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
+    require_lot_key(request, lot)
+    identity = identity_from_request(request.data, is_local(request))
+    with transaction.atomic():
+        services.break_seal(lot, identity, str(request.data.get('reason', '')).strip()[:64] or 'ouverture')
+    return Response(ser.lot_dict(lot, local=is_local(request), with_items=True))
 
 
 @api_view(['POST'])
@@ -264,6 +282,7 @@ def items_batch(request):
         created = ItemsPacks.objects.add_items(
             item_type, peremption, count, identity[:32], location=location, sealed_pack=sealed_pack
         )
+        notifications.check_stock_levels([item_type.type])
     today = timezone.localdate()
     response = {'items': [ser.item_dict(item, today) for item in created]}
     if sealed_pack is not None:
@@ -302,6 +321,8 @@ def items_to_stock(request):
 @handle_errors
 def stock(request):
     soon = parse_int(request.query_params.get('soon_days', 30), 'soon_days', 0, 3650)
+    # les peremptions font baisser le stock sans evenement : on verifie les seuils a chaque consultation
+    notifications.check_stock_levels()
     return Response(services.stock_status(soon))
 
 
@@ -392,8 +413,11 @@ def lot_type_requirements(request, type_code):
         for row in rows:
             item_type = get_object_or_404(ItemType, type=str(row.get('type', '')))
             quantity = parse_int(row.get('quantity', 1), 'quantity', 1)
+            location = str(row.get('location', '') or '').strip()[:64]
             try:
-                LotRequirements.objects.create(lot_type=lot_type, item_type=item_type, quantity=quantity)
+                LotRequirements.objects.create(
+                    lot_type=lot_type, item_type=item_type, quantity=quantity, location=location
+                )
             except IntegrityError:
                 raise ApiError(f"Le type {item_type.type} apparait plusieurs fois")
         lot_type.version += 1
@@ -433,10 +457,19 @@ def lot_update(request, lot_id):
     for field, length in (('name', 64), ('name_short', 16)):
         if field in data:
             setattr(lot, field, str(data[field])[:length])
-    for field in ('active', 'is_sealed'):
+    for field in ('active',):
         if field in data:
             setattr(lot, field, bool(data[field]))
     lot.save()
+    return Response(ser.lot_dict(lot, local=True, with_items=True))
+
+
+@api_view(['POST'])
+@handle_errors
+def lot_seal(request, lot_id):
+    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
+    identity = identity_from_request(request.data, True)
+    services.seal_lot(lot, identity, str(request.data.get('seal_number', '')).strip(), bool(request.data.get('force')))
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 
@@ -515,3 +548,78 @@ def user_renew_key(request, matricule):
     user.renew_key()
     user.save(update_fields=['key', 'key_expires'])
     return Response(ser.user_dict(user, local=True))
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Notifications SMS (API Free Mobile)
+# ----------------------------------------------------------------------------------------------------------------------
+
+def _notification_response():
+    return Response(ser.notification_settings_dict(NotificationSettings.get(), SmsRecipient.objects.order_by('name')))
+
+
+@api_view(['GET', 'PATCH'])
+@handle_errors
+def notification_settings(request):
+    if request.method == 'PATCH':
+        settings_row = NotificationSettings.get()
+        if 'enabled' in request.data:
+            settings_row.enabled = bool(request.data['enabled'])
+        events = request.data.get('events', {})
+        if not isinstance(events, dict):
+            raise ApiError('events : objet attendu')
+        for event in notifications.EVENTS:
+            if event in events:
+                setattr(settings_row, event, bool(events[event]))
+        settings_row.save()
+    return _notification_response()
+
+
+def _recipient_fields(recipient, data, creating):
+    for field, length in (('name', 64), ('user', 32), ('password', 64)):
+        if field in data:
+            value = str(data[field] or '').strip()[:length]
+            if field == 'password' and not value and not creating:
+                continue  # champ vide : cle inchangee
+            setattr(recipient, field, value)
+    if 'active' in data:
+        recipient.active = bool(data['active'])
+    if not recipient.name or not recipient.user or not recipient.password:
+        raise ApiError('Nom, identifiant et clé API obligatoires')
+
+
+@api_view(['POST'])
+@handle_errors
+def sms_recipients(request):
+    recipient = SmsRecipient()
+    _recipient_fields(recipient, request.data, True)
+    recipient.save()
+    return _notification_response()
+
+
+@api_view(['PATCH', 'DELETE'])
+@handle_errors
+def sms_recipient_detail(request, recipient_id):
+    recipient = get_object_or_404(SmsRecipient, id=recipient_id)
+    if request.method == 'DELETE':
+        recipient.delete()
+    else:
+        _recipient_fields(recipient, request.data, False)
+        recipient.save()
+    return _notification_response()
+
+
+@api_view(['POST'])
+@handle_errors
+def sms_test(request):
+    """Envoie un SMS de test (a un destinataire, ou a tous les actifs), meme si les notifications sont coupees."""
+    recipient_id = request.data.get('recipient')
+    if recipient_id:
+        recipients = [get_object_or_404(SmsRecipient, id=recipient_id)]
+    else:
+        recipients = list(SmsRecipient.objects.filter(active=True))
+    if not recipients:
+        raise ApiError('Aucun destinataire actif')
+    identity = identity_from_request(request.data, True)
+    count = notifications.send(f'QRProtec : SMS de test envoyé par {services.display_name(identity)}.', recipients)
+    return Response({'sent': count})

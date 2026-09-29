@@ -25,7 +25,10 @@ class SettingsWindow final : public AppWindow {
   public:
     SettingsWindow() : AppWindow("settings", "Réglages", true, true) {}
 
-    void on_open(App &) override { scan_templates(); }
+    void on_open(App &app) override {
+      scan_templates();
+      load_notifications(app);
+    }
 
     void draw(App &app) override {
       AppSettings &settings = app.settings;
@@ -92,6 +95,9 @@ class SettingsWindow final : public AppWindow {
         if (ImGui::Button("Appliquer maintenant"))
           app.request_layout_reset();
       }
+
+      if (ImGui::CollapsingHeader("Notifications SMS"))
+        draw_notifications(app);
 
       if (ImGui::CollapsingHeader("Étiquettes et impression", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextUnformatted("Dossier des modèles (fichiers .qr et images, à commiter avec le dépôt) :");
@@ -205,7 +211,150 @@ class SettingsWindow final : public AppWindow {
       std::sort(templates_.begin(), templates_.end());
     }
 
+    // -----------------------------------------------------------------------------------------------------------
+    // Notifications SMS (API Free Mobile) : reglages enregistres sur le serveur, appliques immediatement.
+    void load_notifications(App &app) {
+      app.api.get("/api/notifications/", [this](const ApiResult &result) {
+        if (result.ok)
+          notifications_ = result.data;
+      });
+    }
+
+    void notifications_request(App &app, const std::string &method, const std::string &path, const Json &body,
+                               const std::string &done) {
+      const auto callback = [this, &app, done](const ApiResult &result) {
+        if (!result.ok) {
+          app.notify("Notifications : " + result.error, true);
+          return;
+        }
+        notifications_ = result.data;
+        if (!done.empty())
+          app.notify(done);
+      };
+      if (method == "PATCH")
+        app.api.patch(path, body, callback);
+      else if (method == "POST")
+        app.api.post(path, body, callback);
+      else
+        app.api.remove(path, callback);
+    }
+
+    void draw_notifications(App &app) {
+      if (notifications_.is_null()) {
+        ImGui::TextDisabled("Chargement...");
+        if (ImGui::Button("Recharger"))
+          load_notifications(app);
+        return;
+      }
+      bool enabled = notifications_["enabled"].boolean();
+      if (ImGui::Checkbox("Activer les notifications SMS", &enabled)) {
+        Json body;
+        body["enabled"] = enabled;
+        notifications_request(app, "PATCH", "/api/notifications/", body,
+                              enabled ? "Notifications SMS activées." : "Notifications SMS désactivées.");
+      }
+      help_marker("Envoyées par le serveur avec l'API SMS de Free Mobile. Chaque destinataire active l'option "
+                  "« Notifications par SMS » dans son espace abonné Free, qui donne son identifiant et sa clé.");
+      ImGui::BeginDisabled(!enabled);
+      static const std::pair< const char *, const char * > events[] = {
+        { "stock_low", "Stock sous le minimum d'un type d'item" },
+        { "verif_problem", "Vérif de lot incomplète (manquants, périmés, disparus)" },
+        { "seal_broken", "Scellé d'un lot brisé" },
+        { "expired_daily", "Résumé quotidien des lots contenant des périmés (commande check_alerts)" },
+      };
+      for (const auto &[event, label] : events) {
+        bool value = notifications_["events"][event].boolean();
+        if (ImGui::Checkbox(label, &value)) {
+          Json body;
+          body["events"][event] = value;
+          notifications_request(app, "PATCH", "/api/notifications/", body, "");
+        }
+      }
+      ImGui::EndDisabled();
+
+      ImGui::SeparatorText("Destinataires");
+      if (ImGui::BeginTable("sms_recipients", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Identifiant", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Dernier envoi", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+        ImGui::TableHeadersRow();
+        for (const Json &recipient : notifications_["recipients"].items()) {
+          const std::string id   = recipient["id"].str();
+          const std::string path = "/api/notifications/recipients/" + id + "/";
+          ImGui::PushID(id.c_str());
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          bool active = recipient["active"].boolean();
+          if (ImGui::Checkbox("##active", &active)) {
+            Json body;
+            body["active"] = active;
+            notifications_request(app, "PATCH", path, body, "");
+          }
+          ImGui::SameLine();
+          ImGui::TextUnformatted(recipient["name"].str().c_str());
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(recipient["user"].str().c_str());
+          ImGui::TableNextColumn();
+          const std::string status = recipient["last_status"].str();
+          if (status.empty())
+            ImGui::TextDisabled("-");
+          else
+            ImGui::TextColored(status == "Envoyé" ? colors::green : colors::red, "%s (%s)", status.c_str(),
+                               display_datetime(recipient["last_sent"]).c_str());
+          ImGui::TableNextColumn();
+          if (ImGui::SmallButton("SMS de test")) {
+            Json body;
+            body["recipient"] = recipient["id"];
+            body["user"]      = app.user_ref();
+            app.api.post("/api/notifications/test/", body, [this, &app](const ApiResult &result) {
+              app.notify(result.ok ? "SMS de test envoyé : résultat dans la colonne « Dernier envoi »." : result.error,
+                         !result.ok);
+              reload_at_ = ImGui::GetTime() + 4.0; // le resultat de l'envoi arrive apres coup
+            });
+          }
+          ImGui::SameLine();
+          if (confirm_button("Supprimer", "Supprimer ce destinataire ?", "delete_recipient"))
+            notifications_request(app, "DELETE", path, Json(), "Destinataire supprimé.");
+          ImGui::PopID();
+        }
+        ImGui::EndTable();
+      }
+      if (reload_at_ > 0.0 && ImGui::GetTime() > reload_at_) {
+        reload_at_ = 0.0;
+        load_notifications(app);
+      }
+      if (ImGui::Button("Rafraîchir"))
+        load_notifications(app);
+
+      ImGui::SeparatorText("Ajouter un destinataire");
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::InputTextWithHint("Nom##sms", "ex : Responsable matériel", &new_name_);
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::InputTextWithHint("Identifiant Free##sms", "8 chiffres", &new_user_);
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::InputTextWithHint("Clé d'identification##sms", "clé de l'espace abonné", &new_password_,
+                               ImGuiInputTextFlags_Password);
+      ImGui::BeginDisabled(new_name_.empty() || new_user_.empty() || new_password_.empty());
+      if (ImGui::Button("Ajouter")) {
+        Json body;
+        body["name"]     = new_name_;
+        body["user"]     = new_user_;
+        body["password"] = new_password_;
+        notifications_request(app, "POST", "/api/notifications/recipients/", body, "Destinataire ajouté.");
+        new_name_.clear();
+        new_user_.clear();
+        new_password_.clear();
+      }
+      ImGui::EndDisabled();
+    }
+
     std::vector< std::pair< std::string, TemplateCategory > > templates_;
+    Json                                                      notifications_;
+    std::string                                               new_name_;
+    std::string                                               new_user_;
+    std::string                                               new_password_;
+    double                                                    reload_at_ = 0.0;
 };
 
 class EditorWindow final : public AppWindow {

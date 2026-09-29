@@ -130,6 +130,7 @@ class ItemType(models.Model):
     min_quantity = models.PositiveIntegerField(default=0) # minimum value that should be in stock
     perissable = models.BooleanField(default=False) # if false, date is not mandatory
     default_pack_size = models.PositiveIntegerField(default=1) # nombre d'items dans un paquet a la reception
+    low_notified = models.BooleanField(default=False) # SMS "stock bas" deja envoye (remis a zero au-dessus du minimum)
 
     def __str__(self):
         return f"{self.name} ({self.type})"
@@ -237,6 +238,7 @@ class LotRequirements(models.Model): # Pour mettre un item dans un lot
     lot_type = models.ForeignKey(LotType, on_delete=models.CASCADE, related_name="requirements")
     item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT)
     quantity = models.PositiveIntegerField(default=1)
+    location = models.CharField(max_length=64, blank=True, default='') # ex: "pochette bleue"
 
     class Meta:
         unique_together = [('lot_type', 'item_type')]
@@ -259,7 +261,15 @@ class Lots(models.Model):
     last_verif = models.DateTimeField(blank=True, null=True)
     last_verif_by = models.CharField(max_length=64, blank=True, default='')
     last_verif_while = models.CharField(max_length=8, blank=True, default='')
+    # Scelle : le lot ne peut pas etre ouvert sans briser le scelle, il n'a donc pas besoin de verif.
+    # seal_code change a chaque scellage : l'etiquette d'un ancien scelle n'est plus valide.
     is_sealed = models.BooleanField(default=False)
+    sealed = models.DateTimeField(blank=True, null=True)
+    sealed_by = models.CharField(max_length=64, blank=True, default='')
+    seal_number = models.CharField(max_length=32, blank=True, default='') # numero du scelle physique
+    seal_code = models.CharField(max_length=32, blank=True, default='')
+    unsealed = models.DateTimeField(blank=True, null=True)
+    unsealed_by = models.CharField(max_length=64, blank=True, default='')
     active = models.BooleanField(default=True)
     name = models.CharField(max_length=64)
     name_short = models.CharField(max_length=16)
@@ -287,6 +297,9 @@ class Lots(models.Model):
     def rotate_key(self):
         self.verif_key = generate_key()
         self.verif_key_expires = default_lot_key_expiration()
+
+    def check_seal(self, code) -> bool:
+        return self.is_sealed and keys_match(self.seal_code, code)
 
     def __str__(self):
         return f"{self.name} ({self.id})"
@@ -340,3 +353,30 @@ class VerifItem(models.Model):
     item = models.ForeignKey(Items, on_delete=models.CASCADE)
     result = models.CharField(max_length=8, choices=VerifResult.choices, default=VerifResult.PRESENT)
     expired = models.BooleanField(default=False)
+
+
+class NotificationSettings(models.Model):
+    """Reglages des notifications SMS (une seule ligne, pk=1)."""
+    enabled = models.BooleanField(default=False)
+    stock_low = models.BooleanField(default=True)        # stock d'un type sous son minimum
+    verif_problem = models.BooleanField(default=True)    # verif de lot incomplete, perimes, disparus
+    seal_broken = models.BooleanField(default=True)      # scelle d'un lot brise
+    expired_daily = models.BooleanField(default=False)   # resume des lots contenant des perimes (commande check_alerts)
+
+    @classmethod
+    def get(cls):
+        settings_row, _ = cls.objects.get_or_create(pk=1)
+        return settings_row
+
+
+class SmsRecipient(models.Model):
+    """Destinataire de l'API SMS de Free Mobile (identifiant + cle d'identification de l'espace abonne)."""
+    name = models.CharField(max_length=64)
+    user = models.CharField(max_length=32)
+    password = models.CharField(max_length=64)
+    active = models.BooleanField(default=True)
+    last_sent = models.DateTimeField(blank=True, null=True)
+    last_status = models.CharField(max_length=128, blank=True, default='')
+
+    def __str__(self):
+        return self.name

@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 
+from django.conf import settings
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -238,3 +239,121 @@ class SetupTests(ApiTestCase):
         old_key = admin.key
         call_command('createadmin', 'R001', stdout=StringIO())
         self.assertNotEqual(Secouristes.objects.get(matricule='R001').key, old_key)
+
+
+class SealTests(ApiTestCase):
+    def fill_lot(self):
+        items = self.create(self.compresses, self.today + timedelta(days=60), 2)
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
+        return items
+
+    def test_seal_requires_complete_lot(self):
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
+        self.assertEqual(code, 400)
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
+        self.assertEqual(code, 200)
+        self.assertTrue(body['is_sealed'])
+
+    def test_seal_qr_and_break(self):
+        self.fill_lot()
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'seal_number': 'S123'})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['seal_number'], 'S123')
+        self.assertEqual(body['valid_until'], (self.today + timedelta(days=60)).isoformat())
+        seal_code = body['seal_url'].split('s=')[1]
+        # QR du scelle valide sur l'API publique, sans cle
+        code, public = self.call('GET', f'/api/lots/{self.lot.id}/?seal={seal_code}', local=False)
+        self.assertEqual(public['seal_check'], 'valid')
+        self.assertNotIn('seal_url', public)
+        code, public = self.call('GET', f'/api/lots/{self.lot.id}/?seal=ancien', local=False)
+        self.assertEqual(public['seal_check'], 'wrong')
+        # ouverture publique : cle du lot obligatoire
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/unseal/', {'name': 'x'}, local=False)
+        self.assertEqual(code, 403)
+        # une verif brise le scelle
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'M001'})
+        self.assertTrue(report['unsealed'])
+        code, public = self.call('GET', f'/api/lots/{self.lot.id}/?seal={seal_code}', local=False)
+        self.assertEqual(public['seal_check'], 'unsealed')
+        self.assertIsNotNone(public['unsealed'])
+
+    def test_adding_items_breaks_seal(self):
+        self.fill_lot()
+        self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
+        extra = self.create(self.garrot, None, 1)[0]
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [extra.iid], 'user': 'M001'})
+        self.lot.refresh_from_db()
+        self.assertFalse(self.lot.is_sealed)
+
+    def test_requirement_location(self):
+        code, body = self.call('PUT', f'/api/lot-types/{self.lot_type.type}/requirements/', {
+            'requirements': [{'type': 'compre', 'quantity': 2, 'location': 'Pochette bleue'}]
+        })
+        self.assertEqual(body['requirements'][0]['location'], 'Pochette bleue')
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(lot['requirements'][0]['location'], 'Pochette bleue')
+
+
+@override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
+class SmsTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        from . import notifications
+        self.sent = []
+        self._original = notifications.send_free_sms
+        notifications.send_free_sms = lambda user, password, message: (self.sent.append((user, message)) or (True, 'Envoyé'))
+        self.addCleanup(setattr, notifications, 'send_free_sms', self._original)
+        self.call('POST', '/api/notifications/recipients/', {'name': 'A', 'user': 'u1', 'password': 'p1'})
+        self.call('POST', '/api/notifications/recipients/', {'name': 'B', 'user': 'u2', 'password': 'p2'})
+
+    def test_recipients_hide_password(self):
+        code, body = self.call('GET', '/api/notifications/')
+        self.assertEqual(len(body['recipients']), 2)
+        self.assertNotIn('password', body['recipients'][0])
+        self.assertTrue(body['recipients'][0]['has_password'])
+        code, _ = self.call('GET', '/api/notifications/', local=False)
+        self.assertEqual(code, 404)
+
+    def test_disabled_sends_nothing(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.create(self.compresses, self.today + timedelta(days=60), 3)
+            self.call('GET', '/api/stock/')
+        self.assertEqual(self.sent, [])
+
+    def test_stock_low_once_per_crossing(self):
+        self.call('PATCH', '/api/notifications/', {'enabled': True})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        # compresses 0/10 et garrot 0/2, un SMS par destinataire
+        self.assertEqual(len(self.sent), 2)
+        self.assertEqual({user for user, _ in self.sent}, {'u1', 'u2'})
+        self.assertIn('Compresses 0/10', self.sent[0][1])
+        self.sent.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual(self.sent, [])
+        # retour au-dessus du minimum puis nouveau passage dessous
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', '/api/items/batch/', {'type': 'garrot', 'count': 2, 'user': 'M001'})
+        garrots = [item.iid for item in Items.objects.filter(pack__item_type=self.garrot)]
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': garrots[:1], 'user': 'M001'})
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('Garrot 1/2', self.sent[0][1])
+
+    def test_verif_problem_and_seal_broken(self):
+        self.call('PATCH', '/api/notifications/', {'enabled': True, 'events': {'stock_low': False}})
+        self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'M001'})
+        messages = [message for user, message in self.sent if user == 'u1']
+        self.assertEqual(len(messages), 2)
+        self.assertTrue(any('scellé' in message for message in messages))
+        self.assertTrue(any('manque 2 Compresses' in message for message in messages))
+
+    def test_test_sms(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            code, body = self.call('POST', '/api/notifications/test/', {'user': 'M001'})
+        self.assertEqual(body['sent'], 2)
+        code, settings_body = self.call('GET', '/api/notifications/')
+        self.assertEqual(settings_body['recipients'][0]['last_status'], 'Envoyé')

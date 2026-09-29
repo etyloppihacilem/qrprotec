@@ -131,8 +131,9 @@ class App {
 
     // Verifs et mouvements
     void start_verif(const std::string &lot_id, const std::string &key);
-    void show_lot(const std::string &lot_id);  // ouvre la fiche du lot (fenetre Lots)
+    void show_lot(const std::string &lot_id, const std::string &seal_code = {}); // fiche du lot (fenetre Lots)
     std::string take_lot_to_show();            // lu par la fenetre Lots
+    std::string take_seal_to_show();           // code du QR de scelle scanne (vide sinon)
     void show_pack(const std::string &pack_id); // ouvre la fiche du paquet ferme (mode privilegie)
     std::string take_pack_to_show();            // lu par la fenetre Paquet
     void pack_opened(const std::string &pack_id); // met a jour la pile et les listes
@@ -193,6 +194,7 @@ class App {
     void resolve_pack(int entry_id);
     void login_with_badge(const ParsedScan &scan, ScanSource source);
     void scan_lot(const ParsedScan &scan, ScanSource source);
+    void scan_lot_seal(const ParsedScan &scan, ScanSource source);
     void entry_error(int entry_id, const std::string &message, ScanSource source);
     void draw_menu_bar();
     void draw_windows();
@@ -208,6 +210,7 @@ class App {
 
     float                   menu_bar_height_ = 0.0f;
     std::string             lot_to_show_;
+    std::string             seal_to_show_;
     std::string             pack_to_show_;
     // Premiere configuration : aucun responsable avec un badge valide
     bool                    setup_known_     = false;

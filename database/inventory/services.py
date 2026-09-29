@@ -17,9 +17,16 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
+from . import notifications
+from .idendity import parse_identity
 from .models import (
-    ItemStatus, Items, ItemType, LotRequirements, Lots, SeenWhile, VerifItem, VerifResult, Verifs, qrprotec_setting,
+    ItemStatus, Items, ItemType, LotRequirements, Lots, SeenWhile, VerifItem, VerifResult, Verifs, generate_key,
+    qrprotec_setting,
 )
+
+
+def display_name(identity):
+    return parse_identity(identity)['display_name'] if identity else '?'
 
 
 def _items_queryset():
@@ -48,11 +55,13 @@ def requirements_status(lot, today=None):
         else:
             fresh[item.pack.item_type_id] += 1
     rows = []
-    for requirement in LotRequirements.objects.select_related('item_type').filter(lot_type=lot.lot_type):
+    requirements = LotRequirements.objects.select_related('item_type').filter(lot_type=lot.lot_type)
+    for requirement in requirements.order_by('location', 'item_type__name'):
         type_id = requirement.item_type_id
         rows.append({
             'type': type_id,
             'type_name': requirement.item_type.name,
+            'location': requirement.location,
             'required': requirement.quantity,
             'present': fresh.get(type_id, 0),
             'expired': expired.get(type_id, 0),
@@ -87,6 +96,15 @@ def perform_verif(lot, iids, identity):
         )
 
         verif = Verifs.objects.create(lot=lot, datetime=now, by=identity)
+        # verifier un lot scelle suppose de l'ouvrir : le scelle est brise
+        unsealed = lot is not None and lot.is_sealed
+        if unsealed:
+            break_seal(lot, identity, 'vérif', now)
+        # items repris d'un autre lot scelle
+        other_lots = {item.location_id for item in scanned if item.location_id and item.location_id != lot_id}
+        for sealed in Lots.objects.filter(id__in=other_lots, is_sealed=True):
+            break_seal(sealed, identity, 'retrait', now)
+        was_missing = {item.iid for item in not_seen if item.status == ItemStatus.MISSING}
 
         # Detection des remplacements : par type, nombre d'items frais nouvellement arrives
         new_fresh = defaultdict(int)
@@ -134,6 +152,7 @@ def perform_verif(lot, iids, identity):
             scanned, ['status', 'location', 'missed_verifs', 'last_seen', 'last_seen_by', 'last_seen_while']
         )
         Items.objects.bulk_update(not_seen, ['status', 'missed_verifs'])
+        newly_missing = [item for item in not_seen if item.status == ItemStatus.MISSING and item.iid not in was_missing]
         VerifItem.objects.bulk_create(entries)
 
         requirements = []
@@ -155,10 +174,70 @@ def perform_verif(lot, iids, identity):
         verif.replaced_count = len(report['replaced'])
         verif.save()
 
+        if lot is not None and not complete:
+            notify_verif_problem(lot, identity, requirements, report, newly_missing)
+        affected = {item.pack.item_type_id for item in scanned} | {item.pack.item_type_id for item in not_seen}
+        notifications.check_stock_levels(affected)
+
     report['verif_id'] = verif.id
     report['complete'] = complete
     report['requirements'] = requirements
+    report['unsealed'] = unsealed
     return report
+
+
+def notify_verif_problem(lot, identity, requirements, report, newly_missing):
+    parts = []
+    lacking = [f"{row['required'] - row['present']} {row['type_name']}"
+               for row in requirements if row['present'] < row['required']]
+    if lacking:
+        parts.append('manque ' + ', '.join(lacking))
+    if report['expired']:
+        parts.append(f"{len(report['expired'])} périmé(s)")
+    if newly_missing:
+        parts.append(f'{len(newly_missing)} item(s) signalé(s) disparu(s)')
+    notifications.notify(
+        'verif_problem', f'vérif du lot {lot.name} incomplète ({display_name(identity)}) : ' + ' ; '.join(parts)
+    )
+
+
+def seal_lot(lot, identity, seal_number='', force=False):
+    """Scelle un lot : il reste valide sans verif tant que le scelle n'est pas brise."""
+    if not lot.active:
+        raise ValueError('Lot inactif')
+    if not force:
+        today = timezone.localdate()
+        rows = requirements_status(lot, today)
+        expired = Items.objects.filter(location=lot, status=ItemStatus.ACTIVE, pack__peremption__lt=today).exists()
+        if expired or any(row['present'] < row['required'] for row in rows):
+            raise ValueError('Lot incomplet ou contenant des périmés : faites une vérif complète avant de sceller '
+                             '(ou forcez le scellage)')
+    now = timezone.now()
+    lot.is_sealed = True
+    lot.sealed = now
+    lot.sealed_by = identity
+    lot.seal_number = seal_number[:32]
+    lot.seal_code = generate_key(16)
+    lot.unsealed = None
+    lot.unsealed_by = ''
+    lot.last_used = now
+    lot.last_used_by = identity
+    lot.save()
+    return lot
+
+
+def break_seal(lot, identity, reason, now=None):
+    """Brise le scelle d'un lot (ouverture, vérif, ajout ou retrait d'items)."""
+    if not lot.is_sealed:
+        return False
+    lot.is_sealed = False
+    lot.seal_code = ''
+    lot.unsealed = now or timezone.now()
+    lot.unsealed_by = identity
+    lot.save(update_fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
+    number = f' n°{lot.seal_number}' if lot.seal_number else ''
+    notifications.notify('seal_broken', f'scellé{number} du lot {lot.name} ouvert ({reason}) par {display_name(identity)}')
+    return True
 
 
 def move_items(iids, lot, identity, context):
@@ -166,8 +245,16 @@ def move_items(iids, lot, identity, context):
     now = timezone.now()
     requested = list(dict.fromkeys(iids))
     with transaction.atomic():
-        items = list(Items.objects.select_for_update().filter(iid__in=requested))
+        items = list(Items.objects.select_for_update().select_related('pack').filter(iid__in=requested))
         found = {item.iid for item in items}
+        # ajouter ou retirer des items d'un lot scelle brise son scelle
+        touched_lots = {item.location_id for item in items if item.location_id and item.location_id != (lot.id if lot else None)}
+        if lot is not None and items:
+            touched_lots.add(lot.id)
+        for sealed in Lots.objects.filter(id__in=touched_lots, is_sealed=True):
+            break_seal(sealed, identity, 'ajout' if lot is not None and sealed.id == lot.id else 'retrait', now)
+        if lot is not None:
+            lot.refresh_from_db(fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
         for item in items:
             item.location = lot
             item.status = ItemStatus.ACTIVE
@@ -178,6 +265,7 @@ def move_items(iids, lot, identity, context):
             lot.last_used = now
             lot.last_used_by = identity
             lot.save(update_fields=['last_used', 'last_used_by'])
+        notifications.check_stock_levels({item.pack.item_type_id for item in items})
     return {'moved': [iid for iid in requested if iid in found], 'unknown': [iid for iid in requested if iid not in found]}
 
 
@@ -190,6 +278,7 @@ def mark_deleted(item, identity, reason):
     item.location = None
     item.touch(identity, SeenWhile.DELETE, now)
     item.save()
+    notifications.check_stock_levels([item.pack.item_type_id])
 
 
 def restore(item, identity):
@@ -200,6 +289,7 @@ def restore(item, identity):
     item.missed_verifs = 0
     item.touch(identity, SeenWhile.RESTORE)
     item.save()
+    notifications.check_stock_levels([item.pack.item_type_id])
 
 
 def stock_status(soon_days=30):

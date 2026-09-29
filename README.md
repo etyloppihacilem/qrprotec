@@ -16,6 +16,7 @@ avec un identifiant unique, les lots (sacs, malles...) sont vérifiés en scanna
 | Lot, étiquette privée | `<base>/verif?lot=ID&key=CLE` | `...verif?lot=sacpse00000001&key=a1B2...` |
 | Badge utilisateur | `<base>/badge?m=MATRICULE&key=CLE` (clé valable 1 an) | `...badge?m=M0042&key=...` |
 | Paquet fermé | `<base>/pack?id=ID` | `...pack?id=0000002B` |
+| Scellé d'un lot | `<base>/seal?lot=ID&s=CODE` (code changé à chaque scellage) | `...seal?lot=sacpse00000001&s=...` |
 
 `<base>` vaut `https://example.com/` par défaut et se change avec la variable d'environnement
 `QRPROTEC_PUBLIC_BASE_URL` du back. Le front reconnaît les QR codes quel que soit le domaine : changer
@@ -60,18 +61,24 @@ En production : `gunicorn qrprotecDB.wsgi:public_application` et
 | `QRPROTEC_DEBUG_HOSTS` | `192.168.1.201` (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement) |
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
 | `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `3650` |
+| `QRPROTEC_SMS_SYNC` | `0` (SMS envoyés dans un thread ; `1` = dans la requête) |
 | `QRPROTEC_SECRET_KEY`, `QRPROTEC_DEBUG`, `QRPROTEC_DB_PATH` | réglages Django |
 
 ### Routes (`/api/...`)
 
 Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`, `lots/<id>/`,
-`lots/<id>/verif/` (POST items, key), `lots/<id>/add/` (POST items, key), `packs/<id>/`.
+`lots/<id>/verif/` (POST items, key), `lots/<id>/add/` (POST items, key), `lots/<id>/unseal/` (POST
+key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
+`unsealed`.
 
 Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), `items/batch/`
 (réception), `items/to-stock/`, `items/<iid>/delete/`, `items/<iid>/restore/`, `stock/`,
 `stock/verif/`, `packs/`, `packs/<id>/open/`, `lot-types/`, `lot-types/<type>/`,
 `lot-types/<type>/requirements/`, `lots/`, `lots/<id>/update/`, `lots/<id>/rotate-key/`,
-`lots/<id>/verifs/`, `users/`, `users/<matricule>/`, `users/<matricule>/renew-key/`.
+`lots/<id>/seal/` (POST seal_number, force), `lots/<id>/verifs/`, `users/`, `users/<matricule>/`,
+`users/<matricule>/renew-key/`, `notifications/` (GET, PATCH enabled/events),
+`notifications/recipients/` (POST), `notifications/recipients/<id>/` (PATCH, DELETE),
+`notifications/test/` (POST).
 
 Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricule": ..., "key": ...}`
 (vérifié) ou `"name": ...` (déclaré). Sur l'API locale, `"user": "MATRICULE"` suffit.
@@ -90,6 +97,32 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
   l'étiquette du paquet ouvre sa fiche (contenu, péremption, réception, ouverture) avec le bouton
   « Ouvrir le paquet et imprimer les N étiquettes » (aperçu puis impression). Rouvrir un paquet déjà
   ouvert réimprime ses étiquettes sans changer sa date d'ouverture.
+- **Lot scellé** : après une vérif complète, un responsable ferme le lot avec un scellé et imprime
+  l'étiquette du scellé (QR `seal?lot=..&s=..`). Tant que le scellé est intact, le lot est valide
+  sans vérif (vert « Scellé », valable jusqu'à la première péremption de son contenu) : scanner le QR
+  du scellé l'affiche. Une vérif, un ajout ou un retrait d'items, ou « Briser le scellé », brise le
+  scellé : l'ancienne étiquette devient invalide et le lot doit être vérifié. Un lot scellé qui
+  contient des périmés est rouge (à ouvrir).
+- **Emplacements** : chaque ligne du contenu attendu d'un type de lot peut préciser un emplacement
+  (ex : sérum phy dans la pochette bleue du sac de soin), affiché pendant la vérif.
+
+### Notifications SMS (Free Mobile)
+
+Le serveur envoie des SMS par l'API de Free Mobile
+(`https://smsapi.free-mobile.fr/sendmsg?user=..&pass=..&msg=..`). Chaque destinataire active
+« Notifications par SMS » dans son espace abonné Free, qui donne son identifiant et sa clé
+d'identification ; l'API n'envoie qu'au titulaire de la ligne, d'où un couple identifiant / clé par
+destinataire. Destinataires et événements se gèrent dans **Gestion > Réglages > Notifications SMS**
+du front (activation générale, SMS de test, dernier statut d'envoi) ; la clé n'est jamais renvoyée
+par l'API.
+
+Événements : stock d'un type sous son minimum (un SMS par passage sous le seuil, stock hors lots non
+périmé), vérif de lot incomplète (manquants, périmés, disparus), scellé brisé, et résumé quotidien des
+lots contenant des périmés. Les péremptions faisant baisser le stock sans action, lancer chaque jour :
+
+```sh
+python manage.py check_alerts   # ex. crontab : 45 7 * * * cd .../database && python manage.py check_alerts
+```
 
 ## Front web (téléphone)
 
@@ -186,13 +219,15 @@ Fond orange. Menu **Gestion** :
   suppression exceptionnelle, liste des paquets fermés.
 - **Paquet fermé** : fiche d'un paquet (ouverte en scannant son étiquette, depuis la dernière
   réception ou la liste des paquets) et ouverture avec impression de toutes ses étiquettes.
-- **Gestion des lots** : types de lots et contenu attendu, création de lots, étiquettes publique et
-  privée, régénération de la clé.
+- **Gestion des lots** : types de lots et contenu attendu (avec emplacement), création de lots,
+  étiquettes publique et privée, régénération de la clé, scellage (numéro du scellé, étiquette du
+  scellé) et bris du scellé.
 - **Utilisateurs** : création, droits responsable, renouvellement et impression des badges.
-- **Éditeur d'étiquettes** : modèles avec usage (item, paquet, lot public, lot privé, badge),
+- **Éditeur d'étiquettes** : modèles avec usage (item, paquet, lot public, lot privé, scellé, badge),
   onglet **Placeholders** listant les `{{placeholders}}` disponibles, textes, QR codes et images
   (logo PNG ou JPEG).
-- **Réglages**.
+- **Réglages** : dont les notifications SMS. Sans modèle choisi pour un usage, le premier modèle du
+  dossier fait pour cet usage est utilisé (ex : `scelle.qr`), sinon le QR code seul.
 
 **Impression** : la taille des étiquettes chargées dans l'imprimante (largeur dans le sens de la tête,
 hauteur dans le sens du défilement) se règle dans **Réglages**. Un modèle dessiné dans l'autre sens

@@ -130,6 +130,7 @@
     if (route === 'verif' && p.get('lot')) return { kind: 'lot', code, id: p.get('lot'), key: p.get('key') || '' };
     if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '' };
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
+    if (route === 'seal' && p.get('lot') && p.get('s')) return { kind: 'seal', code, id: p.get('lot'), key: p.get('s') };
     return { kind: 'unknown', code };
   }
 
@@ -331,6 +332,7 @@
       case 'lot': return scanLot(scan);
       case 'user': return login(scan.id, scan.key);
       case 'pack': return scanPack(scan);
+      case 'seal': return scanSeal(scan);
       default:
         feedback.bad();
         showInfo('bad', 'Code non reconnu', raw.length > 80 ? raw.slice(0, 80) + '…' : raw);
@@ -412,9 +414,33 @@
     if (!state.scanned.length) switchTab('todo');
   }
 
-  async function loadLot(id) {
+  // QR code du scelle d'un lot : lot valide sans verif tant que le scelle est intact
+  async function scanSeal(scan) {
+    if (state.lotId !== scan.id) { state.lotKey = ''; state.lastVerif = null; }
+    await loadLot(scan.id, scan.key);
+    const lot = state.lot;
+    if (!lot || state.lotId !== scan.id) return;
+    const sealInfo = lot.is_sealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
+      (lot.sealed_by ? ' par ' + lot.sealed_by : '') : '';
+    if (lot.seal_check === 'valid' && !lot.expired_count) {
+      feedback.good();
+      showInfo('ok', `✔ Scellé intact – ${lot.name}`,
+        'Lot valide sans vérif' + (lot.valid_until ? ` jusqu'au ${fmtDate(lot.valid_until)}` : ''), sealInfo);
+    } else if (lot.seal_check === 'valid') {
+      feedback.bad();
+      showInfo('bad', `✘ Scellé intact mais périmés – ${lot.name}`, `${lot.expired_count} item(s) périmé(s) : lot à ouvrir`, sealInfo);
+    } else {
+      feedback.bad();
+      showInfo('bad', `✘ ${lot.seal_check === 'wrong' ? "Étiquette d'un ancien scellé" : 'Scellé brisé'} – ${lot.name}`,
+        'Le lot doit être vérifié.',
+        lot.unsealed ? `Scellé brisé le ${fmtDateTime(lot.unsealed)}` + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '');
+    }
+    switchTab('lot');
+  }
+
+  async function loadLot(id, seal) {
     try {
-      state.lot = await api(`lots/${encodeURIComponent(id)}/`);
+      state.lot = await api(`lots/${encodeURIComponent(id)}/` + (seal ? `?seal=${encodeURIComponent(seal)}` : ''));
       state.lotId = id;
     } catch (e) {
       feedback.bad();
@@ -427,6 +453,8 @@
 
   // Etat d'un lot : verifie et complet (vert), sinon incomplet ou jamais verifie (rouge)
   function lotStatus(lot) {
+    if (lot.is_sealed && lot.expired_count) return { ok: false, label: '✘ Scellé, contient des périmés' };
+    if (lot.is_sealed) return { ok: true, label: '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : '') };
     if (!lot.last_verif) return { ok: false, label: '✘ Jamais vérifié' };
     if (!lot.complete) return { ok: false, label: lot.expired_count ? '✘ Incomplet (périmés)' : '✘ Incomplet' };
     return { ok: true, label: '✔ Vérifié, complet' };
@@ -471,6 +499,7 @@
   async function validate() {
     const missing = blockers(false);
     if (missing.length) { feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return; }
+    if (state.lot.is_sealed && !confirm('Ce lot est scellé : valider une vérif brisera le scellé. Continuer ?')) return;
     const expected = expectedGroups().remaining;
     if (expected && !confirm(`${expected} item(s) attendu(s) manquent : le lot sera incomplet. Valider quand même ?`)) return;
     state.busy = true;
@@ -533,6 +562,7 @@
     body.replaceChildren(
       el('h2', { style: report.complete ? 'color:var(--green)' : 'color:var(--red)' }, report.complete ? '✅ Lot complet' : '⚠️ Lot NON complet'),
       el('p', {}, `${report.present.length} item(s) présent(s).`),
+      report.unsealed ? el('p', { style: 'color:var(--orange)' }, '🔓 Le scellé du lot a été brisé par cette vérif.') : '',
       ...(report.requirements || []).map((row) => requirementRow(row.type_name, row.present, row.required)),
       ...section('Périmés encore dans le lot : à remplacer', report.expired),
       ...section('Périmés remplacés', report.replaced),
@@ -683,7 +713,8 @@
       rows.push(el('li', { class: 'group ' + state_ },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, group.row.type_name),
-          el('div', { class: 'sub' }, group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`)),
+          el('div', { class: 'sub' }, [group.row.location ? '📍 ' + group.row.location : '',
+            group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`].filter(Boolean).join(' · '))),
         el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)));
       rows.push(...group.items.map(todoItem));
       if (group.fromStock > 0) {
@@ -740,10 +771,13 @@
       el('h2', {}, lot.name),
       el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`),
       el('div', { class: 'banner ' + (lotStatus(lot).ok ? 'ok' : 'bad') }, lotStatus(lot).label),
+      lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
+        (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
         el('br'), state.lotKey ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider.'),
       el('h3', {}, 'Scannés / attendus'),
-      ...(lot.requirements || []).map((row) => requirementRow(row.type_name, fresh[row.type] || 0, row.required)),
+      ...(lot.requirements || []).map((row) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''),
+        fresh[row.type] || 0, row.required)),
       el('h3', {}, 'État enregistré du lot'),
       ...(lot.requirements || []).map((row) => requirementRow(row.type_name, row.present, row.required)),
     );
@@ -787,6 +821,9 @@
       cleanUrl(state.lotId);
       await login(params.get('m'), params.get('key') || '');
       if (state.lotId) await loadLot(state.lotId);
+    } else if (route === 'seal' && params.get('lot') && params.get('s')) {
+      await scanSeal({ kind: 'seal', code: location.href, id: params.get('lot'), key: params.get('s') });
+      cleanUrl(params.get('lot'));
     } else if (route === 'pack' && params.get('id')) {
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);

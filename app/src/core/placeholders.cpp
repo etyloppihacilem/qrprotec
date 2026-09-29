@@ -76,6 +76,20 @@ std::vector< CategoryInfo > build_categories() {
   lot_private.placeholders.push_back({ "key_expires", "Date d'expiration de la clé JJ/MM/AAAA", "29/09/2036" });
   categories.push_back(lot_private);
 
+  CategoryInfo lot_seal{ TemplateCategory::LotSeal, "lot_seal", "Lot - scellé",
+                         "Étiquette posée sur le scellé d'un lot : le lot est valide sans vérif tant que le scellé "
+                         "est intact. Le QR code doit contenir {{seal_url}}.",
+                         lot_placeholders() };
+  lot_seal.placeholders.push_back(
+    { "seal_url", "URL du scellé (contenu du QR code)", "https://example.com/seal?lot=sacpse00000001&s=Xy12Ab34Cd56Ef78" }
+  );
+  lot_seal.placeholders.push_back({ "seal_number", "Numéro du scellé physique (peut être vide)", "004512" });
+  lot_seal.placeholders.push_back({ "sealed_date", "Date du scellage JJ/MM/AAAA", "30/09/2026" });
+  lot_seal.placeholders.push_back(
+    { "valid_until", "Première péremption du contenu JJ/MM/AAAA (vide si rien de périssable)", "31/03/2027" }
+  );
+  categories.push_back(lot_seal);
+
   CategoryInfo user{ TemplateCategory::User, "user", "Badge utilisateur",
                      "Badge de connexion d'un secouriste. Le QR code doit contenir {{badge_url}}.", {} };
   user.placeholders = {

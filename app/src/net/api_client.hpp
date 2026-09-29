@@ -45,6 +45,7 @@ class ApiClient {
     void post(const std::string &path, const Json &body, Callback callback);
     void patch(const std::string &path, const Json &body, Callback callback);
     void put(const std::string &path, const Json &body, Callback callback);
+    void remove(const std::string &path, Callback callback); // DELETE
 
     // A appeler a chaque frame depuis le thread UI.
     void poll();
