@@ -40,6 +40,9 @@ DEBUG = os.environ.get('QRPROTEC_DEBUG', '1') == '1'
 
 # Liste separee par des virgules, ex: QRPROTEC_ALLOWED_HOSTS=inventaire.example.com,192.168.1.10
 ALLOWED_HOSTS = [host for host in os.environ.get('QRPROTEC_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1]').split(',') if host]
+# Hotes acceptes en plus en mode DEBUG uniquement (tests depuis un telephone sur le reseau local)
+if DEBUG:
+    ALLOWED_HOSTS += [host for host in os.environ.get('QRPROTEC_DEBUG_HOSTS', '192.168.1.201').split(',') if host]
 
 # Derriere un reverse proxy HTTPS (nginx, caddy...) pour l'API publique
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

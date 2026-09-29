@@ -56,6 +56,7 @@ En production : `gunicorn qrprotecDB.wsgi:public_application` et
 | `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` | `127.0.0.1,::1` |
 | `QRPROTEC_LOCAL_API_TOKEN` | vide (pas de jeton) |
 | `QRPROTEC_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` |
+| `QRPROTEC_DEBUG_HOSTS` | `192.168.1.201` (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement) |
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
 | `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `3650` |
 | `QRPROTEC_SECRET_KEY`, `QRPROTEC_DEBUG`, `QRPROTEC_DB_PATH` | réglages Django |
