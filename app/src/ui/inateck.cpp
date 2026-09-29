@@ -127,7 +127,7 @@ Inateck::HidKeyResult Inateck::handle_hid_key(int key, int action) {
     return result;
   const std::optional<std::string> scan = hid_classifier_.finish();
   if (scan) {
-    inateck_worker_.on_scan_text(*scan);
+    inateck_worker_.on_scan_text(*scan, ScanSource::Hid);
     pending_hid_characters_.clear();
     has_last_hid_character_ = false;
     result.consume = true;
@@ -248,20 +248,29 @@ void Inateck::draw_inateck_window() {
   inateck_window_open_ = open;
 }
 
+void Inateck::draw_menu() {
+  if (ImGui::MenuItem("Ouvrir les parametres", nullptr, inateck_window_open_))
+    inateck_window_open_ = true;
+  const InateckSnapshot state = inateck_worker_.snapshot();
+  ImGui::Separator();
+  ImGui::Text("Statut : %s", state.authenticated ? "connectee" : state.discovering ? "recherche" : "hors ligne");
+  ImGui::Text("Mode HID clavier : %s", hid_enabled_ ? "actif" : "inactif");
+  if (ImGui::MenuItem("Rechercher", nullptr, false, !state.discovering))
+    inateck_worker_.start_discovery();
+  if (ImGui::MenuItem("Arreter la recherche", nullptr, false, state.discovering))
+    inateck_worker_.stop_discovery();
+  if (ImGui::MenuItem("Deconnecter", nullptr, false, state.connected))
+    inateck_worker_.disconnect();
+}
+
+void Inateck::draw_window() {
+  draw_inateck_window();
+}
+
 void Inateck::draw() {
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("Douchette")) {
-      if (ImGui::MenuItem("Ouvrir les parametres", nullptr, inateck_window_open_))
-        inateck_window_open_ = true;
-      const InateckSnapshot state = inateck_worker_.snapshot();
-      ImGui::Separator();
-      ImGui::Text("Statut : %s", state.authenticated ? "connectee" : state.discovering ? "recherche" : "hors ligne");
-      if (ImGui::MenuItem("Rechercher", nullptr, false, !state.discovering))
-        inateck_worker_.start_discovery();
-      if (ImGui::MenuItem("Arreter la recherche", nullptr, false, state.discovering))
-        inateck_worker_.stop_discovery();
-      if (ImGui::MenuItem("Deconnecter", nullptr, false, state.connected))
-        inateck_worker_.disconnect();
+      draw_menu();
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();

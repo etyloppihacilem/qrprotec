@@ -1,4 +1,5 @@
 #include "template_io.hpp"
+#include "placeholders.hpp"
 
 #include <cctype>
 #include <cstdlib>
@@ -107,12 +108,13 @@ bool save_template(const TemplateDocument& document, const std::string& path, st
 {
     std::ofstream output(path);
     if (!output) { error = "Impossible d'ouvrir le fichier template."; return false; }
-    output << "{\n  \"version\": 1,\n  \"name\": \"" << escape_json(document.name) << "\",\n"
+    output << "{\n  \"version\": 2,\n  \"name\": \"" << escape_json(document.name) << "\",\n"
+            << "  \"category\": \"" << category_id(document.category) << "\",\n"
             << "  \"media\": {\"width_mm\": " << document.media.width_mm
             << ", \"height_mm\": " << document.media.height_mm
             << ", \"pixels_per_mm\": " << document.media.pixels_per_mm
             << ", \"orientation\": \"" << (document.media.orientation == Orientation::Portrait ? "portrait" : "landscape")
-            << "},\n  \"parameters\": {";
+            << "\"},\n  \"parameters\": {";
     bool first = true;
     for (const auto& [key, value] : document.parameters) {
         if (!first) output << ", ";
@@ -122,17 +124,23 @@ bool save_template(const TemplateDocument& document, const std::string& path, st
     output << "},\n  \"elements\": [\n";
     for (std::size_t index = 0; index < document.elements.size(); ++index) {
         const TemplateElement& element = document.elements[index];
-        output << "    {\"id\": \"" << escape_json(element.id) << "\", \"kind\": \""
-                << (element.kind == ElementKind::Text ? "text" : "qr") << "\", ";
+        const char* kind = element.kind == ElementKind::Text ? "text" : element.kind == ElementKind::QrCode ? "qr" : "image";
+        output << "    {\"id\": \"" << escape_json(element.id) << "\", \"kind\": \"" << kind << "\", ";
         if (element.kind == ElementKind::Text) {
             const TextElement& text = std::get<TextElement>(element.content);
             output << "\"text\": \"" << escape_json(text.text) << "\", \"x_mm\": " << text.x_mm
                     << ", \"y_mm\": " << text.y_mm << ", \"width_mm\": " << text.width_mm
                     << ", \"height_mm\": " << text.height_mm << ", \"font_size_mm\": " << text.font_size_mm;
-        } else {
+        } else if (element.kind == ElementKind::QrCode) {
             const QrElement& qr = std::get<QrElement>(element.content);
             output << "\"payload\": \"" << escape_json(qr.payload) << "\", \"x_mm\": " << qr.x_mm
                     << ", \"y_mm\": " << qr.y_mm << ", \"size_mm\": " << qr.size_mm;
+        } else {
+            const ImageElement& image = std::get<ImageElement>(element.content);
+            output << "\"path\": \"" << escape_json(image.path) << "\", \"x_mm\": " << image.x_mm
+                    << ", \"y_mm\": " << image.y_mm << ", \"width_mm\": " << image.width_mm
+                    << ", \"height_mm\": " << image.height_mm << ", \"dither\": " << (image.dither ? 1 : 0)
+                    << ", \"threshold\": " << image.threshold;
         }
         output << "}" << (index + 1 == document.elements.size() ? "" : ",") << "\n";
     }
@@ -155,9 +163,12 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
     loaded.media.height_mm = number;
     if (!find_number(json, "pixels_per_mm", number)) { error = "Template invalide : resolution absente."; return false; }
     loaded.media.pixels_per_mm = number;
+    std::string category;
+    if (find_value(json, "category", category))
+        loaded.category = category_from_id(category);
     std::string orientation;
     if (find_value(json, "orientation", orientation))
-        loaded.media.orientation = orientation == "portrait" ? Orientation::Portrait : Orientation::Landscape;
+        loaded.media.orientation = orientation.rfind("portrait", 0) == 0 ? Orientation::Portrait : Orientation::Landscape;
     const std::string parameters = object_for_key(json, "parameters");
     std::size_t position = 0;
     while ((position = parameters.find('"', position)) != std::string::npos) {
@@ -195,6 +206,17 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
                 find_number(object, "y_mm", x); qr.y_mm = static_cast<float>(x);
                 find_number(object, "size_mm", x); qr.size_mm = static_cast<float>(x);
                 loaded.elements.push_back({id, ElementKind::QrCode, qr});
+            } else if (kind == "image") {
+                ImageElement image;
+                double x = 0.0;
+                find_value(object, "path", image.path);
+                find_number(object, "x_mm", x); image.x_mm = static_cast<float>(x);
+                find_number(object, "y_mm", x); image.y_mm = static_cast<float>(x);
+                find_number(object, "width_mm", x); image.width_mm = static_cast<float>(x);
+                find_number(object, "height_mm", x); image.height_mm = static_cast<float>(x);
+                if (find_number(object, "dither", x)) image.dither = x != 0.0;
+                if (find_number(object, "threshold", x)) image.threshold = static_cast<int>(x);
+                loaded.elements.push_back({id, ElementKind::Image, image});
             }
         }
     }

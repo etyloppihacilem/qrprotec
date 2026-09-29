@@ -25,6 +25,14 @@ class Inateck {
     ~Inateck();
 
     void draw();
+    void draw_menu();   // contenu du menu "Douchette" (a appeler dans une barre de menu)
+    void draw_window(); // fenetre de parametrage si ouverte
+    void open_window() { inateck_window_open_ = true; }
+
+    std::vector<ScanEvent> take_scans() { return inateck_worker_.take_scans(); }
+    void signal_error(const ScannerErrorSignal& signal) { inateck_worker_.signal_error(signal); }
+    bool hid_enabled() const { return hid_enabled_; }
+    bool sdk_connected() const { return inateck_worker_.snapshot().authenticated; }
     std::vector<unsigned int> handle_hid_character(unsigned int character);
     std::vector<unsigned int> flush_hid_characters();
     struct HidKeyResult {

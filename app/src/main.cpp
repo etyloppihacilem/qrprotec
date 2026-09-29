@@ -1,13 +1,15 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
-#include "ui/editor.hpp"
+#include "app/app.hpp"
 #include "printer/logging.hpp"
 #include "ui/inateck.hpp"
 
 #include <GLFW/glfw3.h>
 
 #include <cstdio>
+#include <filesystem>
+#include <memory>
 #include <string>
 
 static void glfw_error_callback(int error, const char* description)
@@ -16,9 +18,36 @@ static void glfw_error_callback(int error, const char* description)
 }
 
 static qrprotec::Inateck* active_inateck = nullptr;
+static qrprotec::App* active_app = nullptr;
+
+static void note_activity()
+{
+    if (active_app)
+        active_app->note_activity();
+}
+
+// Police avec accents francais ; la police par defaut d'ImGui reste utilisee si aucune n'est trouvee.
+static void load_font(float size)
+{
+    const char* font_paths[] = {
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf"};
+    ImGuiIO& io = ImGui::GetIO();
+    for (const char* path : font_paths) {
+        std::error_code error;
+        if (std::filesystem::exists(path, error) && io.Fonts->AddFontFromFileTTF(path, size)) {
+            break;
+        }
+    }
+    ImGui::GetStyle().FontSizeBase = size;
+}
 
 static void hid_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+    note_activity();
     if (!active_inateck)
         return ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
     const qrprotec::Inateck::HidKeyResult result = active_inateck->handle_hid_key(key, action);
@@ -93,7 +122,10 @@ int main(int argc, char** argv)
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // la disposition est geree par l'application (disposition par defaut restauree apres inactivite)
+    io.IniFilename = nullptr;
     ImGui::StyleColorsLight();
+    ImGui::GetStyle().FrameRounding = 3.0f;
 
     qrprotec::Inateck inateck;
     active_inateck = &inateck;
@@ -107,7 +139,10 @@ int main(int argc, char** argv)
     glfwSetScrollCallback(window, imgui_scroll_callback);
     ImGui_ImplOpenGL3_Init(nullptr);
 
-    qrprotec::Editor editor;
+    // detruite avant le contexte OpenGL (textures de l'editeur)
+    auto app = std::make_unique<qrprotec::App>(inateck);
+    active_app = app.get();
+    load_font(app->settings.font_size);
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         for (const unsigned int character : inateck.flush_hid_characters())
@@ -115,8 +150,8 @@ int main(int argc, char** argv)
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        editor.draw();
-        inateck.draw();
+        app->begin_frame();
+        app->draw();
 
         ImGui::Render();
 
@@ -124,12 +159,16 @@ int main(int argc, char** argv)
         int display_height = 0;
         glfwGetFramebufferSize(window, &display_width, &display_height);
         glViewport(0, 0, display_width, display_height);
-        glClearColor(0.12f, 0.14f, 0.16f, 1.0f);
+        // fond orange en mode privilegie
+        const ImVec4 background = app->background_color();
+        glClearColor(background.x, background.y, background.z, background.w);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
     }
 
+    active_app = nullptr;
+    app.reset();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

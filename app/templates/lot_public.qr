@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "name": "Lot public",
+  "category": "lot_public",
+  "media": {
+    "width_mm": 40,
+    "height_mm": 30,
+    "pixels_per_mm": 8,
+    "orientation": "landscape"
+  },
+  "parameters": {},
+  "elements": [
+    {
+      "id": "logo",
+      "kind": "image",
+      "path": "logo.png",
+      "x_mm": 1,
+      "y_mm": 1,
+      "width_mm": 10,
+      "height_mm": 10,
+      "dither": 1,
+      "threshold": 128
+    },
+    {
+      "id": "qr",
+      "kind": "qr",
+      "payload": "{{lot_url}}",
+      "x_mm": 18,
+      "y_mm": 2,
+      "size_mm": 21
+    },
+    {
+      "id": "nom",
+      "kind": "text",
+      "text": "{{lot_name}}",
+      "x_mm": 1,
+      "y_mm": 12,
+      "width_mm": 17,
+      "height_mm": 10,
+      "font_size_mm": 3.0
+    },
+    {
+      "id": "type",
+      "kind": "text",
+      "text": "{{lot_type_name}}",
+      "x_mm": 1,
+      "y_mm": 23,
+      "width_mm": 38,
+      "height_mm": 5,
+      "font_size_mm": 2.2
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+# QRProtec
+
+Inventaire par QR code du matériel de secours (consommable ou non) : chaque item porte une étiquette
+avec un identifiant unique, les lots (sacs, malles...) sont vérifiés en scannant leur contenu.
+
+- `database/` : back Django (base de données + API).
+- `app/` : front ImGui (poste local : douchette Inateck, imprimante Niimbot B1).
+
+## Identifiants et QR codes
+
+| Objet | Contenu du QR code | Exemple |
+|---|---|---|
+| Item | l'iid seul : type (6) + péremption `AAAAMMJJ` (8) + compteur base 62 (8) | `serphy20271231000000A1` |
+| Item non périssable | date `00000000` | `garrot00000000000000A1` |
+| Lot, étiquette publique | `<base>/verif?lot=ID` | `https://example.com/verif?lot=sacpse00000001` |
+| Lot, étiquette privée | `<base>/verif?lot=ID&key=CLE` | `...verif?lot=sacpse00000001&key=a1B2...` |
+| Badge utilisateur | `<base>/badge?m=MATRICULE&key=CLE` (clé valable 1 an) | `...badge?m=M0042&key=...` |
+| Paquet fermé | `<base>/pack?id=ID` | `...pack?id=0000002B` |
+
+`<base>` vaut `https://example.com/` par défaut et se change avec la variable d'environnement
+`QRPROTEC_PUBLIC_BASE_URL` du back. Le front reconnaît les QR codes quel que soit le domaine : changer
+la base n'invalide pas les étiquettes déjà imprimées.
+
+## Back (Django)
+
+```sh
+cd database
+poetry install --no-root          # ou : pip install django djangorestframework
+python manage.py migrate
+python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001
+python manage.py test inventory
+```
+
+Deux API sur deux ports, sélectionnées par le port qui reçoit la requête
+(`inventory/middleware.py`) :
+
+- **API publique** (`qrprotecDB/urls.py`) : lecture d'un item, d'un lot, d'un paquet, confirmation
+  d'un badge. Toute écriture exige la clé de l'objet modifié (ex : clé du lot pour une vérif).
+  Pour l'HTTPS, placer un reverse proxy (nginx, caddy) devant le port public.
+- **API locale** (`qrprotecDB/urls_local.py`) : gestion complète sans clé (types, réception, lots,
+  utilisateurs, stocks) et admin Django. N'accepte que les adresses de
+  `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` (localhost par défaut) et, si défini, le jeton
+  `QRPROTEC_LOCAL_API_TOKEN` dans l'en-tête `X-QRProtec-Token`.
+
+En production : `gunicorn qrprotecDB.wsgi:public_application` et
+`gunicorn qrprotecDB.wsgi:local_application` sur deux ports.
+
+### Variables d'environnement
+
+| Variable | Défaut |
+|---|---|
+| `QRPROTEC_PUBLIC_BASE_URL` | `https://example.com/` |
+| `QRPROTEC_PUBLIC_API_ADDRESS` / `_PORT` | `0.0.0.0` / `8000` |
+| `QRPROTEC_LOCAL_API_ADDRESS` / `_PORT` | `127.0.0.1` / `8001` |
+| `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` | `127.0.0.1,::1` |
+| `QRPROTEC_LOCAL_API_TOKEN` | vide (pas de jeton) |
+| `QRPROTEC_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` |
+| `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
+| `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `3650` |
+| `QRPROTEC_SECRET_KEY`, `QRPROTEC_DEBUG`, `QRPROTEC_DB_PATH` | réglages Django |
+
+### Routes (`/api/...`)
+
+Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`, `lots/<id>/`,
+`lots/<id>/verif/` (POST items, key), `lots/<id>/add/` (POST items, key), `packs/<id>/`.
+
+Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), `items/batch/`
+(réception), `items/to-stock/`, `items/<iid>/delete/`, `items/<iid>/restore/`, `stock/`,
+`stock/verif/`, `packs/`, `packs/<id>/open/`, `lot-types/`, `lot-types/<type>/`,
+`lot-types/<type>/requirements/`, `lots/`, `lots/<id>/update/`, `lots/<id>/rotate-key/`,
+`lots/<id>/verifs/`, `users/`, `users/<matricule>/`, `users/<matricule>/renew-key/`.
+
+Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricule": ..., "key": ...}`
+(vérifié) ou `"name": ...` (déclaré). Sur l'API locale, `"user": "MATRICULE"` suffit.
+
+### Règles de gestion
+
+- **Vérif** : les items scannés sont placés dans le lot (ou le stock). Un item périmé scanné alors que
+  des items frais du même type viennent d'arriver dans le lot est considéré comme **remplacé** et sort
+  du lot. Les items attendus mais non scannés sont signalés ; ils passent **disparus** s'ils sont
+  périmés ou après `QRPROTEC_MISSING_AFTER_VERIFS` vérifs manquées. Les exigences du lot ne comptent
+  que les items vus à la dernière vérif.
+- **Suppression** : les items ne sont pas supprimés par les utilisateurs. Un responsable peut
+  exceptionnellement marquer un item supprimé (raison obligatoire) et le restaurer.
+- **Paquet fermé** : à la réception, les items sont créés et une seule étiquette de paquet est
+  imprimée ; les étiquettes individuelles sont imprimées à l'ouverture.
+
+## Front (ImGui)
+
+```sh
+cd app
+git submodule update --init
+cmake -S . -B build && cmake --build build -j
+cd build && ctest
+cd ../templates && ../build/QRProtecApp   # les modèles *.qr sont lus dans le dossier courant
+```
+
+Dépendances : GLFW, OpenGL, libpng, FreeType, libxdo (SDK Inateck). L'encodeur QR
+([Nayuki](https://www.nayuki.io/page/qr-code-generator-library), MIT) et `stb_image` (PNG/JPEG,
+domaine public) sont fournis dans `app/third_party/`.
+
+Les réglages sont dans `~/.config/qrprotec/app.conf` et s'éditent depuis **Gestion > Réglages** :
+URL de l'API locale, modèle d'étiquette par usage, imprimante, délai de réinitialisation,
+disposition par défaut des fenêtres, signal de mauvais scan.
+
+### Mode normal
+
+- **Pile de scans** (colonne de droite, toujours ouverte) : chaque scan s'y ajoute ; les périmés et
+  les codes inconnus sont en rouge, les doublons en jaune, avec des boutons pour annuler le dernier
+  scan, retirer une ligne, nettoyer ou vider la pile. Après avoir scanné l'**étiquette privée** d'un
+  lot : **Ajouter au lot** (range les items scannés) ou **Valider comme vérif** (le contenu du lot
+  devient la pile).
+- **Lots** : état de chaque lot (périmés, bientôt périmés, complet), détail du contenu, lancement
+  d'une vérif.
+- **Vérif** : ouverte automatiquement au scan d'une étiquette de lot (clé pré-remplie si étiquette
+  privée). Liste des items attendus : chaque item scanné bascule dans la pile et disparaît de la
+  liste. Hors mode responsable, la validation exige l'étiquette privée du lot.
+- **Connexion** : scanner son badge. Le nom de l'utilisateur connecté est affiché en haut à droite et
+  dans la pile, avec un bouton **Se déconnecter**. Une vérif ou un ajout demande de se connecter.
+- **Mauvais scan** (produit périmé, code inconnu) : bip et LED de la douchette via le SDK Inateck ;
+  en mode HID, bip de l'ordinateur et clignotement rouge de l'écran.
+- **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté et les
+  fenêtres remises à leur place par défaut.
+
+### Mode privilégié (badge responsable)
+
+Fond orange. Menu **Gestion** :
+
+- **État des stocks** : barre par type, verte au-dessus du minimum, orange en dessous, rouge à 0,
+  avec « quantité/minimum » (ex : `32/100`).
+- **Inventaire** : réception d'une commande (type, péremption, quantité, paquet fermé) avec
+  impression des étiquettes en série, types d'items, recherche d'items, réimpression d'une étiquette,
+  suppression exceptionnelle, ouverture des paquets fermés.
+- **Gestion des lots** : types de lots et contenu attendu, création de lots, étiquettes publique et
+  privée, régénération de la clé.
+- **Utilisateurs** : création, droits responsable, renouvellement et impression des badges.
+- **Éditeur d'étiquettes** : modèles avec usage (item, paquet, lot public, lot privé, badge),
+  onglet **Placeholders** listant les `{{placeholders}}` disponibles, textes, QR codes et images
+  (logo PNG ou JPEG).
+- **Réglages**.
+
+`app/templates/` contient un modèle d'exemple par usage (40 × 30 mm). Les modèles de lot public et
+de badge affichent `logo.png` : copier le logo de la protection civile sous ce nom dans le dossier
+des modèles.

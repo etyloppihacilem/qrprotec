@@ -15,6 +15,7 @@ find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(PNG REQUIRED)
 find_package(Freetype REQUIRED)
+find_package(Threads REQUIRED)
 
 set(INATECK_SDK_DEFAULT_LIBRARY
     "${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble/linux/x86_64-unknown-linux-gnu/libinateck_scanner_ble.so")
@@ -42,6 +43,7 @@ endif()
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 
 set(IMGUI_SOURCES
+    ${IMGUI_DIR}/misc/cpp/imgui_stdlib.cpp
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
     ${IMGUI_DIR}/imgui_tables.cpp
@@ -51,27 +53,60 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
-add_library(QRProtecPrinter STATIC
+# Coeur sans interface (teste unitairement) : modeles d'etiquettes, rendu, QR codes, JSON, API
+add_library(QRProtecCore STATIC
+    src/core/codes.cpp
+    src/core/glob_utils.cpp
+    src/core/json.cpp
+    src/core/placeholders.cpp
+    src/core/template.cpp
+    src/core/template_io.cpp
+    src/net/http.cpp
+    src/net/api_client.cpp
     src/printer/logging.cpp
+    src/render/image_loader.cpp
+    src/render/raster.cpp
+    third_party/qrcodegen/qrcodegen.cpp
+)
+target_include_directories(QRProtecCore PUBLIC
+    src
+    third_party/qrcodegen
+    third_party/stb
+)
+target_link_libraries(QRProtecCore PUBLIC PNG::PNG Freetype::Freetype Threads::Threads)
+
+add_library(QRProtecPrinter STATIC
     src/printer/niimbot_protocol.cpp
     src/printer/serial.cpp
     src/printer/printer.cpp
 )
 target_include_directories(QRProtecPrinter PUBLIC src)
+target_link_libraries(QRProtecPrinter PUBLIC QRProtecCore)
 
 # -----------------------------------------------------------------------------
 # 3. Définition de l'exécutable
 # -----------------------------------------------------------------------------
 add_executable(${PROJECT_NAME}
     src/main.cpp
-    src/core/glob_utils.cpp
-    src/core/template.cpp
-    src/core/template_io.cpp
-    src/render/raster.cpp
+    src/app/app.cpp
+    src/app/feedback.cpp
+    src/app/labels.cpp
+    src/app/print_queue.cpp
+    src/app/scan_stack.cpp
+    src/app/settings.cpp
     src/inateck/hid_classifier.cpp
     src/inateck/inateck_worker.cpp
     src/ui/inateck.cpp
     src/ui/editor.cpp
+    src/ui/widgets.cpp
+    src/ui/windows/inventory_window.cpp
+    src/ui/windows/lot_admin_window.cpp
+    src/ui/windows/lots_window.cpp
+    src/ui/windows/scan_window.cpp
+    src/ui/windows/settings_window.cpp
+    src/ui/windows/stock_window.cpp
+    src/ui/windows/users_window.cpp
+    src/ui/windows/verif_window.cpp
     ${IMGUI_SOURCES}
 )
 
@@ -79,6 +114,7 @@ add_executable(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
+    ${IMGUI_DIR}/misc/cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble
 )
 
@@ -86,8 +122,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
     glfw
     OpenGL::GL
-    PNG::PNG
-    Freetype::Freetype
+    QRProtecCore
     QRProtecPrinter
 )
 
@@ -98,15 +133,13 @@ if(TARGET InateckScannerBle)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(QRProtecCoreTest
-        tests/core_test.cpp
-        src/core/template.cpp
-        src/core/template_io.cpp
-        src/render/raster.cpp
-    )
-    target_include_directories(QRProtecCoreTest PRIVATE src)
-    target_link_libraries(QRProtecCoreTest PRIVATE PNG::PNG Freetype::Freetype)
+    add_executable(QRProtecCoreTest tests/core_test.cpp)
+    target_link_libraries(QRProtecCoreTest PRIVATE QRProtecCore)
     add_test(NAME QRProtecCoreTest COMMAND QRProtecCoreTest)
+
+    add_executable(QRProtecCodesTest tests/codes_test.cpp)
+    target_link_libraries(QRProtecCodesTest PRIVATE QRProtecCore)
+    add_test(NAME QRProtecCodesTest COMMAND QRProtecCodesTest)
 
     add_executable(QRProtecPrinterTest
         tests/printer_test.cpp

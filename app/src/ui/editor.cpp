@@ -1,8 +1,10 @@
 #include "editor.hpp"
 #include "../core/glob_utils.hpp"
 #include "../core/template_io.hpp"
+#include "../core/placeholders.hpp"
 #include "core/template.hpp"
 #include "imgui.h"
+#include "imgui_stdlib.h"
 #include <GL/gl.h>
 #include <algorithm>
 #include <chrono>
@@ -46,6 +48,10 @@ void Editor::new_template() {
 }
 
 void Editor::reload_templates() {
+  image_files_.clear();
+  for (const char *pattern : { "*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG" })
+    for (const auto &path : glob_current_dir(pattern))
+      image_files_.push_back(path);
   qr_files_ = glob_current_dir("*.qr");
   document_list_.clear();
   for (auto path : qr_files_) {
@@ -97,6 +103,19 @@ void Editor::draw_document_panel() {
   copy_to_buffer(template_path, sizeof(template_path), template_path_);
   if (ImGui::InputText("Fichier", template_path, sizeof(template_path)))
     template_path_ = template_path;
+  const CategoryInfo &current = category_info(document_.category);
+  if (ImGui::BeginCombo("Usage", current.label.c_str())) {
+    for (const CategoryInfo &info : template_categories())
+      if (ImGui::Selectable(info.label.c_str(), info.category == document_.category)) {
+        document_.category = info.category;
+        // valeurs d'exemple pour l'apercu, sans ecraser celles deja saisies
+        for (const auto &[name, value] : example_parameters(info.category))
+          document_.parameters.emplace(name, value);
+        preview_dirty_ = true;
+      }
+    ImGui::EndCombo();
+  }
+  ImGui::SetItemTooltip("%s", current.description.c_str());
   float width  = static_cast< float >(document_.media.width_mm);
   float height = static_cast< float >(document_.media.height_mm);
   float ppmm   = static_cast< float >(document_.media.pixels_per_mm);
@@ -156,6 +175,15 @@ void Editor::draw_document_panel() {
     selected_element_ = static_cast< int >(document_.elements.size()) - 1;
     preview_dirty_    = true;
   }
+  if (ImGui::Button("Ajouter image (logo)")) {
+    document_.elements.push_back(
+      { "image-" + std::to_string(document_.elements.size()),
+        ElementKind::Image,
+        ImageElement{ image_files_.empty() ? "logo.png" : image_files_.front().filename().string(), 2.0f, 2.0f, 10.0f, 10.0f, true, 128 } }
+    );
+    selected_element_ = static_cast< int >(document_.elements.size()) - 1;
+    preview_dirty_    = true;
+  }
   ImGui::Separator();
   for (int index = 0; index < static_cast< int >(document_.elements.size()); ++index) {
     const bool        selected = selected_element_ == index;
@@ -168,14 +196,24 @@ void Editor::draw_document_panel() {
 
 void Editor::draw_element_panel() {
   ImGui::BeginChild("PropertiesPanel", ImVec2(0, 0), true);
-  ImGui::TextUnformatted("Proprietes");
-  ImGui::Separator();
-  if (selected_element_ < 0 || selected_element_ >= static_cast< int >(document_.elements.size())) {
-    ImGui::TextUnformatted("Selectionnez un element.");
-    ImGui::EndChild();
-    return;
+  if (ImGui::BeginTabBar("element_tabs")) {
+    if (ImGui::BeginTabItem("Proprietes")) {
+      if (selected_element_ < 0 || selected_element_ >= static_cast< int >(document_.elements.size()))
+        ImGui::TextUnformatted("Selectionnez un element.");
+      else
+        draw_properties(document_.elements[static_cast< std::size_t >(selected_element_)]);
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Placeholders")) {
+      draw_placeholders_panel();
+      ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
   }
-  TemplateElement &element = document_.elements[static_cast< std::size_t >(selected_element_)];
+  ImGui::EndChild();
+}
+
+void Editor::draw_properties(TemplateElement &element) {
   char             id[128];
   copy_to_buffer(id, sizeof(id), element.id);
   if (ImGui::InputText("Identifiant", id, sizeof(id)))
@@ -206,7 +244,7 @@ void Editor::draw_element_panel() {
     }
     if (ImGui::DragFloat("Taille police (mm)", &text.font_size_mm, 0.1f, 0.5f, 30.0f))
       preview_dirty_ = true;
-  } else {
+  } else if (element.kind == ElementKind::QrCode) {
     QrElement &qr = std::get< QrElement >(element.content);
     char       payload[512];
     copy_to_buffer(payload, sizeof(payload), qr.payload);
@@ -221,14 +259,103 @@ void Editor::draw_element_panel() {
       preview_dirty_ = true;
     if (ImGui::DragFloat("Taille (mm)", &qr.size_mm, 0.1f, 5.0f, 100.0f))
       preview_dirty_ = true;
-    ImGui::TextWrapped("Apercu QR diagnostique : l'encodeur QR reel sera branche dans le module QR.");
+    ImGui::TextWrapped("QR code reel (correction M), centre dans la zone. Prevoir une marge blanche autour.");
+  } else {
+    ImageElement &image = std::get< ImageElement >(element.content);
+    if (ImGui::InputText("Fichier image", &image.path))
+      preview_dirty_ = true;
+    if (!image_files_.empty() && ImGui::BeginCombo("##images", "Choisir une image du dossier")) {
+      for (const auto &path : image_files_)
+        if (ImGui::Selectable(path.filename().string().c_str())) {
+          image.path     = path.filename().string();
+          preview_dirty_ = true;
+        }
+      ImGui::EndCombo();
+    }
+    ImGui::TextDisabled("PNG ou JPEG (ex: logo de la protection civile), chemin relatif au dossier courant.");
+    if (ImGui::DragFloat("X (mm)", &image.x_mm, 0.1f))
+      preview_dirty_ = true;
+    if (ImGui::DragFloat("Y (mm)", &image.y_mm, 0.1f))
+      preview_dirty_ = true;
+    if (ImGui::DragFloat("Largeur (mm)", &image.width_mm, 0.1f, 1.0f, 300.0f))
+      preview_dirty_ = true;
+    if (ImGui::DragFloat("Hauteur (mm)", &image.height_mm, 0.1f, 1.0f, 300.0f))
+      preview_dirty_ = true;
+    if (ImGui::Checkbox("Tramage (niveaux de gris)", &image.dither))
+      preview_dirty_ = true;
+    if (ImGui::SliderInt("Seuil noir/blanc", &image.threshold, 0, 255))
+      preview_dirty_ = true;
   }
   if (ImGui::Button("Supprimer")) {
     document_.elements.erase(document_.elements.begin() + selected_element_);
     selected_element_ = -1;
     preview_dirty_    = true;
   }
-  ImGui::EndChild();
+}
+
+void Editor::insert_placeholder(const std::string &name) {
+  const std::string token = "{{" + name + "}}";
+  if (selected_element_ < 0 || selected_element_ >= static_cast< int >(document_.elements.size())) {
+    ImGui::SetClipboardText(token.c_str());
+    message_ = token + " copie dans le presse-papier.";
+    return;
+  }
+  TemplateElement &element = document_.elements[static_cast< std::size_t >(selected_element_)];
+  if (element.kind == ElementKind::Text)
+    std::get< TextElement >(element.content).text += token;
+  else if (element.kind == ElementKind::QrCode)
+    std::get< QrElement >(element.content).payload = token;
+  else {
+    ImGui::SetClipboardText(token.c_str());
+    message_ = token + " copie dans le presse-papier.";
+    return;
+  }
+  if (document_.parameters.find(name) == document_.parameters.end()) {
+    const Parameters examples = example_parameters(document_.category);
+    const auto       example  = examples.find(name);
+    document_.parameters[name] = example != examples.end() ? example->second : name;
+  }
+  placeholder_names_ = find_placeholders(document_);
+  preview_dirty_     = true;
+}
+
+void Editor::draw_placeholders_panel() {
+  const CategoryInfo &info = category_info(document_.category);
+  ImGui::TextWrapped("Usage du modele : %s. %s", info.label.c_str(), info.description.c_str());
+  ImGui::TextDisabled("Cliquez sur un nom pour l'inserer dans l'element selectionne (texte : ajoute, QR : remplace).");
+  const auto table = [this](const char *id, const std::vector< PlaceholderInfo > &placeholders) {
+    if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH))
+      return;
+    ImGui::TableSetupColumn("Placeholder", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+    ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+    for (const PlaceholderInfo &placeholder : placeholders) {
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      const std::string label = "{{" + placeholder.name + "}}";
+      if (ImGui::Selectable(label.c_str()))
+        insert_placeholder(placeholder.name);
+      ImGui::TableNextColumn();
+      ImGui::TextWrapped("%s", placeholder.description.c_str());
+      ImGui::TextDisabled("ex: %s", placeholder.example.c_str());
+    }
+    ImGui::EndTable();
+  };
+  if (!info.placeholders.empty()) {
+    ImGui::SeparatorText("Specifiques");
+    table("specific", info.placeholders);
+  }
+  ImGui::SeparatorText("Communs a toutes les etiquettes");
+  table("common", common_placeholders());
+  if (ImGui::CollapsingHeader("Autres usages")) {
+    for (const CategoryInfo &other : template_categories()) {
+      if (other.category == document_.category || other.placeholders.empty())
+        continue;
+      if (ImGui::TreeNode(other.label.c_str())) {
+        table(other.id.c_str(), other.placeholders);
+        ImGui::TreePop();
+      }
+    }
+  }
 }
 
 void Editor::draw_preview_panel() {
@@ -367,6 +494,11 @@ void Editor::draw_print_test_popup() {
 
 void Editor::draw() {
   ImGui::Begin("QRProtec - Editeur de templates", nullptr, ImGuiWindowFlags_MenuBar);
+  draw_contents();
+  ImGui::End();
+}
+
+void Editor::draw_contents() {
   if (ImGui::BeginMenuBar()) {
     if (ImGui::BeginMenu("File")) {
       if (ImGui::BeginMenu("Open")) {
@@ -389,6 +521,8 @@ void Editor::draw() {
         std::string error;
         if (template_path_ != "")
           message_ = save_template(document_, template_path_, error) ? "Template enregistre." : error;
+        if (template_path_ != "")
+          reload_templates();
         else
           message_ = "Entrez un nom de fichier terminant par .qr.";
       }
@@ -419,7 +553,6 @@ void Editor::draw() {
     ImGui::EndTable();
   }
   draw_print_test_popup();
-  ImGui::End();
 }
 
 } // namespace qrprotec

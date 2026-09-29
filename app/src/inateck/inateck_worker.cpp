@@ -143,6 +143,14 @@ void InateckWorker::set_prefix(const std::string& value) { enqueue({CommandType:
 void InateckWorker::set_suffix(const std::string& value) { enqueue({CommandType::SetSuffix, value}); }
 void InateckWorker::set_name(const std::string& value) { enqueue({CommandType::SetName, value}); }
 void InateckWorker::set_sdk_output(bool enabled) { enqueue({CommandType::SetSdkOutput, {}, enabled ? 1 : 0}); }
+void InateckWorker::signal_error(const ScannerErrorSignal& signal) { enqueue({CommandType::SignalError, {}, 0, signal}); }
+
+std::vector<ScanEvent> InateckWorker::take_scans() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ScanEvent> scans;
+    scans.swap(scans_);
+    return scans;
+}
 
 void InateckWorker::on_discovery(const char* json) {
     const std::string id = json_string(json, "id");
@@ -163,14 +171,15 @@ void InateckWorker::on_scan(const char* json) {
     std::string code = json_string(json, "code");
     if (code.empty() && json)
         code = json;
-    on_scan_text(code);
+    on_scan_text(code, ScanSource::Sdk);
 }
 
-void InateckWorker::on_scan_text(const std::string& code) {
+void InateckWorker::on_scan_text(const std::string& code, ScanSource source) {
     if (code.empty())
         return;
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.last_scan = code;
+    scans_.push_back({code, source});
 }
 
 void InateckWorker::on_disconnect() {
@@ -303,6 +312,18 @@ void InateckWorker::execute(const Command& command) {
     case CommandType::SetSdkOutput:
         if (!id.empty()) result = inateck_scanner_ble_set_hid_output(id.c_str(), command.number);
         break;
+    case CommandType::SignalError: {
+        if (id.empty() || !snapshot().authenticated) return;
+        const auto byte = [](int value) { return static_cast<uint8_t>(value < 0 ? 0 : value > 255 ? 255 : value); };
+        const ScannerErrorSignal& signal = command.signal;
+        result = inateck_scanner_set_led(id.c_str(), byte(signal.led_color), byte(signal.led_on),
+                                         byte(signal.led_off), byte(signal.led_count));
+        if (result && !json_success(result))
+            set_error(result);
+        result = inateck_scanner_set_bee(id.c_str(), byte(signal.beep_on), byte(signal.beep_off),
+                                         byte(signal.beep_count));
+        break;
+    }
     case CommandType::Shutdown:
         return;
     }

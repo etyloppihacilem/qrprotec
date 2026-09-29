@@ -1,0 +1,122 @@
+#include "core/codes.hpp"
+#include "core/json.hpp"
+#include "core/placeholders.hpp"
+#include "core/template.hpp"
+#include "core/template_io.hpp"
+#include "net/http.hpp"
+#include "render/raster.hpp"
+
+#include <cassert>
+#include <cstdio>
+#include <string>
+
+using namespace qrprotec;
+
+static void test_json() {
+  std::string error;
+  const Json  value = Json::parse(R"({"a": 1, "b": [true, null, "xé\n"], "c": {"d": -2.5}})", &error);
+  assert(error.empty());
+  assert(value["a"].integer() == 1);
+  assert(value["b"].size() == 3);
+  assert(value["b"][0].boolean());
+  assert(value["b"][1].is_null());
+  assert(value["b"][2].str() == "x\xc3\xa9\n");
+  assert(value["c"]["d"].num() == -2.5);
+  assert(value["missing"]["deep"].str("def") == "def");
+  Json object;
+  object["name"] = "S\xc3\xa9rum \"phy\"";
+  object["count"] = 3;
+  object["list"].push_back("a");
+  const Json round = Json::parse(object.dump(), &error);
+  assert(error.empty());
+  assert(round["name"].str() == object["name"].str());
+  assert(round["count"].integer() == 3);
+  assert(round["list"][0].str() == "a");
+  Json::parse("{\"a\":", &error);
+  assert(!error.empty());
+}
+
+static void test_dates() {
+  const auto date = Date::parse("2027-02-28");
+  assert(date && date->plus_days(1) == (Date{ 2027, 3, 1 }));
+  assert(Date::parse("31/12/2026")->iso() == "2026-12-31");
+  assert(Date::parse("20261231")->display() == "31/12/2026");
+  assert(!Date::parse("2026-02-30"));
+  assert(Date::parse("2026-09-29T10:00:00Z")->iso() == "2026-09-29");
+  assert((Date{ 2026, 1, 1 }.plus_days(-1) == Date{ 2025, 12, 31 }));
+}
+
+static void test_scans() {
+  const ParsedScan item = parse_scan("compre20261231000000A1\n");
+  assert(item.kind == ScanKind::Item);
+  assert(item.item_type == "compre");
+  assert(item.peremption && item.peremption->iso() == "2026-12-31");
+  assert(is_expired(item, Date{ 2027, 1, 1 }));
+  assert(!is_expired(item, Date{ 2026, 12, 31 }));
+
+  const ParsedScan garrot = parse_scan("garrot00000000000000A1");
+  assert(garrot.kind == ScanKind::Item && !garrot.peremption);
+  assert(!is_expired(garrot, Date{ 2100, 1, 1 }));
+
+  const ParsedScan lot = parse_scan("https://example.com/verif?lot=sacpse00000001&key=abc%2Bd");
+  assert(lot.kind == ScanKind::Lot && lot.id == "sacpse00000001" && lot.key == "abc+d");
+  const ParsedScan lot_public = parse_scan("https://autre-domaine.fr/app/verif/?lot=sacpse00000001");
+  assert(lot_public.kind == ScanKind::Lot && lot_public.key.empty());
+  const ParsedScan badge = parse_scan("https://example.com/badge?m=M001&key=K");
+  assert(badge.kind == ScanKind::User && badge.id == "M001" && badge.key == "K");
+  const ParsedScan pack = parse_scan("https://example.com/pack?id=0000002B");
+  assert(pack.kind == ScanKind::SealedPack && pack.id == "0000002B");
+  assert(parse_scan("n'importe quoi").kind == ScanKind::Unknown);
+  assert(parse_scan("compre2026123100000!A1").kind == ScanKind::Unknown);
+}
+
+static void test_http() {
+  HttpUrl     url;
+  std::string error;
+  assert(parse_http_url("http://127.0.0.1:8001", url, error) && url.host == "127.0.0.1" && url.port == 8001);
+  assert(parse_http_url("http://serveur/qrprotec/", url, error) && url.port == 80 && url.base_path == "/qrprotec");
+  assert(!parse_http_url("https://serveur", url, error));
+  HttpResponse response;
+  assert(parse_http_response("HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\n{}", response));
+  assert(response.status == 201 && response.body == "{}");
+  assert(parse_http_response("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n", response));
+  assert(response.body == "abcde");
+}
+
+static void test_qr_and_categories() {
+  TemplateDocument document;
+  document.category = TemplateCategory::Item;
+  document.parameters = example_parameters(TemplateCategory::Item);
+  document.elements.push_back({ "qr", ElementKind::QrCode, QrElement{ "{{iid}}", 2.0f, 2.0f, 20.0f } });
+  const RasterImage image = render_template(document);
+  // les trois motifs de reperage d'un vrai QR code : coin haut gauche noir
+  const int origin = static_cast< int >(2.0 * document.media.pixels_per_mm);
+  bool      ink    = false;
+  for (int y = origin; y < origin + 12; ++y)
+    for (int x = origin; x < origin + 12; ++x)
+      ink = ink || image.at(x, y) == 0;
+  assert(ink);
+
+  std::string error;
+  document.elements.push_back({ "logo", ElementKind::Image, ImageElement{ "logo.png", 1, 1, 5, 5, false, 100 } });
+  assert(save_template(document, "/tmp/qrprotec-category.qr", error));
+  TemplateDocument loaded;
+  assert(load_template(loaded, "/tmp/qrprotec-category.qr", error));
+  assert(loaded.category == TemplateCategory::Item);
+  assert(loaded.elements.size() == 2);
+  assert(loaded.elements[1].kind == ElementKind::Image);
+  const ImageElement &logo = std::get< ImageElement >(loaded.elements[1].content);
+  assert(logo.path == "logo.png" && !logo.dither && logo.threshold == 100);
+  std::remove("/tmp/qrprotec-category.qr");
+  assert(category_from_id("lot_private") == TemplateCategory::LotPrivate);
+}
+
+int main() {
+  test_json();
+  test_dates();
+  test_scans();
+  test_http();
+  test_qr_and_categories();
+  std::puts("codes_test OK");
+  return 0;
+}

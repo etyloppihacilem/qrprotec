@@ -51,12 +51,18 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
         issues.push_back({ "Le texte depasse les limites du media.", element.id });
       if (text.font_size_mm <= 0.0f)
         issues.push_back({ "La taille du texte doit etre positive.", element.id });
-    } else {
+    } else if (element.kind == ElementKind::QrCode) {
       const QrElement &qr = std::get< QrElement >(element.content);
       if (qr.payload.empty())
         issues.push_back({ "Le payload QR ne peut pas etre vide.", element.id });
       if (!inside(qr.x_mm, qr.y_mm, qr.size_mm, qr.size_mm, document.media))
         issues.push_back({ "Le QR code depasse les limites du media.", element.id });
+    } else {
+      const ImageElement &image = std::get< ImageElement >(element.content);
+      if (image.path.empty())
+        issues.push_back({ "Choisissez un fichier image.", element.id });
+      if (!inside(image.x_mm, image.y_mm, image.width_mm, image.height_mm, document.media))
+        issues.push_back({ "L'image depasse les limites du media.", element.id });
     }
   }
   return issues;
@@ -93,7 +99,7 @@ std::vector< std::string > find_placeholders(const TemplateDocument &document) {
   for (const TemplateElement &element : document.elements)
     if (element.kind == ElementKind::Text)
       collect(std::get< TextElement >(element.content).text);
-    else
+    else if (element.kind == ElementKind::QrCode)
       collect(std::get< QrElement >(element.content).payload);
   std::vector< std::string > result(names.begin(), names.end());
 

@@ -1,0 +1,52 @@
+{
+  "version": 2,
+  "name": "Paquet ferme",
+  "category": "itempack",
+  "media": {
+    "width_mm": 40,
+    "height_mm": 30,
+    "pixels_per_mm": 8,
+    "orientation": "landscape"
+  },
+  "parameters": {},
+  "elements": [
+    {
+      "id": "qr",
+      "kind": "qr",
+      "payload": "{{pack_url}}",
+      "x_mm": 1,
+      "y_mm": 2,
+      "size_mm": 22
+    },
+    {
+      "id": "type",
+      "kind": "text",
+      "text": "{{count}} x {{type_name}}",
+      "x_mm": 24,
+      "y_mm": 2,
+      "width_mm": 15,
+      "height_mm": 14,
+      "font_size_mm": 2.6
+    },
+    {
+      "id": "exp",
+      "kind": "text",
+      "text": "Exp {{peremption}}",
+      "x_mm": 24,
+      "y_mm": 17,
+      "width_mm": 15,
+      "height_mm": 5,
+      "font_size_mm": 2.2
+    },
+    {
+      "id": "id",
+      "kind": "text",
+      "text": "Paquet {{pack_id}}",
+      "x_mm": 1,
+      "y_mm": 25,
+      "width_mm": 38,
+      "height_mm": 4,
+      "font_size_mm": 2.0
+    }
+  ]
+}

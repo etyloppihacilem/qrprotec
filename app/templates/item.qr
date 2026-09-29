@@ -1,0 +1,52 @@
+{
+  "version": 2,
+  "name": "Item",
+  "category": "item",
+  "media": {
+    "width_mm": 40,
+    "height_mm": 30,
+    "pixels_per_mm": 8,
+    "orientation": "landscape"
+  },
+  "parameters": {},
+  "elements": [
+    {
+      "id": "qr",
+      "kind": "qr",
+      "payload": "{{iid}}",
+      "x_mm": 1,
+      "y_mm": 2,
+      "size_mm": 20
+    },
+    {
+      "id": "type",
+      "kind": "text",
+      "text": "{{type_name}}",
+      "x_mm": 22,
+      "y_mm": 2,
+      "width_mm": 17,
+      "height_mm": 12,
+      "font_size_mm": 2.6
+    },
+    {
+      "id": "exp",
+      "kind": "text",
+      "text": "Exp {{peremption}}",
+      "x_mm": 22,
+      "y_mm": 15,
+      "width_mm": 17,
+      "height_mm": 5,
+      "font_size_mm": 2.4
+    },
+    {
+      "id": "iid",
+      "kind": "text",
+      "text": "{{iid}}",
+      "x_mm": 1,
+      "y_mm": 24,
+      "width_mm": 38,
+      "height_mm": 4,
+      "font_size_mm": 1.8
+    }
+  ]
+}

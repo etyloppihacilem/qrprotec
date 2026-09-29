@@ -17,7 +17,8 @@ public:
     Editor();
     ~Editor();
 
-    void draw();
+    void draw();          // fenetre autonome
+    void draw_contents(); // contenu seul (la fenetre est geree par l'application)
 
 private:
     struct PrintResult {
@@ -28,6 +29,9 @@ private:
     void rebuild_preview();
     void draw_document_panel();
     void draw_element_panel();
+    void draw_properties(TemplateElement &element);
+    void draw_placeholders_panel();
+    void insert_placeholder(const std::string &name);
     void draw_preview_panel();
     void draw_print_test_popup();
     void open_print_test();
@@ -56,6 +60,7 @@ private:
     std::future<PrintResult> print_task_;
 
     std::vector<std::filesystem::path> qr_files_;
+    std::vector<std::filesystem::path> image_files_;
     std::vector<TemplateDocument> document_list_;
 };
 
