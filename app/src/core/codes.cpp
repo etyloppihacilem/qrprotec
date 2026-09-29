@@ -13,6 +13,7 @@
 #include <cctype>
 #include <cstdio>
 #include <ctime>
+#include <vector>
 
 namespace qrprotec {
 
@@ -133,6 +134,81 @@ bool Date::operator<(const Date &other) const {
 
 bool Date::operator==(const Date &other) const {
   return year == other.year && month == other.month && day == other.day;
+}
+
+namespace {
+
+std::optional< Date > make_date(int year, int month, int day) {
+  if (year < 100)
+    year += 2000;
+  const Date date{ year, month, day };
+  if (!date.valid() || year < 2000 || year > 2199)
+    return std::nullopt;
+  return date;
+}
+
+std::optional< Date > end_of_month(int year, int month) {
+  if (year < 100)
+    year += 2000;
+  if (month < 1 || month > 12 || year < 2000 || year > 2199)
+    return std::nullopt;
+  return Date{ year, month, days_in_month(year, month) };
+}
+
+} // namespace
+
+std::optional< Date > parse_user_date(const std::string &input) {
+  // decoupe en groupes de chiffres
+  std::vector< std::string > groups;
+  std::string                current;
+  for (const char character : trim(input)) {
+    if (std::isdigit(static_cast< unsigned char >(character))) {
+      current += character;
+    } else if (character == '/' || character == '-' || character == '.' || character == ' ') {
+      if (!current.empty())
+        groups.push_back(current);
+      current.clear();
+    } else {
+      return std::nullopt;
+    }
+  }
+  if (!current.empty())
+    groups.push_back(current);
+  const auto number = [](const std::string &text) { return std::stoi(text); };
+
+  if (groups.size() == 3) {
+    if (groups[0].size() == 4) // 2026-09-02
+      return make_date(number(groups[0]), number(groups[1]), number(groups[2]));
+    if (groups[0].size() <= 2 && groups[1].size() <= 2 && (groups[2].size() == 2 || groups[2].size() == 4))
+      return make_date(number(groups[2]), number(groups[1]), number(groups[0]));
+    return std::nullopt;
+  }
+  if (groups.size() == 2) {
+    if (groups[0].size() <= 2 && (groups[1].size() == 2 || groups[1].size() == 4)) // 09/2026, 9/26
+      return end_of_month(number(groups[1]), number(groups[0]));
+    if (groups[0].size() == 4 && groups[1].size() <= 2) // 2026-09
+      return end_of_month(number(groups[0]), number(groups[1]));
+    return std::nullopt;
+  }
+  if (groups.size() != 1)
+    return std::nullopt;
+  const std::string &digits = groups[0];
+  switch (digits.size()) {
+    case 8: { // JJMMAAAA, sinon AAAAMMJJ
+      if (auto date = make_date(number(digits.substr(4, 4)), number(digits.substr(2, 2)), number(digits.substr(0, 2))))
+        return date;
+      return make_date(number(digits.substr(0, 4)), number(digits.substr(4, 2)), number(digits.substr(6, 2)));
+    }
+    case 6: { // MMAAAA (09 2026), sinon JJMMAA (02 09 26)
+      if (digits.compare(2, 2, "20") == 0 || digits.compare(2, 2, "21") == 0)
+        if (auto date = end_of_month(number(digits.substr(2, 4)), number(digits.substr(0, 2))))
+          return date;
+      return make_date(number(digits.substr(4, 2)), number(digits.substr(2, 2)), number(digits.substr(0, 2)));
+    }
+    case 4: // MMAA
+      return end_of_month(number(digits.substr(2, 2)), number(digits.substr(0, 2)));
+    default: return std::nullopt;
+  }
 }
 
 bool is_iid(const std::string &code) {

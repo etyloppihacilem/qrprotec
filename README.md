@@ -194,6 +194,14 @@ hauteur dans le sens du défilement) se règle dans **Réglages**. Un modèle de
 (portrait / paysage) est tourné d'un quart de tour à l'impression (sens réglable, retournement à 180°
 possible) et centré. Sans modèle choisi pour un usage, seul le QR code est imprimé, centré.
 
+**Saisie** : les types (items, lots) se cherchent en tapant une partie du nom ou du code, sans se
+soucier des accents ; les résultats s'affichent en direct (↑/↓, Tab ou Entrée pour valider). Les
+dates de péremption se tapent librement : `02/09/2026`, `2/9/26`, `020926`, ou seulement le mois
+(`09/2026`, `09/26`, `0926` = dernier jour du mois) ; la date comprise est affichée à côté.
+
+**Imprimante occupée** : quand la Niimbot refuse une commande de préparation parce qu'elle termine
+l'étiquette précédente (code 0x31…), la commande est réessayée automatiquement.
+
 **Aperçu** : à la création d'un type d'item (étiquette d'exemple), d'un lot (étiquettes publique et
 privée), d'un utilisateur (badge) et à la réception d'une commande, une fenêtre montre les étiquettes
 avant impression, avec les boutons pour les imprimer.

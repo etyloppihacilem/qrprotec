@@ -41,6 +41,17 @@ bool json_combo(
   const char *filter = nullptr
 );
 
+// Champ de recherche avec completion : resultats en direct sous le champ (sans accents ni casse,
+// par debut de mots ou code), fleches pour choisir, Tab ou Entree pour valider, Echap pour annuler.
+// `list` : objets JSON ; `key_field` est la valeur retournee dans `selected`. `empty_label` (optionnel)
+// ajoute un premier choix qui vide la selection (ex: "Tous les types"). Retourne true si change.
+bool search_select(const char *id, const Json &list, const char *key_field, const char *name_field,
+                   std::string &selected, const char *hint = "Rechercher…", const char *empty_label = nullptr,
+                   float width = -FLT_MIN);
+
+// Filtre de liste : meme correspondance que search_select (accents, debut de mots)
+bool search_matches(const std::string &query, const std::string &text);
+
 // Champ texte avec bouton de confirmation en deux temps (pour les actions sensibles)
 bool confirm_button(const char *label, const char *question, const char *popup_id);
 

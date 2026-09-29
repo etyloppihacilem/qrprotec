@@ -63,15 +63,11 @@ class StockWindow final : public AppWindow {
       ImGui::TableSetupColumn("Bientôt périmés", ImGuiTableColumnFlags_WidthFixed, 120.0f);
       ImGui::TableSetupColumn("Disparus", ImGuiTableColumnFlags_WidthFixed, 80.0f);
       ImGui::TableHeadersRow();
-      std::string needle = filter_;
-      std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) { return static_cast< char >(std::tolower(c)); });
       for (const Json *row_ptr : rows) {
         const Json &row      = *row_ptr;
         const int   quantity = count(row);
         const int   minimum  = row["min_quantity"].integer();
-        std::string haystack = row["name"].str() + " " + row["type"].str();
-        std::transform(haystack.begin(), haystack.end(), haystack.begin(), [](unsigned char c) { return static_cast< char >(std::tolower(c)); });
-        if (!needle.empty() && haystack.find(needle) == std::string::npos)
+        if (!search_matches(filter_, row["name"].str() + " " + row["type"].str()))
           continue;
         if (only_low_ && quantity >= minimum && quantity > 0)
           continue;

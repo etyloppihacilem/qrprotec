@@ -2,6 +2,7 @@
 #include "core/json.hpp"
 #include "core/paths.hpp"
 #include "core/placeholders.hpp"
+#include "core/search.hpp"
 #include "core/template.hpp"
 #include "core/template_io.hpp"
 #include "net/http.hpp"
@@ -205,6 +206,43 @@ static void test_templates_dir() {
   set_templates_dir("");
 }
 
+static void test_user_dates() {
+  const auto iso = [](const char *text) {
+    const auto date = parse_user_date(text);
+    return date ? date->iso() : std::string("invalide");
+  };
+  assert(iso("02/09/2026") == "2026-09-02");
+  assert(iso("2/9/26") == "2026-09-02");
+  assert(iso("02092026") == "2026-09-02");
+  assert(iso("020926") == "2026-09-02");
+  assert(iso("02-09-2026") == "2026-09-02");
+  assert(iso("02.09.26") == "2026-09-02");
+  assert(iso("09/2026") == "2026-09-30");
+  assert(iso("092026") == "2026-09-30");
+  assert(iso("09/26") == "2026-09-30");
+  assert(iso("0926") == "2026-09-30");
+  assert(iso("02/2028") == "2028-02-29");
+  assert(iso("2026-09-02") == "2026-09-02");
+  assert(iso("20260902") == "2026-09-02");
+  assert(iso(" 12 2027 ") == "2027-12-31");
+  assert(iso("31/02/2026") == "invalide");
+  assert(iso("13/2026") == "invalide");
+  assert(iso("abc") == "invalide");
+  assert(iso("") == "invalide");
+}
+
+static void test_search() {
+  assert(normalize_search("Sérum Physiologique Œil") == "serum physiologique oeil");
+  assert(search_score("ser ph", "Sérum physiologique (serphy)") > 0);
+  assert(search_score("physio", "Sérum physiologique (serphy)") > 0);
+  assert(search_score("serphy", "Sérum physiologique (serphy)") > 0);
+  assert(search_score("compresse", "Sérum physiologique (serphy)") < 0);
+  assert(search_score("", "n'importe quoi") == 0);
+  // le debut du nom l'emporte sur un mot plus loin, un mot entier sur un morceau de mot
+  assert(search_score("ga", "Gants nitrile M") > search_score("ga", "Compresses de gaze"));
+  assert(search_score("gaz", "Compresses de gaze") > search_score("aze", "Compresses de gaze"));
+}
+
 int main() {
   test_json();
   test_dates();
@@ -213,6 +251,8 @@ int main() {
   test_qr_and_categories();
   test_text_and_label_fit();
   test_templates_dir();
+  test_search();
+  test_user_dates();
   std::puts("codes_test OK");
   return 0;
 }

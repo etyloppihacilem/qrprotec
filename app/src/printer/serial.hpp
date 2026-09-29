@@ -27,6 +27,8 @@ public:
     bool write_bytes(const std::vector<std::uint8_t>& bytes, std::string& error);
     bool read_bytes(std::vector<std::uint8_t>& bytes, std::size_t expected, std::string& error);
     bool read_packet(std::uint8_t& command, std::vector<std::uint8_t>& payload, std::string& error);
+    // Jette les octets deja recus (reponses en retard d'une etiquette precedente)
+    void discard_input();
 
 private:
     int file_descriptor_ = -1;

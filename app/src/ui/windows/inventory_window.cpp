@@ -93,11 +93,9 @@ class InventoryWindow final : public AppWindow {
     void draw_reception(App &app) {
       ImGui::TextWrapped("Réception d'une commande : choisissez le type, la date de péremption et la quantité. "
                          "Chaque item recoit un identifiant unique et sa propre étiquette.");
-      ImGui::SetNextItemWidth(200.0f);
-      ImGui::InputTextWithHint("##typefilter", "Rechercher un type", &type_filter_);
-      ImGui::SameLine();
-      ImGui::SetNextItemWidth(-1.0f);
-      if (json_combo("##type", app.catalog.item_types, "type", "name", reception_type_, type_filter_.c_str())) {
+      ImGui::TextUnformatted("Type d'item");
+      if (search_select("reception_type", app.catalog.item_types, "type", "name", reception_type_,
+                        "Tapez le nom ou le code du type…")) {
         if (const Json *type = find_type(app, reception_type_))
           quantity_ = std::max(1, (*type)["default_pack_size"].integer(1));
       }
@@ -105,11 +103,23 @@ class InventoryWindow final : public AppWindow {
       const bool  perishable = type && (*type)["perissable"].boolean();
       ImGui::BeginDisabled(!perishable);
       ImGui::SetNextItemWidth(200.0f);
-      ImGui::InputTextWithHint("Péremption", "JJ/MM/AAAA", &peremption_);
+      ImGui::InputTextWithHint("Péremption", "ex: 09/2026, 020926", &peremption_);
+      // saisie libre : la date comprise est affichee, et remise en forme en quittant le champ
+      const auto typed = parse_user_date(peremption_);
+      if (ImGui::IsItemDeactivatedAfterEdit() && typed)
+        peremption_ = typed->display();
       ImGui::EndDisabled();
+      help_marker("Tapez la date comme elle vient : 02/09/2026, 2/9/26, 020926, ou seulement le mois "
+                  "(09/2026, 09/26, 0926 = dernier jour du mois).");
       if (type && !perishable) {
         ImGui::SameLine();
         ImGui::TextDisabled("(non périssable)");
+      } else if (!peremption_.empty()) {
+        ImGui::SameLine();
+        if (typed)
+          ImGui::TextColored(colors::green, "→ %s", typed->display().c_str());
+        else
+          ImGui::TextColored(colors::red, "date non reconnue");
       }
       ImGui::SetNextItemWidth(200.0f);
       ImGui::InputInt("Quantité", &quantity_);
@@ -119,7 +129,7 @@ class InventoryWindow final : public AppWindow {
                   "individuelles seront imprimées à l'ouverture (onglet Paquets fermés).");
       ImGui::Checkbox("Étiquettes individuelles maintenant (aperçu puis impression)", &print_items_);
 
-      const auto date = Date::parse(peremption_);
+      const auto date = parse_user_date(peremption_);
       std::string problem;
       if (!type)
         problem = "Choisissez un type d'item.";
@@ -325,16 +335,17 @@ class InventoryWindow final : public AppWindow {
       if (search_stock_only_)
         query += "&location=stock";
       app.api.get(query, [this, &app](const ApiResult &result) {
-        if (result.ok)
-          items_ = result.data;
-          // l'item selectionne est remplace par sa version a jour
-          const std::string selected = selected_item_["iid"].str();
-          selected_item_             = Json();
-          for (const Json &item : items_.items())
-            if (!selected.empty() && item["iid"].str() == selected)
-              selected_item_ = item;
-        else
+        if (!result.ok) {
           app.notify("Items : " + result.error, true);
+          return;
+        }
+        items_ = result.data;
+        // l'item selectionne est remplace par sa version a jour
+        const std::string selected = selected_item_["iid"].str();
+        selected_item_             = Json();
+        for (const Json &item : items_.items())
+          if (!selected.empty() && item["iid"].str() == selected)
+            selected_item_ = item;
       });
     }
 
@@ -343,15 +354,8 @@ class InventoryWindow final : public AppWindow {
       ImGui::SetNextItemWidth(220.0f);
       changed |= ImGui::InputTextWithHint("##q", "Rechercher un iid", &search_text_, ImGuiInputTextFlags_EnterReturnsTrue);
       ImGui::SameLine();
-      ImGui::SetNextItemWidth(220.0f);
-      Json types = Json::array();
-      Json all;
-      all["type"] = "";
-      all["name"] = "Tous les types";
-      types.push_back(all);
-      for (const Json &item_type : app.catalog.item_types.items())
-        types.push_back(item_type);
-      changed |= json_combo("##stype", types, "type", "name", search_type_);
+      changed |= search_select("search_type", app.catalog.item_types, "type", "name", search_type_,
+                               "Filtrer par type…", "Tous les types", 240.0f);
       ImGui::SameLine();
       ImGui::SetNextItemWidth(150.0f);
       changed |= ImGui::Combo("##status", &search_status_, "Tous statuts\0Presents\0Disparus\0Remplaces\0Supprimes\0");
@@ -504,7 +508,6 @@ class InventoryWindow final : public AppWindow {
 
     // Reception
     std::string reception_type_;
-    std::string type_filter_;
     std::string peremption_;
     int         quantity_    = 1;
     bool        sealed_      = false;

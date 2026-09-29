@@ -34,6 +34,13 @@ struct Date {
     bool operator<=(const Date &other) const { return *this < other || *this == other; }
 };
 
+// Date saisie librement au clavier (peremption...). Separateurs / - . espace, ou aucun :
+//   02/09/2026, 2/9/26, 02092026, 020926    -> 02/09/2026
+//   09/2026, 9/26, 092026, 0926             -> 30/09/2026 (dernier jour du mois)
+//   2026-09-02, 20260902                    -> 02/09/2026
+// Les annees sur 2 chiffres sont en 20xx.
+std::optional< Date > parse_user_date(const std::string &text);
+
 enum class ScanKind { Item, Lot, User, SealedPack, Unknown };
 
 // Contenu d'un QR code interprete localement (sans appel reseau).

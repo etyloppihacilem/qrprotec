@@ -10,9 +10,15 @@
 
 #include "widgets.hpp"
 
+#include "../core/search.hpp"
+#include "imgui_internal.h"
+#include "imgui_stdlib.h"
+
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace qrprotec {
 
@@ -84,6 +90,122 @@ bool json_combo(
     }
     ImGui::EndCombo();
   }
+  return changed;
+}
+
+bool search_matches(const std::string &query, const std::string &text) {
+  return search_score(query, text) >= 0;
+}
+
+namespace {
+struct SearchState {
+    std::string query;
+    int         highlighted   = 0;
+    bool        popup_hovered = false;
+    bool        accept        = false; // Tab presse (callback de completion)
+};
+std::unordered_map< ImGuiID, SearchState > search_states;
+
+int search_callback(ImGuiInputTextCallbackData *data) {
+  if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion)
+    static_cast< SearchState * >(data->UserData)->accept = true;
+  return 0;
+}
+} // namespace
+
+bool search_select(const char *id, const Json &list, const char *key_field, const char *name_field,
+                   std::string &selected, const char *hint, const char *empty_label, float width) {
+  ImGui::PushID(id);
+  SearchState &state = search_states[ImGui::GetID("state")];
+  // libelle de la selection courante
+  std::string selected_label = empty_label && selected.empty() ? empty_label : std::string();
+  for (const Json &entry : list.items())
+    if (entry[key_field].str() == selected && !selected.empty())
+      selected_label = entry[name_field].str() + " (" + selected + ")";
+
+  const ImGuiID input_id = ImGui::GetID("##input");
+  const bool    active   = ImGui::GetActiveID() == input_id;
+  if (!active)
+    state.query = selected_label; // hors saisie : le champ montre la selection
+  ImGui::SetNextItemWidth(width);
+  const bool entered = ImGui::InputTextWithHint(
+    "##input", hint, &state.query,
+    ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion,
+    search_callback, &state
+  );
+  const bool   now_active = ImGui::IsItemActive();
+  const ImVec2 min        = ImGui::GetItemRectMin();
+  const ImVec2 max        = ImGui::GetItemRectMax();
+  if (ImGui::IsItemActivated())
+    state.highlighted = 0;
+
+  // resultats : texte tape (ou tout si le champ montre encore la selection), tries par pertinence
+  const std::string query = state.query == selected_label ? std::string() : state.query;
+  struct Match {
+      int         score;
+      std::string key;
+      std::string label;
+  };
+  std::vector< Match > matches;
+  if (empty_label && query.empty())
+    matches.push_back({ 1000, "", empty_label });
+  for (const Json &entry : list.items()) {
+    const std::string key   = entry[key_field].str();
+    const std::string label = entry[name_field].str() + " (" + key + ")";
+    const int         score = search_score(query, label);
+    if (score >= 0)
+      matches.push_back({ score, key, label });
+  }
+  std::stable_sort(matches.begin(), matches.end(), [](const Match &a, const Match &b) { return a.score > b.score; });
+  if (matches.size() > 15)
+    matches.resize(15);
+  state.highlighted = matches.empty() ? 0 : std::clamp(state.highlighted, 0, static_cast< int >(matches.size()) - 1);
+
+  bool changed = false;
+  const auto accept = [&](const Match &match) {
+    changed     = match.key != selected;
+    selected    = match.key;
+    state.query = match.label;
+    ImGui::ClearActiveID(); // referme la saisie : le champ affiche la selection
+  };
+  if (now_active) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+      ++state.highlighted;
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+      --state.highlighted;
+    state.highlighted = matches.empty() ? 0 : std::clamp(state.highlighted, 0, static_cast< int >(matches.size()) - 1);
+  }
+  if ((entered || state.accept) && !matches.empty())
+    accept(matches[static_cast< std::size_t >(state.highlighted)]);
+  state.accept = false;
+
+  // liste deroulante des resultats, au premier plan sous le champ
+  if (!changed && (now_active || state.popup_hovered)) {
+    ImGui::SetNextWindowPos(ImVec2(min.x, max.y + 2.0f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(std::max(max.x - min.x, 240.0f), 0.0f),
+                                        ImVec2(std::max(max.x - min.x, 420.0f), ImGui::GetTextLineHeightWithSpacing() * 12.0f));
+    const std::string popup = std::string("##search_results_") + std::to_string(input_id);
+    ImGui::Begin(popup.c_str(), nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+                   | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+                   | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+    if (matches.empty())
+      ImGui::TextDisabled("Aucun résultat");
+    for (std::size_t index = 0; index < matches.size(); ++index) {
+      const bool highlighted = static_cast< int >(index) == state.highlighted;
+      if (ImGui::Selectable(matches[index].label.c_str(), highlighted))
+        accept(matches[index]);
+      if (highlighted && now_active)
+        ImGui::SetScrollHereY();
+    }
+    ImGui::TextDisabled("↑↓ choisir · Tab/Entrée valider · Échap annuler");
+    state.popup_hovered = ImGui::IsWindowHovered() && !changed;
+    ImGui::End();
+  } else {
+    state.popup_hovered = false;
+  }
+  ImGui::PopID();
   return changed;
 }
 

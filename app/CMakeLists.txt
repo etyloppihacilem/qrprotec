@@ -61,6 +61,7 @@ add_library(QRProtecCore STATIC
     src/core/json.cpp
     src/core/paths.cpp
     src/core/placeholders.cpp
+    src/core/search.cpp
     src/core/template.cpp
     src/core/template_io.cpp
     src/net/http.cpp

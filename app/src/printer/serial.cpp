@@ -133,6 +133,12 @@ bool SerialPort::read_bytes(std::vector<std::uint8_t>& bytes, std::size_t expect
     return true;
 }
 
+void SerialPort::discard_input()
+{
+    if (is_open())
+        tcflush(file_descriptor_, TCIFLUSH);
+}
+
 bool SerialPort::read_packet(std::uint8_t& command, std::vector<std::uint8_t>& payload, std::string& error)
 {
     std::vector<std::uint8_t> byte;

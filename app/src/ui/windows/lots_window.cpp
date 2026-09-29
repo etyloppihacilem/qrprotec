@@ -19,11 +19,6 @@ namespace qrprotec {
 
 namespace {
 
-std::string lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast< char >(std::tolower(c)); });
-  return value;
-}
-
 // Vue publique des lots : ce qui est perime, ce qui manque, et lancement d'une verif.
 class LotsWindow final : public AppWindow {
   public:
@@ -81,14 +76,13 @@ class LotsWindow final : public AppWindow {
       if (!compact)
         ImGui::TableSetupColumn("Dernière vérif", ImGuiTableColumnFlags_WidthFixed, 180.0f);
       ImGui::TableHeadersRow();
-      const std::string needle = lower(filter_);
       for (const Json &lot : app.catalog.lots.items()) {
         const std::string id   = lot["id"].str();
         const std::string name = lot["name"].str();
         const int         expired = lot["expired_count"].integer();
         const int         soon    = lot["expiring_soon_count"].integer();
         const LotStatus   status   = lot_status(lot);
-        if (!needle.empty() && lower(name + " " + id + " " + lot["lot_type_name"].str()).find(needle) == std::string::npos)
+        if (!search_matches(filter_, name + " " + id + " " + lot["lot_type_name"].str()))
           continue;
         if (only_problems_ && status == LotStatus::Verified && soon == 0)
           continue;

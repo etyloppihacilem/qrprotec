@@ -90,7 +90,8 @@ class LotAdminWindow final : public AppWindow {
 
     void draw_new_lot(App &app) {
       ImGui::SeparatorText("Nouveau lot");
-      json_combo("Type de lot", app.catalog.lot_types, "type", "name", new_lot_type_);
+      ImGui::TextUnformatted("Type de lot");
+      search_select("new_lot_type", app.catalog.lot_types, "type", "name", new_lot_type_, "Tapez le nom du type de lot…");
       ImGui::InputText("Nom", &new_lot_name_);
       ImGui::InputText("Nom court (16 car.)", &new_lot_short_);
       ImGui::Checkbox("Voir les étiquettes publique et privée après création", &print_new_);
@@ -319,8 +320,8 @@ class LotAdminWindow final : public AppWindow {
       for (std::size_t index = 0; index < requirements_.size(); ++index) {
         RequirementRow &row = requirements_[index];
         ImGui::PushID(static_cast< int >(index));
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
-        json_combo("##type", app.catalog.item_types, "type", "name", row.type);
+        search_select("type", app.catalog.item_types, "type", "name", row.type, "Tapez le nom du type d'item…",
+                      nullptr, ImGui::GetContentRegionAvail().x * 0.6f);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(110.0f);
         ImGui::InputInt("##qty", &row.quantity);
