@@ -73,7 +73,7 @@ key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wro
 
 Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), `items/batch/`
 (réception), `items/to-stock/`, `items/<iid>/delete/`, `items/<iid>/restore/`, `stock/`,
-`stock/verif/`, `packs/`, `packs/<id>/open/`, `lot-types/`, `lot-types/<type>/`,
+`stock/verif/`, `packs/`, `packs/<id>/open/`, `packs/<id>/close/`, `lot-types/`, `lot-types/<type>/`,
 `lot-types/<type>/requirements/`, `lots/`, `lots/<id>/update/`, `lots/<id>/rotate-key/`,
 `lots/<id>/seal/` (POST seal_number, force), `lots/<id>/verifs/`, `users/`, `users/<matricule>/`,
 `users/<matricule>/renew-key/`, `notifications/` (GET, PATCH enabled/events),
@@ -96,7 +96,8 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
   imprimée ; les étiquettes individuelles sont imprimées à l'ouverture. En mode privilégié, scanner
   l'étiquette du paquet ouvre sa fiche (contenu, péremption, réception, ouverture) avec le bouton
   « Ouvrir le paquet et imprimer les N étiquettes » (aperçu puis impression). Rouvrir un paquet déjà
-  ouvert réimprime ses étiquettes sans changer sa date d'ouverture.
+  ouvert réimprime ses étiquettes sans changer sa date d'ouverture. Un paquet ouvert par erreur se
+  referme depuis sa fiche (« Refermer le paquet »).
 - **Lot scellé** : après une vérif complète, un responsable ferme le lot avec un scellé et imprime
   l'étiquette du scellé (QR `seal?lot=..&s=..`). Tant que le scellé est intact, le lot est valide
   sans vérif (vert « Scellé », valable jusqu'à la première péremption de son contenu) : scanner le QR

@@ -99,6 +99,14 @@ class PackWindow final : public AppWindow {
         ImGui::TextDisabled("Un aperçu des étiquettes s'affiche avant l'impression.");
       if (ImGui::Button("Étiquette du paquet"))
         app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack_) }, "Paquet");
+      if (opened) {
+        ImGui::SameLine();
+        if (confirm_button("Refermer le paquet (ouvert par erreur)",
+                           "Le paquet redevient fermé. Les étiquettes déjà imprimées restent valables "
+                           "(mêmes items). Continuer ?",
+                           "close_pack"))
+          close_pack(app);
+      }
       ImGui::EndDisabled();
 
       if (ImGui::CollapsingHeader("Items du paquet")) {
@@ -138,6 +146,24 @@ class PackWindow final : public AppWindow {
         }
         app.preview_labels(TemplateCategory::Item, item_labels(result.data["items"]), "Paquet ouvert");
         app.pack_opened(id);
+        if (id == pack_id_)
+          load(app);
+      });
+    }
+
+    void close_pack(App &app) {
+      busy_ = true;
+      Json body;
+      body["user"]         = app.user_ref();
+      const std::string id = pack_id_;
+      app.api.post("/api/packs/" + url_encode(id) + "/close/", body, [this, &app, id](const ApiResult &result) {
+        busy_ = false;
+        if (!result.ok) {
+          app.notify(result.error, true);
+          return;
+        }
+        app.notify("Paquet " + id + " refermé.");
+        app.pack_opened(id); // met a jour la pile et la liste des paquets
         if (id == pack_id_)
           load(app);
       });

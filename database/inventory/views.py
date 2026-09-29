@@ -366,6 +366,18 @@ def sealed_pack_open(request, pack_id):
     return Response(data)
 
 
+@api_view(['POST'])
+@handle_errors
+def sealed_pack_close(request, pack_id):
+    """Annule une ouverture faite par erreur : le paquet redevient ferme (les etiquettes deja imprimees
+    restent valables, les items sont les memes)."""
+    sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
+    sealed_pack.opened = None
+    sealed_pack.opened_by = ''
+    sealed_pack.save(update_fields=['opened', 'opened_by'])
+    return Response(ser.sealed_pack_dict(sealed_pack))
+
+
 @api_view(['GET', 'POST'])
 @handle_errors
 def lot_types(request):

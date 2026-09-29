@@ -136,7 +136,7 @@ class App {
     std::string take_seal_to_show();           // code du QR de scelle scanne (vide sinon)
     void show_pack(const std::string &pack_id); // ouvre la fiche du paquet ferme (mode privilegie)
     std::string take_pack_to_show();            // lu par la fenetre Paquet
-    void pack_opened(const std::string &pack_id); // met a jour la pile et les listes
+    void pack_opened(const std::string &pack_id); // paquet ouvert ou referme : met a jour la pile et les listes
     void cancel_verif();
     void submit_verif();
     bool verif_key_ok() const;

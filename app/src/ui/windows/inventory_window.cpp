@@ -488,14 +488,19 @@ class InventoryWindow final : public AppWindow {
       ImGui::SameLine();
       if (ImGui::Checkbox("Afficher les paquets déjà ouverts", &show_opened_))
         load_packs(app);
-      if (!ImGui::BeginTable("packs", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY))
+      if (!ImGui::BeginTable("packs", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
+                                             | ImGuiTableFlags_Resizable))
         return;
       ImGui::TableSetupScrollFreeze(0, 1);
-      ImGui::TableSetupColumn("Paquet", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+      // largeurs calculees sur le texte : la date d'ouverture reste lisible, le contenu prend le reste
+      const float digits = ImGui::CalcTextSize("00/00/0000").x;
+      ImGui::TableSetupColumn("Paquet", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("00000000").x);
       ImGui::TableSetupColumn("Contenu", ImGuiTableColumnFlags_WidthStretch);
-      ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-      ImGui::TableSetupColumn("Ouvert", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-      ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 280.0f);
+      ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, digits);
+      ImGui::TableSetupColumn("Ouvert le", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("00/00/0000 00:00").x);
+      ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,
+                              ImGui::CalcTextSize("Ouvrir...Étiquette").x + ImGui::GetStyle().FramePadding.x * 4
+                                + ImGui::GetStyle().ItemSpacing.x);
       ImGui::TableHeadersRow();
       for (const Json &pack : packs_.items()) {
         const std::string id = pack["id"].str();
@@ -504,16 +509,20 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextUnformatted(id.c_str());
         ImGui::TableNextColumn();
         ImGui::Text("%d x %s", pack["count"].integer(), pack["type_name"].str().c_str());
+        ImGui::SetItemTooltip("%d x %s", pack["count"].integer(), pack["type_name"].str().c_str());
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(display_date(pack["peremption"]).c_str());
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(display_datetime(pack["opened"]).c_str());
+        std::string opened = display_datetime(pack["opened"]); // "JJ/MM/AAAA à HH:MM"
+        if (const std::size_t at = opened.find(" à "); at != std::string::npos)
+          opened.replace(at, 4, " ");
+        ImGui::TextUnformatted(opened.c_str());
         ImGui::TableNextColumn();
         ImGui::PushID(id.c_str());
         if (pack["opened"].is_null() ? primary_button("Ouvrir...") : ImGui::Button("Fiche"))
           app.show_pack(id);
         ImGui::SameLine();
-        if (ImGui::Button("Étiquette paquet"))
+        if (ImGui::Button("Étiquette"))
           app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack) }, "Paquet");
         ImGui::PopID();
       }

@@ -38,6 +38,7 @@ local_patterns = [
     path('stock/verif/', views.stock_verif),
     path('packs/', views.sealed_packs),
     path('packs/<str:pack_id>/open/', views.sealed_pack_open),
+    path('packs/<str:pack_id>/close/', views.sealed_pack_close),
     path('lot-types/', views.lot_types),
     path('lot-types/<str:type_code>/', views.lot_type_detail),
     path('lot-types/<str:type_code>/requirements/', views.lot_type_requirements),
