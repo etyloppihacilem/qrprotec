@@ -20,6 +20,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -30,12 +31,52 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-3rq#5ry)%ta2t^##wfge$#(j%@3nicnz1vh5vwffphe1z7o*(8'
+SECRET_KEY = os.environ.get(
+    'QRPROTEC_SECRET_KEY', 'django-insecure-3rq#5ry)%ta2t^##wfge$#(j%@3nicnz1vh5vwffphe1z7o*(8'
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('QRPROTEC_DEBUG', '1') == '1'
 
-ALLOWED_HOSTS = []
+# Liste separee par des virgules, ex: QRPROTEC_ALLOWED_HOSTS=inventaire.example.com,192.168.1.10
+ALLOWED_HOSTS = [host for host in os.environ.get('QRPROTEC_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1]').split(',') if host]
+
+# Derriere un reverse proxy HTTPS (nginx, caddy...) pour l'API publique
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+
+def _env_list(name, default):
+    return [value.strip() for value in os.environ.get(name, default).split(',') if value.strip()]
+
+
+# Configuration propre a QRProtec
+QRPROTEC = {
+    # Base des URLs encodees dans les QR codes (lots, badges, paquets). Changer ici (ou via la variable
+    # d'environnement) suffit : le front reconnait les QR codes quel que soit le domaine.
+    'PUBLIC_BASE_URL': os.environ.get('QRPROTEC_PUBLIC_BASE_URL', 'https://example.com/'),
+    'PUBLIC_API_ADDRESS': os.environ.get('QRPROTEC_PUBLIC_API_ADDRESS', '0.0.0.0'),
+    'PUBLIC_API_PORT': int(os.environ.get('QRPROTEC_PUBLIC_API_PORT', '8000')),
+    'LOCAL_API_ADDRESS': os.environ.get('QRPROTEC_LOCAL_API_ADDRESS', '127.0.0.1'),
+    'LOCAL_API_PORT': int(os.environ.get('QRPROTEC_LOCAL_API_PORT', '8001')),
+    # Adresses clientes acceptees par l'API locale ('*' pour tout accepter, a eviter)
+    'LOCAL_API_ALLOWED_ADDRESSES': _env_list('QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES', '127.0.0.1,::1'),
+    # Jeton optionnel exige dans l'en-tete X-QRProtec-Token sur l'API locale
+    'LOCAL_API_TOKEN': os.environ.get('QRPROTEC_LOCAL_API_TOKEN', ''),
+    # Role des requetes qui n'ont pas ete recues par `manage.py serve` (runserver, wsgi par defaut)
+    'DEFAULT_API_ROLE': os.environ.get('QRPROTEC_DEFAULT_API_ROLE', 'public'),
+    'USER_KEY_VALIDITY_DAYS': 365,
+    'LOT_KEY_VALIDITY_DAYS': int(os.environ.get('QRPROTEC_LOT_KEY_VALIDITY_DAYS', '3650')),
+    # Un item non perime est considere disparu apres ce nombre de verifs sans etre scanne
+    'MISSING_AFTER_VERIFS': int(os.environ.get('QRPROTEC_MISSING_AFTER_VERIFS', '3')),
+}
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [],
+    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.AllowAny'],
+    'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
+    'DEFAULT_PARSER_CLASSES': ['rest_framework.parsers.JSONParser'],
+    'UNAUTHENTICATED_USER': None,
+}
 
 
 # Application definition
@@ -53,6 +94,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'inventory.middleware.ApiRoleMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -87,7 +129,7 @@ WSGI_APPLICATION = 'qrprotecDB.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': os.environ.get('QRPROTEC_DB_PATH', BASE_DIR / 'db.sqlite3'),
     }
 }
 
@@ -114,9 +156,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.1/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'fr-fr'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/Paris'
 
 USE_I18N = True
 
@@ -127,6 +169,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # Email

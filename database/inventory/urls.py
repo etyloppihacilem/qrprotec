@@ -1,0 +1,50 @@
+# ###################################646f75627420796f7572206f776e206578697374656e6365###################################
+#
+#              """          urls.py
+#       -\-    _|__
+#        |\___/  . \        Created on 29 Sep. 2026 at 14:00
+#        \     /(((/        by hmelica
+#         \___/)))/         hmelica@student.42.fr
+#
+# ######################################################################################################################
+
+from django.urls import path
+
+from . import views
+
+# Servies par l'API publique ET l'API locale. Les ecritures exigent une cle sur l'API publique.
+public_patterns = [
+    path('health/', views.health),
+    path('auth/', views.auth),
+    path('items/<str:iid>/', views.item_detail),
+    path('lots/<str:lot_id>/', views.lot_detail),
+    path('lots/<str:lot_id>/verif/', views.lot_verif),
+    path('lots/<str:lot_id>/add/', views.lot_add_items),
+    path('packs/<str:pack_id>/', views.sealed_pack_detail),
+]
+
+# Servies uniquement par l'API locale (poste de gestion). Elles doivent preceder les routes publiques
+# quand un meme prefixe est utilise (ex: items/batch/ avant items/<iid>/).
+local_patterns = [
+    path('item-types/', views.item_types),
+    path('item-types/<str:type_code>/', views.item_type_detail),
+    path('items/', views.items),
+    path('items/batch/', views.items_batch),
+    path('items/to-stock/', views.items_to_stock),
+    path('items/<str:iid>/delete/', views.item_delete),
+    path('items/<str:iid>/restore/', views.item_restore),
+    path('stock/', views.stock),
+    path('stock/verif/', views.stock_verif),
+    path('packs/', views.sealed_packs),
+    path('packs/<str:pack_id>/open/', views.sealed_pack_open),
+    path('lot-types/', views.lot_types),
+    path('lot-types/<str:type_code>/', views.lot_type_detail),
+    path('lot-types/<str:type_code>/requirements/', views.lot_type_requirements),
+    path('lots/', views.lots),
+    path('lots/<str:lot_id>/update/', views.lot_update),
+    path('lots/<str:lot_id>/rotate-key/', views.lot_rotate_key),
+    path('lots/<str:lot_id>/verifs/', views.lot_verifs),
+    path('users/', views.users),
+    path('users/<str:matricule>/', views.user_detail),
+    path('users/<str:matricule>/renew-key/', views.user_renew_key),
+]

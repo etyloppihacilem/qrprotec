@@ -16,8 +16,8 @@ SOURCE_DECLARED = 'D'
 
 def format_identity_verified(matricule: str) -> str:
     """À utiliser quand l'utilisateur s'est authentifié via QR code (matricule)."""
-    from .models import Secouriste
-    if not Secouriste.objects.filter(matricule=matricule).exists():
+    from .models import Secouristes
+    if not Secouristes.objects.filter(matricule=matricule).exists():
         raise ValueError(f"Matricule inconnu : {matricule}")
     return f"{SOURCE_VERIFIED}:{matricule}"
 
@@ -34,8 +34,8 @@ def parse_identity(value: str) -> dict:
     """Décode une identité stockée pour affichage/traitement interne."""
     source, _, payload = value.partition(':')
     if source == SOURCE_VERIFIED:
-        from .models import Secouriste
-        secouriste = Secouriste.objects.filter(matricule=payload).first()
+        from .models import Secouristes
+        secouriste = Secouristes.objects.filter(matricule=payload).first()
         return {
             'verified': True,
             'matricule': payload,
@@ -45,3 +45,25 @@ def parse_identity(value: str) -> dict:
         'verified': False,
         'display_name': payload,
     }
+
+
+def identity_from_request(data, local: bool) -> str:
+    """Determine l'identite a associer a une operation.
+
+    - API locale : `user` est un matricule (le poste local est de confiance).
+    - API publique : `user` doit etre {"matricule": ..., "key": ...} et la cle est verifiee.
+    - A defaut, `name` est utilise comme identite declaree.
+    """
+    from .models import Secouristes
+    user = data.get('user')
+    if isinstance(user, str) and user and local:
+        if Secouristes.objects.filter(matricule=user, active=True).exists():
+            return f"{SOURCE_VERIFIED}:{user}"
+    if isinstance(user, dict):
+        secouriste = Secouristes.objects.filter(matricule=user.get('matricule', '')).first()
+        if secouriste and (local or secouriste.check_key(user.get('key'))):
+            return f"{SOURCE_VERIFIED}:{secouriste.matricule}"
+    name = data.get('name')
+    if isinstance(name, str) and name.strip():
+        return format_identity_declared(name)
+    return format_identity_declared('poste local' if local else 'anonyme')
