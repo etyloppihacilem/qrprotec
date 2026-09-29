@@ -83,6 +83,7 @@ def sealed_pack_dict(sealed_pack, with_items=True):
         'created': _date(sealed_pack.created),
         'created_by': _who(sealed_pack.created_by),
         'opened': _date(sealed_pack.opened),
+        'opened_by': _who(sealed_pack.opened_by),
         'url': public_url('pack', id=sealed_pack.id),
     }
     if with_items:

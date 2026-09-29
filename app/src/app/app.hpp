@@ -103,6 +103,7 @@ struct Catalog {
     int lot_types_version  = 0;
     int lots_version       = 0;
     int users_version      = 0;
+    int packs_version      = 0; // paquet ouvert : listes a recharger
 
     std::string item_type_name(const std::string &type) const;
 };
@@ -132,6 +133,9 @@ class App {
     void start_verif(const std::string &lot_id, const std::string &key);
     void show_lot(const std::string &lot_id);  // ouvre la fiche du lot (fenetre Lots)
     std::string take_lot_to_show();            // lu par la fenetre Lots
+    void show_pack(const std::string &pack_id); // ouvre la fiche du paquet ferme (mode privilegie)
+    std::string take_pack_to_show();            // lu par la fenetre Paquet
+    void pack_opened(const std::string &pack_id); // met a jour la pile et les listes
     void cancel_verif();
     void submit_verif();
     bool verif_key_ok() const;
@@ -204,6 +208,7 @@ class App {
 
     float                   menu_bar_height_ = 0.0f;
     std::string             lot_to_show_;
+    std::string             pack_to_show_;
     // Premiere configuration : aucun responsable avec un badge valide
     bool                    setup_known_     = false;
     bool                    needs_admin_     = false;

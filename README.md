@@ -86,7 +86,10 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
 - **Suppression** : les items ne sont pas supprimés par les utilisateurs. Un responsable peut
   exceptionnellement marquer un item supprimé (raison obligatoire) et le restaurer.
 - **Paquet fermé** : à la réception, les items sont créés et une seule étiquette de paquet est
-  imprimée ; les étiquettes individuelles sont imprimées à l'ouverture.
+  imprimée ; les étiquettes individuelles sont imprimées à l'ouverture. En mode privilégié, scanner
+  l'étiquette du paquet ouvre sa fiche (contenu, péremption, réception, ouverture) avec le bouton
+  « Ouvrir le paquet et imprimer les N étiquettes » (aperçu puis impression). Rouvrir un paquet déjà
+  ouvert réimprime ses étiquettes sans changer sa date d'ouverture.
 
 ## Front web (téléphone)
 
@@ -180,7 +183,9 @@ Fond orange. Menu **Gestion** :
   avec « quantité/minimum » (ex : `32/100`).
 - **Inventaire** : réception d'une commande (type, péremption, quantité, paquet fermé) avec
   impression des étiquettes en série, types d'items, recherche d'items, réimpression d'une étiquette,
-  suppression exceptionnelle, ouverture des paquets fermés.
+  suppression exceptionnelle, liste des paquets fermés.
+- **Paquet fermé** : fiche d'un paquet (ouverte en scannant son étiquette, depuis la dernière
+  réception ou la liste des paquets) et ouverture avec impression de toutes ses étiquettes.
 - **Gestion des lots** : types de lots et contenu attendu, création de lots, étiquettes publique et
   privée, régénération de la clé.
 - **Utilisateurs** : création, droits responsable, renouvellement et impression des badges.

@@ -327,13 +327,15 @@ def sealed_pack_open(request, pack_id):
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
     identity = identity_from_request(request.data, True)
     now = timezone.now()
-    with transaction.atomic():
-        sealed_pack.opened = now
-        sealed_pack.opened_by = identity[:32]
-        sealed_pack.save(update_fields=['opened', 'opened_by'])
-        Items.objects.filter(sealed_pack=sealed_pack).update(
-            last_seen=now, last_seen_by=identity, last_seen_while=SeenWhile.OPEN
-        )
+    # un paquet deja ouvert garde sa date d'ouverture : l'appel sert alors a reimprimer les etiquettes
+    if sealed_pack.opened is None:
+        with transaction.atomic():
+            sealed_pack.opened = now
+            sealed_pack.opened_by = identity[:32]
+            sealed_pack.save(update_fields=['opened', 'opened_by'])
+            Items.objects.filter(sealed_pack=sealed_pack).update(
+                last_seen=now, last_seen_by=identity, last_seen_while=SeenWhile.OPEN
+            )
     today = timezone.localdate()
     data = ser.sealed_pack_dict(sealed_pack, with_items=False)
     data['items'] = [

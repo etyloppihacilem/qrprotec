@@ -60,6 +60,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_verif_window());
   windows.push_back(make_stock_window());
   windows.push_back(make_inventory_window());
+  windows.push_back(make_pack_window());
   windows.push_back(make_lot_admin_window());
   windows.push_back(make_users_window());
   windows.push_back(make_editor_window());
@@ -581,6 +582,9 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     case ScanKind::SealedPack: {
       const int id = stack.add(scan, source).id;
       resolve_pack(id);
+      // le responsable peut ouvrir le paquet directement depuis sa fiche
+      if (privileged())
+        show_pack(scan.id);
       return;
     }
     case ScanKind::Unknown: {
@@ -729,6 +733,24 @@ std::string App::take_lot_to_show() {
   std::string lot_id;
   lot_id.swap(lot_to_show_);
   return lot_id;
+}
+
+void App::show_pack(const std::string &pack_id) {
+  pack_to_show_ = pack_id;
+  open_window("pack");
+}
+
+std::string App::take_pack_to_show() {
+  std::string pack_id;
+  pack_id.swap(pack_to_show_);
+  return pack_id;
+}
+
+void App::pack_opened(const std::string &pack_id) {
+  ++catalog.packs_version;
+  for (const ScanEntry &entry : stack.entries())
+    if (entry.scan.kind == ScanKind::SealedPack && entry.scan.id == pack_id)
+      resolve_pack(entry.id);
 }
 
 // La connexion n'est demandee qu'a la validation de la verif (submit_verif).

@@ -168,6 +168,12 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(len(pack['items']), 5)
         code, opened = self.call('POST', f'/api/packs/{pack_id}/open/', {'user': 'M001'})
         self.assertIsNotNone(opened['opened'])
+        self.assertEqual(len(opened['items']), 5)
+        # reouverture : reimpression, la date d'ouverture ne change pas
+        code, again = self.call('POST', f'/api/packs/{pack_id}/open/', {'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertEqual(again['opened'], opened['opened'])
+        self.assertEqual(len(again['items']), 5)
         code, stock = self.call('GET', '/api/stock/')
         row = next(row for row in stock if row['type'] == 'compre')
         self.assertEqual(row['stock_fresh'], 5)

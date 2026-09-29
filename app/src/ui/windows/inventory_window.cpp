@@ -60,6 +60,10 @@ class InventoryWindow final : public AppWindow {
     }
 
     void draw(App &app) override {
+      if (seen_packs_version_ != app.catalog.packs_version) {
+        seen_packs_version_ = app.catalog.packs_version;
+        load_packs(app);
+      }
       if (seen_types_version_ != app.catalog.item_types_version) {
         seen_types_version_ = app.catalog.item_types_version;
         for (const Json &item_type : app.catalog.item_types.items())
@@ -124,10 +128,13 @@ class InventoryWindow final : public AppWindow {
       ImGui::SetNextItemWidth(200.0f);
       ImGui::InputInt("Quantité", &quantity_);
       quantity_ = std::clamp(quantity_, 1, 10000);
-      ImGui::Checkbox("Paquet fermé : imprimer une étiquette de paquet", &sealed_);
+      ImGui::Checkbox("Paquet fermé : seulement une étiquette de paquet", &sealed_);
       help_marker("Pour un paquet que l'on n'ouvre pas tout de suite (ex: boîte de compresses). Les étiquettes "
-                  "individuelles seront imprimées à l'ouverture (onglet Paquets fermés).");
-      ImGui::Checkbox("Étiquettes individuelles maintenant (aperçu puis impression)", &print_items_);
+                  "individuelles seront imprimées à l'ouverture : scannez l'étiquette du paquet puis « Ouvrir ».");
+      if (sealed_)
+        ImGui::TextDisabled("Étiquettes des %d item(s) : à l'ouverture du paquet.", quantity_);
+      else
+        ImGui::Checkbox("Imprimer les étiquettes des items (aperçu puis impression)", &print_items_);
 
       const auto date = parse_user_date(peremption_);
       std::string problem;
@@ -141,15 +148,26 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextColored(colors::orange, "%s", problem.c_str());
 
       ImGui::BeginDisabled(!type || (perishable && !date) || creating_);
-      const std::string label = "Créer " + std::to_string(quantity_) + " item(s) et voir les étiquettes";
+      const std::string label = sealed_ ? "Créer le paquet de " + std::to_string(quantity_) + " item(s) et son étiquette"
+                              : print_items_ ? "Créer " + std::to_string(quantity_) + " item(s) et voir les étiquettes"
+                                             : "Créer " + std::to_string(quantity_) + " item(s)";
       if (primary_button(label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x * 0.7f, ImGui::GetFrameHeight() * 1.5f)))
         create_batch(app, perishable && date ? date->iso() : "");
       ImGui::SameLine();
-      if (ImGui::Button("Aperçu", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f)))
+      const bool preview = ImGui::Button("Aperçu", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f));
+      if (preview && sealed_) {
+        Json pack   = sample_item(reception_type_, (*type)["name"].str(), perishable, date ? date->iso() : "");
+        pack["id"]    = "00000000";
+        pack["url"]   = "https://example.com/pack?id=00000000";
+        pack["count"] = quantity_;
+        app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack) },
+                           "Exemple d'étiquette de paquet (avant création)");
+      } else if (preview) {
         app.preview_labels(TemplateCategory::Item,
                            { item_parameters(sample_item(reception_type_, (*type)["name"].str(), perishable,
                                                          date ? date->iso() : "")) },
                            "Exemple d'étiquette (avant création)");
+      }
       ImGui::EndDisabled();
 
       if (last_batch_.is_null())
@@ -157,18 +175,24 @@ class InventoryWindow final : public AppWindow {
       ImGui::SeparatorText("Dernière réception");
       const Json &items = last_batch_["items"];
       ImGui::Text("%zu item(s) créés : %s", items.size(), items[0]["type_name"].str().c_str());
-      if (ImGui::Button("Aperçu et impression des étiquettes"))
-        app.preview_labels(TemplateCategory::Item, item_labels(items), "Réception");
       if (!last_batch_["sealed_pack"].is_null()) {
+        // paquet ferme : etiquette du paquet, et fiche du paquet pour l'ouvrir plus tard
+        if (ImGui::Button("Étiquette du paquet"))
+          app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(last_batch_["sealed_pack"]) }, "Paquet");
         ImGui::SameLine();
-        if (ImGui::Button("Réimprimer l'étiquette du paquet"))
-          app.print_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(last_batch_["sealed_pack"]) }, "Paquet");
+        if (ImGui::Button("Fiche du paquet (ouverture)"))
+          app.show_pack(last_batch_["sealed_pack"]["id"].str());
+      } else if (ImGui::Button("Aperçu et impression des étiquettes")) {
+        app.preview_labels(TemplateCategory::Item, item_labels(items), "Réception");
       }
+      const bool sealed_batch = !last_batch_["sealed_pack"].is_null();
       ImGui::BeginChild("batch", ImVec2(0, 0), ImGuiChildFlags_Borders);
       for (std::size_t index = 0; index < items.size(); ++index) {
         const Json &item = items[index];
         ImGui::PushID(static_cast< int >(index));
-        if (ImGui::SmallButton("Imprimer"))
+        if (sealed_batch)
+          ImGui::TextDisabled("dans le paquet");
+        else if (ImGui::SmallButton("Imprimer"))
           app.print_labels(TemplateCategory::Item,
                            { item_parameters(item, static_cast< int >(index) + 1, static_cast< int >(items.size())) },
                            "Item");
@@ -187,7 +211,8 @@ class InventoryWindow final : public AppWindow {
       body["sealed_pack"] = sealed_;
       body["user"]        = app.user_ref();
       creating_           = true;
-      const bool sealed = sealed_, print_items = print_items_;
+      // paquet ferme : seule l'etiquette du paquet, les items seront etiquetes a l'ouverture
+      const bool sealed = sealed_, print_items = print_items_ && !sealed_;
       app.api.post("/api/items/batch/", body, [this, &app, sealed, print_items](const ApiResult &result) {
         creating_ = false;
         if (!result.ok) {
@@ -195,6 +220,8 @@ class InventoryWindow final : public AppWindow {
           return;
         }
         last_batch_ = result.data;
+        if (sealed)
+          ++app.catalog.packs_version;
         app.notify(std::to_string(result.data["items"].size()) + " item(s) créé(s).");
         // apercu avant impression : etiquette du paquet puis etiquettes individuelles
         std::vector< PrintJob > jobs;
@@ -455,7 +482,7 @@ class InventoryWindow final : public AppWindow {
 
     void draw_packs(App &app) {
       ImGui::TextWrapped("Paquets fermés reçus en stock. À l'ouverture, les étiquettes individuelles des items "
-                         "sont imprimées. Vous pouvez aussi scanner l'étiquette d'un paquet dans la pile.");
+                         "sont imprimées. Scanner l'étiquette d'un paquet ouvre directement sa fiche.");
       if (ImGui::Button("Rafraîchir"))
         load_packs(app);
       ImGui::SameLine();
@@ -483,27 +510,14 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextUnformatted(display_datetime(pack["opened"]).c_str());
         ImGui::TableNextColumn();
         ImGui::PushID(id.c_str());
-        if (primary_button("Ouvrir et imprimer"))
-          open_pack(app, id);
+        if (pack["opened"].is_null() ? primary_button("Ouvrir...") : ImGui::Button("Fiche"))
+          app.show_pack(id);
         ImGui::SameLine();
         if (ImGui::Button("Étiquette paquet"))
-          app.print_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack) }, "Paquet");
+          app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack) }, "Paquet");
         ImGui::PopID();
       }
       ImGui::EndTable();
-    }
-
-    void open_pack(App &app, const std::string &id) {
-      Json body;
-      body["user"] = app.user_ref();
-      app.api.post("/api/packs/" + url_encode(id) + "/open/", body, [this, &app](const ApiResult &result) {
-        if (!result.ok) {
-          app.notify(result.error, true);
-          return;
-        }
-        app.print_labels(TemplateCategory::Item, item_labels(result.data["items"]), "Paquet ouvert");
-        load_packs(app);
-      });
     }
 
     // Reception
@@ -533,7 +547,8 @@ class InventoryWindow final : public AppWindow {
     std::string delete_reason_;
     // Paquets
     Json packs_       = Json::array();
-    bool show_opened_ = false;
+    bool show_opened_        = false;
+    int  seen_packs_version_ = 0;
 };
 
 } // namespace
