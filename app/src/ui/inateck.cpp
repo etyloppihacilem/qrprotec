@@ -11,15 +11,141 @@
 #include "inateck.hpp"
 #include "imgui.h"
 #include "inateck/inateck_worker.hpp"
+#include "GLFW/glfw3.h"
 #include <algorithm>
 #include <cstddef>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <vector>
 
 namespace qrprotec {
 
-Inateck::Inateck() {}
+namespace {
 
-Inateck::~Inateck() {}
+std::filesystem::path hid_settings_path() {
+  const char* home = std::getenv("HOME");
+  if (!home || *home == '\0')
+    return ".qrprotec-inateck-hid.conf";
+  return std::filesystem::path(home) / ".config" / "qrprotec" / "inateck-hid.conf";
+}
+
+}
+
+Inateck::Inateck() {
+  load_hid_settings();
+  apply_hid_settings();
+}
+
+Inateck::~Inateck() { save_hid_settings(); }
+
+void Inateck::load_hid_settings() {
+  std::ifstream settings(hid_settings_path());
+  std::string line;
+  while (std::getline(settings, line)) {
+    const std::size_t separator = line.find('=');
+    if (separator == std::string::npos)
+      continue;
+    const std::string key = line.substr(0, separator);
+    const std::string value = line.substr(separator + 1);
+    try {
+      if (key == "enabled")
+        hid_enabled_ = std::stoi(value) != 0;
+      else if (key == "timeout_ms")
+        hid_timeout_ms_ = std::clamp(std::stoi(value), 5, 500);
+      else if (key == "minimum_length")
+        hid_minimum_length_ = std::clamp(std::stoi(value), 1, 64);
+    } catch (const std::exception&) {
+      // Keep the defaults for malformed individual settings.
+    }
+  }
+}
+
+void Inateck::save_hid_settings() const {
+  const std::filesystem::path path = hid_settings_path();
+  std::error_code error;
+  if (path.has_parent_path())
+    std::filesystem::create_directories(path.parent_path(), error);
+  std::ofstream settings(path);
+  if (!settings)
+    return;
+  settings << "enabled=" << (hid_enabled_ ? 1 : 0) << '\n'
+           << "timeout_ms=" << hid_timeout_ms_ << '\n'
+           << "minimum_length=" << hid_minimum_length_ << '\n';
+}
+
+void Inateck::apply_hid_settings() {
+  pending_hid_characters_.clear();
+  has_last_hid_character_ = false;
+  hid_classifier_.set_config({std::chrono::milliseconds(hid_timeout_ms_),
+                              static_cast<std::size_t>(hid_minimum_length_)});
+  hid_classifier_.set_enabled(hid_enabled_);
+}
+
+std::vector<unsigned int> Inateck::handle_hid_character(unsigned int character) {
+  std::vector<unsigned int> replay;
+  if (!hid_enabled_) {
+    hid_classifier_.reset();
+    pending_hid_characters_.clear();
+    has_last_hid_character_ = false;
+    replay.push_back(character);
+    return replay;
+  }
+  const HidScanClassifier::TimePoint now = HidScanClassifier::Clock::now();
+  if (has_last_hid_character_ && now - last_hid_character_ > std::chrono::milliseconds(hid_timeout_ms_)) {
+    replay = pending_hid_characters_;
+    replay.push_back(character);
+    pending_hid_characters_.clear();
+    has_last_hid_character_ = false;
+    hid_classifier_.reset();
+    return replay;
+  }
+  hid_classifier_.feed_character(character, now);
+  pending_hid_characters_.push_back(character);
+  last_hid_character_ = now;
+  has_last_hid_character_ = true;
+  return replay;
+}
+
+std::vector<unsigned int> Inateck::flush_hid_characters() {
+  if (!hid_enabled_ || !has_last_hid_character_ ||
+      HidScanClassifier::Clock::now() - last_hid_character_ <= std::chrono::milliseconds(hid_timeout_ms_))
+    return {};
+  std::vector<unsigned int> replay = pending_hid_characters_;
+  pending_hid_characters_.clear();
+  has_last_hid_character_ = false;
+  hid_classifier_.reset();
+  return replay;
+}
+
+Inateck::HidKeyResult Inateck::handle_hid_key(int key, int action) {
+  HidKeyResult result;
+  if (!hid_enabled_ || action != GLFW_PRESS)
+    return result;
+  if (key != GLFW_KEY_ENTER && key != GLFW_KEY_KP_ENTER)
+    return result;
+  const std::optional<std::string> scan = hid_classifier_.finish();
+  if (scan) {
+    inateck_worker_.on_scan_text(*scan);
+    pending_hid_characters_.clear();
+    has_last_hid_character_ = false;
+    result.consume = true;
+  } else {
+    result.replay = pending_hid_characters_;
+    pending_hid_characters_.clear();
+    has_last_hid_character_ = false;
+  }
+  return result;
+}
+
+void Inateck::handle_window_focus(bool focused) {
+  if (!focused) {
+    hid_classifier_.reset();
+    pending_hid_characters_.clear();
+    has_last_hid_character_ = false;
+  }
+}
 
 void Inateck::draw_inateck_window() {
   if (!inateck_window_open_)
@@ -69,6 +195,20 @@ void Inateck::draw_inateck_window() {
   }
 
   if (ImGui::CollapsingHeader("Parametrage", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Checkbox("Mode HID clavier", &hid_enabled_)) {
+      apply_hid_settings();
+      save_hid_settings();
+    }
+    ImGui::SetItemTooltip("Traiter les saisies clavier tres rapides comme des scans.");
+    if (ImGui::SliderInt("Delai HID (ms)", &hid_timeout_ms_, 5, 500) && ImGui::IsItemDeactivatedAfterEdit()) {
+      apply_hid_settings();
+      save_hid_settings();
+    }
+    if (ImGui::SliderInt("Longueur minimale HID", &hid_minimum_length_, 1, 64) && ImGui::IsItemDeactivatedAfterEdit()) {
+      apply_hid_settings();
+      save_hid_settings();
+    }
+    ImGui::Separator();
     ImGui::BeginDisabled(!state.authenticated);
     if (ImGui::SliderInt("Volume", &inateck_volume_, 0, 3) && ImGui::IsItemDeactivatedAfterEdit())
       inateck_worker_.set_volume(inateck_volume_);

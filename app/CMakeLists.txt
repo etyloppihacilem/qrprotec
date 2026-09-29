@@ -68,6 +68,7 @@ add_executable(${PROJECT_NAME}
     src/core/template.cpp
     src/core/template_io.cpp
     src/render/raster.cpp
+    src/inateck/hid_classifier.cpp
     src/inateck/inateck_worker.cpp
     src/ui/inateck.cpp
     src/ui/editor.cpp
@@ -113,4 +114,11 @@ if(BUILD_TESTING)
     )
     target_include_directories(QRProtecPrinterTest PRIVATE src)
     add_test(NAME QRProtecPrinterTest COMMAND QRProtecPrinterTest)
+
+    add_executable(QRProtecHidClassifierTest
+        tests/hid_classifier_test.cpp
+        src/inateck/hid_classifier.cpp
+    )
+    target_include_directories(QRProtecHidClassifierTest PRIVATE src)
+    add_test(NAME QRProtecHidClassifierTest COMMAND QRProtecHidClassifierTest)
 endif()

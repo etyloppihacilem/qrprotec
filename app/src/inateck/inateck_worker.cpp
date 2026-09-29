@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstring>
+#include <iostream>
 #include <utility>
 
 #ifdef QRPROTEC_HAS_INATECK
@@ -44,8 +45,39 @@ bool json_success(const char* json) {
     return *status == '0';
 }
 
+std::vector<std::string> json_device_objects(const char* json) {
+    std::vector<std::string> objects;
+    if (!json)
+        return objects;
+    const char* array = std::strstr(json, "\"devices\"");
+    if (!array)
+        array = std::strstr(json, "\"device_list\"");
+    if (!array)
+        return objects;
+    array = std::strchr(array, '[');
+    if (!array)
+        return objects;
+    const char* object_start = nullptr;
+    int depth = 0;
+    for (const char* cursor = array + 1; *cursor; ++cursor) {
+        if (*cursor == '{') {
+            if (depth == 0)
+                object_start = cursor;
+            ++depth;
+        } else if (*cursor == '}' && depth > 0) {
+            --depth;
+            if (depth == 0 && object_start)
+                objects.emplace_back(object_start, cursor + 1);
+        } else if (*cursor == ']' && depth == 0) {
+            break;
+        }
+    }
+    return objects;
+}
+
 #ifdef QRPROTEC_HAS_INATECK
 void discover_callback(const char* json) {
+    std::cerr << "[Inateck BLE] appareil detecte: " << (json ? json : "<null>") << std::endl;
     std::lock_guard<std::mutex> lock(callback_mutex);
     if (callback_owner)
         callback_owner->on_discovery(json);
@@ -128,10 +160,17 @@ void InateckWorker::on_discovery(const char* json) {
 }
 
 void InateckWorker::on_scan(const char* json) {
+    std::string code = json_string(json, "code");
+    if (code.empty() && json)
+        code = json;
+    on_scan_text(code);
+}
+
+void InateckWorker::on_scan_text(const std::string& code) {
+    if (code.empty())
+        return;
     std::lock_guard<std::mutex> lock(mutex_);
-    snapshot_.last_scan = json_string(json, "code");
-    if (snapshot_.last_scan.empty() && json)
-        snapshot_.last_scan = json;
+    snapshot_.last_scan = code;
 }
 
 void InateckWorker::on_disconnect() {
@@ -194,6 +233,17 @@ void InateckWorker::execute(const Command& command) {
         break;
     case CommandType::StopDiscovery:
         result = inateck_scanner_ble_stop_discover();
+        if (json_success(result)) {
+            const char* devices = inateck_scanner_ble_get_devices();
+            std::cerr << "[Inateck BLE] liste des appareils: "
+                      << (devices ? devices : "<null>") << std::endl;
+            if (!json_success(devices)) {
+                set_error(devices ? devices : "Lecture des douchettes impossible");
+            } else {
+                for (const std::string& device : json_device_objects(devices))
+                    on_discovery(device.c_str());
+            }
+        }
         {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.discovering = false;

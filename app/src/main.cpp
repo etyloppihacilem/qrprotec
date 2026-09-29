@@ -15,6 +15,54 @@ static void glfw_error_callback(int error, const char* description)
     std::fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
+static qrprotec::Inateck* active_inateck = nullptr;
+
+static void hid_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (!active_inateck)
+        return ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+    const qrprotec::Inateck::HidKeyResult result = active_inateck->handle_hid_key(key, action);
+    for (const unsigned int character : result.replay)
+        ImGui_ImplGlfw_CharCallback(window, character);
+    if (!result.consume)
+        ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+}
+
+static void hid_char_callback(GLFWwindow* window, unsigned int character)
+{
+    if (!active_inateck)
+        return ImGui_ImplGlfw_CharCallback(window, character);
+    for (const unsigned int replay : active_inateck->handle_hid_character(character))
+        ImGui_ImplGlfw_CharCallback(window, replay);
+}
+
+static void hid_focus_callback(GLFWwindow* window, int focused)
+{
+    if (active_inateck)
+        active_inateck->handle_window_focus(focused != 0);
+    ImGui_ImplGlfw_WindowFocusCallback(window, focused);
+}
+
+static void imgui_cursor_enter_callback(GLFWwindow* window, int entered)
+{
+    ImGui_ImplGlfw_CursorEnterCallback(window, entered);
+}
+
+static void imgui_cursor_position_callback(GLFWwindow* window, double x, double y)
+{
+    ImGui_ImplGlfw_CursorPosCallback(window, x, y);
+}
+
+static void imgui_mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
+{
+    ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+}
+
+static void imgui_scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+    ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+}
+
 int main(int argc, char** argv)
 {
     bool verbose = false;
@@ -46,13 +94,24 @@ int main(int argc, char** argv)
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsLight();
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
+
+    qrprotec::Inateck inateck;
+    active_inateck = &inateck;
+    glfwSetKeyCallback(window, hid_key_callback);
+    glfwSetCharCallback(window, hid_char_callback);
+    glfwSetWindowFocusCallback(window, hid_focus_callback);
+    ImGui_ImplGlfw_InitForOpenGL(window, false);
+    glfwSetCursorEnterCallback(window, imgui_cursor_enter_callback);
+    glfwSetCursorPosCallback(window, imgui_cursor_position_callback);
+    glfwSetMouseButtonCallback(window, imgui_mouse_button_callback);
+    glfwSetScrollCallback(window, imgui_scroll_callback);
     ImGui_ImplOpenGL3_Init(nullptr);
 
     qrprotec::Editor editor;
-    qrprotec::Inateck inateck; // la douchette
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+        for (const unsigned int character : inateck.flush_hid_characters())
+            ImGui_ImplGlfw_CharCallback(window, character);
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -74,6 +133,7 @@ int main(int argc, char** argv)
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+    active_inateck = nullptr;
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

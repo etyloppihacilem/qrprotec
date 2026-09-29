@@ -49,6 +49,7 @@ public:
 
     void on_discovery(const char* json);
     void on_scan(const char* json);
+    void on_scan_text(const std::string& code);
     void on_disconnect();
 
 private:

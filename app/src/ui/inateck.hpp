@@ -10,7 +10,11 @@
 
 #pragma once
 
+#include <chrono>
+#include <vector>
+
 #include "../inateck/inateck_worker.hpp"
+#include "../inateck/hid_classifier.hpp"
 
 namespace qrprotec {
 
@@ -21,6 +25,14 @@ class Inateck {
     ~Inateck();
 
     void draw();
+    std::vector<unsigned int> handle_hid_character(unsigned int character);
+    std::vector<unsigned int> flush_hid_characters();
+    struct HidKeyResult {
+      bool consume = false;
+      std::vector<unsigned int> replay;
+    };
+    HidKeyResult handle_hid_key(int key, int action);
+    void handle_window_focus(bool focused);
 
   private:
     void draw_inateck_window();
@@ -30,9 +42,20 @@ class Inateck {
     int inateck_volume_ = 2;
     bool inateck_vibration_ = false;
     bool inateck_sdk_output_ = true;
+    bool hid_enabled_ = false;
+    int hid_timeout_ms_ = 30;
+    int hid_minimum_length_ = 3;
     char inateck_prefix_[64] = {};
     char inateck_suffix_[64] = {};
     char inateck_name_[128] = {};
+    HidScanClassifier hid_classifier_;
+    std::vector<unsigned int> pending_hid_characters_;
+    HidScanClassifier::TimePoint last_hid_character_{};
+    bool has_last_hid_character_ = false;
+
+    void load_hid_settings();
+    void save_hid_settings() const;
+    void apply_hid_settings();
 };
 
 } // namespace qrprotec
