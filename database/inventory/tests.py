@@ -213,3 +213,22 @@ class WebFrontTests(ApiTestCase):
         self.assertEqual(self.client.get('/web/vendor/jsQR.js').status_code, 200)
         self.assertEqual(self.client.get('/web/../views.py').status_code, 404)
         self.assertEqual(self.client.get('/web/index.html').status_code, 404)
+
+
+class SetupTests(ApiTestCase):
+    def test_setup_and_createadmin(self):
+        from io import StringIO
+        from django.core.management import call_command
+        code, body = self.call('GET', '/api/setup/')
+        self.assertTrue(body['needs_admin'])
+        self.assertEqual(self.call('GET', '/api/setup/', local=False)[0], 404)
+        out = StringIO()
+        call_command('createadmin', 'R001', 'Melica', 'Hippolyte', stdout=out)
+        self.assertIn('badge?m=R001&key=', out.getvalue())
+        code, body = self.call('GET', '/api/setup/')
+        self.assertFalse(body['needs_admin'])
+        admin = Secouristes.objects.get(matricule='R001')
+        self.assertTrue(admin.privileged)
+        old_key = admin.key
+        call_command('createadmin', 'R001', stdout=StringIO())
+        self.assertNotEqual(Secouristes.objects.get(matricule='R001').key, old_key)

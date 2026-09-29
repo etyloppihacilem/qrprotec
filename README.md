@@ -28,6 +28,7 @@ cd database
 poetry install --no-root          # ou : pip install django djangorestframework
 python manage.py migrate
 python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001
+python manage.py createadmin M001 Nom Prenom   # premier responsable (ou badge responsable perdu)
 python manage.py test inventory
 ```
 
@@ -124,6 +125,13 @@ Dépendances : GLFW, OpenGL, libpng, FreeType, libxdo (SDK Inateck). L'encodeur 
 ([Nayuki](https://www.nayuki.io/page/qr-code-generator-library), MIT) et `stb_image` (PNG/JPEG,
 domaine public) sont fournis dans `app/third_party/`.
 
+**Première utilisation** : tant qu'aucun responsable n'a de badge valide, le logiciel propose de créer
+le compte du responsable technique ; il est connecté directement en mode privilégié et peut imprimer
+son badge (ou utiliser `manage.py createadmin` sur le serveur).
+
+La police DejaVu Sans (accents) est fournie dans `app/third_party/fonts/` et copiée à côté de
+l'exécutable ; une autre police peut être imposée avec la variable `QRPROTEC_FONT`.
+
 Les réglages sont dans `~/.config/qrprotec/app.conf` et s'éditent depuis **Gestion > Réglages** :
 URL de l'API locale, modèle d'étiquette par usage, imprimante, délai de réinitialisation,
 disposition par défaut des fenêtres, signal de mauvais scan.
@@ -144,6 +152,8 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   dans la pile, avec un bouton **Se déconnecter**. Une vérif ou un ajout demande de se connecter.
 - **Mauvais scan** (produit périmé, code inconnu) : bip et LED de la douchette via le SDK Inateck ;
   en mode HID, bip de l'ordinateur et clignotement rouge de l'écran.
+- **Douchette** : la recherche et la connexion sont accessibles à tous ; les paramètres (mode HID,
+  volume, préfixe…) et la déconnexion demandent un utilisateur connecté.
 - **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté et les
   fenêtres remises à leur place par défaut.
 

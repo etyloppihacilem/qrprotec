@@ -454,6 +454,19 @@ def lot_verifs(request, lot_id):
     return Response([ser.verif_dict(verif) for verif in Verifs.objects.filter(lot=lot).order_by('-datetime')[:100]])
 
 
+@api_view(['GET'])
+def setup(request):
+    """Etat de premiere configuration : le front propose de creer un responsable s'il n'y en a aucun
+    avec un badge valide (premiere installation, ou tous les badges responsables expires)."""
+    today = timezone.localdate()
+    admins = Secouristes.objects.filter(privileged=True, active=True, key_expires__gte=today).count()
+    return Response({
+        'users': Secouristes.objects.count(),
+        'admins': admins,
+        'needs_admin': admins == 0,
+    })
+
+
 @api_view(['GET', 'POST'])
 @handle_errors
 def users(request):

@@ -167,6 +167,9 @@ class App {
     void draw_menu_bar();
     void draw_windows();
     void draw_login_modal();
+    void check_setup();
+    void draw_setup_modal();
+    void create_first_admin();
     void draw_toasts();
     void check_inactivity();
     void apply_default_open_state();
@@ -174,6 +177,15 @@ class App {
     void   work_area(ImVec2 &origin, ImVec2 &size) const;
 
     float                   menu_bar_height_ = 0.0f;
+    // Premiere configuration : aucun responsable avec un badge valide
+    bool                    setup_known_     = false;
+    bool                    needs_admin_     = false;
+    bool                    setup_busy_      = false;
+    double                  next_setup_check_ = 0.0;
+    std::string             setup_matricule_;
+    std::string             setup_nom_;
+    std::string             setup_prenom_;
+    Json                    setup_created_; // compte cree, pour imprimer le badge
     double                  last_activity_ = 0.0;
     bool                    reset_done_    = false;
     bool                    layout_pending_ = true;

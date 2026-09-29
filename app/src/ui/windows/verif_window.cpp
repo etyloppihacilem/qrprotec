@@ -28,7 +28,7 @@ std::string iid_label(const App &app, const std::string &iid) {
 
 class VerifWindow final : public AppWindow {
   public:
-    VerifWindow() : AppWindow("verif", "Verif", false, true) {}
+    VerifWindow() : AppWindow("verif", "Vérif", false, true) {}
 
     bool can_close(const App &app) const override { return !app.verif.active; }
 
@@ -38,28 +38,28 @@ class VerifWindow final : public AppWindow {
       else if (!app.last_report.is_null())
         draw_report(app);
       else
-        ImGui::TextWrapped("Aucune verif en cours. Scannez l'etiquette d'un lot ou choisissez un lot dans la "
-                           "fenetre Lots pour commencer.");
+        ImGui::TextWrapped("Aucune vérif en cours. Scannez l'étiquette d'un lot ou choisissez un lot dans la "
+                           "fenêtre Lots pour commencer.");
     }
 
   private:
     void draw_active(App &app) {
       VerifSession &verif = app.verif;
       ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
-      ImGui::Text("Verif : %s", verif.lot["name"].str(verif.lot_id).c_str());
+      ImGui::Text("Vérif : %s", verif.lot["name"].str(verif.lot_id).c_str());
       ImGui::PopFont();
       if (verif.loading) {
         ImGui::TextDisabled("Chargement du contenu du lot...");
         return;
       }
       if (!verif.key.empty())
-        ImGui::TextColored(colors::green, "Etiquette privee scannee : la verif peut etre validee.");
+        ImGui::TextColored(colors::green, "Étiquette privée scannée : la vérif peut être validée.");
       else if (app.verif_key_ok())
-        ImGui::TextColored(colors::green, "Mode responsable : validation autorisee sans etiquette privee.");
+        ImGui::TextColored(colors::green, "Mode responsable : validation autorisée sans étiquette privée.");
       else
-        ImGui::TextColored(colors::orange, "Scannez l'etiquette privee du lot pour pouvoir valider.");
-      ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparait de la liste ci-dessous. "
-                         "Scannez aussi les items perimes que vous retirez, puis leurs remplacants.");
+        ImGui::TextColored(colors::orange, "Scannez l'étiquette privée du lot pour pouvoir valider.");
+      ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
+                         "Scannez aussi les items périmés que vous retirez, puis leurs remplaçants.");
 
       // Progression par type : items frais scannes vs quantite exigee
       std::map< std::string, int > fresh_by_type;
@@ -72,7 +72,7 @@ class VerifWindow final : public AppWindow {
       ImGui::SeparatorText("Exigences du lot");
       if (ImGui::BeginTable("req", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Scannes / attendus", ImGuiTableColumnFlags_WidthFixed, 180.0f);
+        ImGui::TableSetupColumn("Scannés / attendus", ImGuiTableColumnFlags_WidthFixed, 180.0f);
         ImGui::TableHeadersRow();
         for (const Json &row : verif.lot["requirements"].items()) {
           ImGui::TableNextRow();
@@ -94,7 +94,7 @@ class VerifWindow final : public AppWindow {
                             ImVec2(0, -footer))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Produit", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Peremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 220.0f);
         ImGui::TableHeadersRow();
         for (const Json &item : verif.lot["items"].items()) {
@@ -110,11 +110,11 @@ class VerifWindow final : public AppWindow {
           ImGui::TextUnformatted(item["type_name"].str().c_str());
           if (item["missed_verifs"].integer() > 0) {
             ImGui::SameLine();
-            ImGui::TextDisabled("(non vu a la derniere verif)");
+            ImGui::TextDisabled("(non vu à la dernière vérif)");
           }
           if (item["expired"].boolean()) {
             ImGui::SameLine();
-            ImGui::TextColored(colors::red, "(perime : a remplacer)");
+            ImGui::TextColored(colors::red, "(périmé : à remplacer)");
           }
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(display_date(item["peremption"]).c_str());
@@ -127,14 +127,14 @@ class VerifWindow final : public AppWindow {
       for (const std::string &iid : app.stack.iids())
         if (!expected.count(iid))
           ++added;
-      ImGui::Text("%d attendu(s) restant(s), %d nouvel(s) item(s) scanne(s).", remaining, added);
+      ImGui::Text("%d attendu(s) restant(s), %d nouvel(s) item(s) scanné(s).", remaining, added);
 
       ImGui::BeginDisabled(!app.verif_key_ok() || verif.submitting);
-      if (primary_button(verif.submitting ? "Envoi..." : "Valider la verif", ImVec2(ImGui::GetContentRegionAvail().x * 0.6f, 0)))
+      if (primary_button(verif.submitting ? "Envoi..." : "Valider la vérif", ImVec2(ImGui::GetContentRegionAvail().x * 0.6f, 0)))
         app.submit_verif();
       ImGui::EndDisabled();
       ImGui::SameLine();
-      if (danger_button("Annuler la verif", ImVec2(-1, 0)))
+      if (danger_button("Annuler la vérif", ImVec2(-1, 0)))
         app.cancel_verif();
     }
 
@@ -155,10 +155,10 @@ class VerifWindow final : public AppWindow {
       ImGui::Text("Compte rendu : %s", app.last_report_lot.c_str());
       ImGui::PopFont();
       if (report["complete"].boolean())
-        ImGui::TextColored(colors::green, "Lot complet et a jour.");
+        ImGui::TextColored(colors::green, "Lot complet et à jour.");
       else
-        ImGui::TextColored(colors::orange, "Lot incomplet ou contenant des perimes : voir ci-dessous.");
-      ImGui::Text("%zu item(s) present(s).", report["present"].size());
+        ImGui::TextColored(colors::orange, "Lot incomplet ou contenant des périmés : voir ci-dessous.");
+      ImGui::Text("%zu item(s) présent(s).", report["present"].size());
       for (const Json &row : report["requirements"].items()) {
         ImGui::TextUnformatted(row["type_name"].str().c_str());
         ImGui::SameLine(250.0f);
@@ -166,11 +166,11 @@ class VerifWindow final : public AppWindow {
       }
       ImGui::Separator();
       ImGui::BeginChild("report", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
-      draw_list(app, "Perimes toujours dans le lot : a remplacer", report["expired"], colors::red);
-      draw_list(app, "Perimes consideres comme remplaces", report["replaced"], colors::green);
-      draw_list(app, "Attendus mais non scannes", report["missing"], colors::orange);
-      draw_list(app, "Retrouves (etaient signales disparus)", report["reactivated"], colors::green);
-      draw_list(app, "Codes inconnus ignores", report["unknown"], colors::red);
+      draw_list(app, "Périmés toujours dans le lot : à remplacer", report["expired"], colors::red);
+      draw_list(app, "Périmés considérés comme remplacés", report["replaced"], colors::green);
+      draw_list(app, "Attendus mais non scannés", report["missing"], colors::orange);
+      draw_list(app, "Retrouvés (étaient signalés disparus)", report["reactivated"], colors::green);
+      draw_list(app, "Codes inconnus ignorés", report["unknown"], colors::red);
       ImGui::EndChild();
       if (ImGui::Button("Fermer le compte rendu", ImVec2(-1, 0))) {
         app.last_report = Json();

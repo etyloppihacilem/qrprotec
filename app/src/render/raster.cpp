@@ -1,5 +1,6 @@
 #include "raster.hpp"
 #include "image_loader.hpp"
+#include "../core/fonts.hpp"
 
 #include "qrcodegen.hpp"
 
@@ -50,17 +51,11 @@ void draw_text(RasterImage& image, const TextElement& text, const std::string& v
     const int left = static_cast<int>(text.x_mm * scale);
     const int top = static_cast<int>(text.y_mm * scale);
     const int text_width = std::max(1, static_cast<int>(text.width_mm * scale));
-    const std::array<const char*, 4> font_paths = {
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/liberation-serif-fonts/LiberationSerif-Regular.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"};
     FT_Library library = nullptr;
     FT_Face face = nullptr;
     if (FT_Init_FreeType(&library) != 0) return;
-    for (const char* font_path : font_paths) {
-        if (FT_New_Face(library, font_path, 0, &face) == 0) break;
-    }
+    const std::string& font_path = ui_font_path();
+    if (font_path.empty() || FT_New_Face(library, font_path.c_str(), 0, &face) != 0) face = nullptr;
     if (face == nullptr) {
         if (library) FT_Done_FreeType(library);
         return;
@@ -222,7 +217,7 @@ bool write_png(const RasterImage& image, const std::string& path, std::string& e
         return false;
     }
     if (setjmp(png_jmpbuf(png))) {
-        error = "Erreur d'ecriture PNG.";
+        error = "Erreur d'écriture PNG.";
         png_destroy_write_struct(&png, &info);
         std::fclose(file);
         return false;

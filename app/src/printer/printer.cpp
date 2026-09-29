@@ -23,11 +23,11 @@ std::string print_error_description(std::uint8_t code)
     switch (code) {
     case 0x01: return "couvercle ouvert";
     case 0x02: return "papier absent";
-    case 0x09: return "imprimante occupee";
-    case 0x14: return "ecriture RFID impossible";
-    case 0x18: return "parametres de page invalides";
-    case 0x34: return "delai de reception des donnees depasse";
-    default: return "erreur materielle ou de protocole";
+    case 0x09: return "imprimante occupée";
+    case 0x14: return "écriture RFID impossible";
+    case 0x18: return "paramètres de page invalides";
+    case 0x34: return "délai de réception des données dépassé";
+    default: return "erreur matérielle ou de protocole";
     }
 }
 }
@@ -56,20 +56,20 @@ bool NiimbotB1Printer::send_command(const PrintSettings& settings, const std::st
 bool NiimbotB1Printer::print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error)
 {
     if (request.image.width != request.media.width_pixels() || request.image.height != request.media.height_pixels()) {
-        error = "La resolution du raster ne correspond pas au media.";
+        error = "La résolution du raster ne correspond pas au media.";
         return false;
     }
     if (!serial_.is_open()) {
-        error = "Imprimante non connectee.";
+        error = "Imprimante non connectée.";
         return false;
     }
     if (request.image.width % 8 != 0 || request.image.width > 384 || request.image.width <= 0 || request.image.height <= 0 ||
         request.image.height > 0xffff) {
-        error = "La resolution B1 doit avoir une largeur multiple de 8 et au plus 384 pixels.";
+        error = "La résolution B1 doit avoir une largeur multiple de 8 et au plus 384 pixels.";
         return false;
     }
     if (request.settings.density < 1 || request.settings.density > 5 || request.settings.label_type < 1 || request.settings.label_type > 3) {
-        error = "Densite ou type de label B1 invalide.";
+        error = "Densité ou type de label B1 invalide.";
         return false;
     }
     const int copies = std::max(1, std::min(request.settings.copies, 0xffff));
@@ -93,7 +93,7 @@ bool NiimbotB1Printer::print(const PrintRequest& request, const std::function<vo
                 error += ").";
                 return false;
             }
-            error = "La commande imprimante a ete refusee (0x";
+            error = "La commande imprimante a été refusée (0x";
             const char* digits = "0123456789abcdef";
             error += digits[(response >> 4) & 0xf];
             error += digits[response & 0xf];

@@ -2,6 +2,7 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "app/app.hpp"
+#include "core/fonts.hpp"
 #include "printer/logging.hpp"
 #include "ui/inateck.hpp"
 
@@ -29,19 +30,12 @@ static void note_activity()
 // Police avec accents francais ; la police par defaut d'ImGui reste utilisee si aucune n'est trouvee.
 static void load_font(float size)
 {
-    const char* font_paths[] = {
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf"};
     ImGuiIO& io = ImGui::GetIO();
-    for (const char* path : font_paths) {
-        std::error_code error;
-        if (std::filesystem::exists(path, error) && io.Fonts->AddFontFromFileTTF(path, size)) {
-            break;
-        }
-    }
+    const std::string& path = qrprotec::ui_font_path();
+    if (path.empty() || !io.Fonts->AddFontFromFileTTF(path.c_str(), size))
+        std::fprintf(stderr, "Aucune police avec accents trouvee (installez DejaVu Sans ou definissez QRPROTEC_FONT)\n");
+    else
+        qrprotec::debug_log("Police : " + path);
     ImGui::GetStyle().FontSizeBase = size;
 }
 

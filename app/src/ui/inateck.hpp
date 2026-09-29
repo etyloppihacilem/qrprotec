@@ -28,6 +28,8 @@ class Inateck {
     void draw_menu();   // contenu du menu "Douchette" (a appeler dans une barre de menu)
     void draw_window(); // fenetre de parametrage si ouverte
     void open_window() { inateck_window_open_ = true; }
+    // Parametres (HID, volume, prefixe...) et deconnexion reserves aux utilisateurs connectes
+    void set_settings_unlocked(bool unlocked) { settings_unlocked_ = unlocked; }
 
     std::vector<ScanEvent> take_scans() { return inateck_worker_.take_scans(); }
     void signal_error(const ScannerErrorSignal& signal) { inateck_worker_.signal_error(signal); }
@@ -47,6 +49,7 @@ class Inateck {
 
     InateckWorker inateck_worker_;
     bool inateck_window_open_ = false;
+    bool settings_unlocked_ = false;
     int inateck_volume_ = 2;
     bool inateck_vibration_ = false;
     bool inateck_sdk_output_ = true;

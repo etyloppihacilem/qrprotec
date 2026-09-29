@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "Lot prive",
+  "name": "Lot privé",
   "category": "lot_private",
   "media": {
     "width_mm": 40,
@@ -21,7 +21,7 @@
     {
       "id": "titre",
       "kind": "text",
-      "text": "PRIVE - NE PAS AFFICHER",
+      "text": "PRIVÉ - NE PAS AFFICHER",
       "x_mm": 26,
       "y_mm": 2,
       "width_mm": 13,
@@ -41,7 +41,7 @@
     {
       "id": "exp",
       "kind": "text",
-      "text": "Cle jusqu'au {{key_expires}}",
+      "text": "Clé jusqu'au {{key_expires}}",
       "x_mm": 1,
       "y_mm": 26,
       "width_mm": 38,

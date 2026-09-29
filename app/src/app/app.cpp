@@ -15,6 +15,8 @@
 #include "../ui/windows/windows.hpp"
 #include "labels.hpp"
 
+#include "imgui_stdlib.h"
+
 #include <algorithm>
 
 namespace qrprotec {
@@ -76,7 +78,7 @@ bool App::save_settings() {
     notify(error, true);
     return false;
   }
-  notify("Reglages enregistres.");
+  notify("Réglages enregistrés.");
   return true;
 }
 
@@ -142,10 +144,13 @@ void App::begin_frame() {
   if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f || io.MouseWheel != 0.0f || ImGui::IsAnyMouseDown()
       || io.InputQueueCharacters.Size > 0)
     note_activity();
+  inateck.set_settings_unlocked(logged_in());
   api.poll();
   for (const ScanEvent &event : inateck.take_scans())
     handle_scan(event.code, event.source);
   check_inactivity();
+  if (!setup_known_ && ImGui::GetTime() >= next_setup_check_)
+    check_setup();
 }
 
 void App::check_inactivity() {
@@ -167,7 +172,7 @@ void App::reset_session() {
   pending_action_ = nullptr;
   apply_default_open_state();
   refresh_lots();
-  notify("Session reinitialisee apres inactivite.");
+  notify("Session réinitialisée après inactivité.");
 }
 
 ImVec4 App::background_color() const {
@@ -188,22 +193,25 @@ void App::draw() {
   if (tint)
     ImGui::PopStyleColor(4);
   inateck.draw_window();
+  draw_setup_modal();
   draw_login_modal();
   draw_toasts();
   feedback.draw_overlay();
 }
 
 void App::draw_menu_bar() {
-  if (privileged())
+  // memorise : un clic sur "Se deconnecter" change privileged() pendant le dessin de la barre
+  const bool tinted = privileged();
+  if (tinted)
     ImGui::PushStyleColor(ImGuiCol_MenuBarBg, kPrivilegedOrange);
   if (ImGui::BeginMainMenuBar()) {
     menu_bar_height_ = ImGui::GetWindowSize().y;
-    if (ImGui::BeginMenu("Fenetres")) {
+    if (ImGui::BeginMenu("Fenêtres")) {
       for (auto &window : windows)
         if (!window->privileged && window->closable && ImGui::MenuItem(window->title.c_str(), nullptr, window->open))
           window->open ? (void)(window->open = false) : open_window(window->id);
       ImGui::Separator();
-      if (ImGui::MenuItem("Remettre les fenetres en place"))
+      if (ImGui::MenuItem("Remettre les fenêtres en place"))
         request_layout_reset();
       ImGui::EndMenu();
     }
@@ -226,8 +234,8 @@ void App::draw_menu_bar() {
     else if (print.pending > 0)
       printing = "Impression : " + std::to_string(print.pending) + " en attente";
     const std::string status = api.online() ? "API en ligne" : "API hors ligne";
-    const std::string who    = logged_in() ? user->display() + (privileged() ? " (responsable)" : "") : "Non connecte : scannez votre badge";
-    const float       button = logged_in() ? ImGui::CalcTextSize("Se deconnecter").x + ImGui::GetStyle().FramePadding.x * 2 : 0.0f;
+    const std::string who    = logged_in() ? user->display() + (privileged() ? " (responsable)" : "") : "Non connecté : scannez votre badge";
+    const float       button = logged_in() ? ImGui::CalcTextSize("Se déconnecter").x + ImGui::GetStyle().FramePadding.x * 2 : 0.0f;
     const float       width  = ImGui::CalcTextSize((printing + status + who).c_str()).x + button + 80.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - width));
     if (!printing.empty()) {
@@ -253,14 +261,14 @@ void App::draw_menu_bar() {
     ImGui::Separator();
     if (logged_in()) {
       ImGui::TextUnformatted(who.c_str());
-      if (danger_button("Se deconnecter"))
-        logout("Deconnecte.");
+      if (danger_button("Se déconnecter"))
+        logout("Déconnecté.");
     } else {
       ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.0f, 1.0f), "%s", who.c_str());
     }
     ImGui::EndMainMenuBar();
   }
-  if (privileged())
+  if (tinted)
     ImGui::PopStyleColor();
 }
 
@@ -327,6 +335,105 @@ void App::draw_login_modal() {
     login_prompt_opened_ = false;
     login_prompt_        = false;
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Premiere configuration
+
+void App::check_setup() {
+  next_setup_check_ = ImGui::GetTime() + 5.0; // nouvel essai tant que le serveur ne repond pas
+  setup_known_      = true;
+  api.get("/api/setup/", [this](const ApiResult &result) {
+    if (!result.ok) {
+      setup_known_ = false;
+      return;
+    }
+    needs_admin_ = result.data["needs_admin"].boolean();
+  });
+}
+
+void App::create_first_admin() {
+  Json body;
+  body["matricule"]  = setup_matricule_;
+  body["nom"]        = setup_nom_;
+  body["prenom"]     = setup_prenom_;
+  body["privileged"] = true;
+  setup_busy_        = true;
+  api.post("/api/users/", body, [this](const ApiResult &result) {
+    setup_busy_ = false;
+    if (!result.ok) {
+      notify("Création impossible : " + result.error, true);
+      return;
+    }
+    setup_created_ = result.data;
+    needs_admin_   = false;
+    // le poste local est de confiance : le nouveau responsable est connecte directement
+    SessionUser session;
+    session.matricule   = result.data["matricule"].str();
+    session.nom         = result.data["nom"].str();
+    session.prenom      = result.data["prenom"].str();
+    session.key_expires = result.data["key_expires"].str();
+    session.privileged  = true;
+    user                = session;
+    refresh_item_types();
+    refresh_lot_types();
+    notify("Responsable créé : mode privilégié activé.");
+  });
+}
+
+void App::draw_setup_modal() {
+  const bool show = (needs_admin_ || !setup_created_.is_null()) && !ImGui::IsPopupOpen("Connexion requise");
+  if (show && !ImGui::IsPopupOpen("Première configuration"))
+    ImGui::OpenPopup("Première configuration");
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_Appearing);
+  if (!ImGui::BeginPopupModal("Première configuration", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  if (setup_created_.is_null()) {
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
+    ImGui::TextUnformatted("Aucun responsable n'a de badge valide");
+    ImGui::PopFont();
+    ImGui::TextWrapped("Créez le compte du responsable technique. Il sera connecté tout de suite en mode "
+                       "privilégié pour configurer le logiciel et imprimer son badge.");
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f));
+    ImGui::InputText("Matricule", &setup_matricule_, ImGuiInputTextFlags_CharsNoBlank);
+    ImGui::InputText("Prénom", &setup_prenom_);
+    ImGui::InputText("Nom", &setup_nom_);
+    ImGui::PopStyleColor();
+    ImGui::BeginDisabled(setup_busy_ || setup_matricule_.empty() || setup_nom_.empty() || setup_prenom_.empty());
+    if (ImGui::Button("Créer le responsable", ImVec2(-1, 0)))
+      create_first_admin();
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("Alternative : python manage.py createadmin MATRICULE NOM PRENOM sur le serveur.");
+    if (!needs_admin_)
+      ImGui::CloseCurrentPopup();
+  } else {
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
+    ImGui::Text("Bienvenue %s %s", setup_created_["prenom"].str().c_str(), setup_created_["nom"].str().c_str());
+    ImGui::PopFont();
+    ImGui::TextWrapped("Imprimez maintenant votre badge : il permet de repasser en mode privilégié. Il faut un "
+                       "modèle « Badge utilisateur » choisi dans Gestion > Réglages (badge.qr est fourni).");
+    std::string url = setup_created_["badge_url"].str();
+    ImGui::TextUnformatted("URL du badge :");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputText("##badge_url", &url, ImGuiInputTextFlags_ReadOnly);
+    if (ImGui::Button("Imprimer mon badge"))
+      print_labels(TemplateCategory::User, { user_parameters(setup_created_) }, "Badge");
+    ImGui::SameLine();
+    if (ImGui::Button("Ouvrir les réglages")) {
+      open_window("settings");
+      notify("Choisissez le modèle de badge, puis imprimez votre badge depuis Gestion > Utilisateurs.");
+      setup_created_ = Json();
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Terminer")) {
+      setup_created_ = Json();
+      ImGui::CloseCurrentPopup();
+    }
+  }
+  ImGui::EndPopup();
 }
 
 void App::notify(const std::string &message, bool error) {
@@ -402,7 +509,7 @@ void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
   api.post("/api/auth/", body, [this, source](const ApiResult &result) {
     if (!result.ok) {
       feedback.error(source, settings);
-      notify("Badge refuse : " + result.error, true);
+      notify("Badge refusé : " + result.error, true);
       return;
     }
     SessionUser session;
@@ -412,7 +519,7 @@ void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
     session.key_expires = result.data["key_expires"].str();
     session.privileged  = result.data["privileged"].boolean();
     user                = session;
-    notify("Bonjour " + session.display() + (session.privileged ? " : mode privilegie active." : "."));
+    notify("Bonjour " + session.display() + (session.privileged ? " : mode privilégié activé." : "."));
     if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
       notify("Votre badge expire le " + expires->display() + ", demandez son renouvellement.", true);
     login_prompt_ = false;
@@ -440,10 +547,10 @@ void App::handle_scan(const std::string &code, ScanSource source) {
       ScanEntry &entry = stack.add(scan, source);
       const int  id    = entry.id;
       if (entry.duplicate)
-        notify("Deja scanne : " + scan.id + " (retirez le doublon si c'est une erreur).");
+        notify("Déjà scanné : " + scan.id + " (retirez le doublon si c'est une erreur).");
       if (entry.expired) {
         feedback.error(source, settings);
-        notify("PERIME : " + scan.id + " (" + scan.peremption->display() + ")", true);
+        notify("PÉRIMÉ : " + scan.id + " (" + scan.peremption->display() + ")", true);
       }
       resolve_item(id);
       return;
@@ -487,23 +594,23 @@ void App::resolve_item(int entry_id) {
     }
     if (!result.ok) {
       entry->state  = EntryState::Pending;
-      entry->detail = "Non verifie : " + result.error;
+      entry->detail = "Non vérifié : " + result.error;
       return;
     }
     const Json &item = result.data;
     entry->state     = EntryState::Ok;
     entry->data      = item;
     entry->title     = item["type_name"].str();
-    std::string detail = item["peremption"].is_null() ? "Non perissable" : "Exp. " + display_date(item["peremption"]);
+    std::string detail = item["peremption"].is_null() ? "Non périssable" : "Exp. " + display_date(item["peremption"]);
     detail += item["location"].is_null() ? " - en stock" : " - " + item["location_name"].str();
     const std::string status = item["status"].str();
     entry->warning           = status != "active";
     if (status == "missing")
-      detail += " - signale disparu";
+      detail += " - signalé disparu";
     else if (status == "deleted")
-      detail += " - marque supprime";
+      detail += " - marqué supprimé";
     else if (status == "replaced")
-      detail += " - deja remplace";
+      detail += " - déjà remplacé";
     entry->detail = detail;
     if (item["expired"].boolean() && !entry->expired) {
       entry->expired = true;
@@ -531,10 +638,10 @@ void App::resolve_pack(int entry_id) {
     for (const Json &iid : result.data["items"].items())
       entry->pack_items.push_back(iid.str());
     entry->title  = "Paquet : " + result.data["count"].str() + " x " + result.data["type_name"].str();
-    entry->detail = result.data["peremption"].is_null() ? "Non perissable"
+    entry->detail = result.data["peremption"].is_null() ? "Non périssable"
                                                         : "Exp. " + display_date(result.data["peremption"]);
     if (!result.data["opened"].is_null())
-      entry->detail += " - deja ouvert";
+      entry->detail += " - déjà ouvert";
     const auto date = Date::parse(result.data["peremption"].str());
     if (date && *date < today()) {
       entry->expired = true;
@@ -556,7 +663,7 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
       }
       if (result.data["verif_key"].str() != stack.target.key && stack.target.id == id) {
         feedback.error(source, settings);
-        notify("Cle de l'etiquette privee perimee : reimprimez l'etiquette du lot.", true);
+        notify("Clé de l'étiquette privée périmée : réimprimez l'étiquette du lot.", true);
         stack.target = {};
         if (verif.lot_id == id)
           verif.key.clear();
@@ -569,13 +676,13 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
   if (verif.active && verif.lot_id == scan.id) {
     if (!scan.key.empty()) {
       verif.key = scan.key;
-      notify("Etiquette privee du lot reconnue.");
+      notify("Étiquette privée du lot reconnue.");
     }
     open_window("verif");
     return;
   }
   if (verif.active) {
-    notify("Une verif est deja en cours : terminez-la ou annulez-la.", true);
+    notify("Une vérif est déjà en cours : terminez-la ou annulez-la.", true);
     open_window("verif");
     return;
   }
@@ -586,7 +693,7 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
 // Verifs et mouvements
 
 void App::start_verif(const std::string &lot_id, const std::string &key) {
-  require_login("lancer la verif du lot", [this, lot_id, key]() {
+  require_login("lancer la vérif du lot", [this, lot_id, key]() {
     verif         = {};
     verif.active  = true;
     verif.lot_id  = lot_id;
@@ -616,11 +723,11 @@ bool App::verif_key_ok() const {
 }
 
 void App::submit_verif() {
-  require_login("valider la verif", [this]() {
+  require_login("valider la vérif", [this]() {
     if (!verif.active || verif.submitting)
       return;
     if (!verif_key_ok()) {
-      notify("Scannez l'etiquette privee du lot pour valider la verif.", true);
+      notify("Scannez l'étiquette privée du lot pour valider la vérif.", true);
       return;
     }
     Json body;
@@ -635,7 +742,7 @@ void App::submit_verif() {
     api.post("/api/lots/" + url_encode(lot_id) + "/verif/", body, [this, lot_id, lot_name](const ApiResult &result) {
       verif.submitting = false;
       if (!result.ok) {
-        notify("Verif refusee : " + result.error, true);
+        notify("Vérif refusée : " + result.error, true);
         return;
       }
       last_report     = result.data;
@@ -643,8 +750,8 @@ void App::submit_verif() {
       stack.clear();
       cancel_verif();
       open_window("verif");
-      notify(result.data["complete"].boolean() ? "Verif enregistree : lot complet."
-                                               : "Verif enregistree : le lot est incomplet ou contient des perimes.",
+      notify(result.data["complete"].boolean() ? "Vérif enregistrée : lot complet."
+                                               : "Vérif enregistrée : le lot est incomplet ou contient des périmés.",
              !result.data["complete"].boolean());
       refresh_lots();
     });
@@ -673,7 +780,7 @@ void App::add_stack_to_lot() {
     for (const std::string &iid : stack.iids())
       body["items"].push_back(iid);
     if (body["items"].size() == 0) {
-      notify("Aucun item a ajouter.", true);
+      notify("Aucun item à ajouter.", true);
       return;
     }
     body["user"] = user_ref();
@@ -681,7 +788,7 @@ void App::add_stack_to_lot() {
     const TargetLot target = stack.target;
     api.post("/api/lots/" + url_encode(target.id) + "/add/", body, [this, target](const ApiResult &result) {
       if (!result.ok) {
-        notify("Ajout refuse : " + result.error, true);
+        notify("Ajout refusé : " + result.error, true);
         return;
       }
       notify(std::to_string(result.data["moved"].size()) + " item(s) ajoute(s) au lot " + target.name + ".");
@@ -709,7 +816,7 @@ void App::stack_to_stock() {
   body["user"] = user_ref();
   api.post("/api/items/to-stock/", body, [this](const ApiResult &result) {
     if (!result.ok) {
-      notify("Retour en stock refuse : " + result.error, true);
+      notify("Retour en stock refusé : " + result.error, true);
       return;
     }
     notify(std::to_string(result.data["moved"].size()) + " item(s) remis en stock.");
@@ -728,14 +835,14 @@ void App::stock_verif() {
   body["user"] = user_ref();
   api.post("/api/stock/verif/", body, [this](const ApiResult &result) {
     if (!result.ok) {
-      notify("Verif du stock refusee : " + result.error, true);
+      notify("Vérif du stock refusée : " + result.error, true);
       return;
     }
     last_report     = result.data;
     last_report_lot = "Stock";
     stack.clear();
     open_window("verif");
-    notify("Verif du stock enregistree.");
+    notify("Vérif du stock enregistrée.");
     refresh_stock();
   });
 }
@@ -798,8 +905,8 @@ bool App::print_labels(TemplateCategory category, const std::vector< Parameters 
   TemplateDocument    model;
   std::string         error;
   if (path == settings.label_templates.end() || !build_label(path->second, {}, model, error)) {
-    notify("Modele d'etiquette \"" + info.label + "\" : " + (error.empty() ? "aucun modele configure" : error)
-             + " (Gestion > Reglages).",
+    notify("Modèle d'étiquette \"" + info.label + "\" : " + (error.empty() ? "aucun modèle configuré" : error)
+             + " (Gestion > Réglages).",
            true);
     return false;
   }
@@ -815,7 +922,7 @@ bool App::print_labels(TemplateCategory category, const std::vector< Parameters 
     jobs.push_back(std::move(job));
   }
   printer.enqueue(std::move(jobs), settings.print);
-  notify(std::to_string(labels.size()) + " etiquette(s) envoyee(s) a l'imprimante.");
+  notify(std::to_string(labels.size()) + " étiquette(s) envoyée(s) à l'imprimante.");
   return true;
 }
 

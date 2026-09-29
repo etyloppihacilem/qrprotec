@@ -32,13 +32,13 @@ class LotsWindow final : public AppWindow {
     void on_open(App &app) override { app.refresh_lots(); }
 
     void draw(App &app) override {
-      if (ImGui::Button("Rafraichir"))
+      if (ImGui::Button("Rafraîchir"))
         app.refresh_lots();
       ImGui::SameLine();
       ImGui::SetNextItemWidth(250.0f);
       ImGui::InputTextWithHint("##filter", "Filtrer", &filter_);
       ImGui::SameLine();
-      ImGui::Checkbox("Seulement les lots a traiter", &only_problems_);
+      ImGui::Checkbox("Seulement les lots à traiter", &only_problems_);
       if (app.catalog.loading_lots) {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");
@@ -65,9 +65,9 @@ class LotsWindow final : public AppWindow {
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableSetupColumn("Lot", ImGuiTableColumnFlags_WidthStretch);
       ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-      ImGui::TableSetupColumn("Perimes", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+      ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 80.0f);
       ImGui::TableSetupColumn("Complet", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-      ImGui::TableSetupColumn("Derniere verif", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+      ImGui::TableSetupColumn("Dernière vérif", ImGuiTableColumnFlags_WidthFixed, 150.0f);
       ImGui::TableHeadersRow();
       const std::string needle = lower(filter_);
       for (const Json &lot : app.catalog.lots.items()) {
@@ -96,7 +96,7 @@ class LotsWindow final : public AppWindow {
         if (expired > 0)
           ImGui::TextColored(colors::red, "%d", expired);
         else if (soon > 0)
-          ImGui::TextColored(colors::orange, "%d bientot", soon);
+          ImGui::TextColored(colors::orange, "%d bientôt", soon);
         else
           ImGui::TextUnformatted("0");
         ImGui::TableNextColumn();
@@ -129,9 +129,9 @@ class LotsWindow final : public AppWindow {
       ImGui::TextUnformatted(details_["name"].str().c_str());
       ImGui::PopFont();
       ImGui::TextDisabled("%s - %s", details_["lot_type_name"].str().c_str(), details_["id"].str().c_str());
-      ImGui::Text("Derniere verif : %s par %s", display_datetime(details_["last_verif"]).c_str(),
+      ImGui::Text("Dernière vérif : %s par %s", display_datetime(details_["last_verif"]).c_str(),
                   details_["last_verif_by"].str("-").c_str());
-      if (primary_button("Lancer une verif", ImVec2(-1, 0)))
+      if (primary_button("Lancer une vérif", ImVec2(-1, 0)))
         app.start_verif(details_["id"].str(), "");
       if (ImGui::Button("Fermer", ImVec2(-1, 0)))
         selected_.clear();
@@ -139,8 +139,8 @@ class LotsWindow final : public AppWindow {
       ImGui::SeparatorText("Contenu attendu");
       if (ImGui::BeginTable("req", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Quantite", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-        ImGui::TableSetupColumn("Perimes", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+        ImGui::TableSetupColumn("Quantité", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableHeadersRow();
         for (const Json &row : details_["requirements"].items()) {
           ImGui::TableNextRow();
@@ -162,7 +162,7 @@ class LotsWindow final : public AppWindow {
       const Date soon = app.today().plus_days(app.settings.expiring_soon_days);
       if (ImGui::BeginTable("items", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupColumn("Produit", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Peremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 220.0f);
         ImGui::TableHeadersRow();
         for (const Json &item : details_["items"].items()) {
@@ -176,7 +176,7 @@ class LotsWindow final : public AppWindow {
           ImGui::TextUnformatted(item["type_name"].str().c_str());
           if (item["missed_verifs"].integer() > 0) {
             ImGui::SameLine();
-            ImGui::TextDisabled("(non vu a la derniere verif)");
+            ImGui::TextDisabled("(non vu à la dernière vérif)");
           }
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(date ? date->display().c_str() : "-");

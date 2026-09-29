@@ -162,16 +162,16 @@ void Inateck::draw_inateck_window() {
     ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.2f, 1.0f), "%s", state.error.c_str());
 
   if (ImGui::CollapsingHeader("Connexion", ImGuiTreeNodeFlags_DefaultOpen)) {
-    const char* status = state.authenticated ? "connectee et authentifiee" : state.connected ? "connectee" : "non connectee";
+    const char* status = state.authenticated ? "connectée et authentifiée" : state.connected ? "connectee" : "non connectée";
     ImGui::Text("Statut : %s", status);
-    if (ImGui::Button(state.discovering ? "Arreter la recherche" : "Rechercher les douchettes")) {
+    if (ImGui::Button(state.discovering ? "Arrêter la recherche" : "Rechercher les douchettes")) {
       if (state.discovering)
         inateck_worker_.stop_discovery();
       else
         inateck_worker_.start_discovery();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Rafraichir"))
+    if (ImGui::Button("Rafraîchir"))
       inateck_worker_.start_discovery();
     static int selected_device = 0;
     std::vector<const char*> device_names;
@@ -185,22 +185,28 @@ void Inateck::draw_inateck_window() {
       if (!state.connected && ImGui::Button("Connecter"))
         inateck_worker_.connect(device.id, device.name);
     } else {
-      ImGui::TextUnformatted("Aucun appareil decouvert.");
+      ImGui::TextUnformatted("Aucun appareil découvert.");
     }
-    if (state.connected) {
+    if (state.connected && settings_unlocked_) {
       ImGui::SameLine();
-      if (ImGui::Button("Deconnecter"))
+      if (ImGui::Button("Déconnecter"))
         inateck_worker_.disconnect();
     }
   }
 
-  if (ImGui::CollapsingHeader("Parametrage", ImGuiTreeNodeFlags_DefaultOpen)) {
+  // Seules la recherche et la connexion sont accessibles sans utilisateur connecte
+  const bool settings_open = ImGui::CollapsingHeader("Paramétrage", ImGuiTreeNodeFlags_DefaultOpen);
+  if (settings_open && !settings_unlocked_) {
+    ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "Connectez-vous (scannez votre badge) pour modifier");
+    ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "les paramètres de la douchette.");
+  }
+  if (settings_open && settings_unlocked_) {
     if (ImGui::Checkbox("Mode HID clavier", &hid_enabled_)) {
       apply_hid_settings();
       save_hid_settings();
     }
-    ImGui::SetItemTooltip("Traiter les saisies clavier tres rapides comme des scans.");
-    if (ImGui::SliderInt("Delai HID (ms)", &hid_timeout_ms_, 5, 500) && ImGui::IsItemDeactivatedAfterEdit()) {
+    ImGui::SetItemTooltip("Traiter les saisies clavier très rapides comme des scans.");
+    if (ImGui::SliderInt("Délai HID (ms)", &hid_timeout_ms_, 5, 500) && ImGui::IsItemDeactivatedAfterEdit()) {
       apply_hid_settings();
       save_hid_settings();
     }
@@ -218,7 +224,7 @@ void Inateck::draw_inateck_window() {
     if (ImGui::Button("Appliquer le mode de sortie"))
       inateck_worker_.set_sdk_output(inateck_sdk_output_);
     ImGui::Separator();
-    ImGui::InputText("Prefixe", inateck_prefix_, sizeof(inateck_prefix_));
+    ImGui::InputText("Préfixe", inateck_prefix_, sizeof(inateck_prefix_));
     ImGui::SameLine();
     if (ImGui::Button("Appliquer##prefixe"))
       inateck_worker_.set_prefix(inateck_prefix_);
@@ -230,7 +236,7 @@ void Inateck::draw_inateck_window() {
     ImGui::SameLine();
     if (ImGui::Button("Appliquer##nom"))
       inateck_worker_.set_name(inateck_name_);
-    if (ImGui::Button("Relire les parametres"))
+    if (ImGui::Button("Relire les paramètres"))
       inateck_worker_.refresh_settings();
     ImGui::EndDisabled();
     ImGui::TextUnformatted("Le volume et la vibration utilisent les flags ST23 du SDK.");
@@ -238,18 +244,18 @@ void Inateck::draw_inateck_window() {
 
   if (ImGui::CollapsingHeader("Dernier scan", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (state.last_scan.empty())
-      ImGui::TextUnformatted("Aucun code recu.");
+      ImGui::TextUnformatted("Aucun code reçu.");
     else
       ImGui::TextWrapped("%s", state.last_scan.c_str());
     ImGui::Text("Source : %s", state.selected_name.empty() ? "-" : state.selected_name.c_str());
-    ImGui::TextUnformatted("La sortie SDK doit etre activee pour recevoir les scans ici.");
+    ImGui::TextUnformatted("La sortie SDK doit être activée pour recevoir les scans ici.");
   }
   ImGui::End();
   inateck_window_open_ = open;
 }
 
 void Inateck::draw_menu() {
-  if (ImGui::MenuItem("Ouvrir les parametres", nullptr, inateck_window_open_))
+  if (ImGui::MenuItem("Ouvrir les paramètres", nullptr, inateck_window_open_))
     inateck_window_open_ = true;
   const InateckSnapshot state = inateck_worker_.snapshot();
   ImGui::Separator();
@@ -257,9 +263,9 @@ void Inateck::draw_menu() {
   ImGui::Text("Mode HID clavier : %s", hid_enabled_ ? "actif" : "inactif");
   if (ImGui::MenuItem("Rechercher", nullptr, false, !state.discovering))
     inateck_worker_.start_discovery();
-  if (ImGui::MenuItem("Arreter la recherche", nullptr, false, state.discovering))
+  if (ImGui::MenuItem("Arrêter la recherche", nullptr, false, state.discovering))
     inateck_worker_.stop_discovery();
-  if (ImGui::MenuItem("Deconnecter", nullptr, false, state.connected))
+  if (ImGui::MenuItem("Déconnecter", nullptr, false, state.connected && settings_unlocked_))
     inateck_worker_.disconnect();
 }
 

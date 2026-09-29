@@ -16,11 +16,11 @@ namespace {
 
 std::vector< PlaceholderInfo > item_type_placeholders() {
   return {
-    { "type", "Code du type d'item (6 caracteres)", "compre" },
-    { "type_name", "Nom du type d'item", "Compresses steriles" },
-    { "peremption", "Date de peremption JJ/MM/AAAA (vide si non perissable)", "31/12/2027" },
-    { "peremption_iso", "Date de peremption AAAA-MM-JJ", "2027-12-31" },
-    { "peremption_short", "Date de peremption MM/AAAA", "12/2027" },
+    { "type", "Code du type d'item (6 caractères)", "compre" },
+    { "type_name", "Nom du type d'item", "Compresses stériles" },
+    { "peremption", "Date de péremption JJ/MM/AAAA (vide si non périssable)", "31/12/2027" },
+    { "peremption_iso", "Date de péremption AAAA-MM-JJ", "2027-12-31" },
+    { "peremption_short", "Date de péremption MM/AAAA", "12/2027" },
   };
 }
 
@@ -31,26 +31,26 @@ std::vector< PlaceholderInfo > lot_placeholders() {
     { "lot_short", "Nom court du lot", "PSE1-1" },
     { "lot_type", "Code du type de lot", "sacpse" },
     { "lot_type_name", "Nom du type de lot", "Sac PSE1" },
-    { "lot_url", "URL publique de verif (QR de l'etiquette publique)", "https://example.com/verif?lot=sacpse00000001" },
+    { "lot_url", "URL publique de vérif (QR de l'étiquette publique)", "https://example.com/verif?lot=sacpse00000001" },
   };
 }
 
 std::vector< CategoryInfo > build_categories() {
   std::vector< CategoryInfo > categories;
-  categories.push_back({ TemplateCategory::Generic, "generic", "Generique", "Modele libre, sans donnees de la base.", {} });
+  categories.push_back({ TemplateCategory::Generic, "generic", "Générique", "Modèle libre, sans données de la base.", {} });
 
   CategoryInfo item{ TemplateCategory::Item, "item", "Item",
-                     "Etiquette collee sur chaque item. Le QR code doit contenir {{iid}}.", {} };
+                     "Étiquette collée sur chaque item. Le QR code doit contenir {{iid}}.", {} };
   item.placeholders.push_back({ "iid", "Identifiant unique de l'item (contenu du QR code)", "compre20271231000000A1" });
   for (const PlaceholderInfo &info : item_type_placeholders())
     item.placeholders.push_back(info);
-  item.placeholders.push_back({ "index", "Numero de l'etiquette dans la serie imprimee", "3" });
-  item.placeholders.push_back({ "count", "Nombre d'etiquettes de la serie", "10" });
-  item.placeholders.push_back({ "pack_id", "Paquet scelle d'origine (vide sinon)", "0000002B" });
+  item.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "3" });
+  item.placeholders.push_back({ "count", "Nombre d'étiquettes de la série", "10" });
+  item.placeholders.push_back({ "pack_id", "Paquet scellé d'origine (vide sinon)", "0000002B" });
   categories.push_back(item);
 
-  CategoryInfo pack{ TemplateCategory::ItemPack, "itempack", "Paquet ferme (ItemPack)",
-                     "Etiquette d'un paquet ferme : les etiquettes individuelles seront imprimees a l'ouverture. "
+  CategoryInfo pack{ TemplateCategory::ItemPack, "itempack", "Paquet fermé (ItemPack)",
+                     "Étiquette d'un paquet fermé : les étiquettes individuelles seront imprimées à l'ouverture. "
                      "Le QR code doit contenir {{pack_url}}.",
                      {} };
   pack.placeholders.push_back({ "pack_id", "Identifiant du paquet", "0000002B" });
@@ -60,20 +60,20 @@ std::vector< CategoryInfo > build_categories() {
     pack.placeholders.push_back(info);
   categories.push_back(pack);
 
-  CategoryInfo lot_public{ TemplateCategory::LotPublic, "lot_public", "Lot - etiquette publique",
-                           "Etiquette visible du lot. Le QR code doit contenir {{lot_url}}.", lot_placeholders() };
+  CategoryInfo lot_public{ TemplateCategory::LotPublic, "lot_public", "Lot - étiquette publique",
+                           "Étiquette visible du lot. Le QR code doit contenir {{lot_url}}.", lot_placeholders() };
   categories.push_back(lot_public);
 
-  CategoryInfo lot_private{ TemplateCategory::LotPrivate, "lot_private", "Lot - etiquette privee",
-                            "Etiquette contenant la cle du lot (a garder a l'abri). Le QR code doit contenir "
+  CategoryInfo lot_private{ TemplateCategory::LotPrivate, "lot_private", "Lot - étiquette privée",
+                            "Étiquette contenant la clé du lot (à garder à l'abri). Le QR code doit contenir "
                             "{{lot_private_url}}.",
                             lot_placeholders() };
-  lot_private.placeholders.push_back({ "lot_key", "Cle de verification du lot", "a1B2c3D4e5F6g7H8i9J0k1L2" });
+  lot_private.placeholders.push_back({ "lot_key", "Clé de vérification du lot", "a1B2c3D4e5F6g7H8i9J0k1L2" });
   lot_private.placeholders.push_back(
-    { "lot_private_url", "URL de verif avec la cle (QR de l'etiquette privee)",
+    { "lot_private_url", "URL de vérif avec la clé (QR de l'étiquette privée)",
       "https://example.com/verif?lot=sacpse00000001&key=a1B2c3D4e5F6g7H8i9J0k1L2" }
   );
-  lot_private.placeholders.push_back({ "key_expires", "Date d'expiration de la cle JJ/MM/AAAA", "29/09/2036" });
+  lot_private.placeholders.push_back({ "key_expires", "Date d'expiration de la clé JJ/MM/AAAA", "29/09/2036" });
   categories.push_back(lot_private);
 
   CategoryInfo user{ TemplateCategory::User, "user", "Badge utilisateur",
@@ -81,9 +81,9 @@ std::vector< CategoryInfo > build_categories() {
   user.placeholders = {
     { "matricule", "Matricule", "M0042" },
     { "nom", "Nom", "Dupont" },
-    { "prenom", "Prenom", "Jeanne" },
-    { "full_name", "Prenom et nom", "Jeanne Dupont" },
-    { "role", "Role (Secouriste / Responsable)", "Secouriste" },
+    { "prenom", "Prénom", "Jeanne" },
+    { "full_name", "Prénom et nom", "Jeanne Dupont" },
+    { "role", "Rôle (Secouriste / Responsable)", "Secouriste" },
     { "badge_url", "URL du badge (contenu du QR code)", "https://example.com/badge?m=M0042&key=a1B2c3D4e5F6g7H8" },
     { "key_expires", "Date d'expiration du badge JJ/MM/AAAA", "29/09/2027" },
   };
@@ -119,7 +119,7 @@ TemplateCategory category_from_id(const std::string &id) {
 const std::vector< PlaceholderInfo > &common_placeholders() {
   static const std::vector< PlaceholderInfo > placeholders = {
     { "today", "Date d'impression JJ/MM/AAAA", "29/09/2026" },
-    { "printed_by", "Utilisateur connecte au moment de l'impression", "Jeanne Dupont" },
+    { "printed_by", "Utilisateur connecté au moment de l'impression", "Jeanne Dupont" },
   };
   return placeholders;
 }

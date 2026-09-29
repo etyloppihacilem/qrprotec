@@ -53,7 +53,7 @@ class LotAdminWindow final : public AppWindow {
     // ---------------------------------------------------------------------------------------------------------------
     void draw_lots(App &app) {
       ImGui::BeginChild("lots_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.4f, 0), ImGuiChildFlags_Borders);
-      if (ImGui::Button("Rafraichir"))
+      if (ImGui::Button("Rafraîchir"))
         app.refresh_lots();
       ImGui::SameLine();
       if (ImGui::Button("Nouveau lot"))
@@ -79,9 +79,9 @@ class LotAdminWindow final : public AppWindow {
       json_combo("Type de lot", app.catalog.lot_types, "type", "name", new_lot_type_);
       ImGui::InputText("Nom", &new_lot_name_);
       ImGui::InputText("Nom court (16 car.)", &new_lot_short_);
-      ImGui::Checkbox("Imprimer les etiquettes publique et privee", &print_new_);
+      ImGui::Checkbox("Imprimer les étiquettes publique et privée", &print_new_);
       ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty());
-      if (primary_button("Creer le lot")) {
+      if (primary_button("Créer le lot")) {
         Json body;
         body["lot_type"]   = new_lot_type_;
         body["name"]       = new_lot_name_;
@@ -93,7 +93,7 @@ class LotAdminWindow final : public AppWindow {
             app.notify(result.error, true);
             return;
           }
-          app.notify("Lot " + result.data["name"].str() + " cree.");
+          app.notify("Lot " + result.data["name"].str() + " créé.");
           if (print)
             print_lot(app, result.data, true, true);
           new_lot_name_.clear();
@@ -105,7 +105,7 @@ class LotAdminWindow final : public AppWindow {
       }
       ImGui::EndDisabled();
       ImGui::Spacing();
-      ImGui::TextWrapped("Pour remplir un lot : scannez les items puis l'etiquette privee du lot, et cliquez sur "
+      ImGui::TextWrapped("Pour remplir un lot : scannez les items puis l'étiquette privée du lot, et cliquez sur "
                          "\"Ajouter au lot\" dans la pile de scans.");
     }
 
@@ -130,7 +130,7 @@ class LotAdminWindow final : public AppWindow {
       if (public_label)
         app.print_labels(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)");
       if (private_label)
-        app.print_labels(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privee)");
+        app.print_labels(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privée)");
     }
 
     void update_lot(App &app, const Json &body) {
@@ -156,18 +156,18 @@ class LotAdminWindow final : public AppWindow {
       ImGui::TextDisabled("%s - %s - version %d", lot_["id"].str().c_str(), lot_["lot_type_name"].str().c_str(),
                           lot_["version"].integer());
 
-      ImGui::SeparatorText("Etiquettes");
-      if (primary_button("Etiquette publique"))
+      ImGui::SeparatorText("Étiquettes");
+      if (primary_button("Étiquette publique"))
         print_lot(app, lot_, true, false);
       ImGui::SameLine();
-      if (primary_button("Etiquette privee"))
+      if (primary_button("Étiquette privée"))
         print_lot(app, lot_, false, true);
       ImGui::SameLine();
       if (ImGui::Button("Les deux"))
         print_lot(app, lot_, true, true);
-      ImGui::TextDisabled("Cle valable jusqu'au %s", display_date(lot_["verif_key_expires"]).c_str());
-      if (confirm_button("Regenerer la cle",
-                         "L'ancienne etiquette privee ne fonctionnera plus. Continuer ?", "rotate_key")) {
+      ImGui::TextDisabled("Clé valable jusqu'au %s", display_date(lot_["verif_key_expires"]).c_str());
+      if (confirm_button("Régénérer la clé",
+                         "L'ancienne étiquette privée ne fonctionnera plus. Continuer ?", "rotate_key")) {
         app.api.post("/api/lots/" + url_encode(selected_lot_) + "/rotate-key/", Json::object(),
                      [this, &app](const ApiResult &result) {
                        if (!result.ok) {
@@ -175,7 +175,7 @@ class LotAdminWindow final : public AppWindow {
                          return;
                        }
                        lot_ = result.data;
-                       app.notify("Nouvelle cle generee : imprimez la nouvelle etiquette privee.");
+                       app.notify("Nouvelle clé générée : imprimez la nouvelle étiquette privée.");
                      });
       }
 
@@ -190,13 +190,13 @@ class LotAdminWindow final : public AppWindow {
       }
       ImGui::SameLine();
       const bool active = lot_["active"].boolean(true);
-      if (ImGui::Button(active ? "Archiver le lot" : "Reactiver le lot")) {
+      if (ImGui::Button(active ? "Archiver le lot" : "Réactiver le lot")) {
         Json body;
         body["active"] = !active;
         update_lot(app, body);
       }
       ImGui::SameLine();
-      if (ImGui::Button("Lancer une verif"))
+      if (ImGui::Button("Lancer une vérif"))
         app.start_verif(selected_lot_, lot_["verif_key"].str());
 
       ImGui::SeparatorText("Contenu");
@@ -205,10 +205,10 @@ class LotAdminWindow final : public AppWindow {
         ImGui::SameLine(260.0f);
         stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(200.0f, 0));
       }
-      ImGui::Text("%d item(s), dont %d perime(s).", lot_["item_count"].integer(), lot_["expired_count"].integer());
+      ImGui::Text("%d item(s), dont %d périmé(s).", lot_["item_count"].integer(), lot_["expired_count"].integer());
       if (ImGui::BeginTable("lot_items", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupColumn("Produit", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Peremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 220.0f);
         ImGui::TableHeadersRow();
         for (const Json &item : lot_["items"].items()) {
@@ -243,13 +243,13 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SeparatorText(editing_lot_type_.empty() ? "Nouveau type de lot" : "Type de lot");
       ImGui::BeginDisabled(!editing_lot_type_.empty());
       ImGui::SetNextItemWidth(120.0f);
-      ImGui::InputText("Code (6 caracteres)", &type_code_, ImGuiInputTextFlags_CharsNoBlank);
+      ImGui::InputText("Code (6 caractères)", &type_code_, ImGuiInputTextFlags_CharsNoBlank);
       ImGui::EndDisabled();
       ImGui::InputText("Nom", &type_name_);
       ImGui::InputTextMultiline("Description", &type_description_, ImVec2(-1, 50));
       if (editing_lot_type_.empty()) {
         ImGui::BeginDisabled(type_code_.size() != 6 || type_name_.empty());
-        if (primary_button("Creer le type de lot")) {
+        if (primary_button("Créer le type de lot")) {
           Json body;
           body["type"]        = type_code_;
           body["name"]        = type_name_;
@@ -260,7 +260,7 @@ class LotAdminWindow final : public AppWindow {
               app.notify(result.error, true);
               return;
             }
-            app.notify("Type de lot cree : ajoutez maintenant son contenu attendu.");
+            app.notify("Type de lot créé : ajoutez maintenant son contenu attendu.");
             edit_lot_type(result.data);
             app.refresh_lot_types();
           });

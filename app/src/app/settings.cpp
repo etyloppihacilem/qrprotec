@@ -136,7 +136,7 @@ bool AppSettings::save(std::string &error) const {
     error = "Impossible d'ecrire " + path.string();
     return false;
   }
-  output << "# Reglages QRProtec (edites depuis la fenetre Reglages)\n"
+  output << "# Réglages QRProtec (édités depuis la fenêtre Réglages)\n"
          << "api_url=" << api_url << '\n'
          << "api_token=" << api_token << '\n'
          << "font_size=" << font_size << '\n'
@@ -164,7 +164,7 @@ bool AppSettings::save(std::string &error) const {
     output << "layout." << id << '=' << (window.open ? 1 : 0) << ',' << window.x << ',' << window.y << ','
            << window.w << ',' << window.h << '\n';
   if (!output) {
-    error = "Erreur d'ecriture des reglages";
+    error = "Erreur d'écriture des réglages";
     return false;
   }
   return true;

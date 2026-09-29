@@ -26,7 +26,7 @@ class UsersWindow final : public AppWindow {
 
     void draw(App &app) override {
       ImGui::BeginChild("users_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.55f, 0), ImGuiChildFlags_Borders);
-      if (ImGui::Button("Rafraichir"))
+      if (ImGui::Button("Rafraîchir"))
         app.refresh_users();
       ImGui::SameLine();
       if (ImGui::Button("Nouvel utilisateur"))
@@ -36,7 +36,7 @@ class UsersWindow final : public AppWindow {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Matricule", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Rôle", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("Badge", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableHeadersRow();
         for (const Json &user : app.catalog.users.items()) {
@@ -85,9 +85,9 @@ class UsersWindow final : public AppWindow {
       ImGui::BeginDisabled(!creating);
       ImGui::InputText("Matricule", &matricule_, ImGuiInputTextFlags_CharsNoBlank);
       ImGui::EndDisabled();
-      ImGui::InputText("Prenom", &prenom_);
+      ImGui::InputText("Prénom", &prenom_);
       ImGui::InputText("Nom", &nom_);
-      ImGui::Checkbox("Responsable (mode privilegie)", &privileged_);
+      ImGui::Checkbox("Responsable (mode privilégié)", &privileged_);
       if (!creating)
         ImGui::Checkbox("Compte actif", &active_);
 
@@ -97,14 +97,14 @@ class UsersWindow final : public AppWindow {
       body["privileged"] = privileged_;
       if (creating) {
         ImGui::BeginDisabled(matricule_.empty() || nom_.empty() || prenom_.empty());
-        if (primary_button("Creer et imprimer le badge")) {
+        if (primary_button("Créer et imprimer le badge")) {
           body["matricule"] = matricule_;
           app.api.post("/api/users/", body, [this, &app](const ApiResult &result) {
             if (!result.ok) {
               app.notify(result.error, true);
               return;
             }
-            app.notify("Utilisateur cree.");
+            app.notify("Utilisateur créé.");
             app.print_labels(TemplateCategory::User, { user_parameters(result.data) }, "Badge");
             select(result.data);
             app.refresh_users();
@@ -135,7 +135,7 @@ class UsersWindow final : public AppWindow {
                          return;
                        }
                        select(result.data);
-                       app.notify("Badge renouvele.");
+                       app.notify("Badge renouvelé.");
                        app.print_labels(TemplateCategory::User, { user_parameters(result.data) }, "Badge");
                        app.refresh_users();
                      });

@@ -35,7 +35,7 @@ class Parser {
       }
       skip_spaces();
       if (position_ != text_.size()) {
-        error = "Caracteres inattendus apres le JSON";
+        error = "Caractères inattendus après le JSON";
         return false;
       }
       return true;
@@ -84,7 +84,7 @@ class Parser {
 
     bool hex4(unsigned int &value) {
       if (position_ + 4 > text_.size())
-        return fail("Echappement unicode tronque");
+        return fail("Échappement unicode tronqué");
       value = 0;
       for (int index = 0; index < 4; ++index) {
         const char   character = text_[position_++];
@@ -96,7 +96,7 @@ class Parser {
         else if (character >= 'A' && character <= 'F')
           digit = static_cast< unsigned int >(character - 'A' + 10);
         else
-          return fail("Echappement unicode invalide");
+          return fail("Échappement unicode invalide");
         value = value * 16 + digit;
       }
       return true;
@@ -139,7 +139,7 @@ class Parser {
             append_utf8(output, code);
             break;
           }
-          default: return fail("Echappement invalide");
+          default: return fail("Échappement invalide");
         }
       }
       return fail("Chaine non terminee");
@@ -162,7 +162,7 @@ class Parser {
         for (;;) {
           skip_spaces();
           if (position_ >= text_.size() || text_[position_] != '"')
-            return fail("Cle attendue");
+            return fail("Clé attendue");
           std::string key;
           if (!parse_string(key))
             return false;

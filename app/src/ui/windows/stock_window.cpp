@@ -22,12 +22,12 @@ namespace {
 
 class StockWindow final : public AppWindow {
   public:
-    StockWindow() : AppWindow("stock", "Etat des stocks", true, true) {}
+    StockWindow() : AppWindow("stock", "État des stocks", true, true) {}
 
     void on_open(App &app) override { app.refresh_stock(); }
 
     void draw(App &app) override {
-      if (ImGui::Button("Rafraichir"))
+      if (ImGui::Button("Rafraîchir"))
         app.refresh_stock();
       ImGui::SameLine();
       ImGui::SetNextItemWidth(200.0f);
@@ -36,7 +36,7 @@ class StockWindow final : public AppWindow {
       ImGui::Checkbox("Sous le minimum uniquement", &only_low_);
       ImGui::SameLine();
       ImGui::Checkbox("Compter les lots", &include_lots_);
-      help_marker("La barre compare les items non perimes au minimum du type. Par defaut seul le stock (hors lots) "
+      help_marker("La barre compare les items non périmés au minimum du type. Par défaut seul le stock (hors lots) "
                   "est compte.");
       if (app.catalog.loading_stock) {
         ImGui::SameLine();
@@ -57,10 +57,10 @@ class StockWindow final : public AppWindow {
         return;
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 220.0f);
-      ImGui::TableSetupColumn("Quantite / minimum", ImGuiTableColumnFlags_WidthStretch);
+      ImGui::TableSetupColumn("Quantité / minimum", ImGuiTableColumnFlags_WidthStretch);
       ImGui::TableSetupColumn("Dans les lots", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-      ImGui::TableSetupColumn("Perimes", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-      ImGui::TableSetupColumn("Bientot perimes", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+      ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+      ImGui::TableSetupColumn("Bientôt périmés", ImGuiTableColumnFlags_WidthFixed, 120.0f);
       ImGui::TableSetupColumn("Disparus", ImGuiTableColumnFlags_WidthFixed, 80.0f);
       ImGui::TableHeadersRow();
       std::string needle = filter_;

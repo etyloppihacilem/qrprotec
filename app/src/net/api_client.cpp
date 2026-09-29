@@ -143,7 +143,7 @@ void ApiClient::run() {
             result.error = "Erreur HTTP " + std::to_string(response.status);
         } else if (!parse_error.empty()) {
           result.ok    = false;
-          result.error = "Reponse illisible : " + parse_error;
+          result.error = "Réponse illisible : " + parse_error;
         }
       }
     }

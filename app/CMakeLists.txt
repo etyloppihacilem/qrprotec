@@ -56,6 +56,7 @@ set(IMGUI_SOURCES
 # Coeur sans interface (teste unitairement) : modeles d'etiquettes, rendu, QR codes, JSON, API
 add_library(QRProtecCore STATIC
     src/core/codes.cpp
+    src/core/fonts.cpp
     src/core/glob_utils.cpp
     src/core/json.cpp
     src/core/placeholders.cpp
@@ -74,6 +75,8 @@ target_include_directories(QRProtecCore PUBLIC
     third_party/stb
 )
 target_link_libraries(QRProtecCore PUBLIC PNG::PNG Freetype::Freetype Threads::Threads)
+# Police avec accents fournie avec les sources (copiee aussi a cote de l'executable)
+target_compile_definitions(QRProtecCore PRIVATE QRPROTEC_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts")
 
 add_library(QRProtecPrinter STATIC
     src/printer/niimbot_protocol.cpp
@@ -125,6 +128,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     QRProtecCore
     QRProtecPrinter
 )
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts $<TARGET_FILE_DIR:${PROJECT_NAME}>/fonts)
 
 if(TARGET InateckScannerBle)
     target_link_libraries(${PROJECT_NAME} PRIVATE InateckScannerBle ${INATECK_XDO_LIBRARY})

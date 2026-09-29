@@ -52,7 +52,7 @@
     {
       "id": "exp",
       "kind": "text",
-      "text": "Valide jusqu'au {{key_expires}}",
+      "text": "Valable jusqu'au {{key_expires}}",
       "x_mm": 1,
       "y_mm": 25,
       "width_mm": 38,

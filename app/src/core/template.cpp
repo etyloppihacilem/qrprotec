@@ -39,30 +39,30 @@ double MediaSettings::oriented_height_mm() const {
 std::vector< ValidationIssue > validate(const TemplateDocument &document) {
   std::vector< ValidationIssue > issues;
   if (document.media.width_mm <= 0.0 || document.media.height_mm <= 0.0 || document.media.pixels_per_mm <= 0.0)
-    issues.push_back({ "Les dimensions du media doivent etre positives.", {} });
+    issues.push_back({ "Les dimensions du media doivent être positives.", {} });
 
   for (const TemplateElement &element : document.elements) {
     if (element.id.empty())
-      issues.push_back({ "Chaque element doit avoir un identifiant.", {} });
+      issues.push_back({ "Chaque élément doit avoir un identifiant.", {} });
 
     if (element.kind == ElementKind::Text) {
       const TextElement &text = std::get< TextElement >(element.content);
       if (!inside(text.x_mm, text.y_mm, text.width_mm, text.height_mm, document.media))
-        issues.push_back({ "Le texte depasse les limites du media.", element.id });
+        issues.push_back({ "Le texte dépasse les limites du media.", element.id });
       if (text.font_size_mm <= 0.0f)
-        issues.push_back({ "La taille du texte doit etre positive.", element.id });
+        issues.push_back({ "La taille du texte doit être positive.", element.id });
     } else if (element.kind == ElementKind::QrCode) {
       const QrElement &qr = std::get< QrElement >(element.content);
       if (qr.payload.empty())
-        issues.push_back({ "Le payload QR ne peut pas etre vide.", element.id });
+        issues.push_back({ "Le payload QR ne peut pas être vide.", element.id });
       if (!inside(qr.x_mm, qr.y_mm, qr.size_mm, qr.size_mm, document.media))
-        issues.push_back({ "Le QR code depasse les limites du media.", element.id });
+        issues.push_back({ "Le QR code dépasse les limites du media.", element.id });
     } else {
       const ImageElement &image = std::get< ImageElement >(element.content);
       if (image.path.empty())
         issues.push_back({ "Choisissez un fichier image.", element.id });
       if (!inside(image.x_mm, image.y_mm, image.width_mm, image.height_mm, document.media))
-        issues.push_back({ "L'image depasse les limites du media.", element.id });
+        issues.push_back({ "L'image dépasse les limites du media.", element.id });
     }
   }
   return issues;

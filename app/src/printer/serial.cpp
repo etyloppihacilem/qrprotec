@@ -34,7 +34,7 @@ bool SerialPort::open(const SerialSettings& settings, std::string& error)
     close();
     const speed_t speed = baud_constant(settings.baud_rate);
     if (speed == 0) {
-        error = "Debit serie non supporte.";
+        error = "Débit série non supporté.";
         return false;
     }
     file_descriptor_ = ::open(settings.device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -80,7 +80,7 @@ void SerialPort::close()
 bool SerialPort::write_bytes(const std::vector<std::uint8_t>& bytes, std::string& error)
 {
     if (!is_open()) {
-        error = "Port serie ferme.";
+        error = "Port série fermé.";
         return false;
     }
     std::size_t offset = 0;
@@ -99,7 +99,7 @@ bool SerialPort::write_bytes(const std::vector<std::uint8_t>& bytes, std::string
 bool SerialPort::read_bytes(std::vector<std::uint8_t>& bytes, std::size_t expected, std::string& error)
 {
     if (!is_open()) {
-        error = "Port serie ferme.";
+        error = "Port série fermé.";
         return false;
     }
     bytes.clear();
@@ -108,7 +108,7 @@ bool SerialPort::read_bytes(std::vector<std::uint8_t>& bytes, std::size_t expect
         pollfd descriptor{file_descriptor_, POLLIN, 0};
         const int result = ::poll(&descriptor, 1, read_timeout_ms_);
         if (result == 0) {
-            error = "Timeout de lecture serie.";
+            error = "Timeout de lecture série.";
             return false;
         }
         if (result < 0) {
@@ -125,7 +125,7 @@ bool SerialPort::read_bytes(std::vector<std::uint8_t>& bytes, std::size_t expect
             return false;
         }
         if (read_count == 0) {
-            error = "Le port serie a ete ferme.";
+            error = "Le port série a été fermé.";
             return false;
         }
         bytes.insert(bytes.end(), buffer, buffer + read_count);
@@ -151,11 +151,11 @@ bool SerialPort::read_packet(std::uint8_t& command, std::vector<std::uint8_t>& p
     std::uint8_t checksum = command ^ static_cast<std::uint8_t>(length);
     for (const std::uint8_t value : payload) checksum ^= value;
     if (byte[0] != checksum) {
-        error = "Checksum serie invalide.";
+        error = "Checksum série invalide.";
         return false;
     }
     if (!read_bytes(byte, 2, error) || byte[0] != 0xaa || byte[1] != 0xaa) {
-        error = "Trame serie invalide: fin.";
+        error = "Trame série invalide: fin.";
         return false;
     }
     return true;

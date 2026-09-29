@@ -44,6 +44,7 @@ local_patterns = [
     path('lots/<str:lot_id>/update/', views.lot_update),
     path('lots/<str:lot_id>/rotate-key/', views.lot_rotate_key),
     path('lots/<str:lot_id>/verifs/', views.lot_verifs),
+    path('setup/', views.setup),
     path('users/', views.users),
     path('users/<str:matricule>/', views.user_detail),
     path('users/<str:matricule>/renew-key/', views.user_renew_key),

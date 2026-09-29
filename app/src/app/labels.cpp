@@ -82,7 +82,7 @@ Parameters user_parameters(const Json &user) {
 
 bool build_label(const std::string &template_path, const Parameters &values, TemplateDocument &out, std::string &error) {
   if (template_path.empty()) {
-    error = "aucun modele configure";
+    error = "aucun modèle configuré";
     return false;
   }
   TemplateDocument document;

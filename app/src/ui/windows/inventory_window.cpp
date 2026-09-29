@@ -48,7 +48,7 @@ class InventoryWindow final : public AppWindow {
     void draw(App &app) override {
       if (!ImGui::BeginTabBar("inventory_tabs"))
         return;
-      if (ImGui::BeginTabItem("Reception")) {
+      if (ImGui::BeginTabItem("Réception")) {
         draw_reception(app);
         ImGui::EndTabItem();
       }
@@ -60,7 +60,7 @@ class InventoryWindow final : public AppWindow {
         draw_items(app);
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem("Paquets fermes")) {
+      if (ImGui::BeginTabItem("Paquets fermés")) {
         draw_packs(app);
         ImGui::EndTabItem();
       }
@@ -71,8 +71,8 @@ class InventoryWindow final : public AppWindow {
     // ---------------------------------------------------------------------------------------------------------------
     // Reception : creation des items et impression des etiquettes en serie
     void draw_reception(App &app) {
-      ImGui::TextWrapped("Reception d'une commande : choisissez le type, la date de peremption et la quantite. "
-                         "Chaque item recoit un identifiant unique et sa propre etiquette.");
+      ImGui::TextWrapped("Réception d'une commande : choisissez le type, la date de péremption et la quantité. "
+                         "Chaque item recoit un identifiant unique et sa propre étiquette.");
       ImGui::SetNextItemWidth(200.0f);
       ImGui::InputTextWithHint("##typefilter", "Rechercher un type", &type_filter_);
       ImGui::SameLine();
@@ -85,47 +85,47 @@ class InventoryWindow final : public AppWindow {
       const bool  perishable = type && (*type)["perissable"].boolean();
       ImGui::BeginDisabled(!perishable);
       ImGui::SetNextItemWidth(200.0f);
-      ImGui::InputTextWithHint("Peremption", "JJ/MM/AAAA", &peremption_);
+      ImGui::InputTextWithHint("Péremption", "JJ/MM/AAAA", &peremption_);
       ImGui::EndDisabled();
       if (type && !perishable) {
         ImGui::SameLine();
-        ImGui::TextDisabled("(non perissable)");
+        ImGui::TextDisabled("(non périssable)");
       }
       ImGui::SetNextItemWidth(200.0f);
-      ImGui::InputInt("Quantite", &quantity_);
+      ImGui::InputInt("Quantité", &quantity_);
       quantity_ = std::clamp(quantity_, 1, 10000);
-      ImGui::Checkbox("Paquet ferme : imprimer une etiquette de paquet", &sealed_);
-      help_marker("Pour un paquet que l'on n'ouvre pas tout de suite (ex: boite de compresses). Les etiquettes "
-                  "individuelles seront imprimees a l'ouverture (onglet Paquets fermes).");
-      ImGui::Checkbox("Imprimer les etiquettes individuelles maintenant", &print_items_);
+      ImGui::Checkbox("Paquet fermé : imprimer une étiquette de paquet", &sealed_);
+      help_marker("Pour un paquet que l'on n'ouvre pas tout de suite (ex: boîte de compresses). Les étiquettes "
+                  "individuelles seront imprimées à l'ouverture (onglet Paquets fermés).");
+      ImGui::Checkbox("Imprimer les étiquettes individuelles maintenant", &print_items_);
 
       const auto date = Date::parse(peremption_);
       std::string problem;
       if (!type)
         problem = "Choisissez un type d'item.";
       else if (perishable && !date)
-        problem = "Date de peremption invalide.";
+        problem = "Date de péremption invalide.";
       else if (perishable && date && *date < app.today())
-        problem = "Attention : cette date est deja passee.";
+        problem = "Attention : cette date est déjà passée.";
       if (!problem.empty())
         ImGui::TextColored(colors::orange, "%s", problem.c_str());
 
       ImGui::BeginDisabled(!type || (perishable && !date) || creating_);
-      const std::string label = "Creer " + std::to_string(quantity_) + " item(s) et imprimer";
+      const std::string label = "Créer " + std::to_string(quantity_) + " item(s) et imprimer";
       if (primary_button(label.c_str(), ImVec2(-1, ImGui::GetFrameHeight() * 1.5f)))
         create_batch(app, perishable && date ? date->iso() : "");
       ImGui::EndDisabled();
 
       if (last_batch_.is_null())
         return;
-      ImGui::SeparatorText("Derniere reception");
+      ImGui::SeparatorText("Dernière réception");
       const Json &items = last_batch_["items"];
-      ImGui::Text("%zu item(s) crees : %s", items.size(), items[0]["type_name"].str().c_str());
-      if (ImGui::Button("Reimprimer toutes les etiquettes"))
-        app.print_labels(TemplateCategory::Item, item_labels(items), "Reception");
+      ImGui::Text("%zu item(s) créés : %s", items.size(), items[0]["type_name"].str().c_str());
+      if (ImGui::Button("Réimprimer toutes les étiquettes"))
+        app.print_labels(TemplateCategory::Item, item_labels(items), "Réception");
       if (!last_batch_["sealed_pack"].is_null()) {
         ImGui::SameLine();
-        if (ImGui::Button("Reimprimer l'etiquette du paquet"))
+        if (ImGui::Button("Réimprimer l'étiquette du paquet"))
           app.print_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(last_batch_["sealed_pack"]) }, "Paquet");
       }
       ImGui::BeginChild("batch", ImVec2(0, 0), ImGuiChildFlags_Borders);
@@ -155,15 +155,15 @@ class InventoryWindow final : public AppWindow {
       app.api.post("/api/items/batch/", body, [this, &app, sealed, print_items](const ApiResult &result) {
         creating_ = false;
         if (!result.ok) {
-          app.notify("Creation refusee : " + result.error, true);
+          app.notify("Création refusée : " + result.error, true);
           return;
         }
         last_batch_ = result.data;
-        app.notify(std::to_string(result.data["items"].size()) + " item(s) cree(s).");
+        app.notify(std::to_string(result.data["items"].size()) + " item(s) créé(s).");
         if (sealed)
           app.print_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(result.data["sealed_pack"]) }, "Paquet");
         if (print_items)
-          app.print_labels(TemplateCategory::Item, item_labels(result.data["items"]), "Reception");
+          app.print_labels(TemplateCategory::Item, item_labels(result.data["items"]), "Réception");
         load_packs(app);
       });
     }
@@ -171,7 +171,7 @@ class InventoryWindow final : public AppWindow {
     // ---------------------------------------------------------------------------------------------------------------
     // Types d'items
     void draw_types(App &app) {
-      if (ImGui::Button("Rafraichir"))
+      if (ImGui::Button("Rafraîchir"))
         app.refresh_item_types();
       if (ImGui::BeginTable("types", 5,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
@@ -180,7 +180,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableSetupColumn("Code", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Minimum", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn("Perissable", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("Périssable", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Par paquet", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableHeadersRow();
         for (const Json &item_type : app.catalog.item_types.items()) {
@@ -203,16 +203,16 @@ class InventoryWindow final : public AppWindow {
       ImGui::SeparatorText(editing_type_.empty() ? "Nouveau type d'item" : "Modifier le type");
       ImGui::BeginDisabled(!editing_type_.empty());
       ImGui::SetNextItemWidth(120.0f);
-      ImGui::InputText("Code (6 caracteres)", &form_code_, ImGuiInputTextFlags_CharsNoBlank);
+      ImGui::InputText("Code (6 caractères)", &form_code_, ImGuiInputTextFlags_CharsNoBlank);
       ImGui::EndDisabled();
-      help_marker("Debut de l'identifiant de chaque item, ex: serphy pour du serum phy. Non modifiable ensuite.");
+      help_marker("Début de l'identifiant de chaque item, ex: serphy pour du sérum phy. Non modifiable ensuite.");
       ImGui::InputText("Nom", &form_name_);
       ImGui::InputTextMultiline("Description", &form_description_, ImVec2(-1, 60));
       ImGui::SetNextItemWidth(150.0f);
-      ImGui::InputInt("Quantite minimale en stock", &form_min_);
+      ImGui::InputInt("Quantité minimale en stock", &form_min_);
       ImGui::SetNextItemWidth(150.0f);
-      ImGui::InputInt("Items par paquet (reception)", &form_pack_size_);
-      ImGui::Checkbox("Perissable (date de peremption obligatoire)", &form_perishable_);
+      ImGui::InputInt("Items par paquet (réception)", &form_pack_size_);
+      ImGui::Checkbox("Périssable (date de péremption obligatoire)", &form_perishable_);
       form_min_       = std::max(0, form_min_);
       form_pack_size_ = std::max(1, form_pack_size_);
 
@@ -224,14 +224,14 @@ class InventoryWindow final : public AppWindow {
       body["default_pack_size"] = form_pack_size_;
       if (editing_type_.empty()) {
         ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty());
-        if (primary_button("Creer le type")) {
+        if (primary_button("Créer le type")) {
           body["type"] = form_code_;
           app.api.post("/api/item-types/", body, [this, &app](const ApiResult &result) {
             if (!result.ok) {
               app.notify(result.error, true);
               return;
             }
-            app.notify("Type " + result.data["type"].str() + " cree.");
+            app.notify("Type " + result.data["type"].str() + " créé.");
             clear_type_form();
             app.refresh_item_types();
           });
@@ -321,7 +321,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 230.0f);
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Peremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("Emplacement", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Statut", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 90.0f);
@@ -346,28 +346,28 @@ class InventoryWindow final : public AppWindow {
           ImGui::TextUnformatted(item["status"].str().c_str());
           ImGui::TableNextColumn();
           ImGui::PushID(iid.c_str());
-          if (ImGui::SmallButton("Reimprimer"))
+          if (ImGui::SmallButton("Réimprimer"))
             app.print_labels(TemplateCategory::Item, { item_parameters(item) }, "Remplacement");
           ImGui::PopID();
         }
         ImGui::EndTable();
       }
       if (selected_item_.is_null()) {
-        ImGui::TextDisabled("Selectionnez un item pour les actions avancees.");
+        ImGui::TextDisabled("Sélectionnez un item pour les actions avancées.");
         return;
       }
       const std::string iid = selected_item_["iid"].str();
       ImGui::Text("%s - %s - vu le %s par %s", iid.c_str(), selected_item_["type_name"].str().c_str(),
                   display_datetime(selected_item_["last_seen"]).c_str(), selected_item_["last_seen_by"].str().c_str());
-      if (ImGui::CollapsingHeader("Actions avancees")) {
-        ImGui::TextWrapped("Les items ne sont normalement pas supprimes : ils sont detectes comme disparus par les "
-                           "verifs. N'utilisez la suppression que pour un cas exceptionnel (casse, erreur de saisie).");
+      if (ImGui::CollapsingHeader("Actions avancées")) {
+        ImGui::TextWrapped("Les items ne sont normalement pas supprimés : ils sont détectés comme disparus par les "
+                           "vérifs. N'utilisez la suppression que pour un cas exceptionnel (casse, erreur de saisie).");
         if (selected_item_["status"].str() == "deleted") {
           if (ImGui::Button("Restaurer l'item")) {
             Json body;
             body["user"] = app.user_ref();
             app.api.post("/api/items/" + url_encode(iid) + "/restore/", body, [this, &app](const ApiResult &result) {
-              app.notify(result.ok ? "Item restaure." : result.error, !result.ok);
+              app.notify(result.ok ? "Item restauré." : result.error, !result.ok);
               selected_item_ = Json();
               search(app);
             });
@@ -377,12 +377,12 @@ class InventoryWindow final : public AppWindow {
           ImGui::InputTextWithHint("##reason", "Raison (obligatoire)", &delete_reason_);
           ImGui::SameLine();
           ImGui::BeginDisabled(delete_reason_.empty());
-          if (confirm_button("Marquer comme supprime", "Marquer cet item comme supprime ?", "confirm_delete")) {
+          if (confirm_button("Marquer comme supprimé", "Marquer cet item comme supprimé ?", "confirm_delete")) {
             Json body;
             body["user"]   = app.user_ref();
             body["reason"] = delete_reason_;
             app.api.post("/api/items/" + url_encode(iid) + "/delete/", body, [this, &app](const ApiResult &result) {
-              app.notify(result.ok ? "Item marque comme supprime." : result.error, !result.ok);
+              app.notify(result.ok ? "Item marqué comme supprimé." : result.error, !result.ok);
               delete_reason_.clear();
               selected_item_ = Json();
               search(app);
@@ -403,19 +403,19 @@ class InventoryWindow final : public AppWindow {
     }
 
     void draw_packs(App &app) {
-      ImGui::TextWrapped("Paquets fermes recus en stock. A l'ouverture, les etiquettes individuelles des items "
-                         "sont imprimees. Vous pouvez aussi scanner l'etiquette d'un paquet dans la pile.");
-      if (ImGui::Button("Rafraichir"))
+      ImGui::TextWrapped("Paquets fermés reçus en stock. À l'ouverture, les étiquettes individuelles des items "
+                         "sont imprimées. Vous pouvez aussi scanner l'étiquette d'un paquet dans la pile.");
+      if (ImGui::Button("Rafraîchir"))
         load_packs(app);
       ImGui::SameLine();
-      if (ImGui::Checkbox("Afficher les paquets deja ouverts", &show_opened_))
+      if (ImGui::Checkbox("Afficher les paquets déjà ouverts", &show_opened_))
         load_packs(app);
       if (!ImGui::BeginTable("packs", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY))
         return;
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableSetupColumn("Paquet", ImGuiTableColumnFlags_WidthFixed, 100.0f);
       ImGui::TableSetupColumn("Contenu", ImGuiTableColumnFlags_WidthStretch);
-      ImGui::TableSetupColumn("Peremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+      ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
       ImGui::TableSetupColumn("Ouvert", ImGuiTableColumnFlags_WidthFixed, 110.0f);
       ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 280.0f);
       ImGui::TableHeadersRow();
@@ -435,7 +435,7 @@ class InventoryWindow final : public AppWindow {
         if (primary_button("Ouvrir et imprimer"))
           open_pack(app, id);
         ImGui::SameLine();
-        if (ImGui::Button("Etiquette paquet"))
+        if (ImGui::Button("Étiquette paquet"))
           app.print_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack) }, "Paquet");
         ImGui::PopID();
       }

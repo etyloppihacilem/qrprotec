@@ -136,9 +136,9 @@ void Editor::draw_document_panel() {
     document_.media.orientation = orientation == 0 ? Orientation::Portrait : Orientation::Landscape;
     preview_dirty_              = true;
   }
-  ImGui::Text("Resolution: %d x %d px", document_.media.width_pixels(), document_.media.height_pixels());
+  ImGui::Text("Résolution: %d x %d px", document_.media.width_pixels(), document_.media.height_pixels());
   ImGui::Separator();
-  ImGui::TextUnformatted("Parametres");
+  ImGui::TextUnformatted("Paramètres");
   for (std::string &placeholder : placeholder_names_) {
     char code[256];
     if (document_.parameters.find(placeholder) !=  document_.parameters.end())
@@ -197,9 +197,9 @@ void Editor::draw_document_panel() {
 void Editor::draw_element_panel() {
   ImGui::BeginChild("PropertiesPanel", ImVec2(0, 0), true);
   if (ImGui::BeginTabBar("element_tabs")) {
-    if (ImGui::BeginTabItem("Proprietes")) {
+    if (ImGui::BeginTabItem("Propriétés")) {
       if (selected_element_ < 0 || selected_element_ >= static_cast< int >(document_.elements.size()))
-        ImGui::TextUnformatted("Selectionnez un element.");
+        ImGui::TextUnformatted("Sélectionnez un élément.");
       else
         draw_properties(document_.elements[static_cast< std::size_t >(selected_element_)]);
       ImGui::EndTabItem();
@@ -259,7 +259,7 @@ void Editor::draw_properties(TemplateElement &element) {
       preview_dirty_ = true;
     if (ImGui::DragFloat("Taille (mm)", &qr.size_mm, 0.1f, 5.0f, 100.0f))
       preview_dirty_ = true;
-    ImGui::TextWrapped("QR code reel (correction M), centre dans la zone. Prevoir une marge blanche autour.");
+    ImGui::TextWrapped("QR code réel (correction M), centré dans la zone. Prévoir une marge blanche autour.");
   } else {
     ImageElement &image = std::get< ImageElement >(element.content);
     if (ImGui::InputText("Fichier image", &image.path))
@@ -321,8 +321,8 @@ void Editor::insert_placeholder(const std::string &name) {
 
 void Editor::draw_placeholders_panel() {
   const CategoryInfo &info = category_info(document_.category);
-  ImGui::TextWrapped("Usage du modele : %s. %s", info.label.c_str(), info.description.c_str());
-  ImGui::TextDisabled("Cliquez sur un nom pour l'inserer dans l'element selectionne (texte : ajoute, QR : remplace).");
+  ImGui::TextWrapped("Usage du modèle : %s. %s", info.label.c_str(), info.description.c_str());
+  ImGui::TextDisabled("Cliquez sur un nom pour l'insérer dans l'élément sélectionné (texte : ajouté à la fin, QR : remplacé).");
   const auto table = [this](const char *id, const std::vector< PlaceholderInfo > &placeholders) {
     if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH))
       return;
@@ -341,10 +341,10 @@ void Editor::draw_placeholders_panel() {
     ImGui::EndTable();
   };
   if (!info.placeholders.empty()) {
-    ImGui::SeparatorText("Specifiques");
+    ImGui::SeparatorText("Spécifiques");
     table("specific", info.placeholders);
   }
-  ImGui::SeparatorText("Communs a toutes les etiquettes");
+  ImGui::SeparatorText("Communs à toutes les étiquettes");
   table("common", common_placeholders());
   if (ImGui::CollapsingHeader("Autres usages")) {
     for (const CategoryInfo &other : template_categories()) {
@@ -360,7 +360,7 @@ void Editor::draw_placeholders_panel() {
 
 void Editor::draw_preview_panel() {
   ImGui::BeginChild("PreviewPanel", ImVec2(0, 0), true);
-  ImGui::Text("Apercu %d x %d px", preview_.width, preview_.height);
+  ImGui::Text("Aperçu %d x %d px", preview_.width, preview_.height);
   if (preview_dirty_)
     rebuild_preview();
   const std::vector< ValidationIssue > issues = validate(document_);
@@ -380,7 +380,7 @@ void Editor::draw_preview_panel() {
   ImGui::SameLine();
   if (ImGui::Button("Imprimer test")) {
     open_print_test();
-    message_ = "Test d'impression pret.";
+    message_ = "Test d'impression prêt.";
   }
   // ImGui::SameLine();
   // ImGui::SameLine();
@@ -415,7 +415,7 @@ void Editor::poll_print_task() {
     return;
 
   const PrintResult result = print_task_.get();
-  message_                 = result.success ? "Test imprime." : "Impression: " + result.error;
+  message_                 = result.success ? "Test imprimé." : "Impression: " + result.error;
   if (result.success)
     print_test_open_ = false;
 }
@@ -440,13 +440,13 @@ void Editor::draw_print_test_popup() {
     }
     char device[256];
     copy_to_buffer(device, sizeof(device), print_settings_.serial.device);
-    if (ImGui::InputText("Port serie", device, sizeof(device)))
+    if (ImGui::InputText("Port série", device, sizeof(device)))
       print_settings_.serial.device = device;
     int baud = print_settings_.serial.baud_rate;
-    if (ImGui::InputInt("Debit", &baud))
+    if (ImGui::InputInt("Débit", &baud))
       print_settings_.serial.baud_rate = baud;
     int density = print_settings_.density;
-    if (ImGui::SliderInt("Densite", &density, 1, 5))
+    if (ImGui::SliderInt("Densité", &density, 1, 5))
       print_settings_.density = density;
     if (print_task_.valid()) {
       ImGui::TextUnformatted("Impression en cours...");
@@ -493,7 +493,7 @@ void Editor::draw_print_test_popup() {
 }
 
 void Editor::draw() {
-  ImGui::Begin("QRProtec - Editeur de templates", nullptr, ImGuiWindowFlags_MenuBar);
+  ImGui::Begin("QRProtec - Éditeur de templates", nullptr, ImGuiWindowFlags_MenuBar);
   draw_contents();
   ImGui::End();
 }
@@ -542,8 +542,8 @@ void Editor::draw_contents() {
     )
   ) {
     ImGui::TableSetupColumn("Template", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-    ImGui::TableSetupColumn("Proprietes", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-    ImGui::TableSetupColumn("Apercu", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+    ImGui::TableSetupColumn("Propriétés", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+    ImGui::TableSetupColumn("Aperçu", ImGuiTableColumnFlags_WidthStretch, 2.0f);
     ImGui::TableNextColumn();
     draw_document_panel();
     ImGui::TableNextColumn();

@@ -111,7 +111,7 @@ bool parse_http_url(const std::string &url, HttpUrl &out, std::string &error) {
 bool parse_http_response(const std::string &raw, HttpResponse &response) {
   const std::size_t header_end = raw.find("\r\n\r\n");
   if (header_end == std::string::npos || raw.compare(0, 5, "HTTP/") != 0) {
-    response.error = "Reponse HTTP invalide";
+    response.error = "Réponse HTTP invalide";
     return false;
   }
   const std::size_t space = raw.find(' ');
@@ -126,7 +126,7 @@ bool parse_http_response(const std::string &raw, HttpResponse &response) {
   if (headers.find("transfer-encoding: chunked") != std::string::npos) {
     std::string decoded;
     if (!decode_chunked(body, decoded)) {
-      response.error = "Reponse chunked invalide";
+      response.error = "Réponse chunked invalide";
       return false;
     }
     body = decoded;
@@ -157,7 +157,7 @@ HttpResponse http_request(
   addrinfo         *addresses = nullptr;
   const std::string port      = std::to_string(url.port);
   if (getaddrinfo(url.host.c_str(), port.c_str(), &hints, &addresses) != 0 || !addresses) {
-    response.error = "Hote introuvable : " + url.host;
+    response.error = "Hôte introuvable : " + url.host;
     return response;
   }
   Socket  socket_holder;
@@ -176,7 +176,7 @@ HttpResponse http_request(
   }
   freeaddrinfo(addresses);
   if (socket_holder.fd_ < 0) {
-    response.error = "Connexion impossible a " + url.host + ":" + port;
+    response.error = "Connexion impossible à " + url.host + ":" + port;
     return response;
   }
 
@@ -196,7 +196,7 @@ HttpResponse http_request(
   while (sent < request.size()) {
     const ssize_t written = ::send(socket_holder.fd_, request.data() + sent, request.size() - sent, MSG_NOSIGNAL);
     if (written <= 0) {
-      response.error = "Envoi de la requete impossible";
+      response.error = "Envoi de la requête impossible";
       return response;
     }
     sent += static_cast< std::size_t >(written);
@@ -210,12 +210,12 @@ HttpResponse http_request(
     if (received < 0) {
       if (errno == EINTR)
         continue;
-      response.error = errno == EAGAIN || errno == EWOULDBLOCK ? "Delai de reponse depasse" : "Lecture impossible";
+      response.error = errno == EAGAIN || errno == EWOULDBLOCK ? "Délai de réponse dépassé" : "Lecture impossible";
       return response;
     }
     raw.append(buffer, static_cast< std::size_t >(received));
     if (raw.size() > 64 * 1024 * 1024) {
-      response.error = "Reponse trop volumineuse";
+      response.error = "Réponse trop volumineuse";
       return response;
     }
   }

@@ -145,7 +145,7 @@ bool save_template(const TemplateDocument& document, const std::string& path, st
         output << "}" << (index + 1 == document.elements.size() ? "" : ",") << "\n";
     }
     output << "  ]\n}\n";
-    if (!output) { error = "Erreur d'ecriture du template."; return false; }
+    if (!output) { error = "Erreur d'écriture du template."; return false; }
     return true;
 }
 
@@ -161,7 +161,7 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
     loaded.media.width_mm = number;
     if (!find_number(json, "height_mm", number)) { error = "Template invalide : hauteur absente."; return false; }
     loaded.media.height_mm = number;
-    if (!find_number(json, "pixels_per_mm", number)) { error = "Template invalide : resolution absente."; return false; }
+    if (!find_number(json, "pixels_per_mm", number)) { error = "Template invalide : résolution absente."; return false; }
     loaded.media.pixels_per_mm = number;
     std::string category;
     if (find_value(json, "category", category))
