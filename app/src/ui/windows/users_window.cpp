@@ -40,10 +40,10 @@ class UsersWindow final : public AppWindow {
       const Date today = app.today();
       if (ImGui::BeginTable("users", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Matricule", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Matricule", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Rôle", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-        ImGui::TableSetupColumn("Badge", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Rôle", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Badge", ImGuiTableColumnFlags_WidthFixed, 95.0f);
         ImGui::TableHeadersRow();
         for (const Json &user : app.catalog.users.items()) {
           const std::string matricule = user["matricule"].str();
@@ -103,7 +103,7 @@ class UsersWindow final : public AppWindow {
       body["privileged"] = privileged_;
       if (creating) {
         ImGui::BeginDisabled(matricule_.empty() || nom_.empty() || prenom_.empty());
-        if (primary_button("Créer et imprimer le badge")) {
+        if (primary_button("Créer et voir le badge")) {
           body["matricule"] = matricule_;
           app.api.post("/api/users/", body, [this, &app](const ApiResult &result) {
             if (!result.ok) {
@@ -111,7 +111,8 @@ class UsersWindow final : public AppWindow {
               return;
             }
             app.notify("Utilisateur créé.");
-            app.print_labels(TemplateCategory::User, { user_parameters(result.data) }, "Badge");
+            app.preview_labels(TemplateCategory::User, { user_parameters(result.data) },
+                               "Badge de " + result.data["prenom"].str() + " " + result.data["nom"].str());
             select(result.data);
             app.refresh_users();
           });
@@ -130,8 +131,9 @@ class UsersWindow final : public AppWindow {
       }
       ImGui::SeparatorText("Badge");
       ImGui::Text("Valable jusqu'au : %s", display_date(user_["key_expires"]).c_str());
-      if (ImGui::Button("Imprimer le badge"))
-        app.print_labels(TemplateCategory::User, { user_parameters(user_) }, "Badge");
+      if (ImGui::Button("Aperçu et impression du badge"))
+        app.preview_labels(TemplateCategory::User, { user_parameters(user_) },
+                           "Badge de " + user_["prenom"].str() + " " + user_["nom"].str());
       ImGui::SameLine();
       if (confirm_button("Renouveler (1 an)", "L'ancien badge ne fonctionnera plus. Continuer ?", "renew_key")) {
         app.api.post("/api/users/" + url_encode(selected_) + "/renew-key/", Json::object(),
@@ -142,7 +144,7 @@ class UsersWindow final : public AppWindow {
                        }
                        select(result.data);
                        app.notify("Badge renouvelé.");
-                       app.print_labels(TemplateCategory::User, { user_parameters(result.data) }, "Badge");
+                       app.preview_labels(TemplateCategory::User, { user_parameters(result.data) }, "Nouveau badge");
                        app.refresh_users();
                      });
       }

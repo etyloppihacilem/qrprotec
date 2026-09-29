@@ -26,6 +26,20 @@ const Json *find_type(const App &app, const std::string &type) {
   return nullptr;
 }
 
+// Item fictif pour l'apercu d'un type d'item (avant toute reception)
+Json sample_item(const std::string &type, const std::string &name, bool perishable, const std::string &peremption_iso) {
+  const auto  date = Date::parse(peremption_iso);
+  const Date  when = date ? *date : Date::today().plus_days(365);
+  std::string code = type;
+  code.resize(6, 'x');
+  Json item;
+  item["iid"]        = code + (perishable ? when.iso().substr(0, 4) + when.iso().substr(5, 2) + when.iso().substr(8, 2) : "00000000") + "00000001";
+  item["type"]       = type;
+  item["type_name"]  = name;
+  item["peremption"] = perishable ? Json(when.iso()) : Json();
+  return item;
+}
+
 std::vector< Parameters > item_labels(const Json &items) {
   std::vector< Parameters > labels;
   const int                 count = static_cast< int >(items.size());
@@ -103,7 +117,7 @@ class InventoryWindow final : public AppWindow {
       ImGui::Checkbox("Paquet fermé : imprimer une étiquette de paquet", &sealed_);
       help_marker("Pour un paquet que l'on n'ouvre pas tout de suite (ex: boîte de compresses). Les étiquettes "
                   "individuelles seront imprimées à l'ouverture (onglet Paquets fermés).");
-      ImGui::Checkbox("Imprimer les étiquettes individuelles maintenant", &print_items_);
+      ImGui::Checkbox("Étiquettes individuelles maintenant (aperçu puis impression)", &print_items_);
 
       const auto date = Date::parse(peremption_);
       std::string problem;
@@ -117,9 +131,15 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextColored(colors::orange, "%s", problem.c_str());
 
       ImGui::BeginDisabled(!type || (perishable && !date) || creating_);
-      const std::string label = "Créer " + std::to_string(quantity_) + " item(s) et imprimer";
-      if (primary_button(label.c_str(), ImVec2(-1, ImGui::GetFrameHeight() * 1.5f)))
+      const std::string label = "Créer " + std::to_string(quantity_) + " item(s) et voir les étiquettes";
+      if (primary_button(label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x * 0.7f, ImGui::GetFrameHeight() * 1.5f)))
         create_batch(app, perishable && date ? date->iso() : "");
+      ImGui::SameLine();
+      if (ImGui::Button("Aperçu", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f)))
+        app.preview_labels(TemplateCategory::Item,
+                           { item_parameters(sample_item(reception_type_, (*type)["name"].str(), perishable,
+                                                         date ? date->iso() : "")) },
+                           "Exemple d'étiquette (avant création)");
       ImGui::EndDisabled();
 
       if (last_batch_.is_null())
@@ -127,8 +147,8 @@ class InventoryWindow final : public AppWindow {
       ImGui::SeparatorText("Dernière réception");
       const Json &items = last_batch_["items"];
       ImGui::Text("%zu item(s) créés : %s", items.size(), items[0]["type_name"].str().c_str());
-      if (ImGui::Button("Réimprimer toutes les étiquettes"))
-        app.print_labels(TemplateCategory::Item, item_labels(items), "Réception");
+      if (ImGui::Button("Aperçu et impression des étiquettes"))
+        app.preview_labels(TemplateCategory::Item, item_labels(items), "Réception");
       if (!last_batch_["sealed_pack"].is_null()) {
         ImGui::SameLine();
         if (ImGui::Button("Réimprimer l'étiquette du paquet"))
@@ -166,10 +186,13 @@ class InventoryWindow final : public AppWindow {
         }
         last_batch_ = result.data;
         app.notify(std::to_string(result.data["items"].size()) + " item(s) créé(s).");
+        // apercu avant impression : etiquette du paquet puis etiquettes individuelles
+        std::vector< PrintJob > jobs;
         if (sealed)
-          app.print_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(result.data["sealed_pack"]) }, "Paquet");
+          app.build_label_jobs(TemplateCategory::ItemPack, { sealed_pack_parameters(result.data["sealed_pack"]) }, "Paquet", jobs);
         if (print_items)
-          app.print_labels(TemplateCategory::Item, item_labels(result.data["items"]), "Réception");
+          app.build_label_jobs(TemplateCategory::Item, item_labels(result.data["items"]), "Réception", jobs);
+        app.preview_jobs(std::move(jobs), "Réception");
         load_packs(app);
       });
     }
@@ -240,6 +263,10 @@ class InventoryWindow final : public AppWindow {
             }
             app.notify("Type " + result.data["type"].str() + " créé.");
             clear_type_form();
+            app.preview_labels(TemplateCategory::Item,
+                               { item_parameters(sample_item(result.data["type"].str(), result.data["name"].str(),
+                                                             result.data["perissable"].boolean(), "")) },
+                               "Étiquette d'un item " + result.data["name"].str() + " (exemple)");
             app.refresh_item_types();
           });
         }
@@ -247,7 +274,7 @@ class InventoryWindow final : public AppWindow {
       } else {
         if (primary_button("Enregistrer")) {
           app.api.patch("/api/item-types/" + url_encode(editing_type_) + "/", body, [&app](const ApiResult &result) {
-            app.notify(result.ok ? "Type enregistre." : result.error, !result.ok);
+            app.notify(result.ok ? "Type enregistré." : result.error, !result.ok);
             app.refresh_item_types();
           });
         }
@@ -255,6 +282,13 @@ class InventoryWindow final : public AppWindow {
         if (ImGui::Button("Nouveau type"))
           clear_type_form();
       }
+      ImGui::SameLine();
+      ImGui::BeginDisabled(form_code_.empty());
+      if (ImGui::Button("Aperçu de l'étiquette"))
+        app.preview_labels(TemplateCategory::Item,
+                           { item_parameters(sample_item(form_code_, form_name_, form_perishable_, "")) },
+                           "Étiquette d'un item " + form_name_ + " (exemple)");
+      ImGui::EndDisabled();
     }
 
     void edit_type(const Json &item_type) {

@@ -45,7 +45,12 @@ struct QrElement {
     float x_mm = 2.0f;
     float y_mm = 12.0f;
     float size_mm = 16.0f;
+    int ecc = 1;        // correction d'erreur : 0 = L (7 %), 1 = M (15 %), 2 = Q (25 %), 3 = H (30 %)
+    int quiet_zone = 2; // marge blanche garantie autour du QR, en modules (la norme en recommande 4)
 };
+
+// Nombre de pixels par module du QR une fois rendu (0 si le contenu ne tient pas dans un QR).
+int qr_module_pixels(const QrElement& qr, const std::string& payload, double pixels_per_mm);
 
 // Image (logo PNG ou JPEG), convertie en noir et blanc a l'impression.
 struct ImageElement {

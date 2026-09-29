@@ -93,7 +93,7 @@ class LotAdminWindow final : public AppWindow {
       json_combo("Type de lot", app.catalog.lot_types, "type", "name", new_lot_type_);
       ImGui::InputText("Nom", &new_lot_name_);
       ImGui::InputText("Nom court (16 car.)", &new_lot_short_);
-      ImGui::Checkbox("Imprimer les étiquettes publique et privée", &print_new_);
+      ImGui::Checkbox("Voir les étiquettes publique et privée après création", &print_new_);
       ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty());
       if (primary_button("Créer le lot")) {
         Json body;
@@ -109,7 +109,7 @@ class LotAdminWindow final : public AppWindow {
           }
           app.notify("Lot " + result.data["name"].str() + " créé.");
           if (print)
-            print_lot(app, result.data, true, true);
+            preview_lot(app, result.data);
           new_lot_name_.clear();
           new_lot_short_.clear();
           selected_lot_ = result.data["id"].str();
@@ -137,6 +137,15 @@ class LotAdminWindow final : public AppWindow {
           app.notify(result.error, true);
         }
       });
+    }
+
+    // apercu des deux etiquettes du lot (publique puis privee), impression depuis la fenetre d'apercu
+    void preview_lot(App &app, const Json &lot) {
+      const Parameters        parameters = lot_parameters(lot);
+      std::vector< PrintJob > jobs;
+      app.build_label_jobs(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)", jobs);
+      app.build_label_jobs(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privée)", jobs);
+      app.preview_jobs(std::move(jobs), "Lot " + lot["name"].str());
     }
 
     void print_lot(App &app, const Json &lot, bool public_label, bool private_label) {
@@ -176,13 +185,17 @@ class LotAdminWindow final : public AppWindow {
                     lot_status_color(status), 1.1f);
 
       ImGui::SeparatorText("Étiquettes");
-      if (primary_button("Étiquette publique"))
+      if (primary_button("Aperçu des étiquettes publique et privée", ImVec2(-FLT_MIN, 0)))
+        preview_lot(app, lot_);
+      ImGui::TextDisabled("Impression directe :");
+      ImGui::SameLine();
+      if (ImGui::SmallButton("publique"))
         print_lot(app, lot_, true, false);
       ImGui::SameLine();
-      if (primary_button("Étiquette privée"))
+      if (ImGui::SmallButton("privée"))
         print_lot(app, lot_, false, true);
       ImGui::SameLine();
-      if (ImGui::Button("Les deux"))
+      if (ImGui::SmallButton("les deux"))
         print_lot(app, lot_, true, true);
       ImGui::TextDisabled("Clé valable jusqu'au %s", display_date(lot_["verif_key_expires"]).c_str());
       if (confirm_button("Régénérer la clé",
@@ -221,8 +234,8 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SeparatorText("Contenu");
       for (const Json &row : lot_["requirements"].items()) {
         ImGui::TextUnformatted(row["type_name"].str().c_str());
-        ImGui::SameLine(260.0f);
-        stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(200.0f, 0));
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.55f);
+        stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(-FLT_MIN, 0));
       }
       ImGui::Text("%d item(s), dont %d périmé(s).", lot_["item_count"].integer(), lot_["expired_count"].integer());
       if (ImGui::BeginTable("lot_items", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {

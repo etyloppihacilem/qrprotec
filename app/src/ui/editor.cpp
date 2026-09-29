@@ -329,7 +329,23 @@ void Editor::draw_properties(TemplateElement &element) {
       preview_dirty_ = true;
     if (ImGui::DragFloat("Taille (mm)", &qr.size_mm, 0.1f, 5.0f, 100.0f))
       preview_dirty_ = true;
-    ImGui::TextWrapped("QR code réel (correction M), centré dans la zone. Prévoir une marge blanche autour.");
+    if (ImGui::Combo("Correction", &qr.ecc, "L (7 %)\0M (15 %)\0Q (25 %)\0H (30 %)\0"))
+      preview_dirty_ = true;
+    ImGui::SetItemTooltip("Plus la correction est élevée, plus le QR résiste aux salissures, mais plus il "
+                          "contient de modules (donc de petits carrés) pour la même taille.");
+    if (ImGui::SliderInt("Marge (modules)", &qr.quiet_zone, 0, 4))
+      preview_dirty_ = true;
+    ImGui::SetItemTooltip("Zone blanche autour du QR, comprise dans sa taille. La norme recommande 4 modules ; "
+                          "2 suffisent en général pour une douchette.");
+    const int module = qr_module_pixels(qr, resolve_parameters(qr.payload, document_.parameters),
+                                        document_.media.pixels_per_mm);
+    if (module >= 3)
+      ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.1f, 1.0f), "%d px par module : bonne lisibilité", module);
+    else if (module == 2)
+      ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "2 px par module : lisible, sans marge d'erreur");
+    else
+      ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "QR trop petit pour son contenu");
+    ImGui::TextWrapped("Le masque est choisi automatiquement (le meilleur des 8 de la norme).");
   } else {
     ImageElement &image = std::get< ImageElement >(element.content);
     if (ImGui::InputText("Fichier image", &image.path))

@@ -105,6 +105,7 @@ add_executable(${PROJECT_NAME}
     src/inateck/inateck_worker.cpp
     src/ui/inateck.cpp
     src/ui/editor.cpp
+    src/ui/label_preview.cpp
     src/ui/widgets.cpp
     src/ui/windows/inventory_window.cpp
     src/ui/windows/lot_admin_window.cpp

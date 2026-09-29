@@ -74,6 +74,15 @@ struct VerifSession {
     bool        submitting = false;
 };
 
+struct LabelPreviewState {
+    std::vector< PrintJob > jobs;
+    std::string             title;
+    int                     index = 0;
+    bool                    open  = false;
+    bool                    dirty = true;  // image a regenerer
+    bool                    focus = false; // mettre la fenetre au premier plan
+};
+
 struct Toast {
     std::string message;
     bool        error = false;
@@ -140,6 +149,11 @@ class App {
 
     // Impression : un jeu de parametres par etiquette
     bool print_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what);
+    // Fenetre d'apercu (image de l'etiquette + bouton Imprimer) ; plusieurs etiquettes se parcourent
+    bool preview_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what);
+    void preview_jobs(std::vector< PrintJob > jobs, const std::string &title);
+    bool build_label_jobs(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what,
+                          std::vector< PrintJob > &jobs);
     void print_documents(std::vector< PrintJob > jobs); // documents deja remplis (test de l'editeur)
     TemplateDocument qr_only_template(TemplateCategory category) const;
 
@@ -164,6 +178,7 @@ class App {
     VerifSession                 verif;
     Json                         last_report; // dernier compte rendu de verif
     std::string                  last_report_lot;
+    LabelPreviewState            preview;
 
     std::vector< std::unique_ptr< AppWindow > > windows;
 

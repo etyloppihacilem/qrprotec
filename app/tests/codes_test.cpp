@@ -93,13 +93,20 @@ static void test_qr_and_categories() {
   document.parameters = example_parameters(TemplateCategory::Item);
   document.elements.push_back({ "qr", ElementKind::QrCode, QrElement{ "{{iid}}", 2.0f, 2.0f, 20.0f } });
   const RasterImage image = render_template(document);
-  // les trois motifs de reperage d'un vrai QR code : coin haut gauche noir
+  // QR dans sa zone (20 mm) : de l'encre au centre, et une marge blanche de 2 modules sur le bord
   const int origin = static_cast< int >(2.0 * document.media.pixels_per_mm);
-  bool      ink    = false;
-  for (int y = origin; y < origin + 12; ++y)
-    for (int x = origin; x < origin + 12; ++x)
+  const int size   = static_cast< int >(20.0 * document.media.pixels_per_mm);
+  const int module = qr_module_pixels(std::get< QrElement >(document.elements[0].content),
+                                      document.parameters["iid"], document.media.pixels_per_mm);
+  assert(module >= 3);
+  bool ink = false, margin_white = true;
+  for (int y = origin; y < origin + size; ++y)
+    for (int x = origin; x < origin + size; ++x) {
       ink = ink || image.at(x, y) == 0;
-  assert(ink);
+      if (x < origin + 2 * module || y < origin + 2 * module)
+        margin_white = margin_white && image.at(x, y) == 255;
+    }
+  assert(ink && margin_white);
 
   std::string error;
   document.elements.push_back({ "logo", ElementKind::Image, ImageElement{ "logo.png", 1, 1, 5, 5, false, 100 } });

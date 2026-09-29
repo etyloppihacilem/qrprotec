@@ -187,6 +187,15 @@ hauteur dans le sens du défilement) se règle dans **Réglages**. Un modèle de
 (portrait / paysage) est tourné d'un quart de tour à l'impression (sens réglable, retournement à 180°
 possible) et centré. Sans modèle choisi pour un usage, seul le QR code est imprimé, centré.
 
+**Aperçu** : à la création d'un type d'item (étiquette d'exemple), d'un lot (étiquettes publique et
+privée), d'un utilisateur (badge) et à la réception d'une commande, une fenêtre montre les étiquettes
+avant impression, avec les boutons pour les imprimer.
+
+**QR codes** : le masque de chaque QR est choisi automatiquement parmi les 8 de la norme (pénalité
+minimale, bibliothèque Nayuki). Chaque QR garde une marge blanche (2 modules par défaut) et un niveau
+de correction réglables dans l'éditeur, qui signale un QR trop petit pour son contenu (moins de
+2 pixels par module).
+
 Dans l'éditeur, les textes peuvent être en **gras** et alignés (gauche, centré, droite). Le bouton
 **Ajouter le titre** insère `{{titre}}` centré et en gras ; son texte (« PROTECTION CIVILE / PARIS
 CENTRE » par défaut) se change dans les Réglages et s'applique à toutes les étiquettes.

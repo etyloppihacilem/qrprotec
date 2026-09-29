@@ -11,6 +11,7 @@
 #include "app.hpp"
 
 #include "../ui/inateck.hpp"
+#include "../ui/label_preview.hpp"
 #include "../ui/widgets.hpp"
 #include "../ui/windows/windows.hpp"
 #include "labels.hpp"
@@ -197,6 +198,7 @@ void App::draw() {
   inateck.draw_window();
   draw_setup_modal();
   draw_login_modal();
+  draw_label_preview(*this);
   draw_toasts();
   feedback.draw_overlay();
 }
@@ -432,7 +434,7 @@ void App::draw_setup_modal() {
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputText("##badge_url", &url, ImGuiInputTextFlags_ReadOnly);
     if (ImGui::Button("Imprimer mon badge"))
-      print_labels(TemplateCategory::User, { user_parameters(setup_created_) }, "Badge");
+      preview_labels(TemplateCategory::User, { user_parameters(setup_created_) }, "Badge");
     ImGui::SameLine();
     if (ImGui::Button("Ouvrir les réglages")) {
       open_window("settings");
@@ -965,7 +967,8 @@ TemplateDocument App::qr_only_template(TemplateCategory category) const {
   return document;
 }
 
-bool App::print_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what) {
+bool App::build_label_jobs(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what,
+                           std::vector< PrintJob > &jobs) {
   if (labels.empty())
     return false;
   const CategoryInfo &info = category_info(category);
@@ -975,12 +978,11 @@ bool App::print_labels(TemplateCategory category, const std::vector< Parameters 
   if (path == settings.label_templates.end() || path->second.empty()) {
     // pas de modele : on imprime simplement le QR code centre sur l'etiquette
     model = qr_only_template(category);
-    notify("Aucun modèle « " + info.label + " » : impression du QR code seul (Gestion > Réglages pour en choisir un).");
+    notify("Aucun modèle « " + info.label + " » : QR code seul (Gestion > Réglages pour en choisir un).");
   } else if (!build_label(path->second, {}, model, error)) {
     notify("Modèle d'étiquette « " + info.label + " » : " + error + " (Gestion > Réglages).", true);
     return false;
   }
-  std::vector< PrintJob > jobs;
   for (std::size_t index = 0; index < labels.size(); ++index) {
     PrintJob job;
     job.description = what + (labels.size() > 1 ? " " + std::to_string(index + 1) + "/" + std::to_string(labels.size()) : "");
@@ -992,8 +994,34 @@ bool App::print_labels(TemplateCategory category, const std::vector< Parameters 
       job.document.parameters[name] = value;
     jobs.push_back(std::move(job));
   }
+  return true;
+}
+
+bool App::print_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what) {
+  std::vector< PrintJob > jobs;
+  if (!build_label_jobs(category, labels, what, jobs))
+    return false;
   print_documents(std::move(jobs));
   return true;
+}
+
+bool App::preview_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what) {
+  std::vector< PrintJob > jobs;
+  if (!build_label_jobs(category, labels, what, jobs))
+    return false;
+  preview_jobs(std::move(jobs), what);
+  return true;
+}
+
+void App::preview_jobs(std::vector< PrintJob > jobs, const std::string &title) {
+  if (jobs.empty())
+    return;
+  preview.jobs    = std::move(jobs);
+  preview.title   = title;
+  preview.index   = 0;
+  preview.open    = true;
+  preview.dirty   = true;
+  preview.focus   = true;
 }
 
 void App::print_documents(std::vector< PrintJob > jobs) {

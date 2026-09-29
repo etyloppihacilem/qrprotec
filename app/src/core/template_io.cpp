@@ -2,6 +2,7 @@
 #include "json.hpp"
 #include "placeholders.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -137,7 +138,8 @@ bool save_template(const TemplateDocument& document, const std::string& path, st
         } else if (element.kind == ElementKind::QrCode) {
             const QrElement& qr = std::get<QrElement>(element.content);
             output << "\"payload\": \"" << escape_json(qr.payload) << "\", \"x_mm\": " << qr.x_mm
-                    << ", \"y_mm\": " << qr.y_mm << ", \"size_mm\": " << qr.size_mm;
+                    << ", \"y_mm\": " << qr.y_mm << ", \"size_mm\": " << qr.size_mm
+                    << ", \"ecc\": " << qr.ecc << ", \"quiet_zone\": " << qr.quiet_zone;
         } else {
             const ImageElement& image = std::get<ImageElement>(element.content);
             output << "\"path\": \"" << escape_json(image.path) << "\", \"x_mm\": " << image.x_mm
@@ -205,6 +207,8 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
                 find_number(object, "x_mm", x); qr.x_mm = static_cast<float>(x);
                 find_number(object, "y_mm", x); qr.y_mm = static_cast<float>(x);
                 find_number(object, "size_mm", x); qr.size_mm = static_cast<float>(x);
+                if (find_number(object, "ecc", x)) qr.ecc = std::clamp(static_cast<int>(x), 0, 3);
+                if (find_number(object, "quiet_zone", x)) qr.quiet_zone = std::clamp(static_cast<int>(x), 0, 8);
                 loaded.elements.push_back({id, ElementKind::QrCode, qr});
             } else if (kind == "image") {
                 ImageElement image;

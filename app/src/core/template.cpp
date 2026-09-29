@@ -57,6 +57,12 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
         issues.push_back({ "Le payload QR ne peut pas être vide.", element.id });
       if (!inside(qr.x_mm, qr.y_mm, qr.size_mm, qr.size_mm, document.media))
         issues.push_back({ "Le QR code dépasse les limites du media.", element.id });
+      const int module = qr_module_pixels(qr, resolve_parameters(qr.payload, document.parameters),
+                                          document.media.pixels_per_mm);
+      if (!qr.payload.empty() && module < 2)
+        issues.push_back({ "QR code trop petit pour son contenu (" + std::to_string(module)
+                             + " px par module, 2 minimum) : agrandissez-le, réduisez la marge ou la correction.",
+                           element.id });
     } else {
       const ImageElement &image = std::get< ImageElement >(element.content);
       if (image.path.empty())

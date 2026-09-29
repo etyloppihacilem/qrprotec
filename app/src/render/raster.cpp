@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <array>
+#include <optional>
 #include <cmath>
 #include <string>
 
@@ -138,22 +139,33 @@ void draw_text(RasterImage& image, const TextElement& text, const std::string& v
     FT_Done_FreeType(library);
 }
 
+std::optional<qrcodegen::QrCode> encode_qr(const QrElement& qr, const std::string& payload)
+{
+    static const qrcodegen::QrCode::Ecc levels[] = {qrcodegen::QrCode::Ecc::LOW, qrcodegen::QrCode::Ecc::MEDIUM,
+                                                    qrcodegen::QrCode::Ecc::QUARTILE, qrcodegen::QrCode::Ecc::HIGH};
+    try {
+        return qrcodegen::QrCode::encodeText(payload.c_str(), levels[std::clamp(qr.ecc, 0, 3)]);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
 void draw_qr(RasterImage& image, const QrElement& qr, const std::string& payload, double scale)
 {
     if (payload.empty()) return;
     const int left = static_cast<int>(qr.x_mm * scale);
     const int top = static_cast<int>(qr.y_mm * scale);
     const int size = std::max(1, static_cast<int>(qr.size_mm * scale));
-    qrcodegen::QrCode code = qrcodegen::QrCode::encodeText("", qrcodegen::QrCode::Ecc::LOW);
-    try {
-        code = qrcodegen::QrCode::encodeText(payload.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
-    } catch (const std::exception&) {
-        return; // payload trop long pour un QR code
-    }
+    // le masque est choisi automatiquement par qrcodegen parmi les 8 de la norme (penalite minimale)
+    const std::optional<qrcodegen::QrCode> encoded = encode_qr(qr, payload);
+    if (!encoded) return; // payload trop long pour un QR code
+    const qrcodegen::QrCode& code = *encoded;
     const int modules = code.getSize();
-    const int module_size = std::max(1, size / modules);
-    // centre le QR dans la zone reservee (le reste sert de marge blanche)
+    // marge blanche (zone de silence) comprise dans la zone reservee : modules entiers de pixels
+    const int quiet = std::max(0, qr.quiet_zone);
+    const int module_size = std::max(1, size / (modules + 2 * quiet));
     const int offset = std::max(0, (size - module_size * modules) / 2);
+    fill_rect(image, left, top, left + size, top + size, 255); // efface ce qui chevaucherait le QR
     for (int y = 0; y < modules; ++y)
         for (int x = 0; x < modules; ++x)
             if (code.getModule(x, y))
@@ -221,6 +233,14 @@ void draw_image(RasterImage& image, const ImageElement& element, double scale)
                 fill_rect(image, left + x, top + y, left + x + 1, top + y + 1, 0);
         }
 }
+}
+
+int qr_module_pixels(const QrElement& qr, const std::string& payload, double pixels_per_mm)
+{
+    const std::optional<qrcodegen::QrCode> code = encode_qr(qr, payload);
+    if (!code) return 0;
+    const int size = std::max(1, static_cast<int>(qr.size_mm * pixels_per_mm));
+    return size / (code->getSize() + 2 * std::max(0, qr.quiet_zone));
 }
 
 RasterImage render_template(const TemplateDocument& document)

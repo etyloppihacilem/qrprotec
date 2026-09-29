@@ -47,7 +47,7 @@ AppSettings AppSettings::defaults() {
   settings.layout["stock"] = { false, 0.05f, 0.06f, 0.55f, 0.65f };
   settings.layout["inventory"] = { false, 0.07f, 0.08f, 0.58f, 0.75f };
   settings.layout["lot_admin"] = { false, 0.09f, 0.10f, 0.58f, 0.75f };
-  settings.layout["users"] = { false, 0.11f, 0.12f, 0.52f, 0.65f };
+  settings.layout["users"] = { false, 0.11f, 0.12f, 0.60f, 0.65f };
   settings.layout["settings"] = { false, 0.20f, 0.05f, 0.45f, 0.85f };
   settings.layout["editor"] = { false, 0.02f, 0.03f, 0.70f, 0.85f };
   return settings;
