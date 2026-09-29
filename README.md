@@ -145,11 +145,13 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   devient la pile).
 - **Lots** : état de chaque lot (périmés, bientôt périmés, complet), détail du contenu, lancement
   d'une vérif.
-- **Vérif** : ouverte automatiquement au scan d'une étiquette de lot (clé pré-remplie si étiquette
-  privée). Liste des items attendus : chaque item scanné bascule dans la pile et disparaît de la
+- **Vérif** : le scan de l'étiquette **publique** d'un lot ouvre sa fiche (état, contenu, bouton
+  « Lancer une vérif ») ; le scan de l'étiquette **privée** lance directement la vérif, clé
+  pré-remplie. Un lot non complet est affiché en rouge. Liste des items attendus : chaque item scanné bascule dans la pile et disparaît de la
   liste. Hors mode responsable, la validation exige l'étiquette privée du lot.
 - **Connexion** : scanner son badge. Le nom de l'utilisateur connecté est affiché en haut à droite et
-  dans la pile, avec un bouton **Se déconnecter**. Une vérif ou un ajout demande de se connecter.
+  dans la pile, avec un bouton **Se déconnecter**. La connexion n'est demandée qu'au moment de valider une vérif ou un
+  ajout (badge scanné ou code saisi dans la fenêtre de connexion).
 - **Mauvais scan** (produit périmé, code inconnu) : bip et LED de la douchette via le SDK Inateck ;
   en mode HID, bip de l'ordinateur et clignotement rouge de l'écran.
 - **Douchette** : la recherche et la connexion sont accessibles à tous ; les paramètres (mode HID,

@@ -32,6 +32,8 @@ class LotsWindow final : public AppWindow {
     void on_open(App &app) override { app.refresh_lots(); }
 
     void draw(App &app) override {
+      if (const std::string id = app.take_lot_to_show(); !id.empty())
+        select(app, id); // etiquette publique scannee
       if (ImGui::Button("Rafraîchir"))
         app.refresh_lots();
       ImGui::SameLine();
@@ -60,14 +62,18 @@ class LotsWindow final : public AppWindow {
     void draw_table(App &app) {
       const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
                                   | ImGuiTableFlags_Resizable;
-      if (!ImGui::BeginTable("lots", 5, flags))
+      // fiche ouverte : la liste est etroite, on masque les colonnes secondaires
+      const bool compact = !selected_.empty();
+      if (!ImGui::BeginTable(compact ? "lots_compact" : "lots", compact ? 3 : 5, flags))
         return;
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableSetupColumn("Lot", ImGuiTableColumnFlags_WidthStretch);
-      ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-      ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-      ImGui::TableSetupColumn("Complet", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-      ImGui::TableSetupColumn("Dernière vérif", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+      if (!compact)
+        ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+      ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, compact ? 70.0f : 80.0f);
+      ImGui::TableSetupColumn("Complet", ImGuiTableColumnFlags_WidthFixed, compact ? 70.0f : 80.0f);
+      if (!compact)
+        ImGui::TableSetupColumn("Dernière vérif", ImGuiTableColumnFlags_WidthFixed, 150.0f);
       ImGui::TableHeadersRow();
       const std::string needle = lower(filter_);
       for (const Json &lot : app.catalog.lots.items()) {
@@ -84,14 +90,18 @@ class LotsWindow final : public AppWindow {
         if (expired > 0)
           row_color(colors::red, 0.35f);
         else if (!complete)
-          row_color(colors::orange, 0.30f);
+          row_color(colors::red, 0.30f);
         ImGui::TableNextColumn();
         if (ImGui::Selectable((name + "##" + id).c_str(), selected_ == id, ImGuiSelectableFlags_SpanAllColumns))
           select(app, id);
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", lot["lot_type_name"].str().c_str());
-        ImGui::TableNextColumn();
-        ImGui::Text("%d", lot["item_count"].integer());
+        if (!compact) {
+          ImGui::SameLine();
+          ImGui::TextDisabled("%s", lot["lot_type_name"].str().c_str());
+        }
+        if (!compact) {
+          ImGui::TableNextColumn();
+          ImGui::Text("%d", lot["item_count"].integer());
+        }
         ImGui::TableNextColumn();
         if (expired > 0)
           ImGui::TextColored(colors::red, "%d", expired);
@@ -100,9 +110,11 @@ class LotsWindow final : public AppWindow {
         else
           ImGui::TextUnformatted("0");
         ImGui::TableNextColumn();
-        ImGui::TextColored(complete ? colors::green : colors::orange, complete ? "oui" : "non");
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(display_datetime(lot["last_verif"]).c_str());
+        ImGui::TextColored(complete ? colors::green : colors::red, complete ? "oui" : "non");
+        if (!compact) {
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(display_datetime(lot["last_verif"]).c_str());
+        }
       }
       ImGui::EndTable();
     }
@@ -131,6 +143,11 @@ class LotsWindow final : public AppWindow {
       ImGui::TextDisabled("%s - %s", details_["lot_type_name"].str().c_str(), details_["id"].str().c_str());
       ImGui::Text("Dernière vérif : %s par %s", display_datetime(details_["last_verif"]).c_str(),
                   details_["last_verif_by"].str("-").c_str());
+      if (details_["complete"].boolean())
+        ImGui::TextColored(colors::green, "Lot complet");
+      else
+        ImGui::TextColored(colors::red, "Lot NON complet%s",
+                           details_["expired_count"].integer() > 0 ? " (contient des périmés)" : "");
       if (primary_button("Lancer une vérif", ImVec2(-1, 0)))
         app.start_verif(details_["id"].str(), "");
       if (ImGui::Button("Fermer", ImVec2(-1, 0)))

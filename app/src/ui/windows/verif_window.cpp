@@ -157,7 +157,7 @@ class VerifWindow final : public AppWindow {
       if (report["complete"].boolean())
         ImGui::TextColored(colors::green, "Lot complet et à jour.");
       else
-        ImGui::TextColored(colors::orange, "Lot incomplet ou contenant des périmés : voir ci-dessous.");
+        ImGui::TextColored(colors::red, "Lot incomplet ou contenant des périmés : voir ci-dessous.");
       ImGui::Text("%zu item(s) présent(s).", report["present"].size());
       for (const Json &row : report["requirements"].items()) {
         ImGui::TextUnformatted(row["type_name"].str().c_str());

@@ -507,7 +507,7 @@
       : [];
     const body = $('#report-body');
     body.replaceChildren(
-      el('h2', {}, report.complete ? '✅ Lot complet' : '⚠️ Lot à compléter'),
+      el('h2', { style: report.complete ? 'color:var(--green)' : 'color:var(--red)' }, report.complete ? '✅ Lot complet' : '⚠️ Lot NON complet'),
       el('p', {}, `${report.present.length} item(s) présent(s).`),
       ...(report.requirements || []).map((row) => requirementRow(row.type_name, row.present, row.required)),
       ...section('Périmés encore dans le lot : à remplacer', report.expired),

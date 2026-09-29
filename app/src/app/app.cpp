@@ -326,6 +326,17 @@ void App::draw_login_modal() {
     ImGui::PopFont();
     ImGui::Text("pour %s.", login_reason_.c_str());
     ImGui::Spacing();
+    // saisie clavier possible (la fenetre modale bloque le champ de la pile de scans)
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f));
+    ImGui::SetNextItemWidth(360.0f);
+    if (ImGui::IsWindowAppearing())
+      ImGui::SetKeyboardFocusHere();
+    if (ImGui::InputTextWithHint("##badge", "ou saisissez le code du badge", &login_manual_,
+                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_Password)) {
+      handle_scan(login_manual_, ScanSource::Manual);
+      login_manual_.clear();
+    }
+    ImGui::PopStyleColor();
     if (ImGui::Button("Annuler", ImVec2(160, 0))) {
       login_prompt_   = false;
       pending_action_ = nullptr;
@@ -675,6 +686,11 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
         stack.target.name = result.data["name"].str();
     });
   }
+  // etiquette publique : fiche du lot d'abord, la verif se lance depuis la fiche
+  if (scan.key.empty() && !(verif.active && verif.lot_id == scan.id)) {
+    show_lot(scan.id);
+    return;
+  }
   if (verif.active && verif.lot_id == scan.id) {
     if (!scan.key.empty()) {
       verif.key = scan.key;
@@ -694,8 +710,20 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Verifs et mouvements
 
+void App::show_lot(const std::string &lot_id) {
+  lot_to_show_ = lot_id;
+  open_window("lots");
+}
+
+std::string App::take_lot_to_show() {
+  std::string lot_id;
+  lot_id.swap(lot_to_show_);
+  return lot_id;
+}
+
+// La connexion n'est demandee qu'a la validation de la verif (submit_verif).
 void App::start_verif(const std::string &lot_id, const std::string &key) {
-  require_login("lancer la vérif du lot", [this, lot_id, key]() {
+  {
     verif         = {};
     verif.active  = true;
     verif.lot_id  = lot_id;
@@ -713,7 +741,7 @@ void App::start_verif(const std::string &lot_id, const std::string &key) {
       }
       verif.lot = result.data;
     });
-  });
+  }
 }
 
 void App::cancel_verif() {

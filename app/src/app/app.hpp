@@ -116,6 +116,8 @@ class App {
 
     // Verifs et mouvements
     void start_verif(const std::string &lot_id, const std::string &key);
+    void show_lot(const std::string &lot_id);  // ouvre la fiche du lot (fenetre Lots)
+    std::string take_lot_to_show();            // lu par la fenetre Lots
     void cancel_verif();
     void submit_verif();
     bool verif_key_ok() const;
@@ -179,6 +181,7 @@ class App {
     void   work_area(ImVec2 &origin, ImVec2 &size) const;
 
     float                   menu_bar_height_ = 0.0f;
+    std::string             lot_to_show_;
     // Premiere configuration : aucun responsable avec un badge valide
     bool                    setup_known_     = false;
     bool                    needs_admin_     = false;
@@ -195,6 +198,7 @@ class App {
     bool                    login_prompt_ = false;
     bool                    login_prompt_opened_ = false;
     std::string             login_reason_;
+    std::string             login_manual_;
     std::function< void() > pending_action_;
 };
 
