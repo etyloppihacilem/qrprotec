@@ -27,12 +27,13 @@
     scanned: [],       // [{code, kind, iid, info, expired, error, items: [iids d'un paquet]}]
     tab: 'todo',
     busy: false,
+    lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
   };
 
   function save() {
     try {
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
-        lotId: state.lotId, lotKey: state.lotKey,
+        lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
         scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items }) => ({ code, kind, iid, info, expired, error, items })),
       }));
       if (state.user) localStorage.setItem(STORAGE_USER, JSON.stringify(state.user));
@@ -49,6 +50,7 @@
         state.lotId = session.lotId || '';
         state.lotKey = session.lotKey || '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
+        state.lastVerif = session.lastVerif || null;
       }
     } catch (e) { /* ignore */ }
   }
@@ -69,6 +71,13 @@
   function fmtDate(value) {
     const d = value instanceof Date ? value : parseDate(value);
     return d ? d.toLocaleDateString('fr-FR') : '–';
+  }
+
+  // Date et heure (dernieres verifs...) ; les dates seules sont reservees aux peremptions et expirations
+  function fmtDateTime(value) {
+    const d = value ? new Date(value) : null;
+    if (!d || isNaN(d)) return '–';
+    return d.toLocaleDateString('fr-FR') + ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   }
 
   function el(tag, attrs = {}, ...children) {
@@ -329,11 +338,13 @@
   }
 
   async function scanItem(scan) {
-    if (state.scanned.some((entry) => entry.kind === 'item' && entry.iid === scan.id)) {
-      feedback.warn();
-      showInfo('warn', 'Déjà scanné', scan.id, 'Supprimez-le dans « Scannés » si c\'est une erreur.');
+    const existing = state.scanned.find((entry) => entry.kind === 'item' && entry.iid === scan.id);
+    if (existing) {
+      // doublon : ignore, sans son ni vibration
+      showInfo('ok', '✓ Déjà scanné', (existing.info && existing.info.type_name) || scan.id);
       return;
     }
+    state.lastVerif = null; // un nouveau scan commence une nouvelle verif
     const expired = !!(scan.peremption && scan.peremption < today());
     const entry = { code: scan.code, kind: 'item', iid: scan.id, expired, info: null, error: '' };
     state.scanned.push(entry);
@@ -370,13 +381,16 @@
     try {
       const pack = await api(`packs/${encodeURIComponent(scan.id)}/`);
       const expired = !!(pack.peremption && parseDate(pack.peremption) < today());
-      if (!state.scanned.some((entry) => entry.kind === 'pack' && entry.code === scan.code)) {
-        state.scanned.push({ code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items });
+      if (state.scanned.some((entry) => entry.kind === 'pack' && entry.code === scan.code)) {
+        showInfo('ok', '✓ Déjà scanné', `Paquet : ${pack.count} × ${pack.type_name}`);
+        return;
       }
+      state.lastVerif = null;
+      state.scanned.push({ code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items });
       if (expired) feedback.bad(); else feedback.good();
       showInfo(expired ? 'bad' : 'ok', `Paquet : ${pack.count} × ${pack.type_name}`,
         pack.peremption ? 'Péremption : ' + fmtDate(pack.peremption) : 'Non périssable',
-        pack.opened ? 'Paquet déjà ouvert' : 'Paquet fermé');
+        pack.opened ? 'Paquet ouvert le ' + fmtDateTime(pack.opened) : 'Paquet fermé');
       save();
       render();
     } catch (e) {
@@ -389,7 +403,7 @@
     if (state.lotId && state.lotId !== scan.id && state.lot) {
       toast(`Lot changé : ${state.lot.name} → nouveau lot`);
     }
-    if (state.lotId !== scan.id) state.lotKey = '';
+    if (state.lotId !== scan.id) { state.lotKey = ''; state.lastVerif = null; }
     if (scan.key) state.lotKey = scan.key;
     await loadLot(scan.id);
     if (!state.lot) return;
@@ -424,7 +438,7 @@
     const status = lotStatus(lot);
     showInfo(status.ok ? 'ok' : 'bad', `${status.label} – ${lot.name}`,
       `${lot.lot_type_name} · ${lot.item_count} item(s)` + (lot.expired_count ? ` · ${lot.expired_count} périmé(s)` : ''),
-      'Dernière vérif : ' + (lot.last_verif ? fmtDate(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
+      'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
       state.lotKey ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
   }
 
@@ -468,6 +482,8 @@
         items: [...scannedIids()],
       });
       state.scanned = [];
+      state.lastVerif = { lotId: state.lot.id, at: new Date().toISOString(), complete: report.complete,
+                          present: report.present.length };
       showReport(report);
       await loadLot(state.lot.id);
       showLotInfo();
@@ -649,6 +665,17 @@
       list.replaceChildren(el('li', { class: 'empty' }, "Scannez l'étiquette d'un lot pour afficher son contenu."));
       return 0;
     }
+    const last = state.lastVerif;
+    if (last && last.lotId === state.lot.id && !state.scanned.length) {
+      const at = new Date(last.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      list.replaceChildren(
+        el('li', { class: 'group ' + (last.complete ? 'ok' : 'bad') },
+          el('div', { class: 'main' },
+            el('div', { class: 'name' }, `${last.complete ? '✔' : '✘'} Vérif enregistrée à ${at}`),
+            el('div', { class: 'sub' }, `${last.present} item(s) présent(s) · lot ${last.complete ? 'complet' : 'incomplet'}`))),
+        el('li', { class: 'empty' }, 'Scannez un item pour commencer une nouvelle vérif.'));
+      return 0;
+    }
     const { groups, others, remaining } = expectedGroups();
     const rows = [];
     for (const group of groups) {
@@ -713,7 +740,7 @@
       el('h2', {}, lot.name),
       el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`),
       el('div', { class: 'banner ' + (lotStatus(lot).ok ? 'ok' : 'bad') }, lotStatus(lot).label),
-      el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDate(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
+      el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
         el('br'), state.lotKey ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider.'),
       el('h3', {}, 'Scannés / attendus'),
       ...(lot.requirements || []).map((row) => requirementRow(row.type_name, fresh[row.type] || 0, row.required)),
@@ -730,8 +757,10 @@
     chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}` : '👤 Non connecté';
     chip.classList.toggle('ok', !!state.user);
     const validateButton = $('#validate');
-    validateButton.disabled = state.busy;
-    validateButton.textContent = state.busy ? 'Envoi…' : blockers(false).length ? 'Valider la vérif…' : 'Valider la vérif';
+    const recorded = state.lastVerif && state.lot && state.lastVerif.lotId === state.lot.id && !state.scanned.length;
+    validateButton.disabled = state.busy || recorded;
+    validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
+      : blockers(false).length ? 'Valider la vérif…' : 'Valider la vérif';
     $('#scan-hint').textContent = !state.lot ? "Visez l'étiquette d'un lot ou un item"
       : !state.user ? 'Scannez votre badge pour pouvoir valider'
         : 'Scannez les items du lot';

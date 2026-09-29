@@ -179,6 +179,8 @@ class App {
     Json                         last_report; // dernier compte rendu de verif
     std::string                  last_report_lot;
     LabelPreviewState            preview;
+    std::string                  last_duplicate_;      // dernier doublon ignore (mention discrete)
+    double                       last_duplicate_time_ = -100.0;
 
     std::vector< std::unique_ptr< AppWindow > > windows;
 

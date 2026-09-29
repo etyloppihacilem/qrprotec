@@ -10,7 +10,7 @@
 
 """Conversion des modeles en dictionnaires JSON pour les API."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 from django.utils import timezone
@@ -28,7 +28,12 @@ def public_url(path: str, **params) -> str:
 
 
 def _date(value):
-    return value.isoformat() if value else None
+    """Date seule (peremption, expiration) ou horodatage en heure locale (verifs, passages)."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return timezone.localtime(value).isoformat(timespec='seconds')
+    return value.isoformat()
 
 
 def _who(value):

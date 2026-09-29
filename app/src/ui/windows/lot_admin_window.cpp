@@ -178,6 +178,8 @@ class LotAdminWindow final : public AppWindow {
       ImGui::PopFont();
       ImGui::TextDisabled("%s - %s - version %d", lot_["id"].str().c_str(), lot_["lot_type_name"].str().c_str(),
                           lot_["version"].integer());
+      ImGui::Text("Dernière vérif : %s%s", display_datetime(lot_["last_verif"]).c_str(),
+                  lot_["last_verif_by"].str().empty() ? "" : (" par " + lot_["last_verif_by"].str()).c_str());
       const LotStatus status = lot_status(lot_);
       status_banner(status == LotStatus::Verified ? "✔ Lot vérifié et complet"
                     : status == LotStatus::Never  ? "✘ Lot jamais vérifié"

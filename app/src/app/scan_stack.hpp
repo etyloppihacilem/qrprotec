@@ -32,6 +32,7 @@ struct ScanEntry {
     bool                       duplicate = false;
     bool                       warning   = false; // item signale disparu/supprime...
     std::vector< std::string > pack_items;       // iids contenus dans un paquet scelle
+    double                     highlight_until = 0.0; // rescanne : ligne surlignee brievement
     Json                       data;             // reponse de l'API
 };
 
@@ -47,6 +48,7 @@ class ScanStack {
   public:
     ScanEntry &add(const ParsedScan &scan, ScanSource source);
     ScanEntry *find(int id);
+    ScanEntry *find_code(const std::string &raw); // entree deja scannee avec ce code (hors erreurs)
     void       remove(int id);
     void       remove_duplicates();
     void       remove_errors();

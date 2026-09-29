@@ -79,7 +79,7 @@ class LotsWindow final : public AppWindow {
       ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, compact ? 70.0f : 80.0f);
       ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, compact ? 150.0f : 160.0f);
       if (!compact)
-        ImGui::TableSetupColumn("Dernière vérif", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn("Dernière vérif", ImGuiTableColumnFlags_WidthFixed, 180.0f);
       ImGui::TableHeadersRow();
       const std::string needle = lower(filter_);
       for (const Json &lot : app.catalog.lots.items()) {

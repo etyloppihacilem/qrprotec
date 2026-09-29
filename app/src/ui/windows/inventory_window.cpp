@@ -476,7 +476,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(display_date(pack["peremption"]).c_str());
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(display_date(pack["opened"]).c_str());
+        ImGui::TextUnformatted(display_datetime(pack["opened"]).c_str());
         ImGui::TableNextColumn();
         ImGui::PushID(id.c_str());
         if (primary_button("Ouvrir et imprimer"))

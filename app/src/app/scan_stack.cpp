@@ -38,6 +38,13 @@ ScanEntry *ScanStack::find(int id) {
   return nullptr;
 }
 
+ScanEntry *ScanStack::find_code(const std::string &raw) {
+  for (ScanEntry &entry : entries_)
+    if (entry.scan.raw == raw && entry.state != EntryState::Error)
+      return &entry;
+  return nullptr;
+}
+
 void ScanStack::refresh_duplicates() {
   std::set< std::string > seen;
   for (ScanEntry &entry : entries_) {

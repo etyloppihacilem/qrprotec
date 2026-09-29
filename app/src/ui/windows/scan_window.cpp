@@ -74,6 +74,10 @@ class ScanWindow final : public AppWindow {
       const float footer = ImGui::GetFrameHeightWithSpacing() * (app.privileged() ? 5.5f : 3.5f);
       const auto &entries = app.stack.entries();
       ImGui::Text("%zu scan(s), %zu item(s)", entries.size(), app.stack.iids().size());
+      if (ImGui::GetTime() - app.last_duplicate_time_ < 3.0) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("· déjà scanné : %s", app.last_duplicate_.c_str());
+      }
       if (app.stack.expired_count() > 0) {
         ImGui::SameLine();
         ImGui::TextColored(colors::red, "- %zu périmé(s) !", app.stack.expired_count());
@@ -89,7 +93,11 @@ class ScanWindow final : public AppWindow {
         // le dernier scan en haut
         for (auto entry = entries.rbegin(); entry != entries.rend(); ++entry) {
           ImGui::TableNextRow();
-          if (entry->expired || entry->state == EntryState::Error)
+          const bool highlighted = ImGui::GetTime() < entry->highlight_until;
+          if (highlighted) {
+            row_color(ImVec4(0.25f, 0.55f, 0.95f, 1.0f), 0.45f); // rescanne : bref surlignage
+            ImGui::SetScrollHereY(0.5f);
+          } else if (entry->expired || entry->state == EntryState::Error)
             row_color(colors::red, 0.55f);
           else if (entry->duplicate || entry->warning)
             row_color(colors::yellow, 0.45f);
@@ -136,7 +144,7 @@ class ScanWindow final : public AppWindow {
         stack.remove_duplicates();
         stack.remove_errors();
       }
-      ImGui::SetItemTooltip("Retire les doublons et les codes en erreur.");
+      ImGui::SetItemTooltip("Retire les codes en erreur (inconnus).");
       ImGui::SameLine();
       if (danger_button("Vider la pile", ImVec2(third, 0)))
         stack.clear();

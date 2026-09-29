@@ -38,8 +38,9 @@ std::string display_datetime(const Json &value) {
   const auto        date = Date::parse(text);
   if (!date)
     return "-";
+  // horodatage en heure locale (le serveur l'envoie deja converti)
   if (text.size() >= 16 && text[10] == 'T')
-    return date->display() + " " + text.substr(11, 5);
+    return date->display() + " à " + text.substr(11, 5);
   return date->display();
 }
 
@@ -555,14 +556,21 @@ void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
 void App::handle_scan(const std::string &code, ScanSource source) {
   note_activity();
   const ParsedScan scan = parse_scan(code);
+  // scanner deux fois la meme chose n'a pas de sens : le doublon est ignore, sans signal sonore
+  if (scan.kind == ScanKind::Item || scan.kind == ScanKind::SealedPack) {
+    if (ScanEntry *existing = stack.find_code(scan.raw)) {
+      existing->highlight_until = ImGui::GetTime() + 1.5;
+      last_duplicate_           = existing->title.empty() ? scan.raw : existing->title;
+      last_duplicate_time_      = ImGui::GetTime();
+      return;
+    }
+  }
   switch (scan.kind) {
     case ScanKind::User: login_with_badge(scan, source); return;
     case ScanKind::Lot: scan_lot(scan, source); return;
     case ScanKind::Item: {
       ScanEntry &entry = stack.add(scan, source);
       const int  id    = entry.id;
-      if (entry.duplicate)
-        notify("Déjà scanné : " + scan.id + " (retirez le doublon si c'est une erreur).");
       if (entry.expired) {
         feedback.error(source, settings);
         notify("PÉRIMÉ : " + scan.id + " (" + scan.peremption->display() + ")", true);
