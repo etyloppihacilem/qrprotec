@@ -107,8 +107,17 @@ class VerifWindow final : public AppWindow {
         ImGui::TextDisabled("%s", item["iid"].str().c_str());
       };
 
+      int added = 0, known_scanned = 0;
+      for (const std::string &iid : scanned)
+        if (!expected.count(iid))
+          ++added;
+        else
+          ++known_scanned;
+      // seulement des items qui ne sont pas dans le lot : probablement un reassort, pas une verif
+      const bool restock = added > 0 && known_scanned == 0;
+
       ImGui::SeparatorText("À scanner");
-      const float footer = ImGui::GetFrameHeightWithSpacing() * 3.2f;
+      const float footer = ImGui::GetFrameHeightWithSpacing() * (restock ? 4.4f : 3.2f);
       if (ImGui::BeginTable("expected", 3,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, -footer))) {
@@ -172,10 +181,6 @@ class VerifWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
-      int added = 0;
-      for (const std::string &iid : scanned)
-        if (!expected.count(iid))
-          ++added;
       if (remaining == 0)
         status_banner("✔ Tout est scanné : le lot sera complet", colors::green, 1.0f);
       else
@@ -184,7 +189,16 @@ class VerifWindow final : public AppWindow {
                       colors::red, 1.0f);
 
       ImGui::BeginDisabled(!app.verif_key_ok() || verif.submitting);
-      if (primary_button(verif.submitting ? "Envoi..." : "Valider la vérif", ImVec2(ImGui::GetContentRegionAvail().x * 0.6f, 0)))
+      if (restock) {
+        const std::string label = "Ajouter " + std::to_string(added) + " item(s) au lot – réassort, sans vérif";
+        if (warning_button(label.c_str(), ImVec2(-1, 0)))
+          app.restock_verif();
+        ImGui::SetItemTooltip("Aucun item déjà présent n'a été scanné : les items sont simplement ajoutés au lot.\n"
+                              "Le lot sera signalé « vérif recommandée » (orange) pour que la personne suivante\n"
+                              "fasse une vérif complète.");
+      }
+      if (primary_button(verif.submitting ? "Envoi..." : restock ? "Valider une vérif complète" : "Valider la vérif",
+                         ImVec2(ImGui::GetContentRegionAvail().x * 0.6f, 0)))
         app.submit_verif();
       ImGui::EndDisabled();
       ImGui::SameLine();

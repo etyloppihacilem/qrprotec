@@ -270,6 +270,12 @@ class Lots(models.Model):
     seal_code = models.CharField(max_length=32, blank=True, default='')
     unsealed = models.DateTimeField(blank=True, null=True)
     unsealed_by = models.CharField(max_length=64, blank=True, default='')
+    # Reassort : items ajoutes sans verif complete. Le lot est signale « verif recommandee » (orange)
+    # jusqu'a la prochaine verif.
+    verif_recommended = models.BooleanField(default=False)
+    restocked = models.DateTimeField(blank=True, null=True)
+    restocked_by = models.CharField(max_length=64, blank=True, default='')
+    restocked_count = models.PositiveIntegerField(default=0)  # items ajoutes depuis la derniere verif
     active = models.BooleanField(default=True)
     name = models.CharField(max_length=64)
     name_short = models.CharField(max_length=16)

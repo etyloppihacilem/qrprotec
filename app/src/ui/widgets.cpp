@@ -50,6 +50,10 @@ bool primary_button(const char *label, const ImVec2 &size) {
   return colored_button(label, colors::green, size);
 }
 
+bool warning_button(const char *label, const ImVec2 &size) {
+  return colored_button(label, colors::orange, size);
+}
+
 void stock_bar(int quantity, int minimum, const ImVec2 &size) {
   const ImVec4 color = quantity <= 0 ? colors::red : quantity < minimum ? colors::orange : colors::green;
   float        fraction = minimum > 0 ? static_cast< float >(quantity) / static_cast< float >(minimum) : 1.0f;
@@ -253,7 +257,9 @@ LotStatus lot_status(const Json &lot) {
     return lot["expired_count"].integer() > 0 ? LotStatus::SealedExpired : LotStatus::Sealed;
   if (lot["last_verif"].is_null())
     return LotStatus::Never;
-  return lot["complete"].boolean() ? LotStatus::Verified : LotStatus::Incomplete;
+  if (!lot["complete"].boolean())
+    return LotStatus::Incomplete;
+  return lot["verif_recommended"].boolean() ? LotStatus::Recommended : LotStatus::Verified;
 }
 
 bool lot_ok(LotStatus status) {
@@ -261,6 +267,8 @@ bool lot_ok(LotStatus status) {
 }
 
 ImVec4 lot_status_color(LotStatus status) {
+  if (status == LotStatus::Recommended)
+    return colors::orange;
   return lot_ok(status) ? colors::green : colors::red;
 }
 
@@ -271,6 +279,7 @@ const char *lot_status_label(LotStatus status) {
     case LotStatus::Never: return "✘ Jamais vérifié";
     case LotStatus::Sealed: return "✔ Scellé";
     case LotStatus::SealedExpired: return "✘ Scellé, périmés";
+    case LotStatus::Recommended: return "! Vérif recommandée";
   }
   return "";
 }
@@ -289,8 +298,22 @@ std::string lot_status_banner(const Json &lot) {
     }
     case LotStatus::SealedExpired: return "✘ LOT SCELLÉ MAIS CONTIENT DES PÉRIMÉS – à ouvrir";
     case LotStatus::Verified: return "✔ LOT VÉRIFIÉ ET COMPLET";
+    case LotStatus::Recommended: {
+      banner = "! VÉRIF COMPLÈTE RECOMMANDÉE – réassort";
+      if (lot["restocked_count"].integer() > 0)
+        banner += " de " + std::to_string(lot["restocked_count"].integer()) + " item(s)";
+      if (const auto when = Date::parse(lot["restocked"].str()))
+        banner += " le " + when->display();
+      if (!lot["restocked_by"].str().empty())
+        banner += " par " + lot["restocked_by"].str();
+      return banner;
+    }
     case LotStatus::Never: banner = "✘ LOT JAMAIS VÉRIFIÉ"; break;
-    case LotStatus::Incomplete: banner = "✘ LOT INCOMPLET"; break;
+    case LotStatus::Incomplete:
+      banner = "✘ LOT INCOMPLET";
+      if (lot["verif_recommended"].boolean())
+        banner += " – réassort depuis la dernière vérif";
+      break;
   }
   if (lot["expired_count"].integer() > 0)
     banner += " – contient des périmés";

@@ -983,6 +983,49 @@ void App::verif_target_lot() {
   submit_verif();
 }
 
+// Reassort pendant une verif : seuls des items nouveaux ont ete scannes. Ils sont ajoutes au lot sans
+// toucher aux autres ; le lot passe « verif recommandee » (orange) pour la personne suivante.
+void App::restock_verif() {
+  require_login("ajouter les items au lot", [this]() {
+    if (!verif.active || verif.submitting)
+      return;
+    if (!verif_key_ok()) {
+      notify("Scannez l'étiquette privée du lot pour ajouter des items.", true);
+      return;
+    }
+    Json body;
+    body["items"] = Json::array();
+    for (const std::string &iid : stack.iids())
+      body["items"].push_back(iid);
+    if (body["items"].size() == 0)
+      return;
+    body["user"]            = user_ref();
+    body["key"]             = verif.key;
+    const std::string lot   = verif.lot_id;
+    const std::string name  = verif.lot["name"].str(lot);
+    verif.submitting        = true;
+    api.post("/api/lots/" + url_encode(lot) + "/add/", body, [this, lot, name](const ApiResult &result) {
+      if (verif.lot_id == lot)
+        verif.submitting = false;
+      if (!result.ok) {
+        notify("Ajout refusé : " + result.error, true);
+        return;
+      }
+      notify("Réassort : " + std::to_string(result.data["moved"].size()) + " item(s) ajouté(s) à " + name
+             + ". Vérif complète recommandée.");
+      if (result.data["unknown"].size() > 0)
+        notify(std::to_string(result.data["unknown"].size()) + " item(s) inconnu(s) ignoré(s).", true);
+      stack.clear();
+      if (verif.active && verif.lot_id == lot) {
+        cancel_verif();
+        if (AppWindow *verif_window = window("verif"))
+          verif_window->open = false;
+      }
+      refresh_lots();
+    });
+  });
+}
+
 void App::add_stack_to_lot() {
   require_login("ajouter des items au lot", [this]() {
     if (!stack.target.valid())

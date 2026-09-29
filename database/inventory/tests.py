@@ -248,6 +248,26 @@ class SetupTests(ApiTestCase):
         self.assertNotEqual(Secouristes.objects.get(matricule='R001').key, old_key)
 
 
+class RestockTests(ApiTestCase):
+    def test_restock_recommends_verif(self):
+        new = self.create(self.compresses, self.today + timedelta(days=90), 2)
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertFalse(lot['verif_recommended'])
+        # reassort par l'etiquette privee (API publique : cle du lot)
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/',
+                               {'items': [item.iid for item in new], 'key': self.lot.verif_key, 'name': 'x'}, local=False)
+        self.assertEqual(code, 200)
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertTrue(lot['verif_recommended'])
+        self.assertEqual(lot['restocked_count'], 2)
+        self.assertIsNotNone(lot['restocked'])
+        # une verif complete leve la recommandation
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in new], 'user': 'M001'})
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertFalse(lot['verif_recommended'])
+        self.assertEqual(lot['restocked_count'], 0)
+
+
 class RoleTests(ApiTestCase):
     def badge(self, user):
         return {'matricule': user.matricule, 'key': user.key}

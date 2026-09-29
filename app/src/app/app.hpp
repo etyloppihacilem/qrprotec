@@ -166,6 +166,7 @@ class App {
     void pack_opened(const std::string &pack_id); // paquet ouvert ou referme : met a jour la pile et les listes
     void cancel_verif();
     void submit_verif();
+    void restock_verif(); // reassort : ajoute les items scannes au lot sans verif complete
     bool verif_key_ok() const;
     void add_stack_to_lot();
     void verif_target_lot();

@@ -152,10 +152,11 @@ class ScanWindow final : public AppWindow {
 
       if (stack.target.valid()) {
         ImGui::BeginDisabled(empty);
-        const std::string add = "Ajouter au lot " + stack.target.name;
-        if (primary_button(add.c_str(), ImVec2(-1, 0)))
+        const std::string add = "Ajouter au lot " + stack.target.name + " (réassort)";
+        if (warning_button(add.c_str(), ImVec2(-1, 0)))
           app.add_stack_to_lot();
-        ImGui::SetItemTooltip("Range les items scannés dans ce lot, sans toucher au reste de son contenu.");
+        ImGui::SetItemTooltip("Range les items scannés dans ce lot, sans toucher au reste de son contenu.\n"
+                              "Le lot sera signalé « vérif recommandée » pour la personne suivante.");
         ImGui::EndDisabled();
         if (primary_button("Valider comme vérif", ImVec2(-1, 0)))
           app.verif_target_lot();

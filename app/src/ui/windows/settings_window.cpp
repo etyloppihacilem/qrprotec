@@ -359,7 +359,7 @@ class SettingsWindow final : public AppWindow {
 
 class EditorWindow final : public AppWindow {
   public:
-    EditorWindow() : AppWindow("editor", "Éditeur d'étiquettes", true, true) {}
+    EditorWindow() : AppWindow("editor", "Éditeur d'étiquettes", true, true) { admin_only = true; }
 
     ImGuiWindowFlags flags() const override { return ImGuiWindowFlags_MenuBar; }
     void             draw(App &app) override {

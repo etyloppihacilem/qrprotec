@@ -102,8 +102,8 @@ rôles gestion et admin).
 | Rôle | Front ordinateur | Téléphone |
 |---|---|---|
 | `normal` (Secouriste) | vérifs, pile de scans, ajout aux lots | vérifs, liste des lots |
-| `gestion` | mode privilégié : stocks, inventaire, paquets, lots, éditeur d'étiquettes ; **pas** les Réglages ni les Utilisateurs | + onglet **Stock** (lecture seule) |
-| `admin` | tout, dont Réglages (serveur, étiquettes, notifications SMS…) et Utilisateurs | + onglet **Stock** |
+| `gestion` | mode privilégié : stocks, inventaire, paquets, lots ; **pas** les Réglages, les Utilisateurs ni l'éditeur d'étiquettes | + onglet **Stock** (lecture seule) |
+| `admin` | tout, dont Réglages (serveur, étiquettes, notifications SMS…), Utilisateurs et éditeur d'étiquettes | + onglet **Stock** |
 
 Le rôle se choisit dans **Gestion > Utilisateurs** (admin). La migration `0003_roles` transforme les
 anciens responsables en administrateurs ; `createadmin` crée ou répare un administrateur.
@@ -141,6 +141,12 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
   du scellé l'affiche. Une vérif, un ajout ou un retrait d'items, ou « Briser le scellé », brise le
   scellé : l'ancienne étiquette devient invalide et le lot doit être vérifié. Un lot scellé qui
   contient des périmés est rouge (à ouvrir).
+- **Réassort** : ajouter des items à un lot sans vérif complète (bouton « Ajouter au lot … (réassort) »
+  de la pile, ou, pendant une vérif où seuls des items qui ne sont pas dans le lot ont été scannés,
+  bouton orange « Ajouter N item(s) au lot – réassort, sans vérif » ; même bouton sur le téléphone).
+  Les autres items du lot ne sont pas touchés. Le lot passe **« vérif recommandée »** (orange, avec le
+  nombre d'items, la date et l'auteur du réassort) jusqu'à la prochaine vérif, pour que la personne
+  suivante vérifie tout le lot. Un lot incomplet reste rouge.
 - **Emplacements** : chaque ligne du contenu attendu d'un type de lot peut préciser un emplacement
   (ex : sérum phy dans la pochette bleue du sac de soin), affiché pendant la vérif.
 
@@ -259,7 +265,7 @@ disposition par défaut des fenêtres, signal de mauvais scan.
 
 ### Mode privilégié (badge gestion ou admin)
 
-Fond orange. Menu **Gestion** (Réglages et Utilisateurs réservés au rôle admin) :
+Fond orange. Menu **Gestion** (Réglages, Utilisateurs et Éditeur d'étiquettes réservés au rôle admin) :
 
 - **État des stocks** : barre par type, verte au-dessus du minimum, orange en dessous, rouge à 0,
   avec « quantité/minimum » (ex : `32/100`).
@@ -273,7 +279,7 @@ Fond orange. Menu **Gestion** (Réglages et Utilisateurs réservés au rôle adm
   scellé) et bris du scellé.
 - **Utilisateurs** (admin) : création, rôle (secouriste, gestion, admin), renouvellement et impression
   des badges.
-- **Éditeur d'étiquettes** : modèles avec usage (item, paquet, lot public, lot privé, scellé, badge),
+- **Éditeur d'étiquettes** (admin) : modèles avec usage (item, paquet, lot public, lot privé, scellé, badge),
   onglet **Placeholders** listant les `{{placeholders}}` disponibles, textes, QR codes et images
   (logo PNG ou JPEG).
 - **Réglages** : dont les notifications SMS. Sans modèle choisi pour un usage, le premier modèle du
