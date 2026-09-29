@@ -20,12 +20,15 @@ LOCAL_TOKEN_HEADER = 'HTTP_X_QRPROTEC_TOKEN'
 class RoleWSGIHandler:
     """Enveloppe WSGI qui marque les requetes selon le serveur (port) qui les a recues."""
 
-    def __init__(self, application, role):
+    def __init__(self, application, role, scheme=None):
         self.application = application
         self.role = role
+        self.scheme = scheme  # 'https' quand le serveur de developpement chiffre lui-meme (serve --https)
 
     def __call__(self, environ, start_response):
         environ[ROLE_ENVIRON_KEY] = self.role
+        if self.scheme:
+            environ['wsgi.url_scheme'] = self.scheme
         return self.application(environ, start_response)
 
 

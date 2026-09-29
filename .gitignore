@@ -75,3 +75,6 @@ celerybeat.pid
 # Fichiers de secrets / clés
 *.pem
 secrets.json
+
+# Certificats HTTPS de developpement (manage.py serve --https)
+.dev-certs/

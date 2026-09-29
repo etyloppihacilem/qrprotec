@@ -29,6 +29,7 @@ poetry install --no-root          # ou : pip install django djangorestframework
 python manage.py migrate
 python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001
 python manage.py createadmin M001 Nom Prenom   # premier responsable (ou badge responsable perdu)
+python manage.py serve --https    # API publique en HTTPS (certificat de développement, tests sur téléphone)
 python manage.py test inventory
 ```
 
@@ -108,6 +109,11 @@ ouvre donc directement la bonne vue. Les fichiers sont dans `database/inventory/
   changer de lot et de se déconnecter.
 - La liste en cours est conservée si la page est rechargée. La clé présente dans l'URL est retirée de
   la barre d'adresse.
+
+Pour tester sur un téléphone du réseau local : `python manage.py serve --https`, puis ouvrir
+`https://192.168.1.201:8000/verif` et accepter l'avertissement du certificat auto-signé (généré dans
+`database/.dev-certs/`, non versionné, pour localhost et les hôtes autorisés). `--cert` et `--key`
+permettent d'utiliser un vrai certificat.
 
 La caméra n'est accessible qu'en **HTTPS** (ou sur `localhost`) : l'API publique doit être derrière
 un reverse proxy HTTPS, sur le domaine de `QRPROTEC_PUBLIC_BASE_URL`.
