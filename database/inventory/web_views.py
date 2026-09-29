@@ -25,6 +25,7 @@ ASSETS = {
     'app.js': 'text/javascript; charset=utf-8',
     'app.css': 'text/css; charset=utf-8',
     'vendor/jsQR.js': 'text/javascript; charset=utf-8',
+    'scanner.js': 'text/javascript; charset=utf-8',
     'manifest.webmanifest': 'application/manifest+json',
 }
 
@@ -40,6 +41,14 @@ def page(request):
     response = _file(WEB_DIR / 'index.html', 'text/html; charset=utf-8', 'no-cache')
     response['Permissions-Policy'] = 'camera=(self)'
     response['Referrer-Policy'] = 'no-referrer'  # l'URL peut contenir la cle du lot ou du badge
+    return response
+
+
+def scanner_page(request):
+    """Page du telephone-douchette (QR code affiche par le front : scanner?s=SESSION&k=CLE)."""
+    response = _file(WEB_DIR / 'scanner.html', 'text/html; charset=utf-8', 'no-cache')
+    response['Permissions-Policy'] = 'camera=(self)'
+    response['Referrer-Policy'] = 'no-referrer'
     return response
 
 

@@ -363,3 +363,158 @@ class SmsTests(ApiTestCase):
         self.assertEqual(body['sent'], 2)
         code, settings_body = self.call('GET', '/api/notifications/')
         self.assertEqual(settings_body['recipients'][0]['last_status'], 'Envoyé')
+
+
+class RemoteScannerTests(TestCase):
+    """Telephone-douchette : vrai serveur `serve` (deux ports) et clients WebSocket bruts."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import threading
+        from django.core.servers.basehttp import WSGIServer, get_internal_wsgi_application
+        from .management.commands.serve import run_server
+        from .middleware import RoleWSGIHandler
+        from .remote_scanner import hub
+        cls.hub = hub
+        hub.enabled = True
+        application = get_internal_wsgi_application()
+        cls.ports = {}
+        for role in ('public', 'local'):
+            port = cls._free_port()
+            cls.ports[role] = port
+            threading.Thread(target=run_server, daemon=True,
+                             args=('127.0.0.1', port, RoleWSGIHandler(application, role), WSGIServer, role)).start()
+        import time
+        time.sleep(0.3)
+
+    @staticmethod
+    def _free_port():
+        import socket
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            return sock.getsockname()[1]
+
+    def http(self, role, method, path, body=None):
+        import http.client
+        connection = http.client.HTTPConnection('127.0.0.1', self.ports[role], timeout=5)
+        connection.request(method, path, json.dumps(body) if body is not None else None,
+                           {'Content-Type': 'application/json'})
+        response = connection.getresponse()
+        data = response.read()
+        is_json = response.getheader('Content-Type', '').startswith('application/json')
+        return response.status, (json.loads(data) if is_json and data else None)
+
+    def ws(self, role, path):
+        return RawWebSocket('127.0.0.1', self.ports[role], path)
+
+    def create_session(self, minutes=5):
+        code, body = self.http('local', 'POST', '/api/remote-scanner/', {'timeout_minutes': minutes})
+        self.assertEqual(code, 201)
+        from urllib.parse import parse_qs, urlsplit
+        query = parse_qs(urlsplit(body['url']).query)
+        return body, query['s'][0], query['k'][0]
+
+    def test_relay_between_phone_and_front(self):
+        body, session_id, key = self.create_session()
+        self.assertTrue(body['url'].startswith('https://example.com/scanner?'))
+        front = self.ws('local', f'/ws/scanner/front?s={session_id}')
+        self.assertEqual(front.receive()['type'], 'hello')
+        phone = self.ws('public', f'/ws/scanner/phone?s={session_id}&k={key}')
+        hello = phone.receive()
+        self.assertEqual(hello, {**hello, 'type': 'hello', 'front_connected': True})
+        self.assertEqual(front.receive(), {**front.last, 'type': 'phone', 'connected': True})
+        phone.send({'type': 'scan', 'code': 'compre20271231000000A1', 'id': 7})
+        self.assertEqual(front.receive(), {'type': 'scan', 'code': 'compre20271231000000A1', 'id': 7})
+        self.assertEqual(phone.receive()['ok'], True)
+        front.send({'type': 'feedback', 'result': 'error', 'message': 'PÉRIMÉ'})
+        self.assertEqual(phone.receive(), {'type': 'feedback', 'result': 'error', 'message': 'PÉRIMÉ'})
+        # fermeture depuis le poste : le telephone est prevenu, la cle ne marche plus
+        front.send({'type': 'close'})
+        self.assertEqual(phone.receive()['type'], 'closed')
+        code, _ = self.http('public', 'GET', f'/api/remote-scanner/check/?s={session_id}&k={key}')
+        self.assertEqual(code, 404)
+
+    def test_access_rules(self):
+        body, session_id, key = self.create_session()
+        # mauvaise cle, route du poste sur l'API publique, creation sur l'API publique
+        self.assertEqual(self.ws('public', f'/ws/scanner/phone?s={session_id}&k=faux').status, 404)
+        self.assertEqual(self.ws('public', f'/ws/scanner/front?s={session_id}').status, 404)
+        code, _ = self.http('public', 'POST', '/api/remote-scanner/', {})
+        self.assertEqual(code, 404)
+        code, check = self.http('public', 'GET', f'/api/remote-scanner/check/?s={session_id}&k={key}')
+        self.assertEqual(code, 200)
+        # les requetes HTTP ordinaires passent toujours
+        code, health = self.http('public', 'GET', '/api/health/')
+        self.assertTrue(health['remote_scanner'])
+
+    def test_session_expires_after_disconnection(self):
+        import time
+        body, session_id, key = self.create_session(minutes=1)
+        front = self.ws('local', f'/ws/scanner/front?s={session_id}')
+        front.receive()
+        phone = self.ws('public', f'/ws/scanner/phone?s={session_id}&k={key}')
+        phone.receive()
+        front.receive()
+        phone.close()
+        self.assertEqual(front.receive(), {**front.last, 'type': 'phone', 'connected': False})
+        session = self.hub.get(session_id)
+        self.assertEqual(self.hub.reap(time.monotonic() + 30), [])       # encore dans le delai
+        self.assertEqual(self.hub.reap(session.phone_lost + 61), [session_id])
+        self.assertEqual(front.receive()['type'], 'closed')
+        self.assertEqual(self.ws('public', f'/ws/scanner/phone?s={session_id}&k={key}').status, 404)
+
+
+class RawWebSocket:
+    """Client WebSocket minimal pour les tests (trames texte masquees)."""
+
+    def __init__(self, host, port, path):
+        import base64
+        import os
+        import socket
+        self.sock = socket.create_connection((host, port), timeout=5)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall((f'GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n'
+                           f'Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n').encode())
+        head = b''
+        while b'\r\n\r\n' not in head:
+            chunk = self.sock.recv(1)
+            if not chunk:
+                break
+            head += chunk
+        self.status = int(head.split(b' ')[1]) if head else 0
+        self.last = None
+
+    def send(self, message):
+        import os
+        payload = json.dumps(message).encode()
+        mask = os.urandom(4)
+        header = bytes([0x81, 0x80 | len(payload)]) if len(payload) < 126 else \
+            bytes([0x81, 0x80 | 126]) + len(payload).to_bytes(2, 'big')
+        self.sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+
+    def _exact(self, size):
+        data = b''
+        while len(data) < size:
+            chunk = self.sock.recv(size - len(data))
+            if not chunk:
+                raise ConnectionError('fermee')
+            data += chunk
+        return data
+
+    def receive(self):
+        while True:
+            first, second = self._exact(2)
+            length = second & 0x7F
+            if length == 126:
+                length = int.from_bytes(self._exact(2), 'big')
+            payload = self._exact(length)
+            if first & 0x0F == 0x1:
+                self.last = json.loads(payload)
+                return self.last
+            if first & 0x0F == 0x8:
+                raise ConnectionError('fermee par le serveur')
+
+    def close(self):
+        self.sock.sendall(bytes([0x88, 0x80]) + b'\0\0\0\0')
+        self.sock.close()

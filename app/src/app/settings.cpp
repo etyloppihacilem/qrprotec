@@ -47,6 +47,7 @@ AppSettings AppSettings::defaults() {
   settings.layout["stock"] = { false, 0.05f, 0.06f, 0.55f, 0.65f };
   settings.layout["inventory"] = { false, 0.07f, 0.08f, 0.58f, 0.75f };
   settings.layout["pack"]      = { false, 0.30f, 0.15f, 0.40f, 0.55f };
+  settings.layout["phone"]     = { false, 0.30f, 0.08f, 0.36f, 0.80f };
   settings.layout["lot_admin"] = { false, 0.09f, 0.10f, 0.58f, 0.75f };
   settings.layout["users"] = { false, 0.11f, 0.12f, 0.60f, 0.65f };
   settings.layout["settings"] = { false, 0.20f, 0.05f, 0.45f, 0.85f };
@@ -127,6 +128,8 @@ void AppSettings::load() {
       templates_dir = value;
     else if (key.rfind("template.", 0) == 0)
       label_templates[key.substr(9)] = value;
+    else if (key == "remote_scanner_timeout_minutes")
+      remote_scanner_timeout_minutes = std::clamp(to_int(value, 5), 1, 24 * 60);
     else if (key == "sound_enabled")
       sound_enabled = to_int(value, 1) != 0;
     else if (key == "beep_command")
@@ -200,6 +203,7 @@ bool AppSettings::save(std::string &error) const {
          << "printer_density=" << print.density << '\n'
          << "printer_label_type=" << print.label_type << '\n'
          << "sound_enabled=" << (sound_enabled ? 1 : 0) << '\n'
+         << "remote_scanner_timeout_minutes=" << remote_scanner_timeout_minutes << '\n'
          << "beep_command=" << beep_command << '\n'
          << "flash_enabled=" << (flash_enabled ? 1 : 0) << '\n'
          << "flash_in_sdk_mode=" << (flash_in_sdk_mode ? 1 : 0) << '\n'

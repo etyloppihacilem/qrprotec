@@ -114,6 +114,8 @@ void Feedback::play_beep(const AppSettings &settings) {
 
 void Feedback::error(ScanSource source, const AppSettings &settings) {
   const bool from_sdk = source == ScanSource::Sdk;
+  if (source == ScanSource::Phone && on_phone_error)
+    on_phone_error(); // le telephone flashe et vibre, comme le bip de la douchette
   if (from_sdk && inateck_.sdk_connected())
     inateck_.signal_error(settings.scanner_signal);
   if (!from_sdk || !inateck_.sdk_connected())

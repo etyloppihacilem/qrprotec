@@ -13,6 +13,7 @@
 #include "../inateck/inateck_worker.hpp"
 #include "settings.hpp"
 
+#include <functional>
 #include <string>
 
 namespace qrprotec {
@@ -28,6 +29,8 @@ class Feedback {
     void error(ScanSource source, const AppSettings &settings);
     void test(const AppSettings &settings); // pour la fenetre Reglages
     void draw_overlay();                    // a appeler a chaque frame, apres les fenetres
+
+    std::function< void() > on_phone_error; // mauvais scan venant du telephone-douchette
 
   private:
     void play_beep(const AppSettings &settings);

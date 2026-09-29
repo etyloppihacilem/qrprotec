@@ -13,6 +13,7 @@
 #include "../core/json.hpp"
 #include "../core/placeholders.hpp"
 #include "../net/api_client.hpp"
+#include "../net/remote_scanner_link.hpp"
 #include "feedback.hpp"
 #include "print_queue.hpp"
 #include "scan_stack.hpp"
@@ -72,6 +73,23 @@ struct VerifSession {
     Json        lot; // detail du lot (items attendus, exigences)
     bool        loading    = false;
     bool        submitting = false;
+};
+
+// Session de telephone-douchette (voir database/inventory/remote_scanner.py)
+struct RemoteSession {
+    bool        active   = false;
+    bool        creating = false;
+    std::string id;
+    std::string url;          // contenu du QR code a scanner avec le telephone
+    int         timeout = 0;  // secondes de deconnexion avant fermeture
+    bool        phone_connected = false;
+    bool        phone_seen      = false; // le telephone s'est connecte au moins une fois
+    std::string phone_agent;
+    double      phone_deadline = -1.0; // ImGui::GetTime() de fermeture si le telephone reste deconnecte
+    int         scans          = 0;
+    std::string ended_reason;          // derniere session fermee : pourquoi
+    bool        feedback_pending = false;
+    std::string feedback_message;
 };
 
 struct LabelPreviewState {
@@ -145,6 +163,10 @@ class App {
     void stack_to_stock();
     void stock_verif();
 
+    // Telephone-douchette
+    void start_remote_session();
+    void close_remote_session(const std::string &reason = "fermée depuis le poste");
+
     // Donnees
     void refresh_item_types();
     void refresh_lot_types();
@@ -184,12 +206,15 @@ class App {
     Json                         last_report; // dernier compte rendu de verif
     std::string                  last_report_lot;
     LabelPreviewState            preview;
+    RemoteSession                remote;
+    RemoteScannerLink            remote_link;
     std::string                  last_duplicate_;      // dernier doublon ignore (mention discrete)
     double                       last_duplicate_time_ = -100.0;
 
     std::vector< std::unique_ptr< AppWindow > > windows;
 
   private:
+    void poll_remote();
     void resolve_item(int entry_id);
     void resolve_pack(int entry_id);
     void login_with_badge(const ParsedScan &scan, ScanSource source);

@@ -30,6 +30,7 @@ from . import notifications
 from . import serializers as ser
 from . import services
 from .idendity import identity_from_request
+from .remote_scanner import hub as scanner_hub
 from .models import (
     TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings, SealedPacks,
     Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
@@ -112,6 +113,7 @@ def health(request):
         'api': 'local' if is_local(request) else 'public',
         'today': timezone.localdate().isoformat(),
         'public_base_url': qrprotec_setting('PUBLIC_BASE_URL'),
+        'remote_scanner': scanner_hub.enabled,
     })
 
 
@@ -635,3 +637,46 @@ def sms_test(request):
     identity = identity_from_request(request.data, True)
     count = notifications.send(f'QRProtec : SMS de test envoyé par {services.display_name(identity)}.', recipients)
     return Response({'sent': count})
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Telephone utilise comme douchette (voir remote_scanner.py)
+# ----------------------------------------------------------------------------------------------------------------------
+
+def _scanner_session_dict(session):
+    data = session.status()
+    data['url'] = ser.public_url('scanner', s=session.id, k=session.key)
+    return data
+
+
+@api_view(['POST'])
+@handle_errors
+def remote_scanner_sessions(request):
+    """Cree une session : le front affiche le QR code de `url`, puis se connecte a /ws/scanner/front?s=ID."""
+    if not scanner_hub.enabled:
+        raise ApiError("Le téléphone-douchette nécessite le serveur `manage.py serve` (WebSockets)",
+                       status.HTTP_503_SERVICE_UNAVAILABLE)
+    minutes = parse_int(request.data.get('timeout_minutes', 5), 'timeout_minutes', 1, 24 * 60)
+    session = scanner_hub.create(minutes * 60)
+    return Response(_scanner_session_dict(session), status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET', 'DELETE'])
+@handle_errors
+def remote_scanner_session(request, session_id):
+    session = scanner_hub.get(session_id)
+    if session is None:
+        raise ApiError('Session fermée', status.HTTP_404_NOT_FOUND)
+    if request.method == 'DELETE':
+        scanner_hub.close(session_id, 'fermée depuis le poste')
+        return Response({'closed': True})
+    return Response(_scanner_session_dict(session))
+
+
+@api_view(['GET'])
+def remote_scanner_check(request):
+    """Public (telephone) : la session existe-t-elle encore ? Exige la cle du QR code."""
+    session = scanner_hub.check_key(request.query_params.get('s', ''), request.query_params.get('k', ''))
+    if session is None:
+        return error('Session fermée : scannez un nouveau QR code sur le poste', status.HTTP_404_NOT_FOUND)
+    return Response({'open': True, 'front_connected': session.front is not None})

@@ -46,7 +46,31 @@ Deux API sur deux ports, sélectionnées par le port qui reçoit la requête
   `QRPROTEC_LOCAL_API_TOKEN` dans l'en-tête `X-QRProtec-Token`.
 
 En production : `gunicorn qrprotecDB.wsgi:public_application` et
-`gunicorn qrprotecDB.wsgi:local_application` sur deux ports.
+`gunicorn qrprotecDB.wsgi:local_application` sur deux ports. Le **téléphone-douchette** utilise des
+WebSockets gérés par `manage.py serve` uniquement (sessions en mémoire partagées par les deux API) :
+pour s'en servir, lancer le back avec `serve` derrière le reverse proxy HTTPS, en transmettant
+l'upgrade WebSocket (nginx : `proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";`).
+
+### Téléphone-douchette (WebSocket)
+
+Un téléphone peut servir de douchette : ses scans arrivent dans la pile du front comme ceux de la
+douchette (`ScanSource::Phone`).
+
+1. Le front crée une session (`POST /api/remote-scanner/`, délai de déconnexion en minutes) et affiche
+   un QR code vers `<base>/scanner?s=SESSION&k=CLE`, puis se connecte à `/ws/scanner/front?s=SESSION`
+   (API locale uniquement, même contrôle d'adresse et de jeton que l'API locale).
+2. Le téléphone scanne ce QR code avec son appareil photo : la page de scan s'ouvre et se connecte à
+   `/ws/scanner/phone?s=SESSION&k=CLE` (API publique, HTTPS obligatoire pour la caméra).
+3. Chaque code lu est relayé au front ; le front renvoie les erreurs (produit périmé, code inconnu)
+   avec leur message, et le téléphone clignote en rouge, bipe et vibre.
+4. Si le téléphone (ou le poste) reste déconnecté plus longtemps que le délai choisi (5 min par
+   défaut, réglable dans la fenêtre du front), la session est fermée : la clé du QR code ne marche
+   plus et il faut en générer un nouveau. Les reconnexions courtes (écran éteint, réseau) sont
+   automatiques. `GET /api/remote-scanner/check/?s=..&k=..` (public) indique si la session existe.
+
+Le relais est dans `inventory/remote_scanner.py` (protocole détaillé en tête de fichier), la page du
+téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 
 ### Variables d'environnement
 
@@ -206,6 +230,11 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   en mode HID, bip de l'ordinateur et clignotement rouge de l'écran.
 - **Douchette** : la recherche et la connexion sont accessibles à tous ; les paramètres (mode HID,
   volume, préfixe…) et la déconnexion demandent un utilisateur connecté.
+- **Téléphone-douchette** (menu Douchette > Téléphone comme douchette) : « Créer une session » affiche
+  un QR code à scanner avec l'appareil photo du téléphone ; les codes scannés par le téléphone arrivent
+  dans la pile. La fenêtre et la barre de menu indiquent si le téléphone est connecté et, sinon, le
+  temps restant avant la fermeture de la session (délai réglable). « Nouveau QR code » et « Fermer la
+  session » sont dans la même fenêtre.
 - **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté et les
   fenêtres remises à leur place par défaut.
 

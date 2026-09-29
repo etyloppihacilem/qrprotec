@@ -66,6 +66,11 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_users_window());
   windows.push_back(make_editor_window());
   windows.push_back(make_settings_window());
+  windows.push_back(make_phone_window());
+  feedback.on_phone_error = [this]() {
+    remote.feedback_pending = true;
+    remote.feedback_message.clear();
+  };
   apply_default_open_state();
   refresh_item_types();
   refresh_lots();
@@ -152,6 +157,7 @@ void App::begin_frame() {
     note_activity();
   inateck.set_settings_unlocked(logged_in());
   api.poll();
+  poll_remote();
   for (const ScanEvent &event : inateck.take_scans())
     handle_scan(event.code, event.source);
   check_inactivity();
@@ -229,6 +235,9 @@ void App::draw_menu_bar() {
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Douchette")) {
+      if (ImGui::MenuItem("Téléphone comme douchette...", nullptr, remote.active))
+        open_window("phone");
+      ImGui::Separator();
       inateck.draw_menu();
       ImGui::EndMenu();
     }
@@ -241,9 +250,13 @@ void App::draw_menu_bar() {
     else if (print.pending > 0)
       printing = "Impression : " + std::to_string(print.pending) + " en attente";
     const std::string status = api.online() ? "API en ligne" : "API hors ligne";
+    const std::string phone  = !remote.active          ? ""
+                             : remote.phone_connected ? "Téléphone connecté"
+                             : remote.phone_seen      ? "Téléphone déconnecté"
+                                                      : "Téléphone en attente";
     const std::string who    = logged_in() ? user->display() + (privileged() ? " (responsable)" : "") : "Non connecté : scannez votre badge";
     const float       button = logged_in() ? ImGui::CalcTextSize("Se déconnecter").x + ImGui::GetStyle().FramePadding.x * 2 : 0.0f;
-    const float       width  = ImGui::CalcTextSize((printing + status + who).c_str()).x + button + 80.0f;
+    const float       width  = ImGui::CalcTextSize((printing + phone + status + who).c_str()).x + button + 100.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - width));
     if (!printing.empty()) {
       ImGui::PushStyleColor(ImGuiCol_Text, print.paused ? ImVec4(0.8f, 0.1f, 0.1f, 1) : ImVec4(0.2f, 0.2f, 0.2f, 1));
@@ -260,6 +273,13 @@ void App::draw_menu_bar() {
           printer.cancel();
         ImGui::EndMenu();
       }
+      ImGui::Separator();
+    }
+    if (!phone.empty()) {
+      ImGui::PushStyleColor(ImGuiCol_Text, remote.phone_connected ? ImVec4(0.1f, 0.55f, 0.1f, 1) : ImVec4(0.8f, 0.1f, 0.1f, 1));
+      if (ImGui::MenuItem(phone.c_str()))
+        open_window("phone");
+      ImGui::PopStyleColor();
       ImGui::Separator();
     }
     ImGui::TextColored(api.online() ? ImVec4(0.1f, 0.55f, 0.1f, 1) : ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", status.c_str());
@@ -455,6 +475,9 @@ void App::draw_setup_modal() {
 }
 
 void App::notify(const std::string &message, bool error) {
+  // mauvais scan venant du telephone : le message accompagne le signal d'erreur envoye au telephone
+  if (error && remote.feedback_pending && remote.feedback_message.empty())
+    remote.feedback_message = message;
   toasts_.push_back({ message, error, ImGui::GetTime() });
   if (toasts_.size() > 6)
     toasts_.erase(toasts_.begin());
@@ -550,6 +573,95 @@ void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
       refresh_lot_types();
     }
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Telephone-douchette : le telephone scanne, le serveur relaie par WebSocket, le front traite le code
+// exactement comme un scan de douchette (ScanSource::Phone).
+
+void App::start_remote_session() {
+  if (remote.creating)
+    return;
+  if (remote.active)
+    close_remote_session("remplacée par une nouvelle session");
+  remote.creating = true;
+  Json body;
+  body["timeout_minutes"] = settings.remote_scanner_timeout_minutes;
+  api.post("/api/remote-scanner/", body, [this](const ApiResult &result) {
+    remote.creating = false;
+    if (!result.ok) {
+      notify("Téléphone-douchette : " + result.error, true);
+      return;
+    }
+    remote                = RemoteSession{};
+    remote.active         = true;
+    remote.id             = result.data["id"].str();
+    remote.url            = result.data["url"].str();
+    remote.timeout        = result.data["timeout"].integer(300);
+    remote.phone_deadline = ImGui::GetTime() + remote.timeout;
+    remote_link.start(settings.api_url, settings.api_token, remote.id);
+  });
+}
+
+void App::close_remote_session(const std::string &reason) {
+  if (!remote.active)
+    return;
+  remote_link.send("{\"type\":\"close\"}");
+  api.remove("/api/remote-scanner/" + url_encode(remote.id) + "/", [](const ApiResult &) {});
+  remote_link.stop();
+  remote              = RemoteSession{};
+  remote.ended_reason = reason;
+}
+
+void App::poll_remote() {
+  if (!remote.active)
+    return;
+  if (remote.feedback_pending) {
+    Json message;
+    message["type"]    = "feedback";
+    message["result"]  = "error";
+    message["message"] = remote.feedback_message;
+    remote_link.send(message.dump());
+    remote.feedback_pending = false;
+  }
+  for (const std::string &text : remote_link.take_messages()) {
+    std::string error;
+    const Json  message = Json::parse(text, &error);
+    if (!error.empty() || !message.is_object())
+      continue;
+    const std::string type    = message["type"].str();
+    if (type == "scan") {
+      ++remote.scans;
+      handle_scan(message["code"].str(), ScanSource::Phone);
+    } else if (type == "hello") {
+      remote.phone_connected = message["phone_connected"].boolean();
+      if (!message["expires_in"].is_null())
+        remote.phone_deadline = ImGui::GetTime() + message["expires_in"].integer();
+    } else if (type == "phone") {
+      remote.phone_connected = message["connected"].boolean();
+      if (remote.phone_connected) {
+        remote.phone_seen  = true;
+        remote.phone_agent = message["agent"].str();
+        notify("Téléphone-douchette connecté.");
+      } else {
+        remote.phone_deadline = ImGui::GetTime() + remote.timeout;
+        notify("Téléphone-douchette déconnecté.", true);
+      }
+    } else if (type == "closed") {
+      const std::string reason = message["reason"].str("session fermée");
+      remote_link.stop();
+      remote              = RemoteSession{};
+      remote.ended_reason = reason;
+      notify("Téléphone-douchette : session fermée (" + reason + ").", true);
+      return;
+    }
+  }
+  if (remote_link.session_gone()) {
+    remote_link.stop();
+    remote              = RemoteSession{};
+    remote.ended_reason = "session expirée";
+    notify("Téléphone-douchette : session expirée, créez un nouveau QR code.", true);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

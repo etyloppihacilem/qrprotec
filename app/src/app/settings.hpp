@@ -54,6 +54,7 @@ struct AppSettings {
 
     // Signal de mauvais scan
     bool               sound_enabled = true;
+    int                remote_scanner_timeout_minutes = 5; // telephone-douchette : fermeture apres deconnexion
     std::string        beep_command; // vide = bip integre (aplay/paplay). %f = fichier wav genere
     bool               flash_enabled     = true;
     bool               flash_in_sdk_mode = true;

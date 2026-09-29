@@ -1,5 +1,6 @@
 #include "../src/core/template.hpp"
 #include "../src/core/template_io.hpp"
+#include "../src/net/websocket.hpp"
 #include "../src/render/raster.hpp"
 
 #include <cassert>
@@ -39,5 +40,23 @@ int main()
     assert(loaded.elements.size() == 1);
     assert(qrprotec::find_placeholders(document).size() == 1);
     std::remove("/tmp/qrprotec-template.json");
+
+    // WebSocket : base64 (cle de la poignee de main) et trames masquees / non masquees
+    assert(qrprotec::base64_encode("") == "");
+    assert(qrprotec::base64_encode("f") == "Zg==");
+    assert(qrprotec::base64_encode("fo") == "Zm8=");
+    assert(qrprotec::base64_encode("foo") == "Zm9v");
+    const std::uint8_t mask[4] = {0x12, 0x34, 0x56, 0x78};
+    for (const std::size_t length : {std::size_t(5), std::size_t(300), std::size_t(70000)}) {
+        const std::string payload(length, 'a');
+        const std::string encoded = qrprotec::ws_encode_frame(1, payload, mask);
+        qrprotec::WebSocketFrame frame;
+        assert(qrprotec::ws_decode_frame(encoded.substr(0, encoded.size() - 1), frame) == 0); // incomplete
+        assert(qrprotec::ws_decode_frame(encoded, frame) == static_cast<long>(encoded.size()));
+        assert(frame.final && frame.opcode == 1 && frame.payload == payload);
+    }
+    const std::string server_frame = std::string("\x81\x05", 2) + "hello"; // serveur : non masquee
+    qrprotec::WebSocketFrame frame;
+    assert(qrprotec::ws_decode_frame(server_frame + "rest", frame) == 7 && frame.payload == "hello");
     return 0;
 }
