@@ -10,7 +10,7 @@
 
 from django.urls import path
 
-from . import views
+from . import views, web_views
 
 # Servies par l'API publique ET l'API locale. Les ecritures exigent une cle sur l'API publique.
 public_patterns = [
@@ -47,4 +47,13 @@ local_patterns = [
     path('users/', views.users),
     path('users/<str:matricule>/', views.user_detail),
     path('users/<str:matricule>/renew-key/', views.user_renew_key),
+]
+
+# Front web mobile : repond aux URLs des QR codes (a la racine du domaine public)
+web_patterns = [
+    path('', web_views.page),
+    path('verif', web_views.page),
+    path('badge', web_views.page),
+    path('pack', web_views.page),
+    path('web/<path:name>', web_views.asset),
 ]

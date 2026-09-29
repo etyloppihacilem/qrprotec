@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#1f2a33">
+  <meta name="referrer" content="no-referrer">
+  <title>QRProtec – Vérif</title>
+  <link rel="manifest" href="web/manifest.webmanifest">
+  <link rel="stylesheet" href="web/app.css">
+</head>
+<body>
+  <!-- Moitie haute : zone de scan -->
+  <section id="camera">
+    <video id="video" playsinline muted></video>
+    <canvas id="frame" hidden></canvas>
+    <div id="viewfinder"><span></span></div>
+    <div id="topbar">
+      <button id="user-chip" class="chip" type="button">Non connecté</button>
+      <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>
+    </div>
+    <div id="scan-hint">Visez un QR code</div>
+    <div id="start" class="overlay">
+      <p>Scanner d'inventaire QRProtec</p>
+      <button id="start-button" class="primary big" type="button">Démarrer la caméra</button>
+      <p id="camera-error" class="error"></p>
+    </div>
+  </section>
+
+  <!-- Moitie basse : informations et listes -->
+  <section id="panel">
+    <div id="info" class="info empty">Scannez l'étiquette d'un lot, un item ou votre badge.</div>
+    <nav id="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="todo" class="active">À scanner <b id="count-todo">0</b></button>
+      <button type="button" role="tab" data-tab="done">Scannés <b id="count-done">0</b></button>
+      <button type="button" role="tab" data-tab="lot">Lot</button>
+    </nav>
+    <div id="views">
+      <div class="view active" data-view="todo"><ul id="todo-list" class="list"></ul></div>
+      <div class="view" data-view="done">
+        <div class="list-tools">
+          <button id="undo" type="button">Annuler le dernier</button>
+          <button id="clear" type="button" class="danger-text">Vider la liste</button>
+        </div>
+        <ul id="done-list" class="list"></ul>
+      </div>
+      <div class="view" data-view="lot"><div id="lot-view"></div></div>
+    </div>
+    <footer id="actions">
+      <button id="validate" class="primary" type="button">Valider la vérif</button>
+      <button id="more" class="secondary" type="button" aria-label="Plus d'actions">⋯</button>
+    </footer>
+  </section>
+
+  <!-- Menu des actions secondaires -->
+  <dialog id="menu">
+    <button type="button" data-action="add">Ajouter les items scannés au lot</button>
+    <button type="button" data-action="manual">Saisir un code à la main</button>
+    <button type="button" data-action="forget-lot">Changer de lot</button>
+    <button type="button" data-action="logout">Se déconnecter</button>
+    <button type="button" data-action="close" class="secondary">Fermer</button>
+  </dialog>
+
+  <!-- Compte rendu de verif -->
+  <dialog id="report"><div id="report-body"></div><button type="button" class="primary" id="report-close">OK</button></dialog>
+
+  <div id="flash"></div>
+  <div id="toast"></div>
+
+  <script src="web/vendor/jsQR.js" defer></script>
+  <script src="web/app.js" defer></script>
+</body>
+</html>

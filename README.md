@@ -85,6 +85,31 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
 - **Paquet fermé** : à la réception, les items sont créés et une seule étiquette de paquet est
   imprimée ; les étiquettes individuelles sont imprimées à l'ouverture.
 
+## Front web (téléphone)
+
+Page unique servie par le back aux adresses mêmes des QR codes : `/verif?lot=…[&key=…]`,
+`/badge?m=…&key=…`, `/pack?id=…` et `/`. Scanner une étiquette avec l'appareil photo du téléphone
+ouvre donc directement la bonne vue. Les fichiers sont dans `database/inventory/web/`.
+
+- **Moitié haute** : caméra arrière et viseur. Décodage natif (`BarcodeDetector`) quand le navigateur
+  le propose, sinon [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0, fourni dans `web/vendor/`,
+  aucun CDN). Lampe si le téléphone le permet, écran maintenu allumé pendant le scan.
+- **Moitié basse** : informations du dernier scan (item : type, péremption, emplacement ; lot : état,
+  dernière vérif) et trois onglets : **À scanner** (items attendus du lot, en orange, les périmés en
+  rouge), **Scannés** (avec ✕ par ligne, « Annuler le dernier », « Vider la liste ») et **Lot**
+  (exigences scannées / attendues).
+- **Produit périmé ou code inconnu** : écran rouge qui clignote, bip grave et vibration (la vibration
+  n'existe pas sur iPhone). Un item déjà scanné n'est pas ajouté une seconde fois.
+- **Badge** : scanner son badge connecte l'utilisateur (conservé sur le téléphone jusqu'à
+  déconnexion). **Valider la vérif** exige l'étiquette privée du lot et un badge ; le menu ⋯ permet
+  aussi d'ajouter les items scannés au lot, de saisir un code ou un identifiant de lot à la main, de
+  changer de lot et de se déconnecter.
+- La liste en cours est conservée si la page est rechargée. La clé présente dans l'URL est retirée de
+  la barre d'adresse.
+
+La caméra n'est accessible qu'en **HTTPS** (ou sur `localhost`) : l'API publique doit être derrière
+un reverse proxy HTTPS, sur le domaine de `QRPROTEC_PUBLIC_BASE_URL`.
+
 ## Front (ImGui)
 
 ```sh

@@ -198,3 +198,18 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(body['status'], 'deleted')
         code, body = self.call('POST', f'/api/items/{item.iid}/restore/', {})
         self.assertEqual(body['status'], 'active')
+
+
+class WebFrontTests(ApiTestCase):
+    def test_qr_urls_serve_the_web_page(self):
+        for url in ('/', '/verif', f'/verif?lot={self.lot.id}&key=x', '/badge?m=M001&key=x', '/pack?id=1'):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, url)
+            self.assertIn(b'web/app.js', b''.join(response.streaming_content))
+            self.assertEqual(response['Referrer-Policy'], 'no-referrer')
+
+    def test_assets_whitelist(self):
+        self.assertEqual(self.client.get('/web/app.js').status_code, 200)
+        self.assertEqual(self.client.get('/web/vendor/jsQR.js').status_code, 200)
+        self.assertEqual(self.client.get('/web/../views.py').status_code, 404)
+        self.assertEqual(self.client.get('/web/index.html').status_code, 404)

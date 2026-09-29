@@ -1,0 +1,9 @@
+{
+  "name": "QRProtec - Vérif",
+  "short_name": "QRProtec",
+  "start_url": "../verif",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1f2a33",
+  "theme_color": "#1f2a33"
+}

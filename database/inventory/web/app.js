@@ -1,0 +1,717 @@
+/* QRProtec - front web mobile.
+ *
+ * Moitie haute : camera et detection des QR codes (BarcodeDetector natif si disponible, sinon jsQR).
+ * Moitie basse : derniere information scannee et onglets "A scanner" / "Scannes" / "Lot".
+ * Toutes les ecritures passent par l'API publique : la verif exige la cle du lot (etiquette privee)
+ * et un badge utilisateur.
+ */
+'use strict';
+
+(() => {
+  const API = new URL('api/', document.baseURI);
+  const IID_RE = /^[A-Za-z0-9]{6}\d{8}[A-Za-z0-9]{8}$/;
+  const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
+  const STORAGE_USER = 'qrprotec.user';
+  const STORAGE_SESSION = 'qrprotec.session';
+
+  const $ = (selector) => document.querySelector(selector);
+
+  // ------------------------------------------------------------------------------------------------
+  // Etat
+
+  const state = {
+    user: null,        // {matricule, key, nom, prenom, privileged}
+    lot: null,         // detail public du lot (items attendus, exigences)
+    lotId: '',
+    lotKey: '',
+    scanned: [],       // [{code, kind, iid, info, expired, error, items: [iids d'un paquet]}]
+    tab: 'todo',
+    busy: false,
+  };
+
+  function save() {
+    try {
+      localStorage.setItem(STORAGE_SESSION, JSON.stringify({
+        lotId: state.lotId, lotKey: state.lotKey,
+        scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items }) => ({ code, kind, iid, info, expired, error, items })),
+      }));
+      if (state.user) localStorage.setItem(STORAGE_USER, JSON.stringify(state.user));
+      else localStorage.removeItem(STORAGE_USER);
+    } catch (e) { /* stockage indisponible (navigation privee) : la page fonctionne sans */ }
+  }
+
+  function restore() {
+    try {
+      const user = JSON.parse(localStorage.getItem(STORAGE_USER) || 'null');
+      if (user && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
+      const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
+      if (session) {
+        state.lotId = session.lotId || '';
+        state.lotKey = session.lotKey || '';
+        state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // Outils
+
+  function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+
+  function parseDate(value) {
+    if (!value) return null;
+    const m = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(value);
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return isNaN(d) ? null : d;
+  }
+
+  function fmtDate(value) {
+    const d = value instanceof Date ? value : parseDate(value);
+    return d ? d.toLocaleDateString('fr-FR') : '–';
+  }
+
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === 'class') node.className = value;
+      else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+      else if (value !== false && value != null) node.setAttribute(key, value);
+    }
+    for (const child of children.flat()) {
+      if (child == null || child === false) continue;
+      node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return node;
+  }
+
+  async function api(path, body) {
+    const options = { headers: { Accept: 'application/json' } };
+    if (body !== undefined) {
+      options.method = 'POST';
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(body);
+    }
+    let response;
+    try {
+      response = await fetch(new URL(path, API), options);
+    } catch (e) {
+      throw Object.assign(new Error('Serveur injoignable, vérifiez le réseau.'), { status: 0 });
+    }
+    let data = null;
+    try { data = await response.json(); } catch (e) { /* reponse vide */ }
+    if (!response.ok) {
+      const message = (data && (data.error || data.detail)) || `Erreur ${response.status}`;
+      throw Object.assign(new Error(message), { status: response.status });
+    }
+    return data;
+  }
+
+  // Meme format que le front ordinateur (app/src/core/codes.cpp)
+  function parseCode(raw) {
+    const code = raw.trim();
+    if (IID_RE.test(code)) {
+      const date = code.slice(6, 14);
+      return { kind: 'item', code, id: code, type: code.slice(0, 6), peremption: date === '00000000' ? null : parseDate(date) };
+    }
+    let url;
+    try { url = new URL(code); } catch (e) { return { kind: 'unknown', code }; }
+    const route = url.pathname.replace(/\/+$/, '').split('/').pop();
+    const p = url.searchParams;
+    if (route === 'verif' && p.get('lot')) return { kind: 'lot', code, id: p.get('lot'), key: p.get('key') || '' };
+    if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '' };
+    if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
+    return { kind: 'unknown', code };
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // Retours : son, vibration, flash
+
+  let audio = null;
+
+  function unlockAudio() {
+    if (!audio) {
+      const Context = window.AudioContext || window.webkitAudioContext;
+      if (Context) audio = new Context();
+    }
+    if (audio && audio.state === 'suspended') audio.resume();
+  }
+
+  function tone(frequency, start, duration, type = 'square', volume = 0.25) {
+    if (!audio) return;
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = type;
+    osc.frequency.value = frequency;
+    const t = audio.currentTime + start;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(volume, t + 0.01);
+    gain.gain.setValueAtTime(volume, t + duration - 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    osc.connect(gain).connect(audio.destination);
+    osc.start(t);
+    osc.stop(t + duration + 0.02);
+  }
+
+  function flash(kind) {
+    const node = $('#flash');
+    node.className = '';
+    void node.offsetWidth; // relance l'animation
+    node.className = kind;
+  }
+
+  function vibrate(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
+
+  const feedback = {
+    good() { tone(1320, 0, 0.08, 'sine', 0.2); vibrate(40); flash('good'); },
+    info() { tone(990, 0, 0.06, 'sine', 0.15); vibrate(30); },
+    warn() { tone(660, 0, 0.12, 'triangle', 0.25); vibrate([60, 60, 60]); },
+    bad() {
+      // produit perime, code inconnu : ecran rouge qui clignote, bip grave, vibration longue
+      tone(880, 0, 0.18); tone(440, 0.22, 0.3);
+      vibrate([250, 100, 250, 100, 250]);
+      flash('bad');
+    },
+  };
+
+  let toastTimer = 0;
+  function toast(message, bad = false) {
+    const node = $('#toast');
+    node.textContent = message;
+    node.className = 'show' + (bad ? ' bad' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { node.className = ''; }, bad ? 4000 : 2500);
+  }
+
+  function showInfo(kind, title, ...lines) {
+    const node = $('#info');
+    node.className = 'info ' + kind;
+    node.replaceChildren(el('div', { class: 'title' }, title), ...lines.filter(Boolean).map((line) => el('div', {}, line)));
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // Camera et detection
+
+  const video = $('#video');
+  const canvas = $('#frame');
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  let stream = null;
+  let detector = null;
+  let scanning = false;
+  let wakeLock = null;
+  let lastCode = '';
+  let lastCodeTime = 0;
+
+  async function startCamera() {
+    unlockAudio();
+    $('#camera-error').textContent = '';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      $('#camera-error').textContent = "La caméra n'est accessible qu'en HTTPS. Utilisez « Saisir un code » en attendant.";
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+    } catch (e) {
+      $('#camera-error').textContent = 'Caméra refusée ou indisponible : ' + e.message;
+      return;
+    }
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    if ('BarcodeDetector' in window) {
+      try {
+        const formats = await window.BarcodeDetector.getSupportedFormats();
+        if (formats.includes('qr_code')) detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      } catch (e) { detector = null; }
+    }
+    const track = stream.getVideoTracks()[0];
+    const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+    $('#torch').hidden = !capabilities.torch;
+    $('#start').hidden = true;
+    scanning = true;
+    requestWakeLock();
+    scanLoop();
+  }
+
+  function stopCamera() {
+    scanning = false;
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+    stream = null;
+  }
+
+  async function requestWakeLock() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
+  }
+
+  async function detect() {
+    if (video.readyState < 2) return null;
+    if (detector) {
+      const codes = await detector.detect(video);
+      return codes.length ? codes[0].rawValue : null;
+    }
+    if (!window.jsQR) return null;
+    // jsQR : on ne decode que le carre central (la zone du viseur), reduit pour rester fluide
+    const side = Math.min(video.videoWidth, video.videoHeight);
+    const size = Math.min(side, 640);
+    canvas.width = size;
+    canvas.height = size;
+    context.drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, size, size);
+    const image = context.getImageData(0, 0, size, size);
+    const result = window.jsQR(image.data, size, size, { inversionAttempts: 'attemptBoth' });
+    return result ? result.data : null;
+  }
+
+  async function scanLoop() {
+    while (scanning) {
+      try {
+        const code = await detect();
+        if (code) onDetected(code);
+      } catch (e) { /* image illisible, on continue */ }
+      await new Promise((resolve) => setTimeout(resolve, detector ? 120 : 180));
+    }
+  }
+
+  function onDetected(code) {
+    const now = Date.now();
+    if (code === lastCode && now - lastCodeTime < REPEAT_DELAY_MS) { lastCodeTime = now; return; }
+    lastCode = code;
+    lastCodeTime = now;
+    const camera = $('#camera');
+    camera.classList.add('hit');
+    setTimeout(() => camera.classList.remove('hit'), 300);
+    handleCode(code);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopCamera();
+    else if (!$('#start').hidden) return;
+    else startCamera();
+  });
+
+  $('#start-button').addEventListener('click', startCamera);
+  $('#torch').addEventListener('click', async () => {
+    const track = stream && stream.getVideoTracks()[0];
+    if (!track) return;
+    const on = !$('#torch').classList.contains('on');
+    try {
+      await track.applyConstraints({ advanced: [{ torch: on }] });
+      $('#torch').classList.toggle('on', on);
+    } catch (e) { toast('Lampe indisponible', true); }
+  });
+
+  // ------------------------------------------------------------------------------------------------
+  // Traitement des scans
+
+  function scannedIids() {
+    const iids = new Set();
+    for (const entry of state.scanned) {
+      if (entry.error) continue;
+      if (entry.kind === 'item') iids.add(entry.iid);
+      for (const iid of entry.items || []) iids.add(iid);
+    }
+    return iids;
+  }
+
+  async function handleCode(raw) {
+    unlockAudio();
+    const scan = parseCode(raw);
+    switch (scan.kind) {
+      case 'item': return scanItem(scan);
+      case 'lot': return scanLot(scan);
+      case 'user': return login(scan.id, scan.key);
+      case 'pack': return scanPack(scan);
+      default:
+        feedback.bad();
+        showInfo('bad', 'Code non reconnu', raw.length > 80 ? raw.slice(0, 80) + '…' : raw);
+    }
+  }
+
+  async function scanItem(scan) {
+    if (state.scanned.some((entry) => entry.kind === 'item' && entry.iid === scan.id)) {
+      feedback.warn();
+      showInfo('warn', 'Déjà scanné', scan.id, 'Supprimez-le dans « Scannés » si c\'est une erreur.');
+      return;
+    }
+    const expired = !!(scan.peremption && scan.peremption < today());
+    const entry = { code: scan.code, kind: 'item', iid: scan.id, expired, info: null, error: '' };
+    state.scanned.push(entry);
+    if (expired) feedback.bad(); else feedback.good();
+    showInfo(expired ? 'bad' : 'ok', expired ? 'PÉRIMÉ' : 'Item scanné', scan.id,
+      scan.peremption ? 'Péremption : ' + fmtDate(scan.peremption) : 'Non périssable');
+    render();
+    try {
+      entry.info = await api(`items/${encodeURIComponent(scan.id)}/`);
+      if (entry.info.expired && !entry.expired) { entry.expired = true; feedback.bad(); }
+    } catch (e) {
+      if (e.status === 404) { entry.error = 'Inconnu dans la base'; feedback.bad(); }
+    }
+    if (state.scanned[state.scanned.length - 1] === entry) showItemInfo(entry);
+    save();
+    render();
+  }
+
+  function showItemInfo(entry) {
+    const info = entry.info;
+    if (entry.error) { showInfo('bad', entry.error, entry.iid); return; }
+    if (!info) return;
+    const inLot = state.lot && info.location === state.lot.id;
+    const where = info.location ? (inLot ? 'Dans ce lot' : 'Rangé dans : ' + info.location_name) : 'En stock';
+    const status = { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé' }[info.status];
+    showInfo(entry.expired ? 'bad' : status ? 'warn' : 'ok',
+      (entry.expired ? 'PÉRIMÉ – ' : '') + info.type_name,
+      info.peremption ? 'Péremption : ' + fmtDate(info.peremption) : 'Non périssable',
+      where + (status ? ' · ' + status : ''),
+      info.iid);
+  }
+
+  async function scanPack(scan) {
+    try {
+      const pack = await api(`packs/${encodeURIComponent(scan.id)}/`);
+      const expired = !!(pack.peremption && parseDate(pack.peremption) < today());
+      if (!state.scanned.some((entry) => entry.kind === 'pack' && entry.code === scan.code)) {
+        state.scanned.push({ code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items });
+      }
+      if (expired) feedback.bad(); else feedback.good();
+      showInfo(expired ? 'bad' : 'ok', `Paquet : ${pack.count} × ${pack.type_name}`,
+        pack.peremption ? 'Péremption : ' + fmtDate(pack.peremption) : 'Non périssable',
+        pack.opened ? 'Paquet déjà ouvert' : 'Paquet fermé');
+      save();
+      render();
+    } catch (e) {
+      feedback.bad();
+      showInfo('bad', 'Paquet inconnu', e.message);
+    }
+  }
+
+  async function scanLot(scan) {
+    if (state.lotId && state.lotId !== scan.id && state.lot) {
+      toast(`Lot changé : ${state.lot.name} → nouveau lot`);
+    }
+    if (state.lotId !== scan.id) state.lotKey = '';
+    if (scan.key) state.lotKey = scan.key;
+    await loadLot(scan.id);
+    if (!state.lot) return;
+    feedback.info();
+    showLotInfo();
+    if (!state.scanned.length) switchTab('todo');
+  }
+
+  async function loadLot(id) {
+    try {
+      state.lot = await api(`lots/${encodeURIComponent(id)}/`);
+      state.lotId = id;
+    } catch (e) {
+      feedback.bad();
+      showInfo('bad', 'Lot introuvable', e.message);
+      if (state.lotId === id) { state.lot = null; state.lotId = ''; state.lotKey = ''; }
+    }
+    save();
+    render();
+  }
+
+  function showLotInfo() {
+    const lot = state.lot;
+    if (!lot) return;
+    showInfo('lot', lot.name,
+      `${lot.lot_type_name} · ${lot.item_count} item(s)` + (lot.expired_count ? ` · ${lot.expired_count} périmé(s)` : ''),
+      'Dernière vérif : ' + (lot.last_verif ? fmtDate(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
+      state.lotKey ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
+  }
+
+  async function login(matricule, key) {
+    try {
+      const user = await api('auth/', { matricule, key });
+      state.user = { ...user, key };
+      feedback.info();
+      showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`, 'Vous êtes connecté.');
+      save();
+      render();
+    } catch (e) {
+      feedback.bad();
+      showInfo('bad', 'Badge refusé', e.message);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // Actions
+
+  function blockers(needItems = true) {
+    const missing = [];
+    if (!state.lot) missing.push("scannez l'étiquette du lot");
+    else if (!state.lotKey) missing.push("scannez l'étiquette privée du lot");
+    if (!state.user) missing.push('scannez votre badge');
+    if (needItems && !scannedIids().size) missing.push('scannez au moins un item');
+    return missing;
+  }
+
+  async function validate() {
+    const missing = blockers(false);
+    if (missing.length) { feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return; }
+    const expected = (state.lot.items || []).filter((item) => !scannedIids().has(item.iid)).length;
+    if (expected && !confirm(`${expected} item(s) attendu(s) n'ont pas été scannés. Ils seront signalés absents. Valider quand même ?`)) return;
+    state.busy = true;
+    render();
+    try {
+      const report = await api(`lots/${encodeURIComponent(state.lot.id)}/verif/`, {
+        key: state.lotKey,
+        user: { matricule: state.user.matricule, key: state.user.key },
+        items: [...scannedIids()],
+      });
+      state.scanned = [];
+      showReport(report);
+      await loadLot(state.lot.id);
+      showLotInfo();
+    } catch (e) {
+      feedback.bad();
+      toast('Vérif refusée : ' + e.message, true);
+    } finally {
+      state.busy = false;
+      save();
+      render();
+    }
+  }
+
+  async function addToLot() {
+    const missing = blockers(true);
+    if (missing.length) { feedback.warn(); toast('Pour ajouter : ' + missing.join(', ') + '.', true); return; }
+    try {
+      const result = await api(`lots/${encodeURIComponent(state.lot.id)}/add/`, {
+        key: state.lotKey,
+        user: { matricule: state.user.matricule, key: state.user.key },
+        items: [...scannedIids()],
+      });
+      state.scanned = [];
+      feedback.good();
+      toast(`${result.moved.length} item(s) ajouté(s) au lot.`);
+      await loadLot(state.lot.id);
+    } catch (e) {
+      feedback.bad();
+      toast('Ajout refusé : ' + e.message, true);
+    }
+    save();
+    render();
+  }
+
+  function iidLabel(iid) {
+    const known = (state.lot && state.lot.items || []).find((item) => item.iid === iid);
+    const entry = state.scanned.find((e) => e.iid === iid && e.info);
+    const info = (known) || (entry && entry.info);
+    return info ? `${info.type_name} – ${info.peremption ? fmtDate(info.peremption) : 'non périssable'}` : iid;
+  }
+
+  function showReport(report) {
+    const section = (title, list) => list && list.length
+      ? [el('h3', {}, `${title} (${list.length})`), el('ul', {}, list.map((iid) => el('li', {}, iidLabel(iid))))]
+      : [];
+    const body = $('#report-body');
+    body.replaceChildren(
+      el('h2', {}, report.complete ? '✅ Lot complet' : '⚠️ Lot à compléter'),
+      el('p', {}, `${report.present.length} item(s) présent(s).`),
+      ...(report.requirements || []).map((row) => requirementRow(row.type_name, row.present, row.required)),
+      ...section('Périmés encore dans le lot : à remplacer', report.expired),
+      ...section('Périmés remplacés', report.replaced),
+      ...section('Attendus mais non scannés', report.missing),
+      ...section('Retrouvés', report.reactivated),
+      ...section('Codes inconnus ignorés', report.unknown),
+    );
+    if (report.complete) feedback.good(); else feedback.warn();
+    $('#report').showModal();
+  }
+
+  $('#report-close').addEventListener('click', () => $('#report').close());
+  $('#validate').addEventListener('click', validate);
+  $('#more').addEventListener('click', () => $('#menu').showModal());
+  $('#menu').addEventListener('click', (event) => {
+    const action = event.target.dataset && event.target.dataset.action;
+    if (!action) return;
+    $('#menu').close();
+    if (action === 'add') addToLot();
+    if (action === 'manual') {
+      const code = prompt("Code de l'item, id du lot ou URL d'une étiquette :");
+      if (code && code.trim()) {
+        const value = code.trim();
+        // un identifiant de lot seul (sans URL) est accepte pour ouvrir un lot sans etiquette
+        if (!IID_RE.test(value) && !/^https?:/.test(value)) scanLot({ kind: 'lot', code: value, id: value, key: '' });
+        else handleCode(value);
+      }
+    }
+    if (action === 'forget-lot') {
+      state.lot = null; state.lotId = ''; state.lotKey = '';
+      showInfo('empty', "Scannez l'étiquette d'un lot.");
+      save(); render();
+    }
+    if (action === 'logout') {
+      state.user = null;
+      toast('Déconnecté.');
+      save(); render();
+    }
+  });
+
+  $('#user-chip').addEventListener('click', () => {
+    if (state.user && confirm(`Déconnecter ${state.user.prenom} ${state.user.nom} ?`)) {
+      state.user = null;
+      save(); render();
+    } else if (!state.user) {
+      toast('Scannez votre badge pour vous connecter.');
+    }
+  });
+
+  $('#undo').addEventListener('click', () => {
+    const last = state.scanned.pop();
+    if (last) toast('Retiré : ' + (last.iid || last.info && last.info.type_name || last.code));
+    save(); render();
+  });
+
+  $('#clear').addEventListener('click', () => {
+    if (!state.scanned.length || !confirm('Vider la liste des items scannés ?')) return;
+    state.scanned = [];
+    save(); render();
+  });
+
+  function switchTab(tab) {
+    state.tab = tab;
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === tab));
+  }
+  document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+  // ------------------------------------------------------------------------------------------------
+  // Affichage
+
+  function requirementRow(label, present, required) {
+    const ratio = required > 0 ? Math.min(1, present / required) : 1;
+    const color = present <= 0 ? 'var(--red)' : present < required ? 'var(--orange)' : 'var(--green)';
+    return el('div', { class: 'req' },
+      el('span', { class: 'label' }, label),
+      el('div', { class: 'bar' },
+        el('i', { style: `width:${present <= 0 ? 100 : ratio * 100}%;background:${color}` }),
+        el('span', { style: present <= 0 ? 'color:#fff' : '' }, `${present}/${required}`)));
+  }
+
+  function renderTodo() {
+    const list = $('#todo-list');
+    const done = scannedIids();
+    if (!state.lot) {
+      list.replaceChildren(el('li', { class: 'empty' }, "Scannez l'étiquette d'un lot pour afficher son contenu."));
+      return 0;
+    }
+    const todo = (state.lot.items || []).filter((item) => !done.has(item.iid));
+    // perimes (a remplacer) en premier
+    todo.sort((a, b) => (b.expired - a.expired) || a.type_name.localeCompare(b.type_name));
+    list.replaceChildren(...(todo.length
+      ? todo.map((item) => el('li', { class: item.expired ? 'expired' : 'todo' },
+        el('div', { class: 'main' },
+          el('div', { class: 'name' }, item.type_name),
+          el('div', { class: 'sub' }, `${item.peremption ? fmtDate(item.peremption) : 'Non périssable'} · ${item.iid}`)),
+        item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
+        item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null))
+      : [el('li', { class: 'empty' }, '✅ Tous les items attendus ont été scannés.')]));
+    return todo.length;
+  }
+
+  function renderDone() {
+    const list = $('#done-list');
+    const expected = new Set((state.lot && state.lot.items || []).map((item) => item.iid));
+    const rows = state.scanned.map((entry, index) => {
+      const info = entry.info;
+      let name = entry.kind === 'pack' ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : entry.iid;
+      let cls = 'ok';
+      const tags = [];
+      if (entry.error) { cls = 'error'; tags.push(el('span', { class: 'tag red' }, 'INCONNU')); }
+      else if (entry.expired) { cls = 'expired'; tags.push(el('span', { class: 'tag red' }, 'PÉRIMÉ')); }
+      else if (state.lot && entry.kind === 'item' && !expected.has(entry.iid)) {
+        cls = 'extra'; tags.push(el('span', { class: 'tag blue' }, 'nouveau'));
+      }
+      const peremption = info ? info.peremption : null;
+      return el('li', { class: cls },
+        el('div', { class: 'main' },
+          el('div', { class: 'name' }, name),
+          el('div', { class: 'sub' }, [peremption ? fmtDate(peremption) : info && entry.kind === 'item' ? 'Non périssable' : '', entry.iid].filter(Boolean).join(' · '))),
+        ...tags,
+        el('button', {
+          class: 'remove', type: 'button', 'aria-label': 'Retirer',
+          onclick: () => { state.scanned.splice(index, 1); save(); render(); },
+        }, '✕'));
+    }).reverse(); // dernier scan en haut
+    list.replaceChildren(...(rows.length ? rows : [el('li', { class: 'empty' }, 'Aucun item scanné.')]));
+    return state.scanned.length;
+  }
+
+  function renderLot() {
+    const view = $('#lot-view');
+    const lot = state.lot;
+    if (!lot) {
+      view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette publique ou privée d'un lot, ou saisissez son identifiant (menu ⋯)."));
+      return;
+    }
+    // exigences : items frais scannes par type
+    const fresh = {};
+    for (const entry of state.scanned) {
+      if (entry.error || entry.expired) continue;
+      const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
+      const count = entry.kind === 'pack' ? (entry.items || []).length : 1;
+      if (type) fresh[type] = (fresh[type] || 0) + count;
+    }
+    view.replaceChildren(
+      el('h2', {}, lot.name),
+      el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`),
+      el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDate(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
+        el('br'), state.lotKey ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider.'),
+      el('h3', {}, 'Scannés / attendus'),
+      ...(lot.requirements || []).map((row) => requirementRow(row.type_name, fresh[row.type] || 0, row.required)),
+      el('h3', {}, 'État enregistré du lot'),
+      ...(lot.requirements || []).map((row) => requirementRow(row.type_name, row.present, row.required)),
+    );
+  }
+
+  function render() {
+    $('#count-todo').textContent = renderTodo();
+    $('#count-done').textContent = renderDone();
+    renderLot();
+    const chip = $('#user-chip');
+    chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}` : '👤 Non connecté';
+    chip.classList.toggle('ok', !!state.user);
+    const validateButton = $('#validate');
+    validateButton.disabled = state.busy;
+    validateButton.textContent = state.busy ? 'Envoi…' : blockers(false).length ? 'Valider la vérif…' : 'Valider la vérif';
+    $('#scan-hint').textContent = !state.lot ? "Visez l'étiquette d'un lot ou un item"
+      : !state.user ? 'Scannez votre badge pour pouvoir valider'
+        : 'Scannez les items du lot';
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // Demarrage : l'URL peut venir d'un QR code (verif?lot=..&key=.., badge?m=..&key=.., pack?id=..)
+
+  async function boot() {
+    restore();
+    render();
+    const route = location.pathname.replace(/\/+$/, '').split('/').pop();
+    const params = new URLSearchParams(location.search);
+    // on retire la cle de la barre d'adresse (historique, partage d'ecran)
+    const cleanUrl = (lot) => history.replaceState(null, '', lot ? `verif?lot=${encodeURIComponent(lot)}` : 'verif');
+    if (route === 'verif' && params.get('lot')) {
+      const id = params.get('lot');
+      if (id !== state.lotId) state.lotKey = '';
+      if (params.get('key')) state.lotKey = params.get('key');
+      cleanUrl(id);
+      await loadLot(id);
+      showLotInfo();
+    } else if (route === 'badge' && params.get('m')) {
+      cleanUrl(state.lotId);
+      await login(params.get('m'), params.get('key') || '');
+      if (state.lotId) await loadLot(state.lotId);
+    } else if (route === 'pack' && params.get('id')) {
+      cleanUrl(state.lotId);
+      if (state.lotId) await loadLot(state.lotId);
+      await scanPack({ kind: 'pack', code: location.href, id: params.get('id') });
+    } else if (state.lotId) {
+      await loadLot(state.lotId);
+      showLotInfo();
+    }
+    render();
+  }
+
+  boot();
+})();
