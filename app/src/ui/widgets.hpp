@@ -27,6 +27,7 @@ const ImVec4 yellow(0.95f, 0.80f, 0.20f, 1.0f);
 
 bool danger_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool primary_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
+bool warning_button(const char *label, const ImVec2 &size = ImVec2(0, 0)); // orange
 
 // Barre de stock : verte si quantite >= minimum, orange si en dessous, rouge si vide.
 // Le texte "quantite/minimum" est affiche dans la barre.
@@ -62,7 +63,8 @@ void status_banner(const std::string &text, const ImVec4 &color, float scale = 1
 
 // Etat d'un lot (objet JSON de l'API) : jamais verifie, incomplet (ou perimes), verifie et complet
 // Scelle : valide sans verif ; SealedExpired : scelle mais contient des perimes (a ouvrir)
-enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired };
+// Recommended : complet mais reassort depuis la derniere verif (orange, verif complete recommandee)
+enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired, Recommended };
 bool        lot_ok(LotStatus status); // vert
 LotStatus   lot_status(const Json &lot);
 ImVec4      lot_status_color(LotStatus status);

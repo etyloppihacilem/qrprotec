@@ -32,6 +32,18 @@ class RoleWSGIHandler:
         return self.application(environ, start_response)
 
 
+def local_access_error(remote_address, token_header):
+    """Message d'erreur si le client n'a pas acces a l'API locale (adresse ou jeton), None sinon."""
+    config = settings.QRPROTEC
+    allowed = config['LOCAL_API_ALLOWED_ADDRESSES']
+    if '*' not in allowed and remote_address not in allowed:
+        return "Adresse non autorisee sur l'API locale"
+    token = config['LOCAL_API_TOKEN']
+    if token and not hmac.compare_digest((token_header or '').encode(), token.encode()):
+        return "Jeton de l'API locale invalide"
+    return None
+
+
 class ApiRoleMiddleware:
     """Choisit le jeu d'URLs (public ou local) et protege l'API locale.
 
@@ -49,12 +61,9 @@ class ApiRoleMiddleware:
         role = request.META.get(ROLE_ENVIRON_KEY, config['DEFAULT_API_ROLE'])
         request.qrprotec_local = False
         if role == 'local':
-            allowed = config['LOCAL_API_ALLOWED_ADDRESSES']
-            if '*' not in allowed and request.META.get('REMOTE_ADDR') not in allowed:
-                return JsonResponse({'error': "Adresse non autorisee sur l'API locale"}, status=403)
-            token = config['LOCAL_API_TOKEN']
-            if token and not hmac.compare_digest(request.META.get(LOCAL_TOKEN_HEADER, '').encode(), token.encode()):
-                return JsonResponse({'error': "Jeton de l'API locale invalide"}, status=403)
+            problem = local_access_error(request.META.get('REMOTE_ADDR'), request.META.get(LOCAL_TOKEN_HEADER, ''))
+            if problem:
+                return JsonResponse({'error': problem}, status=403)
             request.qrprotec_local = True
             request.urlconf = 'qrprotecDB.urls_local'
         return self.get_response(request)

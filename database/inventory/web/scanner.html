@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#1f2a33">
+  <meta name="referrer" content="no-referrer">
+  <title>QRProtec – Douchette</title>
+  <link rel="stylesheet" href="web/app.css">
+  <style>
+    #camera { height: 58dvh; }
+    #panel { height: 42dvh; }
+    #toast { bottom: calc(42dvh + 12px); }
+    #link { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-weight: 600; color: #fff; background: var(--muted); }
+    #link.ok { background: var(--green); }
+    #link.warn { background: var(--orange); }
+    #link.bad { background: var(--red); }
+    #link .dot { width: 12px; height: 12px; border-radius: 50%; background: #fff; flex: none; }
+    #link.ok .dot { animation: pulse 2s infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    #history { flex: 1; overflow-y: auto; }
+    #panel footer { display: flex; gap: 8px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+    #panel footer button { flex: 1; }
+    .list li .state { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <section id="camera">
+    <video id="video" playsinline muted></video>
+    <canvas id="frame" hidden></canvas>
+    <div id="viewfinder"><span></span></div>
+    <div id="topbar">
+      <span class="chip">📱 Douchette QRProtec</span>
+      <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>
+    </div>
+    <div id="scan-hint">Visez un QR code : il est envoyé au poste</div>
+    <div id="start" class="overlay">
+      <p>Ce téléphone sert de douchette au poste QRProtec : chaque code scanné est envoyé au poste.</p>
+      <button id="start-button" class="primary big" type="button">Démarrer la caméra</button>
+      <p id="camera-error" class="error"></p>
+    </div>
+    <div id="ended" class="overlay" hidden>
+      <p><b>Session fermée</b></p>
+      <p id="ended-reason"></p>
+      <p>Pour reconnecter ce téléphone, créez une nouvelle session sur le poste et scannez le nouveau QR code
+        avec l'appareil photo.</p>
+    </div>
+  </section>
+
+  <section id="panel">
+    <div id="link"><span class="dot"></span><span id="link-text">Connexion au serveur…</span></div>
+    <div id="info" class="info empty">Aucun code envoyé.</div>
+    <div id="history"><ul id="history-list" class="list"></ul></div>
+    <footer>
+      <button id="manual" type="button" class="secondary">Saisir un code</button>
+    </footer>
+  </section>
+
+  <div id="flash"></div>
+  <div id="toast"></div>
+
+  <script src="web/vendor/jsQR.js" defer></script>
+  <script src="web/scanner.js" defer></script>
+</body>
+</html>

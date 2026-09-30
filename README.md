@@ -29,7 +29,7 @@ cd database
 poetry install --no-root          # ou : pip install django djangorestframework
 python manage.py migrate
 python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001
-python manage.py createadmin M001 Nom Prenom   # premier responsable (ou badge responsable perdu)
+python manage.py createadmin M001 Nom Prenom   # premier administrateur (ou badge admin perdu)
 python manage.py serve --https    # API publique en HTTPS (certificat de développement, tests sur téléphone)
 python manage.py test inventory
 ```
@@ -46,7 +46,31 @@ Deux API sur deux ports, sélectionnées par le port qui reçoit la requête
   `QRPROTEC_LOCAL_API_TOKEN` dans l'en-tête `X-QRProtec-Token`.
 
 En production : `gunicorn qrprotecDB.wsgi:public_application` et
-`gunicorn qrprotecDB.wsgi:local_application` sur deux ports.
+`gunicorn qrprotecDB.wsgi:local_application` sur deux ports. Le **téléphone-douchette** utilise des
+WebSockets gérés par `manage.py serve` uniquement (sessions en mémoire partagées par les deux API) :
+pour s'en servir, lancer le back avec `serve` derrière le reverse proxy HTTPS, en transmettant
+l'upgrade WebSocket (nginx : `proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";`).
+
+### Téléphone-douchette (WebSocket)
+
+Un téléphone peut servir de douchette : ses scans arrivent dans la pile du front comme ceux de la
+douchette (`ScanSource::Phone`).
+
+1. Le front crée une session (`POST /api/remote-scanner/`, délai de déconnexion en minutes) et affiche
+   un QR code vers `<base>/scanner?s=SESSION&k=CLE`, puis se connecte à `/ws/scanner/front?s=SESSION`
+   (API locale uniquement, même contrôle d'adresse et de jeton que l'API locale).
+2. Le téléphone scanne ce QR code avec son appareil photo : la page de scan s'ouvre et se connecte à
+   `/ws/scanner/phone?s=SESSION&k=CLE` (API publique, HTTPS obligatoire pour la caméra).
+3. Chaque code lu est relayé au front ; le front renvoie les erreurs (produit périmé, code inconnu)
+   avec leur message, et le téléphone clignote en rouge, bipe et vibre.
+4. Si le téléphone (ou le poste) reste déconnecté plus longtemps que le délai choisi (5 min par
+   défaut, réglable dans la fenêtre du front), la session est fermée : la clé du QR code ne marche
+   plus et il faut en générer un nouveau. Les reconnexions courtes (écran éteint, réseau) sont
+   automatiques. `GET /api/remote-scanner/check/?s=..&k=..` (public) indique si la session existe.
+
+Le relais est dans `inventory/remote_scanner.py` (protocole détaillé en tête de fichier), la page du
+téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 
 ### Variables d'environnement
 
@@ -69,7 +93,20 @@ En production : `gunicorn qrprotecDB.wsgi:public_application` et
 Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`, `lots/<id>/`,
 `lots/<id>/verif/` (POST items, key), `lots/<id>/add/` (POST items, key), `lots/<id>/unseal/` (POST
 key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
-`unsealed`.
+`unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
+`lots/summary/` (lots actifs et leur état, tout badge valide) et `stock/summary/` (état des stocks,
+rôles gestion et admin).
+
+### Rôles
+
+| Rôle | Front ordinateur | Téléphone |
+|---|---|---|
+| `normal` (Secouriste) | vérifs, pile de scans, ajout aux lots | vérifs, liste des lots |
+| `gestion` | mode privilégié : stocks, inventaire, paquets, lots ; **pas** les Réglages, les Utilisateurs ni l'éditeur d'étiquettes | + onglet **Stock** (lecture seule) |
+| `admin` | tout, dont Réglages (serveur, étiquettes, notifications SMS…), Utilisateurs et éditeur d'étiquettes | + onglet **Stock** |
+
+Le rôle se choisit dans **Gestion > Utilisateurs** (admin). La migration `0003_roles` transforme les
+anciens responsables en administrateurs ; `createadmin` crée ou répare un administrateur.
 
 Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), `items/batch/`
 (réception), `items/to-stock/`, `items/<iid>/delete/`, `items/<iid>/restore/`, `stock/`,
@@ -104,6 +141,12 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
   du scellé l'affiche. Une vérif, un ajout ou un retrait d'items, ou « Briser le scellé », brise le
   scellé : l'ancienne étiquette devient invalide et le lot doit être vérifié. Un lot scellé qui
   contient des périmés est rouge (à ouvrir).
+- **Réassort** : ajouter des items à un lot sans vérif complète (bouton « Ajouter au lot … (réassort) »
+  de la pile, ou, pendant une vérif où seuls des items qui ne sont pas dans le lot ont été scannés,
+  bouton orange « Ajouter N item(s) au lot – réassort, sans vérif » ; même bouton sur le téléphone).
+  Les autres items du lot ne sont pas touchés. Le lot passe **« vérif recommandée »** (orange, avec le
+  nombre d'items, la date et l'auteur du réassort) jusqu'à la prochaine vérif, pour que la personne
+  suivante vérifie tout le lot. Un lot incomplet reste rouge.
 - **Emplacements** : chaque ligne du contenu attendu d'un type de lot peut préciser un emplacement
   (ex : sérum phy dans la pochette bleue du sac de soin), affiché pendant la vérif.
 
@@ -135,9 +178,15 @@ ouvre donc directement la bonne vue. Les fichiers sont dans `database/inventory/
   le propose, sinon [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0, fourni dans `web/vendor/`,
   aucun CDN). Lampe si le téléphone le permet, écran maintenu allumé pendant le scan.
 - **Moitié basse** : informations du dernier scan (item : type, péremption, emplacement ; lot : état,
-  dernière vérif) et trois onglets : **À scanner** (items attendus du lot, en orange, les périmés en
-  rouge), **Scannés** (avec ✕ par ligne, « Annuler le dernier », « Vider la liste ») et **Lot**
-  (exigences scannées / attendues).
+  dernière vérif) et les onglets :
+  - **Accueil** (affiché quand aucun lot n'est en cours) : utilisateur connecté, **liste des lots**
+    avec leur état (après scan du badge) — toucher un lot l'ouvre pour commencer sa vérif —, et accès
+    à la **douchette du poste** : scanner le QR code affiché par le poste (Douchette > Téléphone comme
+    douchette) ouvre la page de scan qui envoie les codes au poste ;
+  - **À scanner** (items attendus du lot, en orange, les périmés en rouge), **Scannés** (avec ✕ par
+    ligne, « Annuler le dernier », « Vider la liste ») et **Lot** (exigences scannées / attendues) ;
+  - **Stock** (rôles gestion et admin, après scan du badge) : état des stocks en lecture seule, les
+    types les plus critiques en premier.
 - **Produit périmé ou code inconnu** : écran rouge qui clignote, bip grave et vibration (la vibration
   n'existe pas sur iPhone). Un item déjà scanné n'est pas ajouté une seconde fois.
 - **Badge** : scanner son badge connecte l'utilisateur (conservé sur le téléphone jusqu'à
@@ -169,8 +218,8 @@ Dépendances : GLFW, OpenGL, libpng, FreeType, libxdo (SDK Inateck). L'encodeur 
 ([Nayuki](https://www.nayuki.io/page/qr-code-generator-library), MIT) et `stb_image` (PNG/JPEG,
 domaine public) sont fournis dans `app/third_party/`.
 
-**Première utilisation** : tant qu'aucun responsable n'a de badge valide, le logiciel propose de créer
-le compte du responsable technique ; il est connecté directement en mode privilégié et peut imprimer
+**Première utilisation** : tant qu'aucun administrateur n'a de badge valide, le logiciel propose de créer
+le compte de l'administrateur ; il est connecté directement en mode privilégié et peut imprimer
 son badge (ou utiliser `manage.py createadmin` sur le serveur).
 
 La police DejaVu Sans (accents) est fournie dans `app/third_party/fonts/` et copiée à côté de
@@ -206,12 +255,17 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   en mode HID, bip de l'ordinateur et clignotement rouge de l'écran.
 - **Douchette** : la recherche et la connexion sont accessibles à tous ; les paramètres (mode HID,
   volume, préfixe…) et la déconnexion demandent un utilisateur connecté.
+- **Téléphone-douchette** (menu Douchette > Téléphone comme douchette) : « Créer une session » affiche
+  un QR code à scanner avec l'appareil photo du téléphone ; les codes scannés par le téléphone arrivent
+  dans la pile. La fenêtre et la barre de menu indiquent si le téléphone est connecté et, sinon, le
+  temps restant avant la fermeture de la session (délai réglable). « Nouveau QR code » et « Fermer la
+  session » sont dans la même fenêtre.
 - **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté et les
   fenêtres remises à leur place par défaut.
 
-### Mode privilégié (badge responsable)
+### Mode privilégié (badge gestion ou admin)
 
-Fond orange. Menu **Gestion** :
+Fond orange. Menu **Gestion** (Réglages, Utilisateurs et Éditeur d'étiquettes réservés au rôle admin) :
 
 - **État des stocks** : barre par type, verte au-dessus du minimum, orange en dessous, rouge à 0,
   avec « quantité/minimum » (ex : `32/100`).
@@ -223,8 +277,9 @@ Fond orange. Menu **Gestion** :
 - **Gestion des lots** : types de lots et contenu attendu (avec emplacement), création de lots,
   étiquettes publique et privée, régénération de la clé, scellage (numéro du scellé, étiquette du
   scellé) et bris du scellé.
-- **Utilisateurs** : création, droits responsable, renouvellement et impression des badges.
-- **Éditeur d'étiquettes** : modèles avec usage (item, paquet, lot public, lot privé, scellé, badge),
+- **Utilisateurs** (admin) : création, rôle (secouriste, gestion, admin), renouvellement et impression
+  des badges.
+- **Éditeur d'étiquettes** (admin) : modèles avec usage (item, paquet, lot public, lot privé, scellé, badge),
   onglet **Placeholders** listant les `{{placeholders}}` disponibles, textes, QR codes et images
   (logo PNG ou JPEG).
 - **Réglages** : dont les notifications SMS. Sans modèle choisi pour un usage, le premier modèle du

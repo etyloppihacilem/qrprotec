@@ -66,6 +66,8 @@ add_library(QRProtecCore STATIC
     src/core/template_io.cpp
     src/net/http.cpp
     src/net/api_client.cpp
+    src/net/remote_scanner_link.cpp
+    src/net/websocket.cpp
     src/printer/logging.cpp
     src/render/image_loader.cpp
     src/render/raster.cpp
@@ -110,6 +112,7 @@ add_executable(${PROJECT_NAME}
     src/ui/widgets.cpp
     src/ui/windows/inventory_window.cpp
     src/ui/windows/pack_window.cpp
+    src/ui/windows/phone_window.cpp
     src/ui/windows/lot_admin_window.cpp
     src/ui/windows/lots_window.cpp
     src/ui/windows/scan_window.cpp

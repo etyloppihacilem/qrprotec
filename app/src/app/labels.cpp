@@ -79,7 +79,7 @@ Parameters user_parameters(const Json &user) {
   parameters["nom"]         = user["nom"].str();
   parameters["prenom"]      = user["prenom"].str();
   parameters["full_name"]   = user["prenom"].str() + " " + user["nom"].str();
-  parameters["role"]        = user["privileged"].boolean() ? "Responsable" : "Secouriste";
+  parameters["role"]        = user["role_label"].str(user["privileged"].boolean() ? "Administrateur" : "Secouriste");
   parameters["badge_url"]   = user["badge_url"].str();
   parameters["key_expires"] = label_date(user["key_expires"]);
   return parameters;

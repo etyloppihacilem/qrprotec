@@ -135,6 +135,10 @@ def lot_dict(lot, local=False, with_items=False, today=None):
         'created': _date(lot.created),
         'last_verif': _date(lot.last_verif),
         'last_verif_by': _who(lot.last_verif_by),
+        'verif_recommended': lot.verif_recommended,
+        'restocked': _date(lot.restocked) if lot.verif_recommended else None,
+        'restocked_by': _who(lot.restocked_by) if lot.verif_recommended else '',
+        'restocked_count': lot.restocked_count if lot.verif_recommended else 0,
         'item_count': len(items),
         'expired_count': len(expired),
         'expiring_soon_count': len(soon),
@@ -161,7 +165,9 @@ def user_dict(user, local=False):
         'matricule': user.matricule,
         'nom': user.nom,
         'prenom': user.prenom,
-        'privileged': user.privileged,
+        'role': user.role,
+        'role_label': user.get_role_display(),
+        'privileged': user.privileged,  # gestion ou admin (mode privilegie du front)
         'active': user.active,
         'key_expires': _date(user.key_expires),
     }

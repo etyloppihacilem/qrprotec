@@ -28,7 +28,14 @@
     tab: 'todo',
     busy: false,
     lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
+    lots: null,        // liste des lots (accueil), chargee avec le badge
+    stock: null,       // etat des stocks, roles gestion et admin uniquement
+    loading: '',       // 'lots' ou 'stock' pendant un chargement
   };
+
+  // roles gestion et admin : acces en lecture a l'etat des stocks
+  const canSeeStock = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin' || state.user.privileged));
+  const ROLE_LABELS = { normal: 'Secouriste', gestion: 'Gestion', admin: 'Administrateur' };
 
   function save() {
     try {
@@ -131,6 +138,7 @@
     if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '' };
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
     if (route === 'seal' && p.get('lot') && p.get('s')) return { kind: 'seal', code, id: p.get('lot'), key: p.get('s') };
+    if (route === 'scanner' && p.get('s') && p.get('k')) return { kind: 'remote', code, search: url.search };
     return { kind: 'unknown', code };
   }
 
@@ -333,6 +341,12 @@
       case 'user': return login(scan.id, scan.key);
       case 'pack': return scanPack(scan);
       case 'seal': return scanSeal(scan);
+      case 'remote':
+        // QR code affiche par le poste : ce telephone devient sa douchette
+        feedback.info();
+        toast('Connexion au poste…');
+        location.href = new URL('scanner' + scan.search, document.baseURI).href;
+        return;
       default:
         feedback.bad();
         showInfo('bad', 'Code non reconnu', raw.length > 80 ? raw.slice(0, 80) + '…' : raw);
@@ -451,22 +465,26 @@
     render();
   }
 
-  // Etat d'un lot : verifie et complet (vert), sinon incomplet ou jamais verifie (rouge)
+  // Etat d'un lot : verifie et complet (vert), reassort depuis la derniere verif (orange : verif complete
+  // recommandee), sinon incomplet ou jamais verifie (rouge). kind : 'ok', 'warn' ou 'bad'.
   function lotStatus(lot) {
-    if (lot.is_sealed && lot.expired_count) return { ok: false, label: '✘ Scellé, contient des périmés' };
-    if (lot.is_sealed) return { ok: true, label: '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : '') };
-    if (!lot.last_verif) return { ok: false, label: '✘ Jamais vérifié' };
-    if (!lot.complete) return { ok: false, label: lot.expired_count ? '✘ Incomplet (périmés)' : '✘ Incomplet' };
-    return { ok: true, label: '✔ Vérifié, complet' };
+    const make = (kind, label) => ({ ok: kind === 'ok', kind, label });
+    if (lot.is_sealed && lot.expired_count) return make('bad', '✘ Scellé, contient des périmés');
+    if (lot.is_sealed) return make('ok', '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : ''));
+    if (!lot.last_verif) return make('bad', '✘ Jamais vérifié');
+    if (!lot.complete) return make('bad', lot.expired_count ? '✘ Incomplet (périmés)' : '✘ Incomplet');
+    if (lot.verif_recommended) return make('warn', '⚠ Vérif recommandée, réassort');
+    return make('ok', '✔ Vérifié, complet');
   }
 
   function showLotInfo() {
     const lot = state.lot;
     if (!lot) return;
     const status = lotStatus(lot);
-    showInfo(status.ok ? 'ok' : 'bad', `${status.label} – ${lot.name}`,
+    showInfo(status.kind, `${status.label} – ${lot.name}`,
       `${lot.lot_type_name} · ${lot.item_count} item(s)` + (lot.expired_count ? ` · ${lot.expired_count} périmé(s)` : ''),
       'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
+      lot.verif_recommended ? `Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.` : '',
       state.lotKey ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
   }
 
@@ -474,10 +492,15 @@
     try {
       const user = await api('auth/', { matricule, key });
       state.user = { ...user, key };
+      state.lots = null;
+      state.stock = null;
       feedback.info();
-      showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`, 'Vous êtes connecté.');
+      showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
+        canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est dans l'onglet Stock.` : 'Vous êtes connecté.');
       save();
       render();
+      loadLots();
+      if (canSeeStock()) loadStock();
     } catch (e) {
       feedback.bad();
       showInfo('bad', 'Badge refusé', e.message);
@@ -516,6 +539,7 @@
       showReport(report);
       await loadLot(state.lot.id);
       showLotInfo();
+      loadLots();
     } catch (e) {
       feedback.bad();
       toast('Vérif refusée : ' + e.message, true);
@@ -524,6 +548,14 @@
       save();
       render();
     }
+  }
+
+  // Seulement des items qui ne sont pas dans le lot : reassort plutot que verif
+  function onlyNewItems() {
+    if (!state.lot || !state.scanned.length) return false;
+    const known = new Set((state.lot.items || []).map((item) => item.iid));
+    const iids = [...scannedIids()];
+    return iids.length > 0 && !iids.some((iid) => known.has(iid));
   }
 
   async function addToLot() {
@@ -537,8 +569,9 @@
       });
       state.scanned = [];
       feedback.good();
-      toast(`${result.moved.length} item(s) ajouté(s) au lot.`);
+      toast(`${result.moved.length} item(s) ajouté(s) au lot : vérif complète recommandée.`);
       await loadLot(state.lot.id);
+      loadLots();
     } catch (e) {
       feedback.bad();
       toast('Ajout refusé : ' + e.message, true);
@@ -576,6 +609,10 @@
 
   $('#report-close').addEventListener('click', () => $('#report').close());
   $('#validate').addEventListener('click', validate);
+  $('#restock').addEventListener('click', () => {
+    if (confirm("Ajouter les items scannés au lot sans faire de vérif complète (réassort) ?\n"
+      + 'Le lot sera signalé « vérif recommandée » pour la personne suivante.')) addToLot();
+  });
   $('#more').addEventListener('click', () => $('#menu').showModal());
   $('#menu').addEventListener('click', (event) => {
     const action = event.target.dataset && event.target.dataset.action;
@@ -626,6 +663,7 @@
 
   function switchTab(tab) {
     state.tab = tab;
+    if (tab === 'stock' && !state.stock && state.loading !== 'stock') loadStock();
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === tab));
   }
@@ -770,7 +808,7 @@
     view.replaceChildren(
       el('h2', {}, lot.name),
       el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`),
-      el('div', { class: 'banner ' + (lotStatus(lot).ok ? 'ok' : 'bad') }, lotStatus(lot).label),
+      el('div', { class: 'banner ' + lotStatus(lot).kind }, lotStatus(lot).label),
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
@@ -783,17 +821,141 @@
     );
   }
 
+  // ------------------------------------------------------------------------------------------------
+  // Accueil : connexion, liste des lots pour lancer une verif, telephone-douchette ; onglet Stock
+
+  const badge = () => ({ matricule: state.user.matricule, key: state.user.key });
+
+  async function loadLots() {
+    if (!state.user) return;
+    state.loading = 'lots';
+    render();
+    try {
+      state.lots = await api('lots/summary/', { user: badge() });
+    } catch (e) {
+      toast('Lots : ' + e.message, true);
+      if (e.status === 403) { state.user = null; save(); }
+    } finally {
+      state.loading = '';
+      render();
+    }
+  }
+
+  async function loadStock() {
+    if (!canSeeStock()) return;
+    state.loading = 'stock';
+    render();
+    try {
+      state.stock = await api('stock/summary/', { user: badge() });
+    } catch (e) {
+      toast('Stocks : ' + e.message, true);
+    } finally {
+      state.loading = '';
+      render();
+    }
+  }
+
+  async function chooseLot(id) {
+    if (state.lotId !== id) {
+      if (state.scanned.length && !confirm('Changer de lot ? Les items déjà scannés restent dans la liste.')) return;
+      state.lotKey = '';
+      state.lastVerif = null;
+    }
+    await loadLot(id);
+    if (!state.lot) return;
+    showLotInfo();
+    switchTab('todo');
+  }
+
+  function renderHome() {
+    const view = $('#home-view');
+    const user = state.user;
+    const parts = [];
+    parts.push(el('h3', {}, 'Connexion'));
+    if (user) {
+      parts.push(el('p', {}, `👤 ${user.prenom} ${user.nom} · ${ROLE_LABELS[user.role] || (user.privileged ? 'Gestion' : 'Secouriste')}`));
+    } else {
+      parts.push(el('p', {}, 'Scannez votre badge avec la caméra pour afficher la liste des lots.'));
+    }
+
+    const head = el('div', { class: 'row-head' }, el('h3', {}, 'Commencer une vérif'),
+      user ? el('button', { type: 'button', onclick: loadLots }, state.loading === 'lots' ? 'Chargement…' : 'Actualiser') : '');
+    parts.push(head);
+    if (!user) {
+      parts.push(el('p', { class: 'hint' }, "Sans badge : scannez directement l'étiquette du lot."));
+    } else if (!state.lots) {
+      parts.push(el('p', { class: 'hint' }, state.loading === 'lots' ? 'Chargement des lots…' : 'Liste non chargée.'));
+    } else {
+      parts.push(el('p', { class: 'hint' }, "Touchez un lot pour afficher ce qu'il faut scanner. Pour valider, scannez son étiquette privée."));
+      parts.push(el('ul', { class: 'list' }, ...state.lots.map((lot) => {
+        const status = lotStatus(lot);
+        return el('li', { class: status.kind, onclick: () => chooseLot(lot.id) },
+          el('div', { class: 'main' },
+            el('div', { class: 'name' }, lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
+            el('div', { class: 'sub' }, `${lot.lot_type_name} · vérif : ${lot.last_verif ? fmtDateTime(lot.last_verif) : 'jamais'}`)),
+          el('span', { class: 'tag ' + { ok: 'green', warn: 'orange', bad: 'red' }[status.kind] },
+            status.label.replace(/^[✔✘⚠] /, '').split(',')[0]));
+      })));
+    }
+
+    parts.push(el('h3', {}, 'Douchette du poste'));
+    parts.push(el('p', {}, 'Ce téléphone peut servir de douchette au poste : sur le poste, menu Douchette > Téléphone comme douchette > '
+      + '« Créer une session », puis scannez le QR code affiché avec cette caméra.'));
+
+    if (canSeeStock()) {
+      parts.push(el('h3', {}, 'État des stocks'));
+      parts.push(el('button', { type: 'button', onclick: () => { switchTab('stock'); loadStock(); } }, 'Voir l\'état des stocks'));
+    }
+    view.replaceChildren(...parts);
+  }
+
+  function renderStock() {
+    const view = $('#stock-view');
+    if (!canSeeStock()) {
+      view.replaceChildren(el('p', {}, 'Réservé aux rôles gestion et admin : scannez votre badge.'));
+      return;
+    }
+    const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'État des stocks (lecture seule)'),
+      el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser'))];
+    if (!state.stock) {
+      parts.push(el('p', { class: 'hint' }, 'Chargement…'));
+    } else {
+      parts.push(el('p', { class: 'hint' }, 'Stock hors lots non périmé / minimum. Les plus critiques en premier.'));
+      const ratio = (row) => row.min_quantity > 0 ? row.stock_fresh / row.min_quantity : 1e6;
+      const rows = [...state.stock].sort((a, b) => ratio(a) - ratio(b));
+      for (const row of rows) {
+        const details = [`${row.lots_fresh} dans les lots`];
+        if (row.stock_expired + row.lots_expired) details.push(`${row.stock_expired + row.lots_expired} périmé(s)`);
+        if (row.expiring_soon) details.push(`${row.expiring_soon} bientôt périmé(s)`);
+        if (row.missing) details.push(`${row.missing} disparu(s)`);
+        parts.push(el('div', { class: 'stock-row' },
+          requirementRow(row.name, row.stock_fresh, row.min_quantity),
+          el('div', { class: 'sub hint' }, details.join(' · '))));
+      }
+    }
+    view.replaceChildren(...parts);
+  }
+
   function render() {
     $('#count-todo').textContent = renderTodo();
     $('#count-done').textContent = renderDone();
     renderLot();
+    if (!state.user) { state.lots = null; state.stock = null; }
+    renderHome();
+    $('#tab-stock').hidden = !canSeeStock();
+    if (state.tab === 'stock' && !canSeeStock()) switchTab('home');
+    renderStock();
     const chip = $('#user-chip');
     chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}` : '👤 Non connecté';
     chip.classList.toggle('ok', !!state.user);
+    // reassort : bouton orange a cote de la validation
+    const restock = onlyNewItems() && !state.busy;
+    $('#restock').hidden = !restock;
+    $('#restock').textContent = `Ajouter ${scannedIids().size} au lot (réassort)`;
     const validateButton = $('#validate');
     const recorded = state.lastVerif && state.lot && state.lastVerif.lotId === state.lot.id && !state.scanned.length;
     validateButton.disabled = state.busy || recorded;
-    validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
+    validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔' : restock ? 'Vérif complète…'
       : blockers(false).length ? 'Valider la vérif…' : 'Valider la vérif';
     $('#scan-hint').textContent = !state.lot ? "Visez l'étiquette d'un lot ou un item"
       : !state.user ? 'Scannez votre badge pour pouvoir valider'
@@ -832,7 +994,13 @@
       await loadLot(state.lotId);
       showLotInfo();
     }
+    // page d'accueil quand aucun lot n'est en cours
+    if (!state.lot) switchTab('home');
     render();
+    if (state.user) {
+      loadLots();
+      if (canSeeStock()) loadStock();
+    }
   }
 
   boot();

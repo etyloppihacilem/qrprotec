@@ -17,11 +17,14 @@ public_patterns = [
     path('health/', views.health),
     path('auth/', views.auth),
     path('items/<str:iid>/', views.item_detail),
+    path('lots/summary/', views.lots_summary),   # avant lots/<id>/
+    path('stock/summary/', views.stock_summary),
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/verif/', views.lot_verif),
     path('lots/<str:lot_id>/add/', views.lot_add_items),
     path('lots/<str:lot_id>/unseal/', views.lot_unseal),
     path('packs/<str:pack_id>/', views.sealed_pack_detail),
+    path('remote-scanner/check/', views.remote_scanner_check),
 ]
 
 # Servies uniquement par l'API locale (poste de gestion). Elles doivent preceder les routes publiques
@@ -55,6 +58,8 @@ local_patterns = [
     path('notifications/recipients/', views.sms_recipients),
     path('notifications/recipients/<int:recipient_id>/', views.sms_recipient_detail),
     path('notifications/test/', views.sms_test),
+    path('remote-scanner/', views.remote_scanner_sessions),
+    path('remote-scanner/<str:session_id>/', views.remote_scanner_session),
 ]
 
 # Front web mobile : repond aux URLs des QR codes (a la racine du domaine public)
@@ -64,5 +69,6 @@ web_patterns = [
     path('badge', web_views.page),
     path('pack', web_views.page),
     path('seal', web_views.page),
+    path('scanner', web_views.scanner_page),
     path('web/<path:name>', web_views.asset),
 ]

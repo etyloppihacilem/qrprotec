@@ -13,6 +13,7 @@
 #include "../core/json.hpp"
 #include "../core/placeholders.hpp"
 #include "../net/api_client.hpp"
+#include "../net/remote_scanner_link.hpp"
 #include "feedback.hpp"
 #include "print_queue.hpp"
 #include "scan_stack.hpp"
@@ -47,6 +48,7 @@ class AppWindow {
     const std::string title;
     const bool        privileged;
     const bool        closable;
+    bool              admin_only = false; // reserve au role admin (Reglages, Utilisateurs)
     bool              open = false;
     ImVec2            last_pos{ 0, 0 };
     ImVec2            last_size{ 0, 0 };
@@ -60,9 +62,13 @@ struct SessionUser {
     std::string nom;
     std::string prenom;
     std::string key_expires;
-    bool        privileged = false;
+    bool        privileged = false; // role gestion ou admin : mode privilegie
+    std::string role       = "normal"; // normal, gestion, admin
 
     std::string display() const { return prenom + " " + nom; }
+    bool        admin() const { return role == "admin"; }
+    // " (gestion)", " (admin)" ou vide
+    std::string role_suffix() const { return role == "admin" ? " (admin)" : privileged ? " (gestion)" : ""; }
 };
 
 struct VerifSession {
@@ -72,6 +78,23 @@ struct VerifSession {
     Json        lot; // detail du lot (items attendus, exigences)
     bool        loading    = false;
     bool        submitting = false;
+};
+
+// Session de telephone-douchette (voir database/inventory/remote_scanner.py)
+struct RemoteSession {
+    bool        active   = false;
+    bool        creating = false;
+    std::string id;
+    std::string url;          // contenu du QR code a scanner avec le telephone
+    int         timeout = 0;  // secondes de deconnexion avant fermeture
+    bool        phone_connected = false;
+    bool        phone_seen      = false; // le telephone s'est connecte au moins une fois
+    std::string phone_agent;
+    double      phone_deadline = -1.0; // ImGui::GetTime() de fermeture si le telephone reste deconnecte
+    int         scans          = 0;
+    std::string ended_reason;          // derniere session fermee : pourquoi
+    bool        feedback_pending = false;
+    std::string feedback_message;
 };
 
 struct LabelPreviewState {
@@ -123,6 +146,10 @@ class App {
     // Session
     bool        logged_in() const { return user.has_value(); }
     bool        privileged() const { return user && user->privileged; }
+    bool        admin() const { return user && user->admin(); } // reglages du front, utilisateurs
+    bool        can_open(const AppWindow &window) const {
+      return (!window.privileged || privileged()) && (!window.admin_only || admin());
+    }
     void        logout(const std::string &reason = {});
     void        reset_session(); // retour a l'etat initial (inactivite)
     void        require_login(const std::string &what, std::function< void() > action);
@@ -139,11 +166,16 @@ class App {
     void pack_opened(const std::string &pack_id); // paquet ouvert ou referme : met a jour la pile et les listes
     void cancel_verif();
     void submit_verif();
+    void restock_verif(); // reassort : ajoute les items scannes au lot sans verif complete
     bool verif_key_ok() const;
     void add_stack_to_lot();
     void verif_target_lot();
     void stack_to_stock();
     void stock_verif();
+
+    // Telephone-douchette
+    void start_remote_session();
+    void close_remote_session(const std::string &reason = "fermée depuis le poste");
 
     // Donnees
     void refresh_item_types();
@@ -184,12 +216,15 @@ class App {
     Json                         last_report; // dernier compte rendu de verif
     std::string                  last_report_lot;
     LabelPreviewState            preview;
+    RemoteSession                remote;
+    RemoteScannerLink            remote_link;
     std::string                  last_duplicate_;      // dernier doublon ignore (mention discrete)
     double                       last_duplicate_time_ = -100.0;
 
     std::vector< std::unique_ptr< AppWindow > > windows;
 
   private:
+    void poll_remote();
     void resolve_item(int entry_id);
     void resolve_pack(int entry_id);
     void login_with_badge(const ParsedScan &scan, ScanSource source);

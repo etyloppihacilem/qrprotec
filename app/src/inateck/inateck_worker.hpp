@@ -14,7 +14,8 @@ struct InateckDevice {
     bool connected = false;
 };
 
-enum class ScanSource { Sdk, Hid, Manual };
+// Phone : telephone utilise comme douchette (relais WebSocket, voir net/remote_scanner_link.hpp)
+enum class ScanSource { Sdk, Hid, Manual, Phone };
 
 struct ScanEvent {
     std::string code;

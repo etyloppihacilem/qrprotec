@@ -270,6 +270,12 @@ class Lots(models.Model):
     seal_code = models.CharField(max_length=32, blank=True, default='')
     unsealed = models.DateTimeField(blank=True, null=True)
     unsealed_by = models.CharField(max_length=64, blank=True, default='')
+    # Reassort : items ajoutes sans verif complete. Le lot est signale « verif recommandee » (orange)
+    # jusqu'a la prochaine verif.
+    verif_recommended = models.BooleanField(default=False)
+    restocked = models.DateTimeField(blank=True, null=True)
+    restocked_by = models.CharField(max_length=64, blank=True, default='')
+    restocked_count = models.PositiveIntegerField(default=0)  # items ajoutes depuis la derniere verif
     active = models.BooleanField(default=True)
     name = models.CharField(max_length=64)
     name_short = models.CharField(max_length=16)
@@ -305,15 +311,26 @@ class Lots(models.Model):
         return f"{self.name} ({self.id})"
 
 
+class Role(models.TextChoices):
+    NORMAL = 'normal', 'Secouriste'
+    GESTION = 'gestion', 'Gestion'   # consultation et gestion de l'inventaire, sans les reglages du front
+    ADMIN = 'admin', 'Administrateur'
+
+
 class Secouristes(models.Model):
     matricule = models.CharField(max_length=16, primary_key=True, editable=False)
     nom = models.CharField(max_length=32)
     prenom = models.CharField(max_length=32)
     key = models.CharField(max_length=32, blank=True, null=True)
     key_expires = models.DateField(blank=True, null=True)
-    privileged = models.BooleanField(default=False) # acces au mode privilegie du logiciel
+    role = models.CharField(max_length=8, choices=Role.choices, default=Role.NORMAL)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(default=timezone.now)
+
+    @property
+    def privileged(self) -> bool:
+        """Mode privilegie du front (gestion ou admin)."""
+        return self.role in (Role.GESTION, Role.ADMIN)
 
     def renew_key(self):
         self.key = generate_key()

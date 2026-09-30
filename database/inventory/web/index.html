@@ -31,9 +31,11 @@
   <section id="panel">
     <div id="info" class="info empty">Scannez l'étiquette d'un lot, un item ou votre badge.</div>
     <nav id="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="home">Accueil</button>
       <button type="button" role="tab" data-tab="todo" class="active">À scanner <b id="count-todo">0</b></button>
       <button type="button" role="tab" data-tab="done">Scannés <b id="count-done">0</b></button>
       <button type="button" role="tab" data-tab="lot">Lot</button>
+      <button type="button" role="tab" data-tab="stock" id="tab-stock" hidden>Stock</button>
     </nav>
     <div id="views">
       <div class="view active" data-view="todo"><ul id="todo-list" class="list"></ul></div>
@@ -45,8 +47,11 @@
         <ul id="done-list" class="list"></ul>
       </div>
       <div class="view" data-view="lot"><div id="lot-view"></div></div>
+      <div class="view" data-view="home"><div id="home-view" class="page"></div></div>
+      <div class="view" data-view="stock"><div id="stock-view" class="page"></div></div>
     </div>
     <footer id="actions">
+      <button id="restock" class="warning" type="button" hidden>Ajouter au lot (réassort)</button>
       <button id="validate" class="primary" type="button">Valider la vérif</button>
       <button id="more" class="secondary" type="button" aria-label="Plus d'actions">⋯</button>
     </footer>

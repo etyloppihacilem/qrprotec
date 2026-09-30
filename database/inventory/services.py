@@ -163,7 +163,10 @@ def perform_verif(lot, iids, identity):
             lot.last_verif_while = SeenWhile.VERIF
             lot.last_used = now
             lot.last_used_by = identity
-            lot.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'last_used', 'last_used_by'])
+            lot.verif_recommended = False
+            lot.restocked_count = 0
+            lot.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'last_used', 'last_used_by',
+                                    'verif_recommended', 'restocked_count'])
             requirements = requirements_status(lot, today)
             complete = all(row['present'] >= row['required'] for row in requirements) and not report['expired']
 
@@ -264,7 +267,15 @@ def move_items(iids, lot, identity, context):
         if lot is not None:
             lot.last_used = now
             lot.last_used_by = identity
-            lot.save(update_fields=['last_used', 'last_used_by'])
+            fields = ['last_used', 'last_used_by']
+            if items:
+                # reassort sans verif complete : la prochaine personne devra verifier tout le lot
+                lot.verif_recommended = True
+                lot.restocked = now
+                lot.restocked_by = identity
+                lot.restocked_count += len(items)
+                fields += ['verif_recommended', 'restocked', 'restocked_by', 'restocked_count']
+            lot.save(update_fields=fields)
         notifications.check_stock_levels({item.pack.item_type_id for item in items})
     return {'moved': [iid for iid in requested if iid in found], 'unknown': [iid for iid in requested if iid not in found]}
 

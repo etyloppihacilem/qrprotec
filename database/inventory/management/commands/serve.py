@@ -18,21 +18,27 @@
 localhost et les hotes de ALLOWED_HOSTS, dont les hotes de debug) : suffisant pour tester la camera d'un
 telephone sur le reseau local, apres avoir accepte l'avertissement du navigateur. En production, placer
 un reverse proxy HTTPS (nginx, caddy) devant l'API publique. L'API locale reste en HTTP.
+
+Cette commande gere aussi les WebSockets du telephone-douchette (/ws/scanner/..., voir
+inventory/remote_scanner.py) : le reverse proxy doit transmettre les en-tetes Upgrade/Connection.
 """
 
 import ipaddress
 import shutil
+import socketserver
 import ssl
 import subprocess
 import sys
 import threading
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.core.servers.basehttp import WSGIServer, get_internal_wsgi_application, run
+from django.core.servers.basehttp import WSGIRequestHandler, WSGIServer, get_internal_wsgi_application
 
-from inventory.middleware import RoleWSGIHandler
+from inventory.middleware import RoleWSGIHandler, local_access_error
+from inventory.remote_scanner import RECEIVE_TIMEOUT, WebSocket, accept_key, hub
 
 CERT_DIR = Path(settings.BASE_DIR) / '.dev-certs'
 
@@ -105,6 +111,83 @@ def tls_server_class(cert, key):
     return TLSWSGIServer
 
 
+class QRProtecRequestHandler(WSGIRequestHandler):
+    """Requetes HTTP ordinaires, plus les WebSockets du telephone-douchette (/ws/scanner/phone et /front)."""
+
+    def handle_one_request(self):
+        self.raw_requestline = self.rfile.readline(65537)
+        if len(self.raw_requestline) > 65536:
+            self.requestline = self.request_version = self.command = ''
+            self.send_error(414)
+            return
+        if not self.parse_request():
+            return
+        path = urlsplit(self.path).path
+        if path.startswith('/ws/') and self.headers.get('Upgrade', '').lower() == 'websocket':
+            self.close_connection = True
+            self.handle_websocket(path)
+            return
+        # meme traitement que WSGIRequestHandler.handle_one_request
+        from django.core.servers.basehttp import ServerHandler
+        handler = ServerHandler(self.rfile, self.wfile, self.get_stderr(), self.get_environ())
+        handler.request_handler = self
+        handler.run(self.server.get_app())
+
+    def refuse(self, code, message):
+        body = message.encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_websocket(self, path):
+        role = getattr(self.server, 'qrprotec_role', 'public')
+        params = {key: values[0] for key, values in parse_qs(urlsplit(self.path).query).items()}
+        key = self.headers.get('Sec-WebSocket-Key', '')
+        if not key:
+            return self.refuse(400, 'Sec-WebSocket-Key manquant')
+        if path == '/ws/scanner/phone':
+            session = hub.check_key(params.get('s', ''), params.get('k', ''))
+            if session is None:
+                return self.refuse(404, 'Session inconnue ou fermee : scannez un nouveau QR code')
+        elif path == '/ws/scanner/front':
+            if role != 'local':
+                return self.refuse(404, 'Inconnu')
+            problem = local_access_error(self.client_address[0], self.headers.get('X-QRProtec-Token', ''))
+            if problem:
+                return self.refuse(403, problem)
+            session = hub.get(params.get('s', ''))
+            if session is None:
+                return self.refuse(404, 'Session inconnue ou fermee')
+        else:
+            return self.refuse(404, 'Inconnu')
+        self.send_response(101, 'Switching Protocols')
+        self.send_header('Upgrade', 'websocket')
+        self.send_header('Connection', 'Upgrade')
+        self.send_header('Sec-WebSocket-Accept', accept_key(key))
+        self.end_headers()
+        self.wfile.flush()
+        self.connection.settimeout(RECEIVE_TIMEOUT)
+        websocket = WebSocket(self.rfile, self.wfile, self.connection)
+        try:
+            if path == '/ws/scanner/phone':
+                hub.run_phone(session, websocket, self.headers.get('User-Agent', ''))
+            else:
+                hub.run_front(session, websocket)
+        finally:
+            websocket.close()
+
+
+def run_server(address, port, handler, server_cls, role):
+    httpd_cls = type('QRProtecServer', (socketserver.ThreadingMixIn, server_cls), {})
+    httpd = httpd_cls((address, port), QRProtecRequestHandler, ipv6=':' in address)
+    httpd.daemon_threads = True
+    httpd.qrprotec_role = role
+    httpd.set_app(handler)
+    httpd.serve_forever()
+
+
 class Command(BaseCommand):
     help = "Lance l'API publique et l'API locale (ports distincts)."
 
@@ -136,14 +219,12 @@ class Command(BaseCommand):
         if not options['no_public']:
             servers.append(('public', parse_address(options['public'], '0.0.0.0'), public_server_cls, scheme))
         threads = []
+        hub.enabled = True  # le telephone-douchette (WebSockets) fonctionne avec cette commande
         for role, (address, port), server_cls, url_scheme in servers:
             self.stdout.write(f"API {role} : {url_scheme}://{address}:{port}/api/")
             handler = RoleWSGIHandler(application, role, 'https' if url_scheme == 'https' else None)
             thread = threading.Thread(
-                target=run,
-                args=(address, port, handler),
-                kwargs={'threading': True, 'ipv6': ':' in address, 'server_cls': server_cls},
-                daemon=True,
+                target=run_server, args=(address, port, handler, server_cls, role), daemon=True,
             )
             thread.start()
             threads.append(thread)

@@ -21,6 +21,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 button { font: inherit; border: 0; border-radius: 10px; padding: 10px 14px; background: #e9e5de; color: var(--text); }
 button:disabled { opacity: .45; }
 .primary { background: var(--green); color: #fff; font-weight: 600; }
+.warning { background: var(--orange); color: #fff; font-weight: 600; }
+.warning[hidden] { display: none; }
 .secondary { background: #e9e5de; }
 .big { font-size: 1.15rem; padding: 14px 22px; }
 .error { color: #ffb4b4; }
@@ -55,7 +57,7 @@ button:disabled { opacity: .45; }
 .info.warn { border-color: var(--orange); background: var(--orange-bg); }
 .info.lot { border-color: var(--blue); background: var(--blue-bg); }
 #tabs { display: flex; border-bottom: 1px solid var(--line); }
-#tabs button { flex: 1; border-radius: 0; background: transparent; padding: 10px 4px; color: var(--muted); border-bottom: 3px solid transparent; }
+#tabs button { flex: 1 1 auto; white-space: nowrap; font-size: .86rem; border-radius: 0; background: transparent; padding: 10px 3px; color: var(--muted); border-bottom: 3px solid transparent; }
 #tabs button.active { color: var(--text); border-bottom-color: var(--orange); font-weight: 600; }
 #tabs b { display: inline-block; min-width: 1.6em; padding: 0 5px; border-radius: 999px; background: #eee; font-size: .8rem; }
 #views { flex: 1; min-height: 0; position: relative; }
@@ -81,6 +83,21 @@ button:disabled { opacity: .45; }
 .list-tools { display: flex; justify-content: space-between; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .list-tools button { padding: 6px 10px; font-size: .9rem; }
 #lot-view { padding: 10px 12px; }
+#tabs button[hidden] { display: none; }
+.page { padding: 10px 12px 16px; }
+.page h3 { margin: 14px 0 6px; font-size: 1rem; }
+.page h3:first-child { margin-top: 2px; }
+.page p { margin: 4px 0; }
+.page .hint { color: var(--muted); font-size: .85rem; }
+.page .list { margin: 0 -12px; }
+.page .list li { cursor: pointer; }
+.page .list li.bad { border-left: 5px solid var(--red); }
+.page .list li.warn { border-left: 5px solid var(--orange); }
+.row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row-head button { padding: 6px 10px; font-size: .85rem; }
+.stock-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.stock-row .req { margin: 2px 0; }
+.stock-row .bar { width: 55%; }
 #lot-view h2 { margin: 0 0 4px; font-size: 1.15rem; }
 .req { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .req .label { flex: 1; }
@@ -88,7 +105,7 @@ button:disabled { opacity: .45; }
 .bar i { position: absolute; inset: 0 auto 0 0; }
 .bar span { position: relative; display: block; text-align: right; padding-right: 6px; font-size: .8rem; line-height: 22px; font-weight: 600; }
 #actions { display: flex; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
-#actions .primary { flex: 1; }
+#actions .primary, #actions .warning { flex: 1; }
 
 /* ---- Dialogues ---- */
 dialog { border: 0; border-radius: 16px; padding: 14px; width: min(92vw, 420px); max-height: 80dvh; overflow-y: auto; }
@@ -123,3 +140,4 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .banner { color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 6px 0; }
 .banner.ok { background: var(--green); }
 .banner.bad { background: var(--red); }
+.banner.warn { background: var(--orange); }
