@@ -2,62 +2,14 @@
   "version": 2,
   "name": "Badge",
   "category": "user",
-  "media": {
-    "width_mm": 40,
-    "height_mm": 30,
-    "pixels_per_mm": 8,
-    "orientation": "landscape"
-  },
-  "parameters": {},
+  "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
+  "parameters": {"{titre": "{titre", "badge_url": "https://example.com/badge?m=M0042&key=a1B2c3D4e5F6g7H8", "role": "Secouriste", "code{{titre": "code{{titre", "key_expires": "29/09/2027", "matricule": "M0042", "{{titre": "{{titre", "titre": "PROTECTION CIVILE\nPARIS CENTRE", "code}{{titre": "code}{{titre", "full_name": "Jeanne Dupont", "code": "code", "co{{titre": "co{{titre", "cod{{titre": "cod{{titre", "c{{titre": "c{{titre"},
   "elements": [
-    {
-      "id": "logo",
-      "kind": "image",
-      "path": "logo.png",
-      "x_mm": 1,
-      "y_mm": 1,
-      "width_mm": 9,
-      "height_mm": 9,
-      "dither": 1,
-      "threshold": 128
-    },
-    {
-      "id": "qr",
-      "kind": "qr",
-      "payload": "{{badge_url}}",
-      "x_mm": 18,
-      "y_mm": 2,
-      "size_mm": 21
-    },
-    {
-      "id": "nom",
-      "kind": "text",
-      "text": "{{full_name}}",
-      "x_mm": 1,
-      "y_mm": 11,
-      "width_mm": 17,
-      "height_mm": 8,
-      "font_size_mm": 2.6
-    },
-    {
-      "id": "role",
-      "kind": "text",
-      "text": "{{role}} {{matricule}}",
-      "x_mm": 1,
-      "y_mm": 20,
-      "width_mm": 17,
-      "height_mm": 4,
-      "font_size_mm": 2.0
-    },
-    {
-      "id": "exp",
-      "kind": "text",
-      "text": "Valable jusqu'au {{key_expires}}",
-      "x_mm": 1,
-      "y_mm": 25,
-      "width_mm": 38,
-      "height_mm": 4,
-      "font_size_mm": 1.8
-    }
+    {"id": "logo", "kind": "image", "path": "protec.png", "x_mm": 6, "y_mm": 1, "width_mm": 8, "height_mm": 8, "dither": 1, "threshold": 128},
+    {"id": "qr", "kind": "qr", "payload": "{{badge_url}}", "x_mm": 18, "y_mm": 2, "size_mm": 21, "ecc": 1, "quiet_zone": 2},
+    {"id": "nom", "kind": "text", "text": "{{full_name}}", "x_mm": 1, "y_mm": 13.7, "width_mm": 17, "height_mm": 8, "font_size_mm": 2.6, "bold": 0, "align": "left"},
+    {"id": "role", "kind": "text", "text": "Secouriste {{matricule}}", "x_mm": 1, "y_mm": 20.9, "width_mm": 17.8, "height_mm": 5, "font_size_mm": 2, "bold": 0, "align": "left"},
+    {"id": "exp", "kind": "text", "text": "Valable jusqu'au {{key_expires}}", "x_mm": 1, "y_mm": 26.4, "width_mm": 38, "height_mm": 2.4, "font_size_mm": 1.8, "bold": 0, "align": "left"},
+    {"id": "texte-5", "kind": "text", "text": "{{titre}}", "x_mm": 2.4, "y_mm": 9.5, "width_mm": 15.9, "height_mm": 8, "font_size_mm": 1.4, "bold": 1, "align": "center"}
   ]
 }
