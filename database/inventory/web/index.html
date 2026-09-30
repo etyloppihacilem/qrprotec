@@ -53,6 +53,7 @@
     <footer id="actions">
       <button id="restock" class="warning" type="button" hidden>Ajouter au lot (réassort)</button>
       <button id="validate" class="primary" type="button">Valider la vérif</button>
+      <button id="undo-last" class="secondary" type="button" aria-label="Annuler le dernier scan" title="Annuler le dernier scan" hidden>↶</button>
       <button id="more" class="secondary" type="button" aria-label="Plus d'actions">⋯</button>
     </footer>
   </section>
@@ -67,6 +68,21 @@
   </dialog>
 
   <!-- Compte rendu de verif -->
+  <!-- Code PIN apres le badge (admins, ou utilisateurs ayant un PIN) -->
+  <dialog id="pin">
+    <form id="pin-form">
+      <h2 id="pin-title">Code PIN</h2>
+      <p id="pin-text" class="hint"></p>
+      <input id="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="4 à 8 chiffres">
+      <input id="pin-confirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="Confirmez le PIN" hidden>
+      <p id="pin-error" class="pin-error"></p>
+      <div class="dialog-buttons">
+        <button type="button" id="pin-cancel" class="secondary">Annuler</button>
+        <button type="submit" class="primary">Valider</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="report"><div id="report-body"></div><button type="button" class="primary" id="report-close">OK</button></dialog>
 
   <div id="flash"></div>

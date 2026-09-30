@@ -71,6 +71,21 @@ struct SessionUser {
     std::string role_suffix() const { return role == "admin" ? " (admin)" : privileged ? " (gestion)" : ""; }
 };
 
+// Saisie du PIN apres le scan d'un badge (admins, ou utilisateurs ayant un PIN)
+struct PinPrompt {
+    bool        active = false;
+    bool        setup  = false; // admin sans PIN : il le choisit (saisi deux fois)
+    bool        busy   = false;
+    bool        focus  = false;
+    std::string matricule;
+    std::string key;
+    std::string name;
+    std::string pin;
+    std::string confirm;
+    std::string error;
+    int         source = 0; // ScanSource du badge
+};
+
 struct VerifSession {
     bool        active = false;
     std::string lot_id;
@@ -228,6 +243,10 @@ class App {
     void resolve_item(int entry_id);
     void resolve_pack(int entry_id);
     void login_with_badge(const ParsedScan &scan, ScanSource source);
+    void send_auth(const std::string &matricule, const std::string &key, const std::string &pin,
+                   const std::string &new_pin, ScanSource source);
+    void complete_login(const Json &data);
+    void draw_pin_modal();
     void scan_lot(const ParsedScan &scan, ScanSource source);
     void scan_lot_seal(const ParsedScan &scan, ScanSource source);
     void entry_error(int entry_id, const std::string &message, ScanSource source);
@@ -255,12 +274,15 @@ class App {
     std::string             setup_matricule_;
     std::string             setup_nom_;
     std::string             setup_prenom_;
+    std::string             setup_pin_;
+    std::string             setup_pin_confirm_;
     Json                    setup_created_; // compte cree, pour imprimer le badge
     double                  last_activity_ = 0.0;
     bool                    reset_done_    = false;
     bool                    layout_pending_ = true;
     std::vector< Toast >    toasts_;
     bool                    login_prompt_ = false;
+    PinPrompt               pin_;
     bool                    login_prompt_opened_ = false;
     std::string             login_reason_;
     std::string             login_manual_;

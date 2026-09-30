@@ -29,7 +29,7 @@ cd database
 poetry install --no-root          # ou : pip install django djangorestframework
 python manage.py migrate
 python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001
-python manage.py createadmin M001 Nom Prenom   # premier administrateur (ou badge admin perdu)
+python manage.py createadmin M001 Nom Prenom --pin 4821   # premier administrateur (ou badge admin perdu)
 python manage.py serve --https    # API publique en HTTPS (certificat de développement, tests sur téléphone)
 python manage.py test inventory
 ```
@@ -63,7 +63,9 @@ douchette (`ScanSource::Phone`).
 2. Le téléphone scanne ce QR code avec son appareil photo : la page de scan s'ouvre et se connecte à
    `/ws/scanner/phone?s=SESSION&k=CLE` (API publique, HTTPS obligatoire pour la caméra).
 3. Chaque code lu est relayé au front ; le front renvoie les erreurs (produit périmé, code inconnu)
-   avec leur message, et le téléphone clignote en rouge, bipe et vibre.
+   avec leur message, et le téléphone clignote en rouge, bipe et vibre. Le téléphone n'affiche qu'un
+   libellé court par code (« Item compre · 31/12/2027 », « Badge M0042 », « Lot … · étiquette privée »),
+   jamais les clés ; « Annuler le dernier » retire du poste le dernier scan venu du téléphone.
 4. Si le téléphone (ou le poste) reste déconnecté plus longtemps que le délai choisi (5 min par
    défaut, réglable dans la fenêtre du front), la session est fermée : la clé du QR code ne marche
    plus et il faut en générer un nouveau. Les reconnexions courtes (écran éteint, réseau) sont
@@ -104,6 +106,12 @@ rôles gestion et admin).
 | `normal` (Secouriste) | vérifs, pile de scans, ajout aux lots | vérifs, liste des lots |
 | `gestion` | mode privilégié : stocks, inventaire, paquets, lots ; **pas** les Réglages, les Utilisateurs ni l'éditeur d'étiquettes | + onglet **Stock** (lecture seule) |
 | `admin` | tout, dont Réglages (serveur, étiquettes, notifications SMS…), Utilisateurs et éditeur d'étiquettes | + onglet **Stock** |
+
+**Code PIN** (4 à 8 chiffres, haché) : demandé après le badge à chaque connexion, obligatoire pour les
+administrateurs, facultatif pour les autres rôles (défini dans **Gestion > Utilisateurs**). Un
+administrateur sans PIN (compte existant, ou créé par `createadmin` sans `--pin`) le choisit à sa
+connexion suivante. Après 5 PIN faux, le PIN est bloqué 5 minutes. Sur le téléphone, `auth/` renvoie
+un jeton de session (12 h) utilisé pour l'état des stocks à la place du PIN.
 
 Le rôle se choisit dans **Gestion > Utilisateurs** (admin). La migration `0003_roles` transforme les
 anciens responsables en administrateurs ; `createadmin` crée ou répare un administrateur.
@@ -185,6 +193,7 @@ ouvre donc directement la bonne vue. Les fichiers sont dans `database/inventory/
     douchette) ouvre la page de scan qui envoie les codes au poste ;
   - **À scanner** (items attendus du lot, en orange, les périmés en rouge), **Scannés** (avec ✕ par
     ligne, « Annuler le dernier », « Vider la liste ») et **Lot** (exigences scannées / attendues) ;
+    le bouton ↶ de la barre du bas annule le dernier scan ;
   - **Stock** (rôles gestion et admin, après scan du badge) : état des stocks en lecture seule, les
     types les plus critiques en premier.
 - **Produit périmé ou code inconnu** : écran rouge qui clignote, bip grave et vibration (la vibration

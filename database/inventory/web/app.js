@@ -118,7 +118,7 @@
     try { data = await response.json(); } catch (e) { /* reponse vide */ }
     if (!response.ok) {
       const message = (data && (data.error || data.detail)) || `Erreur ${response.status}`;
-      throw Object.assign(new Error(message), { status: response.status });
+      throw Object.assign(new Error(message), { status: response.status, data: data || {} });
     }
     return data;
   }
@@ -488,9 +488,33 @@
       state.lotKey ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
   }
 
-  async function login(matricule, key) {
+  // Saisie du PIN (ou choix du PIN pour un admin qui n'en a pas encore)
+  function askPin(matricule, key, setup, errorMessage) {
+    const dialog = $('#pin');
+    $('#pin-title').textContent = setup ? 'Choisissez votre code PIN' : 'Code PIN';
+    $('#pin-text').textContent = setup
+      ? 'Obligatoire pour les administrateurs : 4 à 8 chiffres, demandé après le badge à chaque connexion.'
+      : `Badge ${matricule} : saisissez votre code PIN.`;
+    $('#pin-input').value = '';
+    $('#pin-confirm').value = '';
+    $('#pin-confirm').hidden = !setup;
+    $('#pin-error').textContent = errorMessage || '';
+    $('#pin-form').onsubmit = (event) => {
+      event.preventDefault();
+      const pin = $('#pin-input').value.trim();
+      if (!/^\d{4,8}$/.test(pin)) { $('#pin-error').textContent = 'Le PIN doit comporter 4 à 8 chiffres.'; return; }
+      if (setup && pin !== $('#pin-confirm').value.trim()) { $('#pin-error').textContent = 'Les deux PIN sont différents.'; return; }
+      dialog.close();
+      login(matricule, key, setup ? { new_pin: pin } : { pin });
+    };
+    $('#pin-cancel').onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+    setTimeout(() => $('#pin-input').focus(), 50);
+  }
+
+  async function login(matricule, key, extra = {}) {
     try {
-      const user = await api('auth/', { matricule, key });
+      const user = await api('auth/', { matricule, key, ...extra });
       state.user = { ...user, key };
       state.lots = null;
       state.stock = null;
@@ -502,6 +526,12 @@
       loadLots();
       if (canSeeStock()) loadStock();
     } catch (e) {
+      if (e.data && (e.data.pin_required || e.data.pin_setup_required)) {
+        const retry = extra.pin || extra.new_pin || e.data.pin_locked;
+        if (retry) feedback.bad(); else feedback.info();
+        askPin(matricule, key, !!e.data.pin_setup_required, retry ? e.message : '');
+        return;
+      }
       feedback.bad();
       showInfo('bad', 'Badge refusé', e.message);
     }
@@ -649,11 +679,17 @@
     }
   });
 
-  $('#undo').addEventListener('click', () => {
+  function undoLastScan() {
     const last = state.scanned.pop();
-    if (last) toast('Retiré : ' + (last.iid || last.info && last.info.type_name || last.code));
+    if (last) {
+      const name = last.kind === 'pack' && last.info ? `paquet ${last.info.count} × ${last.info.type_name}`
+        : last.info && last.info.type_name ? `${last.info.type_name} (${last.iid})` : last.iid || 'code inconnu';
+      toast('Dernier scan annulé : ' + name);
+    }
     save(); render();
-  });
+  }
+  $('#undo').addEventListener('click', undoLastScan);
+  $('#undo-last').addEventListener('click', undoLastScan);
 
   $('#clear').addEventListener('click', () => {
     if (!state.scanned.length || !confirm('Vider la liste des items scannés ?')) return;
@@ -824,7 +860,7 @@
   // ------------------------------------------------------------------------------------------------
   // Accueil : connexion, liste des lots pour lancer une verif, telephone-douchette ; onglet Stock
 
-  const badge = () => ({ matricule: state.user.matricule, key: state.user.key });
+  const badge = () => ({ matricule: state.user.matricule, key: state.user.key, session: state.user.session });
 
   async function loadLots() {
     if (!state.user) return;
@@ -849,6 +885,7 @@
       state.stock = await api('stock/summary/', { user: badge() });
     } catch (e) {
       toast('Stocks : ' + e.message, true);
+      if (e.data && e.data.pin_required) { state.user = null; save(); } // session expiree : rescanner le badge
     } finally {
       state.loading = '';
       render();
@@ -951,6 +988,7 @@
     // reassort : bouton orange a cote de la validation
     const restock = onlyNewItems() && !state.busy;
     $('#restock').hidden = !restock;
+    $('#undo-last').hidden = !state.scanned.length || state.busy;
     $('#restock').textContent = `Ajouter ${scannedIids().size} au lot (réassort)`;
     const validateButton = $('#validate');
     const recorded = state.lastVerif && state.lot && state.lastVerif.lotId === state.lot.id && !state.scanned.length;

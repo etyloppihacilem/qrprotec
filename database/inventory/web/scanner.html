@@ -21,7 +21,14 @@
     #history { flex: 1; overflow-y: auto; }
     #panel footer { display: flex; gap: 8px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
     #panel footer button { flex: 1; }
-    .list li .state { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+    .list li { padding: 6px 12px; }
+    .list li .icon { width: 1.4em; text-align: center; font-weight: 700; }
+    .list li.ok .icon { color: var(--green); }
+    .list li.error .icon { color: var(--red); }
+    .list li.todo .icon { color: var(--orange); }
+    .list li.undone { color: var(--muted); border-left: 5px solid var(--line); }
+    .list li.undone .name { text-decoration: line-through; }
+    #info .title { font-size: 1.05rem; }
   </style>
 </head>
 <body>
@@ -52,6 +59,7 @@
     <div id="info" class="info empty">Aucun code envoyé.</div>
     <div id="history"><ul id="history-list" class="list"></ul></div>
     <footer>
+      <button id="undo" type="button" class="secondary">↶ Annuler le dernier</button>
       <button id="manual" type="button" class="secondary">Saisir un code</button>
     </footer>
   </section>

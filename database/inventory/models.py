@@ -9,11 +9,13 @@
 # ######################################################################################################################
 
 import hmac
+import re
 import secrets
 import string
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.db import transaction
 from django.utils import timezone
@@ -311,6 +313,11 @@ class Lots(models.Model):
         return f"{self.name} ({self.id})"
 
 
+PIN_RE = re.compile(r'^\d{4,8}$')
+PIN_MAX_FAILURES = 5              # essais faux consecutifs avant blocage
+PIN_LOCK_DURATION = timedelta(minutes=5)
+
+
 class Role(models.TextChoices):
     NORMAL = 'normal', 'Secouriste'
     GESTION = 'gestion', 'Gestion'   # consultation et gestion de l'inventaire, sans les reglages du front
@@ -326,6 +333,51 @@ class Secouristes(models.Model):
     role = models.CharField(max_length=8, choices=Role.choices, default=Role.NORMAL)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(default=timezone.now)
+    # PIN de connexion (4 a 8 chiffres, hache) : obligatoire pour les admins, facultatif sinon
+    pin_hash = models.CharField(max_length=128, blank=True, default='')
+    pin_failures = models.PositiveIntegerField(default=0)
+    pin_locked_until = models.DateTimeField(blank=True, null=True)
+
+    @property
+    def has_pin(self) -> bool:
+        return bool(self.pin_hash)
+
+    @property
+    def pin_required(self) -> bool:
+        return self.has_pin or self.role == Role.ADMIN
+
+    def set_pin(self, pin):
+        """pin vide : supprime le PIN (refuse pour un admin). Leve ValueError si le format est invalide."""
+        pin = str(pin or '').strip()
+        if not pin:
+            if self.role == Role.ADMIN:
+                raise ValueError('Le PIN est obligatoire pour un administrateur')
+            self.pin_hash = ''
+        elif not PIN_RE.match(pin):
+            raise ValueError('Le PIN doit comporter 4 à 8 chiffres')
+        else:
+            self.pin_hash = make_password(pin)
+        self.pin_failures = 0
+        self.pin_locked_until = None
+
+    def pin_locked(self) -> bool:
+        return self.pin_locked_until is not None and self.pin_locked_until > timezone.now()
+
+    def check_pin(self, pin) -> bool:
+        """Verifie le PIN et compte les echecs (blocage temporaire apres PIN_MAX_FAILURES)."""
+        if self.pin_locked() or not self.pin_hash:
+            return False
+        if check_password(str(pin or ''), self.pin_hash):
+            if self.pin_failures:
+                self.pin_failures = 0
+                self.save(update_fields=['pin_failures'])
+            return True
+        self.pin_failures += 1
+        if self.pin_failures >= PIN_MAX_FAILURES:
+            self.pin_failures = 0
+            self.pin_locked_until = timezone.now() + PIN_LOCK_DURATION
+        self.save(update_fields=['pin_failures', 'pin_locked_until'])
+        return False
 
     @property
     def privileged(self) -> bool:

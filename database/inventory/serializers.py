@@ -168,6 +168,8 @@ def user_dict(user, local=False):
         'role': user.role,
         'role_label': user.get_role_display(),
         'privileged': user.privileged,  # gestion ou admin (mode privilegie du front)
+        'has_pin': user.has_pin,
+        'pin_required': user.pin_required,
         'active': user.active,
         'key_expires': _date(user.key_expires),
     }

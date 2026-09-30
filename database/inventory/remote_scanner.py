@@ -24,12 +24,12 @@ faut alors generer un nouveau QR code. Les sessions vivent en memoire, dans le p
 inventory/management/commands/serve.py).
 
 Messages (JSON, trames texte) :
-  telephone -> serveur : {"type": "scan", "code": "...", "id": n}, {"type": "ping"}
+  telephone -> serveur : {"type": "scan", "code": "...", "id": n}, {"type": "undo", "id": n}, {"type": "ping"}
   serveur -> telephone : {"type": "hello", ...}, {"type": "ack", "id": n, "ok": bool, "message": "..."},
                          {"type": "feedback", "result": "error", "message": "..."},
                          {"type": "front", "connected": bool}, {"type": "closed", "reason": "..."}
   front -> serveur     : {"type": "feedback", ...}, {"type": "close"}, {"type": "ping"}
-  serveur -> front     : {"type": "hello", ...}, {"type": "scan", "code": "...", "id": n},
+  serveur -> front     : {"type": "hello", ...}, {"type": "scan", "code": "...", "id": n}, {"type": "undo", "id": n},
                          {"type": "phone", "connected": bool, "agent": "..."}, {"type": "closed", ...}
 """
 
@@ -292,6 +292,12 @@ class Hub:
                 message = self._parse(websocket.receive())
                 if message.get('type') == 'scan':
                     self._relay_scan(session, websocket, message)
+                elif message.get('type') == 'undo':
+                    # « Annuler le dernier » : le poste retire le dernier scan venu du telephone
+                    with self.lock:
+                        front = session.front
+                    delivered = front is not None and front.send_json({'type': 'undo', 'id': message.get('id')})
+                    websocket.send_json({'type': 'undo_ack', 'id': message.get('id'), 'ok': delivered})
         except WebSocketClosed:
             pass
         finally:

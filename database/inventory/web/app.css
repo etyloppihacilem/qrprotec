@@ -22,7 +22,15 @@ button { font: inherit; border: 0; border-radius: 10px; padding: 10px 14px; back
 button:disabled { opacity: .45; }
 .primary { background: var(--green); color: #fff; font-weight: 600; }
 .warning { background: var(--orange); color: #fff; font-weight: 600; }
-.warning[hidden] { display: none; }
+.warning[hidden], .secondary[hidden] { display: none; }
+#pin h2 { margin: 0 0 6px; font-size: 1.2rem; }
+#pin input { display: block; width: 100%; font-size: 1.4rem; letter-spacing: .3em; text-align: center; padding: 10px;
+  margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; }
+#pin input[hidden] { display: none; }
+.pin-error { color: var(--red); min-height: 1.2em; margin: 4px 0; font-size: .9rem; }
+.dialog-buttons { display: flex; gap: 8px; }
+.dialog-buttons button { flex: 1; }
+.hint { color: var(--muted); font-size: .85rem; }
 .secondary { background: #e9e5de; }
 .big { font-size: 1.15rem; padding: 14px 22px; }
 .error { color: #ffb4b4; }

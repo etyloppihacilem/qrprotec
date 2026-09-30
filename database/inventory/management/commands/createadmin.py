@@ -12,6 +12,7 @@
 
     python manage.py createadmin M001 Dupont Jeanne
     python manage.py createadmin M001            # compte existant : repasse administrateur, nouvelle cle
+    python manage.py createadmin M001 --pin 4821 # fixe aussi le PIN (sinon demande a la connexion)
 
 Utile a la premiere installation ou si tous les badges administrateur sont perdus ou expires. Le front
 propose aussi de creer le premier administrateur quand il n'y en a aucun.
@@ -31,8 +32,9 @@ class Command(BaseCommand):
         parser.add_argument('matricule')
         parser.add_argument('nom', nargs='?')
         parser.add_argument('prenom', nargs='?')
+        parser.add_argument('--pin', help="Code PIN (4 a 8 chiffres) ; sinon demande a la premiere connexion")
 
-    def handle(self, matricule, nom=None, prenom=None, **options):
+    def handle(self, matricule, nom=None, prenom=None, pin=None, **options):
         if not MATRICULE_RE.match(matricule):
             raise CommandError("Matricule invalide (1 a 16 caracteres alphanumeriques)")
         user = Secouristes.objects.filter(matricule=matricule).first()
@@ -48,6 +50,11 @@ class Command(BaseCommand):
                 user.prenom = prenom[:32]
             self.stdout.write(f"Compte {matricule} existant : nouvelle cle de badge, droits administrateur.")
         user.role = Role.ADMIN
+        if pin:
+            try:
+                user.set_pin(pin)
+            except ValueError as exc:
+                raise CommandError(str(exc))
         user.active = True
         user.renew_key()
         user.save()
@@ -55,3 +62,5 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Badge valable jusqu'au {data['key_expires']}"))
         self.stdout.write(f"URL du badge (a encoder dans un QR code) :\n{data['badge_url']}")
         self.stdout.write("Scannez cette URL (ou le badge imprime) sur le poste pour passer en mode privilegie.")
+        if not user.has_pin:
+            self.stdout.write("Aucun PIN : il sera demande (4 a 8 chiffres) a la premiere connexion.")

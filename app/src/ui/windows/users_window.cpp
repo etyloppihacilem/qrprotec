@@ -86,6 +86,7 @@ class UsersWindow final : public AppWindow {
 
   private:
     void select(const Json &user) {
+      pin_.clear();
       selected_   = user["matricule"].str();
       user_       = user;
       matricule_  = selected_;
@@ -109,15 +110,26 @@ class UsersWindow final : public AppWindow {
                   "état des stocks sur le téléphone, sans les Réglages ni les Utilisateurs. Administrateur : tout.");
       if (!creating)
         ImGui::Checkbox("Compte actif", &active_);
+      const ImGuiInputTextFlags pin_flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal;
+      ImGui::SetNextItemWidth(160.0f);
+      ImGui::InputTextWithHint(creating ? "Code PIN" : "Nouveau PIN", "4 à 8 chiffres", &pin_, pin_flags);
+      help_marker("Demandé après le badge à chaque connexion. Obligatoire pour un administrateur (s'il n'en a pas, "
+                  "il le choisit à sa prochaine connexion), facultatif pour les autres rôles.");
+      const bool pin_valid = pin_.empty() || (pin_.size() >= 4 && pin_.size() <= 8);
+      if (!pin_valid)
+        ImGui::TextColored(colors::orange, "Le PIN doit comporter 4 à 8 chiffres.");
 
       Json body;
       body["nom"]        = nom_;
       body["prenom"]     = prenom_;
       body["role"]       = kRoles[role_];
       if (creating) {
-        ImGui::BeginDisabled(matricule_.empty() || nom_.empty() || prenom_.empty());
+        ImGui::BeginDisabled(matricule_.empty() || nom_.empty() || prenom_.empty() || !pin_valid);
         if (primary_button("Créer et voir le badge")) {
           body["matricule"] = matricule_;
+          if (!pin_.empty())
+            body["pin"] = pin_;
+          pin_.clear();
           app.api.post("/api/users/", body, [this, &app](const ApiResult &result) {
             if (!result.ok) {
               app.notify(result.error, true);
@@ -142,6 +154,23 @@ class UsersWindow final : public AppWindow {
           app.refresh_users();
         });
       }
+      ImGui::SeparatorText("Code PIN");
+      if (user_["has_pin"].boolean())
+        ImGui::TextColored(colors::green, "PIN défini.");
+      else if (kRoles[role_] == std::string("admin"))
+        ImGui::TextColored(colors::orange, "Aucun PIN : il sera choisi à la prochaine connexion (obligatoire).");
+      else
+        ImGui::TextDisabled("Aucun PIN (facultatif).");
+      ImGui::BeginDisabled(pin_.empty() || !pin_valid);
+      if (ImGui::Button("Définir le PIN"))
+        update_pin(app, pin_);
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::BeginDisabled(!user_["has_pin"].boolean() || user_["role"].str() == "admin");
+      if (ImGui::Button("Supprimer le PIN"))
+        update_pin(app, "");
+      ImGui::EndDisabled();
+
       ImGui::SeparatorText("Badge");
       ImGui::Text("Valable jusqu'au : %s", display_date(user_["key_expires"]).c_str());
       if (ImGui::Button("Aperçu et impression du badge"))
@@ -163,6 +192,19 @@ class UsersWindow final : public AppWindow {
       }
     }
 
+    void update_pin(App &app, const std::string &pin) {
+      Json body;
+      body["pin"] = pin;
+      app.api.patch("/api/users/" + url_encode(selected_) + "/", body, [this, &app, pin](const ApiResult &result) {
+        app.notify(result.ok ? (pin.empty() ? "PIN supprimé." : "PIN enregistré.") : result.error, !result.ok);
+        if (result.ok)
+          select(result.data);
+        app.refresh_users();
+      });
+      pin_.clear();
+    }
+
+    std::string pin_;
     std::string selected_;
     int         seen_users_version_ = -1;
     Json        user_;

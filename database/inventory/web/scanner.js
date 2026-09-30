@@ -75,26 +75,45 @@
     node.className = 'info ' + kind;
     node.replaceChildren(el('div', { class: 'title' }, title), line ? el('div', {}, line) : '');
   }
-  function short(code) { return code.length > 70 ? code.slice(0, 70) + '…' : code; }
+  // Libelle court d'un code scanne : jamais de cle (badge, etiquette privee, session), pas d'URL complete.
+  const IID_RE = /^[A-Za-z0-9]{6}\d{8}[A-Za-z0-9]{8}$/;
+  function describe(code) {
+    if (IID_RE.test(code)) {
+      const date = code.slice(6, 14);
+      return `Item ${code.slice(0, 6)} · ` + (date === '00000000' ? 'sans date' : `${date.slice(6, 8)}/${date.slice(4, 6)}/${date.slice(0, 4)}`);
+    }
+    let url;
+    try { url = new URL(code); } catch (e) { return code.length > 24 ? code.slice(0, 24) + '…' : code; }
+    const route = url.pathname.replace(/\/+$/, '').split('/').pop();
+    const p = url.searchParams;
+    if (route === 'verif' && p.get('lot')) return `Lot ${p.get('lot')}` + (p.get('key') ? ' · étiquette privée' : '');
+    if (route === 'badge' && p.get('m')) return `Badge ${p.get('m')}`;
+    if (route === 'pack' && p.get('id')) return `Paquet ${p.get('id')}`;
+    if (route === 'seal' && p.get('lot')) return `Scellé du lot ${p.get('lot')}`;
+    if (route === 'scanner') return 'QR de session douchette';
+    return `Lien ${url.hostname}`;
+  }
+  // les messages du poste peuvent citer le code : on remplace les URLs par leur libelle
+  function redact(text) { return String(text || '').replace(/https?:\/\/\S+/g, (url) => describe(url)); }
 
   // ------------------------------------------------------------------------------------------------
   // Historique des codes envoyes
 
-  const sent = []; // {id, code, state: 'sending'|'ok'|'error', message, node}
+  const sent = []; // {id, label, state: 'sending'|'ok'|'error'|'undone', node} (le code brut n'est pas garde)
   let nextId = 1;
 
   function renderEntry(entry) {
-    const labels = { sending: 'envoi…', ok: 'reçu par le poste', error: entry.message || 'erreur' };
-    const node = el('li', { class: entry.state === 'error' ? 'error' : entry.state === 'ok' ? 'ok' : 'todo' },
-      el('div', { class: 'main' }, el('div', { class: 'name' }, short(entry.code)),
-        el('div', { class: 'sub' }, new Date(entry.at).toLocaleTimeString('fr-FR'))),
-      el('span', { class: 'state' }, labels[entry.state]));
+    const icons = { sending: '…', ok: '✓', error: '✗', undone: '↶' };
+    const classes = { sending: 'todo', ok: 'ok', error: 'error', undone: 'undone' };
+    const node = el('li', { class: classes[entry.state] },
+      el('span', { class: 'icon' }, icons[entry.state]),
+      el('div', { class: 'main' }, el('div', { class: 'name' }, entry.label)));
     if (entry.node) entry.node.replaceWith(node);
     entry.node = node;
     return node;
   }
   function addEntry(code) {
-    const entry = { id: nextId++, code, state: 'sending', message: '', at: Date.now() };
+    const entry = { id: nextId++, label: describe(code), state: 'sending' };
     sent.unshift(entry);
     $('#history-list').prepend(renderEntry(entry));
     while (sent.length > 30) { const old = sent.pop(); old.node.remove(); }
@@ -131,6 +150,7 @@
     $('#start').hidden = true;
     $('#ended').hidden = false;
     $('#manual').disabled = true;
+    $('#undo').disabled = true;
     $('#ended-reason').textContent = reason ? 'Motif : ' + reason + '.' : '';
     updateLink();
   }
@@ -197,19 +217,24 @@
       case 'ack': {
         const entry = sent.find((item) => item.id === message.id);
         if (!entry) break;
-        entry.state = message.ok ? 'ok' : 'error';
-        entry.message = message.message || '';
+        if (entry.state === 'sending') entry.state = message.ok ? 'ok' : 'error';
         renderEntry(entry);
         if (!message.ok) { feedback.bad(); info('bad', 'Non transmis', message.message); }
+        break;
+      }
+      case 'undo_ack': {
+        const entry = sent.find((item) => item.id === message.id);
+        if (!message.ok) { feedback.bad(); info('bad', 'Annulation non transmise', 'Poste déconnecté.'); break; }
+        if (entry) { entry.state = 'undone'; renderEntry(entry); }
+        info('warn', 'Dernier scan annulé', entry ? entry.label : '');
         break;
       }
       case 'feedback':
         // le poste signale un mauvais scan (perime, inconnu...) : comme le bip de la douchette
         feedback.bad();
-        info('bad', 'Le poste signale une erreur', message.message || 'produit périmé ou code non reconnu');
-        if (sent[0] && sent[0].state !== 'error') {
+        info('bad', redact(message.message) || 'Produit périmé ou code non reconnu', '');
+        if (sent[0] && sent[0].state === 'ok') {
           sent[0].state = 'error';
-          sent[0].message = message.message || 'erreur signalée par le poste';
           renderEntry(sent[0]);
         }
         break;
@@ -229,7 +254,15 @@
     const entry = addEntry(code);
     send({ type: 'scan', code, id: entry.id });
     feedback.sent();
-    info(frontConnected ? 'ok' : 'warn', 'Envoyé au poste', short(code));
+    info(frontConnected ? 'ok' : 'warn', entry.label, frontConnected ? '' : 'Poste non connecté');
+  }
+
+  // « Annuler le dernier » : le poste retire le dernier scan venu de ce telephone
+  function undoLast() {
+    unlockAudio();
+    const entry = sent.find((item) => item.state === 'ok' || item.state === 'error');
+    if (!entry) { toast('Rien à annuler'); return; }
+    if (!send({ type: 'undo', id: entry.id })) { feedback.bad(); info('bad', 'Non envoyé', 'Pas de connexion au serveur.'); }
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -336,6 +369,7 @@
       $('#torch').classList.toggle('on', on);
     } catch (e) { toast('Lampe indisponible', true); }
   });
+  $('#undo').addEventListener('click', undoLast);
   $('#manual').addEventListener('click', () => {
     const code = prompt('Code à envoyer au poste :');
     if (code && code.trim()) sendCode(code.trim());

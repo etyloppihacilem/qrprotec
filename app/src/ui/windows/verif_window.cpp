@@ -197,9 +197,16 @@ class VerifWindow final : public AppWindow {
                               "Le lot sera signalé « vérif recommandée » (orange) pour que la personne suivante\n"
                               "fasse une vérif complète.");
       }
+      const float width = ImGui::GetContentRegionAvail().x;
       if (primary_button(verif.submitting ? "Envoi..." : restock ? "Valider une vérif complète" : "Valider la vérif",
-                         ImVec2(ImGui::GetContentRegionAvail().x * 0.6f, 0)))
+                         ImVec2(width * 0.45f, 0)))
         app.submit_verif();
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::BeginDisabled(app.stack.empty() || verif.submitting);
+      if (ImGui::Button("Annuler le dernier scan", ImVec2(width * 0.3f, 0)))
+        app.stack.undo_last();
+      ImGui::SetItemTooltip("Retire de la pile le dernier item scanné (erreur de scan).");
       ImGui::EndDisabled();
       ImGui::SameLine();
       if (danger_button("Annuler la vérif", ImVec2(-1, 0)))

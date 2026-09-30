@@ -19,6 +19,7 @@ Deux familles de vues :
 import re
 from datetime import date
 
+from django.core import signing
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -41,18 +42,19 @@ MATRICULE_RE = re.compile(r'^[A-Za-z0-9_-]{1,16}$')
 
 
 class ApiError(Exception):
-    def __init__(self, message, code=status.HTTP_400_BAD_REQUEST):
+    def __init__(self, message, code=status.HTTP_400_BAD_REQUEST, **extra):
         super().__init__(message)
         self.message = message
         self.code = code
+        self.extra = extra  # champs ajoutes a la reponse d'erreur (ex: pin_required)
 
 
 def is_local(request) -> bool:
     return getattr(request, 'qrprotec_local', False)
 
 
-def error(message, code=status.HTTP_400_BAD_REQUEST):
-    return Response({'error': message}, status=code)
+def error(message, code=status.HTTP_400_BAD_REQUEST, **extra):
+    return Response({'error': message, **extra}, status=code)
 
 
 def handle_errors(view):
@@ -60,7 +62,7 @@ def handle_errors(view):
         try:
             return view(request, *args, **kwargs)
         except ApiError as exc:
-            return error(exc.message, exc.code)
+            return error(exc.message, exc.code, **exc.extra)
         except ValueError as exc:
             return error(str(exc))
     wrapper.__name__ = view.__name__
@@ -116,6 +118,8 @@ def badge_user(request, roles=None):
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
     if roles and user.role not in roles:
         raise ApiError("Réservé aux rôles gestion et admin", status.HTTP_403_FORBIDDEN)
+    if roles and user.pin_required and not session_valid(user, credentials.get('session')):
+        raise ApiError("Session expirée : scannez à nouveau votre badge", status.HTTP_403_FORBIDDEN, pin_required=True)
     return user
 
 
@@ -142,15 +146,70 @@ def health(request):
     })
 
 
+SESSION_SALT = 'qrprotec.session'
+SESSION_MAX_AGE = 12 * 3600  # jeton de session du front web apres verification du PIN
+
+
+def session_token(user):
+    # lie au badge courant : renouveler le badge invalide les sessions
+    return signing.dumps({'m': user.matricule, 'k': (user.key or '')[-8:]}, salt=SESSION_SALT)
+
+
+def session_valid(user, token):
+    try:
+        data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
+    except signing.BadSignature:
+        return False
+    return data.get('m') == user.matricule and data.get('k') == (user.key or '')[-8:]
+
+
+def verify_pin(user, data):
+    """Controle du PIN a la connexion (obligatoire pour un admin, ou si l'utilisateur en a un).
+
+    Un admin sans PIN (compte cree avant les PIN, ou par createadmin) le choisit a sa connexion
+    avec `new_pin`. Les erreurs portent pin_required / pin_setup_required pour que le front demande le PIN.
+    """
+    if not user.pin_required:
+        return
+    if user.pin_locked():
+        minutes = max(1, int((user.pin_locked_until - timezone.now()).total_seconds() // 60) + 1)
+        raise ApiError(f"Trop d'essais : PIN bloqué pendant {minutes} min", status.HTTP_403_FORBIDDEN,
+                       pin_required=True, pin_locked=True)
+    if not user.has_pin:
+        new_pin = str(data.get('new_pin', '') or '')
+        if not new_pin:
+            raise ApiError("Choisissez votre code PIN (4 à 8 chiffres)", status.HTTP_403_FORBIDDEN,
+                           pin_setup_required=True)
+        try:
+            user.set_pin(new_pin)
+        except ValueError as exc:
+            raise ApiError(str(exc), status.HTTP_400_BAD_REQUEST, pin_setup_required=True)
+        user.save(update_fields=['pin_hash', 'pin_failures', 'pin_locked_until'])
+        return
+    pin = str(data.get('pin', '') or '')
+    if not pin:
+        raise ApiError("Code PIN requis", status.HTTP_403_FORBIDDEN, pin_required=True)
+    if not user.check_pin(pin):
+        raise ApiError("PIN bloqué 5 min après trop d'essais" if user.pin_locked() else "Code PIN incorrect",
+                       status.HTTP_403_FORBIDDEN, pin_required=True, pin_locked=user.pin_locked())
+
+
 @api_view(['POST'])
 @handle_errors
 def auth(request):
-    """Confirme l'identite d'un secouriste (matricule + cle de badge, valable un an)."""
+    """Confirme l'identite d'un secouriste : cle du badge (valable un an), puis PIN si besoin.
+
+    La reponse contient un jeton `session` (12 h) que le front web renvoie pour les lectures reservees
+    (etat des stocks) au lieu de redemander le PIN.
+    """
     matricule = str(request.data.get('matricule', ''))
     user = Secouristes.objects.filter(matricule=matricule).first()
     if user is None or not user.check_key(request.data.get('key')):
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
-    return Response(ser.user_dict(user))
+    verify_pin(user, request.data)
+    data = ser.user_dict(user)
+    data['session'] = session_token(user)
+    return Response(data)
 
 
 @api_view(['GET'])
@@ -577,6 +636,8 @@ def users(request):
     if not nom or not prenom:
         raise ApiError("Nom et prenom obligatoires")
     user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=parse_role(data) or Role.NORMAL)
+    if data.get('pin'):
+        user.set_pin(data['pin'])  # sinon, un admin choisira son PIN a sa premiere connexion
     user.renew_key()
     user.save()
     return Response(ser.user_dict(user, local=True), status=status.HTTP_201_CREATED)
@@ -596,6 +657,8 @@ def user_detail(request, matricule):
             user.role = role
         if 'active' in data:
             user.active = bool(data['active'])
+        if 'pin' in data:
+            user.set_pin(data['pin'])  # '' supprime le PIN (refuse pour un admin)
         user.save()
     return Response(ser.user_dict(user, local=True))
 

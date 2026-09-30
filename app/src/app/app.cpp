@@ -181,6 +181,7 @@ void App::reset_session() {
   last_report_lot.clear();
   logout();
   login_prompt_ = false;
+  pin_          = PinPrompt{};
   pending_action_ = nullptr;
   apply_default_open_state();
   refresh_lots();
@@ -207,6 +208,7 @@ void App::draw() {
   inateck.draw_window();
   draw_setup_modal();
   draw_login_modal();
+  draw_pin_modal();
   draw_label_preview(*this);
   draw_toasts();
   feedback.draw_overlay();
@@ -366,7 +368,7 @@ void App::draw_login_modal() {
       login_prompt_   = false;
       pending_action_ = nullptr;
     }
-    if (!login_prompt_ || logged_in())
+    if (!login_prompt_ || logged_in() || pin_.active) // le PIN prend le relais (l'action en attente est gardee)
       ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   } else if (login_prompt_opened_) {
@@ -395,6 +397,7 @@ void App::create_first_admin() {
   body["matricule"]  = setup_matricule_;
   body["nom"]        = setup_nom_;
   body["prenom"]     = setup_prenom_;
+  body["pin"]        = setup_pin_;
   body["role"]       = "admin";
   setup_busy_        = true;
   api.post("/api/users/", body, [this](const ApiResult &result) {
@@ -439,8 +442,13 @@ void App::draw_setup_modal() {
     ImGui::InputText("Matricule", &setup_matricule_, ImGuiInputTextFlags_CharsNoBlank);
     ImGui::InputText("Prénom", &setup_prenom_);
     ImGui::InputText("Nom", &setup_nom_);
+    const ImGuiInputTextFlags pin_flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal;
+    ImGui::InputTextWithHint("Code PIN", "4 à 8 chiffres", &setup_pin_, pin_flags);
+    ImGui::InputTextWithHint("Confirmation", "le même PIN", &setup_pin_confirm_, pin_flags);
+    const bool pin_ok = setup_pin_.size() >= 4 && setup_pin_.size() <= 8 && setup_pin_ == setup_pin_confirm_;
+    ImGui::TextDisabled("Le PIN sera demandé à chaque connexion, après le badge.");
     ImGui::PopStyleColor();
-    ImGui::BeginDisabled(setup_busy_ || setup_matricule_.empty() || setup_nom_.empty() || setup_prenom_.empty());
+    ImGui::BeginDisabled(setup_busy_ || setup_matricule_.empty() || setup_nom_.empty() || setup_prenom_.empty() || !pin_ok);
     if (ImGui::Button("Créer l'administrateur", ImVec2(-1, 0)))
       create_first_admin();
     ImGui::EndDisabled();
@@ -545,37 +553,129 @@ void App::require_login(const std::string &what, std::function< void() > action)
 }
 
 void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
+  pin_ = PinPrompt{};
+  send_auth(scan.id, scan.key, "", "", source);
+}
+
+// Le serveur verifie la cle du badge puis, si besoin, le PIN : une erreur pin_required (ou
+// pin_setup_required pour un admin qui n'a pas encore de PIN) ouvre la saisie du PIN.
+void App::send_auth(const std::string &matricule, const std::string &key, const std::string &pin,
+                    const std::string &new_pin, ScanSource source) {
   Json body;
-  body["matricule"] = scan.id;
-  body["key"]       = scan.key;
-  api.post("/api/auth/", body, [this, source](const ApiResult &result) {
-    if (!result.ok) {
-      feedback.error(source, settings);
-      notify("Badge refusé : " + result.error, true);
+  body["matricule"] = matricule;
+  body["key"]       = key;
+  if (!pin.empty())
+    body["pin"] = pin;
+  if (!new_pin.empty())
+    body["new_pin"] = new_pin;
+  pin_.busy = true;
+  api.post("/api/auth/", body, [this, matricule, key, source](const ApiResult &result) {
+    pin_.busy = false;
+    if (result.ok) {
+      pin_ = PinPrompt{};
+      complete_login(result.data);
       return;
     }
-    SessionUser session;
-    session.matricule   = result.data["matricule"].str();
-    session.nom         = result.data["nom"].str();
-    session.prenom      = result.data["prenom"].str();
-    session.key_expires = result.data["key_expires"].str();
-    session.privileged  = result.data["privileged"].boolean();
-    session.role        = result.data["role"].str(session.privileged ? "admin" : "normal");
-    user                = session;
-    notify("Bonjour " + session.display()
-           + (session.admin() ? " : mode administrateur activé." : session.privileged ? " : mode gestion activé." : "."));
-    if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
-      notify("Votre badge expire le " + expires->display() + ", demandez son renouvellement.", true);
-    login_prompt_ = false;
-    auto action   = std::move(pending_action_);
-    pending_action_ = nullptr;
-    if (action)
-      action();
-    if (session.privileged) {
-      refresh_item_types();
-      refresh_lot_types();
+    const bool setup = result.data["pin_setup_required"].boolean();
+    if (setup || result.data["pin_required"].boolean()) {
+      const bool first = !pin_.active;
+      if (first) {
+        pin_           = PinPrompt{};
+        pin_.active    = true;
+        pin_.matricule = matricule;
+        pin_.key       = key;
+        pin_.source    = static_cast< int >(source);
+      }
+      pin_.setup = setup;
+      pin_.focus = true;
+      pin_.pin.clear();
+      pin_.confirm.clear();
+      // premiere demande : pas d'erreur a afficher, seulement la saisie
+      pin_.error = first && !result.data["pin_locked"].boolean() ? "" : result.error;
+      if (!first)
+        feedback.error(source, settings);
+      return;
     }
+    pin_ = PinPrompt{};
+    feedback.error(source, settings);
+    notify("Badge refusé : " + result.error, true);
   });
+}
+
+void App::complete_login(const Json &data) {
+  SessionUser session;
+  session.matricule   = data["matricule"].str();
+  session.nom         = data["nom"].str();
+  session.prenom      = data["prenom"].str();
+  session.key_expires = data["key_expires"].str();
+  session.privileged  = data["privileged"].boolean();
+  session.role        = data["role"].str(session.privileged ? "admin" : "normal");
+  user                = session;
+  notify("Bonjour " + session.display()
+         + (session.admin() ? " : mode administrateur activé." : session.privileged ? " : mode gestion activé." : "."));
+  if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
+    notify("Votre badge expire le " + expires->display() + ", demandez son renouvellement.", true);
+  login_prompt_ = false;
+  auto action   = std::move(pending_action_);
+  pending_action_ = nullptr;
+  if (action)
+    action();
+  if (session.privileged) {
+    refresh_item_types();
+    refresh_lot_types();
+  }
+}
+
+void App::draw_pin_modal() {
+  if (!pin_.active)
+    return;
+  if (!ImGui::IsPopupOpen("Code PIN"))
+    ImGui::OpenPopup("Code PIN");
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal("Code PIN", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
+  ImGui::TextUnformatted(pin_.setup ? "Choisissez votre code PIN" : "Code PIN");
+  ImGui::PopFont();
+  ImGui::TextDisabled("Badge %s", pin_.matricule.c_str());
+  if (pin_.setup)
+    ImGui::TextWrapped("Le PIN (4 à 8 chiffres) est obligatoire pour les administrateurs. Il sera demandé à chaque "
+                       "connexion, après le badge.");
+  const ImGuiInputTextFlags flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal
+                                  | ImGuiInputTextFlags_EnterReturnsTrue;
+  ImGui::SetNextItemWidth(220.0f);
+  if (pin_.focus) {
+    ImGui::SetKeyboardFocusHere();
+    pin_.focus = false;
+  }
+  bool submit = ImGui::InputTextWithHint("##pin", "4 à 8 chiffres", &pin_.pin, flags);
+  if (pin_.setup) {
+    ImGui::SetNextItemWidth(220.0f);
+    submit = ImGui::InputTextWithHint("##pin_confirm", "confirmez le PIN", &pin_.confirm, flags) || submit;
+  }
+  if (!pin_.error.empty())
+    ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "%s", pin_.error.c_str());
+  const bool valid = pin_.pin.size() >= 4 && pin_.pin.size() <= 8 && (!pin_.setup || pin_.confirm == pin_.pin);
+  if (pin_.setup && !pin_.confirm.empty() && pin_.confirm != pin_.pin)
+    ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.0f, 1.0f), "Les deux PIN sont différents.");
+  ImGui::BeginDisabled(!valid || pin_.busy);
+  if (ImGui::Button(pin_.busy ? "Vérification..." : "Valider", ImVec2(150, 0)) || (submit && valid && !pin_.busy)) {
+    const ScanSource source = static_cast< ScanSource >(pin_.source);
+    if (pin_.setup)
+      send_auth(pin_.matricule, pin_.key, "", pin_.pin, source);
+    else
+      send_auth(pin_.matricule, pin_.key, pin_.pin, "", source);
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (ImGui::Button("Annuler", ImVec2(150, 0))) {
+    pin_            = PinPrompt{};
+    pending_action_ = nullptr;
+  }
+  if (!pin_.active)
+    ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -636,6 +736,16 @@ void App::poll_remote() {
     if (type == "scan") {
       ++remote.scans;
       handle_scan(message["code"].str(), ScanSource::Phone);
+    } else if (type == "undo") {
+      // « Annuler le dernier » sur le telephone : seulement si le dernier scan de la pile vient de lui
+      const auto &entries = stack.entries();
+      if (!entries.empty() && entries.back().source == ScanSource::Phone) {
+        const std::string what = entries.back().title.empty() ? entries.back().scan.raw : entries.back().title;
+        stack.undo_last();
+        notify("Téléphone : dernier scan annulé (" + what + ").");
+      } else {
+        notify("Téléphone : rien à annuler, le dernier scan de la pile ne vient pas du téléphone.", true);
+      }
     } else if (type == "hello") {
       remote.phone_connected = message["phone_connected"].boolean();
       if (!message["expires_in"].is_null())

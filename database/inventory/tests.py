@@ -248,6 +248,54 @@ class SetupTests(ApiTestCase):
         self.assertNotEqual(Secouristes.objects.get(matricule='R001').key, old_key)
 
 
+class PinTests(ApiTestCase):
+    def auth(self, user, **extra):
+        return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.key, **extra}, local=False)
+
+    def test_admin_sets_pin_at_first_login_then_needs_it(self):
+        admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
+        admin.renew_key()
+        admin.save()
+        code, body = self.auth(admin)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_setup_required'])
+        code, body = self.auth(admin, new_pin='12')
+        self.assertEqual(code, 400)
+        code, body = self.auth(admin, new_pin='4821')
+        self.assertEqual(code, 200)
+        self.assertTrue(body['has_pin'])
+        code, body = self.auth(admin)
+        self.assertEqual((code, body.get('pin_required')), (403, True))
+        code, body = self.auth(admin, pin='4821')
+        self.assertEqual(code, 200)
+        # le jeton de session ouvre l'etat des stocks sans redemander le PIN
+        badge = {'matricule': 'A001', 'key': admin.key}
+        code, _ = self.call('POST', '/api/stock/summary/', {'user': badge}, local=False)
+        self.assertEqual(code, 403)
+        code, _ = self.call('POST', '/api/stock/summary/', {'user': {**badge, 'session': body['session']}}, local=False)
+        self.assertEqual(code, 200)
+        # un admin ne peut pas supprimer son PIN
+        code, _ = self.call('PATCH', '/api/users/A001/', {'pin': ''})
+        self.assertEqual(code, 400)
+
+    def test_lockout_and_optional_pin(self):
+        code, body = self.auth(self.user)
+        self.assertEqual(code, 200)  # secouriste sans PIN
+        self.assertFalse(body['pin_required'])
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        self.assertTrue(body['has_pin'])
+        self.user.refresh_from_db()
+        for _ in range(5):
+            code, body = self.auth(self.user, pin='000000')
+        self.assertTrue(body['pin_locked'])
+        code, body = self.auth(self.user, pin='123456')  # bon PIN mais bloque
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_locked'])
+        self.call('PATCH', '/api/users/M001/', {'pin': ''})  # suppression (debloque)
+        self.user.refresh_from_db()
+        self.assertEqual(self.auth(self.user)[0], 200)
+
+
 class RestockTests(ApiTestCase):
     def test_restock_recommends_verif(self):
         new = self.create(self.compresses, self.today + timedelta(days=90), 2)
