@@ -7,6 +7,9 @@ avec un identifiant unique, les lots (sacs, malles...) sont vérifiés en scanna
 - `app/` : front ImGui (poste local : douchette Inateck, imprimante Niimbot B1).
 - `packaging/` : paquet RPM de la borne Fedora (voir [Borne Fedora](#borne-fedora-paquet-rpm)).
 
+Documentation complète dans [`docs/`](docs/README.md) : [guide de l'utilisateur](docs/utilisateur/README.md),
+[guide d'installation](docs/installation/README.md) et [documentation technique](docs/technique/README.md).
+
 ## Borne Fedora (paquet RPM)
 
 Le paquet `qrprotec` transforme un Fedora Server minimal en borne dédiée : back Django en service

@@ -1,0 +1,159 @@
+# Back (Django)
+
+Dossier `database/`. Projet Django `qrprotecDB`, une seule application `inventory`. Python ≥ 3.13,
+Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la racine).
+
+## Organisation
+
+| Fichier | Contenu | Règle |
+|---|---|---|
+| `qrprotecDB/settings.py` | Réglages Django et dictionnaire `QRPROTEC` (toute la configuration propre au projet, lue depuis l'environnement) | Toute nouvelle option passe par une variable `QRPROTEC_*` ici, documentée dans le README racine et dans `packaging/files/qrprotec.conf`. |
+| `qrprotecDB/urls.py`, `urls_local.py` | Jeux d'URLs de l'API publique et de l'API locale | Ne contiennent que des `include` des listes de `inventory/urls.py`. |
+| `inventory/urls.py` | `public_patterns`, `local_patterns`, `web_patterns` | Voir « Routes ». |
+| `inventory/views.py` | Vues DRF (`@api_view`) | Fines : parser, contrôler l'accès, appeler `services`, sérialiser. |
+| `inventory/services.py` | Logique métier | Tout ce qui modifie plusieurs objets, dans une transaction. |
+| `inventory/serializers.py` | Modèles → `dict` JSON, états des lots | Fonctions simples, pas de `Serializer` DRF (plus lisible, et les sorties ne sont pas symétriques des entrées). |
+| `inventory/middleware.py` | `ApiRoleMiddleware`, `RoleWSGIHandler` | Sépare les deux API. |
+| `inventory/idendity.py` | Identités `M:` / `D:` | (sic, le nom du fichier a une coquille historique ; le renommer casserait les imports pour rien) |
+| `inventory/notifications.py` | SMS Free Mobile, seuils de stock | |
+| `inventory/webpush.py` | Notifications web (chiffrement RFC 8291, VAPID RFC 8292) | Sans `cryptography`, désactivé proprement. |
+| `inventory/remote_scanner.py` | Relais WebSocket téléphone → poste | Protocole décrit en tête de fichier. |
+| `inventory/web_views.py`, `web/` | Front web | Liste blanche des fichiers servis. |
+| `inventory/management/commands/` | `serve`, `createadmin`, `check_alerts` | |
+| `inventory/tests.py` | Tests | `python manage.py test inventory` |
+
+## Les deux API
+
+### Sélection par le port
+
+`manage.py serve` (voir `management/commands/serve.py`) démarre **deux serveurs WSGI** (le serveur de
+développement de Django, multi-thread, durci) dans le même processus :
+
+- public : `--public 0.0.0.0:8000` par défaut (`127.0.0.1:8000` sur la borne, derrière Caddy) ;
+- local : `--local 127.0.0.1:8001`.
+
+Chacun enveloppe l'application dans `RoleWSGIHandler(app, 'public'|'local')`, qui écrit le rôle dans
+`environ['qrprotec.role']`. `ApiRoleMiddleware` le lit :
+
+- rôle `local` : contrôle l'adresse cliente (`LOCAL_API_ALLOWED_ADDRESSES`, `*` pour tout accepter)
+  et le jeton (`X-QRProtec-Token` si `LOCAL_API_TOKEN` est défini), puis
+  `request.urlconf = 'qrprotecDB.urls_local'` et `request.qrprotec_local = True` ;
+- sinon : URLs publiques.
+
+Une requête qui n'est pas passée par `serve` (tests, `runserver`, WSGI brut) prend
+`QRPROTEC_DEFAULT_API_ROLE` (`public` par défaut). Pour un déploiement WSGI classique,
+`qrprotecDB.wsgi` expose `public_application` et `local_application` (mais les WebSockets du
+téléphone ne fonctionnent qu'avec `serve`).
+
+Pourquoi ce choix : [decisions.md](decisions.md#deux-api-sur-deux-ports).
+
+### Routes
+
+`public_patterns` sont servies par les deux API ; sur l'API publique, toute écriture exige une clé.
+`local_patterns` ne sont servies que par l'API locale, et **doivent précéder** les routes publiques
+quand un préfixe est partagé (`items/batch/` avant `items/<iid>/`, `lots/summary/` avant
+`lots/<id>/`). La liste complète et à jour est dans `inventory/urls.py` ; le README racine la résume.
+
+Conventions des réponses :
+
+- JSON uniquement (`JSONRenderer`, `JSONParser`) ; pas d'authentification DRF ni de CSRF (pas de
+  cookie de session, les accès sont contrôlés par clé, badge ou port).
+- Erreur : `{"error": "message lisible en français", ...}` avec le bon code HTTP. Les vues sont
+  décorées par `@handle_errors`, qui transforme `ApiError` (code et champs supplémentaires, par
+  exemple `pin_required`) et `ValueError` (400). Les fronts affichent `error` tel quel : écrire des
+  messages pour l'utilisateur final.
+- Dates : `AAAA-MM-JJ` ; horodatages en heure locale ISO (`serializers._date`).
+
+### Identifier l'utilisateur d'une opération
+
+`idendity.identity_from_request(data, local)` :
+
+- API locale : `"user": "M0042"` suffit (le poste est de confiance ; c'est lui qui a vérifié le badge
+  et le PIN) ;
+- API publique : `"user": {"matricule": "M0042", "key": "…"}`, la clé du badge est vérifiée ;
+- à défaut, `"name"` donne une identité déclarée.
+
+Les lectures réservées sur l'API publique (`lots/summary/`, `stock/summary/`, `push/*`) utilisent
+`views.badge_user(request, roles)` : badge valide, rôle, et jeton de session si l'utilisateur a un PIN.
+
+### Clés de lot sur l'API publique
+
+`views.require_lot_key` (écritures sur un lot) et `views.verif_targets` (vérifs) : la clé envoyée
+doit être celle du lot **ou d'un de ses ancêtres** (l'étiquette privée d'un lot global couvre ses
+sous-lots), non expirée. Sur l'API locale, aucune clé n'est demandée.
+
+## Services
+
+Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. Points techniques :
+
+- `perform_verif` verrouille les items scannés et ceux du périmètre (`select_for_update(of=('self',))`)
+  puis fait des `bulk_update` / `bulk_create` : une vérif de 200 items reste à quelques requêtes.
+- Les notifications sont déclenchées **dans** la transaction mais envoyées **après** sa validation
+  (`transaction.on_commit` dans `notifications.send`), dans un thread (sauf `QRPROTEC_SMS_SYNC=1`,
+  utile pour les tests) : une API Free lente ne ralentit jamais une vérif, et un rollback n'envoie
+  rien.
+- `Lots.descendants()` charge **tous** les lots actifs ayant un parent en une requête puis parcourt en
+  mémoire : volontaire, le nombre de lots reste petit (centaines) et cela évite N requêtes.
+
+## Notifications
+
+### SMS (Free Mobile)
+
+`notifications.py`. L'API Free (`smsapi.free-mobile.fr/sendmsg?user=&pass=&msg=`) n'envoie qu'au
+titulaire de la ligne : un couple identifiant / clé par destinataire (`SmsRecipient`). Événements
+(`NotificationSettings`) : `stock_low`, `verif_problem`, `seal_broken`, `expired_daily`. Le dernier
+statut d'envoi est gardé par destinataire et affiché dans les Réglages du poste.
+
+**Une alerte par passage sous le seuil** : `ItemType.low_notified` passe à `True` à l'envoi et ne
+revient à `False` que quand le stock remonte au minimum. Même principe pour `empty_notified`.
+`check_stock_levels(types)` est appelée après chaque mouvement ; la commande `check_alerts`
+(timer systemd quotidien à 7 h 45) la lance pour tous les types, parce que les péremptions font
+baisser le stock sans aucune action, et envoie le résumé des lots contenant des périmés.
+
+### Notifications web
+
+`webpush.py`, implémentation autonome de Web Push (chiffrement `aes128gcm` RFC 8291/8188, jeton VAPID
+ES256 RFC 8292) au-dessus de `cryptography`. Les clés VAPID sont générées au premier usage et stockées
+en base (`PushKeys`) : elles survivent aux sauvegardes/restaurations et les abonnements restent
+valides. Réservé aux admins (stock bas, stock vide). Un abonnement refusé (404/410) par le service du
+navigateur est supprimé. Tests avec le vecteur de la RFC 8291 dans `tests.py`.
+
+## Relais WebSocket (téléphone-douchette)
+
+`remote_scanner.py` + `serve.py`. Le téléphone ouvre `/ws/scanner/phone?s=ID&k=CLÉ` (API publique,
+via Caddy), le poste ouvre `/ws/scanner/front?s=ID` (API locale). Le serveur relaie les scans du
+téléphone vers le poste et les retours d'erreur du poste vers le téléphone.
+
+- Implémentation RFC 6455 minimale (trames texte, ping/pong), sans dépendance (`channels`, `daphne`
+  et un serveur ASGI auraient été démesurés pour un relais de quelques messages).
+- `QRProtecRequestHandler` intercepte les requêtes `Upgrade: websocket` sur `/ws/` avant WSGI.
+- Les sessions sont en mémoire dans `hub` ; un thread « faucheur » ferme celles dont un côté est
+  déconnecté depuis plus que le délai choisi (1 min à 24 h, 5 min par défaut).
+- Le protocole des messages est documenté en tête de `remote_scanner.py`.
+
+## Front web servi par le back
+
+`web_views.page` sert `web/index.html` pour `/`, `/verif`, `/badge`, `/pack`, `/seal` ;
+`scanner_page` sert `scanner.html`. `web_views.asset` sert `web/<nom>` à partir d'une **liste
+blanche** (`ASSETS`) : ajouter un fichier au front web demande de l'y déclarer. Voir
+[front-web.md](front-web.md).
+
+## Commandes de gestion
+
+| Commande | Rôle |
+|---|---|
+| `serve [--public A:P] [--local A:P] [--https] [--cert --key]` | Lance les deux API (+ WebSockets). `--https` génère un certificat auto-signé dans `database/.dev-certs/` pour tester la caméra d'un téléphone sur le réseau local. |
+| `createadmin MATRICULE NOM PRÉNOM [--pin 1234]` | Crée ou répare un administrateur (badge perdu, plus aucun admin) : nouvelle clé de badge, rôle admin. Affiche l'URL du badge à scanner sur le poste. |
+| `check_alerts` | Seuils de stock et résumé des périmés (timer quotidien). |
+
+## Tests
+
+`python manage.py test inventory` (une cinquantaine de tests). `ApiTestCase.call(method, path, data,
+local=True)` appelle l'API locale (en simulant le rôle WSGI `local`) ou publique (`local=False`), et
+`setUp` crée un jeu minimal (deux types d'item, un type de lot « Sac PSE », un lot, un utilisateur). Couverture : format des iids, séparation
+public/local, clés, vérifs (remplacements, disparus), réception et paquets, PIN, rôles, réassort,
+scellés, sous-lots (arborescence, vérif groupée, partielle, rangements), SMS (via un faux transport),
+Web Push (vecteurs RFC), relais WebSocket (vrai serveur sur un port libre, client WebSocket brut).
+
+Ajouter un test pour toute règle de gestion modifiée. Les tests tournent pendant la construction du
+RPM : un test rouge bloque la publication.
