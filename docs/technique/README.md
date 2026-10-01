@@ -13,7 +13,7 @@ Lire dans l'ordre :
    QR codes, les clés.
 3. [Règles de gestion](regles-de-gestion.md) : la vérif, le réassort, les sous-lots, les scellés,
    l'état d'un lot. C'est le cœur métier, implémenté en trois endroits qui doivent rester cohérents.
-4. [Back (Django)](back.md) : organisation de `database/`, les deux API, l'authentification, les
+4. [Back (Django)](back.md) : organisation de `database/`, les trois API, l'authentification, les
    notifications, le relais WebSocket, les tests.
 5. [Front poste (ImGui, C++)](front-imgui.md) : organisation de `app/`, threads, fenêtres, pile de
    scans, impression des étiquettes, douchette.

@@ -13,7 +13,7 @@ Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la
 | `inventory/views.py` | Vues DRF (`@api_view`) | Fines : parser, contrôler l'accès, appeler `services`, sérialiser. |
 | `inventory/services.py` | Logique métier | Tout ce qui modifie plusieurs objets, dans une transaction. |
 | `inventory/serializers.py` | Modèles → `dict` JSON, états des lots | Fonctions simples, pas de `Serializer` DRF (plus lisible, et les sorties ne sont pas symétriques des entrées). |
-| `inventory/middleware.py` | `ApiRoleMiddleware`, `RoleWSGIHandler` | Sépare les deux API. |
+| `inventory/middleware.py` | `ApiRoleMiddleware`, `RoleWSGIHandler` | Sépare les trois API (publique, locale, distante). |
 | `inventory/idendity.py` | Identités `M:` / `D:` | (sic, le nom du fichier a une coquille historique ; le renommer casserait les imports pour rien) |
 | `inventory/notifications.py` | SMS Free Mobile, seuils de stock | |
 | `inventory/webpush.py` | Notifications web (chiffrement RFC 8291, VAPID RFC 8292) | Sans `cryptography`, désactivé proprement. |
@@ -22,34 +22,40 @@ Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la
 | `inventory/management/commands/` | `serve`, `createadmin`, `check_alerts` | |
 | `inventory/tests.py` | Tests | `python manage.py test inventory` |
 
-## Les deux API
+## Les trois API
 
 ### Sélection par le port
 
-`manage.py serve` (voir `management/commands/serve.py`) démarre **deux serveurs WSGI** (le serveur de
+`manage.py serve` (voir `management/commands/serve.py`) démarre **trois serveurs WSGI** (le serveur de
 développement de Django, multi-thread, durci) dans le même processus :
 
 - public : `--public 0.0.0.0:8000` par défaut (`127.0.0.1:8000` sur la borne, derrière Caddy) ;
-- local : `--local 127.0.0.1:8001`.
+- local : `--local 127.0.0.1:8001` ;
+- distant : `--remote 127.0.0.1:8002` (`--no-remote` pour ne pas le lancer), derrière Caddy.
 
-Chacun enveloppe l'application dans `RoleWSGIHandler(app, 'public'|'local')`, qui écrit le rôle dans
+Chacun enveloppe l'application dans `RoleWSGIHandler(app, 'public'|'local'|'remote')`, qui écrit le rôle dans
 `environ['qrprotec.role']`. `ApiRoleMiddleware` le lit :
 
 - rôle `local` : contrôle l'adresse cliente (`LOCAL_API_ALLOWED_ADDRESSES`, `*` pour tout accepter)
   et le jeton (`X-QRProtec-Token` si `LOCAL_API_TOKEN` est défini), puis
   `request.urlconf = 'qrprotecDB.urls_local'` et `request.qrprotec_local = True` ;
+- rôle `remote` : exige une clé de front valide dans `X-QRProtec-Key`
+  (`middleware.authenticate_front`, `FrontKey.authenticate`), sinon 401 ; puis **les mêmes URLs que
+  l'API locale** (`request.qrprotec_local = True`), avec `request.qrprotec_front` = nom du front.
+  L'adresse notée est celle de `X-Forwarded-For` (posé par Caddy) ;
 - sinon : URLs publiques.
 
 Une requête qui n'est pas passée par `serve` (tests, `runserver`, WSGI brut) prend
 `QRPROTEC_DEFAULT_API_ROLE` (`public` par défaut). Pour un déploiement WSGI classique,
-`qrprotecDB.wsgi` expose `public_application` et `local_application` (mais les WebSockets du
-téléphone ne fonctionnent qu'avec `serve`).
+`qrprotecDB.wsgi` expose `public_application`, `local_application` et `remote_application` (mais les
+WebSockets du téléphone ne fonctionnent qu'avec `serve`). Le WebSocket `/ws/scanner/front` est
+accepté sur l'API locale (contrôle d'adresse et de jeton) ou distante (clé de front).
 
 Pourquoi ce choix : [decisions.md](decisions.md#deux-api-sur-deux-ports).
 
 ### Routes
 
-`public_patterns` sont servies par les deux API ; sur l'API publique, toute écriture exige une clé.
+`public_patterns` sont servies par toutes les API ; sur l'API publique, toute écriture exige une clé.
 `local_patterns` ne sont servies que par l'API locale, et **doivent précéder** les routes publiques
 quand un préfixe est partagé (`items/batch/` avant `items/<iid>/`, `lots/summary/` avant
 `lots/<id>/`). La liste complète et à jour est dans `inventory/urls.py` ; le README racine la résume.
@@ -142,9 +148,10 @@ blanche** (`ASSETS`) : ajouter un fichier au front web demande de l'y déclarer.
 
 | Commande | Rôle |
 |---|---|
-| `serve [--public A:P] [--local A:P] [--https] [--cert --key]` | Lance les deux API (+ WebSockets). `--https` génère un certificat auto-signé dans `database/.dev-certs/` pour tester la caméra d'un téléphone sur le réseau local. |
+| `serve [--public A:P] [--local A:P] [--remote A:P] [--https] [--cert --key]` | Lance les trois API (+ WebSockets). `--https` génère un certificat auto-signé dans `database/.dev-certs/` pour tester la caméra d'un téléphone sur le réseau local. |
 | `createadmin MATRICULE NOM PRÉNOM [--pin 1234]` | Crée ou répare un administrateur (badge perdu, plus aucun admin) : nouvelle clé de badge, rôle admin. Affiche l'URL du badge à scanner sur le poste. |
 | `check_alerts` | Seuils de stock et résumé des périmés (timer quotidien). |
+| `frontkey add NOM` / `list` / `revoke NOM` / `delete NOM` | Clés d'API des fronts distants. La clé n'est affichée qu'à `add`. |
 
 ## Tests
 

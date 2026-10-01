@@ -35,6 +35,21 @@ renouveler, à perdre).
 sur le port public (404), quel que soit le proxy. Le jeton optionnel `QRPROTEC_LOCAL_API_TOKEN` et la
 liste d'adresses ajoutent une défense en profondeur.
 
+## Fronts distants : une troisième API et une clé par front
+
+**Contexte.** Il faut pouvoir installer le back sur un serveur et des postes ailleurs, sans casser
+le cas de la borne (front et back sur la même machine, API locale jamais exposée), et avec des
+fronts locaux et distants en même temps.
+**Choix.** Une API **distante** (port 8002) qui sert les mêmes routes que l'API locale, joignable
+uniquement via Caddy, et qui exige une **clé par front** (`X-QRProtec-Key`). Caddy oriente selon la
+présence de l'en-tête. Le front choisit son API par son URL (`http://127.0.0.1:8001` ou
+`https://serveur`).
+**Écarté.** Exposer l'API locale avec un jeton partagé (un seul secret pour tous les postes, non
+révocable individuellement) ; des comptes utilisateur sur l'API (les postes sont partagés, c'est la
+machine qu'on autorise, l'utilisateur est identifié par son badge).
+**Raison.** Le comportement par défaut ne change pas, chaque poste se révoque seul
+(`frontkey revoke`), et l'API locale reste la frontière de confiance de la borne.
+
 ## Étiquette publique, étiquette privée
 
 **Contexte.** Un sac est posé dans un véhicule ; n'importe qui peut photographier son étiquette.
@@ -146,8 +161,8 @@ WebSocket et Web Push écrits à la main.
 **Raison.** Le projet doit pouvoir être repris dans cinq ans par une seule personne. Chaque
 dépendance est une mise à jour à suivre, une API qui change, un paquet qui disparaît. Les protocoles
 réimplémentés sont petits, testés (vecteurs des RFC) et figés.
-**Limite.** Le client HTTP du poste ne fait pas de TLS : il parle à l'API locale sur la boucle locale
-(la séparation front/back sur deux machines, en cours, change ce point).
+**Exception.** Le TLS du poste (front distant) passe par OpenSSL : réimplémenter du chiffrement
+n'aurait aucun sens, et OpenSSL est présent partout et mis à jour par le système.
 
 ## Front poste en ImGui
 

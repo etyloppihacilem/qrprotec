@@ -17,7 +17,7 @@ actif par défaut. Voir [decisions.md](decisions.md#borne-fedora-en-rpm-cage-cad
 
 | Fichier | Rôle |
 |---|---|
-| `qrprotec.spec` | Spec RPM. `%bcond kiosk` (activé par défaut) : `--without kiosk` produit un paquet back + Caddy seul, sans front. |
+| `qrprotec.spec` | Spec RPM, produit plusieurs paquets (voir ci-dessous). `%bcond kiosk` (activé par défaut) : `--without kiosk` ne produit que `qrprotec-server` et `qrprotec-common`, sans compiler le front. |
 | `make-sources.sh` | Prépare `Source0` (code + sous-modules `imgui`, `scanner_lib`) et `Source1` (dépendances Python figées). |
 | `lock2requirements.py` | Convertit `poetry.lock` en `requirements.txt` avec empreintes (`--require-hashes`). |
 | `build-rpm.sh` | `rpmbuild` complet (appelé par `make rpm` dans un conteneur, ou `make rpm-local`). |
@@ -26,6 +26,20 @@ actif par défaut. Voir [decisions.md](decisions.md#borne-fedora-en-rpm-cage-cad
 | `publish-repo.sh` | Met à jour le dépôt dnf statique (`createrepo_c`, signature optionnelle). |
 | `rpmlint.toml` | Exceptions justifiées pour `rpmlint`. |
 | `files/` | Tout ce qui est installé hors code : unités systemd, configurations, scripts. |
+
+## Les paquets
+
+| Paquet | Contenu | Dépend de |
+|---|---|---|
+| `qrprotec` | Paquet meta : la borne complète | `-server`, `-kiosk` |
+| `qrprotec-server` | Back, Caddy (fragment et drop-in), alertes, `qrprotec-manage`, utilisateur `qrprotec` | `-common`, `caddy`, `python3-cryptography` |
+| `qrprotec-kiosk` | Session Cage sur `tty1`, `kiosk.conf`, `front-api.conf`, logind/sleep, utilisateur `qrprotec-kiosk` | `-front`, `-common`, `cage` et bibliothèques Wayland |
+| `qrprotec-front` | Exécutable, lanceur `/usr/bin/qrprotec-front`, SDK douchette, modèles, `qrprotec.desktop` et icône | polices DejaVu |
+| `qrprotec-common` | `qrprotec-setup`, `qrprotec-backup`, son timer | — |
+
+`qrprotec-setup` et `qrprotec-backup` détectent ce qui est installé (back, kiosk) et ne traitent que
+ces parties. Une borne installée avec l'ancien paquet unique passe aux nouveaux paquets au
+`dnf upgrade` sans perdre sa configuration.
 
 ## Ce qui est embarqué
 
@@ -58,8 +72,9 @@ casser la borne. Les versions embarquées sont exactement celles testées.
 
 ### Réseau
 
-Les deux API n'écoutent que sur `127.0.0.1`. Caddy expose 80 (redirection) et 443 et ne proxifie que
-le port public. L'API locale n'est jamais exposée. `qrprotec.conf` est lu par le back **et** par
+Les trois API n'écoutent que sur `127.0.0.1`. Caddy expose 80 (redirection) et 443 : les requêtes
+qui portent l'en-tête `X-QRProtec-Key` vont à l'API distante (8002), toutes les autres à l'API
+publique (8000). L'API locale (8001) n'est jamais exposée. `qrprotec.conf` est lu par le back **et** par
 Caddy : le nom d'hôte (`QRPROTEC_DOMAIN`) n'est défini qu'à un endroit et donne le site Caddy,
 `ALLOWED_HOSTS` et la base des QR codes (`qrprotec-manage` en déduit les variables Django). SELinux :
 le `%post` active `httpd_can_network_connect` pour que Caddy joigne le back.
@@ -101,5 +116,3 @@ GitHub Pages. Variables optionnelles : `RPM_PAGES_REPO` / `RPM_PAGES_URL` / `RPM
 publier dans un dépôt public dédié si celui-ci reste privé, `RPM_GPG_PRIVATE_KEY` /
 `RPM_GPG_PASSPHRASE` pour signer.
 
-> La découpe en plusieurs paquets (back seul, front seul, borne complète, front de bureau sans kiosk)
-> est en cours dans une autre branche ; ce document sera complété à son intégration.

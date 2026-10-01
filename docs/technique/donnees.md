@@ -55,6 +55,15 @@ Il n'y a **pas** de compte Django (`auth.User`) pour les secouristes : un badge 
 passe, et la plupart des opérations n'ont besoin que d'une identité. L'admin Django
 (`/admin/`, API locale) reste disponible pour le dépannage avec un superutilisateur Django classique.
 
+### Fronts distants
+
+`FrontKey` : une clé d'API par front installé sur une autre machine (`name` unique). Seule
+l'**empreinte SHA-256** est stockée (`key_hash`) : la clé (`qrpf_` + 43 caractères) n'est affichée
+qu'à sa création (`manage.py frontkey add NOM`). `revoked` coupe l'accès ; `last_used` /
+`last_address` (mis à jour au plus une fois par minute) servent à `frontkey list`. Une empreinte
+simple suffit (pas de hachage lent comme pour le PIN) : la clé est aléatoire et longue, elle ne se
+devine pas par dictionnaire.
+
 ### Notifications
 
 `NotificationSettings` (une seule ligne, `pk=1`, `get()` la crée), `SmsRecipient` (identifiant et clé
@@ -122,4 +131,5 @@ date de péremption ; on supprime l'item (avec raison) et on en reçoit un nouve
 Dans `inventory/migrations/`. Elles sont appliquées automatiquement au démarrage du service
 (`ExecStartPre=qrprotec-manage migrate`). Deux branches développées en parallèle ont produit deux
 `0006` réunies par `0007_merge_sub_lots_web_push` : c'est normal avec Django, ne pas les renuméroter.
-`0003_roles` transforme l'ancien booléen « responsable » en rôle `admin`.
+`0003_roles` transforme l'ancien booléen « responsable » en rôle `admin`. `0008_front_keys` ajoute
+`FrontKey`.

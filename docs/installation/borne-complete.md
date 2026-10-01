@@ -37,7 +37,9 @@ directement QRProtec, sans bureau ni écran de connexion.
 curl -fsSL https://etyloppihacilem.github.io/qrprotec/bootstrap.sh | sudo bash
 ```
 
-Le script ajoute le dépôt QRProtec, installe le paquet et propose de lancer l'assistant. Équivalent
+Le script ajoute le dépôt QRProtec, installe le paquet `qrprotec` et propose de lancer l'assistant.
+(`QRPROTEC_PACKAGE=qrprotec-server`, `qrprotec-kiosk` ou `qrprotec-front` après `sudo` choisit un
+autre paquet.) Équivalent
 manuel :
 
 ```sh
@@ -108,9 +110,9 @@ notifications web ne fonctionnent pas.
 | Élément | Emplacement |
 |---|---|
 | Back et ses dépendances Python | `/usr/share/qrprotec/backend`, `/usr/share/qrprotec/vendor` |
-| Front | `/usr/libexec/qrprotec/qrprotec-front` (+ SDK douchette dans `/usr/lib64/qrprotec/`) |
+| Front | `/usr/bin/qrprotec-front` (lanceur), `/usr/libexec/qrprotec/qrprotec-front` (+ SDK douchette dans `/usr/lib64/qrprotec/`) |
 | Modèles d'étiquettes fournis | `/usr/share/qrprotec/templates` (copiés dans `/var/lib/qrprotec-kiosk/templates`) |
-| Configuration | `/etc/qrprotec/qrprotec.conf`, `/etc/qrprotec/kiosk.conf`, `/etc/qrprotec/backup.conf`, `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` |
+| Configuration | `/etc/qrprotec/qrprotec.conf`, `/etc/qrprotec/kiosk.conf`, `/etc/qrprotec/front-api.conf` (vide : back local), `/etc/qrprotec/backup.conf`, `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` |
 | Clé secrète | `/etc/qrprotec/secret_key` |
 | Base de données | `/var/lib/qrprotec/db.sqlite3` |
 | Réglages du front | `/var/lib/qrprotec-kiosk/.config/qrprotec/app.conf` |
@@ -119,5 +121,9 @@ notifications web ne fonctionnent pas.
 
 Services : `qrprotec` (back), `caddy`, `qrprotec-kiosk` (écran), `qrprotec-alerts.timer` (alertes à
 7 h 45), `qrprotec-backup.timer` (sauvegardes). La borne ne se met jamais en veille.
+
+Le paquet `qrprotec` installe `qrprotec-server` et `qrprotec-kiosk`. La borne peut en plus accueillir
+des postes distants (autre borne, ordinateur de bureau) : créez-leur une clé avec
+`sudo qrprotec-setup --front-key NOM` et suivez [front-seul.md](front-seul.md).
 
 Suite : [exploitation.md](exploitation.md).

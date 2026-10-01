@@ -5,26 +5,29 @@
 QRProtec est fait de trois programmes qui partagent une seule base de données :
 
 ```
-                         ┌──────────────────────────────────────────────┐
-                         │  Back Django  (database/)                    │
-                         │                                              │
-  Téléphone ──HTTPS──▶ Caddy ──▶ API publique  127.0.0.1:8000 ─┐        │
-  (front web,            │       + pages web + WebSocket phone │        │
-   appareil photo)       │                                     ├─▶ SQLite│
-                         │       API locale    127.0.0.1:8001 ─┘        │
-                         │       + admin Django + WebSocket front       │
-                         └──────────────────────▲───────────────────────┘
-                                                │ HTTP + WebSocket (boucle locale)
-                         ┌──────────────────────┴───────────────────────┐
-                         │  Front poste ImGui  (app/)                   │
-                         │  douchette Inateck (Bluetooth ou clavier),   │
-                         │  imprimante Niimbot B1 (port série USB)      │
-                         └──────────────────────────────────────────────┘
+ Téléphone ──HTTPS──┐                         ┌──HTTPS + clé── Front distant (autre machine)
+ (front web)        ▼                         ▼
+              ┌──────────────── Caddy :443 ───────────────┐
+              │ sans en-tête X-QRProtec-Key │ avec en-tête │
+              └──────────────┬──────────────┴──────┬───────┘
+┌────────────────────────────▼─────────────────────▼──────────────────┐
+│ Back Django (database/)                                              │
+│   API publique 127.0.0.1:8000   API distante 127.0.0.1:8002          │
+│   + pages web, WebSocket phone  (routes de l'API locale, clé requise)│
+│                                                                      │
+│   API locale   127.0.0.1:8001   ──────────────▶  base SQLite         │
+│   + admin Django, WebSocket front                                    │
+└──────────────────▲───────────────────────────────────────────────────┘
+                   │ HTTP + WebSocket (boucle locale, sans clé)
+┌──────────────────┴───────────────────────┐
+│ Front poste ImGui (app/), même machine   │
+│ douchette Inateck, imprimante Niimbot B1 │
+└──────────────────────────────────────────┘
 ```
 
 | Programme | Langage | Rôle | Qui l'utilise |
 |---|---|---|---|
-| **Back** (`database/`) | Python, Django + DRF | Base de données, règles de gestion, deux API HTTP, sert aussi le front web | Les deux fronts |
+| **Back** (`database/`) | Python, Django + DRF | Base de données, règles de gestion, trois API HTTP, sert aussi le front web | Les deux fronts |
 | **Front poste** (`app/`) | C++17, Dear ImGui, GLFW/OpenGL | Poste fixe : scans à la douchette, vérifs, gestion du stock, impression des étiquettes, administration | Le local matériel |
 | **Front web** (`database/inventory/web/`) | HTML/JS sans framework | Page de téléphone : scan à l'appareil photo, vérif d'un lot sur le terrain, état des stocks en lecture | Les secouristes, avec leur téléphone |
 
@@ -32,9 +35,9 @@ En production, les trois tournent sur une **borne** : un petit PC sous Fedora Se
 douchette et imprimante, qui démarre directement sur le front en plein écran (mode kiosk, Cage sur
 `tty1`). Voir [packaging.md](packaging.md).
 
-## Deux API, une seule application Django
+## Trois API, une seule application Django
 
-Le back expose **la même application Django sur deux ports** :
+Le back expose **la même application Django sur trois ports** :
 
 - **API publique** (port 8000, derrière Caddy en HTTPS) : ce qu'un téléphone peut faire. Lecture d'un
   item, d'un lot, d'un paquet ; écriture seulement avec la **clé** de l'objet (la clé d'un lot est
@@ -45,16 +48,20 @@ Le back expose **la même application Django sur deux ports** :
   `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` (boucle locale par défaut) et, si défini, un jeton dans
   l'en-tête `X-QRProtec-Token`.
 
+- **API distante** (port 8002, derrière Caddy) : **les mêmes routes que l'API locale**, pour un front
+  installé sur une autre machine. Chaque requête doit porter une **clé de front** valide (en-tête
+  `X-QRProtec-Key`, modèle `FrontKey`), sinon 401. Caddy envoie à ce port les requêtes qui portent
+  cet en-tête, et toutes les autres à l'API publique.
+
 Le choix de l'API se fait **par le port qui reçoit la requête**, pas par l'URL : `manage.py serve`
-lance deux serveurs qui marquent chaque requête (`environ['qrprotec.role']`), et
+lance trois serveurs qui marquent chaque requête (`environ['qrprotec.role']`), et
 `ApiRoleMiddleware` choisit le jeu d'URLs (`qrprotecDB/urls.py` ou `urls_local.py`). Une route
 locale appelée sur le port public renvoie donc simplement 404. Raisons détaillées dans
 [decisions.md](decisions.md#deux-api-sur-deux-ports).
 
-> La séparation du front et du back sur deux machines (clé d'API par front, URL configurable) est en
-> cours dans une autre branche ; ce document sera complété quand elle sera intégrée. Le principe
-> reste : un front local de confiance parle à l'API locale, tout ce qui vient du réseau passe par une
-> API authentifiée.
+Un front local (même machine, API locale sans clé) et des fronts distants (API distante, une clé par
+front) travaillent en même temps sur la même base. Le front choisit son API par son seul réglage
+« URL du serveur » : `http://127.0.0.1:8001` (défaut) ou `https://<domaine du serveur>` avec une clé.
 
 ## Ce qui circule entre les programmes
 
@@ -108,6 +115,8 @@ Détails des formats : [donnees.md](donnees.md#contenu-des-qr-codes).
 | Configuration du back et de Caddy | `/etc/qrprotec/qrprotec.conf` |
 | Clé secrète Django | `/etc/qrprotec/secret_key` |
 | Réglages du front du kiosk | `/var/lib/qrprotec-kiosk/.config/qrprotec/app.conf` |
+| Back distant d'un kiosk (URL, clé) | `/etc/qrprotec/front-api.conf` |
+| Réglages et modèles d'un front de bureau | `~/.config/qrprotec/app.conf`, `~/.local/share/qrprotec/templates/` |
 | Modèles d'étiquettes du kiosk | `/var/lib/qrprotec-kiosk/templates/` |
 | Sauvegardes | `/var/backups/qrprotec/` |
 

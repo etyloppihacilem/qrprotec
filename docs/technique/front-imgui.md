@@ -18,7 +18,7 @@ Les dossiers suivent les dépendances : `core` ne dépend de rien, `ui` dépend 
 | Dossier | Bibliothèque CMake | Contenu |
 |---|---|---|
 | `src/core/` | `QRProtecCore` | `json` (JSON minimal tolérant), `codes` (dates, **analyse des QR codes** `parse_scan`, saisie libre des dates), `template` / `template_io` (modèles d'étiquettes `.qr`), `placeholders` (variables par usage), `search` (recherche sans accents), `paths` (dossier des modèles), `fonts`. |
-| `src/net/` | `QRProtecCore` | `http` (client HTTP/1.1 sur socket), `api_client` (client asynchrone de l'API), `websocket` + `remote_scanner_link` (téléphone-douchette). |
+| `src/net/` | `QRProtecCore` | `connection` (TCP, chiffré par OpenSSL si l'URL est en `https://`, certificat et nom d'hôte vérifiés), `http` (client HTTP/1.1), `api_client` (client asynchrone de l'API), `websocket` + `remote_scanner_link` (téléphone-douchette). |
 | `src/render/` | `QRProtecCore` | `raster` (rendu d'un modèle en image 1 bit, rotation vers l'étiquette physique, export PNG), `image_loader` (PNG/JPEG en niveaux de gris, cache). |
 | `src/printer/` | `QRProtecPrinter` | `serial` (port série POSIX), `niimbot_protocol` (paquets Niimbot), `printer` (`NiimbotB1Printer`). |
 | `src/inateck/` | exécutable | `inateck_worker` (thread du SDK Bluetooth), `hid_classifier` (douchette en mode clavier), `sdk_json`. |
@@ -62,7 +62,7 @@ rapporte ses résultats par une file lue à chaque image :
 
 `app/src/app/app.hpp` est la meilleure porte d'entrée. `App` contient tout l'état partagé :
 
-- `settings` (`AppSettings`, fichier `~/.config/qrprotec/app.conf`, format `clé=valeur`) ;
+- `settings` (`AppSettings`, fichier `~/.config/qrprotec/app.conf` en `0600`, format `clé=valeur`) ;
 - `api`, `printer`, `feedback`, `inateck` ;
 - `catalog` : données de référence chargées depuis l'API (types, lots, utilisateurs, stock) avec des
   compteurs de version que les fenêtres surveillent pour recharger leur détail ;
@@ -185,6 +185,25 @@ Particularités connues du SDK Linux (constatées sur le matériel) :
 `ScanSource::Phone` ; une erreur est renvoyée au téléphone (flash rouge, vibration). Protocole :
 en tête de `database/inventory/remote_scanner.py`.
 
+## Connexion au back
+
+Un seul réglage choisit l'API : **URL du serveur** (`api_url`).
+
+- `http://127.0.0.1:8001` (défaut) : API locale de la même machine, sans clé (jeton facultatif
+  `api_token` = `QRPROTEC_LOCAL_API_TOKEN` du serveur).
+- `https://<domaine>` : back d'une autre machine via Caddy. Le front envoie sa **clé**
+  (`api_key`) dans l'en-tête `X-QRProtec-Key` ; Caddy l'oriente vers l'API distante. Le certificat
+  est vérifié avec le magasin du système, plus `api_ca_file` (autorité interne de Caddy).
+
+Les variables `QRPROTEC_API_URL`, `QRPROTEC_API_KEY`, `QRPROTEC_API_CA_FILE`, `QRPROTEC_API_TOKEN`
+priment sur le fichier de réglages (sur un kiosk, elles viennent de `/etc/qrprotec/front-api.conf`).
+Le WebSocket du téléphone-douchette suit la même URL et la même clé. Tant que l'API est hors ligne,
+un clic sur « API hors ligne » ouvre ces réglages sans badge, sauf sur une borne kiosk (pour qu'un
+passant ne puisse pas rediriger la borne).
+
+L'icône de la fenêtre est celle du site (`database/inventory/web/icon-192.png`), embarquée dans
+l'exécutable ; l'identifiant d'application Wayland est `qrprotec` (`qrprotec.desktop`).
+
 ## Construire et tester
 
 ```sh
@@ -195,7 +214,7 @@ cmake -S . -B build && cmake --build build -j
 ./build/QRProtecApp --verbose
 ```
 
-Dépendances système : GLFW 3, OpenGL, libpng, FreeType, et libxdo si la bibliothèque du SDK Inateck
+Dépendances système : GLFW 3, OpenGL, libpng, FreeType, OpenSSL, et libxdo si la bibliothèque du SDK Inateck
 est présente (`-DINATECK_SDK_LIBRARY=` vide pour s'en passer, par exemple sur aarch64).
 
 Tests (`tests/`) : `core_test` (JSON, modèles, placeholders, rendu, recherche, HTTP/WebSocket),
