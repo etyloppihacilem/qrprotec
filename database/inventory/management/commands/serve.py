@@ -8,16 +8,20 @@
 #
 # ######################################################################################################################
 
-"""Lance l'API publique et l'API locale, chacune sur son port.
+"""Lance l'API publique, l'API locale et l'API distante, chacune sur son port.
 
     python manage.py serve
-    python manage.py serve --public 0.0.0.0:8000 --local 127.0.0.1:8001
+    python manage.py serve --public 0.0.0.0:8000 --local 127.0.0.1:8001 --remote 127.0.0.1:8002
     python manage.py serve --https            # API publique en HTTPS (certificat de developpement)
 
 --https chiffre l'API publique avec un certificat auto-signe genere dans database/.dev-certs/ (couvre
 localhost et les hotes de ALLOWED_HOSTS, dont les hotes de debug) : suffisant pour tester la camera d'un
 telephone sur le reseau local, apres avoir accepte l'avertissement du navigateur. En production, placer
 un reverse proxy HTTPS (nginx, caddy) devant l'API publique. L'API locale reste en HTTP.
+
+L'API distante sert les fronts d'autres machines : memes routes que l'API locale, mais chaque requete
+doit porter une cle de front (`manage.py frontkey add NOM`, en-tete X-QRProtec-Key). Elle ecoute sur la
+boucle locale et doit etre exposee par le reverse proxy HTTPS (voir packaging/files/qrprotec.caddyfile).
 
 Cette commande gere aussi les WebSockets du telephone-douchette (/ws/scanner/..., voir
 inventory/remote_scanner.py) : le reverse proxy doit transmettre les en-tetes Upgrade/Connection.
@@ -37,7 +41,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.core.servers.basehttp import WSGIRequestHandler, WSGIServer, get_internal_wsgi_application
 
-from inventory.middleware import RoleWSGIHandler, local_access_error
+from inventory.middleware import RoleWSGIHandler, local_access_error, authenticate_front, remote_client_address
 from inventory.remote_scanner import RECEIVE_TIMEOUT, WebSocket, accept_key, hub
 
 CERT_DIR = Path(settings.BASE_DIR) / '.dev-certs'
@@ -152,11 +156,17 @@ class QRProtecRequestHandler(WSGIRequestHandler):
             if session is None:
                 return self.refuse(404, 'Session inconnue ou fermee : scannez un nouveau QR code')
         elif path == '/ws/scanner/front':
-            if role != 'local':
+            if role == 'local':
+                problem = local_access_error(self.client_address[0], self.headers.get('X-QRProtec-Token', ''))
+                if problem:
+                    return self.refuse(403, problem)
+            elif role == 'remote':
+                address = remote_client_address(self.client_address[0], self.headers.get('X-Forwarded-For', ''))
+                _, problem = authenticate_front(self.headers.get('X-QRProtec-Key', ''), address)
+                if problem:
+                    return self.refuse(401, problem)
+            else:
                 return self.refuse(404, 'Inconnu')
-            problem = local_access_error(self.client_address[0], self.headers.get('X-QRProtec-Token', ''))
-            if problem:
-                return self.refuse(403, problem)
             session = hub.get(params.get('s', ''))
             if session is None:
                 return self.refuse(404, 'Session inconnue ou fermee')
@@ -189,13 +199,16 @@ def run_server(address, port, handler, server_cls, role):
 
 
 class Command(BaseCommand):
-    help = "Lance l'API publique et l'API locale (ports distincts)."
+    help = "Lance l'API publique, l'API locale et l'API distante (ports distincts)."
 
     def add_arguments(self, parser):
         config = settings.QRPROTEC
         parser.add_argument('--public', default=f"{config['PUBLIC_API_ADDRESS']}:{config['PUBLIC_API_PORT']}")
         parser.add_argument('--local', default=f"{config['LOCAL_API_ADDRESS']}:{config['LOCAL_API_PORT']}")
-        parser.add_argument('--no-public', action='store_true', help="Ne lance que l'API locale")
+        parser.add_argument('--remote', default=f"{config['REMOTE_API_ADDRESS']}:{config['REMOTE_API_PORT']}",
+                            help="API distante des fronts d'autres machines (cle X-QRProtec-Key obligatoire)")
+        parser.add_argument('--no-public', action='store_true', help="Ne lance pas l'API publique")
+        parser.add_argument('--no-remote', action='store_true', help="Ne lance pas l'API distante")
         parser.add_argument('--https', action='store_true',
                             help="API publique en HTTPS (certificat auto-signe genere si --cert/--key absents)")
         parser.add_argument('--cert', help="Certificat PEM a utiliser avec --https")
@@ -218,6 +231,8 @@ class Command(BaseCommand):
         servers = [('local', parse_address(options['local'], '127.0.0.1'), WSGIServer, 'http')]
         if not options['no_public']:
             servers.append(('public', parse_address(options['public'], '0.0.0.0'), public_server_cls, scheme))
+        if not options['no_remote']:
+            servers.append(('remote', parse_address(options['remote'], '127.0.0.1'), WSGIServer, 'http'))
         threads = []
         hub.enabled = True  # le telephone-douchette (WebSockets) fonctionne avec cette commande
         for role, (address, port), server_cls, url_scheme in servers:

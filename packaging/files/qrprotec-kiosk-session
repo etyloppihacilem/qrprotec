@@ -1,14 +1,12 @@
 #!/usr/bin/bash
-# Session du kiosk, lancee par Cage (qrprotec-kiosk.service) : prepare le dossier des modeles,
-# programme l'extinction de l'ecran puis lance le front QRProtec.
+# Session du kiosk, lancee par Cage (qrprotec-kiosk.service) : programme l'extinction de l'ecran
+# puis lance le front QRProtec (qrprotec-front, qui prepare le dossier des modeles).
 #
 #   qrprotec-kiosk-session                # session (front)
 #   qrprotec-kiosk-session --screen off   # eteint / rallume les ecrans (appele par swayidle)
 set -u
 
-readonly FRONT=@LIBEXECDIR@/qrprotec/qrprotec-front
-readonly PRIVATE_LIBDIR=@LIBDIR@/qrprotec
-readonly DEFAULT_TEMPLATES=@DATADIR@/qrprotec/templates
+readonly FRONT=@BINDIR@/qrprotec-front
 
 # Allume (on) ou eteint (off) tous les ecrans : DPMS (wlopm) si Cage le gere, sinon desactivation
 # des sorties (wlr-randr, wlr-output-management).
@@ -29,11 +27,11 @@ if [[ ${1:-} == --screen ]]; then
     exit
 fi
 
+# Modeles du kiosk dans son dossier personnel (initialises par qrprotec-front avec ceux fournis)
 templates=${QRPROTEC_TEMPLATES_DIR:-${HOME:-/var/lib/qrprotec-kiosk}/templates}
-mkdir -p "$templates"
-# Ajoute les modeles fournis sans jamais ecraser ceux modifies sur la borne
-cp -r --update=none "$DEFAULT_TEMPLATES"/. "$templates"/ 2>/dev/null || :
 export QRPROTEC_TEMPLATES_DIR=$templates
+# Borne : la connexion au serveur ne se modifie pas sans badge administrateur (voir qrprotec-setup)
+export QRPROTEC_KIOSK=1
 
 blank=${QRPROTEC_SCREEN_BLANK_SECONDS:-1800}
 if [[ $blank =~ ^[0-9]+$ ]] && ((blank > 0)); then
@@ -50,10 +48,8 @@ for lib in libwayland-client.so.0 libwayland-cursor.so.0 libwayland-egl.so.1 lib
         echo "qrprotec-kiosk : $lib introuvable, le front ne pourra pas ouvrir sa fenetre" >&2
     fi
 done
-echo "qrprotec-kiosk : WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-?} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-?} modeles=$templates" >&2
-
-# Bibliotheque privee du SDK Inateck (douchette Bluetooth)
-export LD_LIBRARY_PATH=$PRIVATE_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+echo "qrprotec-kiosk : WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-?} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-?} modeles=$templates" \
+    "serveur=${QRPROTEC_API_URL:-API locale}" >&2
 # QRPROTEC_FRONT_ARGS (kiosk.conf) : options du front, ex. --verbose
 read -r -a front_args <<<"${QRPROTEC_FRONT_ARGS:-}"
 "$FRONT" "${front_args[@]}" "$@"

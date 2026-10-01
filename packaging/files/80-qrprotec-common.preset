@@ -1,0 +1,2 @@
+# Sauvegardes QRProtec (paquet qrprotec-common) : actives a l'installation
+enable qrprotec-backup.timer

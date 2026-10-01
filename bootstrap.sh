@@ -1,10 +1,12 @@
 #!/bin/bash
-# Premiere installation de la borne QRProtec sur Fedora Server :
+# Premiere installation de QRProtec sur Fedora :
 #
-#   curl -fsSL @REPO_URL@/bootstrap.sh | sudo bash
+#   curl -fsSL @REPO_URL@/bootstrap.sh | sudo bash                                   # borne complete
+#   curl -fsSL @REPO_URL@/bootstrap.sh | sudo QRPROTEC_PACKAGE=qrprotec-server bash  # back seul
 #
-# Ajoute le depot dnf de QRProtec puis installe le paquet. Ensuite : `sudo dnf upgrade` pour les
-# mises a jour. QRPROTEC_REPO_URL permet d'utiliser un autre depot.
+# Ajoute le depot dnf de QRProtec puis installe le paquet (QRPROTEC_PACKAGE : qrprotec, defaut,
+# qrprotec-server, qrprotec-kiosk ou qrprotec-front). Ensuite : `sudo dnf upgrade` pour les mises a
+# jour. QRPROTEC_REPO_URL permet d'utiliser un autre depot.
 set -euo pipefail
 
 repo_url=${QRPROTEC_REPO_URL:-@REPO_URL@}
@@ -12,9 +14,14 @@ case $repo_url in
     @*) repo_url=https://etyloppihacilem.github.io/qrprotec ;;  # script lance depuis le depot git
 esac
 repo_file=/etc/yum.repos.d/qrprotec.repo
+package=${QRPROTEC_PACKAGE:-qrprotec}
 
 die() { echo "bootstrap : $*" >&2; exit 1; }
 
+case $package in
+    qrprotec | qrprotec-server | qrprotec-kiosk | qrprotec-front) ;;
+    *) die "QRPROTEC_PACKAGE inconnu : $package (qrprotec, qrprotec-server, qrprotec-kiosk, qrprotec-front)" ;;
+esac
 [[ $(id -u) -eq 0 ]] || die "a lancer en root : curl -fsSL $repo_url/bootstrap.sh | sudo bash"
 # shellcheck source=/dev/null
 . /etc/os-release
@@ -30,20 +37,30 @@ else
     die "impossible de telecharger $repo_url/qrprotec.repo"
 fi
 
-echo "== Installation de qrprotec"
+echo "== Installation de $package"
 dnf -y makecache --repo qrprotec
-dnf -y install qrprotec
+dnf -y install "$package"
 
-cat <<DONE
-
-QRProtec est installe. Etapes suivantes :
-  1. sudo qrprotec-setup     # nom d'hote, certificat HTTPS, clavier, pare-feu, premier admin
-  2. sudo systemctl reboot   # demarre directement sur le kiosk (tty1)
-Mises a jour : sudo dnf upgrade
-DONE
+echo
+echo "$package est installe. Etapes suivantes :"
+case $package in
+    qrprotec)
+        echo "  1. sudo qrprotec-setup     # nom d'hote, certificat HTTPS, clavier, pare-feu, premier admin"
+        echo "  2. sudo systemctl reboot   # demarre directement sur le kiosk (tty1)" ;;
+    qrprotec-server)
+        echo "  1. sudo qrprotec-setup                   # nom d'hote, certificat HTTPS, pare-feu, premier admin"
+        echo "  2. sudo qrprotec-setup --front-key NOM   # cle API de chaque front d'une autre machine" ;;
+    qrprotec-kiosk)
+        echo "  1. sudo qrprotec-setup --api-url https://SERVEUR --api-key CLE   # back distant"
+        echo "  2. sudo systemctl reboot   # demarre directement sur le kiosk (tty1)" ;;
+    qrprotec-front)
+        echo "  Lancer QRProtec depuis le menu (ou qrprotec-front), puis regler le serveur :"
+        echo "  clic sur « API hors ligne » (URL https://SERVEUR, cle du front)" ;;
+esac
+echo "Mises a jour : sudo dnf upgrade"
 
 # Assistant tout de suite si un terminal est disponible (curl | bash : stdin n'est pas le terminal)
-if [[ -r /dev/tty && -w /dev/tty ]] && { : </dev/tty; } 2>/dev/null; then
+if [[ $package != qrprotec-front ]] && [[ -r /dev/tty && -w /dev/tty ]] && { : </dev/tty; } 2>/dev/null; then
     read -r -p "Lancer qrprotec-setup maintenant ? [O/n] " answer </dev/tty || answer=n
     if [[ ${answer:-o} =~ ^[oOyY] ]]; then
         qrprotec-setup </dev/tty

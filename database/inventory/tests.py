@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from .base62 import decode_base62
-from .models import ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, Secouristes
+from .models import FrontKey, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, Secouristes
 
 LOCAL = {'qrprotec.role': 'local'}
 
@@ -106,6 +106,42 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(code, 403)
         response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_TOKEN='secret', **LOCAL)
         self.assertEqual(response.status_code, 200)
+
+    def test_remote_front_key(self):
+        remote = {'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1'}
+        # sans cle, ou avec le jeton local seulement : refuse
+        self.assertEqual(self.client.get('/api/stock/', **remote).status_code, 401)
+        self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY='qrpf_faux', **remote).status_code, 401)
+        front, key = FrontKey.create('accueil')
+        response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=key, HTTP_X_FORWARDED_FOR='192.0.2.7', **remote)
+        self.assertEqual(response.status_code, 200)
+        front.refresh_from_db()
+        self.assertEqual(front.last_address, '192.0.2.7')
+        health = self.client.get('/api/health/', HTTP_X_QRPROTEC_KEY=key, **remote).json()
+        self.assertEqual((health['api'], health['front']), ('local', 'accueil'))
+        self.assertIsNotNone(front.last_used)
+        # la cle ne vaut que sur l'API distante, pas sur l'API publique
+        self.assertEqual(self.client.get('/api/item-types/', HTTP_X_QRPROTEC_KEY=key).status_code, 404)
+        front.revoked = True
+        front.save()
+        self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=key, **remote).status_code, 401)
+        # le front local fonctionne toujours sans cle, en meme temps qu'un front distant
+        self.assertEqual(self.call('GET', '/api/stock/')[0], 200)
+
+    def test_frontkey_command(self):
+        from io import StringIO
+
+        from django.core.management import CommandError, call_command
+
+        out = StringIO()
+        call_command('frontkey', 'add', 'accueil', stdout=out)
+        key = next(word for word in out.getvalue().split() if word.startswith('qrpf_'))
+        self.assertIsNotNone(FrontKey.authenticate(key))
+        with self.assertRaises(CommandError):
+            call_command('frontkey', 'add', 'accueil', stdout=StringIO())
+        call_command('frontkey', 'revoke', 'accueil', stdout=StringIO())
+        self.assertIsNone(FrontKey.authenticate(key))
+        self.assertNotIn(key, FrontKey.objects.get().key_hash)
 
 
 class VerifTests(ApiTestCase):

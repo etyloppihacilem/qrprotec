@@ -1,12 +1,15 @@
 #!/usr/bin/bash
-# Assistant de configuration de la borne QRProtec.
+# Assistant de configuration de QRProtec (back, kiosk, ou les deux sur la meme machine).
 #
 #   sudo qrprotec-setup                      # questions interactives
 #   sudo qrprotec-setup --domain inventaire.example.org --tls admin@example.org --yes
 #   sudo qrprotec-setup --restore /var/backups/qrprotec/qrprotec-backup_2026-10-01_031204.tar.xz
+#   sudo qrprotec-setup --front-key accueil  # back : cle API d'un front d'une autre machine
+#   sudo qrprotec-setup --api-url https://inventaire.example.org --api-key qrpf_...   # kiosk distant
 #
-# Toute la configuration partagee (nom d'hote, TLS) est ecrite dans /etc/qrprotec/qrprotec.conf,
-# lu a la fois par le back et par Caddy. Relancer l'assistant est sans risque (idempotent).
+# Toute la configuration partagee du back (nom d'hote, TLS) est ecrite dans /etc/qrprotec/qrprotec.conf,
+# lu a la fois par le back et par Caddy ; la connexion du kiosk a un back distant dans
+# /etc/qrprotec/front-api.conf. Relancer l'assistant est sans risque (idempotent).
 set -euo pipefail
 
 readonly CONF_FILE=/etc/qrprotec/qrprotec.conf
@@ -14,6 +17,9 @@ readonly KIOSK_CONF=/etc/qrprotec/kiosk.conf
 readonly SECRET_FILE=/etc/qrprotec/secret_key
 readonly CADDYFILE=/etc/caddy/Caddyfile
 readonly BACKUP_CONF=/etc/qrprotec/backup.conf
+readonly FRONT_API_CONF=/etc/qrprotec/front-api.conf
+readonly SERVER_CA=/etc/qrprotec/server-ca.crt
+readonly CADDY_CA=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
 
 domain=""
 tls=""
@@ -25,6 +31,11 @@ backup_schedule=""
 backup_now=no
 restore_archive=""
 restore_db_only=no
+api_url=""
+api_key=""
+api_ca_file=""
+local_api=no
+front_key=""
 firewall=""      # yes / no / "" (demander)
 admin=""         # yes / no / "" (demander)
 restart=yes
@@ -34,12 +45,28 @@ usage() {
     cat <<USAGE
 Usage : qrprotec-setup [options]
 
-Sans option, pose les questions une a une (valeur actuelle entre crochets).
+Sans option, pose les questions une a une (valeur actuelle entre crochets). Seules les parties
+installees sont configurees : back (qrprotec-server) et/ou kiosk (qrprotec-kiosk).
 
+Back :
   --domain NOM          nom d'hote public de la borne (DNS ou adresse IP)
   --tls MODE            "internal" (autorite locale de Caddy) ou adresse e-mail (Let's Encrypt)
+  --front-key NOM       cree la cle API d'un front d'une autre machine et l'affiche
+                        (liste : sudo qrprotec-manage frontkey list)
+  --open-firewall       ouvre http/https dans firewalld ou UFW
+  --no-firewall         ne touche pas au pare-feu
+  --no-admin            ne propose pas de creer un administrateur
+
+Kiosk :
   --keyboard DISPO      disposition du clavier du kiosk (fr, us, ch...)
   --screen-blank SEC    extinction de l'ecran apres SEC secondes d'inactivite (0 = jamais)
+  --api-url URL         back sur une autre machine : https://nom-du-serveur
+  --api-key CLE         cle API de ce front (creee sur le serveur par --front-key)
+  --api-ca-file PEM     certificat de l'autorite du serveur (QRPROTEC_TLS=internal sur le serveur :
+                        $CADDY_CA)
+  --local-api           revient au back de cette machine (API locale, defaut)
+
+Sauvegardes :
   --backup-dir DOSSIER  dossier des sauvegardes (defaut /var/backups/qrprotec)
   --backup-keep N       nombre de sauvegardes conservees (0 = toutes)
   --backup-schedule F   frequence : hourly, daily, weekly, monthly, expression OnCalendar
@@ -48,9 +75,7 @@ Sans option, pose les questions une a une (valeur actuelle entre crochets).
   --restore ARCHIVE     restaure une sauvegarde qrprotec-backup_*.tar.xz (base, options de
                         /etc/qrprotec, Caddy, reglages et modeles du kiosk) puis s'arrete
   --restore-db-only     avec --restore : la base seulement, configuration actuelle conservee
-  --open-firewall       ouvre http/https dans firewalld ou UFW
-  --no-firewall         ne touche pas au pare-feu
-  --no-admin            ne propose pas de creer un administrateur
+
   --no-restart          n'applique pas la configuration (pas de redemarrage des services)
   -y, --yes             ne pose aucune question (valeurs actuelles pour le reste)
   -h, --help            affiche cette aide
@@ -65,6 +90,11 @@ while (($#)); do
         --tls) tls=${2:?}; shift ;;
         --keyboard) keyboard=${2:?}; shift ;;
         --screen-blank) blank=${2:?}; shift ;;
+        --api-url) api_url=${2:?}; shift ;;
+        --api-key) api_key=${2:?}; shift ;;
+        --api-ca-file) api_ca_file=${2:?}; shift ;;
+        --local-api) local_api=yes ;;
+        --front-key) front_key=${2:?nom du front attendu}; shift ;;
         --backup-dir) backup_dir=${2:?}; shift ;;
         --backup-keep) backup_keep=${2:?}; shift ;;
         --backup-schedule) backup_schedule=${2:?}; shift ;;
@@ -83,7 +113,17 @@ while (($#)); do
 done
 
 [[ $(id -u) -eq 0 ]] || die "a lancer en root (sudo qrprotec-setup)"
-[[ -f $CONF_FILE ]] || die "$CONF_FILE introuvable : le paquet qrprotec est-il installe ?"
+has_server=no has_kiosk=no
+[[ -f $CONF_FILE ]] && has_server=yes
+[[ -f $KIOSK_CONF ]] && has_kiosk=yes
+[[ $has_server == yes || $has_kiosk == yes ]] ||
+    die "ni $CONF_FILE ni $KIOSK_CONF : installez qrprotec-server, qrprotec-kiosk ou qrprotec"
+if [[ -n $front_key && $has_server != yes ]]; then
+    die "--front-key se lance sur le serveur (paquet qrprotec-server)"
+fi
+if [[ ( -n $api_url || -n $api_key || -n $api_ca_file || $local_api == yes ) && $has_kiosk != yes ]]; then
+    die "--api-url, --api-key, --api-ca-file et --local-api reglent le kiosk (paquet qrprotec-kiosk) ; pour le front de bureau : Reglages > Serveur"
+fi
 
 # Restauration d'une sauvegarde : base + options, puis fin (relancer l'assistant pour ajuster)
 if [[ -n $restore_archive ]]; then
@@ -92,8 +132,9 @@ if [[ -n $restore_archive ]]; then
     [[ $assume_yes == yes ]] && restore_args+=(--yes)
     qrprotec-backup "${restore_args[@]}"
     echo "Options restaurees :"
-    grep -hE '^QRPROTEC_(DOMAIN|TLS|BACKUP_[A-Z]+)=' "$CONF_FILE" "$BACKUP_CONF" 2>/dev/null | sed 's/^/  /'
-    echo "Si la borne a change d'adresse : sudo qrprotec-setup --domain NOUVEAU_NOM"
+    grep -hE '^QRPROTEC_(DOMAIN|TLS|API_URL|BACKUP_[A-Z]+)=' "$CONF_FILE" "$FRONT_API_CONF" "$BACKUP_CONF" 2>/dev/null |
+        sed 's/^/  /'
+    [[ $has_server == yes ]] && echo "Si la borne a change d'adresse : sudo qrprotec-setup --domain NOUVEAU_NOM"
     exit 0
 fi
 
@@ -101,6 +142,12 @@ fi
 get_conf() {
     local file=$1 key=$2
     sed -n "s/^${key}=//p" "$file" | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/'
+}
+
+# Commente KEY=... (retour a la valeur par defaut)
+unset_conf() {
+    local file=$1 key=$2
+    sed -i "s|^${key}=|#${key}=|" "$file"
 }
 
 # Remplace (ou ajoute) KEY=valeur, y compris une ligne commentee "#KEY=..."
@@ -180,33 +227,114 @@ open_firewall() {
     fi
 }
 
-echo "== Configuration de la borne QRProtec =="
-
-ensure_secret
-
-ask domain "Nom d'hote public de la borne (DNS ou IP)" "$(get_conf "$CONF_FILE" QRPROTEC_DOMAIN)"
-valid_domain "$domain" || die "nom d'hote invalide : $domain"
-
-current_tls=$(get_conf "$CONF_FILE" QRPROTEC_TLS)
-# Let's Encrypt ne delivre pas de certificat pour une adresse IP ni pour un nom local : Caddy
-# n'aurait alors aucun certificat et refuserait toute connexion HTTPS ("alert internal error").
-local_name=no
-if ! public_name "$domain"; then
-    local_name=yes
-    [[ $current_tls == internal ]] || current_tls=""
-fi
-ask tls "Certificat HTTPS : 'internal' (reseau local) ou e-mail pour Let's Encrypt" "${current_tls:-internal}"
-[[ $tls == internal || $tls =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] || die "mode TLS invalide : $tls"
-if [[ $local_name == yes && $tls != internal ]]; then
-    die "$domain est une adresse IP ou un nom local : Let's Encrypt ne peut pas le certifier. Utilisez --tls internal (ou un nom de domaine public)."
+# Back : cle API d'un front distant, puis fin
+if [[ -n $front_key ]]; then
+    qrprotec-manage frontkey add "$front_key"
+    if [[ $(get_conf "$CONF_FILE" QRPROTEC_TLS) == internal ]]; then
+        echo "Certificat de l'autorite interne de Caddy, a copier sur la machine du front (--api-ca-file) :"
+        echo "    $CADDY_CA"
+    fi
+    exit 0
 fi
 
-set_conf "$CONF_FILE" QRPROTEC_DOMAIN "$domain"
-set_conf "$CONF_FILE" QRPROTEC_TLS "$tls"
-echo "Configuration ecrite dans $CONF_FILE"
+# URL HTTPS du back distant, cle et autorite : /etc/qrprotec/front-api.conf (lu par qrprotec-kiosk.service)
+configure_front_api() {
+    local current_url current_key current_ca answer=""
+    [[ -f $FRONT_API_CONF ]] || install -m 0600 /dev/null "$FRONT_API_CONF"
+    chmod 0600 "$FRONT_API_CONF"
+    if [[ $local_api == yes ]]; then
+        unset_conf "$FRONT_API_CONF" QRPROTEC_API_URL
+        unset_conf "$FRONT_API_CONF" QRPROTEC_API_KEY
+        unset_conf "$FRONT_API_CONF" QRPROTEC_API_CA_FILE
+        echo "Kiosk : back de cette machine (API locale)"
+        return
+    fi
+    current_url=$(get_conf "$FRONT_API_CONF" QRPROTEC_API_URL)
+    current_key=$(get_conf "$FRONT_API_CONF" QRPROTEC_API_KEY)
+    current_ca=$(get_conf "$FRONT_API_CONF" QRPROTEC_API_CA_FILE)
+    # Back installe ici et rien de demande : le kiosk reste sur l'API locale, sans question
+    if [[ -z $api_url && -z $api_key && -z $api_ca_file ]]; then
+        [[ $has_server == yes && -z $current_url ]] && return 0
+        if [[ $assume_yes != yes && -t 0 && -n $current_url ]] &&
+           ! confirm "Kiosk connecte a $current_url : modifier la connexion ?" no; then
+            return 0
+        fi
+    fi
+    ask api_url "URL HTTPS du serveur QRProtec (vide = back de cette machine)" "$current_url"
+    if [[ -z $api_url ]]; then
+        local_api=yes
+        configure_front_api
+        return
+    fi
+    if [[ ! $api_url =~ ^https:// ]] && [[ ! $api_url =~ ^http://(127\.0\.0\.1|localhost|\[::1\])(:|/|$) ]]; then
+        die "l'URL d'un serveur distant doit commencer par https:// (la cle API passe par le reseau) : $api_url"
+    fi
+    if [[ -z $api_key && $assume_yes != yes && -t 0 ]]; then
+        read -r -s -p "Cle API de ce front (sudo qrprotec-setup --front-key NOM sur le serveur)${current_key:+ [inchangee]} : " answer
+        echo
+        api_key=${answer:-$current_key}
+    fi
+    api_key=${api_key:-$current_key}
+    [[ -n $api_key ]] || die "cle API requise pour un serveur distant (--api-key)"
+    [[ $api_key =~ ^[A-Za-z0-9_-]+$ ]] || die "cle API invalide"
+    ask api_ca_file "Certificat de l'autorite du serveur (PEM, vide = autorites du systeme)" "$current_ca"
+    if [[ -n $api_ca_file && $api_ca_file != "$SERVER_CA" ]]; then
+        [[ -f $api_ca_file ]] || die "certificat introuvable : $api_ca_file"
+        install -m 0644 "$api_ca_file" "$SERVER_CA"
+        api_ca_file=$SERVER_CA
+    fi
+    set_conf "$FRONT_API_CONF" QRPROTEC_API_URL "$api_url"
+    set_conf "$FRONT_API_CONF" QRPROTEC_API_KEY "$api_key"
+    if [[ -n $api_ca_file ]]; then
+        set_conf "$FRONT_API_CONF" QRPROTEC_API_CA_FILE "$api_ca_file"
+    else
+        unset_conf "$FRONT_API_CONF" QRPROTEC_API_CA_FILE
+    fi
+    echo "Configuration ecrite dans $FRONT_API_CONF"
+    if command -v curl >/dev/null; then
+        local curl_args=(-fsS --max-time 10 -H "X-QRProtec-Key: $api_key")
+        [[ -n $api_ca_file ]] && curl_args+=(--cacert "$api_ca_file")
+        if curl "${curl_args[@]}" "${api_url%/}/api/health/" >/dev/null; then
+            echo "Connexion au serveur verifiee : ${api_url%/}"
+        else
+            echo "ATTENTION : le serveur ne repond pas ou refuse la cle (voir ci-dessus)" >&2
+        fi
+    fi
+}
 
-# Kiosk (absent d'un paquet construit --without kiosk)
-if [[ -f $KIOSK_CONF ]]; then
+if [[ $has_server == yes ]]; then
+    echo "== Configuration du back QRProtec =="
+else
+    echo "== Configuration du kiosk QRProtec =="
+fi
+
+if [[ $has_server == yes ]]; then
+    ensure_secret
+
+    ask domain "Nom d'hote public de la borne (DNS ou IP)" "$(get_conf "$CONF_FILE" QRPROTEC_DOMAIN)"
+    valid_domain "$domain" || die "nom d'hote invalide : $domain"
+
+    current_tls=$(get_conf "$CONF_FILE" QRPROTEC_TLS)
+    # Let's Encrypt ne delivre pas de certificat pour une adresse IP ni pour un nom local : Caddy
+    # n'aurait alors aucun certificat et refuserait toute connexion HTTPS ("alert internal error").
+    local_name=no
+    if ! public_name "$domain"; then
+        local_name=yes
+        [[ $current_tls == internal ]] || current_tls=""
+    fi
+    ask tls "Certificat HTTPS : 'internal' (reseau local) ou e-mail pour Let's Encrypt" "${current_tls:-internal}"
+    [[ $tls == internal || $tls =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] || die "mode TLS invalide : $tls"
+    if [[ $local_name == yes && $tls != internal ]]; then
+        die "$domain est une adresse IP ou un nom local : Let's Encrypt ne peut pas le certifier. Utilisez --tls internal (ou un nom de domaine public)."
+    fi
+
+    set_conf "$CONF_FILE" QRPROTEC_DOMAIN "$domain"
+    set_conf "$CONF_FILE" QRPROTEC_TLS "$tls"
+    echo "Configuration ecrite dans $CONF_FILE"
+fi
+
+# Kiosk (paquet qrprotec-kiosk)
+if [[ $has_kiosk == yes ]]; then
     current_keyboard=$(get_conf "$KIOSK_CONF" XKB_DEFAULT_LAYOUT)
     ask keyboard "Disposition du clavier du kiosk" "${current_keyboard:-fr}"
 
@@ -217,6 +345,8 @@ if [[ -f $KIOSK_CONF ]]; then
     set_conf "$KIOSK_CONF" XKB_DEFAULT_LAYOUT "$keyboard"
     set_conf "$KIOSK_CONF" QRPROTEC_SCREEN_BLANK_SECONDS "$blank"
     echo "Configuration ecrite dans $KIOSK_CONF"
+
+    configure_front_api
 fi
 
 # Sauvegardes automatiques (qrprotec-backup.timer)
@@ -240,11 +370,14 @@ set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_KEEP "$backup_keep"
 set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SCHEDULE "\"$backup_schedule\""
 echo "Configuration ecrite dans $BACKUP_CONF"
 
-if [[ -f $CADDYFILE ]] && ! grep -Eq '^[[:space:]]*import[[:space:]]+(/etc/caddy/)?Caddyfile\.d/' "$CADDYFILE"; then
+if [[ $has_server == yes && -f $CADDYFILE ]] && ! grep -Eq '^[[:space:]]*import[[:space:]]+(/etc/caddy/)?Caddyfile\.d/' "$CADDYFILE"; then
     echo "ATTENTION : $CADDYFILE n'importe pas Caddyfile.d/*.caddyfile ; ajoutez la ligne :"
     echo "    import Caddyfile.d/*.caddyfile"
 fi
 
+if [[ $has_server != yes ]]; then
+    firewall=no admin=no
+fi
 if [[ -z $firewall ]]; then
     if confirm "Ouvrir les ports 80/443 dans le pare-feu (firewalld ou UFW) ?" no; then firewall=yes; else firewall=no; fi
 fi
@@ -252,12 +385,18 @@ fi
 
 if [[ $restart == yes ]] && [[ -d /run/systemd/system ]]; then
     systemctl daemon-reload
-    systemctl restart qrprotec.service
-    systemctl reload-or-restart caddy.service
+    if [[ $has_server == yes ]]; then
+        systemctl restart qrprotec.service
+        systemctl reload-or-restart caddy.service
+    fi
     if systemctl is-active --quiet qrprotec-kiosk.service; then
         systemctl restart qrprotec-kiosk.service
     fi
-    echo "Services redemarres : https://$domain/"
+    if [[ $has_server == yes ]]; then
+        echo "Services redemarres : https://$domain/"
+    else
+        echo "Kiosk redemarre"
+    fi
     qrprotec-backup --apply-schedule
 fi
 
@@ -283,4 +422,9 @@ if [[ $backup_now == yes ]]; then
     qrprotec-backup
 fi
 
-echo "Termine. Journaux : journalctl -u qrprotec -u caddy -u qrprotec-kiosk"
+if [[ $has_server == yes ]]; then
+    echo "Fronts sur d'autres machines (qrprotec-kiosk, qrprotec-front) : sudo qrprotec-setup --front-key NOM"
+    echo "Termine. Journaux : journalctl -u qrprotec -u caddy -u qrprotec-kiosk"
+else
+    echo "Termine. Journal : journalctl -u qrprotec-kiosk"
+fi

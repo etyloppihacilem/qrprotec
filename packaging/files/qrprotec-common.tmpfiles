@@ -1,0 +1,2 @@
+# Sauvegardes QRProtec (dossier par defaut, voir /etc/qrprotec/backup.conf) : jamais supprimees par rpm
+d /var/backups/qrprotec    0700 root           root           -

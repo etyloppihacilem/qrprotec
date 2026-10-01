@@ -16,6 +16,8 @@ find_package(glfw3 REQUIRED)
 find_package(PNG REQUIRED)
 find_package(Freetype REQUIRED)
 find_package(Threads REQUIRED)
+# HTTPS vers un back distant (fronts sur d'autres machines)
+find_package(OpenSSL REQUIRED)
 
 set(INATECK_SDK_DEFAULT_LIBRARY
     "${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble/linux/x86_64-unknown-linux-gnu/libinateck_scanner_ble.so")
@@ -68,6 +70,7 @@ add_library(QRProtecCore STATIC
     src/core/search.cpp
     src/core/template.cpp
     src/core/template_io.cpp
+    src/net/connection.cpp
     src/net/http.cpp
     src/net/api_client.cpp
     src/net/remote_scanner_link.cpp
@@ -82,7 +85,7 @@ target_include_directories(QRProtecCore PUBLIC
     third_party/qrcodegen
     third_party/stb
 )
-target_link_libraries(QRProtecCore PUBLIC PNG::PNG Freetype::Freetype Threads::Threads)
+target_link_libraries(QRProtecCore PUBLIC PNG::PNG Freetype::Freetype Threads::Threads OpenSSL::SSL)
 # Police avec accents fournie avec les sources (copiee aussi a cote de l'executable)
 target_compile_definitions(QRProtecCore PRIVATE
     QRPROTEC_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts"
@@ -96,6 +99,27 @@ add_library(QRProtecPrinter STATIC
 )
 target_include_directories(QRProtecPrinter PUBLIC src)
 target_link_libraries(QRProtecPrinter PUBLIC QRProtecCore)
+
+# Icone de la fenetre (environnement de bureau) : celle du site web (`make icon` a la racine du depot),
+# embarquee dans l'executable
+set(QRPROTEC_ICON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../database/inventory/web" CACHE PATH
+    "Dossier des icones du site (icon-512.png, icon-192.png, favicon.png)")
+set(QRPROTEC_ICON_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/window_icon.hpp")
+set(QRPROTEC_ICON_CONTENT "// Genere par CMakeLists.txt depuis ${QRPROTEC_ICON_DIR}\n#pragma once\n")
+foreach(icon IN ITEMS icon-192 favicon)
+    set(icon_file "${QRPROTEC_ICON_DIR}/${icon}.png")
+    if(NOT EXISTS "${icon_file}")
+        message(FATAL_ERROR "Icone introuvable : ${icon_file}")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${icon_file}")
+    file(READ "${icon_file}" icon_hex HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," icon_bytes "${icon_hex}")
+    string(MAKE_C_IDENTIFIER "${icon}" icon_symbol)
+    string(APPEND QRPROTEC_ICON_CONTENT "static const unsigned char window_${icon_symbol}_png[] = {${icon_bytes}};\n")
+endforeach()
+# configure_file ne reecrit l'en-tete que s'il change (pas de recompilation a chaque configuration)
+file(WRITE "${QRPROTEC_ICON_HEADER}.in" "${QRPROTEC_ICON_CONTENT}")
+configure_file("${QRPROTEC_ICON_HEADER}.in" "${QRPROTEC_ICON_HEADER}" COPYONLY)
 
 # -----------------------------------------------------------------------------
 # 3. Définition de l'exécutable
@@ -134,6 +158,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${IMGUI_DIR}/backends
     ${IMGUI_DIR}/misc/cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 # Édition de liens avec OpenGL et GLFW

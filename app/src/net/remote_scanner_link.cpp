@@ -38,7 +38,7 @@ RemoteScannerLink::~RemoteScannerLink() {
   stop();
 }
 
-void RemoteScannerLink::start(const std::string &api_url, const std::string &token, const std::string &session_id) {
+void RemoteScannerLink::start(const ApiEndpoint &endpoint, const std::string &session_id) {
   stop();
   {
     std::lock_guard< std::mutex > lock(mutex_);
@@ -49,7 +49,7 @@ void RemoteScannerLink::start(const std::string &api_url, const std::string &tok
   stop_         = false;
   session_gone_ = false;
   running_      = true;
-  thread_       = std::thread(&RemoteScannerLink::run, this, api_url, token, session_id);
+  thread_       = std::thread(&RemoteScannerLink::run, this, endpoint, session_id);
 }
 
 void RemoteScannerLink::stop() {
@@ -81,19 +81,17 @@ std::string RemoteScannerLink::last_error() const {
   return error_;
 }
 
-void RemoteScannerLink::run(std::string api_url, std::string token, std::string session_id) {
+void RemoteScannerLink::run(ApiEndpoint endpoint, std::string session_id) {
   using clock = std::chrono::steady_clock;
   HttpUrl     url;
   std::string error;
-  if (!parse_http_url(api_url, url, error)) {
+  if (!endpoint.parse(url, error)) {
     std::lock_guard< std::mutex > lock(mutex_);
     error_   = error;
     running_ = false;
     return;
   }
-  HttpHeaders headers;
-  if (!token.empty())
-    headers.emplace_back("X-QRProtec-Token", token);
+  const HttpHeaders headers  = endpoint.headers();
   const std::string path = "/ws/scanner/front?s=" + url_component(session_id);
   int               delay_ms = 1000;
   while (!stop_) {

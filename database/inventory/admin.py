@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from .models import (
-    Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, SealedPacks, Secouristes, VerifItem, Verifs,
+    FrontKey, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, SealedPacks, Secouristes, VerifItem, Verifs,
 )
 
 
@@ -41,3 +41,12 @@ admin.site.register(ItemsPacks)
 admin.site.register(SealedPacks)
 admin.site.register(Verifs)
 admin.site.register(VerifItem)
+
+
+@admin.register(FrontKey)
+class FrontKeyAdmin(admin.ModelAdmin):
+    list_display = ('name', 'revoked', 'created', 'last_used', 'last_address')
+    readonly_fields = ('name', 'key_hash', 'created', 'last_used', 'last_address')
+
+    def has_add_permission(self, request):
+        return False  # la cle n'est affichee qu'a la creation : `qrprotec-manage frontkey add NOM`

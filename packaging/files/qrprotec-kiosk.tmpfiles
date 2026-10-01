@@ -1,0 +1,2 @@
+# Reglages et modeles du kiosk QRProtec : jamais supprimes par rpm (desinstallation comprise)
+d /var/lib/qrprotec-kiosk  0750 qrprotec-kiosk qrprotec-kiosk -

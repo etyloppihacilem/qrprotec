@@ -22,7 +22,7 @@
 
 namespace qrprotec {
 
-// Connexion du front a une session de telephone-douchette (/ws/scanner/front?s=ID sur l'API locale).
+// Connexion du front a une session de telephone-douchette (/ws/scanner/front?s=ID sur l'API locale ou distante).
 // Un thread maintient la connexion (reconnexion automatique, ping toutes les 15 s) ; les messages
 // recus sont lus depuis le thread de l'interface avec take_messages().
 class RemoteScannerLink {
@@ -32,7 +32,7 @@ class RemoteScannerLink {
     RemoteScannerLink(const RemoteScannerLink &)            = delete;
     RemoteScannerLink &operator=(const RemoteScannerLink &) = delete;
 
-    void start(const std::string &api_url, const std::string &token, const std::string &session_id);
+    void start(const ApiEndpoint &endpoint, const std::string &session_id);
     void stop();
     void send(const std::string &text); // mis en file, envoye par le thread
 
@@ -44,7 +44,7 @@ class RemoteScannerLink {
     std::string                last_error() const;
 
   private:
-    void run(std::string api_url, std::string token, std::string session_id);
+    void run(ApiEndpoint endpoint, std::string session_id);
 
     std::thread                thread_;
     std::atomic< bool >        running_{ false };

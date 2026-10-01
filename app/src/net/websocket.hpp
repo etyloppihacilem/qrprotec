@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "connection.hpp"
 #include "http.hpp"
 
 #include <cstdint>
@@ -18,7 +19,7 @@
 
 namespace qrprotec {
 
-// Client WebSocket minimal (RFC 6455) : trames texte, sans extension ni TLS (API locale).
+// Client WebSocket minimal (RFC 6455) : trames texte, sans extension ; ws:// ou wss:// selon l'URL.
 class WebSocketClient {
   public:
     WebSocketClient() = default;
@@ -33,12 +34,12 @@ class WebSocketClient {
     // 1 : message recu dans `message` ; 0 : rien dans le delai ; -1 : connexion fermee
     int  receive(std::string &message, int timeout_ms);
     void close();
-    bool is_open() const { return fd_ >= 0; }
+    bool is_open() const { return connection_.is_open(); }
 
   private:
     bool send_frame(int opcode, const std::string &payload);
 
-    int         fd_ = -1;
+    Connection  connection_;
     std::string buffer_;
     std::string fragments_;
     std::mutex  send_mutex_;

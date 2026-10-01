@@ -1,0 +1,24 @@
+#!/usr/bin/bash
+# Lance le front QRProtec (fenetre ImGui) sur un bureau ou dans le kiosk (qrprotec-kiosk-session).
+#
+#   qrprotec-front [--verbose]
+#
+# Connexion au back : Reglages > Serveur (fichier ~/.config/qrprotec/app.conf), ou les variables
+# d'environnement QRPROTEC_API_URL, QRPROTEC_API_KEY, QRPROTEC_API_CA_FILE et QRPROTEC_API_TOKEN.
+# Sans rien, le front utilise l'API locale de la meme machine (http://127.0.0.1:8001).
+set -u
+
+readonly FRONT=@LIBEXECDIR@/qrprotec/qrprotec-front
+readonly PRIVATE_LIBDIR=@LIBDIR@/qrprotec
+readonly DEFAULT_TEMPLATES=@DATADIR@/qrprotec/templates
+
+# Modeles d'etiquettes modifiables : ~/.local/share/qrprotec/templates par defaut, initialise avec les
+# modeles fournis (ceux modifies ne sont jamais ecrases)
+templates=${QRPROTEC_TEMPLATES_DIR:-${XDG_DATA_HOME:-${HOME:-/tmp}/.local/share}/qrprotec/templates}
+mkdir -p "$templates"
+cp -r --update=none "$DEFAULT_TEMPLATES"/. "$templates"/ 2>/dev/null || :
+export QRPROTEC_TEMPLATES_DIR=$templates
+
+# Bibliotheque privee du SDK Inateck (douchette Bluetooth)
+export LD_LIBRARY_PATH=$PRIVATE_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+exec "$FRONT" "$@"

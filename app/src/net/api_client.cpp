@@ -44,10 +44,9 @@ ApiClient::~ApiClient() {
     thread_.join();
 }
 
-void ApiClient::configure(const std::string &base_url, const std::string &token) {
+void ApiClient::configure(const ApiEndpoint &endpoint) {
   std::lock_guard< std::mutex > lock(mutex_);
-  base_url_ = base_url;
-  token_    = token;
+  endpoint_ = endpoint;
 }
 
 void ApiClient::enqueue(const std::string &method, const std::string &path, const Json *body, Callback callback) {
@@ -107,8 +106,7 @@ std::string ApiClient::last_error() const {
 void ApiClient::run() {
   for (;;) {
     Job         job;
-    std::string base_url;
-    std::string token;
+    ApiEndpoint endpoint;
     {
       std::unique_lock< std::mutex > lock(mutex_);
       condition_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
@@ -116,19 +114,16 @@ void ApiClient::run() {
         return;
       job = std::move(jobs_.front());
       jobs_.pop_front();
-      base_url = base_url_;
-      token    = token_;
+      endpoint = endpoint_;
       working_ = true;
     }
     ApiResult   result;
     HttpUrl     url;
     std::string error;
-    if (!parse_http_url(base_url, url, error)) {
+    if (!endpoint.parse(url, error)) {
       result.error = error;
     } else {
-      HttpHeaders headers;
-      if (!token.empty())
-        headers.emplace_back("X-QRProtec-Token", token);
+      const HttpHeaders headers = endpoint.headers();
       debug_log("API " + job.method + " " + job.path + " " + job.body);
       const HttpResponse response = http_request(url, job.method, job.path, job.body, headers, 8000);
       result.status               = response.status;

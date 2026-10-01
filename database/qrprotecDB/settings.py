@@ -65,6 +65,10 @@ QRPROTEC = {
     'LOCAL_API_ALLOWED_ADDRESSES': _env_list('QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES', '127.0.0.1,::1'),
     # Jeton optionnel exige dans l'en-tete X-QRProtec-Token sur l'API locale
     'LOCAL_API_TOKEN': os.environ.get('QRPROTEC_LOCAL_API_TOKEN', ''),
+    # API distante : memes routes que l'API locale pour les fronts d'autres machines, avec une cle
+    # par front (en-tete X-QRProtec-Key, `manage.py frontkey`). A placer derriere un reverse proxy HTTPS.
+    'REMOTE_API_ADDRESS': os.environ.get('QRPROTEC_REMOTE_API_ADDRESS', '127.0.0.1'),
+    'REMOTE_API_PORT': int(os.environ.get('QRPROTEC_REMOTE_API_PORT', '8002')),
     # Role des requetes qui n'ont pas ete recues par `manage.py serve` (runserver, wsgi par defaut)
     'DEFAULT_API_ROLE': os.environ.get('QRPROTEC_DEFAULT_API_ROLE', 'public'),
     'USER_KEY_VALIDITY_DAYS': 365,

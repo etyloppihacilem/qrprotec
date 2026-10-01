@@ -11,6 +11,7 @@
 #pragma once
 
 #include "../core/json.hpp"
+#include "http.hpp"
 
 #include <condition_variable>
 #include <deque>
@@ -28,7 +29,7 @@ struct ApiResult {
     std::string error; // message lisible (reseau ou champ "error"/"detail" de l'API)
 };
 
-// Client asynchrone de l'API locale : les requetes sont executees dans un thread dedie et les
+// Client asynchrone de l'API locale (ou du back distant, en HTTPS avec une cle de front) : les requetes sont executees dans un thread dedie et les
 // callbacks sont appeles depuis le thread de l'interface lors de poll().
 class ApiClient {
   public:
@@ -39,7 +40,7 @@ class ApiClient {
     ApiClient(const ApiClient &)            = delete;
     ApiClient &operator=(const ApiClient &) = delete;
 
-    void configure(const std::string &base_url, const std::string &token);
+    void configure(const ApiEndpoint &endpoint);
 
     void get(const std::string &path, Callback callback);
     void post(const std::string &path, const Json &body, Callback callback);
@@ -73,8 +74,7 @@ class ApiClient {
     std::condition_variable condition_;
     std::deque< Job >       jobs_;
     std::deque< Done >      done_;
-    std::string             base_url_;
-    std::string             token_;
+    ApiEndpoint             endpoint_;
     bool                    online_  = false;
     bool                    working_ = false;
     std::string             last_error_;

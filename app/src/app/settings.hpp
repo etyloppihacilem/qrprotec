@@ -11,6 +11,7 @@
 #pragma once
 
 #include "../inateck/inateck_worker.hpp"
+#include "../net/http.hpp"
 #include "../printer/printer.hpp"
 #include "../render/raster.hpp"
 
@@ -30,9 +31,14 @@ struct WindowLayout {
 };
 
 struct AppSettings {
-    // Connexion a l'API locale
+    // Connexion au back : API locale (meme machine, port non expose) par defaut, ou back distant en
+    // HTTPS avec une cle de front (`qrprotec-manage frontkey add NOM` sur le serveur). Les variables
+    // d'environnement QRPROTEC_API_URL, QRPROTEC_API_TOKEN, QRPROTEC_API_KEY et QRPROTEC_API_CA_FILE
+    // (kiosk : /etc/qrprotec/front-api.conf) priment sur ces valeurs.
     std::string api_url = "http://127.0.0.1:8001";
-    std::string api_token;
+    std::string api_token;   // jeton optionnel de l'API locale (QRPROTEC_LOCAL_API_TOKEN du back)
+    std::string api_key;     // cle de front distant (en-tete X-QRProtec-Key)
+    std::string api_ca_file; // HTTPS : certificat de l'autorite du serveur (ex. autorite interne de Caddy)
 
     // Interface
     float font_size             = 18.0f;
@@ -69,6 +75,9 @@ struct AppSettings {
     void                         load();
     bool                         save(std::string &error) const;
     PhysicalLabel                physical_label() const;
+    ApiEndpoint                  api_endpoint() const; // reglages + variables d'environnement
+    // Valeur imposee par l'environnement (QRPROTEC_API_URL...) ou nullptr
+    static const char           *api_env(const char *name);
 };
 
 } // namespace qrprotec

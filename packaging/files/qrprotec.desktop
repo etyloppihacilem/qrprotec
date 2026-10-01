@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=QRProtec
+GenericName=Inventory
+GenericName[fr]=Inventaire
+Comment=QR-code inventory of first-aid equipment
+Comment[fr]=Inventaire du materiel de secours par QR codes
+Exec=qrprotec-front
+Icon=qrprotec
+Terminal=false
+Categories=Office;Database;
+Keywords=inventory;qrcode;label;inventaire;etiquette;
+StartupWMClass=qrprotec

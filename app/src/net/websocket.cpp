@@ -13,12 +13,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
-#include <netdb.h>
-#include <poll.h>
 #include <random>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 namespace qrprotec {
 
@@ -32,19 +27,6 @@ void random_bytes(std::uint8_t *out, std::size_t count) {
   std::uniform_int_distribution< int > byte(0, 255);
   for (std::size_t index = 0; index < count; ++index)
     out[index] = static_cast< std::uint8_t >(byte(generator));
-}
-
-bool send_all(int fd, const std::string &data) {
-  std::size_t sent = 0;
-  while (sent < data.size()) {
-    const ssize_t written = ::send(fd, data.data() + sent, data.size() - sent, MSG_NOSIGNAL);
-    if (written < 0 && errno == EINTR)
-      continue;
-    if (written <= 0)
-      return false;
-    sent += static_cast< std::size_t >(written);
-  }
-  return true;
 }
 
 std::string lower(std::string value) {
@@ -151,42 +133,18 @@ bool WebSocketClient::connect(const HttpUrl &url, const std::string &path, const
                               std::string &error, int &status) {
   close();
   status = 0;
-  addrinfo hints{};
-  hints.ai_family   = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-  addrinfo         *addresses = nullptr;
-  const std::string port      = std::to_string(url.port);
-  if (getaddrinfo(url.host.c_str(), port.c_str(), &hints, &addresses) != 0 || !addresses) {
-    error = "Hôte introuvable : " + url.host;
+  if (!connection_.open(url, timeout_ms, error))
     return false;
-  }
-  timeval timeout{ timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
-  for (addrinfo *address = addresses; address && fd_ < 0; address = address->ai_next) {
-    const int fd = ::socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-    if (fd < 0)
-      continue;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-    if (::connect(fd, address->ai_addr, address->ai_addrlen) == 0)
-      fd_ = fd;
-    else
-      ::close(fd);
-  }
-  freeaddrinfo(addresses);
-  if (fd_ < 0) {
-    error = "Connexion impossible à " + url.host + ":" + port;
-    return false;
-  }
   std::uint8_t nonce[16];
   random_bytes(nonce, sizeof(nonce));
   std::string request = "GET " + url.base_path + path + " HTTP/1.1\r\n";
-  request += "Host: " + url.host + ":" + port + "\r\n";
+  request += "Host: " + host_header(url) + "\r\n";
   request += "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n";
   request += "Sec-WebSocket-Key: " + base64_encode(std::string(reinterpret_cast< char * >(nonce), sizeof(nonce))) + "\r\n";
   for (const auto &[name, value] : headers)
     request += name + ": " + value + "\r\n";
   request += "\r\n";
-  if (!send_all(fd_, request)) {
+  if (!connection_.send_all(request)) {
     error = "Envoi de la poignée de main impossible";
     close();
     return false;
@@ -196,7 +154,7 @@ bool WebSocketClient::connect(const HttpUrl &url, const std::string &path, const
   char        chunk[1024];
   std::size_t end = std::string::npos;
   while ((end = response.find("\r\n\r\n")) == std::string::npos) {
-    const ssize_t received = ::recv(fd_, chunk, sizeof(chunk), 0);
+    const long received = connection_.receive(chunk, sizeof(chunk));
     if (received < 0 && errno == EINTR)
       continue;
     if (received <= 0 || response.size() > 16384) {
@@ -221,11 +179,11 @@ bool WebSocketClient::connect(const HttpUrl &url, const std::string &path, const
 
 bool WebSocketClient::send_frame(int opcode, const std::string &payload) {
   std::lock_guard< std::mutex > lock(send_mutex_);
-  if (fd_ < 0)
+  if (!connection_.is_open())
     return false;
   std::uint8_t mask[4];
   random_bytes(mask, sizeof(mask));
-  return send_all(fd_, ws_encode_frame(opcode, payload, mask));
+  return connection_.send_all(ws_encode_frame(opcode, payload, mask));
 }
 
 bool WebSocketClient::send_text(const std::string &text) {
@@ -234,7 +192,7 @@ bool WebSocketClient::send_text(const std::string &text) {
 
 int WebSocketClient::receive(std::string &message, int timeout_ms) {
   for (;;) {
-    if (fd_ < 0)
+    if (!connection_.is_open())
       return -1;
     WebSocketFrame frame;
     const long     consumed = ws_decode_frame(buffer_, frame);
@@ -266,14 +224,11 @@ int WebSocketClient::receive(std::string &message, int timeout_ms) {
       fragments_.clear();
       return 1;
     }
-    pollfd descriptor{ fd_, POLLIN, 0 };
-    const int ready = ::poll(&descriptor, 1, timeout_ms);
-    if (ready < 0 && errno == EINTR)
-      continue;
+    const int ready = connection_.wait_readable(timeout_ms);
     if (ready == 0)
       return 0;
-    char          chunk[4096];
-    const ssize_t received = ready > 0 ? ::recv(fd_, chunk, sizeof(chunk), 0) : -1;
+    char       chunk[4096];
+    const long received = ready > 0 ? connection_.receive(chunk, sizeof(chunk)) : -1;
     if (received < 0 && (errno == EINTR || errno == EAGAIN))
       continue;
     if (received <= 0) {
@@ -287,11 +242,7 @@ int WebSocketClient::receive(std::string &message, int timeout_ms) {
 
 void WebSocketClient::close() {
   std::lock_guard< std::mutex > lock(send_mutex_);
-  if (fd_ >= 0) {
-    ::shutdown(fd_, SHUT_RDWR);
-    ::close(fd_);
-  }
-  fd_ = -1;
+  connection_.close();
 }
 
 } // namespace qrprotec

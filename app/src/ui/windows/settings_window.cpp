@@ -21,6 +21,56 @@ namespace qrprotec {
 
 namespace {
 
+// Champ de connexion au back, en lecture seule s'il est impose par l'environnement (kiosk : front-api.conf)
+void api_field(const char *label, const char *env_name, std::string &value, ImGuiInputTextFlags flags,
+               const char *help) {
+  if (const char *forced = AppSettings::api_env(env_name)) {
+    std::string shown = (flags & ImGuiInputTextFlags_Password) ? std::string("********") : std::string(forced);
+    ImGui::BeginDisabled();
+    ImGui::InputText(label, &shown, ImGuiInputTextFlags_ReadOnly);
+    ImGui::EndDisabled();
+    help_marker((std::string(help) + "\n\nImposé par " + env_name
+                 + " (kiosk : /etc/qrprotec/front-api.conf, sudo qrprotec-setup).").c_str());
+    return;
+  }
+  ImGui::InputText(label, &value, flags);
+  help_marker(help);
+}
+
+} // namespace
+
+void draw_server_settings(App &app) {
+  api_field("URL du serveur", "QRPROTEC_API_URL", app.settings.api_url, 0,
+            "Même machine : http://127.0.0.1:8001 (API locale, port non exposé).\n"
+            "Serveur distant : https://nom-du-serveur (avec une clé de front).");
+  api_field("Clé du front (serveur distant)", "QRPROTEC_API_KEY", app.settings.api_key,
+            ImGuiInputTextFlags_Password,
+            "Créée sur le serveur : sudo qrprotec-manage frontkey add NOM.\n"
+            "Inutile pour l'API locale de la même machine.");
+  api_field("Certificat de l'autorité (HTTPS)", "QRPROTEC_API_CA_FILE", app.settings.api_ca_file, 0,
+            "Fichier PEM, nécessaire si le serveur utilise l'autorité interne de Caddy (QRPROTEC_TLS=internal) :\n"
+            "copier /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt du serveur.\n"
+            "Vide = autorités du système (Let's Encrypt...).");
+  api_field("Jeton de l'API locale", "QRPROTEC_API_TOKEN", app.settings.api_token, ImGuiInputTextFlags_Password,
+            "Optionnel : doit correspondre à QRPROTEC_LOCAL_API_TOKEN côté serveur.");
+  if (ImGui::Button("Tester la connexion")) {
+    app.apply_settings();
+    app.api.get("/api/health/", [&app](const ApiResult &result) {
+      if (!result.ok) {
+        app.notify("Connexion impossible : " + result.error, true);
+        return;
+      }
+      const std::string front = result.data["front"].str();
+      app.notify("Connecté à l'API " + (front.empty() ? result.data["api"].str() : "distante (front " + front + ")")
+                 + ", URLs publiques : " + result.data["public_base_url"].str());
+      if (result.data["api"].str() != "local")
+        app.notify("Attention : ce port est l'API publique, la gestion ne fonctionnera pas.", true);
+    });
+  }
+}
+
+namespace {
+
 class SettingsWindow final : public AppWindow {
   public:
     SettingsWindow() : AppWindow("settings", "Réglages", true, true) { admin_only = true; }
@@ -40,23 +90,7 @@ class SettingsWindow final : public AppWindow {
       ImGui::TextDisabled("%s", AppSettings::file_path().string().c_str());
 
       if (ImGui::CollapsingHeader("Serveur", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::InputText("URL de l'API locale", &settings.api_url);
-        help_marker("Port local du back (manage.py serve), ex: http://127.0.0.1:8001");
-        ImGui::InputText("Jeton de l'API locale", &settings.api_token, ImGuiInputTextFlags_Password);
-        help_marker("Optionnel : doit correspondre à QRPROTEC_LOCAL_API_TOKEN côté serveur.");
-        if (ImGui::Button("Tester la connexion")) {
-          app.apply_settings();
-          app.api.get("/api/health/", [&app](const ApiResult &result) {
-            if (!result.ok) {
-              app.notify("Connexion impossible : " + result.error, true);
-              return;
-            }
-            app.notify("Connecté à l'API " + result.data["api"].str() + ", URLs publiques : "
-                       + result.data["public_base_url"].str());
-            if (result.data["api"].str() != "local")
-              app.notify("Attention : ce port est l'API publique, la gestion ne fonctionnera pas.", true);
-          });
-        }
+        draw_server_settings(app);
       }
 
       if (ImGui::CollapsingHeader("Session et affichage", ImGuiTreeNodeFlags_DefaultOpen)) {

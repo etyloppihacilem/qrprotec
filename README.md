@@ -5,20 +5,22 @@ avec un identifiant unique, les lots (sacs, malles...) sont vérifiés en scanna
 
 - `database/` : back Django (base de données + API).
 - `app/` : front ImGui (poste local : douchette Inateck, imprimante Niimbot B1).
-- `packaging/` : paquet RPM de la borne Fedora (voir [Borne Fedora](#borne-fedora-paquet-rpm)).
+- `packaging/` : paquets RPM pour Fedora (voir [Borne Fedora](#borne-fedora-paquet-rpm)).
 
 ## Borne Fedora (paquet RPM)
 
 Le paquet `qrprotec` transforme un Fedora Server minimal en borne dédiée : back Django en service
 systemd, Caddy en reverse proxy HTTPS, front ImGui en plein écran dans [Cage](https://github.com/cage-kiosk/cage)
-sur `tty1`, sans bureau ni écran de connexion. Tout le packaging est dans `packaging/`.
+sur `tty1`, sans bureau ni écran de connexion. Le back et le front peuvent aussi être installés sur
+des machines différentes (voir [Paquets et machines séparées](#paquets-et-machines-séparées)). Tout
+le packaging est dans `packaging/`.
 
 | Élément | Emplacement |
 |---|---|
 | Back (Django + dépendances figées par `poetry.lock`) | `/usr/share/qrprotec/backend`, `/usr/share/qrprotec/vendor` |
-| Front | `/usr/libexec/qrprotec/qrprotec-front` (+ SDK Inateck dans `/usr/lib64/qrprotec/`) |
+| Front | `/usr/bin/qrprotec-front` (lanceur), `/usr/libexec/qrprotec/qrprotec-front` (+ SDK Inateck dans `/usr/lib64/qrprotec/`) |
 | Modèles d'étiquettes fournis | `/usr/share/qrprotec/templates` (copiés dans `/var/lib/qrprotec-kiosk/templates`) |
-| Configuration | `/etc/qrprotec/qrprotec.conf`, `/etc/qrprotec/kiosk.conf`, `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` |
+| Configuration | `/etc/qrprotec/qrprotec.conf`, `/etc/qrprotec/kiosk.conf`, `/etc/qrprotec/front-api.conf` (back distant du kiosk, `0600`), `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` |
 | Clé secrète Django | `/etc/qrprotec/secret_key` (générée à l'installation, `0640 root:qrprotec`) |
 | Données (base SQLite) | `/var/lib/qrprotec/db.sqlite3` |
 | Services | `qrprotec.service` (back), `qrprotec-kiosk.service` (Cage), `qrprotec-alerts.timer` (SMS, 7 h 45), `qrprotec-backup.timer` (sauvegardes), `caddy.service` |
@@ -26,9 +28,59 @@ sur `tty1`, sans bureau ni écran de connexion. Tout le packaging est dans `pack
 | Utilisateurs (`sysusers.d`) | `qrprotec` (back, sans shell), `qrprotec-kiosk` (session Cage ; groupes `dialout`, `video`, `render`, `input`, `audio`) |
 | Commandes | `qrprotec-setup` (assistant), `qrprotec-manage` (`manage.py` avec la configuration de la borne), `qrprotec-backup` (sauvegarde / restauration) |
 
-Réseau : les deux API du back n'écoutent que sur `127.0.0.1` (8000 publique, 8001 locale). Caddy
-expose 80 (redirection) et 443, et ne proxifie que l'API publique et les pages web (WebSockets du
-téléphone-douchette compris). L'API locale n'est jamais exposée.
+Réseau : les trois API du back n'écoutent que sur `127.0.0.1` (8000 publique, 8001 locale, 8002
+distante). Caddy expose 80 (redirection) et 443 : il proxifie l'API publique et les pages web
+(WebSockets du téléphone-douchette compris) et, pour les requêtes qui portent une clé de front
+(`X-QRProtec-Key`), l'API distante. L'API locale n'est jamais exposée.
+
+### Paquets et machines séparées
+
+| Paquet | Contenu | Pour |
+|---|---|---|
+| `qrprotec` | `qrprotec-server` + `qrprotec-kiosk` (paquet meta) | la borne complète, comme avant |
+| `qrprotec-server` | back Django, Caddy, alertes SMS, `qrprotec-manage` | le back seul, serveur sans écran |
+| `qrprotec-kiosk` | front en plein écran dans Cage sur `tty1` (dépend de `qrprotec-front`) | un poste dédié, avec back local ou distant |
+| `qrprotec-front` | front en application de bureau (menu, icône), sans kiosk | un ordinateur qui ne sert pas qu'à ça |
+| `qrprotec-common` | `qrprotec-setup`, `qrprotec-backup` et son timer | installé avec `-server` ou `-kiosk` |
+
+Par défaut rien ne change : le front utilise l'**API locale** de sa machine (`http://127.0.0.1:8001`,
+port non exposé, sans clé). Un front sur une autre machine se connecte au back en **HTTPS via Caddy,
+avec sa propre clé API** ; un front local et des fronts distants fonctionnent en même temps.
+
+1. Sur le serveur (`qrprotec` ou `qrprotec-server`), créer une clé par front distant :
+
+   ```sh
+   sudo qrprotec-setup --front-key accueil     # ou : sudo qrprotec-manage frontkey add accueil
+   sudo qrprotec-manage frontkey list          # fronts, dernière utilisation et adresse
+   sudo qrprotec-manage frontkey revoke accueil
+   ```
+
+   La clé (`qrpf_...`) n'est affichée qu'une fois (seule son empreinte SHA-256 est en base). Avec
+   `QRPROTEC_TLS=internal`, le front doit connaître l'autorité de Caddy : copier
+   `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt` du serveur sur le poste.
+
+2. Sur un poste kiosk (`dnf install qrprotec-kiosk`) :
+
+   ```sh
+   sudo qrprotec-setup --api-url https://inventaire.example.org --api-key qrpf_... \
+       --api-ca-file /chemin/root.crt      # seulement pour l'autorité interne de Caddy
+   sudo qrprotec-setup --local-api         # revenir au back de la machine
+   ```
+
+   C'est écrit dans `/etc/qrprotec/front-api.conf` (`QRPROTEC_API_URL`, `QRPROTEC_API_KEY`,
+   `QRPROTEC_API_CA_FILE`, lisible par root seulement), qui prime sur les réglages du front.
+
+3. Sur un ordinateur de bureau (`dnf install qrprotec-front`, menu **QRProtec** ou commande
+   `qrprotec-front`) : **Réglages > Serveur** (URL, clé, certificat de l'autorité). Tant que le
+   serveur est injoignable, un clic sur « API hors ligne » dans la barre de menu ouvre ces champs
+   sans badge (jamais sur une borne `qrprotec-kiosk`, réglée par `qrprotec-setup`). Les variables `QRPROTEC_API_URL`, `QRPROTEC_API_KEY`, `QRPROTEC_API_CA_FILE` marchent
+   aussi. Pour imprimer, l'utilisateur doit être dans le groupe `dialout`.
+
+Changer de paquet : `sudo dnf install qrprotec-server && sudo dnf mark user qrprotec-server`, puis
+`sudo dnf remove qrprotec qrprotec-kiosk` (sinon `dnf remove qrprotec` retire aussi les paquets
+installés comme dépendances). Une borne installée avec l'ancien paquet unique passe automatiquement
+à `qrprotec` + `qrprotec-server` + `qrprotec-kiosk` au `dnf upgrade`, en gardant sa configuration
+et ses services.
 
 ### Prérequis
 
@@ -45,7 +97,8 @@ curl -fsSL https://etyloppihacilem.github.io/qrprotec/bootstrap.sh | sudo bash
 ```
 
 Le script ajoute le dépôt (`/etc/yum.repos.d/qrprotec.repo`), lance `dnf install qrprotec`, puis
-propose l'assistant. Équivalent manuel :
+propose l'assistant. Pour un autre paquet : `curl -fsSL .../bootstrap.sh | sudo QRPROTEC_PACKAGE=qrprotec-server bash`
+(ou `qrprotec-kiosk`, `qrprotec-front`). Équivalent manuel :
 
 ```sh
 sudo curl -fsSL -o /etc/yum.repos.d/qrprotec.repo https://etyloppihacilem.github.io/qrprotec/qrprotec.repo
@@ -63,8 +116,8 @@ les réglages de veille (logind) et vérifier le démarrage direct sur le kiosk.
 ### Configuration
 
 Lancer **`sudo qrprotec-setup`** (relançable à volonté) : nom d'hôte, certificat HTTPS, disposition
-du clavier, extinction de l'écran, sauvegardes (dossier, nombre, fréquence), ouverture du pare-feu
-et premier administrateur. `sudo qrprotec-setup --help` liste toutes les options. Version non
+du clavier, extinction de l'écran, back distant du kiosk, sauvegardes (dossier, nombre, fréquence),
+ouverture du pare-feu et premier administrateur. Seules les parties installées sont demandées. `sudo qrprotec-setup --help` liste toutes les options. Version non
 interactive :
 
 ```sh
@@ -93,7 +146,8 @@ logs...) : il est préservé par les mises à jour.
 1800 s par défaut) puis `sudo systemctl restart qrprotec-kiosk`. La mise en veille est désactivée
 (`logind.conf.d`, `sleep.conf.d`), l'écran s'éteint après 30 min sans activité (swayidle + wlopm, ou
 wlr-randr) et se rallume à la première touche ; curseur et clavier restent normaux. Les réglages du
-front (`api_url`, imprimante...) sont dans `/var/lib/qrprotec-kiosk/.config/qrprotec/app.conf` et
+front (`api_url`, imprimante...) sont dans `/var/lib/qrprotec-kiosk/.config/qrprotec/app.conf` (le
+back distant, s'il y en a un, dans `/etc/qrprotec/front-api.conf`) et
 les modèles d'étiquettes dans `/var/lib/qrprotec-kiosk/templates/` (images dans son sous-dossier `images/`).
 `Ctrl+Alt+F2` ouvre une console de maintenance.
 
@@ -106,13 +160,18 @@ dans firewalld s'il est actif, sinon dans UFW (`ufw allow 80/tcp`, `ufw allow 44
 ### Sauvegardes
 
 `qrprotec-backup.timer` crée chaque jour (par défaut) une archive
-`qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz` (0600, root) contenant :
+`qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz` (0600, root) avec ce qui est installé sur la machine :
 
-- un instantané cohérent de la base SQLite (API de sauvegarde de SQLite, sans arrêter le back,
-  intégrité vérifiée) ;
-- `/etc/qrprotec` (configuration, **clé secrète** comprise) et le fragment Caddy ;
-- les réglages du front (`app.conf`, douchette) et les modèles d'étiquettes du kiosk (logo compris) ;
-- un fichier `MANIFEST` (date, machine, version du paquet, nom d'hôte).
+- back (`qrprotec-server`) : un instantané cohérent de la base SQLite (API de sauvegarde de SQLite,
+  sans arrêter le back, intégrité vérifiée), `/etc/qrprotec` (configuration, **clé secrète** comprise)
+  et le fragment Caddy ;
+- kiosk (`qrprotec-kiosk`) : `/etc/qrprotec` (connexion au back distant comprise), les réglages du
+  front (`app.conf`, douchette) et les modèles d'étiquettes (logo compris) ;
+- un fichier `MANIFEST` (date, machine, parties `server`/`kiosk`, paquets, nom d'hôte, back distant).
+
+Sur un kiosk relié à un back distant, l'archive ne contient donc pas de base : celle-ci est
+sauvegardée sur le serveur. Le front de bureau (`qrprotec-front`) garde ses réglages dans le dossier
+de l'utilisateur (`~/.config/qrprotec`, `~/.local/share/qrprotec/templates`).
 
 Réglages (`sudo qrprotec-setup`, ou `/etc/qrprotec/backup.conf` puis
 `sudo qrprotec-backup --apply-schedule`) :
@@ -131,7 +190,7 @@ systemctl list-timers qrprotec-backup.timer
 journalctl -u qrprotec-backup
 ```
 
-**Restauration** (même borne ou nouvelle installation, après `dnf install qrprotec`) :
+**Restauration** (même machine ou nouvelle installation des mêmes paquets) :
 
 ```sh
 sudo qrprotec-setup --restore /var/backups/qrprotec/qrprotec-backup_2026-10-01_031204.tar.xz
@@ -142,7 +201,10 @@ La restauration vérifie l'archive, demande confirmation (`--yes` pour s'en pass
 d'abord l'état actuel**, arrête les services, remet la base et (sauf `--restore-db-only`) les options
 de `/etc/qrprotec`, le fragment Caddy, les réglages et modèles du kiosk et la fréquence des
 sauvegardes, puis relance les services (le back applique les migrations si l'archive vient d'une
-version plus ancienne). Sur une nouvelle machine dont l'adresse a changé, terminer par
+version plus ancienne). Seules les parties installées sont restaurées : la base d'une archive de
+borne complète est ignorée sur un kiosk seul, et la configuration du back n'y est pas copiée. Les
+archives des versions précédentes (paquet unique) se restaurent aussi. Sur une nouvelle machine dont
+l'adresse a changé, terminer par
 `sudo qrprotec-setup --domain NOUVEAU_NOM`. Les archives ne sont jamais supprimées par
 `dnf remove`.
 
@@ -160,7 +222,7 @@ déposée à côté en `.rpmnew`.
 ### Désinstallation
 
 ```sh
-sudo dnf remove qrprotec
+sudo dnf remove qrprotec qrprotec-server qrprotec-kiosk qrprotec-front qrprotec-common
 ```
 
 Les services sont arrêtés et désactivés, Caddy est rechargé sans le site QRProtec, la cible par
@@ -188,14 +250,15 @@ git submodule update --init app/imgui app/scanner_lib   # fait aussi automatique
 make rpm                      # dans un conteneur Fedora 43 (podman ou docker) : dist/*.rpm
 make rpm FEDORA_VERSION=42    # pour Fedora 42
 make rpm-local                # directement sur une machine Fedora (dnf builddep si root)
-make rpm RPMBUILD_ARGS="--without kiosk"   # back + Caddy seulement, serveur sans écran
+make rpm RPMBUILD_ARGS="--without kiosk"   # qrprotec-server et qrprotec-common seulement (pas de front)
 make lint                     # shellcheck + rpmlint
 ```
 
 `make rpm` construit l'image `packaging/Containerfile` (outils et dépendances de build en cache),
 puis `packaging/build-rpm.sh` : `packaging/make-sources.sh` prépare l'archive du code (avec les
 sous-modules) et celle des dépendances Python figées par `poetry.lock` (avec empreintes), puis
-`rpmbuild` compile le front, lance les tests C++ (`ctest`) et Django, et produit RPM et SRPM. La
+`rpmbuild` compile le front, lance les tests C++ (`ctest`) et Django, et produit les RPM
+(`qrprotec`, `-server`, `-kiosk`, `-front`, `-common`) et le SRPM. La
 version vient du tag git (`packaging/version.sh`) : `v1.2.0` → `1.2.0`, et entre deux tags
 `1.2.0^3.gabc1234`. Le RPM est spécifique à une version de Fedora (Python embarqué pour sa version
 de Python).
@@ -241,13 +304,14 @@ la base n'invalide pas les étiquettes déjà imprimées.
 cd database
 poetry install --no-root          # ou : pip install django djangorestframework
 python manage.py migrate
-python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001
+python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001 + API distante 127.0.0.1:8002
+python manage.py frontkey add accueil   # clé API d'un front d'une autre machine (affichée une fois)
 python manage.py createadmin M001 Nom Prenom --pin 4821   # premier administrateur (ou badge admin perdu)
 python manage.py serve --https    # API publique en HTTPS (certificat de développement, tests sur téléphone)
 python manage.py test inventory
 ```
 
-Deux API sur deux ports, sélectionnées par le port qui reçoit la requête
+Trois API sur trois ports, sélectionnées par le port qui reçoit la requête
 (`inventory/middleware.py`) :
 
 - **API publique** (`qrprotecDB/urls.py`) : lecture d'un item, d'un lot, d'un paquet, confirmation
@@ -257,9 +321,15 @@ Deux API sur deux ports, sélectionnées par le port qui reçoit la requête
   utilisateurs, stocks) et admin Django. N'accepte que les adresses de
   `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` (localhost par défaut) et, si défini, le jeton
   `QRPROTEC_LOCAL_API_TOKEN` dans l'en-tête `X-QRProtec-Token`.
+- **API distante** (mêmes routes que l'API locale) : pour les fronts d'autres machines, derrière le
+  reverse proxy HTTPS. Chaque requête doit porter une clé de front valide (modèle `FrontKey`,
+  commande `manage.py frontkey add|list|revoke|delete`) dans l'en-tête `X-QRProtec-Key`, sinon 401.
+  `health/` renvoie alors le nom du front dans `front`. Caddy y envoie les requêtes qui portent cet
+  en-tête (`packaging/files/qrprotec.caddyfile`).
 
-En production : `gunicorn qrprotecDB.wsgi:public_application` et
-`gunicorn qrprotecDB.wsgi:local_application` sur deux ports. Le **téléphone-douchette** utilise des
+En production : `gunicorn qrprotecDB.wsgi:public_application`,
+`gunicorn qrprotecDB.wsgi:local_application` et `gunicorn qrprotecDB.wsgi:remote_application` sur
+trois ports. Le **téléphone-douchette** utilise des
 WebSockets gérés par `manage.py serve` uniquement (sessions en mémoire partagées par les deux API) :
 pour s'en servir, lancer le back avec `serve` derrière le reverse proxy HTTPS, en transmettant
 l'upgrade WebSocket (nginx : `proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade;
@@ -272,7 +342,7 @@ douchette (`ScanSource::Phone`).
 
 1. Le front crée une session (`POST /api/remote-scanner/`, délai de déconnexion en minutes) et affiche
    un QR code vers `<base>/scanner?s=SESSION&k=CLE`, puis se connecte à `/ws/scanner/front?s=SESSION`
-   (API locale uniquement, même contrôle d'adresse et de jeton que l'API locale).
+   (API locale, même contrôle d'adresse et de jeton, ou API distante avec la clé du front).
 2. Le téléphone scanne ce QR code avec son appareil photo : la page de scan s'ouvre et se connecte à
    `/ws/scanner/phone?s=SESSION&k=CLE` (API publique, HTTPS obligatoire pour la caméra).
 3. Chaque code lu est relayé au front ; le front renvoie les erreurs (produit périmé, code inconnu)
@@ -296,6 +366,7 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 | `QRPROTEC_LOCAL_API_ADDRESS` / `_PORT` | `127.0.0.1` / `8001` |
 | `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` | `127.0.0.1,::1` |
 | `QRPROTEC_LOCAL_API_TOKEN` | vide (pas de jeton) |
+| `QRPROTEC_REMOTE_API_ADDRESS` / `_PORT` | `127.0.0.1` / `8002` (API distante, `--no-remote` pour ne pas la lancer) |
 | `QRPROTEC_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` |
 | `QRPROTEC_DEBUG_HOSTS` | `192.168.1.201` (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement) |
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
@@ -472,7 +543,10 @@ cd build && ctest
 ./build/QRProtecApp   # les modèles *.qr sont lus et enregistrés dans app/templates/ (sélectionnés par défaut au premier lancement)
 ```
 
-Dépendances : GLFW, OpenGL, libpng, FreeType, libxdo (SDK Inateck). L'encodeur QR
+Dépendances : GLFW, OpenGL, libpng, FreeType, OpenSSL (HTTPS vers un back distant), libxdo (SDK
+Inateck). L'icône de la fenêtre est celle du site (`database/inventory/web/icon-192.png`,
+`make icon`), embarquée dans l'exécutable ; sous Wayland, le bureau l'affiche grâce à
+`qrprotec.desktop` (identifiant d'application `qrprotec`). L'encodeur QR
 ([Nayuki](https://www.nayuki.io/page/qr-code-generator-library), MIT) et `stb_image` (PNG/JPEG,
 domaine public) sont fournis dans `app/third_party/`.
 
@@ -483,8 +557,10 @@ son badge (ou utiliser `manage.py createadmin` sur le serveur).
 La police DejaVu Sans (accents) est fournie dans `app/third_party/fonts/` et copiée à côté de
 l'exécutable ; une autre police peut être imposée avec la variable `QRPROTEC_FONT`.
 
-Les réglages sont dans `~/.config/qrprotec/app.conf` et s'éditent depuis **Gestion > Réglages** :
-URL de l'API locale, modèle d'étiquette par usage, imprimante, délai de réinitialisation,
+Les réglages sont dans `~/.config/qrprotec/app.conf` (`0600`) et s'éditent depuis **Gestion > Réglages** :
+serveur (URL de l'API locale, ou `https://...` d'un back distant avec la clé du front et, si besoin,
+le certificat de l'autorité ; `QRPROTEC_API_URL`, `QRPROTEC_API_KEY`, `QRPROTEC_API_CA_FILE` et
+`QRPROTEC_API_TOKEN` priment), modèle d'étiquette par usage, imprimante, délai de réinitialisation,
 disposition par défaut des fenêtres, signal de mauvais scan.
 
 ### Mode normal
