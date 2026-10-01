@@ -112,6 +112,17 @@ valid_domain() {
     [[ $1 =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || [[ $1 =~ ^\[?[0-9A-Fa-f:]+\]?$ ]]
 }
 
+# Nom de domaine public (certifiable par Let's Encrypt) : ni IP, ni nom sans point, ni TLD local
+public_name() {
+    local name=${1,,}
+    [[ $name =~ ^[0-9.]+$ || $name == *:* ]] && return 1
+    [[ $name == *.* ]] || return 1
+    case $name in
+        localhost | *.localhost | *.local | *.lan | *.home | *.internal | *.localdomain | *.home.arpa) return 1 ;;
+    esac
+    return 0
+}
+
 ensure_secret() {
     if [[ ! -s $SECRET_FILE ]]; then
         (umask 077 && head -c 48 /dev/urandom | base64 -w 0 | tr '+/' '-_' >"$SECRET_FILE")
@@ -143,8 +154,18 @@ ask domain "Nom d'hote public de la borne (DNS ou IP)" "$(get_conf "$CONF_FILE" 
 valid_domain "$domain" || die "nom d'hote invalide : $domain"
 
 current_tls=$(get_conf "$CONF_FILE" QRPROTEC_TLS)
+# Let's Encrypt ne delivre pas de certificat pour une adresse IP ni pour un nom local : Caddy
+# n'aurait alors aucun certificat et refuserait toute connexion HTTPS ("alert internal error").
+local_name=no
+if ! public_name "$domain"; then
+    local_name=yes
+    [[ $current_tls == internal ]] || current_tls=""
+fi
 ask tls "Certificat HTTPS : 'internal' (reseau local) ou e-mail pour Let's Encrypt" "${current_tls:-internal}"
 [[ $tls == internal || $tls =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] || die "mode TLS invalide : $tls"
+if [[ $local_name == yes && $tls != internal ]]; then
+    die "$domain est une adresse IP ou un nom local : Let's Encrypt ne peut pas le certifier. Utilisez --tls internal (ou un nom de domaine public)."
+fi
 
 set_conf "$CONF_FILE" QRPROTEC_DOMAIN "$domain"
 set_conf "$CONF_FILE" QRPROTEC_TLS "$tls"
