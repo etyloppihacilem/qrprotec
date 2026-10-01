@@ -20,7 +20,8 @@
 # Projet CMake du front
 %global _vpath_srcdir app
 # Le ^ des versions d'instantane (1.2.0^3.gabc1234) est remplace par _ dans le nom des archives
-%global tar_version %{lua: print((rpm.expand("%{version}"):gsub("%^", "_")))}
+# (%%global est evalue tout de suite : partir de qrprotec_version, deja defini, pas de %%{version})
+%global tar_version %{lua: print((rpm.expand("%{qrprotec_version}"):gsub("%^", "_")))}
 
 # Bibliotheque privee du SDK Inateck (douchette Bluetooth) : elle ne doit rien fournir au systeme
 %global __provides_exclude_from ^%{_libdir}/%{name}/.*$
