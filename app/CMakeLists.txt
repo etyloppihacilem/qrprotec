@@ -32,8 +32,12 @@ if(INATECK_SDK_LIBRARY)
     if(NOT INATECK_XDO_LIBRARY)
         message(FATAL_ERROR "The Inateck Linux SDK requires libxdo.so.3. Install libxdo-dev or configure with -DINATECK_SDK_LIBRARY=.")
     endif()
-    add_library(InateckScannerBle UNKNOWN IMPORTED)
-    set_target_properties(InateckScannerBle PROPERTIES IMPORTED_LOCATION "${INATECK_SDK_LIBRARY}")
+    add_library(InateckScannerBle SHARED IMPORTED)
+    # La bibliotheque n'a pas de SONAME : sans IMPORTED_NO_SONAME, l'editeur de liens enregistrerait son
+    # chemin absolu de compilation dans l'executable (DT_NEEDED), introuvable une fois installe.
+    set_target_properties(InateckScannerBle PROPERTIES
+        IMPORTED_LOCATION "${INATECK_SDK_LIBRARY}"
+        IMPORTED_NO_SONAME TRUE)
     target_compile_definitions(InateckScannerBle INTERFACE QRPROTEC_HAS_INATECK=1)
 endif()
 
@@ -170,4 +174,9 @@ if(BUILD_TESTING)
     )
     target_include_directories(QRProtecHidClassifierTest PRIVATE src)
     add_test(NAME QRProtecHidClassifierTest COMMAND QRProtecHidClassifierTest)
+
+    # Les tests reposent sur assert() (parfois avec effets de bord) : le garder actif en Release
+    foreach(test_target QRProtecCoreTest QRProtecCodesTest QRProtecPrinterTest QRProtecHidClassifierTest)
+        target_compile_options(${test_target} PRIVATE -UNDEBUG)
+    endforeach()
 endif()

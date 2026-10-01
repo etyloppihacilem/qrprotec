@@ -1,0 +1,27 @@
+# QRProtec : reverse proxy HTTPS vers l'API publique du back (127.0.0.1:8000).
+#
+# Le nom d'hote (QRPROTEC_DOMAIN) et le mode TLS (QRPROTEC_TLS) se reglent dans
+# /etc/qrprotec/qrprotec.conf (ou avec `sudo qrprotec-setup`), charge dans l'environnement de Caddy
+# par /usr/lib/systemd/system/caddy.service.d/qrprotec.conf.
+#
+# L'API locale (127.0.0.1:8001, gestion sans cle) n'est volontairement PAS exposee : elle ne sert
+# qu'au front de la borne.
+
+# Port 80 : redirection vers HTTPS (le defi ACME HTTP-01 reste gere par Caddy)
+http://{$QRPROTEC_DOMAIN:localhost} {
+	redir https://{host}{uri} permanent
+}
+
+https://{$QRPROTEC_DOMAIN:localhost} {
+	# "internal" : certificat de l'autorite locale de Caddy (reseau local, adresse IP) ;
+	# une adresse e-mail : certificat Let's Encrypt / ZeroSSL (nom de domaine public).
+	tls {$QRPROTEC_TLS:internal}
+
+	encode zstd gzip
+
+	# Le back gere aussi les WebSockets du telephone-douchette (/ws/scanner/...) :
+	# reverse_proxy transmet l'upgrade et ajoute X-Forwarded-Proto.
+	reverse_proxy 127.0.0.1:{$QRPROTEC_PUBLIC_API_PORT:8000}
+
+	header -Server
+}

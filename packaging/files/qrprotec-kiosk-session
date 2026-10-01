@@ -1,0 +1,49 @@
+#!/usr/bin/bash
+# Session du kiosk, lancee par Cage (qrprotec-kiosk.service) : prepare le dossier des modeles,
+# programme l'extinction de l'ecran puis lance le front QRProtec.
+#
+#   qrprotec-kiosk-session                # session (front)
+#   qrprotec-kiosk-session --screen off   # eteint / rallume les ecrans (appele par swayidle)
+set -u
+
+readonly FRONT=@LIBEXECDIR@/qrprotec/qrprotec-front
+readonly PRIVATE_LIBDIR=@LIBDIR@/qrprotec
+readonly DEFAULT_TEMPLATES=@DATADIR@/qrprotec/templates
+
+# Allume (on) ou eteint (off) tous les ecrans : DPMS (wlopm) si Cage le gere, sinon desactivation
+# des sorties (wlr-randr, wlr-output-management).
+screen() {
+    local state=$1 output
+    if command -v wlopm >/dev/null && wlopm "--$state" '*' 2>/dev/null; then
+        return 0
+    fi
+    if command -v wlr-randr >/dev/null; then
+        while read -r output; do
+            wlr-randr --output "$output" "--$state"
+        done < <(wlr-randr | awk '/^[^[:space:]]/ {print $1}')
+    fi
+}
+
+if [[ ${1:-} == --screen ]]; then
+    screen "${2:?on ou off}"
+    exit
+fi
+
+templates=${QRPROTEC_TEMPLATES_DIR:-${HOME:-/var/lib/qrprotec-kiosk}/templates}
+mkdir -p "$templates"
+# Ajoute les modeles fournis sans jamais ecraser ceux modifies sur la borne
+cp -r --update=none "$DEFAULT_TEMPLATES"/. "$templates"/ 2>/dev/null || :
+export QRPROTEC_TEMPLATES_DIR=$templates
+
+blank=${QRPROTEC_SCREEN_BLANK_SECONDS:-1800}
+if [[ $blank =~ ^[0-9]+$ ]] && ((blank > 0)); then
+    if command -v swayidle >/dev/null && { command -v wlopm || command -v wlr-randr; } >/dev/null; then
+        swayidle -w timeout "$blank" "$0 --screen off" resume "$0 --screen on" &
+    else
+        echo "qrprotec-kiosk : swayidle ou wlopm/wlr-randr absent, pas d'extinction de l'ecran" >&2
+    fi
+fi
+
+# Bibliotheque privee du SDK Inateck (douchette Bluetooth)
+export LD_LIBRARY_PATH=$PRIVATE_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+exec "$FRONT" "$@"

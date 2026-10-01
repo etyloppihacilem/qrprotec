@@ -1,0 +1,3 @@
+# Donnees de QRProtec : jamais supprimees par rpm (desinstallation comprise)
+d /var/lib/qrprotec        0750 qrprotec       qrprotec       -
+d /var/lib/qrprotec-kiosk  0750 qrprotec-kiosk qrprotec-kiosk -

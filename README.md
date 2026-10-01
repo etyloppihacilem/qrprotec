@@ -5,6 +5,173 @@ avec un identifiant unique, les lots (sacs, malles...) sont vérifiés en scanna
 
 - `database/` : back Django (base de données + API).
 - `app/` : front ImGui (poste local : douchette Inateck, imprimante Niimbot B1).
+- `packaging/` : paquet RPM de la borne Fedora (voir [Borne Fedora](#borne-fedora-paquet-rpm)).
+
+## Borne Fedora (paquet RPM)
+
+Le paquet `qrprotec` transforme un Fedora Server minimal en borne dédiée : back Django en service
+systemd, Caddy en reverse proxy HTTPS, front ImGui en plein écran dans [Cage](https://github.com/cage-kiosk/cage)
+sur `tty1`, sans bureau ni écran de connexion. Tout le packaging est dans `packaging/`.
+
+| Élément | Emplacement |
+|---|---|
+| Back (Django + dépendances figées par `poetry.lock`) | `/usr/share/qrprotec/backend`, `/usr/share/qrprotec/vendor` |
+| Front | `/usr/libexec/qrprotec/qrprotec-front` (+ SDK Inateck dans `/usr/lib64/qrprotec/`) |
+| Modèles d'étiquettes fournis | `/usr/share/qrprotec/templates` (copiés dans `/var/lib/qrprotec-kiosk/templates`) |
+| Configuration | `/etc/qrprotec/qrprotec.conf`, `/etc/qrprotec/kiosk.conf`, `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` |
+| Clé secrète Django | `/etc/qrprotec/secret_key` (générée à l'installation, `0640 root:qrprotec`) |
+| Données (base SQLite) | `/var/lib/qrprotec/db.sqlite3` |
+| Services | `qrprotec.service` (back), `qrprotec-kiosk.service` (Cage), `qrprotec-alerts.timer` (SMS, 7 h 45), `caddy.service` |
+| Utilisateurs (`sysusers.d`) | `qrprotec` (back, sans shell), `qrprotec-kiosk` (session Cage ; groupes `dialout`, `video`, `render`, `input`, `audio`) |
+| Commandes | `qrprotec-setup` (assistant), `qrprotec-manage` (`manage.py` avec la configuration de la borne) |
+
+Réseau : les deux API du back n'écoutent que sur `127.0.0.1` (8000 publique, 8001 locale). Caddy
+expose 80 (redirection) et 443, et ne proxifie que l'API publique et les pages web (WebSockets du
+téléphone-douchette compris). L'API locale n'est jamais exposée.
+
+### Prérequis
+
+- **Fedora Server 42 ou plus récent**, installation minimale (« Minimal Install », sans bureau),
+  x86_64 (aarch64 possible en construisant le RPM soi-même, sans le SDK Inateck).
+- Un écran et un clavier (ou douchette) branchés ; accès réseau pour `dnf`.
+- Pour un certificat Let's Encrypt : un nom de domaine public pointant vers la borne et les ports
+  80/443 joignables. Sinon, Caddy utilise sa propre autorité locale (`internal`).
+
+### Installation (une commande)
+
+```sh
+curl -fsSL https://etyloppihacilem.github.io/qrprotec/bootstrap.sh | sudo bash
+```
+
+Le script ajoute le dépôt (`/etc/yum.repos.d/qrprotec.repo`), lance `dnf install qrprotec`, puis
+propose l'assistant. Équivalent manuel :
+
+```sh
+sudo curl -fsSL -o /etc/yum.repos.d/qrprotec.repo https://etyloppihacilem.github.io/qrprotec/qrprotec.repo
+sudo dnf install qrprotec
+sudo qrprotec-setup
+sudo systemctl reboot
+```
+
+L'installation crée les utilisateurs, génère la clé secrète, active et démarre `qrprotec`,
+`caddy`, `qrprotec-alerts.timer` et `qrprotec-kiosk`, passe la cible par défaut à
+`graphical.target` et autorise Caddy à joindre le back sous SELinux
+(`setsebool -P httpd_can_network_connect 1`). Le redémarrage n'est nécessaire que pour appliquer
+les réglages de veille (logind) et vérifier le démarrage direct sur le kiosk.
+
+### Configuration
+
+Lancer **`sudo qrprotec-setup`** (relançable à volonté) : nom d'hôte, certificat HTTPS, disposition
+du clavier, extinction de l'écran, ouverture du pare-feu et premier administrateur. Version non
+interactive :
+
+```sh
+sudo qrprotec-setup --domain inventaire.example.org --tls admin@example.org \
+    --keyboard fr --open-firewall --no-admin --yes
+```
+
+**Back et Caddy** : `/etc/qrprotec/qrprotec.conf` (format `CLÉ=valeur`) est lu par le back *et*
+par Caddy (drop-in `caddy.service.d/qrprotec.conf`). Le nom d'hôte n'est donc défini qu'à un seul
+endroit, `QRPROTEC_DOMAIN`, qui donne le site Caddy, `ALLOWED_HOSTS` et la base des URLs des QR
+codes (`QRPROTEC_PUBLIC_BASE_URL`, surchargeable). `QRPROTEC_TLS` vaut `internal` (réseau local,
+adresse IP ; les téléphones doivent faire confiance à l'autorité de Caddy, dont le certificat se
+trouve avec `sudo find /var/lib/caddy -name root.crt`)
+ou une adresse e-mail (Let's Encrypt). Les autres variables du tableau
+[Variables d'environnement](#variables-denvironnement) s'y ajoutent. Après modification à la main :
+
+```sh
+sudo systemctl restart qrprotec.service && sudo systemctl reload caddy.service
+```
+
+Le fragment Caddy `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` est importé par le `Caddyfile` du
+paquet Fedora (`import Caddyfile.d/*.caddyfile`), qui n'est pas modifié. On peut l'éditer (en-têtes,
+logs...) : il est préservé par les mises à jour.
+
+**Kiosk** : `/etc/qrprotec/kiosk.conf` (`XKB_DEFAULT_LAYOUT`, `QRPROTEC_SCREEN_BLANK_SECONDS`,
+1800 s par défaut) puis `sudo systemctl restart qrprotec-kiosk`. La mise en veille est désactivée
+(`logind.conf.d`, `sleep.conf.d`), l'écran s'éteint après 30 min sans activité (swayidle + wlopm, ou
+wlr-randr) et se rallume à la première touche ; curseur et clavier restent normaux. Les réglages du
+front (`api_url`, imprimante...) sont dans `/var/lib/qrprotec-kiosk/.config/qrprotec/app.conf` et
+les modèles d'étiquettes dans `/var/lib/qrprotec-kiosk/templates/` (y copier `logo.png`).
+`Ctrl+Alt+F2` ouvre une console de maintenance.
+
+**Administrateur** : `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821` (toute commande
+`manage.py` passe par `qrprotec-manage`, exécutée sous l'utilisateur `qrprotec`).
+
+**Pare-feu** : rien n'est ouvert automatiquement. `qrprotec-setup --open-firewall` ouvre http/https
+dans firewalld s'il est actif, sinon dans UFW (`ufw allow 80/tcp`, `ufw allow 443/tcp`).
+
+### Mise à jour
+
+```sh
+sudo dnf upgrade
+```
+
+Les services modifiés sont redémarrés à la fin de la transaction, les migrations de la base sont
+appliquées au démarrage du back, et Caddy est rechargé. Les fichiers de configuration modifiés
+(`%config(noreplace)`) sont conservés ; si le paquet en apporte une nouvelle version, elle est
+déposée à côté en `.rpmnew`.
+
+### Désinstallation
+
+```sh
+sudo dnf remove qrprotec
+```
+
+Les services sont arrêtés et désactivés, Caddy est rechargé sans le site QRProtec, la cible par
+défaut repasse en `multi-user.target` et la console `tty1` revient. Les données (`/var/lib/qrprotec`,
+`/var/lib/qrprotec-kiosk`), la clé secrète et les utilisateurs sont conservés ; une configuration
+modifiée est sauvegardée en `.rpmsave`. `dnf` retire aussi `caddy` et `cage` s'ils n'avaient été
+installés que pour QRProtec (`sudo dnf mark user caddy` avant pour garder Caddy). Le dépôt se
+retire avec `sudo rm /etc/yum.repos.d/qrprotec.repo`.
+
+### Journaux
+
+```sh
+journalctl -u qrprotec -f            # back (requêtes, migrations)
+journalctl -u qrprotec-kiosk -b      # Cage et front
+journalctl -u caddy -f               # reverse proxy, certificats
+journalctl -u qrprotec-alerts        # notifications SMS quotidiennes
+systemctl status qrprotec qrprotec-kiosk caddy
+```
+
+### Construire le RPM localement
+
+```sh
+git submodule update --init app/imgui app/scanner_lib   # fait aussi automatiquement par le build
+make rpm                      # dans un conteneur Fedora 43 (podman ou docker) : dist/*.rpm
+make rpm FEDORA_VERSION=42    # pour Fedora 42
+make rpm-local                # directement sur une machine Fedora (dnf builddep si root)
+make rpm RPMBUILD_ARGS="--without kiosk"   # back + Caddy seulement, serveur sans écran
+make lint                     # shellcheck + rpmlint
+```
+
+`make rpm` construit l'image `packaging/Containerfile` (outils et dépendances de build en cache),
+puis `packaging/build-rpm.sh` : `packaging/make-sources.sh` prépare l'archive du code (avec les
+sous-modules) et celle des dépendances Python figées par `poetry.lock` (avec empreintes), puis
+`rpmbuild` compile le front, lance les tests C++ (`ctest`) et Django, et produit RPM et SRPM. La
+version vient du tag git (`packaging/version.sh`) : `v1.2.0` → `1.2.0`, et entre deux tags
+`1.2.0^3.gabc1234`. Le RPM est spécifique à une version de Fedora (Python embarqué pour sa version
+de Python).
+
+### Publier une nouvelle version
+
+```sh
+git tag v1.2.0 && git push origin v1.2.0
+```
+
+Le workflow `.github/workflows/rpm.yml` construit les RPM pour Fedora 42 et 43, crée la release
+GitHub (RPM en pièces jointes) et met à jour le dépôt dnf statique sur la branche `gh-pages`
+(`fedora/<version>/<arch>/`, 5 dernières versions gardées), servi par GitHub Pages. Les bornes le
+reçoivent au prochain `sudo dnf upgrade`.
+
+Mise en place, une fois : **Settings > Pages** : déployer depuis la branche `gh-pages`. GitHub Pages
+n'est disponible pour un dépôt **privé** qu'avec un compte payant (et le site reste public). Sinon,
+publier dans un dépôt public dédié, par exemple `etyloppihacilem/qrprotec-rpm` : variables
+`RPM_PAGES_REPO` (`etyloppihacilem/qrprotec-rpm`) et éventuellement `RPM_PAGES_URL`, secret
+`RPM_PAGES_TOKEN` (jeton avec droit d'écriture sur ce dépôt), et adapter l'URL de `bootstrap.sh`
+(ou `QRPROTEC_REPO_URL=...`). Pour signer les paquets (`gpgcheck=1`), ajouter les secrets
+`RPM_GPG_PRIVATE_KEY` et `RPM_GPG_PASSPHRASE`.
 
 ## Identifiants et QR codes
 

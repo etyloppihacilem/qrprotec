@@ -1,0 +1,37 @@
+# Filtres rpmlint propres a la borne QRProtec : rpmlint -c packaging/rpmlint.toml ...
+
+Filters = [
+    # Bibliotheque privee du SDK Inateck, binaire fourni par le fabricant (sans SONAME)
+    'shared-library-without-dependency-information',
+    'no-soname',
+    # Paquet d'appliance : il active volontairement ses services (fichier preset)
+    'preset-file',
+    # Pas de page de manuel pour les scripts d'administration (aide : --help)
+    'no-manual-page-for-binary',
+    # Version calculee depuis le tag git : entree de changelog generee
+    'incoherent-version-in-changelog',
+    'macro-in-%changelog',
+    # Archives produites par packaging/make-sources.sh, pas telechargees
+    'invalid-url',
+    # Inutile depuis rpm 4.6 (desactive aussi dans la configuration Fedora de rpmlint)
+    'no-buildroot-tag',
+    # Dependances Python embarquees dans /usr/share/qrprotec/vendor (traductions fr/en, modeles
+    # de projet Django vides, metadonnees de dependances satisfaites par le dossier lui-meme)
+    'file-not-in-%lang',
+    'files-duplicate',
+    'files-duplicated-waste',
+    'zero-length /usr/share/qrprotec/vendor/',
+    'python-missing-require',
+    # Utilisateurs du paquet (sysusers.d), donnees et configuration volontairement non publiques
+    'non-standard-uid',
+    'non-standard-gid',
+    'non-standard-dir-perm /var/lib/qrprotec',
+    'non-readable /etc/qrprotec/qrprotec.conf',
+    # Scriptlets : marqueur de premiere installation (rm), droits de la cle secrete (chmod)
+    'dangerous-command-in-%posttrans rm',
+    'dangerous-command-in-%post chmod',
+    # Termes techniques absents du dictionnaire anglais
+    "spelling-error \\('(backend|systemd)'",
+    # Version de qrcodegen inconnue (fichiers copies sans numero de version)
+    'unversioned-explicit-provides bundled\(qrcodegen\)',
+]

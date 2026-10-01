@@ -1,0 +1,205 @@
+#!/usr/bin/bash
+# Assistant de configuration de la borne QRProtec.
+#
+#   sudo qrprotec-setup                      # questions interactives
+#   sudo qrprotec-setup --domain inventaire.example.org --tls admin@example.org --yes
+#
+# Toute la configuration partagee (nom d'hote, TLS) est ecrite dans /etc/qrprotec/qrprotec.conf,
+# lu a la fois par le back et par Caddy. Relancer l'assistant est sans risque (idempotent).
+set -euo pipefail
+
+readonly CONF_FILE=/etc/qrprotec/qrprotec.conf
+readonly KIOSK_CONF=/etc/qrprotec/kiosk.conf
+readonly SECRET_FILE=/etc/qrprotec/secret_key
+readonly CADDYFILE=/etc/caddy/Caddyfile
+
+domain=""
+tls=""
+keyboard=""
+blank=""
+firewall=""      # yes / no / "" (demander)
+admin=""         # yes / no / "" (demander)
+restart=yes
+assume_yes=no
+
+usage() {
+    cat <<USAGE
+Usage : qrprotec-setup [options]
+
+Sans option, pose les questions une a une (valeur actuelle entre crochets).
+
+  --domain NOM          nom d'hote public de la borne (DNS ou adresse IP)
+  --tls MODE            "internal" (autorite locale de Caddy) ou adresse e-mail (Let's Encrypt)
+  --keyboard DISPO      disposition du clavier du kiosk (fr, us, ch...)
+  --screen-blank SEC    extinction de l'ecran apres SEC secondes d'inactivite (0 = jamais)
+  --open-firewall       ouvre http/https dans firewalld ou UFW
+  --no-firewall         ne touche pas au pare-feu
+  --no-admin            ne propose pas de creer un administrateur
+  --no-restart          n'applique pas la configuration (pas de redemarrage des services)
+  -y, --yes             ne pose aucune question (valeurs actuelles pour le reste)
+  -h, --help            affiche cette aide
+USAGE
+}
+
+die() { echo "qrprotec-setup : $*" >&2; exit 1; }
+
+while (($#)); do
+    case $1 in
+        --domain) domain=${2:?}; shift ;;
+        --tls) tls=${2:?}; shift ;;
+        --keyboard) keyboard=${2:?}; shift ;;
+        --screen-blank) blank=${2:?}; shift ;;
+        --open-firewall) firewall=yes ;;
+        --no-firewall) firewall=no ;;
+        --no-admin) admin=no ;;
+        --no-restart) restart=no ;;
+        -y|--yes) assume_yes=yes ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+[[ $(id -u) -eq 0 ]] || die "a lancer en root (sudo qrprotec-setup)"
+[[ -f $CONF_FILE ]] || die "$CONF_FILE introuvable : le paquet qrprotec est-il installe ?"
+
+# Valeur actuelle d'une cle dans un fichier KEY=valeur
+get_conf() {
+    local file=$1 key=$2
+    sed -n "s/^${key}=//p" "$file" | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/'
+}
+
+# Remplace (ou ajoute) KEY=valeur, y compris une ligne commentee "#KEY=..."
+set_conf() {
+    local file=$1 key=$2 value=$3 escaped
+    escaped=$(printf '%s' "$value" | sed -e 's/[\/&|]/\\&/g')
+    if grep -q "^${key}=" "$file"; then
+        sed -i "s|^${key}=.*|${key}=${escaped}|" "$file"
+    elif grep -q "^#${key}=" "$file"; then
+        sed -i "0,/^#${key}=.*/s||${key}=${escaped}|" "$file"
+    else
+        printf '%s=%s\n' "$key" "$value" >>"$file"
+    fi
+}
+
+# ask VARIABLE "Question" "defaut"
+ask() {
+    local -n target=$1
+    local answer
+    [[ -n $target ]] && return 0
+    if [[ $assume_yes == yes || ! -t 0 ]]; then
+        target=$3
+        return 0
+    fi
+    read -r -p "$2 [$3] : " answer
+    target=${answer:-$3}
+}
+
+# confirm "Question" defaut(yes/no) -> code retour
+confirm() {
+    local answer default=$2 hint="o/N"
+    [[ $default == yes ]] && hint="O/n"
+    if [[ $assume_yes == yes || ! -t 0 ]]; then
+        [[ $default == yes ]]
+        return
+    fi
+    read -r -p "$1 [$hint] : " answer
+    answer=${answer:-$default}
+    [[ ${answer,,} =~ ^(o|oui|y|yes)$ ]]
+}
+
+valid_domain() {
+    [[ $1 =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || [[ $1 =~ ^\[?[0-9A-Fa-f:]+\]?$ ]]
+}
+
+ensure_secret() {
+    if [[ ! -s $SECRET_FILE ]]; then
+        (umask 077 && head -c 48 /dev/urandom | base64 -w 0 | tr '+/' '-_' >"$SECRET_FILE")
+        echo "Cle secrete de Django generee dans $SECRET_FILE"
+    fi
+    chown root:qrprotec "$SECRET_FILE"
+    chmod 0640 "$SECRET_FILE"
+}
+
+open_firewall() {
+    if systemctl is-active --quiet firewalld.service && command -v firewall-cmd >/dev/null; then
+        firewall-cmd --quiet --permanent --add-service=http --add-service=https
+        firewall-cmd --quiet --reload
+        echo "firewalld : services http et https ouverts"
+    elif command -v ufw >/dev/null; then
+        ufw allow 80/tcp >/dev/null
+        ufw allow 443/tcp >/dev/null
+        echo "UFW : ports 80 et 443 ouverts"
+    else
+        echo "Aucun pare-feu actif detecte (firewalld, UFW) : rien a ouvrir"
+    fi
+}
+
+echo "== Configuration de la borne QRProtec =="
+
+ensure_secret
+
+ask domain "Nom d'hote public de la borne (DNS ou IP)" "$(get_conf "$CONF_FILE" QRPROTEC_DOMAIN)"
+valid_domain "$domain" || die "nom d'hote invalide : $domain"
+
+current_tls=$(get_conf "$CONF_FILE" QRPROTEC_TLS)
+ask tls "Certificat HTTPS : 'internal' (reseau local) ou e-mail pour Let's Encrypt" "${current_tls:-internal}"
+[[ $tls == internal || $tls =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] || die "mode TLS invalide : $tls"
+
+set_conf "$CONF_FILE" QRPROTEC_DOMAIN "$domain"
+set_conf "$CONF_FILE" QRPROTEC_TLS "$tls"
+echo "Configuration ecrite dans $CONF_FILE"
+
+# Kiosk (absent d'un paquet construit --without kiosk)
+if [[ -f $KIOSK_CONF ]]; then
+    current_keyboard=$(get_conf "$KIOSK_CONF" XKB_DEFAULT_LAYOUT)
+    ask keyboard "Disposition du clavier du kiosk" "${current_keyboard:-fr}"
+
+    current_blank=$(get_conf "$KIOSK_CONF" QRPROTEC_SCREEN_BLANK_SECONDS)
+    ask blank "Extinction de l'ecran apres combien de secondes (0 = jamais)" "${current_blank:-1800}"
+    [[ $blank =~ ^[0-9]+$ ]] || die "delai invalide : $blank"
+
+    set_conf "$KIOSK_CONF" XKB_DEFAULT_LAYOUT "$keyboard"
+    set_conf "$KIOSK_CONF" QRPROTEC_SCREEN_BLANK_SECONDS "$blank"
+    echo "Configuration ecrite dans $KIOSK_CONF"
+fi
+
+if [[ -f $CADDYFILE ]] && ! grep -Eq '^[[:space:]]*import[[:space:]]+(/etc/caddy/)?Caddyfile\.d/' "$CADDYFILE"; then
+    echo "ATTENTION : $CADDYFILE n'importe pas Caddyfile.d/*.caddyfile ; ajoutez la ligne :"
+    echo "    import Caddyfile.d/*.caddyfile"
+fi
+
+if [[ -z $firewall ]]; then
+    if confirm "Ouvrir les ports 80/443 dans le pare-feu (firewalld ou UFW) ?" no; then firewall=yes; else firewall=no; fi
+fi
+[[ $firewall == yes ]] && open_firewall
+
+if [[ $restart == yes ]] && [[ -d /run/systemd/system ]]; then
+    systemctl daemon-reload
+    systemctl restart qrprotec.service
+    systemctl reload-or-restart caddy.service
+    if systemctl is-active --quiet qrprotec-kiosk.service; then
+        systemctl restart qrprotec-kiosk.service
+    fi
+    echo "Services redemarres : https://$domain/"
+fi
+
+if [[ -z $admin ]]; then
+    if confirm "Creer (ou reparer) un compte administrateur maintenant ?" no; then admin=yes; else admin=no; fi
+fi
+if [[ $admin == yes ]]; then
+    matricule="" nom="" prenom="" pin=""
+    ask matricule "Matricule" ""
+    ask nom "Nom" ""
+    ask prenom "Prenom" ""
+    read -r -s -p "Code PIN (4 a 8 chiffres, vide = choisi a la premiere connexion) : " pin
+    echo
+    [[ -n $matricule ]] || die "matricule obligatoire"
+    args=(createadmin "$matricule")
+    [[ -n $nom ]] && args+=("$nom")
+    [[ -n $nom && -n $prenom ]] && args+=("$prenom")
+    [[ -n $pin ]] && args+=(--pin "$pin")
+    qrprotec-manage "${args[@]}"
+fi
+
+echo "Termine. Journaux : journalctl -u qrprotec -u caddy -u qrprotec-kiosk"

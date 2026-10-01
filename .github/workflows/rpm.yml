@@ -1,0 +1,121 @@
+# Construit le RPM de la borne QRProtec et, sur un tag vX.Y.Z, le publie :
+#   - en pieces jointes d'une release GitHub ;
+#   - dans un depot dnf statique (branche gh-pages servie par GitHub Pages), pour que
+#     `sudo dnf upgrade` fonctionne sur la borne.
+#
+# Variables du depot (Settings > Secrets and variables > Actions), toutes optionnelles :
+#   vars.RPM_PAGES_REPO      depot qui heberge gh-pages (defaut : ce depot). Un depot PUBLIC dedie
+#                            (ex : etyloppihacilem/qrprotec-rpm) si celui-ci reste prive.
+#   vars.RPM_PAGES_URL       URL publique du depot dnf (defaut : https://<owner>.github.io/<repo>)
+#   secrets.RPM_PAGES_TOKEN  jeton avec droit d'ecriture sur RPM_PAGES_REPO (si autre depot)
+#   secrets.RPM_GPG_PRIVATE_KEY / secrets.RPM_GPG_PASSPHRASE : signature des RPM (gpgcheck=1)
+name: rpm
+
+on:
+  push:
+    tags: ['v*']
+    branches: [main]
+    paths: ['packaging/**', 'app/**', 'database/**', 'poetry.lock', 'Makefile', 'bootstrap.sh', '.github/workflows/rpm.yml']
+  pull_request:
+    paths: ['packaging/**', 'app/CMakeLists.txt', 'poetry.lock', 'Makefile', 'bootstrap.sh', '.github/workflows/rpm.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          shellcheck bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
+            packaging/files/qrprotec-setup packaging/files/qrprotec-kiosk-session
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ['42', '43']
+    container: registry.fedoraproject.org/fedora:${{ matrix.fedora }}
+    steps:
+      - name: Outils
+        run: |
+          dnf -y --setopt=install_weak_deps=False install \
+            git-core rpm-build rpmlint dnf-plugins-core python3-pip tar gzip findutils
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags : la version du RPM vient de `git describe`
+      - name: Construction
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          packaging/build-rpm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-fc${{ matrix.fedora }}
+          path: dist/*.rpm
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [shellcheck, build]
+    runs-on: ubuntu-latest
+    container: registry.fedoraproject.org/fedora:43
+    permissions:
+      contents: write
+    env:
+      PAGES_REPO: ${{ vars.RPM_PAGES_REPO || github.repository }}
+      PAGES_URL: ${{ vars.RPM_PAGES_URL }}
+      PAGES_TOKEN: ${{ secrets.RPM_PAGES_TOKEN || github.token }}
+      GPG_PRIVATE_KEY: ${{ secrets.RPM_GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Outils
+        run: |
+          dnf -y --setopt=install_weak_deps=False install \
+            git-core rpm-sign createrepo_c gnupg2 pinentry gh findutils
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: rpms
+          merge-multiple: true
+
+      - name: Signature des RPM (si une cle est configuree)
+        if: env.GPG_PRIVATE_KEY != ''
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          key_id=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
+          echo "GPG_KEY_ID=$key_id" >> "$GITHUB_ENV"
+          for rpm_file in rpms/*.rpm; do
+            rpmsign --addsign "$rpm_file" \
+              --define "_gpg_name $key_id" \
+              --define "__gpg_sign_cmd %{__gpg} gpg --batch --no-armor --pinentry-mode loopback --passphrase-fd 3 -u \"%{_gpg_name}\" -sbo %{__signature_filename} %{__plaintext_filename}" \
+              3<<<"$GPG_PASSPHRASE"
+          done
+
+      - name: Release GitHub
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release create "$GITHUB_REF_NAME" rpms/*.rpm bootstrap.sh \
+            --repo "$GITHUB_REPOSITORY" --title "QRProtec $GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" rpms/*.rpm --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Depot dnf (gh-pages)
+        run: |
+          owner=${PAGES_REPO%%/*}
+          name=${PAGES_REPO#*/}
+          url=${PAGES_URL:-https://${owner}.github.io/${name}}
+          remote="https://x-access-token:${PAGES_TOKEN}@github.com/${PAGES_REPO}.git"
+          if ! git clone --depth 1 --branch gh-pages "$remote" pages; then
+            git init -b gh-pages pages
+            git -C pages remote add origin "$remote"
+          fi
+          packaging/publish-repo.sh pages "$url" rpms/*.rpm
+          cd pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "QRProtec $GITHUB_REF_NAME"
+          git push origin gh-pages

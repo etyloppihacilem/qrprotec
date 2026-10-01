@@ -1,0 +1,50 @@
+#!/usr/bin/bash
+# Lance `manage.py` du back QRProtec avec la configuration de /etc/qrprotec.
+#
+#   sudo qrprotec-manage createadmin M001 Nom Prenom --pin 4821
+#   sudo qrprotec-manage check_alerts
+#
+# Lance par root, charge la configuration et la cle secrete puis repasse sous l'utilisateur
+# `qrprotec` (proprietaire de la base). Sous systemd (qrprotec.service), la configuration vient
+# d'EnvironmentFile=. La cle secrete est lue dans /etc/qrprotec/secret_key (0640 root:qrprotec).
+set -euo pipefail
+
+readonly APP_DIR=@APPDIR@
+readonly CONF_FILE=/etc/qrprotec/qrprotec.conf
+readonly SECRET_FILE=/etc/qrprotec/secret_key
+readonly SERVICE_USER=qrprotec
+readonly STATE_DIR=/var/lib/qrprotec
+
+if [[ -z ${INVOCATION_ID:-} && -r $CONF_FILE ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    . "$CONF_FILE"
+    set +a
+fi
+
+if [[ -z ${QRPROTEC_SECRET_KEY:-} && -r $SECRET_FILE ]]; then
+    QRPROTEC_SECRET_KEY=$(<"$SECRET_FILE")
+fi
+if [[ -z ${QRPROTEC_SECRET_KEY:-} ]]; then
+    echo "qrprotec-manage : cle secrete introuvable ($SECRET_FILE). Lancez : sudo qrprotec-setup" >&2
+    exit 1
+fi
+export QRPROTEC_SECRET_KEY
+
+if [[ $(id -u) -eq 0 ]]; then
+    # INVOCATION_ID evite de relire la configuration apres le changement d'utilisateur
+    exec runuser -u "$SERVICE_USER" -- env INVOCATION_ID="${INVOCATION_ID:-cli}" "$0" "$@"
+fi
+
+# Une seule source pour le nom d'hote : QRPROTEC_DOMAIN
+domain=${QRPROTEC_DOMAIN:-localhost}
+export QRPROTEC_PUBLIC_BASE_URL="${QRPROTEC_PUBLIC_BASE_URL:-https://${domain}/}"
+export QRPROTEC_ALLOWED_HOSTS="${QRPROTEC_ALLOWED_HOSTS:-${domain},localhost,127.0.0.1,[::1]}"
+export QRPROTEC_DEBUG="${QRPROTEC_DEBUG:-0}"
+export QRPROTEC_DB_PATH="${QRPROTEC_DB_PATH:-$STATE_DIR/db.sqlite3}"
+export DJANGO_SETTINGS_MODULE=qrprotecDB.settings
+export PYTHONPATH="$APP_DIR/backend:$APP_DIR/vendor"
+export PYTHONDONTWRITEBYTECODE=1
+
+cd "$STATE_DIR" 2>/dev/null || cd /
+exec /usr/bin/python3 -s "$APP_DIR/backend/manage.py" "$@"

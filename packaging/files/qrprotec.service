@@ -1,0 +1,51 @@
+[Unit]
+Description=QRProtec backend (API publique 127.0.0.1:8000, API locale 127.0.0.1:8001)
+Documentation=file:///usr/share/doc/qrprotec/README.md
+After=network.target
+# Redemarrer sans fin : c'est une borne, pas de limite de tentatives
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=qrprotec
+Group=qrprotec
+# Valeurs par defaut, surchargees par /etc/qrprotec/qrprotec.conf
+Environment=QRPROTEC_PUBLIC_API_PORT=8000 QRPROTEC_LOCAL_API_PORT=8001 PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/qrprotec/qrprotec.conf
+StateDirectory=qrprotec
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/qrprotec
+UMask=0027
+ExecStartPre=/usr/bin/qrprotec-manage migrate --noinput
+# Les deux API n'ecoutent que sur la boucle locale : seul Caddy est expose (80/443)
+ExecStart=/usr/bin/qrprotec-manage serve --public 127.0.0.1:${QRPROTEC_PUBLIC_API_PORT} --local 127.0.0.1:${QRPROTEC_LOCAL_API_PORT}
+Restart=always
+RestartSec=3
+
+# Durcissement
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+
+[Install]
+WantedBy=multi-user.target

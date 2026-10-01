@@ -1,0 +1,14 @@
+# Image de construction du RPM QRProtec (utilisee par `make rpm`)
+ARG FEDORA_VERSION=43
+FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
+
+RUN dnf -y --setopt=install_weak_deps=False install \
+        rpm-build rpmlint dnf-plugins-core git-core python3-pip createrepo_c tar gzip findutils \
+    && dnf clean all
+
+# Dependances de build du spec, en cache dans l'image
+COPY qrprotec.spec /tmp/qrprotec.spec
+RUN dnf -y --setopt=install_weak_deps=False builddep /tmp/qrprotec.spec && dnf clean all
+
+RUN git config --system --add safe.directory '*'
+WORKDIR /src
