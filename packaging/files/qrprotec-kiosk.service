@@ -23,6 +23,10 @@ StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
 Environment=XDG_SESSION_TYPE=wayland XDG_SESSION_CLASS=user
+# Sans GPU (ecran virtuel, VM), Mesa rend en logiciel (llvmpipe) avec un thread par coeur dans
+# Cage et dans le front : un seul suffit pour l'interface et evite de charger tous les coeurs.
+# Surchargeable dans kiosk.conf.
+Environment=LP_NUM_THREADS=1
 # Disposition du clavier, mise en veille de l'ecran... (voir ce fichier)
 EnvironmentFile=-/etc/qrprotec/kiosk.conf
 # -s : autorise Ctrl+Alt+F2... pour atteindre une console de maintenance
