@@ -26,7 +26,11 @@ if [[ -z ${QRPROTEC_SECRET_KEY:-} && -r $SECRET_FILE ]]; then
     QRPROTEC_SECRET_KEY=$(<"$SECRET_FILE")
 fi
 if [[ -z ${QRPROTEC_SECRET_KEY:-} ]]; then
-    echo "qrprotec-manage : cle secrete introuvable ($SECRET_FILE). Lancez : sudo qrprotec-setup" >&2
+    if [[ -e $SECRET_FILE && ! -r $SECRET_FILE ]]; then
+        echo "qrprotec-manage : $SECRET_FILE n'est lisible que par root et qrprotec. Lancez : sudo qrprotec-manage ${*:-help}" >&2
+    else
+        echo "qrprotec-manage : cle secrete introuvable ($SECRET_FILE). Lancez : sudo qrprotec-setup" >&2
+    fi
     exit 1
 fi
 export QRPROTEC_SECRET_KEY

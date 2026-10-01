@@ -79,6 +79,14 @@ Provides:       bundled(js-jsqr) = 1.4.0
 %if %{with kiosk}
 Requires:       cage
 Requires:       dejavu-sans-fonts
+# Charges par GLFW avec dlopen (pas de dependance automatique) : sans eux, GLFW ne peut pas
+# ouvrir de fenetre Wayland et Cage reste sur un ecran noir
+Requires:       libwayland-client
+Requires:       libwayland-cursor
+Requires:       libwayland-egl
+Requires:       libxkbcommon
+Requires:       mesa-libEGL
+Requires:       mesa-dri-drivers
 # Extinction de l'ecran, bip de mauvais scan, douchette Bluetooth
 Recommends:     swayidle
 Recommends:     wlopm

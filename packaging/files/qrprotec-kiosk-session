@@ -44,6 +44,19 @@ if [[ $blank =~ ^[0-9]+$ ]] && ((blank > 0)); then
     fi
 fi
 
+# Diagnostic (journalctl -u qrprotec-kiosk) : bibliotheques que GLFW charge avec dlopen
+for lib in libwayland-client.so.0 libwayland-cursor.so.0 libwayland-egl.so.1 libxkbcommon.so.0 libEGL.so.1; do
+    if ! /usr/sbin/ldconfig -p 2>/dev/null | grep -q "$lib"; then
+        echo "qrprotec-kiosk : $lib introuvable, le front ne pourra pas ouvrir sa fenetre" >&2
+    fi
+done
+echo "qrprotec-kiosk : WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-?} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-?} modeles=$templates" >&2
+
 # Bibliotheque privee du SDK Inateck (douchette Bluetooth)
 export LD_LIBRARY_PATH=$PRIVATE_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-exec "$FRONT" "$@"
+# QRPROTEC_FRONT_ARGS (kiosk.conf) : options du front, ex. --verbose
+read -r -a front_args <<<"${QRPROTEC_FRONT_ARGS:-}"
+"$FRONT" "${front_args[@]}" "$@"
+status=$?
+echo "qrprotec-kiosk : le front s'est arrete (code $status), Cage va redemarrer" >&2
+exit "$status"
