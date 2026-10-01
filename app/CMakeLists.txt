@@ -110,6 +110,7 @@ add_executable(${PROJECT_NAME}
     src/app/settings.cpp
     src/inateck/hid_classifier.cpp
     src/inateck/inateck_worker.cpp
+    src/inateck/sdk_json.cpp
     src/ui/inateck.cpp
     src/ui/editor.cpp
     src/ui/label_preview.cpp
@@ -175,8 +176,15 @@ if(BUILD_TESTING)
     target_include_directories(QRProtecHidClassifierTest PRIVATE src)
     add_test(NAME QRProtecHidClassifierTest COMMAND QRProtecHidClassifierTest)
 
+    add_executable(QRProtecSdkJsonTest
+        tests/sdk_json_test.cpp
+        src/inateck/sdk_json.cpp
+    )
+    target_include_directories(QRProtecSdkJsonTest PRIVATE src)
+    add_test(NAME QRProtecSdkJsonTest COMMAND QRProtecSdkJsonTest)
+
     # Les tests reposent sur assert() (parfois avec effets de bord) : le garder actif en Release
-    foreach(test_target QRProtecCoreTest QRProtecCodesTest QRProtecPrinterTest QRProtecHidClassifierTest)
+    foreach(test_target QRProtecCoreTest QRProtecCodesTest QRProtecPrinterTest QRProtecHidClassifierTest QRProtecSdkJsonTest)
         target_compile_options(${test_target} PRIVATE -UNDEBUG)
     endforeach()
 endif()

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -37,10 +38,12 @@ struct InateckSnapshot {
     bool sdk_available = false;
     bool initialized = false;
     bool discovering = false;
+    bool connecting = false;
     bool connected = false;
     bool authenticated = false;
     std::string selected_id;
     std::string selected_name;
+    std::string preferred_id; // derniere douchette connectee (reconnexion automatique)
     std::string last_scan;
     std::string error;
     std::vector<InateckDevice> devices;
@@ -54,6 +57,9 @@ public:
     InateckWorker& operator=(const InateckWorker&) = delete;
 
     InateckSnapshot snapshot() const;
+    // Douchette a privilegier lors de la connexion automatique qui suit une recherche.
+    void set_preferred_device(const std::string& device_id);
+    std::string preferred_device() const;
     void start_discovery();
     void stop_discovery();
     void connect(const std::string& device_id, const std::string& device_name);
@@ -92,6 +98,9 @@ private:
     void run();
     void execute(const Command& command);
     void set_error(const std::string& error);
+    void finish_discovery();
+    bool connect_device(const std::string& device_id, const std::string& device_name);
+    void reject_device(const std::string& device_id);
 
     mutable std::mutex mutex_;
     std::condition_variable condition_;
@@ -100,6 +109,14 @@ private:
     std::vector<ScanEvent> scans_;
     std::thread thread_;
     bool stopping_ = false;
+    bool sdk_ready_ = false;     // init + wait_available deja faits (une seule fois)
+    bool auto_connect_ = false;  // se connecter a la douchette a la fin de la recherche
+    bool stop_requested_ = false;
+    std::chrono::steady_clock::time_point discovery_deadline_{};
+    std::vector<std::string> rejected_ids_; // appareils qui ne repondent pas comme une douchette
 };
+
+// Duree de la recherche avant la connexion automatique (si la douchette connue n'apparait pas avant).
+inline constexpr std::chrono::seconds kInateckDiscoveryDuration{8};
 
 } // namespace qrprotec

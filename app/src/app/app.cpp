@@ -182,6 +182,7 @@ void App::begin_frame() {
       || io.InputQueueCharacters.Size > 0)
     note_activity();
   inateck.set_settings_unlocked(logged_in());
+  inateck.update();
   api.poll();
   poll_remote();
   for (const ScanEvent &event : inateck.take_scans())

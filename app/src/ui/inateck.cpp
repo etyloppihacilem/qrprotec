@@ -36,6 +36,7 @@ std::filesystem::path hid_settings_path() {
 Inateck::Inateck() {
   load_hid_settings();
   apply_hid_settings();
+  inateck_worker_.set_preferred_device(saved_device_id_);
 }
 
 Inateck::~Inateck() { save_hid_settings(); }
@@ -56,6 +57,8 @@ void Inateck::load_hid_settings() {
         hid_timeout_ms_ = std::clamp(std::stoi(value), 5, 500);
       else if (key == "minimum_length")
         hid_minimum_length_ = std::clamp(std::stoi(value), 1, 64);
+      else if (key == "device_id")
+        saved_device_id_ = value;
     } catch (const std::exception&) {
       // Keep the defaults for malformed individual settings.
     }
@@ -72,7 +75,17 @@ void Inateck::save_hid_settings() const {
     return;
   settings << "enabled=" << (hid_enabled_ ? 1 : 0) << '\n'
            << "timeout_ms=" << hid_timeout_ms_ << '\n'
-           << "minimum_length=" << hid_minimum_length_ << '\n';
+           << "minimum_length=" << hid_minimum_length_ << '\n'
+           << "device_id=" << saved_device_id_ << '\n';
+}
+
+void Inateck::update() {
+  // Memorise la douchette connectee pour s'y reconnecter en priorite a la prochaine recherche
+  const std::string device_id = inateck_worker_.preferred_device();
+  if (device_id != saved_device_id_) {
+    saved_device_id_ = device_id;
+    save_hid_settings();
+  }
 }
 
 void Inateck::apply_hid_settings() {
@@ -169,7 +182,11 @@ void Inateck::draw_inateck_window() {
     ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.2f, 1.0f), "%s", state.error.c_str());
 
   if (ImGui::CollapsingHeader("Connexion", ImGuiTreeNodeFlags_DefaultOpen)) {
-    const char* status = state.authenticated ? "connectée et authentifiée" : state.connected ? "connectee" : "non connectée";
+    const char* status = state.authenticated ? "connectée et authentifiée"
+                       : state.connected     ? "connectée"
+                       : state.connecting    ? "connexion..."
+                       : state.discovering   ? "recherche (connexion automatique ensuite)"
+                                             : "non connectée";
     ImGui::Text("Statut : %s", status);
     if (ImGui::Button(state.discovering ? "Arrêter la recherche" : "Rechercher les douchettes")) {
       if (state.discovering)
@@ -189,7 +206,7 @@ void Inateck::draw_inateck_window() {
       ImGui::Combo("Appareil", &selected_device, device_names.data(), static_cast<int>(device_names.size()));
       const InateckDevice& device = state.devices[static_cast<std::size_t>(selected_device)];
       ImGui::TextWrapped("ID : %s", device.id.c_str());
-      if (!state.connected && ImGui::Button("Connecter"))
+      if (!state.connected && !state.connecting && ImGui::Button("Connecter"))
         inateck_worker_.connect(device.id, device.name);
     } else {
       ImGui::TextUnformatted("Aucun appareil découvert.");
@@ -266,7 +283,10 @@ void Inateck::draw_menu() {
     inateck_window_open_ = true;
   const InateckSnapshot state = inateck_worker_.snapshot();
   ImGui::Separator();
-  ImGui::Text("Statut : %s", state.authenticated ? "connectee" : state.discovering ? "recherche" : "hors ligne");
+  ImGui::Text("Statut : %s", state.authenticated ? "connectée"
+                             : state.connecting  ? "connexion..."
+                             : state.discovering ? "recherche"
+                                                 : "hors ligne");
   ImGui::Text("Mode HID clavier : %s", hid_enabled_ ? "actif" : "inactif");
   if (ImGui::MenuItem("Rechercher", nullptr, false, !state.discovering))
     inateck_worker_.start_discovery();

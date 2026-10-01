@@ -1,7 +1,8 @@
 #include "inateck_worker.hpp"
 
-#include <cctype>
-#include <cstring>
+#include "sdk_json.hpp"
+
+#include <algorithm>
 #include <iostream>
 #include <utility>
 
@@ -14,66 +15,6 @@ namespace qrprotec {
 namespace {
 std::mutex callback_mutex;
 InateckWorker* callback_owner = nullptr;
-
-std::string json_string(const char* json, const char* key) {
-    if (!json || !key)
-        return {};
-    const std::string needle = std::string("\"") + key + "\"";
-    const char* start = std::strstr(json, needle.c_str());
-    if (!start)
-        return {};
-    start = std::strchr(start + needle.size(), ':');
-    if (!start || !std::strchr(start, '"'))
-        return {};
-    start = std::strchr(start, '"') + 1;
-    const char* end = std::strchr(start, '"');
-    return end ? std::string(start, end) : std::string(start);
-}
-
-bool json_success(const char* json) {
-    if (!json)
-        return false;
-    const char* status = std::strstr(json, "\"status\"");
-    if (!status)
-        return false;
-    status = std::strchr(status, ':');
-    if (!status)
-        return false;
-    ++status;
-    while (*status && std::isspace(static_cast<unsigned char>(*status)))
-        ++status;
-    return *status == '0';
-}
-
-std::vector<std::string> json_device_objects(const char* json) {
-    std::vector<std::string> objects;
-    if (!json)
-        return objects;
-    const char* array = std::strstr(json, "\"devices\"");
-    if (!array)
-        array = std::strstr(json, "\"device_list\"");
-    if (!array)
-        return objects;
-    array = std::strchr(array, '[');
-    if (!array)
-        return objects;
-    const char* object_start = nullptr;
-    int depth = 0;
-    for (const char* cursor = array + 1; *cursor; ++cursor) {
-        if (*cursor == '{') {
-            if (depth == 0)
-                object_start = cursor;
-            ++depth;
-        } else if (*cursor == '}' && depth > 0) {
-            --depth;
-            if (depth == 0 && object_start)
-                objects.emplace_back(object_start, cursor + 1);
-        } else if (*cursor == ']' && depth == 0) {
-            break;
-        }
-    }
-    return objects;
-}
 
 #ifdef QRPROTEC_HAS_INATECK
 void discover_callback(const char* json) {
@@ -122,6 +63,16 @@ InateckSnapshot InateckWorker::snapshot() const {
     return snapshot_;
 }
 
+void InateckWorker::set_preferred_device(const std::string& device_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.preferred_id = device_id;
+}
+
+std::string InateckWorker::preferred_device() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return snapshot_.preferred_id;
+}
+
 void InateckWorker::enqueue(Command command) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -153,25 +104,38 @@ std::vector<ScanEvent> InateckWorker::take_scans() {
 }
 
 void InateckWorker::on_discovery(const char* json) {
-    const std::string id = json_string(json, "id");
+    const std::string id = sdk_json_string(json, "id");
     if (id.empty())
         return;
-    const std::string name = json_string(json, "device_name");
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (InateckDevice& device : snapshot_.devices) {
-        if (device.id == id) {
-            device.name = name;
+    const std::string name = sdk_json_string(json, "device_name");
+    bool stop_now = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (std::find(rejected_ids_.begin(), rejected_ids_.end(), id) != rejected_ids_.end())
             return;
+        const auto known = std::find_if(snapshot_.devices.begin(), snapshot_.devices.end(),
+                                        [&id](const InateckDevice& device) { return device.id == id; });
+        if (known != snapshot_.devices.end())
+            known->name = name;
+        else
+            snapshot_.devices.push_back({id, name, false});
+        // La douchette connue est la : inutile d'attendre la fin de la recherche
+        if (auto_connect_ && snapshot_.discovering && !stop_requested_ && !snapshot_.connected &&
+            !snapshot_.preferred_id.empty() && id == snapshot_.preferred_id) {
+            stop_requested_ = true;
+            stop_now = true;
         }
     }
-    snapshot_.devices.push_back({id, name, false});
+    if (stop_now)
+        enqueue({CommandType::StopDiscovery});
 }
 
 void InateckWorker::on_scan(const char* json) {
-    std::string code = json_string(json, "code");
+    std::string code = sdk_json_string(json, "code");
     if (code.empty() && json)
         code = json;
-    on_scan_text(code, ScanSource::Sdk);
+    // Le SDK termine chaque code par un retour a la ligne
+    on_scan_text(clean_scan_code(code), ScanSource::Sdk);
 }
 
 void InateckWorker::on_scan_text(const std::string& code, ScanSource source) {
@@ -198,7 +162,18 @@ void InateckWorker::run() {
         Command command;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            condition_.wait(lock, [this] { return !commands_.empty(); });
+            // Pendant une recherche suivie d'une connexion automatique, l'arret est declenche
+            // au bout de kInateckDiscoveryDuration si rien d'autre ne l'a demande avant.
+            const auto timed = [this] { return snapshot_.discovering && auto_connect_ && !stop_requested_; };
+            while (commands_.empty()) {
+                if (!timed()) {
+                    condition_.wait(lock);
+                } else if (condition_.wait_until(lock, discovery_deadline_) == std::cv_status::timeout &&
+                           commands_.empty() && timed()) {
+                    stop_requested_ = true;
+                    commands_.push_back({CommandType::StopDiscovery});
+                }
+            }
             command = std::move(commands_.front());
             commands_.erase(commands_.begin());
         }
@@ -218,6 +193,78 @@ void InateckWorker::run() {
     }
 }
 
+void InateckWorker::reject_device(const std::string& device_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (std::find(rejected_ids_.begin(), rejected_ids_.end(), device_id) == rejected_ids_.end())
+        rejected_ids_.push_back(device_id);
+    snapshot_.devices.erase(std::remove_if(snapshot_.devices.begin(), snapshot_.devices.end(),
+                                           [&device_id](const InateckDevice& device) { return device.id == device_id; }),
+                            snapshot_.devices.end());
+}
+
+// Connexion + authentification. Un appareil qui se connecte mais refuse l'authentification
+// n'est pas une douchette Inateck : il est ecarte des recherches suivantes.
+bool InateckWorker::connect_device(const std::string& device_id, const std::string& device_name) {
+#ifndef QRPROTEC_HAS_INATECK
+    (void)device_id;
+    (void)device_name;
+    return false;
+#else
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.connecting = true;
+    }
+    const auto fail = [this](const char* result, const char* fallback) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.connecting = false;
+        snapshot_.error = result ? result : fallback;
+        return false;
+    };
+    const char* result = inateck_scanner_ble_connect(device_id.c_str());
+    if (!sdk_json_success(result))
+        return fail(result, "Connexion impossible");
+    inateck_scanner_ble_check_communication(device_id.c_str());
+    result = inateck_scanner_ble_auth(device_id.c_str());
+    if (!sdk_json_success(result)) {
+        std::cerr << "[Inateck BLE] " << device_id << " n'est pas une douchette: "
+                  << (result ? result : "<null>") << std::endl;
+        inateck_scanner_ble_disconnect(device_id.c_str());
+        reject_device(device_id);
+        return fail(result, "Authentification impossible");
+    }
+    inateck_scanner_ble_set_code_callback(device_id.c_str(), code_callback);
+    inateck_scanner_ble_set_disconnect_callback(device_id.c_str(), disconnect_callback);
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.connecting = false;
+    snapshot_.connected = true;
+    snapshot_.authenticated = true;
+    snapshot_.selected_id = device_id;
+    snapshot_.selected_name = device_name;
+    snapshot_.preferred_id = device_id;
+    snapshot_.error.clear();
+    auto_connect_ = false;
+    return true;
+#endif
+}
+
+// Fin de recherche : connexion automatique a la premiere douchette qui accepte l'authentification.
+void InateckWorker::finish_discovery() {
+    std::vector<InateckDevice> candidates;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!auto_connect_ || snapshot_.connected)
+            return;
+        auto_connect_ = false;
+        candidates = connection_candidates(snapshot_.devices, snapshot_.preferred_id, rejected_ids_);
+    }
+    for (const InateckDevice& device : candidates)
+        if (connect_device(device.id, device.name))
+            return;
+    set_error("Aucune douchette trouvée. Vérifiez qu'elle est allumée en mode SDK et qu'elle n'est pas "
+              "appairée à l'ordinateur. Déconnectez aussi les autres appareils Bluetooth (casque, souris...) : "
+              "le SDK Inateck échoue sinon. Puis relancez la recherche.");
+}
+
 void InateckWorker::execute(const Command& command) {
 #ifndef QRPROTEC_HAS_INATECK
     (void)command;
@@ -227,29 +274,48 @@ void InateckWorker::execute(const Command& command) {
     const std::string id = snapshot().selected_id;
     const char* result = nullptr;
     switch (command.type) {
-    case CommandType::StartDiscovery:
-        result = inateck_scanner_ble_init();
-        if (!json_success(result)) { set_error(result ? result : "Initialisation impossible"); return; }
-        result = inateck_scanner_ble_wait_available();
-        if (!json_success(result)) { set_error(result ? result : "Bluetooth indisponible"); return; }
-        inateck_scanner_ble_set_discover_callback(discover_callback);
-        result = inateck_scanner_ble_start_discover();
+    case CommandType::StartDiscovery: {
+        if (snapshot().discovering)
+            return;
+        if (!sdk_ready_) {
+            result = inateck_scanner_ble_init();
+            if (!sdk_json_success(result)) { set_error(result ? result : "Initialisation impossible"); return; }
+            result = inateck_scanner_ble_wait_available();
+            if (!sdk_json_success(result)) { set_error(result ? result : "Bluetooth indisponible"); return; }
+            inateck_scanner_ble_set_discover_callback(discover_callback);
+            sdk_ready_ = true;
+        }
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            snapshot_.initialized = json_success(result);
-            snapshot_.discovering = snapshot_.initialized;
+            snapshot_.error.clear();
+            auto_connect_ = !snapshot_.connected;
+            stop_requested_ = false;
+            discovery_deadline_ = std::chrono::steady_clock::now() + kInateckDiscoveryDuration;
         }
+        result = inateck_scanner_ble_start_discover();
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.initialized = sdk_json_success(result);
+        snapshot_.discovering = snapshot_.initialized;
+        if (!snapshot_.discovering)
+            auto_connect_ = false;
         break;
+    }
     case CommandType::StopDiscovery:
+        if (!snapshot().discovering)
+            return;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stop_requested_ = true;
+        }
         result = inateck_scanner_ble_stop_discover();
-        if (json_success(result)) {
+        if (sdk_json_success(result)) {
             const char* devices = inateck_scanner_ble_get_devices();
             std::cerr << "[Inateck BLE] liste des appareils: "
                       << (devices ? devices : "<null>") << std::endl;
-            if (!json_success(devices)) {
+            if (!sdk_json_success(devices)) {
                 set_error(devices ? devices : "Lecture des douchettes impossible");
             } else {
-                for (const std::string& device : json_device_objects(devices))
+                for (const std::string& device : sdk_json_device_objects(devices))
                     on_discovery(device.c_str());
             }
         }
@@ -257,24 +323,14 @@ void InateckWorker::execute(const Command& command) {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.discovering = false;
         }
+        finish_discovery();
         break;
     case CommandType::Connect: {
         const std::size_t separator = command.value.find('\n');
         const std::string device_id = command.value.substr(0, separator);
         const std::string device_name = separator == std::string::npos ? std::string() : command.value.substr(separator + 1);
-        result = inateck_scanner_ble_connect(device_id.c_str());
-        if (!json_success(result)) { set_error(result ? result : "Connexion impossible"); return; }
-        inateck_scanner_ble_check_communication(device_id.c_str());
-        result = inateck_scanner_ble_auth(device_id.c_str());
-        if (!json_success(result)) { set_error(result ? result : "Authentification impossible"); return; }
-        inateck_scanner_ble_set_code_callback(device_id.c_str(), code_callback);
-        inateck_scanner_ble_set_disconnect_callback(device_id.c_str(), disconnect_callback);
-        std::lock_guard<std::mutex> lock(mutex_);
-        snapshot_.connected = true;
-        snapshot_.authenticated = true;
-        snapshot_.selected_id = device_id;
-        snapshot_.selected_name = device_name;
-        break;
+        connect_device(device_id, device_name);
+        return;
     }
     case CommandType::Disconnect:
         if (!id.empty())
@@ -318,7 +374,7 @@ void InateckWorker::execute(const Command& command) {
         const ScannerErrorSignal& signal = command.signal;
         result = inateck_scanner_set_led(id.c_str(), byte(signal.led_color), byte(signal.led_on),
                                          byte(signal.led_off), byte(signal.led_count));
-        if (result && !json_success(result))
+        if (result && !sdk_json_success(result))
             set_error(result);
         result = inateck_scanner_set_bee(id.c_str(), byte(signal.beep_on), byte(signal.beep_off),
                                          byte(signal.beep_count));
@@ -327,7 +383,7 @@ void InateckWorker::execute(const Command& command) {
     case CommandType::Shutdown:
         return;
     }
-    if (result && !json_success(result))
+    if (result && !sdk_json_success(result))
         set_error(result);
 #endif
 }

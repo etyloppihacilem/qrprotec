@@ -11,6 +11,7 @@
 #pragma once
 
 #include <chrono>
+#include <string>
 #include <vector>
 
 #include "../inateck/inateck_worker.hpp"
@@ -25,6 +26,7 @@ class Inateck {
     ~Inateck();
 
     void draw();
+    void update(); // a appeler a chaque image (memorise la douchette connectee)
     void draw_menu();   // contenu du menu "Douchette" (a appeler dans une barre de menu)
     void draw_window(); // fenetre de parametrage si ouverte
     void open_window() { inateck_window_open_ = true; }
@@ -61,6 +63,7 @@ class Inateck {
     char inateck_prefix_[64] = {};
     char inateck_suffix_[64] = {};
     char inateck_name_[128] = {};
+    std::string saved_device_id_;
     HidScanClassifier hid_classifier_;
     std::vector<unsigned int> pending_hid_characters_;
     HidScanClassifier::TimePoint last_hid_character_{};
