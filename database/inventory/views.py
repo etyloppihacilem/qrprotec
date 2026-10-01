@@ -145,6 +145,8 @@ def health(request):
         'today': timezone.localdate().isoformat(),
         'public_base_url': qrprotec_setting('PUBLIC_BASE_URL'),
         'remote_scanner': scanner_hub.enabled,
+        # front distant (API distante, cle X-QRProtec-Key) : nom de sa cle
+        'front': getattr(request, 'qrprotec_front', ''),
     })
 
 

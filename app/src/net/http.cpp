@@ -10,14 +10,12 @@
 
 #include "http.hpp"
 
+#include "connection.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cstring>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 namespace qrprotec {
 
@@ -29,15 +27,6 @@ std::string lower(std::string value) {
   });
   return value;
 }
-
-class Socket {
-  public:
-    ~Socket() {
-      if (fd_ >= 0)
-        ::close(fd_);
-    }
-    int fd_ = -1;
-};
 
 bool decode_chunked(const std::string &body, std::string &output) {
   std::size_t position = 0;
@@ -65,18 +54,19 @@ bool decode_chunked(const std::string &body, std::string &output) {
 } // namespace
 
 bool parse_http_url(const std::string &url, HttpUrl &out, std::string &error) {
-  const std::string prefix = "http://";
-  if (lower(url.substr(0, prefix.size())) != prefix) {
-    error = "L'URL de l'API doit commencer par http://";
+  const std::string scheme = lower(url.substr(0, url.find("://") == std::string::npos ? 0 : url.find("://") + 3));
+  if (scheme != "http://" && scheme != "https://") {
+    error = "L'URL de l'API doit commencer par http:// ou https://";
     return false;
   }
-  std::string       rest  = url.substr(prefix.size());
+  out.tls                 = scheme == "https://";
+  std::string       rest  = url.substr(scheme.size());
   const std::size_t slash = rest.find('/');
   std::string       authority = rest.substr(0, slash);
   out.base_path               = slash == std::string::npos ? "" : rest.substr(slash);
   while (!out.base_path.empty() && out.base_path.back() == '/')
     out.base_path.pop_back();
-  out.port = 80;
+  out.port = out.tls ? 443 : 80;
   if (!authority.empty() && authority.front() == '[') {
     const std::size_t close = authority.find(']');
     if (close == std::string::npos) {
@@ -106,6 +96,30 @@ bool parse_http_url(const std::string &url, HttpUrl &out, std::string &error) {
     return false;
   }
   return true;
+}
+
+std::string host_header(const HttpUrl &url) {
+  const bool        ipv6 = url.host.find(':') != std::string::npos;
+  const std::string host = ipv6 ? "[" + url.host + "]" : url.host;
+  if (url.port == (url.tls ? 443 : 80))
+    return host;
+  return host + ":" + std::to_string(url.port);
+}
+
+bool ApiEndpoint::parse(HttpUrl &out, std::string &error) const {
+  if (!parse_http_url(url, out, error))
+    return false;
+  out.ca_file = ca_file;
+  return true;
+}
+
+HttpHeaders ApiEndpoint::headers() const {
+  HttpHeaders result;
+  if (!token.empty())
+    result.emplace_back("X-QRProtec-Token", token);
+  if (!key.empty())
+    result.emplace_back("X-QRProtec-Key", key);
+  return result;
 }
 
 bool parse_http_response(const std::string &raw, HttpResponse &response) {
@@ -151,37 +165,12 @@ HttpResponse http_request(
   int                timeout_ms
 ) {
   HttpResponse response;
-  addrinfo     hints{};
-  hints.ai_family   = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-  addrinfo         *addresses = nullptr;
-  const std::string port      = std::to_string(url.port);
-  if (getaddrinfo(url.host.c_str(), port.c_str(), &hints, &addresses) != 0 || !addresses) {
-    response.error = "Hôte introuvable : " + url.host;
+  Connection   connection;
+  if (!connection.open(url, timeout_ms, response.error))
     return response;
-  }
-  Socket  socket_holder;
-  timeval timeout{ timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
-  for (addrinfo *address = addresses; address; address = address->ai_next) {
-    const int fd = ::socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-    if (fd < 0)
-      continue;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-    if (::connect(fd, address->ai_addr, address->ai_addrlen) == 0) {
-      socket_holder.fd_ = fd;
-      break;
-    }
-    ::close(fd);
-  }
-  freeaddrinfo(addresses);
-  if (socket_holder.fd_ < 0) {
-    response.error = "Connexion impossible à " + url.host + ":" + port;
-    return response;
-  }
 
   std::string request = method + " " + url.base_path + path + " HTTP/1.1\r\n";
-  request += "Host: " + url.host + ":" + port + "\r\n";
+  request += "Host: " + host_header(url) + "\r\n";
   request += "Connection: close\r\nAccept: application/json\r\n";
   for (const auto &[name, value] : headers)
     request += name + ": " + value + "\r\n";
@@ -192,19 +181,14 @@ HttpResponse http_request(
   request += "\r\n";
   request += body;
 
-  std::size_t sent = 0;
-  while (sent < request.size()) {
-    const ssize_t written = ::send(socket_holder.fd_, request.data() + sent, request.size() - sent, MSG_NOSIGNAL);
-    if (written <= 0) {
-      response.error = "Envoi de la requête impossible";
-      return response;
-    }
-    sent += static_cast< std::size_t >(written);
+  if (!connection.send_all(request)) {
+    response.error = "Envoi de la requête impossible";
+    return response;
   }
   std::string raw;
   char        buffer[8192];
   for (;;) {
-    const ssize_t received = ::recv(socket_holder.fd_, buffer, sizeof(buffer), 0);
+    const long received = connection.receive(buffer, sizeof(buffer));
     if (received == 0)
       break;
     if (received < 0) {

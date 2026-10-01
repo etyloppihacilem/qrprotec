@@ -1,10 +1,3 @@
-# Utilisateurs de QRProtec (systemd-sysusers, crees par rpm a l'installation)
+# Utilisateur du back QRProtec (systemd-sysusers, cree par rpm a l'installation)
 #Type Nom            ID  GECOS                    Home                     Shell
 u     qrprotec       -   "QRProtec backend"       /var/lib/qrprotec        /usr/sbin/nologin
-u     qrprotec-kiosk -   "QRProtec kiosk (Cage)"  /var/lib/qrprotec-kiosk  /usr/sbin/nologin
-# Le front parle a l'imprimante Niimbot (port serie USB), a l'ecran, aux entrees et au son
-m     qrprotec-kiosk dialout
-m     qrprotec-kiosk video
-m     qrprotec-kiosk render
-m     qrprotec-kiosk input
-m     qrprotec-kiosk audio

@@ -25,6 +25,8 @@ UtmpMode=user
 Environment=XDG_SESSION_TYPE=wayland XDG_SESSION_CLASS=user
 # Disposition du clavier, mise en veille de l'ecran... (voir ce fichier)
 EnvironmentFile=-/etc/qrprotec/kiosk.conf
+# Back sur une autre machine : URL et cle API (vide = API locale de cette machine)
+EnvironmentFile=-/etc/qrprotec/front-api.conf
 # -s : autorise Ctrl+Alt+F2... pour atteindre une console de maintenance
 ExecStart=/usr/bin/cage -s -- /usr/libexec/qrprotec/qrprotec-kiosk-session
 Restart=always

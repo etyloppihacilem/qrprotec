@@ -1,15 +1,18 @@
 #!/usr/bin/bash
-# Sauvegarde et restauration de la borne QRProtec.
+# Sauvegarde et restauration de QRProtec (back, kiosk, ou les deux sur la meme machine).
 #
 #   sudo qrprotec-backup                       # cree une archive (et supprime les plus anciennes)
 #   sudo qrprotec-backup --list                # liste les archives
 #   sudo qrprotec-backup --restore ARCHIVE     # restaure base + configuration (voir aussi qrprotec-setup)
 #   sudo qrprotec-backup --apply-schedule      # applique QRPROTEC_BACKUP_SCHEDULE au timer systemd
 #
-# Archive : <QRPROTEC_BACKUP_DIR>/qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz (0600 root), contenant
-# un instantane coherent de la base SQLite (API de sauvegarde de SQLite, service en marche), la
-# configuration de /etc/qrprotec (cle secrete comprise), le fragment Caddy, et les reglages et
-# modeles d'etiquettes du kiosk. Reglages : /etc/qrprotec/backup.conf (ou sudo qrprotec-setup).
+# Archive : <QRPROTEC_BACKUP_DIR>/qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz (0600 root), contenant ce
+# qui est installe sur cette machine :
+#   - back (qrprotec-server) : instantane coherent de la base SQLite (API de sauvegarde de SQLite,
+#     service en marche), /etc/qrprotec (cle secrete comprise), le fragment Caddy ;
+#   - kiosk (qrprotec-kiosk) : /etc/qrprotec (connexion au back distant comprise), reglages et
+#     modeles d'etiquettes du kiosk.
+# Reglages : /etc/qrprotec/backup.conf (ou sudo qrprotec-setup).
 set -euo pipefail
 umask 077
 
@@ -19,7 +22,8 @@ readonly CADDY_FRAGMENT=/etc/caddy/Caddyfile.d/qrprotec.caddyfile
 readonly KIOSK_HOME=/var/lib/qrprotec-kiosk
 readonly TIMER_DROPIN_DIR=/etc/systemd/system/qrprotec-backup.timer.d
 readonly PREFIX=qrprotec-backup_
-readonly FORMAT=1
+# 1 : base toujours presente (paquet unique) ; 2 : parties listees dans MANIFEST (parts=server,kiosk)
+readonly FORMAT=2
 
 die() { echo "qrprotec-backup : $*" >&2; exit 1; }
 log() { echo "qrprotec-backup : $*"; }
@@ -29,6 +33,9 @@ usage() {
 Usage : qrprotec-backup [--no-rotate] [--dir DOSSIER]
         qrprotec-backup --list
         qrprotec-backup --restore ARCHIVE [--db-only] [--yes]
+
+Le contenu depend des paquets installes : base et configuration du back (qrprotec-server),
+configuration, reglages et modeles du kiosk (qrprotec-kiosk).
         qrprotec-backup --apply-schedule
 
 Reglages (/etc/qrprotec/backup.conf) :
@@ -54,11 +61,16 @@ read_conf() {
 load_settings() {
     read_conf "$CONF_DIR/qrprotec.conf"
     read_conf "$CONF_DIR/kiosk.conf"
+    read_conf "$CONF_DIR/front-api.conf"
     read_conf "$BACKUP_CONF"
     backup_dir=${QRPROTEC_BACKUP_DIR:-/var/backups/qrprotec}
     keep=${QRPROTEC_BACKUP_KEEP:-14}
     schedule=${QRPROTEC_BACKUP_SCHEDULE:-daily}
     db_path=${QRPROTEC_DB_PATH:-/var/lib/qrprotec/db.sqlite3}
+    # parties installees sur cette machine
+    has_server=no has_kiosk=no
+    [[ -f $CONF_DIR/qrprotec.conf ]] && id qrprotec >/dev/null 2>&1 && has_server=yes
+    [[ -f $CONF_DIR/kiosk.conf ]] && id qrprotec-kiosk >/dev/null 2>&1 && has_kiosk=yes
     templates_dir=${QRPROTEC_TEMPLATES_DIR:-$KIOSK_HOME/templates}
     [[ $keep =~ ^[0-9]+$ ]] || die "QRPROTEC_BACKUP_KEEP invalide : $keep"
     [[ $backup_dir == /* ]] || die "QRPROTEC_BACKUP_DIR doit etre un chemin absolu : $backup_dir"
@@ -97,8 +109,15 @@ archives() {
 }
 
 create_backup() {
-    local rotate=$1 stamp name work archive
-    [[ -f $db_path ]] || die "base introuvable : $db_path"
+    local rotate=$1 stamp name work archive parts=()
+    [[ $has_server == yes || $has_kiosk == yes ]] || die "ni back (qrprotec-server) ni kiosk installe"
+    if [[ $has_server == yes ]]; then
+        [[ -f $db_path ]] || die "base introuvable : $db_path"
+        parts+=(server)
+    fi
+    if [[ $has_kiosk == yes ]]; then
+        parts+=(kiosk)
+    fi
     if [[ ! -d $backup_dir ]]; then
         mkdir -p "$backup_dir"
         chmod 0700 "$backup_dir"
@@ -113,16 +132,20 @@ create_backup() {
     trap "rm -rf '$work'" EXIT
     mkdir -p "$work/$name"
 
-    sqlite_snapshot "$db_path" "$work/$name/db.sqlite3"
+    if [[ $has_server == yes ]]; then
+        sqlite_snapshot "$db_path" "$work/$name/db.sqlite3"
+    fi
 
     mkdir -p "$work/$name/etc/qrprotec" "$work/$name/etc/caddy/Caddyfile.d"
     find "$CONF_DIR" -maxdepth 1 -type f ! -name '*.rpm*' -exec cp -p {} "$work/$name/etc/qrprotec/" \;
-    [[ -f $CADDY_FRAGMENT ]] && cp -p "$CADDY_FRAGMENT" "$work/$name/etc/caddy/Caddyfile.d/"
-    if [[ -d $KIOSK_HOME/.config/qrprotec ]]; then
+    if [[ $has_server == yes && -f $CADDY_FRAGMENT ]]; then
+        cp -p "$CADDY_FRAGMENT" "$work/$name/etc/caddy/Caddyfile.d/"
+    fi
+    if [[ $has_kiosk == yes && -d $KIOSK_HOME/.config/qrprotec ]]; then
         mkdir -p "$work/$name/kiosk"
         cp -a "$KIOSK_HOME/.config/qrprotec" "$work/$name/kiosk/config"
     fi
-    if [[ -d $templates_dir ]]; then
+    if [[ $has_kiosk == yes && -d $templates_dir ]]; then
         mkdir -p "$work/$name/kiosk"
         cp -a "$templates_dir" "$work/$name/kiosk/templates"
     fi
@@ -131,8 +154,10 @@ create_backup() {
 format=$FORMAT
 date=$(date --iso-8601=seconds)
 host=$(uname -n)
-package=$(rpm -q qrprotec 2>/dev/null || echo inconnu)
+parts=$(IFS=,; echo "${parts[*]}")
+packages=$(rpm -qa 'qrprotec*' 2>/dev/null | sort | paste -sd, -)
 domain=${QRPROTEC_DOMAIN:-}
+api_url=${QRPROTEC_API_URL:-}
 MANIFEST
 
     XZ_OPT=${XZ_OPT:--6 -T0} tar -C "$work" --numeric-owner -cJf "$archive.part" "$name"
@@ -186,7 +211,7 @@ put() {
 }
 
 restore_backup() {
-    local archive=$1 db_only=$2 assume_yes=$3 work name answer services=()
+    local archive=$1 db_only=$2 assume_yes=$3 work name answer services=() restore_db=no
     [[ -f $archive ]] || die "archive introuvable : $archive"
     archive=$(realpath "$archive")
 
@@ -195,20 +220,32 @@ restore_backup() {
     trap "rm -rf '$work'" EXIT
     tar -C "$work" --no-same-owner -xJf "$archive" || die "archive illisible : $archive"
     name=$(find "$work" -mindepth 1 -maxdepth 1 -type d -name "${PREFIX}*" -printf '%f\n' | head -n 1)
-    [[ -n $name && -f $work/$name/MANIFEST && -f $work/$name/db.sqlite3 ]] ||
-        die "$archive n'est pas une sauvegarde QRProtec"
+    [[ -n $name && -f $work/$name/MANIFEST ]] || die "$archive n'est pas une sauvegarde QRProtec"
     local src=$work/$name
-    grep -q "^format=$FORMAT$" "$src/MANIFEST" || die "format d'archive non pris en charge"
-    sqlite_check "$src/db.sqlite3" || die "la base de l'archive est invalide"
+    grep -Eq "^format=(1|$FORMAT)$" "$src/MANIFEST" || die "format d'archive non pris en charge"
+    if [[ -f $src/db.sqlite3 ]]; then
+        sqlite_check "$src/db.sqlite3" || die "la base de l'archive est invalide"
+        if [[ $has_server == yes ]]; then
+            restore_db=yes
+        else
+            echo "La base de l'archive est ignoree : le back (qrprotec-server) n'est pas installe ici."
+        fi
+    elif [[ $db_only == yes ]]; then
+        die "cette archive ne contient pas de base (sauvegarde d'un kiosk seul)"
+    fi
 
     echo "Archive : $archive"
     sed 's/^/  /' "$src/MANIFEST"
     if [[ $db_only == yes ]]; then
         echo "Restauration de la base seulement (configuration actuelle conservee)."
-    else
+    elif [[ $restore_db == yes ]]; then
         echo "Restauration de la base ET de la configuration (/etc/qrprotec, Caddy, kiosk)."
+    else
+        echo "Restauration de la configuration (/etc/qrprotec, kiosk), sans base."
     fi
-    echo "La base actuelle sera remplacee (une sauvegarde de l'etat actuel est faite avant)."
+    if [[ $restore_db == yes ]]; then
+        echo "La base actuelle sera remplacee (une sauvegarde de l'etat actuel est faite avant)."
+    fi
     if [[ $assume_yes != yes ]]; then
         [[ -t 0 ]] || die "confirmation requise : relancer avec --yes"
         read -r -p "Continuer ? [o/N] : " answer
@@ -216,7 +253,7 @@ restore_backup() {
     fi
 
     # Filet de securite : etat actuel, sans rotation (ne supprime pas l'archive a restaurer)
-    if [[ -f $db_path ]]; then
+    if [[ $has_server == yes && -f $db_path ]] || [[ $has_server == no && $has_kiosk == yes ]]; then
         (create_backup no) || die "sauvegarde de l'etat actuel impossible, restauration annulee"
     fi
 
@@ -230,22 +267,34 @@ restore_backup() {
         done
     fi
 
-    put "$src/db.sqlite3" "$db_path" qrprotec:qrprotec 0640
-    rm -f "$db_path-journal" "$db_path-wal" "$db_path-shm"
-    log "base restauree : $db_path"
+    if [[ $restore_db == yes ]]; then
+        put "$src/db.sqlite3" "$db_path" qrprotec:qrprotec 0640
+        rm -f "$db_path-journal" "$db_path-wal" "$db_path-shm"
+        log "base restauree : $db_path"
+    fi
 
     if [[ $db_only != yes ]]; then
         local file
         for file in "$src"/etc/qrprotec/*; do
             [[ -f $file ]] || continue
+            # configuration du back ou du kiosk : seulement si cette partie est installee ici
             case ${file##*/} in
-                qrprotec.conf | secret_key) put "$file" "$CONF_DIR/${file##*/}" root:qrprotec 0640 ;;
+                qrprotec.conf | secret_key)
+                    if [[ $has_server == yes ]]; then put "$file" "$CONF_DIR/${file##*/}" root:qrprotec 0640; fi ;;
+                kiosk.conf)
+                    if [[ $has_kiosk == yes ]]; then put "$file" "$CONF_DIR/kiosk.conf" root:root 0644; fi ;;
+                front-api.conf)
+                    if [[ $has_kiosk == yes ]]; then put "$file" "$CONF_DIR/front-api.conf" root:root 0600; fi ;;
                 *) put "$file" "$CONF_DIR/${file##*/}" root:root 0644 ;;
             esac
         done
-        put "$src/etc/caddy/Caddyfile.d/qrprotec.caddyfile" "$CADDY_FRAGMENT" root:root 0644
-        log "configuration restauree : $CONF_DIR, $CADDY_FRAGMENT"
-        if [[ -d $src/kiosk ]] && id qrprotec-kiosk >/dev/null 2>&1; then
+        if [[ $has_server == yes ]]; then
+            put "$src/etc/caddy/Caddyfile.d/qrprotec.caddyfile" "$CADDY_FRAGMENT" root:root 0644
+            log "configuration restauree : $CONF_DIR, $CADDY_FRAGMENT"
+        else
+            log "configuration restauree : $CONF_DIR"
+        fi
+        if [[ -d $src/kiosk && $has_kiosk == yes ]]; then
             load_settings  # QRPROTEC_TEMPLATES_DIR peut venir du kiosk.conf restaure
             if [[ -d $src/kiosk/config ]]; then
                 mkdir -p "$KIOSK_HOME/.config"
@@ -269,9 +318,11 @@ restore_backup() {
 
     if [[ -d /run/systemd/system ]]; then
         systemctl daemon-reload
-        # le back applique les migrations au demarrage (archive d'une version plus ancienne)
-        systemctl start qrprotec.service
-        systemctl try-reload-or-restart caddy.service || :
+        if [[ $has_server == yes ]]; then
+            # le back applique les migrations au demarrage (archive d'une version plus ancienne)
+            systemctl start qrprotec.service
+            systemctl try-reload-or-restart caddy.service || :
+        fi
         local unit
         for unit in "${services[@]}"; do
             [[ $unit == qrprotec.service ]] || systemctl start "$unit"

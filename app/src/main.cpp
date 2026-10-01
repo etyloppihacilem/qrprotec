@@ -7,6 +7,8 @@
 #include "ui/inateck.hpp"
 
 #include <GLFW/glfw3.h>
+#include "stb_image.h"
+#include "window_icon.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -14,6 +16,35 @@
 #include <thread>
 #include <memory>
 #include <string>
+#include <utility>
+
+// Icone de la fenetre sous X11 (barre des taches, Alt+Tab). Sous Wayland, le bureau prend l'icone du
+// fichier qrprotec.desktop designe par l'app_id de la fenetre (GLFW_WAYLAND_APP_ID).
+static void set_window_icon(GLFWwindow* window)
+{
+#ifdef GLFW_PLATFORM_WAYLAND
+    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND)
+        return;  // non pris en charge : GLFW afficherait une erreur
+#endif
+    const std::pair<const unsigned char*, int> sources[] = {
+        { window_icon_192_png, static_cast<int>(sizeof(window_icon_192_png)) },
+        { window_favicon_png, static_cast<int>(sizeof(window_favicon_png)) },
+    };
+    GLFWimage images[2];
+    int count = 0;
+    for (const auto& [data, size] : sources) {
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        unsigned char* pixels = stbi_load_from_memory(data, size, &width, &height, &channels, 4);
+        if (pixels)
+            images[count++] = GLFWimage{ width, height, pixels };
+    }
+    if (count > 0)
+        glfwSetWindowIcon(window, count, images);
+    for (int index = 0; index < count; ++index)
+        stbi_image_free(images[index].pixels);
+}
 
 static void glfw_error_callback(int error, const char* description)
 {
@@ -127,11 +158,18 @@ int main(int argc, char** argv)
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    // identifiant de l'application : le bureau y associe qrprotec.desktop (nom, icone)
+    glfwWindowHintString(GLFW_X11_CLASS_NAME, "qrprotec");
+    glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "qrprotec");
+#ifdef GLFW_WAYLAND_APP_ID
+    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "qrprotec");
+#endif
     GLFWwindow* window = glfwCreateWindow(1280, 800, "QRProtec", nullptr, nullptr);
     if (window == nullptr) {
         glfwTerminate();
         return 1;
     }
+    set_window_icon(window);
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 

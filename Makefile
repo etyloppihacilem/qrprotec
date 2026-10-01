@@ -1,4 +1,5 @@
-# Construction du RPM de la borne QRProtec.
+# Construction des RPM de QRProtec (qrprotec, qrprotec-server, qrprotec-kiosk, qrprotec-front,
+# qrprotec-common).
 #
 #   make rpm                     RPM + SRPM dans dist/, construits dans un conteneur Fedora
 #   make rpm FEDORA_VERSION=42   pour une autre version de Fedora
@@ -14,7 +15,7 @@ IMAGE ?= qrprotec-rpmbuild:f$(FEDORA_VERSION)
 RPMBUILD_ARGS ?=
 SHELL_SCRIPTS := bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
                  packaging/files/qrprotec-setup packaging/files/qrprotec-backup \
-                 packaging/files/qrprotec-kiosk-session
+                 packaging/files/qrprotec-kiosk-session packaging/files/qrprotec-front
 
 .PHONY: rpm rpm-local image sources lint clean version icon
 

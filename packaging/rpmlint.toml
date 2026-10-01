@@ -1,4 +1,4 @@
-# Filtres rpmlint propres a la borne QRProtec : rpmlint -c packaging/rpmlint.toml ...
+# Filtres rpmlint propres aux paquets QRProtec : rpmlint -c packaging/rpmlint.toml ...
 
 Filters = [
     # Bibliotheque privee du SDK Inateck, binaire fourni par le fabricant (sans SONAME)
@@ -28,7 +28,10 @@ Filters = [
     'non-standard-dir-perm /var/lib/qrprotec',
     'non-standard-dir-perm /var/backups/qrprotec',
     'non-readable /etc/qrprotec/qrprotec.conf',
-    # Scriptlets : marqueur de premiere installation (rm), droits de la cle secrete (chmod)
+    'non-readable /etc/qrprotec/front-api.conf',
+    # Paquet meta qrprotec (borne complete) : seulement des dependances et le README
+    'no-binary',
+    # Scriptlets : marqueurs de premiere installation (rm), droits de la cle secrete (chmod)
     'dangerous-command-in-%posttrans rm',
     'dangerous-command-in-%post chmod',
     # Desinstallation : drop-in de frequence des sauvegardes genere par qrprotec-backup

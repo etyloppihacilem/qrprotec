@@ -15,6 +15,7 @@ from django.http import JsonResponse
 
 ROLE_ENVIRON_KEY = 'qrprotec.role'
 LOCAL_TOKEN_HEADER = 'HTTP_X_QRPROTEC_TOKEN'
+FRONT_KEY_HEADER = 'HTTP_X_QRPROTEC_KEY'
 
 
 class RoleWSGIHandler:
@@ -44,6 +45,25 @@ def local_access_error(remote_address, token_header):
     return None
 
 
+def remote_client_address(remote_address, forwarded_for):
+    """Adresse du front distant : l'API distante n'est joignable que via le reverse proxy (Caddy)."""
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip()
+    return remote_address or ''
+
+
+def authenticate_front(key, address):
+    """(FrontKey, None) si la cle de front distant est valide, (None, message d'erreur) sinon."""
+    from .models import FrontKey  # le middleware est charge avant les applications
+
+    if not key:
+        return None, "Cle API du front manquante (en-tete X-QRProtec-Key)"
+    front = FrontKey.authenticate(key, address)
+    if front is None:
+        return None, "Cle API du front invalide ou revoquee"
+    return front, None
+
+
 class ApiRoleMiddleware:
     """Choisit le jeu d'URLs (public ou local) et protege l'API locale.
 
@@ -51,6 +71,10 @@ class ApiRoleMiddleware:
     `manage.py serve` ou `qrprotecDB.wsgi.local_application`). L'API locale n'accepte en plus que
     les adresses de QRPROTEC['LOCAL_API_ALLOWED_ADDRESSES'] et, si configure, le jeton
     QRPROTEC['LOCAL_API_TOKEN'] dans l'en-tete X-QRProtec-Token.
+
+    Le serveur distant (role 'remote', derriere Caddy) donne aux fronts d'autres machines le meme
+    jeu d'URLs que l'API locale, mais chaque requete doit porter une cle de front valide
+    (modele FrontKey) dans l'en-tete X-QRProtec-Key.
     """
 
     def __init__(self, get_response):
@@ -65,5 +89,13 @@ class ApiRoleMiddleware:
             if problem:
                 return JsonResponse({'error': problem}, status=403)
             request.qrprotec_local = True
+            request.urlconf = 'qrprotecDB.urls_local'
+        elif role == 'remote':
+            address = remote_client_address(request.META.get('REMOTE_ADDR'), request.META.get('HTTP_X_FORWARDED_FOR'))
+            front, problem = authenticate_front(request.META.get(FRONT_KEY_HEADER, ''), address)
+            if problem:
+                return JsonResponse({'error': problem}, status=401)
+            request.qrprotec_local = True
+            request.qrprotec_front = front.name
             request.urlconf = 'qrprotecDB.urls_local'
         return self.get_response(request)

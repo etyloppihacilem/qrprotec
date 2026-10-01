@@ -1,6 +1,4 @@
-# Borne QRProtec : services actives a l'installation du paquet
+# Back QRProtec (paquet qrprotec-server) : services actives a l'installation
 enable qrprotec.service
 enable qrprotec-alerts.timer
-enable qrprotec-backup.timer
-enable qrprotec-kiosk.service
 enable caddy.service

@@ -284,6 +284,7 @@ class App {
     void draw_login_modal();
     void check_setup();
     void draw_setup_modal();
+    void draw_server_modal(); // connexion au back, sans badge tant que l'API est injoignable
     void create_first_admin();
     void draw_toasts();
     void check_inactivity();
@@ -298,6 +299,7 @@ class App {
     // Premiere configuration : aucun responsable avec un badge valide
     bool                    setup_known_     = false;
     bool                    needs_admin_     = false;
+    bool                    server_modal_requested_ = false;
     bool                    setup_busy_      = false;
     double                  next_setup_check_ = 0.0;
     std::string             setup_matricule_;

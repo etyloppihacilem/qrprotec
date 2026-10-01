@@ -15,10 +15,12 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'qrprotecDB.settings')
 
 application = get_wsgi_application()
 
-# Deux points d'entree pour un serveur WSGI de production (gunicorn, uwsgi...) :
+# Trois points d'entree pour un serveur WSGI de production (gunicorn, uwsgi...) :
 #   gunicorn -b 0.0.0.0:8000 qrprotecDB.wsgi:public_application
 #   gunicorn -b 127.0.0.1:8001 qrprotecDB.wsgi:local_application
+#   gunicorn -b 127.0.0.1:8002 qrprotecDB.wsgi:remote_application   (cle de front obligatoire)
 from inventory.middleware import RoleWSGIHandler  # noqa: E402
 
 public_application = RoleWSGIHandler(application, 'public')
 local_application = RoleWSGIHandler(application, 'local')
+remote_application = RoleWSGIHandler(application, 'remote')

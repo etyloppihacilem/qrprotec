@@ -82,7 +82,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
 App::~App() = default;
 
 void App::apply_settings() {
-  api.configure(settings.api_url, settings.api_token);
+  api.configure(settings.api_endpoint());
   set_templates_dir(settings.templates_dir);
 }
 
@@ -234,6 +234,7 @@ void App::draw() {
     ImGui::PopStyleColor(4);
   inateck.draw_window();
   draw_setup_modal();
+  draw_server_modal();
   draw_login_modal();
   draw_pin_modal();
   draw_label_preview(*this);
@@ -311,9 +312,17 @@ void App::draw_menu_bar() {
       ImGui::PopStyleColor();
       ImGui::Separator();
     }
-    ImGui::TextColored(api.online() ? ImVec4(0.1f, 0.55f, 0.1f, 1) : ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", status.c_str());
-    if (!api.online() && ImGui::IsItemHovered())
-      ImGui::SetTooltip("%s", api.last_error().c_str());
+    if (api.online()) {
+      ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.1f, 1), "%s", status.c_str());
+    } else {
+      // sans API, personne ne peut se connecter pour ouvrir les Reglages : la connexion se regle d'ici
+      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.1f, 0.1f, 1));
+      if (ImGui::MenuItem(status.c_str()))
+        server_modal_requested_ = true;
+      ImGui::PopStyleColor();
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s\nCliquer pour régler la connexion au serveur.", api.last_error().c_str());
+    }
     ImGui::Separator();
     if (logged_in()) {
       ImGui::TextUnformatted(who.c_str());
@@ -448,6 +457,45 @@ void App::create_first_admin() {
     refresh_lot_types();
     notify("Administrateur créé : mode privilégié activé.");
   });
+}
+
+void App::draw_server_modal() {
+  if (server_modal_requested_) {
+    server_modal_requested_ = false;
+    ImGui::OpenPopup("Connexion au serveur");
+  }
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Appearing);
+  if (!ImGui::BeginPopupModal("Connexion au serveur", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  // Une fois l'API joignable, la connexion ne se modifie plus que depuis les Reglages (administrateur).
+  // Sur une borne (QRPROTEC_KIOSK, qrprotec-kiosk-session), jamais sans badge : un passant ne doit pas
+  // pouvoir rediriger le poste vers un autre serveur pendant une panne.
+  const bool kiosk    = AppSettings::api_env("QRPROTEC_KIOSK") != nullptr;
+  const bool editable = !api.online() && !kiosk;
+  if (api.online()) {
+    ImGui::TextWrapped("Connecté au serveur.");
+  } else {
+    ImGui::TextWrapped("Le serveur est injoignable : %s", api.last_error().c_str());
+    if (kiosk)
+      ImGui::TextWrapped("Borne : la connexion se règle sur la machine avec sudo qrprotec-setup "
+                         "(--api-url, --api-key, --local-api).");
+    else
+      draw_server_settings(*this);
+  }
+  ImGui::Separator();
+  if (editable && primary_button("Enregistrer")) {
+    apply_settings();
+    save_settings();
+    refresh_item_types();
+    refresh_lots();
+  }
+  if (editable)
+    ImGui::SameLine();
+  if (ImGui::Button("Fermer"))
+    ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
 }
 
 void App::draw_setup_modal() {
@@ -729,7 +777,7 @@ void App::start_remote_session() {
     remote.url            = result.data["url"].str();
     remote.timeout        = result.data["timeout"].integer(300);
     remote.phone_deadline = ImGui::GetTime() + remote.timeout;
-    remote_link.start(settings.api_url, settings.api_token, remote.id);
+    remote_link.start(settings.api_endpoint(), remote.id);
   });
 }
 

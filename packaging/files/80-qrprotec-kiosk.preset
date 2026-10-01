@@ -1,0 +1,2 @@
+# Kiosk QRProtec (paquet qrprotec-kiosk) : actif a l'installation
+enable qrprotec-kiosk.service

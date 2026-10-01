@@ -8,6 +8,7 @@
 #
 # ######################################################################################################################
 
+import hashlib
 import hmac
 import re
 import secrets
@@ -519,3 +520,45 @@ class PushSubscription(models.Model):
 
     def __str__(self):
         return f'{self.user_id} : {self.endpoint[:48]}'
+
+
+class FrontKey(models.Model):
+    """Cle API d'un front distant (autre machine) : acces complet a l'API locale via l'API distante.
+
+    Seule l'empreinte SHA-256 de la cle est conservee : la cle n'est affichee qu'a sa creation
+    (`manage.py frontkey add NOM`).
+    """
+    PREFIX = 'qrpf_'
+
+    name = models.CharField(max_length=64, unique=True)
+    key_hash = models.CharField(max_length=64, unique=True)
+    created = models.DateTimeField(default=timezone.now)
+    last_used = models.DateTimeField(blank=True, null=True)
+    last_address = models.CharField(max_length=64, blank=True, default='')
+    revoked = models.BooleanField(default=False)
+
+    @staticmethod
+    def hash_key(key):
+        return hashlib.sha256(key.encode()).hexdigest()
+
+    @classmethod
+    def create(cls, name):
+        """Cree une cle et retourne (FrontKey, cle en clair)."""
+        key = cls.PREFIX + secrets.token_urlsafe(32)
+        return cls.objects.create(name=name, key_hash=cls.hash_key(key)), key
+
+    @classmethod
+    def authenticate(cls, key, address=''):
+        """FrontKey valide correspondant a `key`, ou None. Note la derniere utilisation (au plus 1/min)."""
+        if not key or not key.startswith(cls.PREFIX) or len(key) > 128:
+            return None
+        front = cls.objects.filter(key_hash=cls.hash_key(key), revoked=False).first()
+        if front is None:
+            return None
+        now = timezone.now()
+        if front.last_used is None or now - front.last_used > timedelta(minutes=1) or front.last_address != address:
+            cls.objects.filter(pk=front.pk).update(last_used=now, last_address=address[:64])
+        return front
+
+    def __str__(self):
+        return self.name

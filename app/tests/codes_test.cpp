@@ -83,7 +83,17 @@ static void test_http() {
   std::string error;
   assert(parse_http_url("http://127.0.0.1:8001", url, error) && url.host == "127.0.0.1" && url.port == 8001);
   assert(parse_http_url("http://serveur/qrprotec/", url, error) && url.port == 80 && url.base_path == "/qrprotec");
-  assert(!parse_http_url("https://serveur", url, error));
+  assert(!url.tls && host_header(url) == "serveur");
+  assert(parse_http_url("HTTPS://serveur.example.org", url, error) && url.tls && url.port == 443);
+  assert(host_header(url) == "serveur.example.org");
+  assert(parse_http_url("https://[::1]:8443/api", url, error) && url.tls && url.host == "::1" && url.port == 8443);
+  assert(host_header(url) == "[::1]:8443" && url.base_path == "/api");
+  assert(!parse_http_url("ftp://serveur", url, error));
+  assert(!parse_http_url("serveur:8001", url, error));
+  ApiEndpoint endpoint{ "https://serveur", "", "qrpf_cle", "/etc/ca.pem" };
+  assert(endpoint.parse(url, error) && url.ca_file == "/etc/ca.pem");
+  const HttpHeaders headers = endpoint.headers();
+  assert(headers.size() == 1 && headers[0].first == "X-QRProtec-Key" && headers[0].second == "qrpf_cle");
   HttpResponse response;
   assert(parse_http_response("HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\n{}", response));
   assert(response.status == 201 && response.body == "{}");

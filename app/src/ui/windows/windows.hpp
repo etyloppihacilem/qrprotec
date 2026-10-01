@@ -31,4 +31,8 @@ std::unique_ptr< AppWindow > make_users_window();
 std::unique_ptr< AppWindow > make_editor_window();
 std::unique_ptr< AppWindow > make_settings_window();
 
+// Connexion au back (URL, cle de front, autorite HTTPS, jeton) avec bouton de test : fenetre Reglages, et
+// fenetre « Connexion au serveur » accessible sans badge tant que l'API est injoignable.
+void draw_server_settings(App &app);
+
 } // namespace qrprotec

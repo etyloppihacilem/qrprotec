@@ -93,6 +93,24 @@ PhysicalLabel AppSettings::physical_label() const {
   return label;
 }
 
+const char *AppSettings::api_env(const char *name) {
+  const char *value = std::getenv(name);
+  return value && *value ? value : nullptr;
+}
+
+ApiEndpoint AppSettings::api_endpoint() const {
+  const auto pick = [](const char *name, const std::string &fallback) {
+    const char *value = api_env(name);
+    return value ? std::string(value) : fallback;
+  };
+  ApiEndpoint endpoint;
+  endpoint.url     = pick("QRPROTEC_API_URL", api_url);
+  endpoint.token   = pick("QRPROTEC_API_TOKEN", api_token);
+  endpoint.key     = pick("QRPROTEC_API_KEY", api_key);
+  endpoint.ca_file = pick("QRPROTEC_API_CA_FILE", api_ca_file);
+  return endpoint;
+}
+
 void AppSettings::load() {
   std::ifstream input(file_path());
   std::string   line;
@@ -108,6 +126,10 @@ void AppSettings::load() {
       api_url = value;
     else if (key == "api_token")
       api_token = value;
+    else if (key == "api_key")
+      api_key = value;
+    else if (key == "api_ca_file")
+      api_ca_file = value;
     else if (key == "font_size")
       font_size = std::clamp(to_float(value, font_size), 10.0f, 40.0f);
     else if (key == "inactivity_minutes")
@@ -191,9 +213,14 @@ bool AppSettings::save(std::string &error) const {
     error = "Impossible d'écrire " + path.string();
     return false;
   }
+  // le fichier peut contenir la cle API du front
+  std::filesystem::permissions(path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+                               std::filesystem::perm_options::replace, code);
   output << "# Réglages QRProtec (édités depuis la fenêtre Réglages)\n"
          << "api_url=" << api_url << '\n'
          << "api_token=" << api_token << '\n'
+         << "api_key=" << api_key << '\n'
+         << "api_ca_file=" << api_ca_file << '\n'
          << "font_size=" << font_size << '\n'
          << "inactivity_minutes=" << inactivity_minutes << '\n'
          << "expiring_soon_days=" << expiring_soon_days << '\n'
