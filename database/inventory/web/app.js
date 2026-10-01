@@ -31,10 +31,14 @@
     lots: null,        // liste des lots (accueil), chargee avec le badge
     stock: null,       // etat des stocks, roles gestion et admin uniquement
     loading: '',       // 'lots' ou 'stock' pendant un chargement
+    push: null,        // notifications web de ce navigateur (admins) : {subscribed, stock_low, stock_empty, ...}
+    pushBusy: false,
+    pushError: '',
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
   const canSeeStock = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin' || state.user.privileged));
+  const isAdmin = () => !!(state.user && state.user.role === 'admin');
   const ROLE_LABELS = { normal: 'Secouriste', gestion: 'Gestion', admin: 'Administrateur' };
 
   function save() {
@@ -518,6 +522,7 @@
       state.user = { ...user, key };
       state.lots = null;
       state.stock = null;
+      state.push = null;
       feedback.info();
       showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
         canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est dans l'onglet Stock.` : 'Vous êtes connecté.');
@@ -875,6 +880,7 @@
       state.loading = '';
       render();
     }
+    loadPush();
   }
 
   async function loadStock() {
@@ -946,6 +952,160 @@
     view.replaceChildren(...parts);
   }
 
+  // ------------------------------------------------------------------------------------------------
+  // Notifications web (admins) : alertes de stock bas et de stock vide, meme page fermee.
+  // La permission du navigateur n'est demandee qu'au clic sur « Activer les notifications ».
+
+  const pushSupported = () => window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+  function base64UrlToBytes(text) {
+    const base64 = (text + '='.repeat((4 - text.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  }
+
+  async function currentPushSubscription() {
+    // getRegistration n'installe rien : aucun service worker tant que l'admin n'a rien active
+    const registration = await navigator.serviceWorker.getRegistration('web/');
+    return registration ? registration.pushManager.getSubscription() : null;
+  }
+
+  // serviceWorker.ready ne se resout jamais ici : la portee web/ ne couvre pas la page
+  function activated(registration) {
+    const worker = registration.installing || registration.waiting;
+    if (registration.active || !worker) return Promise.resolve();
+    return new Promise((resolve) => {
+      const check = () => { if (worker.state === 'activated' || worker.state === 'redundant') resolve(); };
+      worker.addEventListener('statechange', check);
+      check();
+    });
+  }
+
+  async function loadPush() {
+    if (!isAdmin() || !pushSupported()) return;
+    try {
+      const subscription = await currentPushSubscription();
+      const prefs = state.push || { stock_low: true, stock_empty: true };
+      state.push = subscription
+        ? { ...prefs, ...(await api('push/subscription/', { user: badge(), endpoint: subscription.endpoint })) }
+        : { ...prefs, subscribed: false };
+      // abonnement du navigateur inconnu du serveur (autre admin, base restauree) : a reactiver
+      if (subscription && !state.push.subscribed) state.push.stale = true;
+      state.pushError = '';
+    } catch (e) {
+      state.pushError = e.message;
+    }
+    renderStock();
+  }
+
+  async function enablePush() {
+    const prefs = { stock_low: !!(state.push && state.push.stock_low), stock_empty: !!(state.push && state.push.stock_empty) };
+    if (!prefs.stock_low && !prefs.stock_empty) { toast('Choisissez au moins une alerte.', true); return; }
+    state.pushBusy = true; state.pushError = ''; renderStock();
+    try {
+      // demande de permission declenchee par le clic de l'utilisateur
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        throw new Error(permission === 'denied'
+          ? 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'
+          : 'Autorisation des notifications non accordée.');
+      }
+      const { public_key: publicKey } = await api('push/key/');
+      const registration = await navigator.serviceWorker.register('web/sw.js', { scope: 'web/' });
+      await activated(registration);
+      let subscription = await registration.pushManager.getSubscription();
+      if (subscription && subscription.options && subscription.options.applicationServerKey) {
+        // cle du serveur changee (base reinitialisee) : il faut un nouvel abonnement
+        const current = new Uint8Array(subscription.options.applicationServerKey);
+        const expected = base64UrlToBytes(publicKey);
+        if (current.length !== expected.length || current.some((b, i) => b !== expected[i])) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+      }
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(publicKey) });
+      }
+      state.push = await api('push/subscription/', { user: badge(), subscription: subscription.toJSON(), ...prefs });
+      toast('Notifications activées sur cet appareil.');
+    } catch (e) {
+      state.pushError = e.message;
+    }
+    state.pushBusy = false;
+    renderStock();
+  }
+
+  async function disablePush() {
+    state.pushBusy = true; state.pushError = ''; renderStock();
+    try {
+      const subscription = await currentPushSubscription();
+      if (subscription) {
+        await api('push/unsubscribe/', { endpoint: subscription.endpoint });
+        await subscription.unsubscribe();
+      }
+      state.push = { ...state.push, subscribed: false, stale: false };
+      toast('Notifications désactivées sur cet appareil.');
+    } catch (e) {
+      state.pushError = e.message;
+    }
+    state.pushBusy = false;
+    renderStock();
+  }
+
+  async function testPush() {
+    try {
+      const subscription = await currentPushSubscription();
+      if (!subscription) throw new Error('Notifications non activées sur cet appareil.');
+      await api('push/test/', { user: badge(), endpoint: subscription.endpoint });
+      toast('Notification de test envoyée.');
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  // clic sur une notification alors que la page est deja ouverte
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.tab === 'stock' && canSeeStock()) { switchTab('stock'); loadStock(); }
+    });
+    if (navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
+  }
+
+  function renderPush() {
+    const parts = [el('h3', {}, 'Notifications de stock')];
+    if (!pushSupported()) {
+      parts.push(el('p', { class: 'hint' }, window.isSecureContext
+        ? "Ce navigateur ne gère pas les notifications web. Sur iPhone, ajoutez d'abord la page à l'écran d'accueil (Partager > Sur l'écran d'accueil)."
+        : 'Les notifications web exigent une connexion HTTPS.'));
+      return el('div', { class: 'push-box' }, ...parts);
+    }
+    if (!state.push) {
+      parts.push(el('p', { class: 'hint' }, 'Chargement…'));
+      return el('div', { class: 'push-box' }, ...parts);
+    }
+    const push = state.push;
+    const subscribed = push.subscribed && !push.stale;
+    const option = (field, label) => el('label', { class: 'check' },
+      el('input', { type: 'checkbox', checked: push[field] ? '' : null, disabled: state.pushBusy ? '' : null,
+        onchange: (event) => { push[field] = event.target.checked; if (subscribed) enablePush(); else renderStock(); } }),
+      label);
+    parts.push(el('p', { class: 'hint' }, subscribed
+      ? 'Activées sur cet appareil : vous serez prévenu même page fermée.'
+      : 'Recevez une alerte sur cet appareil quand le stock passe sous son minimum ou arrive à zéro.'));
+    parts.push(option('stock_low', 'Stock bas (sous le minimum fixé)'));
+    parts.push(option('stock_empty', 'Stock vide (0 en stock)'));
+    if (Notification.permission === 'denied') {
+      parts.push(el('p', { class: 'error' }, 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'));
+    }
+    if (state.pushError) parts.push(el('p', { class: 'error' }, state.pushError));
+    const buttons = subscribed
+      ? [el('button', { type: 'button', onclick: testPush, disabled: state.pushBusy ? '' : null }, 'Envoyer un test'),
+        el('button', { type: 'button', onclick: disablePush, disabled: state.pushBusy ? '' : null }, 'Désactiver')]
+      : [el('button', { type: 'button', class: 'primary', onclick: enablePush, disabled: state.pushBusy ? '' : null },
+        state.pushBusy ? 'Activation…' : 'Activer les notifications')];
+    parts.push(el('div', { class: 'push-buttons' }, ...buttons));
+    return el('div', { class: 'push-box' }, ...parts);
+  }
+
   function renderStock() {
     const view = $('#stock-view');
     if (!canSeeStock()) {
@@ -954,6 +1114,7 @@
     }
     const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'État des stocks (lecture seule)'),
       el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser'))];
+    if (isAdmin()) parts.push(renderPush());
     if (!state.stock) {
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
     } else {
@@ -977,7 +1138,7 @@
     $('#count-todo').textContent = renderTodo();
     $('#count-done').textContent = renderDone();
     renderLot();
-    if (!state.user) { state.lots = null; state.stock = null; }
+    if (!state.user) { state.lots = null; state.stock = null; state.push = null; }
     renderHome();
     $('#tab-stock').hidden = !canSeeStock();
     if (state.tab === 'stock' && !canSeeStock()) switchTab('home');
@@ -1032,8 +1193,9 @@
       await loadLot(state.lotId);
       showLotInfo();
     }
-    // page d'accueil quand aucun lot n'est en cours
-    if (!state.lot) switchTab('home');
+    // page d'accueil quand aucun lot n'est en cours ; #stock : ouverture depuis une notification de stock
+    if (location.hash === '#stock' && canSeeStock()) switchTab('stock');
+    else if (!state.lot) switchTab('home');
     render();
     if (state.user) {
       loadLots();

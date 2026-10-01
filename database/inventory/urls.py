@@ -25,6 +25,10 @@ public_patterns = [
     path('lots/<str:lot_id>/unseal/', views.lot_unseal),
     path('packs/<str:pack_id>/', views.sealed_pack_detail),
     path('remote-scanner/check/', views.remote_scanner_check),
+    path('push/key/', views.push_key),
+    path('push/subscription/', views.push_subscription),
+    path('push/unsubscribe/', views.push_unsubscribe),
+    path('push/test/', views.push_test),
 ]
 
 # Servies uniquement par l'API locale (poste de gestion). Elles doivent preceder les routes publiques
@@ -70,5 +74,6 @@ web_patterns = [
     path('pack', web_views.page),
     path('seal', web_views.page),
     path('scanner', web_views.scanner_page),
+    path('favicon.ico', web_views.favicon),
     path('web/<path:name>', web_views.asset),
 ]

@@ -73,6 +73,8 @@ QRPROTEC = {
     'MISSING_AFTER_VERIFS': int(os.environ.get('QRPROTEC_MISSING_AFTER_VERIFS', '3')),
     # Envoi des SMS dans la requete (1) ou dans un thread (0, defaut)
     'SMS_SYNC': os.environ.get('QRPROTEC_SMS_SYNC', '0') == '1',
+    # Contact annonce aux services de notifications web (VAPID) : mailto:... ou https://... (defaut : PUBLIC_BASE_URL)
+    'WEB_PUSH_SUBJECT': os.environ.get('QRPROTEC_WEB_PUSH_SUBJECT', ''),
 }
 
 REST_FRAMEWORK = {

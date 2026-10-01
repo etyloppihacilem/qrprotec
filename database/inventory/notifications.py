@@ -8,7 +8,7 @@
 #
 # ######################################################################################################################
 
-"""Notifications SMS par l'API de Free Mobile.
+"""Notifications SMS par l'API de Free Mobile (les notifications web sont dans webpush.py).
 
     https://smsapi.free-mobile.fr/sendmsg?user=IDENTIFIANT&pass=CLE&msg=MESSAGE
 
@@ -26,6 +26,7 @@ import urllib.request
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
+from . import webpush
 from .models import ItemStatus, ItemType, Items, NotificationSettings, SmsRecipient, qrprotec_setting
 
 logger = logging.getLogger(__name__)
@@ -103,27 +104,40 @@ def notify(event, message):
 
 
 def check_stock_levels(type_ids=None):
-    """Envoie un SMS quand le stock (hors lots, non perime) d'un type passe sous son minimum.
+    """Alerte quand le stock (hors lots, non perime) d'un type passe sous son minimum ou arrive a 0.
 
-    Un seul SMS par passage sous le seuil : ItemType.low_notified est remis a zero quand le stock
-    remonte au minimum.
+    SMS (stock bas) et notifications web (stock bas, stock vide) : une seule alerte par passage sous le
+    seuil. ItemType.low_notified est remis a zero quand le stock remonte au minimum, empty_notified
+    quand il redevient positif.
     """
     today = timezone.localdate()
     queryset = ItemType.objects.filter(min_quantity__gt=0)
     if type_ids is not None:
         queryset = queryset.filter(type__in=set(type_ids))
-    low = []
+    low, empty = [], []
     for item_type in queryset:
         count = Items.objects.filter(
             pack__item_type=item_type, status=ItemStatus.ACTIVE, location__isnull=True
         ).exclude(pack__peremption__lt=today).count()
+        changed = []
         if count < item_type.min_quantity and not item_type.low_notified:
-            low.append(f'{item_type.name} {count}/{item_type.min_quantity}')
+            low.append((item_type.name, count, item_type.min_quantity))
             item_type.low_notified = True
-            item_type.save(update_fields=['low_notified'])
+            changed.append('low_notified')
         elif count >= item_type.min_quantity and item_type.low_notified:
             item_type.low_notified = False
-            item_type.save(update_fields=['low_notified'])
-    if low:
-        notify('stock_low', 'stock bas : ' + ', '.join(low))
-    return low
+            changed.append('low_notified')
+        if count == 0 and not item_type.empty_notified:
+            empty.append(item_type.name)
+            item_type.empty_notified = True
+            changed.append('empty_notified')
+        elif count > 0 and item_type.empty_notified:
+            item_type.empty_notified = False
+            changed.append('empty_notified')
+        if changed:
+            item_type.save(update_fields=changed)
+    low_text = [f'{name} {count}/{minimum}' for name, count, minimum in low]
+    if low_text:
+        notify('stock_low', 'stock bas : ' + ', '.join(low_text))
+    webpush.notify_stock(low, empty)
+    return low_text

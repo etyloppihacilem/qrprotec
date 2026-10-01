@@ -89,10 +89,7 @@ void Editor::new_template() {
 }
 
 void Editor::reload_templates() {
-  image_files_.clear();
-  for (const char *pattern : { "*.png", "*.jpg", "*.jpeg" })
-    for (const auto &path : glob_templates(pattern))
-      image_files_.push_back(path);
+  image_files_ = label_images();
   loaded_templates_dir_ = templates_dir().string();
   qr_files_             = glob_templates("*.qr");
   document_list_.clear();
@@ -235,7 +232,7 @@ void Editor::draw_document_panel() {
     document_.elements.push_back(
       { "image-" + std::to_string(document_.elements.size()),
         ElementKind::Image,
-        ImageElement{ image_files_.empty() ? "logo.png" : image_files_.front().filename().string(), 2.0f, 2.0f, 10.0f, 10.0f, true, 128 } }
+        ImageElement{ image_files_.empty() ? std::string(LABEL_IMAGES_DIR) + "/protec.png" : image_files_.front(), 2.0f, 2.0f, 10.0f, 10.0f, true, 128 } }
     );
     selected_element_ = static_cast< int >(document_.elements.size()) - 1;
     preview_dirty_    = true;
@@ -352,13 +349,13 @@ void Editor::draw_properties(TemplateElement &element) {
       preview_dirty_ = true;
     if (!image_files_.empty() && ImGui::BeginCombo("##images", "Choisir une image du dossier")) {
       for (const auto &path : image_files_)
-        if (ImGui::Selectable(path.filename().string().c_str())) {
-          image.path     = path.filename().string();
+        if (ImGui::Selectable(path.c_str(), path == image.path)) {
+          image.path     = path;
           preview_dirty_ = true;
         }
       ImGui::EndCombo();
     }
-    ImGui::TextDisabled("PNG ou JPEG (ex: logo de la protection civile), chemin relatif au dossier courant.");
+    ImGui::TextDisabled("PNG ou JPEG, chemin relatif au dossier des modèles : déposez les images dans images/.");
     if (ImGui::DragFloat("X (mm)", &image.x_mm, 0.1f))
       preview_dirty_ = true;
     if (ImGui::DragFloat("Y (mm)", &image.y_mm, 0.1f))

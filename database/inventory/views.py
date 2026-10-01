@@ -30,11 +30,12 @@ from rest_framework.response import Response
 from . import notifications
 from . import serializers as ser
 from . import services
+from . import webpush
 from .idendity import identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .models import (
-    TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings, SealedPacks,
-    Role, Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
+    TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings, PushSubscription,
+    SealedPacks, Role, Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -117,7 +118,8 @@ def badge_user(request, roles=None):
     if user is None or not user.check_key(credentials.get('key')):
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
     if roles and user.role not in roles:
-        raise ApiError("Réservé aux rôles gestion et admin", status.HTTP_403_FORBIDDEN)
+        message = "Réservé aux administrateurs" if tuple(roles) == (Role.ADMIN,) else "Réservé aux rôles gestion et admin"
+        raise ApiError(message, status.HTTP_403_FORBIDDEN)
     if roles and user.pin_required and not session_valid(user, credentials.get('session')):
         raise ApiError("Session expirée : scannez à nouveau votre badge", status.HTTP_403_FORBIDDEN, pin_required=True)
     return user
@@ -283,6 +285,93 @@ def stock_summary(request):
     badge_user(request, (Role.GESTION, Role.ADMIN))
     soon = parse_int(request.data.get('soon_days', 30), 'soon_days', 0, 3650)
     return Response(services.stock_status(soon))
+
+
+# Notifications web (admins, depuis le front web)
+
+def push_available():
+    if not webpush.available():
+        raise ApiError("Notifications web indisponibles sur ce serveur (module python3-cryptography absent)",
+                       status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+def push_subscription_dict(subscription):
+    if subscription is None:
+        return {'subscribed': False}
+    return {
+        'subscribed': True,
+        'stock_low': subscription.stock_low,
+        'stock_empty': subscription.stock_empty,
+        'last_sent': subscription.last_sent,
+        'last_status': subscription.last_status,
+    }
+
+
+@api_view(['GET'])
+@handle_errors
+def push_key(request):
+    """Cle publique VAPID (applicationServerKey) a donner au navigateur pour s'abonner."""
+    push_available()
+    return Response({'public_key': webpush.public_key()})
+
+
+@api_view(['POST'])
+@handle_errors
+def push_subscription(request):
+    """Etat de l'abonnement de ce navigateur (endpoint), ou creation / mise a jour si `subscription` est donne.
+
+    {"user": badge, "endpoint": ...} -> etat ; {"user": badge, "subscription": {endpoint, keys: {p256dh, auth}},
+    "stock_low": bool, "stock_empty": bool} -> abonnement enregistre.
+    """
+    user = badge_user(request, (Role.ADMIN,))
+    push_available()
+    data = request.data
+    subscription_data = data.get('subscription')
+    if subscription_data is None:
+        endpoint = str(data.get('endpoint', ''))
+        return Response(push_subscription_dict(PushSubscription.objects.filter(endpoint=endpoint, user=user).first()))
+    if not isinstance(subscription_data, dict) or not isinstance(subscription_data.get('keys'), dict):
+        raise ApiError("Abonnement invalide")
+    endpoint = str(subscription_data.get('endpoint', ''))
+    keys = subscription_data['keys']
+    if not endpoint.startswith('https://') or len(endpoint) > 1024:
+        raise ApiError("Adresse de notification invalide")
+    if not webpush.valid_subscription_keys(keys.get('p256dh', ''), keys.get('auth', '')):
+        raise ApiError("Clés d'abonnement invalides")
+    subscription, _ = PushSubscription.objects.update_or_create(endpoint=endpoint, defaults={
+        'user': user,
+        'p256dh': str(keys['p256dh']),
+        'auth': str(keys['auth']),
+        'stock_low': bool(data.get('stock_low', True)),
+        'stock_empty': bool(data.get('stock_empty', True)),
+    })
+    return Response(push_subscription_dict(subscription))
+
+
+@api_view(['POST'])
+@handle_errors
+def push_unsubscribe(request):
+    """Desabonnement de ce navigateur : l'endpoint suffit (il n'est connu que du navigateur et du serveur)."""
+    deleted, _ = PushSubscription.objects.filter(endpoint=str(request.data.get('endpoint', ''))).delete()
+    return Response({'subscribed': False, 'deleted': bool(deleted)})
+
+
+@api_view(['POST'])
+@handle_errors
+def push_test(request):
+    """Notification de test vers ce navigateur."""
+    user = badge_user(request, (Role.ADMIN,))
+    push_available()
+    subscription = PushSubscription.objects.filter(endpoint=str(request.data.get('endpoint', '')), user=user).first()
+    if subscription is None:
+        raise ApiError("Notifications non activées sur ce navigateur", status.HTTP_404_NOT_FOUND)
+    webpush.queue([(subscription.id, {
+        'title': 'QRProtec : test',
+        'body': 'Les notifications de stock fonctionnent sur cet appareil.',
+        'tag': 'test',
+        'url': '../#stock',
+    })])
+    return Response({'queued': True})
 
 
 @api_view(['GET'])

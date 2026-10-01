@@ -133,6 +133,7 @@ class ItemType(models.Model):
     perissable = models.BooleanField(default=False) # if false, date is not mandatory
     default_pack_size = models.PositiveIntegerField(default=1) # nombre d'items dans un paquet a la reception
     low_notified = models.BooleanField(default=False) # SMS "stock bas" deja envoye (remis a zero au-dessus du minimum)
+    empty_notified = models.BooleanField(default=False) # notification "stock vide" deja envoyee (remis a zero au-dessus de 0)
 
     def __str__(self):
         return f"{self.name} ({self.type})"
@@ -449,3 +450,26 @@ class SmsRecipient(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class PushKeys(models.Model):
+    """Cles VAPID du serveur pour les notifications web (une seule ligne, pk=1, generee au premier usage)."""
+    private_key = models.TextField()                # PEM PKCS8 (P-256)
+    public_key = models.CharField(max_length=128)   # point non compresse, base64url (applicationServerKey)
+    created = models.DateTimeField(default=timezone.now)
+
+
+class PushSubscription(models.Model):
+    """Abonnement d'un navigateur aux notifications web de stock (admins uniquement)."""
+    user = models.ForeignKey(Secouristes, on_delete=models.CASCADE, related_name='push_subscriptions')
+    endpoint = models.URLField(max_length=1024, unique=True)
+    p256dh = models.CharField(max_length=128)
+    auth = models.CharField(max_length=64)
+    stock_low = models.BooleanField(default=True)     # un type passe sous son minimum
+    stock_empty = models.BooleanField(default=True)   # un type arrive a 0
+    created = models.DateTimeField(default=timezone.now)
+    last_sent = models.DateTimeField(blank=True, null=True)
+    last_status = models.CharField(max_length=128, blank=True, default='')
+
+    def __str__(self):
+        return f'{self.user_id} : {self.endpoint[:48]}'

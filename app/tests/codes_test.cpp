@@ -205,6 +205,13 @@ static void test_templates_dir() {
   std::ofstream(dir / "logo.png") << "x";
   const auto found = glob_templates("*.qr");
   assert(found.size() == 2 && found[0].filename() == "a.QR" && found[1].filename() == "b.qr");
+  // images des etiquettes : sous-dossier images/ d'abord, puis la racine
+  std::filesystem::create_directories(dir / LABEL_IMAGES_DIR);
+  std::ofstream(dir / LABEL_IMAGES_DIR / "protec.png") << "x";
+  std::ofstream(dir / LABEL_IMAGES_DIR / "autre.JPG") << "x";
+  const auto images = label_images();
+  assert(images.size() == 3 && images[0] == "images/autre.JPG" && images[1] == "images/protec.png" && images[2] == "logo.png");
+  assert(resolve_template_path(images[1]) == dir / "images" / "protec.png");
   std::filesystem::remove_all(dir);
   set_templates_dir("");
 }

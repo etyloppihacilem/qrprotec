@@ -94,7 +94,7 @@ logs...) : il est préservé par les mises à jour.
 (`logind.conf.d`, `sleep.conf.d`), l'écran s'éteint après 30 min sans activité (swayidle + wlopm, ou
 wlr-randr) et se rallume à la première touche ; curseur et clavier restent normaux. Les réglages du
 front (`api_url`, imprimante...) sont dans `/var/lib/qrprotec-kiosk/.config/qrprotec/app.conf` et
-les modèles d'étiquettes dans `/var/lib/qrprotec-kiosk/templates/` (y copier `logo.png`).
+les modèles d'étiquettes dans `/var/lib/qrprotec-kiosk/templates/` (images dans son sous-dossier `images/`).
 `Ctrl+Alt+F2` ouvre une console de maintenance.
 
 **Administrateur** : `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821` (toute commande
@@ -300,7 +300,8 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 | `QRPROTEC_DEBUG_HOSTS` | `192.168.1.201` (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement) |
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
 | `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `3650` |
-| `QRPROTEC_SMS_SYNC` | `0` (SMS envoyés dans un thread ; `1` = dans la requête) |
+| `QRPROTEC_SMS_SYNC` | `0` (SMS et notifications web envoyés dans un thread ; `1` = dans la requête) |
+| `QRPROTEC_WEB_PUSH_SUBJECT` | `QRPROTEC_PUBLIC_BASE_URL` (contact VAPID des notifications web : `mailto:...` ou `https://...`) |
 | `QRPROTEC_SECRET_KEY`, `QRPROTEC_DEBUG`, `QRPROTEC_DB_PATH` | réglages Django |
 
 ### Routes (`/api/...`)
@@ -310,7 +311,9 @@ Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`
 key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
 `unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
 `lots/summary/` (lots actifs et leur état, tout badge valide) et `stock/summary/` (état des stocks,
-rôles gestion et admin).
+rôles gestion et admin). Notifications web : `push/key/` (GET, clé publique VAPID),
+`push/subscription/` (POST badge admin + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
+`stock_empty` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge admin + endpoint).
 
 ### Rôles
 
@@ -388,6 +391,22 @@ lots contenant des périmés. Les péremptions faisant baisser le stock sans act
 ```sh
 python manage.py check_alerts   # ex. crontab : 45 7 * * * cd .../database && python manage.py check_alerts
 ```
+
+### Notifications web (tous navigateurs)
+
+Les SMS ne fonctionnent qu'avec une ligne Free. Un administrateur connecté sur le téléphone (badge +
+PIN) peut aussi activer, dans l'onglet **Stock**, des notifications web sur son appareil : **stock bas**
+(un type passe sous son minimum) et/ou **stock vide** (un type arrive à 0). Le navigateur ne demande
+l'autorisation qu'au clic sur « Activer les notifications » ; un bouton envoie une notification de test.
+Les alertes arrivent même page fermée (une par passage sous le seuil, comme les SMS) et ouvrent
+l'onglet Stock.
+
+- Il faut HTTPS avec un certificat reconnu par le téléphone (avec `tls internal`, installer l'autorité
+  de Caddy sur le téléphone) et un accès Internet sortant du serveur vers le service de notifications
+  du navigateur (Google, Mozilla, Apple).
+- Sur iPhone (iOS 16.4+), ajouter d'abord la page à l'écran d'accueil.
+- Le serveur utilise `python3-cryptography` (chiffrement RFC 8291, clés VAPID générées au premier
+  usage et gardées en base). Un abonnement expiré est supprimé au premier envoi refusé.
 
 ## Front web (téléphone)
 
@@ -538,5 +557,9 @@ CENTRE » par défaut) se change dans les Réglages et s'applique à toutes les 
 chaque clone (autre dossier possible dans les Réglages ou via `QRPROTEC_TEMPLATES_DIR`).
 
 `app/templates/` contient un modèle d'exemple par usage (40 × 30 mm). Les modèles de lot public et
-de badge affichent `logo.png` : copier le logo de la protection civile sous ce nom dans le dossier
-des modèles.
+de badge affichent `images/protec.png`, le logo fourni avec les sources.
+
+**Images des étiquettes** : toutes les images à poser sur les étiquettes (logos...) vont dans
+`app/templates/images/` ; l'éditeur d'étiquettes les propose dans « Choisir une image du dossier ».
+`make icon ICON=chemin/vers/logo.png` (ImageMagick) remplace d'un coup `images/protec.png` et l'icône
+du site web (onglet, écran d'accueil, notifications).

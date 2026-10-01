@@ -27,6 +27,14 @@ const std::filesystem::path &templates_dir();
 std::filesystem::path resolve_template_path(const std::string &path);
 
 // Fichiers du dossier des modeles correspondant a un motif glob (ex: "*.qr"), tries par nom.
-std::vector< std::filesystem::path > glob_templates(const std::string &pattern);
+// subdirectory : sous-dossier du dossier des modeles (ex: "images").
+std::vector< std::filesystem::path > glob_templates(const std::string &pattern, const std::string &subdirectory = "");
+
+// Sous-dossier des images a mettre sur les etiquettes (logo...) : <dossier des modeles>/images.
+constexpr const char *LABEL_IMAGES_DIR = "images";
+
+// Images PNG / JPEG utilisables sur les etiquettes, en chemins relatifs au dossier des modeles :
+// celles de images/ ("images/protec.png") puis celles posees a la racine (anciens modeles).
+std::vector< std::string > label_images();
 
 } // namespace qrprotec

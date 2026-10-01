@@ -75,15 +75,31 @@ std::filesystem::path resolve_template_path(const std::string &path) {
   return templates_dir() / value;
 }
 
-std::vector< std::filesystem::path > glob_templates(const std::string &pattern) {
+std::vector< std::filesystem::path > glob_templates(const std::string &pattern, const std::string &subdirectory) {
   std::vector< std::filesystem::path > matches;
   const std::regex                     expression = glob_regex(pattern);
   std::error_code                      error;
-  for (const auto &entry : std::filesystem::directory_iterator(templates_dir(), error))
+  const std::filesystem::path          directory = subdirectory.empty() ? templates_dir() : templates_dir() / subdirectory;
+  for (const auto &entry : std::filesystem::directory_iterator(directory, error))
     if (entry.is_regular_file(error) && std::regex_match(entry.path().filename().string(), expression))
       matches.push_back(entry.path());
   std::sort(matches.begin(), matches.end());
   return matches;
+}
+
+std::vector< std::string > label_images() {
+  std::vector< std::string > images;
+  for (const std::string subdirectory : { std::string(LABEL_IMAGES_DIR), std::string() }) {
+    std::vector< std::filesystem::path > found;
+    for (const char *pattern : { "*.png", "*.jpg", "*.jpeg" })
+      for (const auto &path : glob_templates(pattern, subdirectory))
+        found.push_back(path);
+    std::sort(found.begin(), found.end());
+    for (const auto &path : found)
+      images.push_back(subdirectory.empty() ? path.filename().string()
+                                            : (std::filesystem::path(subdirectory) / path.filename()).generic_string());
+  }
+  return images;
 }
 
 } // namespace qrprotec

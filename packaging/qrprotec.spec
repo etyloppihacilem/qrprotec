@@ -49,6 +49,8 @@ Source1:        %{name}-vendor-%{tar_version}.tar.gz
 Source2:        %{name}.sysusers
 
 BuildRequires:  python3-devel
+# notifications web (chiffrement Web Push, VAPID) : tests du %check
+BuildRequires:  python3-cryptography
 BuildRequires:  systemd-rpm-macros
 %if %{with kiosk}
 BuildRequires:  cmake
@@ -64,6 +66,8 @@ BuildRequires:  libxdo-devel
 
 Requires:       caddy
 Requires:       python(abi) = %{python3_version}
+# notifications web (Web Push) ; non embarque : module compile, fourni par Fedora
+Requires:       python3-cryptography
 Requires:       util-linux
 # qrprotec-backup : archives .tar.xz
 Requires:       tar
@@ -179,6 +183,8 @@ install -Dpm 0755 app/scanner_lib/ble/linux/x86_64-unknown-linux-gnu/libinateck_
 %endif
 install -d %{buildroot}%{appdir}/templates
 install -pm 0644 app/templates/*.qr %{buildroot}%{appdir}/templates/
+install -d %{buildroot}%{appdir}/templates/images
+install -pm 0644 app/templates/images/* %{buildroot}%{appdir}/templates/images/
 install -Dpm 0644 packaging/files/kiosk.conf %{buildroot}%{_sysconfdir}/%{name}/kiosk.conf
 install -Dpm 0644 packaging/files/qrprotec-kiosk.service %{buildroot}%{_unitdir}/qrprotec-kiosk.service
 install -Dpm 0644 packaging/files/logind-qrprotec.conf \

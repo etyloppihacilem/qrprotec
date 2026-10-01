@@ -227,6 +227,11 @@ class WebFrontTests(ApiTestCase):
         self.assertEqual(self.client.get('/web/../views.py').status_code, 404)
         self.assertEqual(self.client.get('/web/index.html').status_code, 404)
 
+    def test_icons_and_service_worker(self):
+        for url in ('/web/sw.js', '/web/icon-192.png', '/web/icon-512.png', '/web/favicon.png', '/favicon.ico'):
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        self.assertEqual(self.client.get('/favicon.ico')['Content-Type'], 'image/png')
+
 
 class SetupTests(ApiTestCase):
     def test_setup_and_createadmin(self):
@@ -467,6 +472,173 @@ class SmsTests(ApiTestCase):
         self.assertEqual(body['sent'], 2)
         code, settings_body = self.call('GET', '/api/notifications/')
         self.assertEqual(settings_body['recipients'][0]['last_status'], 'Envoyé')
+
+
+@override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
+class WebPushTests(ApiTestCase):
+    """Notifications web : chiffrement RFC 8291, VAPID, abonnement des admins et alertes de stock."""
+
+    def setUp(self):
+        super().setUp()
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        from . import views, webpush
+        self.webpush = webpush
+        self.sent = []   # (endpoint, corps chiffre, en-tetes)
+        self.reply = 201
+        original = webpush.post_push
+        webpush.post_push = lambda endpoint, body, headers: (self.sent.append((endpoint, body, headers)) or self.reply)
+        self.addCleanup(setattr, webpush, 'post_push', original)
+        self.admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
+        self.admin.renew_key()
+        self.admin.set_pin('4821')
+        self.admin.save()
+        self.badge = {'matricule': 'A001', 'key': self.admin.key, 'session': views.session_token(self.admin)}
+        self.browser_key = ec.generate_private_key(ec.SECP256R1())
+        self.browser_auth = webpush.b64url(b'0123456789abcdef')
+
+    def subscription(self, endpoint='https://push.example.net/abc'):
+        return {'endpoint': endpoint, 'keys': {
+            'p256dh': self.webpush.b64url(self.webpush._public_point(self.browser_key)), 'auth': self.browser_auth}}
+
+    def subscribe(self, **prefs):
+        return self.call('POST', '/api/push/subscription/',
+                         {'user': self.badge, 'subscription': self.subscription(), **prefs}, local=False)
+
+    def decrypt(self, body):
+        """Dechiffrement cote navigateur (RFC 8291) pour verifier les messages envoyes."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        hkdf = self.webpush._hkdf
+        salt, key_length = body[:16], body[20]
+        sender_point = body[21:21 + key_length]
+        sender = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), sender_point)
+        shared = self.browser_key.exchange(ec.ECDH(), sender)
+        receiver_point = self.webpush._public_point(self.browser_key)
+        ikm = hkdf(self.webpush.b64url_decode(self.browser_auth), shared,
+                   b'WebPush: info\x00' + receiver_point + sender_point, 32)
+        key = hkdf(salt, ikm, b'Content-Encoding: aes128gcm\x00', 16)
+        nonce = hkdf(salt, ikm, b'Content-Encoding: nonce\x00', 12)
+        plain = AESGCM(key).decrypt(nonce, body[21 + key_length:], None)
+        self.assertEqual(plain[-1:], b'\x02')
+        return json.loads(plain[:-1])
+
+    def messages(self):
+        return [self.decrypt(body) for _, body, _ in self.sent]
+
+    def test_rfc8291_example(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+        webpush = self.webpush
+
+        def private(text):
+            return ec.derive_private_key(int.from_bytes(webpush.b64url_decode(text), 'big'), ec.SECP256R1())
+        receiver = private('q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94')
+        body = webpush.encrypt(b'When I grow up, I want to be a watermelon',
+                               webpush.b64url(webpush._public_point(receiver)), 'BTBZMqHH6r4Tts7J_aSIgg',
+                               salt=webpush.b64url_decode('DGv6ra1nlYgDCS1FRnbzlw'),
+                               sender_key=private('yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw'))
+        self.assertEqual(webpush.b64url(body),
+                         'DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6'
+                         'TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qul'
+                         'cy4a-fN')
+
+    def test_vapid_token_is_signed_by_the_published_key(self):
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+        webpush = self.webpush
+        code, body = self.call('GET', '/api/push/key/', local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(self.call('GET', '/api/push/key/', local=False)[1], body)  # cle stable
+        authorization = webpush.vapid_authorization('https://push.example.net/abc/def', now=1000)
+        token, key = authorization.removeprefix('vapid t=').split(', k=')
+        self.assertEqual(key, body['public_key'])
+        header, claims, signature = token.split('.')
+        self.assertEqual(json.loads(webpush.b64url_decode(claims)),
+                         {'aud': 'https://push.example.net', 'exp': 1000 + webpush.JWT_VALIDITY, 'sub': webpush.subject()})
+        public = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), webpush.b64url_decode(key))
+        raw = webpush.b64url_decode(signature)
+        der = encode_dss_signature(int.from_bytes(raw[:32], 'big'), int.from_bytes(raw[32:], 'big'))
+        public.verify(der, f'{header}.{claims}'.encode(), ec.ECDSA(hashes.SHA256()))  # leve si invalide
+
+    def test_only_admins_subscribe(self):
+        code, body = self.call('POST', '/api/push/subscription/',
+                               {'user': {'matricule': 'M001', 'key': self.user.key}, 'subscription': self.subscription()},
+                               local=False)
+        self.assertEqual((code, body['error']), (403, 'Réservé aux administrateurs'))
+        # sans jeton de session (PIN), refuse aussi
+        code, _ = self.call('POST', '/api/push/subscription/',
+                            {'user': {'matricule': 'A001', 'key': self.admin.key}, 'subscription': self.subscription()},
+                            local=False)
+        self.assertEqual(code, 403)
+        code, _ = self.call('POST', '/api/push/subscription/',
+                            {'user': self.badge, 'subscription': self.subscription('http://insecure/')}, local=False)
+        self.assertEqual(code, 400)
+
+    def test_subscribe_status_and_unsubscribe(self):
+        code, body = self.subscribe(stock_low=False, stock_empty=True)
+        self.assertEqual(code, 200)
+        self.assertEqual((body['subscribed'], body['stock_low'], body['stock_empty']), (True, False, True))
+        endpoint = self.subscription()['endpoint']
+        code, body = self.call('POST', '/api/push/subscription/', {'user': self.badge, 'endpoint': endpoint}, local=False)
+        self.assertEqual((body['subscribed'], body['stock_low']), (True, False))
+        code, body = self.subscribe(stock_low=True, stock_empty=True)  # mise a jour, pas de doublon
+        self.assertEqual(self.webpush.PushSubscription.objects.count(), 1)
+        code, body = self.call('POST', '/api/push/unsubscribe/', {'endpoint': endpoint}, local=False)
+        self.assertTrue(body['deleted'])
+        code, body = self.call('POST', '/api/push/subscription/', {'user': self.badge, 'endpoint': endpoint}, local=False)
+        self.assertEqual(body, {'subscribed': False})
+
+    def test_test_notification(self):
+        self.subscribe()
+        with self.captureOnCommitCallbacks(execute=True):
+            code, _ = self.call('POST', '/api/push/test/', {'user': self.badge, 'endpoint': self.subscription()['endpoint']},
+                                local=False)
+        self.assertEqual(code, 200)
+        endpoint, _, headers = self.sent[0]
+        self.assertEqual(endpoint, 'https://push.example.net/abc')
+        self.assertEqual(headers['Content-Encoding'], 'aes128gcm')
+        self.assertTrue(headers['Authorization'].startswith('vapid t='))
+        self.assertEqual(self.messages()[0]['title'], 'QRProtec : test')
+
+    def test_stock_low_and_empty_once_per_crossing(self):
+        self.subscribe()
+        self.create(self.garrot, None, 1)  # garrot 1/2 : bas mais pas vide ; compresses 0/10 : vide
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        [message] = self.messages()
+        self.assertEqual(message['tag'], 'stock-empty')
+        self.assertEqual(message['body'], 'Stock vide : Compresses\nStock bas : Garrot 1/2')
+        self.sent.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual(self.sent, [])
+        # le dernier garrot part dans un lot : stock vide (deja signale bas)
+        garrot = Items.objects.get(pack__item_type=self.garrot)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [garrot.iid], 'user': 'M001'})
+        self.assertEqual([m['body'] for m in self.messages()], ['Stock vide : Garrot'])
+
+    def test_preferences_and_expired_subscription(self):
+        self.subscribe(stock_low=True, stock_empty=False)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual([m['body'] for m in self.messages()], ['Stock bas : Compresses 0/10, Garrot 0/2'])
+        # abonnement annule par le navigateur : supprime au premier envoi refuse
+        self.sent.clear()
+        self.reply = 410
+        ItemType.objects.update(low_notified=False)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual(len(self.sent), 1)
+        self.assertFalse(self.webpush.PushSubscription.objects.exists())
+
+    def test_demoted_admin_receives_nothing(self):
+        self.subscribe()
+        Secouristes.objects.filter(matricule='A001').update(role='gestion')
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual(self.sent, [])
 
 
 class RemoteScannerTests(TestCase):

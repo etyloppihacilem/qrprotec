@@ -27,6 +27,10 @@ ASSETS = {
     'vendor/jsQR.js': 'text/javascript; charset=utf-8',
     'scanner.js': 'text/javascript; charset=utf-8',
     'manifest.webmanifest': 'application/manifest+json',
+    'sw.js': 'text/javascript; charset=utf-8',  # service worker des notifications web (portee web/)
+    'favicon.png': 'image/png',
+    'icon-192.png': 'image/png',
+    'icon-512.png': 'image/png',
 }
 
 
@@ -50,6 +54,11 @@ def scanner_page(request):
     response['Permissions-Policy'] = 'camera=(self)'
     response['Referrer-Policy'] = 'no-referrer'
     return response
+
+
+def favicon(request):
+    # demande d'office par les navigateurs a la racine du site
+    return _file(WEB_DIR / 'favicon.png', 'image/png', 'max-age=86400')
 
 
 def asset(request, name):

@@ -74,7 +74,7 @@ private:
 
     std::string loaded_templates_dir_;
     std::vector<std::filesystem::path> qr_files_;
-    std::vector<std::filesystem::path> image_files_;
+    std::vector<std::string> image_files_; // relatifs au dossier des modeles (images/...)
     std::vector<TemplateDocument> document_list_;
 };
 
