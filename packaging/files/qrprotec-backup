@@ -1,0 +1,308 @@
+#!/usr/bin/bash
+# Sauvegarde et restauration de la borne QRProtec.
+#
+#   sudo qrprotec-backup                       # cree une archive (et supprime les plus anciennes)
+#   sudo qrprotec-backup --list                # liste les archives
+#   sudo qrprotec-backup --restore ARCHIVE     # restaure base + configuration (voir aussi qrprotec-setup)
+#   sudo qrprotec-backup --apply-schedule      # applique QRPROTEC_BACKUP_SCHEDULE au timer systemd
+#
+# Archive : <QRPROTEC_BACKUP_DIR>/qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz (0600 root), contenant
+# un instantane coherent de la base SQLite (API de sauvegarde de SQLite, service en marche), la
+# configuration de /etc/qrprotec (cle secrete comprise), le fragment Caddy, et les reglages et
+# modeles d'etiquettes du kiosk. Reglages : /etc/qrprotec/backup.conf (ou sudo qrprotec-setup).
+set -euo pipefail
+umask 077
+
+readonly CONF_DIR=/etc/qrprotec
+readonly BACKUP_CONF=$CONF_DIR/backup.conf
+readonly CADDY_FRAGMENT=/etc/caddy/Caddyfile.d/qrprotec.caddyfile
+readonly KIOSK_HOME=/var/lib/qrprotec-kiosk
+readonly TIMER_DROPIN_DIR=/etc/systemd/system/qrprotec-backup.timer.d
+readonly PREFIX=qrprotec-backup_
+readonly FORMAT=1
+
+die() { echo "qrprotec-backup : $*" >&2; exit 1; }
+log() { echo "qrprotec-backup : $*"; }
+
+usage() {
+    cat <<USAGE
+Usage : qrprotec-backup [--no-rotate] [--dir DOSSIER]
+        qrprotec-backup --list
+        qrprotec-backup --restore ARCHIVE [--db-only] [--yes]
+        qrprotec-backup --apply-schedule
+
+Reglages (/etc/qrprotec/backup.conf) :
+  QRPROTEC_BACKUP_DIR       dossier des archives        (defaut /var/backups/qrprotec)
+  QRPROTEC_BACKUP_KEEP      nombre d'archives gardees   (defaut 14, 0 = toutes)
+  QRPROTEC_BACKUP_SCHEDULE  frequence : hourly, daily, weekly, monthly, une expression
+                            OnCalendar de systemd (ex. "*-*-* 03:30"), ou off
+USAGE
+}
+
+# Fichier KEY=valeur : seules les cles QRPROTEC_* sont lues (jamais execute)
+read_conf() {
+    local file=$1 key value
+    [[ -r $file ]] || return 0
+    while IFS='=' read -r key value; do
+        [[ $key =~ ^QRPROTEC_[A-Z0-9_]+$ ]] || continue
+        value=${value%\"}
+        value=${value#\"}
+        printf -v "$key" '%s' "$value"
+    done <"$file"
+}
+
+load_settings() {
+    read_conf "$CONF_DIR/qrprotec.conf"
+    read_conf "$CONF_DIR/kiosk.conf"
+    read_conf "$BACKUP_CONF"
+    backup_dir=${QRPROTEC_BACKUP_DIR:-/var/backups/qrprotec}
+    keep=${QRPROTEC_BACKUP_KEEP:-14}
+    schedule=${QRPROTEC_BACKUP_SCHEDULE:-daily}
+    db_path=${QRPROTEC_DB_PATH:-/var/lib/qrprotec/db.sqlite3}
+    templates_dir=${QRPROTEC_TEMPLATES_DIR:-$KIOSK_HOME/templates}
+    [[ $keep =~ ^[0-9]+$ ]] || die "QRPROTEC_BACKUP_KEEP invalide : $keep"
+    [[ $backup_dir == /* ]] || die "QRPROTEC_BACKUP_DIR doit etre un chemin absolu : $backup_dir"
+}
+
+# Copie coherente d'une base SQLite, meme ouverte par le back
+sqlite_snapshot() {
+    python3 - "$1" "$2" <<'PY'
+import sqlite3, sys
+source = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+target = sqlite3.connect(sys.argv[2])
+with target:
+    source.backup(target)
+result = target.execute("PRAGMA integrity_check").fetchone()[0]
+target.close()
+source.close()
+if result != "ok":
+    sys.exit(f"base corrompue : {result}")
+PY
+}
+
+sqlite_check() {
+    python3 - "$1" <<'PY'
+import sqlite3, sys
+connection = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+result = connection.execute("PRAGMA integrity_check").fetchone()[0]
+tables = connection.execute("SELECT count(*) FROM sqlite_master WHERE name = 'django_migrations'").fetchone()[0]
+connection.close()
+if result != "ok" or not tables:
+    sys.exit(f"base invalide ({result})")
+PY
+}
+
+archives() {
+    find "$backup_dir" -maxdepth 1 -type f -name "${PREFIX}*.tar.xz" -printf '%f\n' 2>/dev/null | sort
+}
+
+create_backup() {
+    local rotate=$1 stamp name work archive
+    [[ -f $db_path ]] || die "base introuvable : $db_path"
+    if [[ ! -d $backup_dir ]]; then
+        mkdir -p "$backup_dir"
+        chmod 0700 "$backup_dir"
+    fi
+
+    stamp=$(date +%Y-%m-%d_%H%M%S)
+    name=${PREFIX}${stamp}
+    archive=$backup_dir/$name.tar.xz
+    [[ -e $archive ]] && die "$archive existe deja"
+    work=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$work'" EXIT
+    mkdir -p "$work/$name"
+
+    sqlite_snapshot "$db_path" "$work/$name/db.sqlite3"
+
+    mkdir -p "$work/$name/etc/qrprotec" "$work/$name/etc/caddy/Caddyfile.d"
+    find "$CONF_DIR" -maxdepth 1 -type f ! -name '*.rpm*' -exec cp -p {} "$work/$name/etc/qrprotec/" \;
+    [[ -f $CADDY_FRAGMENT ]] && cp -p "$CADDY_FRAGMENT" "$work/$name/etc/caddy/Caddyfile.d/"
+    if [[ -d $KIOSK_HOME/.config/qrprotec ]]; then
+        mkdir -p "$work/$name/kiosk"
+        cp -a "$KIOSK_HOME/.config/qrprotec" "$work/$name/kiosk/config"
+    fi
+    if [[ -d $templates_dir ]]; then
+        mkdir -p "$work/$name/kiosk"
+        cp -a "$templates_dir" "$work/$name/kiosk/templates"
+    fi
+
+    cat >"$work/$name/MANIFEST" <<MANIFEST
+format=$FORMAT
+date=$(date --iso-8601=seconds)
+host=$(uname -n)
+package=$(rpm -q qrprotec 2>/dev/null || echo inconnu)
+domain=${QRPROTEC_DOMAIN:-}
+MANIFEST
+
+    XZ_OPT=${XZ_OPT:--6 -T0} tar -C "$work" --numeric-owner -cJf "$archive.part" "$name"
+    chmod 0600 "$archive.part"
+    mv "$archive.part" "$archive"
+    log "archive creee : $archive ($(du -h "$archive" | cut -f1))"
+
+    if [[ $rotate == yes ]] && ((keep > 0)); then
+        local old
+        while read -r old; do
+            [[ -n $old ]] || continue
+            rm -f -- "$backup_dir/$old"
+            log "ancienne archive supprimee : $old"
+        done < <(archives | head -n "-$keep")
+    fi
+}
+
+list_backups() {
+    local name
+    echo "Dossier : $backup_dir (garder : $keep, frequence : $schedule)"
+    while read -r name; do
+        [[ -n $name ]] || continue
+        printf '  %s  %6s\n' "$name" "$(du -h "$backup_dir/$name" | cut -f1)"
+    done < <(archives)
+}
+
+apply_schedule() {
+    [[ -d /run/systemd/system ]] || return 0
+    if [[ $schedule == off ]]; then
+        rm -rf "$TIMER_DROPIN_DIR"
+        systemctl daemon-reload
+        systemctl disable --now qrprotec-backup.timer >/dev/null 2>&1 || :
+        log "sauvegardes automatiques desactivees"
+        return
+    fi
+    systemd-analyze calendar "$schedule" >/dev/null 2>&1 || die "frequence invalide : $schedule"
+    mkdir -p "$TIMER_DROPIN_DIR"
+    printf '# Genere par qrprotec-backup --apply-schedule (QRPROTEC_BACKUP_SCHEDULE)\n[Timer]\nOnCalendar=\nOnCalendar=%s\n' \
+        "$schedule" >"$TIMER_DROPIN_DIR/schedule.conf"
+    chmod 0644 "$TIMER_DROPIN_DIR/schedule.conf"
+    systemctl daemon-reload
+    systemctl enable --now qrprotec-backup.timer >/dev/null 2>&1 || :
+    log "sauvegarde automatique : $schedule (prochaine : $(systemctl show -P NextElapseUSecRealtime qrprotec-backup.timer 2>/dev/null || echo ?))"
+}
+
+# Copie un fichier restaure avec proprietaire et droits explicites
+put() {
+    local source=$1 target=$2 owner=$3 mode=$4
+    [[ -f $source ]] || return 0
+    install -D -o "${owner%:*}" -g "${owner#*:}" -m "$mode" "$source" "$target"
+}
+
+restore_backup() {
+    local archive=$1 db_only=$2 assume_yes=$3 work name answer services=()
+    [[ -f $archive ]] || die "archive introuvable : $archive"
+    archive=$(realpath "$archive")
+
+    work=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$work'" EXIT
+    tar -C "$work" --no-same-owner -xJf "$archive" || die "archive illisible : $archive"
+    name=$(find "$work" -mindepth 1 -maxdepth 1 -type d -name "${PREFIX}*" -printf '%f\n' | head -n 1)
+    [[ -n $name && -f $work/$name/MANIFEST && -f $work/$name/db.sqlite3 ]] ||
+        die "$archive n'est pas une sauvegarde QRProtec"
+    local src=$work/$name
+    grep -q "^format=$FORMAT$" "$src/MANIFEST" || die "format d'archive non pris en charge"
+    sqlite_check "$src/db.sqlite3" || die "la base de l'archive est invalide"
+
+    echo "Archive : $archive"
+    sed 's/^/  /' "$src/MANIFEST"
+    if [[ $db_only == yes ]]; then
+        echo "Restauration de la base seulement (configuration actuelle conservee)."
+    else
+        echo "Restauration de la base ET de la configuration (/etc/qrprotec, Caddy, kiosk)."
+    fi
+    echo "La base actuelle sera remplacee (une sauvegarde de l'etat actuel est faite avant)."
+    if [[ $assume_yes != yes ]]; then
+        [[ -t 0 ]] || die "confirmation requise : relancer avec --yes"
+        read -r -p "Continuer ? [o/N] : " answer
+        [[ ${answer,,} =~ ^(o|oui|y|yes)$ ]] || die "abandon"
+    fi
+
+    # Filet de securite : etat actuel, sans rotation (ne supprime pas l'archive a restaurer)
+    if [[ -f $db_path ]]; then
+        (create_backup no) || die "sauvegarde de l'etat actuel impossible, restauration annulee"
+    fi
+
+    if [[ -d /run/systemd/system ]]; then
+        local unit
+        for unit in qrprotec-kiosk.service qrprotec-alerts.timer qrprotec.service; do
+            if systemctl is-active --quiet "$unit"; then
+                services+=("$unit")
+                systemctl stop "$unit"
+            fi
+        done
+    fi
+
+    put "$src/db.sqlite3" "$db_path" qrprotec:qrprotec 0640
+    rm -f "$db_path-journal" "$db_path-wal" "$db_path-shm"
+    log "base restauree : $db_path"
+
+    if [[ $db_only != yes ]]; then
+        local file
+        for file in "$src"/etc/qrprotec/*; do
+            [[ -f $file ]] || continue
+            case ${file##*/} in
+                qrprotec.conf | secret_key) put "$file" "$CONF_DIR/${file##*/}" root:qrprotec 0640 ;;
+                *) put "$file" "$CONF_DIR/${file##*/}" root:root 0644 ;;
+            esac
+        done
+        put "$src/etc/caddy/Caddyfile.d/qrprotec.caddyfile" "$CADDY_FRAGMENT" root:root 0644
+        log "configuration restauree : $CONF_DIR, $CADDY_FRAGMENT"
+        if [[ -d $src/kiosk ]] && id qrprotec-kiosk >/dev/null 2>&1; then
+            load_settings  # QRPROTEC_TEMPLATES_DIR peut venir du kiosk.conf restaure
+            if [[ -d $src/kiosk/config ]]; then
+                mkdir -p "$KIOSK_HOME/.config"
+                cp -a "$src/kiosk/config/." "$KIOSK_HOME/.config/qrprotec/"
+                chown -R qrprotec-kiosk:qrprotec-kiosk "$KIOSK_HOME/.config"
+            fi
+            if [[ -d $src/kiosk/templates ]]; then
+                mkdir -p "$templates_dir"
+                cp -a "$src/kiosk/templates/." "$templates_dir/"
+                chown -R qrprotec-kiosk:qrprotec-kiosk "$templates_dir"
+            fi
+            log "reglages et modeles du kiosk restaures"
+        fi
+        load_settings
+        apply_schedule
+    fi
+
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R "$db_path" "$CONF_DIR" "$CADDY_FRAGMENT" "$KIOSK_HOME" >/dev/null 2>&1 || :
+    fi
+
+    if [[ -d /run/systemd/system ]]; then
+        systemctl daemon-reload
+        # le back applique les migrations au demarrage (archive d'une version plus ancienne)
+        systemctl start qrprotec.service
+        systemctl try-reload-or-restart caddy.service || :
+        local unit
+        for unit in "${services[@]}"; do
+            [[ $unit == qrprotec.service ]] || systemctl start "$unit"
+        done
+    fi
+    log "restauration terminee depuis $archive"
+}
+
+action=create rotate=yes db_only=no assume_yes=no archive="" dir_override=""
+while (($#)); do
+    case $1 in
+        --list) action=list ;;
+        --restore) action=restore; archive=${2:?archive .tar.xz attendue}; shift ;;
+        --apply-schedule) action=schedule ;;
+        --db-only) db_only=yes ;;
+        --no-rotate) rotate=no ;;
+        --dir) dir_override=${2:?}; shift ;;
+        -y | --yes) assume_yes=yes ;;
+        -h | --help) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+[[ $(id -u) -eq 0 ]] || die "a lancer en root (sudo qrprotec-backup)"
+load_settings
+[[ -n $dir_override ]] && backup_dir=$dir_override
+
+case $action in
+    create) create_backup "$rotate" ;;
+    list) list_backups ;;
+    restore) restore_backup "$archive" "$db_only" "$assume_yes" ;;
+    schedule) apply_schedule ;;
+esac

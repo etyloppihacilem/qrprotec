@@ -21,9 +21,10 @@ sur `tty1`, sans bureau ni écran de connexion. Tout le packaging est dans `pack
 | Configuration | `/etc/qrprotec/qrprotec.conf`, `/etc/qrprotec/kiosk.conf`, `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` |
 | Clé secrète Django | `/etc/qrprotec/secret_key` (générée à l'installation, `0640 root:qrprotec`) |
 | Données (base SQLite) | `/var/lib/qrprotec/db.sqlite3` |
-| Services | `qrprotec.service` (back), `qrprotec-kiosk.service` (Cage), `qrprotec-alerts.timer` (SMS, 7 h 45), `caddy.service` |
+| Services | `qrprotec.service` (back), `qrprotec-kiosk.service` (Cage), `qrprotec-alerts.timer` (SMS, 7 h 45), `qrprotec-backup.timer` (sauvegardes), `caddy.service` |
+| Sauvegardes | `/var/backups/qrprotec/qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz` (réglages : `/etc/qrprotec/backup.conf`) |
 | Utilisateurs (`sysusers.d`) | `qrprotec` (back, sans shell), `qrprotec-kiosk` (session Cage ; groupes `dialout`, `video`, `render`, `input`, `audio`) |
-| Commandes | `qrprotec-setup` (assistant), `qrprotec-manage` (`manage.py` avec la configuration de la borne) |
+| Commandes | `qrprotec-setup` (assistant), `qrprotec-manage` (`manage.py` avec la configuration de la borne), `qrprotec-backup` (sauvegarde / restauration) |
 
 Réseau : les deux API du back n'écoutent que sur `127.0.0.1` (8000 publique, 8001 locale). Caddy
 expose 80 (redirection) et 443, et ne proxifie que l'API publique et les pages web (WebSockets du
@@ -62,7 +63,8 @@ les réglages de veille (logind) et vérifier le démarrage direct sur le kiosk.
 ### Configuration
 
 Lancer **`sudo qrprotec-setup`** (relançable à volonté) : nom d'hôte, certificat HTTPS, disposition
-du clavier, extinction de l'écran, ouverture du pare-feu et premier administrateur. Version non
+du clavier, extinction de l'écran, sauvegardes (dossier, nombre, fréquence), ouverture du pare-feu
+et premier administrateur. `sudo qrprotec-setup --help` liste toutes les options. Version non
 interactive :
 
 ```sh
@@ -101,6 +103,49 @@ les modèles d'étiquettes dans `/var/lib/qrprotec-kiosk/templates/` (y copier `
 **Pare-feu** : rien n'est ouvert automatiquement. `qrprotec-setup --open-firewall` ouvre http/https
 dans firewalld s'il est actif, sinon dans UFW (`ufw allow 80/tcp`, `ufw allow 443/tcp`).
 
+### Sauvegardes
+
+`qrprotec-backup.timer` crée chaque jour (par défaut) une archive
+`qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz` (0600, root) contenant :
+
+- un instantané cohérent de la base SQLite (API de sauvegarde de SQLite, sans arrêter le back,
+  intégrité vérifiée) ;
+- `/etc/qrprotec` (configuration, **clé secrète** comprise) et le fragment Caddy ;
+- les réglages du front (`app.conf`, douchette) et les modèles d'étiquettes du kiosk (logo compris) ;
+- un fichier `MANIFEST` (date, machine, version du paquet, nom d'hôte).
+
+Réglages (`sudo qrprotec-setup`, ou `/etc/qrprotec/backup.conf` puis
+`sudo qrprotec-backup --apply-schedule`) :
+
+| Option de `qrprotec-setup` | Variable | Défaut |
+|---|---|---|
+| `--backup-dir DOSSIER` | `QRPROTEC_BACKUP_DIR` | `/var/backups/qrprotec` (de préférence un autre disque : clé USB, NAS monté) |
+| `--backup-keep N` | `QRPROTEC_BACKUP_KEEP` | `14` archives (les plus anciennes sont supprimées ; `0` = toutes) |
+| `--backup-schedule F` | `QRPROTEC_BACKUP_SCHEDULE` | `daily` ; aussi `hourly`, `weekly`, `monthly`, une expression `OnCalendar` (`"*-*-* 03:30:00"`, voir `man systemd.time`) ou `off` |
+
+```sh
+sudo qrprotec-setup --backup-dir /mnt/usb/qrprotec --backup-keep 30 --backup-schedule "*-*-* 03:30:00" --yes
+sudo qrprotec-backup                 # sauvegarde immédiate (ou qrprotec-setup --backup-now)
+sudo qrprotec-backup --list          # archives présentes
+systemctl list-timers qrprotec-backup.timer
+journalctl -u qrprotec-backup
+```
+
+**Restauration** (même borne ou nouvelle installation, après `dnf install qrprotec`) :
+
+```sh
+sudo qrprotec-setup --restore /var/backups/qrprotec/qrprotec-backup_2026-10-01_031204.tar.xz
+sudo qrprotec-setup --restore ARCHIVE --restore-db-only   # la base seulement
+```
+
+La restauration vérifie l'archive, demande confirmation (`--yes` pour s'en passer), **sauvegarde
+d'abord l'état actuel**, arrête les services, remet la base et (sauf `--restore-db-only`) les options
+de `/etc/qrprotec`, le fragment Caddy, les réglages et modèles du kiosk et la fréquence des
+sauvegardes, puis relance les services (le back applique les migrations si l'archive vient d'une
+version plus ancienne). Sur une nouvelle machine dont l'adresse a changé, terminer par
+`sudo qrprotec-setup --domain NOUVEAU_NOM`. Les archives ne sont jamais supprimées par
+`dnf remove`.
+
 ### Mise à jour
 
 ```sh
@@ -120,7 +165,7 @@ sudo dnf remove qrprotec
 
 Les services sont arrêtés et désactivés, Caddy est rechargé sans le site QRProtec, la cible par
 défaut repasse en `multi-user.target` et la console `tty1` revient. Les données (`/var/lib/qrprotec`,
-`/var/lib/qrprotec-kiosk`), la clé secrète et les utilisateurs sont conservés ; une configuration
+`/var/lib/qrprotec-kiosk`), les sauvegardes, la clé secrète et les utilisateurs sont conservés ; une configuration
 modifiée est sauvegardée en `.rpmsave`. `dnf` retire aussi `caddy` et `cage` s'ils n'avaient été
 installés que pour QRProtec (`sudo dnf mark user caddy` avant pour garder Caddy). Le dépôt se
 retire avec `sudo rm /etc/yum.repos.d/qrprotec.repo`.
@@ -132,6 +177,7 @@ journalctl -u qrprotec -f            # back (requêtes, migrations)
 journalctl -u qrprotec-kiosk -b      # Cage et front
 journalctl -u caddy -f               # reverse proxy, certificats
 journalctl -u qrprotec-alerts        # notifications SMS quotidiennes
+journalctl -u qrprotec-backup        # sauvegardes
 systemctl status qrprotec qrprotec-kiosk caddy
 ```
 

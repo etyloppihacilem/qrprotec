@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           shellcheck bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
-            packaging/files/qrprotec-setup packaging/files/qrprotec-kiosk-session
+            packaging/files/qrprotec-setup packaging/files/qrprotec-backup packaging/files/qrprotec-kiosk-session
 
   build:
     runs-on: ubuntu-latest

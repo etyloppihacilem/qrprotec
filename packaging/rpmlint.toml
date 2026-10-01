@@ -26,10 +26,13 @@ Filters = [
     'non-standard-uid',
     'non-standard-gid',
     'non-standard-dir-perm /var/lib/qrprotec',
+    'non-standard-dir-perm /var/backups/qrprotec',
     'non-readable /etc/qrprotec/qrprotec.conf',
     # Scriptlets : marqueur de premiere installation (rm), droits de la cle secrete (chmod)
     'dangerous-command-in-%posttrans rm',
     'dangerous-command-in-%post chmod',
+    # Desinstallation : drop-in de frequence des sauvegardes genere par qrprotec-backup
+    'dangerous-command-in-%postun rm',
     # Termes techniques absents du dictionnaire anglais
     "spelling-error \\('(backend|systemd)'",
     # Version de qrcodegen inconnue (fichiers copies sans numero de version)

@@ -1,0 +1,13 @@
+[Unit]
+Description=QRProtec : sauvegarde automatique
+Documentation=file:///usr/share/doc/qrprotec/README.md
+
+[Timer]
+# Remplace par QRPROTEC_BACKUP_SCHEDULE (/etc/qrprotec/backup.conf) via
+# /etc/systemd/system/qrprotec-backup.timer.d/schedule.conf
+OnCalendar=daily
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

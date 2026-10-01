@@ -3,6 +3,7 @@
 #
 #   sudo qrprotec-setup                      # questions interactives
 #   sudo qrprotec-setup --domain inventaire.example.org --tls admin@example.org --yes
+#   sudo qrprotec-setup --restore /var/backups/qrprotec/qrprotec-backup_2026-10-01_031204.tar.xz
 #
 # Toute la configuration partagee (nom d'hote, TLS) est ecrite dans /etc/qrprotec/qrprotec.conf,
 # lu a la fois par le back et par Caddy. Relancer l'assistant est sans risque (idempotent).
@@ -12,11 +13,18 @@ readonly CONF_FILE=/etc/qrprotec/qrprotec.conf
 readonly KIOSK_CONF=/etc/qrprotec/kiosk.conf
 readonly SECRET_FILE=/etc/qrprotec/secret_key
 readonly CADDYFILE=/etc/caddy/Caddyfile
+readonly BACKUP_CONF=/etc/qrprotec/backup.conf
 
 domain=""
 tls=""
 keyboard=""
 blank=""
+backup_dir=""
+backup_keep=""
+backup_schedule=""
+backup_now=no
+restore_archive=""
+restore_db_only=no
 firewall=""      # yes / no / "" (demander)
 admin=""         # yes / no / "" (demander)
 restart=yes
@@ -32,6 +40,14 @@ Sans option, pose les questions une a une (valeur actuelle entre crochets).
   --tls MODE            "internal" (autorite locale de Caddy) ou adresse e-mail (Let's Encrypt)
   --keyboard DISPO      disposition du clavier du kiosk (fr, us, ch...)
   --screen-blank SEC    extinction de l'ecran apres SEC secondes d'inactivite (0 = jamais)
+  --backup-dir DOSSIER  dossier des sauvegardes (defaut /var/backups/qrprotec)
+  --backup-keep N       nombre de sauvegardes conservees (0 = toutes)
+  --backup-schedule F   frequence : hourly, daily, weekly, monthly, expression OnCalendar
+                        de systemd (ex. "*-*-* 03:30:00") ou off
+  --backup-now          cree une sauvegarde a la fin
+  --restore ARCHIVE     restaure une sauvegarde qrprotec-backup_*.tar.xz (base, options de
+                        /etc/qrprotec, Caddy, reglages et modeles du kiosk) puis s'arrete
+  --restore-db-only     avec --restore : la base seulement, configuration actuelle conservee
   --open-firewall       ouvre http/https dans firewalld ou UFW
   --no-firewall         ne touche pas au pare-feu
   --no-admin            ne propose pas de creer un administrateur
@@ -49,6 +65,12 @@ while (($#)); do
         --tls) tls=${2:?}; shift ;;
         --keyboard) keyboard=${2:?}; shift ;;
         --screen-blank) blank=${2:?}; shift ;;
+        --backup-dir) backup_dir=${2:?}; shift ;;
+        --backup-keep) backup_keep=${2:?}; shift ;;
+        --backup-schedule) backup_schedule=${2:?}; shift ;;
+        --backup-now) backup_now=yes ;;
+        --restore) restore_archive=${2:?archive .tar.xz attendue}; shift ;;
+        --restore-db-only) restore_db_only=yes ;;
         --open-firewall) firewall=yes ;;
         --no-firewall) firewall=no ;;
         --no-admin) admin=no ;;
@@ -62,6 +84,18 @@ done
 
 [[ $(id -u) -eq 0 ]] || die "a lancer en root (sudo qrprotec-setup)"
 [[ -f $CONF_FILE ]] || die "$CONF_FILE introuvable : le paquet qrprotec est-il installe ?"
+
+# Restauration d'une sauvegarde : base + options, puis fin (relancer l'assistant pour ajuster)
+if [[ -n $restore_archive ]]; then
+    restore_args=(--restore "$restore_archive")
+    [[ $restore_db_only == yes ]] && restore_args+=(--db-only)
+    [[ $assume_yes == yes ]] && restore_args+=(--yes)
+    qrprotec-backup "${restore_args[@]}"
+    echo "Options restaurees :"
+    grep -hE '^QRPROTEC_(DOMAIN|TLS|BACKUP_[A-Z]+)=' "$CONF_FILE" "$BACKUP_CONF" 2>/dev/null | sed 's/^/  /'
+    echo "Si la borne a change d'adresse : sudo qrprotec-setup --domain NOUVEAU_NOM"
+    exit 0
+fi
 
 # Valeur actuelle d'une cle dans un fichier KEY=valeur
 get_conf() {
@@ -185,6 +219,27 @@ if [[ -f $KIOSK_CONF ]]; then
     echo "Configuration ecrite dans $KIOSK_CONF"
 fi
 
+# Sauvegardes automatiques (qrprotec-backup.timer)
+[[ -f $BACKUP_CONF ]] || install -m 0644 /dev/null "$BACKUP_CONF"
+current_backup_dir=$(get_conf "$BACKUP_CONF" QRPROTEC_BACKUP_DIR)
+ask backup_dir "Dossier des sauvegardes" "${current_backup_dir:-/var/backups/qrprotec}"
+[[ $backup_dir == /* ]] || die "le dossier des sauvegardes doit etre un chemin absolu : $backup_dir"
+
+current_backup_keep=$(get_conf "$BACKUP_CONF" QRPROTEC_BACKUP_KEEP)
+ask backup_keep "Nombre de sauvegardes conservees (0 = toutes)" "${current_backup_keep:-14}"
+[[ $backup_keep =~ ^[0-9]+$ ]] || die "nombre invalide : $backup_keep"
+
+current_backup_schedule=$(get_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SCHEDULE)
+ask backup_schedule "Frequence (hourly, daily, weekly, monthly, OnCalendar, off)" "${current_backup_schedule:-daily}"
+if [[ $backup_schedule != off ]] && ! systemd-analyze calendar "$backup_schedule" >/dev/null 2>&1; then
+    die "frequence invalide : $backup_schedule (voir man systemd.time)"
+fi
+
+set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_DIR "$backup_dir"
+set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_KEEP "$backup_keep"
+set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SCHEDULE "\"$backup_schedule\""
+echo "Configuration ecrite dans $BACKUP_CONF"
+
 if [[ -f $CADDYFILE ]] && ! grep -Eq '^[[:space:]]*import[[:space:]]+(/etc/caddy/)?Caddyfile\.d/' "$CADDYFILE"; then
     echo "ATTENTION : $CADDYFILE n'importe pas Caddyfile.d/*.caddyfile ; ajoutez la ligne :"
     echo "    import Caddyfile.d/*.caddyfile"
@@ -203,6 +258,7 @@ if [[ $restart == yes ]] && [[ -d /run/systemd/system ]]; then
         systemctl restart qrprotec-kiosk.service
     fi
     echo "Services redemarres : https://$domain/"
+    qrprotec-backup --apply-schedule
 fi
 
 if [[ -z $admin ]]; then
@@ -221,6 +277,10 @@ if [[ $admin == yes ]]; then
     [[ -n $nom && -n $prenom ]] && args+=("$prenom")
     [[ -n $pin ]] && args+=(--pin "$pin")
     qrprotec-manage "${args[@]}"
+fi
+
+if [[ $backup_now == yes ]]; then
+    qrprotec-backup
 fi
 
 echo "Termine. Journaux : journalctl -u qrprotec -u caddy -u qrprotec-kiosk"

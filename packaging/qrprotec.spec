@@ -65,6 +65,9 @@ BuildRequires:  libxdo-devel
 Requires:       caddy
 Requires:       python(abi) = %{python3_version}
 Requires:       util-linux
+# qrprotec-backup : archives .tar.xz
+Requires:       tar
+Requires:       xz
 Requires(post): coreutils
 Requires(post): systemd
 Requires(preun): systemd
@@ -141,9 +144,11 @@ done
 install -Dpm 0755 packaging/files/qrprotec-manage %{buildroot}%{_bindir}/qrprotec-manage
 sed -i 's|@APPDIR@|%{appdir}|g' %{buildroot}%{_bindir}/qrprotec-manage
 install -Dpm 0755 packaging/files/qrprotec-setup %{buildroot}%{_sbindir}/qrprotec-setup
+install -Dpm 0755 packaging/files/qrprotec-backup %{buildroot}%{_sbindir}/qrprotec-backup
 
 # --- Configuration ---------------------------------------------------------------------------
 install -Dpm 0640 packaging/files/qrprotec.conf %{buildroot}%{_sysconfdir}/%{name}/qrprotec.conf
+install -Dpm 0644 packaging/files/backup.conf %{buildroot}%{_sysconfdir}/%{name}/backup.conf
 install -Dpm 0644 packaging/files/qrprotec.caddyfile \
     %{buildroot}%{_sysconfdir}/caddy/Caddyfile.d/%{name}.caddyfile
 
@@ -151,11 +156,15 @@ install -Dpm 0644 packaging/files/qrprotec.caddyfile \
 install -Dpm 0644 packaging/files/qrprotec.service %{buildroot}%{_unitdir}/qrprotec.service
 install -Dpm 0644 packaging/files/qrprotec-alerts.service %{buildroot}%{_unitdir}/qrprotec-alerts.service
 install -Dpm 0644 packaging/files/qrprotec-alerts.timer %{buildroot}%{_unitdir}/qrprotec-alerts.timer
+install -Dpm 0644 packaging/files/qrprotec-backup.service %{buildroot}%{_unitdir}/qrprotec-backup.service
+sed -i 's|@SBINDIR@|%{_sbindir}|g' %{buildroot}%{_unitdir}/qrprotec-backup.service
+install -Dpm 0644 packaging/files/qrprotec-backup.timer %{buildroot}%{_unitdir}/qrprotec-backup.timer
 install -Dpm 0644 packaging/files/caddy-qrprotec.conf %{buildroot}%{_unitdir}/caddy.service.d/%{name}.conf
 install -Dpm 0644 packaging/files/80-qrprotec.preset %{buildroot}%{_presetdir}/80-%{name}.preset
 install -Dpm 0644 packaging/files/qrprotec.sysusers %{buildroot}%{_sysusersdir}/%{name}.conf
 install -Dpm 0644 packaging/files/qrprotec.tmpfiles %{buildroot}%{_tmpfilesdir}/%{name}.conf
 install -d -m 0750 %{buildroot}%{_sharedstatedir}/%{name}
+install -d -m 0700 %{buildroot}%{_localstatedir}/backups/%{name}
 
 %if %{with kiosk}
 # --- Front (kiosk) ---------------------------------------------------------------------------
@@ -193,7 +202,7 @@ rm -f check.sqlite3
 %{?sysusers_create_compat:%sysusers_create_compat %{SOURCE2}}
 
 %post
-%systemd_post qrprotec.service qrprotec-alerts.timer %{?with_kiosk:qrprotec-kiosk.service}
+%systemd_post qrprotec.service qrprotec-alerts.timer qrprotec-backup.timer %{?with_kiosk:qrprotec-kiosk.service}
 # rpm cree les utilisateurs (lignes u) mais ignore les appartenances aux groupes (lignes m)
 systemd-sysusers %{_sysusersdir}/%{name}.conf >/dev/null 2>&1 || :
 %tmpfiles_create %{_tmpfilesdir}/%{name}.conf
@@ -219,15 +228,24 @@ if [ $1 -eq 1 ]; then
 %endif
     mkdir -p %{_localstatedir}/lib/rpm-state/%{name}
     touch %{_localstatedir}/lib/rpm-state/%{name}/first-install
+elif [ ! -e %{_sysconfdir}/systemd/system/timers.target.wants/qrprotec-backup.timer ] && \
+     ! grep -q '^QRPROTEC_BACKUP_SCHEDULE="\?off"\?$' %{_sysconfdir}/%{name}/backup.conf 2>/dev/null; then
+    # Mise a jour depuis une version sans sauvegarde : %%systemd_post n'active les nouvelles
+    # unites qu'a la premiere installation
+    systemctl --no-reload preset qrprotec-backup.timer >/dev/null 2>&1 || :
+    mkdir -p %{_localstatedir}/lib/rpm-state/%{name}
+    touch %{_localstatedir}/lib/rpm-state/%{name}/start-backup-timer
 fi
 
 %preun
-%systemd_preun qrprotec.service qrprotec-alerts.timer %{?with_kiosk:qrprotec-kiosk.service}
+%systemd_preun qrprotec.service qrprotec-alerts.timer qrprotec-backup.timer %{?with_kiosk:qrprotec-kiosk.service}
 
 %postun
-%systemd_postun_with_restart qrprotec.service qrprotec-alerts.timer %{?with_kiosk:qrprotec-kiosk.service}
+%systemd_postun_with_restart qrprotec.service qrprotec-alerts.timer qrprotec-backup.timer %{?with_kiosk:qrprotec-kiosk.service}
 if [ $1 -eq 0 ] && [ -d /run/systemd/system ]; then
-    # Desinstallation : Caddy oublie le site QRProtec ; donnees et configuration modifiee restent
+    # Desinstallation : Caddy oublie le site QRProtec ; donnees, sauvegardes et configuration
+    # modifiee restent
+    rm -rf %{_sysconfdir}/systemd/system/qrprotec-backup.timer.d
     systemctl daemon-reload >/dev/null 2>&1 || :
     systemctl try-reload-or-restart caddy.service >/dev/null 2>&1 || :
 %if %{with kiosk}
@@ -244,11 +262,15 @@ if [ -d /run/systemd/system ]; then
     systemctl daemon-reload >/dev/null 2>&1 || :
     if [ -e %{_localstatedir}/lib/rpm-state/%{name}/first-install ]; then
         rm -f %{_localstatedir}/lib/rpm-state/%{name}/first-install
-        systemctl start qrprotec.service qrprotec-alerts.timer >/dev/null 2>&1 || :
+        systemctl start qrprotec.service qrprotec-alerts.timer qrprotec-backup.timer >/dev/null 2>&1 || :
         systemctl start caddy.service >/dev/null 2>&1 || :
 %if %{with kiosk}
         systemctl --no-block start qrprotec-kiosk.service >/dev/null 2>&1 || :
 %endif
+    fi
+    if [ -e %{_localstatedir}/lib/rpm-state/%{name}/start-backup-timer ]; then
+        rm -f %{_localstatedir}/lib/rpm-state/%{name}/start-backup-timer
+        systemctl start qrprotec-backup.timer >/dev/null 2>&1 || :
     fi
     # Installation ou mise a jour : Caddy relit le fragment et l'environnement
     systemctl try-reload-or-restart caddy.service >/dev/null 2>&1 || :
@@ -259,20 +281,25 @@ fi
 %doc README.md
 %{_bindir}/qrprotec-manage
 %{_sbindir}/qrprotec-setup
+%{_sbindir}/qrprotec-backup
 %{appdir}/
 %dir %{_sysconfdir}/%{name}
 %config(noreplace) %attr(0640,root,qrprotec) %{_sysconfdir}/%{name}/qrprotec.conf
+%config(noreplace) %{_sysconfdir}/%{name}/backup.conf
 %dir %{_sysconfdir}/caddy/Caddyfile.d
 %config(noreplace) %{_sysconfdir}/caddy/Caddyfile.d/%{name}.caddyfile
 %{_unitdir}/qrprotec.service
 %{_unitdir}/qrprotec-alerts.service
 %{_unitdir}/qrprotec-alerts.timer
+%{_unitdir}/qrprotec-backup.service
+%{_unitdir}/qrprotec-backup.timer
 %dir %{_unitdir}/caddy.service.d
 %{_unitdir}/caddy.service.d/%{name}.conf
 %{_presetdir}/80-%{name}.preset
 %{_sysusersdir}/%{name}.conf
 %{_tmpfilesdir}/%{name}.conf
 %dir %attr(0750,qrprotec,qrprotec) %{_sharedstatedir}/%{name}
+%dir %attr(0700,root,root) %{_localstatedir}/backups/%{name}
 %if %{with kiosk}
 %license app/imgui/LICENSE.txt
 %dir %{_libexecdir}/%{name}

@@ -1,0 +1,28 @@
+[Unit]
+Description=QRProtec : sauvegarde de la base et de la configuration
+Documentation=file:///usr/share/doc/qrprotec/README.md
+After=qrprotec.service local-fs.target remote-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=@SBINDIR@/qrprotec-backup
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+
+# Le dossier des archives est configurable (disque externe, NAS) : /usr, /boot, /etc en lecture seule
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native

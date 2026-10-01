@@ -1,3 +1,5 @@
 # Donnees de QRProtec : jamais supprimees par rpm (desinstallation comprise)
 d /var/lib/qrprotec        0750 qrprotec       qrprotec       -
 d /var/lib/qrprotec-kiosk  0750 qrprotec-kiosk qrprotec-kiosk -
+# Sauvegardes (dossier par defaut, voir /etc/qrprotec/backup.conf) : jamais supprimees par rpm
+d /var/backups/qrprotec    0700 root           root           -
