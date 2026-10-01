@@ -31,6 +31,9 @@ std::vector< PlaceholderInfo > lot_placeholders() {
     { "lot_short", "Nom court du lot", "PSE1-1" },
     { "lot_type", "Code du type de lot", "sacpse" },
     { "lot_type_name", "Nom du type de lot", "Sac PSE1" },
+    { "lot_parent_name", "Lot qui contient ce lot (vide si aucun)", "B+ n°1" },
+    { "lot_global_name", "Lot global (le lot lui-même s'il n'est dans aucun lot)", "VPS 1" },
+    { "lot_path", "Chemin du lot, du lot global au lot", "VPS 1 › B+ n°1 › Sac O2" },
     { "lot_url", "URL publique de vérif (QR de l'étiquette publique)", "https://example.com/verif?lot=sacpse00000001" },
   };
 }

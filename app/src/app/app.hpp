@@ -22,6 +22,7 @@
 #include "imgui.h"
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -86,13 +87,32 @@ struct PinPrompt {
     int         source = 0; // ScanSource du badge
 };
 
+// Autre lot du meme lot global ajoute a la verif en cours par son etiquette privee
+struct VerifExtra {
+    std::string id;
+    std::string key;
+    Json        lot; // detail du lot (items attendus, exigences, sous-lots)
+};
+
 struct VerifSession {
-    bool        active = false;
-    std::string lot_id;
-    std::string key; // cle de l'etiquette privee si scannee
-    Json        lot; // detail du lot (items attendus, exigences)
-    bool        loading    = false;
-    bool        submitting = false;
+    bool                      active = false;
+    std::string               lot_id;
+    std::string               key; // cle de l'etiquette privee si scannee
+    Json                      lot; // detail du lot (items attendus, exigences, sous-lots)
+    std::vector< VerifExtra > extras;
+    bool                      loading    = false;
+    bool                      submitting = false;
+};
+
+// Repartition des items scannes entre les lots d'une verif (meme regle que le serveur,
+// services.assign_items) : un item deja dans un des lots y reste, un nouvel item va dans le premier lot
+// qui en attend encore.
+struct VerifPlanLot {
+    const Json                   *lot = nullptr;
+    int                           depth = 0;
+    std::map< std::string, int >  fresh;      // items frais scannes par type
+    int                           touched = 0; // items scannes ranges dans ce lot
+    bool                          complete = false; // complet avec ces scans (verif partielle possible)
 };
 
 // Session de telephone-douchette (voir database/inventory/remote_scanner.py)
@@ -180,9 +200,16 @@ class App {
     std::string take_pack_to_show();            // lu par la fenetre Paquet
     void pack_opened(const std::string &pack_id); // paquet ouvert ou referme : met a jour la pile et les listes
     void cancel_verif();
-    void submit_verif();
+    // partial : verif partielle, seuls les lots que les scans rendent complets sont verifies, les autres items
+    // scannes sont ajoutes a leur lot (reassort)
+    void submit_verif(bool partial = false);
     void restock_verif(); // reassort : ajoute les items scannes au lot sans verif complete
     bool verif_key_ok() const;
+    std::vector< const Json * >   verif_lots() const; // lots couverts : lot scanne, sous-lots, lots ajoutes
+    bool                          verif_covers(const std::string &lot_id) const;
+    std::string                   verif_title() const; // ex : "Sac de soin + Sac O2"
+    std::vector< VerifPlanLot >   plan_verif() const;
+    std::vector< const Json * >   partial_verif_lots() const; // lots complets d'une verif groupee incomplete
     void add_stack_to_lot();
     void verif_target_lot();
     void stack_to_stock();
@@ -214,6 +241,7 @@ class App {
     void        open_window(const std::string &id);
     AppWindow  *window(const std::string &id);
     void        apply_settings();
+    void        select_default_templates(); // modeles fournis choisis pour les usages sans modele
     bool        save_settings();
     void        save_current_layout();
     void        request_layout_reset() { layout_pending_ = true; }
@@ -248,6 +276,7 @@ class App {
     void complete_login(const Json &data);
     void draw_pin_modal();
     void scan_lot(const ParsedScan &scan, ScanSource source);
+    void join_verif(const std::string &lot_id, const std::string &key, ScanSource source);
     void scan_lot_seal(const ParsedScan &scan, ScanSource source);
     void entry_error(int entry_id, const std::string &message, ScanSource source);
     void draw_menu_bar();

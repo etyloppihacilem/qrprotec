@@ -409,6 +409,173 @@ class SealTests(ApiTestCase):
         self.assertEqual(lot['requirements'][0]['location'], 'Pochette bleue')
 
 
+class SubLotTests(ApiTestCase):
+    """Lot global (B+) compose de sous-lots (sac de soin, sac d'O2), et rangements du stock."""
+
+    def setUp(self):
+        super().setUp()
+        self.o2 = ItemType.objects.create(type='bouo2x', name='Bouteille O2', perissable=False)
+        self.global_type = LotType.objects.create(type='bplusx', name='B+')
+        self.o2_type = LotType.objects.create(type='saco2x', name='Sac O2')
+        LotRequirements.objects.create(lot_type=self.o2_type, item_type=self.o2, quantity=1)
+        code, self.bplus = self.call('POST', '/api/lots/', {'lot_type': 'bplusx', 'name': 'B+ 1', 'user': 'M001'})
+        code, self.soin = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac de soin',
+                                                           'parent': self.bplus['id'], 'user': 'M001'})
+        code, self.sac_o2 = self.call('POST', '/api/lots/', {'lot_type': 'saco2x', 'name': 'Sac O2',
+                                                             'parent': self.bplus['id'], 'user': 'M001'})
+        self.assertEqual(code, 201)
+        self.keys = {lot.id: lot.verif_key for lot in Lots.objects.all()}
+
+    def fresh(self, count=2):
+        return [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), count)]
+
+    def bottle(self):
+        return self.create(self.o2, None, 1)[0].iid
+
+    def test_tree_and_global_state(self):
+        code, lot = self.call('GET', f"/api/lots/{self.sac_o2['id']}/", local=False)
+        self.assertEqual(lot['parent'], self.bplus['id'])
+        self.assertEqual(lot['path'], [{'id': self.bplus['id'], 'name': 'B+ 1'}])
+        self.assertEqual(lot['global']['id'], self.bplus['id'])
+        self.assertEqual([row['name'] for row in lot['global']['lots']], ['B+ 1', 'Sac de soin', 'Sac O2'])
+        self.assertEqual(lot['global']['kind'], 'bad')
+        # le B+ ne contient rien lui-meme : il ne compte pas dans l'etat global
+        self.assertFalse(lot['global']['lots'][0]['counted'])
+        # verif separee de chaque sous-lot
+        self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        code, lot = self.call('GET', f"/api/lots/{self.bplus['id']}/", local=False)
+        self.assertEqual(lot['global']['kind'], 'bad')
+        self.assertIsNone(lot['global']['last_verif'])  # le sac O2 n'a jamais ete verifie
+        self.call('POST', f"/api/lots/{self.sac_o2['id']}/verif/", {'items': [self.bottle()], 'user': 'M001'})
+        code, lot = self.call('GET', f"/api/lots/{self.soin['id']}/", local=False)
+        self.assertEqual(lot['global']['kind'], 'ok')
+        soin = Lots.objects.get(id=self.soin['id'])
+        self.assertEqual(lot['global']['last_verif'], timezone.localtime(soin.last_verif).isoformat(timespec='seconds'))
+        # liste : ordre de l'arborescence, profondeur et etat global
+        code, lots = self.call('GET', '/api/lots/')
+        names = [row['name'] for row in lots]
+        self.assertEqual(names[names.index('B+ 1'):names.index('B+ 1') + 3], ['B+ 1', 'Sac de soin', 'Sac O2'])
+        self.assertEqual([row['depth'] for row in lots if row['root'] == self.bplus['id']], [0, 1, 1])
+        self.assertTrue(all(row['global']['kind'] == 'ok' for row in lots if row['root'] == self.bplus['id']))
+
+    def test_global_verif_covers_sub_lots(self):
+        bottle = self.bottle()
+        code, report = self.call('POST', f"/api/lots/{self.bplus['id']}/verif/",
+                                 {'items': self.fresh() + [bottle], 'key': self.keys[self.bplus['id']], 'name': 'x'},
+                                 local=False)
+        self.assertEqual(code, 200)
+        self.assertTrue(report['complete'])
+        self.assertEqual(Items.objects.get(iid=bottle).location_id, self.sac_o2['id'])
+        self.assertEqual(Items.objects.filter(location_id=self.soin['id']).count(), 2)
+        self.assertEqual({row['id'] for row in report['lots'] if row['verified']},
+                         {self.bplus['id'], self.soin['id'], self.sac_o2['id']})
+
+    def test_two_private_labels_add_up(self):
+        bottle = self.bottle()
+        payload = {'lots': [{'id': self.soin['id'], 'key': self.keys[self.soin['id']]},
+                            {'id': self.sac_o2['id'], 'key': self.keys[self.sac_o2['id']]}],
+                   'items': self.fresh() + [bottle], 'name': 'x'}
+        code, report = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 200)
+        self.assertTrue(report['complete'])
+        self.assertEqual(len(report['lots']), 2)
+        self.assertEqual(Items.objects.get(iid=bottle).location_id, self.sac_o2['id'])
+        # cle manquante pour un des lots
+        payload['lots'][1]['key'] = 'faux'
+        code, body = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 403)
+        # la cle du lot global couvre ses sous-lots
+        payload['lots'] = [{'id': self.sac_o2['id']}, {'id': self.bplus['id'], 'key': self.keys[self.bplus['id']]}]
+        payload['items'] = [bottle]
+        code, body = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 200)
+
+    def test_lots_must_share_global_lot(self):
+        payload = {'lots': [{'id': self.soin['id']}, {'id': self.lot.id}], 'items': [], 'user': 'M001'}
+        code, body = self.call('POST', '/api/verifs/', payload)
+        self.assertEqual(code, 400)
+
+    def test_partial_verif_only_complete_lots(self):
+        # contenu actuel : sac de soin rempli
+        self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        before = Lots.objects.get(id=self.soin['id']).last_verif
+        # vérif du B+ : seule la bouteille d'O2 est scannee (sac O2 complet), plus un item de reassort du sac de soin
+        bottle = self.bottle()
+        extra = self.fresh(1)
+        code, report = self.call('POST', f"/api/lots/{self.bplus['id']}/verif/",
+                                 {'items': [bottle] + extra, 'user': 'M001', 'partial': True})
+        self.assertEqual(code, 200)
+        self.assertTrue(report['partial'])
+        verified = {row['id'] for row in report['lots'] if row['verified']}
+        self.assertIn(self.sac_o2['id'], verified)
+        self.assertNotIn(self.soin['id'], verified)
+        self.assertEqual(report['missing'], [])  # le contenu du sac de soin n'est pas signale manquant
+        soin = Lots.objects.get(id=self.soin['id'])
+        self.assertEqual(soin.last_verif, before)
+        self.assertTrue(soin.verif_recommended)  # l'item ajoute est un reassort
+        self.assertEqual(report['restocked'], extra)
+        self.assertEqual(Items.objects.get(iid=extra[0]).location_id, self.soin['id'])
+        self.assertIsNotNone(Lots.objects.get(id=self.sac_o2['id']).last_verif)
+
+    def test_parent_rules(self):
+        code, body = self.call('PATCH', f"/api/lots/{self.bplus['id']}/update/", {'parent': self.soin['id']})
+        self.assertEqual(code, 400)  # boucle
+        code, body = self.call('PATCH', f"/api/lots/{self.bplus['id']}/update/", {'active': False})
+        self.assertEqual(code, 400)  # sous-lots actifs
+        code, body = self.call('PATCH', f"/api/lots/{self.soin['id']}/update/", {'parent': ''})
+        self.assertEqual(code, 200)
+        self.assertIsNone(body['parent'])
+        self.assertIsNone(body['global'])  # lot independant : pas de lot global
+
+    def test_sealed_global_lot(self):
+        bottle = self.bottle()
+        self.call('POST', f"/api/lots/{self.bplus['id']}/verif/", {'items': self.fresh() + [bottle], 'user': 'M001'})
+        code, body = self.call('POST', f"/api/lots/{self.bplus['id']}/seal/", {'user': 'M001'})
+        self.assertEqual(code, 200)
+        code, lot = self.call('GET', f"/api/lots/{self.sac_o2['id']}/", local=False)
+        self.assertEqual(lot['global']['kind'], 'ok')
+        # ouvrir le sac O2 pour le verifier brise le scelle du B+
+        code, report = self.call('POST', f"/api/lots/{self.sac_o2['id']}/verif/", {'items': [bottle], 'user': 'M001'})
+        self.assertTrue(report['unsealed'])
+        self.assertFalse(Lots.objects.get(id=self.bplus['id']).is_sealed)
+
+    def test_seal_requires_complete_sub_lots(self):
+        self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        code, body = self.call('POST', f"/api/lots/{self.bplus['id']}/seal/", {'user': 'M001'})
+        self.assertEqual(code, 400)
+        self.assertIn('Sac O2', body['error'])
+
+    def test_storage_counts_as_stock(self):
+        code, _ = self.call('POST', '/api/lot-types/', {'type': 'tiroir', 'name': 'Tiroir', 'storage': True})
+        self.assertEqual(code, 201)
+        code, armoire = self.call('POST', '/api/lots/', {'lot_type': 'tiroir', 'name': 'Armoire 1', 'user': 'M001'})
+        code, tiroir = self.call('POST', '/api/lots/', {'lot_type': 'tiroir', 'name': 'Tiroir 3',
+                                                         'parent': armoire['id'], 'user': 'M001'})
+        stored = self.fresh(3)
+        loose = self.fresh(1)
+        code, report = self.call('POST', f"/api/lots/{tiroir['id']}/verif/", {'items': stored, 'user': 'M001'})
+        self.assertTrue(report['complete'])
+        code, stock = self.call('GET', '/api/stock/')
+        row = next(row for row in stock if row['type'] == 'compre')
+        self.assertEqual(row['stock_fresh'], 4)
+        self.assertEqual(row['lots_fresh'], 0)
+        code, body = self.call('GET', f'/api/items/{stored[0]}/', local=False)
+        self.assertTrue(body['in_stock'])
+        code, items = self.call('GET', '/api/items/?location=stock')
+        self.assertEqual(len(items), 4)
+        # verif d'un seul tiroir : le reste du stock n'est pas touche
+        code, report = self.call('POST', f"/api/lots/{tiroir['id']}/verif/", {'items': stored[:2], 'user': 'M001'})
+        self.assertEqual(report['missing'], [stored[2]])
+        self.assertEqual(Items.objects.get(iid=loose[0]).missed_verifs, 0)
+        # la verif du stock non range laisse les items du tiroir a leur place
+        code, report = self.call('POST', '/api/stock/verif/', {'items': loose + stored[:1], 'user': 'M001'})
+        self.assertEqual(Items.objects.get(iid=stored[0]).location_id, tiroir['id'])
+        self.assertEqual(Items.objects.get(iid=loose[0]).location_id, None)
+        # ranger dans un rangement n'est pas un reassort
+        self.call('POST', f"/api/lots/{tiroir['id']}/add/", {'items': loose, 'user': 'M001'})
+        self.assertFalse(Lots.objects.get(id=tiroir['id']).verif_recommended)
+
+
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
 class SmsTests(ApiTestCase):
     def setUp(self):

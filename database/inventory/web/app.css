@@ -156,3 +156,16 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .push-buttons { display: flex; gap: 8px; margin-top: 8px; }
 .push-buttons button { flex: 1; }
 .push-box .error { color: var(--red); font-size: .85rem; }
+
+/* Verif groupee : titre de chaque lot (sous-lots du meme lot global) */
+.list li.lot-head { background: #2c3a45; color: #fff; border: 0; border-left: 6px solid #8a8f94; }
+.list li.lot-head .sub { color: rgba(255, 255, 255, .85); }
+.list li.lot-head.ok { border-left-color: var(--green); }
+.list li.lot-head.bad { border-left-color: var(--red); }
+.list li.lot-head.partial { border-left-color: var(--orange); }
+/* Lot global : arborescence de ses lots (onglet Lot) */
+#lot-view .list.tree { margin: 4px -12px 8px; }
+.list.tree li.bad { border-left: 5px solid var(--red); }
+.list.tree li.warn { border-left: 5px solid var(--orange); }
+.list.tree li.group-lot { border-left: 5px solid #8a8f94; color: var(--muted); }
+.list.tree li.current { background: var(--blue-bg); }

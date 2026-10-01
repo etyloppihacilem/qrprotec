@@ -45,8 +45,7 @@ class ScanWindow final : public AppWindow {
 
     void draw_context(App &app) {
       if (app.verif.active) {
-        const std::string name = app.verif.lot["name"].str(app.verif.lot_id);
-        ImGui::TextColored(colors::orange, "Vérif en cours : %s", name.c_str());
+        ImGui::TextColored(colors::orange, "Vérif en cours : %s", app.verif_title().c_str());
         ImGui::SameLine();
         if (ImGui::SmallButton("Voir"))
           app.open_window("verif");
@@ -150,7 +149,9 @@ class ScanWindow final : public AppWindow {
         stack.clear();
       ImGui::EndDisabled();
 
-      if (stack.target.valid()) {
+      // etiquette privee d'un lot de la verif en cours : on termine la verif (pas de reassort a part)
+      const bool in_verif = app.verif.active && stack.target.valid() && app.verif_covers(stack.target.id);
+      if (stack.target.valid() && !in_verif) {
         ImGui::BeginDisabled(empty);
         const std::string add = "Ajouter au lot " + stack.target.name + " (réassort)";
         if (warning_button(add.c_str(), ImVec2(-1, 0)))
@@ -166,6 +167,7 @@ class ScanWindow final : public AppWindow {
         if (primary_button("Terminer la vérif", ImVec2(-1, 0)))
           app.submit_verif();
         ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Les options (vérif partielle, réassort) sont dans la fenêtre Vérif.");
       } else {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("Scannez l'étiquette privée d'un lot pour y ajouter la pile.");
@@ -176,7 +178,9 @@ class ScanWindow final : public AppWindow {
         ImGui::BeginDisabled(empty);
         if (ImGui::Button("Vérif du stock", ImVec2(third, 0)))
           app.stock_verif();
-        ImGui::SetItemTooltip("Les items scannés sont déclarés en stock ; les items du stock non scannés sont signalés.");
+        ImGui::SetItemTooltip("Stock non rangé : les items scannés sont déclarés en stock (ceux d'un rangement y restent) ;\n"
+                              "les items en stock hors rangement non scannés sont signalés.\n"
+                              "Pour un tiroir ou une armoire : scannez son étiquette, comme pour un lot.");
         ImGui::SameLine();
         if (ImGui::Button("En stock", ImVec2(third, 0)))
           app.stack_to_stock();

@@ -21,6 +21,8 @@
 #include "imgui_stdlib.h"
 
 #include <algorithm>
+#include <map>
+#include <set>
 
 namespace qrprotec {
 
@@ -56,6 +58,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   settings = AppSettings::defaults();
   settings.load();
   apply_settings();
+  select_default_templates();
   windows.push_back(make_scan_window());
   windows.push_back(make_lots_window());
   windows.push_back(make_verif_window());
@@ -81,6 +84,29 @@ App::~App() = default;
 void App::apply_settings() {
   api.configure(settings.api_url, settings.api_token);
   set_templates_dir(settings.templates_dir);
+}
+
+// Premiere installation (ou nouvel usage d'etiquette) : chaque usage qui n'a encore aucun modele dans les
+// reglages prend le modele fourni fait pour lui (item.qr, lot_public.qr...). Un usage regle sur « (aucun) »
+// est conserve tel quel.
+void App::select_default_templates() {
+  bool changed = false;
+  for (const CategoryInfo &info : template_categories()) {
+    if (info.category == TemplateCategory::Generic || settings.label_templates.count(info.id))
+      continue;
+    for (const auto &candidate : glob_templates("*.qr")) {
+      TemplateDocument document;
+      std::string      ignored;
+      if (load_template(document, candidate.string(), ignored) && document.category == info.category) {
+        settings.label_templates[info.id] = candidate.filename().string();
+        changed                           = true;
+        break;
+      }
+    }
+  }
+  std::string error;
+  if (changed && !settings.save(error))
+    notify(error, true);
 }
 
 bool App::save_settings() {
@@ -947,6 +973,9 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
         stack.target = {};
         if (verif.lot_id == id)
           verif.key.clear();
+        verif.extras.erase(std::remove_if(verif.extras.begin(), verif.extras.end(),
+                                          [&id](const VerifExtra &extra) { return extra.id == id; }),
+                           verif.extras.end());
         return;
       }
       if (stack.target.id == id)
@@ -954,7 +983,7 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
     });
   }
   // etiquette publique : fiche du lot d'abord, la verif se lance depuis la fiche
-  if (scan.key.empty() && !(verif.active && verif.lot_id == scan.id)) {
+  if (scan.key.empty() && !(verif.active && verif_covers(scan.id))) {
     show_lot(scan.id);
     return;
   }
@@ -966,12 +995,55 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
     open_window("verif");
     return;
   }
-  if (verif.active) {
-    notify("Une vérif est déjà en cours : terminez-la ou annulez-la.", true);
+  if (verif.active && scan.key.empty()) {
+    notify("Ce lot fait déjà partie de la vérif en cours.");
     open_window("verif");
     return;
   }
+  // etiquette privee d'un autre lot du meme lot global : ses items attendus s'ajoutent a la verif en cours
+  if (verif.active) {
+    join_verif(scan.id, scan.key, source);
+    return;
+  }
   start_verif(scan.id, scan.key);
+}
+
+namespace {
+// Lot global d'un lot (detail de l'API) : son identifiant
+std::string root_of(const Json &lot) {
+  if (!lot["global"].is_null())
+    return lot["global"]["id"].str();
+  if (lot["path"].size() > 0)
+    return lot["path"][0]["id"].str();
+  return lot["id"].str();
+}
+} // namespace
+
+void App::join_verif(const std::string &lot_id, const std::string &key, ScanSource source) {
+  for (VerifExtra &extra : verif.extras)
+    if (extra.id == lot_id) {
+      extra.key = key;
+      notify(extra.lot["name"].str(lot_id) + " fait déjà partie de la vérif.");
+      open_window("verif");
+      return;
+    }
+  const bool covered = verif_covers(lot_id);
+  api.get("/api/lots/" + url_encode(lot_id) + "/", [this, lot_id, key, source, covered](const ApiResult &result) {
+    if (!verif.active || verif.loading || !result.ok)
+      return; // lot inconnu : signale par scan_lot
+    if (root_of(result.data) != root_of(verif.lot)) {
+      feedback.error(source, settings);
+      notify(result.data["name"].str(lot_id) + " n'est pas dans le même lot global : terminez ou annulez la vérif en "
+               "cours.",
+             true);
+      open_window("verif");
+      return;
+    }
+    verif.extras.push_back({ lot_id, key, result.data });
+    notify(covered ? result.data["name"].str() + " faisait déjà partie de la vérif : étiquette privée enregistrée."
+                   : "Vérif groupée : " + verif_title() + ".");
+    open_window("verif");
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1040,12 +1112,165 @@ void App::cancel_verif() {
   verif = {};
 }
 
+// La cle d'un lot couvre ses sous-lots : l'etiquette privee du lot global suffit pour verifier un sous-lot
 bool App::verif_key_ok() const {
-  return !verif.key.empty() || privileged() || !settings.require_private_label;
+  if (!verif.key.empty() || privileged() || !settings.require_private_label)
+    return true;
+  for (const VerifExtra &extra : verif.extras)
+    for (const Json &parent : verif.lot["path"].items())
+      if (!extra.key.empty() && parent["id"].str() == extra.id)
+        return true;
+  return false;
 }
 
-void App::submit_verif() {
-  require_login("valider la vérif", [this]() {
+std::vector< const Json * > App::verif_lots() const {
+  std::vector< const Json * > result;
+  std::set< std::string >     seen;
+  const auto                  add = [&](const Json &lot) {
+    if (lot.is_null() || !seen.insert(lot["id"].str()).second)
+      return;
+    result.push_back(&lot);
+  };
+  const auto add_tree = [&](const Json &top) {
+    add(top);
+    for (const Json &sub : top["descendants"].items())
+      add(sub);
+  };
+  add_tree(verif.lot);
+  for (const VerifExtra &extra : verif.extras)
+    add_tree(extra.lot);
+  return result;
+}
+
+bool App::verif_covers(const std::string &lot_id) const {
+  if (verif.lot_id == lot_id)
+    return true;
+  for (const Json *lot : verif_lots())
+    if ((*lot)["id"].str() == lot_id)
+      return true;
+  return false;
+}
+
+std::string App::verif_title() const {
+  std::string title = verif.lot["name"].str(verif.lot_id);
+  for (const VerifExtra &extra : verif.extras)
+    title += " + " + extra.lot["name"].str(extra.id);
+  return title;
+}
+
+std::vector< VerifPlanLot > App::plan_verif() const {
+  const std::vector< const Json * > lots = verif_lots();
+  std::vector< VerifPlanLot >       plan;
+  std::map< std::string, std::size_t > index;          // id du lot -> position dans plan
+  std::map< std::string, std::string > location_of;    // iid connu -> lot
+  std::map< std::string, std::map< std::string, int > > required, deficit;
+  std::set< std::string >              holding;        // lots dont des items connus n'ont pas ete scannes
+  const std::vector< std::string >     scanned = stack.iids();
+  const std::set< std::string >        done(scanned.begin(), scanned.end());
+  for (const Json *lot : lots) {
+    const std::string id = (*lot)["id"].str();
+    index[id]            = plan.size();
+    plan.push_back({ lot, (*lot)["depth"].integer() });
+    for (const char *list : { "items", "missing_items" })
+      for (const Json &item : (*lot)[list].items()) {
+        location_of[item["iid"].str()] = id;
+        if (!done.count(item["iid"].str()))
+          holding.insert(id);
+      }
+    for (const Json &row : (*lot)["requirements"].items())
+      required[id][row["type"].str()] = row["required"].integer();
+    deficit[id] = required[id];
+  }
+  if (plan.empty())
+    return plan;
+  struct Scanned {
+      std::string iid, type;
+      bool        expired = false;
+  };
+  const Date              today = this->today();
+  std::vector< Scanned >  newcomers;
+  std::map< std::string, std::string > target;
+  std::vector< Scanned >  all;
+  for (const std::string &iid : scanned) {
+    const ParsedScan parsed = parse_scan(iid);
+    Scanned          item{ iid, parsed.item_type, is_expired(parsed, today) };
+    all.push_back(item);
+    if (const auto found = location_of.find(iid); found != location_of.end()) {
+      target[iid] = found->second;
+      if (!item.expired && deficit[found->second][item.type] > 0)
+        --deficit[found->second][item.type];
+    } else {
+      newcomers.push_back(item);
+    }
+  }
+  std::sort(newcomers.begin(), newcomers.end(), [](const Scanned &a, const Scanned &b) {
+    return a.expired != b.expired ? !a.expired : a.iid < b.iid;
+  });
+  for (const Scanned &item : newcomers) {
+    std::vector< std::string > candidates;
+    for (const VerifPlanLot &row : plan) {
+      const std::string id = (*row.lot)["id"].str();
+      if (required[id].count(item.type))
+        candidates.push_back(id);
+    }
+    std::string choice;
+    if (!item.expired)
+      for (const std::string &id : candidates)
+        if (deficit[id][item.type] > 0) {
+          choice = id;
+          --deficit[id][item.type];
+          break;
+        }
+    if (choice.empty())
+      choice = candidates.empty() ? (*plan.front().lot)["id"].str() : candidates.front();
+    target[item.iid] = choice;
+  }
+  std::map< std::string, std::map< std::string, int > > expired, new_fresh;
+  for (const Scanned &item : all) {
+    const std::string id  = target[item.iid];
+    VerifPlanLot     &row = plan[index[id]];
+    ++row.touched;
+    if (item.expired) {
+      ++expired[id][item.type];
+    } else {
+      ++row.fresh[item.type];
+      if (location_of[item.iid] != id)
+        ++new_fresh[id][item.type];
+    }
+  }
+  for (VerifPlanLot &row : plan) {
+    const std::string id   = (*row.lot)["id"].str();
+    int               left = 0; // perimes non remplaces par un item frais arrive dans le meme lot
+    for (const auto &[type, count] : expired[id])
+      left += std::max(0, count - new_fresh[id][type]);
+    bool filled = true;
+    for (const auto &[type, quantity] : required[id])
+      filled = filled && row.fresh[type] >= quantity;
+    row.complete = filled && left == 0 && (row.touched > 0 || !holding.count(id));
+  }
+  return plan;
+}
+
+std::vector< const Json * > App::partial_verif_lots() const {
+  std::vector< const Json * > result;
+  if (!verif.active || verif.loading || stack.iids().empty())
+    return result;
+  const std::vector< VerifPlanLot > plan = plan_verif();
+  if (plan.size() < 2)
+    return result;
+  bool all = true;
+  for (const VerifPlanLot &row : plan)
+    all = all && row.complete;
+  if (all)
+    return result;
+  for (const VerifPlanLot &row : plan)
+    if (row.complete && row.touched > 0)
+      result.push_back(row.lot);
+  return result;
+}
+
+void App::submit_verif(bool partial) {
+  require_login(partial ? "valider la vérif partielle" : "valider la vérif", [this, partial]() {
     if (!verif.active || verif.submitting)
       return;
     if (!verif_key_ok()) {
@@ -1056,25 +1281,41 @@ void App::submit_verif() {
     body["items"] = Json::array();
     for (const std::string &iid : stack.iids())
       body["items"].push_back(iid);
-    body["user"]     = user_ref();
-    body["key"]      = verif.key;
-    verif.submitting = true;
-    const std::string lot_id   = verif.lot_id;
-    const std::string lot_name = verif.lot["name"].str(lot_id);
-    api.post("/api/lots/" + url_encode(lot_id) + "/verif/", body, [this, lot_id, lot_name](const ApiResult &result) {
+    body["user"] = user_ref();
+    // le lot scanne puis les lots du meme lot global ajoutes par leur etiquette privee
+    body["lots"] = Json::array();
+    Json primary;
+    primary["id"]  = verif.lot_id;
+    primary["key"] = verif.key;
+    body["lots"].push_back(primary);
+    for (const VerifExtra &extra : verif.extras) {
+      Json entry;
+      entry["id"]  = extra.id;
+      entry["key"] = extra.key;
+      body["lots"].push_back(entry);
+    }
+    body["partial"]  = partial;
+    verif.submitting  = true;
+    const std::string title = verif_title();
+    api.post("/api/verifs/", body, [this, title](const ApiResult &result) {
       verif.submitting = false;
       if (!result.ok) {
         notify("Vérif refusée : " + result.error, true);
         return;
       }
       last_report     = result.data;
-      last_report_lot = lot_name;
+      last_report_lot = title;
       stack.clear();
       cancel_verif();
       open_window("verif");
-      notify(result.data["complete"].boolean() ? "Vérif enregistrée : lot complet."
-                                               : "Vérif enregistrée : le lot est incomplet ou contient des périmés.",
-             !result.data["complete"].boolean());
+      const bool complete = result.data["complete"].boolean();
+      const bool several  = result.data["lots"].size() > 1;
+      if (result.data["partial"].boolean())
+        notify("Vérif partielle enregistrée : seuls les lots complets ont été vérifiés.");
+      else
+        notify(complete ? (several ? "Vérif enregistrée : lots complets." : "Vérif enregistrée : lot complet.")
+                        : "Vérif enregistrée : incomplet ou périmés, voir le compte rendu.",
+               !complete);
       refresh_lots();
     });
   });
@@ -1083,6 +1324,10 @@ void App::submit_verif() {
 void App::verif_target_lot() {
   if (!stack.target.valid())
     return;
+  if (verif.active && verif_covers(stack.target.id)) {
+    submit_verif();
+    return;
+  }
   if (!verif.active || verif.lot_id != stack.target.id) {
     verif        = {};
     verif.active = true;
@@ -1096,6 +1341,11 @@ void App::verif_target_lot() {
 // Reassort pendant une verif : seuls des items nouveaux ont ete scannes. Ils sont ajoutes au lot sans
 // toucher aux autres ; le lot passe « verif recommandee » (orange) pour la personne suivante.
 void App::restock_verif() {
+  // verif groupee : le serveur range chaque item dans son lot (verif partielle sans lot complet = reassort)
+  if (verif.extras.size() > 0 || verif.lot["descendants"].size() > 0) {
+    submit_verif(true);
+    return;
+  }
   require_login("ajouter les items au lot", [this]() {
     if (!verif.active || verif.submitting)
       return;
@@ -1160,7 +1410,7 @@ void App::add_stack_to_lot() {
       if (result.data["unknown"].size() > 0)
         notify(std::to_string(result.data["unknown"].size()) + " item(s) inconnu(s) ignore(s).", true);
       stack.clear();
-      if (verif.active && verif.lot_id == target.id) {
+      if (verif.active && verif_covers(target.id)) {
         cancel_verif();
         if (last_report.is_null())
           if (AppWindow *verif_window = window("verif"))

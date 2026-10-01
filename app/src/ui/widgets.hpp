@@ -70,5 +70,10 @@ LotStatus   lot_status(const Json &lot);
 ImVec4      lot_status_color(LotStatus status);
 const char *lot_status_label(LotStatus status);
 std::string lot_status_banner(const Json &lot); // texte du bandeau de la fiche d'un lot
+// Lot qui ne fait que regrouper des sous-lots (rien d'attendu, rien dedans, ex : un B+) : son etat est celui
+// de ses sous-lots. group_banner : bandeau d'etat de l'ensemble de ses sous-lots (couleur dans color, all_ok :
+// tous valides).
+bool        lot_is_group(const Json &lot);
+std::string group_banner(const Json &lot, ImVec4 &color, bool *all_ok = nullptr);
 
 } // namespace qrprotec

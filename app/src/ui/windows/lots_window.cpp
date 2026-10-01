@@ -19,6 +19,20 @@ namespace qrprotec {
 
 namespace {
 
+// Couleur d'un etat calcule par le serveur (lot global) : "ok", "warn" ou "bad"
+ImVec4 kind_color(const std::string &kind) {
+  return kind == "ok" ? colors::green : kind == "warn" ? colors::orange : colors::red;
+}
+
+// Libelle court pour une cellule (sans le symbole ni le detail apres la virgule)
+std::string short_label(const std::string &label) {
+  std::string text = label.substr(0, label.find(','));
+  for (const char *symbol : { "✔ ", "✘ ", "⚠ " })
+    if (text.rfind(symbol, 0) == 0)
+      text = text.substr(std::string(symbol).size());
+  return text;
+}
+
 // Vue publique des lots : ce qui est perime, ce qui manque, et lancement d'une verif.
 class LotsWindow final : public AppWindow {
   public:
@@ -82,19 +96,28 @@ class LotsWindow final : public AppWindow {
         const int         expired = lot["expired_count"].integer();
         const int         soon    = lot["expiring_soon_count"].integer();
         const LotStatus   status   = lot_status(lot);
+        const int         depth    = lot["depth"].integer();
+        // lot global : son etat est celui de l'ensemble de ses lots (tous valides, verif la plus ancienne)
+        const bool        top      = depth == 0 && !lot["global"].is_null();
+        const ImVec4      color    = top ? kind_color(lot["global"]["kind"].str()) : lot_status_color(status);
+        const bool        ok       = top ? lot["global"]["kind"].str() == "ok" : lot_ok(status);
         if (!search_matches(filter_, name + " " + id + " " + lot["lot_type_name"].str()))
           continue;
-        if (only_problems_ && lot_ok(status) && soon == 0)
+        if (only_problems_ && ok && soon == 0)
           continue;
         ImGui::TableNextRow();
         // vert = verifie et complet, rouge sinon (incomplet, perimes, jamais verifie)
-        row_color(lot_status_color(status), lot_ok(status) ? 0.22f : 0.30f);
+        row_color(color, ok ? 0.22f : 0.30f);
         ImGui::TableNextColumn();
-        if (ImGui::Selectable((name + "##" + id).c_str(), selected_ == id, ImGuiSelectableFlags_SpanAllColumns))
+        ImGui::Indent(depth * 18.0f + 1.0f);
+        const std::string label = (depth > 0 ? "└ " : "") + name + "##" + id;
+        if (ImGui::Selectable(label.c_str(), selected_ == id, ImGuiSelectableFlags_SpanAllColumns))
           select(app, id);
+        ImGui::Unindent(depth * 18.0f + 1.0f);
         if (!compact) {
           ImGui::SameLine();
-          ImGui::TextDisabled("%s", lot["lot_type_name"].str().c_str());
+          ImGui::TextDisabled("%s%s", lot["lot_type_name"].str().c_str(),
+                              top ? " · lot global" : lot["storage"].boolean() ? " · rangement" : "");
         }
         if (!compact) {
           ImGui::TableNextColumn();
@@ -109,13 +132,20 @@ class LotsWindow final : public AppWindow {
           ImGui::TextUnformatted("0");
         ImGui::TableNextColumn();
         // cellule d'etat en couleur pleine
-        ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(lot_status_color(status)));
+        ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(color));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-        ImGui::TextUnformatted(lot_status_label(status));
+        if (top)
+          ImGui::TextUnformatted(short_label(lot["global"]["label"].str()).c_str());
+        else
+          ImGui::TextUnformatted(lot_status_label(status));
         ImGui::PopStyleColor();
+        if (top)
+          ImGui::SetItemTooltip("Lot global : valide si tous ses lots le sont.\nPropre état : %s",
+                                lot_status_label(status));
         if (!compact) {
           ImGui::TableNextColumn();
-          ImGui::TextUnformatted(display_datetime(lot["last_verif"]).c_str());
+          // lot global : la plus ancienne des dernieres verifs de ses lots
+          ImGui::TextUnformatted(display_datetime(top ? lot["global"]["last_verif"] : lot["last_verif"]).c_str());
         }
       }
       ImGui::EndTable();
@@ -146,7 +176,14 @@ class LotsWindow final : public AppWindow {
       ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
       ImGui::TextUnformatted(details_["name"].str().c_str());
       ImGui::PopFont();
-      ImGui::TextDisabled("%s - %s", details_["lot_type_name"].str().c_str(), details_["id"].str().c_str());
+      ImGui::TextDisabled("%s - %s%s", details_["lot_type_name"].str().c_str(), details_["id"].str().c_str(),
+                          details_["storage"].boolean() ? " - rangement du stock" : "");
+      if (details_["path"].size() > 0) {
+        std::string path;
+        for (const Json &parent : details_["path"].items())
+          path += (path.empty() ? "" : " › ") + parent["name"].str();
+        ImGui::Text("Dans : %s", path.c_str());
+      }
       ImGui::Text("Dernière vérif : %s par %s", display_datetime(details_["last_verif"]).c_str(),
                   details_["last_verif_by"].str("-").c_str());
       const LotStatus status = lot_status(details_);
@@ -159,7 +196,13 @@ class LotsWindow final : public AppWindow {
         else
           status_banner("✘ SCELLÉ BRISÉ : vérif nécessaire", colors::red);
       }
-      status_banner(lot_status_banner(details_), lot_status_color(status));
+      if (lot_is_group(details_)) {
+        ImVec4            color;
+        const std::string banner = group_banner(details_, color);
+        status_banner(banner, color);
+      } else {
+        status_banner(lot_status_banner(details_), lot_status_color(status));
+      }
       if (details_["is_sealed"].boolean()) {
         ImGui::TextWrapped("Scellé le %s par %s. Tant que le scellé est intact, le lot n'a pas besoin de vérif.",
                            display_datetime(details_["sealed"]).c_str(), details_["sealed_by"].str("-").c_str());
@@ -167,13 +210,16 @@ class LotsWindow final : public AppWindow {
         ImGui::TextDisabled("Dernier scellé brisé le %s par %s", display_datetime(details_["unsealed"]).c_str(),
                             details_["unsealed_by"].str("-").c_str());
       }
+      const std::size_t sub_lots = details_["descendants"].size();
+      const std::string with     = sub_lots > 0 ? " avec ses " + std::to_string(sub_lots) + " sous-lot(s)" : "";
       if (details_["is_sealed"].boolean()) {
-        if (ImGui::Button("Lancer une vérif (brise le scellé)", ImVec2(-1, 0)))
+        if (ImGui::Button(("Lancer une vérif" + with + " (brise le scellé)").c_str(), ImVec2(-1, 0)))
           app.start_verif(details_["id"].str(), "");
-      } else if (primary_button("Lancer une vérif", ImVec2(-1, 0)))
+      } else if (primary_button(("Lancer une vérif" + with).c_str(), ImVec2(-1, 0)))
         app.start_verif(details_["id"].str(), "");
       if (ImGui::Button("Fermer", ImVec2(-1, 0)))
         selected_.clear();
+      draw_global(app);
 
       ImGui::SeparatorText("Contenu attendu");
       if (ImGui::BeginTable("req", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
@@ -234,6 +280,47 @@ class LotsWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
+    }
+
+    // Lot global (depuis n'importe lequel de ses lots) : etat de l'ensemble et de chaque lot
+    void draw_global(App &app) {
+      const Json &global = details_["global"];
+      if (global.is_null())
+        return;
+      ImGui::SeparatorText(("Lot global : " + global["name"].str()).c_str());
+      status_banner(global["label"].str(), kind_color(global["kind"].str()), 1.0f);
+      ImGui::TextWrapped("Vérif la plus ancienne : %s", global["never_verified"].boolean()
+                                                          ? "jamais (un lot n'a jamais été vérifié)"
+                                                          : display_datetime(global["last_verif"]).c_str());
+      std::string open_id;
+      if (ImGui::BeginTable("global", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("Lot", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        for (const Json &row : global["lots"].items()) {
+          const std::string id      = row["id"].str();
+          const bool        counted = row["counted"].boolean();
+          const Json       &state   = row["effective"];
+          ImGui::TableNextRow();
+          if (id == details_["id"].str())
+            row_color(colors::grey, 0.25f);
+          ImGui::TableNextColumn();
+          ImGui::Indent(row["depth"].integer() * 16.0f + 1.0f);
+          const std::string label = (row["depth"].integer() > 0 ? "└ " : "") + row["name"].str() + "##g" + id;
+          if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns))
+            open_id = id;
+          ImGui::Unindent(row["depth"].integer() * 16.0f + 1.0f);
+          ImGui::TableNextColumn();
+          if (counted) {
+            ImGui::TextColored(kind_color(state["kind"].str()), "%s", state["label"].str().c_str());
+            ImGui::TextDisabled("vérif : %s", display_datetime(row["last_verif"]).c_str());
+          } else {
+            ImGui::TextDisabled("regroupement");
+          }
+        }
+        ImGui::EndTable();
+      }
+      if (!open_id.empty() && open_id != details_["id"].str())
+        select(app, open_id);
     }
 
     std::string filter_;

@@ -307,7 +307,8 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 ### Routes (`/api/...`)
 
 Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`, `lots/<id>/`,
-`lots/<id>/verif/` (POST items, key), `lots/<id>/add/` (POST items, key), `lots/<id>/unseal/` (POST
+`lots/<id>/verif/` (POST items, key, partial), `verifs/` (POST `lots: [{id, key}]`, items, partial :
+vérif groupée de plusieurs lots d'un même lot global), `lots/<id>/add/` (POST items, key), `lots/<id>/unseal/` (POST
 key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
 `unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
 `lots/summary/` (lots actifs et leur état, tout badge valide) et `stock/summary/` (état des stocks,
@@ -371,6 +372,22 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
   Les autres items du lot ne sont pas touchés. Le lot passe **« vérif recommandée »** (orange, avec le
   nombre d'items, la date et l'auteur du réassort) jusqu'à la prochaine vérif, pour que la personne
   suivante vérifie tout le lot. Un lot incomplet reste rouge.
+- **Lots et sous-lots** : un lot peut avoir un lot parent (ex : B+ = sac de soin + sac O2 ; VPS =
+  armoires + B+). Chaque sous-lot a ses propres QR (public et privé) et se vérifie seul ; sa fiche
+  affiche aussi l'état du lot global. Un lot global est valide si tous ses sous-lots le sont, et sa
+  dernière vérif est la plus ancienne de ses sous-lots. Un lot sans contenu attendu ni items qui a des
+  sous-lots est un simple regroupement. La clé privée d'un lot couvre ses sous-lots.
+- **Vérif groupée** : pendant une vérif, scanner le QR privé d'un autre lot du même lot global
+  l'ajoute à la vérif en cours (les items attendus s'additionnent ; chaque item scanné est rangé dans
+  le lot où il manque). Les lots doivent partager le même lot global.
+- **Vérif partielle** : si la vérif est validée alors que seuls certains lots sont complets, le bouton
+  « Vérif partielle » vérifie ces lots seulement ; les autres items scannés sont ajoutés à leur lot
+  en réassort.
+- **Rangements** : un type de lot marqué « rangement » (tiroir, armoire, étagère…) compte comme du
+  stock. On vérifie un tiroir comme un lot, sans vérifier tout le stock ; la vérif du stock ne
+  signale manquants que les items sans emplacement.
+- **Scellés et sous-lots** : ouvrir un sous-lot brise aussi le scellé de ses parents ; sceller un lot
+  global demande que tous ses sous-lots soient complets.
 - **Emplacements** : chaque ligne du contenu attendu d'un type de lot peut préciser un emplacement
   (ex : sérum phy dans la pochette bleue du sac de soin), affiché pendant la vérif.
 
@@ -452,7 +469,7 @@ cd app
 git submodule update --init
 cmake -S . -B build && cmake --build build -j
 cd build && ctest
-./build/QRProtecApp   # les modèles *.qr sont lus et enregistrés dans app/templates/
+./build/QRProtecApp   # les modèles *.qr sont lus et enregistrés dans app/templates/ (sélectionnés par défaut au premier lancement)
 ```
 
 Dépendances : GLFW, OpenGL, libpng, FreeType, libxdo (SDK Inateck). L'encodeur QR

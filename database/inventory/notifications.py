@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.request
 
 from django.db import close_old_connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from . import webpush
@@ -116,8 +117,9 @@ def check_stock_levels(type_ids=None):
         queryset = queryset.filter(type__in=set(type_ids))
     low, empty = [], []
     for item_type in queryset:
+        in_stock = Q(location__isnull=True) | Q(location__lot_type__storage=True)  # rangements du stock compris
         count = Items.objects.filter(
-            pack__item_type=item_type, status=ItemStatus.ACTIVE, location__isnull=True
+            in_stock, pack__item_type=item_type, status=ItemStatus.ACTIVE
         ).exclude(pack__peremption__lt=today).count()
         changed = []
         if count < item_type.min_quantity and not item_type.low_notified:

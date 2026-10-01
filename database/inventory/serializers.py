@@ -62,6 +62,8 @@ def item_dict(item, today=None):
         'status': item.status,
         'location': item.location_id,
         'location_name': item.location.name if item.location_id else '',
+        # en stock : hors lot, ou range dans un rangement du stock (armoire, tiroir...)
+        'in_stock': item.location_id is None or item.location.lot_type.storage,
         'sealed_pack': item.sealed_pack_id,
         'missed_verifs': item.missed_verifs,
         'last_seen': _date(item.last_seen),
@@ -97,6 +99,7 @@ def lot_type_dict(lot_type):
         'name': lot_type.name,
         'description': lot_type.description,
         'version': lot_type.version,
+        'storage': lot_type.storage,
         'requirements': [
             {
                 'type': requirement.item_type_id,
@@ -109,9 +112,37 @@ def lot_type_dict(lot_type):
     }
 
 
-def lot_dict(lot, local=False, with_items=False, today=None):
-    today = today or timezone.localdate()
-    items = list(lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE).order_by('iid'))
+STATE_LABELS = {
+    'sealed': '✔ Scellé',
+    'sealed_expired': '✘ Scellé, contient des périmés',
+    'never': '✘ Jamais vérifié',
+    'incomplete': '✘ Incomplet',
+    'recommended': '⚠ Vérif recommandée, réassort',
+    'verified': '✔ Vérifié, complet',
+}
+KIND_ORDER = {'ok': 0, 'warn': 1, 'bad': 2}
+
+
+def lot_state(data):
+    """Etat d'un lot seul (memes regles que les fronts) : kind 'ok' (vert), 'warn' (orange) ou 'bad' (rouge)."""
+    if data['is_sealed']:
+        code = 'sealed_expired' if data['expired_count'] else 'sealed'
+    elif not data['last_verif']:
+        code = 'never'
+    elif not data['complete']:
+        code = 'incomplete'
+    elif data['verif_recommended']:
+        code = 'recommended'
+    else:
+        code = 'verified'
+    kind = 'ok' if code in ('sealed', 'verified') else 'warn' if code == 'recommended' else 'bad'
+    return {'kind': kind, 'code': code, 'label': STATE_LABELS[code]}
+
+
+def _lot_core(lot, today, items=None):
+    """Champs communs a toutes les vues d'un lot (sans cles ni contenu detaille)."""
+    if items is None:
+        items = list(lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE).order_by('iid'))
     requirements = requirements_status(lot, today)
     expired = [item for item in items if item.is_expired(today)]
     soon_limit = today + timedelta(days=30)
@@ -120,10 +151,12 @@ def lot_dict(lot, local=False, with_items=False, today=None):
         'id': lot.id,
         'lot_type': lot.lot_type_id,
         'lot_type_name': lot.lot_type.name,
+        'storage': lot.lot_type.storage,
         'name': lot.name,
         'name_short': lot.name_short,
         'version': lot.version,
         'active': lot.active,
+        'parent': lot.parent_id,
         'is_sealed': lot.is_sealed,
         'sealed': _date(lot.sealed) if lot.is_sealed else None,
         'sealed_by': _who(lot.sealed_by) if lot.is_sealed else '',
@@ -146,18 +179,183 @@ def lot_dict(lot, local=False, with_items=False, today=None):
         'complete': all(row['present'] >= row['required'] for row in requirements) and not expired,
         'public_url': public_url('verif', lot=lot.id),
     }
+    data['state'] = lot_state(data)
+    return data
+
+
+def aggregate_tree(rows):
+    """Etat d'un lot global a partir de ses lots (lignes de _lot_core avec 'depth', en profondeur d'abord).
+
+    - un lot qui ne contient rien et n'attend rien mais a des sous-lots (simple regroupement) ne compte pas ;
+    - un sous-lot d'un lot scelle intact est valide tant qu'il ne contient pas de perimes ;
+    - le lot global est valide si tous ses lots le sont, et sa derniere verif est la plus ancienne des
+      dernieres verifs de ses lots (aucune si l'un d'eux n'a jamais ete verifie).
+    Ajoute a chaque ligne 'counted' et 'effective' (etat dans le lot global).
+    """
+    parents = {row['id']: row['parent'] for row in rows}
+    by_id = {row['id']: row for row in rows}
+    has_children = {row['parent'] for row in rows if row['parent']}
+    kind = 'ok'
+    oldest = None
+    never = False
+    counted = 0
+    problems = 0
+    for row in rows:
+        covered = False
+        parent = parents.get(row['id'])
+        while parent in by_id:
+            if by_id[parent]['state']['code'] == 'sealed':
+                covered = True
+                break
+            parent = parents.get(parent)
+        row['counted'] = bool(row['requirements'] or row['item_count'] or row['id'] not in has_children)
+        if covered and not row['expired_count']:
+            row['effective'] = {'kind': 'ok', 'code': 'covered', 'label': '✔ Dans un lot scellé'}
+        else:
+            row['effective'] = row['state']
+        if not row['counted']:
+            continue
+        counted += 1
+        effective = row['effective']
+        if KIND_ORDER[effective['kind']] > KIND_ORDER[kind]:
+            kind = effective['kind']
+        if effective['kind'] != 'ok':
+            problems += 1
+        if effective['code'] == 'covered':
+            continue
+        if row['is_sealed'] and not row['last_verif']:
+            stamp = row['sealed']
+        else:
+            stamp = row['last_verif']
+        if not stamp:
+            never = True
+        elif oldest is None or stamp < oldest:
+            oldest = stamp
+    if kind == 'ok':
+        label = '✔ Tous les lots sont valides'
+    elif kind == 'warn':
+        label = f'⚠ Vérif recommandée ({problems} lot(s))'
+    else:
+        label = f'✘ {problems} lot(s) à traiter'
+    return {
+        'kind': kind,
+        'label': label,
+        'complete': kind == 'ok',
+        'last_verif': None if never else oldest,
+        'never_verified': never,
+        'lot_count': counted,
+    }
+
+
+def _tree_row(lot, today, depth):
+    row = _lot_core(lot, today)
+    row['depth'] = depth
+    return row
+
+
+def lot_global(lot, today):
+    """Lot global (racine) du lot et etat de chacun de ses lots ; None si le lot n'a ni parent ni sous-lot."""
+    root = lot.root()
+    tree = root.descendants()
+    if len(tree) <= 1:
+        return None
+    rows = [_tree_row(sub_lot, today, sub_lot.depth) for sub_lot in tree]
+    summary = aggregate_tree(rows)
+    keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'parent', 'depth', 'is_sealed', 'last_verif',
+            'last_verif_by', 'item_count', 'expired_count', 'complete', 'verif_recommended', 'state', 'effective',
+            'counted')
+    summary.update({
+        'id': root.id,
+        'name': root.name,
+        'lots': [{key: row[key] for key in keep} for row in rows],
+    })
+    return summary
+
+
+def lot_dict(lot, local=False, with_items=False, today=None, with_global=True):
+    today = today or timezone.localdate()
+    items = list(lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE).order_by('iid'))
+    data = _lot_core(lot, today, items)
+    ancestors = lot.ancestors()
+    data['parent_name'] = ancestors[0].name if ancestors else ''
+    data['path'] = [{'id': parent.id, 'name': parent.name} for parent in reversed(ancestors)]
+    data['children'] = [
+        {'id': child.id, 'name': child.name}
+        for child in sorted(lot.children.filter(active=True), key=lambda child: (child.name.lower(), child.id))
+    ]
+    if with_global:
+        data['global'] = lot_global(lot, today)
     if with_items:
-        data['items'] = [item_dict(item, today) for item in items]
-        data['missing_items'] = [
-            item_dict(item, today)
-            for item in lot.items.select_related('pack__item_type').filter(status=ItemStatus.MISSING).order_by('iid')
-        ]
+        _add_items(data, lot, items, today)
+        # sous-lots (en profondeur d'abord) : une verif du lot les couvre aussi
+        data['descendants'] = []
+        for sub_lot in lot.descendants(include_self=False):
+            sub_items = list(sub_lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE)
+                             .order_by('iid'))
+            row = _lot_core(sub_lot, today, sub_items)
+            row['depth'] = sub_lot.depth
+            _add_items(row, sub_lot, sub_items, today)
+            data['descendants'].append(row)
     if local:
         data['verif_key'] = lot.verif_key
         data['verif_key_expires'] = _date(lot.verif_key_expires)
         data['private_url'] = public_url('verif', lot=lot.id, key=lot.verif_key)
         data['seal_url'] = public_url('seal', lot=lot.id, s=lot.seal_code) if lot.is_sealed else ''
     return data
+
+
+def _add_items(data, lot, items, today):
+    data['items'] = [item_dict(item, today) for item in items]
+    data['missing_items'] = [
+        item_dict(item, today)
+        for item in lot.items.select_related('pack__item_type').filter(status=ItemStatus.MISSING).order_by('iid')
+    ]
+
+
+def lot_list(lots, local=False, today=None):
+    """Liste de lots dans l'ordre de l'arborescence (chaque lot global suivi de ses sous-lots), avec pour chaque
+    lot sa profondeur et l'etat de son lot global."""
+    today = today or timezone.localdate()
+    lots = list(lots)
+    ids = {lot.id for lot in lots}
+    children = {}
+    for lot in lots:
+        if lot.parent_id in ids:
+            children.setdefault(lot.parent_id, []).append(lot)
+    for siblings in children.values():
+        siblings.sort(key=lambda child: (child.name.lower(), child.id))  # meme ordre que Lots.descendants
+    ordered = []
+    seen = set()
+
+    def walk(lot, depth, root):
+        if lot.id in seen:
+            return
+        seen.add(lot.id)
+        ordered.append((lot, depth, root))
+        for child in children.get(lot.id, []):
+            walk(child, depth + 1, root)
+
+    for lot in lots:
+        if lot.parent_id not in ids:
+            walk(lot, 0, lot)
+    for lot in lots:  # cycle eventuel (ne devrait pas exister)
+        walk(lot, 0, lot)
+    rows = []
+    trees = {}
+    for lot, depth, root in ordered:
+        row = lot_dict(lot, local=local, today=today, with_global=False)
+        row['depth'] = depth
+        row['root'] = root.id
+        rows.append(row)
+        trees.setdefault(root.id, []).append(row)
+    for root_id, tree in trees.items():
+        if len(tree) <= 1:
+            continue
+        summary = aggregate_tree(tree)
+        summary.update({'id': root_id, 'name': tree[0]['name']})
+        for row in tree:
+            row['global'] = summary
+    return rows
 
 
 def user_dict(user, local=False):

@@ -36,8 +36,9 @@ class StockWindow final : public AppWindow {
       ImGui::Checkbox("Sous le minimum uniquement", &only_low_);
       ImGui::SameLine();
       ImGui::Checkbox("Compter les lots", &include_lots_);
-      help_marker("La barre compare les items non périmés au minimum du type. Par défaut seul le stock (hors lots) "
-                  "est compte.");
+      help_marker("La barre compare les items non périmés au minimum du type. Par défaut seul le stock est compté : "
+                  "items hors lots et items rangés dans un rangement du stock (armoire, tiroir : lots dont le type "
+                  "est un rangement).");
       if (app.catalog.loading_stock) {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");

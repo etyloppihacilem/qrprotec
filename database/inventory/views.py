@@ -248,13 +248,59 @@ def lot_unseal(request, lot_id):
     return Response(ser.lot_dict(lot, local=is_local(request), with_items=True))
 
 
+def verif_targets(request, entries):
+    """Lots d'une verif ([{"id", "key"}, ...]) : tous du meme lot global. Sur l'API publique, chaque lot doit
+    etre couvert par une cle valide, la sienne ou celle d'un de ses lots parents (etiquette privee du lot global)."""
+    if not isinstance(entries, list) or not entries:
+        raise ApiError("lots : liste de lots attendue")
+    local = is_local(request)
+    lots = []
+    keys = {}
+    for entry in entries:
+        if isinstance(entry, str):
+            entry = {'id': entry}
+        if not isinstance(entry, dict):
+            raise ApiError("lots : liste de {id, key} attendue")
+        lot = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=str(entry.get('id', '')))
+        if not lot.active:
+            raise ApiError(f"Lot {lot.name} archivé", status.HTTP_404_NOT_FOUND if not local else status.HTTP_400_BAD_REQUEST)
+        if lot.id not in keys:
+            lots.append(lot)
+        if entry.get('key'):
+            keys[lot.id] = entry['key']
+        else:
+            keys.setdefault(lot.id, '')
+    if len({lot.root().id for lot in lots}) > 1:
+        raise ApiError("Les lots d'une même vérif doivent appartenir au même lot global")
+    if not local:
+        authorized = {lot.id for lot in lots if lot.check_key(keys[lot.id])}
+        for lot in lots:
+            if lot.id not in authorized and not any(parent.id in authorized for parent in lot.ancestors()):
+                raise ApiError(f"Clé du lot {lot.name} invalide ou expirée : scannez son étiquette privée",
+                               status.HTTP_403_FORBIDDEN)
+    return lots
+
+
 @api_view(['POST'])
 @handle_errors
 def lot_verif(request, lot_id):
-    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
-    require_lot_key(request, lot)
+    """Verif d'un lot et de ses sous-lots (cle du lot). 'partial' : voir verifs()."""
+    lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}])
     identity = identity_from_request(request.data, is_local(request))
-    report = services.perform_verif(lot, iid_list(request.data), identity)
+    report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
+    return Response(report)
+
+
+@api_view(['POST'])
+@handle_errors
+def verifs(request):
+    """Verif de plusieurs lots d'un meme lot global : {"lots": [{"id", "key"}], "items": [...], "partial": bool}.
+
+    Chaque lot est verifie avec ses sous-lots. En verif partielle, seuls les lots que les items scannes rendent
+    complets sont verifies ; les items destines aux autres lots y sont ajoutes (reassort)."""
+    lots = verif_targets(request, request.data.get('lots'))
+    identity = identity_from_request(request.data, is_local(request))
+    report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
     return Response(report)
 
 
@@ -275,7 +321,7 @@ def lots_summary(request):
     badge_user(request)
     today = timezone.localdate()
     queryset = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
-    return Response([ser.lot_dict(lot, today=today) for lot in queryset])
+    return Response(ser.lot_list(queryset, today=today))
 
 
 @api_view(['POST'])
@@ -441,7 +487,7 @@ def items(request):
     if params.get('type'):
         queryset = queryset.filter(pack__item_type_id=params['type'])
     if params.get('location') == 'stock':
-        queryset = queryset.filter(location__isnull=True)
+        queryset = queryset.filter(services.in_stock_q())  # rangements du stock compris
     elif params.get('location'):
         queryset = queryset.filter(location_id=params['location'])
     if params.get('status'):
@@ -589,7 +635,7 @@ def lot_types(request):
         raise ApiError("Nom obligatoire")
     lot_type = LotType.objects.create(
         type=code, name=name[:64], description=str(data.get('description', '')),
-        created_by=identity_from_request(data, True)[:32],
+        created_by=identity_from_request(data, True)[:32], storage=bool(data.get('storage', False)),
     )
     return Response(ser.lot_type_dict(lot_type), status=status.HTTP_201_CREATED)
 
@@ -603,6 +649,8 @@ def lot_type_detail(request, type_code):
             lot_type.name = str(request.data['name'])[:64]
         if 'description' in request.data:
             lot_type.description = str(request.data['description'])
+        if 'storage' in request.data:
+            lot_type.storage = bool(request.data['storage'])
         lot_type.save()
     return Response(ser.lot_type_dict(lot_type))
 
@@ -640,7 +688,7 @@ def lots(request):
         queryset = Lots.objects.select_related('lot_type').order_by('lot_type__name', 'name')
         if request.query_params.get('all') != '1':
             queryset = queryset.filter(active=True)
-        return Response([ser.lot_dict(lot, local=True) for lot in queryset])
+        return Response(ser.lot_list(queryset, local=True))
     data = request.data
     lot_type = get_object_or_404(LotType, type=str(data.get('lot_type', '')))
     name = str(data.get('name', '')).strip()
@@ -652,21 +700,40 @@ def lots(request):
         name_short=str(data.get('name_short', '') or name)[:16],
         created_by=identity_from_request(data, True)[:32],
     )
+    lot.parent = parse_parent(lot, data.get('parent'))
     lot.save()
     return Response(ser.lot_dict(lot, local=True, with_items=True), status=status.HTTP_201_CREATED)
+
+
+def parse_parent(lot, value):
+    """Lot parent demande (id, ou vide pour un lot independant). Refuse un lot archive et les boucles."""
+    if value in (None, ''):
+        return None
+    parent = get_object_or_404(Lots.objects.select_related('lot_type'), id=str(value))
+    if not parent.active:
+        raise ApiError(f"Le lot {parent.name} est archivé")
+    if lot.id and (parent.id == lot.id or any(sub.id == parent.id for sub in lot.descendants())):
+        raise ApiError("Un lot ne peut pas être rangé dans lui-même ou dans un de ses sous-lots")
+    return parent
 
 
 @api_view(['PATCH'])
 @handle_errors
 def lot_update(request, lot_id):
-    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
+    lot = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=lot_id)
     data = request.data
     for field, length in (('name', 64), ('name_short', 16)):
         if field in data:
             setattr(lot, field, str(data[field])[:length])
-    for field in ('active',):
-        if field in data:
-            setattr(lot, field, bool(data[field]))
+    if 'parent' in data:
+        lot.parent = parse_parent(lot, data['parent'])
+    if 'active' in data:
+        active = bool(data['active'])
+        if not active and lot.children.filter(active=True).exists():
+            raise ApiError("Ce lot contient des sous-lots actifs : archivez-les ou retirez-les du lot d'abord")
+        if active and lot.parent is not None and not lot.parent.active:
+            lot.parent = None  # le lot parent a ete archive entre-temps : le lot redevient independant
+        lot.active = active
     lot.save()
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 

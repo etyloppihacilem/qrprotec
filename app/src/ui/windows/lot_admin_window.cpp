@@ -73,11 +73,15 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SameLine();
       if (ImGui::Button("Nouveau lot"))
         selected_lot_.clear();
+      // arborescence : chaque lot global suivi de ses sous-lots
       for (const Json &lot : app.catalog.lots.items()) {
         const std::string id    = lot["id"].str();
-        const std::string label = lot["name"].str() + "  (" + lot["lot_type_name"].str() + ")##" + id;
+        const int         depth = lot["depth"].integer();
+        const std::string label = (depth > 0 ? "└ " : "") + lot["name"].str() + "  (" + lot["lot_type_name"].str() + ")##" + id;
+        ImGui::Indent(depth * 16.0f + 1.0f);
         if (ImGui::Selectable(label.c_str(), selected_lot_ == id))
           select_lot(app, id);
+        ImGui::Unindent(depth * 16.0f + 1.0f);
       }
       ImGui::EndChild();
       ImGui::SameLine();
@@ -95,6 +99,11 @@ class LotAdminWindow final : public AppWindow {
       search_select("new_lot_type", app.catalog.lot_types, "type", "name", new_lot_type_, "Tapez le nom du type de lot…");
       ImGui::InputText("Nom", &new_lot_name_);
       ImGui::InputText("Nom court (16 car.)", &new_lot_short_);
+      ImGui::TextUnformatted("Dans le lot (sous-lot)");
+      help_marker("Un sous-lot (ex : le sac d'O2 d'un B+, une armoire d'un VPS) a ses propres étiquettes et se vérifie "
+                  "seul, ou avec les autres lots du même lot global. Le lot global est valide si tous ses lots le sont.");
+      search_select("new_lot_parent", app.catalog.lots, "id", "name", new_lot_parent_, "Aucun : lot indépendant",
+                    "Aucun : lot indépendant");
       ImGui::Checkbox("Voir les étiquettes publique et privée après création", &print_new_);
       ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty());
       if (primary_button("Créer le lot")) {
@@ -102,6 +111,7 @@ class LotAdminWindow final : public AppWindow {
         body["lot_type"]   = new_lot_type_;
         body["name"]       = new_lot_name_;
         body["name_short"] = new_lot_short_;
+        body["parent"]     = new_lot_parent_;
         body["user"]       = app.user_ref();
         const bool print   = print_new_;
         app.api.post("/api/lots/", body, [this, &app, print](const ApiResult &result) {
@@ -132,9 +142,10 @@ class LotAdminWindow final : public AppWindow {
         if (selected_lot_ != id)
           return;
         if (result.ok) {
-          lot_        = result.data;
-          edit_name_  = lot_["name"].str();
-          edit_short_ = lot_["name_short"].str();
+          lot_         = result.data;
+          edit_name_   = lot_["name"].str();
+          edit_short_  = lot_["name_short"].str();
+          edit_parent_ = lot_["parent"].str();
         } else {
           app.notify(result.error, true);
         }
@@ -191,7 +202,12 @@ class LotAdminWindow final : public AppWindow {
                          "complète, fermez le lot avec un scellé puis imprimez l'étiquette du scellé.");
       ImGui::SetNextItemWidth(160.0f);
       ImGui::InputTextWithHint("Numéro du scellé", "facultatif", &seal_number_);
-      const bool ok = lot_ok(lot_status(lot_));
+      // un lot global se scelle avec ses sous-lots : ils doivent tous etre complets
+      bool ok = lot_ok(lot_status(lot_));
+      if (lot_is_group(lot_)) {
+        ImVec4 color;
+        group_banner(lot_, color, &ok);
+      }
       if (!ok)
       {
         ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
@@ -240,12 +256,30 @@ class LotAdminWindow final : public AppWindow {
       ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
       ImGui::TextUnformatted(lot_["name"].str().c_str());
       ImGui::PopFont();
-      ImGui::TextDisabled("%s - %s - version %d", lot_["id"].str().c_str(), lot_["lot_type_name"].str().c_str(),
-                          lot_["version"].integer());
+      ImGui::TextDisabled("%s - %s - version %d%s", lot_["id"].str().c_str(), lot_["lot_type_name"].str().c_str(),
+                          lot_["version"].integer(), lot_["storage"].boolean() ? " - rangement du stock" : "");
+      if (lot_["path"].size() > 0) {
+        std::string path;
+        for (const Json &parent : lot_["path"].items())
+          path += (path.empty() ? "" : " › ") + parent["name"].str();
+        ImGui::Text("Dans : %s", path.c_str());
+      }
+      if (lot_["children"].size() > 0) {
+        std::string children;
+        for (const Json &child : lot_["children"].items())
+          children += (children.empty() ? "" : ", ") + child["name"].str();
+        ImGui::TextWrapped("Sous-lots : %s", children.c_str());
+      }
       ImGui::Text("Dernière vérif : %s%s", display_datetime(lot_["last_verif"]).c_str(),
                   lot_["last_verif_by"].str().empty() ? "" : (" par " + lot_["last_verif_by"].str()).c_str());
       const LotStatus status = lot_status(lot_);
-      status_banner(lot_status_banner(lot_), lot_status_color(status), 1.1f);
+      if (lot_is_group(lot_)) {
+        ImVec4            color;
+        const std::string banner = group_banner(lot_, color);
+        status_banner(banner, color, 1.1f);
+      } else {
+        status_banner(lot_status_banner(lot_), lot_status_color(status), 1.1f);
+      }
       draw_seal(app);
 
       ImGui::SeparatorText("Étiquettes");
@@ -278,10 +312,14 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SeparatorText("Informations");
       ImGui::InputText("Nom", &edit_name_);
       ImGui::InputText("Nom court", &edit_short_);
+      ImGui::TextUnformatted("Dans le lot (sous-lot)");
+      search_select("edit_lot_parent", app.catalog.lots, "id", "name", edit_parent_, "Aucun : lot indépendant",
+                    "Aucun : lot indépendant");
       if (ImGui::Button("Enregistrer")) {
         Json body;
         body["name"]       = edit_name_;
         body["name_short"] = edit_short_;
+        body["parent"]     = edit_parent_;
         update_lot(app, body);
       }
       ImGui::SameLine();
@@ -356,6 +394,10 @@ class LotAdminWindow final : public AppWindow {
       ImGui::InputText("Nom", &type_name_);
       ImGui::TextUnformatted("Description");
       ImGui::InputTextMultiline("##description", &type_description_, ImVec2(-FLT_MIN, 50));
+      ImGui::Checkbox("Rangement du stock (armoire, tiroir...)", &type_storage_);
+      help_marker("Les items rangés dans un lot de ce type restent comptés dans le stock. Chaque rangement a ses "
+                  "étiquettes et se vérifie seul (un tiroir) ou avec les autres rangements du même lot global "
+                  "(une armoire et ses tiroirs). Y ranger des items ne demande pas de vérif.");
       if (editing_lot_type_.empty()) {
         ImGui::BeginDisabled(type_code_.size() != 6 || type_name_.empty());
         if (primary_button("Créer le type de lot")) {
@@ -363,6 +405,7 @@ class LotAdminWindow final : public AppWindow {
           body["type"]        = type_code_;
           body["name"]        = type_name_;
           body["description"] = type_description_;
+          body["storage"]     = type_storage_;
           body["user"]        = app.user_ref();
           app.api.post("/api/lot-types/", body, [this, &app](const ApiResult &result) {
             if (!result.ok) {
@@ -378,10 +421,11 @@ class LotAdminWindow final : public AppWindow {
         ImGui::EndChild();
         return;
       }
-      if (ImGui::Button("Enregistrer le nom")) {
+      if (ImGui::Button("Enregistrer")) {
         Json body;
         body["name"]        = type_name_;
         body["description"] = type_description_;
+        body["storage"]     = type_storage_;
         app.api.patch("/api/lot-types/" + url_encode(editing_lot_type_) + "/", body, [&app](const ApiResult &result) {
           app.notify(result.ok ? "Type de lot enregistre." : result.error, !result.ok);
           app.refresh_lot_types();
@@ -445,6 +489,7 @@ class LotAdminWindow final : public AppWindow {
       type_code_        = editing_lot_type_;
       type_name_        = lot_type["name"].str();
       type_description_ = lot_type["description"].str();
+      type_storage_     = lot_type["storage"].boolean();
       requirements_.clear();
       for (const Json &row : lot_type["requirements"].items())
         requirements_.push_back({ row["type"].str(), row["quantity"].integer(1), row["location"].str() });
@@ -457,6 +502,8 @@ class LotAdminWindow final : public AppWindow {
     Json        lot_;
     std::string edit_name_;
     std::string edit_short_;
+    std::string edit_parent_;
+    std::string new_lot_parent_;
     std::string new_lot_type_;
     std::string new_lot_name_;
     std::string new_lot_short_;
@@ -467,6 +514,7 @@ class LotAdminWindow final : public AppWindow {
     std::string                   type_code_;
     std::string                   type_name_;
     std::string                   type_description_;
+    bool                          type_storage_ = false;
     std::vector< RequirementRow > requirements_;
 };
 

@@ -62,6 +62,13 @@ Parameters lot_parameters(const Json &lot) {
   parameters["lot_short"]       = lot["name_short"].str();
   parameters["lot_type"]        = lot["lot_type"].str();
   parameters["lot_type_name"]   = lot["lot_type_name"].str();
+  // lot global et chemin (sous-lots) : path va du lot global au parent direct
+  std::string path;
+  for (const Json &parent : lot["path"].items())
+    path += parent["name"].str() + " › ";
+  parameters["lot_parent_name"] = lot["parent_name"].str();
+  parameters["lot_global_name"] = lot["path"].size() > 0 ? lot["path"][0]["name"].str() : lot["name"].str();
+  parameters["lot_path"]        = path + lot["name"].str();
   parameters["lot_url"]         = lot["public_url"].str();
   parameters["lot_key"]         = lot["verif_key"].str();
   parameters["lot_private_url"] = lot["private_url"].str();

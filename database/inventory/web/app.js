@@ -21,9 +21,10 @@
 
   const state = {
     user: null,        // {matricule, key, nom, prenom, privileged}
-    lot: null,         // detail public du lot (items attendus, exigences)
+    lot: null,         // detail public du lot (items attendus, exigences, sous-lots)
     lotId: '',
     lotKey: '',
+    extra: [],         // autres lots du meme lot global ajoutes a la verif par leur etiquette privee : [{id, key, lot}]
     scanned: [],       // [{code, kind, iid, info, expired, error, items: [iids d'un paquet]}]
     tab: 'todo',
     busy: false,
@@ -45,6 +46,7 @@
     try {
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
+        extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items }) => ({ code, kind, iid, info, expired, error, items })),
       }));
       if (state.user) localStorage.setItem(STORAGE_USER, JSON.stringify(state.user));
@@ -62,6 +64,7 @@
         state.lotKey = session.lotKey || '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
         state.lastVerif = session.lastVerif || null;
+        state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
       }
     } catch (e) { /* ignore */ }
   }
@@ -387,8 +390,10 @@
     const info = entry.info;
     if (entry.error) { showInfo('bad', entry.error, entry.iid); return; }
     if (!info) return;
-    const inLot = state.lot && info.location === state.lot.id;
-    const where = info.location ? (inLot ? 'Dans ce lot' : 'Rangé dans : ' + info.location_name) : 'En stock';
+    const inLot = info.location && sessionLots().some((lot) => lot.id === info.location);
+    const where = inLot ? 'Dans ' + (isMulti() ? 'le lot ' + info.location_name : 'ce lot')
+      : info.in_stock ? 'En stock' + (info.location ? ' · ' + info.location_name : '')
+        : info.location ? 'Rangé dans : ' + info.location_name : 'En stock';
     const status = { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé' }[info.status];
     showInfo(entry.expired ? 'bad' : status ? 'warn' : 'ok',
       (entry.expired ? 'PÉRIMÉ – ' : '') + info.type_name,
@@ -420,10 +425,11 @@
   }
 
   async function scanLot(scan) {
+    if (state.lot && state.lotId !== scan.id && await joinVerif(scan)) return;
     if (state.lotId && state.lotId !== scan.id && state.lot) {
       toast(`Lot changé : ${state.lot.name} → nouveau lot`);
     }
-    if (state.lotId !== scan.id) { state.lotKey = ''; state.lastVerif = null; }
+    if (state.lotId !== scan.id) { state.lotKey = ''; state.lastVerif = null; state.extra = []; }
     if (scan.key) state.lotKey = scan.key;
     await loadLot(scan.id);
     if (!state.lot) return;
@@ -431,6 +437,42 @@
     showLotInfo();
     if (!state.scanned.length) switchTab('todo');
   }
+
+  // Etiquette d'un autre lot du meme lot global pendant une verif : la verif continue et ses items attendus
+  // s'ajoutent (etiquette privee). Renvoie true si le scan a ete traite ici.
+  async function joinVerif(scan) {
+    const inProgress = state.scanned.length > 0 || (!!state.lotKey && !state.lastVerif);
+    if (!inProgress) return false;
+    const covered = sessionLots().find((lot) => lot.id === scan.id);
+    if (covered && !scan.key) {
+      feedback.info();
+      showInfo('ok', `${covered.name} fait partie de la vérif en cours`, 'Scannez ses items.');
+      return true;
+    }
+    if (!scan.key) return false;
+    let lot;
+    try {
+      lot = await api(`lots/${encodeURIComponent(scan.id)}/`);
+    } catch (e) {
+      feedback.bad();
+      showInfo('bad', 'Lot introuvable', e.message);
+      return true;
+    }
+    if (rootOf(lot) !== rootOf(state.lot)) return false;
+    const existing = state.extra.find((entry) => entry.id === scan.id);
+    if (existing) { existing.key = scan.key; existing.lot = lot; } else state.extra.push({ id: scan.id, key: scan.key, lot });
+    feedback.info();
+    showInfo('ok', `Vérif groupée : ${sessionLots().filter((sub) => !sub.depth || sub.id === lot.id).map((sub) => sub.name).join(' + ')}`,
+      covered ? `${lot.name} faisait déjà partie de la vérif : son étiquette privée est enregistrée.`
+        : `Les items attendus de ${lot.name} s'ajoutent à la vérif en cours.`,
+      `🔑 Étiquette privée de ${lot.name} scannée`);
+    save();
+    render();
+    if (!state.scanned.length) switchTab('todo');
+    return true;
+  }
+
+  const rootOf = (lot) => (lot.global ? lot.global.id : lot.path && lot.path.length ? lot.path[0].id : lot.id);
 
   // QR code du scelle d'un lot : lot valide sans verif tant que le scelle est intact
   async function scanSeal(scan) {
@@ -459,14 +501,125 @@
   async function loadLot(id, seal) {
     try {
       state.lot = await api(`lots/${encodeURIComponent(id)}/` + (seal ? `?seal=${encodeURIComponent(seal)}` : ''));
+      if (state.lotId !== id) state.extra = [];
       state.lotId = id;
     } catch (e) {
       feedback.bad();
       showInfo('bad', 'Lot introuvable', e.message);
-      if (state.lotId === id) { state.lot = null; state.lotId = ''; state.lotKey = ''; }
+      if (state.lotId === id) { state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = []; }
     }
+    await loadExtra();
     save();
     render();
+  }
+
+  // Detail des autres lots de la verif groupee (rechargement de la page, apres une verif)
+  async function loadExtra() {
+    const kept = [];
+    for (const entry of state.extra) {
+      try {
+        entry.lot = await api(`lots/${encodeURIComponent(entry.id)}/`);
+        if (state.lot && rootOf(entry.lot) === rootOf(state.lot)) kept.push(entry);
+      } catch (e) { /* lot supprime ou archive : retire de la verif */ }
+    }
+    state.extra = kept;
+  }
+
+  // Lots couverts par la verif en cours : le lot scanne, ses sous-lots, puis les lots ajoutes et leurs sous-lots
+  function sessionLots() {
+    const result = [];
+    const seen = new Set();
+    const add = (lot, depth) => {
+      if (!lot || seen.has(lot.id)) return;
+      seen.add(lot.id);
+      result.push(Object.assign(lot, { depth }));
+    };
+    for (const top of [state.lot, ...state.extra.map((entry) => entry.lot)]) {
+      if (!top) continue;
+      add(top, 0);
+      for (const sub of top.descendants || []) add(sub, sub.depth);
+    }
+    return result;
+  }
+
+  const isMulti = () => sessionLots().length > 1;
+
+  // Lots envoyes au serveur avec leur cle ; la cle d'un lot couvre ses sous-lots
+  function sessionEntries() {
+    return [{ id: state.lotId, key: state.lotKey }, ...state.extra.map(({ id, key }) => ({ id, key }))];
+  }
+
+  function keyOk() {
+    if (state.lotKey) return true;
+    const parents = new Set(((state.lot && state.lot.path) || []).map((parent) => parent.id));
+    return state.extra.some((entry) => entry.key && parents.has(entry.id));
+  }
+
+  // Repartition des items scannes entre les lots de la verif (meme regle que le serveur, services.assign_items) :
+  // un item deja dans un des lots y reste, un nouvel item va dans le premier lot qui en attend encore.
+  // complete : le lot serait complet avec ces scans (verif partielle possible).
+  function planSession() {
+    const lots = sessionLots();
+    const locationOf = {};
+    const holding = {};
+    const done = scannedIids();
+    for (const lot of lots) {
+      for (const item of [...(lot.items || []), ...(lot.missing_items || [])]) {
+        locationOf[item.iid] = lot.id;
+        if (!done.has(item.iid)) holding[lot.id] = true;
+      }
+    }
+    const required = {};
+    for (const lot of lots) {
+      required[lot.id] = {};
+      for (const row of lot.requirements || []) required[lot.id][row.type] = row.required;
+    }
+    const deficit = Object.fromEntries(lots.map((lot) => [lot.id, { ...required[lot.id] }]));
+    const scanned = [];
+    for (const entry of state.scanned) {
+      if (entry.error) continue;
+      const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
+      const iids = entry.kind === 'item' ? [entry.iid] : entry.items || [];
+      for (const iid of iids) scanned.push({ iid, type, expired: !!entry.expired });
+    }
+    const target = {};
+    const newcomers = [];
+    for (const item of scanned) {
+      const where = locationOf[item.iid];
+      if (where) {
+        target[item.iid] = where;
+        if (!item.expired && deficit[where][item.type] > 0) deficit[where][item.type] -= 1;
+      } else newcomers.push(item);
+    }
+    newcomers.sort((a, b) => (a.expired - b.expired) || (a.iid < b.iid ? -1 : a.iid > b.iid ? 1 : 0));
+    for (const item of newcomers) {
+      const candidates = lots.filter((lot) => item.type in required[lot.id]).map((lot) => lot.id);
+      let choice = null;
+      if (!item.expired) {
+        choice = candidates.find((id) => deficit[id][item.type] > 0) || null;
+        if (choice) deficit[choice][item.type] -= 1;
+      }
+      target[item.iid] = choice || candidates[0] || (lots[0] && lots[0].id);
+    }
+    const plan = Object.fromEntries(lots.map((lot) => [lot.id, { lot, fresh: {}, expired: {}, newFresh: {}, touched: 0 }]));
+    for (const item of scanned) {
+      const row = plan[target[item.iid]];
+      if (!row) continue;
+      row.touched += 1;
+      if (item.expired) row.expired[item.type] = (row.expired[item.type] || 0) + 1;
+      else {
+        row.fresh[item.type] = (row.fresh[item.type] || 0) + 1;
+        if (locationOf[item.iid] !== row.lot.id) row.newFresh[item.type] = (row.newFresh[item.type] || 0) + 1;
+      }
+    }
+    for (const row of Object.values(plan)) {
+      // perimes remplaces par des items frais arrives dans le meme lot
+      const expiredLeft = Object.entries(row.expired)
+        .reduce((sum, [type, count]) => sum + Math.max(0, count - (row.newFresh[type] || 0)), 0);
+      const filled = Object.entries(required[row.lot.id]).every(([type, quantity]) => (row.fresh[type] || 0) >= quantity);
+      row.complete = filled && !expiredLeft && (row.touched > 0 || !holding[row.lot.id]);
+    }
+    return { lots: lots.map((lot) => plan[lot.id]), target };
   }
 
   // Etat d'un lot : verifie et complet (vert), reassort depuis la derniere verif (orange : verif complete
@@ -481,15 +634,42 @@
     return make('ok', '✔ Vérifié, complet');
   }
 
+  function globalLine(lot) {
+    const global = lot.global;
+    if (!global) return '';
+    return `Lot global ${global.name} : ${global.label} · vérif la plus ancienne : `
+      + (global.last_verif ? fmtDateTime(global.last_verif) : 'jamais');
+  }
+
+  // Lot qui ne fait que regrouper des sous-lots (rien d'attendu, rien dedans, ex : un B+) : son etat est
+  // celui de ses sous-lots (lignes qui le suivent dans l'arborescence du lot global)
+  function groupStatus(lot) {
+    const rows = (lot.global && lot.global.lots) || [];
+    const index = rows.findIndex((row) => row.id === lot.id);
+    if (index < 0 || rows[index].counted) return null;
+    let problems = 0; let warn = 0; let counted = 0;
+    for (const row of rows.slice(index + 1)) {
+      if (row.depth <= rows[index].depth) break;
+      if (!row.counted) continue;
+      counted += 1;
+      if (row.effective.kind !== 'ok') problems += 1;
+      if (row.effective.kind === 'warn') warn += 1;
+    }
+    if (!problems) return { ok: true, kind: 'ok', label: `✔ Sous-lots tous valides (${counted})` };
+    return { ok: false, kind: warn === problems ? 'warn' : 'bad', label: `✘ ${problems} sous-lot(s) à traiter sur ${counted}` };
+  }
+
   function showLotInfo() {
     const lot = state.lot;
     if (!lot) return;
-    const status = lotStatus(lot);
+    const status = groupStatus(lot) || lotStatus(lot);
     showInfo(status.kind, `${status.label} – ${lot.name}`,
-      `${lot.lot_type_name} · ${lot.item_count} item(s)` + (lot.expired_count ? ` · ${lot.expired_count} périmé(s)` : ''),
+      `${lot.lot_type_name} · ${lot.item_count} item(s)` + (lot.expired_count ? ` · ${lot.expired_count} périmé(s)` : '')
+        + ((lot.descendants || []).length ? ` · ${lot.descendants.length} sous-lot(s) vérifiés avec lui` : ''),
+      globalLine(lot),
       'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
       lot.verif_recommended ? `Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.` : '',
-      state.lotKey ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
+      keyOk() ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
   }
 
   // Saisie du PIN (ou choix du PIN pour un admin qui n'en a pas encore)
@@ -548,29 +728,44 @@
   function blockers(needItems = true) {
     const missing = [];
     if (!state.lot) missing.push("scannez l'étiquette du lot");
-    else if (!state.lotKey) missing.push("scannez l'étiquette privée du lot");
+    else if (!keyOk()) missing.push("scannez l'étiquette privée du lot");
     if (!state.user) missing.push('scannez votre badge');
     if (needItems && !scannedIids().size) missing.push('scannez au moins un item');
     return missing;
   }
 
-  async function validate() {
+  // partial : verif partielle, seuls les lots rendus complets par les scans sont verifies (les autres items
+  // scannes sont ajoutes a leur lot comme un reassort)
+  async function validate(partial = false) {
     const missing = blockers(false);
     if (missing.length) { feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return; }
-    if (state.lot.is_sealed && !confirm('Ce lot est scellé : valider une vérif brisera le scellé. Continuer ?')) return;
-    const expected = expectedGroups().remaining;
-    if (expected && !confirm(`${expected} item(s) attendu(s) manquent : le lot sera incomplet. Valider quand même ?`)) return;
+    const lots = sessionLots();
+    const plan = planSession();
+    const verified = partial ? plan.lots.filter((row) => row.complete).map((row) => row.lot) : lots;
+    const sealed = verified.filter((lot) => lot.is_sealed).map((lot) => lot.name);
+    if (sealed.length && !confirm(`${sealed.join(', ')} : scellé, valider une vérif brisera le scellé. Continuer ?`)) return;
+    if (partial) {
+      const names = verified.filter((lot) => lot.items && (lot.requirements.length || lot.items.length)).map((lot) => lot.name);
+      if (!confirm(`Vérif partielle : seuls ${names.join(', ') || 'les lots complets'} seront vérifiés.\n`
+        + 'Les autres items scannés sont ajoutés à leur lot (réassort, vérif recommandée). Continuer ?')) return;
+    } else {
+      const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
+      const what = isMulti() ? 'les lots seront incomplets' : 'le lot sera incomplet';
+      if (expected && !confirm(`${expected} item(s) attendu(s) manquent : ${what}. Valider quand même ?`)) return;
+    }
     state.busy = true;
     render();
     try {
-      const report = await api(`lots/${encodeURIComponent(state.lot.id)}/verif/`, {
-        key: state.lotKey,
+      const report = await api('verifs/', {
+        lots: sessionEntries(),
         user: { matricule: state.user.matricule, key: state.user.key },
         items: [...scannedIids()],
+        partial,
       });
       state.scanned = [];
       state.lastVerif = { lotId: state.lot.id, at: new Date().toISOString(), complete: report.complete,
-                          present: report.present.length };
+                          present: report.present.length, partial: report.partial,
+                          lots: (report.lots || []).filter((row) => row.verified).length };
       showReport(report);
       await loadLot(state.lot.id);
       showLotInfo();
@@ -585,12 +780,24 @@
     }
   }
 
-  // Seulement des items qui ne sont pas dans le lot : reassort plutot que verif
+  // Seulement des items qui ne sont pas dans les lots de la verif : reassort plutot que verif
   function onlyNewItems() {
     if (!state.lot || !state.scanned.length) return false;
-    const known = new Set((state.lot.items || []).map((item) => item.iid));
+    const known = knownIids();
     const iids = [...scannedIids()];
     return iids.length > 0 && !iids.some((iid) => known.has(iid));
+  }
+
+  function knownIids() {
+    return new Set(sessionLots().flatMap((lot) => [...(lot.items || []), ...(lot.missing_items || [])].map((item) => item.iid)));
+  }
+
+  // Verif partielle : des lots sont complets, mais pas tous (verif groupee seulement)
+  function partialLots() {
+    if (!isMulti() || !state.scanned.length) return [];
+    const plan = planSession();
+    if (plan.lots.every((row) => row.complete)) return [];
+    return plan.lots.filter((row) => row.complete && row.touched > 0).map((row) => row.lot);
   }
 
   async function addToLot() {
@@ -616,7 +823,7 @@
   }
 
   function iidLabel(iid) {
-    const known = (state.lot && state.lot.items || []).find((item) => item.iid === iid);
+    const known = sessionLots().flatMap((lot) => lot.items || []).find((item) => item.iid === iid);
     const entry = state.scanned.find((e) => e.iid === iid && e.info);
     const info = (known) || (entry && entry.info);
     return info ? `${info.type_name} – ${info.peremption ? fmtDate(info.peremption) : 'non périssable'}` : iid;
@@ -628,14 +835,23 @@
       : [];
     const body = $('#report-body');
     body.replaceChildren(
-      el('h2', { style: report.complete ? 'color:var(--green)' : 'color:var(--red)' }, report.complete ? '✅ Lot complet' : '⚠️ Lot NON complet'),
+      el('h2', { style: `color:var(--${report.complete ? 'green' : report.partial ? 'orange' : 'red'})` },
+        report.complete ? ((report.lots || []).length > 1 ? '✅ Lots complets' : '✅ Lot complet')
+          : report.partial ? '↷ Vérif partielle enregistrée' : '⚠️ Lot NON complet'),
       el('p', {}, `${report.present.length} item(s) présent(s).`),
-      report.unsealed ? el('p', { style: 'color:var(--orange)' }, '🔓 Le scellé du lot a été brisé par cette vérif.') : '',
-      ...(report.requirements || []).map((row) => requirementRow(row.type_name, row.present, row.required)),
+      report.unsealed ? el('p', { style: 'color:var(--orange)' },
+        `🔓 Scellé brisé par cette vérif : ${(report.unsealed_lots || []).join(', ') || 'lot'}.`) : '',
+      ...((report.lots || []).length > 1 ? [el('h3', {}, report.partial ? 'Vérif partielle' : 'Lots vérifiés'),
+        el('ul', {}, report.lots.map((row) => el('li', {}, '  '.repeat(row.depth || 0)
+          + (row.verified ? (row.complete ? '✔ ' : '✘ ') + row.name + (row.complete ? ' : complet' : ' : incomplet')
+            : `↷ ${row.name} : non vérifié` + (row.restocked ? `, ${row.restocked} item(s) ajouté(s) (réassort)` : '')))))] : []),
+      ...(report.requirements || []).map((row) => requirementRow(
+        (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row.required)),
       ...section('Périmés encore dans le lot : à remplacer', report.expired),
       ...section('Périmés remplacés', report.replaced),
       ...section('Attendus mais non scannés', report.missing),
       ...section('Retrouvés', report.reactivated),
+      ...section('Ajoutés en réassort', report.restocked),
       ...section('Codes inconnus ignorés', report.unknown),
     );
     if (report.complete) feedback.good(); else feedback.warn();
@@ -643,10 +859,12 @@
   }
 
   $('#report-close').addEventListener('click', () => $('#report').close());
-  $('#validate').addEventListener('click', validate);
+  $('#validate').addEventListener('click', () => validate(false));
   $('#restock').addEventListener('click', () => {
-    if (confirm("Ajouter les items scannés au lot sans faire de vérif complète (réassort) ?\n"
-      + 'Le lot sera signalé « vérif recommandée » pour la personne suivante.')) addToLot();
+    if (partialLots().length) { validate(true); return; }
+    if (!confirm("Ajouter les items scannés sans faire de vérif complète (réassort) ?\n"
+      + 'Le lot sera signalé « vérif recommandée » pour la personne suivante.')) return;
+    if (isMulti()) validate(true); else addToLot();
   });
   $('#more').addEventListener('click', () => $('#menu').showModal());
   $('#menu').addEventListener('click', (event) => {
@@ -664,7 +882,7 @@
       }
     }
     if (action === 'forget-lot') {
-      state.lot = null; state.lotId = ''; state.lotKey = '';
+      state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = [];
       showInfo('empty', "Scannez l'étiquette d'un lot.");
       save(); render();
     }
@@ -735,28 +953,30 @@
     return fresh;
   }
 
-  // Attendus : la definition du type de lot (quantite par type), puis les items deja connus du lot
-  function expectedGroups() {
+  // Attendus d'un lot : la definition de son type (quantite par type), puis les items deja connus du lot.
+  // Les items scannes comptent pour le lot ou ils seront ranges (planSession).
+  function expectedGroups(lot, plan) {
     const done = scannedIids();
-    const fresh = freshByType();
+    const row = plan.lots.find((entry) => entry.lot.id === lot.id);
+    const fresh = row ? row.fresh : {};
     const known = {};
-    for (const item of (state.lot && state.lot.items) || []) {
+    for (const item of lot.items || []) {
       if (done.has(item.iid)) continue;
       (known[item.type] = known[item.type] || []).push(item);
     }
     let remaining = 0;
-    const groups = (state.lot.requirements || []).map((row) => {
-      const items = (known[row.type] || []).sort((a, b) => b.expired - a.expired);
-      delete known[row.type];
-      const scanned = fresh[row.type] || 0;
-      const missing = Math.max(0, row.required - scanned);
+    const groups = (lot.requirements || []).map((requirement) => {
+      const items = (known[requirement.type] || []).sort((a, b) => b.expired - a.expired);
+      delete known[requirement.type];
+      const scanned = fresh[requirement.type] || 0;
+      const missing = Math.max(0, requirement.required - scanned);
       const knownFresh = items.filter((item) => !item.expired).length;
       remaining += missing;
-      return { row, items, scanned, missing, fromStock: Math.max(0, missing - knownFresh) };
+      return { row: requirement, items, scanned, missing, fromStock: Math.max(0, missing - knownFresh) };
     });
     const others = Object.values(known).flat();
     remaining += others.length;
-    return { groups, others, remaining };
+    return { groups, others, remaining, complete: row ? row.complete : false };
   }
 
   function todoItem(item) {
@@ -777,42 +997,59 @@
     const last = state.lastVerif;
     if (last && last.lotId === state.lot.id && !state.scanned.length) {
       const at = new Date(last.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const what = last.partial ? `vérif partielle (${last.lots} lot(s) vérifié(s))`
+        : `${last.lots > 1 ? 'lots' : 'lot'} ${last.complete ? 'complet' + (last.lots > 1 ? 's' : '') : 'incomplet'}`;
       list.replaceChildren(
         el('li', { class: 'group ' + (last.complete ? 'ok' : 'bad') },
           el('div', { class: 'main' },
             el('div', { class: 'name' }, `${last.complete ? '✔' : '✘'} Vérif enregistrée à ${at}`),
-            el('div', { class: 'sub' }, `${last.present} item(s) présent(s) · lot ${last.complete ? 'complet' : 'incomplet'}`))),
+            el('div', { class: 'sub' }, `${last.present} item(s) présent(s) · ${what}`))),
         el('li', { class: 'empty' }, 'Scannez un item pour commencer une nouvelle vérif.'));
       return 0;
     }
-    const { groups, others, remaining } = expectedGroups();
+    const plan = planSession();
+    const lots = sessionLots();
+    const multi = lots.length > 1;
     const rows = [];
-    for (const group of groups) {
-      const state_ = group.missing === 0 ? 'ok' : group.scanned === 0 ? 'bad' : 'partial';
-      rows.push(el('li', { class: 'group ' + state_ },
-        el('div', { class: 'main' },
-          el('div', { class: 'name' }, group.row.type_name),
-          el('div', { class: 'sub' }, [group.row.location ? '📍 ' + group.row.location : '',
-            group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`].filter(Boolean).join(' · '))),
-        el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)));
-      rows.push(...group.items.map(todoItem));
-      if (group.fromStock > 0) {
-        rows.push(el('li', { class: 'todo stock' },
-          el('div', { class: 'main' }, el('div', { class: 'name' }, `+ ${group.fromStock} à prendre dans le stock`))));
+    let remaining = 0;
+    for (const lot of lots) {
+      const { groups, others, remaining: left, complete } = expectedGroups(lot, plan);
+      remaining += left;
+      // verif groupee : un titre par lot (un lot qui ne contient rien et n'attend rien n'est qu'un regroupement)
+      if (multi) {
+        if (!groups.length && !others.length && !(lot.items || []).length) continue;
+        rows.push(el('li', { class: 'lot-head ' + (complete ? 'ok' : left ? 'bad' : 'partial'), style: `margin-left:${(lot.depth || 0) * 12}px` },
+          el('div', { class: 'main' },
+            el('div', { class: 'name' }, '📦 ' + lot.name),
+            el('div', { class: 'sub' }, complete ? 'complet avec les scans' : `encore ${left} à scanner`))));
+      }
+      for (const group of groups) {
+        const state_ = group.missing === 0 ? 'ok' : group.scanned === 0 ? 'bad' : 'partial';
+        rows.push(el('li', { class: 'group ' + state_ },
+          el('div', { class: 'main' },
+            el('div', { class: 'name' }, group.row.type_name),
+            el('div', { class: 'sub' }, [group.row.location ? '📍 ' + group.row.location : '',
+              group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`].filter(Boolean).join(' · '))),
+          el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)));
+        rows.push(...group.items.map(todoItem));
+        if (group.fromStock > 0) {
+          rows.push(el('li', { class: 'todo stock' },
+            el('div', { class: 'main' }, el('div', { class: 'name' }, `+ ${group.fromStock} à prendre dans le stock`))));
+        }
+      }
+      if (others.length) {
+        rows.push(el('li', { class: 'group other' }, el('div', { class: 'main' }, 'Autres items du lot (hors définition)')));
+        rows.push(...others.map(todoItem));
       }
     }
-    if (others.length) {
-      rows.push(el('li', { class: 'group other' }, el('div', { class: 'main' }, 'Autres items du lot (hors définition)')));
-      rows.push(...others.map(todoItem));
-    }
-    if (!remaining) rows.unshift(el('li', { class: 'group ok' }, '✅ Tout est scanné : le lot sera complet.'));
+    if (!remaining) rows.unshift(el('li', { class: 'group ok' }, multi ? '✅ Tout est scanné : les lots seront complets.' : '✅ Tout est scanné : le lot sera complet.'));
     list.replaceChildren(...rows);
     return remaining;
   }
 
   function renderDone() {
     const list = $('#done-list');
-    const expected = new Set((state.lot && state.lot.items || []).map((item) => item.iid));
+    const expected = knownIids();
     const rows = state.scanned.map((entry, index) => {
       const info = entry.info;
       let name = entry.kind === 'pack' ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : entry.iid;
@@ -845,21 +1082,49 @@
       view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette publique ou privée d'un lot, ou saisissez son identifiant (menu ⋯)."));
       return;
     }
-    const fresh = freshByType();
+    const plan = planSession();
+    const fresh = (plan.lots.find((row) => row.lot.id === lot.id) || { fresh: {} }).fresh;
+    const lots = sessionLots();
     view.replaceChildren(
       el('h2', {}, lot.name),
       el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`),
-      el('div', { class: 'banner ' + lotStatus(lot).kind }, lotStatus(lot).label),
+      (lot.path || []).length ? el('div', { class: 'sub' }, 'Dans : ' + lot.path.map((parent) => parent.name).join(' › ')) : '',
+      el('div', { class: 'banner ' + (groupStatus(lot) || lotStatus(lot)).kind }, (groupStatus(lot) || lotStatus(lot)).label),
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
-        el('br'), state.lotKey ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider.'),
+        el('br'), keyOk() ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider.'),
+      lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
+        + "Scannez l'étiquette privée d'un autre lot du même lot global pour l'ajouter.") : '',
+      ...renderGlobal(lot),
       el('h3', {}, 'Scannés / attendus'),
       ...(lot.requirements || []).map((row) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''),
         fresh[row.type] || 0, row.required)),
       el('h3', {}, 'État enregistré du lot'),
       ...(lot.requirements || []).map((row) => requirementRow(row.type_name, row.present, row.required)),
     );
+  }
+
+  // Lot global (depuis n'importe lequel de ses sous-lots) : etat de l'ensemble et de chaque lot
+  function renderGlobal(lot) {
+    const global = lot.global;
+    if (!global) return [];
+    const tags = { ok: 'green', warn: 'orange', bad: 'red' };
+    return [
+      el('h3', {}, `Lot global : ${global.name}`),
+      el('div', { class: 'banner ' + global.kind }, global.label),
+      el('p', { class: 'hint' }, 'Vérif la plus ancienne : ' + (global.last_verif ? fmtDateTime(global.last_verif) : 'jamais')),
+      el('ul', { class: 'list tree' }, global.lots.map((row) => el('li', {
+        class: (row.counted ? row.effective.kind : 'group-lot') + (row.id === lot.id ? ' current' : ''),
+        style: `padding-left:${12 + row.depth * 16}px`,
+      },
+      el('div', { class: 'main' },
+        el('div', { class: 'name' }, (row.depth ? '└ ' : '') + row.name + (row.id === lot.id ? ' (ce lot)' : '')),
+        el('div', { class: 'sub' }, row.counted
+          ? `${row.lot_type_name} · vérif : ${row.last_verif ? fmtDateTime(row.last_verif) : 'jamais'}`
+          : `${row.lot_type_name} · regroupement`)),
+      row.counted ? el('span', { class: 'tag ' + tags[row.effective.kind] }, row.effective.label.replace(/^[✔✘⚠] /, '').split(',')[0]) : null))),
+    ];
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -903,6 +1168,7 @@
       if (state.scanned.length && !confirm('Changer de lot ? Les items déjà scannés restent dans la liste.')) return;
       state.lotKey = '';
       state.lastVerif = null;
+      state.extra = [];
     }
     await loadLot(id);
     if (!state.lot) return;
@@ -929,15 +1195,20 @@
     } else if (!state.lots) {
       parts.push(el('p', { class: 'hint' }, state.loading === 'lots' ? 'Chargement des lots…' : 'Liste non chargée.'));
     } else {
-      parts.push(el('p', { class: 'hint' }, "Touchez un lot pour afficher ce qu'il faut scanner. Pour valider, scannez son étiquette privée."));
+      parts.push(el('p', { class: 'hint' }, "Touchez un lot pour afficher ce qu'il faut scanner (un lot global se vérifie avec ses sous-lots). Pour valider, scannez son étiquette privée."));
+      const tags = { ok: 'green', warn: 'orange', bad: 'red' };
       parts.push(el('ul', { class: 'list' }, ...state.lots.map((lot) => {
-        const status = lotStatus(lot);
-        return el('li', { class: status.kind, onclick: () => chooseLot(lot.id) },
+        // lot global : son etat est celui de l'ensemble de ses lots
+        const top = !lot.depth && lot.global;
+        const status = top ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot);
+        const verif = top ? lot.global.last_verif : lot.last_verif;
+        return el('li', { class: status.kind, style: lot.depth ? `padding-left:${12 + lot.depth * 16}px` : null,
+          onclick: () => chooseLot(lot.id) },
           el('div', { class: 'main' },
-            el('div', { class: 'name' }, lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
-            el('div', { class: 'sub' }, `${lot.lot_type_name} · vérif : ${lot.last_verif ? fmtDateTime(lot.last_verif) : 'jamais'}`)),
-          el('span', { class: 'tag ' + { ok: 'green', warn: 'orange', bad: 'red' }[status.kind] },
-            status.label.replace(/^[✔✘⚠] /, '').split(',')[0]));
+            el('div', { class: 'name' }, (lot.depth ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
+            el('div', { class: 'sub' }, `${lot.lot_type_name}${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : `
+              + (verif ? fmtDateTime(verif) : 'jamais'))),
+          el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]));
       })));
     }
 
@@ -1118,7 +1389,7 @@
     if (!state.stock) {
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
     } else {
-      parts.push(el('p', { class: 'hint' }, 'Stock hors lots non périmé / minimum. Les plus critiques en premier.'));
+      parts.push(el('p', { class: 'hint' }, 'Stock non périmé (hors lots, rangements compris) / minimum. Les plus critiques en premier.'));
       const ratio = (row) => row.min_quantity > 0 ? row.stock_fresh / row.min_quantity : 1e6;
       const rows = [...state.stock].sort((a, b) => ratio(a) - ratio(b));
       for (const row of rows) {
@@ -1146,11 +1417,14 @@
     const chip = $('#user-chip');
     chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}` : '👤 Non connecté';
     chip.classList.toggle('ok', !!state.user);
-    // reassort : bouton orange a cote de la validation
-    const restock = onlyNewItems() && !state.busy;
+    // reassort, ou verif partielle (verif groupee dont certains lots sont complets) : bouton orange a cote de la validation
+    const partial = state.busy ? [] : partialLots();
+    const restock = !state.busy && (partial.length > 0 || onlyNewItems());
     $('#restock').hidden = !restock;
     $('#undo-last').hidden = !state.scanned.length || state.busy;
-    $('#restock').textContent = `Ajouter ${scannedIids().size} au lot (réassort)`;
+    $('#restock').textContent = partial.length
+      ? `Vérif partielle (${partial.map((lot) => lot.name_short || lot.name).join(', ')})`
+      : `Ajouter ${scannedIids().size} au lot (réassort)`;
     const validateButton = $('#validate');
     const recorded = state.lastVerif && state.lot && state.lastVerif.lotId === state.lot.id && !state.scanned.length;
     validateButton.disabled = state.busy || recorded;
@@ -1173,11 +1447,22 @@
     const cleanUrl = (lot) => history.replaceState(null, '', lot ? `verif?lot=${encodeURIComponent(lot)}` : 'verif');
     if (route === 'verif' && params.get('lot')) {
       const id = params.get('lot');
-      if (id !== state.lotId) state.lotKey = '';
-      if (params.get('key')) state.lotKey = params.get('key');
-      cleanUrl(id);
-      await loadLot(id);
-      showLotInfo();
+      const key = params.get('key') || '';
+      // etiquette d'un autre lot du meme lot global pendant une verif : elle rejoint la verif en cours
+      let joined = false;
+      if (state.lotId && id !== state.lotId) {
+        await loadLot(state.lotId);
+        joined = !!state.lot && await joinVerif({ kind: 'lot', code: location.href, id, key });
+      }
+      if (joined) {
+        cleanUrl(state.lotId);
+      } else {
+        if (id !== state.lotId) { state.lotKey = ''; state.extra = []; state.lastVerif = null; }
+        if (key) state.lotKey = key;
+        cleanUrl(id);
+        await loadLot(id);
+        showLotInfo();
+      }
     } else if (route === 'badge' && params.get('m')) {
       cleanUrl(state.lotId);
       await login(params.get('m'), params.get('key') || '');

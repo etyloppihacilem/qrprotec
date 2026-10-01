@@ -227,6 +227,8 @@ class LotType(models.Model):
     created_by = models.CharField(max_length=32, blank=True, default='')
     version = models.PositiveIntegerField(default=1)
     valid_version = models.PositiveIntegerField(default=1)
+    # Rangement du stock (armoire, tiroir...) : les items ranges dans un lot de ce type restent en stock
+    storage = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.name} ({self.type})"
@@ -282,6 +284,9 @@ class Lots(models.Model):
     active = models.BooleanField(default=True)
     name = models.CharField(max_length=64)
     name_short = models.CharField(max_length=16)
+    # Lot global (ex : un B+ compose d'un sac de soin et d'un sac d'O2, un VPS compose d'armoires et d'un B+).
+    # Chaque sous-lot a ses propres etiquettes et se verifie seul ou avec les autres sous-lots du meme lot global.
+    parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='children')
 
     def save(self, *args, **kwargs):
         if not self.version:
@@ -309,6 +314,47 @@ class Lots(models.Model):
 
     def check_seal(self, code) -> bool:
         return self.is_sealed and keys_match(self.seal_code, code)
+
+    @property
+    def storage(self) -> bool:
+        return self.lot_type.storage
+
+    def ancestors(self):
+        """Lots parents, du parent direct au lot global."""
+        chain = []
+        seen = {self.id}
+        lot = self.parent
+        while lot is not None and lot.id not in seen:
+            chain.append(lot)
+            seen.add(lot.id)
+            lot = lot.parent
+        return chain
+
+    def root(self):
+        chain = self.ancestors()
+        return chain[-1] if chain else self
+
+    def descendants(self, include_self=True):
+        """Sous-lots actifs, en profondeur d'abord (ordre d'affichage), le lot lui-meme en tete."""
+        by_parent = {}
+        for lot in Lots.objects.select_related('lot_type').filter(active=True, parent__isnull=False):
+            by_parent.setdefault(lot.parent_id, []).append(lot)
+        for children in by_parent.values():
+            children.sort(key=lambda child: (child.name.lower(), child.id))
+        result = []
+        seen = set()
+
+        def walk(lot, depth):
+            if lot.id in seen:
+                return
+            seen.add(lot.id)
+            lot.depth = depth
+            result.append(lot)
+            for child in by_parent.get(lot.id, []):
+                walk(child, depth + 1)
+
+        walk(self, 0)
+        return result if include_self else result[1:]
 
     def __str__(self):
         return f"{self.name} ({self.id})"

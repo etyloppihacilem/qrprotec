@@ -331,4 +331,41 @@ void help_marker(const char *text) {
   }
 }
 
+bool lot_is_group(const Json &lot) {
+  for (const Json &row : lot["global"]["lots"].items())
+    if (row["id"].str() == lot["id"].str())
+      return !row["counted"].boolean();
+  return false;
+}
+
+std::string group_banner(const Json &lot, ImVec4 &color, bool *all_ok) {
+  // sous-lots : lignes qui suivent le lot avec une profondeur plus grande (ordre de l'arborescence)
+  int  depth = -1, problems = 0, counted = 0;
+  bool warn = false;
+  for (const Json &row : lot["global"]["lots"].items()) {
+    if (depth < 0) {
+      if (row["id"].str() == lot["id"].str())
+        depth = row["depth"].integer();
+      continue;
+    }
+    if (row["depth"].integer() <= depth)
+      break;
+    if (!row["counted"].boolean())
+      continue;
+    ++counted;
+    const std::string kind = row["effective"]["kind"].str();
+    if (kind != "ok")
+      ++problems;
+    warn = warn || kind == "warn";
+  }
+  if (all_ok)
+    *all_ok = problems == 0;
+  if (problems == 0) {
+    color = colors::green;
+    return "✔ SOUS-LOTS TOUS VALIDES (" + std::to_string(counted) + ")";
+  }
+  color = warn && problems == 1 ? colors::orange : colors::red;
+  return "✘ " + std::to_string(problems) + " SOUS-LOT(S) À TRAITER SUR " + std::to_string(counted);
+}
+
 } // namespace qrprotec
