@@ -181,7 +181,7 @@ class SettingsWindow final : public AppWindow {
         ScannerErrorSignal &signal = settings.scanner_signal;
         ImGui::SetNextItemWidth(120.0f);
         ImGui::InputInt("Couleur LED (code SDK)", &signal.led_color);
-        help_marker("Code couleur passe à inateck_scanner_set_led. Ajustez si la LED n'est pas rouge.");
+        help_marker("Code couleur passe à inateck_scanner_set_led : 2 vert, 3 bleu, 4 orange (pas de rouge).");
         ImGui::SetNextItemWidth(120.0f);
         ImGui::InputInt("LED allumée", &signal.led_on);
         ImGui::SetNextItemWidth(120.0f);

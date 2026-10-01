@@ -28,7 +28,7 @@ struct ScannerErrorSignal {
     int beep_on = 3;
     int beep_off = 1;
     int beep_count = 3;
-    int led_color = 1;
+    int led_color = 4; // 2 vert, 3 bleu, 4 orange (pas de rouge sur la douchette)
     int led_on = 5;
     int led_off = 2;
     int led_count = 3;

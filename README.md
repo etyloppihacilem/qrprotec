@@ -509,7 +509,7 @@ disposition par défaut des fenêtres, signal de mauvais scan.
 - **Mode HID** : une douchette en mode clavier est reconnue à la vitesse de frappe (délai réglable,
   50 ms par défaut, dans Douchette > Paramètres) ; le temps pendant lequel l'application dessine
   une image est déduit, pour ne plus couper le début des scans quand l'interface est chargée.
-- **Mauvais scan** (produit périmé, code inconnu) : bip et LED de la douchette via le SDK Inateck ;
+- **Mauvais scan** (produit périmé, code inconnu) : bip et LED orange de la douchette via le SDK Inateck ;
   en mode HID, bip de l'ordinateur et clignotement rouge de l'écran.
 - **Douchette** : la recherche et la connexion sont accessibles à tous ; les paramètres (mode HID,
   volume, préfixe…) et la déconnexion demandent un utilisateur connecté. À la fin d'une recherche
