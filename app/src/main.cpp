@@ -8,8 +8,10 @@
 
 #include <GLFW/glfw3.h>
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <thread>
 #include <memory>
 #include <string>
 
@@ -21,8 +23,23 @@ static void glfw_error_callback(int error, const char* description)
 static qrprotec::Inateck* active_inateck = nullptr;
 static qrprotec::App* active_app = nullptr;
 
+// Rendu a la demande : sur un ecran virtuel (kiosk) glfwSwapInterval ne limite rien et la boucle tournait
+// a 100 % d'un coeur. On plafonne a ~60 images/s apres une entree, puis on attend les evenements en
+// redessinant ~10 fois par seconde (scans du SDK, notifications, minuteries) quand rien ne se passe.
+using frame_clock = std::chrono::steady_clock;
+static constexpr auto active_frame_period = std::chrono::microseconds(1000000 / 60);
+static constexpr double idle_wait_seconds = 0.1;
+static constexpr auto active_duration = std::chrono::seconds(2);
+static frame_clock::time_point last_input_time{};
+
+static void note_input()
+{
+    last_input_time = frame_clock::now();
+}
+
 static void note_activity()
 {
+    note_input();
     if (active_app)
         active_app->note_activity();
 }
@@ -53,6 +70,7 @@ static void hid_key_callback(GLFWwindow* window, int key, int scancode, int acti
 
 static void hid_char_callback(GLFWwindow* window, unsigned int character)
 {
+    note_input();
     if (!active_inateck)
         return ImGui_ImplGlfw_CharCallback(window, character);
     for (const unsigned int replay : active_inateck->handle_hid_character(character))
@@ -61,6 +79,7 @@ static void hid_char_callback(GLFWwindow* window, unsigned int character)
 
 static void hid_focus_callback(GLFWwindow* window, int focused)
 {
+    note_input();
     if (active_inateck)
         active_inateck->handle_window_focus(focused != 0);
     ImGui_ImplGlfw_WindowFocusCallback(window, focused);
@@ -68,21 +87,25 @@ static void hid_focus_callback(GLFWwindow* window, int focused)
 
 static void imgui_cursor_enter_callback(GLFWwindow* window, int entered)
 {
+    note_input();
     ImGui_ImplGlfw_CursorEnterCallback(window, entered);
 }
 
 static void imgui_cursor_position_callback(GLFWwindow* window, double x, double y)
 {
+    note_input();
     ImGui_ImplGlfw_CursorPosCallback(window, x, y);
 }
 
 static void imgui_mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
+    note_input();
     ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
 }
 
 static void imgui_scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
+    note_input();
     ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
 }
 
@@ -137,9 +160,20 @@ int main(int argc, char** argv)
     auto app = std::make_unique<qrprotec::App>(inateck);
     active_app = app.get();
     load_font(app->settings.font_size);
+    glfwSetWindowSizeCallback(window, [](GLFWwindow*, int, int) { note_input(); });
+    glfwSetWindowRefreshCallback(window, [](GLFWwindow*) { note_input(); });
+    frame_clock::time_point frame_start = frame_clock::now();
     while (!glfwWindowShouldClose(window)) {
         inateck.begin_poll();
-        glfwPollEvents();
+        if (frame_clock::now() - last_input_time < active_duration) {
+            // actif : plafond d'images/s meme sans vsync
+            std::this_thread::sleep_until(frame_start + active_frame_period);
+            glfwPollEvents();
+        } else {
+            // inactif : endormi jusqu'a la prochaine entree, ou au plus idle_wait_seconds
+            glfwWaitEventsTimeout(idle_wait_seconds);
+        }
+        frame_start = frame_clock::now();
         for (const unsigned int character : inateck.flush_hid_characters())
             ImGui_ImplGlfw_CharCallback(window, character);
         ImGui_ImplOpenGL3_NewFrame();
