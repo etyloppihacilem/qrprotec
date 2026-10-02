@@ -102,6 +102,16 @@ class SettingsWindow final : public AppWindow {
         ImGui::InputInt("Alerte péremption proche (jours)", &settings.expiring_soon_days);
         settings.expiring_soon_days = std::clamp(settings.expiring_soon_days, 0, 3650);
         ImGui::SetNextItemWidth(150.0f);
+        ImGui::InputInt("Délai de livraison d'une commande (jours)", &settings.order_lead_days);
+        settings.order_lead_days = std::clamp(settings.order_lead_days, 0, 365);
+        help_marker("Prévisions de stock : une commande est suggérée assez tôt pour arriver avant que le stock passe "
+                    "sous son minimum.");
+        ImGui::SetNextItemWidth(150.0f);
+        ImGui::InputInt("Historique de consommation (mois)", &settings.forecast_history_months);
+        settings.forecast_history_months = std::clamp(settings.forecast_history_months, 1, 36);
+        help_marker("Prévisions de stock : la consommation de chaque lot est la moyenne des items utilisés sur cette "
+                    "période (items absents à une vérif, sauf s'ils ont été retrouvés depuis).");
+        ImGui::SetNextItemWidth(150.0f);
         ImGui::SliderFloat("Taille du texte", &settings.font_size, 12.0f, 32.0f, "%.0f px");
         ImGui::GetStyle().FontSizeBase = settings.font_size;
         ImGui::Checkbox("Exiger l'étiquette privée pour valider une vérif (hors gestion et admin)",
@@ -303,6 +313,7 @@ class SettingsWindow final : public AppWindow {
         { "lot_key_expiring", "Étiquette privée de lot qui expire bientôt ou a expiré (commande check_alerts)" },
         { "badge_renewed", "Badge d'un utilisateur renouvelé" },
         { "badge_expiring", "Badge qui expire bientôt ou a expiré (commande check_alerts)" },
+        { "order_due", "Commande à passer d'après les prévisions de stock (commande check_alerts)" },
       };
       for (const auto &[event, label] : events) {
         bool value = notifications_["events"][event].boolean();

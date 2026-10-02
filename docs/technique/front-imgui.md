@@ -209,7 +209,7 @@ l'exécutable ; l'identifiant d'application Wayland est `qrprotec` (`qrprotec.de
 
 ```sh
 cd app
-git submodule update --init           # imgui, scanner_lib (inateck_sdk n'est pas nécessaire)
+git submodule update --init           # imgui, implot, scanner_lib (inateck_sdk n'est pas nécessaire)
 cmake -S . -B build && cmake --build build -j
 (cd build && ctest)
 ./build/QRProtecApp --verbose

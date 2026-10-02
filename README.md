@@ -249,7 +249,7 @@ systemctl status qrprotec qrprotec-kiosk caddy
 ### Construire le RPM localement
 
 ```sh
-git submodule update --init app/imgui app/scanner_lib   # fait aussi automatiquement par le build
+git submodule update --init app/imgui app/implot app/scanner_lib   # fait aussi automatiquement par le build
 make rpm                      # dans un conteneur Fedora 43 (podman ou docker) : dist/*.rpm
 make rpm FEDORA_VERSION=42    # pour Fedora 42
 make rpm-local                # directement sur une machine Fedora (dnf builddep si root)
@@ -386,11 +386,11 @@ Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`
 vérif groupée de plusieurs lots d'un même lot global), `lots/<id>/add/` (POST items, key), `lots/<id>/unseal/` (POST
 key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
 `unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
-`lots/summary/` (lots actifs et leur état, tout badge valide) et `stock/summary/` (état des stocks,
-rôles gestion et admin). Notifications web : `push/key/` (GET, clé publique VAPID),
+`lots/summary/` (lots actifs et leur état, tout badge valide), `stock/summary/` (état des stocks,
+rôles gestion et admin) et `stock/forecast/summary/` (prévisions de stock, mêmes rôles, `months`). Notifications web : `push/key/` (GET, clé publique VAPID),
 `push/subscription/` (POST badge + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
 `stock_empty`, `pin_blocked`, `lot_key_renewed`, `lot_key_expiring`, `badge_renewed`,
-`badge_expiring` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge + endpoint), `push/devices/` (POST badge :
+`badge_expiring`, `order_due` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge + endpoint), `push/devices/` (POST badge :
 appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). Rôles gestion et admin.
 
 ### Rôles
@@ -412,7 +412,7 @@ anciens responsables en administrateurs ; `createadmin` crée ou répare un admi
 
 Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), `items/batch/`
 (réception), `items/to-stock/`, `items/<iid>/delete/`, `items/<iid>/restore/`, `stock/`,
-`stock/verif/`, `packs/`, `packs/<id>/open/`, `packs/<id>/close/`, `lot-types/`, `lot-types/<type>/`,
+`stock/forecast/` (GET `months`, `lead_days`, `history_months`), `stock/verif/`, `packs/`, `packs/<id>/open/`, `packs/<id>/close/`, `lot-types/`, `lot-types/<type>/`,
 `lot-types/<type>/requirements/`, `lots/`, `lots/<id>/update/`, `lots/<id>/rotate-key/`,
 `lots/<id>/seal/` (POST seal_number, force), `lots/<id>/verifs/`, `users/`, `users/<matricule>/`,
 `users/<matricule>/renew-key/`, `notifications/` (GET, PATCH enabled/events),

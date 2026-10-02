@@ -111,6 +111,26 @@ dl.facts dd { margin: 0; }
 .row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .row-head button { padding: 6px 10px; font-size: .85rem; }
 .stock-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.stock-row.warn { border-left: 4px solid var(--orange); padding-left: 8px; background: var(--orange-bg); }
+.stock-row.bad { border-left: 4px solid var(--red); padding-left: 8px; background: var(--red-bg); }
+.row-head .buttons { display: flex; gap: 6px; }
+
+/* ---- Previsions de stock : onglet Stock en plein ecran (camera masquee) ---- */
+body.stock-full #camera, body.stock-full #info, body.stock-full #actions { display: none; }
+body.stock-full #panel { height: 100dvh; padding-top: env(safe-area-inset-top); }
+.segmented { display: flex; border: 1px solid var(--blue); border-radius: 10px; overflow: hidden; margin: 6px 0; }
+.segmented button { flex: 1; border-radius: 0; background: transparent; color: var(--blue); padding: 7px 0; }
+.segmented button.active { background: var(--blue); color: #fff; font-weight: 600; }
+.chart-box { margin: 6px 0 4px; }
+.chart { width: 100%; height: auto; display: block; }
+.chart text { fill: var(--muted); font-size: 9px; }
+.chart .grid { stroke: var(--line); }
+.s-stock { fill: var(--blue); background: var(--blue); }
+.s-lots { fill: #7ea6dc; background: #7ea6dc; }
+.s-sealed { fill: var(--orange); background: var(--orange); }
+.s-lost { fill: var(--red); background: var(--red); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: .78rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 .stock-row .req { margin: 2px 0; }
 .stock-row .bar { width: 55%; }
 #lot-view h2 { margin: 0 0 4px; font-size: 1.15rem; }

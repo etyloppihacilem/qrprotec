@@ -140,6 +140,7 @@ class ItemType(models.Model):
     default_pack_size = models.PositiveIntegerField(default=1) # nombre d'items dans un paquet a la reception
     low_notified = models.BooleanField(default=False) # SMS "stock bas" deja envoye (remis a zero au-dessus du minimum)
     empty_notified = models.BooleanField(default=False) # notification "stock vide" deja envoyee (remis a zero au-dessus de 0)
+    order_notified = models.BooleanField(default=False) # alerte "commande a passer" deja envoyee (remis a zero sans commande due)
 
     def __str__(self):
         return f"{self.name} ({self.type})"
@@ -409,6 +410,7 @@ PUSH_TYPES = {
     'lot_key_expiring': ('Étiquette privée de lot qui expire bientôt ou a expiré', _GESTION_ROLES, False),
     'badge_renewed': ("Badge d'un utilisateur renouvelé", _ADMIN_ROLES, False),
     'badge_expiring': ('Badge qui expire bientôt ou a expiré', _ADMIN_ROLES, False),
+    'order_due': ('Commande à passer (prévisions de stock)', _GESTION_ROLES, True),
 }
 
 
@@ -570,6 +572,41 @@ class VerifItem(models.Model):
     expired = models.BooleanField(default=False)
 
 
+class MovementKind(models.TextChoices):
+    MOVE = 'move', 'Déplacement'
+    USED = 'used', 'Utilisé'                  # premiere absence d'un item non perime a une verif
+    DISCARDED = 'discarded', 'Jeté (périmé)'  # premiere absence d'un item perime a une verif
+    REPLACED = 'replaced', 'Remplacé'         # perime sorti du lot a la verif, remplace par un frais
+    DELETED = 'deleted', 'Supprimé'
+    RESTORED = 'restored', 'Restauré'
+
+
+# Absences : comptees comme sorties tant que l'item n'est pas retrouve
+ABSENCE_KINDS = (MovementKind.USED, MovementKind.DISCARDED)
+
+
+class ItemMovement(models.Model):
+    """Journal des mouvements d'items : sert a mesurer la consommation de chaque lot (previsions de stock).
+
+    lot None = stock (hors lot). Une absence (USED, DISCARDED) est annulee (`cancelled`) si l'item est
+    retrouve ensuite (verif mal faite, item range ailleurs) : elle ne compte alors plus dans la consommation.
+    """
+    item = models.ForeignKey(Items, on_delete=models.CASCADE, related_name='movements')
+    item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT, related_name='+')
+    kind = models.CharField(max_length=10, choices=MovementKind.choices)
+    at = models.DateTimeField(default=timezone.now, db_index=True)
+    by = models.CharField(max_length=64, blank=True, default='')
+    from_lot = models.ForeignKey(Lots, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    to_lot = models.ForeignKey(Lots, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    verif = models.ForeignKey('Verifs', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    cancelled = models.DateTimeField(blank=True, null=True)  # absence annulee : item retrouve
+    cancelled_by = models.CharField(max_length=64, blank=True, default='')
+    reconstructed = models.BooleanField(default=False)  # reconstitue depuis les verifs anterieures au journal
+
+    class Meta:
+        indexes = [models.Index(fields=['item', 'kind', 'cancelled'])]
+
+
 class NotificationSettings(models.Model):
     """Reglages des notifications SMS (une seule ligne, pk=1)."""
     enabled = models.BooleanField(default=False)
@@ -582,6 +619,7 @@ class NotificationSettings(models.Model):
     lot_key_expiring = models.BooleanField(default=False)  # etiquette privee qui expire bientot ou a expire (check_alerts)
     badge_renewed = models.BooleanField(default=False)     # badge d'un utilisateur renouvele
     badge_expiring = models.BooleanField(default=False)    # badge qui expire bientot ou a expire (check_alerts)
+    order_due = models.BooleanField(default=False)         # commande a passer d'apres les previsions (check_alerts)
     # jours avant l'expiration pour l'alerte « expire bientot » (vide : QRPROTEC_KEY_EXPIRY_WARNING_DAYS)
     key_expiry_warning_days = models.PositiveSmallIntegerField(blank=True, null=True)
 
@@ -625,6 +663,7 @@ class PushSubscription(models.Model):
     auth = models.CharField(max_length=64)
     stock_low = models.BooleanField(default=True)     # un type passe sous son minimum
     stock_empty = models.BooleanField(default=True)   # un type arrive a 0
+    order_due = models.BooleanField(default=True)     # commande a passer d'apres les previsions
     pin_blocked = models.BooleanField(default=True)   # PIN d'un utilisateur bloque : lien de deblocage
     lot_key_renewed = models.BooleanField(default=False)
     lot_key_expiring = models.BooleanField(default=False)

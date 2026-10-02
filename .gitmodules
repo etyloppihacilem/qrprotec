@@ -7,3 +7,6 @@
 [submodule "app/scanner_lib"]
 	path = app/scanner_lib
 	url = https://github.com/Inateck-Technology-Inc/scanner_lib.git
+[submodule "app/implot"]
+	path = app/implot
+	url = https://github.com/epezent/implot

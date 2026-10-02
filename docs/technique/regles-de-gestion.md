@@ -158,6 +158,26 @@ Les utilisateurs ne suppriment pas d'items : un item perdu devient « disparu »
 responsable peut exceptionnellement marquer un item **supprimé** (raison obligatoire) et le
 restaurer. Rien n'est jamais effacé de la base.
 
+## Prévisions de stock
+
+Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast/`, et
+`POST /api/stock/forecast/summary/` avec un badge gestion ou admin pour le web) :
+
+- **Consommation** : premières absences (`ItemMovement` `used`) non annulées sur
+  `QRPROTEC_FORECAST_HISTORY_MONTHS` mois (6), par lot ; le stock (hors lot et rangements) consomme ce
+  que ses lots consomment plus ses propres sorties. Une absence est annulée si l'item est revu : une
+  vérif mal faite ne fausse pas la consommation.
+- **Simulation** par lieu, « premier périmé, premier utilisé » : à chaque utilisation prévue, l'item
+  valide le plus ancien est pris ; un item qui atteint sa date sans être pris est **perdu**. Un item
+  perdu dans un lot est remplacé depuis le stock. Les items non confirmés (manqués à la dernière vérif)
+  sont exclus.
+- **Commande** : quand le stock projeté passe sous le minimum, quantité = minimum + 2 mois de
+  consommation − stock restant, arrondie à `default_pack_size`, à recevoir avant cette date
+  (`QRPROTEC_ORDER_LEAD_DAYS`, 15 jours, ou le réglage du poste).
+- **Échanges** : pour chaque item perdu, le lieu (lot non scellé ou stock) où il serait utilisé à temps,
+  contre son item le plus récent, si l'échange réduit les pertes des deux lieux. Date limite : dernier
+  jour où l'item peut arriver et être utilisé au moins deux semaines avant sa date.
+
 ## État d'un lot (couleurs)
 
 `serializers.lot_state`, dans cet ordre :

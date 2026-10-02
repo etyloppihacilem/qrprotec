@@ -126,7 +126,7 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
 titulaire de la ligne : un couple identifiant / clé par destinataire (`SmsRecipient`). Événements
 (`NotificationSettings`) : `stock_low`, `verif_problem`, `seal_broken`, `expired_daily`, `pin_blocked`
 (PIN bloqué ou oublié, une fois par blocage, voir `notify_pin_blocked`), `lot_key_renewed`,
-`badge_renewed`, `lot_key_expiring`, `badge_expiring`. Les quatre derniers, désactivés par défaut,
+`badge_renewed`, `lot_key_expiring`, `badge_expiring`, `order_due`. Les cinq derniers, désactivés par défaut,
 existent aussi comme options des notifications web (`PUSH_OPTIONS`). Les expirations sont contrôlées par
 `check_alerts` (`check_key_expirations`) : une alerte `NotificationSettings.expiry_warning_days` jours avant
 (Réglages, ou `KEY_EXPIRY_WARNING_DAYS`, 30 j), une à
@@ -139,6 +139,11 @@ revient à `False` que quand le stock remonte au minimum. Même principe pour `e
 `check_stock_levels(types)` est appelée après chaque mouvement ; la commande `check_alerts`
 (timer systemd quotidien à 7 h 45) la lance pour tous les types, parce que les péremptions font
 baisser le stock sans aucune action, et envoie le résumé des lots contenant des périmés.
+
+**Commande à passer** (`order_due`, SMS et web) : `check_orders`, lancée par `check_alerts`, calcule
+`forecast.forecast()` et annonce les types dont `order.before` (passage sous le minimum moins
+`ORDER_LEAD_DAYS`) est atteint. `ItemType.order_notified` évite de répéter l'alerte ; il revient à
+`False` quand plus aucune commande n'est due pour ce type.
 
 ### Notifications web
 
@@ -179,7 +184,7 @@ blanche** (`ASSETS`) : ajouter un fichier au front web demande de l'y déclarer.
 |---|---|
 | `serve [--public A:P] [--local A:P] [--remote A:P] [--https] [--cert --key]` | Lance les trois API (+ WebSockets). `--https` génère un certificat auto-signé dans `database/.dev-certs/` pour tester la caméra d'un téléphone sur le réseau local. |
 | `createadmin MATRICULE NOM PRÉNOM [--pin 1234]` | Crée ou répare un administrateur (badge perdu, plus aucun admin) : nouvelle clé de badge, rôle admin. Affiche l'URL du badge à scanner sur le poste. |
-| `check_alerts` | Seuils de stock et résumé des périmés (timer quotidien). |
+| `check_alerts` | Seuils de stock, résumé des périmés, expirations des clés et commandes à passer (timer quotidien). |
 | `frontkey add NOM` / `list` / `revoke NOM` / `delete NOM` | Clés d'API des fronts distants. La clé n'est affichée qu'à `add`. |
 
 ## Tests

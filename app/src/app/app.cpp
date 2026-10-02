@@ -1638,6 +1638,19 @@ void App::refresh_stock() {
   });
 }
 
+void App::refresh_forecast() {
+  catalog.loading_forecast = true;
+  api.get("/api/stock/forecast/?months=6&lead_days=" + std::to_string(settings.order_lead_days)
+            + "&history_months=" + std::to_string(settings.forecast_history_months),
+          [this](const ApiResult &result) {
+            catalog.loading_forecast = false;
+            if (result.ok)
+              catalog.forecast = result.data;
+            else
+              notify("Prévisions : " + result.error, true);
+          });
+}
+
 namespace {
 // Payload du QR code principal de chaque usage (utilise quand aucun modele n'est configure)
 std::string main_qr_payload(TemplateCategory category) {

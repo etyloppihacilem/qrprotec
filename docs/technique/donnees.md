@@ -23,7 +23,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 
 | Modèle | Rôle | Points importants |
 |---|---|---|
-| `ItemType` | Type d'item (« Sérum phy 10 ml ») | Clé primaire `type` : **code de 6 caractères** alphanumériques (`serphy`), qui commence chaque iid. `min_quantity` : seuil d'alerte du stock. `perissable` : date de péremption obligatoire. `default_pack_size` : taille proposée à la réception. `low_notified` / `empty_notified` : alerte déjà envoyée (voir [back.md](back.md#notifications)). |
+| `ItemType` | Type d'item (« Sérum phy 10 ml ») | Clé primaire `type` : **code de 6 caractères** alphanumériques (`serphy`), qui commence chaque iid. `min_quantity` : seuil d'alerte du stock. `perissable` : date de péremption obligatoire. `default_pack_size` : taille proposée à la réception. `low_notified` / `empty_notified` / `order_notified` : alerte déjà envoyée (voir [back.md](back.md#notifications)). |
 | `ItemsPacks` | Groupe d'items d'un même type et d'une même date | Clé `type + AAAAMMJJ`. Sert de **préfixe d'iid** et porte le compteur `last_sequence`. La date de péremption est stockée ici, pas sur l'item. Ce n'est **pas** un paquet physique (voir `SealedPacks`). |
 | `Items` | Un objet physique étiqueté | Clé `iid` (22 caractères). `location` : le lot qui le contient, `NULL` = en stock. `status` : `active`, `missing` (disparu), `replaced` (remplacé, sorti d'un lot), `deleted` (supprimé à la main, avec raison). `missed_verifs` : vérifs consécutives où il était attendu sans être scanné. `last_seen*` : dernier passage (qui, quand, pendant quoi). |
 | `SealedPacks` | Paquet fermé (boîte de 25 compresses) | Identifiant base 62 sur 8 caractères (`Sequence 'sealed_pack'`). Les items existent en base dès la réception, avec `sealed_pack` renseigné ; leurs étiquettes ne sont imprimées qu'à l'ouverture (`opened`). |
@@ -43,6 +43,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 |---|---|
 | `Verifs` | Une vérif d'un lot (ou du stock si `lot` est `NULL`) : qui, quand, complète ou non, compteurs. Une vérif groupée de plusieurs sous-lots crée **une ligne par lot vérifié**. |
 | `VerifItem` | Une ligne par item concerné : `present`, `missing` ou `replaced`, et s'il était périmé. C'est l'historique complet de chaque item. |
+| `ItemMovement` | Journal des mouvements d'un item (prévisions de stock) : déplacement (`move`, lot de départ et d'arrivée, `NULL` = stock), première absence à une vérif (`used`, ou `discarded` s'il était périmé), `replaced`, `deleted`, `restored`. Une absence reçoit `cancelled` quand l'item est revu ensuite (vérif, déplacement, restauration). `reconstructed` : ligne reconstituée depuis `VerifItem` par la migration 0011. |
 
 ### Utilisateurs
 

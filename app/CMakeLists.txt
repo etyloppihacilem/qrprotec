@@ -59,6 +59,13 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
+# Graphes (previsions de stock)
+set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/implot)
+set(IMPLOT_SOURCES
+    ${IMPLOT_DIR}/implot.cpp
+    ${IMPLOT_DIR}/implot_items.cpp
+)
+
 # Coeur sans interface (teste unitairement) : modeles d'etiquettes, rendu, QR codes, JSON, API
 add_library(QRProtecCore STATIC
     src/core/codes.cpp
@@ -150,6 +157,7 @@ add_executable(${PROJECT_NAME}
     src/ui/windows/users_window.cpp
     src/ui/windows/verif_window.cpp
     ${IMGUI_SOURCES}
+    ${IMPLOT_SOURCES}
 )
 
 # Inclusion des dossiers d'en-têtes (headers)
@@ -157,6 +165,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
     ${IMGUI_DIR}/misc/cpp
+    ${IMPLOT_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )

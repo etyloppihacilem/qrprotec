@@ -19,7 +19,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 # Sous-modules necessaires a la compilation du front (le SDK C++ Inateck n'est pas utilise)
-git submodule update --init app/imgui app/scanner_lib
+git submodule update --init app/imgui app/implot app/scanner_lib
 
 # Fichiers suivis ou nouveaux (non ignores) du depot, plus ceux des sous-modules : un `make rpm`
 # fonctionne aussi avant de committer.
@@ -31,7 +31,7 @@ list_files() {
         [[ $path == .github/* || ! -f $path ]] && continue
         printf '%s\0' "$path"
     done
-    for path in app/imgui app/scanner_lib; do
+    for path in app/imgui app/implot app/scanner_lib; do
         # binaires macOS / Windows du SDK Inateck inutiles sous Fedora
         git -C "$path" ls-files -z | sed -z "s|^|$path/|" | grep -zEv '^app/scanner_lib/ble/(mac|windows)/' || :
     done

@@ -12,7 +12,8 @@
 
 - stock sous le minimum (un SMS par passage sous le seuil) ;
 - resume des lots contenant des items perimes (si « résumé quotidien des périmés » est active) ;
-- etiquettes privees de lot et badges qui expirent bientot ou ont expire (une alerte par etape).
+- etiquettes privees de lot et badges qui expirent bientot ou ont expire (une alerte par etape) ;
+- commandes a passer d'apres les previsions de stock (une alerte par type et par commande).
 """
 
 from django.core.management.base import BaseCommand
@@ -25,7 +26,7 @@ from inventory.models import ItemStatus, Lots
 
 class Command(BaseCommand):
     help = ('Envoie les notifications de stock bas, le résumé des lots contenant des périmés et les alertes '
-            "d'expiration des étiquettes privées de lot et des badges.")
+            "d'expiration des étiquettes privées de lot et des badges, et les commandes à passer.")
 
     def handle(self, *args, **options):
         low = notifications.check_stock_levels()
@@ -43,3 +44,5 @@ class Command(BaseCommand):
         expirations = notifications.check_key_expirations(today)
         self.stdout.write(f'Étiquettes de lot à renouveler : {", ".join(expirations["lot_key_expiring"]) or "aucune"}')
         self.stdout.write(f'Badges à renouveler : {", ".join(expirations["badge_expiring"]) or "aucun"}')
+        orders = notifications.check_orders(today)
+        self.stdout.write(f'Commandes à passer : {", ".join(orders) or "aucune"}')

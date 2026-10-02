@@ -154,8 +154,10 @@ struct Catalog {
     Json lots       = Json::array();
     Json users      = Json::array();
     Json stock      = Json::array();
-    bool loading_lots  = false;
-    bool loading_stock = false;
+    Json forecast   = Json::object(); // previsions de stock (/api/stock/forecast/)
+    bool loading_lots     = false;
+    bool loading_stock    = false;
+    bool loading_forecast = false;
     // incrementes a chaque rechargement : les fenetres rechargent alors leur volet de detail
     int item_types_version = 0;
     int lot_types_version  = 0;
@@ -225,6 +227,7 @@ class App {
     void refresh_lots();
     void refresh_users();
     void refresh_stock();
+    void refresh_forecast();
 
     // Impression : un jeu de parametres par etiquette
     bool print_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what);

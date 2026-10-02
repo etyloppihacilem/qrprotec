@@ -28,7 +28,7 @@ from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import webpush
+from . import forecast, webpush
 from .models import (
     ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, SmsRecipient, qrprotec_setting,
 )
@@ -48,7 +48,7 @@ STATUS_MESSAGES = {
 }
 
 EVENTS = ('stock_low', 'verif_problem', 'seal_broken', 'expired_daily', 'pin_blocked',
-          'lot_key_renewed', 'lot_key_expiring', 'badge_renewed', 'badge_expiring')
+          'lot_key_renewed', 'lot_key_expiring', 'badge_renewed', 'badge_expiring', 'order_due')
 
 
 def send_free_sms(user, password, message, timeout=10):
@@ -222,3 +222,33 @@ def check_key_expirations(today=None):
             notify_admins(event, f'{singular} à renouveler', ' ; '.join(lines))
         report[event] = soon + expired
     return report
+
+
+def check_orders(today=None):
+    """Commandes a passer d'apres les previsions de stock : types dont la date limite de commande
+    (passage sous le minimum moins le delai de commande, ORDER_LEAD_DAYS) est atteinte.
+
+    Une alerte par type et par commande : ItemType.order_notified est remis a zero quand plus aucune commande
+    n'est due (stock recu, consommation revue). Le drapeau avance meme si l'evenement est desactive, comme
+    pour les expirations. Retourne les lignes annoncees.
+    """
+    data = forecast.forecast(months=6)
+    today = today or data['today']
+    notified = set(ItemType.objects.filter(order_notified=True).values_list('type', flat=True))
+    due, cleared = [], []
+    for row in data['types']:
+        order = row['order']
+        urgent = order is not None and order['before'] <= today
+        if urgent and row['type'] not in notified:
+            due.append(row)
+        elif not urgent and row['type'] in notified:
+            cleared.append(row['type'])
+    if cleared:
+        ItemType.objects.filter(type__in=cleared).update(order_notified=False)
+    if not due:
+        return []
+    ItemType.objects.filter(type__in=[row['type'] for row in due]).update(order_notified=True)
+    lines = [f'{row["name"]} : {row["order"]["quantity"]} (sous le minimum le {_day(row["order"]["below_min"])})'
+             for row in due]
+    notify_admins('order_due', 'commande à passer', 'commande à passer : ' + ', '.join(lines))
+    return lines
