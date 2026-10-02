@@ -295,6 +295,7 @@ class SettingsWindow final : public AppWindow {
         { "verif_problem", "Vérif de lot incomplète (manquants, périmés, disparus)" },
         { "seal_broken", "Scellé d'un lot brisé" },
         { "expired_daily", "Résumé quotidien des lots contenant des périmés (commande check_alerts)" },
+        { "pin_blocked", "PIN d'un utilisateur bloqué (trop d'essais faux ou code oublié), une fois par blocage" },
       };
       for (const auto &[event, label] : events) {
         bool value = notifications_["events"][event].boolean();

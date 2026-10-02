@@ -212,8 +212,9 @@ def _dispatch(jobs):
 
 def queue(jobs):
     """jobs : [(id d'abonnement, message)], envoyes apres la validation de la transaction."""
-    if jobs and available():
-        transaction.on_commit(lambda: _dispatch(jobs))
+    if not jobs or not available():
+        return 0
+    transaction.on_commit(lambda: _dispatch(jobs))
     return len(jobs)
 
 
@@ -248,3 +249,14 @@ def notify_stock(low, empty):
                 'url': '../#stock',
             }))
     return queue(jobs)
+
+
+def notify_pin_blocked(text, url):
+    """PIN d'un utilisateur bloque : le clic ouvre le lien de deblocage (connexion avec le badge admin)."""
+    return queue([(subscription.id, {
+        'title': 'QRProtec : PIN bloqué',
+        'body': text,
+        'tag': f'pin-{url.rsplit("t=", 1)[-1][:16]}',
+        'url': url,
+        'tab': 'pinreset',
+    }) for subscription in active_subscriptions().filter(pin_blocked=True)])

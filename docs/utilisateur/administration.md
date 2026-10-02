@@ -21,6 +21,12 @@ Menu **Gestion > Utilisateurs**.
   l'utilisateur en choisit un nouveau à sa prochaine connexion. L'utilisateur peut aussi envoyer le
   lien affiché sur son téléphone : l'admin le scanne avec le front web, se connecte et confirme.
   Si le badge a pu être volé, renouvelez plutôt le badge.
+- **Code oublié** : sur le téléphone, le lien **Code oublié ?** sous la saisie du PIN bloque le PIN
+  et affiche le même écran de déblocage ; la fiche indique « Code PIN oublié ».
+- **Notification** : les admins sont prévenus d'un PIN bloqué ou oublié par SMS (**Réglages >
+  Notifications**, case « PIN d'un utilisateur bloqué ») et par notification web (case de
+  l'abonnement, onglet Stock). Une seule notification par blocage, quel que soit le nombre de
+  demandes ; toucher la notification web ouvre directement le déblocage.
 - **Admin à contacter** : l'administrateur dont le nom s'affiche sur le téléphone quand le PIN est
   bloqué (vide : « un administrateur »).
 

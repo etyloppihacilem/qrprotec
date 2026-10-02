@@ -377,6 +377,7 @@ def user_dict(user, local=False):
         contact = user.pin_contact
         data['pin_blocked_since'] = _date(user.pin_blocked)
         data['pin_failures'] = user.pin_failures_total
+        data['pin_forgotten'] = user.pin_forgotten
         data['pin_contact'] = contact.matricule if contact else ''
         data['pin_contact_name'] = str(contact) if contact else ''
         # La cle du badge n'est connue qu'a sa creation ou son renouvellement (seule son empreinte est en base) :
@@ -423,6 +424,7 @@ def notification_settings_dict(settings_row, recipients):
             'verif_problem': settings_row.verif_problem,
             'seal_broken': settings_row.seal_broken,
             'expired_daily': settings_row.expired_daily,
+            'pin_blocked': settings_row.pin_blocked,
         },
         'recipients': [recipient_dict(recipient) for recipient in recipients],
     }

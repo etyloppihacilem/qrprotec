@@ -242,15 +242,24 @@ def pin_contact_name(user):
     return str(contact)
 
 
+def pin_reset_info(user):
+    """Lien de deblocage (et son QR code sur le telephone) a envoyer a un admin."""
+    return {
+        'url': ser.public_url('pinreset', m=user.matricule, t=pin_reset_token(user)),
+        'contact': pin_contact_name(user),
+        'matricule': user.matricule,
+        'name': str(user),
+        'forgotten': user.pin_forgotten,
+    }
+
+
 def pin_blocked_error(user):
-    """PIN bloque : le telephone affiche le lien (et son QR code) a envoyer a un admin pour le debloquer."""
-    return ApiError("Code PIN bloqué après trop d'essais : un administrateur doit le réinitialiser",
-                    status.HTTP_403_FORBIDDEN, pin_required=True, pin_blocked=True, pin_reset={
-                        'url': ser.public_url('pinreset', m=user.matricule, t=pin_reset_token(user)),
-                        'contact': pin_contact_name(user),
-                        'matricule': user.matricule,
-                        'name': str(user),
-                    })
+    """PIN bloque : previent les admins (une seule fois par blocage) et renvoie le lien de deblocage."""
+    info = pin_reset_info(user)
+    info['notified'] = notifications.notify_pin_blocked(user, info['url'])
+    message = ("Code PIN oublié : un administrateur doit le réinitialiser" if user.pin_forgotten
+               else "Code PIN bloqué après trop d'essais : un administrateur doit le réinitialiser")
+    return ApiError(message, status.HTTP_403_FORBIDDEN, pin_required=True, pin_blocked=True, pin_reset=info)
 
 
 def verify_pin(user, data):
@@ -277,7 +286,7 @@ def verify_pin(user, data):
         except ValueError as exc:
             raise ApiError(str(exc), status.HTTP_400_BAD_REQUEST, pin_setup_required=True)
         user.save(update_fields=['pin_hash', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',
-                                 'pin_reset_required'])
+                                 'pin_reset_required', 'pin_forgotten', 'pin_reset_notified'])
         return
     pin = str(data.get('pin', '') or '')
     if not pin:
@@ -305,6 +314,25 @@ def auth(request):
     data = ser.user_dict(user)
     data['session'] = session_token(user)
     return Response(data)
+
+
+@api_view(['POST'])
+@handle_errors
+def pin_forgot(request):
+    """Code oublie : {"matricule", "key"} (badge) -> PIN bloque jusqu'a sa reinitialisation par un admin.
+
+    Meme reponse qu'apres 50 essais faux (403 pin_blocked + lien de deblocage) ; les admins sont prevenus
+    une seule fois par blocage, quel que soit le nombre de demandes.
+    """
+    user = Secouristes.objects.filter(matricule=str(request.data.get('matricule', ''))).first()
+    if user is None or not user.check_key(request.data.get('key')):
+        raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
+    if not user.has_pin:
+        raise ApiError("Pas de code PIN à réinitialiser : choisissez-en un à la connexion", pin_setup_required=True)
+    if user.pin_blocked is None:
+        user.forget_pin()
+        user.save(update_fields=['pin_blocked', 'pin_forgotten', 'pin_failures', 'pin_locked_until'])
+    raise pin_blocked_error(user)
 
 
 @api_view(['POST'])
@@ -468,6 +496,7 @@ def push_subscription_dict(subscription):
         'subscribed': True,
         'stock_low': subscription.stock_low,
         'stock_empty': subscription.stock_empty,
+        'pin_blocked': subscription.pin_blocked,
         'last_sent': subscription.last_sent,
         'last_status': subscription.last_status,
     }
@@ -487,7 +516,7 @@ def push_subscription(request):
     """Etat de l'abonnement de ce navigateur (endpoint), ou creation / mise a jour si `subscription` est donne.
 
     {"user": badge, "endpoint": ...} -> etat ; {"user": badge, "subscription": {endpoint, keys: {p256dh, auth}},
-    "stock_low": bool, "stock_empty": bool} -> abonnement enregistre.
+    "stock_low": bool, "stock_empty": bool, "pin_blocked": bool} -> abonnement enregistre.
     """
     user = badge_user(request, (Role.ADMIN,))
     push_available()
@@ -510,6 +539,7 @@ def push_subscription(request):
         'auth': str(keys['auth']),
         'stock_low': bool(data.get('stock_low', True)),
         'stock_empty': bool(data.get('stock_empty', True)),
+        'pin_blocked': bool(data.get('pin_blocked', True)),
     })
     return Response(push_subscription_dict(subscription))
 

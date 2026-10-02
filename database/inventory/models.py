@@ -396,6 +396,8 @@ class Secouristes(models.Model):
     pin_failures_total = models.PositiveIntegerField(default=0)  # echecs depuis le dernier PIN correct
     pin_blocked = models.DateTimeField(blank=True, null=True)    # blocage leve seulement par un admin
     pin_reset_required = models.BooleanField(default=False)      # PIN reinitialise : a choisir a la connexion
+    pin_forgotten = models.BooleanField(default=False)           # blocage demande par l'utilisateur (code oublie)
+    pin_reset_notified = models.BooleanField(default=False)      # admins deja prevenus de ce blocage (une seule fois)
     # Administrateur a prevenir quand le PIN est bloque (affiche sur le telephone avec le lien de deblocage)
     pin_contact = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
 
@@ -427,11 +429,21 @@ class Secouristes(models.Model):
         self._clear_pin_failures()
         self.pin_reset_required = True
 
+    def forget_pin(self):
+        """Code oublie : le PIN est bloque jusqu'a ce qu'un admin le reinitialise (meme lien que les 50 essais)."""
+        if self.pin_blocked is None:
+            self.pin_blocked = timezone.now()
+            self.pin_forgotten = True
+            self.pin_failures = 0
+            self.pin_locked_until = None
+
     def _clear_pin_failures(self):
         self.pin_failures = 0
         self.pin_failures_total = 0
         self.pin_locked_until = None
         self.pin_blocked = None
+        self.pin_forgotten = False
+        self.pin_reset_notified = False
 
     def pin_locked(self) -> bool:
         return self.pin_locked_until is not None and self.pin_locked_until > timezone.now()
@@ -517,6 +529,7 @@ class NotificationSettings(models.Model):
     verif_problem = models.BooleanField(default=True)    # verif de lot incomplete, perimes, disparus
     seal_broken = models.BooleanField(default=True)      # scelle d'un lot brise
     expired_daily = models.BooleanField(default=False)   # resume des lots contenant des perimes (commande check_alerts)
+    pin_blocked = models.BooleanField(default=True)      # PIN d'un utilisateur bloque (50 essais ou code oublie)
 
     @classmethod
     def get(cls):
@@ -552,6 +565,7 @@ class PushSubscription(models.Model):
     auth = models.CharField(max_length=64)
     stock_low = models.BooleanField(default=True)     # un type passe sous son minimum
     stock_empty = models.BooleanField(default=True)   # un type arrive a 0
+    pin_blocked = models.BooleanField(default=True)   # PIN d'un utilisateur bloque : lien de deblocage
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)
     last_status = models.CharField(max_length=128, blank=True, default='')

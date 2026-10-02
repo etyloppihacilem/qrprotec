@@ -661,13 +661,16 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
       complete_login(result.data);
       return;
     }
-    // trop d'essais faux : seul un admin peut debloquer (fenetre Utilisateurs, ou lien affiche sur le telephone)
+    // trop d'essais faux ou code oublie : seul un admin peut debloquer (fenetre Utilisateurs, ou lien affiche sur le
+    // telephone)
     if (result.data["pin_blocked"].boolean()) {
       pin_            = PinPrompt{};
       pending_action_ = nullptr;
       feedback.error(source, settings);
       const std::string contact = result.data["pin_reset"]["contact"].str();
-      notify("Code PIN bloqué après trop d'essais : " + (contact.empty() ? std::string("un administrateur") : contact)
+      notify(std::string(result.data["pin_reset"]["forgotten"].boolean() ? "Code PIN oublié : "
+                                                                         : "Code PIN bloqué après trop d'essais : ")
+                 + (contact.empty() ? std::string("un administrateur") : contact)
                  + " doit le réinitialiser (Utilisateurs > Réinitialiser le PIN, ou lien affiché en scannant le badge "
                    "avec un téléphone).",
              true);

@@ -183,8 +183,11 @@ class UsersWindow final : public AppWindow {
       }
       ImGui::SeparatorText("Code PIN");
       if (user_["pin_blocked"].boolean()) {
-        ImGui::TextColored(colors::red, "PIN bloqué le %s (%d essais faux).", display_datetime(user_["pin_blocked_since"]).c_str(),
-                           user_["pin_failures"].integer());
+        if (user_["pin_forgotten"].boolean())
+          ImGui::TextColored(colors::red, "Code PIN oublié, signalé le %s.", display_datetime(user_["pin_blocked_since"]).c_str());
+        else
+          ImGui::TextColored(colors::red, "PIN bloqué le %s (%d essais faux).", display_datetime(user_["pin_blocked_since"]).c_str(),
+                             user_["pin_failures"].integer());
         if (confirm_button("Réinitialiser le PIN", "L'utilisateur choisira un nouveau PIN à sa prochaine connexion. "
                                                    "Si son badge a pu être volé, renouvelez plutôt le badge. Continuer ?",
                            "pin_reset")) {

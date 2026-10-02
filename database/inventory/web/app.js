@@ -697,6 +697,9 @@
       login(matricule, key, setup ? { new_pin: pin } : { pin });
     };
     $('#pin-cancel').onclick = () => dialog.close();
+    const forgot = $('#pin-forgot');
+    forgot.hidden = setup;
+    forgot.onclick = () => forgotPin(matricule, key);
     if (!dialog.open) dialog.showModal();
     setTimeout(() => $('#pin-input').focus(), 50);
   }
@@ -739,10 +742,32 @@
   // deblocage) ; l'admin scanne le lien, se connecte avec son badge et reinitialise le PIN. L'utilisateur
   // en choisit alors un nouveau a sa prochaine connexion.
 
+  // Code oublie : le PIN est bloque comme apres trop d'essais, et l'ecran du lien de deblocage s'affiche
+  async function forgotPin(matricule, key) {
+    if (!confirm("Votre code PIN sera bloqué jusqu'à ce qu'un administrateur le réinitialise. Continuer ?")) return;
+    $('#pin').close();
+    try {
+      await api('pin-forgot/', { matricule, key });
+    } catch (e) {
+      if (e.data && e.data.pin_blocked) {
+        feedback.info();
+        showInfo('bad', 'Code PIN oublié', e.message);
+        showPinBlocked(e.data.pin_reset || {});
+        return;
+      }
+      if (e.data && e.data.pin_setup_required) { askPin(matricule, key, true, ''); return; }
+      feedback.bad();
+      showInfo('bad', 'Code oublié', e.message);
+    }
+  }
+
   function showPinBlocked(reset) {
     const dialog = $('#pin-blocked');
-    $('#pin-blocked-text').textContent = `${reset.name || ''} (${reset.matricule || ''}) : trop de codes PIN faux. `
+    $('#pin-blocked-title').textContent = reset.forgotten ? 'Code PIN oublié' : 'Code PIN bloqué';
+    $('#pin-blocked-text').textContent = `${reset.name || ''} (${reset.matricule || ''}) : `
+      + (reset.forgotten ? 'code PIN oublié. ' : 'trop de codes PIN faux. ')
       + 'Un administrateur doit réinitialiser votre PIN, vous en choisirez un nouveau à la prochaine connexion.';
+    $('#pin-blocked-notified').hidden = !reset.notified;
     $('#pin-blocked-contact').textContent = reset.contact || 'un administrateur';
     const link = $('#pin-blocked-link');
     link.href = reset.url || '';
@@ -1372,7 +1397,7 @@
     if (!isAdmin() || !pushSupported()) return;
     try {
       const subscription = await currentPushSubscription();
-      const prefs = state.push || { stock_low: true, stock_empty: true };
+      const prefs = state.push || { stock_low: true, stock_empty: true, pin_blocked: true };
       state.push = subscription
         ? { ...prefs, ...(await api('push/subscription/', { user: badge(), endpoint: subscription.endpoint })) }
         : { ...prefs, subscribed: false };
@@ -1386,8 +1411,12 @@
   }
 
   async function enablePush() {
-    const prefs = { stock_low: !!(state.push && state.push.stock_low), stock_empty: !!(state.push && state.push.stock_empty) };
-    if (!prefs.stock_low && !prefs.stock_empty) { toast('Choisissez au moins une alerte.', true); return; }
+    const prefs = {
+      stock_low: !!(state.push && state.push.stock_low),
+      stock_empty: !!(state.push && state.push.stock_empty),
+      pin_blocked: !!(state.push && state.push.pin_blocked),
+    };
+    if (!prefs.stock_low && !prefs.stock_empty && !prefs.pin_blocked) { toast('Choisissez au moins une alerte.', true); return; }
     state.pushBusy = true; state.pushError = ''; renderStock();
     try {
       // demande de permission declenchee par le clic de l'utilisateur
@@ -1453,13 +1482,18 @@
   // clic sur une notification alors que la page est deja ouverte
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.tab === 'pinreset' && event.data.url) {
+        const params = new URL(event.data.url).searchParams;
+        if (params.get('m') && params.get('t')) startPinReset(params.get('m'), params.get('t'));
+        return;
+      }
       if (event.data && event.data.tab === 'stock' && canSeeStock()) { switchTab('stock'); loadStock(); }
     });
     if (navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
   }
 
   function renderPush() {
-    const parts = [el('h3', {}, 'Notifications de stock')];
+    const parts = [el('h3', {}, 'Notifications')];
     if (!pushSupported()) {
       parts.push(el('p', { class: 'hint' }, window.isSecureContext
         ? "Ce navigateur ne gère pas les notifications web. Sur iPhone, ajoutez d'abord la page à l'écran d'accueil (Partager > Sur l'écran d'accueil)."
@@ -1478,9 +1512,10 @@
       label);
     parts.push(el('p', { class: 'hint' }, subscribed
       ? 'Activées sur cet appareil : vous serez prévenu même page fermée.'
-      : 'Recevez une alerte sur cet appareil quand le stock passe sous son minimum ou arrive à zéro.'));
+      : 'Recevez une alerte sur cet appareil quand le stock passe sous son minimum ou arrive à zéro, ou quand le PIN d\'un utilisateur est bloqué.'));
     parts.push(option('stock_low', 'Stock bas (sous le minimum fixé)'));
     parts.push(option('stock_empty', 'Stock vide (0 en stock)'));
+    parts.push(option('pin_blocked', "PIN d'un utilisateur bloqué (lien de déblocage)"));
     if (Notification.permission === 'denied') {
       parts.push(el('p', { class: 'error' }, 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'));
     }

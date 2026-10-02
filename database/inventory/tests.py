@@ -511,6 +511,31 @@ class PinTests(ApiTestCase):
         self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
 
 
+    def test_forgotten_pin(self):
+        # sans PIN : rien a oublier
+        code, body = self.call('POST', '/api/pin-forgot/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
+        self.assertEqual(code, 400)
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        code, _ = self.call('POST', '/api/pin-forgot/', {'matricule': 'M001', 'key': 'faux'}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', '/api/pin-forgot/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_blocked'])
+        self.assertTrue(body['pin_reset']['forgotten'])
+        self.assertFalse(body['pin_reset']['notified'])  # aucune notification configuree
+        self.assertIn('oublié', body['error'])
+        # bloque comme apres 50 essais, meme lien de deblocage
+        code, again = self.auth(self.user, pin='123456')
+        self.assertTrue(again['pin_blocked'])
+        self.assertEqual(again['pin_reset']['url'], body['pin_reset']['url'])
+        code, users = self.call('GET', '/api/users/')
+        row = next(user for user in users if user['matricule'] == 'M001')
+        self.assertTrue(row['pin_forgotten'])
+        self.call('PATCH', '/api/users/M001/', {'pin_reset': True})
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.pin_forgotten)
+        self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
+
 class BadgeKeyTests(ApiTestCase):
     def test_badge_key_only_at_creation_and_renewal(self):
         code, created = self.call('POST', '/api/users/', {'matricule': 'M002', 'nom': 'Martin', 'prenom': 'Paul'})
@@ -876,6 +901,46 @@ class SmsTests(ApiTestCase):
         self.assertEqual(settings_body['recipients'][0]['last_status'], 'Envoyé')
 
 
+    def test_pin_blocked_notified_once_per_block(self):
+        self.call('PATCH', '/api/notifications/', {'enabled': True})
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'P001'})
+        self.user.refresh_from_db()
+        badge = {'matricule': 'M001', 'key': self.user.new_key}
+        with self.captureOnCommitCallbacks(execute=True):
+            for _ in range(5):  # demandes repetees : une seule notification
+                code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
+                self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
+        self.assertTrue(body['pin_reset']['notified'])
+        self.assertEqual(len(self.sent), 2)  # un SMS par destinataire
+        self.assertIn('Jeanne Dupont (M001) a oublié son code PIN (contact : Admin Poste)', self.sent[0][1])
+        self.assertIn('/pinreset?m=M001&t=', self.sent[0][1])
+        # evenement desactivable
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})  # nouveau PIN : debloque
+        self.call('PATCH', '/api/notifications/', {'events': {'pin_blocked': False}})
+        self.sent.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
+        self.assertEqual(self.sent, [])
+        self.assertFalse(body['pin_reset']['notified'])
+        # active ensuite : la tentative suivante previent les admins, une fois
+        self.call('PATCH', '/api/notifications/', {'events': {'pin_blocked': True}})
+        with self.captureOnCommitCallbacks(execute=True):
+            for _ in range(3):
+                self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
+        self.assertEqual(len(self.sent), 2)
+
+    def test_pin_blocked_after_failures_notifies(self):
+        self.call('PATCH', '/api/notifications/', {'enabled': True})
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        Secouristes.objects.filter(pk=self.user.pk).update(pin_failures_total=49)
+        with self.captureOnCommitCallbacks(execute=True):
+            code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '0000'},
+                                   local=False)
+        self.assertTrue(body['pin_blocked'])
+        self.assertFalse(body['pin_reset']['forgotten'])
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("bloqué après trop d'essais", self.sent[0][1])
+
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
 class WebPushTests(ApiTestCase):
     """Notifications web : chiffrement RFC 8291, VAPID, abonnement des admins et alertes de stock."""
@@ -1040,6 +1105,28 @@ class WebPushTests(ApiTestCase):
         Secouristes.objects.filter(matricule='A001').update(role='gestion')
         with self.captureOnCommitCallbacks(execute=True):
             self.call('GET', '/api/stock/')
+        self.assertEqual(self.sent, [])
+
+    def test_pin_blocked(self):
+        code, body = self.subscribe(stock_low=False, stock_empty=False)
+        self.assertTrue(body['pin_blocked'])
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        self.user.refresh_from_db()
+        badge = {'matricule': 'M001', 'key': self.user.new_key}
+        with self.captureOnCommitCallbacks(execute=True):
+            code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
+            self.call('POST', '/api/pin-forgot/', badge, local=False)
+        self.assertTrue(body['pin_reset']['notified'])
+        [message] = self.messages()
+        self.assertEqual(message['title'], 'QRProtec : PIN bloqué')
+        self.assertEqual((message['url'], message['tab']), (body['pin_reset']['url'], 'pinreset'))
+        self.assertIn('Jeanne Dupont (M001) a oublié son code PIN', message['body'])
+        # desactive pour ce navigateur
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})  # nouveau PIN : debloque
+        self.subscribe(stock_low=True, pin_blocked=False)
+        self.sent.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', '/api/pin-forgot/', badge, local=False)
         self.assertEqual(self.sent, [])
 
 

@@ -28,7 +28,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import webpush
-from .models import ItemStatus, ItemType, Items, NotificationSettings, SmsRecipient, qrprotec_setting
+from .models import ItemStatus, ItemType, Items, NotificationSettings, Secouristes, SmsRecipient, qrprotec_setting
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ STATUS_MESSAGES = {
     500: 'Erreur du serveur Free, réessayez plus tard',
 }
 
-EVENTS = ('stock_low', 'verif_problem', 'seal_broken', 'expired_daily')
+EVENTS = ('stock_low', 'verif_problem', 'seal_broken', 'expired_daily', 'pin_blocked')
 
 
 def send_free_sms(user, password, message, timeout=10):
@@ -143,3 +143,27 @@ def check_stock_levels(type_ids=None):
         notify('stock_low', 'stock bas : ' + ', '.join(low_text))
     webpush.notify_stock(low, empty)
     return low_text
+
+
+def notify_pin_blocked(user, url):
+    """PIN bloque (50 essais faux ou code oublie) : SMS et notifications web des admins, avec le lien de deblocage.
+
+    Une seule notification par blocage, quel que soit le nombre de tentatives ou de demandes (pas de spam
+    possible) : pin_reset_notified n'est remis a zero que par la reinitialisation du PIN. Retourne True si les
+    admins ont ete prevenus (maintenant ou avant).
+    """
+    # le drapeau est pris avant l'envoi : deux requetes simultanees n'envoient qu'une notification
+    if user.pin_reset_notified or not Secouristes.objects.filter(
+            pk=user.pk, pin_reset_notified=False).update(pin_reset_notified=True):
+        user.pin_reset_notified = True
+        return True
+    reason = 'a oublié son code PIN' if user.pin_forgotten else 'a son code PIN bloqué après trop d\'essais'
+    contact = user.pin_contact
+    contact_text = f' (contact : {contact})' if contact is not None and contact.active else ''
+    message = f'{user} ({user.matricule}) {reason}{contact_text}. Débloquer : {url}'
+    sent = notify('pin_blocked', message) + webpush.notify_pin_blocked(f'{user} ({user.matricule}) {reason}', url)
+    if not sent:  # aucun destinataire : la prochaine tentative reessaiera (ex. notifications activees entre-temps)
+        Secouristes.objects.filter(pk=user.pk).update(pin_reset_notified=False)
+        return False
+    user.pin_reset_notified = True
+    return True
