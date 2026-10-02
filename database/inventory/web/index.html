@@ -86,12 +86,38 @@
     </form>
   </dialog>
 
+  <!-- PIN bloque apres trop d'essais : lien de deblocage a envoyer a un administrateur -->
+  <dialog id="pin-blocked">
+    <h2>Code PIN bloqué</h2>
+    <p id="pin-blocked-text"></p>
+    <p><b>Prenez une photo de cet écran et envoyez-la à <span id="pin-blocked-contact"></span>.</b>
+      Il scanne le QR code (ou ouvre le lien) pour réinitialiser votre PIN.</p>
+    <img id="pin-blocked-qr" class="qr" alt="QR code du lien de déblocage">
+    <p class="hint">Lien : <a id="pin-blocked-link" class="break"></a></p>
+    <div class="dialog-buttons">
+      <button type="button" id="pin-blocked-share" class="secondary" hidden>Partager le lien</button>
+      <button type="button" id="pin-blocked-close" class="primary">OK</button>
+    </div>
+  </dialog>
+
+  <!-- Deblocage du PIN d'un utilisateur par un administrateur (lien recu de l'utilisateur bloque) -->
+  <dialog id="pin-reset">
+    <h2>Débloquer un code PIN</h2>
+    <div id="pin-reset-body"></div>
+    <p id="pin-reset-error" class="pin-error"></p>
+    <div class="dialog-buttons">
+      <button type="button" id="pin-reset-cancel" class="secondary">Fermer</button>
+      <button type="button" id="pin-reset-confirm" class="primary">Réinitialiser le PIN</button>
+    </div>
+  </dialog>
+
   <dialog id="report"><div id="report-body"></div><button type="button" class="primary" id="report-close">OK</button></dialog>
 
   <div id="flash"></div>
   <div id="toast"></div>
 
   <script src="web/vendor/jsQR.js" defer></script>
+  <script src="web/vendor/qrcode.js" defer></script>
   <script src="web/app.js" defer></script>
 </body>
 </html>

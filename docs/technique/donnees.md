@@ -47,9 +47,15 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 ### Utilisateurs
 
 `Secouristes` : matricule (clé primaire, 1 à 16 caractères), nom, prénom, `role` (`normal`,
-`gestion`, `admin`), `key` du badge (24 caractères, valable 365 jours, `renew_key()` en crée une
-nouvelle et invalide l'ancien badge), PIN haché avec les hacheurs de mots de passe de Django
-(`pin_hash`), compteur d'échecs et blocage temporaire.
+`gestion`, `admin`), empreinte SHA-256 de la clé du badge (`key_hash` : la clé de 24 caractères,
+valable 365 jours, n'est connue qu'à sa création ; `renew_key()` en crée une nouvelle, la renvoie une
+seule fois et invalide l'ancien badge), PIN haché avec les hacheurs de mots de passe de Django
+(`pin_hash`), compteurs d'échecs, blocage temporaire (`pin_locked_until`), blocage jusqu'à
+intervention d'un admin (`pin_blocked`, `pin_reset_required`) et admin à contacter (`pin_contact`).
+
+L'API ne renvoie la clé du badge (`key`, `badge_url`) que dans la réponse de création
+(`POST /api/users/`) et de renouvellement (`renew-key/`), le temps d'imprimer le badge. Pour
+réimprimer un badge, il faut donc le renouveler.
 
 Il n'y a **pas** de compte Django (`auth.User`) pour les secouristes : un badge n'est pas un mot de
 passe, et la plupart des opérations n'ont besoin que d'une identité. L'admin Django

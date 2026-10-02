@@ -16,6 +16,7 @@ Deux familles de vues :
 - locales (servies uniquement sur le port local) : gestion complete sans cle.
 """
 
+import hmac
 import re
 from datetime import date
 
@@ -156,7 +157,7 @@ SESSION_MAX_AGE = 12 * 3600  # jeton de session du front web apres verification 
 
 def session_token(user):
     # lie au badge courant : renouveler le badge invalide les sessions
-    return signing.dumps({'m': user.matricule, 'k': (user.key or '')[-8:]}, salt=SESSION_SALT)
+    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]}, salt=SESSION_SALT)
 
 
 def session_valid(user, token):
@@ -164,7 +165,41 @@ def session_valid(user, token):
         data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
     except signing.BadSignature:
         return False
-    return data.get('m') == user.matricule and data.get('k') == (user.key or '')[-8:]
+    # un PIN bloque coupe aussi les sessions deja ouvertes
+    return data.get('m') == user.matricule and data.get('k') == user.key_hash[-8:] and user.pin_blocked is None
+
+
+PIN_RESET_SALT = 'qrprotec.pin-reset'
+
+
+def pin_reset_token(user):
+    """Jeton du lien de deblocage (signature courte, pour un QR code lisible) : lie au blocage en cours, il ne sert
+    qu'une fois."""
+    return signing.Signer(salt=PIN_RESET_SALT).signature(f'{user.matricule}:{user.pin_blocked.timestamp():.6f}')
+
+
+def pin_reset_token_valid(user, token):
+    if user.pin_blocked is None or not isinstance(token, str):
+        return False
+    return hmac.compare_digest(pin_reset_token(user).encode(), token.encode())
+
+
+def pin_contact_name(user):
+    contact = user.pin_contact
+    if contact is None or not contact.active or contact.role != Role.ADMIN:
+        return ''
+    return str(contact)
+
+
+def pin_blocked_error(user):
+    """PIN bloque : le telephone affiche le lien (et son QR code) a envoyer a un admin pour le debloquer."""
+    return ApiError("Code PIN bloqué après trop d'essais : un administrateur doit le réinitialiser",
+                    status.HTTP_403_FORBIDDEN, pin_required=True, pin_blocked=True, pin_reset={
+                        'url': ser.public_url('pinreset', m=user.matricule, t=pin_reset_token(user)),
+                        'contact': pin_contact_name(user),
+                        'matricule': user.matricule,
+                        'name': str(user),
+                    })
 
 
 def verify_pin(user, data):
@@ -175,6 +210,8 @@ def verify_pin(user, data):
     """
     if not user.pin_required:
         return
+    if user.pin_blocked:
+        raise pin_blocked_error(user)
     if user.pin_locked():
         minutes = max(1, int((user.pin_locked_until - timezone.now()).total_seconds() // 60) + 1)
         raise ApiError(f"Trop d'essais : PIN bloqué pendant {minutes} min", status.HTTP_403_FORBIDDEN,
@@ -188,12 +225,15 @@ def verify_pin(user, data):
             user.set_pin(new_pin)
         except ValueError as exc:
             raise ApiError(str(exc), status.HTTP_400_BAD_REQUEST, pin_setup_required=True)
-        user.save(update_fields=['pin_hash', 'pin_failures', 'pin_locked_until'])
+        user.save(update_fields=['pin_hash', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',
+                                 'pin_reset_required'])
         return
     pin = str(data.get('pin', '') or '')
     if not pin:
         raise ApiError("Code PIN requis", status.HTTP_403_FORBIDDEN, pin_required=True)
     if not user.check_pin(pin):
+        if user.pin_blocked:
+            raise pin_blocked_error(user)
         raise ApiError("PIN bloqué 5 min après trop d'essais" if user.pin_locked() else "Code PIN incorrect",
                        status.HTTP_403_FORBIDDEN, pin_required=True, pin_locked=user.pin_locked())
 
@@ -214,6 +254,34 @@ def auth(request):
     data = ser.user_dict(user)
     data['session'] = session_token(user)
     return Response(data)
+
+
+@api_view(['POST'])
+@handle_errors
+def pin_reset(request):
+    """Deblocage d'un PIN par un admin (lien envoye par l'utilisateur bloque) :
+    {"user": badge admin, "matricule", "token"} -> fiche de l'utilisateur ; avec "confirm": true -> PIN reinitialise,
+    l'utilisateur en choisira un nouveau a sa prochaine connexion."""
+    badge_user(request, (Role.ADMIN,))
+    target = Secouristes.objects.select_related('pin_contact').filter(
+        matricule=str(request.data.get('matricule', ''))).first()
+    if target is None or not pin_reset_token_valid(target, request.data.get('token')):
+        raise ApiError("Lien de déblocage invalide ou déjà utilisé (le PIN n'est plus bloqué)", status.HTTP_404_NOT_FOUND)
+    info = {
+        'matricule': target.matricule,
+        'nom': target.nom,
+        'prenom': target.prenom,
+        'role_label': target.get_role_display(),
+        'active': target.active,
+        'blocked_since': ser.user_dict(target, local=True)['pin_blocked_since'],
+        'failures': target.pin_failures_total,
+        'contact': pin_contact_name(target),
+    }
+    if request.data.get('confirm'):
+        target.reset_pin()
+        target.save()
+        return Response({**info, 'reset': True})
+    return Response({**info, 'reset': False})
 
 
 @api_view(['GET'])
@@ -782,7 +850,8 @@ def setup(request):
 @handle_errors
 def users(request):
     if request.method == 'GET':
-        return Response([ser.user_dict(user, local=True) for user in Secouristes.objects.order_by('nom', 'prenom')])
+        users_list = Secouristes.objects.select_related('pin_contact').order_by('nom', 'prenom')
+        return Response([ser.user_dict(user, local=True) for user in users_list])
     data = request.data
     matricule = str(data.get('matricule', '')).strip()
     if not MATRICULE_RE.match(matricule):
@@ -796,6 +865,8 @@ def users(request):
     user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=parse_role(data) or Role.NORMAL)
     if data.get('pin'):
         user.set_pin(data['pin'])  # sinon, un admin choisira son PIN a sa premiere connexion
+    if data.get('pin_contact'):
+        user.pin_contact = parse_pin_contact(user, data['pin_contact'])
     user.renew_key()
     user.save()
     return Response(ser.user_dict(user, local=True), status=status.HTTP_201_CREATED)
@@ -817,8 +888,22 @@ def user_detail(request, matricule):
             user.active = bool(data['active'])
         if 'pin' in data:
             user.set_pin(data['pin'])  # '' supprime le PIN (refuse pour un admin)
+        if data.get('pin_reset'):
+            user.reset_pin()  # deblocage : nouveau PIN choisi a la prochaine connexion
+        if 'pin_contact' in data:
+            user.pin_contact = parse_pin_contact(user, data['pin_contact'])
         user.save()
     return Response(ser.user_dict(user, local=True))
+
+
+def parse_pin_contact(user, value):
+    """Admin a contacter si le PIN est bloque (matricule d'un administrateur actif, vide = aucun)."""
+    if value in (None, ''):
+        return None
+    contact = Secouristes.objects.filter(matricule=str(value)).first()
+    if contact is None or contact.role != Role.ADMIN or not contact.active:
+        raise ApiError("L'admin à contacter doit être un administrateur actif")
+    return contact
 
 
 @api_view(['POST'])
@@ -826,7 +911,7 @@ def user_detail(request, matricule):
 def user_renew_key(request, matricule):
     user = get_object_or_404(Secouristes, matricule=matricule)
     user.renew_key()
-    user.save(update_fields=['key', 'key_expires'])
+    user.save(update_fields=['key_hash', 'key_expires'])
     return Response(ser.user_dict(user, local=True))
 
 

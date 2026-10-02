@@ -60,6 +60,11 @@ Le badge a plus d'un an ou a été renouvelé. Demandez un nouveau badge à un a
 Cinq PIN faux : attendez 5 minutes. PIN oublié : un administrateur en définit un nouveau
 (**Gestion > Utilisateurs**).
 
+**« Code PIN bloqué après trop d'essais ».**
+Après 50 PIN faux, seul un administrateur peut débloquer. Sur le téléphone, prenez une photo de
+l'écran (QR code et lien) et envoyez-la à l'administrateur indiqué. Il scanne le QR code, se
+connecte et touche **Réinitialiser le PIN**. À votre prochaine connexion, choisissez un nouveau PIN.
+
 **Le poste m'a déconnecté et a vidé la pile.**
 Après 15 minutes sans activité, le poste revient à son état de départ (réglable par un admin).
 

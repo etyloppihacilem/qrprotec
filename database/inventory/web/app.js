@@ -13,6 +13,7 @@
   const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
   const STORAGE_USER = 'qrprotec.user';
   const STORAGE_SESSION = 'qrprotec.session';
+  const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
 
   const $ = (selector) => document.querySelector(selector);
 
@@ -31,6 +32,7 @@
     lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
     lots: null,        // liste des lots (accueil), chargee avec le badge
     stock: null,       // etat des stocks, roles gestion et admin uniquement
+    pinReset: null,    // {matricule, token} : deblocage du PIN d'un utilisateur, en attente d'un admin connecte
     loading: '',       // 'lots' ou 'stock' pendant un chargement
     push: null,        // notifications web de ce navigateur (admins) : {subscribed, stock_low, stock_empty, ...}
     pushBusy: false,
@@ -67,6 +69,7 @@
         state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
       }
     } catch (e) { /* ignore */ }
+    try { state.pinReset = JSON.parse(sessionStorage.getItem(STORAGE_PIN_RESET) || 'null'); } catch (e) { /* ignore */ }
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -146,6 +149,7 @@
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
     if (route === 'seal' && p.get('lot') && p.get('s')) return { kind: 'seal', code, id: p.get('lot'), key: p.get('s') };
     if (route === 'scanner' && p.get('s') && p.get('k')) return { kind: 'remote', code, search: url.search };
+    if (route === 'pinreset' && p.get('m') && p.get('t')) return { kind: 'pinreset', code, id: p.get('m'), key: p.get('t') };
     return { kind: 'unknown', code };
   }
 
@@ -348,6 +352,7 @@
       case 'user': return login(scan.id, scan.key);
       case 'pack': return scanPack(scan);
       case 'seal': return scanSeal(scan);
+      case 'pinreset': return startPinReset(scan.id, scan.key);
       case 'remote':
         // QR code affiche par le poste : ce telephone devient sa douchette
         feedback.info();
@@ -677,7 +682,7 @@
     const dialog = $('#pin');
     $('#pin-title').textContent = setup ? 'Choisissez votre code PIN' : 'Code PIN';
     $('#pin-text').textContent = setup
-      ? 'Obligatoire pour les administrateurs : 4 à 8 chiffres, demandé après le badge à chaque connexion.'
+      ? 'Nouveau code PIN de 4 à 8 chiffres, demandé après le badge à chaque connexion (obligatoire pour les administrateurs).'
       : `Badge ${matricule} : saisissez votre code PIN.`;
     $('#pin-input').value = '';
     $('#pin-confirm').value = '';
@@ -710,7 +715,14 @@
       render();
       loadLots();
       if (canSeeStock()) loadStock();
+      if (state.pinReset) openPinReset();
     } catch (e) {
+      if (e.data && e.data.pin_blocked) {
+        feedback.bad();
+        showInfo('bad', 'Code PIN bloqué', e.message);
+        showPinBlocked(e.data.pin_reset || {});
+        return;
+      }
       if (e.data && (e.data.pin_required || e.data.pin_setup_required)) {
         const retry = extra.pin || extra.new_pin || e.data.pin_locked;
         if (retry) feedback.bad(); else feedback.info();
@@ -720,6 +732,111 @@
       feedback.bad();
       showInfo('bad', 'Badge refusé', e.message);
     }
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // PIN bloque apres trop d'essais : l'utilisateur envoie a un admin la photo de l'ecran (QR code du lien de
+  // deblocage) ; l'admin scanne le lien, se connecte avec son badge et reinitialise le PIN. L'utilisateur
+  // en choisit alors un nouveau a sa prochaine connexion.
+
+  function showPinBlocked(reset) {
+    const dialog = $('#pin-blocked');
+    $('#pin-blocked-text').textContent = `${reset.name || ''} (${reset.matricule || ''}) : trop de codes PIN faux. `
+      + 'Un administrateur doit réinitialiser votre PIN, vous en choisirez un nouveau à la prochaine connexion.';
+    $('#pin-blocked-contact').textContent = reset.contact || 'un administrateur';
+    const link = $('#pin-blocked-link');
+    link.href = reset.url || '';
+    link.textContent = reset.url || '';
+    const image = $('#pin-blocked-qr');
+    image.hidden = !reset.url || typeof qrcode !== 'function';
+    if (!image.hidden) {
+      const qr = qrcode(0, 'M');
+      qr.addData(reset.url);
+      qr.make();
+      image.src = qr.createDataURL(8, 4);
+    }
+    const share = $('#pin-blocked-share');
+    share.hidden = !reset.url || !navigator.share;
+    share.onclick = () => navigator.share({
+      title: 'QRProtec : PIN bloqué',
+      text: `Débloquer le code PIN de ${reset.name || reset.matricule}`,
+      url: reset.url,
+    }).catch(() => { /* partage annule */ });
+    $('#pin-blocked-close').onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function startPinReset(matricule, token) {
+    state.pinReset = { matricule, token };
+    try { sessionStorage.setItem(STORAGE_PIN_RESET, JSON.stringify(state.pinReset)); } catch (e) { /* ignore */ }
+    return openPinReset();
+  }
+
+  function endPinReset() {
+    state.pinReset = null;
+    try { sessionStorage.removeItem(STORAGE_PIN_RESET); } catch (e) { /* ignore */ }
+    $('#pin-reset').close();
+  }
+
+  async function openPinReset() {
+    const request = state.pinReset;
+    if (!request) return;
+    if (!isAdmin()) {
+      feedback.info();
+      showInfo('warn', "Déblocage d'un code PIN", 'Scannez votre badge administrateur pour continuer.');
+      return;
+    }
+    const body = { user: badge(), matricule: request.matricule, token: request.token };
+    let info;
+    try {
+      info = await api('pin-reset/', body);
+    } catch (e) {
+      if (e.data && e.data.pin_required) {
+        // session de l'admin expiree : il rescanne son badge, le deblocage reprend ensuite
+        state.user = null;
+        save();
+        render();
+        showInfo('warn', "Déblocage d'un code PIN", 'Session expirée : scannez à nouveau votre badge administrateur.');
+        return;
+      }
+      endPinReset();
+      feedback.bad();
+      showInfo('bad', 'Déblocage impossible', e.message);
+      return;
+    }
+    feedback.info();
+    const dialog = $('#pin-reset');
+    const fact = (label, value) => [el('dt', {}, label), el('dd', {}, value)];
+    $('#pin-reset-body').replaceChildren(
+      el('dl', { class: 'facts' },
+        fact('Utilisateur', `${info.prenom} ${info.nom}`),
+        fact('Matricule', info.matricule),
+        fact('Rôle', info.role_label),
+        fact('Bloqué le', info.blocked_since ? fmtDateTime(info.blocked_since) : '-'),
+        fact('Essais faux', String(info.failures)),
+        info.contact ? fact('Admin à contacter', info.contact) : [],
+        info.active ? [] : fact('Compte', 'désactivé')),
+      el('p', { class: 'hint' }, "Vérifiez que la demande vient bien de cette personne. Après réinitialisation, elle "
+        + 'choisira un nouveau PIN à sa prochaine connexion avec son badge. Si le badge a pu être perdu ou volé, '
+        + 'renouvelez plutôt le badge depuis le poste.'));
+    $('#pin-reset-error').textContent = '';
+    const confirmButton = $('#pin-reset-confirm');
+    confirmButton.disabled = false;
+    confirmButton.onclick = async () => {
+      confirmButton.disabled = true;
+      try {
+        await api('pin-reset/', { ...body, confirm: true });
+      } catch (e) {
+        confirmButton.disabled = false;
+        $('#pin-reset-error').textContent = e.message;
+        return;
+      }
+      endPinReset();
+      feedback.good();
+      showInfo('ok', 'Code PIN réinitialisé', `${info.prenom} ${info.nom} choisira un nouveau PIN à sa prochaine connexion.`);
+    };
+    $('#pin-reset-cancel').onclick = endPinReset;
+    if (!dialog.open) dialog.showModal();
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -1470,6 +1587,10 @@
     } else if (route === 'seal' && params.get('lot') && params.get('s')) {
       await scanSeal({ kind: 'seal', code: location.href, id: params.get('lot'), key: params.get('s') });
       cleanUrl(params.get('lot'));
+    } else if (route === 'pinreset' && params.get('m') && params.get('t')) {
+      cleanUrl(state.lotId);
+      if (state.lotId) await loadLot(state.lotId);
+      await startPinReset(params.get('m'), params.get('t'));
     } else if (route === 'pack' && params.get('id')) {
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);

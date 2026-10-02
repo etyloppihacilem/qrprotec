@@ -74,7 +74,7 @@ class PublicApiTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=False)
         self.assertEqual(code, 403)
         payload['key'] = self.lot.verif_key
-        payload['user'] = {'matricule': 'M001', 'key': self.user.key}
+        payload['user'] = {'matricule': 'M001', 'key': self.user.new_key}
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=False)
         self.assertEqual(code, 200)
         self.assertTrue(body['complete'])
@@ -90,14 +90,14 @@ class PublicApiTests(ApiTestCase):
         self.assertIn(f'key={self.lot.verif_key}', body['private_url'])
 
     def test_auth(self):
-        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.key}, local=False)
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         self.assertEqual(code, 200)
         self.assertEqual(body['prenom'], 'Jeanne')
         code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': 'x'}, local=False)
         self.assertEqual(code, 403)
         self.user.key_expires = self.today - timedelta(days=1)
         self.user.save()
-        code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.key}, local=False)
+        code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         self.assertEqual(code, 403)
 
     @override_settings(QRPROTEC={**__import__('django.conf').conf.settings.QRPROTEC, 'LOCAL_API_TOKEN': 'secret'})
@@ -284,14 +284,16 @@ class SetupTests(ApiTestCase):
         admin = Secouristes.objects.get(matricule='R001')
         self.assertTrue(admin.privileged)
         self.assertEqual(admin.role, 'admin')
-        old_key = admin.key
+        old_hash = admin.key_hash
         call_command('createadmin', 'R001', stdout=StringIO())
-        self.assertNotEqual(Secouristes.objects.get(matricule='R001').key, old_key)
+        self.assertNotEqual(Secouristes.objects.get(matricule='R001').key_hash, old_hash)
 
 
+# PIN haches avec un algorithme rapide : les tests de blocage font une cinquantaine d'essais
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
 class PinTests(ApiTestCase):
     def auth(self, user, **extra):
-        return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.key, **extra}, local=False)
+        return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key, **extra}, local=False)
 
     def test_admin_sets_pin_at_first_login_then_needs_it(self):
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
@@ -310,7 +312,7 @@ class PinTests(ApiTestCase):
         code, body = self.auth(admin, pin='4821')
         self.assertEqual(code, 200)
         # le jeton de session ouvre l'etat des stocks sans redemander le PIN
-        badge = {'matricule': 'A001', 'key': admin.key}
+        badge = {'matricule': 'A001', 'key': admin.new_key}
         code, _ = self.call('POST', '/api/stock/summary/', {'user': badge}, local=False)
         self.assertEqual(code, 403)
         code, _ = self.call('POST', '/api/stock/summary/', {'user': {**badge, 'session': body['session']}}, local=False)
@@ -336,6 +338,108 @@ class PinTests(ApiTestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.auth(self.user)[0], 200)
 
+    def fail_pin(self, user, times):
+        for _ in range(times):
+            Secouristes.objects.filter(pk=user.pk).update(pin_locked_until=None)  # saute le blocage de 5 min
+            code, body = self.auth(user, pin='000000')
+        return code, body
+
+    def test_pin_blocked_after_failures_until_admin_reset(self):
+        admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
+        admin.renew_key()
+        admin.set_pin('4821')
+        admin.save()
+        code, _ = self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'M001'})
+        self.assertEqual(code, 400)  # l'admin a contacter doit etre un administrateur
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'A001'})
+        self.assertEqual((body['pin_contact'], body['pin_contact_name']), ('A001', 'Min Ad'))
+        code, session = self.auth(self.user, pin='123456')
+        self.assertEqual(code, 200)
+
+        # un PIN correct remet le compteur a zero
+        self.fail_pin(self.user, 49)
+        self.assertEqual(self.auth(self.user, pin='123456')[0], 200)
+        code, body = self.fail_pin(self.user, 49)
+        self.assertFalse(body.get('pin_blocked', False))
+        code, body = self.fail_pin(self.user, 1)  # 50e echec
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_blocked'])
+        reset = body['pin_reset']
+        self.assertIn('pinreset?m=M001&t=', reset['url'])
+        self.assertEqual(reset['contact'], 'Min Ad')
+        # bloque : meme le bon PIN est refuse, et la session deja ouverte ne vaut plus rien
+        code, body = self.auth(self.user, pin='123456')
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_blocked'])
+        Secouristes.objects.filter(pk=self.user.pk).update(role='gestion')
+        badge = {'matricule': 'M001', 'key': self.user.new_key, 'session': session['session']}
+        self.assertEqual(self.call('POST', '/api/stock/summary/', {'user': badge}, local=False)[0], 403)
+
+        token = reset['url'].split('t=')[1]
+        from urllib.parse import unquote
+        token = unquote(token)
+        request = {'matricule': 'M001', 'token': token}
+        # deblocage : admin connecte (badge + session PIN) seulement
+        self.assertEqual(self.call('POST', '/api/pin-reset/', request, local=False)[0], 403)
+        admin_badge = {'matricule': 'A001', 'key': admin.new_key}
+        code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge}, local=False)
+        self.assertEqual((code, body.get('pin_required')), (403, True))
+        code, login = self.auth(admin, pin='4821')
+        admin_badge['session'] = login['session']
+        code, _ = self.call('POST', '/api/pin-reset/', {'matricule': 'M001', 'token': 'faux', 'user': admin_badge},
+                            local=False)
+        self.assertEqual(code, 404)
+        code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge}, local=False)
+        self.assertEqual((code, body['reset'], body['failures'], body['prenom']), (200, False, 50, 'Jeanne'))
+        code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge, 'confirm': True}, local=False)
+        self.assertEqual((code, body['reset']), (200, True))
+        # lien a usage unique
+        code, _ = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge, 'confirm': True}, local=False)
+        self.assertEqual(code, 404)
+        # l'utilisateur choisit un nouveau PIN a sa prochaine connexion
+        code, body = self.auth(self.user)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_setup_required'])
+        code, body = self.auth(self.user, new_pin='2468')
+        self.assertEqual(code, 200)
+        self.assertFalse(body['pin_reset_required'])
+        self.assertEqual(self.auth(self.user, pin='2468')[0], 200)
+
+    def test_local_pin_reset(self):
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        self.user.refresh_from_db()
+        self.fail_pin(self.user, 50)
+        code, users = self.call('GET', '/api/users/')
+        row = next(user for user in users if user['matricule'] == 'M001')
+        self.assertTrue(row['pin_blocked'])
+        self.assertEqual(row['pin_failures'], 50)
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin_reset': True})
+        self.assertEqual((body['pin_blocked'], body['pin_reset_required'], body['has_pin']), (False, True, False))
+        self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
+
+
+class BadgeKeyTests(ApiTestCase):
+    def test_badge_key_only_at_creation_and_renewal(self):
+        code, created = self.call('POST', '/api/users/', {'matricule': 'M002', 'nom': 'Martin', 'prenom': 'Paul'})
+        key = created['key']
+        self.assertIn(f'key={key}', created['badge_url'])
+        # ni la liste ni la fiche ne contiennent la cle, la base n'en garde que l'empreinte
+        code, users = self.call('GET', '/api/users/')
+        self.assertTrue(all('key' not in user and 'badge_url' not in user for user in users))
+        code, body = self.call('GET', '/api/users/M002/')
+        self.assertNotIn('key', body)
+        stored = Secouristes.objects.get(matricule='M002')
+        self.assertEqual(len(stored.key_hash), 64)
+        self.assertNotIn(key, stored.key_hash)
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': key}, local=False)[0], 200)
+        # renouvellement : nouvelle cle affichee une fois, l'ancienne ne marche plus
+        code, renewed = self.call('POST', '/api/users/M002/renew-key/')
+        self.assertNotEqual(renewed['key'], key)
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': key}, local=False)[0], 403)
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': renewed['key']},
+                                   local=False)[0], 200)
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': None}, local=False)[0], 403)
+
 
 class RestockTests(ApiTestCase):
     def test_restock_recommends_verif(self):
@@ -359,7 +463,7 @@ class RestockTests(ApiTestCase):
 
 class RoleTests(ApiTestCase):
     def badge(self, user):
-        return {'matricule': user.matricule, 'key': user.key}
+        return {'matricule': user.matricule, 'key': user.new_key}
 
     def test_roles_and_public_summaries(self):
         code, body = self.call('POST', '/api/users/', {'matricule': 'G001', 'nom': 'Gest', 'prenom': 'Ion',
@@ -367,9 +471,11 @@ class RoleTests(ApiTestCase):
         self.assertEqual(code, 201)
         self.assertEqual(body['role'], 'gestion')
         self.assertTrue(body['privileged'])
+        gestion_key = body['key']  # cle du badge : seulement dans la reponse de creation
         code, _ = self.call('POST', '/api/users/', {'matricule': 'X001', 'nom': 'a', 'prenom': 'b', 'role': 'chef'})
         self.assertEqual(code, 400)
         gestion = Secouristes.objects.get(matricule='G001')
+        gestion.new_key = gestion_key
         # etat des stocks : lecture seule, gestion ou admin seulement
         code, stock = self.call('POST', '/api/stock/summary/', {'user': self.badge(gestion)}, local=False)
         self.assertEqual(code, 200)
@@ -696,7 +802,7 @@ class WebPushTests(ApiTestCase):
         self.admin.renew_key()
         self.admin.set_pin('4821')
         self.admin.save()
-        self.badge = {'matricule': 'A001', 'key': self.admin.key, 'session': views.session_token(self.admin)}
+        self.badge = {'matricule': 'A001', 'key': self.admin.new_key, 'session': views.session_token(self.admin)}
         self.browser_key = ec.generate_private_key(ec.SECP256R1())
         self.browser_auth = webpush.b64url(b'0123456789abcdef')
 
@@ -766,12 +872,12 @@ class WebPushTests(ApiTestCase):
 
     def test_only_admins_subscribe(self):
         code, body = self.call('POST', '/api/push/subscription/',
-                               {'user': {'matricule': 'M001', 'key': self.user.key}, 'subscription': self.subscription()},
+                               {'user': {'matricule': 'M001', 'key': self.user.new_key}, 'subscription': self.subscription()},
                                local=False)
         self.assertEqual((code, body['error']), (403, 'Réservé aux administrateurs'))
         # sans jeton de session (PIN), refuse aussi
         code, _ = self.call('POST', '/api/push/subscription/',
-                            {'user': {'matricule': 'A001', 'key': self.admin.key}, 'subscription': self.subscription()},
+                            {'user': {'matricule': 'A001', 'key': self.admin.new_key}, 'subscription': self.subscription()},
                             local=False)
         self.assertEqual(code, 403)
         code, _ = self.call('POST', '/api/push/subscription/',

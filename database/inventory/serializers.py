@@ -370,10 +370,21 @@ def user_dict(user, local=False):
         'pin_required': user.pin_required,
         'active': user.active,
         'key_expires': _date(user.key_expires),
+        'pin_blocked': user.pin_blocked is not None,
+        'pin_reset_required': user.pin_reset_required,
     }
     if local:
-        data['key'] = user.key or ''
-        data['badge_url'] = public_url('badge', m=user.matricule, key=user.key or '')
+        contact = user.pin_contact
+        data['pin_blocked_since'] = _date(user.pin_blocked)
+        data['pin_failures'] = user.pin_failures_total
+        data['pin_contact'] = contact.matricule if contact else ''
+        data['pin_contact_name'] = str(contact) if contact else ''
+        # La cle du badge n'est connue qu'a sa creation ou son renouvellement (seule son empreinte est en base) :
+        # elle n'apparait que dans cette reponse-la, pour imprimer le badge.
+        key = getattr(user, 'new_key', None)
+        if key:
+            data['key'] = key
+            data['badge_url'] = public_url('badge', m=user.matricule, key=key)
     return data
 
 

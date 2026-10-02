@@ -183,8 +183,16 @@ restaurer. Rien n'est jamais effacé de la base.
   invalide l'ancien.
 - Le **PIN** (4 à 8 chiffres) authentifie : obligatoire pour les admins, facultatif pour les autres.
   Un admin sans PIN le choisit à sa connexion suivante. 5 erreurs : blocage 5 minutes.
-- Sur le téléphone, `POST /api/auth/` renvoie un **jeton de session** signé (12 h), lié aux 8 derniers
-  caractères de la clé du badge : renouveler le badge invalide les sessions. Il remplace le PIN pour
+- **50 erreurs** depuis le dernier PIN correct (`QRPROTEC_PIN_BLOCK_AFTER_FAILURES`) : le PIN est
+  bloqué jusqu'à ce qu'un admin le réinitialise, et les sessions ouvertes ne valent plus rien.
+  `POST /api/auth/` répond alors `pin_blocked` avec `pin_reset` : URL `<base>/pinreset?m=…&t=…`
+  (le jeton signe le matricule et l'heure du blocage, il ne sert qu'une fois) et nom de l'admin à
+  contacter (`pin_contact`, choisi dans la fiche de l'utilisateur). Le téléphone affiche ce lien et son
+  QR code ; l'admin le scanne, se connecte (badge + PIN) et confirme : `POST /api/pin-reset/`
+  (`confirm: true`). Sur le poste : **Utilisateurs > Réinitialiser le PIN**. Après réinitialisation,
+  l'utilisateur choisit un nouveau PIN à sa connexion suivante (`pin_reset_required`).
+- Sur le téléphone, `POST /api/auth/` renvoie un **jeton de session** signé (12 h), lié à la fin de
+  l'empreinte de la clé du badge : renouveler le badge invalide les sessions. Il remplace le PIN pour
   les lectures réservées (état des stocks).
 - Première installation : tant qu'aucun admin n'a de badge valide (`GET /api/setup/`), le poste
   propose de créer le premier administrateur. Sur le serveur : `manage.py createadmin`.

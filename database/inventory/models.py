@@ -38,6 +38,11 @@ def generate_key(length: int = KEY_LENGTH) -> str:
     return ''.join(secrets.choice(KEY_ALPHABET) for _ in range(length))
 
 
+def hash_key(key: str) -> str:
+    """Empreinte SHA-256 d'une cle aleatoire (badge, front distant) : seule l'empreinte est conservee."""
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
 def keys_match(expected: str | None, given: str | None) -> bool:
     if not expected or not given:
         return False
@@ -364,6 +369,8 @@ class Lots(models.Model):
 PIN_RE = re.compile(r'^\d{4,8}$')
 PIN_MAX_FAILURES = 5              # essais faux consecutifs avant blocage
 PIN_LOCK_DURATION = timedelta(minutes=5)
+# Au-dela de QRPROTEC['PIN_BLOCK_AFTER_FAILURES'] echecs depuis le dernier PIN correct (50 par defaut), le PIN
+# est bloque jusqu'a sa reinitialisation par un administrateur (lien envoye depuis le front web).
 
 
 class Role(models.TextChoices):
@@ -376,7 +383,8 @@ class Secouristes(models.Model):
     matricule = models.CharField(max_length=16, primary_key=True, editable=False)
     nom = models.CharField(max_length=32)
     prenom = models.CharField(max_length=32)
-    key = models.CharField(max_length=32, blank=True, null=True)
+    # Empreinte SHA-256 de la cle du badge : la cle n'est connue qu'a sa creation (impression du badge)
+    key_hash = models.CharField(max_length=64, blank=True, default='')
     key_expires = models.DateField(blank=True, null=True)
     role = models.CharField(max_length=8, choices=Role.choices, default=Role.NORMAL)
     active = models.BooleanField(default=True)
@@ -385,6 +393,11 @@ class Secouristes(models.Model):
     pin_hash = models.CharField(max_length=128, blank=True, default='')
     pin_failures = models.PositiveIntegerField(default=0)
     pin_locked_until = models.DateTimeField(blank=True, null=True)
+    pin_failures_total = models.PositiveIntegerField(default=0)  # echecs depuis le dernier PIN correct
+    pin_blocked = models.DateTimeField(blank=True, null=True)    # blocage leve seulement par un admin
+    pin_reset_required = models.BooleanField(default=False)      # PIN reinitialise : a choisir a la connexion
+    # Administrateur a prevenir quand le PIN est bloque (affiche sur le telephone avec le lien de deblocage)
+    pin_contact = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
 
     @property
     def has_pin(self) -> bool:
@@ -392,7 +405,7 @@ class Secouristes(models.Model):
 
     @property
     def pin_required(self) -> bool:
-        return self.has_pin or self.role == Role.ADMIN
+        return self.has_pin or self.role == Role.ADMIN or self.pin_reset_required
 
     def set_pin(self, pin):
         """pin vide : supprime le PIN (refuse pour un admin). Leve ValueError si le format est invalide."""
@@ -405,26 +418,44 @@ class Secouristes(models.Model):
             raise ValueError('Le PIN doit comporter 4 à 8 chiffres')
         else:
             self.pin_hash = make_password(pin)
+        self._clear_pin_failures()
+        self.pin_reset_required = False
+
+    def reset_pin(self):
+        """Deblocage par un admin : plus de PIN, l'utilisateur en choisit un nouveau a sa prochaine connexion."""
+        self.pin_hash = ''
+        self._clear_pin_failures()
+        self.pin_reset_required = True
+
+    def _clear_pin_failures(self):
         self.pin_failures = 0
+        self.pin_failures_total = 0
         self.pin_locked_until = None
+        self.pin_blocked = None
 
     def pin_locked(self) -> bool:
         return self.pin_locked_until is not None and self.pin_locked_until > timezone.now()
 
     def check_pin(self, pin) -> bool:
-        """Verifie le PIN et compte les echecs (blocage temporaire apres PIN_MAX_FAILURES)."""
-        if self.pin_locked() or not self.pin_hash:
+        """Verifie le PIN et compte les echecs : blocage temporaire apres PIN_MAX_FAILURES, puis blocage jusqu'a
+        intervention d'un admin apres PIN_BLOCK_AFTER_FAILURES echecs depuis le dernier PIN correct."""
+        if self.pin_blocked or self.pin_locked() or not self.pin_hash:
             return False
         if check_password(str(pin or ''), self.pin_hash):
-            if self.pin_failures:
+            if self.pin_failures or self.pin_failures_total:
                 self.pin_failures = 0
-                self.save(update_fields=['pin_failures'])
+                self.pin_failures_total = 0
+                self.save(update_fields=['pin_failures', 'pin_failures_total'])
             return True
         self.pin_failures += 1
-        if self.pin_failures >= PIN_MAX_FAILURES:
+        self.pin_failures_total += 1
+        if self.pin_failures_total >= qrprotec_setting('PIN_BLOCK_AFTER_FAILURES'):
+            self.pin_failures = 0
+            self.pin_blocked = timezone.now()
+        elif self.pin_failures >= PIN_MAX_FAILURES:
             self.pin_failures = 0
             self.pin_locked_until = timezone.now() + PIN_LOCK_DURATION
-        self.save(update_fields=['pin_failures', 'pin_locked_until'])
+        self.save(update_fields=['pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked'])
         return False
 
     @property
@@ -432,16 +463,21 @@ class Secouristes(models.Model):
         """Mode privilegie du front (gestion ou admin)."""
         return self.role in (Role.GESTION, Role.ADMIN)
 
-    def renew_key(self):
-        self.key = generate_key()
+    def renew_key(self) -> str:
+        """Nouvelle cle de badge, retournee en clair et gardee dans `new_key` le temps de la requete (reponse de
+        creation ou de renouvellement, pour imprimer le badge). Seule son empreinte est enregistree."""
+        self.new_key = generate_key()
+        self.key_hash = hash_key(self.new_key)
         self.key_expires = timezone.localdate() + timedelta(days=qrprotec_setting('USER_KEY_VALIDITY_DAYS'))
+        return self.new_key
 
     def check_key(self, key) -> bool:
         return (
             self.active
             and self.key_expires is not None
             and self.key_expires >= timezone.localdate()
-            and keys_match(self.key, key)
+            and isinstance(key, str)
+            and keys_match(self.key_hash, hash_key(key))
         )
 
     def __str__(self):
@@ -539,7 +575,7 @@ class FrontKey(models.Model):
 
     @staticmethod
     def hash_key(key):
-        return hashlib.sha256(key.encode()).hexdigest()
+        return hash_key(key)
 
     @classmethod
     def create(cls, name):

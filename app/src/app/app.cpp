@@ -651,6 +651,18 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
       complete_login(result.data);
       return;
     }
+    // trop d'essais faux : seul un admin peut debloquer (fenetre Utilisateurs, ou lien affiche sur le telephone)
+    if (result.data["pin_blocked"].boolean()) {
+      pin_            = PinPrompt{};
+      pending_action_ = nullptr;
+      feedback.error(source, settings);
+      const std::string contact = result.data["pin_reset"]["contact"].str();
+      notify("Code PIN bloqué après trop d'essais : " + (contact.empty() ? std::string("un administrateur") : contact)
+                 + " doit le réinitialiser (Utilisateurs > Réinitialiser le PIN, ou lien affiché en scannant le badge "
+                   "avec un téléphone).",
+             true);
+      return;
+    }
     const bool setup = result.data["pin_setup_required"].boolean();
     if (setup || result.data["pin_required"].boolean()) {
       const bool first = !pin_.active;
@@ -715,8 +727,8 @@ void App::draw_pin_modal() {
   ImGui::PopFont();
   ImGui::TextDisabled("Badge %s", pin_.matricule.c_str());
   if (pin_.setup)
-    ImGui::TextWrapped("Le PIN (4 à 8 chiffres) est obligatoire pour les administrateurs. Il sera demandé à chaque "
-                       "connexion, après le badge.");
+    ImGui::TextWrapped("Nouveau PIN de 4 à 8 chiffres (obligatoire pour les administrateurs, ou après une "
+                       "réinitialisation). Il sera demandé à chaque connexion, après le badge.");
   const ImGuiInputTextFlags flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal
                                   | ImGuiInputTextFlags_EnterReturnsTrue;
   ImGui::SetNextItemWidth(220.0f);

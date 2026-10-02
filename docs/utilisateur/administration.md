@@ -10,11 +10,19 @@ Menu **Gestion > Utilisateurs**.
   rôle, PIN éventuel. **Créer et voir le badge** affiche l'aperçu ; imprimez-le.
 - **Rôle** : Secouriste, Gestion ou Administrateur (voir [les notions](notions.md#badge-pin-et-rôles)).
   Gardez au moins **deux administrateurs**.
-- **Badge perdu ou expiré** (validité un an) : **Renouveler (1 an)** puis imprimer le nouveau badge.
-  L'ancien badge ne fonctionne plus immédiatement.
+- **Badge perdu, abîmé ou expiré** (validité un an) : **Renouveler (1 an)** puis imprimer le nouveau
+  badge. L'ancien badge ne fonctionne plus immédiatement. Le serveur ne garde pas la clé du badge :
+  elle n'est affichée qu'à la création et au renouvellement, donc réimprimer un badge veut dire le
+  renouveler.
 - **Départ d'un bénévole** : décochez **Compte actif**. Son nom reste dans l'historique des vérifs.
 - **PIN** : **Définir le PIN** / **Supprimer le PIN** (impossible pour un admin). Un admin sans PIN le
   choisit à sa prochaine connexion. Après 5 PIN faux, le compte est bloqué 5 minutes.
+- **PIN bloqué** (50 PIN faux) : la fiche l'indique en rouge. **Réinitialiser le PIN** le débloque ;
+  l'utilisateur en choisit un nouveau à sa prochaine connexion. L'utilisateur peut aussi envoyer le
+  lien affiché sur son téléphone : l'admin le scanne avec le front web, se connecte et confirme.
+  Si le badge a pu être volé, renouvelez plutôt le badge.
+- **Admin à contacter** : l'administrateur dont le nom s'affiche sur le téléphone quand le PIN est
+  bloqué (vide : « un administrateur »).
 
 Plus aucun administrateur ne peut se connecter ? Sur le serveur :
 `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821` (crée le compte ou donne un nouveau

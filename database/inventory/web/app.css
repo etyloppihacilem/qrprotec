@@ -28,6 +28,11 @@ button:disabled { opacity: .45; }
   margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; }
 #pin input[hidden] { display: none; }
 .pin-error { color: var(--red); min-height: 1.2em; margin: 4px 0; font-size: .9rem; }
+.qr { display: block; width: min(60vw, 240px); margin: 8px auto; image-rendering: pixelated; background: #fff; }
+.break { overflow-wrap: anywhere; }
+dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; }
 .dialog-buttons { display: flex; gap: 8px; }
 .dialog-buttons button { flex: 1; }
 .hint { color: var(--muted); font-size: .85rem; }

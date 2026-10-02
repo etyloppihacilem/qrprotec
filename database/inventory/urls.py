@@ -16,6 +16,7 @@ from . import views, web_views
 public_patterns = [
     path('health/', views.health),
     path('auth/', views.auth),
+    path('pin-reset/', views.pin_reset),
     path('items/<str:iid>/', views.item_detail),
     path('lots/summary/', views.lots_summary),   # avant lots/<id>/
     path('stock/summary/', views.stock_summary),
@@ -74,6 +75,7 @@ web_patterns = [
     path('badge', web_views.page),
     path('pack', web_views.page),
     path('seal', web_views.page),
+    path('pinreset', web_views.page),
     path('scanner', web_views.scanner_page),
     path('favicon.ico', web_views.favicon),
     path('web/<path:name>', web_views.asset),
