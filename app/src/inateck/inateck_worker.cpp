@@ -247,19 +247,31 @@ bool InateckWorker::connect_device(const std::string& device_id, const std::stri
 #endif
 }
 
-// Fin de recherche : connexion automatique a la premiere douchette qui accepte l'authentification.
+// Fin de recherche : connexion automatique seulement a la douchette deja utilisee. Les autres
+// appareils (souris, casque...) ne sont jamais essayes d'office : l'utilisateur choisit dans le menu.
 void InateckWorker::finish_discovery() {
-    std::vector<InateckDevice> candidates;
+    InateckDevice preferred;
+    bool found = false;
+    bool any_device = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!auto_connect_ || snapshot_.connected)
             return;
         auto_connect_ = false;
-        candidates = connection_candidates(snapshot_.devices, snapshot_.preferred_id, rejected_ids_);
+        any_device = !snapshot_.devices.empty();
+        for (const InateckDevice& device : snapshot_.devices) {
+            if (!snapshot_.preferred_id.empty() && device.id == snapshot_.preferred_id) {
+                preferred = device;
+                found = true;
+            }
+        }
     }
-    for (const InateckDevice& device : candidates)
-        if (connect_device(device.id, device.name))
-            return;
+    if (found && connect_device(preferred.id, preferred.name))
+        return;
+    if (any_device) {
+        set_error("Choisissez la douchette dans le menu Douchette > Connecter à.");
+        return;
+    }
     set_error("Aucune douchette trouvée. Vérifiez qu'elle est allumée en mode SDK et qu'elle n'est pas "
               "appairée à l'ordinateur. Déconnectez aussi les autres appareils Bluetooth (casque, souris...) : "
               "le SDK Inateck échoue sinon. Puis relancez la recherche.");

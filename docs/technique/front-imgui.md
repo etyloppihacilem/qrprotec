@@ -161,8 +161,9 @@ Deux modes, gérés par `ui/inateck.cpp` :
 - **SDK Bluetooth** (`InateckWorker`, bibliothèque propriétaire `libinateck_scanner_ble.so` du
   sous-module `scanner_lib`, compilée seulement si elle est présente, macro
   `QRPROTEC_HAS_INATECK`) : recherche 8 s, connexion automatique à la dernière douchette connue (son
-  identifiant est retenu dans `~/.config/qrprotec/inateck-hid.conf`), puis aux appareils dont le
-  nom ressemble à une douchette Inateck. Permet le retour d'erreur (bip, LED).
+  identifiant est retenu dans `~/.config/qrprotec/inateck-hid.conf`) et à elle seule : sinon,
+  l'utilisateur choisit l'appareil dans le menu Douchette > Connecter à (les noms de douchette
+  Inateck en premier). Permet le retour d'erreur (bip, LED).
 - **Mode clavier (HID)** : la douchette est un clavier. `HidScanClassifier` reconnaît une rafale
   (moins de 50 ms entre caractères par défaut, réglable) d'au moins 3 caractères. La durée de la
   dernière image est déduite des écarts mesurés, pour ne pas couper un scan quand l'interface est

@@ -133,9 +133,9 @@ bool looks_like_scanner(const std::string& name) {
     return lower.find("inateck") != std::string::npos || lower.rfind("bcst", 0) == 0;
 }
 
-std::vector<InateckDevice> connection_candidates(const std::vector<InateckDevice>& devices,
-                                                 const std::string& preferred_id,
-                                                 const std::vector<std::string>& rejected_ids) {
+std::vector<InateckDevice> ordered_devices(const std::vector<InateckDevice>& devices,
+                                           const std::string& preferred_id,
+                                           const std::vector<std::string>& rejected_ids) {
     std::vector<InateckDevice> candidates;
     for (const InateckDevice& device : devices)
         if (std::find(rejected_ids.begin(), rejected_ids.end(), device.id) == rejected_ids.end())

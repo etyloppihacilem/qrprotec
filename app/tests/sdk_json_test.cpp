@@ -33,10 +33,10 @@ int main() {
     const std::vector<InateckDevice> devices = {
         {"1", "JBL Flip", false}, {"2", "Inateck P7", false}, {"3", "Douchette", false}, {"4", "Clavier", false}};
     // Douchette memorisee en premier (meme renommee), puis noms Inateck, puis le reste ; refuses ignores
-    auto candidates = connection_candidates(devices, "3", {"4"});
+    auto candidates = ordered_devices(devices, "3", {"4"});
     assert(candidates.size() == 3);
     assert(candidates[0].id == "3" && candidates[1].id == "2" && candidates[2].id == "1");
-    candidates = connection_candidates(devices, "", {});
+    candidates = ordered_devices(devices, "", {});
     assert(candidates.size() == 4 && candidates[0].id == "2" && candidates[1].id == "1");
     return 0;
 }
