@@ -17,10 +17,10 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from . import notifications
+from . import movements, notifications
 from .idendity import parse_identity
 from .models import (
-    ItemStatus, Items, ItemType, LotRequirements, Lots, SeenWhile, VerifItem, VerifResult, Verifs, generate_key,
+    ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, SeenWhile, VerifItem, VerifResult, Verifs, generate_key,
     qrprotec_setting,
 )
 
@@ -240,6 +240,10 @@ def perform_verif(lot, iids, identity, partial=False):
         report = {'present': [], 'expired': [], 'replaced': [], 'missing': [], 'unknown': unknown, 'reactivated': [],
                   'restocked': []}
         entries = []
+        journal = []
+        origin = {item.iid: item.location_id for item in scanned}
+        # items retrouves apres avoir ete notes absents : leur absence ne compte plus comme une utilisation
+        movements.found_again([item.iid for item in scanned if movements.may_be_absent(item)], now, identity)
         counts = defaultdict(lambda: defaultdict(int))  # lot id -> compteurs de la verif
         restocked = defaultdict(int)
         for item in scanned:
@@ -280,18 +284,27 @@ def perform_verif(lot, iids, identity, partial=False):
                 entries.append(VerifItem(verif=verif, item=item, result=VerifResult.PRESENT, expired=expired))
         for item in not_seen:
             expired = item.is_expired(today)
+            verif = verifs[item.location_id if group is not None else None]
+            if item.missed_verifs == 0:
+                journal.append(movements.absence(item, now, identity, verif))
             item.missed_verifs += 1
             if expired or item.missed_verifs >= threshold:
                 item.status = ItemStatus.MISSING
             report['missing'].append(item.iid)
             counts[item.location_id]['missing'] += 1
-            verif = verifs[item.location_id if group is not None else None]
             entries.append(VerifItem(verif=verif, item=item, result=VerifResult.MISSING, expired=expired))
 
         Items.objects.bulk_update(
             scanned, ['status', 'location', 'missed_verifs', 'last_seen', 'last_seen_by', 'last_seen_while']
         )
         Items.objects.bulk_update(not_seen, ['status', 'missed_verifs'])
+        for item in scanned:
+            if item.status == ItemStatus.REPLACED:
+                journal.append(movements.movement(item, MovementKind.REPLACED, now, identity, origin[item.iid]))
+            elif item.location_id != origin[item.iid]:
+                journal.append(movements.movement(item, MovementKind.MOVE, now, identity, origin[item.iid],
+                                                  item.location_id))
+        ItemMovement.objects.bulk_create(journal)
         newly_missing = [item for item in not_seen if item.status == ItemStatus.MISSING and item.iid not in was_missing]
         VerifItem.objects.bulk_create(entries)
 
@@ -477,6 +490,12 @@ def move_items(iids, lot, identity, context):
             break_seal(sealed, identity, reason, now)
         if lot is not None:
             lot.refresh_from_db(fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
+        movements.found_again([item.iid for item in items if movements.may_be_absent(item)], now, identity)
+        journal = [
+            movements.movement(item, MovementKind.MOVE, now, identity, item.location_id, lot.id if lot else None)
+            for item in items if item.location_id != (lot.id if lot else None)
+        ]
+        ItemMovement.objects.bulk_create(journal)
         for item in items:
             item.location = lot
             item.status = ItemStatus.ACTIVE
@@ -502,6 +521,8 @@ def move_items(iids, lot, identity, context):
 
 def mark_deleted(item, identity, reason):
     now = timezone.now()
+    ItemMovement.objects.create(item=item, item_type_id=item.pack.item_type_id, kind=MovementKind.DELETED, at=now,
+                                by=identity[:64], from_lot_id=item.location_id)
     item.status = ItemStatus.DELETED
     item.deleted = now
     item.deleted_by = identity
@@ -513,6 +534,10 @@ def mark_deleted(item, identity, reason):
 
 
 def restore(item, identity):
+    now = timezone.now()
+    movements.found_again([item.iid], now, identity)
+    ItemMovement.objects.create(item=item, item_type_id=item.pack.item_type_id, kind=MovementKind.RESTORED, at=now,
+                                by=identity[:64], to_lot_id=item.location_id)
     item.status = ItemStatus.ACTIVE
     item.deleted = None
     item.deleted_by = ''

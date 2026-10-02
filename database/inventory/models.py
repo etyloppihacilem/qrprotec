@@ -472,6 +472,41 @@ class VerifItem(models.Model):
     expired = models.BooleanField(default=False)
 
 
+class MovementKind(models.TextChoices):
+    MOVE = 'move', 'Déplacement'
+    USED = 'used', 'Utilisé'                  # premiere absence d'un item non perime a une verif
+    DISCARDED = 'discarded', 'Jeté (périmé)'  # premiere absence d'un item perime a une verif
+    REPLACED = 'replaced', 'Remplacé'         # perime sorti du lot a la verif, remplace par un frais
+    DELETED = 'deleted', 'Supprimé'
+    RESTORED = 'restored', 'Restauré'
+
+
+# Absences : comptees comme sorties tant que l'item n'est pas retrouve
+ABSENCE_KINDS = (MovementKind.USED, MovementKind.DISCARDED)
+
+
+class ItemMovement(models.Model):
+    """Journal des mouvements d'items : sert a mesurer la consommation de chaque lot (previsions de stock).
+
+    lot None = stock (hors lot). Une absence (USED, DISCARDED) est annulee (`cancelled`) si l'item est
+    retrouve ensuite (verif mal faite, item range ailleurs) : elle ne compte alors plus dans la consommation.
+    """
+    item = models.ForeignKey(Items, on_delete=models.CASCADE, related_name='movements')
+    item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT, related_name='+')
+    kind = models.CharField(max_length=10, choices=MovementKind.choices)
+    at = models.DateTimeField(default=timezone.now, db_index=True)
+    by = models.CharField(max_length=64, blank=True, default='')
+    from_lot = models.ForeignKey(Lots, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    to_lot = models.ForeignKey(Lots, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    verif = models.ForeignKey('Verifs', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    cancelled = models.DateTimeField(blank=True, null=True)  # absence annulee : item retrouve
+    cancelled_by = models.CharField(max_length=64, blank=True, default='')
+    reconstructed = models.BooleanField(default=False)  # reconstitue depuis les verifs anterieures au journal
+
+    class Meta:
+        indexes = [models.Index(fields=['item', 'kind', 'cancelled'])]
+
+
 class NotificationSettings(models.Model):
     """Reglages des notifications SMS (une seule ligne, pk=1)."""
     enabled = models.BooleanField(default=False)

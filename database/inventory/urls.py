@@ -19,6 +19,7 @@ public_patterns = [
     path('items/<str:iid>/', views.item_detail),
     path('lots/summary/', views.lots_summary),   # avant lots/<id>/
     path('stock/summary/', views.stock_summary),
+    path('stock/forecast/summary/', views.stock_forecast_summary),
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/verif/', views.lot_verif),
     path('verifs/', views.verifs),
@@ -43,6 +44,7 @@ local_patterns = [
     path('items/<str:iid>/delete/', views.item_delete),
     path('items/<str:iid>/restore/', views.item_restore),
     path('stock/', views.stock),
+    path('stock/forecast/', views.stock_forecast),
     path('stock/verif/', views.stock_verif),
     path('packs/', views.sealed_packs),
     path('packs/<str:pack_id>/open/', views.sealed_pack_open),

@@ -27,6 +27,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from . import forecast
 from . import notifications
 from . import serializers as ser
 from . import services
@@ -335,6 +336,23 @@ def stock_summary(request):
     return Response(services.stock_status(soon))
 
 
+def forecast_params(params):
+    return {
+        'months': parse_int(params.get('months', 6), 'months', 1, 24),
+        'lead_days': parse_int(params['lead_days'], 'lead_days', 0, 365) if 'lead_days' in params else None,
+        'history_months': (parse_int(params['history_months'], 'history_months', 1, 36)
+                           if 'history_months' in params else None),
+    }
+
+
+@api_view(['POST'])
+@handle_errors
+def stock_forecast_summary(request):
+    """Previsions de stock en lecture seule pour le front web, reservees aux roles gestion et admin (badge)."""
+    badge_user(request, (Role.GESTION, Role.ADMIN))
+    return Response(forecast.forecast(**forecast_params(request.data)))
+
+
 # Notifications web (admins, depuis le front web)
 
 def push_available():
@@ -567,6 +585,12 @@ def stock(request):
     # les peremptions font baisser le stock sans evenement : on verifie les seuils a chaque consultation
     notifications.check_stock_levels()
     return Response(services.stock_status(soon))
+
+
+@api_view(['GET'])
+@handle_errors
+def stock_forecast(request):
+    return Response(forecast.forecast(**forecast_params(request.query_params)))
 
 
 @api_view(['POST'])

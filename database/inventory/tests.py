@@ -1,12 +1,20 @@
+import importlib
 import json
+import math
 from datetime import timedelta
+
+from django.apps import apps as django_apps
 
 from django.conf import settings
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from .base62 import decode_base62
-from .models import FrontKey, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, Secouristes
+from . import forecast
+from .models import (
+    FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
+    Secouristes, Verifs,
+)
 
 LOCAL = {'qrprotec.role': 'local'}
 
@@ -997,3 +1005,187 @@ class RawWebSocket:
     def close(self):
         self.sock.sendall(bytes([0x88, 0x80]) + b'\0\0\0\0')
         self.sock.close()
+
+
+class MovementTests(ApiTestCase):
+    """Journal des mouvements : absences comptees comme utilisations, annulees si l'item est retrouve."""
+
+    def setUp(self):
+        super().setUp()
+        self.items = self.create(self.compresses, self.today + timedelta(days=200), 3)
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in self.items]})
+
+    def verif(self, items):
+        return self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items]})
+
+    def absences(self, item):
+        return ItemMovement.objects.filter(item=item, kind__in=[MovementKind.USED, MovementKind.DISCARDED])
+
+    def test_restock_is_logged(self):
+        moves = ItemMovement.objects.filter(kind=MovementKind.MOVE, to_lot=self.lot)
+        self.assertEqual(moves.count(), 3)
+        self.assertIsNone(moves.first().from_lot)
+
+    def test_absence_counted_once_and_cancelled_when_found(self):
+        lost = self.items[2]
+        self.verif(self.items[:2])
+        self.verif(self.items[:2])
+        self.assertEqual(self.absences(lost).count(), 1)  # une seule utilisation, meme apres plusieurs verifs
+        absence = self.absences(lost).get()
+        self.assertEqual(absence.kind, MovementKind.USED)
+        self.assertEqual(absence.from_lot, self.lot)
+        self.assertIsNone(absence.cancelled)
+        self.assertEqual(forecast.forecast()['types'][0]['per_month'] > 0, True)
+        # verif mal faite : l'item etait bien dans le lot
+        self.verif(self.items)
+        absence.refresh_from_db()
+        self.assertIsNotNone(absence.cancelled)
+        compresses = next(row for row in forecast.forecast()['types'] if row['type'] == 'compre')
+        self.assertEqual(compresses['per_month'], 0)
+
+    def test_found_after_marked_missing_elsewhere(self):
+        lost = self.items[2]
+        for _ in range(3):
+            self.verif(self.items[:2])
+        lost.refresh_from_db()
+        self.assertEqual(lost.status, ItemStatus.MISSING)
+        # retrouve dans le stock : l'absence est annulee et le retour en stock est un deplacement
+        self.call('POST', '/api/stock/verif/', {'items': [lost.iid]})
+        self.assertIsNotNone(self.absences(lost).get().cancelled)
+        move = ItemMovement.objects.filter(item=lost, kind=MovementKind.MOVE).last()
+        self.assertEqual((move.from_lot_id, move.to_lot_id), (self.lot.id, None))
+        # une nouvelle absence plus tard compte de nouveau
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [lost.iid]})
+        self.verif(self.items[:2])
+        self.assertEqual(self.absences(lost).filter(cancelled__isnull=True).count(), 1)
+
+    def test_expired_absence_is_discarded_and_restore_cancels(self):
+        old = self.create(self.compresses, self.today - timedelta(days=2), 1)[0]
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [old.iid]})
+        self.verif(self.items)
+        self.assertEqual(self.absences(old).get().kind, MovementKind.DISCARDED)
+        code, _ = self.call('POST', f'/api/items/{old.iid}/delete/', {'reason': 'jeté'})
+        self.assertEqual(ItemMovement.objects.filter(item=old, kind=MovementKind.DELETED).count(), 1)
+        self.call('POST', f'/api/items/{old.iid}/restore/', {})
+        self.assertIsNotNone(self.absences(old).get().cancelled)
+        self.assertEqual(ItemMovement.objects.filter(item=old, kind=MovementKind.RESTORED).count(), 1)
+
+    def test_history_reconstruction(self):
+        lost, found = self.items[1], self.items[2]
+        self.verif(self.items[:1])          # deux absents
+        self.verif(self.items[:1] + [found])  # l'un d'eux est retrouve
+        ItemMovement.objects.all().delete()
+        module = importlib.import_module('inventory.migrations.0009_item_movements')
+        module.reconstruct(django_apps, None)
+        self.assertEqual(ItemMovement.objects.filter(reconstructed=True, kind=MovementKind.USED).count(), 2)
+        self.assertIsNone(self.absences(lost).get().cancelled)
+        self.assertIsNotNone(self.absences(found).get().cancelled)
+
+
+class ForecastTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.now = timezone.now()
+        # historique de 6 mois : la consommation se mesure sur toute la periode
+        Verifs.objects.create(lot=self.lot, datetime=self.now - timedelta(days=200), by='test')
+
+    def used(self, item_type, count, lot=None):
+        item = self.create(item_type, self.today + timedelta(days=400) if item_type.perissable else None, 1)[0]
+        ItemMovement.objects.bulk_create([
+            ItemMovement(item=item, item_type=item_type, kind=MovementKind.USED, from_lot=lot,
+                         at=self.now - timedelta(days=1 + index))
+            for index in range(count)
+        ])
+        item.status = ItemStatus.DELETED
+        item.save()
+
+    def row(self, data, type_id='compre'):
+        return next(row for row in data['types'] if row['type'] == type_id)
+
+    def test_simulate_first_expired_first_used(self):
+        fates, shortages = forecast.simulate([5.0, 10.0, 40.0, math.inf], [6.0, 12.0, 18.0, 24.0, 30.0], 60)
+        # l'item qui expire au jour 5 est perdu, les suivants sont utilises dans l'ordre de leurs dates
+        self.assertEqual(fates, [('lost', 5.0), ('used', 6.0), ('used', 12.0), ('used', 18.0)])
+        self.assertEqual(shortages, [24.0, 30.0])
+
+    def test_projection_order_and_below_min(self):
+        self.compresses.min_quantity = 10
+        self.compresses.default_pack_size = 5
+        self.compresses.save()
+        self.create(self.compresses, self.today + timedelta(days=20), 6)   # perimeront avant d'etre utilises
+        self.create(self.compresses, self.today + timedelta(days=300), 14)
+        self.used(self.compresses, 6 * 6)  # 6 par mois sur 6 mois (stock)
+        data = forecast.forecast(months=3, lead_days=10)
+        row = self.row(data)
+        self.assertAlmostEqual(row['per_month'], 6, delta=0.5)
+        self.assertEqual(row['stock_now'], 20)
+        points = row['points']
+        self.assertEqual(points[0]['stock'], 20)
+        # a M+1 : environ 6 utilises (les plus vieux d'abord), le reste de ce lot perime
+        self.assertEqual(points[1]['stock_static'], 14)
+        self.assertLess(points[1]['stock'], 15)
+        self.assertGreater(points[1]['expiring'], 0)
+        self.assertGreaterEqual(points[1]['lost'], 1)
+        self.assertLessEqual(row['below_min'], self.today + timedelta(days=60))
+        order = row['order']
+        self.assertEqual(order['quantity'] % 5, 0)
+        self.assertEqual(order['before'], max(self.today, row['below_min'] - timedelta(days=10)))
+        months = row['calendar']
+        self.assertEqual(len(months), 3)
+        self.assertEqual(sum(month['expiring']['stock'] for month in months), 6)
+
+    def test_lot_consumption_and_sealed_transfer(self):
+        sealed = Lots(lot_type=self.lot_type, name='Scellé', name_short='S', created_by='test', is_sealed=True)
+        sealed.save()
+        soon = self.create(self.compresses, self.today + timedelta(days=45), 2)
+        late = self.create(self.compresses, self.today + timedelta(days=400), 4)
+        Items.objects.filter(iid__in=[item.iid for item in soon]).update(location=sealed)
+        Items.objects.filter(iid__in=[item.iid for item in late]).update(location=self.lot)
+        self.used(self.compresses, 30, lot=self.lot)  # le sac A utilise 5 compresses par mois
+        data = forecast.forecast(months=6)
+        row = self.row(data)
+        self.assertAlmostEqual(row['lots_consumption'][0]['per_month'], 5, delta=0.5)
+        self.assertEqual(row['lots_consumption'][0]['id'], self.lot.id)
+        self.assertEqual(row['calendar'][0]['expiring']['sealed'] + row['calendar'][1]['expiring']['sealed'], 2)
+        transfers = data['transfers']
+        self.assertEqual(len(transfers), 1)
+        group = transfers[0]
+        self.assertEqual(group['source']['id'], sealed.id)
+        self.assertTrue(group['source']['sealed'])
+        self.assertEqual(group['count'], 2)
+        move = group['moves'][0]
+        self.assertEqual(move['target']['id'], self.lot.id)
+        self.assertEqual(sorted(move['take']), sorted(item.iid for item in soon))
+        self.assertTrue(set(move['back']) <= {item.iid for item in late})
+        self.assertLess(group['before'], self.today + timedelta(days=45))
+        # une fois l'echange fait, plus rien a proposer
+        Items.objects.filter(iid__in=move['take']).update(location=self.lot)
+        Items.objects.filter(iid__in=move['back']).update(location=sealed)
+        self.assertEqual(forecast.forecast(months=6)['transfers'], [])
+
+    def test_unconfirmed_items_do_not_count(self):
+        items = self.create(self.compresses, self.today + timedelta(days=100), 3)
+        Items.objects.filter(iid=items[0].iid).update(missed_verifs=1)
+        row = self.row(forecast.forecast())
+        self.assertEqual(row['stock_now'], 2)
+        self.assertEqual(row['unconfirmed'], 1)
+
+    def test_routes(self):
+        code, body = self.call('GET', '/api/stock/forecast/?months=3&lead_days=7')
+        self.assertEqual(code, 200)
+        self.assertEqual((body['months'], body['lead_days']), (3, 7))
+        self.assertEqual(len(self.row(body)['points']), 4)
+        code, _ = self.call('GET', '/api/stock/forecast/?months=99')
+        self.assertEqual(code, 400)
+        code, _ = self.call('GET', '/api/stock/forecast/', local=False)
+        self.assertEqual(code, 404)
+        gestion = Secouristes(matricule='G002', nom='G', prenom='G', role='gestion')
+        gestion.renew_key()
+        gestion.save()
+        badge = {'matricule': 'G002', 'key': gestion.key}
+        code, body = self.call('POST', '/api/stock/forecast/summary/', {'user': badge, 'months': 3}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(body['months'], 3)
+        code, _ = self.call('POST', '/api/stock/forecast/summary/',
+                            {'user': {'matricule': 'M001', 'key': self.user.key}}, local=False)
+        self.assertEqual(code, 403)
