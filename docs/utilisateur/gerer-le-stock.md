@@ -55,6 +55,38 @@ Par défaut, le **stock** compte ce qui n'est dans aucun lot **et** ce qui est d
 Sur le téléphone, l'onglet **Stock** (après avoir scanné son badge gestion ou admin) affiche le même
 état en lecture seule, les types les plus critiques en premier. Pratique pour préparer une commande.
 
+## Anticiper les péremptions et les commandes
+
+La fenêtre **État des stocks** a quatre onglets :
+
+- **Actuel** : l'état d'aujourd'hui (ci-dessus).
+- **Projection** : le stock tel qu'il sera **aujourd'hui, à M+1, M+3 ou M+6**. Avec **Avec
+  consommation**, chaque lieu utilise d'abord ses items les plus proches de leur date, au rythme mesuré
+  sur les derniers mois ; sans, on ne voit que ce qui sera encore valide. Colonnes : péremptions d'ici
+  là, **perdus** (items qui périmeront sans avoir été utilisés), consommation par mois, date de
+  passage sous le minimum. Cliquez un type pour voir ses graphes (stock projeté face au minimum,
+  péremptions par mois réparties entre stock, lots et scellés), ses dates de péremption et où sont les
+  items, et la consommation de chaque lot.
+- **Commandes** : les types qui passeront sous leur minimum, avec la quantité à commander (minimum +
+  deux mois de consommation, arrondi au conditionnement) et la date limite pour la recevoir à temps.
+  **Copier la liste** pour la coller dans un bon de commande.
+- **Transferts** : les items qui périmeront là où ils sont (typiquement dans un scellé qui ne s'ouvre
+  pas) et le lot où ils seraient utilisés à temps. Chaque ligne est un **échange** : sortir les items
+  indiqués, les mettre dans le lot d'arrivée, et reprendre en échange les plus récents de ce lot, pour
+  que les deux restent complets. Les déplacements se font comme d'habitude (scan puis **Ajouter au
+  lot**) ; un échange fait disparaît de la liste. Pour un scellé, la date affichée est celle avant
+  laquelle il faut l'ouvrir.
+
+La **consommation** d'un lot est le nombre d'items qui en ont disparu (absents à une vérif) sur la
+période choisie dans les **Réglages** (6 mois par défaut). Un item noté absent puis **retrouvé**
+(vérif mal faite, item rangé ailleurs) ne compte plus comme utilisé dès qu'il est rescanné. Les items
+manqués à la dernière vérif ne comptent pas dans le stock projeté tant qu'ils ne sont pas retrouvés.
+Le délai de livraison des commandes (15 jours par défaut) est aussi dans les Réglages.
+
+Sur le téléphone, le bouton **⤢ Prévisions** de l'onglet Stock passe en plein écran (la caméra est
+masquée) : choix de l'horizon, graphe des péremptions des six prochains mois, types à surveiller avec
+la commande suggérée, et échanges à faire. **⤡ Scanner** revient au scan.
+
 ## Vérifier la réserve
 
 - **Un rangement** (tiroir, armoire) : comme un sac. Scannez son étiquette privée, tout son contenu,

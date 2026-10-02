@@ -31,6 +31,9 @@
     lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
     lots: null,        // liste des lots (accueil), chargee avec le badge
     stock: null,       // etat des stocks, roles gestion et admin uniquement
+    forecast: null,    // previsions de stock (meme acces que l'etat des stocks)
+    horizon: 1,        // index dans HORIZONS des previsions affichees
+    stockFull: false,  // onglet Stock en plein ecran (camera masquee)
     loading: '',       // 'lots' ou 'stock' pendant un chargement
     push: null,        // notifications web de ce navigateur (admins) : {subscribed, stock_low, stock_empty, ...}
     pushBusy: false,
@@ -922,6 +925,7 @@
 
   function switchTab(tab) {
     state.tab = tab;
+    if (tab !== 'stock') setStockFull(false);
     if (tab === 'stock' && !state.stock && state.loading !== 'stock') loadStock();
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === tab));
@@ -1153,7 +1157,12 @@
     state.loading = 'stock';
     render();
     try {
-      state.stock = await api('stock/summary/', { user: badge() });
+      const [stock, forecast] = await Promise.all([
+        api('stock/summary/', { user: badge() }),
+        api('stock/forecast/summary/', { user: badge(), months: 6 }).catch(() => null),
+      ]);
+      state.stock = stock;
+      state.forecast = forecast;
     } catch (e) {
       toast('Stocks : ' + e.message, true);
       if (e.data && e.data.pin_required) { state.user = null; save(); } // session expiree : rescanner le badge
@@ -1377,14 +1386,131 @@
     return el('div', { class: 'push-box' }, ...parts);
   }
 
+  // Plein ecran de l'onglet Stock : la camera est masquee, le panneau prend toute la hauteur
+  function setStockFull(full) {
+    if (state.stockFull === full) return;
+    state.stockFull = full;
+    document.body.classList.toggle('stock-full', full);
+    renderStock();
+  }
+
+  const HORIZONS = [{ label: 'Auj.', months: 0 }, { label: 'M+1', months: 1 }, { label: 'M+3', months: 3 },
+    { label: 'M+6', months: 6 }];
+  const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+  // Graphe des peremptions des prochains mois (tous types) : barres empilees stock / lots / scelles, perdus en rouge
+  function expiryChart(types) {
+    const months = (types[0] && types[0].calendar) || [];
+    const sums = months.map((month, index) => {
+      const sum = { start: month.start, stock: 0, lots: 0, sealed: 0, lost: 0 };
+      for (const type of types) {
+        const row = type.calendar[index];
+        sum.stock += row.expiring.stock; sum.lots += row.expiring.lots; sum.sealed += row.expiring.sealed;
+        sum.lost += row.lost.stock + row.lost.lots + row.lost.sealed;
+      }
+      return sum;
+    });
+    const top = Math.max(1, ...sums.map((s) => s.stock + s.lots + s.sealed));
+    const W = 300, H = 120, left = 24, bottom = 16, plot = H - bottom - 6, step = (W - left) / Math.max(1, sums.length);
+    const svgEl = (tag, attrs, text) => {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+      if (text != null) node.textContent = text;
+      return node;
+    };
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img',
+      'aria-label': 'Péremptions des prochains mois' });
+    const y = (v) => 6 + plot - (v / top) * plot;
+    for (const v of [0, Math.round(top / 2), top]) {
+      svg.append(svgEl('line', { x1: left, x2: W, y1: y(v), y2: y(v), class: 'grid' }));
+      svg.append(svgEl('text', { x: left - 4, y: y(v) + 3, 'text-anchor': 'end' }, v));
+    }
+    sums.forEach((sum, index) => {
+      const x = left + index * step + step * 0.2, w = step * 0.6;
+      let base = 0;
+      for (const [key, cls] of [['stock', 's-stock'], ['lots', 's-lots'], ['sealed', 's-sealed']]) {
+        if (!sum[key]) continue;
+        svg.append(svgEl('rect', { x, y: y(base + sum[key]), width: w, height: y(base) - y(base + sum[key]), class: cls }));
+        base += sum[key];
+      }
+      if (sum.lost) svg.append(svgEl('rect', { x: x + w * 0.3, y: y(sum.lost), width: w * 0.4, height: y(0) - y(sum.lost), class: 's-lost' }));
+      const date = parseDate(sum.start);
+      svg.append(svgEl('text', { x: x + w / 2, y: H - 3, 'text-anchor': 'middle' }, date ? MONTHS[date.getMonth()] : ''));
+    });
+    return el('figure', { class: 'chart-box' }, svg,
+      el('figcaption', { class: 'legend' },
+        el('span', {}, el('i', { class: 's-stock' }), 'stock'), el('span', {}, el('i', { class: 's-lots' }), 'lots'),
+        el('span', {}, el('i', { class: 's-sealed' }), 'scellés'), el('span', {}, el('i', { class: 's-lost' }), 'perdus')));
+  }
+
+  // Vue reduite des previsions (plein ecran) : horizon, graphe, types a surveiller, echanges
+  function renderForecast(parts) {
+    const forecast = state.forecast;
+    if (!forecast) {
+      parts.push(el('p', { class: 'hint' }, state.loading === 'stock' ? 'Chargement…' : 'Prévisions indisponibles.'));
+      return;
+    }
+    const horizon = HORIZONS[state.horizon];
+    parts.push(el('div', { class: 'segmented', role: 'group', 'aria-label': 'Horizon' },
+      ...HORIZONS.map((h, index) => el('button', { type: 'button', class: index === state.horizon ? 'active' : '',
+        onclick: () => { state.horizon = index; renderStock(); } }, h.label))));
+    const types = forecast.types || [];
+    const at = (type) => type.points[Math.min(horizon.months, type.points.length - 1)];
+    if (types.length) {
+      parts.push(el('p', { class: 'hint' }, `Stock valide au ${fmtDate(at(types[0]).date)}, en utilisant d'abord les dates `
+        + `les plus proches (consommation mesurée sur ${forecast.history_days} jours).`));
+      parts.push(expiryChart(types));
+    }
+    const sorted = [...types].sort((a, b) => {
+      if (!!a.below_min !== !!b.below_min) return a.below_min ? -1 : 1;
+      if (a.below_min) return a.below_min < b.below_min ? -1 : 1;
+      const ratio = (t) => t.min_quantity > 0 ? at(t).stock / t.min_quantity : 1e6;
+      return ratio(a) - ratio(b);
+    });
+    for (const type of sorted) {
+      const point = at(type);
+      const details = [];
+      if (point.expiring) details.push(`${point.expiring} périme(nt)` + (point.lost ? ` dont ${point.lost} perdu(s)` : ''));
+      if (type.order) details.push(`commander ${type.order.quantity} avant le ${fmtDate(type.order.before)}`);
+      else if (!details.length) details.push(type.per_month ? `${Math.round(type.per_month * 10) / 10} utilisé(s) par mois` : 'rien à signaler');
+      const kind = type.order && type.order.urgent ? 'bad' : type.below_min ? 'warn' : '';
+      parts.push(el('div', { class: 'stock-row ' + kind },
+        requirementRow(type.name, point.stock, type.min_quantity),
+        el('div', { class: 'sub hint' }, details.join(' · '))));
+    }
+    const transfers = forecast.transfers || [];
+    if (transfers.length) {
+      parts.push(el('h3', {}, 'Échanges à faire'));
+      parts.push(el('p', { class: 'hint' }, 'Items qui périmeront là où ils sont : à échanger contre des plus récents du lieu indiqué.'));
+      for (const group of transfers) {
+        const when = (group.source.sealed ? 'scellé, ouvrir avant le ' : 'avant le ') + fmtDate(group.before);
+        parts.push(el('div', { class: 'stock-row ' + (group.source.sealed ? 'bad' : 'warn') },
+          el('div', { class: 'row-head' }, el('b', {}, group.source.path), el('span', { class: 'hint' }, when)),
+          ...group.moves.map((move) => el('div', { class: 'sub hint' },
+            `${move.type_name} ×${move.take.length} (${fmtDate(move.take_peremption)}) → ${move.target.path}, `
+            + `reprendre ×${move.back.length} (${fmtDate(move.back_peremption)})`))));
+      }
+    }
+  }
+
   function renderStock() {
     const view = $('#stock-view');
     if (!canSeeStock()) {
       view.replaceChildren(el('p', {}, 'Réservé aux rôles gestion et admin : scannez votre badge.'));
       return;
     }
-    const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'État des stocks (lecture seule)'),
-      el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser'))];
+    const head = el('div', { class: 'row-head' },
+      el('h3', {}, state.stockFull ? 'Stock à venir' : 'État des stocks (lecture seule)'),
+      el('div', { class: 'buttons' },
+        el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser'),
+        el('button', { type: 'button', onclick: () => setStockFull(!state.stockFull) },
+          state.stockFull ? '⤡ Scanner' : '⤢ Prévisions')));
+    const parts = [head];
+    if (state.stockFull) {
+      renderForecast(parts);
+      view.replaceChildren(...parts);
+      return;
+    }
     if (isAdmin()) parts.push(renderPush());
     if (!state.stock) {
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
