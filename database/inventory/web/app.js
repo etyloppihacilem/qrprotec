@@ -1430,17 +1430,22 @@
       let base = 0;
       for (const [key, cls] of [['stock', 's-stock'], ['lots', 's-lots'], ['sealed', 's-sealed']]) {
         if (!sum[key]) continue;
-        svg.append(svgEl('rect', { x, y: y(base + sum[key]), width: w, height: y(base) - y(base + sum[key]), class: cls }));
+        const height = y(base) - y(base + sum[key]);
+        svg.append(svgEl('rect', { x, y: y(base + sum[key]), width: w, height, class: cls }));
         base += sum[key];
       }
-      if (sum.lost) svg.append(svgEl('rect', { x: x + w * 0.3, y: y(sum.lost), width: w * 0.4, height: y(0) - y(sum.lost), class: 's-lost' }));
+      if (sum.lost) {
+        svg.append(svgEl('rect', { x: x + w * 0.3, y: y(sum.lost), width: w * 0.4, height: y(0) - y(sum.lost),
+          class: 's-lost' }));
+      }
       const date = parseDate(sum.start);
-      svg.append(svgEl('text', { x: x + w / 2, y: H - 3, 'text-anchor': 'middle' }, date ? MONTHS[date.getMonth()] : ''));
+      const label = date ? MONTHS[date.getMonth()] : '';
+      svg.append(svgEl('text', { x: x + w / 2, y: H - 3, 'text-anchor': 'middle' }, label));
     });
     return el('figure', { class: 'chart-box' }, svg,
       el('figcaption', { class: 'legend' },
-        el('span', {}, el('i', { class: 's-stock' }), 'stock'), el('span', {}, el('i', { class: 's-lots' }), 'lots'),
-        el('span', {}, el('i', { class: 's-sealed' }), 'scellés'), el('span', {}, el('i', { class: 's-lost' }), 'perdus')));
+        ...[['s-stock', 'stock'], ['s-lots', 'lots'], ['s-sealed', 'scellés'], ['s-lost', 'perdus']]
+          .map(([cls, label]) => el('span', {}, el('i', { class: cls }), label))));
   }
 
   // Vue reduite des previsions (plein ecran) : horizon, graphe, types a surveiller, echanges

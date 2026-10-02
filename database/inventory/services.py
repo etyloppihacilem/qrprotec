@@ -20,8 +20,8 @@ from django.utils import timezone
 from . import movements, notifications
 from .idendity import parse_identity
 from .models import (
-    ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, SeenWhile, VerifItem, VerifResult, Verifs, generate_key,
-    qrprotec_setting,
+    ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, SeenWhile, VerifItem, VerifResult,
+    Verifs, generate_key, qrprotec_setting,
 )
 
 
