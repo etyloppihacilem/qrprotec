@@ -22,10 +22,10 @@ std::string clean_scan_code(std::string code);
 // Le nom ressemble-t-il a celui d'une douchette Inateck ?
 bool looks_like_scanner(const std::string& name);
 
-// Appareils a essayer pour la connexion automatique, dans l'ordre : la derniere douchette
-// connectee, puis les noms de douchette Inateck, puis les autres. Les appareils refuses sont ignores.
-std::vector<InateckDevice> connection_candidates(const std::vector<InateckDevice>& devices,
-                                                 const std::string& preferred_id,
-                                                 const std::vector<std::string>& rejected_ids);
+// Appareils proposes a la connexion, dans l'ordre : la derniere douchette connectee, puis les noms
+// de douchette Inateck, puis les autres. Les appareils refuses sont ignores.
+std::vector<InateckDevice> ordered_devices(const std::vector<InateckDevice>& devices,
+                                           const std::string& preferred_id,
+                                           const std::vector<std::string>& rejected_ids);
 
 } // namespace qrprotec

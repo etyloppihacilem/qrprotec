@@ -11,6 +11,7 @@
 #include "inateck.hpp"
 #include "imgui.h"
 #include "inateck/inateck_worker.hpp"
+#include "inateck/sdk_json.hpp"
 #include "GLFW/glfw3.h"
 #include <algorithm>
 #include <cstddef>
@@ -185,7 +186,7 @@ void Inateck::draw_inateck_window() {
     const char* status = state.authenticated ? "connectée et authentifiée"
                        : state.connected     ? "connectée"
                        : state.connecting    ? "connexion..."
-                       : state.discovering   ? "recherche (connexion automatique ensuite)"
+                       : state.discovering   ? "recherche"
                                              : "non connectée";
     ImGui::Text("Statut : %s", status);
     if (ImGui::Button(state.discovering ? "Arrêter la recherche" : "Rechercher les douchettes")) {
@@ -292,6 +293,20 @@ void Inateck::draw_menu() {
     inateck_worker_.start_discovery();
   if (ImGui::MenuItem("Arrêter la recherche", nullptr, false, state.discovering))
     inateck_worker_.stop_discovery();
+  // Choix de la douchette accessible sans utilisateur connecte
+  if (ImGui::BeginMenu("Connecter à", !state.connected && !state.connecting)) {
+    const std::vector<InateckDevice> devices = ordered_devices(state.devices, state.preferred_id, {});
+    if (devices.empty())
+      ImGui::TextDisabled("Aucun appareil : lancez une recherche");
+    for (const InateckDevice& device : devices) {
+      std::string label = device.name.empty() ? device.id : device.name + " (" + device.id + ")";
+      if (device.id == state.preferred_id)
+        label += " - dernière douchette";
+      if (ImGui::MenuItem(label.c_str()))
+        inateck_worker_.connect(device.id, device.name);
+    }
+    ImGui::EndMenu();
+  }
   if (ImGui::MenuItem("Déconnecter", nullptr, false, state.connected && settings_unlocked_))
     inateck_worker_.disconnect();
 }
