@@ -489,14 +489,19 @@ def push_available():
                        status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
+# options d'un abonnement aux notifications web, avec leur valeur par defaut
+PUSH_OPTIONS = {
+    'stock_low': True, 'stock_empty': True, 'pin_blocked': True,
+    'lot_key_renewed': False, 'lot_key_expiring': False, 'badge_renewed': False, 'badge_expiring': False,
+}
+
+
 def push_subscription_dict(subscription):
     if subscription is None:
         return {'subscribed': False}
     return {
         'subscribed': True,
-        'stock_low': subscription.stock_low,
-        'stock_empty': subscription.stock_empty,
-        'pin_blocked': subscription.pin_blocked,
+        **{field: getattr(subscription, field) for field in PUSH_OPTIONS},
         'last_sent': subscription.last_sent,
         'last_status': subscription.last_status,
     }
@@ -516,7 +521,7 @@ def push_subscription(request):
     """Etat de l'abonnement de ce navigateur (endpoint), ou creation / mise a jour si `subscription` est donne.
 
     {"user": badge, "endpoint": ...} -> etat ; {"user": badge, "subscription": {endpoint, keys: {p256dh, auth}},
-    "stock_low": bool, "stock_empty": bool, "pin_blocked": bool} -> abonnement enregistre.
+    options de PUSH_OPTIONS: bool} -> abonnement enregistre.
     """
     user = badge_user(request, (Role.ADMIN,))
     push_available()
@@ -537,9 +542,7 @@ def push_subscription(request):
         'user': user,
         'p256dh': str(keys['p256dh']),
         'auth': str(keys['auth']),
-        'stock_low': bool(data.get('stock_low', True)),
-        'stock_empty': bool(data.get('stock_empty', True)),
-        'pin_blocked': bool(data.get('pin_blocked', True)),
+        **{field: bool(data.get(field, default)) for field, default in PUSH_OPTIONS.items()},
     })
     return Response(push_subscription_dict(subscription))
 
@@ -927,7 +930,9 @@ def lot_rotate_key(request, lot_id):
     require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     lot.rotate_key()
-    lot.save(update_fields=['verif_key', 'verif_key_expires'])
+    lot.save(update_fields=['verif_key', 'verif_key_expires', 'key_expiry_stage'])
+    notifications.notify_admins('lot_key_renewed', 'étiquette de lot renouvelée',
+                                f'étiquette privée du lot {lot.name} renouvelée par {front_user(request)}')
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 
@@ -1034,7 +1039,9 @@ def user_renew_key(request, matricule):
     require_front(request, ADMIN)
     user = get_object_or_404(Secouristes, matricule=matricule)
     user.renew_key()
-    user.save(update_fields=['key_hash', 'key_expires'])
+    user.save(update_fields=['key_hash', 'key_expires', 'key_expiry_stage'])
+    notifications.notify_admins('badge_renewed', 'badge renouvelé',
+                                f'badge de {user} ({user.matricule}) renouvelé par {front_user(request)}')
     return Response(ser.user_dict(user, local=True))
 
 

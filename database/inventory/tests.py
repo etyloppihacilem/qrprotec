@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from io import StringIO
 
 from django.conf import settings
 from django.test import TestCase, override_settings
@@ -941,6 +942,49 @@ class SmsTests(ApiTestCase):
         self.assertEqual(len(self.sent), 2)
         self.assertIn("bloqué après trop d'essais", self.sent[0][1])
 
+    def test_key_renewals(self):
+        self.call('PATCH', '/api/notifications/', {'enabled': True, 'events': {'stock_low': False}})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+            self.call('POST', '/api/users/M001/renew-key/')
+        self.assertEqual(self.sent, [])  # desactives par defaut
+        self.call('PATCH', '/api/notifications/', {'events': {'lot_key_renewed': True, 'badge_renewed': True}})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')[0], 200)
+            self.assertEqual(self.call('POST', '/api/users/M001/renew-key/')[0], 200)
+        messages = [message for user, message in self.sent if user == 'u1']
+        self.assertEqual(messages, ['QRProtec : étiquette privée du lot Sac A renouvelée par Admin Poste',
+                                    'QRProtec : badge de Jeanne Dupont (M001) renouvelé par Admin Poste'])
+
+    def test_key_expirations_once_per_stage(self):
+        from django.core.management import call_command
+        self.call('PATCH', '/api/notifications/', {
+            'enabled': True, 'events': {'stock_low': False, 'lot_key_expiring': True, 'badge_expiring': True}})
+        Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
+        Secouristes.objects.filter(pk=self.user.pk).update(key_expires=self.today - timedelta(days=1))
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        messages = [message for user, message in self.sent if user == 'u1']
+        day = (self.today + timedelta(days=10)).strftime('%d/%m/%Y')
+        self.assertEqual(len(messages), 2)
+        self.assertIn(f'étiquettes privées de lot qui expirent bientôt : Sac A ({day})', messages[0])
+        self.assertIn('badges expirés : Jeanne Dupont (M001)', messages[1])
+        # deja annonce : rien de plus
+        self.sent.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(self.sent, [])
+        # l'etiquette expire : nouvelle etape, une alerte
+        Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today - timedelta(days=1))
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('étiquettes privées de lot expirées : Sac A', self.sent[0][1])
+        # renouvellement : l'alerte reviendra a la prochaine expiration
+        self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+        self.lot.refresh_from_db()
+        self.assertEqual(self.lot.key_expiry_stage, 0)
+
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
 class WebPushTests(ApiTestCase):
     """Notifications web : chiffrement RFC 8291, VAPID, abonnement des admins et alertes de stock."""
@@ -1128,6 +1172,20 @@ class WebPushTests(ApiTestCase):
         with self.captureOnCommitCallbacks(execute=True):
             self.call('POST', '/api/pin-forgot/', badge, local=False)
         self.assertEqual(self.sent, [])
+
+    def test_key_renewed(self):
+        code, body = self.subscribe()
+        self.assertFalse(body['lot_key_renewed'])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+        self.assertEqual(self.sent, [])
+        code, body = self.subscribe(stock_low=False, stock_empty=False, pin_blocked=False, lot_key_renewed=True)
+        self.assertTrue(body['lot_key_renewed'])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+        [message] = self.messages()
+        self.assertEqual(message['title'], 'QRProtec : étiquette de lot renouvelée')
+        self.assertIn('Sac A', message['body'])
 
 
 class RemoteScannerTests(TestCase):

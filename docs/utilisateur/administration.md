@@ -109,15 +109,22 @@ La douchette se règle dans le menu **Douchette** (recherche, connexion, mode cl
    - **stock bas** : un SMS quand un type passe sous son minimum (un seul par passage) ;
    - **vérif incomplète** : manquants, périmés, disparus ;
    - **scellé brisé** ;
-   - **résumé quotidien des périmés** (chaque matin à 7 h 45).
+   - **résumé quotidien des périmés** (chaque matin à 7 h 45) ;
+   - **PIN d'un utilisateur bloqué** (trop d'essais ou code oublié), une fois par blocage ;
+   - **étiquette privée d'un lot renouvelée** et **badge renouvelé** : qui l'a fait ;
+   - **étiquette privée de lot** et **badge qui expirent bientôt ou ont expiré** : contrôlés chaque
+     matin à 7 h 45, une alerte 30 jours avant l'expiration puis une à l'expiration. Renouveler
+     l'étiquette ou le badge remet l'alerte à zéro.
+
+Les quatre derniers événements sont désactivés par défaut.
 
 Le dernier statut d'envoi de chaque destinataire est affiché.
 
 ### Notifications web (tous opérateurs)
 
 Sur le téléphone d'un administrateur : scanner son badge, onglet **Stock**, **Activer les
-notifications**, puis choisir **stock bas** et/ou **stock vide**, et **envoyer une notification de
-test**. Les alertes arrivent même page fermée.
+notifications**, puis choisir les alertes (stock bas, stock vide, PIN bloqué, renouvellement et
+expiration des étiquettes privées de lot et des badges), et **envoyer une notification de test**. Les alertes arrivent même page fermée.
 
 - Sur iPhone (iOS 16.4 ou plus), ajouter d'abord la page à l'écran d'accueil.
 - La borne doit avoir un certificat HTTPS reconnu par le téléphone, et un accès Internet sortant.

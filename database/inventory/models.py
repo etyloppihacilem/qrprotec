@@ -255,6 +255,23 @@ class LotRequirements(models.Model): # Pour mettre un item dans un lot
         unique_together = [('lot_type', 'item_type')]
 
 
+class KeyExpiry(models.IntegerChoices):
+    """Etape d'expiration d'une cle (etiquette privee de lot, badge) deja annoncee aux admins : une seule alerte
+    par etape, remise a zero au renouvellement."""
+    VALID = 0, 'Valide'
+    SOON = 1, 'Expire bientôt'
+    EXPIRED = 2, 'Expirée'
+
+    @classmethod
+    def of(cls, expires, today=None):
+        today = today or timezone.localdate()
+        if expires < today:
+            return cls.EXPIRED
+        if expires <= today + timedelta(days=qrprotec_setting('KEY_EXPIRY_WARNING_DAYS')):
+            return cls.SOON
+        return cls.VALID
+
+
 def default_lot_key_expiration():
     return timezone.localdate() + timedelta(days=qrprotec_setting('LOT_KEY_VALIDITY_DAYS'))
 
@@ -265,6 +282,7 @@ class Lots(models.Model):
     version = models.PositiveIntegerField()
     verif_key = models.CharField(max_length=32, default=generate_key)
     verif_key_expires = models.DateField(default=default_lot_key_expiration)
+    key_expiry_stage = models.PositiveSmallIntegerField(default=0)  # alerte d'expiration envoyee (voir KeyExpiry)
     created = models.DateTimeField(default=timezone.now)
     created_by = models.CharField(max_length=32)
     last_used = models.DateTimeField(blank=True, null=True)
@@ -317,6 +335,7 @@ class Lots(models.Model):
     def rotate_key(self):
         self.verif_key = generate_key()
         self.verif_key_expires = default_lot_key_expiration()
+        self.key_expiry_stage = KeyExpiry.VALID
 
     def check_seal(self, code) -> bool:
         return self.is_sealed and keys_match(self.seal_code, code)
@@ -386,6 +405,7 @@ class Secouristes(models.Model):
     # Empreinte SHA-256 de la cle du badge : la cle n'est connue qu'a sa creation (impression du badge)
     key_hash = models.CharField(max_length=64, blank=True, default='')
     key_expires = models.DateField(blank=True, null=True)
+    key_expiry_stage = models.PositiveSmallIntegerField(default=0)  # alerte d'expiration envoyee (voir KeyExpiry)
     role = models.CharField(max_length=8, choices=Role.choices, default=Role.NORMAL)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(default=timezone.now)
@@ -481,6 +501,7 @@ class Secouristes(models.Model):
         self.new_key = generate_key()
         self.key_hash = hash_key(self.new_key)
         self.key_expires = timezone.localdate() + timedelta(days=qrprotec_setting('USER_KEY_VALIDITY_DAYS'))
+        self.key_expiry_stage = KeyExpiry.VALID
         return self.new_key
 
     def badge_valid(self) -> bool:
@@ -530,6 +551,10 @@ class NotificationSettings(models.Model):
     seal_broken = models.BooleanField(default=True)      # scelle d'un lot brise
     expired_daily = models.BooleanField(default=False)   # resume des lots contenant des perimes (commande check_alerts)
     pin_blocked = models.BooleanField(default=True)      # PIN d'un utilisateur bloque (50 essais ou code oublie)
+    lot_key_renewed = models.BooleanField(default=False)   # etiquette privee d'un lot renouvelee
+    lot_key_expiring = models.BooleanField(default=False)  # etiquette privee qui expire bientot ou a expire (check_alerts)
+    badge_renewed = models.BooleanField(default=False)     # badge d'un utilisateur renouvele
+    badge_expiring = models.BooleanField(default=False)    # badge qui expire bientot ou a expire (check_alerts)
 
     @classmethod
     def get(cls):
@@ -566,6 +591,10 @@ class PushSubscription(models.Model):
     stock_low = models.BooleanField(default=True)     # un type passe sous son minimum
     stock_empty = models.BooleanField(default=True)   # un type arrive a 0
     pin_blocked = models.BooleanField(default=True)   # PIN d'un utilisateur bloque : lien de deblocage
+    lot_key_renewed = models.BooleanField(default=False)
+    lot_key_expiring = models.BooleanField(default=False)
+    badge_renewed = models.BooleanField(default=False)
+    badge_expiring = models.BooleanField(default=False)
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)
     last_status = models.CharField(max_length=128, blank=True, default='')

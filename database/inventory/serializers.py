@@ -425,6 +425,10 @@ def notification_settings_dict(settings_row, recipients):
             'seal_broken': settings_row.seal_broken,
             'expired_daily': settings_row.expired_daily,
             'pin_blocked': settings_row.pin_blocked,
+            'lot_key_renewed': settings_row.lot_key_renewed,
+            'lot_key_expiring': settings_row.lot_key_expiring,
+            'badge_renewed': settings_row.badge_renewed,
+            'badge_expiring': settings_row.badge_expiring,
         },
         'recipients': [recipient_dict(recipient) for recipient in recipients],
     }

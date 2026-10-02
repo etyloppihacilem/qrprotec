@@ -22,13 +22,16 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import timedelta
 
 from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from . import webpush
-from .models import ItemStatus, ItemType, Items, NotificationSettings, Secouristes, SmsRecipient, qrprotec_setting
+from .models import (
+    ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, SmsRecipient, qrprotec_setting,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,8 @@ STATUS_MESSAGES = {
     500: 'Erreur du serveur Free, réessayez plus tard',
 }
 
-EVENTS = ('stock_low', 'verif_problem', 'seal_broken', 'expired_daily', 'pin_blocked')
+EVENTS = ('stock_low', 'verif_problem', 'seal_broken', 'expired_daily', 'pin_blocked',
+          'lot_key_renewed', 'lot_key_expiring', 'badge_renewed', 'badge_expiring')
 
 
 def send_free_sms(user, password, message, timeout=10):
@@ -167,3 +171,52 @@ def notify_pin_blocked(user, url):
         return False
     user.pin_reset_notified = True
     return True
+
+
+def notify_admins(event, title, message):
+    """Evenement envoye par SMS (reglages) et aux notifications web des admins qui l'ont choisi."""
+    return notify(event, message) + webpush.notify_event(event, f'QRProtec : {title}', message)
+
+
+def _day(value):
+    return value.strftime('%d/%m/%Y')
+
+
+def check_key_expirations(today=None):
+    """Etiquettes privees de lot et badges qui expirent bientot (KEY_EXPIRY_WARNING_DAYS) ou ont expire.
+
+    Une alerte par etape (bientot, puis expiree) : key_expiry_stage garde l'etape deja annoncee, le renouvellement
+    la remet a zero. Les etapes avancent meme si l'evenement est desactive, pour ne pas envoyer d'un coup tout
+    l'historique quand on l'active. Retourne {evenement: [lignes]}.
+    """
+    today = today or timezone.localdate()
+    limit = today + timedelta(days=qrprotec_setting('KEY_EXPIRY_WARNING_DAYS'))
+    sources = (
+        ('lot_key_expiring', 'étiquette privée de lot', 'étiquettes privées de lot', 'expirées',
+         Lots.objects.filter(active=True, verif_key_expires__lte=limit).order_by('verif_key_expires', 'name'),
+         'verif_key_expires', lambda lot: lot.name),
+        ('badge_expiring', 'badge', 'badges', 'expirés',
+         Secouristes.objects.filter(active=True, key_expires__isnull=False, key_expires__lte=limit)
+         .order_by('key_expires', 'nom', 'prenom'),
+         'key_expires', lambda user: f'{user} ({user.matricule})'),
+    )
+    report = {}
+    for event, singular, plural, expired_word, queryset, field, label in sources:
+        soon, expired = [], []
+        for row in queryset:
+            expires = getattr(row, field)
+            stage = KeyExpiry.of(expires, today)
+            if stage <= row.key_expiry_stage:
+                continue
+            (expired if stage == KeyExpiry.EXPIRED else soon).append(f'{label(row)} ({_day(expires)})')
+            row.key_expiry_stage = stage
+            row.save(update_fields=['key_expiry_stage'])
+        lines = []
+        if soon:
+            lines.append(f'{plural} qui expirent bientôt : ' + ', '.join(soon))
+        if expired:
+            lines.append(f'{plural} {expired_word} : ' + ', '.join(expired))
+        if lines:
+            notify_admins(event, f'{singular} à renouveler', ' ; '.join(lines))
+        report[event] = soon + expired
+    return report

@@ -389,7 +389,8 @@ key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wro
 `lots/summary/` (lots actifs et leur état, tout badge valide) et `stock/summary/` (état des stocks,
 rôles gestion et admin). Notifications web : `push/key/` (GET, clé publique VAPID),
 `push/subscription/` (POST badge admin + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
-`stock_empty`, `pin_blocked` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge admin + endpoint).
+`stock_empty`, `pin_blocked`, `lot_key_renewed`, `lot_key_expiring`, `badge_renewed`,
+`badge_expiring` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge admin + endpoint).
 
 ### Rôles
 

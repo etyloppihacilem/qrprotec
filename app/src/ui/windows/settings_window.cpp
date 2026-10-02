@@ -296,6 +296,10 @@ class SettingsWindow final : public AppWindow {
         { "seal_broken", "Scellé d'un lot brisé" },
         { "expired_daily", "Résumé quotidien des lots contenant des périmés (commande check_alerts)" },
         { "pin_blocked", "PIN d'un utilisateur bloqué (trop d'essais faux ou code oublié), une fois par blocage" },
+        { "lot_key_renewed", "Étiquette privée d'un lot renouvelée" },
+        { "lot_key_expiring", "Étiquette privée de lot qui expire bientôt ou a expiré (commande check_alerts)" },
+        { "badge_renewed", "Badge d'un utilisateur renouvelé" },
+        { "badge_expiring", "Badge qui expire bientôt ou a expiré (commande check_alerts)" },
       };
       for (const auto &[event, label] : events) {
         bool value = notifications_["events"][event].boolean();

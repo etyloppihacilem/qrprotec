@@ -125,7 +125,12 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
 `notifications.py`. L'API Free (`smsapi.free-mobile.fr/sendmsg?user=&pass=&msg=`) n'envoie qu'au
 titulaire de la ligne : un couple identifiant / clé par destinataire (`SmsRecipient`). Événements
 (`NotificationSettings`) : `stock_low`, `verif_problem`, `seal_broken`, `expired_daily`, `pin_blocked`
-(PIN bloqué ou oublié, une fois par blocage, voir `notify_pin_blocked`). Le dernier
+(PIN bloqué ou oublié, une fois par blocage, voir `notify_pin_blocked`), `lot_key_renewed`,
+`badge_renewed`, `lot_key_expiring`, `badge_expiring`. Les quatre derniers, désactivés par défaut,
+existent aussi comme options des notifications web (`PUSH_OPTIONS`). Les expirations sont contrôlées par
+`check_alerts` (`check_key_expirations`) : une alerte à `KEY_EXPIRY_WARNING_DAYS` (30 j) avant, une à
+l'expiration, suivies par `key_expiry_stage` (`KeyExpiry`) sur le lot ou l'utilisateur, remis à zéro par le
+renouvellement. Le dernier
 statut d'envoi est gardé par destinataire et affiché dans les Réglages du poste.
 
 **Une alerte par passage sous le seuil** : `ItemType.low_notified` passe à `True` à l'envoi et ne

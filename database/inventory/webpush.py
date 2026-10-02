@@ -260,3 +260,9 @@ def notify_pin_blocked(text, url):
         'url': url,
         'tab': 'pinreset',
     }) for subscription in active_subscriptions().filter(pin_blocked=True)])
+
+
+def notify_event(field, title, body, url='../'):
+    """Evenement simple (renouvellement, expiration) vers les abonnements qui l'ont choisi."""
+    return queue([(subscription.id, {'title': title, 'body': body, 'tag': field, 'url': url})
+                  for subscription in active_subscriptions().filter(**{field: True})])

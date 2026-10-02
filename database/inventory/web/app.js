@@ -1393,11 +1393,23 @@
     });
   }
 
+  // Alertes au choix de chaque abonnement (memes noms que PUSH_OPTIONS cote serveur)
+  const PUSH_OPTIONS = [
+    ['stock_low', 'Stock bas (sous le minimum fixé)'],
+    ['stock_empty', 'Stock vide (0 en stock)'],
+    ['pin_blocked', "PIN d'un utilisateur bloqué (lien de déblocage)"],
+    ['lot_key_renewed', "Étiquette privée d'un lot renouvelée"],
+    ['lot_key_expiring', 'Étiquette privée de lot qui expire bientôt ou a expiré'],
+    ['badge_renewed', "Badge d'un utilisateur renouvelé"],
+    ['badge_expiring', 'Badge qui expire bientôt ou a expiré'],
+  ];
+  const PUSH_DEFAULTS = { stock_low: true, stock_empty: true, pin_blocked: true };
+
   async function loadPush() {
     if (!isAdmin() || !pushSupported()) return;
     try {
       const subscription = await currentPushSubscription();
-      const prefs = state.push || { stock_low: true, stock_empty: true, pin_blocked: true };
+      const prefs = state.push || { ...PUSH_DEFAULTS };
       state.push = subscription
         ? { ...prefs, ...(await api('push/subscription/', { user: badge(), endpoint: subscription.endpoint })) }
         : { ...prefs, subscribed: false };
@@ -1411,12 +1423,8 @@
   }
 
   async function enablePush() {
-    const prefs = {
-      stock_low: !!(state.push && state.push.stock_low),
-      stock_empty: !!(state.push && state.push.stock_empty),
-      pin_blocked: !!(state.push && state.push.pin_blocked),
-    };
-    if (!prefs.stock_low && !prefs.stock_empty && !prefs.pin_blocked) { toast('Choisissez au moins une alerte.', true); return; }
+    const prefs = Object.fromEntries(PUSH_OPTIONS.map(([field]) => [field, !!(state.push && state.push[field])]));
+    if (!Object.values(prefs).some(Boolean)) { toast('Choisissez au moins une alerte.', true); return; }
     state.pushBusy = true; state.pushError = ''; renderStock();
     try {
       // demande de permission declenchee par le clic de l'utilisateur
@@ -1512,10 +1520,8 @@
       label);
     parts.push(el('p', { class: 'hint' }, subscribed
       ? 'Activées sur cet appareil : vous serez prévenu même page fermée.'
-      : 'Recevez une alerte sur cet appareil quand le stock passe sous son minimum ou arrive à zéro, ou quand le PIN d\'un utilisateur est bloqué.'));
-    parts.push(option('stock_low', 'Stock bas (sous le minimum fixé)'));
-    parts.push(option('stock_empty', 'Stock vide (0 en stock)'));
-    parts.push(option('pin_blocked', "PIN d'un utilisateur bloqué (lien de déblocage)"));
+      : 'Recevez sur cet appareil les alertes choisies ci-dessous.'));
+    for (const [field, label] of PUSH_OPTIONS) parts.push(option(field, label));
     if (Notification.permission === 'denied') {
       parts.push(el('p', { class: 'error' }, 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'));
     }

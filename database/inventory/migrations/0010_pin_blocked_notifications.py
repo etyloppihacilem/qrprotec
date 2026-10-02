@@ -1,4 +1,5 @@
-"""Notification des admins quand un PIN est bloque (50 essais ou code oublie), une seule fois par blocage."""
+"""Notifications des admins : PIN bloque (50 essais ou code oublie, une seule fois par blocage), renouvellement et
+expiration des etiquettes privees de lot et des badges."""
 
 from django.db import migrations, models
 
@@ -29,5 +30,55 @@ class Migration(migrations.Migration):
             model_name="pushsubscription",
             name="pin_blocked",
             field=models.BooleanField(default=True),
+        ),
+        migrations.AddField(
+            model_name="notificationsettings",
+            name="lot_key_renewed",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="notificationsettings",
+            name="lot_key_expiring",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="notificationsettings",
+            name="badge_renewed",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="notificationsettings",
+            name="badge_expiring",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="pushsubscription",
+            name="lot_key_renewed",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="pushsubscription",
+            name="lot_key_expiring",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="pushsubscription",
+            name="badge_renewed",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="pushsubscription",
+            name="badge_expiring",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="lots",
+            name="key_expiry_stage",
+            field=models.PositiveSmallIntegerField(default=0),
+        ),
+        migrations.AddField(
+            model_name="secouristes",
+            name="key_expiry_stage",
+            field=models.PositiveSmallIntegerField(default=0),
         ),
     ]
