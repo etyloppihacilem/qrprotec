@@ -1135,8 +1135,23 @@ def notification_settings(request):
         for event in notifications.EVENTS:
             if event in events:
                 setattr(settings_row, event, bool(events[event]))
+        if 'key_expiry_warning_days' in request.data:
+            settings_row.key_expiry_warning_days = parse_warning_days(request.data['key_expiry_warning_days'])
         settings_row.save()
     return _notification_response()
+
+
+def parse_warning_days(value):
+    """Delai de l'alerte « expire bientot » (1 a 365 jours), None : valeur de qrprotec.conf."""
+    if value in (None, ''):
+        return None
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        days = 0
+    if not 1 <= days <= 365:
+        raise ApiError("Délai d'alerte d'expiration : entre 1 et 365 jours")
+    return days
 
 
 def _recipient_fields(recipient, data, creating):

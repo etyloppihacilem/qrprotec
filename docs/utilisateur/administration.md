@@ -21,8 +21,8 @@ Menu **Gestion > Utilisateurs**.
   l'utilisateur en choisit un nouveau à sa prochaine connexion. L'utilisateur peut aussi envoyer le
   lien affiché sur son téléphone : l'admin le scanne avec le front web, se connecte et confirme.
   Si le badge a pu être volé, renouvelez plutôt le badge.
-- **Code oublié** : sur le téléphone, le lien **Code oublié ?** sous la saisie du PIN bloque le PIN
-  et affiche le même écran de déblocage ; la fiche indique « Code PIN oublié ».
+- **Code oublié** : le lien **Code oublié ?** sous la saisie du PIN (téléphone et poste) bloque le
+  PIN ; le téléphone affiche le même écran de déblocage, et la fiche indique « Code PIN oublié ».
 - **Notification** : les admins sont prévenus d'un PIN bloqué ou oublié par SMS (**Réglages >
   Notifications**, case « PIN d'un utilisateur bloqué ») et par notification web (case de
   l'abonnement, onglet Stock). Une seule notification par blocage, quel que soit le nombre de
@@ -113,8 +113,9 @@ La douchette se règle dans le menu **Douchette** (recherche, connexion, mode cl
    - **PIN d'un utilisateur bloqué** (trop d'essais ou code oublié), une fois par blocage ;
    - **étiquette privée d'un lot renouvelée** et **badge renouvelé** : qui l'a fait ;
    - **étiquette privée de lot** et **badge qui expirent bientôt ou ont expiré** : contrôlés chaque
-     matin à 7 h 45, une alerte 30 jours avant l'expiration puis une à l'expiration. Renouveler
-     l'étiquette ou le badge remet l'alerte à zéro.
+     matin à 7 h 45, une alerte avant l'expiration (30 jours par défaut, champ **Alerte
+     d'expiration**) puis une à l'expiration. Renouveler l'étiquette ou le badge remet l'alerte à
+     zéro.
 
 Les quatre derniers événements sont désactivés par défaut.
 

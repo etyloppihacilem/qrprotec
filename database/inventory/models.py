@@ -263,11 +263,10 @@ class KeyExpiry(models.IntegerChoices):
     EXPIRED = 2, 'Expirée'
 
     @classmethod
-    def of(cls, expires, today=None):
-        today = today or timezone.localdate()
+    def of(cls, expires, today, warning_days):
         if expires < today:
             return cls.EXPIRED
-        if expires <= today + timedelta(days=qrprotec_setting('KEY_EXPIRY_WARNING_DAYS')):
+        if expires <= today + timedelta(days=warning_days):
             return cls.SOON
         return cls.VALID
 
@@ -583,6 +582,14 @@ class NotificationSettings(models.Model):
     lot_key_expiring = models.BooleanField(default=False)  # etiquette privee qui expire bientot ou a expire (check_alerts)
     badge_renewed = models.BooleanField(default=False)     # badge d'un utilisateur renouvele
     badge_expiring = models.BooleanField(default=False)    # badge qui expire bientot ou a expire (check_alerts)
+    # jours avant l'expiration pour l'alerte « expire bientot » (vide : QRPROTEC_KEY_EXPIRY_WARNING_DAYS)
+    key_expiry_warning_days = models.PositiveSmallIntegerField(blank=True, null=True)
+
+    @property
+    def expiry_warning_days(self) -> int:
+        if self.key_expiry_warning_days is None:
+            return qrprotec_setting('KEY_EXPIRY_WARNING_DAYS')
+        return self.key_expiry_warning_days
 
     @classmethod
     def get(cls):

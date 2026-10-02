@@ -661,19 +661,8 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
       complete_login(result.data);
       return;
     }
-    // trop d'essais faux ou code oublie : seul un admin peut debloquer (fenetre Utilisateurs, ou lien affiche sur le
-    // telephone)
     if (result.data["pin_blocked"].boolean()) {
-      pin_            = PinPrompt{};
-      pending_action_ = nullptr;
-      feedback.error(source, settings);
-      const std::string contact = result.data["pin_reset"]["contact"].str();
-      notify(std::string(result.data["pin_reset"]["forgotten"].boolean() ? "Code PIN oublié : "
-                                                                         : "Code PIN bloqué après trop d'essais : ")
-                 + (contact.empty() ? std::string("un administrateur") : contact)
-                 + " doit le réinitialiser (Utilisateurs > Réinitialiser le PIN, ou lien affiché en scannant le badge "
-                   "avec un téléphone).",
-             true);
+      show_pin_blocked(result.data, source);
       return;
     }
     const bool setup = result.data["pin_setup_required"].boolean();
@@ -728,6 +717,38 @@ void App::complete_login(const Json &data) {
   }
 }
 
+// Trop d'essais faux ou code oublie : seul un admin peut debloquer (fenetre Utilisateurs, ou lien affiche sur le
+// telephone)
+void App::show_pin_blocked(const Json &data, ScanSource source) {
+  pin_            = PinPrompt{};
+  pending_action_ = nullptr;
+  feedback.error(source, settings);
+  const std::string contact = data["pin_reset"]["contact"].str();
+  notify(std::string(data["pin_reset"]["forgotten"].boolean() ? "Code PIN oublié : "
+                                                              : "Code PIN bloqué après trop d'essais : ")
+             + (contact.empty() ? std::string("un administrateur") : contact)
+             + " doit le réinitialiser (Utilisateurs > Réinitialiser le PIN, ou lien affiché en scannant le badge "
+               "avec un téléphone)."
+             + (data["pin_reset"]["notified"].boolean() ? " Les administrateurs ont été prévenus." : ""),
+         true);
+}
+
+// Code oublie : le serveur bloque le PIN jusqu'a sa reinitialisation par un admin (et previent les admins)
+void App::forgot_pin() {
+  Json body;
+  body["matricule"] = pin_.matricule;
+  body["key"]       = pin_.key;
+  pin_.busy         = true;
+  api.post("/api/pin-forgot/", body, [this, source = static_cast< ScanSource >(pin_.source)](const ApiResult &result) {
+    pin_.busy = false;
+    if (result.data["pin_blocked"].boolean()) {
+      show_pin_blocked(result.data, source);
+      return;
+    }
+    pin_.error = result.error;
+  });
+}
+
 void App::draw_pin_modal() {
   if (!pin_.active)
     return;
@@ -774,6 +795,27 @@ void App::draw_pin_modal() {
   if (ImGui::Button("Annuler", ImVec2(150, 0))) {
     pin_            = PinPrompt{};
     pending_action_ = nullptr;
+  }
+  // lien discret : bouton sans fond, texte grise
+  if (!pin_.setup) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::BeginDisabled(pin_.busy);
+    if (ImGui::SmallButton("Code oublié ?"))
+      ImGui::OpenPopup("pin_forgot");
+    ImGui::EndDisabled();
+    ImGui::PopStyleColor(2);
+    if (ImGui::BeginPopup("pin_forgot")) {
+      ImGui::TextUnformatted("Votre code PIN sera bloqué jusqu'à ce qu'un administrateur le réinitialise.");
+      if (danger_button("Confirmer")) {
+        forgot_pin();
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Annuler"))
+        ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
   }
   if (!pin_.active)
     ImGui::CloseCurrentPopup();

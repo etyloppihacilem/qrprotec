@@ -985,6 +985,26 @@ class SmsTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertEqual(self.lot.key_expiry_stage, 0)
 
+    def test_key_expiry_warning_days_setting(self):
+        from django.core.management import call_command
+        code, body = self.call('GET', '/api/notifications/')
+        self.assertEqual(body['key_expiry_warning_days'], 30)
+        self.assertEqual(self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 0})[0], 400)
+        code, body = self.call('PATCH', '/api/notifications/', {
+            'enabled': True, 'key_expiry_warning_days': 5, 'events': {'stock_low': False, 'lot_key_expiring': True}})
+        self.assertEqual(body['key_expiry_warning_days'], 5)
+        Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(self.sent, [])  # 10 jours > 5 : pas encore
+        self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 15})
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(len(self.sent), 2)
+        # vide : retour a la valeur de qrprotec.conf
+        code, body = self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': None})
+        self.assertEqual(body['key_expiry_warning_days'], 30)
+
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
 class WebPushTests(ApiTestCase):
     """Notifications web : chiffrement RFC 8291, VAPID, abonnement des admins et alertes de stock."""

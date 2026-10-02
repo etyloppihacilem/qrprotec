@@ -183,14 +183,16 @@ def _day(value):
 
 
 def check_key_expirations(today=None):
-    """Etiquettes privees de lot et badges qui expirent bientot (KEY_EXPIRY_WARNING_DAYS) ou ont expire.
+    """Etiquettes privees de lot et badges qui expirent bientot (delai des Reglages, ou
+    QRPROTEC_KEY_EXPIRY_WARNING_DAYS) ou ont expire.
 
     Une alerte par etape (bientot, puis expiree) : key_expiry_stage garde l'etape deja annoncee, le renouvellement
     la remet a zero. Les etapes avancent meme si l'evenement est desactive, pour ne pas envoyer d'un coup tout
     l'historique quand on l'active. Retourne {evenement: [lignes]}.
     """
     today = today or timezone.localdate()
-    limit = today + timedelta(days=qrprotec_setting('KEY_EXPIRY_WARNING_DAYS'))
+    warning_days = NotificationSettings.get().expiry_warning_days
+    limit = today + timedelta(days=warning_days)
     sources = (
         ('lot_key_expiring', 'étiquette privée de lot', 'étiquettes privées de lot', 'expirées',
          Lots.objects.filter(active=True, verif_key_expires__lte=limit).order_by('verif_key_expires', 'name'),
@@ -205,7 +207,7 @@ def check_key_expirations(today=None):
         soon, expired = [], []
         for row in queryset:
             expires = getattr(row, field)
-            stage = KeyExpiry.of(expires, today)
+            stage = KeyExpiry.of(expires, today, warning_days)
             if stage <= row.key_expiry_stage:
                 continue
             (expired if stage == KeyExpiry.EXPIRED else soon).append(f'{label(row)} ({_day(expires)})')

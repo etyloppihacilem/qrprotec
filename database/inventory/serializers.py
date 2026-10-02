@@ -436,5 +436,7 @@ def notification_settings_dict(settings_row, recipients):
             'badge_renewed': settings_row.badge_renewed,
             'badge_expiring': settings_row.badge_expiring,
         },
+        # delai de l'alerte « expire bientot » des etiquettes privees de lot et des badges (SMS et web)
+        'key_expiry_warning_days': settings_row.expiry_warning_days,
         'recipients': [recipient_dict(recipient) for recipient in recipients],
     }

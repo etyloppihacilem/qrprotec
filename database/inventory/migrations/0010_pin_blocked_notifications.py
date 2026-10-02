@@ -91,4 +91,9 @@ class Migration(migrations.Migration):
             name="device",
             field=models.CharField(blank=True, default="", max_length=64),
         ),
+        migrations.AddField(
+            model_name="notificationsettings",
+            name="key_expiry_warning_days",
+            field=models.PositiveSmallIntegerField(blank=True, null=True),
+        ),
     ]

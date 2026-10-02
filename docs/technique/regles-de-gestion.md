@@ -191,7 +191,7 @@ restaurer. Rien n'est jamais effacé de la base.
   QR code ; l'admin le scanne, se connecte (badge + PIN) et confirme : `POST /api/pin-reset/`
   (`confirm: true`). Sur le poste : **Utilisateurs > Réinitialiser le PIN**. Après réinitialisation,
   l'utilisateur choisit un nouveau PIN à sa connexion suivante (`pin_reset_required`).
-- **Code oublié** (lien discret sous la saisie du PIN, front web) : `POST /api/pin-forgot/`
+- **Code oublié** (lien discret sous la saisie du PIN, front web et poste) : `POST /api/pin-forgot/`
   (`matricule`, `key` du badge) bloque le PIN de la même façon (`pin_forgotten`) et renvoie la même
   réponse `pin_blocked`, pour le même parcours de déblocage. Refusé si l'utilisateur n'a pas de PIN.
 - **Notification des admins** au blocage (50 erreurs ou code oublié) : SMS (événement `pin_blocked`)
