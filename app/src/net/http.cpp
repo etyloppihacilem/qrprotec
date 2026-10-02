@@ -119,6 +119,8 @@ HttpHeaders ApiEndpoint::headers() const {
     result.emplace_back("X-QRProtec-Token", token);
   if (!key.empty())
     result.emplace_back("X-QRProtec-Key", key);
+  if (!session.empty())
+    result.emplace_back("X-QRProtec-Session", session);
   return result;
 }
 

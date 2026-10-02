@@ -3,7 +3,8 @@
 ## Scans
 
 **La douchette ne se connecte pas (mode Bluetooth).**
-Menu **Douchette > Rechercher**. La douchette ne doit **pas** être appairée dans les réglages Bluetooth
+Menu **Douchette > Rechercher**, puis, la première fois, choisissez-la dans **Douchette > Connecter à**
+(ensuite, le logiciel s'y reconnecte seul après chaque recherche). La douchette ne doit **pas** être appairée dans les réglages Bluetooth
 de l'ordinateur : si elle l'est, supprimez-la de la liste des appareils. Déconnectez aussi tout autre
 appareil Bluetooth (casque, souris) pendant la recherche : le logiciel du fabricant échoue sinon,
 sans message. À défaut, passez la douchette en **mode clavier (HID)** : elle fonctionne alors comme
@@ -58,7 +59,14 @@ Le badge a plus d'un an ou a été renouvelé. Demandez un nouveau badge à un a
 
 **« PIN bloqué ».**
 Cinq PIN faux : attendez 5 minutes. PIN oublié : un administrateur en définit un nouveau
-(**Gestion > Utilisateurs**).
+(**Gestion > Utilisateurs**), ou touchez **Code oublié ?** sous la saisie du PIN sur le téléphone.
+Votre PIN est alors bloqué et l'écran de déblocage s'affiche, comme ci-dessous.
+
+**« Code PIN bloqué après trop d'essais ».**
+Après 50 PIN faux, seul un administrateur peut débloquer. Sur le téléphone, prenez une photo de
+l'écran (QR code et lien) et envoyez-la à l'administrateur indiqué. Il scanne le QR code, se
+connecte et touche **Réinitialiser le PIN**. À votre prochaine connexion, choisissez un nouveau PIN.
+Si les notifications sont activées, les administrateurs reçoivent déjà le lien (une seule fois).
 
 **Le poste m'a déconnecté et a vidé la pile.**
 Après 15 minutes sans activité, le poste revient à son état de départ (réglable par un admin).

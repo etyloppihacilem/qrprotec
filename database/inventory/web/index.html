@@ -66,6 +66,7 @@
     <button type="button" data-action="add">Ajouter les items scannés au lot</button>
     <button type="button" data-action="manual">Saisir un code à la main</button>
     <button type="button" data-action="forget-lot">Changer de lot</button>
+    <button type="button" data-action="notifications" id="menu-notifications" hidden>Notifications</button>
     <button type="button" data-action="logout">Se déconnecter</button>
     <button type="button" data-action="close" class="secondary">Fermer</button>
   </dialog>
@@ -79,11 +80,47 @@
       <input id="pin-input" class="pin" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="4 à 8 chiffres">
       <input id="pin-confirm" class="pin" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="Confirmez le PIN" hidden>
       <p id="pin-error" class="pin-error"></p>
+      <button type="button" id="pin-forgot" class="text-link">Code oublié ?</button>
       <div class="dialog-buttons">
         <button type="button" id="pin-cancel" class="secondary">Annuler</button>
         <button type="submit" class="primary">Valider</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- PIN bloque apres trop d'essais : lien de deblocage a envoyer a un administrateur -->
+  <dialog id="pin-blocked">
+    <h2 id="pin-blocked-title">Code PIN bloqué</h2>
+    <p id="pin-blocked-text"></p>
+    <p id="pin-blocked-notified" class="hint" hidden>Les administrateurs ont reçu une notification.</p>
+    <p><b>Prenez une photo de cet écran et envoyez-la à <span id="pin-blocked-contact"></span>.</b>
+      Il scanne le QR code (ou ouvre le lien) pour réinitialiser votre PIN.</p>
+    <img id="pin-blocked-qr" class="qr" alt="QR code du lien de déblocage">
+    <p class="hint">Lien : <a id="pin-blocked-link" class="break"></a></p>
+    <div class="dialog-buttons">
+      <button type="button" id="pin-blocked-share" class="secondary" hidden>Partager le lien</button>
+      <button type="button" id="pin-blocked-close" class="primary">OK</button>
+    </div>
+  </dialog>
+
+  <!-- Deblocage du PIN d'un utilisateur par un administrateur (lien recu de l'utilisateur bloque) -->
+  <dialog id="pin-reset">
+    <h2>Débloquer un code PIN</h2>
+    <div id="pin-reset-body"></div>
+    <p id="pin-reset-error" class="pin-error"></p>
+    <div class="dialog-buttons">
+      <button type="button" id="pin-reset-cancel" class="secondary">Fermer</button>
+      <button type="button" id="pin-reset-confirm" class="primary">Réinitialiser le PIN</button>
+    </div>
+  </dialog>
+
+  <!-- Gestionnaire des notifications web (roles gestion et admin) : cet appareil et tous les appareils abonnes -->
+  <dialog id="notifications">
+    <h2>Notifications</h2>
+    <div id="notifications-body"></div>
+    <div class="dialog-buttons">
+      <button type="button" id="notifications-close" class="secondary">Fermer</button>
+    </div>
   </dialog>
 
   <dialog id="report"><div id="report-body"></div><button type="button" class="primary" id="report-close">OK</button></dialog>
@@ -92,6 +129,7 @@
   <div id="toast"></div>
 
   <script src="web/vendor/jsQR.js" defer></script>
+  <script src="web/vendor/qrcode.js" defer></script>
   <script src="web/app.js" defer></script>
 </body>
 </html>

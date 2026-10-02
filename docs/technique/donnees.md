@@ -43,14 +43,20 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 |---|---|
 | `Verifs` | Une vérif d'un lot (ou du stock si `lot` est `NULL`) : qui, quand, complète ou non, compteurs. Une vérif groupée de plusieurs sous-lots crée **une ligne par lot vérifié**. |
 | `VerifItem` | Une ligne par item concerné : `present`, `missing` ou `replaced`, et s'il était périmé. C'est l'historique complet de chaque item. |
-| `ItemMovement` | Journal des mouvements d'un item (prévisions de stock) : déplacement (`move`, lot de départ et d'arrivée, `NULL` = stock), première absence à une vérif (`used`, ou `discarded` s'il était périmé), `replaced`, `deleted`, `restored`. Une absence reçoit `cancelled` quand l'item est revu ensuite (vérif, déplacement, restauration). `reconstructed` : ligne reconstituée depuis `VerifItem` par la migration 0009. |
+| `ItemMovement` | Journal des mouvements d'un item (prévisions de stock) : déplacement (`move`, lot de départ et d'arrivée, `NULL` = stock), première absence à une vérif (`used`, ou `discarded` s'il était périmé), `replaced`, `deleted`, `restored`. Une absence reçoit `cancelled` quand l'item est revu ensuite (vérif, déplacement, restauration). `reconstructed` : ligne reconstituée depuis `VerifItem` par la migration 0011. |
 
 ### Utilisateurs
 
 `Secouristes` : matricule (clé primaire, 1 à 16 caractères), nom, prénom, `role` (`normal`,
-`gestion`, `admin`), `key` du badge (24 caractères, valable 365 jours, `renew_key()` en crée une
-nouvelle et invalide l'ancien badge), PIN haché avec les hacheurs de mots de passe de Django
-(`pin_hash`), compteur d'échecs et blocage temporaire.
+`gestion`, `admin`), empreinte SHA-256 de la clé du badge (`key_hash` : la clé de 24 caractères,
+valable 365 jours, n'est connue qu'à sa création ; `renew_key()` en crée une nouvelle, la renvoie une
+seule fois et invalide l'ancien badge), PIN haché avec les hacheurs de mots de passe de Django
+(`pin_hash`), compteurs d'échecs, blocage temporaire (`pin_locked_until`), blocage jusqu'à
+intervention d'un admin (`pin_blocked`, `pin_reset_required`) et admin à contacter (`pin_contact`).
+
+L'API ne renvoie la clé du badge (`key`, `badge_url`) que dans la réponse de création
+(`POST /api/users/`) et de renouvellement (`renew-key/`), le temps d'imprimer le badge. Pour
+réimprimer un badge, il faut donc le renouveler.
 
 Il n'y a **pas** de compte Django (`auth.User`) pour les secouristes : un badge n'est pas un mot de
 passe, et la plupart des opérations n'ont besoin que d'une identité. L'admin Django

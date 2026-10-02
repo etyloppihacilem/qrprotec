@@ -52,7 +52,7 @@ def reconstruct(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("inventory", "0008_front_keys"),
+        ("inventory", "0010_pin_blocked_notifications"),
     ]
 
     operations = [

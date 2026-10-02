@@ -75,6 +75,11 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
     remote.feedback_message.clear();
   };
   apply_default_open_state();
+  // session refusee par le serveur (badge renouvele, PIN bloque, 12 h ecoulees) : on redemande le badge
+  api.on_login_required = [this]() {
+    if (logged_in())
+      logout("Session expirée : scannez à nouveau votre badge.");
+  };
   refresh_item_types();
   refresh_lots();
 }
@@ -444,7 +449,7 @@ void App::create_first_admin() {
     }
     setup_created_ = result.data;
     needs_admin_   = false;
-    // le poste local est de confiance : le nouveau responsable est connecte directement
+    // premier administrateur : le serveur renvoie son jeton de session, il est connecte directement
     SessionUser session;
     session.matricule   = result.data["matricule"].str();
     session.nom         = result.data["nom"].str();
@@ -453,6 +458,7 @@ void App::create_first_admin() {
     session.privileged  = true;
     session.role        = "admin";
     user                = session;
+    api.set_session(result.data["session"].str());
     refresh_item_types();
     refresh_lot_types();
     notify("Administrateur créé : mode privilégié activé.");
@@ -610,8 +616,12 @@ std::string App::user_name() const {
 }
 
 void App::logout(const std::string &reason) {
-  const bool was_logged = logged_in();
+  const bool was_logged         = logged_in();
+  const bool privileged_session = was_logged && user->privileged;
   user.reset();
+  api.set_session("");
+  if (privileged_session)
+    refresh_lots(); // la liste ne garde pas les cles des lots apres la deconnexion
   pending_action_ = nullptr;
   if (was_logged && !reason.empty())
     notify(reason);
@@ -651,6 +661,10 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
       complete_login(result.data);
       return;
     }
+    if (result.data["pin_blocked"].boolean()) {
+      show_pin_blocked(result.data, source);
+      return;
+    }
     const bool setup = result.data["pin_setup_required"].boolean();
     if (setup || result.data["pin_required"].boolean()) {
       const bool first = !pin_.active;
@@ -686,6 +700,7 @@ void App::complete_login(const Json &data) {
   session.privileged  = data["privileged"].boolean();
   session.role        = data["role"].str(session.privileged ? "admin" : "normal");
   user                = session;
+  api.set_session(data["session"].str());
   notify("Bonjour " + session.display()
          + (session.admin() ? " : mode administrateur activé." : session.privileged ? " : mode gestion activé." : "."));
   if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
@@ -698,7 +713,40 @@ void App::complete_login(const Json &data) {
   if (session.privileged) {
     refresh_item_types();
     refresh_lot_types();
+    refresh_lots(); // avec les cles des lots (etiquettes privees), reservees aux roles gestion et admin
   }
+}
+
+// Trop d'essais faux ou code oublie : seul un admin peut debloquer (fenetre Utilisateurs, ou lien affiche sur le
+// telephone)
+void App::show_pin_blocked(const Json &data, ScanSource source) {
+  pin_            = PinPrompt{};
+  pending_action_ = nullptr;
+  feedback.error(source, settings);
+  const std::string contact = data["pin_reset"]["contact"].str();
+  notify(std::string(data["pin_reset"]["forgotten"].boolean() ? "Code PIN oublié : "
+                                                              : "Code PIN bloqué après trop d'essais : ")
+             + (contact.empty() ? std::string("un administrateur") : contact)
+             + " doit le réinitialiser (Utilisateurs > Réinitialiser le PIN, ou lien affiché en scannant le badge "
+               "avec un téléphone)."
+             + (data["pin_reset"]["notified"].boolean() ? " Les administrateurs ont été prévenus." : ""),
+         true);
+}
+
+// Code oublie : le serveur bloque le PIN jusqu'a sa reinitialisation par un admin (et previent les admins)
+void App::forgot_pin() {
+  Json body;
+  body["matricule"] = pin_.matricule;
+  body["key"]       = pin_.key;
+  pin_.busy         = true;
+  api.post("/api/pin-forgot/", body, [this, source = static_cast< ScanSource >(pin_.source)](const ApiResult &result) {
+    pin_.busy = false;
+    if (result.data["pin_blocked"].boolean()) {
+      show_pin_blocked(result.data, source);
+      return;
+    }
+    pin_.error = result.error;
+  });
 }
 
 void App::draw_pin_modal() {
@@ -715,8 +763,8 @@ void App::draw_pin_modal() {
   ImGui::PopFont();
   ImGui::TextDisabled("Badge %s", pin_.matricule.c_str());
   if (pin_.setup)
-    ImGui::TextWrapped("Le PIN (4 à 8 chiffres) est obligatoire pour les administrateurs. Il sera demandé à chaque "
-                       "connexion, après le badge.");
+    ImGui::TextWrapped("Nouveau PIN de 4 à 8 chiffres (obligatoire pour les administrateurs, ou après une "
+                       "réinitialisation). Il sera demandé à chaque connexion, après le badge.");
   const ImGuiInputTextFlags flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal
                                   | ImGuiInputTextFlags_EnterReturnsTrue;
   ImGui::SetNextItemWidth(220.0f);
@@ -747,6 +795,27 @@ void App::draw_pin_modal() {
   if (ImGui::Button("Annuler", ImVec2(150, 0))) {
     pin_            = PinPrompt{};
     pending_action_ = nullptr;
+  }
+  // lien discret : bouton sans fond, texte grise
+  if (!pin_.setup) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::BeginDisabled(pin_.busy);
+    if (ImGui::SmallButton("Code oublié ?"))
+      ImGui::OpenPopup("pin_forgot");
+    ImGui::EndDisabled();
+    ImGui::PopStyleColor(2);
+    if (ImGui::BeginPopup("pin_forgot")) {
+      ImGui::TextUnformatted("Votre code PIN sera bloqué jusqu'à ce qu'un administrateur le réinitialise.");
+      if (danger_button("Confirmer")) {
+        forgot_pin();
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Annuler"))
+        ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
   }
   if (!pin_.active)
     ImGui::CloseCurrentPopup();

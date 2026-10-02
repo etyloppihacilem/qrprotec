@@ -72,7 +72,11 @@ QRPROTEC = {
     # Role des requetes qui n'ont pas ete recues par `manage.py serve` (runserver, wsgi par defaut)
     'DEFAULT_API_ROLE': os.environ.get('QRPROTEC_DEFAULT_API_ROLE', 'public'),
     'USER_KEY_VALIDITY_DAYS': 365,
+    # Echecs de PIN depuis le dernier PIN correct avant blocage (deblocage par un administrateur)
+    'PIN_BLOCK_AFTER_FAILURES': int(os.environ.get('QRPROTEC_PIN_BLOCK_AFTER_FAILURES', '50')),
     'LOT_KEY_VALIDITY_DAYS': int(os.environ.get('QRPROTEC_LOT_KEY_VALIDITY_DAYS', '3650')),
+    # Alerte « expire bientot » des etiquettes privees de lot et des badges, ce nombre de jours avant
+    'KEY_EXPIRY_WARNING_DAYS': int(os.environ.get('QRPROTEC_KEY_EXPIRY_WARNING_DAYS', '30')),
     # Un item non perime est considere disparu apres ce nombre de verifs sans etre scanne
     'MISSING_AFTER_VERIFS': int(os.environ.get('QRPROTEC_MISSING_AFTER_VERIFS', '3')),
     # Previsions de stock : mois d'historique pour mesurer la consommation, delai de livraison d'une commande

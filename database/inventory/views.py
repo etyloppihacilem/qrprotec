@@ -16,11 +16,13 @@ Deux familles de vues :
 - locales (servies uniquement sur le port local) : gestion complete sans cle.
 """
 
+import hmac
 import re
 from datetime import date
 
 from django.core import signing
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -35,8 +37,8 @@ from . import webpush
 from .idendity import identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .models import (
-    TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings, PushSubscription,
-    SealedPacks, Role, Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
+    PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings,
+    PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -51,8 +53,45 @@ class ApiError(Exception):
         self.extra = extra  # champs ajoutes a la reponse d'erreur (ex: pin_required)
 
 
-def is_local(request) -> bool:
+GESTION = (Role.GESTION, Role.ADMIN)
+ADMIN = (Role.ADMIN,)
+SESSION_HEADER = 'HTTP_X_QRPROTEC_SESSION'
+
+
+def is_front(request) -> bool:
+    """Requete d'un poste (API locale, ou API distante avec une cle de front valide)."""
     return getattr(request, 'qrprotec_local', False)
+
+
+def front_user(request):
+    """Utilisateur connecte sur le poste : le front envoie le jeton de session recu de /api/auth/ (badge, puis PIN
+    si besoin) dans l'en-tete X-QRProtec-Session. Le serveur ne croit plus le matricule envoye par le poste."""
+    if not is_front(request):
+        return None
+    if not hasattr(request, 'qrprotec_user'):
+        request.qrprotec_user = session_user(request.META.get(SESSION_HEADER, ''))
+    return request.qrprotec_user
+
+
+def is_local(request) -> bool:
+    """Poste avec un utilisateur connecte : pas de cle de lot exigee, identite verifiee par la session."""
+    return front_user(request) is not None
+
+
+def is_privileged(request) -> bool:
+    user = front_user(request)
+    return user is not None and user.role in GESTION
+
+
+def require_front(request, roles):
+    """Routes du poste (ex-privilege du localhost) : utilisateur connecte avec l'un des roles."""
+    user = front_user(request)
+    if user is None:
+        raise ApiError("Scannez votre badge pour continuer", status.HTTP_403_FORBIDDEN, login_required=True)
+    if user.role not in roles:
+        raise ApiError("Réservé aux administrateurs" if tuple(roles) == ADMIN else "Réservé aux rôles gestion et admin",
+                       status.HTTP_403_FORBIDDEN)
+    return user
 
 
 def error(message, code=status.HTTP_400_BAD_REQUEST, **extra):
@@ -142,7 +181,9 @@ def require_lot_key(request, lot):
 def health(request):
     return Response({
         'status': 'ok',
-        'api': 'local' if is_local(request) else 'public',
+        'api': 'local' if is_front(request) else 'public',
+        # utilisateur reconnu par le jeton de session du poste (vide : personne de connecte)
+        'user': front_user(request).matricule if front_user(request) else '',
         'today': timezone.localdate().isoformat(),
         'public_base_url': qrprotec_setting('PUBLIC_BASE_URL'),
         'remote_scanner': scanner_hub.enabled,
@@ -157,7 +198,19 @@ SESSION_MAX_AGE = 12 * 3600  # jeton de session du front web apres verification 
 
 def session_token(user):
     # lie au badge courant : renouveler le badge invalide les sessions
-    return signing.dumps({'m': user.matricule, 'k': (user.key or '')[-8:]}, salt=SESSION_SALT)
+    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]}, salt=SESSION_SALT)
+
+
+def session_user(token):
+    """Utilisateur d'un jeton de session valide (badge valide, PIN non bloque), None sinon."""
+    try:
+        data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
+    except signing.BadSignature:
+        return None
+    user = Secouristes.objects.filter(matricule=str(data.get('m', ''))).first()
+    if user is None or not user.badge_valid() or not session_valid(user, token):
+        return None
+    return user
 
 
 def session_valid(user, token):
@@ -165,7 +218,50 @@ def session_valid(user, token):
         data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
     except signing.BadSignature:
         return False
-    return data.get('m') == user.matricule and data.get('k') == (user.key or '')[-8:]
+    # un PIN bloque coupe aussi les sessions deja ouvertes
+    return data.get('m') == user.matricule and data.get('k') == user.key_hash[-8:] and user.pin_blocked is None
+
+
+PIN_RESET_SALT = 'qrprotec.pin-reset'
+
+
+def pin_reset_token(user):
+    """Jeton du lien de deblocage (signature courte, pour un QR code lisible) : lie au blocage en cours, il ne sert
+    qu'une fois."""
+    return signing.Signer(salt=PIN_RESET_SALT).signature(f'{user.matricule}:{user.pin_blocked.timestamp():.6f}')
+
+
+def pin_reset_token_valid(user, token):
+    if user.pin_blocked is None or not isinstance(token, str):
+        return False
+    return hmac.compare_digest(pin_reset_token(user).encode(), token.encode())
+
+
+def pin_contact_name(user):
+    contact = user.pin_contact
+    if contact is None or not contact.active or contact.role != Role.ADMIN:
+        return ''
+    return str(contact)
+
+
+def pin_reset_info(user):
+    """Lien de deblocage (et son QR code sur le telephone) a envoyer a un admin."""
+    return {
+        'url': ser.public_url('pinreset', m=user.matricule, t=pin_reset_token(user)),
+        'contact': pin_contact_name(user),
+        'matricule': user.matricule,
+        'name': str(user),
+        'forgotten': user.pin_forgotten,
+    }
+
+
+def pin_blocked_error(user):
+    """PIN bloque : previent les admins (une seule fois par blocage) et renvoie le lien de deblocage."""
+    info = pin_reset_info(user)
+    info['notified'] = notifications.notify_pin_blocked(user, info['url'])
+    message = ("Code PIN oublié : un administrateur doit le réinitialiser" if user.pin_forgotten
+               else "Code PIN bloqué après trop d'essais : un administrateur doit le réinitialiser")
+    return ApiError(message, status.HTTP_403_FORBIDDEN, pin_required=True, pin_blocked=True, pin_reset=info)
 
 
 def verify_pin(user, data):
@@ -176,6 +272,8 @@ def verify_pin(user, data):
     """
     if not user.pin_required:
         return
+    if user.pin_blocked:
+        raise pin_blocked_error(user)
     if user.pin_locked():
         minutes = max(1, int((user.pin_locked_until - timezone.now()).total_seconds() // 60) + 1)
         raise ApiError(f"Trop d'essais : PIN bloqué pendant {minutes} min", status.HTTP_403_FORBIDDEN,
@@ -189,12 +287,15 @@ def verify_pin(user, data):
             user.set_pin(new_pin)
         except ValueError as exc:
             raise ApiError(str(exc), status.HTTP_400_BAD_REQUEST, pin_setup_required=True)
-        user.save(update_fields=['pin_hash', 'pin_failures', 'pin_locked_until'])
+        user.save(update_fields=['pin_hash', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',
+                                 'pin_reset_required', 'pin_forgotten', 'pin_reset_notified'])
         return
     pin = str(data.get('pin', '') or '')
     if not pin:
         raise ApiError("Code PIN requis", status.HTTP_403_FORBIDDEN, pin_required=True)
     if not user.check_pin(pin):
+        if user.pin_blocked:
+            raise pin_blocked_error(user)
         raise ApiError("PIN bloqué 5 min après trop d'essais" if user.pin_locked() else "Code PIN incorrect",
                        status.HTTP_403_FORBIDDEN, pin_required=True, pin_locked=user.pin_locked())
 
@@ -217,6 +318,53 @@ def auth(request):
     return Response(data)
 
 
+@api_view(['POST'])
+@handle_errors
+def pin_forgot(request):
+    """Code oublie : {"matricule", "key"} (badge) -> PIN bloque jusqu'a sa reinitialisation par un admin.
+
+    Meme reponse qu'apres 50 essais faux (403 pin_blocked + lien de deblocage) ; les admins sont prevenus
+    une seule fois par blocage, quel que soit le nombre de demandes.
+    """
+    user = Secouristes.objects.filter(matricule=str(request.data.get('matricule', ''))).first()
+    if user is None or not user.check_key(request.data.get('key')):
+        raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
+    if not user.has_pin:
+        raise ApiError("Pas de code PIN à réinitialiser : choisissez-en un à la connexion", pin_setup_required=True)
+    if user.pin_blocked is None:
+        user.forget_pin()
+        user.save(update_fields=['pin_blocked', 'pin_forgotten', 'pin_failures', 'pin_locked_until'])
+    raise pin_blocked_error(user)
+
+
+@api_view(['POST'])
+@handle_errors
+def pin_reset(request):
+    """Deblocage d'un PIN par un admin (lien envoye par l'utilisateur bloque) :
+    {"user": badge admin, "matricule", "token"} -> fiche de l'utilisateur ; avec "confirm": true -> PIN reinitialise,
+    l'utilisateur en choisira un nouveau a sa prochaine connexion."""
+    badge_user(request, (Role.ADMIN,))
+    target = Secouristes.objects.select_related('pin_contact').filter(
+        matricule=str(request.data.get('matricule', ''))).first()
+    if target is None or not pin_reset_token_valid(target, request.data.get('token')):
+        raise ApiError("Lien de déblocage invalide ou déjà utilisé (le PIN n'est plus bloqué)", status.HTTP_404_NOT_FOUND)
+    info = {
+        'matricule': target.matricule,
+        'nom': target.nom,
+        'prenom': target.prenom,
+        'role_label': target.get_role_display(),
+        'active': target.active,
+        'blocked_since': ser.user_dict(target, local=True)['pin_blocked_since'],
+        'failures': target.pin_failures_total,
+        'contact': pin_contact_name(target),
+    }
+    if request.data.get('confirm'):
+        target.reset_pin()
+        target.save()
+        return Response({**info, 'reset': True})
+    return Response({**info, 'reset': False})
+
+
 @api_view(['GET'])
 @handle_errors
 def item_detail(request, iid):
@@ -228,10 +376,9 @@ def item_detail(request, iid):
 @handle_errors
 def lot_detail(request, lot_id):
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
-    local = is_local(request)
-    if not local and not lot.active:
+    if not is_front(request) and not lot.active:
         raise ApiError("Lot inconnu", status.HTTP_404_NOT_FOUND)
-    data = ser.lot_dict(lot, local=local, with_items=True)
+    data = ser.lot_dict(lot, local=is_privileged(request), with_items=True)
     # QR code de scelle : ?seal=CODE -> 'valid' (scelle intact), 'unsealed' (brise), 'wrong' (ancien scelle)
     seal = request.query_params.get('seal')
     if seal is not None:
@@ -245,10 +392,10 @@ def lot_unseal(request, lot_id):
     """Scelle brise (ouverture du lot). Sur l'API publique, exige la cle du lot (etiquette privee)."""
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     require_lot_key(request, lot)
-    identity = identity_from_request(request.data, is_local(request))
+    identity = identity_from_request(request.data, front_user(request))
     with transaction.atomic():
         services.break_seal(lot, identity, str(request.data.get('reason', '')).strip()[:64] or 'ouverture')
-    return Response(ser.lot_dict(lot, local=is_local(request), with_items=True))
+    return Response(ser.lot_dict(lot, local=is_privileged(request), with_items=True))
 
 
 def verif_targets(request, entries):
@@ -289,7 +436,7 @@ def verif_targets(request, entries):
 def lot_verif(request, lot_id):
     """Verif d'un lot et de ses sous-lots (cle du lot). 'partial' : voir verifs()."""
     lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}])
-    identity = identity_from_request(request.data, is_local(request))
+    identity = identity_from_request(request.data, front_user(request))
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
     return Response(report)
 
@@ -302,7 +449,7 @@ def verifs(request):
     Chaque lot est verifie avec ses sous-lots. En verif partielle, seuls les lots que les items scannes rendent
     complets sont verifies ; les items destines aux autres lots y sont ajoutes (reassort)."""
     lots = verif_targets(request, request.data.get('lots'))
-    identity = identity_from_request(request.data, is_local(request))
+    identity = identity_from_request(request.data, front_user(request))
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
     return Response(report)
 
@@ -312,7 +459,7 @@ def verifs(request):
 def lot_add_items(request, lot_id):
     lot = get_object_or_404(Lots, id=lot_id)
     require_lot_key(request, lot)
-    identity = identity_from_request(request.data, is_local(request))
+    identity = identity_from_request(request.data, front_user(request))
     return Response(services.move_items(iid_list(request.data), lot, identity, SeenWhile.ADD))
 
 
@@ -353,7 +500,7 @@ def stock_forecast_summary(request):
     return Response(forecast.forecast(**forecast_params(request.data)))
 
 
-# Notifications web (admins, depuis le front web)
+# Notifications web (roles gestion et admin, depuis le front web)
 
 def push_available():
     if not webpush.available():
@@ -361,16 +508,50 @@ def push_available():
                        status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-def push_subscription_dict(subscription):
+def push_types_list(user):
+    """Types de notifications web que l'utilisateur peut choisir, dans l'ordre d'affichage."""
+    allowed = user.push_types()
+    return [{'type': name, 'label': label} for name, (label, _, _) in PUSH_TYPES.items() if name in allowed]
+
+
+def push_options(subscription):
+    return {name: getattr(subscription, name) for name in PUSH_TYPES}
+
+
+def push_subscription_dict(subscription, user):
+    data = {'subscribed': subscription is not None, 'types': push_types_list(user)}
     if subscription is None:
-        return {'subscribed': False}
+        data.update({name: default for name, (_, _, default) in PUSH_TYPES.items()})
+        return data
     return {
-        'subscribed': True,
-        'stock_low': subscription.stock_low,
-        'stock_empty': subscription.stock_empty,
+        **data,
+        **push_options(subscription),
         'last_sent': subscription.last_sent,
         'last_status': subscription.last_status,
     }
+
+
+def push_device_dict(subscription, endpoint=''):
+    return {
+        'id': subscription.id,
+        'device': subscription.device or 'Appareil',
+        'current': bool(endpoint) and subscription.endpoint == endpoint,
+        'created': ser._date(subscription.created),
+        'last_sent': ser._date(subscription.last_sent),
+        'last_status': subscription.last_status,
+        **push_options(subscription),
+    }
+
+
+def push_devices_dict(user, endpoint=''):
+    devices = user.push_subscriptions.order_by('-created')
+    return {'types': push_types_list(user), 'devices': [push_device_dict(device, endpoint) for device in devices]}
+
+
+def apply_push_options(subscription, data):
+    for name in PUSH_TYPES:
+        if name in data:
+            setattr(subscription, name, bool(data[name]))
 
 
 @api_view(['GET'])
@@ -387,15 +568,17 @@ def push_subscription(request):
     """Etat de l'abonnement de ce navigateur (endpoint), ou creation / mise a jour si `subscription` est donne.
 
     {"user": badge, "endpoint": ...} -> etat ; {"user": badge, "subscription": {endpoint, keys: {p256dh, auth}},
-    "stock_low": bool, "stock_empty": bool} -> abonnement enregistre.
+    types de PUSH_TYPES: bool} -> abonnement enregistre. Roles gestion et admin ; `types` liste ce que
+    l'utilisateur peut recevoir (son role, moins ce qu'un admin a coupe).
     """
-    user = badge_user(request, (Role.ADMIN,))
+    user = badge_user(request, GESTION)
     push_available()
     data = request.data
     subscription_data = data.get('subscription')
     if subscription_data is None:
         endpoint = str(data.get('endpoint', ''))
-        return Response(push_subscription_dict(PushSubscription.objects.filter(endpoint=endpoint, user=user).first()))
+        return Response(push_subscription_dict(
+            PushSubscription.objects.filter(endpoint=endpoint, user=user).first(), user))
     if not isinstance(subscription_data, dict) or not isinstance(subscription_data.get('keys'), dict):
         raise ApiError("Abonnement invalide")
     endpoint = str(subscription_data.get('endpoint', ''))
@@ -408,10 +591,36 @@ def push_subscription(request):
         'user': user,
         'p256dh': str(keys['p256dh']),
         'auth': str(keys['auth']),
-        'stock_low': bool(data.get('stock_low', True)),
-        'stock_empty': bool(data.get('stock_empty', True)),
+        'device': webpush.device_name(request.META.get('HTTP_USER_AGENT')),
+        **{name: bool(data.get(name, default)) for name, (_, _, default) in PUSH_TYPES.items()},
     })
-    return Response(push_subscription_dict(subscription))
+    return Response(push_subscription_dict(subscription, user))
+
+
+@api_view(['POST'])
+@handle_errors
+def push_devices(request):
+    """Gestionnaire des notifications : les appareils abonnes de l'utilisateur connecte.
+
+    {"user": badge, "endpoint": celui de ce navigateur (facultatif, pour le reperer)} -> {types, devices}.
+    """
+    user = badge_user(request, GESTION)
+    return Response(push_devices_dict(user, str(request.data.get('endpoint', ''))))
+
+
+@api_view(['POST'])
+@handle_errors
+def push_device(request, device_id):
+    """Un appareil de l'utilisateur connecte : {"user": badge, types: bool} change ses alertes,
+    {"user": badge, "delete": true} le desabonne. Repond la liste a jour, comme push/devices/."""
+    user = badge_user(request, GESTION)
+    subscription = get_object_or_404(PushSubscription, id=device_id, user=user)
+    if request.data.get('delete'):
+        subscription.delete()
+    else:
+        apply_push_options(subscription, request.data)
+        subscription.save()
+    return Response(push_devices_dict(user, str(request.data.get('endpoint', ''))))
 
 
 @api_view(['POST'])
@@ -426,16 +635,16 @@ def push_unsubscribe(request):
 @handle_errors
 def push_test(request):
     """Notification de test vers ce navigateur."""
-    user = badge_user(request, (Role.ADMIN,))
+    user = badge_user(request, GESTION)
     push_available()
     subscription = PushSubscription.objects.filter(endpoint=str(request.data.get('endpoint', '')), user=user).first()
     if subscription is None:
         raise ApiError("Notifications non activées sur ce navigateur", status.HTTP_404_NOT_FOUND)
     webpush.queue([(subscription.id, {
         'title': 'QRProtec : test',
-        'body': 'Les notifications de stock fonctionnent sur cet appareil.',
+        'body': 'Les notifications fonctionnent sur cet appareil.',
         'tag': 'test',
-        'url': '../#stock',
+        'url': '../',
     })])
     return Response({'queued': True})
 
@@ -454,6 +663,8 @@ def sealed_pack_detail(request, pack_id):
 @api_view(['GET', 'POST'])
 @handle_errors
 def item_types(request):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     if request.method == 'GET':
         return Response([ser.item_type_dict(item_type) for item_type in ItemType.objects.order_by('name')])
     data = request.data
@@ -479,6 +690,8 @@ def item_types(request):
 @api_view(['GET', 'PATCH'])
 @handle_errors
 def item_type_detail(request, type_code):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     item_type = get_object_or_404(ItemType, type=type_code)
     if request.method == 'PATCH':
         data = request.data
@@ -502,6 +715,7 @@ def item_type_detail(request, type_code):
 @api_view(['GET'])
 @handle_errors
 def items(request):
+    require_front(request, GESTION)
     queryset = Items.objects.select_related('pack__item_type', 'location').order_by('-added', 'iid')
     params = request.query_params
     if params.get('type'):
@@ -523,11 +737,12 @@ def items(request):
 @handle_errors
 def items_batch(request):
     """Reception : cree `count` items (et optionnellement un paquet scelle qui les contient)."""
+    require_front(request, GESTION)
     data = request.data
     item_type = get_object_or_404(ItemType, type=str(data.get('type', '')))
     peremption = parse_date(data.get('peremption'), 'peremption')
     count = parse_int(data.get('count', 1), 'count', 1, 10000)
-    identity = identity_from_request(data, True)
+    identity = identity_from_request(data, front_user(request))
     location = None
     if data.get('location'):
         location = get_object_or_404(Lots, id=data['location'])
@@ -555,32 +770,36 @@ def items_batch(request):
 @handle_errors
 def item_delete(request, iid):
     """Marque un item comme supprime (ce n'est pas la voie normale : les verifs detectent les disparitions)."""
+    require_front(request, GESTION)
     item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
     reason = str(request.data.get('reason', '')).strip()
     if not reason:
         raise ApiError("Une raison est obligatoire pour supprimer un item")
-    services.mark_deleted(item, identity_from_request(request.data, True)[:32], reason)
+    services.mark_deleted(item, identity_from_request(request.data, front_user(request))[:32], reason)
     return Response(ser.item_dict(item))
 
 
 @api_view(['POST'])
 @handle_errors
 def item_restore(request, iid):
+    require_front(request, GESTION)
     item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
-    services.restore(item, identity_from_request(request.data, True))
+    services.restore(item, identity_from_request(request.data, front_user(request)))
     return Response(ser.item_dict(item))
 
 
 @api_view(['POST'])
 @handle_errors
 def items_to_stock(request):
-    identity = identity_from_request(request.data, True)
+    require_front(request, GESTION)
+    identity = identity_from_request(request.data, front_user(request))
     return Response(services.move_items(iid_list(request.data), None, identity, SeenWhile.REMOVE))
 
 
 @api_view(['GET'])
 @handle_errors
 def stock(request):
+    require_front(request, GESTION)
     soon = parse_int(request.query_params.get('soon_days', 30), 'soon_days', 0, 3650)
     # les peremptions font baisser le stock sans evenement : on verifie les seuils a chaque consultation
     notifications.check_stock_levels()
@@ -596,13 +815,15 @@ def stock_forecast(request):
 @api_view(['POST'])
 @handle_errors
 def stock_verif(request):
-    identity = identity_from_request(request.data, True)
+    require_front(request, GESTION)
+    identity = identity_from_request(request.data, front_user(request))
     return Response(services.perform_verif(None, iid_list(request.data), identity))
 
 
 @api_view(['GET'])
 @handle_errors
 def sealed_packs(request):
+    require_front(request, GESTION)
     queryset = SealedPacks.objects.select_related('item_type').order_by('-created')
     if request.query_params.get('opened') == '0':
         queryset = queryset.filter(opened__isnull=True)
@@ -612,8 +833,9 @@ def sealed_packs(request):
 @api_view(['POST'])
 @handle_errors
 def sealed_pack_open(request, pack_id):
+    require_front(request, GESTION)
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
-    identity = identity_from_request(request.data, True)
+    identity = identity_from_request(request.data, front_user(request))
     now = timezone.now()
     # un paquet deja ouvert garde sa date d'ouverture : l'appel sert alors a reimprimer les etiquettes
     if sealed_pack.opened is None:
@@ -638,6 +860,7 @@ def sealed_pack_open(request, pack_id):
 def sealed_pack_close(request, pack_id):
     """Annule une ouverture faite par erreur : le paquet redevient ferme (les etiquettes deja imprimees
     restent valables, les items sont les memes)."""
+    require_front(request, GESTION)
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
     sealed_pack.opened = None
     sealed_pack.opened_by = ''
@@ -648,6 +871,8 @@ def sealed_pack_close(request, pack_id):
 @api_view(['GET', 'POST'])
 @handle_errors
 def lot_types(request):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     if request.method == 'GET':
         return Response([ser.lot_type_dict(lot_type) for lot_type in LotType.objects.order_by('name')])
     data = request.data
@@ -661,7 +886,7 @@ def lot_types(request):
         raise ApiError("Nom obligatoire")
     lot_type = LotType.objects.create(
         type=code, name=name[:64], description=str(data.get('description', '')),
-        created_by=identity_from_request(data, True)[:32], storage=bool(data.get('storage', False)),
+        created_by=identity_from_request(data, front_user(request))[:32], storage=bool(data.get('storage', False)),
     )
     return Response(ser.lot_type_dict(lot_type), status=status.HTTP_201_CREATED)
 
@@ -669,6 +894,8 @@ def lot_types(request):
 @api_view(['GET', 'PATCH'])
 @handle_errors
 def lot_type_detail(request, type_code):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     lot_type = get_object_or_404(LotType, type=type_code)
     if request.method == 'PATCH':
         if 'name' in request.data:
@@ -685,6 +912,7 @@ def lot_type_detail(request, type_code):
 @handle_errors
 def lot_type_requirements(request, type_code):
     """Remplace la liste des exigences : [{"type": "serphy", "quantity": 4}, ...]."""
+    require_front(request, GESTION)
     lot_type = get_object_or_404(LotType, type=type_code)
     rows = request.data.get('requirements', [])
     if not isinstance(rows, list):
@@ -710,11 +938,14 @@ def lot_type_requirements(request, type_code):
 @api_view(['GET', 'POST'])
 @handle_errors
 def lots(request):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     if request.method == 'GET':
         queryset = Lots.objects.select_related('lot_type').order_by('lot_type__name', 'name')
         if request.query_params.get('all') != '1':
             queryset = queryset.filter(active=True)
-        return Response(ser.lot_list(queryset, local=True))
+        # cles des lots (etiquettes privees) : roles gestion et admin seulement
+        return Response(ser.lot_list(queryset, local=is_privileged(request)))
     data = request.data
     lot_type = get_object_or_404(LotType, type=str(data.get('lot_type', '')))
     name = str(data.get('name', '')).strip()
@@ -724,7 +955,7 @@ def lots(request):
         lot_type=lot_type,
         name=name[:64],
         name_short=str(data.get('name_short', '') or name)[:16],
-        created_by=identity_from_request(data, True)[:32],
+        created_by=identity_from_request(data, front_user(request))[:32],
     )
     lot.parent = parse_parent(lot, data.get('parent'))
     lot.save()
@@ -746,6 +977,7 @@ def parse_parent(lot, value):
 @api_view(['PATCH'])
 @handle_errors
 def lot_update(request, lot_id):
+    require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=lot_id)
     data = request.data
     for field, length in (('name', 64), ('name_short', 16)):
@@ -767,8 +999,9 @@ def lot_update(request, lot_id):
 @api_view(['POST'])
 @handle_errors
 def lot_seal(request, lot_id):
+    require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
-    identity = identity_from_request(request.data, True)
+    identity = identity_from_request(request.data, front_user(request))
     services.seal_lot(lot, identity, str(request.data.get('seal_number', '')).strip(), bool(request.data.get('force')))
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
@@ -776,25 +1009,36 @@ def lot_seal(request, lot_id):
 @api_view(['POST'])
 @handle_errors
 def lot_rotate_key(request, lot_id):
+    require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     lot.rotate_key()
-    lot.save(update_fields=['verif_key', 'verif_key_expires'])
+    lot.save(update_fields=['verif_key', 'verif_key_expires', 'key_expiry_stage'])
+    notifications.notify_admins('lot_key_renewed', 'étiquette de lot renouvelée',
+                                f'étiquette privée du lot {lot.name} renouvelée par {front_user(request)}')
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 
 @api_view(['GET'])
 @handle_errors
 def lot_verifs(request, lot_id):
+    require_front(request, GESTION)
     lot = get_object_or_404(Lots, id=lot_id)
     return Response([ser.verif_dict(verif) for verif in Verifs.objects.filter(lot=lot).order_by('-datetime')[:100]])
+
+
+def admin_count():
+    return Secouristes.objects.filter(role=Role.ADMIN, active=True, key_expires__gte=timezone.localdate()).count()
+
+
+def admin_exists():
+    return admin_count() > 0
 
 
 @api_view(['GET'])
 def setup(request):
     """Etat de premiere configuration : le front propose de creer un responsable s'il n'y en a aucun
     avec un badge valide (premiere installation, ou tous les badges responsables expires)."""
-    today = timezone.localdate()
-    admins = Secouristes.objects.filter(role=Role.ADMIN, active=True, key_expires__gte=today).count()
+    admins = admin_count()
     return Response({
         'users': Secouristes.objects.count(),
         'admins': admins,
@@ -805,8 +1049,14 @@ def setup(request):
 @api_view(['GET', 'POST'])
 @handle_errors
 def users(request):
+    # premier administrateur (aucun admin avec un badge valide) : le poste le cree sans etre connecte
+    first_admin = request.method == 'POST' and not admin_exists()
+    if not first_admin:
+        require_front(request, ADMIN)
     if request.method == 'GET':
-        return Response([ser.user_dict(user, local=True) for user in Secouristes.objects.order_by('nom', 'prenom')])
+        users_list = (Secouristes.objects.select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions'))
+                      .order_by('nom', 'prenom'))
+        return Response([ser.user_dict(user, local=True) for user in users_list])
     data = request.data
     matricule = str(data.get('matricule', '')).strip()
     if not MATRICULE_RE.match(matricule):
@@ -817,17 +1067,24 @@ def users(request):
     prenom = str(data.get('prenom', '')).strip()
     if not nom or not prenom:
         raise ApiError("Nom et prenom obligatoires")
-    user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=parse_role(data) or Role.NORMAL)
+    role = Role.ADMIN if first_admin else parse_role(data) or Role.NORMAL
+    user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=role)
     if data.get('pin'):
         user.set_pin(data['pin'])  # sinon, un admin choisira son PIN a sa premiere connexion
+    if data.get('pin_contact'):
+        user.pin_contact = parse_pin_contact(user, data['pin_contact'])
     user.renew_key()
     user.save()
-    return Response(ser.user_dict(user, local=True), status=status.HTTP_201_CREATED)
+    data = ser.user_dict(user, local=True)
+    if first_admin:
+        data['session'] = session_token(user)  # le poste connecte directement le nouvel administrateur
+    return Response(data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
 def user_detail(request, matricule):
+    require_front(request, ADMIN)
     user = get_object_or_404(Secouristes, matricule=matricule)
     if request.method == 'PATCH':
         data = request.data
@@ -841,16 +1098,42 @@ def user_detail(request, matricule):
             user.active = bool(data['active'])
         if 'pin' in data:
             user.set_pin(data['pin'])  # '' supprime le PIN (refuse pour un admin)
+        if data.get('pin_reset'):
+            user.reset_pin()  # deblocage : nouveau PIN choisi a la prochaine connexion
+        if 'pin_contact' in data:
+            user.pin_contact = parse_pin_contact(user, data['pin_contact'])
+        if 'push_disabled' in data:
+            user.push_disabled = parse_push_disabled(data['push_disabled'])
         user.save()
     return Response(ser.user_dict(user, local=True))
+
+
+def parse_push_disabled(value):
+    """Types de notifications web coupes pour un utilisateur (liste de noms de PUSH_TYPES)."""
+    if not isinstance(value, list) or not all(isinstance(name, str) and name in PUSH_TYPES for name in value):
+        raise ApiError("push_disabled : liste de types de notifications attendue (" + ', '.join(PUSH_TYPES) + ")")
+    return sorted(set(value))
+
+
+def parse_pin_contact(user, value):
+    """Admin a contacter si le PIN est bloque (matricule d'un administrateur actif, vide = aucun)."""
+    if value in (None, ''):
+        return None
+    contact = Secouristes.objects.filter(matricule=str(value)).first()
+    if contact is None or contact.role != Role.ADMIN or not contact.active:
+        raise ApiError("L'admin à contacter doit être un administrateur actif")
+    return contact
 
 
 @api_view(['POST'])
 @handle_errors
 def user_renew_key(request, matricule):
+    require_front(request, ADMIN)
     user = get_object_or_404(Secouristes, matricule=matricule)
     user.renew_key()
-    user.save(update_fields=['key', 'key_expires'])
+    user.save(update_fields=['key_hash', 'key_expires', 'key_expiry_stage'])
+    notifications.notify_admins('badge_renewed', 'badge renouvelé',
+                                f'badge de {user} ({user.matricule}) renouvelé par {front_user(request)}')
     return Response(ser.user_dict(user, local=True))
 
 
@@ -865,6 +1148,7 @@ def _notification_response():
 @api_view(['GET', 'PATCH'])
 @handle_errors
 def notification_settings(request):
+    require_front(request, ADMIN)
     if request.method == 'PATCH':
         settings_row = NotificationSettings.get()
         if 'enabled' in request.data:
@@ -875,8 +1159,23 @@ def notification_settings(request):
         for event in notifications.EVENTS:
             if event in events:
                 setattr(settings_row, event, bool(events[event]))
+        if 'key_expiry_warning_days' in request.data:
+            settings_row.key_expiry_warning_days = parse_warning_days(request.data['key_expiry_warning_days'])
         settings_row.save()
     return _notification_response()
+
+
+def parse_warning_days(value):
+    """Delai de l'alerte « expire bientot » (1 a 365 jours), None : valeur de qrprotec.conf."""
+    if value in (None, ''):
+        return None
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        days = 0
+    if not 1 <= days <= 365:
+        raise ApiError("Délai d'alerte d'expiration : entre 1 et 365 jours")
+    return days
 
 
 def _recipient_fields(recipient, data, creating):
@@ -895,6 +1194,7 @@ def _recipient_fields(recipient, data, creating):
 @api_view(['POST'])
 @handle_errors
 def sms_recipients(request):
+    require_front(request, ADMIN)
     recipient = SmsRecipient()
     _recipient_fields(recipient, request.data, True)
     recipient.save()
@@ -904,6 +1204,7 @@ def sms_recipients(request):
 @api_view(['PATCH', 'DELETE'])
 @handle_errors
 def sms_recipient_detail(request, recipient_id):
+    require_front(request, ADMIN)
     recipient = get_object_or_404(SmsRecipient, id=recipient_id)
     if request.method == 'DELETE':
         recipient.delete()
@@ -917,6 +1218,7 @@ def sms_recipient_detail(request, recipient_id):
 @handle_errors
 def sms_test(request):
     """Envoie un SMS de test (a un destinataire, ou a tous les actifs), meme si les notifications sont coupees."""
+    require_front(request, ADMIN)
     recipient_id = request.data.get('recipient')
     if recipient_id:
         recipients = [get_object_or_404(SmsRecipient, id=recipient_id)]
@@ -924,7 +1226,7 @@ def sms_test(request):
         recipients = list(SmsRecipient.objects.filter(active=True))
     if not recipients:
         raise ApiError('Aucun destinataire actif')
-    identity = identity_from_request(request.data, True)
+    identity = identity_from_request(request.data, front_user(request))
     count = notifications.send(f'QRProtec : SMS de test envoyé par {services.display_name(identity)}.', recipients)
     return Response({'sent': count})
 

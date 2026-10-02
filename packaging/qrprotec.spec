@@ -50,7 +50,7 @@ Release:        1%{?dist}
 Summary:        QR-code inventory kiosk: backend and full-screen front on one machine
 
 # QRProtec : pas de licence publiee. Embarques : Django, DRF, asgiref, sqlparse (BSD-3-Clause),
-# Dear ImGui, qrcodegen (MIT), stb_image (MIT ou domaine public), jsQR (Apache-2.0),
+# Dear ImGui, qrcodegen (MIT), stb_image (MIT ou domaine public), jsQR (Apache-2.0), qrcode-generator (MIT),
 # SDK Inateck (binaire proprietaire).
 License:        LicenseRef-Proprietary AND BSD-3-Clause AND MIT AND Apache-2.0
 URL:            https://github.com/etyloppihacilem/qrprotec
@@ -112,7 +112,7 @@ front settings, depending on what is installed).
 
 %package server
 Summary:        QRProtec backend: Django API behind Caddy (HTTPS)
-License:        LicenseRef-Proprietary AND BSD-3-Clause AND Apache-2.0
+License:        LicenseRef-Proprietary AND BSD-3-Clause AND MIT AND Apache-2.0
 Requires:       %{name}-common = %{version}-%{release}
 Requires:       caddy
 Requires:       python(abi) = %{python3_version}
@@ -452,6 +452,7 @@ fi
 
 %files server
 %license database/inventory/web/vendor/jsQR-LICENSE
+%license database/inventory/web/vendor/qrcode-LICENSE
 %{_bindir}/qrprotec-manage
 %dir %{appdir}
 %{appdir}/backend/

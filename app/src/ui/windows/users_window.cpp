@@ -94,6 +94,70 @@ class UsersWindow final : public AppWindow {
       prenom_     = user["prenom"].str();
       role_       = role_index(user["role"].str(user["privileged"].boolean() ? "admin" : "normal"));
       active_     = user["active"].boolean(true);
+      contact_    = user["pin_contact"].str();
+    }
+
+    // Admin a prevenir si le PIN de cet utilisateur se bloque (affiche sur le telephone avec le lien de deblocage)
+    // Types de notifications web que l'utilisateur peut recevoir (selon son role) : decocher en coupe un pour lui,
+    // sur tous ses appareils. Il choisit ensuite les siens dans le front web (menu > Notifications).
+    void draw_notifications(App &app) {
+      ImGui::SeparatorText("Notifications web");
+      const Json &types = user_["push_types"];
+      if (types.size() == 0) {
+        ImGui::TextDisabled("Réservées aux rôles gestion et admin.");
+        return;
+      }
+      const int devices = user_["push_devices"].integer();
+      if (devices == 0)
+        ImGui::TextDisabled("Aucun appareil abonné.");
+      else
+        ImGui::Text("%d appareil%s abonné%s.", devices, devices > 1 ? "s" : "", devices > 1 ? "s" : "");
+      help_marker("Types de notifications permis à cet utilisateur. Il choisit ensuite les siens, appareil par "
+                  "appareil, dans le front web (menu > Notifications).");
+      for (std::size_t i = 0; i < types.size(); ++i) {
+        bool enabled = types[i]["enabled"].boolean();
+        if (!ImGui::Checkbox(types[i]["label"].str().c_str(), &enabled))
+          continue;
+        Json disabled = Json::array();
+        for (std::size_t j = 0; j < types.size(); ++j) {
+          const bool on = j == i ? enabled : types[j]["enabled"].boolean();
+          if (!on)
+            disabled.push_back(Json(types[j]["type"].str()));
+        }
+        Json body;
+        body["push_disabled"] = disabled;
+        app.api.patch("/api/users/" + url_encode(selected_) + "/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          select(result.data);
+          app.refresh_users();
+        });
+      }
+    }
+
+    void draw_contact(App &app) {
+      std::string preview = "(aucun : un administrateur)";
+      for (const Json &user : app.catalog.users.items())
+        if (user["matricule"].str() == contact_)
+          preview = user["prenom"].str() + " " + user["nom"].str();
+      ImGui::SetNextItemWidth(260.0f);
+      if (ImGui::BeginCombo("Admin à contacter", preview.c_str())) {
+        if (ImGui::Selectable("(aucun : un administrateur)", contact_.empty()))
+          contact_.clear();
+        for (const Json &user : app.catalog.users.items()) {
+          const std::string matricule = user["matricule"].str();
+          if (user["role"].str() != "admin" || !user["active"].boolean(true) || matricule == selected_)
+            continue;
+          const std::string label = user["prenom"].str() + " " + user["nom"].str() + " (" + matricule + ")";
+          if (ImGui::Selectable(label.c_str(), contact_ == matricule))
+            contact_ = matricule;
+        }
+        ImGui::EndCombo();
+      }
+      help_marker("Si le PIN est bloqué après trop d'essais, le téléphone affiche un lien de déblocage (et son QR "
+                  "code) à envoyer à cet administrateur.");
     }
 
     void draw_form(App &app) {
@@ -118,11 +182,13 @@ class UsersWindow final : public AppWindow {
       const bool pin_valid = pin_.empty() || (pin_.size() >= 4 && pin_.size() <= 8);
       if (!pin_valid)
         ImGui::TextColored(colors::orange, "Le PIN doit comporter 4 à 8 chiffres.");
+      draw_contact(app);
 
       Json body;
-      body["nom"]        = nom_;
-      body["prenom"]     = prenom_;
-      body["role"]       = kRoles[role_];
+      body["nom"]         = nom_;
+      body["prenom"]      = prenom_;
+      body["role"]        = kRoles[role_];
+      body["pin_contact"] = contact_;
       if (creating) {
         ImGui::BeginDisabled(matricule_.empty() || nom_.empty() || prenom_.empty() || !pin_valid);
         if (primary_button("Créer et voir le badge")) {
@@ -155,7 +221,27 @@ class UsersWindow final : public AppWindow {
         });
       }
       ImGui::SeparatorText("Code PIN");
-      if (user_["has_pin"].boolean())
+      if (user_["pin_blocked"].boolean()) {
+        if (user_["pin_forgotten"].boolean())
+          ImGui::TextColored(colors::red, "Code PIN oublié, signalé le %s.", display_datetime(user_["pin_blocked_since"]).c_str());
+        else
+          ImGui::TextColored(colors::red, "PIN bloqué le %s (%d essais faux).", display_datetime(user_["pin_blocked_since"]).c_str(),
+                             user_["pin_failures"].integer());
+        if (confirm_button("Réinitialiser le PIN", "L'utilisateur choisira un nouveau PIN à sa prochaine connexion. "
+                                                   "Si son badge a pu être volé, renouvelez plutôt le badge. Continuer ?",
+                           "pin_reset")) {
+          Json reset;
+          reset["pin_reset"] = true;
+          app.api.patch("/api/users/" + url_encode(selected_) + "/", reset, [this, &app](const ApiResult &result) {
+            app.notify(result.ok ? "PIN réinitialisé : nouveau PIN à la prochaine connexion." : result.error, !result.ok);
+            if (result.ok)
+              select(result.data);
+            app.refresh_users();
+          });
+        }
+      } else if (user_["pin_reset_required"].boolean())
+        ImGui::TextColored(colors::orange, "PIN réinitialisé : il sera choisi à la prochaine connexion.");
+      else if (user_["has_pin"].boolean())
         ImGui::TextColored(colors::green, "PIN défini.");
       else if (kRoles[role_] == std::string("admin"))
         ImGui::TextColored(colors::orange, "Aucun PIN : il sera choisi à la prochaine connexion (obligatoire).");
@@ -171,12 +257,17 @@ class UsersWindow final : public AppWindow {
         update_pin(app, "");
       ImGui::EndDisabled();
 
+      draw_notifications(app);
+
       ImGui::SeparatorText("Badge");
       ImGui::Text("Valable jusqu'au : %s", display_date(user_["key_expires"]).c_str());
-      if (ImGui::Button("Aperçu et impression du badge"))
-        app.preview_labels(TemplateCategory::User, { user_parameters(user_) },
-                           "Badge de " + user_["prenom"].str() + " " + user_["nom"].str());
-      ImGui::SameLine();
+      // la cle du badge n'est connue qu'a sa creation ou son renouvellement (le serveur n'en garde que l'empreinte)
+      if (!user_["badge_url"].str().empty()) {
+        if (ImGui::Button("Aperçu et impression du badge"))
+          app.preview_labels(TemplateCategory::User, { user_parameters(user_) },
+                             "Badge de " + user_["prenom"].str() + " " + user_["nom"].str());
+        ImGui::SameLine();
+      }
       if (confirm_button("Renouveler (1 an)", "L'ancien badge ne fonctionnera plus. Continuer ?", "renew_key")) {
         app.api.post("/api/users/" + url_encode(selected_) + "/renew-key/", Json::object(),
                      [this, &app](const ApiResult &result) {
@@ -190,6 +281,8 @@ class UsersWindow final : public AppWindow {
                        app.refresh_users();
                      });
       }
+      if (user_["badge_url"].str().empty())
+        ImGui::TextDisabled("Pour réimprimer un badge, renouvelez-le : sa clé n'est affichée qu'à sa création.");
     }
 
     void update_pin(App &app, const std::string &pin) {
@@ -205,6 +298,7 @@ class UsersWindow final : public AppWindow {
     }
 
     std::string pin_;
+    std::string contact_;
     std::string selected_;
     int         seen_users_version_ = -1;
     Json        user_;

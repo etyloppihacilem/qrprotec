@@ -87,8 +87,10 @@ Puis installez les postes : [front seul](front-seul.md).
 | `qrprotec-alerts.timer` | Alertes SMS quotidiennes (7 h 45) |
 | `qrprotec-backup.timer` | Sauvegardes (base, configuration, clé secrète) |
 
-L'API distante a les mêmes droits que l'API locale (gestion complète), mais refuse toute requête sans
-clé valide (401). Sans clé créée, elle ne sert à rien. L'API locale n'est jamais exposée.
+L'API distante a les mêmes routes que l'API locale, mais refuse toute requête sans clé valide (401).
+Sans clé créée, elle ne sert à rien. La clé n'autorise que la machine : les routes de gestion exigent
+en plus un utilisateur connecté sur le poste (badge et PIN vérifiés par le serveur), avec le bon
+rôle. L'API locale n'est jamais exposée.
 
 Configuration, sauvegardes, mises à jour : [exploitation.md](exploitation.md).
 

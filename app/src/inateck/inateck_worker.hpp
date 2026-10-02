@@ -110,7 +110,7 @@ private:
     std::thread thread_;
     bool stopping_ = false;
     bool sdk_ready_ = false;     // init + wait_available deja faits (une seule fois)
-    bool auto_connect_ = false;  // se connecter a la douchette a la fin de la recherche
+    bool auto_connect_ = false;  // se connecter a la douchette connue a la fin de la recherche
     bool stop_requested_ = false;
     std::chrono::steady_clock::time_point discovery_deadline_{};
     std::vector<std::string> rejected_ids_; // appareils qui ne repondent pas comme une douchette
