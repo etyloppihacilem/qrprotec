@@ -39,6 +39,7 @@ from .models import (
 DAYS_PER_MONTH = 30.44
 INFINITY = math.inf
 MAX_DEMANDS = 20000  # garde-fou : nombre d'utilisations simulees par lieu
+TRANSFER_MARGIN_DAYS = 14  # un echange doit permettre d'utiliser l'item au moins 2 semaines avant sa date
 
 
 def add_months(day, months):
@@ -83,6 +84,35 @@ def simulate(limits, demands, horizon):
     for index in range(position, len(limits)):
         fates[index] = ('lost', limits[index]) if limits[index] <= horizon else ('kept', None)
     return fates, shortages
+
+
+def used_if_arrives(limits, demands, limit, arrival):
+    """Un item de limite `limit` arrive a l'instant `arrival` dans un lieu (items `limits` tries, deja presents) :
+    est-il utilise avant sa peremption ?"""
+    position = 0
+    for when in demands:
+        if when >= limit:
+            return False
+        while position < len(limits) and limits[position] <= when:
+            position += 1
+        if arrival <= when and (position >= len(limits) or limit <= limits[position]):
+            return True
+        position += 1
+    return False
+
+
+def latest_arrival(limits, demands, limit):
+    """Dernier jour (depuis aujourd'hui) ou l'item peut encore arriver et etre utilise a temps, ou None."""
+    if not used_if_arrives(limits, demands, limit, 0):
+        return None
+    low, high = 0, max(0, int(limit))
+    while low < high:
+        middle = (low + high + 1) // 2
+        if used_if_arrives(limits, demands, limit, middle):
+            low = middle
+        else:
+            high = middle - 1
+    return low
 
 
 def lost_count(limits, demands, horizon):
@@ -390,18 +420,23 @@ def _transfers(item_type, by_place, rates, places, today, horizon):
                         - losses(source, source_after) - losses(target, target_after))
                 if gain <= 0:
                     continue
-                # date limite : l'item doit etre arrive avant son utilisation prevue dans le lieu d'arrivee
-                fates, _ = simulate([unit[0] for unit in target_after], demand[target], horizon)
-                used_at = next(when for unit, (fate, when) in zip(target_after, fates) if unit[1] is item)
+                # date limite : dernier jour ou l'item peut arriver et etre utilise avant sa peremption
+                # (avec une marge : la consommation reelle n'est pas reguliere)
+                remaining = [unit[0] for unit in target_after if unit[1] is not item]
+                deadline = latest_arrival(remaining, demand[target], limit - TRANSFER_MARGIN_DAYS)
+                if deadline is None:
+                    deadline = latest_arrival(remaining, demand[target], limit)
+                if deadline is None:
+                    continue
                 score = (gain, len(demand[target]))
                 if best is None or score > best[0]:
-                    best = (score, source, target, item, back, source_after, target_after, used_at, limit, back_limit)
+                    best = (score, source, target, item, back, source_after, target_after, deadline)
             if best is not None:
                 break
             done.add(item.iid)
         if best is None:
             break
-        _, source, target, item, back, source_after, target_after, used_at, limit, back_limit = best
+        _, source, target, item, back, source_after, target_after, deadline = best
         held[source] = source_after
         held[target] = target_after
         done.update({item.iid, back.iid})
@@ -409,7 +444,7 @@ def _transfers(item_type, by_place, rates, places, today, horizon):
             'source': source, 'target': target, 'type': type_id, 'type_name': item_type.name,
             'take': item.iid, 'take_peremption': item.pack.peremption,
             'back': back.iid, 'back_peremption': back.pack.peremption,
-            'before': today + timedelta(days=max(0, int(used_at) - 1)),
+            'before': today + timedelta(days=deadline),
             'places': places,
         })
     return suggestions

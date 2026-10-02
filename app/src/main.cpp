@@ -1,6 +1,7 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
+#include "implot.h"
 #include "app/app.hpp"
 #include "core/fonts.hpp"
 #include "printer/logging.hpp"
@@ -175,6 +176,7 @@ int main(int argc, char** argv)
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     // la disposition est geree par l'application (disposition par defaut restauree apres inactivite)
@@ -238,6 +240,7 @@ int main(int argc, char** argv)
     app.reset();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
+    ImPlot::DestroyContext();
     ImGui::DestroyContext();
     active_inateck = nullptr;
     glfwDestroyWindow(window);

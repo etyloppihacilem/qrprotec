@@ -1108,6 +1108,13 @@ class ForecastTests(ApiTestCase):
         self.assertEqual(fates, [('lost', 5.0), ('used', 6.0), ('used', 12.0), ('used', 18.0)])
         self.assertEqual(shortages, [24.0, 30.0])
 
+    def test_latest_arrival(self):
+        # utilisations aux jours 10, 20 et 30 ; l'item perime au jour 25
+        self.assertEqual(forecast.latest_arrival([], [10.0, 20.0, 30.0], 25.0), 20)
+        # un item plus ancien deja sur place passe avant lui le jour 10
+        self.assertEqual(forecast.latest_arrival([12.0], [10.0, 20.0, 30.0], 25.0), 20)
+        self.assertIsNone(forecast.latest_arrival([], [30.0], 25.0))
+
     def test_projection_order_and_below_min(self):
         self.compresses.min_quantity = 10
         self.compresses.default_pack_size = 5

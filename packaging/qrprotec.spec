@@ -8,7 +8,7 @@
 #   qrprotec-common   outils partages : assistant qrprotec-setup, sauvegardes
 #
 # Sources preparees par packaging/make-sources.sh (appele par `make rpm`) :
-#   Source0 : code du depot + sous-modules imgui et scanner_lib
+#   Source0 : code du depot + sous-modules imgui, implot et scanner_lib
 #   Source1 : dependances Python figees par poetry.lock (Django, DRF...)
 # La version vient du tag git (packaging/version.sh) :
 #   rpmbuild -ba --define "qrprotec_version 1.2.0" packaging/qrprotec.spec
@@ -148,6 +148,7 @@ Requires:       hicolor-icon-theme
 Recommends:     alsa-utils
 Recommends:     bluez
 Provides:       bundled(imgui) = 1.93.0
+Provides:       bundled(implot) = 1.1
 Provides:       bundled(qrcodegen)
 Provides:       bundled(stb_image) = 2.30
 
@@ -472,6 +473,7 @@ fi
 %files front
 %doc README.md
 %license app/third_party/qrcodegen/LICENSE app/imgui/LICENSE.txt
+%license app/implot/LICENSE
 %{_bindir}/qrprotec-front
 %dir %{_libexecdir}/%{name}
 %{_libexecdir}/%{name}/qrprotec-front

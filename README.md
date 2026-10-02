@@ -249,7 +249,7 @@ systemctl status qrprotec qrprotec-kiosk caddy
 ### Construire le RPM localement
 
 ```sh
-git submodule update --init app/imgui app/scanner_lib   # fait aussi automatiquement par le build
+git submodule update --init app/imgui app/implot app/scanner_lib   # fait aussi automatiquement par le build
 make rpm                      # dans un conteneur Fedora 43 (podman ou docker) : dist/*.rpm
 make rpm FEDORA_VERSION=42    # pour Fedora 42
 make rpm-local                # directement sur une machine Fedora (dnf builddep si root)
