@@ -22,6 +22,7 @@ from datetime import date
 
 from django.core import signing
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -35,8 +36,8 @@ from . import webpush
 from .idendity import identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .models import (
-    TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings, PushSubscription,
-    SealedPacks, Role, Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
+    PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings,
+    PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -481,7 +482,7 @@ def stock_summary(request):
     return Response(services.stock_status(soon))
 
 
-# Notifications web (admins, depuis le front web)
+# Notifications web (roles gestion et admin, depuis le front web)
 
 def push_available():
     if not webpush.available():
@@ -489,22 +490,50 @@ def push_available():
                        status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-# options d'un abonnement aux notifications web, avec leur valeur par defaut
-PUSH_OPTIONS = {
-    'stock_low': True, 'stock_empty': True, 'pin_blocked': True,
-    'lot_key_renewed': False, 'lot_key_expiring': False, 'badge_renewed': False, 'badge_expiring': False,
-}
+def push_types_list(user):
+    """Types de notifications web que l'utilisateur peut choisir, dans l'ordre d'affichage."""
+    allowed = user.push_types()
+    return [{'type': name, 'label': label} for name, (label, _, _) in PUSH_TYPES.items() if name in allowed]
 
 
-def push_subscription_dict(subscription):
+def push_options(subscription):
+    return {name: getattr(subscription, name) for name in PUSH_TYPES}
+
+
+def push_subscription_dict(subscription, user):
+    data = {'subscribed': subscription is not None, 'types': push_types_list(user)}
     if subscription is None:
-        return {'subscribed': False}
+        data.update({name: default for name, (_, _, default) in PUSH_TYPES.items()})
+        return data
     return {
-        'subscribed': True,
-        **{field: getattr(subscription, field) for field in PUSH_OPTIONS},
+        **data,
+        **push_options(subscription),
         'last_sent': subscription.last_sent,
         'last_status': subscription.last_status,
     }
+
+
+def push_device_dict(subscription, endpoint=''):
+    return {
+        'id': subscription.id,
+        'device': subscription.device or 'Appareil',
+        'current': bool(endpoint) and subscription.endpoint == endpoint,
+        'created': ser._date(subscription.created),
+        'last_sent': ser._date(subscription.last_sent),
+        'last_status': subscription.last_status,
+        **push_options(subscription),
+    }
+
+
+def push_devices_dict(user, endpoint=''):
+    devices = user.push_subscriptions.order_by('-created')
+    return {'types': push_types_list(user), 'devices': [push_device_dict(device, endpoint) for device in devices]}
+
+
+def apply_push_options(subscription, data):
+    for name in PUSH_TYPES:
+        if name in data:
+            setattr(subscription, name, bool(data[name]))
 
 
 @api_view(['GET'])
@@ -521,15 +550,17 @@ def push_subscription(request):
     """Etat de l'abonnement de ce navigateur (endpoint), ou creation / mise a jour si `subscription` est donne.
 
     {"user": badge, "endpoint": ...} -> etat ; {"user": badge, "subscription": {endpoint, keys: {p256dh, auth}},
-    options de PUSH_OPTIONS: bool} -> abonnement enregistre.
+    types de PUSH_TYPES: bool} -> abonnement enregistre. Roles gestion et admin ; `types` liste ce que
+    l'utilisateur peut recevoir (son role, moins ce qu'un admin a coupe).
     """
-    user = badge_user(request, (Role.ADMIN,))
+    user = badge_user(request, GESTION)
     push_available()
     data = request.data
     subscription_data = data.get('subscription')
     if subscription_data is None:
         endpoint = str(data.get('endpoint', ''))
-        return Response(push_subscription_dict(PushSubscription.objects.filter(endpoint=endpoint, user=user).first()))
+        return Response(push_subscription_dict(
+            PushSubscription.objects.filter(endpoint=endpoint, user=user).first(), user))
     if not isinstance(subscription_data, dict) or not isinstance(subscription_data.get('keys'), dict):
         raise ApiError("Abonnement invalide")
     endpoint = str(subscription_data.get('endpoint', ''))
@@ -542,9 +573,36 @@ def push_subscription(request):
         'user': user,
         'p256dh': str(keys['p256dh']),
         'auth': str(keys['auth']),
-        **{field: bool(data.get(field, default)) for field, default in PUSH_OPTIONS.items()},
+        'device': webpush.device_name(request.META.get('HTTP_USER_AGENT')),
+        **{name: bool(data.get(name, default)) for name, (_, _, default) in PUSH_TYPES.items()},
     })
-    return Response(push_subscription_dict(subscription))
+    return Response(push_subscription_dict(subscription, user))
+
+
+@api_view(['POST'])
+@handle_errors
+def push_devices(request):
+    """Gestionnaire des notifications : les appareils abonnes de l'utilisateur connecte.
+
+    {"user": badge, "endpoint": celui de ce navigateur (facultatif, pour le reperer)} -> {types, devices}.
+    """
+    user = badge_user(request, GESTION)
+    return Response(push_devices_dict(user, str(request.data.get('endpoint', ''))))
+
+
+@api_view(['POST'])
+@handle_errors
+def push_device(request, device_id):
+    """Un appareil de l'utilisateur connecte : {"user": badge, types: bool} change ses alertes,
+    {"user": badge, "delete": true} le desabonne. Repond la liste a jour, comme push/devices/."""
+    user = badge_user(request, GESTION)
+    subscription = get_object_or_404(PushSubscription, id=device_id, user=user)
+    if request.data.get('delete'):
+        subscription.delete()
+    else:
+        apply_push_options(subscription, request.data)
+        subscription.save()
+    return Response(push_devices_dict(user, str(request.data.get('endpoint', ''))))
 
 
 @api_view(['POST'])
@@ -559,16 +617,16 @@ def push_unsubscribe(request):
 @handle_errors
 def push_test(request):
     """Notification de test vers ce navigateur."""
-    user = badge_user(request, (Role.ADMIN,))
+    user = badge_user(request, GESTION)
     push_available()
     subscription = PushSubscription.objects.filter(endpoint=str(request.data.get('endpoint', '')), user=user).first()
     if subscription is None:
         raise ApiError("Notifications non activées sur ce navigateur", status.HTTP_404_NOT_FOUND)
     webpush.queue([(subscription.id, {
         'title': 'QRProtec : test',
-        'body': 'Les notifications de stock fonctionnent sur cet appareil.',
+        'body': 'Les notifications fonctionnent sur cet appareil.',
         'tag': 'test',
-        'url': '../#stock',
+        'url': '../',
     })])
     return Response({'queued': True})
 
@@ -972,7 +1030,8 @@ def users(request):
     if not first_admin:
         require_front(request, ADMIN)
     if request.method == 'GET':
-        users_list = Secouristes.objects.select_related('pin_contact').order_by('nom', 'prenom')
+        users_list = (Secouristes.objects.select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions'))
+                      .order_by('nom', 'prenom'))
         return Response([ser.user_dict(user, local=True) for user in users_list])
     data = request.data
     matricule = str(data.get('matricule', '')).strip()
@@ -1019,8 +1078,17 @@ def user_detail(request, matricule):
             user.reset_pin()  # deblocage : nouveau PIN choisi a la prochaine connexion
         if 'pin_contact' in data:
             user.pin_contact = parse_pin_contact(user, data['pin_contact'])
+        if 'push_disabled' in data:
+            user.push_disabled = parse_push_disabled(data['push_disabled'])
         user.save()
     return Response(ser.user_dict(user, local=True))
+
+
+def parse_push_disabled(value):
+    """Types de notifications web coupes pour un utilisateur (liste de noms de PUSH_TYPES)."""
+    if not isinstance(value, list) or not all(isinstance(name, str) and name in PUSH_TYPES for name in value):
+        raise ApiError("push_disabled : liste de types de notifications attendue (" + ', '.join(PUSH_TYPES) + ")")
+    return sorted(set(value))
 
 
 def parse_pin_contact(user, value):

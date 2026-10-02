@@ -144,7 +144,12 @@ baisser le stock sans aucune action, et envoie le résumé des lots contenant de
 `webpush.py`, implémentation autonome de Web Push (chiffrement `aes128gcm` RFC 8291/8188, jeton VAPID
 ES256 RFC 8292) au-dessus de `cryptography`. Les clés VAPID sont générées au premier usage et stockées
 en base (`PushKeys`) : elles survivent aux sauvegardes/restaurations et les abonnements restent
-valides. Réservé aux admins (stock bas, stock vide). Un abonnement refusé (404/410) par le service du
+valides. Rôles gestion et admin : `PUSH_TYPES` (`models.py`) donne pour chaque type son libellé, les
+rôles qui le reçoivent et sa valeur par défaut. Un admin coupe des types par utilisateur
+(`Secouristes.push_disabled`, fenêtre Utilisateurs) ; un envoi exige que l'abonnement ait choisi le type
+et que l'utilisateur puisse le recevoir (`PushSubscription.wants`). `push/devices/` liste les appareils
+de l'utilisateur connecté (nom tiré du User-Agent), `push/devices/<id>/` change leurs alertes ou les
+retire. Un abonnement refusé (404/410) par le service du
 navigateur est supprimé. Tests avec le vecteur de la RFC 8291 dans `tests.py`.
 
 ## Relais WebSocket (téléphone-douchette)

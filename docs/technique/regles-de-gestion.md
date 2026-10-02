@@ -176,8 +176,8 @@ restaurer. Rien n'est jamais effacé de la base.
 | Rôle | Poste | Téléphone |
 |---|---|---|
 | `normal` (Secouriste) | vérifs, pile de scans, réassort | vérifs, liste des lots |
-| `gestion` | + mode privilégié : stocks, inventaire, paquets, gestion des lots | + onglet Stock (lecture) |
-| `admin` | + Réglages, Utilisateurs, éditeur d'étiquettes | + notifications web |
+| `gestion` | + mode privilégié : stocks, inventaire, paquets, gestion des lots | + onglet Stock (lecture), notifications web (stock, étiquettes de lot) |
+| `admin` | + Réglages, Utilisateurs, éditeur d'étiquettes | + notifications web (aussi PIN bloqué, badges) |
 
 - Le **badge** (QR avec matricule et clé) identifie. Il expire au bout d'un an ; le renouveler
   invalide l'ancien.

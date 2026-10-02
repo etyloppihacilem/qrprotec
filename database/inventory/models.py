@@ -398,6 +398,21 @@ class Role(models.TextChoices):
     ADMIN = 'admin', 'Administrateur'
 
 
+# Types de notifications web : libelle, roles qui peuvent les recevoir, valeur par defaut a l'abonnement.
+# Un admin peut en couper certains par utilisateur (Secouristes.push_disabled, fenetre Utilisateurs).
+_GESTION_ROLES = (Role.GESTION, Role.ADMIN)
+_ADMIN_ROLES = (Role.ADMIN,)
+PUSH_TYPES = {
+    'stock_low': ('Stock bas (sous le minimum fixé)', _GESTION_ROLES, True),
+    'stock_empty': ('Stock vide (0 en stock)', _GESTION_ROLES, True),
+    'pin_blocked': ("PIN d'un utilisateur bloqué (lien de déblocage)", _ADMIN_ROLES, True),
+    'lot_key_renewed': ("Étiquette privée d'un lot renouvelée", _GESTION_ROLES, False),
+    'lot_key_expiring': ('Étiquette privée de lot qui expire bientôt ou a expiré', _GESTION_ROLES, False),
+    'badge_renewed': ("Badge d'un utilisateur renouvelé", _ADMIN_ROLES, False),
+    'badge_expiring': ('Badge qui expire bientôt ou a expiré', _ADMIN_ROLES, False),
+}
+
+
 class Secouristes(models.Model):
     matricule = models.CharField(max_length=16, primary_key=True, editable=False)
     nom = models.CharField(max_length=32)
@@ -420,6 +435,19 @@ class Secouristes(models.Model):
     pin_reset_notified = models.BooleanField(default=False)      # admins deja prevenus de ce blocage (une seule fois)
     # Administrateur a prevenir quand le PIN est bloque (affiche sur le telephone avec le lien de deblocage)
     pin_contact = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    # Types de notifications web coupes par un admin pour cet utilisateur (voir PUSH_TYPES)
+    push_disabled = models.JSONField(default=list, blank=True)
+
+    def push_role_types(self):
+        """Types de notifications web que le role permet (gestion et admin seulement)."""
+        return [name for name, (_, roles, _) in PUSH_TYPES.items() if self.role in roles]
+
+    def push_types(self):
+        """Types que cet utilisateur peut recevoir : ceux de son role, moins ceux qu'un admin a coupes."""
+        if not self.active:
+            return []
+        disabled = set(self.push_disabled or [])
+        return [name for name in self.push_role_types() if name not in disabled]
 
     @property
     def has_pin(self) -> bool:
@@ -583,7 +611,7 @@ class PushKeys(models.Model):
 
 
 class PushSubscription(models.Model):
-    """Abonnement d'un navigateur aux notifications web de stock (admins uniquement)."""
+    """Abonnement d'un navigateur aux notifications web (roles gestion et admin), un par appareil."""
     user = models.ForeignKey(Secouristes, on_delete=models.CASCADE, related_name='push_subscriptions')
     endpoint = models.URLField(max_length=1024, unique=True)
     p256dh = models.CharField(max_length=128)
@@ -595,12 +623,17 @@ class PushSubscription(models.Model):
     lot_key_expiring = models.BooleanField(default=False)
     badge_renewed = models.BooleanField(default=False)
     badge_expiring = models.BooleanField(default=False)
+    device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme, d'apres le User-Agent
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)
     last_status = models.CharField(max_length=128, blank=True, default='')
 
     def __str__(self):
         return f'{self.user_id} : {self.endpoint[:48]}'
+
+    def wants(self, name):
+        """Type choisi sur cet appareil et permis a son utilisateur."""
+        return getattr(self, name) and name in self.user.push_types()
 
 
 class FrontKey(models.Model):

@@ -122,9 +122,15 @@ Le dernier statut d'envoi de chaque destinataire est affiché.
 
 ### Notifications web (tous opérateurs)
 
-Sur le téléphone d'un administrateur : scanner son badge, onglet **Stock**, **Activer les
-notifications**, puis choisir les alertes (stock bas, stock vide, PIN bloqué, renouvellement et
-expiration des étiquettes privées de lot et des badges), et **envoyer une notification de test**. Les alertes arrivent même page fermée.
+Sur le téléphone d'un utilisateur gestion ou admin : scanner son badge, menu **⋯ > Notifications**
+(ou le lien de l'onglet Stock), choisir les alertes, **Activer les notifications** puis **Envoyer un
+test**. Le même écran liste tous ses appareils abonnés : on y change les alertes de chacun, ou on le
+retire (un téléphone perdu, par exemple).
+
+- Gestion : stock bas, stock vide, renouvellement et expiration des étiquettes privées de lot.
+- Admin : en plus, PIN bloqué, renouvellement et expiration des badges.
+- Sur le poste, **Utilisateurs > Notifications web** : décochez un type pour le couper à cet
+  utilisateur sur tous ses appareils. La fiche indique aussi combien d'appareils sont abonnés. Les alertes arrivent même page fermée.
 
 - Sur iPhone (iOS 16.4 ou plus), ajouter d'abord la page à l'écran d'accueil.
 - La borne doit avoir un certificat HTTPS reconnu par le téléphone, et un accès Internet sortant.

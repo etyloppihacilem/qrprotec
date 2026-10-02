@@ -1,5 +1,5 @@
 """Notifications des admins : PIN bloque (50 essais ou code oublie, une seule fois par blocage), renouvellement et
-expiration des etiquettes privees de lot et des badges."""
+expiration des etiquettes privees de lot et des badges, types de notifications web par utilisateur."""
 
 from django.db import migrations, models
 
@@ -80,5 +80,15 @@ class Migration(migrations.Migration):
             model_name="secouristes",
             name="key_expiry_stage",
             field=models.PositiveSmallIntegerField(default=0),
+        ),
+        migrations.AddField(
+            model_name="secouristes",
+            name="push_disabled",
+            field=models.JSONField(blank=True, default=list),
+        ),
+        migrations.AddField(
+            model_name="pushsubscription",
+            name="device",
+            field=models.CharField(blank=True, default="", max_length=64),
         ),
     ]

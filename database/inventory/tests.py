@@ -1072,11 +1072,11 @@ class WebPushTests(ApiTestCase):
         der = encode_dss_signature(int.from_bytes(raw[:32], 'big'), int.from_bytes(raw[32:], 'big'))
         public.verify(der, f'{header}.{claims}'.encode(), ec.ECDSA(hashes.SHA256()))  # leve si invalide
 
-    def test_only_admins_subscribe(self):
+    def test_gestion_and_admins_subscribe(self):
         code, body = self.call('POST', '/api/push/subscription/',
                                {'user': {'matricule': 'M001', 'key': self.user.new_key}, 'subscription': self.subscription()},
                                local=False)
-        self.assertEqual((code, body['error']), (403, 'Réservé aux administrateurs'))
+        self.assertEqual((code, body['error']), (403, 'Réservé aux rôles gestion et admin'))
         # sans jeton de session (PIN), refuse aussi
         code, _ = self.call('POST', '/api/push/subscription/',
                             {'user': {'matricule': 'A001', 'key': self.admin.new_key}, 'subscription': self.subscription()},
@@ -1098,7 +1098,8 @@ class WebPushTests(ApiTestCase):
         code, body = self.call('POST', '/api/push/unsubscribe/', {'endpoint': endpoint}, local=False)
         self.assertTrue(body['deleted'])
         code, body = self.call('POST', '/api/push/subscription/', {'user': self.badge, 'endpoint': endpoint}, local=False)
-        self.assertEqual(body, {'subscribed': False})
+        self.assertFalse(body['subscribed'])
+        self.assertEqual([row['type'] for row in body['types']][:3], ['stock_low', 'stock_empty', 'pin_blocked'])
 
     def test_test_notification(self):
         self.subscribe()
@@ -1146,10 +1147,75 @@ class WebPushTests(ApiTestCase):
 
     def test_demoted_admin_receives_nothing(self):
         self.subscribe()
-        Secouristes.objects.filter(matricule='A001').update(role='gestion')
+        Secouristes.objects.filter(matricule='A001').update(role='normal')
         with self.captureOnCommitCallbacks(execute=True):
             self.call('GET', '/api/stock/')
         self.assertEqual(self.sent, [])
+
+    def test_gestion_receives_only_its_types(self):
+        self.subscribe(badge_renewed=True, lot_key_renewed=True)
+        Secouristes.objects.filter(matricule='A001').update(role='gestion')
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', '/api/users/M001/renew-key/')  # reserve aux admins
+            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+        self.assertEqual([message['title'] for message in self.messages()], ['QRProtec : étiquette de lot renouvelée'])
+
+    def test_device_manager(self):
+        self.subscribe()
+        endpoint = self.subscription()['endpoint']
+        other = self.webpush.PushSubscription.objects.create(
+            user=self.admin, endpoint='https://push.example.net/other', p256dh='x', auth='y', device='Firefox · Linux')
+        code, body = self.call('POST', '/api/push/devices/', {'user': self.badge, 'endpoint': endpoint}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual([(row['device'], row['current']) for row in body['devices']],
+                         [('Firefox · Linux', False), ('Navigateur', True)])
+        self.assertEqual(len(body['types']), 7)
+        # alertes d'un autre appareil, puis desabonnement a distance
+        code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
+                               local=False)
+        self.assertFalse(body['devices'][0]['stock_low'])
+        code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'delete': True},
+                               local=False)
+        self.assertEqual(len(body['devices']), 1)
+        # l'appareil d'un autre utilisateur est introuvable
+        mine = self.webpush.PushSubscription.objects.get(endpoint=endpoint)
+        gestion = Secouristes(matricule='G001', nom='Ges', prenom='Tion', role='gestion')
+        gestion.renew_key()
+        gestion.save()
+        badge = {'matricule': 'G001', 'key': gestion.new_key, 'session': views.session_token(gestion)}
+        code, _ = self.call('POST', f'/api/push/devices/{mine.id}/', {'user': badge, 'delete': True}, local=False)
+        self.assertEqual(code, 404)
+        code, body = self.call('POST', '/api/push/devices/', {'user': badge}, local=False)
+        self.assertEqual((body['devices'], len(body['types'])), ([], 4))
+
+    def test_admin_disables_types_per_user(self):
+        self.subscribe()
+        code, users = self.call('GET', '/api/users/')
+        row = next(user for user in users if user['matricule'] == 'A001')
+        self.assertEqual(row['push_devices'], 1)
+        self.assertTrue(all(entry['enabled'] for entry in row['push_types']))
+        self.assertEqual(self.call('PATCH', '/api/users/A001/', {'push_disabled': ['inconnu']})[0], 400)
+        code, row = self.call('PATCH', '/api/users/A001/', {'push_disabled': ['stock_low', 'stock_empty']})
+        self.assertEqual([entry['type'] for entry in row['push_types'] if not entry['enabled']], ['stock_low', 'stock_empty'])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual(self.sent, [])
+        # l'utilisateur ne voit plus ces types dans son gestionnaire
+        code, body = self.call('POST', '/api/push/devices/', {'user': self.badge}, local=False)
+        self.assertNotIn('stock_low', [entry['type'] for entry in body['types']])
+        self.call('PATCH', '/api/users/A001/', {'push_disabled': []})
+        ItemType.objects.update(low_notified=False, empty_notified=False)  # nouveau passage sous le seuil
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_device_name(self):
+        name = self.webpush.device_name
+        self.assertEqual(name('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/129.0 Mobile Safari/537.36'),
+                         'Chrome · Android')
+        self.assertEqual(name('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 '
+                              'Mobile/15E148 Safari/604.1'), 'Safari · iPhone')
+        self.assertEqual(name(''), 'Navigateur')
 
     def test_pin_blocked(self):
         code, body = self.subscribe(stock_low=False, stock_empty=False)

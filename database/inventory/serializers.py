@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from django.utils import timezone
 
 from .idendity import parse_identity
-from .models import ItemStatus, qrprotec_setting
+from .models import PUSH_TYPES, ItemStatus, qrprotec_setting
 from .services import requirements_status
 
 
@@ -380,6 +380,12 @@ def user_dict(user, local=False):
         data['pin_forgotten'] = user.pin_forgotten
         data['pin_contact'] = contact.matricule if contact else ''
         data['pin_contact_name'] = str(contact) if contact else ''
+        # notifications web : types permis par le role, et ceux qu'un admin a coupes
+        disabled = set(user.push_disabled or [])
+        data['push_types'] = [{'type': name, 'label': PUSH_TYPES[name][0], 'enabled': name not in disabled}
+                              for name in user.push_role_types()]
+        count = getattr(user, 'push_device_count', None)
+        data['push_devices'] = user.push_subscriptions.count() if count is None else count
         # La cle du badge n'est connue qu'a sa creation ou son renouvellement (seule son empreinte est en base) :
         # elle n'apparait que dans cette reponse-la, pour imprimer le badge.
         key = getattr(user, 'new_key', None)

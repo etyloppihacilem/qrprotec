@@ -388,9 +388,10 @@ key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wro
 `unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
 `lots/summary/` (lots actifs et leur état, tout badge valide) et `stock/summary/` (état des stocks,
 rôles gestion et admin). Notifications web : `push/key/` (GET, clé publique VAPID),
-`push/subscription/` (POST badge admin + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
+`push/subscription/` (POST badge + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
 `stock_empty`, `pin_blocked`, `lot_key_renewed`, `lot_key_expiring`, `badge_renewed`,
-`badge_expiring` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge admin + endpoint).
+`badge_expiring` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge + endpoint), `push/devices/` (POST badge :
+appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). Rôles gestion et admin.
 
 ### Rôles
 

@@ -36,6 +36,8 @@
     loading: '',       // 'lots' ou 'stock' pendant un chargement
     push: null,        // notifications web de ce navigateur (admins) : {subscribed, stock_low, stock_empty, ...}
     pushBusy: false,
+    pushEndpoint: '', // abonnement de ce navigateur (pour le reperer dans la liste)
+    pushDevices: null, // gestionnaire des notifications : {types, devices} de l'utilisateur connecte
     pushError: '',
   };
 
@@ -711,6 +713,7 @@
       state.lots = null;
       state.stock = null;
       state.push = null;
+      state.pushDevices = null;
       feedback.info();
       showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
         canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est dans l'onglet Stock.` : 'Vous êtes connecté.');
@@ -1009,6 +1012,7 @@
     if (isMulti()) validate(true); else addToLot();
   });
   $('#more').addEventListener('click', () => $('#menu').showModal());
+  $('#notifications-close').addEventListener('click', () => $('#notifications').close());
   $('#menu').addEventListener('click', (event) => {
     const action = event.target.dataset && event.target.dataset.action;
     if (!action) return;
@@ -1023,6 +1027,7 @@
         else handleCode(value);
       }
     }
+    if (action === 'notifications') openNotifications();
     if (action === 'forget-lot') {
       state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = [];
       showInfo('empty', "Scannez l'étiquette d'un lot.");
@@ -1287,7 +1292,6 @@
       state.loading = '';
       render();
     }
-    loadPush();
   }
 
   async function loadStock() {
@@ -1393,39 +1397,39 @@
     });
   }
 
-  // Alertes au choix de chaque abonnement (memes noms que PUSH_OPTIONS cote serveur)
-  const PUSH_OPTIONS = [
-    ['stock_low', 'Stock bas (sous le minimum fixé)'],
-    ['stock_empty', 'Stock vide (0 en stock)'],
-    ['pin_blocked', "PIN d'un utilisateur bloqué (lien de déblocage)"],
-    ['lot_key_renewed', "Étiquette privée d'un lot renouvelée"],
-    ['lot_key_expiring', 'Étiquette privée de lot qui expire bientôt ou a expiré'],
-    ['badge_renewed', "Badge d'un utilisateur renouvelé"],
-    ['badge_expiring', 'Badge qui expire bientôt ou a expiré'],
-  ];
-  const PUSH_DEFAULTS = { stock_low: true, stock_empty: true, pin_blocked: true };
+  // Alertes au choix : la liste vient du serveur (types permis par le role, moins ceux qu'un admin a coupes)
+  const pushTypes = () => (state.push && state.push.types) || (state.pushDevices && state.pushDevices.types) || [];
 
   async function loadPush() {
-    if (!isAdmin() || !pushSupported()) return;
+    if (!canSeeStock()) return;
     try {
-      const subscription = await currentPushSubscription();
-      const prefs = state.push || { ...PUSH_DEFAULTS };
-      state.push = subscription
-        ? { ...prefs, ...(await api('push/subscription/', { user: badge(), endpoint: subscription.endpoint })) }
-        : { ...prefs, subscribed: false };
-      // abonnement du navigateur inconnu du serveur (autre admin, base restauree) : a reactiver
-      if (subscription && !state.push.subscribed) state.push.stale = true;
+      const subscription = pushSupported() ? await currentPushSubscription() : null;
+      const endpoint = subscription ? subscription.endpoint : '';
+      state.pushEndpoint = endpoint;
+      const [current, devices] = await Promise.all([
+        api('push/subscription/', { user: badge(), endpoint }),
+        api('push/devices/', { user: badge(), endpoint }),
+      ]);
+      // choix en cours avant activation : gardes au rechargement
+      state.push = state.push && !current.subscribed ? { ...current, ...pick(state.push, current.types) } : current;
+      state.pushDevices = devices;
+      // abonnement du navigateur inconnu du serveur (autre utilisateur, base restauree) : a reactiver
+      if (subscription && !current.subscribed) state.push.stale = true;
       state.pushError = '';
     } catch (e) {
       state.pushError = e.message;
     }
-    renderStock();
+    renderNotifications();
+  }
+
+  function pick(values, types) {
+    return Object.fromEntries(types.map(({ type }) => [type, !!values[type]]));
   }
 
   async function enablePush() {
-    const prefs = Object.fromEntries(PUSH_OPTIONS.map(([field]) => [field, !!(state.push && state.push[field])]));
+    const prefs = pick(state.push || {}, pushTypes());
     if (!Object.values(prefs).some(Boolean)) { toast('Choisissez au moins une alerte.', true); return; }
-    state.pushBusy = true; state.pushError = ''; renderStock();
+    state.pushBusy = true; state.pushError = ''; renderNotifications();
     try {
       // demande de permission declenchee par le clic de l'utilisateur
       const permission = await Notification.requestPermission();
@@ -1456,24 +1460,24 @@
       state.pushError = e.message;
     }
     state.pushBusy = false;
-    renderStock();
+    loadPush();
   }
 
   async function disablePush() {
-    state.pushBusy = true; state.pushError = ''; renderStock();
+    state.pushBusy = true; state.pushError = ''; renderNotifications();
     try {
       const subscription = await currentPushSubscription();
       if (subscription) {
         await api('push/unsubscribe/', { endpoint: subscription.endpoint });
         await subscription.unsubscribe();
       }
-      state.push = { ...state.push, subscribed: false, stale: false };
+      state.push = null;
       toast('Notifications désactivées sur cet appareil.');
     } catch (e) {
       state.pushError = e.message;
     }
     state.pushBusy = false;
-    renderStock();
+    loadPush();
   }
 
   async function testPush() {
@@ -1485,6 +1489,30 @@
     } catch (e) {
       toast(e.message, true);
     }
+  }
+
+  // alertes ou desabonnement d'un appareil de la liste (ce telephone ou un autre)
+  async function updateDevice(device, changes) {
+    if (changes.delete && device.current) { disablePush(); return; }
+    if (changes.delete && !confirm(`Ne plus envoyer de notifications à « ${device.device} » ?`)) return;
+    state.pushBusy = true; renderNotifications();
+    try {
+      state.pushDevices = await api(`push/devices/${device.id}/`, { user: badge(), endpoint: currentEndpoint(), ...changes });
+      if (device.current) state.push = { ...state.push, ...changes };
+      state.pushError = '';
+    } catch (e) {
+      state.pushError = e.message;
+    }
+    state.pushBusy = false;
+    renderNotifications();
+  }
+
+  const currentEndpoint = () => state.pushEndpoint || '';
+
+  function openNotifications() {
+    renderNotifications();
+    $('#notifications').showModal();
+    loadPush();
   }
 
   // clic sur une notification alors que la page est deja ouverte
@@ -1500,39 +1528,67 @@
     if (navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
   }
 
-  function renderPush() {
-    const parts = [el('h3', {}, 'Notifications')];
+  function renderNotifications() {
+    const body = $('#notifications-body');
+    if (!body) return;
+    const busy = state.pushBusy ? '' : null;
+    const parts = [];
+    const checkbox = (checked, label, onchange) => el('label', { class: 'check' },
+      el('input', { type: 'checkbox', checked: checked ? '' : null, disabled: busy, onchange }), label);
+
+    // cet appareil
+    const here = [el('h3', {}, 'Cet appareil')];
+    const push = state.push;
+    const subscribed = !!(push && push.subscribed && !push.stale);
     if (!pushSupported()) {
-      parts.push(el('p', { class: 'hint' }, window.isSecureContext
+      here.push(el('p', { class: 'hint' }, window.isSecureContext
         ? "Ce navigateur ne gère pas les notifications web. Sur iPhone, ajoutez d'abord la page à l'écran d'accueil (Partager > Sur l'écran d'accueil)."
         : 'Les notifications web exigent une connexion HTTPS.'));
-      return el('div', { class: 'push-box' }, ...parts);
+    } else if (!push) {
+      here.push(el('p', { class: 'hint' }, 'Chargement…'));
+    } else if (subscribed) {
+      here.push(el('p', { class: 'hint' }, 'Activées : vous serez prévenu même page fermée. Choisissez les alertes dans la liste ci-dessous.'));
+      here.push(el('div', { class: 'push-buttons' },
+        el('button', { type: 'button', onclick: testPush, disabled: busy }, 'Envoyer un test'),
+        el('button', { type: 'button', onclick: disablePush, disabled: busy }, 'Désactiver')));
+    } else if (!push.types.length) {
+      here.push(el('p', { class: 'hint' }, "Un administrateur a désactivé toutes vos notifications."));
+    } else {
+      here.push(el('p', { class: 'hint' }, 'Recevez sur cet appareil les alertes choisies :'));
+      for (const { type, label } of push.types) {
+        here.push(checkbox(push[type], label, (event) => { push[type] = event.target.checked; }));
+      }
+      if (Notification.permission === 'denied') {
+        here.push(el('p', { class: 'error' }, 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'));
+      }
+      here.push(el('div', { class: 'push-buttons' },
+        el('button', { type: 'button', class: 'primary', onclick: enablePush, disabled: busy },
+          state.pushBusy ? 'Activation…' : 'Activer les notifications')));
     }
-    if (!state.push) {
+    parts.push(el('div', { class: 'push-box' }, ...here));
+
+    // tous les appareils abonnes de l'utilisateur
+    const list = state.pushDevices;
+    parts.push(el('h3', {}, 'Vos appareils'));
+    if (!list) {
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
-      return el('div', { class: 'push-box' }, ...parts);
-    }
-    const push = state.push;
-    const subscribed = push.subscribed && !push.stale;
-    const option = (field, label) => el('label', { class: 'check' },
-      el('input', { type: 'checkbox', checked: push[field] ? '' : null, disabled: state.pushBusy ? '' : null,
-        onchange: (event) => { push[field] = event.target.checked; if (subscribed) enablePush(); else renderStock(); } }),
-      label);
-    parts.push(el('p', { class: 'hint' }, subscribed
-      ? 'Activées sur cet appareil : vous serez prévenu même page fermée.'
-      : 'Recevez sur cet appareil les alertes choisies ci-dessous.'));
-    for (const [field, label] of PUSH_OPTIONS) parts.push(option(field, label));
-    if (Notification.permission === 'denied') {
-      parts.push(el('p', { class: 'error' }, 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'));
+    } else if (!list.devices.length) {
+      parts.push(el('p', { class: 'hint' }, 'Aucun appareil ne reçoit vos notifications.'));
+    } else {
+      for (const device of list.devices) {
+        const sent = device.last_sent ? `dernier envoi le ${fmtDateTime(device.last_sent)} (${device.last_status})` : 'aucun envoi';
+        parts.push(el('div', { class: 'device' },
+          el('div', { class: 'row-head' },
+            el('b', {}, device.device + (device.current ? ' · cet appareil' : '')),
+            el('button', { type: 'button', disabled: busy, onclick: () => updateDevice(device, { delete: true }) }, 'Retirer')),
+          el('p', { class: 'hint' }, `Abonné le ${fmtDate(device.created)}, ${sent}.`),
+          ...list.types.map(({ type, label }) => checkbox(device[type], label,
+            (event) => updateDevice(device, { [type]: event.target.checked })))));
+      }
+      if (!list.types.length) parts.push(el('p', { class: 'hint' }, 'Un administrateur a désactivé toutes vos notifications.'));
     }
     if (state.pushError) parts.push(el('p', { class: 'error' }, state.pushError));
-    const buttons = subscribed
-      ? [el('button', { type: 'button', onclick: testPush, disabled: state.pushBusy ? '' : null }, 'Envoyer un test'),
-        el('button', { type: 'button', onclick: disablePush, disabled: state.pushBusy ? '' : null }, 'Désactiver')]
-      : [el('button', { type: 'button', class: 'primary', onclick: enablePush, disabled: state.pushBusy ? '' : null },
-        state.pushBusy ? 'Activation…' : 'Activer les notifications')];
-    parts.push(el('div', { class: 'push-buttons' }, ...buttons));
-    return el('div', { class: 'push-box' }, ...parts);
+    body.replaceChildren(...parts);
   }
 
   function renderStock() {
@@ -1542,8 +1598,9 @@
       return;
     }
     const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'État des stocks (lecture seule)'),
-      el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser'))];
-    if (isAdmin()) parts.push(renderPush());
+      el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser')),
+    el('p', { class: 'hint' }, 'Alertes de stock sur votre téléphone : ',
+      el('button', { type: 'button', class: 'text-link', onclick: openNotifications }, 'Notifications'))];
     if (!state.stock) {
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
     } else {
@@ -1567,9 +1624,10 @@
     $('#count-todo').textContent = renderTodo();
     $('#count-done').textContent = renderDone();
     renderLot();
-    if (!state.user) { state.lots = null; state.stock = null; state.push = null; }
+    if (!state.user) { state.lots = null; state.stock = null; state.push = null; state.pushDevices = null; }
     renderHome();
     $('#tab-stock').hidden = !canSeeStock();
+    $('#menu-notifications').hidden = !canSeeStock();
     if (state.tab === 'stock' && !canSeeStock()) switchTab('home');
     renderStock();
     const chip = $('#user-chip');

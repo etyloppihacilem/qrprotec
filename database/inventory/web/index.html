@@ -66,6 +66,7 @@
     <button type="button" data-action="add">Ajouter les items scannés au lot</button>
     <button type="button" data-action="manual">Saisir un code à la main</button>
     <button type="button" data-action="forget-lot">Changer de lot</button>
+    <button type="button" data-action="notifications" id="menu-notifications" hidden>Notifications</button>
     <button type="button" data-action="logout">Se déconnecter</button>
     <button type="button" data-action="close" class="secondary">Fermer</button>
   </dialog>
@@ -110,6 +111,15 @@
     <div class="dialog-buttons">
       <button type="button" id="pin-reset-cancel" class="secondary">Fermer</button>
       <button type="button" id="pin-reset-confirm" class="primary">Réinitialiser le PIN</button>
+    </div>
+  </dialog>
+
+  <!-- Gestionnaire des notifications web (roles gestion et admin) : cet appareil et tous les appareils abonnes -->
+  <dialog id="notifications">
+    <h2>Notifications</h2>
+    <div id="notifications-body"></div>
+    <div class="dialog-buttons">
+      <button type="button" id="notifications-close" class="secondary">Fermer</button>
     </div>
   </dialog>
 

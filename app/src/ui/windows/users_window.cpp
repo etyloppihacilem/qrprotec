@@ -98,6 +98,45 @@ class UsersWindow final : public AppWindow {
     }
 
     // Admin a prevenir si le PIN de cet utilisateur se bloque (affiche sur le telephone avec le lien de deblocage)
+    // Types de notifications web que l'utilisateur peut recevoir (selon son role) : decocher en coupe un pour lui,
+    // sur tous ses appareils. Il choisit ensuite les siens dans le front web (menu > Notifications).
+    void draw_notifications(App &app) {
+      ImGui::SeparatorText("Notifications web");
+      const Json &types = user_["push_types"];
+      if (types.size() == 0) {
+        ImGui::TextDisabled("Réservées aux rôles gestion et admin.");
+        return;
+      }
+      const int devices = user_["push_devices"].integer();
+      if (devices == 0)
+        ImGui::TextDisabled("Aucun appareil abonné.");
+      else
+        ImGui::Text("%d appareil%s abonné%s.", devices, devices > 1 ? "s" : "", devices > 1 ? "s" : "");
+      help_marker("Types de notifications permis à cet utilisateur. Il choisit ensuite les siens, appareil par "
+                  "appareil, dans le front web (menu > Notifications).");
+      for (std::size_t i = 0; i < types.size(); ++i) {
+        bool enabled = types[i]["enabled"].boolean();
+        if (!ImGui::Checkbox(types[i]["label"].str().c_str(), &enabled))
+          continue;
+        Json disabled = Json::array();
+        for (std::size_t j = 0; j < types.size(); ++j) {
+          const bool on = j == i ? enabled : types[j]["enabled"].boolean();
+          if (!on)
+            disabled.push_back(Json(types[j]["type"].str()));
+        }
+        Json body;
+        body["push_disabled"] = disabled;
+        app.api.patch("/api/users/" + url_encode(selected_) + "/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          select(result.data);
+          app.refresh_users();
+        });
+      }
+    }
+
     void draw_contact(App &app) {
       std::string preview = "(aucun : un administrateur)";
       for (const Json &user : app.catalog.users.items())
@@ -217,6 +256,8 @@ class UsersWindow final : public AppWindow {
       if (ImGui::Button("Supprimer le PIN"))
         update_pin(app, "");
       ImGui::EndDisabled();
+
+      draw_notifications(app);
 
       ImGui::SeparatorText("Badge");
       ImGui::Text("Valable jusqu'au : %s", display_date(user_["key_expires"]).c_str());
