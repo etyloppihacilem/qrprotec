@@ -471,11 +471,13 @@ class Secouristes(models.Model):
         self.key_expires = timezone.localdate() + timedelta(days=qrprotec_setting('USER_KEY_VALIDITY_DAYS'))
         return self.new_key
 
+    def badge_valid(self) -> bool:
+        """Compte actif et badge non expire (la cle elle-meme est verifiee par check_key)."""
+        return self.active and self.key_expires is not None and self.key_expires >= timezone.localdate()
+
     def check_key(self, key) -> bool:
         return (
-            self.active
-            and self.key_expires is not None
-            and self.key_expires >= timezone.localdate()
+            self.badge_valid()
             and isinstance(key, str)
             and keys_match(self.key_hash, hash_key(key))
         )

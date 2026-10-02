@@ -41,9 +41,26 @@ Chacun enveloppe l'application dans `RoleWSGIHandler(app, 'public'|'local'|'remo
   `request.urlconf = 'qrprotecDB.urls_local'` et `request.qrprotec_local = True` ;
 - rôle `remote` : exige une clé de front valide dans `X-QRProtec-Key`
   (`middleware.authenticate_front`, `FrontKey.authenticate`), sinon 401 ; puis **les mêmes URLs que
-  l'API locale** (`request.qrprotec_local = True`), avec `request.qrprotec_front` = nom du front.
-  L'adresse notée est celle de `X-Forwarded-For` (posé par Caddy) ;
+  l'API locale sans l'admin Django** (`urls_remote.py`, `request.qrprotec_local = True`), avec
+  `request.qrprotec_front` = nom du front. L'adresse notée est celle de `X-Forwarded-For` (posé par
+  Caddy) ;
 - sinon : URLs publiques.
+
+**Utilisateur connecté.** Ni le localhost ni la clé de front ne donnent de droits de gestion :
+ils identifient la machine. Après le badge (et le PIN), `POST /api/auth/` renvoie un jeton de session
+signé (12 h) que le front renvoie dans l'en-tête `X-QRProtec-Session`. Le serveur en déduit
+l'utilisateur et son rôle (`views.front_user`, `views.require_front`) :
+
+| Qui | Droits sur l'API locale ou distante |
+|---|---|
+| Personne de connecté | Lectures du kiosk (lots **sans** leurs clés, types), routes publiques (clé de lot exigée), téléphone-douchette, création du **premier** administrateur s'il n'y en a aucun |
+| Secouriste | + vérifs et réassorts sans clé de lot, sous son identité |
+| Gestion | + inventaire, réception, stock, paquets, lots et types, clés des lots |
+| Admin | + utilisateurs, notifications SMS |
+
+L'identité des opérations vient de la session : le `"user": "M0042"` envoyé par le poste est ignoré.
+Un badge renouvelé ou désactivé, ou un PIN bloqué, invalide la session ; le front redemande alors le
+badge (`login_required` dans la réponse 403).
 
 Une requête qui n'est pas passée par `serve` (tests, `runserver`, WSGI brut) prend
 `QRPROTEC_DEFAULT_API_ROLE` (`public` par défaut). Pour un déploiement WSGI classique,
@@ -72,10 +89,10 @@ Conventions des réponses :
 
 ### Identifier l'utilisateur d'une opération
 
-`idendity.identity_from_request(data, local)` :
+`idendity.identity_from_request(data, front_user)` :
 
-- API locale : `"user": "M0042"` suffit (le poste est de confiance ; c'est lui qui a vérifié le badge
-  et le PIN) ;
+- poste (API locale ou distante) : l'utilisateur de la session (`X-QRProtec-Session`), jamais le
+  matricule envoyé dans `user` ;
 - API publique : `"user": {"matricule": "M0042", "key": "…"}`, la clé du badge est vérifiée ;
 - à défaut, `"name"` donne une identité déclarée.
 

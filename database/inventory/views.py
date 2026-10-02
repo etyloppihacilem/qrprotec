@@ -51,8 +51,45 @@ class ApiError(Exception):
         self.extra = extra  # champs ajoutes a la reponse d'erreur (ex: pin_required)
 
 
-def is_local(request) -> bool:
+GESTION = (Role.GESTION, Role.ADMIN)
+ADMIN = (Role.ADMIN,)
+SESSION_HEADER = 'HTTP_X_QRPROTEC_SESSION'
+
+
+def is_front(request) -> bool:
+    """Requete d'un poste (API locale, ou API distante avec une cle de front valide)."""
     return getattr(request, 'qrprotec_local', False)
+
+
+def front_user(request):
+    """Utilisateur connecte sur le poste : le front envoie le jeton de session recu de /api/auth/ (badge, puis PIN
+    si besoin) dans l'en-tete X-QRProtec-Session. Le serveur ne croit plus le matricule envoye par le poste."""
+    if not is_front(request):
+        return None
+    if not hasattr(request, 'qrprotec_user'):
+        request.qrprotec_user = session_user(request.META.get(SESSION_HEADER, ''))
+    return request.qrprotec_user
+
+
+def is_local(request) -> bool:
+    """Poste avec un utilisateur connecte : pas de cle de lot exigee, identite verifiee par la session."""
+    return front_user(request) is not None
+
+
+def is_privileged(request) -> bool:
+    user = front_user(request)
+    return user is not None and user.role in GESTION
+
+
+def require_front(request, roles):
+    """Routes du poste (ex-privilege du localhost) : utilisateur connecte avec l'un des roles."""
+    user = front_user(request)
+    if user is None:
+        raise ApiError("Scannez votre badge pour continuer", status.HTTP_403_FORBIDDEN, login_required=True)
+    if user.role not in roles:
+        raise ApiError("Réservé aux administrateurs" if tuple(roles) == ADMIN else "Réservé aux rôles gestion et admin",
+                       status.HTTP_403_FORBIDDEN)
+    return user
 
 
 def error(message, code=status.HTTP_400_BAD_REQUEST, **extra):
@@ -142,7 +179,9 @@ def require_lot_key(request, lot):
 def health(request):
     return Response({
         'status': 'ok',
-        'api': 'local' if is_local(request) else 'public',
+        'api': 'local' if is_front(request) else 'public',
+        # utilisateur reconnu par le jeton de session du poste (vide : personne de connecte)
+        'user': front_user(request).matricule if front_user(request) else '',
         'today': timezone.localdate().isoformat(),
         'public_base_url': qrprotec_setting('PUBLIC_BASE_URL'),
         'remote_scanner': scanner_hub.enabled,
@@ -158,6 +197,18 @@ SESSION_MAX_AGE = 12 * 3600  # jeton de session du front web apres verification 
 def session_token(user):
     # lie au badge courant : renouveler le badge invalide les sessions
     return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]}, salt=SESSION_SALT)
+
+
+def session_user(token):
+    """Utilisateur d'un jeton de session valide (badge valide, PIN non bloque), None sinon."""
+    try:
+        data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
+    except signing.BadSignature:
+        return None
+    user = Secouristes.objects.filter(matricule=str(data.get('m', ''))).first()
+    if user is None or not user.badge_valid() or not session_valid(user, token):
+        return None
+    return user
 
 
 def session_valid(user, token):
@@ -295,10 +346,9 @@ def item_detail(request, iid):
 @handle_errors
 def lot_detail(request, lot_id):
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
-    local = is_local(request)
-    if not local and not lot.active:
+    if not is_front(request) and not lot.active:
         raise ApiError("Lot inconnu", status.HTTP_404_NOT_FOUND)
-    data = ser.lot_dict(lot, local=local, with_items=True)
+    data = ser.lot_dict(lot, local=is_privileged(request), with_items=True)
     # QR code de scelle : ?seal=CODE -> 'valid' (scelle intact), 'unsealed' (brise), 'wrong' (ancien scelle)
     seal = request.query_params.get('seal')
     if seal is not None:
@@ -312,10 +362,10 @@ def lot_unseal(request, lot_id):
     """Scelle brise (ouverture du lot). Sur l'API publique, exige la cle du lot (etiquette privee)."""
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     require_lot_key(request, lot)
-    identity = identity_from_request(request.data, is_local(request))
+    identity = identity_from_request(request.data, front_user(request))
     with transaction.atomic():
         services.break_seal(lot, identity, str(request.data.get('reason', '')).strip()[:64] or 'ouverture')
-    return Response(ser.lot_dict(lot, local=is_local(request), with_items=True))
+    return Response(ser.lot_dict(lot, local=is_privileged(request), with_items=True))
 
 
 def verif_targets(request, entries):
@@ -356,7 +406,7 @@ def verif_targets(request, entries):
 def lot_verif(request, lot_id):
     """Verif d'un lot et de ses sous-lots (cle du lot). 'partial' : voir verifs()."""
     lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}])
-    identity = identity_from_request(request.data, is_local(request))
+    identity = identity_from_request(request.data, front_user(request))
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
     return Response(report)
 
@@ -369,7 +419,7 @@ def verifs(request):
     Chaque lot est verifie avec ses sous-lots. En verif partielle, seuls les lots que les items scannes rendent
     complets sont verifies ; les items destines aux autres lots y sont ajoutes (reassort)."""
     lots = verif_targets(request, request.data.get('lots'))
-    identity = identity_from_request(request.data, is_local(request))
+    identity = identity_from_request(request.data, front_user(request))
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
     return Response(report)
 
@@ -379,7 +429,7 @@ def verifs(request):
 def lot_add_items(request, lot_id):
     lot = get_object_or_404(Lots, id=lot_id)
     require_lot_key(request, lot)
-    identity = identity_from_request(request.data, is_local(request))
+    identity = identity_from_request(request.data, front_user(request))
     return Response(services.move_items(iid_list(request.data), lot, identity, SeenWhile.ADD))
 
 
@@ -504,6 +554,8 @@ def sealed_pack_detail(request, pack_id):
 @api_view(['GET', 'POST'])
 @handle_errors
 def item_types(request):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     if request.method == 'GET':
         return Response([ser.item_type_dict(item_type) for item_type in ItemType.objects.order_by('name')])
     data = request.data
@@ -529,6 +581,8 @@ def item_types(request):
 @api_view(['GET', 'PATCH'])
 @handle_errors
 def item_type_detail(request, type_code):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     item_type = get_object_or_404(ItemType, type=type_code)
     if request.method == 'PATCH':
         data = request.data
@@ -552,6 +606,7 @@ def item_type_detail(request, type_code):
 @api_view(['GET'])
 @handle_errors
 def items(request):
+    require_front(request, GESTION)
     queryset = Items.objects.select_related('pack__item_type', 'location').order_by('-added', 'iid')
     params = request.query_params
     if params.get('type'):
@@ -573,11 +628,12 @@ def items(request):
 @handle_errors
 def items_batch(request):
     """Reception : cree `count` items (et optionnellement un paquet scelle qui les contient)."""
+    require_front(request, GESTION)
     data = request.data
     item_type = get_object_or_404(ItemType, type=str(data.get('type', '')))
     peremption = parse_date(data.get('peremption'), 'peremption')
     count = parse_int(data.get('count', 1), 'count', 1, 10000)
-    identity = identity_from_request(data, True)
+    identity = identity_from_request(data, front_user(request))
     location = None
     if data.get('location'):
         location = get_object_or_404(Lots, id=data['location'])
@@ -605,32 +661,36 @@ def items_batch(request):
 @handle_errors
 def item_delete(request, iid):
     """Marque un item comme supprime (ce n'est pas la voie normale : les verifs detectent les disparitions)."""
+    require_front(request, GESTION)
     item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
     reason = str(request.data.get('reason', '')).strip()
     if not reason:
         raise ApiError("Une raison est obligatoire pour supprimer un item")
-    services.mark_deleted(item, identity_from_request(request.data, True)[:32], reason)
+    services.mark_deleted(item, identity_from_request(request.data, front_user(request))[:32], reason)
     return Response(ser.item_dict(item))
 
 
 @api_view(['POST'])
 @handle_errors
 def item_restore(request, iid):
+    require_front(request, GESTION)
     item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
-    services.restore(item, identity_from_request(request.data, True))
+    services.restore(item, identity_from_request(request.data, front_user(request)))
     return Response(ser.item_dict(item))
 
 
 @api_view(['POST'])
 @handle_errors
 def items_to_stock(request):
-    identity = identity_from_request(request.data, True)
+    require_front(request, GESTION)
+    identity = identity_from_request(request.data, front_user(request))
     return Response(services.move_items(iid_list(request.data), None, identity, SeenWhile.REMOVE))
 
 
 @api_view(['GET'])
 @handle_errors
 def stock(request):
+    require_front(request, GESTION)
     soon = parse_int(request.query_params.get('soon_days', 30), 'soon_days', 0, 3650)
     # les peremptions font baisser le stock sans evenement : on verifie les seuils a chaque consultation
     notifications.check_stock_levels()
@@ -640,13 +700,15 @@ def stock(request):
 @api_view(['POST'])
 @handle_errors
 def stock_verif(request):
-    identity = identity_from_request(request.data, True)
+    require_front(request, GESTION)
+    identity = identity_from_request(request.data, front_user(request))
     return Response(services.perform_verif(None, iid_list(request.data), identity))
 
 
 @api_view(['GET'])
 @handle_errors
 def sealed_packs(request):
+    require_front(request, GESTION)
     queryset = SealedPacks.objects.select_related('item_type').order_by('-created')
     if request.query_params.get('opened') == '0':
         queryset = queryset.filter(opened__isnull=True)
@@ -656,8 +718,9 @@ def sealed_packs(request):
 @api_view(['POST'])
 @handle_errors
 def sealed_pack_open(request, pack_id):
+    require_front(request, GESTION)
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
-    identity = identity_from_request(request.data, True)
+    identity = identity_from_request(request.data, front_user(request))
     now = timezone.now()
     # un paquet deja ouvert garde sa date d'ouverture : l'appel sert alors a reimprimer les etiquettes
     if sealed_pack.opened is None:
@@ -682,6 +745,7 @@ def sealed_pack_open(request, pack_id):
 def sealed_pack_close(request, pack_id):
     """Annule une ouverture faite par erreur : le paquet redevient ferme (les etiquettes deja imprimees
     restent valables, les items sont les memes)."""
+    require_front(request, GESTION)
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
     sealed_pack.opened = None
     sealed_pack.opened_by = ''
@@ -692,6 +756,8 @@ def sealed_pack_close(request, pack_id):
 @api_view(['GET', 'POST'])
 @handle_errors
 def lot_types(request):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     if request.method == 'GET':
         return Response([ser.lot_type_dict(lot_type) for lot_type in LotType.objects.order_by('name')])
     data = request.data
@@ -705,7 +771,7 @@ def lot_types(request):
         raise ApiError("Nom obligatoire")
     lot_type = LotType.objects.create(
         type=code, name=name[:64], description=str(data.get('description', '')),
-        created_by=identity_from_request(data, True)[:32], storage=bool(data.get('storage', False)),
+        created_by=identity_from_request(data, front_user(request))[:32], storage=bool(data.get('storage', False)),
     )
     return Response(ser.lot_type_dict(lot_type), status=status.HTTP_201_CREATED)
 
@@ -713,6 +779,8 @@ def lot_types(request):
 @api_view(['GET', 'PATCH'])
 @handle_errors
 def lot_type_detail(request, type_code):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     lot_type = get_object_or_404(LotType, type=type_code)
     if request.method == 'PATCH':
         if 'name' in request.data:
@@ -729,6 +797,7 @@ def lot_type_detail(request, type_code):
 @handle_errors
 def lot_type_requirements(request, type_code):
     """Remplace la liste des exigences : [{"type": "serphy", "quantity": 4}, ...]."""
+    require_front(request, GESTION)
     lot_type = get_object_or_404(LotType, type=type_code)
     rows = request.data.get('requirements', [])
     if not isinstance(rows, list):
@@ -754,11 +823,14 @@ def lot_type_requirements(request, type_code):
 @api_view(['GET', 'POST'])
 @handle_errors
 def lots(request):
+    if request.method != 'GET':
+        require_front(request, GESTION)
     if request.method == 'GET':
         queryset = Lots.objects.select_related('lot_type').order_by('lot_type__name', 'name')
         if request.query_params.get('all') != '1':
             queryset = queryset.filter(active=True)
-        return Response(ser.lot_list(queryset, local=True))
+        # cles des lots (etiquettes privees) : roles gestion et admin seulement
+        return Response(ser.lot_list(queryset, local=is_privileged(request)))
     data = request.data
     lot_type = get_object_or_404(LotType, type=str(data.get('lot_type', '')))
     name = str(data.get('name', '')).strip()
@@ -768,7 +840,7 @@ def lots(request):
         lot_type=lot_type,
         name=name[:64],
         name_short=str(data.get('name_short', '') or name)[:16],
-        created_by=identity_from_request(data, True)[:32],
+        created_by=identity_from_request(data, front_user(request))[:32],
     )
     lot.parent = parse_parent(lot, data.get('parent'))
     lot.save()
@@ -790,6 +862,7 @@ def parse_parent(lot, value):
 @api_view(['PATCH'])
 @handle_errors
 def lot_update(request, lot_id):
+    require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=lot_id)
     data = request.data
     for field, length in (('name', 64), ('name_short', 16)):
@@ -811,8 +884,9 @@ def lot_update(request, lot_id):
 @api_view(['POST'])
 @handle_errors
 def lot_seal(request, lot_id):
+    require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
-    identity = identity_from_request(request.data, True)
+    identity = identity_from_request(request.data, front_user(request))
     services.seal_lot(lot, identity, str(request.data.get('seal_number', '')).strip(), bool(request.data.get('force')))
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
@@ -820,6 +894,7 @@ def lot_seal(request, lot_id):
 @api_view(['POST'])
 @handle_errors
 def lot_rotate_key(request, lot_id):
+    require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     lot.rotate_key()
     lot.save(update_fields=['verif_key', 'verif_key_expires'])
@@ -829,16 +904,24 @@ def lot_rotate_key(request, lot_id):
 @api_view(['GET'])
 @handle_errors
 def lot_verifs(request, lot_id):
+    require_front(request, GESTION)
     lot = get_object_or_404(Lots, id=lot_id)
     return Response([ser.verif_dict(verif) for verif in Verifs.objects.filter(lot=lot).order_by('-datetime')[:100]])
+
+
+def admin_count():
+    return Secouristes.objects.filter(role=Role.ADMIN, active=True, key_expires__gte=timezone.localdate()).count()
+
+
+def admin_exists():
+    return admin_count() > 0
 
 
 @api_view(['GET'])
 def setup(request):
     """Etat de premiere configuration : le front propose de creer un responsable s'il n'y en a aucun
     avec un badge valide (premiere installation, ou tous les badges responsables expires)."""
-    today = timezone.localdate()
-    admins = Secouristes.objects.filter(role=Role.ADMIN, active=True, key_expires__gte=today).count()
+    admins = admin_count()
     return Response({
         'users': Secouristes.objects.count(),
         'admins': admins,
@@ -849,6 +932,10 @@ def setup(request):
 @api_view(['GET', 'POST'])
 @handle_errors
 def users(request):
+    # premier administrateur (aucun admin avec un badge valide) : le poste le cree sans etre connecte
+    first_admin = request.method == 'POST' and not admin_exists()
+    if not first_admin:
+        require_front(request, ADMIN)
     if request.method == 'GET':
         users_list = Secouristes.objects.select_related('pin_contact').order_by('nom', 'prenom')
         return Response([ser.user_dict(user, local=True) for user in users_list])
@@ -862,19 +949,24 @@ def users(request):
     prenom = str(data.get('prenom', '')).strip()
     if not nom or not prenom:
         raise ApiError("Nom et prenom obligatoires")
-    user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=parse_role(data) or Role.NORMAL)
+    role = Role.ADMIN if first_admin else parse_role(data) or Role.NORMAL
+    user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=role)
     if data.get('pin'):
         user.set_pin(data['pin'])  # sinon, un admin choisira son PIN a sa premiere connexion
     if data.get('pin_contact'):
         user.pin_contact = parse_pin_contact(user, data['pin_contact'])
     user.renew_key()
     user.save()
-    return Response(ser.user_dict(user, local=True), status=status.HTTP_201_CREATED)
+    data = ser.user_dict(user, local=True)
+    if first_admin:
+        data['session'] = session_token(user)  # le poste connecte directement le nouvel administrateur
+    return Response(data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
 def user_detail(request, matricule):
+    require_front(request, ADMIN)
     user = get_object_or_404(Secouristes, matricule=matricule)
     if request.method == 'PATCH':
         data = request.data
@@ -909,6 +1001,7 @@ def parse_pin_contact(user, value):
 @api_view(['POST'])
 @handle_errors
 def user_renew_key(request, matricule):
+    require_front(request, ADMIN)
     user = get_object_or_404(Secouristes, matricule=matricule)
     user.renew_key()
     user.save(update_fields=['key_hash', 'key_expires'])
@@ -926,6 +1019,7 @@ def _notification_response():
 @api_view(['GET', 'PATCH'])
 @handle_errors
 def notification_settings(request):
+    require_front(request, ADMIN)
     if request.method == 'PATCH':
         settings_row = NotificationSettings.get()
         if 'enabled' in request.data:
@@ -956,6 +1050,7 @@ def _recipient_fields(recipient, data, creating):
 @api_view(['POST'])
 @handle_errors
 def sms_recipients(request):
+    require_front(request, ADMIN)
     recipient = SmsRecipient()
     _recipient_fields(recipient, request.data, True)
     recipient.save()
@@ -965,6 +1060,7 @@ def sms_recipients(request):
 @api_view(['PATCH', 'DELETE'])
 @handle_errors
 def sms_recipient_detail(request, recipient_id):
+    require_front(request, ADMIN)
     recipient = get_object_or_404(SmsRecipient, id=recipient_id)
     if request.method == 'DELETE':
         recipient.delete()
@@ -978,6 +1074,7 @@ def sms_recipient_detail(request, recipient_id):
 @handle_errors
 def sms_test(request):
     """Envoie un SMS de test (a un destinataire, ou a tous les actifs), meme si les notifications sont coupees."""
+    require_front(request, ADMIN)
     recipient_id = request.data.get('recipient')
     if recipient_id:
         recipients = [get_object_or_404(SmsRecipient, id=recipient_id)]
@@ -985,7 +1082,7 @@ def sms_test(request):
         recipients = list(SmsRecipient.objects.filter(active=True))
     if not recipients:
         raise ApiError('Aucun destinataire actif')
-    identity = identity_from_request(request.data, True)
+    identity = identity_from_request(request.data, front_user(request))
     count = notifications.send(f'QRProtec : SMS de test envoyé par {services.display_name(identity)}.', recipients)
     return Response({'sent': count})
 

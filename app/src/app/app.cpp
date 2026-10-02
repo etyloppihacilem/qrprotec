@@ -75,6 +75,11 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
     remote.feedback_message.clear();
   };
   apply_default_open_state();
+  // session refusee par le serveur (badge renouvele, PIN bloque, 12 h ecoulees) : on redemande le badge
+  api.on_login_required = [this]() {
+    if (logged_in())
+      logout("Session expirée : scannez à nouveau votre badge.");
+  };
   refresh_item_types();
   refresh_lots();
 }
@@ -444,7 +449,7 @@ void App::create_first_admin() {
     }
     setup_created_ = result.data;
     needs_admin_   = false;
-    // le poste local est de confiance : le nouveau responsable est connecte directement
+    // premier administrateur : le serveur renvoie son jeton de session, il est connecte directement
     SessionUser session;
     session.matricule   = result.data["matricule"].str();
     session.nom         = result.data["nom"].str();
@@ -453,6 +458,7 @@ void App::create_first_admin() {
     session.privileged  = true;
     session.role        = "admin";
     user                = session;
+    api.set_session(result.data["session"].str());
     refresh_item_types();
     refresh_lot_types();
     notify("Administrateur créé : mode privilégié activé.");
@@ -610,8 +616,12 @@ std::string App::user_name() const {
 }
 
 void App::logout(const std::string &reason) {
-  const bool was_logged = logged_in();
+  const bool was_logged         = logged_in();
+  const bool privileged_session = was_logged && user->privileged;
   user.reset();
+  api.set_session("");
+  if (privileged_session)
+    refresh_lots(); // la liste ne garde pas les cles des lots apres la deconnexion
   pending_action_ = nullptr;
   if (was_logged && !reason.empty())
     notify(reason);
@@ -698,6 +708,7 @@ void App::complete_login(const Json &data) {
   session.privileged  = data["privileged"].boolean();
   session.role        = data["role"].str(session.privileged ? "admin" : "normal");
   user                = session;
+  api.set_session(data["session"].str());
   notify("Bonjour " + session.display()
          + (session.admin() ? " : mode administrateur activé." : session.privileged ? " : mode gestion activé." : "."));
   if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
@@ -710,6 +721,7 @@ void App::complete_login(const Json &data) {
   if (session.privileged) {
     refresh_item_types();
     refresh_lot_types();
+    refresh_lots(); // avec les cles des lots (etiquettes privees), reservees aux roles gestion et admin
   }
 }
 

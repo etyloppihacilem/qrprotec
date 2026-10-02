@@ -47,23 +47,23 @@ def parse_identity(value: str) -> dict:
     }
 
 
-def identity_from_request(data, local: bool) -> str:
+def identity_from_request(data, front_user=None) -> str:
     """Determine l'identite a associer a une operation.
 
-    - API locale : `user` est un matricule (le poste local est de confiance).
+    - Poste (API locale ou distante) : l'utilisateur connecte, reconnu par son jeton de session ; le
+      matricule envoye dans `user` n'est plus cru sur parole.
     - API publique : `user` doit etre {"matricule": ..., "key": ...} et la cle est verifiee.
     - A defaut, `name` est utilise comme identite declaree.
     """
     from .models import Secouristes
+    if front_user is not None:
+        return f"{SOURCE_VERIFIED}:{front_user.matricule}"
     user = data.get('user')
-    if isinstance(user, str) and user and local:
-        if Secouristes.objects.filter(matricule=user, active=True).exists():
-            return f"{SOURCE_VERIFIED}:{user}"
     if isinstance(user, dict):
-        secouriste = Secouristes.objects.filter(matricule=user.get('matricule', '')).first()
-        if secouriste and (local or secouriste.check_key(user.get('key'))):
+        secouriste = Secouristes.objects.filter(matricule=str(user.get('matricule', ''))).first()
+        if secouriste and secouriste.check_key(user.get('key')):
             return f"{SOURCE_VERIFIED}:{secouriste.matricule}"
     name = data.get('name')
     if isinstance(name, str) and name.strip():
         return format_identity_declared(name)
-    return format_identity_declared('poste local' if local else 'anonyme')
+    return format_identity_declared('anonyme')

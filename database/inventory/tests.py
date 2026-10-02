@@ -5,6 +5,7 @@ from django.conf import settings
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from . import views
 from .base62 import decode_base62
 from .models import FrontKey, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, Secouristes
 
@@ -12,8 +13,12 @@ LOCAL = {'qrprotec.role': 'local'}
 
 
 class ApiTestCase(TestCase):
-    def call(self, method, path, data=None, local=True):
-        extra = LOCAL if local else {}
+    def call(self, method, path, data=None, local=True, session=None):
+        """local : requete du poste, avec par defaut la session de l'administrateur connecte (session=False :
+        personne de connecte, ou un autre jeton)."""
+        extra = dict(LOCAL) if local else {}
+        if local and session is not False:
+            extra['HTTP_X_QRPROTEC_SESSION'] = session or self.operator_session
         body = json.dumps(data) if data is not None else None
         response = self.client.generic(method, path, body or '', content_type='application/json', **extra)
         is_json = response.get('Content-Type', '').startswith('application/json')
@@ -30,6 +35,11 @@ class ApiTestCase(TestCase):
         self.user = Secouristes(matricule='M001', nom='Dupont', prenom='Jeanne')
         self.user.renew_key()
         self.user.save()
+        # administrateur connecte sur le poste (jeton de session envoye par le front)
+        self.operator = Secouristes(matricule='P001', nom='Poste', prenom='Admin', role='admin')
+        self.operator.renew_key()
+        self.operator.save()
+        self.operator_session = views.session_token(self.operator)
 
     def create(self, item_type, peremption, count):
         return ItemsPacks.objects.add_items(item_type, peremption, count, 'test')
@@ -104,7 +114,8 @@ class PublicApiTests(ApiTestCase):
     def test_local_token(self):
         code, _ = self.call('GET', '/api/stock/')
         self.assertEqual(code, 403)
-        response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_TOKEN='secret', **LOCAL)
+        response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_TOKEN='secret',
+                                   HTTP_X_QRPROTEC_SESSION=self.operator_session, **LOCAL)
         self.assertEqual(response.status_code, 200)
 
     def test_remote_front_key(self):
@@ -113,6 +124,7 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(self.client.get('/api/stock/', **remote).status_code, 401)
         self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY='qrpf_faux', **remote).status_code, 401)
         front, key = FrontKey.create('accueil')
+        remote['HTTP_X_QRPROTEC_SESSION'] = self.operator_session
         response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=key, HTTP_X_FORWARDED_FOR='192.0.2.7', **remote)
         self.assertEqual(response.status_code, 200)
         front.refresh_from_db()
@@ -142,6 +154,86 @@ class PublicApiTests(ApiTestCase):
         call_command('frontkey', 'revoke', 'accueil', stdout=StringIO())
         self.assertIsNone(FrontKey.authenticate(key))
         self.assertNotIn(key, FrontKey.objects.get().key_hash)
+
+
+class FrontSessionTests(ApiTestCase):
+    """Le poste (API locale ou distante) n'a plus de privilege en soi : les routes de gestion exigent
+    l'utilisateur connecte, reconnu par son jeton de session."""
+
+    def session(self, matricule, role):
+        user = Secouristes(matricule=matricule, nom='N', prenom='P', role=role)
+        user.renew_key()
+        user.save()
+        return user, views.session_token(user)
+
+    def test_routes_by_role(self):
+        normal = views.session_token(self.user)
+        _, gestion = self.session('G001', 'gestion')
+        # personne de connecte : lectures du kiosk seulement, sans les cles des lots
+        code, body = self.call('GET', '/api/stock/', session=False)
+        self.assertEqual((code, body.get('login_required')), (403, True))
+        code, lots = self.call('GET', '/api/lots/', session=False)
+        self.assertEqual(code, 200)
+        self.assertNotIn('verif_key', lots[0])
+        self.assertNotIn('verif_key', self.call('GET', f'/api/lots/{self.lot.id}/', session=False)[1])
+        self.assertEqual(self.call('GET', '/api/item-types/', session=False)[0], 200)
+        self.assertEqual(self.call('POST', '/api/item-types/', {'type': 'serphy', 'name': 'x'}, session=False)[0], 403)
+        self.assertEqual(self.call('GET', '/api/users/', session=False)[0], 403)
+        self.assertEqual(self.call('POST', '/api/users/', {'matricule': 'X1', 'nom': 'a', 'prenom': 'b'},
+                                   session=False)[0], 403)  # il existe deja un admin
+        self.assertEqual(self.call('GET', '/api/users/', session='faux')[0], 403)
+        # secouriste : pas de gestion
+        self.assertEqual(self.call('GET', '/api/stock/', session=normal)[0], 403)
+        self.assertNotIn('verif_key', self.call('GET', '/api/lots/', session=normal)[1][0])
+        # gestion : inventaire, pas les utilisateurs ni les reglages
+        self.assertEqual(self.call('GET', '/api/stock/', session=gestion)[0], 200)
+        self.assertIn('verif_key', self.call('GET', '/api/lots/', session=gestion)[1][0])
+        self.assertEqual(self.call('GET', '/api/users/', session=gestion)[0], 403)
+        self.assertEqual(self.call('GET', '/api/notifications/', session=gestion)[0], 403)
+        self.assertEqual(self.call('GET', '/api/users/')[0], 200)  # admin
+
+    def test_identity_comes_from_session(self):
+        items = self.create(self.compresses, self.today + timedelta(days=60), 2)
+        normal = views.session_token(self.user)
+        # le matricule envoye par le poste est ignore : c'est l'utilisateur de la session qui verifie
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items],
+                                                                          'user': 'P001'}, session=normal)
+        self.assertEqual(code, 200)
+        self.lot.refresh_from_db()
+        self.assertEqual(self.lot.last_verif_by, 'M:M001')
+        # sans session, le poste est traite comme un telephone : cle du lot obligatoire
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'P001'}, session=False)
+        self.assertEqual(code, 403)
+
+    def test_session_invalid_after_badge_renewal_or_deactivation(self):
+        user, token = self.session('G002', 'gestion')
+        self.assertEqual(self.call('GET', '/api/stock/', session=token)[0], 200)
+        user.active = False
+        user.save()
+        self.assertEqual(self.call('GET', '/api/stock/', session=token)[0], 403)
+        user.active = True
+        user.renew_key()
+        user.save()
+        self.assertEqual(self.call('GET', '/api/stock/', session=token)[0], 403)
+
+    def test_remote_needs_session_and_has_no_django_admin(self):
+        _, key = FrontKey.create('accueil')
+        remote = {'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1', 'HTTP_X_QRPROTEC_KEY': key}
+        self.assertEqual(self.client.get('/api/stock/', **remote).status_code, 403)
+        self.assertEqual(self.client.get('/api/users/', **remote).status_code, 403)
+        self.assertEqual(self.client.get('/api/lots/', **remote).status_code, 200)
+        self.assertEqual(self.client.get('/api/users/', HTTP_X_QRPROTEC_SESSION=self.operator_session,
+                                         **remote).status_code, 200)
+        self.assertEqual(self.client.get('/admin/', **remote).status_code, 404)
+
+    def test_first_admin_without_session(self):
+        self.operator.delete()
+        code, body = self.call('POST', '/api/users/', {'matricule': 'R001', 'nom': 'a', 'prenom': 'b', 'role': 'normal'},
+                               session=False)
+        self.assertEqual((code, body['role']), (201, 'admin'))
+        self.assertEqual(self.call('GET', '/api/users/', session=body['session'])[0], 200)
+        code, _ = self.call('POST', '/api/users/', {'matricule': 'R002', 'nom': 'a', 'prenom': 'b'}, session=False)
+        self.assertEqual(code, 403)
 
 
 class VerifTests(ApiTestCase):
@@ -273,13 +365,14 @@ class SetupTests(ApiTestCase):
     def test_setup_and_createadmin(self):
         from io import StringIO
         from django.core.management import call_command
-        code, body = self.call('GET', '/api/setup/')
+        self.operator.delete()
+        code, body = self.call('GET', '/api/setup/', session=False)
         self.assertTrue(body['needs_admin'])
         self.assertEqual(self.call('GET', '/api/setup/', local=False)[0], 404)
         out = StringIO()
         call_command('createadmin', 'R001', 'Melica', 'Hippolyte', stdout=out)
         self.assertIn('badge?m=R001&key=', out.getvalue())
-        code, body = self.call('GET', '/api/setup/')
+        code, body = self.call('GET', '/api/setup/', session=False)
         self.assertFalse(body['needs_admin'])
         admin = Secouristes.objects.get(matricule='R001')
         self.assertTrue(admin.privileged)

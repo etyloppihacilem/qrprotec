@@ -73,8 +73,12 @@ class ApiRoleMiddleware:
     QRPROTEC['LOCAL_API_TOKEN'] dans l'en-tete X-QRProtec-Token.
 
     Le serveur distant (role 'remote', derriere Caddy) donne aux fronts d'autres machines le meme
-    jeu d'URLs que l'API locale, mais chaque requete doit porter une cle de front valide
-    (modele FrontKey) dans l'en-tete X-QRProtec-Key.
+    jeu d'URLs que l'API locale (sans l'admin Django), mais chaque requete doit porter une cle de front
+    valide (modele FrontKey) dans l'en-tete X-QRProtec-Key.
+
+    Sur les deux, les routes de gestion exigent en plus l'utilisateur connecte sur le poste (jeton de
+    session dans l'en-tete X-QRProtec-Session, voir views.require_front) : la cle ou le localhost
+    identifient la machine, le badge et le PIN la personne.
     """
 
     def __init__(self, get_response):
@@ -97,5 +101,5 @@ class ApiRoleMiddleware:
                 return JsonResponse({'error': problem}, status=401)
             request.qrprotec_local = True
             request.qrprotec_front = front.name
-            request.urlconf = 'qrprotecDB.urls_local'
+            request.urlconf = 'qrprotecDB.urls_remote'
         return self.get_response(request)

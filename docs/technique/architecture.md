@@ -43,13 +43,14 @@ Le back expose **la même application Django sur trois ports** :
   item, d'un lot, d'un paquet ; écriture seulement avec la **clé** de l'objet (la clé d'un lot est
   imprimée sur son étiquette privée). Elle sert aussi le front web et les WebSockets du
   téléphone-douchette.
-- **API locale** (port 8001, jamais exposée) : gestion complète sans clé (types, réception,
-  utilisateurs, réglages, admin Django). Elle n'accepte que les adresses de
+- **API locale** (port 8001, jamais exposée) : routes de gestion (types, réception, utilisateurs,
+  réglages, admin Django), ouvertes selon le rôle de l'utilisateur connecté sur le poste (jeton de
+  session `X-QRProtec-Session`, voir [back.md](back.md)). Elle n'accepte que les adresses de
   `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` (boucle locale par défaut) et, si défini, un jeton dans
   l'en-tête `X-QRProtec-Token`.
 
-- **API distante** (port 8002, derrière Caddy) : **les mêmes routes que l'API locale**, pour un front
-  installé sur une autre machine. Chaque requête doit porter une **clé de front** valide (en-tête
+- **API distante** (port 8002, derrière Caddy) : **les mêmes routes que l'API locale** (sans l'admin
+  Django, mêmes contrôles de l'utilisateur connecté), pour un front installé sur une autre machine. Chaque requête doit porter une **clé de front** valide (en-tête
   `X-QRProtec-Key`, modèle `FrontKey`), sinon 401. Caddy envoie à ce port les requêtes qui portent
   cet en-tête, et toutes les autres à l'API publique.
 

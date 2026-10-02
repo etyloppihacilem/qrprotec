@@ -49,6 +49,11 @@ void ApiClient::configure(const ApiEndpoint &endpoint) {
   endpoint_ = endpoint;
 }
 
+void ApiClient::set_session(const std::string &token) {
+  std::lock_guard< std::mutex > lock(mutex_);
+  session_ = token;
+}
+
 void ApiClient::enqueue(const std::string &method, const std::string &path, const Json *body, Callback callback) {
   {
     std::lock_guard< std::mutex > lock(mutex_);
@@ -83,9 +88,12 @@ void ApiClient::poll() {
     std::lock_guard< std::mutex > lock(mutex_);
     done.swap(done_);
   }
-  for (Done &entry : done)
+  for (Done &entry : done) {
+    if (entry.result.status == 403 && entry.result.data["login_required"].boolean() && on_login_required)
+      on_login_required();
     if (entry.callback)
       entry.callback(entry.result);
+  }
 }
 
 bool ApiClient::online() const {
@@ -114,8 +122,9 @@ void ApiClient::run() {
         return;
       job = std::move(jobs_.front());
       jobs_.pop_front();
-      endpoint = endpoint_;
-      working_ = true;
+      endpoint         = endpoint_;
+      endpoint.session = session_;
+      working_         = true;
     }
     ApiResult   result;
     HttpUrl     url;

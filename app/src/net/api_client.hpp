@@ -41,6 +41,11 @@ class ApiClient {
     ApiClient &operator=(const ApiClient &) = delete;
 
     void configure(const ApiEndpoint &endpoint);
+    // Jeton de session de l'utilisateur connecte (badge + PIN), envoye avec chaque requete : le serveur
+    // en deduit l'utilisateur et son role pour les routes de gestion. Vide a la deconnexion.
+    void set_session(const std::string &token);
+    // Appele (thread UI) quand le serveur ne reconnait plus la session : badge renouvele, PIN bloque, 12 h...
+    std::function< void() > on_login_required;
 
     void get(const std::string &path, Callback callback);
     void post(const std::string &path, const Json &body, Callback callback);
@@ -75,6 +80,7 @@ class ApiClient {
     std::deque< Job >       jobs_;
     std::deque< Done >      done_;
     ApiEndpoint             endpoint_;
+    std::string             session_;
     bool                    online_  = false;
     bool                    working_ = false;
     std::string             last_error_;
