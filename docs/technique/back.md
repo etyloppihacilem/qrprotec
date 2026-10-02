@@ -41,9 +41,26 @@ Chacun enveloppe l'application dans `RoleWSGIHandler(app, 'public'|'local'|'remo
   `request.urlconf = 'qrprotecDB.urls_local'` et `request.qrprotec_local = True` ;
 - rôle `remote` : exige une clé de front valide dans `X-QRProtec-Key`
   (`middleware.authenticate_front`, `FrontKey.authenticate`), sinon 401 ; puis **les mêmes URLs que
-  l'API locale** (`request.qrprotec_local = True`), avec `request.qrprotec_front` = nom du front.
-  L'adresse notée est celle de `X-Forwarded-For` (posé par Caddy) ;
+  l'API locale sans l'admin Django** (`urls_remote.py`, `request.qrprotec_local = True`), avec
+  `request.qrprotec_front` = nom du front. L'adresse notée est celle de `X-Forwarded-For` (posé par
+  Caddy) ;
 - sinon : URLs publiques.
+
+**Utilisateur connecté.** Ni le localhost ni la clé de front ne donnent de droits de gestion :
+ils identifient la machine. Après le badge (et le PIN), `POST /api/auth/` renvoie un jeton de session
+signé (12 h) que le front renvoie dans l'en-tête `X-QRProtec-Session`. Le serveur en déduit
+l'utilisateur et son rôle (`views.front_user`, `views.require_front`) :
+
+| Qui | Droits sur l'API locale ou distante |
+|---|---|
+| Personne de connecté | Lectures du kiosk (lots **sans** leurs clés, types), routes publiques (clé de lot exigée), téléphone-douchette, création du **premier** administrateur s'il n'y en a aucun |
+| Secouriste | + vérifs et réassorts sans clé de lot, sous son identité |
+| Gestion | + inventaire, réception, stock, paquets, lots et types, clés des lots |
+| Admin | + utilisateurs, notifications SMS |
+
+L'identité des opérations vient de la session : le `"user": "M0042"` envoyé par le poste est ignoré.
+Un badge renouvelé ou désactivé, ou un PIN bloqué, invalide la session ; le front redemande alors le
+badge (`login_required` dans la réponse 403).
 
 Une requête qui n'est pas passée par `serve` (tests, `runserver`, WSGI brut) prend
 `QRPROTEC_DEFAULT_API_ROLE` (`public` par défaut). Pour un déploiement WSGI classique,
@@ -72,10 +89,10 @@ Conventions des réponses :
 
 ### Identifier l'utilisateur d'une opération
 
-`idendity.identity_from_request(data, local)` :
+`idendity.identity_from_request(data, front_user)` :
 
-- API locale : `"user": "M0042"` suffit (le poste est de confiance ; c'est lui qui a vérifié le badge
-  et le PIN) ;
+- poste (API locale ou distante) : l'utilisateur de la session (`X-QRProtec-Session`), jamais le
+  matricule envoyé dans `user` ;
 - API publique : `"user": {"matricule": "M0042", "key": "…"}`, la clé du badge est vérifiée ;
 - à défaut, `"name"` donne une identité déclarée.
 
@@ -107,7 +124,14 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
 
 `notifications.py`. L'API Free (`smsapi.free-mobile.fr/sendmsg?user=&pass=&msg=`) n'envoie qu'au
 titulaire de la ligne : un couple identifiant / clé par destinataire (`SmsRecipient`). Événements
-(`NotificationSettings`) : `stock_low`, `verif_problem`, `seal_broken`, `expired_daily`. Le dernier
+(`NotificationSettings`) : `stock_low`, `verif_problem`, `seal_broken`, `expired_daily`, `pin_blocked`
+(PIN bloqué ou oublié, une fois par blocage, voir `notify_pin_blocked`), `lot_key_renewed`,
+`badge_renewed`, `lot_key_expiring`, `badge_expiring`. Les quatre derniers, désactivés par défaut,
+existent aussi comme options des notifications web (`PUSH_OPTIONS`). Les expirations sont contrôlées par
+`check_alerts` (`check_key_expirations`) : une alerte `NotificationSettings.expiry_warning_days` jours avant
+(Réglages, ou `KEY_EXPIRY_WARNING_DAYS`, 30 j), une à
+l'expiration, suivies par `key_expiry_stage` (`KeyExpiry`) sur le lot ou l'utilisateur, remis à zéro par le
+renouvellement. Le dernier
 statut d'envoi est gardé par destinataire et affiché dans les Réglages du poste.
 
 **Une alerte par passage sous le seuil** : `ItemType.low_notified` passe à `True` à l'envoi et ne
@@ -121,7 +145,12 @@ baisser le stock sans aucune action, et envoie le résumé des lots contenant de
 `webpush.py`, implémentation autonome de Web Push (chiffrement `aes128gcm` RFC 8291/8188, jeton VAPID
 ES256 RFC 8292) au-dessus de `cryptography`. Les clés VAPID sont générées au premier usage et stockées
 en base (`PushKeys`) : elles survivent aux sauvegardes/restaurations et les abonnements restent
-valides. Réservé aux admins (stock bas, stock vide). Un abonnement refusé (404/410) par le service du
+valides. Rôles gestion et admin : `PUSH_TYPES` (`models.py`) donne pour chaque type son libellé, les
+rôles qui le reçoivent et sa valeur par défaut. Un admin coupe des types par utilisateur
+(`Secouristes.push_disabled`, fenêtre Utilisateurs) ; un envoi exige que l'abonnement ait choisi le type
+et que l'utilisateur puisse le recevoir (`PushSubscription.wants`). `push/devices/` liste les appareils
+de l'utilisateur connecté (nom tiré du User-Agent), `push/devices/<id>/` change leurs alertes ou les
+retire. Un abonnement refusé (404/410) par le service du
 navigateur est supprimé. Tests avec le vecteur de la RFC 8291 dans `tests.py`.
 
 ## Relais WebSocket (téléphone-douchette)

@@ -50,7 +50,8 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
 - **Connexion** : `login` (`POST api/auth/`, PIN via `askPin`), jeton de session conservé pour les
   lectures réservées.
 - **Accueil** (`renderHome`) : liste des lots et accès à la douchette du poste ; **Stock**
-  (`renderStock`) pour les rôles gestion/admin ; **notifications web** (`enablePush`…) pour les admins.
+  (`renderStock`) pour les rôles gestion/admin ; **gestionnaire des notifications** (menu > Notifications, `renderNotifications`) pour les rôles
+  gestion/admin : activation sur cet appareil, puis alertes et retrait de chacun de ses appareils.
 
 Toutes les écritures passent par l'**API publique** : la vérif exige la clé du lot (étiquette
 privée) et un badge.

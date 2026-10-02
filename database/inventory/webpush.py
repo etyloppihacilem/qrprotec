@@ -212,14 +212,21 @@ def _dispatch(jobs):
 
 def queue(jobs):
     """jobs : [(id d'abonnement, message)], envoyes apres la validation de la transaction."""
-    if jobs and available():
-        transaction.on_commit(lambda: _dispatch(jobs))
+    if not jobs or not available():
+        return 0
+    transaction.on_commit(lambda: _dispatch(jobs))
     return len(jobs)
 
 
 def active_subscriptions():
-    # un admin retrogade ou desactive ne recoit plus rien (son abonnement reste, inactif)
-    return PushSubscription.objects.filter(user__active=True, user__role=Role.ADMIN)
+    # un utilisateur retrogade ou desactive ne recoit plus rien (son abonnement reste, inactif)
+    return (PushSubscription.objects.filter(user__active=True, user__role__in=(Role.GESTION, Role.ADMIN))
+            .select_related('user'))
+
+
+def subscriptions_for(name):
+    """Abonnements qui ont choisi ce type, et dont l'utilisateur peut le recevoir (role, choix de l'admin)."""
+    return [subscription for subscription in active_subscriptions().filter(**{name: True}) if subscription.wants(name)]
 
 
 def notify_stock(low, empty):
@@ -233,10 +240,10 @@ def notify_stock(low, empty):
     jobs = []
     for subscription in active_subscriptions():
         lines = []
-        empty_names = set(empty) if subscription.stock_empty else set()
+        empty_names = set(empty) if subscription.wants('stock_empty') else set()
         if empty_names:
             lines.append('Stock vide : ' + ', '.join(empty))
-        if subscription.stock_low:
+        if subscription.wants('stock_low'):
             rows = [f'{name} {count}/{minimum}' for name, count, minimum in low if name not in empty_names]
             if rows:
                 lines.append('Stock bas : ' + ', '.join(rows))
@@ -248,3 +255,32 @@ def notify_stock(low, empty):
                 'url': '../#stock',
             }))
     return queue(jobs)
+
+
+def notify_pin_blocked(text, url):
+    """PIN d'un utilisateur bloque : le clic ouvre le lien de deblocage (connexion avec le badge admin)."""
+    return queue([(subscription.id, {
+        'title': 'QRProtec : PIN bloqué',
+        'body': text,
+        'tag': f'pin-{url.rsplit("t=", 1)[-1][:16]}',
+        'url': url,
+        'tab': 'pinreset',
+    }) for subscription in subscriptions_for('pin_blocked')])
+
+
+def notify_event(field, title, body, url='../'):
+    """Evenement simple (renouvellement, expiration) vers les abonnements qui l'ont choisi."""
+    return queue([(subscription.id, {'title': title, 'body': body, 'tag': field, 'url': url})
+                  for subscription in subscriptions_for(field)])
+
+
+def device_name(user_agent):
+    """Nom court de l'appareil d'apres le User-Agent (pour reconnaitre ses abonnements), ex. « Chrome · Android »."""
+    agent = str(user_agent or '')
+    browsers = (('Edg/', 'Edge'), ('OPR/', 'Opera'), ('SamsungBrowser', 'Samsung Internet'), ('Firefox/', 'Firefox'),
+                ('CriOS', 'Chrome'), ('FxiOS', 'Firefox'), ('Chrome/', 'Chrome'), ('Safari/', 'Safari'))
+    systems = (('Android', 'Android'), ('iPhone', 'iPhone'), ('iPad', 'iPad'), ('Windows', 'Windows'),
+               ('Mac OS X', 'macOS'), ('CrOS', 'ChromeOS'), ('Linux', 'Linux'))
+    browser = next((name for marker, name in browsers if marker in agent), 'Navigateur')
+    system = next((name for marker, name in systems if marker in agent), '')
+    return f'{browser} · {system}' if system else browser

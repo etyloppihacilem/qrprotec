@@ -16,6 +16,8 @@ from . import views, web_views
 public_patterns = [
     path('health/', views.health),
     path('auth/', views.auth),
+    path('pin-reset/', views.pin_reset),
+    path('pin-forgot/', views.pin_forgot),
     path('items/<str:iid>/', views.item_detail),
     path('lots/summary/', views.lots_summary),   # avant lots/<id>/
     path('stock/summary/', views.stock_summary),
@@ -30,6 +32,8 @@ public_patterns = [
     path('push/subscription/', views.push_subscription),
     path('push/unsubscribe/', views.push_unsubscribe),
     path('push/test/', views.push_test),
+    path('push/devices/', views.push_devices),
+    path('push/devices/<int:device_id>/', views.push_device),
 ]
 
 # Servies uniquement par l'API locale (poste de gestion). Elles doivent preceder les routes publiques
@@ -74,6 +78,7 @@ web_patterns = [
     path('badge', web_views.page),
     path('pack', web_views.page),
     path('seal', web_views.page),
+    path('pinreset', web_views.page),
     path('scanner', web_views.scanner_page),
     path('favicon.ico', web_views.favicon),
     path('web/<path:name>', web_views.asset),

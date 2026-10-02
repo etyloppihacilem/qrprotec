@@ -249,8 +249,10 @@ class SettingsWindow final : public AppWindow {
     // Notifications SMS (API Free Mobile) : reglages enregistres sur le serveur, appliques immediatement.
     void load_notifications(App &app) {
       app.api.get("/api/notifications/", [this](const ApiResult &result) {
-        if (result.ok)
-          notifications_ = result.data;
+        if (!result.ok)
+          return;
+        notifications_ = result.data;
+        warning_days_  = notifications_["key_expiry_warning_days"].integer();
       });
     }
 
@@ -262,6 +264,7 @@ class SettingsWindow final : public AppWindow {
           return;
         }
         notifications_ = result.data;
+        warning_days_  = notifications_["key_expiry_warning_days"].integer();
         if (!done.empty())
           app.notify(done);
       };
@@ -295,6 +298,11 @@ class SettingsWindow final : public AppWindow {
         { "verif_problem", "Vérif de lot incomplète (manquants, périmés, disparus)" },
         { "seal_broken", "Scellé d'un lot brisé" },
         { "expired_daily", "Résumé quotidien des lots contenant des périmés (commande check_alerts)" },
+        { "pin_blocked", "PIN d'un utilisateur bloqué (trop d'essais faux ou code oublié), une fois par blocage" },
+        { "lot_key_renewed", "Étiquette privée d'un lot renouvelée" },
+        { "lot_key_expiring", "Étiquette privée de lot qui expire bientôt ou a expiré (commande check_alerts)" },
+        { "badge_renewed", "Badge d'un utilisateur renouvelé" },
+        { "badge_expiring", "Badge qui expire bientôt ou a expiré (commande check_alerts)" },
       };
       for (const auto &[event, label] : events) {
         bool value = notifications_["events"][event].boolean();
@@ -305,6 +313,17 @@ class SettingsWindow final : public AppWindow {
         }
       }
       ImGui::EndDisabled();
+
+      // delai commun aux SMS et aux notifications web, envoye en quittant le champ
+      ImGui::SetNextItemWidth(80.0f);
+      ImGui::InputInt("Alerte d'expiration (jours avant)", &warning_days_, 0, 0);
+      if (ImGui::IsItemDeactivatedAfterEdit()) {
+        Json body;
+        body["key_expiry_warning_days"] = std::clamp(warning_days_, 1, 365);
+        notifications_request(app, "PATCH", "/api/notifications/", body, "");
+      }
+      help_marker("Étiquettes privées de lot et badges : alerte « expire bientôt » ce nombre de jours avant "
+                  "l'expiration (SMS et notifications web), puis une alerte le jour de l'expiration.");
 
       ImGui::SeparatorText("Destinataires");
       if (ImGui::BeginTable("sms_recipients", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
@@ -385,6 +404,7 @@ class SettingsWindow final : public AppWindow {
 
     std::vector< std::pair< std::string, TemplateCategory > > templates_;
     Json                                                      notifications_;
+    int                                                       warning_days_ = 30;
     std::string                                               new_name_;
     std::string                                               new_user_;
     std::string                                               new_password_;

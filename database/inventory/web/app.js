@@ -13,6 +13,7 @@
   const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
   const STORAGE_USER = 'qrprotec.user';
   const STORAGE_SESSION = 'qrprotec.session';
+  const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
 
   const $ = (selector) => document.querySelector(selector);
 
@@ -31,9 +32,12 @@
     lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
     lots: null,        // liste des lots (accueil), chargee avec le badge
     stock: null,       // etat des stocks, roles gestion et admin uniquement
+    pinReset: null,    // {matricule, token} : deblocage du PIN d'un utilisateur, en attente d'un admin connecte
     loading: '',       // 'lots' ou 'stock' pendant un chargement
     push: null,        // notifications web de ce navigateur (admins) : {subscribed, stock_low, stock_empty, ...}
     pushBusy: false,
+    pushEndpoint: '', // abonnement de ce navigateur (pour le reperer dans la liste)
+    pushDevices: null, // gestionnaire des notifications : {types, devices} de l'utilisateur connecte
     pushError: '',
   };
 
@@ -67,6 +71,7 @@
         state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
       }
     } catch (e) { /* ignore */ }
+    try { state.pinReset = JSON.parse(sessionStorage.getItem(STORAGE_PIN_RESET) || 'null'); } catch (e) { /* ignore */ }
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -146,6 +151,7 @@
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
     if (route === 'seal' && p.get('lot') && p.get('s')) return { kind: 'seal', code, id: p.get('lot'), key: p.get('s') };
     if (route === 'scanner' && p.get('s') && p.get('k')) return { kind: 'remote', code, search: url.search };
+    if (route === 'pinreset' && p.get('m') && p.get('t')) return { kind: 'pinreset', code, id: p.get('m'), key: p.get('t') };
     return { kind: 'unknown', code };
   }
 
@@ -348,6 +354,7 @@
       case 'user': return login(scan.id, scan.key);
       case 'pack': return scanPack(scan);
       case 'seal': return scanSeal(scan);
+      case 'pinreset': return startPinReset(scan.id, scan.key);
       case 'remote':
         // QR code affiche par le poste : ce telephone devient sa douchette
         feedback.info();
@@ -677,7 +684,7 @@
     const dialog = $('#pin');
     $('#pin-title').textContent = setup ? 'Choisissez votre code PIN' : 'Code PIN';
     $('#pin-text').textContent = setup
-      ? 'Obligatoire pour les administrateurs : 4 à 8 chiffres, demandé après le badge à chaque connexion.'
+      ? 'Nouveau code PIN de 4 à 8 chiffres, demandé après le badge à chaque connexion (obligatoire pour les administrateurs).'
       : `Badge ${matricule} : saisissez votre code PIN.`;
     $('#pin-input').value = '';
     $('#pin-confirm').value = '';
@@ -692,6 +699,9 @@
       login(matricule, key, setup ? { new_pin: pin } : { pin });
     };
     $('#pin-cancel').onclick = () => dialog.close();
+    const forgot = $('#pin-forgot');
+    forgot.hidden = setup;
+    forgot.onclick = () => forgotPin(matricule, key);
     if (!dialog.open) dialog.showModal();
     setTimeout(() => $('#pin-input').focus(), 50);
   }
@@ -703,6 +713,7 @@
       state.lots = null;
       state.stock = null;
       state.push = null;
+      state.pushDevices = null;
       feedback.info();
       showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
         canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est dans l'onglet Stock.` : 'Vous êtes connecté.');
@@ -710,7 +721,14 @@
       render();
       loadLots();
       if (canSeeStock()) loadStock();
+      if (state.pinReset) openPinReset();
     } catch (e) {
+      if (e.data && e.data.pin_blocked) {
+        feedback.bad();
+        showInfo('bad', 'Code PIN bloqué', e.message);
+        showPinBlocked(e.data.pin_reset || {});
+        return;
+      }
       if (e.data && (e.data.pin_required || e.data.pin_setup_required)) {
         const retry = extra.pin || extra.new_pin || e.data.pin_locked;
         if (retry) feedback.bad(); else feedback.info();
@@ -720,6 +738,133 @@
       feedback.bad();
       showInfo('bad', 'Badge refusé', e.message);
     }
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // PIN bloque apres trop d'essais : l'utilisateur envoie a un admin la photo de l'ecran (QR code du lien de
+  // deblocage) ; l'admin scanne le lien, se connecte avec son badge et reinitialise le PIN. L'utilisateur
+  // en choisit alors un nouveau a sa prochaine connexion.
+
+  // Code oublie : le PIN est bloque comme apres trop d'essais, et l'ecran du lien de deblocage s'affiche
+  async function forgotPin(matricule, key) {
+    if (!confirm("Votre code PIN sera bloqué jusqu'à ce qu'un administrateur le réinitialise. Continuer ?")) return;
+    $('#pin').close();
+    try {
+      await api('pin-forgot/', { matricule, key });
+    } catch (e) {
+      if (e.data && e.data.pin_blocked) {
+        feedback.info();
+        showInfo('bad', 'Code PIN oublié', e.message);
+        showPinBlocked(e.data.pin_reset || {});
+        return;
+      }
+      if (e.data && e.data.pin_setup_required) { askPin(matricule, key, true, ''); return; }
+      feedback.bad();
+      showInfo('bad', 'Code oublié', e.message);
+    }
+  }
+
+  function showPinBlocked(reset) {
+    const dialog = $('#pin-blocked');
+    $('#pin-blocked-title').textContent = reset.forgotten ? 'Code PIN oublié' : 'Code PIN bloqué';
+    $('#pin-blocked-text').textContent = `${reset.name || ''} (${reset.matricule || ''}) : `
+      + (reset.forgotten ? 'code PIN oublié. ' : 'trop de codes PIN faux. ')
+      + 'Un administrateur doit réinitialiser votre PIN, vous en choisirez un nouveau à la prochaine connexion.';
+    $('#pin-blocked-notified').hidden = !reset.notified;
+    $('#pin-blocked-contact').textContent = reset.contact || 'un administrateur';
+    const link = $('#pin-blocked-link');
+    link.href = reset.url || '';
+    link.textContent = reset.url || '';
+    const image = $('#pin-blocked-qr');
+    image.hidden = !reset.url || typeof qrcode !== 'function';
+    if (!image.hidden) {
+      const qr = qrcode(0, 'M');
+      qr.addData(reset.url);
+      qr.make();
+      image.src = qr.createDataURL(8, 4);
+    }
+    const share = $('#pin-blocked-share');
+    share.hidden = !reset.url || !navigator.share;
+    share.onclick = () => navigator.share({
+      title: 'QRProtec : PIN bloqué',
+      text: `Débloquer le code PIN de ${reset.name || reset.matricule}`,
+      url: reset.url,
+    }).catch(() => { /* partage annule */ });
+    $('#pin-blocked-close').onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function startPinReset(matricule, token) {
+    state.pinReset = { matricule, token };
+    try { sessionStorage.setItem(STORAGE_PIN_RESET, JSON.stringify(state.pinReset)); } catch (e) { /* ignore */ }
+    return openPinReset();
+  }
+
+  function endPinReset() {
+    state.pinReset = null;
+    try { sessionStorage.removeItem(STORAGE_PIN_RESET); } catch (e) { /* ignore */ }
+    $('#pin-reset').close();
+  }
+
+  async function openPinReset() {
+    const request = state.pinReset;
+    if (!request) return;
+    if (!isAdmin()) {
+      feedback.info();
+      showInfo('warn', "Déblocage d'un code PIN", 'Scannez votre badge administrateur pour continuer.');
+      return;
+    }
+    const body = { user: badge(), matricule: request.matricule, token: request.token };
+    let info;
+    try {
+      info = await api('pin-reset/', body);
+    } catch (e) {
+      if (e.data && e.data.pin_required) {
+        // session de l'admin expiree : il rescanne son badge, le deblocage reprend ensuite
+        state.user = null;
+        save();
+        render();
+        showInfo('warn', "Déblocage d'un code PIN", 'Session expirée : scannez à nouveau votre badge administrateur.');
+        return;
+      }
+      endPinReset();
+      feedback.bad();
+      showInfo('bad', 'Déblocage impossible', e.message);
+      return;
+    }
+    feedback.info();
+    const dialog = $('#pin-reset');
+    const fact = (label, value) => [el('dt', {}, label), el('dd', {}, value)];
+    $('#pin-reset-body').replaceChildren(
+      el('dl', { class: 'facts' },
+        fact('Utilisateur', `${info.prenom} ${info.nom}`),
+        fact('Matricule', info.matricule),
+        fact('Rôle', info.role_label),
+        fact('Bloqué le', info.blocked_since ? fmtDateTime(info.blocked_since) : '-'),
+        fact('Essais faux', String(info.failures)),
+        info.contact ? fact('Admin à contacter', info.contact) : [],
+        info.active ? [] : fact('Compte', 'désactivé')),
+      el('p', { class: 'hint' }, "Vérifiez que la demande vient bien de cette personne. Après réinitialisation, elle "
+        + 'choisira un nouveau PIN à sa prochaine connexion avec son badge. Si le badge a pu être perdu ou volé, '
+        + 'renouvelez plutôt le badge depuis le poste.'));
+    $('#pin-reset-error').textContent = '';
+    const confirmButton = $('#pin-reset-confirm');
+    confirmButton.disabled = false;
+    confirmButton.onclick = async () => {
+      confirmButton.disabled = true;
+      try {
+        await api('pin-reset/', { ...body, confirm: true });
+      } catch (e) {
+        confirmButton.disabled = false;
+        $('#pin-reset-error').textContent = e.message;
+        return;
+      }
+      endPinReset();
+      feedback.good();
+      showInfo('ok', 'Code PIN réinitialisé', `${info.prenom} ${info.nom} choisira un nouveau PIN à sa prochaine connexion.`);
+    };
+    $('#pin-reset-cancel').onclick = endPinReset;
+    if (!dialog.open) dialog.showModal();
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -867,6 +1012,7 @@
     if (isMulti()) validate(true); else addToLot();
   });
   $('#more').addEventListener('click', () => $('#menu').showModal());
+  $('#notifications-close').addEventListener('click', () => $('#notifications').close());
   $('#menu').addEventListener('click', (event) => {
     const action = event.target.dataset && event.target.dataset.action;
     if (!action) return;
@@ -881,6 +1027,7 @@
         else handleCode(value);
       }
     }
+    if (action === 'notifications') openNotifications();
     if (action === 'forget-lot') {
       state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = [];
       showInfo('empty', "Scannez l'étiquette d'un lot.");
@@ -1145,7 +1292,6 @@
       state.loading = '';
       render();
     }
-    loadPush();
   }
 
   async function loadStock() {
@@ -1251,27 +1397,39 @@
     });
   }
 
+  // Alertes au choix : la liste vient du serveur (types permis par le role, moins ceux qu'un admin a coupes)
+  const pushTypes = () => (state.push && state.push.types) || (state.pushDevices && state.pushDevices.types) || [];
+
   async function loadPush() {
-    if (!isAdmin() || !pushSupported()) return;
+    if (!canSeeStock()) return;
     try {
-      const subscription = await currentPushSubscription();
-      const prefs = state.push || { stock_low: true, stock_empty: true };
-      state.push = subscription
-        ? { ...prefs, ...(await api('push/subscription/', { user: badge(), endpoint: subscription.endpoint })) }
-        : { ...prefs, subscribed: false };
-      // abonnement du navigateur inconnu du serveur (autre admin, base restauree) : a reactiver
-      if (subscription && !state.push.subscribed) state.push.stale = true;
+      const subscription = pushSupported() ? await currentPushSubscription() : null;
+      const endpoint = subscription ? subscription.endpoint : '';
+      state.pushEndpoint = endpoint;
+      const [current, devices] = await Promise.all([
+        api('push/subscription/', { user: badge(), endpoint }),
+        api('push/devices/', { user: badge(), endpoint }),
+      ]);
+      // choix en cours avant activation : gardes au rechargement
+      state.push = state.push && !current.subscribed ? { ...current, ...pick(state.push, current.types) } : current;
+      state.pushDevices = devices;
+      // abonnement du navigateur inconnu du serveur (autre utilisateur, base restauree) : a reactiver
+      if (subscription && !current.subscribed) state.push.stale = true;
       state.pushError = '';
     } catch (e) {
       state.pushError = e.message;
     }
-    renderStock();
+    renderNotifications();
+  }
+
+  function pick(values, types) {
+    return Object.fromEntries(types.map(({ type }) => [type, !!values[type]]));
   }
 
   async function enablePush() {
-    const prefs = { stock_low: !!(state.push && state.push.stock_low), stock_empty: !!(state.push && state.push.stock_empty) };
-    if (!prefs.stock_low && !prefs.stock_empty) { toast('Choisissez au moins une alerte.', true); return; }
-    state.pushBusy = true; state.pushError = ''; renderStock();
+    const prefs = pick(state.push || {}, pushTypes());
+    if (!Object.values(prefs).some(Boolean)) { toast('Choisissez au moins une alerte.', true); return; }
+    state.pushBusy = true; state.pushError = ''; renderNotifications();
     try {
       // demande de permission declenchee par le clic de l'utilisateur
       const permission = await Notification.requestPermission();
@@ -1302,24 +1460,24 @@
       state.pushError = e.message;
     }
     state.pushBusy = false;
-    renderStock();
+    loadPush();
   }
 
   async function disablePush() {
-    state.pushBusy = true; state.pushError = ''; renderStock();
+    state.pushBusy = true; state.pushError = ''; renderNotifications();
     try {
       const subscription = await currentPushSubscription();
       if (subscription) {
         await api('push/unsubscribe/', { endpoint: subscription.endpoint });
         await subscription.unsubscribe();
       }
-      state.push = { ...state.push, subscribed: false, stale: false };
+      state.push = null;
       toast('Notifications désactivées sur cet appareil.');
     } catch (e) {
       state.pushError = e.message;
     }
     state.pushBusy = false;
-    renderStock();
+    loadPush();
   }
 
   async function testPush() {
@@ -1333,48 +1491,104 @@
     }
   }
 
+  // alertes ou desabonnement d'un appareil de la liste (ce telephone ou un autre)
+  async function updateDevice(device, changes) {
+    if (changes.delete && device.current) { disablePush(); return; }
+    if (changes.delete && !confirm(`Ne plus envoyer de notifications à « ${device.device} » ?`)) return;
+    state.pushBusy = true; renderNotifications();
+    try {
+      state.pushDevices = await api(`push/devices/${device.id}/`, { user: badge(), endpoint: currentEndpoint(), ...changes });
+      if (device.current) state.push = { ...state.push, ...changes };
+      state.pushError = '';
+    } catch (e) {
+      state.pushError = e.message;
+    }
+    state.pushBusy = false;
+    renderNotifications();
+  }
+
+  const currentEndpoint = () => state.pushEndpoint || '';
+
+  function openNotifications() {
+    renderNotifications();
+    $('#notifications').showModal();
+    loadPush();
+  }
+
   // clic sur une notification alors que la page est deja ouverte
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.tab === 'pinreset' && event.data.url) {
+        const params = new URL(event.data.url).searchParams;
+        if (params.get('m') && params.get('t')) startPinReset(params.get('m'), params.get('t'));
+        return;
+      }
       if (event.data && event.data.tab === 'stock' && canSeeStock()) { switchTab('stock'); loadStock(); }
     });
     if (navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
   }
 
-  function renderPush() {
-    const parts = [el('h3', {}, 'Notifications de stock')];
+  function renderNotifications() {
+    const body = $('#notifications-body');
+    if (!body) return;
+    const busy = state.pushBusy ? '' : null;
+    const parts = [];
+    const checkbox = (checked, label, onchange) => el('label', { class: 'check' },
+      el('input', { type: 'checkbox', checked: checked ? '' : null, disabled: busy, onchange }), label);
+
+    // cet appareil
+    const here = [el('h3', {}, 'Cet appareil')];
+    const push = state.push;
+    const subscribed = !!(push && push.subscribed && !push.stale);
     if (!pushSupported()) {
-      parts.push(el('p', { class: 'hint' }, window.isSecureContext
+      here.push(el('p', { class: 'hint' }, window.isSecureContext
         ? "Ce navigateur ne gère pas les notifications web. Sur iPhone, ajoutez d'abord la page à l'écran d'accueil (Partager > Sur l'écran d'accueil)."
         : 'Les notifications web exigent une connexion HTTPS.'));
-      return el('div', { class: 'push-box' }, ...parts);
+    } else if (!push) {
+      here.push(el('p', { class: 'hint' }, 'Chargement…'));
+    } else if (subscribed) {
+      here.push(el('p', { class: 'hint' }, 'Activées : vous serez prévenu même page fermée. Choisissez les alertes dans la liste ci-dessous.'));
+      here.push(el('div', { class: 'push-buttons' },
+        el('button', { type: 'button', onclick: testPush, disabled: busy }, 'Envoyer un test'),
+        el('button', { type: 'button', onclick: disablePush, disabled: busy }, 'Désactiver')));
+    } else if (!push.types.length) {
+      here.push(el('p', { class: 'hint' }, "Un administrateur a désactivé toutes vos notifications."));
+    } else {
+      here.push(el('p', { class: 'hint' }, 'Recevez sur cet appareil les alertes choisies :'));
+      for (const { type, label } of push.types) {
+        here.push(checkbox(push[type], label, (event) => { push[type] = event.target.checked; }));
+      }
+      if (Notification.permission === 'denied') {
+        here.push(el('p', { class: 'error' }, 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'));
+      }
+      here.push(el('div', { class: 'push-buttons' },
+        el('button', { type: 'button', class: 'primary', onclick: enablePush, disabled: busy },
+          state.pushBusy ? 'Activation…' : 'Activer les notifications')));
     }
-    if (!state.push) {
+    parts.push(el('div', { class: 'push-box' }, ...here));
+
+    // tous les appareils abonnes de l'utilisateur
+    const list = state.pushDevices;
+    parts.push(el('h3', {}, 'Vos appareils'));
+    if (!list) {
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
-      return el('div', { class: 'push-box' }, ...parts);
-    }
-    const push = state.push;
-    const subscribed = push.subscribed && !push.stale;
-    const option = (field, label) => el('label', { class: 'check' },
-      el('input', { type: 'checkbox', checked: push[field] ? '' : null, disabled: state.pushBusy ? '' : null,
-        onchange: (event) => { push[field] = event.target.checked; if (subscribed) enablePush(); else renderStock(); } }),
-      label);
-    parts.push(el('p', { class: 'hint' }, subscribed
-      ? 'Activées sur cet appareil : vous serez prévenu même page fermée.'
-      : 'Recevez une alerte sur cet appareil quand le stock passe sous son minimum ou arrive à zéro.'));
-    parts.push(option('stock_low', 'Stock bas (sous le minimum fixé)'));
-    parts.push(option('stock_empty', 'Stock vide (0 en stock)'));
-    if (Notification.permission === 'denied') {
-      parts.push(el('p', { class: 'error' }, 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'));
+    } else if (!list.devices.length) {
+      parts.push(el('p', { class: 'hint' }, 'Aucun appareil ne reçoit vos notifications.'));
+    } else {
+      for (const device of list.devices) {
+        const sent = device.last_sent ? `dernier envoi le ${fmtDateTime(device.last_sent)} (${device.last_status})` : 'aucun envoi';
+        parts.push(el('div', { class: 'device' },
+          el('div', { class: 'row-head' },
+            el('b', {}, device.device + (device.current ? ' · cet appareil' : '')),
+            el('button', { type: 'button', disabled: busy, onclick: () => updateDevice(device, { delete: true }) }, 'Retirer')),
+          el('p', { class: 'hint' }, `Abonné le ${fmtDate(device.created)}, ${sent}.`),
+          ...list.types.map(({ type, label }) => checkbox(device[type], label,
+            (event) => updateDevice(device, { [type]: event.target.checked })))));
+      }
+      if (!list.types.length) parts.push(el('p', { class: 'hint' }, 'Un administrateur a désactivé toutes vos notifications.'));
     }
     if (state.pushError) parts.push(el('p', { class: 'error' }, state.pushError));
-    const buttons = subscribed
-      ? [el('button', { type: 'button', onclick: testPush, disabled: state.pushBusy ? '' : null }, 'Envoyer un test'),
-        el('button', { type: 'button', onclick: disablePush, disabled: state.pushBusy ? '' : null }, 'Désactiver')]
-      : [el('button', { type: 'button', class: 'primary', onclick: enablePush, disabled: state.pushBusy ? '' : null },
-        state.pushBusy ? 'Activation…' : 'Activer les notifications')];
-    parts.push(el('div', { class: 'push-buttons' }, ...buttons));
-    return el('div', { class: 'push-box' }, ...parts);
+    body.replaceChildren(...parts);
   }
 
   function renderStock() {
@@ -1384,8 +1598,9 @@
       return;
     }
     const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'État des stocks (lecture seule)'),
-      el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser'))];
-    if (isAdmin()) parts.push(renderPush());
+      el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser')),
+    el('p', { class: 'hint' }, 'Alertes de stock sur votre téléphone : ',
+      el('button', { type: 'button', class: 'text-link', onclick: openNotifications }, 'Notifications'))];
     if (!state.stock) {
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
     } else {
@@ -1409,9 +1624,10 @@
     $('#count-todo').textContent = renderTodo();
     $('#count-done').textContent = renderDone();
     renderLot();
-    if (!state.user) { state.lots = null; state.stock = null; state.push = null; }
+    if (!state.user) { state.lots = null; state.stock = null; state.push = null; state.pushDevices = null; }
     renderHome();
     $('#tab-stock').hidden = !canSeeStock();
+    $('#menu-notifications').hidden = !canSeeStock();
     if (state.tab === 'stock' && !canSeeStock()) switchTab('home');
     renderStock();
     const chip = $('#user-chip');
@@ -1470,6 +1686,10 @@
     } else if (route === 'seal' && params.get('lot') && params.get('s')) {
       await scanSeal({ kind: 'seal', code: location.href, id: params.get('lot'), key: params.get('s') });
       cleanUrl(params.get('lot'));
+    } else if (route === 'pinreset' && params.get('m') && params.get('t')) {
+      cleanUrl(state.lotId);
+      if (state.lotId) await loadLot(state.lotId);
+      await startPinReset(params.get('m'), params.get('t'));
     } else if (route === 'pack' && params.get('id')) {
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);

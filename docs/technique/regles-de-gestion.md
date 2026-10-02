@@ -176,15 +176,31 @@ restaurer. Rien n'est jamais effacé de la base.
 | Rôle | Poste | Téléphone |
 |---|---|---|
 | `normal` (Secouriste) | vérifs, pile de scans, réassort | vérifs, liste des lots |
-| `gestion` | + mode privilégié : stocks, inventaire, paquets, gestion des lots | + onglet Stock (lecture) |
-| `admin` | + Réglages, Utilisateurs, éditeur d'étiquettes | + notifications web |
+| `gestion` | + mode privilégié : stocks, inventaire, paquets, gestion des lots | + onglet Stock (lecture), notifications web (stock, étiquettes de lot) |
+| `admin` | + Réglages, Utilisateurs, éditeur d'étiquettes | + notifications web (aussi PIN bloqué, badges) |
 
 - Le **badge** (QR avec matricule et clé) identifie. Il expire au bout d'un an ; le renouveler
   invalide l'ancien.
 - Le **PIN** (4 à 8 chiffres) authentifie : obligatoire pour les admins, facultatif pour les autres.
   Un admin sans PIN le choisit à sa connexion suivante. 5 erreurs : blocage 5 minutes.
-- Sur le téléphone, `POST /api/auth/` renvoie un **jeton de session** signé (12 h), lié aux 8 derniers
-  caractères de la clé du badge : renouveler le badge invalide les sessions. Il remplace le PIN pour
+- **50 erreurs** depuis le dernier PIN correct (`QRPROTEC_PIN_BLOCK_AFTER_FAILURES`) : le PIN est
+  bloqué jusqu'à ce qu'un admin le réinitialise, et les sessions ouvertes ne valent plus rien.
+  `POST /api/auth/` répond alors `pin_blocked` avec `pin_reset` : URL `<base>/pinreset?m=…&t=…`
+  (le jeton signe le matricule et l'heure du blocage, il ne sert qu'une fois) et nom de l'admin à
+  contacter (`pin_contact`, choisi dans la fiche de l'utilisateur). Le téléphone affiche ce lien et son
+  QR code ; l'admin le scanne, se connecte (badge + PIN) et confirme : `POST /api/pin-reset/`
+  (`confirm: true`). Sur le poste : **Utilisateurs > Réinitialiser le PIN**. Après réinitialisation,
+  l'utilisateur choisit un nouveau PIN à sa connexion suivante (`pin_reset_required`).
+- **Code oublié** (lien discret sous la saisie du PIN, front web et poste) : `POST /api/pin-forgot/`
+  (`matricule`, `key` du badge) bloque le PIN de la même façon (`pin_forgotten`) et renvoie la même
+  réponse `pin_blocked`, pour le même parcours de déblocage. Refusé si l'utilisateur n'a pas de PIN.
+- **Notification des admins** au blocage (50 erreurs ou code oublié) : SMS (événement `pin_blocked`)
+  et notifications web (option de l'abonnement), avec le lien de déblocage. **Une seule par
+  blocage** : `pin_reset_notified` est pris avant l'envoi et ne revient à `False` qu'à la
+  réinitialisation du PIN, donc répéter les demandes ou les essais n'envoie rien de plus. S'il n'y
+  avait aucun destinataire, la tentative suivante réessaie.
+- Sur le téléphone, `POST /api/auth/` renvoie un **jeton de session** signé (12 h), lié à la fin de
+  l'empreinte de la clé du badge : renouveler le badge invalide les sessions. Il remplace le PIN pour
   les lectures réservées (état des stocks).
 - Première installation : tant qu'aucun admin n'a de badge valide (`GET /api/setup/`), le poste
   propose de créer le premier administrateur. Sur le serveur : `manage.py createadmin`.

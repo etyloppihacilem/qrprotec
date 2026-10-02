@@ -1,10 +1,12 @@
 import json
 from datetime import timedelta
+from io import StringIO
 
 from django.conf import settings
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from . import views
 from .base62 import decode_base62
 from .models import FrontKey, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, Secouristes
 
@@ -12,8 +14,12 @@ LOCAL = {'qrprotec.role': 'local'}
 
 
 class ApiTestCase(TestCase):
-    def call(self, method, path, data=None, local=True):
-        extra = LOCAL if local else {}
+    def call(self, method, path, data=None, local=True, session=None):
+        """local : requete du poste, avec par defaut la session de l'administrateur connecte (session=False :
+        personne de connecte, ou un autre jeton)."""
+        extra = dict(LOCAL) if local else {}
+        if local and session is not False:
+            extra['HTTP_X_QRPROTEC_SESSION'] = session or self.operator_session
         body = json.dumps(data) if data is not None else None
         response = self.client.generic(method, path, body or '', content_type='application/json', **extra)
         is_json = response.get('Content-Type', '').startswith('application/json')
@@ -30,6 +36,11 @@ class ApiTestCase(TestCase):
         self.user = Secouristes(matricule='M001', nom='Dupont', prenom='Jeanne')
         self.user.renew_key()
         self.user.save()
+        # administrateur connecte sur le poste (jeton de session envoye par le front)
+        self.operator = Secouristes(matricule='P001', nom='Poste', prenom='Admin', role='admin')
+        self.operator.renew_key()
+        self.operator.save()
+        self.operator_session = views.session_token(self.operator)
 
     def create(self, item_type, peremption, count):
         return ItemsPacks.objects.add_items(item_type, peremption, count, 'test')
@@ -74,7 +85,7 @@ class PublicApiTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=False)
         self.assertEqual(code, 403)
         payload['key'] = self.lot.verif_key
-        payload['user'] = {'matricule': 'M001', 'key': self.user.key}
+        payload['user'] = {'matricule': 'M001', 'key': self.user.new_key}
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=False)
         self.assertEqual(code, 200)
         self.assertTrue(body['complete'])
@@ -90,21 +101,22 @@ class PublicApiTests(ApiTestCase):
         self.assertIn(f'key={self.lot.verif_key}', body['private_url'])
 
     def test_auth(self):
-        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.key}, local=False)
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         self.assertEqual(code, 200)
         self.assertEqual(body['prenom'], 'Jeanne')
         code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': 'x'}, local=False)
         self.assertEqual(code, 403)
         self.user.key_expires = self.today - timedelta(days=1)
         self.user.save()
-        code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.key}, local=False)
+        code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         self.assertEqual(code, 403)
 
     @override_settings(QRPROTEC={**__import__('django.conf').conf.settings.QRPROTEC, 'LOCAL_API_TOKEN': 'secret'})
     def test_local_token(self):
         code, _ = self.call('GET', '/api/stock/')
         self.assertEqual(code, 403)
-        response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_TOKEN='secret', **LOCAL)
+        response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_TOKEN='secret',
+                                   HTTP_X_QRPROTEC_SESSION=self.operator_session, **LOCAL)
         self.assertEqual(response.status_code, 200)
 
     def test_remote_front_key(self):
@@ -113,6 +125,7 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(self.client.get('/api/stock/', **remote).status_code, 401)
         self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY='qrpf_faux', **remote).status_code, 401)
         front, key = FrontKey.create('accueil')
+        remote['HTTP_X_QRPROTEC_SESSION'] = self.operator_session
         response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=key, HTTP_X_FORWARDED_FOR='192.0.2.7', **remote)
         self.assertEqual(response.status_code, 200)
         front.refresh_from_db()
@@ -142,6 +155,86 @@ class PublicApiTests(ApiTestCase):
         call_command('frontkey', 'revoke', 'accueil', stdout=StringIO())
         self.assertIsNone(FrontKey.authenticate(key))
         self.assertNotIn(key, FrontKey.objects.get().key_hash)
+
+
+class FrontSessionTests(ApiTestCase):
+    """Le poste (API locale ou distante) n'a plus de privilege en soi : les routes de gestion exigent
+    l'utilisateur connecte, reconnu par son jeton de session."""
+
+    def session(self, matricule, role):
+        user = Secouristes(matricule=matricule, nom='N', prenom='P', role=role)
+        user.renew_key()
+        user.save()
+        return user, views.session_token(user)
+
+    def test_routes_by_role(self):
+        normal = views.session_token(self.user)
+        _, gestion = self.session('G001', 'gestion')
+        # personne de connecte : lectures du kiosk seulement, sans les cles des lots
+        code, body = self.call('GET', '/api/stock/', session=False)
+        self.assertEqual((code, body.get('login_required')), (403, True))
+        code, lots = self.call('GET', '/api/lots/', session=False)
+        self.assertEqual(code, 200)
+        self.assertNotIn('verif_key', lots[0])
+        self.assertNotIn('verif_key', self.call('GET', f'/api/lots/{self.lot.id}/', session=False)[1])
+        self.assertEqual(self.call('GET', '/api/item-types/', session=False)[0], 200)
+        self.assertEqual(self.call('POST', '/api/item-types/', {'type': 'serphy', 'name': 'x'}, session=False)[0], 403)
+        self.assertEqual(self.call('GET', '/api/users/', session=False)[0], 403)
+        self.assertEqual(self.call('POST', '/api/users/', {'matricule': 'X1', 'nom': 'a', 'prenom': 'b'},
+                                   session=False)[0], 403)  # il existe deja un admin
+        self.assertEqual(self.call('GET', '/api/users/', session='faux')[0], 403)
+        # secouriste : pas de gestion
+        self.assertEqual(self.call('GET', '/api/stock/', session=normal)[0], 403)
+        self.assertNotIn('verif_key', self.call('GET', '/api/lots/', session=normal)[1][0])
+        # gestion : inventaire, pas les utilisateurs ni les reglages
+        self.assertEqual(self.call('GET', '/api/stock/', session=gestion)[0], 200)
+        self.assertIn('verif_key', self.call('GET', '/api/lots/', session=gestion)[1][0])
+        self.assertEqual(self.call('GET', '/api/users/', session=gestion)[0], 403)
+        self.assertEqual(self.call('GET', '/api/notifications/', session=gestion)[0], 403)
+        self.assertEqual(self.call('GET', '/api/users/')[0], 200)  # admin
+
+    def test_identity_comes_from_session(self):
+        items = self.create(self.compresses, self.today + timedelta(days=60), 2)
+        normal = views.session_token(self.user)
+        # le matricule envoye par le poste est ignore : c'est l'utilisateur de la session qui verifie
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items],
+                                                                          'user': 'P001'}, session=normal)
+        self.assertEqual(code, 200)
+        self.lot.refresh_from_db()
+        self.assertEqual(self.lot.last_verif_by, 'M:M001')
+        # sans session, le poste est traite comme un telephone : cle du lot obligatoire
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'P001'}, session=False)
+        self.assertEqual(code, 403)
+
+    def test_session_invalid_after_badge_renewal_or_deactivation(self):
+        user, token = self.session('G002', 'gestion')
+        self.assertEqual(self.call('GET', '/api/stock/', session=token)[0], 200)
+        user.active = False
+        user.save()
+        self.assertEqual(self.call('GET', '/api/stock/', session=token)[0], 403)
+        user.active = True
+        user.renew_key()
+        user.save()
+        self.assertEqual(self.call('GET', '/api/stock/', session=token)[0], 403)
+
+    def test_remote_needs_session_and_has_no_django_admin(self):
+        _, key = FrontKey.create('accueil')
+        remote = {'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1', 'HTTP_X_QRPROTEC_KEY': key}
+        self.assertEqual(self.client.get('/api/stock/', **remote).status_code, 403)
+        self.assertEqual(self.client.get('/api/users/', **remote).status_code, 403)
+        self.assertEqual(self.client.get('/api/lots/', **remote).status_code, 200)
+        self.assertEqual(self.client.get('/api/users/', HTTP_X_QRPROTEC_SESSION=self.operator_session,
+                                         **remote).status_code, 200)
+        self.assertEqual(self.client.get('/admin/', **remote).status_code, 404)
+
+    def test_first_admin_without_session(self):
+        self.operator.delete()
+        code, body = self.call('POST', '/api/users/', {'matricule': 'R001', 'nom': 'a', 'prenom': 'b', 'role': 'normal'},
+                               session=False)
+        self.assertEqual((code, body['role']), (201, 'admin'))
+        self.assertEqual(self.call('GET', '/api/users/', session=body['session'])[0], 200)
+        code, _ = self.call('POST', '/api/users/', {'matricule': 'R002', 'nom': 'a', 'prenom': 'b'}, session=False)
+        self.assertEqual(code, 403)
 
 
 class VerifTests(ApiTestCase):
@@ -273,25 +366,28 @@ class SetupTests(ApiTestCase):
     def test_setup_and_createadmin(self):
         from io import StringIO
         from django.core.management import call_command
-        code, body = self.call('GET', '/api/setup/')
+        self.operator.delete()
+        code, body = self.call('GET', '/api/setup/', session=False)
         self.assertTrue(body['needs_admin'])
         self.assertEqual(self.call('GET', '/api/setup/', local=False)[0], 404)
         out = StringIO()
         call_command('createadmin', 'R001', 'Melica', 'Hippolyte', stdout=out)
         self.assertIn('badge?m=R001&key=', out.getvalue())
-        code, body = self.call('GET', '/api/setup/')
+        code, body = self.call('GET', '/api/setup/', session=False)
         self.assertFalse(body['needs_admin'])
         admin = Secouristes.objects.get(matricule='R001')
         self.assertTrue(admin.privileged)
         self.assertEqual(admin.role, 'admin')
-        old_key = admin.key
+        old_hash = admin.key_hash
         call_command('createadmin', 'R001', stdout=StringIO())
-        self.assertNotEqual(Secouristes.objects.get(matricule='R001').key, old_key)
+        self.assertNotEqual(Secouristes.objects.get(matricule='R001').key_hash, old_hash)
 
 
+# PIN haches avec un algorithme rapide : les tests de blocage font une cinquantaine d'essais
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
 class PinTests(ApiTestCase):
     def auth(self, user, **extra):
-        return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.key, **extra}, local=False)
+        return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key, **extra}, local=False)
 
     def test_admin_sets_pin_at_first_login_then_needs_it(self):
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
@@ -310,7 +406,7 @@ class PinTests(ApiTestCase):
         code, body = self.auth(admin, pin='4821')
         self.assertEqual(code, 200)
         # le jeton de session ouvre l'etat des stocks sans redemander le PIN
-        badge = {'matricule': 'A001', 'key': admin.key}
+        badge = {'matricule': 'A001', 'key': admin.new_key}
         code, _ = self.call('POST', '/api/stock/summary/', {'user': badge}, local=False)
         self.assertEqual(code, 403)
         code, _ = self.call('POST', '/api/stock/summary/', {'user': {**badge, 'session': body['session']}}, local=False)
@@ -336,6 +432,133 @@ class PinTests(ApiTestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.auth(self.user)[0], 200)
 
+    def fail_pin(self, user, times):
+        for _ in range(times):
+            Secouristes.objects.filter(pk=user.pk).update(pin_locked_until=None)  # saute le blocage de 5 min
+            code, body = self.auth(user, pin='000000')
+        return code, body
+
+    def test_pin_blocked_after_failures_until_admin_reset(self):
+        admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
+        admin.renew_key()
+        admin.set_pin('4821')
+        admin.save()
+        code, _ = self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'M001'})
+        self.assertEqual(code, 400)  # l'admin a contacter doit etre un administrateur
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'A001'})
+        self.assertEqual((body['pin_contact'], body['pin_contact_name']), ('A001', 'Min Ad'))
+        code, session = self.auth(self.user, pin='123456')
+        self.assertEqual(code, 200)
+
+        # un PIN correct remet le compteur a zero
+        self.fail_pin(self.user, 49)
+        self.assertEqual(self.auth(self.user, pin='123456')[0], 200)
+        code, body = self.fail_pin(self.user, 49)
+        self.assertFalse(body.get('pin_blocked', False))
+        code, body = self.fail_pin(self.user, 1)  # 50e echec
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_blocked'])
+        reset = body['pin_reset']
+        self.assertIn('pinreset?m=M001&t=', reset['url'])
+        self.assertEqual(reset['contact'], 'Min Ad')
+        # bloque : meme le bon PIN est refuse, et la session deja ouverte ne vaut plus rien
+        code, body = self.auth(self.user, pin='123456')
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_blocked'])
+        Secouristes.objects.filter(pk=self.user.pk).update(role='gestion')
+        badge = {'matricule': 'M001', 'key': self.user.new_key, 'session': session['session']}
+        self.assertEqual(self.call('POST', '/api/stock/summary/', {'user': badge}, local=False)[0], 403)
+
+        token = reset['url'].split('t=')[1]
+        from urllib.parse import unquote
+        token = unquote(token)
+        request = {'matricule': 'M001', 'token': token}
+        # deblocage : admin connecte (badge + session PIN) seulement
+        self.assertEqual(self.call('POST', '/api/pin-reset/', request, local=False)[0], 403)
+        admin_badge = {'matricule': 'A001', 'key': admin.new_key}
+        code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge}, local=False)
+        self.assertEqual((code, body.get('pin_required')), (403, True))
+        code, login = self.auth(admin, pin='4821')
+        admin_badge['session'] = login['session']
+        code, _ = self.call('POST', '/api/pin-reset/', {'matricule': 'M001', 'token': 'faux', 'user': admin_badge},
+                            local=False)
+        self.assertEqual(code, 404)
+        code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge}, local=False)
+        self.assertEqual((code, body['reset'], body['failures'], body['prenom']), (200, False, 50, 'Jeanne'))
+        code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge, 'confirm': True}, local=False)
+        self.assertEqual((code, body['reset']), (200, True))
+        # lien a usage unique
+        code, _ = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge, 'confirm': True}, local=False)
+        self.assertEqual(code, 404)
+        # l'utilisateur choisit un nouveau PIN a sa prochaine connexion
+        code, body = self.auth(self.user)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_setup_required'])
+        code, body = self.auth(self.user, new_pin='2468')
+        self.assertEqual(code, 200)
+        self.assertFalse(body['pin_reset_required'])
+        self.assertEqual(self.auth(self.user, pin='2468')[0], 200)
+
+    def test_local_pin_reset(self):
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        self.user.refresh_from_db()
+        self.fail_pin(self.user, 50)
+        code, users = self.call('GET', '/api/users/')
+        row = next(user for user in users if user['matricule'] == 'M001')
+        self.assertTrue(row['pin_blocked'])
+        self.assertEqual(row['pin_failures'], 50)
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin_reset': True})
+        self.assertEqual((body['pin_blocked'], body['pin_reset_required'], body['has_pin']), (False, True, False))
+        self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
+
+
+    def test_forgotten_pin(self):
+        # sans PIN : rien a oublier
+        code, body = self.call('POST', '/api/pin-forgot/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
+        self.assertEqual(code, 400)
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        code, _ = self.call('POST', '/api/pin-forgot/', {'matricule': 'M001', 'key': 'faux'}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', '/api/pin-forgot/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_blocked'])
+        self.assertTrue(body['pin_reset']['forgotten'])
+        self.assertFalse(body['pin_reset']['notified'])  # aucune notification configuree
+        self.assertIn('oublié', body['error'])
+        # bloque comme apres 50 essais, meme lien de deblocage
+        code, again = self.auth(self.user, pin='123456')
+        self.assertTrue(again['pin_blocked'])
+        self.assertEqual(again['pin_reset']['url'], body['pin_reset']['url'])
+        code, users = self.call('GET', '/api/users/')
+        row = next(user for user in users if user['matricule'] == 'M001')
+        self.assertTrue(row['pin_forgotten'])
+        self.call('PATCH', '/api/users/M001/', {'pin_reset': True})
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.pin_forgotten)
+        self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
+
+class BadgeKeyTests(ApiTestCase):
+    def test_badge_key_only_at_creation_and_renewal(self):
+        code, created = self.call('POST', '/api/users/', {'matricule': 'M002', 'nom': 'Martin', 'prenom': 'Paul'})
+        key = created['key']
+        self.assertIn(f'key={key}', created['badge_url'])
+        # ni la liste ni la fiche ne contiennent la cle, la base n'en garde que l'empreinte
+        code, users = self.call('GET', '/api/users/')
+        self.assertTrue(all('key' not in user and 'badge_url' not in user for user in users))
+        code, body = self.call('GET', '/api/users/M002/')
+        self.assertNotIn('key', body)
+        stored = Secouristes.objects.get(matricule='M002')
+        self.assertEqual(len(stored.key_hash), 64)
+        self.assertNotIn(key, stored.key_hash)
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': key}, local=False)[0], 200)
+        # renouvellement : nouvelle cle affichee une fois, l'ancienne ne marche plus
+        code, renewed = self.call('POST', '/api/users/M002/renew-key/')
+        self.assertNotEqual(renewed['key'], key)
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': key}, local=False)[0], 403)
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': renewed['key']},
+                                   local=False)[0], 200)
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': None}, local=False)[0], 403)
+
 
 class RestockTests(ApiTestCase):
     def test_restock_recommends_verif(self):
@@ -359,7 +582,7 @@ class RestockTests(ApiTestCase):
 
 class RoleTests(ApiTestCase):
     def badge(self, user):
-        return {'matricule': user.matricule, 'key': user.key}
+        return {'matricule': user.matricule, 'key': user.new_key}
 
     def test_roles_and_public_summaries(self):
         code, body = self.call('POST', '/api/users/', {'matricule': 'G001', 'nom': 'Gest', 'prenom': 'Ion',
@@ -367,9 +590,11 @@ class RoleTests(ApiTestCase):
         self.assertEqual(code, 201)
         self.assertEqual(body['role'], 'gestion')
         self.assertTrue(body['privileged'])
+        gestion_key = body['key']  # cle du badge : seulement dans la reponse de creation
         code, _ = self.call('POST', '/api/users/', {'matricule': 'X001', 'nom': 'a', 'prenom': 'b', 'role': 'chef'})
         self.assertEqual(code, 400)
         gestion = Secouristes.objects.get(matricule='G001')
+        gestion.new_key = gestion_key
         # etat des stocks : lecture seule, gestion ou admin seulement
         code, stock = self.call('POST', '/api/stock/summary/', {'user': self.badge(gestion)}, local=False)
         self.assertEqual(code, 200)
@@ -677,6 +902,109 @@ class SmsTests(ApiTestCase):
         self.assertEqual(settings_body['recipients'][0]['last_status'], 'Envoyé')
 
 
+    def test_pin_blocked_notified_once_per_block(self):
+        self.call('PATCH', '/api/notifications/', {'enabled': True})
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'P001'})
+        self.user.refresh_from_db()
+        badge = {'matricule': 'M001', 'key': self.user.new_key}
+        with self.captureOnCommitCallbacks(execute=True):
+            for _ in range(5):  # demandes repetees : une seule notification
+                code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
+                self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
+        self.assertTrue(body['pin_reset']['notified'])
+        self.assertEqual(len(self.sent), 2)  # un SMS par destinataire
+        self.assertIn('Jeanne Dupont (M001) a oublié son code PIN (contact : Admin Poste)', self.sent[0][1])
+        self.assertIn('/pinreset?m=M001&t=', self.sent[0][1])
+        # evenement desactivable
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})  # nouveau PIN : debloque
+        self.call('PATCH', '/api/notifications/', {'events': {'pin_blocked': False}})
+        self.sent.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
+        self.assertEqual(self.sent, [])
+        self.assertFalse(body['pin_reset']['notified'])
+        # active ensuite : la tentative suivante previent les admins, une fois
+        self.call('PATCH', '/api/notifications/', {'events': {'pin_blocked': True}})
+        with self.captureOnCommitCallbacks(execute=True):
+            for _ in range(3):
+                self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
+        self.assertEqual(len(self.sent), 2)
+
+    def test_pin_blocked_after_failures_notifies(self):
+        self.call('PATCH', '/api/notifications/', {'enabled': True})
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        Secouristes.objects.filter(pk=self.user.pk).update(pin_failures_total=49)
+        with self.captureOnCommitCallbacks(execute=True):
+            code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '0000'},
+                                   local=False)
+        self.assertTrue(body['pin_blocked'])
+        self.assertFalse(body['pin_reset']['forgotten'])
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("bloqué après trop d'essais", self.sent[0][1])
+
+    def test_key_renewals(self):
+        self.call('PATCH', '/api/notifications/', {'enabled': True, 'events': {'stock_low': False}})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+            self.call('POST', '/api/users/M001/renew-key/')
+        self.assertEqual(self.sent, [])  # desactives par defaut
+        self.call('PATCH', '/api/notifications/', {'events': {'lot_key_renewed': True, 'badge_renewed': True}})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')[0], 200)
+            self.assertEqual(self.call('POST', '/api/users/M001/renew-key/')[0], 200)
+        messages = [message for user, message in self.sent if user == 'u1']
+        self.assertEqual(messages, ['QRProtec : étiquette privée du lot Sac A renouvelée par Admin Poste',
+                                    'QRProtec : badge de Jeanne Dupont (M001) renouvelé par Admin Poste'])
+
+    def test_key_expirations_once_per_stage(self):
+        from django.core.management import call_command
+        self.call('PATCH', '/api/notifications/', {
+            'enabled': True, 'events': {'stock_low': False, 'lot_key_expiring': True, 'badge_expiring': True}})
+        Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
+        Secouristes.objects.filter(pk=self.user.pk).update(key_expires=self.today - timedelta(days=1))
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        messages = [message for user, message in self.sent if user == 'u1']
+        day = (self.today + timedelta(days=10)).strftime('%d/%m/%Y')
+        self.assertEqual(len(messages), 2)
+        self.assertIn(f'étiquettes privées de lot qui expirent bientôt : Sac A ({day})', messages[0])
+        self.assertIn('badges expirés : Jeanne Dupont (M001)', messages[1])
+        # deja annonce : rien de plus
+        self.sent.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(self.sent, [])
+        # l'etiquette expire : nouvelle etape, une alerte
+        Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today - timedelta(days=1))
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('étiquettes privées de lot expirées : Sac A', self.sent[0][1])
+        # renouvellement : l'alerte reviendra a la prochaine expiration
+        self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+        self.lot.refresh_from_db()
+        self.assertEqual(self.lot.key_expiry_stage, 0)
+
+    def test_key_expiry_warning_days_setting(self):
+        from django.core.management import call_command
+        code, body = self.call('GET', '/api/notifications/')
+        self.assertEqual(body['key_expiry_warning_days'], 30)
+        self.assertEqual(self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 0})[0], 400)
+        code, body = self.call('PATCH', '/api/notifications/', {
+            'enabled': True, 'key_expiry_warning_days': 5, 'events': {'stock_low': False, 'lot_key_expiring': True}})
+        self.assertEqual(body['key_expiry_warning_days'], 5)
+        Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(self.sent, [])  # 10 jours > 5 : pas encore
+        self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 15})
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(len(self.sent), 2)
+        # vide : retour a la valeur de qrprotec.conf
+        code, body = self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': None})
+        self.assertEqual(body['key_expiry_warning_days'], 30)
+
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
 class WebPushTests(ApiTestCase):
     """Notifications web : chiffrement RFC 8291, VAPID, abonnement des admins et alertes de stock."""
@@ -696,7 +1024,7 @@ class WebPushTests(ApiTestCase):
         self.admin.renew_key()
         self.admin.set_pin('4821')
         self.admin.save()
-        self.badge = {'matricule': 'A001', 'key': self.admin.key, 'session': views.session_token(self.admin)}
+        self.badge = {'matricule': 'A001', 'key': self.admin.new_key, 'session': views.session_token(self.admin)}
         self.browser_key = ec.generate_private_key(ec.SECP256R1())
         self.browser_auth = webpush.b64url(b'0123456789abcdef')
 
@@ -764,14 +1092,14 @@ class WebPushTests(ApiTestCase):
         der = encode_dss_signature(int.from_bytes(raw[:32], 'big'), int.from_bytes(raw[32:], 'big'))
         public.verify(der, f'{header}.{claims}'.encode(), ec.ECDSA(hashes.SHA256()))  # leve si invalide
 
-    def test_only_admins_subscribe(self):
+    def test_gestion_and_admins_subscribe(self):
         code, body = self.call('POST', '/api/push/subscription/',
-                               {'user': {'matricule': 'M001', 'key': self.user.key}, 'subscription': self.subscription()},
+                               {'user': {'matricule': 'M001', 'key': self.user.new_key}, 'subscription': self.subscription()},
                                local=False)
-        self.assertEqual((code, body['error']), (403, 'Réservé aux administrateurs'))
+        self.assertEqual((code, body['error']), (403, 'Réservé aux rôles gestion et admin'))
         # sans jeton de session (PIN), refuse aussi
         code, _ = self.call('POST', '/api/push/subscription/',
-                            {'user': {'matricule': 'A001', 'key': self.admin.key}, 'subscription': self.subscription()},
+                            {'user': {'matricule': 'A001', 'key': self.admin.new_key}, 'subscription': self.subscription()},
                             local=False)
         self.assertEqual(code, 403)
         code, _ = self.call('POST', '/api/push/subscription/',
@@ -790,7 +1118,8 @@ class WebPushTests(ApiTestCase):
         code, body = self.call('POST', '/api/push/unsubscribe/', {'endpoint': endpoint}, local=False)
         self.assertTrue(body['deleted'])
         code, body = self.call('POST', '/api/push/subscription/', {'user': self.badge, 'endpoint': endpoint}, local=False)
-        self.assertEqual(body, {'subscribed': False})
+        self.assertFalse(body['subscribed'])
+        self.assertEqual([row['type'] for row in body['types']][:3], ['stock_low', 'stock_empty', 'pin_blocked'])
 
     def test_test_notification(self):
         self.subscribe()
@@ -838,10 +1167,111 @@ class WebPushTests(ApiTestCase):
 
     def test_demoted_admin_receives_nothing(self):
         self.subscribe()
-        Secouristes.objects.filter(matricule='A001').update(role='gestion')
+        Secouristes.objects.filter(matricule='A001').update(role='normal')
         with self.captureOnCommitCallbacks(execute=True):
             self.call('GET', '/api/stock/')
         self.assertEqual(self.sent, [])
+
+    def test_gestion_receives_only_its_types(self):
+        self.subscribe(badge_renewed=True, lot_key_renewed=True)
+        Secouristes.objects.filter(matricule='A001').update(role='gestion')
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', '/api/users/M001/renew-key/')  # reserve aux admins
+            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+        self.assertEqual([message['title'] for message in self.messages()], ['QRProtec : étiquette de lot renouvelée'])
+
+    def test_device_manager(self):
+        self.subscribe()
+        endpoint = self.subscription()['endpoint']
+        other = self.webpush.PushSubscription.objects.create(
+            user=self.admin, endpoint='https://push.example.net/other', p256dh='x', auth='y', device='Firefox · Linux')
+        code, body = self.call('POST', '/api/push/devices/', {'user': self.badge, 'endpoint': endpoint}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual([(row['device'], row['current']) for row in body['devices']],
+                         [('Firefox · Linux', False), ('Navigateur', True)])
+        self.assertEqual(len(body['types']), 7)
+        # alertes d'un autre appareil, puis desabonnement a distance
+        code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
+                               local=False)
+        self.assertFalse(body['devices'][0]['stock_low'])
+        code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'delete': True},
+                               local=False)
+        self.assertEqual(len(body['devices']), 1)
+        # l'appareil d'un autre utilisateur est introuvable
+        mine = self.webpush.PushSubscription.objects.get(endpoint=endpoint)
+        gestion = Secouristes(matricule='G001', nom='Ges', prenom='Tion', role='gestion')
+        gestion.renew_key()
+        gestion.save()
+        badge = {'matricule': 'G001', 'key': gestion.new_key, 'session': views.session_token(gestion)}
+        code, _ = self.call('POST', f'/api/push/devices/{mine.id}/', {'user': badge, 'delete': True}, local=False)
+        self.assertEqual(code, 404)
+        code, body = self.call('POST', '/api/push/devices/', {'user': badge}, local=False)
+        self.assertEqual((body['devices'], len(body['types'])), ([], 4))
+
+    def test_admin_disables_types_per_user(self):
+        self.subscribe()
+        code, users = self.call('GET', '/api/users/')
+        row = next(user for user in users if user['matricule'] == 'A001')
+        self.assertEqual(row['push_devices'], 1)
+        self.assertTrue(all(entry['enabled'] for entry in row['push_types']))
+        self.assertEqual(self.call('PATCH', '/api/users/A001/', {'push_disabled': ['inconnu']})[0], 400)
+        code, row = self.call('PATCH', '/api/users/A001/', {'push_disabled': ['stock_low', 'stock_empty']})
+        self.assertEqual([entry['type'] for entry in row['push_types'] if not entry['enabled']], ['stock_low', 'stock_empty'])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual(self.sent, [])
+        # l'utilisateur ne voit plus ces types dans son gestionnaire
+        code, body = self.call('POST', '/api/push/devices/', {'user': self.badge}, local=False)
+        self.assertNotIn('stock_low', [entry['type'] for entry in body['types']])
+        self.call('PATCH', '/api/users/A001/', {'push_disabled': []})
+        ItemType.objects.update(low_notified=False, empty_notified=False)  # nouveau passage sous le seuil
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('GET', '/api/stock/')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_device_name(self):
+        name = self.webpush.device_name
+        self.assertEqual(name('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/129.0 Mobile Safari/537.36'),
+                         'Chrome · Android')
+        self.assertEqual(name('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 '
+                              'Mobile/15E148 Safari/604.1'), 'Safari · iPhone')
+        self.assertEqual(name(''), 'Navigateur')
+
+    def test_pin_blocked(self):
+        code, body = self.subscribe(stock_low=False, stock_empty=False)
+        self.assertTrue(body['pin_blocked'])
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
+        self.user.refresh_from_db()
+        badge = {'matricule': 'M001', 'key': self.user.new_key}
+        with self.captureOnCommitCallbacks(execute=True):
+            code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
+            self.call('POST', '/api/pin-forgot/', badge, local=False)
+        self.assertTrue(body['pin_reset']['notified'])
+        [message] = self.messages()
+        self.assertEqual(message['title'], 'QRProtec : PIN bloqué')
+        self.assertEqual((message['url'], message['tab']), (body['pin_reset']['url'], 'pinreset'))
+        self.assertIn('Jeanne Dupont (M001) a oublié son code PIN', message['body'])
+        # desactive pour ce navigateur
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})  # nouveau PIN : debloque
+        self.subscribe(stock_low=True, pin_blocked=False)
+        self.sent.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', '/api/pin-forgot/', badge, local=False)
+        self.assertEqual(self.sent, [])
+
+    def test_key_renewed(self):
+        code, body = self.subscribe()
+        self.assertFalse(body['lot_key_renewed'])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+        self.assertEqual(self.sent, [])
+        code, body = self.subscribe(stock_low=False, stock_empty=False, pin_blocked=False, lot_key_renewed=True)
+        self.assertTrue(body['lot_key_renewed'])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
+        [message] = self.messages()
+        self.assertEqual(message['title'], 'QRProtec : étiquette de lot renouvelée')
+        self.assertIn('Sac A', message['body'])
 
 
 class RemoteScannerTests(TestCase):

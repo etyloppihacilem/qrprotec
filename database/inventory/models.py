@@ -38,6 +38,11 @@ def generate_key(length: int = KEY_LENGTH) -> str:
     return ''.join(secrets.choice(KEY_ALPHABET) for _ in range(length))
 
 
+def hash_key(key: str) -> str:
+    """Empreinte SHA-256 d'une cle aleatoire (badge, front distant) : seule l'empreinte est conservee."""
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
 def keys_match(expected: str | None, given: str | None) -> bool:
     if not expected or not given:
         return False
@@ -250,6 +255,22 @@ class LotRequirements(models.Model): # Pour mettre un item dans un lot
         unique_together = [('lot_type', 'item_type')]
 
 
+class KeyExpiry(models.IntegerChoices):
+    """Etape d'expiration d'une cle (etiquette privee de lot, badge) deja annoncee aux admins : une seule alerte
+    par etape, remise a zero au renouvellement."""
+    VALID = 0, 'Valide'
+    SOON = 1, 'Expire bientôt'
+    EXPIRED = 2, 'Expirée'
+
+    @classmethod
+    def of(cls, expires, today, warning_days):
+        if expires < today:
+            return cls.EXPIRED
+        if expires <= today + timedelta(days=warning_days):
+            return cls.SOON
+        return cls.VALID
+
+
 def default_lot_key_expiration():
     return timezone.localdate() + timedelta(days=qrprotec_setting('LOT_KEY_VALIDITY_DAYS'))
 
@@ -260,6 +281,7 @@ class Lots(models.Model):
     version = models.PositiveIntegerField()
     verif_key = models.CharField(max_length=32, default=generate_key)
     verif_key_expires = models.DateField(default=default_lot_key_expiration)
+    key_expiry_stage = models.PositiveSmallIntegerField(default=0)  # alerte d'expiration envoyee (voir KeyExpiry)
     created = models.DateTimeField(default=timezone.now)
     created_by = models.CharField(max_length=32)
     last_used = models.DateTimeField(blank=True, null=True)
@@ -312,6 +334,7 @@ class Lots(models.Model):
     def rotate_key(self):
         self.verif_key = generate_key()
         self.verif_key_expires = default_lot_key_expiration()
+        self.key_expiry_stage = KeyExpiry.VALID
 
     def check_seal(self, code) -> bool:
         return self.is_sealed and keys_match(self.seal_code, code)
@@ -364,6 +387,8 @@ class Lots(models.Model):
 PIN_RE = re.compile(r'^\d{4,8}$')
 PIN_MAX_FAILURES = 5              # essais faux consecutifs avant blocage
 PIN_LOCK_DURATION = timedelta(minutes=5)
+# Au-dela de QRPROTEC['PIN_BLOCK_AFTER_FAILURES'] echecs depuis le dernier PIN correct (50 par defaut), le PIN
+# est bloque jusqu'a sa reinitialisation par un administrateur (lien envoye depuis le front web).
 
 
 class Role(models.TextChoices):
@@ -372,12 +397,29 @@ class Role(models.TextChoices):
     ADMIN = 'admin', 'Administrateur'
 
 
+# Types de notifications web : libelle, roles qui peuvent les recevoir, valeur par defaut a l'abonnement.
+# Un admin peut en couper certains par utilisateur (Secouristes.push_disabled, fenetre Utilisateurs).
+_GESTION_ROLES = (Role.GESTION, Role.ADMIN)
+_ADMIN_ROLES = (Role.ADMIN,)
+PUSH_TYPES = {
+    'stock_low': ('Stock bas (sous le minimum fixé)', _GESTION_ROLES, True),
+    'stock_empty': ('Stock vide (0 en stock)', _GESTION_ROLES, True),
+    'pin_blocked': ("PIN d'un utilisateur bloqué (lien de déblocage)", _ADMIN_ROLES, True),
+    'lot_key_renewed': ("Étiquette privée d'un lot renouvelée", _GESTION_ROLES, False),
+    'lot_key_expiring': ('Étiquette privée de lot qui expire bientôt ou a expiré', _GESTION_ROLES, False),
+    'badge_renewed': ("Badge d'un utilisateur renouvelé", _ADMIN_ROLES, False),
+    'badge_expiring': ('Badge qui expire bientôt ou a expiré', _ADMIN_ROLES, False),
+}
+
+
 class Secouristes(models.Model):
     matricule = models.CharField(max_length=16, primary_key=True, editable=False)
     nom = models.CharField(max_length=32)
     prenom = models.CharField(max_length=32)
-    key = models.CharField(max_length=32, blank=True, null=True)
+    # Empreinte SHA-256 de la cle du badge : la cle n'est connue qu'a sa creation (impression du badge)
+    key_hash = models.CharField(max_length=64, blank=True, default='')
     key_expires = models.DateField(blank=True, null=True)
+    key_expiry_stage = models.PositiveSmallIntegerField(default=0)  # alerte d'expiration envoyee (voir KeyExpiry)
     role = models.CharField(max_length=8, choices=Role.choices, default=Role.NORMAL)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(default=timezone.now)
@@ -385,6 +427,26 @@ class Secouristes(models.Model):
     pin_hash = models.CharField(max_length=128, blank=True, default='')
     pin_failures = models.PositiveIntegerField(default=0)
     pin_locked_until = models.DateTimeField(blank=True, null=True)
+    pin_failures_total = models.PositiveIntegerField(default=0)  # echecs depuis le dernier PIN correct
+    pin_blocked = models.DateTimeField(blank=True, null=True)    # blocage leve seulement par un admin
+    pin_reset_required = models.BooleanField(default=False)      # PIN reinitialise : a choisir a la connexion
+    pin_forgotten = models.BooleanField(default=False)           # blocage demande par l'utilisateur (code oublie)
+    pin_reset_notified = models.BooleanField(default=False)      # admins deja prevenus de ce blocage (une seule fois)
+    # Administrateur a prevenir quand le PIN est bloque (affiche sur le telephone avec le lien de deblocage)
+    pin_contact = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    # Types de notifications web coupes par un admin pour cet utilisateur (voir PUSH_TYPES)
+    push_disabled = models.JSONField(default=list, blank=True)
+
+    def push_role_types(self):
+        """Types de notifications web que le role permet (gestion et admin seulement)."""
+        return [name for name, (_, roles, _) in PUSH_TYPES.items() if self.role in roles]
+
+    def push_types(self):
+        """Types que cet utilisateur peut recevoir : ceux de son role, moins ceux qu'un admin a coupes."""
+        if not self.active:
+            return []
+        disabled = set(self.push_disabled or [])
+        return [name for name in self.push_role_types() if name not in disabled]
 
     @property
     def has_pin(self) -> bool:
@@ -392,7 +454,7 @@ class Secouristes(models.Model):
 
     @property
     def pin_required(self) -> bool:
-        return self.has_pin or self.role == Role.ADMIN
+        return self.has_pin or self.role == Role.ADMIN or self.pin_reset_required
 
     def set_pin(self, pin):
         """pin vide : supprime le PIN (refuse pour un admin). Leve ValueError si le format est invalide."""
@@ -405,26 +467,54 @@ class Secouristes(models.Model):
             raise ValueError('Le PIN doit comporter 4 à 8 chiffres')
         else:
             self.pin_hash = make_password(pin)
+        self._clear_pin_failures()
+        self.pin_reset_required = False
+
+    def reset_pin(self):
+        """Deblocage par un admin : plus de PIN, l'utilisateur en choisit un nouveau a sa prochaine connexion."""
+        self.pin_hash = ''
+        self._clear_pin_failures()
+        self.pin_reset_required = True
+
+    def forget_pin(self):
+        """Code oublie : le PIN est bloque jusqu'a ce qu'un admin le reinitialise (meme lien que les 50 essais)."""
+        if self.pin_blocked is None:
+            self.pin_blocked = timezone.now()
+            self.pin_forgotten = True
+            self.pin_failures = 0
+            self.pin_locked_until = None
+
+    def _clear_pin_failures(self):
         self.pin_failures = 0
+        self.pin_failures_total = 0
         self.pin_locked_until = None
+        self.pin_blocked = None
+        self.pin_forgotten = False
+        self.pin_reset_notified = False
 
     def pin_locked(self) -> bool:
         return self.pin_locked_until is not None and self.pin_locked_until > timezone.now()
 
     def check_pin(self, pin) -> bool:
-        """Verifie le PIN et compte les echecs (blocage temporaire apres PIN_MAX_FAILURES)."""
-        if self.pin_locked() or not self.pin_hash:
+        """Verifie le PIN et compte les echecs : blocage temporaire apres PIN_MAX_FAILURES, puis blocage jusqu'a
+        intervention d'un admin apres PIN_BLOCK_AFTER_FAILURES echecs depuis le dernier PIN correct."""
+        if self.pin_blocked or self.pin_locked() or not self.pin_hash:
             return False
         if check_password(str(pin or ''), self.pin_hash):
-            if self.pin_failures:
+            if self.pin_failures or self.pin_failures_total:
                 self.pin_failures = 0
-                self.save(update_fields=['pin_failures'])
+                self.pin_failures_total = 0
+                self.save(update_fields=['pin_failures', 'pin_failures_total'])
             return True
         self.pin_failures += 1
-        if self.pin_failures >= PIN_MAX_FAILURES:
+        self.pin_failures_total += 1
+        if self.pin_failures_total >= qrprotec_setting('PIN_BLOCK_AFTER_FAILURES'):
+            self.pin_failures = 0
+            self.pin_blocked = timezone.now()
+        elif self.pin_failures >= PIN_MAX_FAILURES:
             self.pin_failures = 0
             self.pin_locked_until = timezone.now() + PIN_LOCK_DURATION
-        self.save(update_fields=['pin_failures', 'pin_locked_until'])
+        self.save(update_fields=['pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked'])
         return False
 
     @property
@@ -432,16 +522,24 @@ class Secouristes(models.Model):
         """Mode privilegie du front (gestion ou admin)."""
         return self.role in (Role.GESTION, Role.ADMIN)
 
-    def renew_key(self):
-        self.key = generate_key()
+    def renew_key(self) -> str:
+        """Nouvelle cle de badge, retournee en clair et gardee dans `new_key` le temps de la requete (reponse de
+        creation ou de renouvellement, pour imprimer le badge). Seule son empreinte est enregistree."""
+        self.new_key = generate_key()
+        self.key_hash = hash_key(self.new_key)
         self.key_expires = timezone.localdate() + timedelta(days=qrprotec_setting('USER_KEY_VALIDITY_DAYS'))
+        self.key_expiry_stage = KeyExpiry.VALID
+        return self.new_key
+
+    def badge_valid(self) -> bool:
+        """Compte actif et badge non expire (la cle elle-meme est verifiee par check_key)."""
+        return self.active and self.key_expires is not None and self.key_expires >= timezone.localdate()
 
     def check_key(self, key) -> bool:
         return (
-            self.active
-            and self.key_expires is not None
-            and self.key_expires >= timezone.localdate()
-            and keys_match(self.key, key)
+            self.badge_valid()
+            and isinstance(key, str)
+            and keys_match(self.key_hash, hash_key(key))
         )
 
     def __str__(self):
@@ -479,6 +577,19 @@ class NotificationSettings(models.Model):
     verif_problem = models.BooleanField(default=True)    # verif de lot incomplete, perimes, disparus
     seal_broken = models.BooleanField(default=True)      # scelle d'un lot brise
     expired_daily = models.BooleanField(default=False)   # resume des lots contenant des perimes (commande check_alerts)
+    pin_blocked = models.BooleanField(default=True)      # PIN d'un utilisateur bloque (50 essais ou code oublie)
+    lot_key_renewed = models.BooleanField(default=False)   # etiquette privee d'un lot renouvelee
+    lot_key_expiring = models.BooleanField(default=False)  # etiquette privee qui expire bientot ou a expire (check_alerts)
+    badge_renewed = models.BooleanField(default=False)     # badge d'un utilisateur renouvele
+    badge_expiring = models.BooleanField(default=False)    # badge qui expire bientot ou a expire (check_alerts)
+    # jours avant l'expiration pour l'alerte « expire bientot » (vide : QRPROTEC_KEY_EXPIRY_WARNING_DAYS)
+    key_expiry_warning_days = models.PositiveSmallIntegerField(blank=True, null=True)
+
+    @property
+    def expiry_warning_days(self) -> int:
+        if self.key_expiry_warning_days is None:
+            return qrprotec_setting('KEY_EXPIRY_WARNING_DAYS')
+        return self.key_expiry_warning_days
 
     @classmethod
     def get(cls):
@@ -507,19 +618,29 @@ class PushKeys(models.Model):
 
 
 class PushSubscription(models.Model):
-    """Abonnement d'un navigateur aux notifications web de stock (admins uniquement)."""
+    """Abonnement d'un navigateur aux notifications web (roles gestion et admin), un par appareil."""
     user = models.ForeignKey(Secouristes, on_delete=models.CASCADE, related_name='push_subscriptions')
     endpoint = models.URLField(max_length=1024, unique=True)
     p256dh = models.CharField(max_length=128)
     auth = models.CharField(max_length=64)
     stock_low = models.BooleanField(default=True)     # un type passe sous son minimum
     stock_empty = models.BooleanField(default=True)   # un type arrive a 0
+    pin_blocked = models.BooleanField(default=True)   # PIN d'un utilisateur bloque : lien de deblocage
+    lot_key_renewed = models.BooleanField(default=False)
+    lot_key_expiring = models.BooleanField(default=False)
+    badge_renewed = models.BooleanField(default=False)
+    badge_expiring = models.BooleanField(default=False)
+    device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme, d'apres le User-Agent
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)
     last_status = models.CharField(max_length=128, blank=True, default='')
 
     def __str__(self):
         return f'{self.user_id} : {self.endpoint[:48]}'
+
+    def wants(self, name):
+        """Type choisi sur cet appareil et permis a son utilisateur."""
+        return getattr(self, name) and name in self.user.push_types()
 
 
 class FrontKey(models.Model):
@@ -539,7 +660,7 @@ class FrontKey(models.Model):
 
     @staticmethod
     def hash_key(key):
-        return hashlib.sha256(key.encode()).hexdigest()
+        return hash_key(key)
 
     @classmethod
     def create(cls, name):

@@ -320,8 +320,9 @@ Trois API sur trois ports, sélectionnées par le port qui reçoit la requête
 - **API publique** (`qrprotecDB/urls.py`) : lecture d'un item, d'un lot, d'un paquet, confirmation
   d'un badge. Toute écriture exige la clé de l'objet modifié (ex : clé du lot pour une vérif).
   Pour l'HTTPS, placer un reverse proxy (nginx, caddy) devant le port public.
-- **API locale** (`qrprotecDB/urls_local.py`) : gestion complète sans clé (types, réception, lots,
-  utilisateurs, stocks) et admin Django. N'accepte que les adresses de
+- **API locale** (`qrprotecDB/urls_local.py`) : gestion (types, réception, lots, utilisateurs, stocks)
+  et admin Django, selon le rôle de l'utilisateur connecté sur le poste (jeton de session envoyé dans
+  `X-QRProtec-Session` après le badge et le PIN). N'accepte que les adresses de
   `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` (localhost par défaut) et, si défini, le jeton
   `QRPROTEC_LOCAL_API_TOKEN` dans l'en-tête `X-QRProtec-Token`.
 - **API distante** (mêmes routes que l'API locale) : pour les fronts d'autres machines, derrière le
@@ -387,8 +388,10 @@ key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wro
 `unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
 `lots/summary/` (lots actifs et leur état, tout badge valide) et `stock/summary/` (état des stocks,
 rôles gestion et admin). Notifications web : `push/key/` (GET, clé publique VAPID),
-`push/subscription/` (POST badge admin + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
-`stock_empty` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge admin + endpoint).
+`push/subscription/` (POST badge + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
+`stock_empty`, `pin_blocked`, `lot_key_renewed`, `lot_key_expiring`, `badge_renewed`,
+`badge_expiring` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge + endpoint), `push/devices/` (POST badge :
+appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). Rôles gestion et admin.
 
 ### Rôles
 

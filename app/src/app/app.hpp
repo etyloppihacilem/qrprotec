@@ -274,6 +274,8 @@ class App {
     void send_auth(const std::string &matricule, const std::string &key, const std::string &pin,
                    const std::string &new_pin, ScanSource source);
     void complete_login(const Json &data);
+    void show_pin_blocked(const Json &data, ScanSource source);
+    void forgot_pin();
     void draw_pin_modal();
     void scan_lot(const ParsedScan &scan, ScanSource source);
     void join_verif(const std::string &lot_id, const std::string &key, ScanSource source);

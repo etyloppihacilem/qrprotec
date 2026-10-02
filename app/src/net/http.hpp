@@ -38,6 +38,7 @@ struct ApiEndpoint {
     std::string token;
     std::string key;
     std::string ca_file;
+    std::string session; // jeton de session de l'utilisateur connecte (X-QRProtec-Session), vide sinon
 
     bool        parse(HttpUrl &out, std::string &error) const;
     HttpHeaders headers() const;

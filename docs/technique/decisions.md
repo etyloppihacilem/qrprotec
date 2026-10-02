@@ -48,7 +48,19 @@ présence de l'en-tête. Le front choisit son API par son URL (`http://127.0.0.1
 révocable individuellement) ; des comptes utilisateur sur l'API (les postes sont partagés, c'est la
 machine qu'on autorise, l'utilisateur est identifié par son badge).
 **Raison.** Le comportement par défaut ne change pas, chaque poste se révoque seul
-(`frontkey revoke`), et l'API locale reste la frontière de confiance de la borne.
+(`frontkey revoke`).
+
+## Le serveur vérifie l'utilisateur du poste
+
+**Contexte.** L'audit de sécurité du 1er octobre 2026 a montré qu'une clé de front (ou n'importe quel
+processus de la borne sur l'API locale) donnait tous les droits : les rôles et le PIN n'étaient
+vérifiés que par le front.
+**Choix.** Le poste envoie le jeton de session obtenu avec le badge et le PIN (`X-QRProtec-Session`) ;
+le serveur en déduit l'utilisateur, son rôle et l'identité des opérations. Sans utilisateur connecté,
+le poste n'a que les lectures du kiosk et les droits d'un téléphone.
+**Écarté.** Garder la confiance dans le localhost ou la clé (une clé volée suffisait à lire tous les
+badges et à créer un admin) ; des comptes et mots de passe en plus du badge.
+**Raison.** La clé identifie la machine, le badge et le PIN la personne : il faut les deux.
 
 ## Étiquette publique, étiquette privée
 
