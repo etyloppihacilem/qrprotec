@@ -140,6 +140,7 @@ class ItemType(models.Model):
     default_pack_size = models.PositiveIntegerField(default=1) # nombre d'items dans un paquet a la reception
     low_notified = models.BooleanField(default=False) # SMS "stock bas" deja envoye (remis a zero au-dessus du minimum)
     empty_notified = models.BooleanField(default=False) # notification "stock vide" deja envoyee (remis a zero au-dessus de 0)
+    order_notified = models.BooleanField(default=False) # alerte "commande a passer" deja envoyee (remis a zero sans commande due)
 
     def __str__(self):
         return f"{self.name} ({self.type})"
@@ -409,6 +410,7 @@ PUSH_TYPES = {
     'lot_key_expiring': ('Étiquette privée de lot qui expire bientôt ou a expiré', _GESTION_ROLES, False),
     'badge_renewed': ("Badge d'un utilisateur renouvelé", _ADMIN_ROLES, False),
     'badge_expiring': ('Badge qui expire bientôt ou a expiré', _ADMIN_ROLES, False),
+    'order_due': ('Commande à passer (prévisions de stock)', _GESTION_ROLES, True),
 }
 
 
@@ -617,6 +619,7 @@ class NotificationSettings(models.Model):
     lot_key_expiring = models.BooleanField(default=False)  # etiquette privee qui expire bientot ou a expire (check_alerts)
     badge_renewed = models.BooleanField(default=False)     # badge d'un utilisateur renouvele
     badge_expiring = models.BooleanField(default=False)    # badge qui expire bientot ou a expire (check_alerts)
+    order_due = models.BooleanField(default=False)         # commande a passer d'apres les previsions (check_alerts)
     # jours avant l'expiration pour l'alerte « expire bientot » (vide : QRPROTEC_KEY_EXPIRY_WARNING_DAYS)
     key_expiry_warning_days = models.PositiveSmallIntegerField(blank=True, null=True)
 
@@ -660,6 +663,7 @@ class PushSubscription(models.Model):
     auth = models.CharField(max_length=64)
     stock_low = models.BooleanField(default=True)     # un type passe sous son minimum
     stock_empty = models.BooleanField(default=True)   # un type arrive a 0
+    order_due = models.BooleanField(default=True)     # commande a passer d'apres les previsions
     pin_blocked = models.BooleanField(default=True)   # PIN d'un utilisateur bloque : lien de deblocage
     lot_key_renewed = models.BooleanField(default=False)
     lot_key_expiring = models.BooleanField(default=False)

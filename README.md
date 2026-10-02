@@ -390,7 +390,7 @@ key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wro
 rôles gestion et admin) et `stock/forecast/summary/` (prévisions de stock, mêmes rôles, `months`). Notifications web : `push/key/` (GET, clé publique VAPID),
 `push/subscription/` (POST badge + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
 `stock_empty`, `pin_blocked`, `lot_key_renewed`, `lot_key_expiring`, `badge_renewed`,
-`badge_expiring` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge + endpoint), `push/devices/` (POST badge :
+`badge_expiring`, `order_due` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge + endpoint), `push/devices/` (POST badge :
 appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). Rôles gestion et admin.
 
 ### Rôles

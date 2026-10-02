@@ -993,6 +993,36 @@ class SmsTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertEqual(self.lot.key_expiry_stage, 0)
 
+    def test_order_due_once_per_order(self):
+        from django.core.management import call_command
+        self.call('PATCH', '/api/notifications/', {'enabled': True, 'events': {'stock_low': False, 'order_due': True}})
+        self.compresses.min_quantity = 5
+        self.compresses.save()
+        # 30 par mois consommes, 12 en stock : sous le minimum dans moins de 15 jours (delai de commande)
+        item = self.create(self.compresses, self.today + timedelta(days=300), 1)[0]
+        Items.objects.filter(pk=item.pk).update(status=ItemStatus.DELETED)
+        ItemMovement.objects.bulk_create([
+            ItemMovement(item=item, item_type=self.compresses, kind=MovementKind.USED,
+                         at=timezone.now() - timedelta(hours=1 + index)) for index in range(30)])
+        Verifs.objects.create(lot=self.lot, datetime=timezone.now() - timedelta(days=30), by='test')
+        self.create(self.compresses, self.today + timedelta(days=300), 11)
+
+        def run():
+            self.sent.clear()
+            with self.captureOnCommitCallbacks(execute=True):
+                call_command('check_alerts', stdout=StringIO())
+            return [message for user, message in self.sent if user == 'u1']
+
+        messages = run()
+        self.assertEqual(len(messages), 1)
+        self.assertIn('commande à passer : Compresses : ', messages[0])
+        self.assertTrue(ItemType.objects.get(pk='compre').order_notified)
+        self.assertEqual(run(), [])  # deja annoncee
+        # stock recu : plus de commande due, l'alerte reviendra a la prochaine commande
+        self.create(self.compresses, self.today + timedelta(days=300), 200)
+        self.assertEqual(run(), [])
+        self.assertFalse(ItemType.objects.get(pk='compre').order_notified)
+
     def test_key_expiry_warning_days_setting(self):
         from django.core.management import call_command
         code, body = self.call('GET', '/api/notifications/')
@@ -1197,7 +1227,7 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual([(row['device'], row['current']) for row in body['devices']],
                          [('Firefox · Linux', False), ('Navigateur', True)])
-        self.assertEqual(len(body['types']), 7)
+        self.assertEqual(len(body['types']), 8)
         # alertes d'un autre appareil, puis desabonnement a distance
         code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
                                local=False)
@@ -1214,7 +1244,7 @@ class WebPushTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/push/devices/{mine.id}/', {'user': badge, 'delete': True}, local=False)
         self.assertEqual(code, 404)
         code, body = self.call('POST', '/api/push/devices/', {'user': badge}, local=False)
-        self.assertEqual((body['devices'], len(body['types'])), ([], 4))
+        self.assertEqual((body['devices'], len(body['types'])), ([], 5))
 
     def test_admin_disables_types_per_user(self):
         self.subscribe()

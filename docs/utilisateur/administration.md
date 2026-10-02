@@ -115,9 +115,13 @@ La douchette se règle dans le menu **Douchette** (recherche, connexion, mode cl
    - **étiquette privée de lot** et **badge qui expirent bientôt ou ont expiré** : contrôlés chaque
      matin à 7 h 45, une alerte avant l'expiration (30 jours par défaut, champ **Alerte
      d'expiration**) puis une à l'expiration. Renouveler l'étiquette ou le badge remet l'alerte à
-     zéro.
+     zéro ;
+   - **commande à passer** : contrôlée chaque matin à 7 h 45 d'après les prévisions de stock (voir
+     [Gérer le stock](gerer-le-stock.md)), un SMS quand la date limite de commande d'un type est
+     atteinte, avec la quantité conseillée. Une seule alerte par commande : elle revient quand le
+     stock a été réapprovisionné puis redescend.
 
-Les quatre derniers événements sont désactivés par défaut.
+Les cinq derniers événements sont désactivés par défaut.
 
 Le dernier statut d'envoi de chaque destinataire est affiché.
 
@@ -128,7 +132,7 @@ Sur le téléphone d'un utilisateur gestion ou admin : scanner son badge, menu *
 test**. Le même écran liste tous ses appareils abonnés : on y change les alertes de chacun, ou on le
 retire (un téléphone perdu, par exemple).
 
-- Gestion : stock bas, stock vide, renouvellement et expiration des étiquettes privées de lot.
+- Gestion : stock bas, stock vide, commande à passer, renouvellement et expiration des étiquettes privées de lot.
 - Admin : en plus, PIN bloqué, renouvellement et expiration des badges.
 - Sur le poste, **Utilisateurs > Notifications web** : décochez un type pour le couper à cet
   utilisateur sur tous ses appareils. La fiche indique aussi combien d'appareils sont abonnés. Les alertes arrivent même page fermée.

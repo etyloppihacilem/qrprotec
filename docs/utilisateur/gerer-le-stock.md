@@ -69,7 +69,9 @@ La fenêtre **État des stocks** a quatre onglets :
   items, et la consommation de chaque lot.
 - **Commandes** : les types qui passeront sous leur minimum, avec la quantité à commander (minimum +
   deux mois de consommation, arrondi au conditionnement) et la date limite pour la recevoir à temps.
-  **Copier la liste** pour la coller dans un bon de commande.
+  **Copier la liste** pour la coller dans un bon de commande. Quand la date limite est atteinte, les
+  utilisateurs gestion et admin reçoivent l'alerte **commande à passer** (notification web, ou SMS si
+  l'événement est coché dans les Réglages).
 - **Transferts** : les items qui périmeront là où ils sont (typiquement dans un scellé qui ne s'ouvre
   pas) et le lot où ils seraient utilisés à temps. Chaque ligne est un **échange** : sortir les items
   indiqués, les mettre dans le lot d'arrivée, et reprendre en échange les plus récents de ce lot, pour
