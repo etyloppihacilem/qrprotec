@@ -178,8 +178,15 @@ void draw_image(RasterImage& image, const ImageElement& element, double scale)
     std::string error;
     // chemin relatif : cherche d'abord dans le dossier des modeles (logo commite avec les modeles)
     std::error_code exists_error;
-    const std::filesystem::path in_templates = resolve_template_path(element.path);
-    const std::string image_path = std::filesystem::exists(in_templates, exists_error) ? in_templates.string() : element.path;
+    // (images/nom.png), puis le meme nom a la racine ou dans images/ si l'image a ete posee ailleurs
+    std::string image_path = element.path;
+    const std::filesystem::path name = std::filesystem::path(element.path).filename();
+    for (const std::filesystem::path& candidate : { resolve_template_path(element.path), templates_dir() / name,
+                                                    templates_dir() / LABEL_IMAGES_DIR / name })
+        if (!element.path.empty() && std::filesystem::exists(candidate, exists_error)) {
+            image_path = candidate.string();
+            break;
+        }
     const std::shared_ptr<const GrayImage> source = load_gray_image(image_path, error);
     if (!source || source->width <= 0 || source->height <= 0) return;
     const int box_left = static_cast<int>(element.x_mm * scale);

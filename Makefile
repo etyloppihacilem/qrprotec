@@ -6,7 +6,7 @@
 #   make rpm-local               sur une machine Fedora, sans conteneur
 #   make sources                 archives des sources seulement (dist/sources)
 #   make lint                    shellcheck + rpmlint sur le spec
-#   make icon ICON=image.png     icone du site web + logo des etiquettes (ImageMagick)
+#   make icon ICON=image.png     icone du site web et de l'application (ImageMagick)
 #   make clean
 
 FEDORA_VERSION ?= 43
@@ -45,20 +45,19 @@ lint:
 	shellcheck $(SHELL_SCRIPTS)
 	rpmlint -c packaging/rpmlint.toml packaging/qrprotec.spec
 
-# Icone du site (onglet, ecran d'accueil, notifications) et image « protec.png » des etiquettes,
-# a partir d'une seule image (PNG ou JPEG, carree de preference).
+# Icone du site (onglet, ecran d'accueil, notifications) et de l'application, a partir d'une seule
+# image (PNG ou JPEG, carree de preference). Le logo des etiquettes est a part :
+# app/templates/images/protection-civile.png.
 WEB_DIR := database/inventory/web
-LABEL_IMAGES_DIR := app/templates/images
 MAGICK ?= $(shell command -v magick 2>/dev/null || command -v convert 2>/dev/null)
 
 icon:
 	@test -n "$(ICON)" || { echo "usage : make icon ICON=chemin/vers/image.png"; exit 1; }
 	@test -n "$(MAGICK)" || { echo "ImageMagick (magick ou convert) requis"; exit 1; }
 	$(MAGICK) "$(ICON)" -background white -alpha remove -alpha off -resize 512x512 -gravity center -extent 512x512 \
-		-depth 8 -strip $(LABEL_IMAGES_DIR)/protec.png
-	$(MAGICK) $(LABEL_IMAGES_DIR)/protec.png -resize 512x512 -depth 8 -strip $(WEB_DIR)/icon-512.png
-	$(MAGICK) $(LABEL_IMAGES_DIR)/protec.png -resize 192x192 -depth 8 -strip $(WEB_DIR)/icon-192.png
-	$(MAGICK) $(LABEL_IMAGES_DIR)/protec.png -resize 32x32 -depth 8 -strip $(WEB_DIR)/favicon.png
+		-depth 8 -strip $(WEB_DIR)/icon-512.png
+	$(MAGICK) $(WEB_DIR)/icon-512.png -resize 192x192 -depth 8 -strip $(WEB_DIR)/icon-192.png
+	$(MAGICK) $(WEB_DIR)/icon-512.png -resize 32x32 -depth 8 -strip $(WEB_DIR)/favicon.png
 
 clean:
 	rm -rf dist

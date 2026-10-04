@@ -625,7 +625,13 @@ Fond orange. Menu **Gestion** (Réglages, Utilisateurs et Éditeur d'étiquettes
   des badges.
 - **Éditeur d'étiquettes** (admin) : modèles avec usage (item, paquet, lot public, lot privé, scellé, badge),
   onglet **Placeholders** listant les `{{placeholders}}` disponibles, textes, QR codes et images
-  (logo PNG ou JPEG).
+  (logo PNG ou JPEG). Il se manie comme un logiciel de dessin : barre d'outils (Nouveau, Ouvrir,
+  Enregistrer, Enregistrer sous, Annuler, Rétablir), calques à gauche (glisser pour changer l'ordre),
+  étiquette au centre où l'on sélectionne, déplace et redimensionne les éléments à la souris
+  (magnétisme sur une grille de 0,5 mm et sur le centre, Alt pour s'en passer), zoom à Ctrl+molette,
+  propriétés à droite. Raccourcis : Ctrl+S, Ctrl+O, Ctrl+N, Ctrl+Z / Ctrl+Y, Ctrl+C / Ctrl+V / Ctrl+D,
+  Suppr, flèches (0,1 mm, Maj : 1 mm). Les modifications non enregistrées sont signalées avant
+  d'ouvrir un autre modèle.
 - **Réglages** : dont les notifications SMS. Sans modèle choisi pour un usage, le premier modèle du
   dossier fait pour cet usage est utilisé (ex : `scelle.qr`), sinon le QR code seul.
 
@@ -652,7 +658,7 @@ de correction réglables dans l'éditeur, qui signale un QR trop petit pour son 
 2 pixels par module).
 
 Dans l'éditeur, les textes peuvent être en **gras** et alignés (gauche, centré, droite). Le bouton
-**Ajouter le titre** insère `{{titre}}` centré et en gras ; son texte (« PROTECTION CIVILE / PARIS
+**Titre** insère `{{titre}}` centré et en gras ; son texte (« PROTECTION CIVILE / PARIS
 CENTRE » par défaut) se change dans les Réglages et s'applique à toutes les étiquettes.
 
 **Modèles versionnés** : les modèles `*.qr` et leurs images (logo) sont lus et enregistrés dans
@@ -660,9 +666,11 @@ CENTRE » par défaut) se change dans les Réglages et s'applique à toutes les 
 chaque clone (autre dossier possible dans les Réglages ou via `QRPROTEC_TEMPLATES_DIR`).
 
 `app/templates/` contient un modèle d'exemple par usage (40 × 30 mm). Les modèles de lot public et
-de badge affichent `images/protec.png`, le logo fourni avec les sources.
+de badge affichent `images/protection-civile.png`, le logo de la protection civile (à déposer
+dans `app/templates/images/`).
 
 **Images des étiquettes** : toutes les images à poser sur les étiquettes (logos...) vont dans
 `app/templates/images/` ; l'éditeur d'étiquettes les propose dans « Choisir une image du dossier ».
-`make icon ICON=chemin/vers/logo.png` (ImageMagick) remplace d'un coup `images/protec.png` et l'icône
-du site web (onglet, écran d'accueil, notifications).
+L'icône de l'application (triangle « QR ») ne va pas sur les étiquettes : `make icon
+ICON=chemin/vers/icone.png` (ImageMagick) remplace l'icône du site web (onglet, écran d'accueil,
+notifications) et de la fenêtre.

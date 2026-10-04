@@ -34,7 +34,7 @@ std::vector< std::filesystem::path > glob_templates(const std::string &pattern, 
 constexpr const char *LABEL_IMAGES_DIR = "images";
 
 // Images PNG / JPEG utilisables sur les etiquettes, en chemins relatifs au dossier des modeles :
-// celles de images/ ("images/protec.png") puis celles posees a la racine (anciens modeles).
+// celles de images/ ("images/protection-civile.png") puis celles posees a la racine (anciens modeles).
 std::vector< std::string > label_images();
 
 } // namespace qrprotec

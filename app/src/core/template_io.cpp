@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <sstream>
 
 namespace qrprotec {
@@ -106,10 +107,9 @@ std::vector<std::string> array_objects(const std::string& array)
 }
 }
 
-bool save_template(const TemplateDocument& document, const std::string& path, std::string& error)
+std::string serialize_template(const TemplateDocument& document)
 {
-    std::ofstream output(path);
-    if (!output) { error = "Impossible d'ouvrir le fichier template."; return false; }
+    std::ostringstream output;
     output << "{\n  \"version\": 2,\n  \"name\": \"" << escape_json(document.name) << "\",\n"
             << "  \"category\": \"" << category_id(document.category) << "\",\n"
             << "  \"media\": {\"width_mm\": " << document.media.width_mm
@@ -117,8 +117,10 @@ bool save_template(const TemplateDocument& document, const std::string& path, st
             << ", \"pixels_per_mm\": " << document.media.pixels_per_mm
             << ", \"orientation\": \"" << (document.media.orientation == Orientation::Portrait ? "portrait" : "landscape")
             << "\"},\n  \"parameters\": {";
+    // ordre stable : deux documents egaux donnent le meme texte (detection des modifications)
+    const std::map<std::string, std::string> parameters(document.parameters.begin(), document.parameters.end());
     bool first = true;
-    for (const auto& [key, value] : document.parameters) {
+    for (const auto& [key, value] : parameters) {
         if (!first) output << ", ";
         first = false;
         output << "\"" << escape_json(key) << "\": \"" << escape_json(value) << "\"";
@@ -150,6 +152,14 @@ bool save_template(const TemplateDocument& document, const std::string& path, st
         output << "}" << (index + 1 == document.elements.size() ? "" : ",") << "\n";
     }
     output << "  ]\n}\n";
+    return output.str();
+}
+
+bool save_template(const TemplateDocument& document, const std::string& path, std::string& error)
+{
+    std::ofstream output(path);
+    if (!output) { error = "Impossible d'ouvrir le fichier template."; return false; }
+    output << serialize_template(document);
     if (!output) { error = "Erreur d'écriture du template."; return false; }
     return true;
 }
