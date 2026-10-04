@@ -30,3 +30,11 @@ C'est le point de départ pour reprendre le code, même des années plus tard.
 - [`README.md`](../README.md) à la racine : résumé de référence (routes de l'API, variables
   d'environnement, règles de gestion). En cas de doute, le code fait foi, puis ce README.
 - [`app/templates/README.md`](../app/templates/README.md) : les modèles d'étiquettes fournis.
+
+## Version imprimable
+
+`make doc` produit la documentation en PDF A4 dans `dist/doc/` : un PDF complet
+(`qrprotec-documentation.pdf`) et un PDF par partie (utilisateur, installation, technique), avec
+sommaire, numéros de page et renvois de page à la place des liens. Il faut `pandoc` et `weasyprint`
+(`sudo dnf install pandoc weasyprint`). La mise en page est dans `docs/pdf/` ; une nouvelle page
+de documentation doit être ajoutée à sa liste dans le `Makefile` pour figurer dans le PDF.

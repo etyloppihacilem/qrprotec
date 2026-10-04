@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>$title$$if(subtitle)$ : $subtitle$$endif$</title>
+$for(css)$
+<link rel="stylesheet" href="$css$">
+$endfor$
+</head>
+<body>
+<section class="cover">
+  <h1 class="cover-title">$title$</h1>
+$if(subtitle)$
+  <p class="cover-subtitle">$subtitle$</p>
+$endif$
+  <p class="cover-version">Version $version$ · $date$</p>
+</section>
+<nav class="toc">
+  <h2 class="toc-title">Sommaire</h2>
+$table-of-contents$
+</nav>
+$body$
+</body>
+</html>
