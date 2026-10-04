@@ -189,7 +189,7 @@ class SettingsWindow final : public AppWindow {
           settings.rotate_counterclockwise = rotation == 1;
         ImGui::Checkbox("Retourner les étiquettes (180°)", &settings.flip_labels);
         ImGui::SeparatorText("Titre des étiquettes");
-        ImGui::TextUnformatted("Texte de {{titre}} (bouton « Ajouter le titre » de l'éditeur) :");
+        ImGui::TextUnformatted("Nom de l'antenne, imprimé par {{titre}} (bouton « Nom de l'antenne » de l'éditeur) :");
         ImGui::InputTextMultiline("##titre", &settings.label_title, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 3.5f));
 
         ImGui::SeparatorText("Imprimante Niimbot B1");
@@ -425,7 +425,6 @@ class EditorWindow final : public AppWindow {
   public:
     EditorWindow() : AppWindow("editor", "Éditeur d'étiquettes", true, true) { admin_only = true; }
 
-    ImGuiWindowFlags flags() const override { return ImGuiWindowFlags_MenuBar; }
     void             draw(App &app) override {
       if (!connected_) {
         editor_.set_print_callback([&app](const TemplateDocument &document) {

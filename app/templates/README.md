@@ -11,8 +11,8 @@ après chaque clone.
   variable d'environnement `QRPROTEC_TEMPLATES_DIR`.
 - Les images à mettre sur les étiquettes (logos…) vont dans le sous-dossier `images/` : l'éditeur les
   propose dans « Choisir une image du dossier » et les modèles les référencent en `images/nom.png`.
-  `images/protec.png` est le logo fourni, utilisé par les modèles de lot public et de badge
-  (`make icon ICON=...` à la racine du dépôt le remplace, avec l'icône du site web).
+  `images/protection-civile.png` est le logo de la protection civile, utilisé par les modèles de lot
+  public et de badge. L'icône de l'application n'est pas une image d'étiquette.
 - Le modèle utilisé pour chaque usage (item, paquet, lot public/privé, scellé, badge) se choisit dans les
   Réglages.
 
