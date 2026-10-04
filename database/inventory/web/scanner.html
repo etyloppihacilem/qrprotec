@@ -32,6 +32,9 @@
     .list li.undone { color: var(--muted); border-left: 5px solid var(--line); }
     .list li.undone .name { text-decoration: line-through; }
     #info .title { font-size: 1.05rem; }
+    #topbar { z-index: 1; }
+    #topbar .left { display: flex; gap: 8px; min-width: 0; }
+    #home { text-decoration: none; flex: none; }
   </style>
 </head>
 <body>
@@ -40,7 +43,10 @@
     <canvas id="frame" hidden></canvas>
     <div id="viewfinder"><span></span></div>
     <div id="topbar">
-      <span class="chip">📱 Douchette QRProtec</span>
+      <div class="left">
+        <a id="home" class="chip" href="./" aria-label="Revenir à l'écran principal">← Accueil</a>
+        <span class="chip">📱 Douchette QRProtec</span>
+      </div>
       <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>
     </div>
     <div id="scan-hint">Visez un QR code : il est envoyé au poste</div>
