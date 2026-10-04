@@ -95,6 +95,7 @@ class UsersWindow final : public AppWindow {
       role_       = role_index(user["role"].str(user["privileged"].boolean() ? "admin" : "normal"));
       active_     = user["active"].boolean(true);
       contact_    = user["pin_contact"].str();
+      default_contact_ = user["default_contact"].boolean();
     }
 
     // Admin a prevenir si le PIN de cet utilisateur se bloque (affiche sur le telephone avec le lien de deblocage)
@@ -138,13 +139,18 @@ class UsersWindow final : public AppWindow {
     }
 
     void draw_contact(App &app) {
-      std::string preview = "(aucun : un administrateur)";
+      // sans admin choisi : l'admin a contacter par defaut (case cochee dans la fiche d'un administrateur)
+      std::string fallback = "(aucun : un administrateur)";
+      for (const Json &user : app.catalog.users.items())
+        if (user["default_contact"].boolean() && user["active"].boolean(true) && user["matricule"].str() != selected_)
+          fallback = "(par défaut : " + user["prenom"].str() + " " + user["nom"].str() + ")";
+      std::string preview = fallback;
       for (const Json &user : app.catalog.users.items())
         if (user["matricule"].str() == contact_)
           preview = user["prenom"].str() + " " + user["nom"].str();
       ImGui::SetNextItemWidth(260.0f);
       if (ImGui::BeginCombo("Admin à contacter", preview.c_str())) {
-        if (ImGui::Selectable("(aucun : un administrateur)", contact_.empty()))
+        if (ImGui::Selectable(fallback.c_str(), contact_.empty()))
           contact_.clear();
         for (const Json &user : app.catalog.users.items()) {
           const std::string matricule = user["matricule"].str();
@@ -157,17 +163,22 @@ class UsersWindow final : public AppWindow {
         ImGui::EndCombo();
       }
       help_marker("Si le PIN est bloqué après trop d'essais, le téléphone affiche un lien de déblocage (et son QR "
-                  "code) à envoyer à cet administrateur.");
+                  "code) à envoyer à cet administrateur. Sans choix, c'est l'admin à contacter par défaut.");
+      if (kRoles[role_] != std::string("admin"))
+        return;
+      ImGui::Checkbox("Admin à contacter par défaut", &default_contact_);
+      help_marker("Proposé à tous les utilisateurs qui n'ont pas d'admin à contacter choisi, à la place de « un "
+                  "administrateur ». Un seul admin par défaut : cocher cette case la décoche chez l'ancien.");
     }
 
     void draw_form(App &app) {
       const bool creating = selected_.empty();
       ImGui::SeparatorText(creating ? "Nouvel utilisateur" : "Utilisateur");
       ImGui::BeginDisabled(!creating);
-      ImGui::InputText("Matricule", &matricule_, ImGuiInputTextFlags_CharsNoBlank);
+      input_limited("Matricule", matricule_, 16, nullptr, ImGuiInputTextFlags_CharsNoBlank);
       ImGui::EndDisabled();
-      ImGui::InputText("Prénom", &prenom_);
-      ImGui::InputText("Nom", &nom_);
+      input_limited("Prénom", prenom_, 32);
+      input_limited("Nom", nom_, 32);
       ImGui::SetNextItemWidth(220.0f);
       ImGui::Combo("Rôle", &role_, "Secouriste\0Gestion\0Administrateur\0");
       help_marker("Secouriste : vérifs et scans. Gestion : mode privilégié (stocks, inventaire, lots, étiquettes) et "
@@ -176,7 +187,7 @@ class UsersWindow final : public AppWindow {
         ImGui::Checkbox("Compte actif", &active_);
       const ImGuiInputTextFlags pin_flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal;
       ImGui::SetNextItemWidth(160.0f);
-      ImGui::InputTextWithHint(creating ? "Code PIN" : "Nouveau PIN", "4 à 8 chiffres", &pin_, pin_flags);
+      input_limited(creating ? "Code PIN" : "Nouveau PIN", pin_, 8, "4 à 8 chiffres", pin_flags);
       help_marker("Demandé après le badge à chaque connexion. Obligatoire pour un administrateur (s'il n'en a pas, "
                   "il le choisit à sa prochaine connexion), facultatif pour les autres rôles.");
       const bool pin_valid = pin_.empty() || (pin_.size() >= 4 && pin_.size() <= 8);
@@ -189,6 +200,7 @@ class UsersWindow final : public AppWindow {
       body["prenom"]      = prenom_;
       body["role"]        = kRoles[role_];
       body["pin_contact"] = contact_;
+      body["default_contact"] = default_contact_ && kRoles[role_] == std::string("admin");
       if (creating) {
         ImGui::BeginDisabled(matricule_.empty() || nom_.empty() || prenom_.empty() || !pin_valid);
         if (primary_button("Créer et voir le badge")) {
@@ -299,6 +311,7 @@ class UsersWindow final : public AppWindow {
 
     std::string pin_;
     std::string contact_;
+    bool        default_contact_ = false;
     std::string selected_;
     int         seen_users_version_ = -1;
     Json        user_;

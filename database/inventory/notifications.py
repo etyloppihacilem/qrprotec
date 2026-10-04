@@ -116,7 +116,7 @@ def check_stock_levels(type_ids=None):
     quand il redevient positif.
     """
     today = timezone.localdate()
-    queryset = ItemType.objects.filter(min_quantity__gt=0)
+    queryset = ItemType.objects.filter(min_quantity__gt=0, archived=False)
     if type_ids is not None:
         queryset = queryset.filter(type__in=set(type_ids))
     low, empty = [], []
@@ -162,8 +162,8 @@ def notify_pin_blocked(user, url):
         user.pin_reset_notified = True
         return True
     reason = 'a oublié son code PIN' if user.pin_forgotten else 'a son code PIN bloqué après trop d\'essais'
-    contact = user.pin_contact
-    contact_text = f' (contact : {contact})' if contact is not None and contact.active else ''
+    contact = user.contact_admin()
+    contact_text = f' (contact : {contact})' if contact is not None else ''
     message = f'{user} ({user.matricule}) {reason}{contact_text}. Débloquer : {url}'
     sent = notify('pin_blocked', message) + webpush.notify_pin_blocked(f'{user} ({user.matricule}) {reason}', url)
     if not sent:  # aucun destinataire : la prochaine tentative reessaiera (ex. notifications activees entre-temps)

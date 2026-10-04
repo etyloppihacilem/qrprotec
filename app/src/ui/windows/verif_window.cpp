@@ -309,7 +309,17 @@ class VerifWindow final : public AppWindow {
       ImGui::BeginChild("report", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
       draw_list(app, "Périmés toujours dans le lot : à remplacer", report["expired"], colors::red);
       draw_list(app, "Périmés considérés comme remplacés", report["replaced"], colors::green);
-      draw_list(app, "Attendus mais non scannés", report["missing"], colors::orange);
+      // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
+      Json missing = Json::array();
+      for (const Json &iid : report["missing"].items()) {
+        bool torn = false;
+        for (const Json &other : report["torn"].items())
+          torn = torn || other.str() == iid.str();
+        if (!torn)
+          missing.push_back(iid);
+      }
+      draw_list(app, "Étiquette déchirée : utilisés", report["torn"], colors::orange);
+      draw_list(app, "Attendus mais non scannés", missing, colors::orange);
       draw_list(app, "Retrouvés (étaient signalés disparus)", report["reactivated"], colors::green);
       draw_list(app, "Ajoutés à leur lot en réassort (lot non vérifié)", report["restocked"], colors::orange);
       draw_list(app, "Codes inconnus ignorés", report["unknown"], colors::red);

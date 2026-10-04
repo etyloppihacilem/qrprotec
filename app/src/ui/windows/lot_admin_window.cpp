@@ -42,6 +42,8 @@ class LotAdminWindow final : public AppWindow {
         seen_lots_version_ = app.catalog.lots_version;
         if (!selected_lot_.empty())
           select_lot(app, selected_lot_);
+        if (show_archived_lots_)
+          load_all_lots(app);
       }
       if (seen_lot_types_version_ != app.catalog.lot_types_version) {
         seen_lot_types_version_ = app.catalog.lot_types_version;
@@ -51,7 +53,10 @@ class LotAdminWindow final : public AppWindow {
       }
       if (!ImGui::BeginTabBar("lot_tabs"))
         return;
-      if (ImGui::BeginTabItem("Lots")) {
+      // « Voir le lot » depuis un type de lot unique : bascule sur l'onglet des lots
+      const ImGuiTabItemFlags lots_flags = focus_lots_tab_ ? ImGuiTabItemFlags_SetSelected : 0;
+      focus_lots_tab_                    = false;
+      if (ImGui::BeginTabItem("Lots", nullptr, lots_flags)) {
         draw_lots(app);
         ImGui::EndTabItem();
       }
@@ -73,14 +78,23 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SameLine();
       if (ImGui::Button("Nouveau lot"))
         selected_lot_.clear();
-      // arborescence : chaque lot global suivi de ses sous-lots
-      for (const Json &lot : app.catalog.lots.items()) {
-        const std::string id    = lot["id"].str();
-        const int         depth = lot["depth"].integer();
-        const std::string label = (depth > 0 ? "└ " : "") + lot["name"].str() + "  (" + lot["lot_type_name"].str() + ")##" + id;
+      if (ImGui::Checkbox("Afficher les lots archivés", &show_archived_lots_) && show_archived_lots_)
+        load_all_lots(app);
+      // arborescence : chaque lot global suivi de ses sous-lots (archives compris si la case est cochee)
+      const Json &lots = show_archived_lots_ ? all_lots_ : app.catalog.lots;
+      for (const Json &lot : lots.items()) {
+        const std::string id       = lot["id"].str();
+        const int         depth    = lot["depth"].integer();
+        const bool        archived = !lot["active"].boolean(true);
+        const std::string label    = (depth > 0 ? "└ " : "") + lot["name"].str() + "  (" + lot["lot_type_name"].str()
+                                  + ")" + (archived ? " – archivé" : "") + "##" + id;
         ImGui::Indent(depth * 16.0f + 1.0f);
+        if (archived)
+          ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         if (ImGui::Selectable(label.c_str(), selected_lot_ == id))
           select_lot(app, id);
+        if (archived)
+          ImGui::PopStyleColor();
         ImGui::Unindent(depth * 16.0f + 1.0f);
       }
       ImGui::EndChild();
@@ -93,19 +107,39 @@ class LotAdminWindow final : public AppWindow {
       ImGui::EndChild();
     }
 
+    void load_all_lots(App &app) {
+      app.api.get("/api/lots/?all=1", [this, &app](const ApiResult &result) {
+        if (result.ok)
+          all_lots_ = result.data;
+        else
+          app.notify("Lots : " + result.error, true);
+      });
+    }
+
+    // Types proposes a la creation d'un lot : ni archives, ni lots uniques dont le lot existe deja
+    static Json new_lot_types(const App &app) {
+      Json result = Json::array();
+      for (const Json &lot_type : app.catalog.lot_types.items())
+        if (!lot_type["archived"].boolean() && !(lot_type["unique"].boolean() && lot_type["lot_count"].integer() > 0))
+          result.push_back(lot_type);
+      return result;
+    }
+
     void draw_new_lot(App &app) {
       ImGui::SeparatorText("Nouveau lot");
       ImGui::TextUnformatted("Type de lot");
-      search_select("new_lot_type", app.catalog.lot_types, "type", "name", new_lot_type_, "Tapez le nom du type de lot…");
-      ImGui::InputText("Nom", &new_lot_name_);
-      ImGui::InputText("Nom court (16 car.)", &new_lot_short_);
+      search_select("new_lot_type", new_lot_types(app), "type", "name", new_lot_type_, "Tapez le nom du type de lot…");
+      help_marker("Les types archivés et les lots uniques (créés avec leur type) ne sont pas proposés.");
+      input_limited("Nom", new_lot_name_, 64);
+      const bool name_taken = name_taken_warning(app.catalog.lots, "id", new_lot_name_, "", "Le lot");
+      input_limited("Nom court (16 car.)", new_lot_short_, 16);
       ImGui::TextUnformatted("Dans le lot (sous-lot)");
       help_marker("Un sous-lot (ex : le sac d'O2 d'un B+, une armoire d'un VPS) a ses propres étiquettes et se vérifie "
                   "seul, ou avec les autres lots du même lot global. Le lot global est valide si tous ses lots le sont.");
       search_select("new_lot_parent", app.catalog.lots, "id", "name", new_lot_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
       ImGui::Checkbox("Voir les étiquettes publique et privée après création", &print_new_);
-      ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty());
+      ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty() || name_taken);
       if (primary_button("Créer le lot")) {
         Json body;
         body["lot_type"]   = new_lot_type_;
@@ -201,7 +235,7 @@ class LotAdminWindow final : public AppWindow {
       ImGui::TextWrapped("Un lot scellé est valide sans vérif tant que le scellé est intact. Faites une vérif "
                          "complète, fermez le lot avec un scellé puis imprimez l'étiquette du scellé.");
       ImGui::SetNextItemWidth(160.0f);
-      ImGui::InputTextWithHint("Numéro du scellé", "facultatif", &seal_number_);
+      input_limited("Numéro du scellé", seal_number_, 32, "facultatif");
       // un lot global se scelle avec ses sous-lots : ils doivent tous etre complets
       bool ok = lot_ok(lot_status(lot_));
       if (lot_is_group(lot_)) {
@@ -243,8 +277,10 @@ class LotAdminWindow final : public AppWindow {
           return;
         }
         lot_ = result.data;
-        app.notify("Lot enregistre.");
+        app.notify(lot_["active"].boolean(true) ? "Lot enregistré." : "Lot archivé.");
         app.refresh_lots();
+        if (show_archived_lots_)
+          load_all_lots(app);
       });
     }
 
@@ -310,11 +346,16 @@ class LotAdminWindow final : public AppWindow {
       }
 
       ImGui::SeparatorText("Informations");
-      ImGui::InputText("Nom", &edit_name_);
-      ImGui::InputText("Nom court", &edit_short_);
+      const bool active = lot_["active"].boolean(true);
+      if (!active)
+        ImGui::TextColored(colors::orange, "Lot archivé.");
+      input_limited("Nom", edit_name_, 64);
+      const bool name_taken = active && name_taken_warning(app.catalog.lots, "id", edit_name_, selected_lot_, "Le lot");
+      input_limited("Nom court", edit_short_, 16);
       ImGui::TextUnformatted("Dans le lot (sous-lot)");
       search_select("edit_lot_parent", app.catalog.lots, "id", "name", edit_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
+      ImGui::BeginDisabled(edit_name_.empty() || name_taken);
       if (ImGui::Button("Enregistrer")) {
         Json body;
         body["name"]       = edit_name_;
@@ -322,12 +363,36 @@ class LotAdminWindow final : public AppWindow {
         body["parent"]     = edit_parent_;
         update_lot(app, body);
       }
+      ImGui::EndDisabled();
       ImGui::SameLine();
-      const bool active = lot_["active"].boolean(true);
-      if (ImGui::Button(active ? "Archiver le lot" : "Réactiver le lot")) {
-        Json body;
-        body["active"] = !active;
-        update_lot(app, body);
+      if (!active) {
+        if (ImGui::Button("Désarchiver le lot")) {
+          Json body;
+          body["active"] = true;
+          update_lot(app, body);
+        }
+      } else if (ImGui::Button("Archiver le lot…")) {
+        ImGui::OpenPopup("archive_lot");
+      }
+      if (ImGui::BeginPopup("archive_lot")) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+        ImGui::Text("Archiver le lot « %s » ?", lot_["name"].str().c_str());
+        ImGui::TextWrapped("Il disparaît des listes et ne peut plus être vérifié. Ses items restent enregistrés "
+                           "dans le lot. Ses sous-lots doivent d'abord être archivés ou retirés du lot.");
+        ImGui::TextWrapped("Pour le désarchiver : cochez « Afficher les lots archivés » au-dessus de la liste, "
+                           "sélectionnez-le puis cliquez sur « Désarchiver le lot ».");
+        ImGui::PopTextWrapPos();
+        if (danger_button("Archiver")) {
+          Json body;
+          body["active"] = false;
+          show_archived_lots_ = true; // le lot reste visible et selectionne
+          update_lot(app, body);
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Annuler"))
+          ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
       }
       ImGui::SameLine();
       if (ImGui::Button(lot_["is_sealed"].boolean() ? "Lancer une vérif (brise le scellé)" : "Lancer une vérif"))
@@ -377,73 +442,136 @@ class LotAdminWindow final : public AppWindow {
       ImGui::BeginChild("types_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.35f, 0), ImGuiChildFlags_Borders);
       if (ImGui::Button("Nouveau type"))
         edit_lot_type(Json());
+      ImGui::Checkbox("Afficher les types archivés", &show_archived_types_);
       for (const Json &lot_type : app.catalog.lot_types.items()) {
+        const bool archived = lot_type["archived"].boolean();
+        if (archived && !show_archived_types_)
+          continue;
         const std::string code  = lot_type["type"].str();
-        const std::string label = lot_type["name"].str() + " (" + code + ")";
+        const std::string label = lot_type["name"].str() + " (" + code + ")" + (lot_type["unique"].boolean() ? " – unique" : "")
+                                + (archived ? " – archivé" : "");
+        if (archived)
+          ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         if (ImGui::Selectable(label.c_str(), editing_lot_type_ == code))
           edit_lot_type(lot_type);
+        if (archived)
+          ImGui::PopStyleColor();
       }
       ImGui::EndChild();
       ImGui::SameLine();
       ImGui::BeginChild("type_form", ImVec2(0, 0), ImGuiChildFlags_Borders);
       ImGui::SeparatorText(editing_lot_type_.empty() ? "Nouveau type de lot" : "Type de lot");
+      if (type_archived_)
+        ImGui::TextColored(colors::orange, "Type archivé.");
       ImGui::BeginDisabled(!editing_lot_type_.empty());
       ImGui::SetNextItemWidth(120.0f);
-      ImGui::InputText("Code (6 caractères)", &type_code_, ImGuiInputTextFlags_CharsNoBlank);
+      input_limited("Code (6 caractères)", type_code_, 6, nullptr, 0, true);
       ImGui::EndDisabled();
-      ImGui::InputText("Nom", &type_name_);
+      bool code_taken = false;
+      if (editing_lot_type_.empty())
+        for (const Json &lot_type : app.catalog.lot_types.items())
+          if (lot_type["type"].str() == type_code_) {
+            ImGui::TextColored(colors::red, "Le code %s est déjà celui de « %s ».", type_code_.c_str(),
+                               lot_type["name"].str().c_str());
+            code_taken = true;
+          }
+      input_limited("Nom", type_name_, 64);
+      bool name_taken = name_taken_warning(app.catalog.lot_types, "type", type_name_, editing_lot_type_, "Le type de lot");
+      // lot unique : son lot porte le nom du type
+      if (!name_taken && type_unique_ && editing_lot_type_.empty())
+        name_taken = name_taken_warning(app.catalog.lots, "id", type_name_, "", "Le lot");
       ImGui::TextUnformatted("Description");
       ImGui::InputTextMultiline("##description", &type_description_, ImVec2(-FLT_MIN, 50));
       ImGui::Checkbox("Rangement du stock (armoire, tiroir...)", &type_storage_);
       help_marker("Les items rangés dans un lot de ce type restent comptés dans le stock. Chaque rangement a ses "
                   "étiquettes et se vérifie seul (un tiroir) ou avec les autres rangements du même lot global "
                   "(une armoire et ses tiroirs). Y ranger des items ne demande pas de vérif.");
+      ImGui::Checkbox("Lot unique (le lot est créé avec le type)", &type_unique_);
+      help_marker("Pour un lot qui n'existe qu'en un exemplaire (ex : le VPS, chacune de ses armoires) : le lot, du "
+                  "même nom, est créé en même temps que le type, et aucun autre lot de ce type ne peut être créé. "
+                  "Renommer le type renomme son lot, l'archiver archive son lot.");
       if (editing_lot_type_.empty()) {
-        ImGui::BeginDisabled(type_code_.size() != 6 || type_name_.empty());
-        if (primary_button("Créer le type de lot")) {
+        if (type_unique_) {
+          ImGui::Indent();
+          input_limited("Nom court du lot (16 car.)", type_lot_short_, 16);
+          ImGui::TextUnformatted("Dans le lot (sous-lot)");
+          search_select("new_type_lot_parent", app.catalog.lots, "id", "name", type_lot_parent_, "Aucun : lot indépendant",
+                        "Aucun : lot indépendant");
+          ImGui::Checkbox("Voir les étiquettes du lot après création", &print_new_);
+          ImGui::Unindent();
+        }
+        ImGui::BeginDisabled(type_code_.size() != 6 || type_name_.empty() || name_taken || code_taken);
+        if (primary_button(type_unique_ ? "Créer le type et son lot" : "Créer le type de lot")) {
           Json body;
           body["type"]        = type_code_;
           body["name"]        = type_name_;
           body["description"] = type_description_;
           body["storage"]     = type_storage_;
+          body["unique"]      = type_unique_;
           body["user"]        = app.user_ref();
-          app.api.post("/api/lot-types/", body, [this, &app](const ApiResult &result) {
+          if (type_unique_) {
+            body["name_short"] = type_lot_short_;
+            body["parent"]     = type_lot_parent_;
+          }
+          const bool print = type_unique_ && print_new_;
+          app.api.post("/api/lot-types/", body, [this, &app, print](const ApiResult &result) {
             if (!result.ok) {
               app.notify(result.error, true);
               return;
             }
-            app.notify("Type de lot créé : ajoutez maintenant son contenu attendu.");
+            const bool with_lot = !result.data["created_lot"].is_null();
+            app.notify(with_lot ? "Type et lot créés : ajoutez maintenant son contenu attendu."
+                                : "Type de lot créé : ajoutez maintenant son contenu attendu.");
+            if (with_lot && print)
+              preview_lot(app, result.data["created_lot"]);
             edit_lot_type(result.data);
             app.refresh_lot_types();
+            if (with_lot)
+              app.refresh_lots();
           });
         }
         ImGui::EndDisabled();
         ImGui::EndChild();
         return;
       }
+      if (type_unique_ && !type_lot_.empty()) {
+        ImGui::TextDisabled("Lot :");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Voir le lot")) {
+          select_lot(app, type_lot_);
+          focus_lots_tab_ = true;
+        }
+      }
+      ImGui::BeginDisabled(type_name_.empty() || name_taken);
       if (ImGui::Button("Enregistrer")) {
         Json body;
         body["name"]        = type_name_;
         body["description"] = type_description_;
         body["storage"]     = type_storage_;
+        body["unique"]      = type_unique_;
         app.api.patch("/api/lot-types/" + url_encode(editing_lot_type_) + "/", body, [&app](const ApiResult &result) {
-          app.notify(result.ok ? "Type de lot enregistre." : result.error, !result.ok);
+          app.notify(result.ok ? "Type de lot enregistré." : result.error, !result.ok);
           app.refresh_lot_types();
+          app.refresh_lots(); // nom du lot d'un type unique
         });
       }
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      draw_archive_lot_type(app);
 
       ImGui::SeparatorText("Contenu attendu");
       ImGui::TextDisabled("Type d'item, emplacement dans le lot (facultatif, affiché pendant la vérif), quantité.");
-      int remove = -1;
+      int        remove     = -1;
+      const Json item_types = without_archived(app.catalog.item_types);
       for (std::size_t index = 0; index < requirements_.size(); ++index) {
         RequirementRow &row = requirements_[index];
         ImGui::PushID(static_cast< int >(index));
         const float width = ImGui::GetContentRegionAvail().x;
-        search_select("type", app.catalog.item_types, "type", "name", row.type, "Tapez le nom du type d'item…",
+        search_select("type", item_types, "type", "name", row.type, "Tapez le nom du type d'item…",
                       nullptr, width * 0.42f);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(width * 0.28f);
-        ImGui::InputTextWithHint("##location", "Emplacement (ex : pochette bleue)", &row.location);
+        input_limited("##location", row.location, 64, "Emplacement (ex : pochette bleue)");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
         ImGui::InputInt("##qty", &row.quantity);
@@ -484,12 +612,67 @@ class LotAdminWindow final : public AppWindow {
       ImGui::EndChild();
     }
 
+    // Archivage : le type n'est plus propose a la creation de lots. Un lot unique est archive avec son type.
+    void draw_archive_lot_type(App &app) {
+      if (type_archived_) {
+        if (ImGui::Button("Désarchiver le type"))
+          archive_lot_type(app, false);
+        return;
+      }
+      if (ImGui::Button("Archiver le type…"))
+        ImGui::OpenPopup("archive_lot_type");
+      if (ImGui::BeginPopup("archive_lot_type")) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+        ImGui::Text("Archiver le type « %s » ?", type_name_.c_str());
+        ImGui::TextWrapped(type_unique_ ? "Il ne sera plus proposé, et son lot est archivé avec lui (ses sous-lots "
+                                          "doivent d'abord être archivés ou retirés du lot)."
+                                        : "Il ne sera plus proposé à la création de lots. Ses lots doivent d'abord "
+                                          "être archivés.");
+        ImGui::TextWrapped("Pour le désarchiver : cochez « Afficher les types archivés » au-dessus de la liste, "
+                           "sélectionnez-le puis cliquez sur « Désarchiver le type ».");
+        ImGui::PopTextWrapPos();
+        if (danger_button("Archiver")) {
+          archive_lot_type(app, true);
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Annuler"))
+          ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+      }
+    }
+
+    void archive_lot_type(App &app, bool archived) {
+      Json body;
+      body["archived"] = archived;
+      app.api.patch("/api/lot-types/" + url_encode(editing_lot_type_) + "/", body,
+                    [this, &app, archived](const ApiResult &result) {
+                      if (!result.ok) {
+                        app.notify(result.error, true);
+                        return;
+                      }
+                      app.notify(archived ? "Type de lot archivé." : "Type de lot désarchivé.");
+                      if (archived)
+                        show_archived_types_ = true; // le type reste visible et selectionne
+                      edit_lot_type(result.data);
+                      app.refresh_lot_types();
+                      app.refresh_lots();
+                      if (show_archived_lots_)
+                        load_all_lots(app);
+                    });
+    }
+
     void edit_lot_type(const Json &lot_type) {
       editing_lot_type_ = lot_type["type"].str();
       type_code_        = editing_lot_type_;
       type_name_        = lot_type["name"].str();
       type_description_ = lot_type["description"].str();
       type_storage_     = lot_type["storage"].boolean();
+      type_unique_      = lot_type["unique"].boolean();
+      type_archived_    = lot_type["archived"].boolean();
+      type_lot_         = lot_type["lot"].str();
+      type_lot_short_.clear();
+      type_lot_parent_.clear();
       requirements_.clear();
       for (const Json &row : lot_type["requirements"].items())
         requirements_.push_back({ row["type"].str(), row["quantity"].integer(1), row["location"].str() });
@@ -509,12 +692,21 @@ class LotAdminWindow final : public AppWindow {
     std::string new_lot_short_;
     bool        print_new_ = true;
     std::string seal_number_;
+    bool        show_archived_lots_ = false;
+    Json        all_lots_           = Json::array(); // archives compris (case « Afficher les lots archivés »)
+    bool        focus_lots_tab_     = false;
     // Types de lots
     std::string                   editing_lot_type_;
     std::string                   type_code_;
     std::string                   type_name_;
     std::string                   type_description_;
     bool                          type_storage_ = false;
+    bool                          type_unique_  = false;
+    bool                          type_archived_ = false;
+    std::string                   type_lot_;        // lot d'un type unique
+    std::string                   type_lot_short_;  // creation d'un type unique : nom court et parent du lot
+    std::string                   type_lot_parent_;
+    bool                          show_archived_types_ = false;
     std::vector< RequirementRow > requirements_;
 };
 

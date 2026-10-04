@@ -21,6 +21,8 @@ std::vector< PlaceholderInfo > item_type_placeholders() {
     { "peremption", "Date de péremption JJ/MM/AAAA (vide si non périssable)", "31/12/2027" },
     { "peremption_iso", "Date de péremption AAAA-MM-JJ", "2027-12-31" },
     { "peremption_short", "Date de péremption MM/AAAA", "12/2027" },
+    { "tear_notice", "« Déchirer avant utilisation » pour un type à étiquette à déchirer (vide sinon)",
+      "Déchirer avant utilisation" },
   };
 }
 

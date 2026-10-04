@@ -153,7 +153,9 @@ def perform_verif(lot, iids, identity, partial=False):
       passent en 'disparu' s'ils sont perimes ou manques trop souvent ;
     - verif partielle : seuls les lots que les items scannes rendent complets sont verifies. Les items scannes
       destines aux autres lots y sont ajoutes comme un reassort (lot « verif recommandee »), sans toucher au
-      reste de leur contenu.
+      reste de leur contenu ;
+    - un item a etiquette a dechirer (ItemType.tear_off) non scanne est utilise : il passe tout de suite en
+      'disparu' (l'etiquette est arrachee a l'ouverture du sachet, les restes du sachet sont perdus).
     """
     now = timezone.now()
     today = timezone.localdate()
@@ -238,7 +240,7 @@ def perform_verif(lot, iids, identity, partial=False):
             verifs[lot_id] = Verifs.objects.create(lot=by_id[lot_id], datetime=now, by=identity)
 
         report = {'present': [], 'expired': [], 'replaced': [], 'missing': [], 'unknown': unknown, 'reactivated': [],
-                  'restocked': []}
+                  'restocked': [], 'torn': []}
         entries = []
         journal = []
         origin = {item.iid: item.location_id for item in scanned}
@@ -288,8 +290,11 @@ def perform_verif(lot, iids, identity, partial=False):
             if item.missed_verifs == 0:
                 journal.append(movements.absence(item, now, identity, verif))
             item.missed_verifs += 1
-            if expired or item.missed_verifs >= threshold:
+            torn = item.pack.item_type.tear_off
+            if expired or torn or item.missed_verifs >= threshold:
                 item.status = ItemStatus.MISSING
+            if torn:
+                report['torn'].append(item.iid)
             report['missing'].append(item.iid)
             counts[item.location_id]['missing'] += 1
             entries.append(VerifItem(verif=verif, item=item, result=VerifResult.MISSING, expired=expired))
@@ -385,7 +390,8 @@ def perform_verif(lot, iids, identity, partial=False):
 
 def _complete_lots(group, scanned, not_seen, target, replaced, today):
     """Lots que les items scannes rendent complets (verif partielle). Un lot sans aucun item scanne n'est retenu
-    que s'il ne contient rien : sinon tout son contenu serait signale manquant."""
+    que s'il ne contient rien : sinon tout son contenu serait signale manquant. Un item a etiquette a dechirer
+    non scanne ne compte pas (il a ete utilise). Meme regle dans les fronts (planSession, App::plan_verif)."""
     required = _required_by_lot(group)
     fresh = defaultdict(lambda: defaultdict(int))
     expired = defaultdict(int)
@@ -399,7 +405,7 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
             expired[destination] += 1
         else:
             fresh[destination][item.pack.item_type_id] += 1
-    holding = {item.location_id for item in not_seen}
+    holding = {item.location_id for item in not_seen if not item.pack.item_type.tear_off}
     complete = set()
     for lot in group:
         if lot.id not in touched and lot.id in holding:
@@ -560,7 +566,7 @@ def stock_status(soon_days=30):
     in_stock = in_stock_q(f'{items}__')
     in_lot = Q(**{f'{items}__location__isnull': False, f'{items}__location__lot_type__storage': False})
     soon_filter = Q(itemspacks__peremption__gte=today) & Q(itemspacks__peremption__lte=soon)
-    queryset = ItemType.objects.order_by('name').annotate(
+    queryset = ItemType.objects.filter(archived=False).order_by('name').annotate(
         stock_fresh=Count(items, filter=active & fresh & in_stock),
         stock_expired=Count(items, filter=active & expired & in_stock),
         lots_fresh=Count(items, filter=active & fresh & in_lot),

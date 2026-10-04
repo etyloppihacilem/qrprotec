@@ -1656,3 +1656,149 @@ class ForecastTests(ApiTestCase):
         code, _ = self.call('POST', '/api/stock/forecast/summary/',
                             {'user': {'matricule': 'M001', 'key': self.user.new_key}}, local=False)
         self.assertEqual(code, 403)
+
+
+class TypeRulesTests(ApiTestCase):
+    """Noms en double, types archives, lots uniques."""
+
+    def test_duplicate_names_refused(self):
+        code, body = self.call('POST', '/api/item-types/', {'type': 'compr2', 'name': ' compresses '})
+        self.assertEqual(code, 409)
+        self.assertIn('Compresses', body['error'])
+        code, _ = self.call('POST', '/api/lot-types/', {'type': 'sacps2', 'name': 'SAC PSÉ'})
+        self.assertEqual(code, 409)  # sans accents ni casse
+        code, _ = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'sac a'})
+        self.assertEqual(code, 409)
+        code, _ = self.call('PATCH', '/api/item-types/garrot/', {'name': 'Compresses'})
+        self.assertEqual(code, 409)
+        code, _ = self.call('PATCH', '/api/item-types/garrot/', {'name': 'Garrot tourniquet'})
+        self.assertEqual(code, 200)
+        # un lot archive libere son nom
+        code, other = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac B'})
+        self.call('PATCH', f"/api/lots/{other['id']}/update/", {'active': False})
+        code, _ = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac B'})
+        self.assertEqual(code, 201)
+        code, _ = self.call('PATCH', f"/api/lots/{other['id']}/update/", {'active': True})
+        self.assertEqual(code, 409)  # le nom est repris par le nouveau lot
+
+    def test_archive_item_and_lot_types(self):
+        code, body = self.call('PATCH', '/api/item-types/compre/', {'archived': True})
+        self.assertEqual(code, 400)  # encore attendu dans le Sac PSE
+        code, body = self.call('PATCH', '/api/item-types/garrot/', {'archived': True})
+        self.assertTrue(body['archived'])
+        code, types = self.call('GET', '/api/item-types/')
+        self.assertTrue(next(row for row in types if row['type'] == 'garrot')['archived'])
+        code, stock = self.call('GET', '/api/stock/')
+        self.assertNotIn('garrot', [row['type'] for row in stock])
+        code, body = self.call('PATCH', '/api/item-types/garrot/', {'archived': False})
+        self.assertFalse(body['archived'])
+
+        code, _ = self.call('PATCH', '/api/lot-types/sacpse/', {'archived': True})
+        self.assertEqual(code, 400)  # le Sac A est actif
+        self.call('PATCH', f'/api/lots/{self.lot.id}/update/', {'active': False})
+        code, body = self.call('PATCH', '/api/lot-types/sacpse/', {'archived': True})
+        self.assertTrue(body['archived'])
+        code, _ = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac C'})
+        self.assertEqual(code, 400)
+        code, _ = self.call('PATCH', f'/api/lots/{self.lot.id}/update/', {'active': True})
+        self.assertEqual(code, 400)  # type archive
+        self.call('PATCH', '/api/lot-types/sacpse/', {'archived': False})
+        code, _ = self.call('PATCH', f'/api/lots/{self.lot.id}/update/', {'active': True})
+        self.assertEqual(code, 200)
+
+    def test_unique_lot_type(self):
+        code, vps = self.call('POST', '/api/lot-types/', {'type': 'vpsxxx', 'name': 'VPS', 'unique': True,
+                                                          'name_short': 'VPS', 'user': 'M001'})
+        self.assertEqual(code, 201)
+        self.assertTrue(vps['unique'])
+        lot = vps['created_lot']
+        self.assertEqual((lot['name'], lot['lot_type']), ('VPS', 'vpsxxx'))
+        self.assertEqual(vps['lot'], lot['id'])
+        code, armoire = self.call('POST', '/api/lot-types/', {'type': 'armvp1', 'name': 'Armoire 1 VPS', 'unique': True,
+                                                              'parent': lot['id']})
+        self.assertEqual(armoire['created_lot']['parent'], lot['id'])
+        code, _ = self.call('POST', '/api/lots/', {'lot_type': 'vpsxxx', 'name': 'VPS 2'})
+        self.assertEqual(code, 409)
+        # le lot suit le nom du type
+        code, body = self.call('PATCH', '/api/lot-types/vpsxxx/', {'name': 'VPS Paris'})
+        self.assertEqual(Lots.objects.get(id=lot['id']).name, 'VPS Paris')
+        # archive avec son type (apres ses sous-lots)
+        code, _ = self.call('PATCH', '/api/lot-types/vpsxxx/', {'archived': True})
+        self.assertEqual(code, 400)
+        self.call('PATCH', '/api/lot-types/armvp1/', {'archived': True})
+        code, body = self.call('PATCH', '/api/lot-types/vpsxxx/', {'archived': True})
+        self.assertEqual(code, 200)
+        self.assertFalse(Lots.objects.get(id=lot['id']).active)
+        self.call('PATCH', '/api/lot-types/vpsxxx/', {'archived': False})
+        self.assertTrue(Lots.objects.get(id=lot['id']).active)
+        # un type qui a deja plusieurs lots ne peut pas devenir unique
+        self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac B'})
+        code, _ = self.call('PATCH', '/api/lot-types/sacpse/', {'unique': True})
+        self.assertEqual(code, 400)
+
+
+class TearOffTests(ApiTestCase):
+    """Sachet de serums phy etiquete une fois : l'etiquette est dechiree a l'ouverture."""
+
+    def setUp(self):
+        super().setUp()
+        self.serum = ItemType.objects.create(type='serphy', name='Sachet sérum phy', tear_off=True)
+        LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.serum, quantity=1)
+
+    def test_unscanned_tear_off_item_is_used_at_once(self):
+        fresh = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), 2)]
+        sachet = self.create(self.serum, None, 1)[0]
+        Items.objects.filter(iid__in=fresh + [sachet.iid]).update(location=self.lot)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertEqual({item['iid'] for item in body['items'] if item['tear_off']}, {sachet.iid})
+        # sachet entame : etiquette arrachee, non scannee
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': fresh, 'user': 'M001'})
+        self.assertEqual(report['torn'], [sachet.iid])
+        self.assertEqual(Items.objects.get(iid=sachet.iid).status, ItemStatus.MISSING)  # sans attendre 3 verifs
+        self.assertFalse(report['complete'])
+        self.assertEqual(ItemMovement.objects.filter(item_id=sachet.iid, kind=MovementKind.USED).count(), 1)
+        # un sachet neuf complete le lot
+        new = self.create(self.serum, None, 1)[0]
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': fresh + [new.iid]})
+        self.assertTrue(report['complete'])
+
+    def test_partial_verif_ignores_torn_items(self):
+        """Un lot qui ne contient qu'un sachet dechire peut etre valide par une verif partielle sans scan."""
+        storage_type = LotType.objects.create(type='trousx', name='Trousse')
+        trousse = Lots(lot_type=storage_type, name='Trousse', name_short='T', created_by='test', parent=self.lot)
+        trousse.save()
+        sachet = self.create(self.serum, None, 1)[0]
+        Items.objects.filter(iid=sachet.iid).update(location=trousse)
+        fresh = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), 2)]
+        serum = self.create(self.serum, None, 1)[0].iid
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/',
+                                 {'items': fresh + [serum], 'user': 'M001', 'partial': True})
+        self.assertEqual(code, 200)
+        self.assertEqual({row['id'] for row in report['lots'] if row['verified']}, {self.lot.id, trousse.id})
+        self.assertEqual(report['torn'], [sachet.iid])
+
+
+class DefaultContactTests(ApiTestCase):
+    def test_default_admin_contact(self):
+        admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
+        admin.renew_key()
+        admin.save()
+        code, body = self.call('PATCH', '/api/users/M001/', {'default_contact': True})
+        self.assertFalse(body['default_contact'])  # reserve aux administrateurs
+        code, body = self.call('PATCH', '/api/users/A001/', {'default_contact': True})
+        self.assertTrue(body['default_contact'])
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.contact_admin(), admin)
+        self.assertIsNone(admin.contact_admin())  # pas lui-meme
+        # un seul admin par defaut
+        self.call('PATCH', '/api/users/P001/', {'default_contact': True})
+        admin.refresh_from_db()
+        self.assertFalse(admin.default_contact)
+        self.assertEqual(self.user.contact_admin(), self.operator)
+        # le contact choisi pour l'utilisateur passe avant
+        self.call('PATCH', '/api/users/M001/', {'pin_contact': 'A001'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.contact_admin(), admin)
+        # plus admin : plus contact par defaut
+        code, body = self.call('PATCH', '/api/users/P001/', {'role': 'gestion'})
+        self.assertFalse(body['default_contact'])

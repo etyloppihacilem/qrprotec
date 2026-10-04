@@ -53,6 +53,23 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
 // Filtre de liste : meme correspondance que search_select (accents, debut de mots)
 bool search_matches(const std::string &query, const std::string &text);
 
+// Champ texte limite a `max_chars` caracteres (UTF-8), comme le serveur : ce qui depasse a la frappe ou au
+// collage est ignore. `code` : lettres et chiffres seulement (codes des types). Retourne true si modifie.
+bool input_limited(const char *label, std::string &value, int max_chars, const char *hint = nullptr,
+                   ImGuiInputTextFlags flags = 0, bool code = false);
+
+// Nom deja pris dans une liste JSON (meme regle que le serveur : sans accents ni casse, espaces reduits).
+// Retourne le nom existant (vide si libre) ; `skip_key` exclut l'element modifie. `archived` : l'element
+// trouve est archive (champ archived, ou active a false).
+std::string name_taken(const Json &list, const char *key_field, const std::string &name, const std::string &skip_key,
+                       bool *archived = nullptr);
+// Elements non archives d'une liste JSON (types d'items ou de lots) : seuls proposes a la saisie
+Json without_archived(const Json &list);
+
+// Message d'erreur rouge si le nom est pris (ex: "Un lot"), retourne true si pris
+bool name_taken_warning(const Json &list, const char *key_field, const std::string &name, const std::string &skip_key,
+                        const char *what);
+
 // Champ texte avec bouton de confirmation en deux temps (pour les actions sensibles)
 bool confirm_button(const char *label, const char *question, const char *popup_id);
 

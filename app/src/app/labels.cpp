@@ -25,6 +25,12 @@ void add_peremption(Parameters &parameters, const Json &value) {
   parameters["peremption_short"] = date ? date->display().substr(3) : "";
 }
 
+// Mention des etiquettes d'items a dechirer (ex : sachet de serums phy) : arrachee a l'ouverture, l'etiquette
+// manquante a la verif suivante compte l'item comme utilise.
+const char *tear_notice(const Json &item) {
+  return item["tear_off"].boolean() ? "Déchirer avant utilisation" : "";
+}
+
 std::string label_date(const Json &value) {
   const auto date = Date::parse(value.str());
   return date ? date->display() : "";
@@ -39,7 +45,8 @@ Parameters item_parameters(const Json &item, int index, int count) {
   parameters["type_name"] = item["type_name"].str();
   parameters["index"]     = std::to_string(index);
   parameters["count"]     = std::to_string(count);
-  parameters["pack_id"]   = item["sealed_pack"].str();
+  parameters["pack_id"]     = item["sealed_pack"].str();
+  parameters["tear_notice"] = tear_notice(item);
   add_peremption(parameters, item["peremption"]);
   return parameters;
 }
@@ -51,6 +58,7 @@ Parameters sealed_pack_parameters(const Json &pack) {
   parameters["count"]     = pack["count"].str();
   parameters["type"]      = pack["type"].str();
   parameters["type_name"] = pack["type_name"].str();
+  parameters["tear_notice"] = ""; // l'etiquette du paquet ferme n'est pas a dechirer
   add_peremption(parameters, pack["peremption"]);
   return parameters;
 }
