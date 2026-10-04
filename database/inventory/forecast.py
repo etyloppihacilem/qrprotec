@@ -216,7 +216,7 @@ def forecast(months=6, lead_days=None, history_months=None):
     points = [add_months(today, k) for k in range(months + 1)]
     types = []
     transfers = []
-    for item_type in ItemType.objects.order_by('name'):
+    for item_type in ItemType.objects.filter(archived=False).order_by('name'):
         by_place = units.get(item_type.type, {})
         for held in by_place.values():
             held.sort(key=lambda unit: (unit[0], unit[1].iid))

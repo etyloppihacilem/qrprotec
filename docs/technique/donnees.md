@@ -23,7 +23,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 
 | Modèle | Rôle | Points importants |
 |---|---|---|
-| `ItemType` | Type d'item (« Sérum phy 10 ml ») | Clé primaire `type` : **code de 6 caractères** alphanumériques (`serphy`), qui commence chaque iid. `min_quantity` : seuil d'alerte du stock. `perissable` : date de péremption obligatoire. `default_pack_size` : taille proposée à la réception. `low_notified` / `empty_notified` / `order_notified` : alerte déjà envoyée (voir [back.md](back.md#notifications)). |
+| `ItemType` | Type d'item (« Sérum phy 10 ml ») | Clé primaire `type` : **code de 6 caractères** alphanumériques (`serphy`), qui commence chaque iid. `min_quantity` : seuil d'alerte du stock. `perissable` : date de péremption obligatoire. `default_pack_size` : taille proposée à la réception. `low_notified` / `empty_notified` / `order_notified` : alerte déjà envoyée (voir [back.md](back.md#notifications)). `tear_off` : étiquette à déchirer avant utilisation (item non scanné = utilisé). `archived` : plus proposé (réception, contenu des lots, stock, prévisions). |
 | `ItemsPacks` | Groupe d'items d'un même type et d'une même date | Clé `type + AAAAMMJJ`. Sert de **préfixe d'iid** et porte le compteur `last_sequence`. La date de péremption est stockée ici, pas sur l'item. Ce n'est **pas** un paquet physique (voir `SealedPacks`). |
 | `Items` | Un objet physique étiqueté | Clé `iid` (22 caractères). `location` : le lot qui le contient, `NULL` = en stock. `status` : `active`, `missing` (disparu), `replaced` (remplacé, sorti d'un lot), `deleted` (supprimé à la main, avec raison). `missed_verifs` : vérifs consécutives où il était attendu sans être scanné. `last_seen*` : dernier passage (qui, quand, pendant quoi). |
 | `SealedPacks` | Paquet fermé (boîte de 25 compresses) | Identifiant base 62 sur 8 caractères (`Sequence 'sealed_pack'`). Les items existent en base dès la réception, avec `sealed_pack` renseigné ; leurs étiquettes ne sont imprimées qu'à l'ouverture (`opened`). |
@@ -32,7 +32,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 
 | Modèle | Rôle | Points importants |
 |---|---|---|
-| `LotType` | Modèle de lot (« Sac PSE ») | Clé `type` (6 caractères). `storage=True` : **rangement du stock** (armoire, tiroir) : ses items comptent dans le stock. `version` est incrémentée à chaque changement du contenu attendu. |
+| `LotType` | Modèle de lot (« Sac PSE ») | Clé `type` (6 caractères). `storage=True` : **rangement du stock** (armoire, tiroir) : ses items comptent dans le stock. `version` est incrémentée à chaque changement du contenu attendu. `unique=True` : **lot unique**, son lot est créé avec le type et il n'y en a pas d'autre. `archived` : plus proposé à la création de lots. Noms des types et des lots actifs uniques (sans accents ni casse, `models.name_key`). |
 | `LotRequirements` | Contenu attendu d'un type de lot | (type de lot, type d'item) unique, `quantity`, `location` libre (« pochette bleue ») affichée pendant la vérif. |
 | `Lots` | Un lot physique | Identifiant `type + compteur base 62 sur 8` (`sacpse00000001`). `verif_key` (24 caractères, valable `LOT_KEY_VALIDITY_DAYS`) : la clé de l'**étiquette privée**. `parent` : lot global (sous-lots, voir [règles](regles-de-gestion.md#lots-et-sous-lots)). Champs du scellé (`is_sealed`, `seal_code`, `seal_number`…), du réassort (`verif_recommended`, `restocked*`), de la dernière vérif (`last_verif*`). `active=False` : lot archivé. |
 | `LotSequence` | Compteur d'identifiants par type de lot | Incrémenté sous verrou. |
@@ -52,7 +52,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 valable 365 jours, n'est connue qu'à sa création ; `renew_key()` en crée une nouvelle, la renvoie une
 seule fois et invalide l'ancien badge), PIN haché avec les hacheurs de mots de passe de Django
 (`pin_hash`), compteurs d'échecs, blocage temporaire (`pin_locked_until`), blocage jusqu'à
-intervention d'un admin (`pin_blocked`, `pin_reset_required`) et admin à contacter (`pin_contact`).
+intervention d'un admin (`pin_blocked`, `pin_reset_required`) et admin à contacter (`pin_contact`, sinon l'admin coché `default_contact`, un seul ; voir `Secouristes.contact_admin`).
 
 L'API ne renvoie la clé du badge (`key`, `badge_url`) que dans la réponse de création
 (`POST /api/users/`) et de renouvellement (`renew-key/`), le temps d'imprimer le badge. Pour

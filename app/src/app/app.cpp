@@ -1292,7 +1292,8 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     for (const char *list : { "items", "missing_items" })
       for (const Json &item : (*lot)[list].items()) {
         location_of[item["iid"].str()] = id;
-        if (!done.count(item["iid"].str()))
+        // un item a etiquette a dechirer non scanne a ete utilise : il ne retient pas le lot
+        if (!done.count(item["iid"].str()) && !item["tear_off"].boolean())
           holding.insert(id);
       }
     for (const Json &row : (*lot)["requirements"].items())

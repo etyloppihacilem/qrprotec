@@ -74,6 +74,16 @@ Conseils :
   adulte / enfant).
 - Le **stock minimum** déclenche l'alerte « stock bas » ; mettez 0 si vous ne voulez pas d'alerte.
 - La **taille de paquet** n'est qu'une valeur proposée à la réception.
+- **Étiquette à déchirer avant utilisation** : pour un ensemble étiqueté une seule fois (ex : un
+  sachet de plusieurs sérums phy). Son étiquette porte « Déchirer avant utilisation » : on l'arrache
+  dès qu'on entame l'ensemble. À la vérif suivante, l'étiquette manquante compte l'ensemble comme
+  **utilisé** tout de suite (sans attendre plusieurs vérifs) : il faut remettre un ensemble complet,
+  les restes de l'ancien sont considérés comme perdus.
+- Le nom d'un type doit être unique (sans tenir compte des accents ni des majuscules) : le formulaire
+  le signale pendant la saisie.
+- Un type qui ne sert plus s'**archive** (bouton **Archiver le type…**) : il n'est plus proposé à la
+  réception ni dans le contenu des lots. Pour le retrouver : case **Afficher les types archivés**,
+  puis **Désarchiver le type**.
 
 ## Étape 5 — Les types de lots et leur contenu
 
@@ -97,6 +107,14 @@ Créez aussi :
 - un type **rangement** pour la réserve : « Armoire » (`armoir`) et « Tiroir » (`tiroir`), case
   **Rangement du stock** cochée, sans contenu attendu.
 
+Un lot qui n'existe qu'en un exemplaire (le VPS, une armoire du VPS) n'a pas besoin d'un type puis
+d'un lot : cochez **Lot unique** à la création du type. Le lot, du même nom, est créé avec le type
+(avec son nom court et son lot parent), et aucun autre lot de ce type ne peut être créé. Renommer le
+type renomme son lot ; l'archiver archive son lot.
+
+Les types de lots s'archivent comme les types d'items (case **Afficher les types archivés** pour les
+désarchiver) ; un type dont des lots sont actifs ne peut pas être archivé.
+
 Le contenu attendu peut évoluer plus tard : les lots existants suivent immédiatement la nouvelle
 définition (un sac complet peut donc repasser rouge si on ajoute une ligne).
 
@@ -113,6 +131,9 @@ petit**, pour pouvoir choisir le lot parent :
 6. `Sac PSE A`, `Sac PSE B` (aucun parent) ;
 7. `Réserve armoire 1`, `Réserve armoire 2`, puis `Tiroir 1` à `Tiroir 6` (parent : armoire 2) ;
 8. `Malle catastrophe`.
+
+Le nom d'un lot doit être unique parmi les lots actifs : le formulaire le signale pendant la saisie.
+Un lot archivé se retrouve avec la case **Afficher les lots archivés** (bouton **Désarchiver le lot**).
 
 À chaque création, l'aperçu propose les étiquettes **publique** et **privée** : imprimez les deux.
 Collez la publique à l'extérieur, rangez la privée à l'intérieur (ou dans le classeur des

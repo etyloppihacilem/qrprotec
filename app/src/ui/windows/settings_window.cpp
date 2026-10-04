@@ -393,12 +393,11 @@ class SettingsWindow final : public AppWindow {
 
       ImGui::SeparatorText("Ajouter un destinataire");
       ImGui::SetNextItemWidth(200.0f);
-      ImGui::InputTextWithHint("Nom##sms", "ex : Responsable matériel", &new_name_);
+      input_limited("Nom##sms", new_name_, 64, "ex : Responsable matériel");
       ImGui::SetNextItemWidth(200.0f);
-      ImGui::InputTextWithHint("Identifiant Free##sms", "8 chiffres", &new_user_);
+      input_limited("Identifiant Free##sms", new_user_, 32, "8 chiffres");
       ImGui::SetNextItemWidth(200.0f);
-      ImGui::InputTextWithHint("Clé d'identification##sms", "clé de l'espace abonné", &new_password_,
-                               ImGuiInputTextFlags_Password);
+      input_limited("Clé d'identification##sms", new_password_, 64, "clé de l'espace abonné", ImGuiInputTextFlags_Password);
       ImGui::BeginDisabled(new_name_.empty() || new_user_.empty() || new_password_.empty());
       if (ImGui::Button("Ajouter")) {
         Json body;

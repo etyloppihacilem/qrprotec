@@ -45,7 +45,11 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
 5. **Non vus** : les items actifs ou disparus du périmètre qui n'ont pas été scannés voient
    `missed_verifs` augmenter. Ils passent `missing` (**disparu**) s'ils sont périmés, ou après
    `QRPROTEC_MISSING_AFTER_VERIFS` vérifs manquées (3 par défaut). Ils restent rattachés au lot :
-   un item oublié une fois dans le fond du sac n'est pas perdu.
+   un item oublié une fois dans le fond du sac n'est pas perdu. Exception : un item à **étiquette à
+   déchirer** (`ItemType.tear_off`, ex : sachet de sérums phy) non scanné passe `missing` tout de
+   suite : l'étiquette est arrachée à l'ouverture, l'ensemble est utilisé (rapport `torn`). En vérif
+   partielle, un tel item non scanné ne retient pas son lot (même règle dans `services._complete_lots`,
+   `planSession` du front web et `App::plan_verif` du poste).
 6. **Exigences** (`requirements_status`) : seuls les items vus à la dernière vérif (ou ajoutés depuis,
    `missed_verifs == 0`) et non périmés comptent comme présents. Le lot est **complet** si chaque
    ligne du contenu attendu est atteinte et qu'il ne contient aucun périmé.

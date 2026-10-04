@@ -13,6 +13,7 @@ import hmac
 import re
 import secrets
 import string
+import unicodedata
 from datetime import timedelta
 
 from django.conf import settings
@@ -51,6 +52,15 @@ def keys_match(expected: str | None, given: str | None) -> bool:
 
 def qrprotec_setting(name):
     return settings.QRPROTEC[name]
+
+
+def name_key(name: str) -> str:
+    """Forme d'un nom pour detecter les doublons : sans accents ni casse, espaces reduits (meme regle que
+    normalize_search dans l'app : « Sac PSE » et « sac pse » sont le meme nom)."""
+    text = unicodedata.normalize('NFKD', str(name or '').replace('œ', 'oe').replace('Œ', 'oe')
+                                 .replace('æ', 'ae').replace('Æ', 'ae'))
+    text = ''.join(character for character in text if not unicodedata.combining(character))
+    return ' '.join(text.casefold().split())
 
 
 def peremption_code(peremption) -> str:
@@ -141,6 +151,10 @@ class ItemType(models.Model):
     low_notified = models.BooleanField(default=False) # SMS "stock bas" deja envoye (remis a zero au-dessus du minimum)
     empty_notified = models.BooleanField(default=False) # notification "stock vide" deja envoyee (remis a zero au-dessus de 0)
     order_notified = models.BooleanField(default=False) # alerte "commande a passer" deja envoyee (remis a zero sans commande due)
+    # Etiquette a dechirer avant utilisation (ex : sachet de plusieurs serums phy etiquete une seule fois) : un
+    # item non scanne a une verif est considere comme utilise tout de suite, et les restes du sachet sont perdus.
+    tear_off = models.BooleanField(default=False)
+    archived = models.BooleanField(default=False) # plus propose (reception, contenu des lots), desarchivable
 
     def __str__(self):
         return f"{self.name} ({self.type})"
@@ -236,6 +250,9 @@ class LotType(models.Model):
     valid_version = models.PositiveIntegerField(default=1)
     # Rangement du stock (armoire, tiroir...) : les items ranges dans un lot de ce type restent en stock
     storage = models.BooleanField(default=False)
+    # Lot unique (ex : un VPS, une de ses armoires) : son lot est cree avec le type et il n'y en a jamais d'autre
+    unique = models.BooleanField(default=False)
+    archived = models.BooleanField(default=False) # plus propose a la creation de lots, desarchivable
 
     def __str__(self):
         return f"{self.name} ({self.type})"
@@ -436,8 +453,17 @@ class Secouristes(models.Model):
     pin_reset_notified = models.BooleanField(default=False)      # admins deja prevenus de ce blocage (une seule fois)
     # Administrateur a prevenir quand le PIN est bloque (affiche sur le telephone avec le lien de deblocage)
     pin_contact = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    # Admin a contacter par defaut (un seul) : pour les utilisateurs sans admin a contacter choisi
+    default_contact = models.BooleanField(default=False)
     # Types de notifications web coupes par un admin pour cet utilisateur (voir PUSH_TYPES)
     push_disabled = models.JSONField(default=list, blank=True)
+
+    def contact_admin(self):
+        """Admin a contacter si le PIN est bloque : celui choisi pour l'utilisateur, sinon l'admin par defaut."""
+        contact = self.pin_contact
+        if contact is None or not contact.active or contact.role != Role.ADMIN:
+            contact = Secouristes.objects.filter(default_contact=True, active=True, role=Role.ADMIN).first()
+        return None if contact is None or contact.matricule == self.matricule else contact
 
     def push_role_types(self):
         """Types de notifications web que le role permet (gestion et admin seulement)."""

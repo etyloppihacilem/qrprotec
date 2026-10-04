@@ -28,7 +28,8 @@ Menu **Gestion > Utilisateurs**.
   l'abonnement, onglet Stock). Une seule notification par blocage, quel que soit le nombre de
   demandes ; toucher la notification web ouvre directement le déblocage.
 - **Admin à contacter** : l'administrateur dont le nom s'affiche sur le téléphone quand le PIN est
-  bloqué (vide : « un administrateur »).
+  bloqué. Sans choix, c'est l'**admin à contacter par défaut** : case à cocher dans la fiche d'un
+  administrateur (un seul à la fois). Sans admin par défaut : « un administrateur ».
 
 Plus aucun administrateur ne peut se connecter ? Sur le serveur :
 `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821` (crée le compte ou donne un nouveau
@@ -137,6 +138,10 @@ retire (un téléphone perdu, par exemple).
 - Sur le poste, **Utilisateurs > Notifications web** : décochez un type pour le couper à cet
   utilisateur sur tous ses appareils. La fiche indique aussi combien d'appareils sont abonnés. Les alertes arrivent même page fermée.
 
+- La demande d'autorisation du navigateur s'affiche au clic sur **Activer les notifications**. Si
+  le navigateur refuse sans rien afficher, les notifications sont bloquées pour ce site (réglages du
+  site, icône à gauche de l'adresse) ou, sur Android, pour l'application du navigateur elle-même
+  (réglages du téléphone).
 - Sur iPhone (iOS 16.4 ou plus), ajouter d'abord la page à l'écran d'accueil.
 - La borne doit avoir un certificat HTTPS reconnu par le téléphone, et un accès Internet sortant.
 

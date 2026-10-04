@@ -103,6 +103,120 @@ bool search_matches(const std::string &query, const std::string &text) {
 }
 
 namespace {
+struct LimitState {
+    int  max_chars;
+    bool code;
+};
+
+bool continuation_byte(char character) {
+  return (static_cast< unsigned char >(character) & 0xC0) == 0x80;
+}
+
+int utf8_length(const char *text, int bytes) {
+  int count = 0;
+  for (int index = 0; index < bytes; ++index)
+    count += continuation_byte(text[index]) ? 0 : 1;
+  return count;
+}
+
+int limit_callback(ImGuiInputTextCallbackData *data) {
+  const LimitState &limit = *static_cast< const LimitState * >(data->UserData);
+  if (data->EventFlag == ImGuiInputTextFlags_CallbackCharFilter)
+    return limit.code && !(data->EventChar < 128 && std::isalnum(static_cast< int >(data->EventChar)));
+  if (data->EventFlag != ImGuiInputTextFlags_CallbackEdit)
+    return 0;
+  int excess = utf8_length(data->Buf, data->BufTextLen) - limit.max_chars;
+  if (excess <= 0)
+    return 0;
+  // retire les caracteres en trop juste avant le curseur : ceux qui viennent d'etre tapes ou colles
+  int start = data->CursorPos;
+  while (excess > 0 && start > 0) {
+    --start;
+    while (start > 0 && continuation_byte(data->Buf[start]))
+      --start;
+    --excess;
+  }
+  data->DeleteChars(start, data->CursorPos - start);
+  // texte deja trop long (ne devrait pas arriver) : coupe la fin
+  int end = data->BufTextLen;
+  while (excess > 0 && end > 0) {
+    --end;
+    while (end > 0 && continuation_byte(data->Buf[end]))
+      --end;
+    --excess;
+  }
+  if (end < data->BufTextLen)
+    data->DeleteChars(end, data->BufTextLen - end);
+  return 0;
+}
+
+// Forme d'un nom pour detecter les doublons (models.name_key cote serveur)
+std::string name_key(const std::string &name) {
+  std::string key;
+  for (const char character : normalize_search(name)) {
+    if (std::isspace(static_cast< unsigned char >(character))) {
+      if (!key.empty() && key.back() != ' ')
+        key += ' ';
+    } else {
+      key += character;
+    }
+  }
+  while (!key.empty() && key.back() == ' ')
+    key.pop_back();
+  return key;
+}
+} // namespace
+
+bool input_limited(const char *label, std::string &value, int max_chars, const char *hint, ImGuiInputTextFlags flags,
+                   bool code) {
+  LimitState limit{ max_chars, code };
+  flags |= ImGuiInputTextFlags_CallbackEdit;
+  if (code)
+    flags |= ImGuiInputTextFlags_CallbackCharFilter;
+  const bool changed = hint ? ImGui::InputTextWithHint(label, hint, &value, flags, limit_callback, &limit)
+                            : ImGui::InputText(label, &value, flags, limit_callback, &limit);
+  if (ImGui::IsItemActive() && utf8_length(value.data(), static_cast< int >(value.size())) >= max_chars)
+    ImGui::SetTooltip("%d caractères maximum", max_chars);
+  return changed;
+}
+
+std::string name_taken(const Json &list, const char *key_field, const std::string &name, const std::string &skip_key,
+                       bool *archived) {
+  const std::string key = name_key(name);
+  if (key.empty())
+    return "";
+  for (const Json &entry : list.items()) {
+    if (!skip_key.empty() && entry[key_field].str() == skip_key)
+      continue;
+    if (name_key(entry["name"].str()) == key) {
+      if (archived)
+        *archived = entry["archived"].boolean() || !entry["active"].boolean(true);
+      return entry["name"].str();
+    }
+  }
+  return "";
+}
+
+Json without_archived(const Json &list) {
+  Json result = Json::array();
+  for (const Json &entry : list.items())
+    if (!entry["archived"].boolean())
+      result.push_back(entry);
+  return result;
+}
+
+bool name_taken_warning(const Json &list, const char *key_field, const std::string &name, const std::string &skip_key,
+                        const char *what) {
+  bool              archived = false;
+  const std::string existing = name_taken(list, key_field, name, skip_key, &archived);
+  if (existing.empty())
+    return false;
+  ImGui::TextColored(colors::red, "%s « %s » existe déjà%s : choisissez un autre nom.", what, existing.c_str(),
+                     archived ? " (archivé)" : "");
+  return true;
+}
+
+namespace {
 struct SearchState {
     std::string query;
     int         highlighted   = 0;
@@ -130,8 +244,10 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
 
   const ImGuiID input_id = ImGui::GetID("##input");
   const bool    active   = ImGui::GetActiveID() == input_id;
-  if (!active)
-    state.query = selected_label; // hors saisie : le champ montre la selection
+  // hors saisie : le champ montre la selection. Pas pendant un clic dans la liste des resultats : le clic fait
+  // perdre la saisie au champ, et la liste doit rester celle de la recherche jusqu'au relachement du bouton.
+  if (!active && !state.popup_hovered)
+    state.query = selected_label;
   ImGui::SetNextItemWidth(width);
   const bool entered = ImGui::InputTextWithHint(
     "##input", hint, &state.query,
@@ -199,7 +315,8 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
       ImGui::TextDisabled("Aucun résultat");
     for (std::size_t index = 0; index < matches.size(); ++index) {
       const bool highlighted = static_cast< int >(index) == state.highlighted;
-      if (ImGui::Selectable(matches[index].label.c_str(), highlighted))
+      // choix des l'appui du bouton : la liste ne peut plus changer sous la souris avant le relachement
+      if (ImGui::Selectable(matches[index].label.c_str(), highlighted, ImGuiSelectableFlags_SelectOnClick))
         accept(matches[index]);
       if (highlighted && now_active)
         ImGui::SetScrollHereY();

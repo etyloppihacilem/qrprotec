@@ -576,7 +576,8 @@
     for (const lot of lots) {
       for (const item of [...(lot.items || []), ...(lot.missing_items || [])]) {
         locationOf[item.iid] = lot.id;
-        if (!done.has(item.iid)) holding[lot.id] = true;
+        // un item a etiquette a dechirer non scanne a ete utilise : il ne retient pas le lot
+        if (!done.has(item.iid) && !item.tear_off) holding[lot.id] = true;
       }
     }
     const required = {};
@@ -997,7 +998,9 @@
         (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row.required)),
       ...section('Périmés encore dans le lot : à remplacer', report.expired),
       ...section('Périmés remplacés', report.replaced),
-      ...section('Attendus mais non scannés', report.missing),
+      // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
+      ...section('Étiquette déchirée : utilisés', report.torn),
+      ...section('Attendus mais non scannés', report.missing.filter((iid) => !(report.torn || []).includes(iid))),
       ...section('Retrouvés', report.reactivated),
       ...section('Ajoutés en réassort', report.restocked),
       ...section('Codes inconnus ignorés', report.unknown),
@@ -1134,7 +1137,8 @@
     return el('li', { class: item.expired ? 'expired' : 'todo' },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, item.type_name),
-        el('div', { class: 'sub' }, `${item.peremption ? fmtDate(item.peremption) : 'Non périssable'} · ${item.iid}`)),
+        el('div', { class: 'sub' }, `${item.peremption ? fmtDate(item.peremption) : 'Non périssable'} · ${item.iid}`
+          + (item.tear_off ? ' · étiquette à déchirer : si elle manque, compté comme utilisé' : ''))),
       item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
       item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null);
   }
@@ -1409,7 +1413,8 @@
   // Alertes au choix : la liste vient du serveur (types permis par le role, moins ceux qu'un admin a coupes)
   const pushTypes = () => (state.push && state.push.types) || (state.pushDevices && state.pushDevices.types) || [];
 
-  async function loadPush() {
+  // keepError : garde le message d'une activation ou desactivation qui vient d'echouer
+  async function loadPush(keepError = false) {
     if (!canSeeStock()) return;
     try {
       const subscription = pushSupported() ? await currentPushSubscription() : null;
@@ -1424,7 +1429,7 @@
       state.pushDevices = devices;
       // abonnement du navigateur inconnu du serveur (autre utilisateur, base restauree) : a reactiver
       if (subscription && !current.subscribed) state.push.stale = true;
-      state.pushError = '';
+      if (!keepError) state.pushError = '';
     } catch (e) {
       state.pushError = e.message;
     }
@@ -1435,17 +1440,53 @@
     return Object.fromEntries(types.map(({ type }) => [type, !!values[type]]));
   }
 
-  async function enablePush() {
+  const BLOCKED_HELP = 'Autorisez-les dans les réglages du site (icône à gauche de l\'adresse > Notifications > '
+    + 'Autoriser, ou « Réinitialiser l\'autorisation »), puis rechargez la page. Sur Android, les notifications de '
+    + 'l\'application du navigateur doivent aussi être autorisées dans les réglages du téléphone.';
+
+  // Demande d'autorisation au navigateur. Elle doit partir pendant le clic, avant toute attente : sinon Firefox et
+  // Safari refusent sans afficher la fenetre. Gere aussi l'ancienne API a callback (Safari < 15).
+  function askPermission() {
+    return new Promise((resolve) => {
+      const done = (permission) => resolve(permission || Notification.permission);
+      try {
+        const result = Notification.requestPermission(done);
+        if (result && typeof result.then === 'function') result.then(done, () => done());
+      } catch (e) {
+        done();
+      }
+    });
+  }
+
+  // Etat de l'autorisation suivi en direct : la boite se met a jour si elle change dans les reglages du site
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'notifications' })
+      .then((status) => { status.onchange = () => renderNotifications(); })
+      .catch(() => {});
+  }
+
+  function enablePush() {
     const prefs = pick(state.push || {}, pushTypes());
     if (!Object.values(prefs).some(Boolean)) { toast('Choisissez au moins une alerte.', true); return; }
+    // premier appel du clic : la fenetre d'autorisation du navigateur s'affiche (geste de l'utilisateur)
+    const asked = Date.now();
+    const permission = askPermission();
+    subscribePush(prefs, permission, asked);
+  }
+
+  async function subscribePush(prefs, permissionAsked, asked) {
     state.pushBusy = true; state.pushError = ''; renderNotifications();
     try {
-      // demande de permission declenchee par le clic de l'utilisateur
-      const permission = await Notification.requestPermission();
+      const permission = await permissionAsked;
       if (permission !== 'granted') {
+        // refus immediat : le navigateur n'a pas affiche de fenetre (site bloque, ou notifications du navigateur
+        // coupees par le systeme)
+        const silent = Date.now() - asked < 500;
         throw new Error(permission === 'denied'
-          ? 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'
-          : 'Autorisation des notifications non accordée.');
+          ? (silent ? 'Le navigateur a refusé sans afficher de demande : notifications bloquées pour ce site. '
+            : 'Notifications refusées pour ce site. ') + BLOCKED_HELP
+          : 'Autorisation non accordée : réessayez et choisissez « Autoriser ». Si aucune fenêtre ne s\'affiche, '
+            + 'cherchez une cloche dans la barre d\'adresse.');
       }
       const { public_key: publicKey } = await api('push/key/');
       const registration = await navigator.serviceWorker.register('web/sw.js', { scope: 'web/' });
@@ -1469,7 +1510,7 @@
       state.pushError = e.message;
     }
     state.pushBusy = false;
-    loadPush();
+    loadPush(true);
   }
 
   async function disablePush() {
@@ -1486,7 +1527,7 @@
       state.pushError = e.message;
     }
     state.pushBusy = false;
-    loadPush();
+    loadPush(true);
   }
 
   async function testPush() {
@@ -1567,8 +1608,10 @@
       for (const { type, label } of push.types) {
         here.push(checkbox(push[type], label, (event) => { push[type] = event.target.checked; }));
       }
-      if (Notification.permission === 'denied') {
-        here.push(el('p', { class: 'error' }, 'Notifications bloquées pour ce site : autorisez-les dans les réglages du navigateur.'));
+      if (Notification.permission === 'denied' && !state.pushError) {
+        here.push(el('p', { class: 'hint' }, 'Le navigateur indique que les notifications sont bloquées pour ce site : '
+          + '« Activer » redemande l\'autorisation. Si aucune fenêtre ne s\'affiche : ' + BLOCKED_HELP.charAt(0).toLowerCase()
+          + BLOCKED_HELP.slice(1)));
       }
       here.push(el('div', { class: 'push-buttons' },
         el('button', { type: 'button', class: 'primary', onclick: enablePush, disabled: busy },

@@ -39,6 +39,17 @@
       "font_size_mm": 2.4
     },
     {
+      "id": "tear",
+      "kind": "text",
+      "text": "{{tear_notice}}",
+      "bold": 1,
+      "x_mm": 22,
+      "y_mm": 20,
+      "width_mm": 17,
+      "height_mm": 4,
+      "font_size_mm": 1.6
+    },
+    {
       "id": "iid",
       "kind": "text",
       "text": "{{iid}}",

@@ -38,7 +38,7 @@ from .idendity import identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .models import (
     PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings,
-    PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, SmsRecipient, Verifs, qrprotec_setting,
+    PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, SmsRecipient, Verifs, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -128,6 +128,17 @@ def parse_int(value, field, minimum=0, maximum=None):
     if number < minimum or (maximum is not None and number > maximum):
         raise ApiError(f"{field} : valeur hors limites")
     return number
+
+
+def ensure_name_free(queryset, name, what):
+    """Refuse un nom deja pris dans `queryset` (sans accents ni casse, voir name_key). Les fronts font la meme
+    verification pendant la saisie."""
+    key = name_key(name)
+    for other in queryset:
+        if name_key(other.name) == key:
+            archived = getattr(other, 'archived', False) or not getattr(other, 'active', True)
+            raise ApiError(f"{what} « {other.name} » existe déjà" + (' (archivé)' if archived else ''),
+                           status.HTTP_409_CONFLICT)
 
 
 def iid_list(data):
@@ -238,10 +249,19 @@ def pin_reset_token_valid(user, token):
 
 
 def pin_contact_name(user):
-    contact = user.pin_contact
-    if contact is None or not contact.active or contact.role != Role.ADMIN:
-        return ''
-    return str(contact)
+    """Admin a contacter : celui choisi pour l'utilisateur, sinon l'admin par defaut (vide : un administrateur)."""
+    contact = user.contact_admin()
+    return str(contact) if contact else ''
+
+
+def apply_default_contact(user, data):
+    """Case « admin a contacter par defaut » : un seul admin actif a la fois."""
+    if 'default_contact' in data:
+        user.default_contact = bool(data['default_contact'])
+    if user.role != Role.ADMIN or not user.active:
+        user.default_contact = False
+    if user.default_contact:
+        Secouristes.objects.filter(default_contact=True).exclude(matricule=user.matricule).update(default_contact=False)
 
 
 def pin_reset_info(user):
@@ -663,6 +683,7 @@ def sealed_pack_detail(request, pack_id):
 @api_view(['GET', 'POST'])
 @handle_errors
 def item_types(request):
+    """Types d'items, archives compris (champ archived) : les fronts ne proposent que les types actifs."""
     if request.method != 'GET':
         require_front(request, GESTION)
     if request.method == 'GET':
@@ -673,16 +694,18 @@ def item_types(request):
         raise ApiError(f"Le code du type doit faire exactement {TYPE_LENGTH} caracteres alphanumeriques")
     if ItemType.objects.filter(type=code).exists():
         raise ApiError(f"Le type {code} existe deja", status.HTTP_409_CONFLICT)
-    name = str(data.get('name', '')).strip()
+    name = str(data.get('name', '')).strip()[:64]
     if not name:
         raise ApiError("Nom obligatoire")
+    ensure_name_free(ItemType.objects.all(), name, "Le type d'item")
     item_type = ItemType.objects.create(
         type=code,
-        name=name[:64],
+        name=name,
         description=str(data.get('description', '')),
         min_quantity=parse_int(data.get('min_quantity', 0), 'min_quantity'),
         perissable=bool(data.get('perissable', False)),
         default_pack_size=parse_int(data.get('default_pack_size', 1), 'default_pack_size', 1),
+        tear_off=bool(data.get('tear_off', False)),
     )
     return Response(ser.item_type_dict(item_type), status=status.HTTP_201_CREATED)
 
@@ -696,7 +719,11 @@ def item_type_detail(request, type_code):
     if request.method == 'PATCH':
         data = request.data
         if 'name' in data:
-            item_type.name = str(data['name'])[:64]
+            name = str(data['name']).strip()[:64]
+            if not name:
+                raise ApiError("Nom obligatoire")
+            ensure_name_free(ItemType.objects.exclude(type=item_type.type), name, "Le type d'item")
+            item_type.name = name
         if 'description' in data:
             item_type.description = str(data['description'])
         if 'min_quantity' in data:
@@ -708,6 +735,18 @@ def item_type_detail(request, type_code):
             if not perissable and ItemsPacks.objects.filter(item_type=item_type, peremption__isnull=False).exists():
                 raise ApiError("Des items dates existent deja pour ce type")
             item_type.perissable = perissable
+        if 'tear_off' in data:
+            item_type.tear_off = bool(data['tear_off'])
+        if 'archived' in data:
+            archived = bool(data['archived'])
+            if archived:
+                # un type encore attendu dans un lot rendrait ces lots incomplets pour toujours
+                users = list(LotType.objects.filter(archived=False, requirements__item_type=item_type)
+                             .order_by('name').values_list('name', flat=True).distinct())
+                if users:
+                    raise ApiError("Ce type est encore dans le contenu attendu de : " + ', '.join(users)
+                                   + ". Retirez-le de ces types de lots d'abord.")
+            item_type.archived = archived
         item_type.save()
     return Response(ser.item_type_dict(item_type))
 
@@ -871,6 +910,11 @@ def sealed_pack_close(request, pack_id):
 @api_view(['GET', 'POST'])
 @handle_errors
 def lot_types(request):
+    """Types de lots, archives compris (champ archived).
+
+    Un type « lot unique » (ex : un VPS, une armoire du VPS) est cree avec son lot, du meme nom : `name_short` et
+    `parent` (lot global) s'appliquent alors a ce lot, renvoye dans `created_lot`.
+    """
     if request.method != 'GET':
         require_front(request, GESTION)
     if request.method == 'GET':
@@ -881,14 +925,28 @@ def lot_types(request):
         raise ApiError(f"Le code du type de lot doit faire exactement {TYPE_LENGTH} caracteres alphanumeriques")
     if LotType.objects.filter(type=code).exists():
         raise ApiError(f"Le type de lot {code} existe deja", status.HTTP_409_CONFLICT)
-    name = str(data.get('name', '')).strip()
+    name = str(data.get('name', '')).strip()[:64]
     if not name:
         raise ApiError("Nom obligatoire")
-    lot_type = LotType.objects.create(
-        type=code, name=name[:64], description=str(data.get('description', '')),
-        created_by=identity_from_request(data, front_user(request))[:32], storage=bool(data.get('storage', False)),
-    )
-    return Response(ser.lot_type_dict(lot_type), status=status.HTTP_201_CREATED)
+    ensure_name_free(LotType.objects.all(), name, 'Le type de lot')
+    unique = bool(data.get('unique', False))
+    identity = identity_from_request(data, front_user(request))[:32]
+    with transaction.atomic():
+        lot_type = LotType.objects.create(
+            type=code, name=name, description=str(data.get('description', '')), created_by=identity,
+            storage=bool(data.get('storage', False)), unique=unique,
+        )
+        lot = None
+        if unique:
+            ensure_name_free(Lots.objects.filter(active=True), name, 'Le lot')
+            lot = Lots(lot_type=lot_type, name=name, name_short=str(data.get('name_short', '') or name)[:16],
+                       created_by=identity)
+            lot.parent = parse_parent(lot, data.get('parent'))
+            lot.save()
+    response = ser.lot_type_dict(lot_type)
+    if lot is not None:
+        response['created_lot'] = ser.lot_dict(lot, local=True, with_items=True)
+    return Response(response, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET', 'PATCH'])
@@ -898,13 +956,53 @@ def lot_type_detail(request, type_code):
         require_front(request, GESTION)
     lot_type = get_object_or_404(LotType, type=type_code)
     if request.method == 'PATCH':
-        if 'name' in request.data:
-            lot_type.name = str(request.data['name'])[:64]
-        if 'description' in request.data:
-            lot_type.description = str(request.data['description'])
-        if 'storage' in request.data:
-            lot_type.storage = bool(request.data['storage'])
-        lot_type.save()
+        data = request.data
+        lots = list(lot_type.lots_set.all())
+        if 'name' in data:
+            name = str(data['name']).strip()[:64]
+            if not name:
+                raise ApiError("Nom obligatoire")
+            ensure_name_free(LotType.objects.exclude(type=lot_type.type), name, 'Le type de lot')
+            if lot_type.unique:
+                # le lot d'un type unique porte le nom du type
+                for lot in lots:
+                    if lot.name == lot_type.name:
+                        ensure_name_free(Lots.objects.filter(active=True).exclude(id=lot.id), name, 'Le lot')
+                        lot.name = name
+                        lot.save(update_fields=['name'])
+            lot_type.name = name
+        if 'description' in data:
+            lot_type.description = str(data['description'])
+        if 'storage' in data:
+            lot_type.storage = bool(data['storage'])
+        if 'unique' in data:
+            unique = bool(data['unique'])
+            if unique and len(lots) > 1:
+                raise ApiError(f"{len(lots)} lots de ce type existent : un lot unique n'en a qu'un")
+            lot_type.unique = unique
+        if 'archived' in data:
+            archived = bool(data['archived'])
+            active = [lot for lot in lots if lot.active]
+            if archived and active and not lot_type.unique:
+                raise ApiError("Des lots actifs sont de ce type (" + ', '.join(lot.name for lot in active)
+                               + ") : archivez-les d'abord")
+            with transaction.atomic():
+                if lot_type.unique:
+                    # le lot d'un type unique est archive et desarchive avec son type
+                    for lot in lots:
+                        if archived and lot.active and lot.children.filter(active=True).exists():
+                            raise ApiError(f"Le lot {lot.name} contient des sous-lots actifs : archivez-les ou "
+                                           "retirez-les du lot d'abord")
+                        if not archived and not lot.active:
+                            ensure_name_free(Lots.objects.filter(active=True).exclude(id=lot.id), lot.name, 'Le lot')
+                        if not archived and lot.parent is not None and not lot.parent.active:
+                            lot.parent = None
+                        lot.active = not archived
+                        lot.save(update_fields=['active', 'parent'])
+                lot_type.archived = archived
+                lot_type.save()
+        else:
+            lot_type.save()
     return Response(ser.lot_type_dict(lot_type))
 
 
@@ -948,12 +1046,17 @@ def lots(request):
         return Response(ser.lot_list(queryset, local=is_privileged(request)))
     data = request.data
     lot_type = get_object_or_404(LotType, type=str(data.get('lot_type', '')))
-    name = str(data.get('name', '')).strip()
+    if lot_type.archived:
+        raise ApiError(f"Le type de lot {lot_type.name} est archivé")
+    if lot_type.unique and lot_type.lots_set.exists():
+        raise ApiError(f"{lot_type.name} est un lot unique : son lot existe déjà", status.HTTP_409_CONFLICT)
+    name = str(data.get('name', '')).strip()[:64]
     if not name:
         raise ApiError("Nom obligatoire")
+    ensure_name_free(Lots.objects.filter(active=True), name, 'Le lot')
     lot = Lots(
         lot_type=lot_type,
-        name=name[:64],
+        name=name,
         name_short=str(data.get('name_short', '') or name)[:16],
         created_by=identity_from_request(data, front_user(request))[:32],
     )
@@ -980,15 +1083,25 @@ def lot_update(request, lot_id):
     require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=lot_id)
     data = request.data
-    for field, length in (('name', 64), ('name_short', 16)):
-        if field in data:
-            setattr(lot, field, str(data[field])[:length])
+    if 'name' in data:
+        name = str(data['name']).strip()[:64]
+        if not name:
+            raise ApiError("Nom obligatoire")
+        if name_key(name) != name_key(lot.name):
+            ensure_name_free(Lots.objects.filter(active=True).exclude(id=lot.id), name, 'Le lot')
+        lot.name = name
+    if 'name_short' in data:
+        lot.name_short = str(data['name_short'])[:16]
     if 'parent' in data:
         lot.parent = parse_parent(lot, data['parent'])
     if 'active' in data:
         active = bool(data['active'])
         if not active and lot.children.filter(active=True).exists():
             raise ApiError("Ce lot contient des sous-lots actifs : archivez-les ou retirez-les du lot d'abord")
+        if active and not lot.active:
+            if lot.lot_type.archived:
+                raise ApiError(f"Le type de lot {lot.lot_type.name} est archivé : désarchivez-le d'abord")
+            ensure_name_free(Lots.objects.filter(active=True).exclude(id=lot.id), lot.name, 'Le lot')
         if active and lot.parent is not None and not lot.parent.active:
             lot.parent = None  # le lot parent a ete archive entre-temps : le lot redevient independant
         lot.active = active
@@ -1074,7 +1187,9 @@ def users(request):
     if data.get('pin_contact'):
         user.pin_contact = parse_pin_contact(user, data['pin_contact'])
     user.renew_key()
-    user.save()
+    with transaction.atomic():
+        apply_default_contact(user, data)
+        user.save()
     data = ser.user_dict(user, local=True)
     if first_admin:
         data['session'] = session_token(user)  # le poste connecte directement le nouvel administrateur
@@ -1104,7 +1219,9 @@ def user_detail(request, matricule):
             user.pin_contact = parse_pin_contact(user, data['pin_contact'])
         if 'push_disabled' in data:
             user.push_disabled = parse_push_disabled(data['push_disabled'])
-        user.save()
+        with transaction.atomic():
+            apply_default_contact(user, data)
+            user.save()
     return Response(ser.user_dict(user, local=True))
 
 

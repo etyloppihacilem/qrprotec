@@ -48,6 +48,8 @@ def item_type_dict(item_type):
         'min_quantity': item_type.min_quantity,
         'perissable': item_type.perissable,
         'default_pack_size': item_type.default_pack_size,
+        'tear_off': item_type.tear_off,
+        'archived': item_type.archived,
     }
 
 
@@ -57,6 +59,8 @@ def item_dict(item, today=None):
         'iid': item.iid,
         'type': item.pack.item_type_id,
         'type_name': item.pack.item_type.name,
+        # etiquette a dechirer avant utilisation : un item non scanne a une verif est utilise
+        'tear_off': item.pack.item_type.tear_off,
         'peremption': _date(item.pack.peremption),
         'expired': item.is_expired(today),
         'status': item.status,
@@ -94,12 +98,18 @@ def sealed_pack_dict(sealed_pack, with_items=True):
 
 
 def lot_type_dict(lot_type):
+    # lot unique : son lot (actif de preference, le plus recent s'il y en a eu plusieurs)
+    lot = lot_type.lots_set.order_by('-active', '-created').first() if lot_type.unique else None
     return {
         'type': lot_type.type,
         'name': lot_type.name,
         'description': lot_type.description,
         'version': lot_type.version,
         'storage': lot_type.storage,
+        'unique': lot_type.unique,
+        'archived': lot_type.archived,
+        'lot': lot.id if lot else '',
+        'lot_count': lot_type.lots_set.count(),
         'requirements': [
             {
                 'type': requirement.item_type_id,
@@ -372,6 +382,7 @@ def user_dict(user, local=False):
         'key_expires': _date(user.key_expires),
         'pin_blocked': user.pin_blocked is not None,
         'pin_reset_required': user.pin_reset_required,
+        'default_contact': user.default_contact,
     }
     if local:
         contact = user.pin_contact
