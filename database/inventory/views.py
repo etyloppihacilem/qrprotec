@@ -38,7 +38,8 @@ from .idendity import identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .models import (
     PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings,
-    PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, SmsRecipient, Verifs, name_key, qrprotec_setting,
+    PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, ServerSettings, SmsRecipient, Verifs, name_key,
+    qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -92,6 +93,16 @@ def require_front(request, roles):
         raise ApiError("Réservé aux administrateurs" if tuple(roles) == ADMIN else "Réservé aux rôles gestion et admin",
                        status.HTTP_403_FORBIDDEN)
     return user
+
+
+def operation_identity(request, data=None):
+    """Identite d'une operation : utilisateur verifie, ou nom declare si le reglage du serveur l'autorise."""
+    allowed = ServerSettings.get().declared_identity
+    identity = identity_from_request(request.data if data is None else data, front_user(request), allowed)
+    if identity is None:
+        raise ApiError("Scannez votre badge ou indiquez votre nom" if allowed else "Scannez votre badge pour continuer",
+                       status.HTTP_403_FORBIDDEN, login_required=True, declared_identity=allowed)
+    return identity
 
 
 def error(message, code=status.HTTP_400_BAD_REQUEST, **extra):
@@ -200,6 +211,8 @@ def health(request):
         'remote_scanner': scanner_hub.enabled,
         # front distant (API distante, cle X-QRProtec-Key) : nom de sa cle
         'front': getattr(request, 'qrprotec_front', ''),
+        # operations sur un lot possibles sans badge, sous un nom declare (reglage du serveur)
+        'declared_identity': ServerSettings.get().declared_identity,
     })
 
 
@@ -412,7 +425,7 @@ def lot_unseal(request, lot_id):
     """Scelle brise (ouverture du lot). Sur l'API publique, exige la cle du lot (etiquette privee)."""
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     require_lot_key(request, lot)
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     with transaction.atomic():
         services.break_seal(lot, identity, str(request.data.get('reason', '')).strip()[:64] or 'ouverture')
     return Response(ser.lot_dict(lot, local=is_privileged(request), with_items=True))
@@ -456,7 +469,7 @@ def verif_targets(request, entries):
 def lot_verif(request, lot_id):
     """Verif d'un lot et de ses sous-lots (cle du lot). 'partial' : voir verifs()."""
     lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}])
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
     return Response(report)
 
@@ -469,7 +482,7 @@ def verifs(request):
     Chaque lot est verifie avec ses sous-lots. En verif partielle, seuls les lots que les items scannes rendent
     complets sont verifies ; les items destines aux autres lots y sont ajoutes (reassort)."""
     lots = verif_targets(request, request.data.get('lots'))
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
     return Response(report)
 
@@ -479,7 +492,7 @@ def verifs(request):
 def lot_add_items(request, lot_id):
     lot = get_object_or_404(Lots, id=lot_id)
     require_lot_key(request, lot)
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     return Response(services.move_items(iid_list(request.data), lot, identity, SeenWhile.ADD))
 
 
@@ -781,7 +794,7 @@ def items_batch(request):
     item_type = get_object_or_404(ItemType, type=str(data.get('type', '')))
     peremption = parse_date(data.get('peremption'), 'peremption')
     count = parse_int(data.get('count', 1), 'count', 1, 10000)
-    identity = identity_from_request(data, front_user(request))
+    identity = operation_identity(request, data)
     location = None
     if data.get('location'):
         location = get_object_or_404(Lots, id=data['location'])
@@ -814,7 +827,7 @@ def item_delete(request, iid):
     reason = str(request.data.get('reason', '')).strip()
     if not reason:
         raise ApiError("Une raison est obligatoire pour supprimer un item")
-    services.mark_deleted(item, identity_from_request(request.data, front_user(request))[:32], reason)
+    services.mark_deleted(item, operation_identity(request)[:32], reason)
     return Response(ser.item_dict(item))
 
 
@@ -823,7 +836,7 @@ def item_delete(request, iid):
 def item_restore(request, iid):
     require_front(request, GESTION)
     item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
-    services.restore(item, identity_from_request(request.data, front_user(request)))
+    services.restore(item, operation_identity(request))
     return Response(ser.item_dict(item))
 
 
@@ -831,7 +844,7 @@ def item_restore(request, iid):
 @handle_errors
 def items_to_stock(request):
     require_front(request, GESTION)
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     return Response(services.move_items(iid_list(request.data), None, identity, SeenWhile.REMOVE))
 
 
@@ -855,7 +868,7 @@ def stock_forecast(request):
 @handle_errors
 def stock_verif(request):
     require_front(request, GESTION)
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     return Response(services.perform_verif(None, iid_list(request.data), identity))
 
 
@@ -874,7 +887,7 @@ def sealed_packs(request):
 def sealed_pack_open(request, pack_id):
     require_front(request, GESTION)
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     now = timezone.now()
     # un paquet deja ouvert garde sa date d'ouverture : l'appel sert alors a reimprimer les etiquettes
     if sealed_pack.opened is None:
@@ -930,7 +943,7 @@ def lot_types(request):
         raise ApiError("Nom obligatoire")
     ensure_name_free(LotType.objects.all(), name, 'Le type de lot')
     unique = bool(data.get('unique', False))
-    identity = identity_from_request(data, front_user(request))[:32]
+    identity = operation_identity(request, data)[:32]
     with transaction.atomic():
         lot_type = LotType.objects.create(
             type=code, name=name, description=str(data.get('description', '')), created_by=identity,
@@ -1058,7 +1071,7 @@ def lots(request):
         lot_type=lot_type,
         name=name,
         name_short=str(data.get('name_short', '') or name)[:16],
-        created_by=identity_from_request(data, front_user(request))[:32],
+        created_by=operation_identity(request, data)[:32],
     )
     lot.parent = parse_parent(lot, data.get('parent'))
     lot.save()
@@ -1114,7 +1127,7 @@ def lot_update(request, lot_id):
 def lot_seal(request, lot_id):
     require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     services.seal_lot(lot, identity, str(request.data.get('seal_number', '')).strip(), bool(request.data.get('force')))
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
@@ -1282,6 +1295,19 @@ def notification_settings(request):
     return _notification_response()
 
 
+@api_view(['GET', 'PATCH'])
+@handle_errors
+def server_settings(request):
+    """Reglages du serveur communs a tous les fronts (admin)."""
+    require_front(request, ADMIN)
+    settings_row = ServerSettings.get()
+    if request.method == 'PATCH':
+        if 'declared_identity' in request.data:
+            settings_row.declared_identity = bool(request.data['declared_identity'])
+        settings_row.save()
+    return Response(ser.server_settings_dict(settings_row))
+
+
 def parse_warning_days(value):
     """Delai de l'alerte « expire bientot » (1 a 365 jours), None : valeur de qrprotec.conf."""
     if value in (None, ''):
@@ -1343,7 +1369,7 @@ def sms_test(request):
         recipients = list(SmsRecipient.objects.filter(active=True))
     if not recipients:
         raise ApiError('Aucun destinataire actif')
-    identity = identity_from_request(request.data, front_user(request))
+    identity = operation_identity(request)
     count = notifications.send(f'QRProtec : SMS de test envoyé par {services.display_name(identity)}.', recipients)
     return Response({'sent': count})
 

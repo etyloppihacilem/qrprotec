@@ -165,6 +165,57 @@ class PublicApiTests(ApiTestCase):
         self.assertNotIn(key, FrontKey.objects.get().key_hash)
 
 
+class DeclaredIdentityTests(ApiTestCase):
+    """Identite declaree (nom sans badge) : reglage du serveur, desactive par defaut."""
+
+    def verif(self, payload, local=False):
+        items = self.create(self.compresses, self.today + timedelta(days=10), 2)
+        payload = {'items': [item.iid for item in items], 'key': self.lot.verif_key, **payload}
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=local, session=False)
+        return code, body, items
+
+    def test_disabled_by_default(self):
+        code, health = self.call('GET', '/api/health/', local=False)
+        self.assertFalse(health['declared_identity'])
+        code, body, _ = self.verif({'name': 'Jean'})
+        self.assertEqual(code, 403)
+        self.assertTrue(body['login_required'])
+        self.assertFalse(body['declared_identity'])
+        # badge invalide : plus d'operation anonyme
+        code, _, _ = self.verif({'user': {'matricule': 'M001', 'key': 'faux'}})
+        self.assertEqual(code, 403)
+        # poste sans utilisateur connecte (session expiree), avec la cle du lot
+        code, _, _ = self.verif({'user': 'M001'}, local=True)
+        self.assertEqual(code, 403)
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [], 'key': self.lot.verif_key,
+                                                                      'name': 'Jean'}, local=False)
+        self.assertEqual(code, 403)
+
+    def test_enabled_by_admin(self):
+        self.assertEqual(self.call('PATCH', '/api/server-settings/', {'declared_identity': True},
+                                   session=views.session_token(self.user))[0], 403)
+        code, body = self.call('PATCH', '/api/server-settings/', {'declared_identity': True})
+        self.assertEqual(code, 200)
+        self.assertTrue(body['declared_identity'])
+        self.assertTrue(self.call('GET', '/api/health/', local=False)[1]['declared_identity'])
+        code, body, items = self.verif({'name': '  Jean Martin '})
+        self.assertEqual(code, 200)
+        self.assertEqual(Items.objects.get(iid=items[0].iid).last_seen_by, 'D:Jean Martin')
+        # le nom reste obligatoire, et la cle du lot aussi
+        code, body, _ = self.verif({'name': ' '})
+        self.assertEqual(code, 403)
+        self.assertTrue(body['declared_identity'])
+        code, _, _ = self.verif({'name': 'Jean', 'key': 'mauvaise'})
+        self.assertEqual(code, 403)
+        # un badge valide reste prioritaire sur le nom
+        code, _, items = self.verif({'name': 'Jean', 'user': {'matricule': 'M001', 'key': self.user.new_key}})
+        self.assertEqual(Items.objects.get(iid=items[0].iid).last_seen_by, 'M:M001')
+        # poste sans utilisateur connecte : meme regle que l'API publique
+        code, _, items = self.verif({'name': 'Jean'}, local=True)
+        self.assertEqual(code, 200)
+        self.assertEqual(Items.objects.get(iid=items[0].iid).last_seen_by, 'D:Jean')
+
+
 class FrontSessionTests(ApiTestCase):
     """Le poste (API locale ou distante) n'a plus de privilege en soi : les routes de gestion exigent
     l'utilisateur connecte, reconnu par son jeton de session."""
@@ -575,7 +626,8 @@ class RestockTests(ApiTestCase):
         self.assertFalse(lot['verif_recommended'])
         # reassort par l'etiquette privee (API publique : cle du lot)
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/',
-                               {'items': [item.iid for item in new], 'key': self.lot.verif_key, 'name': 'x'}, local=False)
+                               {'items': [item.iid for item in new], 'key': self.lot.verif_key,
+                                'user': {'matricule': 'M001', 'key': self.user.new_key}}, local=False)
         self.assertEqual(code, 200)
         code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
         self.assertTrue(lot['verif_recommended'])
@@ -694,6 +746,7 @@ class SubLotTests(ApiTestCase):
                                                              'parent': self.bplus['id'], 'user': 'M001'})
         self.assertEqual(code, 201)
         self.keys = {lot.id: lot.verif_key for lot in Lots.objects.all()}
+        self.badge = {'matricule': 'M001', 'key': self.user.new_key}
 
     def fresh(self, count=2):
         return [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), count)]
@@ -730,7 +783,7 @@ class SubLotTests(ApiTestCase):
     def test_global_verif_covers_sub_lots(self):
         bottle = self.bottle()
         code, report = self.call('POST', f"/api/lots/{self.bplus['id']}/verif/",
-                                 {'items': self.fresh() + [bottle], 'key': self.keys[self.bplus['id']], 'name': 'x'},
+                                 {'items': self.fresh() + [bottle], 'key': self.keys[self.bplus['id']], 'user': self.badge},
                                  local=False)
         self.assertEqual(code, 200)
         self.assertTrue(report['complete'])
@@ -743,7 +796,7 @@ class SubLotTests(ApiTestCase):
         bottle = self.bottle()
         payload = {'lots': [{'id': self.soin['id'], 'key': self.keys[self.soin['id']]},
                             {'id': self.sac_o2['id'], 'key': self.keys[self.sac_o2['id']]}],
-                   'items': self.fresh() + [bottle], 'name': 'x'}
+                   'items': self.fresh() + [bottle], 'user': self.badge}
         code, report = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 200)
         self.assertTrue(report['complete'])

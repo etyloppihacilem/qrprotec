@@ -82,13 +82,14 @@ ligne générée au premier usage), `PushSubscription` (abonnement d'un navigate
 Les champs `*_by` (`last_seen_by`, `created_by`, `sealed_by`…) sont des chaînes, pas des clés
 étrangères. Format défini dans `inventory/idendity.py` :
 
-- `M:M0042` : utilisateur **vérifié** (badge scanné, ou matricule envoyé par le poste local) ;
-- `D:Jean` : nom **déclaré** sans vérification (`"name"` dans la requête publique), ou
-  `D:poste local` / `D:anonyme` à défaut.
+- `M:M0042` : utilisateur **vérifié** (badge scanné, ou utilisateur connecté sur le poste) ;
+- `D:Jean` : nom **déclaré** sans vérification (`"name"` dans la requête), accepté seulement si le
+  réglage du serveur `ServerSettings.declared_identity` est activé (désactivé par défaut). Les
+  anciennes lignes peuvent contenir `D:poste local` ou `D:anonyme`, qui ne sont plus produits.
 
-Raison : un historique ne doit jamais disparaître parce qu'un utilisateur est supprimé, et l'API
-publique doit pouvoir accepter une opération sans badge (par exemple un réassort par quelqu'un qui n'a
-pas encore de badge) tout en distinguant clairement ce qui est vérifié. `parse_identity()` renvoie le
+Raison : un historique ne doit jamais disparaître parce qu'un utilisateur est supprimé, et le serveur
+peut, si l'administrateur l'autorise, accepter une opération sans badge (par exemple un réassort par
+quelqu'un qui n'a pas encore de badge) tout en distinguant clairement ce qui est vérifié. `parse_identity()` renvoie le
 nom à afficher.
 
 ## Contenu des QR codes

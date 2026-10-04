@@ -78,6 +78,7 @@ class SettingsWindow final : public AppWindow {
     void on_open(App &app) override {
       scan_templates();
       load_notifications(app);
+      load_server_rules(app);
     }
 
     void draw(App &app) override {
@@ -92,6 +93,9 @@ class SettingsWindow final : public AppWindow {
       if (ImGui::CollapsingHeader("Serveur", ImGuiTreeNodeFlags_DefaultOpen)) {
         draw_server_settings(app);
       }
+
+      if (ImGui::CollapsingHeader("Règles du serveur (tous les fronts)", ImGuiTreeNodeFlags_DefaultOpen))
+        draw_server_rules(app);
 
       if (ImGui::CollapsingHeader("Session et affichage", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SetNextItemWidth(150.0f);
@@ -256,6 +260,44 @@ class SettingsWindow final : public AppWindow {
     }
 
     // -----------------------------------------------------------------------------------------------------------
+    // Regles du serveur : enregistrees sur le serveur, appliquees immediatement a tous les fronts (web compris).
+    void load_server_rules(App &app) {
+      app.api.get("/api/server-settings/", [this, &app](const ApiResult &result) {
+        if (!result.ok)
+          return;
+        server_rules_          = result.data;
+        app.declared_identity = server_rules_["declared_identity"].boolean();
+      });
+    }
+
+    void draw_server_rules(App &app) {
+      if (server_rules_.is_null()) {
+        ImGui::TextDisabled("Chargement...");
+        if (ImGui::Button("Recharger##server_rules"))
+          load_server_rules(app);
+        return;
+      }
+      bool declared = server_rules_["declared_identity"].boolean();
+      if (ImGui::Checkbox("Autoriser les vérifs et les ajouts sans badge (nom déclaré)", &declared)) {
+        Json body;
+        body["declared_identity"] = declared;
+        app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify("Règles du serveur : " + result.error, true);
+            return;
+          }
+          server_rules_          = result.data;
+          app.declared_identity = server_rules_["declared_identity"].boolean();
+          app.notify(app.declared_identity ? "Nom déclaré sans badge autorisé sur tous les fronts."
+                                           : "Badge obligatoire sur tous les fronts.");
+        });
+      }
+      help_marker("Désactivé (par défaut) : une vérif, un ajout d'items ou l'ouverture d'un scellé exige un "
+                  "badge.\nActivé : à la place du badge, la personne peut saisir son nom, enregistré sans "
+                  "vérification (« D:nom »). L'étiquette privée du lot reste exigée.");
+    }
+
+    // -----------------------------------------------------------------------------------------------------------
     // Notifications SMS (API Free Mobile) : reglages enregistres sur le serveur, appliques immediatement.
     void load_notifications(App &app) {
       app.api.get("/api/notifications/", [this](const ApiResult &result) {
@@ -414,6 +456,7 @@ class SettingsWindow final : public AppWindow {
 
     std::vector< std::pair< std::string, TemplateCategory > > templates_;
     Json                                                      notifications_;
+    Json                                                      server_rules_;
     int                                                       warning_days_ = 30;
     std::string                                               new_name_;
     std::string                                               new_user_;

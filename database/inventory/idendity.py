@@ -47,13 +47,13 @@ def parse_identity(value: str) -> dict:
     }
 
 
-def identity_from_request(data, front_user=None) -> str:
-    """Determine l'identite a associer a une operation.
+def identity_from_request(data, front_user=None, allow_declared=False):
+    """Determine l'identite a associer a une operation, None si personne n'est identifie.
 
     - Poste (API locale ou distante) : l'utilisateur connecte, reconnu par son jeton de session ; le
-      matricule envoye dans `user` n'est plus cru sur parole.
+      matricule envoye dans `user` n'est pas cru sur parole.
     - API publique : `user` doit etre {"matricule": ..., "key": ...} et la cle est verifiee.
-    - A defaut, `name` est utilise comme identite declaree.
+    - A defaut, et seulement si `allow_declared` (reglage du serveur), `name` donne une identite declaree.
     """
     from .models import Secouristes
     if front_user is not None:
@@ -64,6 +64,6 @@ def identity_from_request(data, front_user=None) -> str:
         if secouriste and secouriste.check_key(user.get('key')):
             return f"{SOURCE_VERIFIED}:{secouriste.matricule}"
     name = data.get('name')
-    if isinstance(name, str) and name.strip():
+    if allow_declared and isinstance(name, str) and name.strip():
         return format_identity_declared(name)
-    return format_identity_declared('anonyme')
+    return None

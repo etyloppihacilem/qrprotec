@@ -65,6 +65,7 @@ local_patterns = [
     path('users/', views.users),
     path('users/<str:matricule>/', views.user_detail),
     path('users/<str:matricule>/renew-key/', views.user_renew_key),
+    path('server-settings/', views.server_settings),
     path('notifications/', views.notification_settings),
     path('notifications/recipients/', views.sms_recipients),
     path('notifications/recipients/<int:recipient_id>/', views.sms_recipient_detail),

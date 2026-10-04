@@ -14,6 +14,7 @@
   const STORAGE_USER = 'qrprotec.user';
   const STORAGE_SESSION = 'qrprotec.session';
   const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
+  const STORAGE_NAME = 'qrprotec.declared-name';   // nom declare (sans badge), si le serveur l'autorise
 
   const $ = (selector) => document.querySelector(selector);
 
@@ -42,12 +43,19 @@
     pushEndpoint: '', // abonnement de ce navigateur (pour le reperer dans la liste)
     pushDevices: null, // gestionnaire des notifications : {types, devices} de l'utilisateur connecte
     pushError: '',
+    declaredAllowed: false, // reglage du serveur : verif et ajout possibles sans badge, sous un nom declare
+    declaredName: '',       // nom declare sur ce navigateur (non verifie)
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
   const canSeeStock = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin' || state.user.privileged));
   const isAdmin = () => !!(state.user && state.user.role === 'admin');
   const ROLE_LABELS = { normal: 'Secouriste', gestion: 'Gestion', admin: 'Administrateur' };
+  // identite des operations sur un lot : le badge, sinon le nom declare (si le serveur l'autorise)
+  const declared = () => !state.user && state.declaredAllowed && !!state.declaredName;
+  const hasIdentity = () => !!state.user || declared();
+  const identity = () => (state.user ? { user: { matricule: state.user.matricule, key: state.user.key } }
+    : { name: state.declaredName });
 
   function save() {
     try {
@@ -58,6 +66,8 @@
       }));
       if (state.user) localStorage.setItem(STORAGE_USER, JSON.stringify(state.user));
       else localStorage.removeItem(STORAGE_USER);
+      if (state.declaredName) localStorage.setItem(STORAGE_NAME, state.declaredName);
+      else localStorage.removeItem(STORAGE_NAME);
     } catch (e) { /* stockage indisponible (navigation privee) : la page fonctionne sans */ }
   }
 
@@ -65,6 +75,7 @@
     try {
       const user = JSON.parse(localStorage.getItem(STORAGE_USER) || 'null');
       if (user && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
+      state.declaredName = localStorage.getItem(STORAGE_NAME) || '';
       const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
       if (session) {
         state.lotId = session.lotId || '';
@@ -878,14 +889,34 @@
     const missing = [];
     if (!state.lot) missing.push("scannez l'étiquette du lot");
     else if (!keyOk()) missing.push("scannez l'étiquette privée du lot");
-    if (!state.user) missing.push('scannez votre badge');
+    if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
     if (needItems && !scannedIids().size) missing.push('scannez au moins un item');
     return missing;
   }
 
   // partial : verif partielle, seuls les lots rendus complets par les scans sont verifies (les autres items
   // scannes sont ajoutes a leur lot comme un reassort)
+  // Sans badge, si le serveur l'autorise : le nom est demande une fois et garde sur ce navigateur
+  function askDeclaredName() {
+    const name = (prompt('Sans badge : indiquez votre nom (prénom et nom).', state.declaredName) || '').trim();
+    if (!name) return false;
+    state.declaredName = name.slice(0, 30);
+    save(); render();
+    return true;
+  }
+
+  function ensureIdentity() {
+    return hasIdentity() || !state.declaredAllowed || askDeclaredName();
+  }
+
+  // Le serveur a refuse l'identite : il dit si le nom declare est (encore) accepte
+  function identityRefused(e) {
+    if (!e.data || !e.data.login_required) return;
+    state.declaredAllowed = !!e.data.declared_identity;
+  }
+
   async function validate(partial = false) {
+    if (!ensureIdentity()) return;
     const missing = blockers(false);
     if (missing.length) { feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return; }
     const lots = sessionLots();
@@ -907,7 +938,7 @@
     try {
       const report = await api('verifs/', {
         lots: sessionEntries(),
-        user: { matricule: state.user.matricule, key: state.user.key },
+        ...identity(),
         items: [...scannedIids()],
         partial,
       });
@@ -920,6 +951,7 @@
       showLotInfo();
       loadLots();
     } catch (e) {
+      identityRefused(e);
       feedback.bad();
       toast('Vérif refusée : ' + e.message, true);
     } finally {
@@ -950,12 +982,13 @@
   }
 
   async function addToLot() {
+    if (!ensureIdentity()) return;
     const missing = blockers(true);
     if (missing.length) { feedback.warn(); toast('Pour ajouter : ' + missing.join(', ') + '.', true); return; }
     try {
       const result = await api(`lots/${encodeURIComponent(state.lot.id)}/add/`, {
         key: state.lotKey,
-        user: { matricule: state.user.matricule, key: state.user.key },
+        ...identity(),
         items: [...scannedIids()],
       });
       state.scanned = [];
@@ -964,6 +997,7 @@
       await loadLot(state.lot.id);
       loadLots();
     } catch (e) {
+      identityRefused(e);
       feedback.bad();
       toast('Ajout refusé : ' + e.message, true);
     }
@@ -1050,6 +1084,13 @@
     if (state.user && confirm(`Déconnecter ${state.user.prenom} ${state.user.nom} ?`)) {
       state.user = null;
       save(); render();
+    } else if (declared()) {
+      if (confirm(`Oublier le nom « ${state.declaredName} » ? Scannez votre badge pour vous identifier.`)) {
+        state.declaredName = '';
+        save(); render();
+      }
+    } else if (!state.user && state.declaredAllowed) {
+      if (!askDeclaredName()) toast('Scannez votre badge pour vous connecter, ou indiquez votre nom.');
     } else if (!state.user) {
       toast('Scannez votre badge pour vous connecter.');
     }
@@ -1805,7 +1846,8 @@
     if (state.tab === 'stock' && !canSeeStock()) switchTab('home');
     renderStock();
     const chip = $('#user-chip');
-    chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}` : '👤 Non connecté';
+    chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}`
+      : declared() ? `👤 ${state.declaredName} (sans badge)` : '👤 Non connecté';
     chip.classList.toggle('ok', !!state.user);
     // reassort, ou verif partielle (verif groupee dont certains lots sont complets) : bouton orange a cote de la validation
     const partial = state.busy ? [] : partialLots();
@@ -1821,7 +1863,8 @@
     validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔' : restock ? 'Vérif complète…'
       : blockers(false).length ? 'Valider la vérif…' : 'Valider la vérif';
     $('#scan-hint').textContent = !state.lot ? "Visez l'étiquette d'un lot ou un item"
-      : !state.user ? 'Scannez votre badge pour pouvoir valider'
+      : !hasIdentity() ? (state.declaredAllowed ? 'Scannez votre badge (ou touchez « Non connecté ») pour pouvoir valider'
+        : 'Scannez votre badge pour pouvoir valider')
         : 'Scannez les items du lot';
   }
 
@@ -1831,6 +1874,8 @@
   async function boot() {
     restore();
     render();
+    // reglage du serveur : identite declaree (nom sans badge) acceptee ou non
+    api('health/').then((health) => { state.declaredAllowed = !!health.declared_identity; render(); }).catch(() => {});
     const route = location.pathname.replace(/\/+$/, '').split('/').pop();
     const params = new URLSearchParams(location.search);
     // on retire la cle de la barre d'adresse (historique, partage d'ecran)

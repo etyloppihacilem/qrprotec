@@ -661,6 +661,18 @@ class NotificationSettings(models.Model):
         return settings_row
 
 
+class ServerSettings(models.Model):
+    """Reglages du serveur communs a tous les fronts (une seule ligne, pk=1)."""
+    # Operations sur un lot (verif, ajout d'items, ouverture du scelle) sans badge, sous un nom declare et non
+    # verifie (identite D:nom). Desactive (defaut) : badge, ou utilisateur connecte sur le poste, obligatoire.
+    declared_identity = models.BooleanField(default=False)
+
+    @classmethod
+    def get(cls):
+        settings_row, _ = cls.objects.get_or_create(pk=1)
+        return settings_row
+
+
 class SmsRecipient(models.Model):
     """Destinataire de l'API SMS de Free Mobile (identifiant + cle d'identification de l'espace abonne)."""
     name = models.CharField(max_length=64)

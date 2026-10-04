@@ -22,7 +22,8 @@ badge.** Le reste de cette page détaille les cas particuliers.
    - Un objet scanné deux fois est ignoré (simple mention « déjà scanné »).
    - **Annuler le dernier scan** retire le dernier objet de la pile ; la croix ✕ retire une ligne.
 3. **Valider la vérif.** Si vous n'êtes pas connecté, le poste demande votre **badge** (et votre PIN
-   si vous en avez un). Le compte rendu s'affiche :
+   si vous en avez un). Si l'administrateur l'a autorisé, vous pouvez aussi saisir votre nom et
+   **Continuer sans badge** (il faut alors avoir scanné l'étiquette privée du lot). Le compte rendu s'affiche :
    - **✔ VÉRIF ENREGISTRÉE : LOT COMPLET** : tout va bien ;
    - **✘ INCOMPLET** : la liste de ce qui manque, des périmés restés dans le lot, des items attendus
      mais non scannés. Complétez depuis le stock et refaites une vérif, ou signalez-le à la
@@ -36,7 +37,8 @@ La fenêtre **Lots** (menu Fenêtres) liste tous les lots avec leur état ; un c
 1. Ouvrez l'appareil photo et **scannez l'étiquette privée** du sac : la page QRProtec s'ouvre.
    Touchez **Démarrer la caméra** (et autorisez la caméra la première fois).
 2. **Scannez votre badge** si ce n'est pas déjà fait (le téléphone s'en souvient). Saisissez votre PIN
-   si demandé.
+   si demandé. Si l'administrateur l'a autorisé, vous pouvez à la place toucher **Non connecté** et
+   indiquer votre nom.
 3. **Scannez chaque objet.** Onglets en bas : **À scanner** (ce qui reste, les périmés en rouge),
    **Scannés** (avec « Annuler le dernier » et « Vider la liste »), **Lot** (exigences scannées /
    attendues). Un périmé ou un code inconnu fait clignoter l'écran en rouge, biper et vibrer.
