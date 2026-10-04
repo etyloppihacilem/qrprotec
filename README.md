@@ -658,7 +658,7 @@ de correction réglables dans l'éditeur, qui signale un QR trop petit pour son 
 2 pixels par module).
 
 Dans l'éditeur, les textes peuvent être en **gras** et alignés (gauche, centré, droite). Le bouton
-**Titre** insère `{{titre}}` centré et en gras ; son texte (« PROTECTION CIVILE / PARIS
+**Nom de l'antenne** insère `{{titre}}` centré et en gras ; son texte (« PROTECTION CIVILE / PARIS
 CENTRE » par défaut) se change dans les Réglages et s'applique à toutes les étiquettes.
 
 **Modèles versionnés** : les modèles `*.qr` et leurs images (logo) sont lus et enregistrés dans

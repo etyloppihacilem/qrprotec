@@ -729,27 +729,28 @@ void Editor::draw_layers_panel() {
     add_element({ "texte", ElementKind::Text,
                   TextElement{ "Texte", 2.0f, (height - box_height) / 2.0f, std::max(1.0f, width - 4.0f), box_height, 3.0f } });
   }
-  ImGui::SetItemTooltip("Zone de texte. Les {{placeholders}} sont remplacés à l'impression.");
+  ImGui::SetItemTooltip("Zone de texte libre. Les {{placeholders}} sont remplacés à l'impression.");
   ImGui::SameLine();
-  if (ImGui::Button("Titre", ImVec2(half, 0))) {
-    // titre des Reglages, centre et en gras sur toute la largeur
-    TextElement title{ "{{titre}}", 1.0f, 1.0f, std::max(1.0f, width - 2.0f), 8.0f, 3.0f };
-    title.bold                    = true;
-    title.align                   = TextAlign::Center;
-    document_.parameters["titre"] = label_title_;
-    add_element({ "titre", ElementKind::Text, title });
-  }
-  ImGui::SetItemTooltip("Ajoute {{titre}} (texte défini dans Gestion > Réglages), centré et en gras.");
   if (ImGui::Button("QR code", ImVec2(half, 0))) {
     const float size = std::max(kMinQrMm, std::min(16.0f, std::min(width, height) - 4.0f));
     add_element({ "qr", ElementKind::QrCode, QrElement{ "{{code}}", (width - size) / 2.0f, (height - size) / 2.0f, size } });
   }
-  ImGui::SameLine();
-  if (ImGui::Button("Image", ImVec2(half, 0))) {
+  if (ImGui::Button("Image", ImVec2(-FLT_MIN, 0))) {
     const std::string path = image_files_.empty() ? std::string(LABEL_IMAGES_DIR) + "/protection-civile.png" : image_files_.front();
     add_element({ "image", ElementKind::Image, ImageElement{ path, (width - 10.0f) / 2.0f, (height - 10.0f) / 2.0f, 10.0f, 10.0f, true, 128 } });
   }
   ImGui::SetItemTooltip("Logo ou image PNG / JPEG du dossier images/ des modèles.");
+  if (ImGui::Button("Nom de l'antenne", ImVec2(-FLT_MIN, 0))) {
+    // {{titre}} : nom de l'antenne des Reglages, centre et en gras sur toute la largeur
+    TextElement title{ "{{titre}}", 1.0f, 1.0f, std::max(1.0f, width - 2.0f), 8.0f, 3.0f };
+    title.bold                    = true;
+    title.align                   = TextAlign::Center;
+    document_.parameters["titre"] = label_title_;
+    add_element({ "nom-antenne", ElementKind::Text, title });
+  }
+  ImGui::SetItemTooltip("Ajoute le nom de l'antenne, centré et en gras :\n\n%s\n\n"
+                        "Ce texte se change dans Gestion > Réglages et s'applique à toutes les étiquettes.",
+                        label_title_.c_str());
 
   ImGui::SeparatorText("Calques");
   ImGui::TextDisabled("En haut de la liste = au premier plan.\nGlissez un calque pour le déplacer.");
@@ -1229,7 +1230,7 @@ void Editor::draw_document_properties() {
       preview_dirty_ = true;
     ImGui::EndDisabled();
     if (placeholder == "titre")
-      ImGui::SetItemTooltip("Défini dans Gestion > Réglages.");
+      ImGui::SetItemTooltip("Nom de l'antenne, défini dans Gestion > Réglages.");
   }
   if (placeholder_names_.empty())
     ImGui::TextDisabled("Aucun placeholder dans ce modèle.");
