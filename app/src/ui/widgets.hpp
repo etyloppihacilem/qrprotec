@@ -80,7 +80,7 @@ void status_banner(const std::string &text, const ImVec4 &color, float scale = 1
 
 // Etat d'un lot (objet JSON de l'API) : jamais verifie, incomplet (ou perimes), verifie et complet
 // Scelle : valide sans verif ; SealedExpired : scelle mais contient des perimes (a ouvrir)
-// Recommended : complet mais reassort depuis la derniere verif (orange, verif complete recommandee)
+// Recommended : complet mais reassort ou scelle ouvert depuis la derniere verif (orange, verif complete recommandee)
 enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired, Recommended };
 bool        lot_ok(LotStatus status); // vert
 LotStatus   lot_status(const Json &lot);

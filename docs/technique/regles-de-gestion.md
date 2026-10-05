@@ -152,7 +152,9 @@ une étiquette de scellé est imprimée (`seal?lot=…&s=CODE`). Tant que le sce
   ceux des lots parents), **sans clé ni utilisateur connecté**. Sans identité, l'ouverture est
   enregistrée `D:Anonyme (étiquette intérieure)` ; un nouvel appel identifié dans l'heure la signe
   (le front web rappelle la route après la connexion). Le code d'ouverture est gardé après
-  l'ouverture et change au prochain scellage.
+  l'ouverture et change au prochain scellage. Le lot, ses sous-lots et les lots parents ouverts avec
+  lui passent en **vérif recommandée** (orange, état `opened` : `verif_recommended` sans réassort,
+  `restocked_count` à 0) jusqu'à la prochaine vérif complète.
 
 ## Paquets fermés
 

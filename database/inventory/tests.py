@@ -10,6 +10,7 @@ from django.conf import settings
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from . import serializers as ser
 from . import views
 from .base62 import decode_base62
 from . import forecast
@@ -747,6 +748,26 @@ class SealTests(ApiTestCase):
         self.assertEqual(code, 404)
         self.lot.refresh_from_db()
         self.assertTrue(self.lot.is_sealed)
+
+    def test_open_label_recommends_verif(self):
+        self.fill_lot()
+        sub_lot = Lots(lot_type=self.lot_type, name='Sac O2', name_short='O2', created_by='test', parent=self.lot)
+        sub_lot.save()
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
+        open_code = body['seal_open_url'].split('c=')[1]
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code}, local=False)
+        self.assertTrue(body['lot']['verif_recommended'])
+        self.assertEqual(body['lot']['restocked_count'], 0)
+        self.assertEqual(ser.lot_state(body['lot'])['code'], 'opened')
+        self.assertEqual(ser.lot_state(body['lot'])['kind'], 'warn')
+        sub_lot.refresh_from_db()
+        self.assertTrue(sub_lot.verif_recommended)
+        # un nouveau scan ne change rien, une vérif complète remet le lot au vert
+        self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code}, local=False)
+        items = self.create(self.compresses, self.today + timedelta(days=60), 2)
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
+        self.lot.refresh_from_db()
+        self.assertFalse(self.lot.verif_recommended)
 
     def test_open_label_on_station_uses_logged_user(self):
         self.fill_lot()

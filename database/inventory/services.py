@@ -526,10 +526,20 @@ def open_seal_with_label(lot, identity):
     if lot.is_sealed:
         now = timezone.now()
         # un sous-lot est range dans son lot parent : l'ouvrir suppose d'ouvrir aussi le parent
+        opened = []
         for sealed in _with_ancestors([lot]):
             if sealed.is_sealed:
                 reason = "étiquette d'ouverture" if sealed.id == lot.id else "ouverture d'un sous-lot"
                 break_seal(sealed, identity or SEAL_OPENED_ANONYMOUSLY, reason, now)
+                opened.append(sealed)
+        # le contenu a pu etre utilise : verif recommandee (orange) pour le lot, ses sous-lots (ils etaient sous
+        # le scelle) et les lots parents ouverts avec lui
+        recommended = {sub_lot.id: sub_lot for sub_lot in lot.descendants()}
+        recommended.update({sealed.id: sealed for sealed in opened})
+        for target in recommended.values():
+            if not target.verif_recommended:
+                target.verif_recommended = True
+                target.save(update_fields=['verif_recommended'])
         return 'opened'
     if (identity and lot.unsealed_by == SEAL_OPENED_ANONYMOUSLY and lot.unsealed
             and timezone.now() - lot.unsealed <= SEAL_OPENING_SIGN_DELAY):

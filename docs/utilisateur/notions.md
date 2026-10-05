@@ -106,7 +106,7 @@ Scanner l'étiquette de la boîte compte pour les 25 compresses.
 |---|---|
 | 🟢 **Vert** « Vérifié, complet » | Vérifié, rien ne manque, rien de périmé |
 | 🟢 **Vert** « Scellé » | Scellé intact, rien de périmé |
-| 🟠 **Orange** « Vérif recommandée » | Complet à la dernière vérif, mais du matériel a été ajouté depuis sans vérif |
+| 🟠 **Orange** « Vérif recommandée » | Complet à la dernière vérif, mais du matériel a été ajouté depuis sans vérif, ou son scellé a été ouvert (étiquette d'ouverture scannée) |
 | 🔴 **Rouge** | Jamais vérifié, incomplet, ou contient des périmés |
 
 Dans l'état des stocks : barre **verte** au-dessus du minimum, **orange** en dessous, **rouge** à
