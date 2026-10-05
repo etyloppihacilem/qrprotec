@@ -1901,6 +1901,69 @@ class DefaultContactTests(ApiTestCase):
         self.assertFalse(body['default_contact'])
 
 
+class LotSheetTests(ApiTestCase):
+    def sub_lots(self):
+        """B+ (regroupement) compose d'un sac de soin et d'un sac O2, trie par emplacement."""
+        global_type = LotType.objects.create(type='bplus0', name='B+')
+        o2_type = LotType.objects.create(type='sacoxy', name='Sac O2')
+        LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.garrot, quantity=1, location='Poche avant')
+        LotRequirements.objects.create(lot_type=o2_type, item_type=self.garrot, quantity=3, location='Écran')
+        root = Lots(lot_type=global_type, name='B+ 1', name_short='B1', created_by='test')
+        root.save()
+        self.lot.parent = root
+        self.lot.save()
+        o2 = Lots(lot_type=o2_type, name='Sac O2 1', name_short='O1', created_by='test', parent=root)
+        o2.save()
+        return root, o2
+
+    def pages(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        pdf = response.content
+        self.assertTrue(pdf.startswith(b'%PDF-1.4') and pdf.rstrip().endswith(b'%%EOF'))
+        return pdf.count(b'/Type /Page ')
+
+    def page_texts(self, pdf):
+        import re
+        import zlib
+        streams = re.findall(rb'stream\n(.*?)\nendstream', pdf, re.S)
+        return [zlib.decompress(stream).decode('cp1252') for stream in streams]
+
+    def test_one_page_per_sub_lot(self):
+        root, o2 = self.sub_lots()
+        response = self.client.get(f'/api/lots/{root.id}/sheet.pdf')
+        self.assertEqual(self.pages(response), 3)  # B+, Sac A, Sac O2
+        texts = self.page_texts(response.content)
+        self.assertIn('Aucun item attendu', texts[0])
+        self.assertIn('(page 2)', texts[0])  # renvois vers la page de chaque sous-lot
+        self.assertIn('(page 3)', texts[0])
+        # sac de soin : « Poche avant » avant « Sans emplacement »
+        self.assertLess(texts[1].index('(Poche avant)'), texts[1].index('(Sans emplacement)'))
+        self.assertIn('(Compresses)', texts[1])
+        self.assertIn('(Dans : B+ 1)', texts[2])
+        self.assertIn('(\xc9cran)', texts[2])
+        # un sous-lot seul : sa page uniquement
+        self.assertEqual(self.pages(self.client.get(f'/api/lots/{o2.id}/sheet.pdf')), 1)
+
+    def test_long_lot_continues_on_next_page(self):
+        for index in range(60):
+            item_type = ItemType.objects.create(type=f'it{index:04d}', name=f'Item {index}')
+            LotRequirements.objects.create(lot_type=self.lot_type, item_type=item_type, location=f'Poche {index // 10}')
+        response = self.client.get(f'/api/lots/{self.lot.id}/sheet.pdf')
+        self.assertGreaterEqual(self.pages(response), 3)
+        texts = self.page_texts(response.content)
+        self.assertIn('Sac A \\(suite\\)', texts[1])
+        self.assertIn('Signature', texts[-1])
+        self.assertNotIn('Signature', texts[0])
+
+    def test_archived_lot_hidden_from_public(self):
+        self.lot.active = False
+        self.lot.save()
+        self.assertEqual(self.client.get(f'/api/lots/{self.lot.id}/sheet.pdf').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/lots/{self.lot.id}/sheet.pdf', **LOCAL).status_code, 200)
+        self.assertEqual(self.client.get('/api/lots/inconnu/sheet.pdf').status_code, 404)
+
+
 class OperationJournalTests(ApiTestCase):
     """Journal des operations : qui fait quoi et quand, filtres de la fenetre Journal (gestion et admin)."""
 

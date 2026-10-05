@@ -384,7 +384,8 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`, `lots/<id>/`,
 `lots/<id>/verif/` (POST items, key, partial), `verifs/` (POST `lots: [{id, key}]`, items, partial :
 vérif groupée de plusieurs lots d'un même lot global), `lots/<id>/add/` (POST items, key), `lots/<id>/unseal/` (POST
-key), `packs/<id>/`. `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
+key), `packs/<id>/`, `lots/<id>/sheet.pdf` (GET, fiche d'inventaire papier A4 : items attendus par
+emplacement, une page par sous-lot). `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
 `unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
 `lots/summary/` (lots actifs et leur état, tout badge valide), `stock/summary/` (état des stocks,
 rôles gestion et admin) et `stock/forecast/summary/` (prévisions de stock, mêmes rôles, `months`). Notifications web : `push/key/` (GET, clé publique VAPID),

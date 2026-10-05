@@ -23,6 +23,7 @@ from datetime import date
 from django.core import signing
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
+from django.http import Http404, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -31,6 +32,7 @@ from rest_framework.response import Response
 
 from . import forecast
 from . import journal
+from . import lot_sheet
 from . import notifications
 from . import serializers as ser
 from . import services
@@ -429,6 +431,21 @@ def lot_detail(request, lot_id):
     if seal is not None:
         data['seal_check'] = 'valid' if lot.check_seal(seal) else ('wrong' if lot.is_sealed else 'unsealed')
     return Response(data)
+
+
+def lot_sheet_pdf(request, lot_id):
+    """Fiche d'inventaire papier du lot et de ses sous-lots (PDF A4, une page par lot). Meme acces que le detail
+    public du lot : la fiche ne contient que les items attendus, jamais les cles."""
+    if request.method != 'GET':
+        return HttpResponseNotAllowed(['GET'])
+    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
+    if not is_front(request) and not lot.active:
+        raise Http404()
+    response = HttpResponse(lot_sheet.lot_sheet_pdf(lot), content_type='application/pdf')
+    filename = re.sub(r'[^A-Za-z0-9_-]+', '-', name_key(lot.name)).strip('-') or lot.id
+    response['Content-Disposition'] = f'inline; filename="fiche-{filename}.pdf"'
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @api_view(['POST'])

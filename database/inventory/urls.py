@@ -23,6 +23,7 @@ public_patterns = [
     path('stock/summary/', views.stock_summary),
     path('stock/forecast/summary/', views.stock_forecast_summary),
     path('lots/<str:lot_id>/', views.lot_detail),
+    path('lots/<str:lot_id>/sheet.pdf', views.lot_sheet_pdf),
     path('lots/<str:lot_id>/verif/', views.lot_verif),
     path('verifs/', views.verifs),
     path('lots/<str:lot_id>/add/', views.lot_add_items),
