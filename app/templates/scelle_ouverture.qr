@@ -2,51 +2,13 @@
   "version": 2,
   "name": "Ouverture du scellé",
   "category": "lot_seal_open",
-  "media": {
-    "width_mm": 40,
-    "height_mm": 30,
-    "pixels_per_mm": 8,
-    "orientation": "landscape"
-  },
-  "parameters": {},
+  "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
+  "parameters": {"lot_short": "LOT CHU A", "seal_open_url": "https://example.com/unseal?lot=sacpse00000001&c=Gh34Ij56Kl78Mn90"},
   "elements": [
-    {
-      "id": "qr",
-      "kind": "qr",
-      "payload": "{{seal_open_url}}",
-      "x_mm": 1,
-      "y_mm": 2,
-      "size_mm": 24
-    },
-    {
-      "id": "titre",
-      "kind": "text",
-      "text": "SCANNER APRÈS L'OUVERTURE",
-      "x_mm": 26,
-      "y_mm": 2,
-      "width_mm": 13,
-      "height_mm": 12,
-      "font_size_mm": 1.9
-    },
-    {
-      "id": "nom",
-      "kind": "text",
-      "text": "{{lot_short}}",
-      "x_mm": 26,
-      "y_mm": 15,
-      "width_mm": 13,
-      "height_mm": 6,
-      "font_size_mm": 2.6
-    },
-    {
-      "id": "info",
-      "kind": "text",
-      "text": "Scanner cette étiquette ouvre le scellé",
-      "x_mm": 1,
-      "y_mm": 26,
-      "width_mm": 38,
-      "height_mm": 4,
-      "font_size_mm": 1.8
-    }
+    {"id": "qr", "kind": "qr", "payload": "{{seal_open_url}}", "x_mm": 1, "y_mm": 2, "size_mm": 24, "ecc": 1, "quiet_zone": 2},
+    {"id": "titre", "kind": "text", "text": "SCANNER APRÈS OUVERTURE", "x_mm": 26, "y_mm": 2, "width_mm": 13, "height_mm": 7, "font_size_mm": 1.9, "bold": 1, "align": "center"},
+    {"id": "nom", "kind": "text", "text": "{{lot_short}}", "x_mm": 26, "y_mm": 19, "width_mm": 13, "height_mm": 6, "font_size_mm": 2.4, "bold": 0, "align": "left"},
+    {"id": "info", "kind": "text", "text": "Scanner cette étiquette ouvre le scellé", "x_mm": 1, "y_mm": 26, "width_mm": 38, "height_mm": 4, "font_size_mm": 1.9, "bold": 0, "align": "left"},
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 27, "y_mm": 9.5, "width_mm": 11, "height_mm": 9, "dither": 1, "threshold": 128}
   ]
 }

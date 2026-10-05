@@ -2,61 +2,15 @@
   "version": 2,
   "name": "Scellé de lot",
   "category": "lot_seal",
-  "media": {
-    "width_mm": 40,
-    "height_mm": 30,
-    "pixels_per_mm": 8,
-    "orientation": "landscape"
-  },
-  "parameters": {},
+  "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
+  "parameters": {"lot_short": "LOT CHU ALPHA", "seal_number": "004512", "seal_url": "https://example.com/seal?lot=sacpse00000001&s=Xy12Ab34Cd56Ef78", "titre": "PROTECTION CIVILE\nPARIS CENTRE", "valid_until": "31/03/2027"},
   "elements": [
-    {
-      "id": "qr",
-      "kind": "qr",
-      "payload": "{{seal_url}}",
-      "x_mm": 1,
-      "y_mm": 2,
-      "size_mm": 24
-    },
-    {
-      "id": "titre",
-      "kind": "text",
-      "text": "SCELLÉ",
-      "x_mm": 26,
-      "y_mm": 2,
-      "width_mm": 13,
-      "height_mm": 5,
-      "font_size_mm": 2.8
-    },
-    {
-      "id": "numero",
-      "kind": "text",
-      "text": "{{seal_number}}",
-      "x_mm": 26,
-      "y_mm": 8,
-      "width_mm": 13,
-      "height_mm": 4,
-      "font_size_mm": 2.2
-    },
-    {
-      "id": "nom",
-      "kind": "text",
-      "text": "{{lot_short}}",
-      "x_mm": 26,
-      "y_mm": 14,
-      "width_mm": 13,
-      "height_mm": 6,
-      "font_size_mm": 2.6
-    },
-    {
-      "id": "exp",
-      "kind": "text",
-      "text": "Valide jusqu'au {{valid_until}}",
-      "x_mm": 1,
-      "y_mm": 26,
-      "width_mm": 38,
-      "height_mm": 4,
-      "font_size_mm": 1.8
-    }
+    {"id": "qr", "kind": "qr", "payload": "{{seal_url}}", "x_mm": 1, "y_mm": 2, "size_mm": 24, "ecc": 2, "quiet_zone": 0},
+    {"id": "titre", "kind": "text", "text": "SCELLÉ", "x_mm": 26, "y_mm": 13.25, "width_mm": 13, "height_mm": 2.25, "font_size_mm": 2.1, "bold": 0, "align": "center"},
+    {"id": "numero", "kind": "text", "text": "{{seal_number}}", "x_mm": 26, "y_mm": 15.5, "width_mm": 13, "height_mm": 2, "font_size_mm": 1.4, "bold": 0, "align": "left"},
+    {"id": "nom", "kind": "text", "text": "{{lot_short}}", "x_mm": 26, "y_mm": 17.5, "width_mm": 13, "height_mm": 8.5, "font_size_mm": 2.7, "bold": 1, "align": "left"},
+    {"id": "exp", "kind": "text", "text": "Valide jusqu'au {{valid_until}}", "x_mm": 1, "y_mm": 26, "width_mm": 38, "height_mm": 4, "font_size_mm": 2.4, "bold": 1, "align": "left"},
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 26, "y_mm": 2, "width_mm": 13, "height_mm": 7, "dither": 1, "threshold": 128},
+    {"id": "nom-antenne", "kind": "text", "text": "{{titre}}", "x_mm": 26, "y_mm": 9.5, "width_mm": 13, "height_mm": 4, "font_size_mm": 1.2, "bold": 1, "align": "center"}
   ]
 }
