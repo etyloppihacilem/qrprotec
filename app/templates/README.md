@@ -13,10 +13,12 @@ après chaque clone.
   propose dans « Choisir une image du dossier » et les modèles les référencent en `images/nom.png`.
   `images/protection-civile.png` est le logo de la protection civile, utilisé par les modèles de lot
   public et de badge. L'icône de l'application n'est pas une image d'étiquette.
-- Le modèle utilisé pour chaque usage (item, paquet, lot public/privé, scellé, ouverture du scellé, badge)
-  se choisit dans les Réglages.
+- Le modèle utilisé pour chaque usage (item, paquet, lot public/privé, scellé, ouverture du scellé,
+  rangement du stock, badge) se choisit dans les Réglages.
+- `rangement.qr` est la seule étiquette d'un rangement du stock (armoire, tiroir) : elle contient sa
+  clé, qui n'expire pas, et se colle à l'intérieur. Un rangement n'a pas d'étiquette publique.
 - `scelle_ouverture.qr` est l'étiquette d'ouverture, imprimée avec celle du scellé et rangée **à
   l'intérieur** du lot : la scanner ouvre le scellé, même sans être connecté.
 
 Modèles fournis (40 × 30 mm) : `item.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
-`scelle_ouverture.qr`, `badge.qr`.
+`scelle_ouverture.qr`, `rangement.qr`, `badge.qr`.

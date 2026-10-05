@@ -105,6 +105,19 @@ std::vector< CategoryInfo > build_categories() {
   lot_seal_open.placeholders.push_back({ "sealed_date", "Date du scellage JJ/MM/AAAA", "30/09/2026" });
   categories.push_back(lot_seal_open);
 
+  // rangement du stock : une seule etiquette, privee, collee a l'interieur (cle sans expiration)
+  CategoryInfo lot_storage{ TemplateCategory::LotStorage, "lot_storage", "Rangement du stock",
+                            "Seule étiquette d'un rangement du stock (armoire, tiroir), collée à l'intérieur dans "
+                            "une salle fermée : elle contient la clé du rangement, qui n'expire pas. Le QR code doit "
+                            "contenir {{lot_private_url}}.",
+                            lot_placeholders() };
+  lot_storage.placeholders.push_back({ "lot_key", "Clé de vérification du rangement", "a1B2c3D4e5F6g7H8i9J0k1L2" });
+  lot_storage.placeholders.push_back(
+    { "lot_private_url", "URL de vérif avec la clé (contenu du QR code)",
+      "https://example.com/verif?lot=tiroi300000001&key=a1B2c3D4e5F6g7H8i9J0k1L2" }
+  );
+  categories.push_back(lot_storage);
+
   CategoryInfo user{ TemplateCategory::User, "user", "Badge utilisateur",
                      "Badge de connexion d'un secouriste. Le QR code doit contenir {{badge_url}}.", {} };
   user.placeholders = {

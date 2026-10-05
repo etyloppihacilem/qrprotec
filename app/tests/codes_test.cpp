@@ -137,6 +137,7 @@ static void test_qr_and_categories() {
   assert(logo.path == "logo.png" && !logo.dither && logo.threshold == 100);
   std::remove("/tmp/qrprotec-category.qr");
   assert(category_from_id("lot_private") == TemplateCategory::LotPrivate);
+  assert(category_from_id("lot_storage") == TemplateCategory::LotStorage);
 }
 
 static void test_text_and_label_fit() {
