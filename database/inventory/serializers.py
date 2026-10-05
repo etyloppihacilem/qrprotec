@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, parse_identity
 from .models import PUSH_TYPES, ItemStatus, qrprotec_setting
-from .services import requirements_status
+from .services import out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -69,7 +69,9 @@ def item_dict(item, today=None):
         'location': item.location_id,
         'location_name': item.location.name if item.location_id else '',
         # en stock : hors lot, ou range dans un rangement du stock (armoire, tiroir...)
-        'in_stock': item.location_id is None or item.location.lot_type.storage,
+        'in_stock': item.status != ItemStatus.OUT and (item.location_id is None or item.location.lot_type.storage),
+        # sorti du stock sans lot : compte comme utilise a cette date s'il n'est pas revu a une verif
+        'out_until': _date(out_deadline(item)) if item.status == ItemStatus.OUT else None,
         'sealed_pack': item.sealed_pack_id,
         'missed_verifs': item.missed_verifs,
         'last_seen': _date(item.last_seen),

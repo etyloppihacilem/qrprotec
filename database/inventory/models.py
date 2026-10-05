@@ -75,6 +75,7 @@ class SeenWhile(models.TextChoices):
     DELETE = 'delete', 'Suppression manuelle'
     RESTORE = 'restore', 'Restauration'
     OPEN = 'open', 'Ouverture de paquet'
+    OUT = 'out', 'Sortie du stock'
 
 
 class ItemStatus(models.TextChoices):
@@ -82,6 +83,9 @@ class ItemStatus(models.TextChoices):
     MISSING = 'missing', 'Disparu'
     REPLACED = 'replaced', 'Remplace'
     DELETED = 'deleted', 'Supprime manuellement'
+    # Sorti du stock sans lot (ex : pris pour une intervention) : compte comme utilise s'il n'est pas revu a une
+    # verif dans les QRPROTEC['OUT_DAYS'] jours, ou a sa peremption (voir services.expire_out_items)
+    OUT = 'out', 'Sorti'
 
 
 # models.py
@@ -427,6 +431,8 @@ class OperationKind(models.TextChoices):
     RECEPTION = 'reception', 'Réception'
     ITEM_DELETE = 'item_delete', "Suppression d'item"
     ITEM_RESTORE = 'item_restore', "Restauration d'item"
+    ITEM_OUT = 'item_out', 'Sortie du stock'
+    ITEM_OUT_USED = 'item_out_used', 'Sortie non revenue'
     PACK_OPEN = 'pack_open', 'Ouverture de paquet'
     PACK_CLOSE = 'pack_close', 'Paquet refermé'
     LOT = 'lot', 'Gestion des lots'
@@ -658,6 +664,7 @@ class MovementKind(models.TextChoices):
     REPLACED = 'replaced', 'Remplacé'         # perime sorti du lot a la verif, remplace par un frais
     DELETED = 'deleted', 'Supprimé'
     RESTORED = 'restored', 'Restauré'
+    OUT = 'out', 'Sorti du stock'             # sorti sans lot : devient USED/DISCARDED s'il ne revient pas
 
 
 # Absences : comptees comme sorties tant que l'item n'est pas retrouve

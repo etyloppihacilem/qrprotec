@@ -168,6 +168,14 @@ class ScanWindow final : public AppWindow {
           app.submit_verif();
         ImGui::EndDisabled();
         ImGui::SetItemTooltip("Les options (vérif partielle, réassort) sont dans la fenêtre Vérif.");
+      } else if (!empty) {
+        // pas de lot scanne : la pile est du materiel sorti du stock (pris pour une intervention, prete...)
+        const std::string out = "Sortir " + std::to_string(stack.iids().size()) + " item(s) du stock";
+        if (warning_button(out.c_str(), ImVec2(-1, 0)))
+          app.stack_out();
+        ImGui::SetItemTooltip("Pour une vérif ou un réassort, scannez d'abord l'étiquette privée d'un lot.\n"
+                              "Les items sortis redeviennent normaux s'ils sont scannés à une vérif ;\n"
+                              "sinon ils sont comptés comme utilisés au bout d'un mois (ou à leur péremption).");
       } else {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("Scannez l'étiquette privée d'un lot pour y ajouter la pile.");

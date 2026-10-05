@@ -100,6 +100,18 @@ la commande suggérée, et échanges à faire. **⤡ Scanner** revient au scan.
   dans la pile de scans. Les items scannés sont déclarés en stock (ceux d'un rangement y restent) ;
   les items en stock non scannés sont signalés manquants.
 
+## Sortir du matériel sans lot
+
+Du matériel pris dans la réserve pour une intervention, sans le ranger dans un sac : scannez les
+items **sans** scanner d'étiquette de lot. Le bouton de vérif devient **Sortir N item(s) du stock**
+(au téléphone comme au poste, dans la pile de scans). Les items sortis ne comptent plus dans le stock :
+
+- s'ils reviennent, il suffit de les scanner à une vérif (ou de les remettre en stock) ;
+- sinon, ils sont comptés comme **utilisés** au bout d'un mois, ou à leur date de péremption si elle
+  arrive avant.
+
+La colonne **Sortis** de l'état des stocks compte les items en attente de retour.
+
 ## Remettre du matériel en stock
 
 Un objet sorti d'un sac et remis en réserve (sac réformé, surplus) : scannez-le, puis **En stock**

@@ -1094,7 +1094,7 @@ void App::resolve_item(int entry_id) {
     entry->data      = item;
     entry->title     = item["type_name"].str();
     std::string detail = item["peremption"].is_null() ? "Non périssable" : "Exp. " + display_date(item["peremption"]);
-    detail += item["location"].is_null() ? " - en stock" : " - " + item["location_name"].str();
+    detail += item["status"].str() == "out" ? "" : item["location"].is_null() ? " - en stock" : " - " + item["location_name"].str();
     const std::string status = item["status"].str();
     entry->warning           = status != "active";
     if (status == "missing")
@@ -1103,6 +1103,8 @@ void App::resolve_item(int entry_id) {
       detail += " - marqué supprimé";
     else if (status == "replaced")
       detail += " - déjà remplacé";
+    else if (status == "out")
+      detail += " - sorti du stock, compté utilisé le " + display_date(item["out_until"]) + " s'il ne revient pas";
     entry->detail = detail;
     if (item["expired"].boolean() && !entry->expired) {
       entry->expired = true;
@@ -1693,6 +1695,33 @@ void App::stack_to_stock() {
     notify(std::to_string(result.data["moved"].size()) + " item(s) remis en stock.");
     stack.clear();
     refresh_lots();
+  });
+}
+
+void App::stack_out() {
+  require_login("sortir des items du stock", [this]() {
+    Json body;
+    body["items"] = Json::array();
+    for (const std::string &iid : stack.iids())
+      body["items"].push_back(iid);
+    if (body["items"].size() == 0) {
+      notify("Aucun item à sortir.", true);
+      return;
+    }
+    add_identity(body);
+    api.post("/api/items/out/", body, [this](const ApiResult &result) {
+      if (!result.ok) {
+        identity_refused(result);
+        notify("Sortie refusée : " + result.error, true);
+        return;
+      }
+      notify(std::to_string(result.data["out"].size()) + " item(s) sorti(s) du stock : à scanner à une vérif dans les "
+             + std::to_string(result.data["days"].integer()) + " jours, sinon comptés utilisés.");
+      for (const Json &row : result.data["refused"].items())
+        notify("Non sorti : " + row["iid"].str() + " (" + row["reason"].str() + ")", true);
+      stack.clear();
+      refresh_stock();
+    });
   });
 }
 

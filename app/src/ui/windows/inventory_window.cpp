@@ -444,7 +444,7 @@ class InventoryWindow final : public AppWindow {
         query += "&q=" + url_encode(search_text_);
       if (!search_type_.empty())
         query += "&type=" + url_encode(search_type_);
-      static const char *statuses[] = { "", "active", "missing", "replaced", "deleted" };
+      static const char *statuses[] = { "", "active", "missing", "replaced", "deleted", "out" };
       if (search_status_ > 0)
         query += std::string("&status=") + statuses[search_status_];
       if (search_stock_only_)
@@ -473,7 +473,7 @@ class InventoryWindow final : public AppWindow {
                                "Filtrer par type…", "Tous les types", 240.0f);
       ImGui::SameLine();
       ImGui::SetNextItemWidth(150.0f);
-      changed |= ImGui::Combo("##status", &search_status_, "Tous statuts\0Presents\0Disparus\0Remplaces\0Supprimes\0");
+      changed |= ImGui::Combo("##status", &search_status_, "Tous statuts\0Presents\0Disparus\0Remplaces\0Supprimes\0Sortis\0");
       ImGui::SameLine();
       changed |= ImGui::Checkbox("En stock", &search_stock_only_);
       ImGui::SameLine();

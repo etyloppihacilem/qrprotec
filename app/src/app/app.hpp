@@ -223,6 +223,8 @@ class App {
     void add_stack_to_lot();
     void verif_target_lot();
     void stack_to_stock();
+    // items scannes sans lot : sortis du stock (comptes utilises s'ils ne reviennent pas a une verif)
+    void stack_out();
     void stock_verif();
 
     // Telephone-douchette

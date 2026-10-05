@@ -102,7 +102,7 @@ allow_declared)` :
   redemande le badge, ou le nom si le réglage l'autorise.
 
 Les routes concernées sont celles qu'on peut appeler sans utilisateur connecté, avec la clé du lot :
-`lots/<id>/verif/`, `verifs/`, `lots/<id>/add/` et `lots/<id>/unseal/`. `GET /api/health/` expose
+`lots/<id>/verif/`, `verifs/`, `lots/<id>/add/`, `items/out/` et `lots/<id>/unseal/`. `GET /api/health/` expose
 `declared_identity` à tous les fronts (web compris), qui ne proposent la saisie du nom que s'il est vrai.
 Exception : `lots/<id>/seal-open/` (étiquette d'ouverture du scellé) ouvre le scellé même sans identité,
 puisque le code de l'étiquette rangée dans le lot prouve l'ouverture ; l'identité, si elle est donnée,

@@ -18,6 +18,7 @@ public_patterns = [
     path('auth/', views.auth),
     path('pin-reset/', views.pin_reset),
     path('pin-forgot/', views.pin_forgot),
+    path('items/out/', views.items_out),         # avant items/<iid>/
     path('items/<str:iid>/', views.item_detail),
     path('lots/summary/', views.lots_summary),   # avant lots/<id>/
     path('stock/summary/', views.stock_summary),
