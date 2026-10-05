@@ -273,48 +273,92 @@
   const context = canvas.getContext('2d', { willReadFrequently: true });
   let stream = null;
   let detector = null;
-  let scanning = false;
+  let wakeLock = null;
+  let cameraWanted = false; // camera demarree par l'utilisateur : rouverte au retour sur la page
+  let opening = null;       // ouverture en cours (getUserMedia peut prendre plusieurs secondes)
   let lastCode = '';
   let lastCodeTime = 0;
 
-  async function startCamera() {
+  // Jamais de camera ouverte quand la page est cachee, et une seule ouverture a la fois : sur Firefox
+  // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
+  // camera « utilisee par Firefox » jusqu'au redemarrage du telephone.
+  function cameraShouldRun() { return cameraWanted && !document.hidden && !ended; }
+
+  function syncCamera() {
+    if (!cameraShouldRun()) stopCamera();
+    else if (!stream && !opening) opening = openCamera().finally(() => { opening = null; syncCamera(); });
+  }
+
+  function startCamera() {
     unlockAudio();
-    if (ended) return;
+    cameraWanted = true;
+    syncCamera();
+  }
+
+  function cameraFailed(message) {
+    cameraWanted = false;
+    $('#camera-error').textContent = message;
+    $('#start').hidden = ended; // session fermee : plus de camera
+  }
+
+  async function openCamera() {
     $('#camera-error').textContent = '';
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      $('#camera-error').textContent = "La caméra n'est accessible qu'en HTTPS. Utilisez « Saisir un code ».";
+      cameraFailed("La caméra n'est accessible qu'en HTTPS. Utilisez « Saisir un code ».");
       return;
     }
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
-    } catch (e) {
-      $('#camera-error').textContent = 'Caméra refusée ou indisponible : ' + e.message;
-      return;
+    let media = null;
+    for (let attempt = 0; !media; attempt++) {
+      try {
+        media = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+      } catch (e) {
+        const busy = e.name === 'NotReadableError' || e.name === 'AbortError';
+        if (busy && attempt < 3) {
+          // apres un rechargement, la camera de la page precedente est liberee avec un peu de retard
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          if (!cameraShouldRun()) return;
+          continue;
+        }
+        cameraFailed(busy
+          ? 'Caméra occupée (autre application ou autre onglet ?). Fermez-les puis réessayez.'
+          : 'Caméra refusée ou indisponible : ' + e.message);
+        return;
+      }
     }
+    // page cachee ou camera arretee pendant l'ouverture : on la rend tout de suite
+    if (!cameraShouldRun()) { media.getTracks().forEach((track) => track.stop()); return; }
+    stream = media;
     video.srcObject = stream;
     await video.play().catch(() => {});
-    if ('BarcodeDetector' in window) {
+    if (!detector && 'BarcodeDetector' in window) {
       try {
         const formats = await window.BarcodeDetector.getSupportedFormats();
         if (formats.includes('qr_code')) detector = new window.BarcodeDetector({ formats: ['qr_code'] });
       } catch (e) { detector = null; }
     }
+    if (stream !== media) return; // arretee entre-temps
     const track = stream.getVideoTracks()[0];
     const capabilities = track.getCapabilities ? track.getCapabilities() : {};
     $('#torch').hidden = !capabilities.torch;
     $('#start').hidden = true;
-    scanning = true;
-    try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch (e) { /* facultatif */ }
-    scanLoop();
+    requestWakeLock();
+    scanLoop(media);
   }
 
   function stopCamera() {
-    scanning = false;
     if (stream) stream.getTracks().forEach((track) => track.stop());
     stream = null;
+    video.pause();
+    video.srcObject = null;
+    $('#torch').classList.remove('on');
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  }
+
+  async function requestWakeLock() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
   }
 
   async function detect() {
@@ -334,8 +378,8 @@
     return result ? result.data : null;
   }
 
-  async function scanLoop() {
-    while (scanning) {
+  async function scanLoop(media) {
+    while (stream === media) {
       try {
         const code = await detect();
         if (code) onDetected(code);
@@ -355,10 +399,12 @@
     sendCode(code);
   }
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopCamera();
-    else if ($('#start').hidden && !ended) startCamera();
-  });
+  document.addEventListener('visibilitychange', syncCamera);
+  // rechargement, navigation, onglet gele ou decharge : la camera est rendue sans attendre le navigateur
+  window.addEventListener('pagehide', stopCamera);
+  window.addEventListener('pageshow', (event) => { if (event.persisted) syncCamera(); });
+  document.addEventListener('freeze', stopCamera);
+  document.addEventListener('resume', syncCamera);
   $('#start-button').addEventListener('click', startCamera);
   $('#torch').addEventListener('click', async () => {
     const track = stream && stream.getVideoTracks()[0];

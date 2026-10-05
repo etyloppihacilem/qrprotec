@@ -41,6 +41,11 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
 - **Caméra** (`startCamera`, `scanLoop`, `detect`) : caméra arrière, `BarcodeDetector` natif si
   disponible, sinon jsQR sur une image du `<canvas>`. Un même code vu en continu n'est traité qu'une
   fois par 2,5 s. Lampe et écran maintenu allumé (`wakeLock`) si possible.
+  La caméra n'est jamais laissée ouverte page cachée (`syncCamera`) : fermée à `visibilitychange`,
+  `pagehide` et `freeze`, rouverte au retour si l'utilisateur l'avait démarrée, une seule ouverture à
+  la fois, et un flux obtenu alors que la page vient d'être cachée est rendu aussitôt. Sur Firefox
+  Android, un flux resté ouvert écran éteint pouvait laisser la caméra « utilisée par Firefox »
+  jusqu'au redémarrage du téléphone. Une caméra occupée (`NotReadableError`) est retentée 3 fois.
 - **Analyse** (`parseCode`) : même format que `app/src/core/codes.cpp`, domaine ignoré.
 - **Retours** : bip (Web Audio, déverrouillé au premier toucher), vibration (sauf iPhone), flash
   rouge plein écran pour un périmé ou un code inconnu.
