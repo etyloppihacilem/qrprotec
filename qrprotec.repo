@@ -1,0 +1,8 @@
+[qrprotec]
+name=QRProtec - Fedora $releasever - $basearch
+baseurl=https://etyloppihacilem.github.io/qrprotec/fedora/$releasever/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=https://etyloppihacilem.github.io/qrprotec/RPM-GPG-KEY-qrprotec
+metadata_expire=1h
+skip_if_unavailable=False
