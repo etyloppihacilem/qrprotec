@@ -17,11 +17,11 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from . import movements, notifications
+from . import journal, movements, notifications
 from .idendity import SOURCE_DECLARED, parse_identity
 from .models import (
-    ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, SeenWhile, VerifItem, VerifResult,
-    Verifs, generate_key, qrprotec_setting,
+    ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, OperationKind, SeenWhile, VerifItem,
+    Operation, VerifResult, Verifs, generate_key, qrprotec_setting,
 )
 
 
@@ -242,12 +242,13 @@ def perform_verif(lot, iids, identity, partial=False):
         report = {'present': [], 'expired': [], 'replaced': [], 'missing': [], 'unknown': unknown, 'reactivated': [],
                   'restocked': [], 'torn': []}
         entries = []
-        journal = []
+        moves = []
         origin = {item.iid: item.location_id for item in scanned}
         # items retrouves apres avoir ete notes absents : leur absence ne compte plus comme une utilisation
         movements.found_again([item.iid for item in scanned if movements.may_be_absent(item)], now, identity)
         counts = defaultdict(lambda: defaultdict(int))  # lot id -> compteurs de la verif
         restocked = defaultdict(int)
+        restocked_items = defaultdict(list)  # lot id -> items ranges par reassort (journal)
         for item in scanned:
             destination = target[item.iid]
             expired = item.is_expired(today)
@@ -255,6 +256,7 @@ def perform_verif(lot, iids, identity, partial=False):
                 # reassort (verif partielle) : l'item est range dans son lot sans verif de ce lot
                 if item.location_id != destination:
                     restocked[destination] += 1
+                    restocked_items[destination].append(item)
                     report['restocked'].append(item.iid)
                 item.touch(identity, SeenWhile.ADD, now)
                 item.missed_verifs = 0
@@ -288,7 +290,7 @@ def perform_verif(lot, iids, identity, partial=False):
             expired = item.is_expired(today)
             verif = verifs[item.location_id if group is not None else None]
             if item.missed_verifs == 0:
-                journal.append(movements.absence(item, now, identity, verif))
+                moves.append(movements.absence(item, now, identity, verif))
             item.missed_verifs += 1
             torn = item.pack.item_type.tear_off
             if expired or torn or item.missed_verifs >= threshold:
@@ -305,11 +307,12 @@ def perform_verif(lot, iids, identity, partial=False):
         Items.objects.bulk_update(not_seen, ['status', 'missed_verifs'])
         for item in scanned:
             if item.status == ItemStatus.REPLACED:
-                journal.append(movements.movement(item, MovementKind.REPLACED, now, identity, origin[item.iid]))
+                moves.append(movements.movement(item, MovementKind.REPLACED, now, identity, origin[item.iid]))
             elif item.location_id != origin[item.iid]:
-                journal.append(movements.movement(item, MovementKind.MOVE, now, identity, origin[item.iid],
+                moves.append(movements.movement(item, MovementKind.MOVE, now, identity, origin[item.iid],
                                                   item.location_id))
-        ItemMovement.objects.bulk_create(journal)
+        ItemMovement.objects.bulk_create(moves)
+        by_iid_location = {item.iid: item.location_id for item in not_seen}
         newly_missing = [item for item in not_seen if item.status == ItemStatus.MISSING and item.iid not in was_missing]
         VerifItem.objects.bulk_create(entries)
 
@@ -339,6 +342,9 @@ def perform_verif(lot, iids, identity, partial=False):
                 verif.replaced_count = counts[sub_lot.id]['replaced']
                 verif.save()
                 row.update({'complete': lot_complete, 'requirements': requirements, 'verif_id': verif.id})
+                _record_verif(sub_lot, identity, now, verif, requirements, partial,
+                              [iid for iid in report['missing'] if by_iid_location.get(iid) == sub_lot.id],
+                              lot_expired)
                 if not lot_complete:
                     lot_missing = [item for item in newly_missing if item.location_id == sub_lot.id]
                     notify_verif_problem(sub_lot, identity, requirements,
@@ -358,6 +364,10 @@ def perform_verif(lot, iids, identity, partial=False):
                         sub_lot.restocked_count += restocked[sub_lot.id]
                         fields += ['verif_recommended', 'restocked', 'restocked_by', 'restocked_count']
                     sub_lot.save(update_fields=fields)
+                    items = restocked_items[sub_lot.id]
+                    journal.record(OperationKind.RESTOCK, identity, f"{journal.types_summary(items)} (vérif partielle)",
+                                   lot=sub_lot, at=now, count=len(items), items=journal.item_ids(items),
+                                   partial_verif=True)
             complete = complete and row['complete'] is not False
             lots_report.append(row)
 
@@ -369,6 +379,7 @@ def perform_verif(lot, iids, identity, partial=False):
             verif.expired_count = len(report['expired'])
             verif.replaced_count = len(report['replaced'])
             verif.save()
+            _record_verif(None, identity, now, verif, [], False, report['missing'], report['expired'])
 
         affected = {item.pack.item_type_id for item in scanned} | {item.pack.item_type_id for item in not_seen}
         notifications.check_stock_levels(affected)
@@ -386,6 +397,26 @@ def perform_verif(lot, iids, identity, partial=False):
     report['unsealed'] = bool(unsealed)
     report['unsealed_lots'] = unsealed
     return report
+
+
+def _record_verif(lot, identity, now, verif, requirements, partial, missing, expired):
+    """Verif d'un lot (ou du stock, lot None) dans le journal des operations."""
+    counts = [(verif.present_count, 'présent'), (verif.missing_count, 'manquant'), (verif.expired_count, 'périmé'),
+              (verif.replaced_count, 'remplacé')]
+    parts = [journal.plural(count, word) for count, word in counts if count]
+    lacking = [{'type': row['type'], 'type_name': row['type_name'], 'required': row['required'],
+                'present': row['present']} for row in requirements if row['present'] < row['required']]
+    if lot is None:
+        summary = ', '.join(parts) or 'aucun item'
+    else:
+        summary = ('complète' if verif.complete else 'incomplète') + (' : ' + ', '.join(parts) if parts else '')
+    if partial:
+        summary += ' (vérif partielle)'
+    journal.record(OperationKind.STOCK_VERIF if lot is None else OperationKind.VERIF, identity, summary, lot=lot,
+                   at=now, verif=verif.id, complete=verif.complete, partial=partial, present=verif.present_count,
+                   missing=verif.missing_count, expired=verif.expired_count, replaced=verif.replaced_count,
+                   lacking=lacking, missing_items=missing[:journal.MAX_LISTED_ITEMS],
+                   expired_items=expired[:journal.MAX_LISTED_ITEMS])
 
 
 def _complete_lots(group, scanned, not_seen, target, replaced, today):
@@ -458,6 +489,9 @@ def seal_lot(lot, identity, seal_number='', force=False):
     lot.last_used = now
     lot.last_used_by = identity
     lot.save()
+    number = f'scellé n°{lot.seal_number}' if lot.seal_number else 'scellé sans numéro'
+    journal.record(OperationKind.SEAL, identity, number + (' (forcé)' if force else ''), lot=lot, at=now,
+                   seal_number=lot.seal_number, forced=force)
     return lot
 
 
@@ -471,6 +505,8 @@ def break_seal(lot, identity, reason, now=None):
     lot.unsealed_by = identity
     lot.save(update_fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
     number = f' n°{lot.seal_number}' if lot.seal_number else ''
+    journal.record(OperationKind.UNSEAL, identity, f'scellé{number} ouvert ({reason})', lot=lot, at=lot.unsealed,
+                   seal_number=lot.seal_number, reason=reason)
     notifications.notify('seal_broken', f'scellé{number} du lot {lot.name} ouvert ({reason}) par {display_name(identity)}')
     return True
 
@@ -502,6 +538,11 @@ def open_seal_with_label(lot, identity):
             if opened.unsealed_by == SEAL_OPENED_ANONYMOUSLY and opened.unsealed == lot.unsealed:
                 opened.unsealed_by = identity
                 opened.save(update_fields=['unsealed_by'])
+                for operation in Operation.objects.filter(kind=OperationKind.UNSEAL, lot=opened, at=opened.unsealed,
+                                                          by=SEAL_OPENED_ANONYMOUSLY):
+                    operation.by = identity
+                    operation.details['signed_after_scan'] = True
+                    operation.save(update_fields=['by', 'details'])
         return 'signed'
     return 'already'
 
@@ -511,7 +552,8 @@ def move_items(iids, lot, identity, context):
     now = timezone.now()
     requested = list(dict.fromkeys(iids))
     with transaction.atomic():
-        items = list(Items.objects.select_for_update().select_related('pack').filter(iid__in=requested))
+        items = list(Items.objects.select_for_update(of=('self',)).select_related('pack__item_type', 'location')
+                     .filter(iid__in=requested))
         found = {item.iid for item in items}
         # ajouter ou retirer des items d'un lot scelle brise son scelle
         touched_lots = {item.location_id for item in items if item.location_id and item.location_id != (lot.id if lot else None)}
@@ -529,11 +571,12 @@ def move_items(iids, lot, identity, context):
         if lot is not None:
             lot.refresh_from_db(fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
         movements.found_again([item.iid for item in items if movements.may_be_absent(item)], now, identity)
-        journal = [
+        moves = [
             movements.movement(item, MovementKind.MOVE, now, identity, item.location_id, lot.id if lot else None)
             for item in items if item.location_id != (lot.id if lot else None)
         ]
-        ItemMovement.objects.bulk_create(journal)
+        ItemMovement.objects.bulk_create(moves)
+        _record_moves(items, lot, identity, context, now)
         for item in items:
             item.location = lot
             item.status = ItemStatus.ACTIVE
@@ -557,10 +600,31 @@ def move_items(iids, lot, identity, context):
     return {'moved': [iid for iid in requested if iid in found], 'unknown': [iid for iid in requested if iid not in found]}
 
 
+def _record_moves(items, lot, identity, context, now):
+    """Reassort (items ranges dans un lot) ou retrait vers le stock (un par lot d'origine) dans le journal."""
+    destination = lot.id if lot else None
+    moved = [item for item in items if item.location_id != destination]
+    if lot is not None:
+        if moved:
+            origins = sorted({item.location.name for item in moved if item.location_id})
+            journal.record(OperationKind.RESTOCK, identity, journal.types_summary(moved), lot=lot, at=now,
+                           count=len(moved), items=journal.item_ids(moved), origins=origins, context=context)
+        return
+    by_origin = defaultdict(list)
+    for item in moved:
+        by_origin[item.location_id].append(item)
+    for origin_items in by_origin.values():
+        journal.record(OperationKind.REMOVE, identity, journal.types_summary(origin_items),
+                       lot=origin_items[0].location, at=now, count=len(origin_items),
+                       items=journal.item_ids(origin_items))
+
+
 def mark_deleted(item, identity, reason):
     now = timezone.now()
     ItemMovement.objects.create(item=item, item_type_id=item.pack.item_type_id, kind=MovementKind.DELETED, at=now,
                                 by=identity[:64], from_lot_id=item.location_id)
+    journal.record(OperationKind.ITEM_DELETE, identity, f'{item.pack.item_type.name} {item.iid} : {reason}',
+                   lot=item.location, at=now, items=[item.iid], reason=reason)
     item.status = ItemStatus.DELETED
     item.deleted = now
     item.deleted_by = identity
@@ -576,6 +640,8 @@ def restore(item, identity):
     movements.found_again([item.iid], now, identity)
     ItemMovement.objects.create(item=item, item_type_id=item.pack.item_type_id, kind=MovementKind.RESTORED, at=now,
                                 by=identity[:64], to_lot_id=item.location_id)
+    journal.record(OperationKind.ITEM_RESTORE, identity, f'{item.pack.item_type.name} {item.iid}', lot=item.location,
+                   at=now, items=[item.iid])
     item.status = ItemStatus.ACTIVE
     item.deleted = None
     item.deleted_by = ''

@@ -320,6 +320,9 @@ class LotAdminWindow final : public AppWindow {
       }
       ImGui::Text("Dernière vérif : %s%s", display_datetime(lot_["last_verif"]).c_str(),
                   lot_["last_verif_by"].str().empty() ? "" : (" par " + lot_["last_verif_by"].str()).c_str());
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Journal du lot"))
+        app.show_journal(lot_["id"].str());
       const LotStatus status = lot_status(lot_);
       if (lot_is_group(lot_)) {
         ImVec4            color;

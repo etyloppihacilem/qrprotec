@@ -127,6 +127,13 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
   (`transaction.on_commit` dans `notifications.send`), dans un thread (sauf `QRPROTEC_SMS_SYNC=1`,
   utile pour les tests) : une API Free lente ne ralentit jamais une vérif, et un rollback n'envoie
   rien.
+- Journal des opérations (`journal.py`, modèle `Operation`) : chaque opération qui écrit (vérif, réassort,
+  retrait, scellage, ouverture de scellé, réception, suppression, gestion des lots, des types, des
+  utilisateurs et des réglages) ajoute une ligne avec l'identité de l'opération (`operation_identity`, ou
+  l'utilisateur connecté pour la gestion). Une ouverture anonyme par l'étiquette intérieure, signée
+  ensuite, est réattribuée dans le journal aussi. `GET /api/operations/` (API locale et distante, rôles
+  gestion et admin) filtre par `kind`, `by`, `lot` (avec ses sous-lots, archivés compris, sauf `sub=0`),
+  `since` / `until` et `q`, pagine avec `before` et donne avec `facets=1` les personnes et les types.
 - `Lots.descendants()` charge **tous** les lots actifs ayant un parent en une requête puis parcourt en
   mémoire : volontaire, le nombre de lots reste petit (centaines) et cela évite N requêtes.
 

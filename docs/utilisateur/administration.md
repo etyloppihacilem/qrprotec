@@ -69,6 +69,27 @@ signer l'ouverture ; sans cela, elle reste enregistrée comme anonyme.
 **Briser le scellé** depuis la fiche quand on ouvre le lot pour autre chose qu'une vérif. Le lot
 devra être vérifié avant utilisation.
 
+## Journal des opérations
+
+Menu **Gestion > Journal des opérations** (rôles gestion et admin) : toutes les opérations, de la plus
+récente à la plus ancienne, avec qui, quand, quoi et sur quel lot. Vérifs (complètes en vert,
+incomplètes en rouge), réassorts, retraits vers le stock, scellages et ouvertures de scellé, réceptions,
+paquets ouverts, suppressions d'items, et modifications des lots, des types, des utilisateurs et des
+réglages.
+
+- Filtres : **Qui**, **Quoi**, **Lot** (avec ses sous-lots, case à décocher), **Quand** (dates libres
+  comme pour la péremption, ou **Aujourd'hui**, **7 jours**, **30 jours**) et un **texte** cherché dans
+  le résumé (numéro de scellé, iid, nom de type...), le nom du lot et le nom de la personne.
+- Cliquez une ligne pour son détail : items concernés, ce qui manquait à une vérif, raison d'une
+  ouverture ou d'une suppression.
+- Un nom en orange n'a pas été vérifié par un badge : nom déclaré, ou ouverture anonyme par l'étiquette
+  intérieure jamais signée.
+- Bouton **Journal du lot** dans la fiche d'un lot (Gestion des lots) : le journal filtré sur ce lot.
+
+Les opérations faites avant la mise à jour sont reconstituées depuis l'historique (en gris) : vérifs,
+réassorts, réceptions, paquets ouverts, et seulement le **dernier** scellage et la **dernière**
+ouverture de chaque lot.
+
 ## Étiquettes
 
 Menu **Gestion > Éditeur d'étiquettes** (admin). Chaque modèle a un **usage** (item, paquet, lot
