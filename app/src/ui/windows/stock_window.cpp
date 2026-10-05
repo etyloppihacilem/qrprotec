@@ -122,6 +122,12 @@ class StockWindow final : public AppWindow {
     }
 
   private:
+    // filtre par nom, code ou description du type (ex: nom commercial d'un medicament generique)
+    bool filter_matches(const App &app, const Json &row) const {
+      const std::string type = row["type"].str();
+      return search_matches(filter_, row["name"].str() + " " + type + " " + app.catalog.item_type_description(type));
+    }
+
     // ---- Actuel : etat du stock aujourd'hui ----
     void draw_current(App &app) {
       std::vector< const Json * > rows;
@@ -148,7 +154,7 @@ class StockWindow final : public AppWindow {
         const Json &row      = *row_ptr;
         const int   quantity = count(row);
         const int   minimum  = row["min_quantity"].integer();
-        if (!search_matches(filter_, row["name"].str() + " " + row["type"].str()))
+        if (!filter_matches(app, row))
           continue;
         if (only_low_ && quantity >= minimum && quantity > 0)
           continue;
@@ -220,7 +226,7 @@ class StockWindow final : public AppWindow {
 
       std::vector< const Json * > rows;
       for (const Json &row : forecast["types"].items()) {
-        if (!search_matches(filter_, row["name"].str() + " " + row["type"].str()))
+        if (!filter_matches(app, row))
           continue;
         const int minimum = row["min_quantity"].integer();
         if (only_low_ && projected(row) >= minimum && projected(row) > 0 && row["below_min"].is_null())
@@ -455,7 +461,7 @@ class StockWindow final : public AppWindow {
       const Json &forecast = app.catalog.forecast;
       std::vector< const Json * > rows;
       for (const Json &row : forecast["types"].items())
-        if (row["order"].is_object() && search_matches(filter_, row["name"].str() + " " + row["type"].str()))
+        if (row["order"].is_object() && filter_matches(app, row))
           rows.push_back(&row);
       std::stable_sort(rows.begin(), rows.end(), [](const Json *a, const Json *b) {
         return (*a)["order"]["before"].str() < (*b)["order"]["before"].str();

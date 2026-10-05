@@ -166,6 +166,7 @@ struct Catalog {
     int packs_version      = 0; // paquet ouvert : listes a recharger
 
     std::string item_type_name(const std::string &type) const;
+    std::string item_type_description(const std::string &type) const;
 };
 
 class App {

@@ -489,7 +489,9 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("Emplacement", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Statut", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::CalcTextSize("AperçuRéimprimer").x + ImGui::GetStyle().FramePadding.x * 4
+                                  + ImGui::GetStyle().ItemSpacing.x);
         ImGui::TableHeadersRow();
         for (const Json &item : items_.items()) {
           const std::string iid = item["iid"].str();
@@ -511,6 +513,9 @@ class InventoryWindow final : public AppWindow {
           ImGui::TextUnformatted(item["status"].str().c_str());
           ImGui::TableNextColumn();
           ImGui::PushID(iid.c_str());
+          if (ImGui::SmallButton("Aperçu"))
+            app.preview_labels(TemplateCategory::Item, { item_parameters(item) }, "Item " + iid);
+          ImGui::SameLine();
           if (ImGui::SmallButton("Réimprimer"))
             app.print_labels(TemplateCategory::Item, { item_parameters(item) }, "Remplacement");
           ImGui::PopID();
