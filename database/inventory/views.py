@@ -17,12 +17,16 @@ Deux familles de vues :
 """
 
 import hmac
+import logging
 import re
+import secrets
 from datetime import date
 
 from django.core import signing
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Count
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -33,6 +37,7 @@ from . import forecast
 from . import notifications
 from . import serializers as ser
 from . import services
+from . import wallet
 from . import webpush
 from .idendity import identity_from_request
 from .remote_scanner import hub as scanner_hub
@@ -57,6 +62,7 @@ class ApiError(Exception):
 GESTION = (Role.GESTION, Role.ADMIN)
 ADMIN = (Role.ADMIN,)
 SESSION_HEADER = 'HTTP_X_QRPROTEC_SESSION'
+logger = logging.getLogger(__name__)
 
 
 def is_front(request) -> bool:
@@ -213,6 +219,8 @@ def health(request):
         'front': getattr(request, 'qrprotec_front', ''),
         # operations sur un lot possibles sans badge, sous un nom declare (reglage du serveur)
         'declared_identity': ServerSettings.get().declared_identity,
+        # export du badge vers Apple Wallet / Google Wallet (configure sur le serveur)
+        'wallet': wallet.status(),
     })
 
 
@@ -680,6 +688,57 @@ def push_test(request):
         'url': '../',
     })])
     return Response({'queued': True})
+
+
+WALLET_DOWNLOAD_PREFIX = 'qrprotec.wallet.'
+WALLET_DOWNLOAD_SECONDS = 300
+
+
+@api_view(['POST'])
+@handle_errors
+def wallet_badge(request):
+    """Badge dans un wallet : {"user": badge (+ session si PIN), "wallet": "apple" | "google"} -> {"url"}.
+
+    Google : lien « Enregistrer dans Google Wallet ». Apple : lien de telechargement du .pkpass, a usage
+    unique et valable 5 min (Safari n'ajoute un pass au wallet qu'en ouvrant une URL, pas un fichier genere
+    par la page) ; la cle du badge reste hors de l'URL."""
+    user = badge_user(request)
+    if user.pin_required and not session_valid(user, request.data.get('user', {}).get('session')):
+        raise ApiError("Session expirée : scannez à nouveau votre badge", status.HTTP_403_FORBIDDEN, pin_required=True)
+    key = request.data['user']['key']
+    kind = str(request.data.get('wallet', ''))
+    try:
+        if kind == 'google':
+            if not wallet.google_enabled():
+                raise ApiError("Google Wallet n'est pas configuré sur ce serveur", status.HTTP_404_NOT_FOUND)
+            return Response({'url': wallet.google_save_url(user, key)})
+        if kind == 'apple':
+            if not wallet.apple_enabled():
+                raise ApiError("Apple Wallet n'est pas configuré sur ce serveur", status.HTTP_404_NOT_FOUND)
+            data = wallet.apple_pass(user, key)
+        else:
+            raise ApiError('wallet : apple ou google attendu')
+    except wallet.WalletError as exc:
+        logger.error('Badge wallet : %s', exc)
+        raise ApiError("Export vers le wallet indisponible (configuration du serveur)",
+                       status.HTTP_503_SERVICE_UNAVAILABLE)
+    token = secrets.token_urlsafe(24)
+    cache.set(WALLET_DOWNLOAD_PREFIX + token, (data, wallet.serial(user)), WALLET_DOWNLOAD_SECONDS)
+    return Response({'url': f'wallet/apple/{token}.pkpass'})
+
+
+def wallet_apple_download(request, token):
+    """Telechargement du .pkpass prepare par wallet_badge (GET, a usage unique)."""
+    entry = cache.get(WALLET_DOWNLOAD_PREFIX + token)
+    cache.delete(WALLET_DOWNLOAD_PREFIX + token)
+    if entry is None:
+        return HttpResponse("Lien expiré : relancez l'ajout au wallet depuis la page.",
+                            status=status.HTTP_404_NOT_FOUND, content_type='text/plain; charset=utf-8')
+    data, name = entry
+    response = HttpResponse(data, content_type=wallet.PKPASS_TYPE)
+    response['Content-Disposition'] = f'attachment; filename="badge-{name.split("-")[0]}.pkpass"'
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @api_view(['GET'])

@@ -45,6 +45,8 @@
     pushError: '',
     declaredAllowed: false, // reglage du serveur : verif et ajout possibles sans badge, sous un nom declare
     declaredName: '',       // nom declare sur ce navigateur (non verifie)
+    wallet: { apple: false, google: false }, // export du badge vers les wallets (configure sur le serveur)
+    walletBusy: '',
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -1376,6 +1378,38 @@
     switchTab('todo');
   }
 
+  // Badge dans Apple Wallet / Google Wallet : meme QR code que le badge imprime, expire avec lui
+  async function addToWallet(kind) {
+    if (state.walletBusy) return;
+    state.walletBusy = kind;
+    render();
+    try {
+      const { url } = await api('wallet/', { user: badge(), wallet: kind });
+      // Apple : Safari propose l'ajout en ouvrant le .pkpass ; Google : page « Enregistrer dans Google Wallet »
+      location.href = new URL(url, API).href;
+    } catch (e) {
+      toast('Wallet : ' + e.message, true);
+      if (e.data && e.data.pin_required) { state.user = null; save(); } // session expiree : rescanner le badge
+    } finally {
+      state.walletBusy = '';
+      render();
+    }
+  }
+
+  function renderWallet() {
+    const kinds = [['apple', 'Apple Wallet'], ['google', 'Google Wallet']].filter(([kind]) => state.wallet[kind]);
+    if (!kinds.length) return [];
+    // l'appareil courant en premier
+    if (/android/i.test(navigator.userAgent)) kinds.reverse();
+    const expires = state.user.key_expires ? ` (valable jusqu'au ${fmtDate(state.user.key_expires)})` : '';
+    return [
+      el('p', { class: 'hint' }, `Ajoutez votre badge à votre téléphone${expires} : son QR code remplace le badge imprimé.`),
+      el('div', { class: 'wallet-buttons' }, ...kinds.map(([kind, label]) => el('button', {
+        type: 'button', disabled: !!state.walletBusy, onclick: () => addToWallet(kind),
+      }, state.walletBusy === kind ? 'Préparation…' : `Ajouter à ${label}`))),
+    ];
+  }
+
   function renderHome() {
     const view = $('#home-view');
     const user = state.user;
@@ -1383,6 +1417,7 @@
     parts.push(el('h3', {}, 'Connexion'));
     if (user) {
       parts.push(el('p', {}, `👤 ${user.prenom} ${user.nom} · ${ROLE_LABELS[user.role] || (user.privileged ? 'Gestion' : 'Secouriste')}`));
+      parts.push(...renderWallet());
     } else {
       parts.push(el('p', {}, 'Scannez votre badge avec la caméra pour afficher la liste des lots.'));
     }
@@ -1875,7 +1910,11 @@
     restore();
     render();
     // reglage du serveur : identite declaree (nom sans badge) acceptee ou non
-    api('health/').then((health) => { state.declaredAllowed = !!health.declared_identity; render(); }).catch(() => {});
+    api('health/').then((health) => {
+      state.declaredAllowed = !!health.declared_identity;
+      state.wallet = health.wallet || state.wallet;
+      render();
+    }).catch(() => {});
     const route = location.pathname.replace(/\/+$/, '').split('/').pop();
     const params = new URLSearchParams(location.search);
     // on retire la cle de la barre d'adresse (historique, partage d'ecran)

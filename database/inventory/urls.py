@@ -35,6 +35,8 @@ public_patterns = [
     path('push/test/', views.push_test),
     path('push/devices/', views.push_devices),
     path('push/devices/<int:device_id>/', views.push_device),
+    path('wallet/', views.wallet_badge),
+    path('wallet/apple/<str:token>.pkpass', views.wallet_apple_download),
 ]
 
 # Servies uniquement par l'API locale (poste de gestion). Elles doivent preceder les routes publiques

@@ -167,6 +167,17 @@ de l'utilisateur connecté (nom tiré du User-Agent), `push/devices/<id>/` chang
 retire. Un abonnement refusé (404/410) par le service du
 navigateur est supprimé. Tests avec le vecteur de la RFC 8291 dans `tests.py`.
 
+### Badge dans les wallets
+
+`wallet.py` : `POST wallet/` (badge, et session si l'utilisateur a un PIN) avec `"wallet": "apple"` ou
+`"google"`. Google : lien `pay.google.com/gp/v/save/<JWT>` (JWT RS256 signé avec la clé du compte de
+service ; classe générique `<émetteur>.qrprotec_badge` et objet `<émetteur>.<matricule>-<empreinte>`
+créés par Google à l'enregistrement). Apple : le `.pkpass` (manifeste SHA-1 et signature PKCS#7
+détachée, certificat Pass Type ID + WWDR) est gardé 5 min dans le cache et servi une seule fois par
+`GET wallet/apple/<jeton>.pkpass`, parce que Safari n'ajoute un pass qu'en ouvrant une URL ; la clé du
+badge reste hors des URL. Le pass expire avec le badge (`expirationDate`, `validTimeInterval`) et son
+identifiant change à chaque renouvellement. `health/` indique les wallets configurés (`wallet`).
+
 ## Relais WebSocket (téléphone-douchette)
 
 `remote_scanner.py` + `serve.py`. Le téléphone ouvre `/ws/scanner/phone?s=ID&k=CLÉ` (API publique,

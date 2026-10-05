@@ -14,6 +14,11 @@ Menu **Gestion > Utilisateurs**.
   badge. L'ancien badge ne fonctionne plus immédiatement. Le serveur ne garde pas la clé du badge :
   elle n'est affichée qu'à la création et au renouvellement, donc réimprimer un badge veut dire le
   renouveler.
+- **Badge sur le téléphone** : connecté au front web avec son badge, l'utilisateur touche **Ajouter à
+  Apple Wallet** ou **Ajouter à Google Wallet** (accueil, sous son nom). Le pass montre le même QR code
+  et expire avec le badge ; après un renouvellement, il ajoute le nouveau badge de la même façon. Les
+  boutons n'apparaissent que si le serveur est configuré
+  ([installation](../installation/exploitation.md#badge-dans-apple-wallet-et-google-wallet)).
 - **Départ d'un bénévole** : décochez **Compte actif**. Son nom reste dans l'historique des vérifs.
 - **PIN** : **Définir le PIN** / **Supprimer le PIN** (impossible pour un admin). Un admin sans PIN le
   choisit à sa prochaine connexion. Après 5 PIN faux, le compte est bloqué 5 minutes.

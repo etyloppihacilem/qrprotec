@@ -392,6 +392,8 @@ rôles gestion et admin) et `stock/forecast/summary/` (prévisions de stock, mê
 `stock_empty`, `pin_blocked`, `lot_key_renewed`, `lot_key_expiring`, `badge_renewed`,
 `badge_expiring`, `order_due` pour s'abonner), `push/unsubscribe/` (POST endpoint), `push/test/` (POST badge + endpoint), `push/devices/` (POST badge :
 appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). Rôles gestion et admin.
+Badge dans un wallet : `wallet/` (POST badge + `wallet`: `apple` ou `google` → `url` : lien Google Wallet, ou
+`wallet/apple/<jeton>.pkpass` à usage unique) ; `health/` indique les wallets configurés.
 
 ### Rôles
 

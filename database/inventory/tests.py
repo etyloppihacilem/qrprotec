@@ -1855,3 +1855,133 @@ class DefaultContactTests(ApiTestCase):
         # plus admin : plus contact par defaut
         code, body = self.call('PATCH', '/api/users/P001/', {'role': 'gestion'})
         self.assertFalse(body['default_contact'])
+
+
+class WalletTests(ApiTestCase):
+    """Badge dans Apple Wallet (.pkpass signe) et Google Wallet (lien avec JWT RS256)."""
+
+    def setUp(self):
+        super().setUp()
+        import tempfile
+        from pathlib import Path
+
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives.serialization import pkcs12
+        from cryptography.x509.oid import NameOID
+
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__('shutil').rmtree, directory)
+
+        def certificate(subject, key, issuer=None, issuer_key=None):
+            now = timezone.now()
+            return (x509.CertificateBuilder().subject_name(subject).issuer_name(issuer or subject)
+                    .public_key(key.public_key()).serial_number(x509.random_serial_number())
+                    .not_valid_before(now - timedelta(days=1)).not_valid_after(now + timedelta(days=30))
+                    .sign(issuer_key or key, hashes.SHA256()))
+
+        wwdr_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        wwdr_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'Test WWDR')])
+        wwdr = certificate(wwdr_name, wwdr_key)
+        pass_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.pass_cert = certificate(x509.Name([
+            x509.NameAttribute(x509.ObjectIdentifier('0.9.2342.19200300.100.1.1'), 'pass.org.example.badge'),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, 'TEAM123456'),
+            x509.NameAttribute(NameOID.COMMON_NAME, 'Pass Type ID: pass.org.example.badge'),
+        ]), pass_key, wwdr_name, wwdr_key)
+        (directory / 'pass.p12').write_bytes(pkcs12.serialize_key_and_certificates(
+            b'pass', pass_key, self.pass_cert, None, serialization.BestAvailableEncryption(b'secret')))
+        (directory / 'wwdr.cer').write_bytes(wwdr.public_bytes(serialization.Encoding.DER))
+        self.google_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        (directory / 'google.json').write_text(json.dumps({
+            'client_email': 'wallet@projet.iam.gserviceaccount.com', 'private_key_id': 'abc',
+            'private_key': self.google_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                         serialization.NoEncryption()).decode()}))
+        self.wallet_settings = {
+            **settings.QRPROTEC, 'PUBLIC_BASE_URL': 'https://inventaire.example.org/',
+            'WALLET_APPLE_CERT': str(directory / 'pass.p12'), 'WALLET_APPLE_PASSWORD': 'secret',
+            'WALLET_APPLE_WWDR': str(directory / 'wwdr.cer'),
+            'WALLET_GOOGLE_ISSUER_ID': '3388000000012345678',
+            'WALLET_GOOGLE_SERVICE_ACCOUNT': str(directory / 'google.json'),
+        }
+        self.badge = {'matricule': 'M001', 'key': self.user.new_key}
+
+    def test_not_configured(self):
+        self.assertEqual(self.call('GET', '/api/health/', local=False)[1]['wallet'], {'apple': False, 'google': False})
+        code, _ = self.call('POST', '/api/wallet/', {'user': self.badge, 'wallet': 'apple'}, local=False)
+        self.assertEqual(code, 404)
+
+    def test_badge_required(self):
+        with self.settings(QRPROTEC=self.wallet_settings):
+            self.assertEqual(self.call('GET', '/api/health/', local=False)[1]['wallet'], {'apple': True, 'google': True})
+            bad = {'matricule': 'M001', 'key': 'faux'}
+            self.assertEqual(self.call('POST', '/api/wallet/', {'user': bad, 'wallet': 'google'}, local=False)[0], 403)
+            # badge avec PIN : session exigee
+            self.user.set_pin('4821')
+            self.user.save()
+            code, body = self.call('POST', '/api/wallet/', {'user': self.badge, 'wallet': 'google'}, local=False)
+            self.assertEqual((code, body.get('pin_required')), (403, True))
+            badge = {**self.badge, 'session': views.session_token(self.user)}
+            self.assertEqual(self.call('POST', '/api/wallet/', {'user': badge, 'wallet': 'google'}, local=False)[0], 200)
+
+    def test_apple_pass(self):
+        import io
+        import zipfile
+
+        from cryptography.hazmat.primitives.serialization import pkcs7
+
+        with self.settings(QRPROTEC=self.wallet_settings):
+            code, body = self.call('POST', '/api/wallet/', {'user': self.badge, 'wallet': 'apple'}, local=False)
+            self.assertEqual(code, 200)
+            self.assertNotIn(self.user.new_key, body['url'])
+            response = self.client.get('/api/' + body['url'])
+            self.assertEqual((response.status_code, response['Content-Type']), (200, 'application/vnd.apple.pkpass'))
+            # lien a usage unique
+            self.assertEqual(self.client.get('/api/' + body['url']).status_code, 404)
+        archive = zipfile.ZipFile(io.BytesIO(response.content))
+        data = json.loads(archive.read('pass.json'))
+        self.assertEqual((data['passTypeIdentifier'], data['teamIdentifier']), ('pass.org.example.badge', 'TEAM123456'))
+        self.assertEqual(data['barcodes'][0]['message'],
+                         f'https://inventaire.example.org/badge?m=M001&key={self.user.new_key}')
+        expires = self.user.key_expires + timedelta(days=1)
+        self.assertTrue(data['expirationDate'].startswith(expires.isoformat() + 'T00:00:00'))
+        manifest = json.loads(archive.read('manifest.json'))
+        self.assertEqual(set(manifest), set(archive.namelist()) - {'manifest.json', 'signature'})
+        for name, digest in manifest.items():
+            self.assertEqual(__import__('hashlib').sha1(archive.read(name)).hexdigest(), digest)
+        signers = pkcs7.load_der_pkcs7_certificates(archive.read('signature'))
+        self.assertIn(self.pass_cert, signers)
+
+    def test_google_link(self):
+        import base64
+
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+
+        with self.settings(QRPROTEC=self.wallet_settings):
+            code, body = self.call('POST', '/api/wallet/', {'user': self.badge, 'wallet': 'google'}, local=False)
+        self.assertEqual(code, 200)
+        self.assertTrue(body['url'].startswith('https://pay.google.com/gp/v/save/'))
+        token = body['url'].rsplit('/', 1)[1]
+        header, claims, signature = token.split('.')
+
+        def decode(part):
+            return base64.urlsafe_b64decode(part + '=' * (-len(part) % 4))
+
+        self.google_key.public_key().verify(decode(signature), f'{header}.{claims}'.encode(), padding.PKCS1v15(),
+                                            hashes.SHA256())
+        claims = json.loads(decode(claims))
+        self.assertEqual((claims['aud'], claims['typ'], claims['origins']),
+                         ('google', 'savetowallet', ['https://inventaire.example.org']))
+        badge = claims['payload']['genericObjects'][0]
+        self.assertEqual(badge['classId'], '3388000000012345678.qrprotec_badge')
+        self.assertEqual(badge['barcode']['value'], f'https://inventaire.example.org/badge?m=M001&key={self.user.new_key}')
+        expires = self.user.key_expires + timedelta(days=1)
+        self.assertTrue(badge['validTimeInterval']['end']['date'].startswith(expires.isoformat() + 'T00:00:00'))
+        # badge renouvele : nouvel objet Google
+        old_id = badge['id']
+        self.user.renew_key()
+        from . import wallet
+        with self.settings(QRPROTEC=self.wallet_settings):
+            self.assertNotEqual(wallet.generic_object(self.user, self.user.new_key)['id'], old_id)

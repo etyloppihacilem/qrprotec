@@ -86,6 +86,18 @@ QRPROTEC = {
     'SMS_SYNC': os.environ.get('QRPROTEC_SMS_SYNC', '0') == '1',
     # Contact annonce aux services de notifications web (VAPID) : mailto:... ou https://... (defaut : PUBLIC_BASE_URL)
     'WEB_PUSH_SUBJECT': os.environ.get('QRPROTEC_WEB_PUSH_SUBJECT', ''),
+    # Badge dans Apple Wallet (vide : indisponible). Certificat « Pass Type ID » (.p12 exporte du trousseau, ou
+    # .pem avec la cle dans WALLET_APPLE_KEY) et certificat intermediaire Apple WWDR (G4, .cer ou .pem).
+    'WALLET_APPLE_CERT': os.environ.get('QRPROTEC_WALLET_APPLE_CERT', ''),
+    'WALLET_APPLE_KEY': os.environ.get('QRPROTEC_WALLET_APPLE_KEY', ''),
+    'WALLET_APPLE_PASSWORD': os.environ.get('QRPROTEC_WALLET_APPLE_PASSWORD', ''),
+    'WALLET_APPLE_WWDR': os.environ.get('QRPROTEC_WALLET_APPLE_WWDR', ''),
+    # Badge dans Google Wallet (vide : indisponible). ID d'emetteur (console Google Pay & Wallet) et cle JSON
+    # du compte de service autorise sur cet emetteur.
+    'WALLET_GOOGLE_ISSUER_ID': os.environ.get('QRPROTEC_WALLET_GOOGLE_ISSUER_ID', ''),
+    'WALLET_GOOGLE_SERVICE_ACCOUNT': os.environ.get('QRPROTEC_WALLET_GOOGLE_SERVICE_ACCOUNT', ''),
+    # Nom affiche sur les badges du wallet
+    'WALLET_ORGANIZATION': os.environ.get('QRPROTEC_WALLET_ORGANIZATION', 'Protection Civile'),
 }
 
 REST_FRAMEWORK = {

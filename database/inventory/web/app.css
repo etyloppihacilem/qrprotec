@@ -200,3 +200,4 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .list.tree li.warn { border-left: 5px solid var(--orange); }
 .list.tree li.group-lot { border-left: 5px solid #8a8f94; color: var(--muted); }
 .list.tree li.current { background: var(--blue-bg); }
+.wallet-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
