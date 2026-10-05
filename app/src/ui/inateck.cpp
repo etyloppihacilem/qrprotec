@@ -87,6 +87,29 @@ void Inateck::update() {
     saved_device_id_ = device_id;
     save_hid_settings();
   }
+  // Tant que la douchette connue n'est pas connectee (base eteinte, hors de portee...), une
+  // recherche est relancee regulierement : elle s'y connecte des qu'elle apparait.
+  const InateckSnapshot state = inateck_worker_.snapshot();
+  const auto now = std::chrono::steady_clock::now();
+  if (state.discovering || state.connecting || state.connected)
+    next_reconnect_ = now + kInateckReconnectInterval;
+  else if (can_reconnect(state) && now >= next_reconnect_)
+    reconnect();
+}
+
+bool Inateck::can_reconnect(const InateckSnapshot& state) const {
+  return state.sdk_available && !state.preferred_id.empty() && !manual_disconnect_ && !state.connected &&
+         !state.connecting && !state.discovering;
+}
+
+void Inateck::reconnect() {
+  next_reconnect_ = std::chrono::steady_clock::now() + kInateckReconnectInterval;
+  inateck_worker_.start_discovery(); // connexion automatique a la douchette connue en fin de recherche
+}
+
+void Inateck::start_pairing() {
+  manual_disconnect_ = false;
+  reconnect();
 }
 
 void Inateck::apply_hid_settings() {
@@ -189,15 +212,19 @@ void Inateck::draw_inateck_window() {
                        : state.discovering   ? "recherche"
                                              : "non connectée";
     ImGui::Text("Statut : %s", status);
-    if (ImGui::Button(state.discovering ? "Arrêter la recherche" : "Rechercher les douchettes")) {
+    if (ImGui::Button(state.discovering ? "Arrêter la recherche" : "Appairer une douchette")) {
       if (state.discovering)
         inateck_worker_.stop_discovery();
       else
-        inateck_worker_.start_discovery();
+        start_pairing();
     }
+    ImGui::SetItemTooltip("Recherche les douchettes à proximité (choix dans « Connecter » ci-dessous).");
     ImGui::SameLine();
-    if (ImGui::Button("Rafraîchir"))
-      inateck_worker_.start_discovery();
+    ImGui::BeginDisabled(state.preferred_id.empty() || state.connected || state.connecting || state.discovering);
+    if (ImGui::Button("Reconnecter"))
+      start_pairing();
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("Se reconnecter à la dernière douchette utilisée.");
     static int selected_device = 0;
     std::vector<const char*> device_names;
     for (const InateckDevice& device : state.devices)
@@ -207,15 +234,19 @@ void Inateck::draw_inateck_window() {
       ImGui::Combo("Appareil", &selected_device, device_names.data(), static_cast<int>(device_names.size()));
       const InateckDevice& device = state.devices[static_cast<std::size_t>(selected_device)];
       ImGui::TextWrapped("ID : %s", device.id.c_str());
-      if (!state.connected && !state.connecting && ImGui::Button("Connecter"))
+      if (!state.connected && !state.connecting && ImGui::Button("Connecter")) {
+        manual_disconnect_ = false;
         inateck_worker_.connect(device.id, device.name);
+      }
     } else {
       ImGui::TextUnformatted("Aucun appareil découvert.");
     }
     if (state.connected && settings_unlocked_) {
       ImGui::SameLine();
-      if (ImGui::Button("Déconnecter"))
+      if (ImGui::Button("Déconnecter")) {
+        manual_disconnect_ = true;
         inateck_worker_.disconnect();
+      }
     }
   }
 
@@ -288,27 +319,40 @@ void Inateck::draw_menu() {
                              : state.connecting  ? "connexion..."
                              : state.discovering ? "recherche"
                                                  : "hors ligne");
+  if (can_reconnect(state)) {
+    const auto remaining = std::chrono::ceil<std::chrono::seconds>(next_reconnect_ - std::chrono::steady_clock::now());
+    ImGui::TextDisabled("Nouvel essai de connexion dans %d s", static_cast<int>(std::max<long long>(0, remaining.count())));
+  }
   ImGui::Text("Mode HID clavier : %s", hid_enabled_ ? "actif" : "inactif");
-  if (ImGui::MenuItem("Rechercher", nullptr, false, !state.discovering))
-    inateck_worker_.start_discovery();
+  const bool idle = !state.connected && !state.connecting && !state.discovering;
+  if (ImGui::MenuItem("Reconnecter la douchette", nullptr, false, idle && !state.preferred_id.empty()))
+    start_pairing();
+  ImGui::SetItemTooltip("Se reconnecter tout de suite à la dernière douchette utilisée.");
+  if (ImGui::MenuItem("Appairer une douchette", nullptr, false, !state.discovering))
+    start_pairing();
+  ImGui::SetItemTooltip("Rechercher les douchettes à proximité, puis la choisir dans « Connecter à ».");
   if (ImGui::MenuItem("Arrêter la recherche", nullptr, false, state.discovering))
     inateck_worker_.stop_discovery();
   // Choix de la douchette accessible sans utilisateur connecte
   if (ImGui::BeginMenu("Connecter à", !state.connected && !state.connecting)) {
     const std::vector<InateckDevice> devices = ordered_devices(state.devices, state.preferred_id, {});
     if (devices.empty())
-      ImGui::TextDisabled("Aucun appareil : lancez une recherche");
+      ImGui::TextDisabled("Aucun appareil : utilisez « Appairer une douchette »");
     for (const InateckDevice& device : devices) {
       std::string label = device.name.empty() ? device.id : device.name + " (" + device.id + ")";
       if (device.id == state.preferred_id)
         label += " - dernière douchette";
-      if (ImGui::MenuItem(label.c_str()))
+      if (ImGui::MenuItem(label.c_str())) {
+        manual_disconnect_ = false;
         inateck_worker_.connect(device.id, device.name);
+      }
     }
     ImGui::EndMenu();
   }
-  if (ImGui::MenuItem("Déconnecter", nullptr, false, state.connected && settings_unlocked_))
+  if (ImGui::MenuItem("Déconnecter", nullptr, false, state.connected && settings_unlocked_)) {
+    manual_disconnect_ = true;
     inateck_worker_.disconnect();
+  }
 }
 
 void Inateck::draw_window() {
