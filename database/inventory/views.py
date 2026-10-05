@@ -542,6 +542,15 @@ def verifs(request):
 
 @api_view(['POST'])
 @handle_errors
+def items_out(request):
+    """Items sortis du stock sans lot : {"items": [...]}. Ils comptent comme utilises s'ils ne sont pas revus a une
+    verif dans QRPROTEC['OUT_DAYS'] jours (ou a leur peremption). Meme identite qu'une verif."""
+    identity = operation_identity(request)
+    return Response(services.mark_out(iid_list(request.data), identity))
+
+
+@api_view(['POST'])
+@handle_errors
 def lot_add_items(request, lot_id):
     lot = get_object_or_404(Lots, id=lot_id)
     require_lot_key(request, lot)

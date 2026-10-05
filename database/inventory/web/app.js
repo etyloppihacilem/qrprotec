@@ -460,9 +460,10 @@
     if (!info) return;
     const inLot = info.location && sessionLots().some((lot) => lot.id === info.location);
     const where = inLot ? 'Dans ' + (isMulti() ? 'le lot ' + info.location_name : 'ce lot')
-      : info.in_stock ? 'En stock' + (info.location ? ' · ' + info.location_name : '')
+      : info.status === 'out' ? 'Hors du stock' : info.in_stock ? 'En stock' + (info.location ? ' · ' + info.location_name : '')
         : info.location ? 'Rangé dans : ' + info.location_name : 'En stock';
-    const status = { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé' }[info.status];
+    const status = info.status === 'out' ? `Sorti du stock, compté utilisé le ${fmtDate(info.out_until)} s'il ne revient pas`
+      : { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé' }[info.status];
     showInfo(entry.expired ? 'bad' : status ? 'warn' : 'ok',
       (entry.expired ? 'PÉRIMÉ – ' : '') + info.type_name,
       info.peremption ? 'Péremption : ' + fmtDate(info.peremption) : 'Non périssable',
@@ -1062,6 +1063,39 @@
     }
   }
 
+  // Sans lot scanne : les items scannes sont sortis du stock (ex : pris pour une intervention). Ils redeviennent
+  // normaux s'ils reapparaissent a une verif, sinon ils comptent comme utilises au bout d'un mois (ou a peremption).
+  async function takeOut() {
+    if (!ensureIdentity()) return;
+    const iids = [...scannedIids()];
+    const missing = [];
+    if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
+    if (!iids.length) missing.push('scannez au moins un item');
+    if (missing.length) { feedback.warn(); toast('Pour sortir : ' + missing.join(', ') + '.', true); return; }
+    if (!confirm(`Sortir ${iids.length} item(s) du stock, sans lot ?\n`
+      + "Ils redeviennent normaux s'ils sont scannés à une vérif ; sinon ils seront comptés comme utilisés "
+      + 'au bout d\'un mois (ou à leur péremption).')) return;
+    state.busy = true;
+    render();
+    try {
+      const result = await api('items/out/', { ...identity(), items: iids });
+      state.scanned = [];
+      feedback.good();
+      showInfo('ok', `${result.out.length} item(s) sorti(s) du stock`,
+        `Scannez-les à une vérif dans les ${result.days} jours, sinon ils seront comptés comme utilisés.`,
+        ...(result.refused || []).map((row) => `Non sorti : ${row.iid} (${row.reason})`));
+      if (canSeeStock()) loadStock();
+    } catch (e) {
+      identityRefused(e);
+      feedback.bad();
+      toast('Sortie refusée : ' + e.message, true);
+    } finally {
+      state.busy = false;
+      save();
+      render();
+    }
+  }
+
   // Seulement des items qui ne sont pas dans les lots de la verif : reassort plutot que verif
   function onlyNewItems() {
     if (!state.lot || !state.scanned.length) return false;
@@ -1145,7 +1179,7 @@
   }
 
   $('#report-close').addEventListener('click', () => $('#report').close());
-  $('#validate').addEventListener('click', () => validate(false));
+  $('#validate').addEventListener('click', () => (takingOut() ? takeOut() : validate(false)));
   $('#restock').addEventListener('click', () => {
     if (partialLots().length) { validate(true); return; }
     if (!confirm("Ajouter les items scannés sans faire de vérif complète (réassort) ?\n"
@@ -1942,12 +1976,18 @@
         if (row.stock_expired + row.lots_expired) details.push(`${row.stock_expired + row.lots_expired} périmé(s)`);
         if (row.expiring_soon) details.push(`${row.expiring_soon} bientôt périmé(s)`);
         if (row.missing) details.push(`${row.missing} disparu(s)`);
+        if (row.out) details.push(`${row.out} sorti(s) sans lot`);
         parts.push(el('div', { class: 'stock-row' },
           requirementRow(row.name, row.stock_fresh, row.min_quantity),
           el('div', { class: 'sub hint' }, details.join(' · '))));
       }
     }
     view.replaceChildren(...parts);
+  }
+
+  // Items scannes sans etiquette de lot : le bouton de vérif devient « Sortir du stock »
+  function takingOut() {
+    return !state.lot && scannedIids().size > 0;
   }
 
   function render() {
@@ -1974,10 +2014,15 @@
       : `Ajouter ${scannedIids().size} au lot (réassort)`;
     const validateButton = $('#validate');
     const recorded = state.lastVerif && state.lot && state.lastVerif.lotId === state.lot.id && !state.scanned.length;
+    const out = takingOut();
     validateButton.disabled = state.busy || recorded;
-    validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔' : restock ? 'Vérif complète…'
-      : blockers(false).length ? 'Valider la vérif…' : 'Valider la vérif';
-    $('#scan-hint').textContent = !state.lot ? "Visez l'étiquette d'un lot ou un item"
+    validateButton.classList.toggle('primary', !out);
+    validateButton.classList.toggle('warning', out);
+    validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
+      : out ? `Sortir ${scannedIids().size} item(s) du stock` : restock ? 'Vérif complète…'
+        : blockers(false).length ? 'Valider la vérif…' : 'Valider la vérif';
+    $('#scan-hint').textContent = out ? "Scannez l'étiquette d'un lot pour une vérif, ou sortez ces items du stock"
+      : !state.lot ? "Visez l'étiquette d'un lot ou un item"
       : !hasIdentity() ? (state.declaredAllowed ? 'Scannez votre badge (ou touchez « Non connecté ») pour pouvoir valider'
         : 'Scannez votre badge pour pouvoir valider')
         : 'Scannez les items du lot';

@@ -98,6 +98,23 @@ d'une armoire.
 
 Remettre des items en stock (`POST /api/items/to-stock/`) utilise la même fonction avec `lot=None`.
 
+## Sortie du stock sans lot
+
+Du matériel pris dans la réserve sans passer par un lot (intervention, prêt) : on scanne les items
+**sans** étiquette de lot, et le bouton de vérif devient **« Sortir N item(s) du stock »** (web et
+pile de scans du poste). `services.mark_out`, `POST /api/items/out/` (même identité qu'une vérif) :
+
+- seuls les items en stock (hors lot ou dans un rangement) sortent ; un item d'un lot est refusé
+  (il faut scanner le lot), un item déjà sorti repart pour un nouveau délai ;
+- l'item passe `out` (« sorti »), quitte le stock (`location=NULL`, plus compté dans le stock ni
+  attendu par la vérif du stock), avec un mouvement `out` et une opération « Sortie du stock » ;
+- s'il est scanné ensuite (vérif, réassort, retour en stock), il redevient `active` comme un disparu
+  retrouvé ;
+- sinon, `services.expire_out_items` (lancé par `check_alerts` chaque matin) le compte comme
+  **utilisé** : `missing` avec un mouvement `used` (consommation des prévisions), opération « Sortie
+  non revenue ». Délai : `QRPROTEC_OUT_DAYS` jours (30) après la sortie, ou sa péremption si elle tombe
+  avant. Retrouvé plus tard, l'utilisation est annulée comme pour toute absence.
+
 ## Lots et sous-lots
 
 Un lot peut avoir un **lot parent** (`Lots.parent`). Exemples réels :

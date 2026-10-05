@@ -374,6 +374,7 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 | `QRPROTEC_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` |
 | `QRPROTEC_DEBUG_HOSTS` | `192.168.1.201` (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement) |
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
+| `QRPROTEC_OUT_DAYS` | `30` (jours avant qu'un item sorti sans lot compte comme utilisé) |
 | `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `3650` |
 | `QRPROTEC_SMS_SYNC` | `0` (SMS et notifications web envoyés dans un thread ; `1` = dans la requête) |
 | `QRPROTEC_WEB_PUSH_SUBJECT` | `QRPROTEC_PUBLIC_BASE_URL` (contact VAPID des notifications web : `mailto:...` ou `https://...`) |
@@ -383,7 +384,8 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 
 Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`, `lots/<id>/`,
 `lots/<id>/verif/` (POST items, key, partial), `verifs/` (POST `lots: [{id, key}]`, items, partial :
-vérif groupée de plusieurs lots d'un même lot global), `lots/<id>/add/` (POST items, key), `lots/<id>/unseal/` (POST
+vérif groupée de plusieurs lots d'un même lot global), `lots/<id>/add/` (POST items, key), `items/out/` (POST items :
+sortie du stock sans lot), `lots/<id>/unseal/` (POST
 key), `packs/<id>/`, `lots/<id>/sheet.pdf` (GET, fiche d'inventaire papier A4 : items attendus par
 emplacement, une page par sous-lot). `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
 `unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
@@ -430,6 +432,9 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
   du lot. Les items attendus mais non scannés sont signalés ; ils passent **disparus** s'ils sont
   périmés ou après `QRPROTEC_MISSING_AFTER_VERIFS` vérifs manquées. Les exigences du lot ne comptent
   que les items vus à la dernière vérif.
+- **Sortie du stock** : des items scannés sans étiquette de lot peuvent être **sortis** du stock (statut
+  `out`, « sorti »). Ils redeviennent normaux s'ils sont scannés à une vérif ; sinon `check_alerts` les
+  compte comme utilisés après `QRPROTEC_OUT_DAYS` jours (30) ou à leur péremption si elle tombe avant.
 - **Suppression** : les items ne sont pas supprimés par les utilisateurs. Un responsable peut
   exceptionnellement marquer un item supprimé (raison obligatoire) et le restaurer.
 - **Paquet fermé** : à la réception, les items sont créés et une seule étiquette de paquet est

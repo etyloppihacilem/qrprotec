@@ -7,6 +7,7 @@ from io import StringIO
 from django.apps import apps as django_apps
 
 from django.conf import settings
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -14,6 +15,7 @@ from . import serializers as ser
 from . import views
 from .base62 import decode_base62
 from . import forecast
+from . import services
 from .models import (
     FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
     Operation, Secouristes, Verifs,
@@ -2158,3 +2160,71 @@ class OperationJournalTests(ApiTestCase):
         # l'item range dans le lot pendant la verif ne compte pas comme un reassort
         self.assertEqual(rows.get(kind='restock').details['items'], [items[1].iid])
         self.assertEqual(rows.get(kind='seal').lot_id, self.lot.id)
+
+
+class ItemOutTests(ApiTestCase):
+    """Materiel sorti du stock sans lot : statut « sorti », compte comme utilise s'il ne revient pas."""
+
+    def test_out_then_back_in_a_verif(self):
+        item = self.create(self.garrot, None, 1)[0]
+        code, body = self.call('POST', '/api/items/out/', {'items': [item.iid, 'inconnu']})
+        self.assertEqual(code, 200)
+        self.assertEqual((body['out'], body['unknown']), ([item.iid], ['inconnu']))
+        item.refresh_from_db()
+        self.assertEqual((item.status, item.location_id), (ItemStatus.OUT, None))
+        self.assertTrue(ItemMovement.objects.filter(item=item, kind=MovementKind.OUT).exists())
+        self.assertTrue(Operation.objects.filter(kind='item_out').exists())
+        code, info = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertFalse(info['in_stock'])
+        self.assertEqual(info['out_until'], (self.today + timedelta(days=30)).isoformat())
+        # hors du stock, et une verif du stock ne le signale pas absent
+        row = next(row for row in services.stock_status() if row['type'] == 'garrot')
+        self.assertEqual((row['stock_fresh'], row['out']), (0, 1))
+        code, report = self.call('POST', '/api/stock/verif/', {'items': []})
+        self.assertEqual(report['missing'], [])
+        # il revient dans un lot : actif, et rien n'est compte comme utilise
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid]})
+        item.refresh_from_db()
+        self.assertEqual((item.status, item.location_id), (ItemStatus.ACTIVE, self.lot.id))
+        self.assertIn(item.iid, report['reactivated'])
+        self.assertEqual(services.expire_out_items(timezone.now() + timedelta(days=60)), [])
+
+    def test_not_seen_counts_as_used(self):
+        fresh = self.create(self.garrot, None, 1)[0]
+        soon = self.create(self.compresses, self.today + timedelta(days=5), 1)[0]
+        self.call('POST', '/api/items/out/', {'items': [fresh.iid, soon.iid]})
+        self.assertEqual(services.expire_out_items(), [])
+        # peremption avant le mois : compte utilise des sa peremption
+        self.assertEqual(services.expire_out_items(timezone.now() + timedelta(days=5)), [soon.iid])
+        self.assertEqual(Items.objects.get(iid=soon.iid).status, ItemStatus.MISSING)
+        self.assertTrue(ItemMovement.objects.filter(item=soon, kind=MovementKind.USED).exists())
+        # non perissable : utilise au bout d'un mois
+        self.assertEqual(services.expire_out_items(timezone.now() + timedelta(days=30)), [fresh.iid])
+        used = ItemMovement.objects.get(item=fresh, kind=MovementKind.USED)
+        self.assertIsNone(used.cancelled)
+        self.assertTrue(Operation.objects.filter(kind='item_out_used').exists())
+        # retrouve plus tard (verif du stock) : l'utilisation est annulee
+        self.call('POST', '/api/stock/verif/', {'items': [fresh.iid]})
+        used.refresh_from_db()
+        self.assertIsNotNone(used.cancelled)
+        self.assertEqual(Items.objects.get(iid=fresh.iid).status, ItemStatus.ACTIVE)
+
+    def test_only_stock_items_go_out(self):
+        in_lot, in_stock = self.create(self.garrot, None, 2)
+        Items.objects.filter(iid=in_lot.iid).update(location=self.lot)
+        code, body = self.call('POST', '/api/items/out/', {'items': [in_lot.iid, in_stock.iid]})
+        self.assertEqual(body['out'], [in_stock.iid])
+        self.assertEqual([row['iid'] for row in body['refused']], [in_lot.iid])
+        self.assertEqual(Items.objects.get(iid=in_lot.iid).location_id, self.lot.id)
+        code, body = self.call('POST', '/api/items/out/', {'items': [in_lot.iid]})
+        self.assertEqual(code, 400)
+        # identite obligatoire, comme pour une verif
+        code, body = self.call('POST', '/api/items/out/', {'items': [in_stock.iid]}, session=False)
+        self.assertEqual(code, 403)
+
+    def test_check_alerts_expires_out_items(self):
+        item = self.create(self.garrot, None, 1)[0]
+        self.call('POST', '/api/items/out/', {'items': [item.iid]})
+        Items.objects.filter(iid=item.iid).update(last_seen=timezone.now() - timedelta(days=31))
+        call_command('check_alerts', stdout=StringIO())
+        self.assertEqual(Items.objects.get(iid=item.iid).status, ItemStatus.MISSING)

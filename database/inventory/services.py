@@ -629,6 +629,89 @@ def _record_moves(items, lot, identity, context, now):
                        items=journal.item_ids(origin_items))
 
 
+def mark_out(iids, identity):
+    """Items sortis du stock sans lot (ex : pris pour une intervention) : ils passent « sorti » et quittent le stock.
+
+    Seuls les items en stock (hors lot ou dans un rangement du stock) peuvent sortir ; un item deja sorti repart pour
+    un nouveau delai. Un item sorti qui reapparait (verif, ajout a un lot, retour en stock) redevient actif. Sinon il
+    est compte comme utilise (ou jete s'il est perime) apres QRPROTEC['OUT_DAYS'] jours ou a sa peremption, voir
+    expire_out_items.
+    """
+    now = timezone.now()
+    requested = list(dict.fromkeys(iids))
+    with transaction.atomic():
+        items = list(_items_queryset().select_for_update(of=('self',)).filter(iid__in=requested).order_by('iid'))
+        found = {item.iid for item in items}
+        refused = []
+        out = []
+        for item in items:
+            if item.status not in (ItemStatus.ACTIVE, ItemStatus.OUT):
+                refused.append({'iid': item.iid, 'reason': f'{item.get_status_display().lower()} : pas en stock'})
+            elif item.location_id and not item.location.lot_type.storage:
+                refused.append({'iid': item.iid,
+                                'reason': f'dans le lot {item.location.name} : scannez son étiquette pour le retirer'})
+            else:
+                out.append(item)
+        if not out:
+            if refused:
+                raise ValueError('Aucun item sorti : ' + ', '.join(f"{row['iid']} ({row['reason']})" for row in refused))
+            raise ValueError('Rien à sortir : aucun item scanné')
+        moves = [movements.movement(item, MovementKind.OUT, now, identity, item.location_id) for item in out]
+        ItemMovement.objects.bulk_create(moves)
+        origins = sorted({item.location.name for item in out if item.location_id})
+        journal.record(OperationKind.ITEM_OUT, identity, journal.types_summary(out), at=now, count=len(out),
+                       items=journal.item_ids(out), origins=origins)
+        for item in out:
+            item.location = None
+            item.status = ItemStatus.OUT
+            item.missed_verifs = 0
+            item.touch(identity, SeenWhile.OUT, now)
+        Items.objects.bulk_update(out, ['location', 'status', 'missed_verifs', 'last_seen', 'last_seen_by',
+                                        'last_seen_while'])
+        notifications.check_stock_levels({item.pack.item_type_id for item in out})
+    return {
+        'out': [item.iid for item in out],
+        'refused': refused,
+        'unknown': [iid for iid in requested if iid not in found],
+        'until': out_deadline(out[0], now).isoformat() if len(out) == 1 else None,
+        'days': qrprotec_setting('OUT_DAYS'),
+    }
+
+
+def out_deadline(item, since=None):
+    """Date a laquelle un item sorti non revu compte comme utilise : OUT_DAYS jours apres sa sortie, ou sa
+    peremption si elle tombe avant."""
+    deadline = timezone.localdate(since or item.last_seen) + timedelta(days=qrprotec_setting('OUT_DAYS'))
+    peremption = item.pack.peremption
+    return min(deadline, peremption) if peremption else deadline
+
+
+def expire_out_items(now=None):
+    """Items sortis non revus dans le delai (ou arrives a peremption) : comptes comme utilises (ils etaient bons a la
+    sortie), statut « disparu ». S'ils reapparaissent ensuite, l'utilisation est annulee comme apres une verif."""
+    now = now or timezone.now()
+    today = timezone.localdate(now)
+    expired = []
+    with transaction.atomic():
+        for item in _items_queryset().select_for_update(of=('self',)).filter(status=ItemStatus.OUT).order_by('iid'):
+            if out_deadline(item) <= today:
+                expired.append(item)
+        if not expired:
+            return []
+        moves = []
+        for item in expired:
+            moves.append(movements.movement(item, MovementKind.USED, now, item.last_seen_by))
+            item.status = ItemStatus.MISSING
+            item.missed_verifs = 1  # absence deja comptee : une verif du stock n'en ajoute pas une autre
+        ItemMovement.objects.bulk_create(moves)
+        Items.objects.bulk_update(expired, ['status', 'missed_verifs'])
+        journal.record(OperationKind.ITEM_OUT_USED, '',
+                       f"{journal.types_summary(expired)} : non revu(s) après la sortie, compté(s) utilisé(s)",
+                       at=now, count=len(expired), items=journal.item_ids(expired))
+        notifications.check_stock_levels({item.pack.item_type_id for item in expired})
+    return [item.iid for item in expired]
+
+
 def mark_deleted(item, identity, reason):
     now = timezone.now()
     ItemMovement.objects.create(item=item, item_type_id=item.pack.item_type_id, kind=MovementKind.DELETED, at=now,
@@ -681,6 +764,7 @@ def stock_status(soon_days=30):
         lots_expired=Count(items, filter=active & expired & in_lot),
         expiring_soon=Count(items, filter=active & soon_filter),
         missing=Count(items, filter=Q(**{f'{items}__status': ItemStatus.MISSING})),
+        out=Count(items, filter=Q(**{f'{items}__status': ItemStatus.OUT})),
     )
     return [
         {
@@ -694,6 +778,7 @@ def stock_status(soon_days=30):
             'lots_expired': row.lots_expired,
             'expiring_soon': row.expiring_soon,
             'missing': row.missing,
+            'out': row.out,
         }
         for row in queryset
     ]

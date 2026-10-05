@@ -140,7 +140,7 @@ class StockWindow final : public AppWindow {
 
       const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
                                   | ImGuiTableFlags_Resizable;
-      if (!ImGui::BeginTable("stock", 6, flags))
+      if (!ImGui::BeginTable("stock", 7, flags))
         return;
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 220.0f);
@@ -149,6 +149,7 @@ class StockWindow final : public AppWindow {
       ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 80.0f);
       ImGui::TableSetupColumn("Bientôt périmés", ImGuiTableColumnFlags_WidthFixed, 120.0f);
       ImGui::TableSetupColumn("Disparus", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+      ImGui::TableSetupColumn("Sortis", ImGuiTableColumnFlags_WidthFixed, 70.0f);
       ImGui::TableHeadersRow();
       for (const Json *row_ptr : rows) {
         const Json &row      = *row_ptr;
@@ -172,6 +173,9 @@ class StockWindow final : public AppWindow {
         colored_count(row["expiring_soon"].integer(), colors::orange);
         ImGui::TableNextColumn();
         ImGui::Text("%d", row["missing"].integer());
+        ImGui::TableNextColumn();
+        ImGui::Text("%d", row["out"].integer());
+        ImGui::SetItemTooltip("Sortis du stock sans lot : comptés utilisés s'ils ne reviennent pas à une vérif.");
       }
       ImGui::EndTable();
     }
