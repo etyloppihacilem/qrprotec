@@ -1387,6 +1387,7 @@
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
         el('br'), keyOk() ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider.'),
+      el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
       lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
         + "Scannez l'étiquette privée d'un autre lot du même lot global pour l'ajouter.") : '',
       ...renderGlobal(lot),
@@ -1398,6 +1399,12 @@
     );
   }
 
+  // Fiche d'inventaire papier (PDF A4) : items attendus par emplacement, une page par sous-lot
+  function sheetLink(id, label) {
+    return el('a', { class: 'button-link', href: new URL(`lots/${encodeURIComponent(id)}/sheet.pdf`, API).href,
+      target: '_blank', rel: 'noopener' }, '📄 ' + label);
+  }
+
   // Lot global (depuis n'importe lequel de ses sous-lots) : etat de l'ensemble et de chaque lot
   function renderGlobal(lot) {
     const global = lot.global;
@@ -1406,6 +1413,7 @@
     return [
       el('h3', {}, `Lot global : ${global.name}`),
       el('div', { class: 'banner ' + global.kind }, global.label),
+      global.id !== lot.id ? el('p', {}, sheetLink(global.id, 'Fiche du lot global en PDF (une page par sous-lot)')) : '',
       el('p', { class: 'hint' }, 'Vérif la plus ancienne : ' + (global.last_verif ? fmtDateTime(global.last_verif) : 'jamais')),
       el('ul', { class: 'list tree' }, global.lots.map((row) => el('li', {
         class: (row.counted ? row.effective.kind : 'group-lot') + (row.id === lot.id ? ' current' : ''),

@@ -89,6 +89,19 @@ Exemple : refaire tout le B+ (sac de soin + sac O2) d'un coup.
 Chaque objet scanné est rangé dans le sac où il manque. Les lots d'une même vérif doivent appartenir
 au même lot global (on ne peut pas mélanger le B+ 1 et le sac PSE A).
 
+## Fiche papier du lot (PDF)
+
+Pour vérifier un lot sur papier, ouvrez-le au téléphone (scan d'une de ses étiquettes ou liste de
+l'onglet **Accueil**), puis dans l'onglet **Lot** touchez **📄 Fiche du lot en PDF**. La fiche, au
+format A4, liste les types d'items attendus **triés par emplacement**, avec la quantité attendue et
+des cases à remplir (quantité trouvée, péremption la plus proche, OK), puis « Vérifié le / Par /
+Signature » et une zone de remarques. Les items non périssables ont la case péremption grisée.
+
+Un lot global (un B+) donne **une page par sous-lot** : la première page liste les sous-lots et le
+numéro de leur page. Depuis un sous-lot, **Fiche du lot global en PDF** imprime tout le lot global.
+Un lot trop long continue sur une page « suite ». La fiche ne contient aucune clé : elle peut être
+imprimée et laissée dans le lot.
+
 ## Vérif partielle
 
 Si, dans une vérif groupée, un des sacs est complet et l'autre non (il manque des masques O2), le
