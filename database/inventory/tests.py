@@ -912,11 +912,13 @@ class SubLotTests(ApiTestCase):
         self.assertIn('Sac O2', body['error'])
 
     def test_storage_counts_as_stock(self):
-        code, _ = self.call('POST', '/api/lot-types/', {'type': 'tiroir', 'name': 'Tiroir', 'storage': True})
+        # un rangement est un lot unique : chaque armoire, chaque tiroir a son type, cree avec son lot
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True})
         self.assertEqual(code, 201)
-        code, armoire = self.call('POST', '/api/lots/', {'lot_type': 'tiroir', 'name': 'Armoire 1', 'user': 'M001'})
-        code, tiroir = self.call('POST', '/api/lots/', {'lot_type': 'tiroir', 'name': 'Tiroir 3',
-                                                         'parent': armoire['id'], 'user': 'M001'})
+        armoire = body['created_lot']
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'tiroi3', 'name': 'Tiroir 3', 'storage': True,
+                                                           'parent': armoire['id']})
+        tiroir = body['created_lot']
         stored = self.fresh(3)
         loose = self.fresh(1)
         code, report = self.call('POST', f"/api/lots/{tiroir['id']}/verif/", {'items': stored, 'user': 'M001'})
@@ -940,6 +942,49 @@ class SubLotTests(ApiTestCase):
         # ranger dans un rangement n'est pas un reassort
         self.call('POST', f"/api/lots/{tiroir['id']}/add/", {'items': loose, 'user': 'M001'})
         self.assertFalse(Lots.objects.get(id=tiroir['id']).verif_recommended)
+
+    def test_storage_is_unique_without_requirements_nor_expiry(self):
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True})
+        self.assertTrue(body['unique'])
+        armoire = Lots.objects.get(id=body['lot'])
+        self.assertIsNone(armoire.verif_key_expires)
+        self.assertIsNone(body['created_lot']['verif_key_expires'])
+        code, _ = self.call('POST', '/api/lots/', {'lot_type': 'armoi1', 'name': 'Armoire 2'})
+        self.assertEqual(code, 409)
+        # pas de contenu attendu
+        code, _ = self.call('PUT', '/api/lot-types/armoi1/requirements/', {'requirements': [{'type': 'compre'}]})
+        self.assertEqual(code, 400)
+        # rester unique
+        code, body = self.call('PATCH', '/api/lot-types/armoi1/', {'unique': False})
+        self.assertTrue(body['unique'])
+        # l'etiquette privee n'expire jamais, meme renouvelee, et n'est jamais signalee
+        self.assertTrue(armoire.check_key(armoire.verif_key))
+        self.call('POST', f'/api/lots/{armoire.id}/rotate-key/')
+        armoire.refresh_from_db()
+        self.assertIsNone(armoire.verif_key_expires)
+        from . import notifications
+        report = notifications.check_key_expirations(self.today + timedelta(days=10000))
+        self.assertNotIn(armoire.name, ' '.join(report['lot_key_expiring']))
+
+    def test_type_becomes_storage(self):
+        trousse_type = LotType.objects.create(type='trousx', name='Trousse')
+        LotRequirements.objects.create(lot_type=trousse_type, item_type=self.compresses, quantity=2)
+        self.call('POST', '/api/lots/', {'lot_type': 'trousx', 'name': 'Trousse 1'})
+        self.call('POST', '/api/lots/', {'lot_type': 'trousx', 'name': 'Trousse 2'})
+        # plusieurs lots : ne peut pas devenir un rangement (lot unique)
+        code, _ = self.call('PATCH', '/api/lot-types/trousx/', {'storage': True})
+        self.assertEqual(code, 400)
+        Lots.objects.filter(name='Trousse 2').delete()
+        code, body = self.call('PATCH', '/api/lot-types/trousx/', {'storage': True})
+        self.assertEqual(code, 200)
+        self.assertTrue(body['unique'])
+        self.assertEqual(body['requirements'], [])
+        trousse = Lots.objects.get(name='Trousse 1')
+        self.assertIsNone(trousse.verif_key_expires)
+        # n'est plus un rangement : l'etiquette expire de nouveau
+        self.call('PATCH', '/api/lot-types/trousx/', {'storage': False})
+        trousse.refresh_from_db()
+        self.assertIsNotNone(trousse.verif_key_expires)
 
 
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})

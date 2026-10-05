@@ -104,8 +104,11 @@ et son **contenu attendu**, avec si vous le souhaitez l'emplacement :
 Créez aussi :
 
 - des types **sans contenu** pour les regroupements : « VPS » (`vpsxxx`), « B+ » (`bplusx`) ;
-- un type **rangement** pour la réserve : « Armoire » (`armoir`) et « Tiroir » (`tiroir`), case
-  **Rangement du stock** cochée, sans contenu attendu.
+- un type **rangement** par armoire et par tiroir de la réserve : « Réserve armoire 1 » (`resar1`),
+  « Tiroir 1 » (`tiroi1`)…, case **Rangement du stock** cochée. Un rangement est toujours un **lot
+  unique** : son lot est créé avec le type (nom court et lot parent dans le même formulaire). Il n'a
+  jamais de contenu attendu (on y range ce qu'on veut) et son étiquette privée **n'expire pas** :
+  elle reste à l'intérieur, dans une salle fermée, et se renouvelle seulement en cas de problème.
 
 Un lot qui n'existe qu'en un exemplaire (le VPS, une armoire du VPS) n'a pas besoin d'un type puis
 d'un lot : cochez **Lot unique** à la création du type. Le lot, du même nom, est créé avec le type
@@ -124,16 +127,19 @@ Toujours dans **Gestion des lots**, bouton **Nouveau lot**. Créez les lots **du
 petit**, pour pouvoir choisir le lot parent :
 
 1. `VPS 1` (type VPS, aucun parent) ;
-2. `Armoire cellule VPS 1` (type Armoire, parent VPS 1) ;
+2. `Armoire cellule VPS 1` (rangement, créé avec son type, parent VPS 1) ;
 3. `B+ 1` (type B+, parent VPS 1) ;
 4. `Sac de soin B+ 1` et `Sac O2 B+ 1` (parent B+ 1) ;
 5. `Lot DSA VPS 1` (parent VPS 1) ;
 6. `Sac PSE A`, `Sac PSE B` (aucun parent) ;
-7. `Réserve armoire 1`, `Réserve armoire 2`, puis `Tiroir 1` à `Tiroir 6` (parent : armoire 2) ;
+7. `Réserve armoire 1`, `Réserve armoire 2`, puis `Tiroir 1` à `Tiroir 6` (parent : armoire 2) :
+   des rangements, créés chacun avec son type ;
 8. `Malle catastrophe`.
 
 Le nom d'un lot doit être unique parmi les lots actifs : le formulaire le signale pendant la saisie.
 Un lot archivé se retrouve avec la case **Afficher les lots archivés** (bouton **Désarchiver le lot**).
+Les rangements du stock sont masqués des listes de lots (fenêtres **Lots** et **Gestion des lots**,
+accueil du front web) : cochez **Afficher les rangements du stock** pour les voir.
 
 À chaque création, l'aperçu propose les étiquettes **publique** et **privée** : imprimez les deux.
 Collez la publique à l'extérieur, rangez la privée à l'intérieur (ou dans le classeur des

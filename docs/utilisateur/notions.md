@@ -62,7 +62,9 @@ Un lot qui ne contient rien lui-même (le « VPS 1 », le « B+ 1 ») sert juste
 Le **stock** est tout ce qui n'est dans aucun lot : la réserve. On peut organiser la réserve en
 **rangements** (armoire, tiroir, étagère) : ce sont des lots d'un type marqué « rangement ». Le
 matériel qui y est rangé **compte dans le stock**, et on peut vérifier un tiroir comme un sac, sans
-vérifier toute la réserve.
+vérifier toute la réserve. Chaque rangement est unique (un type par armoire, par tiroir), n'a pas de
+contenu attendu et son étiquette privée n'expire pas. Les listes de lots ne les montrent qu'avec la
+case **Afficher les rangements du stock**.
 
 ## Vérif
 

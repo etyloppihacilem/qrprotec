@@ -56,6 +56,8 @@ class LotsWindow final : public AppWindow {
       ImGui::InputTextWithHint("##filter", "Filtrer", &filter_);
       ImGui::SameLine();
       ImGui::Checkbox("Seulement les lots à traiter", &only_problems_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Afficher les rangements du stock", &show_storage_);
       if (app.catalog.loading_lots) {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");
@@ -102,6 +104,9 @@ class LotsWindow final : public AppWindow {
         const ImVec4      color    = top ? kind_color(lot["global"]["kind"].str()) : lot_status_color(status);
         const bool        ok       = top ? lot["global"]["kind"].str() == "ok" : lot_ok(status);
         if (!search_matches(filter_, name + " " + id + " " + lot["lot_type_name"].str()))
+          continue;
+        // rangements du stock masques par defaut (sauf le lot ouvert, ex : etiquette scannee)
+        if (!show_storage_ && lot["storage"].boolean() && id != selected_)
           continue;
         if (only_problems_ && ok && soon == 0)
           continue;
@@ -325,6 +330,7 @@ class LotsWindow final : public AppWindow {
 
     std::string filter_;
     bool        only_problems_ = false;
+    bool        show_storage_  = false;
     std::string selected_;
     int         seen_lots_version_ = -1;
     Json        details_;

@@ -179,8 +179,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .banner.bad { background: var(--red); }
 .banner.warn { background: var(--orange); }
 .push-box { margin: 4px 0 12px; padding: 4px 10px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--blue-bg); }
-.push-box .check, .device .check { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
-.push-box .check input, .device .check input { flex: none; width: 20px; height: 20px; }
+.push-box .check, .device .check, #home-view .check { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.push-box .check input, .device .check input, #home-view .check input { flex: none; width: 20px; height: 20px; }
 .push-buttons { display: flex; gap: 8px; margin-top: 8px; }
 .push-buttons button { flex: 1; }
 .push-box .error { color: var(--red); font-size: .85rem; }

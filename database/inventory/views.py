@@ -40,9 +40,9 @@ from . import webpush
 from .idendity import SOURCE_VERIFIED, identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .models import (
-    PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings,
-    Operation, OperationKind, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, ServerSettings,
-    SmsRecipient, Verifs, name_key, qrprotec_setting,
+    PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
+    NotificationSettings, Operation, OperationKind, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
+    ServerSettings, SmsRecipient, Verifs, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -1008,7 +1008,8 @@ def lot_types(request):
     """Types de lots, archives compris (champ archived).
 
     Un type « lot unique » (ex : un VPS, une armoire du VPS) est cree avec son lot, du meme nom : `name_short` et
-    `parent` (lot global) s'appliquent alors a ce lot, renvoye dans `created_lot`.
+    `parent` (lot global) s'appliquent alors a ce lot, renvoye dans `created_lot`. Un rangement du stock est
+    toujours un lot unique.
     """
     if request.method != 'GET':
         require_front(request, GESTION)
@@ -1024,12 +1025,13 @@ def lot_types(request):
     if not name:
         raise ApiError("Nom obligatoire")
     ensure_name_free(LotType.objects.all(), name, 'Le type de lot')
-    unique = bool(data.get('unique', False))
+    storage = bool(data.get('storage', False))
+    unique = storage or bool(data.get('unique', False))
     identity = operation_identity(request, data)[:32]
     with transaction.atomic():
         lot_type = LotType.objects.create(
             type=code, name=name, description=str(data.get('description', '')), created_by=identity,
-            storage=bool(data.get('storage', False)), unique=unique,
+            storage=storage, unique=unique,
         )
         lot = None
         if unique:
@@ -1070,13 +1072,25 @@ def lot_type_detail(request, type_code):
             lot_type.name = name
         if 'description' in data:
             lot_type.description = str(data['description'])
-        if 'storage' in data:
-            lot_type.storage = bool(data['storage'])
-        if 'unique' in data:
-            unique = bool(data['unique'])
-            if unique and len(lots) > 1:
-                raise ApiError(f"{len(lots)} lots de ce type existent : un lot unique n'en a qu'un")
-            lot_type.unique = unique
+        storage = bool(data.get('storage', lot_type.storage))
+        # un rangement du stock est un lot unique (sauf un ancien type de rangement qui a deja plusieurs lots)
+        unique = bool(data.get('unique', lot_type.unique)) or (storage and len(lots) <= 1)
+        if storage and not lot_type.storage and len(lots) > 1:
+            raise ApiError(f"{len(lots)} lots de ce type existent : un rangement du stock n'en a qu'un")
+        if unique and not lot_type.unique and len(lots) > 1:
+            raise ApiError(f"{len(lots)} lots de ce type existent : un lot unique n'en a qu'un")
+        lot_type.unique = unique
+        if storage != lot_type.storage:
+            lot_type.storage = storage
+            # rangement : jamais de contenu attendu, etiquette privee sans expiration
+            if storage and lot_type.requirements.exists():
+                lot_type.requirements.all().delete()
+                lot_type.version += 1
+                lot_type.valid_version = lot_type.version
+            for lot in lots:
+                lot.verif_key_expires = lot.key_expiration()
+                lot.key_expiry_stage = KeyExpiry.VALID
+                lot.save(update_fields=['verif_key_expires', 'key_expiry_stage'])
         if 'archived' in data:
             archived = bool(data['archived'])
             active = [lot for lot in lots if lot.active]
@@ -1115,6 +1129,8 @@ def lot_type_requirements(request, type_code):
     rows = request.data.get('requirements', [])
     if not isinstance(rows, list):
         raise ApiError("requirements : liste attendue")
+    if rows and lot_type.storage:
+        raise ApiError(f"{lot_type.name} est un rangement du stock : il n'a pas de contenu attendu")
     with transaction.atomic():
         LotRequirements.objects.filter(lot_type=lot_type).delete()
         for row in rows:
@@ -1152,8 +1168,9 @@ def lots(request):
     lot_type = get_object_or_404(LotType, type=str(data.get('lot_type', '')))
     if lot_type.archived:
         raise ApiError(f"Le type de lot {lot_type.name} est archivé")
-    if lot_type.unique and lot_type.lots_set.exists():
-        raise ApiError(f"{lot_type.name} est un lot unique : son lot existe déjà", status.HTTP_409_CONFLICT)
+    if (lot_type.unique or lot_type.storage) and lot_type.lots_set.exists():
+        raise ApiError(f"{lot_type.name} est un " + ("rangement du stock" if lot_type.storage else "lot unique")
+                       + " : son lot existe déjà", status.HTTP_409_CONFLICT)
     name = str(data.get('name', '')).strip()[:64]
     if not name:
         raise ApiError("Nom obligatoire")
