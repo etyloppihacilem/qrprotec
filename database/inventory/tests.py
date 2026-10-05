@@ -15,7 +15,7 @@ from .base62 import decode_base62
 from . import forecast
 from .models import (
     FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
-    Secouristes, Verifs,
+    Operation, Secouristes, Verifs,
 )
 
 LOCAL = {'qrprotec.role': 'local'}
@@ -1899,3 +1899,112 @@ class DefaultContactTests(ApiTestCase):
         # plus admin : plus contact par defaut
         code, body = self.call('PATCH', '/api/users/P001/', {'role': 'gestion'})
         self.assertFalse(body['default_contact'])
+
+
+class OperationJournalTests(ApiTestCase):
+    """Journal des operations : qui fait quoi et quand, filtres de la fenetre Journal (gestion et admin)."""
+
+    def journal(self, query='', session=None):
+        code, body = self.call('GET', '/api/operations/' + query, session=session)
+        self.assertEqual(code, 200, body)
+        return body
+
+    def test_operations_are_recorded_and_filtered(self):
+        items = self.create(self.compresses, self.today + timedelta(days=60), 2)
+        user = {'matricule': 'M001', 'key': self.user.new_key}
+        # reassort par l'etiquette privee (Jeanne), verif, scellage et ouverture par l'etiquette interieure
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [items[0].iid], 'key': self.lot.verif_key,
+                                                           'user': user}, local=False)
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items]})
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'seal_number': 'S9'})
+        open_code = body['seal_open_url'].split('c=')[1]
+        self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code}, local=False)
+        self.call('POST', '/api/items/to-stock/', {'items': [items[1].iid]})
+
+        body = self.journal('?facets=1')
+        kinds = [row['kind'] for row in body['operations']]
+        self.assertEqual(kinds, ['remove', 'unseal', 'seal', 'verif', 'restock'])  # plus recent d'abord
+        restock = body['operations'][-1]
+        self.assertEqual(restock['by_name'], 'Jeanne Dupont')
+        self.assertEqual(restock['lot_name'], 'Sac A')
+        self.assertEqual(restock['summary'], '1 × Compresses')
+        self.assertEqual(restock['details']['items'], [items[0].iid])
+        verif = body['operations'][3]
+        self.assertEqual(verif['summary'], 'complète : 2 présents')
+        self.assertEqual(verif['by_name'], 'Admin Poste')
+        self.assertEqual(body['operations'][2]['summary'], 'scellé n°S9')
+        unseal = body['operations'][1]
+        self.assertEqual(unseal['by_name'], 'Anonyme (étiquette intérieure)')
+        self.assertIn("étiquette d'ouverture", unseal['summary'])
+        self.assertEqual({person['name'] for person in body['people']},
+                         {'Jeanne Dupont', 'Admin Poste', 'Anonyme (étiquette intérieure)'})
+        self.assertIn({'kind': 'verif', 'label': 'Vérif'}, body['kinds'])
+
+        # ouverture anonyme signee juste apres : la ligne du journal est attribuee
+        self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code, 'user': user}, local=False)
+        unseal = self.journal('?kind=unseal')['operations'][0]
+        self.assertEqual(unseal['by_name'], 'Jeanne Dupont')
+        self.assertTrue(unseal['details']['signed_after_scan'])
+
+        # filtres : qui, quoi, lot, texte, dates, pages
+        self.assertEqual([row['kind'] for row in self.journal('?by=M:M001')['operations']], ['unseal', 'restock'])
+        self.assertEqual(len(self.journal('?kind=seal,unseal')['operations']), 2)
+        self.assertEqual(len(self.journal('?q=dupont')['operations']), 2)
+        self.assertEqual(len(self.journal('?q=S9')['operations']), 2)
+        self.assertEqual(len(self.journal(f'?lot={self.lot.id}')['operations']), 5)
+        tomorrow = (self.today + timedelta(days=1)).isoformat()
+        self.assertEqual(self.journal(f'?since={tomorrow}')['operations'], [])
+        self.assertEqual(len(self.journal(f'?until={self.today.isoformat()}')['operations']), 5)
+        first = self.journal('?limit=2')
+        self.assertTrue(first['more'])
+        rest = self.journal(f"?limit=10&before={first['operations'][-1]['id']}")
+        self.assertFalse(rest['more'])
+        self.assertEqual(len(rest['operations']), 3)
+        code, body = self.call('GET', '/api/operations/?kind=inconnu')
+        self.assertEqual(code, 400)
+
+    def test_sub_lots_and_management_operations(self):
+        bag = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test', parent=self.lot)
+        bag.save()
+        item = self.create(self.garrot, None, 1)[0]
+        self.call('POST', f'/api/lots/{bag.id}/add/', {'items': [item.iid]})
+        # le journal d'un lot comprend ses sous-lots (sub=0 : le lot seul)
+        self.assertEqual(len(self.journal(f'?lot={self.lot.id}')['operations']), 1)
+        self.assertEqual(self.journal(f'?lot={self.lot.id}&sub=0')['operations'], [])
+        # operations de gestion : lot archive, badge renouvele, reception
+        self.call('PATCH', f'/api/lots/{bag.id}/update/', {'parent': ''})
+        self.call('POST', '/api/users/M001/renew-key/')
+        self.call('POST', '/api/items/batch/', {'type': 'garrot', 'count': 3})
+        rows = self.journal()['operations']
+        self.assertEqual([row['kind'] for row in rows[:3]], ['reception', 'user', 'lot'])
+        self.assertEqual(rows[0]['summary'], '3 × Garrot')
+        self.assertIn('Jeanne Dupont', rows[1]['summary'])
+        self.assertEqual(rows[2]['summary'], 'lot modifié : lot indépendant')
+
+    def test_reserved_to_management_roles(self):
+        code, _ = self.call('GET', '/api/operations/', session=False)
+        self.assertEqual(code, 403)
+        code, _ = self.call('GET', '/api/operations/', session=views.session_token(self.user))
+        self.assertEqual(code, 403)
+        self.user.role = 'gestion'
+        self.user.save()
+        code, _ = self.call('GET', '/api/operations/', session=views.session_token(self.user))
+        self.assertEqual(code, 200)
+        code, _ = self.call('GET', '/api/operations/', local=False)
+        self.assertEqual(code, 404)
+
+    def test_reconstruct_history(self):
+        items = self.create(self.compresses, self.today + timedelta(days=60), 2)
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [items[0].iid]})
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [items[1].iid]})
+        self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'force': True})
+        Operation.objects.all().delete()
+        module = importlib.import_module('inventory.migrations.0016_operations')
+        module.reconstruct(django_apps, None)
+        rows = Operation.objects.order_by('at', 'id')
+        self.assertTrue(all(row.reconstructed for row in rows))
+        self.assertEqual({row.kind for row in rows}, {'reception', 'lot', 'verif', 'restock', 'seal', 'catalog'})
+        self.assertEqual(rows.filter(kind='verif').count(), 1)
+        # l'item range dans le lot pendant la verif ne compte pas comme un reassort
+        self.assertEqual(rows.get(kind='restock').details['items'], [items[1].iid])
+        self.assertEqual(rows.get(kind='seal').lot_id, self.lot.id)

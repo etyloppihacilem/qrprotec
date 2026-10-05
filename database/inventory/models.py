@@ -408,6 +408,44 @@ class Lots(models.Model):
         return f"{self.name} ({self.id})"
 
 
+class OperationKind(models.TextChoices):
+    VERIF = 'verif', 'Vérif'
+    STOCK_VERIF = 'stock_verif', 'Vérif du stock'
+    RESTOCK = 'restock', 'Réassort'
+    REMOVE = 'remove', 'Retrait vers le stock'
+    SEAL = 'seal', 'Scellage'
+    UNSEAL = 'unseal', 'Ouverture de scellé'
+    RECEPTION = 'reception', 'Réception'
+    ITEM_DELETE = 'item_delete', "Suppression d'item"
+    ITEM_RESTORE = 'item_restore', "Restauration d'item"
+    PACK_OPEN = 'pack_open', 'Ouverture de paquet'
+    PACK_CLOSE = 'pack_close', 'Paquet refermé'
+    LOT = 'lot', 'Gestion des lots'
+    LOT_KEY = 'lot_key', 'Étiquette privée renouvelée'
+    CATALOG = 'catalog', "Types d'items et de lots"
+    USER = 'user', 'Utilisateurs'
+    SETTINGS = 'settings', 'Réglages'
+
+
+class Operation(models.Model):
+    """Journal des operations (qui fait quoi et quand) : fenetre Journal du poste, roles gestion et admin.
+
+    `by` est l'identite stockee (M:matricule ou D:nom). `lot_name` garde le nom du lot au moment de l'operation.
+    `reconstructed` : ligne reconstituee depuis les donnees anterieures au journal (verifs, mouvements, scelles).
+    """
+    at = models.DateTimeField(default=timezone.now, db_index=True)
+    by = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    kind = models.CharField(max_length=16, choices=OperationKind.choices, db_index=True)
+    lot = models.ForeignKey(Lots, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    lot_name = models.CharField(max_length=64, blank=True, default='')
+    summary = models.CharField(max_length=255, blank=True, default='')
+    details = models.JSONField(default=dict, blank=True)
+    reconstructed = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [models.Index(fields=['lot', 'at'])]
+
+
 PIN_RE = re.compile(r'^\d{4,8}$')
 PIN_MAX_FAILURES = 5              # essais faux consecutifs avant blocage
 PIN_LOCK_DURATION = timedelta(minutes=5)

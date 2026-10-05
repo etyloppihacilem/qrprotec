@@ -22,7 +22,7 @@ from datetime import date
 
 from django.core import signing
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -30,16 +30,17 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from . import forecast
+from . import journal
 from . import notifications
 from . import serializers as ser
 from . import services
 from . import webpush
-from .idendity import identity_from_request
+from .idendity import SOURCE_VERIFIED, identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .models import (
     PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, NotificationSettings,
-    PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, ServerSettings, SmsRecipient, Verifs, name_key,
-    qrprotec_setting,
+    Operation, OperationKind, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, ServerSettings,
+    SmsRecipient, Verifs, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -103,6 +104,17 @@ def operation_identity(request, data=None):
         raise ApiError("Scannez votre badge ou indiquez votre nom" if allowed else "Scannez votre badge pour continuer",
                        status.HTTP_403_FORBIDDEN, login_required=True, declared_identity=allowed)
     return identity
+
+
+def front_identity(request):
+    """Identite stockee de l'utilisateur connecte sur le poste (operations de gestion du journal)."""
+    user = front_user(request)
+    return f'{SOURCE_VERIFIED}:{user.matricule}' if user else ''
+
+
+def changed_fields(data, labels):
+    """Libelles des champs modifies par une requete PATCH (journal), dans l'ordre de `labels`."""
+    return ', '.join(label for field, label in labels.items() if field in data)
 
 
 def error(message, code=status.HTTP_400_BAD_REQUEST, **extra):
@@ -744,6 +756,7 @@ def item_types(request):
         default_pack_size=parse_int(data.get('default_pack_size', 1), 'default_pack_size', 1),
         tear_off=bool(data.get('tear_off', False)),
     )
+    journal.record(OperationKind.CATALOG, front_identity(request), f"type d'item créé : {item_type}", type=code)
     return Response(ser.item_type_dict(item_type), status=status.HTTP_201_CREATED)
 
 
@@ -785,7 +798,19 @@ def item_type_detail(request, type_code):
                                    + ". Retirez-le de ces types de lots d'abord.")
             item_type.archived = archived
         item_type.save()
+        journal.record(OperationKind.CATALOG, front_identity(request),
+                       f"type d'item modifié : {item_type} ({changed_fields(data, ITEM_TYPE_FIELDS)})",
+                       type=item_type.type, fields=sorted(data.keys()))
     return Response(ser.item_type_dict(item_type))
+
+
+ITEM_TYPE_FIELDS = {
+    'name': 'nom', 'description': 'description', 'min_quantity': 'stock minimum',
+    'default_pack_size': 'taille de paquet', 'perissable': 'périssable', 'tear_off': 'étiquette à déchirer',
+    'archived': 'archivage',
+}
+LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',
+                   'archived': 'archivage'}
 
 
 @api_view(['GET'])
@@ -834,6 +859,14 @@ def items_batch(request):
         created = ItemsPacks.objects.add_items(
             item_type, peremption, count, identity[:32], location=location, sealed_pack=sealed_pack
         )
+        summary = f'{count} × {item_type.name}'
+        if item_type.perissable and peremption:
+            summary += f", péremption {peremption.strftime('%d/%m/%Y')}"
+        if sealed_pack is not None:
+            summary += f' (paquet fermé {sealed_pack.id})'
+        journal.record(OperationKind.RECEPTION, identity, summary, lot=location, type=item_type.type, count=count,
+                       peremption=peremption.isoformat() if peremption else None,
+                       sealed_pack=sealed_pack.id if sealed_pack else None, items=journal.item_ids(created))
         notifications.check_stock_levels([item_type.type])
     today = timezone.localdate()
     response = {'items': [ser.item_dict(item, today) for item in created]}
@@ -922,6 +955,9 @@ def sealed_pack_open(request, pack_id):
             Items.objects.filter(sealed_pack=sealed_pack).update(
                 last_seen=now, last_seen_by=identity, last_seen_while=SeenWhile.OPEN
             )
+            journal.record(OperationKind.PACK_OPEN, identity,
+                           f'{sealed_pack.count} × {sealed_pack.item_type.name} (paquet {sealed_pack.id})', at=now,
+                           pack=sealed_pack.id, type=sealed_pack.item_type_id, count=sealed_pack.count)
     today = timezone.localdate()
     data = ser.sealed_pack_dict(sealed_pack, with_items=False)
     data['items'] = [
@@ -938,9 +974,14 @@ def sealed_pack_close(request, pack_id):
     restent valables, les items sont les memes)."""
     require_front(request, GESTION)
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
+    was_opened = sealed_pack.opened is not None
     sealed_pack.opened = None
     sealed_pack.opened_by = ''
     sealed_pack.save(update_fields=['opened', 'opened_by'])
+    if was_opened:
+        journal.record(OperationKind.PACK_CLOSE, front_identity(request),
+                       f'{sealed_pack.count} × {sealed_pack.item_type.name} (paquet {sealed_pack.id}, ouverture annulée)',
+                       pack=sealed_pack.id, type=sealed_pack.item_type_id)
     return Response(ser.sealed_pack_dict(sealed_pack))
 
 
@@ -980,6 +1021,8 @@ def lot_types(request):
                        created_by=identity)
             lot.parent = parse_parent(lot, data.get('parent'))
             lot.save()
+        journal.record(OperationKind.CATALOG, identity, f'type de lot créé : {lot_type}' + (' (lot unique)' if unique else ''),
+                       lot=lot, type=code)
     response = ser.lot_type_dict(lot_type)
     if lot is not None:
         response['created_lot'] = ser.lot_dict(lot, local=True, with_items=True)
@@ -1040,6 +1083,9 @@ def lot_type_detail(request, type_code):
                 lot_type.save()
         else:
             lot_type.save()
+        journal.record(OperationKind.CATALOG, front_identity(request),
+                       f'type de lot modifié : {lot_type} ({changed_fields(data, LOT_TYPE_FIELDS)})',
+                       type=lot_type.type, fields=sorted(data.keys()))
     return Response(ser.lot_type_dict(lot_type))
 
 
@@ -1067,6 +1113,10 @@ def lot_type_requirements(request, type_code):
         lot_type.version += 1
         lot_type.valid_version = lot_type.version
         lot_type.save(update_fields=['version', 'valid_version'])
+        journal.record(OperationKind.CATALOG, front_identity(request), f'contenu attendu modifié : {lot_type}',
+                       type=lot_type.type, requirements=[
+                           {'type': str(row.get('type', '')), 'quantity': row.get('quantity', 1)} for row in rows
+                       ])
     return Response(ser.lot_type_dict(lot_type))
 
 
@@ -1099,6 +1149,8 @@ def lots(request):
     )
     lot.parent = parse_parent(lot, data.get('parent'))
     lot.save()
+    journal.record(OperationKind.LOT, lot.created_by, f'lot créé ({lot_type.name})'
+                   + (f', rangé dans {lot.parent.name}' if lot.parent else ''), lot=lot)
     return Response(ser.lot_dict(lot, local=True, with_items=True), status=status.HTTP_201_CREATED)
 
 
@@ -1142,7 +1194,19 @@ def lot_update(request, lot_id):
         if active and lot.parent is not None and not lot.parent.active:
             lot.parent = None  # le lot parent a ete archive entre-temps : le lot redevient independant
         lot.active = active
+    old_name = Lots.objects.filter(id=lot.id).values_list('name', flat=True).first()
     lot.save()
+    changes = []
+    if 'name' in data and old_name != lot.name:
+        changes.append(f'renommé (ancien nom : {old_name})')
+    if 'name_short' in data:
+        changes.append('nom court')
+    if 'parent' in data:
+        changes.append(f'rangé dans {lot.parent.name}' if lot.parent else 'lot indépendant')
+    if 'active' in data:
+        changes.append('actif' if lot.active else 'archivé')
+    journal.record(OperationKind.LOT, front_identity(request), 'lot modifié : ' + (', '.join(changes) or 'aucun changement'),
+                   lot=lot, fields=sorted(data.keys()))
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 
@@ -1163,6 +1227,8 @@ def lot_rotate_key(request, lot_id):
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     lot.rotate_key()
     lot.save(update_fields=['verif_key', 'verif_key_expires', 'key_expiry_stage'])
+    journal.record(OperationKind.LOT_KEY, front_identity(request), 'étiquette privée renouvelée (ancienne invalidée)',
+                   lot=lot)
     notifications.notify_admins('lot_key_renewed', 'étiquette de lot renouvelée',
                                 f'étiquette privée du lot {lot.name} renouvelée par {front_user(request)}')
     return Response(ser.lot_dict(lot, local=True, with_items=True))
@@ -1174,6 +1240,77 @@ def lot_verifs(request, lot_id):
     require_front(request, GESTION)
     lot = get_object_or_404(Lots, id=lot_id)
     return Response([ser.verif_dict(verif) for verif in Verifs.objects.filter(lot=lot).order_by('-datetime')[:100]])
+
+
+@api_view(['GET'])
+@handle_errors
+def operations(request):
+    """Journal des operations, du plus recent au plus ancien (fenetre Journal du poste, roles gestion et admin).
+
+    Filtres : kind (types separes par des virgules), by (identite stockee, ex M:1234), lot (avec ses sous-lots, archives
+    compris, sauf sub=0), since / until (dates AAAA-MM-JJ incluses), q (texte cherche dans le resume, le nom du lot,
+    le nom ou le matricule de la personne). Pages : before (id de la derniere ligne recue), limit.
+    facets=1 ajoute les personnes presentes dans le journal et les types d'operations (listes des filtres)."""
+    require_front(request, GESTION)
+    params = request.query_params
+    queryset = Operation.objects.order_by('-at', '-id')
+    if params.get('kind'):
+        kinds = [kind for kind in params['kind'].split(',') if kind]
+        unknown = sorted(set(kinds) - set(OperationKind.values))
+        if unknown:
+            raise ApiError("Type d'opération inconnu : " + ', '.join(unknown))
+        queryset = queryset.filter(kind__in=kinds)
+    if params.get('by'):
+        queryset = queryset.filter(by=params['by'])
+    if params.get('lot'):
+        lot = get_object_or_404(Lots, id=params['lot'])
+        queryset = queryset.filter(lot_id__in=[lot.id] if params.get('sub') == '0' else lot_and_sub_lot_ids(lot))
+    since = parse_date(params.get('since'), 'since')
+    until = parse_date(params.get('until'), 'until')
+    if since:
+        queryset = queryset.filter(at__date__gte=since)
+    if until:
+        queryset = queryset.filter(at__date__lte=until)
+    text = str(params.get('q', '')).strip()
+    if text:
+        people = Secouristes.objects.all()
+        for word in text.split():
+            people = people.filter(Q(nom__icontains=word) | Q(prenom__icontains=word) | Q(matricule__icontains=word))
+        identities = [f'{SOURCE_VERIFIED}:{matricule}' for matricule in people.values_list('matricule', flat=True)]
+        queryset = queryset.filter(Q(summary__icontains=text) | Q(lot_name__icontains=text) | Q(by__icontains=text)
+                                   | Q(by__in=identities))
+    if params.get('before'):
+        last = Operation.objects.filter(id=parse_int(params['before'], 'before')).first()
+        if last is not None:
+            queryset = queryset.filter(Q(at__lt=last.at) | Q(at=last.at, id__lt=last.id))
+    limit = parse_int(params.get('limit', 200), 'limit', 1, 1000)
+    rows = list(queryset[:limit + 1])
+    names = journal.names(row.by for row in rows)
+    response = {'operations': [ser.operation_dict(row, names) for row in rows[:limit]], 'more': len(rows) > limit}
+    if params.get('facets') == '1':
+        identities = set(Operation.objects.exclude(by='').values_list('by', flat=True).distinct())
+        everyone = journal.names(identities)
+        response['people'] = sorted(
+            ({'by': identity, 'name': everyone[identity], 'verified': identity.startswith(SOURCE_VERIFIED + ':')}
+             for identity in identities),
+            key=lambda person: (not person['verified'], person['name'].lower()),
+        )
+        response['kinds'] = [{'kind': value, 'label': label} for value, label in OperationKind.choices]
+    return Response(response)
+
+
+def lot_and_sub_lot_ids(lot):
+    """Le lot et tous ses sous-lots, archives compris (l'historique d'un sous-lot archive reste celui du lot)."""
+    by_parent = {}
+    for lot_id, parent_id in Lots.objects.filter(parent__isnull=False).values_list('id', 'parent_id'):
+        by_parent.setdefault(parent_id, []).append(lot_id)
+    result, pending = [], [lot.id]
+    while pending:
+        current = pending.pop()
+        if current not in result:
+            result.append(current)
+            pending.extend(by_parent.get(current, []))
+    return result
 
 
 def admin_count():
@@ -1227,6 +1364,9 @@ def users(request):
     with transaction.atomic():
         apply_default_contact(user, data)
         user.save()
+        by = f'{SOURCE_VERIFIED}:{user.matricule}' if first_admin else front_identity(request)
+        journal.record(OperationKind.USER, by, f'compte créé : {user} ({user.matricule}), rôle {user.get_role_display()}',
+                       matricule=user.matricule, role=user.role)
     data = ser.user_dict(user, local=True)
     if first_admin:
         data['session'] = session_token(user)  # le poste connecte directement le nouvel administrateur
@@ -1259,7 +1399,27 @@ def user_detail(request, matricule):
         with transaction.atomic():
             apply_default_contact(user, data)
             user.save()
+            journal.record(OperationKind.USER, front_identity(request),
+                           f'compte modifié : {user} ({user.matricule}) : {user_changes(data, user)}',
+                           matricule=user.matricule, fields=sorted(data.keys()))
     return Response(ser.user_dict(user, local=True))
+
+
+USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé',
+               'pin_contact': 'admin à contacter', 'push_disabled': 'notifications', 'default_contact': 'contact par défaut'}
+
+
+def user_changes(data, user):
+    """Changements d'un compte pour le journal (jamais la valeur du PIN)."""
+    changes = []
+    if parse_role(data):
+        changes.append(f'rôle {user.get_role_display()}')
+    if 'active' in data:
+        changes.append('actif' if user.active else 'désactivé')
+    fields = changed_fields(data, USER_FIELDS)
+    if fields:
+        changes.append(fields)
+    return ', '.join(changes) or 'aucun changement'
 
 
 def parse_push_disabled(value):
@@ -1286,6 +1446,8 @@ def user_renew_key(request, matricule):
     user = get_object_or_404(Secouristes, matricule=matricule)
     user.renew_key()
     user.save(update_fields=['key_hash', 'key_expires', 'key_expiry_stage'])
+    journal.record(OperationKind.USER, front_identity(request), f'badge renouvelé : {user} ({user.matricule})',
+                   matricule=user.matricule)
     notifications.notify_admins('badge_renewed', 'badge renouvelé',
                                 f'badge de {user} ({user.matricule}) renouvelé par {front_user(request)}')
     return Response(ser.user_dict(user, local=True))
@@ -1316,6 +1478,8 @@ def notification_settings(request):
         if 'key_expiry_warning_days' in request.data:
             settings_row.key_expiry_warning_days = parse_warning_days(request.data['key_expiry_warning_days'])
         settings_row.save()
+        journal.record(OperationKind.SETTINGS, front_identity(request), 'notifications SMS modifiées',
+                       fields=sorted(request.data.keys()))
     return _notification_response()
 
 
@@ -1329,6 +1493,9 @@ def server_settings(request):
         if 'declared_identity' in request.data:
             settings_row.declared_identity = bool(request.data['declared_identity'])
         settings_row.save()
+        journal.record(OperationKind.SETTINGS, front_identity(request), 'identité déclarée (nom sans badge) '
+                       + ('autorisée' if settings_row.declared_identity else 'refusée'),
+                       declared_identity=settings_row.declared_identity)
     return Response(ser.server_settings_dict(settings_row))
 
 
@@ -1365,6 +1532,7 @@ def sms_recipients(request):
     recipient = SmsRecipient()
     _recipient_fields(recipient, request.data, True)
     recipient.save()
+    journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS ajouté : {recipient.name}')
     return _notification_response()
 
 
@@ -1375,9 +1543,11 @@ def sms_recipient_detail(request, recipient_id):
     recipient = get_object_or_404(SmsRecipient, id=recipient_id)
     if request.method == 'DELETE':
         recipient.delete()
+        journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS supprimé : {recipient.name}')
     else:
         _recipient_fields(recipient, request.data, False)
         recipient.save()
+        journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS modifié : {recipient.name}')
     return _notification_response()
 
 

@@ -73,6 +73,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_inventory_window());
   windows.push_back(make_pack_window());
   windows.push_back(make_lot_admin_window());
+  windows.push_back(make_journal_window());
   windows.push_back(make_users_window());
   windows.push_back(make_editor_window());
   windows.push_back(make_settings_window());
@@ -1265,6 +1266,17 @@ std::string App::take_seal_to_show() {
 std::string App::take_lot_to_show() {
   std::string lot_id;
   lot_id.swap(lot_to_show_);
+  return lot_id;
+}
+
+void App::show_journal(const std::string &lot_id) {
+  journal_lot_ = lot_id;
+  open_window("journal");
+}
+
+std::string App::take_journal_lot() {
+  std::string lot_id;
+  lot_id.swap(journal_lot_);
   return lot_id;
 }
 

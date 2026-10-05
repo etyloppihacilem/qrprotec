@@ -206,6 +206,8 @@ class App {
     std::string take_seal_to_show();           // code du QR de scelle scanne (vide sinon)
     void show_pack(const std::string &pack_id); // ouvre la fiche du paquet ferme (mode privilegie)
     std::string take_pack_to_show();            // lu par la fenetre Paquet
+    void show_journal(const std::string &lot_id); // journal des operations filtre sur un lot (mode privilegie)
+    std::string take_journal_lot();               // lu par la fenetre Journal
     void pack_opened(const std::string &pack_id); // paquet ouvert ou referme : met a jour la pile et les listes
     void cancel_verif();
     // partial : verif partielle, seuls les lots que les scans rendent complets sont verifies, les autres items
@@ -310,6 +312,7 @@ class App {
     std::string             lot_to_show_;
     std::string             seal_to_show_;
     std::string             pack_to_show_;
+    std::string             journal_lot_;
     // Premiere configuration : aucun responsable avec un badge valide
     bool                    setup_known_     = false;
     bool                    needs_admin_     = false;
