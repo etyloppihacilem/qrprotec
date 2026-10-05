@@ -35,6 +35,7 @@ Json sample_item(const std::string &type, const std::string &name, bool perishab
   code.resize(6, 'x');
   Json item;
   item["iid"]        = code + (perishable ? when.iso().substr(0, 4) + when.iso().substr(5, 2) + when.iso().substr(8, 2) : "00000000") + "00000001";
+  item["url"]        = "https://example.com/item?id=" + item["iid"].str(); // taille du QR proche du reel
   item["type"]       = type;
   item["type_name"]  = name;
   item["peremption"] = perishable ? Json(when.iso()) : Json();

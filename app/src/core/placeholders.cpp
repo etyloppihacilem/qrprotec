@@ -45,8 +45,11 @@ std::vector< CategoryInfo > build_categories() {
   categories.push_back({ TemplateCategory::Generic, "generic", "Générique", "Modèle libre, sans données de la base.", {} });
 
   CategoryInfo item{ TemplateCategory::Item, "item", "Item",
-                     "Étiquette collée sur chaque item. Le QR code doit contenir {{iid}}.", {} };
-  item.placeholders.push_back({ "iid", "Identifiant unique de l'item (contenu du QR code)", "compre20271231000000A1" });
+                     "Étiquette collée sur chaque item. Le QR code doit contenir {{item_url}} "
+                     "({{iid}} seul reste lu, mais n'ouvre pas le front web).", {} };
+  item.placeholders.push_back({ "item_url", "URL de l'item (contenu du QR code) : ouvre le front web comme un scan",
+                                "https://example.com/item?id=compre20271231000000A1" });
+  item.placeholders.push_back({ "iid", "Identifiant unique de l'item", "compre20271231000000A1" });
   for (const PlaceholderInfo &info : item_type_placeholders())
     item.placeholders.push_back(info);
   item.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "3" });

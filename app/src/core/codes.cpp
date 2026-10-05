@@ -282,17 +282,26 @@ const std::vector< std::string > &douchette_phrases() {
   return phrases;
 }
 
+namespace {
+
+void set_item(ParsedScan &scan, const std::string &iid) {
+  scan.kind      = ScanKind::Item;
+  scan.id        = iid;
+  scan.item_type = iid.substr(0, kTypeLength);
+  const std::string date = iid.substr(kTypeLength, kDateLength);
+  if (date != "00000000")
+    scan.peremption = Date::parse(date);
+}
+
+} // namespace
+
 ParsedScan parse_scan(const std::string &input) {
   ParsedScan scan;
   scan.raw               = trim(input);
   const std::string code = scan.raw;
+  // etiquette d'item : l'iid seul (ancien format) ou l'URL <base>/item?id=IID
   if (is_iid(code)) {
-    scan.kind      = ScanKind::Item;
-    scan.id        = code;
-    scan.item_type = code.substr(0, kTypeLength);
-    const std::string date = code.substr(kTypeLength, kDateLength);
-    if (date != "00000000")
-      scan.peremption = Date::parse(date);
+    set_item(scan, code);
     return scan;
   }
   const std::size_t question = code.find('?');
@@ -303,7 +312,9 @@ ParsedScan parse_scan(const std::string &input) {
     path.pop_back();
   const std::string route  = path.substr(path.find_last_of('/') + 1);
   auto              params = parse_query(code.substr(question + 1));
-  if (route == "verif" && !params["lot"].empty()) {
+  if (route == "item" && is_iid(params["id"])) {
+    set_item(scan, params["id"]);
+  } else if (route == "verif" && !params["lot"].empty()) {
     scan.kind = ScanKind::Lot;
     scan.id   = params["lot"];
     scan.key  = params["key"];

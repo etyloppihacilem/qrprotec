@@ -1793,7 +1793,7 @@ namespace {
 // Payload du QR code principal de chaque usage (utilise quand aucun modele n'est configure)
 std::string main_qr_payload(TemplateCategory category) {
   switch (category) {
-    case TemplateCategory::Item: return "{{iid}}";
+    case TemplateCategory::Item: return "{{item_url}}";
     case TemplateCategory::ItemPack: return "{{pack_url}}";
     case TemplateCategory::LotPublic: return "{{lot_url}}";
     case TemplateCategory::LotPrivate: return "{{lot_private_url}}";

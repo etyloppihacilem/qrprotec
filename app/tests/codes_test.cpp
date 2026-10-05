@@ -70,6 +70,13 @@ static void test_scans() {
   assert(garrot.kind == ScanKind::Item && !garrot.peremption);
   assert(!is_expired(garrot, Date{ 2100, 1, 1 }));
 
+  // nouveau format des etiquettes d'item : URL du front web, l'ancien (iid seul) reste lu
+  const ParsedScan item_url = parse_scan("https://example.com/item?id=compre20261231000000A1");
+  assert(item_url.kind == ScanKind::Item && item_url.id == "compre20261231000000A1" && item_url.item_type == "compre");
+  assert(item_url.peremption && item_url.peremption->iso() == "2026-12-31");
+  assert(parse_scan("https://autre.fr/sous/item/?id=garrot00000000000000A1").kind == ScanKind::Item);
+  assert(parse_scan("https://example.com/item?id=pas-un-iid").kind == ScanKind::Unknown);
+
   const ParsedScan lot = parse_scan("https://example.com/verif?lot=sacpse00000001&key=abc%2Bd");
   assert(lot.kind == ScanKind::Lot && lot.id == "sacpse00000001" && lot.key == "abc+d");
   const ParsedScan lot_public = parse_scan("https://autre-domaine.fr/app/verif/?lot=sacpse00000001");

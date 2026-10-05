@@ -289,8 +289,9 @@ publier dans un dépôt public dédié, par exemple `etyloppihacilem/qrprotec-rp
 
 | Objet | Contenu du QR code | Exemple |
 |---|---|---|
-| Item | l'iid seul : type (6) + péremption `AAAAMMJJ` (8) + compteur base 62 (8) | `serphy20271231000000A1` |
-| Item non périssable | date `00000000` | `garrot00000000000000A1` |
+| Item | `<base>/item?id=IID`, l'iid étant type (6) + péremption `AAAAMMJJ` (8) + compteur base 62 (8) | `https://example.com/item?id=serphy20271231000000A1` |
+| Item, ancien format (toujours lu) | l'iid seul | `serphy20271231000000A1` |
+| Item non périssable | date `00000000` dans l'iid | `garrot00000000000000A1` |
 | Lot, étiquette publique | `<base>/verif?lot=ID` | `https://example.com/verif?lot=sacpse00000001` |
 | Lot, étiquette privée | `<base>/verif?lot=ID&key=CLE` | `...verif?lot=sacpse00000001&key=a1B2...` |
 | Badge utilisateur | `<base>/badge?m=MATRICULE&key=CLE` (clé valable 1 an) | `...badge?m=M0042&key=...` |

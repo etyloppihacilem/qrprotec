@@ -99,8 +99,9 @@ listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{l
 - **Ajouter texte / QR / image (logo)**, positions et tailles en millimètres, texte en gras et
   aligné. **Ajouter le titre** insère `{{titre}}` (le nom de votre structure, défini dans les
   Réglages).
-- Le QR code d'une étiquette **doit** contenir le placeholder prévu (`{{iid}}`, `{{lot_url}}`…),
-  sinon l'étiquette ne sera pas reconnue. L'éditeur signale un QR trop petit pour être lu.
+- Le QR code d'une étiquette **doit** contenir le placeholder prévu (`{{item_url}}`, `{{lot_url}}`…),
+  sinon l'étiquette ne sera pas reconnue. Un QR d'item qui ne contient que `{{iid}}` (ancien
+  format) reste lu par les fronts, mais n'ouvre pas le front web avec l'appareil photo du téléphone. L'éditeur signale un QR trop petit pour être lu.
 - Les images (logo PNG ou JPEG) se placent dans le dossier `images/` des modèles et se choisissent
   avec « Choisir une image du dossier ».
 - **Enregistrer**, puis choisissez ce modèle pour son usage dans **Réglages > Étiquettes et

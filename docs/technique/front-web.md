@@ -18,7 +18,7 @@ elle tient en un fichier JS lisible. Voir [decisions.md](decisions.md#front-web-
 ## Adresses
 
 La page répond aux adresses mêmes des QR codes : `/`, `/verif?lot=…[&key=…]`, `/badge?m=…&key=…`,
-`/pack?id=…`, `/seal?lot=…&s=…`. Scanner une étiquette avec l'appareil photo natif du téléphone ouvre
+`/item?id=…`, `/pack?id=…`, `/seal?lot=…&s=…`. Scanner une étiquette avec l'appareil photo natif du téléphone ouvre
 donc directement la bonne vue. Les fichiers sont référencés en relatif (`web/app.js`) et l'API par
 `new URL('api/', document.baseURI)` : la page fonctionne aussi sous un sous-chemin.
 

@@ -57,6 +57,8 @@ def item_dict(item, today=None):
     today = today or timezone.localdate()
     return {
         'iid': item.iid,
+        # contenu du QR code de l'etiquette : ouvre le front web comme un scan de l'item
+        'url': public_url('item', id=item.iid),
         'type': item.pack.item_type_id,
         'type_name': item.pack.item_type.name,
         # etiquette a dechirer avant utilisation : un item non scanne a une verif est utilise

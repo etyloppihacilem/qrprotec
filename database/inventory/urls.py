@@ -82,6 +82,7 @@ web_patterns = [
     path('', web_views.page),
     path('verif', web_views.page),
     path('badge', web_views.page),
+    path('item', web_views.page),
     path('pack', web_views.page),
     path('seal', web_views.page),
     path('unseal', web_views.page),
