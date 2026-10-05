@@ -406,6 +406,7 @@
 
   async function handleCode(raw) {
     unlockAudio();
+    if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
     const scan = parseCode(raw);
     switch (scan.kind) {
       case 'item': return scanItem(scan);

@@ -298,6 +298,7 @@ class App {
     void draw_menu_bar();
     void draw_windows();
     void draw_login_modal();
+    void draw_douchette_modal(); // easter egg : la douchette a ete scannee
     void check_setup();
     void draw_setup_modal();
     void draw_server_modal(); // connexion au back, sans badge tant que l'API est injoignable
@@ -332,6 +333,8 @@ class App {
     bool                    login_prompt_ = false;
     PinPrompt               pin_;
     bool                    login_prompt_opened_ = false;
+    bool                    douchette_pending_   = false;
+    std::size_t             douchette_index_     = 0;
     std::string             login_reason_;
     std::string             login_manual_;
     std::string             declared_name_;   // nom saisi dans la fenetre de connexion (sans badge)

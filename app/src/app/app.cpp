@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <map>
+#include <random>
 #include <set>
 
 namespace qrprotec {
@@ -251,6 +252,7 @@ void App::draw() {
   draw_server_modal();
   draw_login_modal();
   draw_pin_modal();
+  draw_douchette_modal();
   draw_label_preview(*this);
   draw_toasts();
   feedback.draw_overlay();
@@ -388,6 +390,33 @@ void App::draw_windows() {
     window->was_open = window->open;
   }
   layout_pending_ = false;
+}
+
+void App::draw_douchette_modal() {
+  static const char *kTitle = "Euh...";
+  const std::string &phrase = douchette_phrases()[douchette_index_];
+  if (douchette_pending_) {
+    douchette_pending_ = false;
+    // une autre fenetre modale (connexion, PIN...) ne doit pas etre fermee par la blague
+    if (!ImGui::IsPopupOpen(kTitle) && ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId))
+      notify(phrase);
+    else
+      ImGui::OpenPopup(kTitle);
+  }
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.5f);
+  ImGui::PushTextWrapPos(ImGui::GetFontSize() * 22.0f);
+  ImGui::TextUnformatted(phrase.c_str());
+  ImGui::PopTextWrapPos();
+  ImGui::PopFont();
+  ImGui::Spacing();
+  if (ImGui::Button("Pardon", ImVec2(-FLT_MIN, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)
+      || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
 }
 
 void App::draw_login_modal() {
@@ -981,6 +1010,15 @@ void App::poll_remote() {
 
 void App::handle_scan(const std::string &code, ScanSource source) {
   note_activity();
+  if (is_douchette(code)) {
+    // tirage sans repetir la phrase precedente
+    static std::mt19937 rng{std::random_device{}()};
+    const std::size_t   count = douchette_phrases().size();
+    std::size_t         next  = std::uniform_int_distribution< std::size_t >(0, count - 2)(rng);
+    douchette_index_          = next >= douchette_index_ ? next + 1 : next;
+    douchette_pending_        = true;
+    return;
+  }
   const ParsedScan scan = parse_scan(code);
   // scanner deux fois la meme chose n'a pas de sens : le doublon est ignore, sans signal sonore
   if (scan.kind == ScanKind::Item || scan.kind == ScanKind::SealedPack) {

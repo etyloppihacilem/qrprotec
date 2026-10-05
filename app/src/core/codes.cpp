@@ -257,6 +257,31 @@ std::map< std::string, std::string > parse_query(const std::string &query) {
   return params;
 }
 
+bool is_douchette(const std::string &code) {
+  std::string lower(code);
+  for (char &c : lower)
+    c = static_cast< char >(std::tolower(static_cast< unsigned char >(c)));
+  return lower.find("douchette") != std::string::npos;
+}
+
+const std::vector< std::string > &douchette_phrases() {
+  static const std::vector< std::string > phrases = {
+      "Pourquoi, au nom du Graal, vous avez scanné la douchette ?",
+      "C'est pas faux. Enfin si : ça, c'est la douchette.",
+      "Scanner la douchette avec la douchette ? On en a gros !",
+      "Faut pas respirer la compote, ça fait tousser. Et faut pas scanner la douchette.",
+      "Le gras, c'est la vie. La douchette, c'est pas un produit.",
+      "Douchette ! Ça vaut combien au cul de chouette ? Zéro.",
+      "Merlin, c'est encore vous qui avez scanné la douchette ?",
+      "Sire, on a un problème : quelqu'un a scanné la douchette.",
+      "Vous avez scanné la douchette. La douchette vous scanne en retour.",
+      "Inventaire : 1 douchette, état : très perplexe.",
+      "La douchette, c'est pour scanner. C'est pas elle qu'on scanne.",
+      "Et après, on scanne le lecteur de badge ?",
+  };
+  return phrases;
+}
+
 ParsedScan parse_scan(const std::string &input) {
   ParsedScan scan;
   scan.raw               = trim(input);

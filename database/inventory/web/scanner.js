@@ -245,6 +245,8 @@
 
   function sendCode(code) {
     unlockAudio();
+    // easter egg : rien n'est envoye au poste
+    if (window.douchette && window.douchette.matches(code)) { window.douchette.show(); return; }
     if (ended) return;
     if (!connected) {
       feedback.bad();

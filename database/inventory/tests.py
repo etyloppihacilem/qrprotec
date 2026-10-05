@@ -416,6 +416,26 @@ class WebFrontTests(ApiTestCase):
         self.assertEqual(self.client.get('/web/../views.py').status_code, 404)
         self.assertEqual(self.client.get('/web/index.html').status_code, 404)
 
+    def test_douchette_easter_egg(self):
+        """Le script est servi aux deux pages et ses phrases sont celles de l'app (codes.cpp)."""
+        import re
+        from pathlib import Path
+        self.assertEqual(self.client.get('/web/douchette.js').status_code, 200)
+        web = Path(__file__).resolve().parent / 'web'
+        for page in ('index.html', 'scanner.html'):
+            self.assertIn('web/douchette.js', (web / page).read_text(encoding='utf-8'))
+        js = (web / 'douchette.js').read_text(encoding='utf-8')
+        js_phrases = [a or b for a, b in re.findall(r"^\s+(?:'([^']*)'|\"([^\"]*)\"),$", js, re.M)]
+        self.assertGreater(len(js_phrases), 1)
+        codes = Path(__file__).resolve().parents[2] / 'app' / 'src' / 'core' / 'codes.cpp'
+        if not codes.exists():
+            self.skipTest("sources de l'app absentes")
+        cpp = codes.read_text(encoding='utf-8')
+        block = cpp[cpp.index('douchette_phrases()'):]
+        block = block[:block.index('};')]
+        cpp_phrases = re.findall(r'^\s+"(.*)",$', block, re.M)
+        self.assertEqual(js_phrases, cpp_phrases)
+
     def test_icons_and_service_worker(self):
         for url in ('/web/sw.js', '/web/icon-192.png', '/web/icon-512.png', '/web/favicon.png', '/favicon.ico'):
             self.assertEqual(self.client.get(url).status_code, 200, url)
