@@ -11,7 +11,10 @@ Exemple : la commande du mois arrive avec 200 compresses (8 boîtes de 25, pére
 Menu **Gestion > Inventaire**, onglet **Réception**, une ligne de commande à la fois :
 
 1. **Type d'item** : tapez une partie du nom ou du code (« ser ph » trouve « Sérum phy 10 ml »,
-   sans se soucier des accents), validez avec Entrée ou Tab.
+   sans se soucier des accents), validez avec Entrée ou Tab. La description du type compte aussi :
+   y noter le nom commercial d'un médicament générique (« Doliprane » pour « Paracétamol ») permet
+   de le trouver avec le nom écrit sur la boîte. Ces résultats viennent après ceux du nom, avec un
+   extrait de la description.
 2. **Péremption** : tapez la date comme elle est écrite sur l'emballage : `31/12/2027`, `311227`,
    ou seulement le mois `03/2029` / `0329` (= dernier jour du mois). La date comprise s'affiche à
    côté. Pas de date pour un produit non périssable.
@@ -116,7 +119,7 @@ dans la pile de scans.
 
 Onglet **Items** de l'inventaire : recherche par type, filtre **En stock**. La fiche d'un item
 indique son type, sa péremption, son emplacement, son statut et son dernier passage (qui, quand).
-**Réimprimer** refait son étiquette (étiquette abîmée). Depuis la pile de scans, **Réimprimer**
+**Aperçu** montre son étiquette sans l'imprimer, **Réimprimer** la refait (étiquette abîmée). Depuis la pile de scans, **Réimprimer**
 refait l'étiquette de chaque item scanné.
 
 ## Supprimer un item (exceptionnel)

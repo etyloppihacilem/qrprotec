@@ -54,6 +54,13 @@ std::string Catalog::item_type_name(const std::string &type) const {
   return type;
 }
 
+std::string Catalog::item_type_description(const std::string &type) const {
+  for (const Json &item_type : item_types.items())
+    if (item_type["type"].str() == type)
+      return item_type["description"].str();
+  return "";
+}
+
 App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   settings = AppSettings::defaults();
   settings.load();

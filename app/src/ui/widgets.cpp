@@ -225,6 +225,18 @@ struct SearchState {
 };
 std::unordered_map< ImGuiID, SearchState > search_states;
 
+// Premiere ligne de la description, coupee a ~40 caracteres (sans couper un caractere UTF-8)
+std::string description_excerpt(const std::string &description) {
+  std::string line = description.substr(0, description.find('\n'));
+  std::size_t end = 0;
+  for (int count = 0; end < line.size() && count < 40; ++count) {
+    ++end;
+    while (end < line.size() && (static_cast< unsigned char >(line[end]) & 0xC0) == 0x80)
+      ++end;
+  }
+  return end < line.size() ? line.substr(0, end) + "…" : line;
+}
+
 int search_callback(ImGuiInputTextCallbackData *data) {
   if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion)
     static_cast< SearchState * >(data->UserData)->accept = true;
@@ -266,16 +278,23 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
       int         score;
       std::string key;
       std::string label;
+      std::string note; // extrait de la description quand c'est elle qui correspond
   };
   std::vector< Match > matches;
   if (empty_label && query.empty())
-    matches.push_back({ 1000, "", empty_label });
+    matches.push_back({ 1000, "", empty_label, "" });
   for (const Json &entry : list.items()) {
     const std::string key   = entry[key_field].str();
     const std::string label = entry[name_field].str() + " (" + key + ")";
     const int         score = search_score(query, label);
-    if (score >= 0)
-      matches.push_back({ score, key, label });
+    if (score >= 0) {
+      matches.push_back({ score, key, label, "" });
+      continue;
+    }
+    // la description compte aussi (ex: nom commercial d'un medicament generique), apres les noms
+    const std::string description = entry["description"].str();
+    if (!description.empty() && search_score(query, description) >= 0)
+      matches.push_back({ -1, key, label, description_excerpt(description) });
   }
   std::stable_sort(matches.begin(), matches.end(), [](const Match &a, const Match &b) { return a.score > b.score; });
   if (matches.size() > 15)
@@ -316,7 +335,9 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
     for (std::size_t index = 0; index < matches.size(); ++index) {
       const bool highlighted = static_cast< int >(index) == state.highlighted;
       // choix des l'appui du bouton : la liste ne peut plus changer sous la souris avant le relachement
-      if (ImGui::Selectable(matches[index].label.c_str(), highlighted, ImGuiSelectableFlags_SelectOnClick))
+      const std::string text = matches[index].note.empty() ? matches[index].label
+                                                           : matches[index].label + " · " + matches[index].note;
+      if (ImGui::Selectable(text.c_str(), highlighted, ImGuiSelectableFlags_SelectOnClick))
         accept(matches[index]);
       if (highlighted && now_active)
         ImGui::SetScrollHereY();

@@ -8,6 +8,7 @@ from .models import (
 @admin.register(ItemType)
 class ItemTypeAdmin(admin.ModelAdmin):
     list_display = ('type', 'name', 'min_quantity', 'perissable')
+    search_fields = ('type', 'name', 'description')
 
 
 @admin.register(Items)
