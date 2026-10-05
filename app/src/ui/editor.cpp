@@ -1289,6 +1289,7 @@ void Editor::draw_properties(TemplateElement &element) {
     preview_dirty_ = true;
   }
   ImGui::TextUnformatted("Aligner sur l'étiquette");
+  ImGui::PushID("aligner"); // memes libelles que l'alignement du texte (Gauche, Droite)
   const float third = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
   if (ImGui::Button("Gauche", ImVec2(third, 0)))
     align_selected(-1, 2);
@@ -1306,6 +1307,7 @@ void Editor::draw_properties(TemplateElement &element) {
   ImGui::SameLine();
   if (ImGui::Button("Bas", ImVec2(third, 0)))
     align_selected(2, 1);
+  ImGui::PopID();
 
   if (element.kind == ElementKind::Text) {
     TextElement &text = std::get< TextElement >(element.content);
@@ -1319,6 +1321,7 @@ void Editor::draw_properties(TemplateElement &element) {
     int        align = static_cast< int >(text.align);
     const char *names[] = { "Gauche", "Centré", "Droite" };
     ImGui::TextUnformatted("Alignement du texte");
+    ImGui::PushID("alignement_texte");
     for (int option = 0; option < 3; ++option) {
       if (option > 0)
         ImGui::SameLine();
@@ -1327,6 +1330,7 @@ void Editor::draw_properties(TemplateElement &element) {
         preview_dirty_ = true;
       }
     }
+    ImGui::PopID();
   } else if (qr) {
     QrElement &code = std::get< QrElement >(element.content);
     ImGui::SeparatorText("QR code");
