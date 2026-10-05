@@ -27,6 +27,7 @@ ASSETS = {
     'vendor/jsQR.js': 'text/javascript; charset=utf-8',
     'vendor/qrcode.js': 'text/javascript; charset=utf-8',  # QR code du lien de deblocage du PIN
     'scanner.js': 'text/javascript; charset=utf-8',
+    'douchette.js': 'text/javascript; charset=utf-8',  # easter egg (app.js et scanner.js)
     'manifest.webmanifest': 'application/manifest+json',
     'sw.js': 'text/javascript; charset=utf-8',  # service worker des notifications web (portee web/)
     'favicon.png': 'image/png',

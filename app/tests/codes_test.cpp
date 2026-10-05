@@ -51,6 +51,13 @@ static void test_dates() {
   assert((Date{ 2026, 1, 1 }.plus_days(-1) == Date{ 2025, 12, 31 }));
 }
 
+static void test_douchette() {
+  assert(is_douchette("douchette"));
+  assert(is_douchette("  La DOUCHETTE du poste 2"));
+  assert(!is_douchette("https://example.com/badge?m=1&key=x"));
+  assert(douchette_phrases().size() >= 2);
+}
+
 static void test_scans() {
   const ParsedScan item = parse_scan("compre20261231000000A1\n");
   assert(item.kind == ScanKind::Item);
@@ -271,6 +278,7 @@ int main() {
   test_json();
   test_dates();
   test_scans();
+  test_douchette();
   test_http();
   test_qr_and_categories();
   test_text_and_label_fit();

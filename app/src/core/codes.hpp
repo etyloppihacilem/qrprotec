@@ -13,6 +13,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace qrprotec {
 
@@ -70,6 +71,11 @@ bool        is_iid(const std::string &code);
 ParsedScan  parse_scan(const std::string &raw);
 const char *scan_kind_name(ScanKind kind);
 bool        is_expired(const ParsedScan &scan, const Date &today);
+
+// Easter egg : un code contenant "douchette" (sans casse) n'est pas un scan, une phrase s'affiche.
+// Meme liste que DOUCHETTE_PHRASES dans database/inventory/web/app.js et scanner.js.
+bool                              is_douchette(const std::string &code);
+const std::vector< std::string > &douchette_phrases();
 
 std::map< std::string, std::string > parse_query(const std::string &query);
 std::string                          url_decode(const std::string &value);
