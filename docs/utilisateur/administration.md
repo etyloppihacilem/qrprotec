@@ -57,8 +57,14 @@ Dans la fiche d'un lot (rôle gestion) :
 
 1. Faites d'abord une **vérif complète** : un lot (et ses sous-lots) incomplet ou contenant des
    périmés ne peut pas être scellé, sauf **Sceller quand même**.
-2. Saisissez le **numéro du scellé** physique, **Sceller le lot et imprimer l'étiquette**.
-3. Posez le scellé et collez l'étiquette du scellé à côté.
+2. Saisissez le **numéro du scellé** physique, **Sceller le lot et imprimer les étiquettes** : deux
+   étiquettes sortent, celle du scellé et l'**étiquette d'ouverture** (« Scanner après l'ouverture »).
+3. Rangez l'étiquette d'ouverture **à l'intérieur** du lot, bien visible à l'ouverture, puis posez le
+   scellé et collez l'étiquette du scellé à côté.
+
+Celui qui ouvre le lot scanne l'étiquette d'ouverture : le scellé est marqué ouvert, même s'il n'est
+pas connecté. Le téléphone lui demande ensuite son badge (ou son nom, si le serveur l'autorise) pour
+signer l'ouverture ; sans cela, elle reste enregistrée comme anonyme.
 
 **Briser le scellé** depuis la fiche quand on ouvre le lot pour autre chose qu'une vérif. Le lot
 devra être vérifié avant utilisation.
@@ -66,8 +72,8 @@ devra être vérifié avant utilisation.
 ## Étiquettes
 
 Menu **Gestion > Éditeur d'étiquettes** (admin). Chaque modèle a un **usage** (item, paquet, lot
-public, lot privé, scellé, badge) qui détermine les informations disponibles, listées dans l'onglet
-**Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{lot_name}}`…).
+public, lot privé, scellé, ouverture du scellé, badge) qui détermine les informations disponibles,
+listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{lot_name}}`…).
 
 - **Ajouter texte / QR / image (logo)**, positions et tailles en millimètres, texte en gras et
   aligné. **Ajouter le titre** insère `{{titre}}` (le nom de votre structure, défini dans les
@@ -100,7 +106,7 @@ La douchette se règle dans le menu **Douchette** (recherche, connexion, mode cl
 
 ### Sans badge : nom déclaré
 
-Par défaut, valider une vérif, ajouter des items à un lot ou ouvrir un scellé exige un badge, sur le
+Par défaut, valider une vérif, ajouter des items à un lot ou briser un scellé depuis la fiche exige un badge, sur le
 poste comme au téléphone. Si vous cochez **Autoriser les vérifs et les ajouts sans badge**, la
 personne qui n'a pas de badge peut saisir son nom à la place : **Continuer sans badge** dans la
 fenêtre de connexion du poste, ou un appui sur **Non connecté** au téléphone (le nom y est gardé).

@@ -203,15 +203,26 @@ class LotAdminWindow final : public AppWindow {
         app.print_labels(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privée)");
     }
 
+    // etiquettes d'un scelle : celle collee sur le scelle, et l'etiquette d'ouverture rangee dans le lot (son
+    // scan ouvre le scelle)
+    void preview_seal(App &app, const Json &lot) {
+      const Parameters        parameters = lot_parameters(lot);
+      std::vector< PrintJob > jobs;
+      app.build_label_jobs(TemplateCategory::LotSeal, { parameters }, "Scellé " + lot["name"].str(), jobs);
+      // scelle pose avant l'etiquette d'ouverture : il n'en a pas
+      if (!lot["seal_open_url"].str().empty())
+        app.build_label_jobs(TemplateCategory::LotSealOpen, { parameters }, "Ouverture " + lot["name"].str(), jobs);
+      app.preview_jobs(std::move(jobs), "Scellé " + lot["name"].str());
+    }
+
     // Scelle : un lot scelle est valide sans verif ; une verif, un ajout ou un retrait d'items brise le scelle.
     void draw_seal(App &app) {
       ImGui::SeparatorText("Scellé");
-      const std::string name = lot_["name"].str();
       if (lot_["is_sealed"].boolean()) {
         ImGui::Text("Scellé%s le %s par %s", lot_["seal_number"].str().empty() ? "" : (" n°" + lot_["seal_number"].str()).c_str(),
                     display_datetime(lot_["sealed"]).c_str(), lot_["sealed_by"].str("-").c_str());
-        if (ImGui::Button("Étiquette du scellé"))
-          app.preview_labels(TemplateCategory::LotSeal, { lot_parameters(lot_) }, "Scellé " + name);
+        if (ImGui::Button("Étiquettes du scellé"))
+          preview_seal(app, lot_);
         ImGui::SameLine();
         if (confirm_button("Briser le scellé", "Le lot devra être vérifié avant utilisation. Continuer ?", "unseal")) {
           Json body;
@@ -233,7 +244,8 @@ class LotAdminWindow final : public AppWindow {
         ImGui::TextDisabled("Dernier scellé brisé le %s par %s", display_datetime(lot_["unsealed"]).c_str(),
                             lot_["unsealed_by"].str("-").c_str());
       ImGui::TextWrapped("Un lot scellé est valide sans vérif tant que le scellé est intact. Faites une vérif "
-                         "complète, fermez le lot avec un scellé puis imprimez l'étiquette du scellé.");
+                         "complète, rangez l'étiquette d'ouverture dans le lot, fermez-le avec un scellé et collez "
+                         "l'étiquette du scellé dessus. Scanner l'étiquette d'ouverture ouvre le scellé.");
       ImGui::SetNextItemWidth(160.0f);
       input_limited("Numéro du scellé", seal_number_, 32, "facultatif");
       // un lot global se scelle avec ses sous-lots : ils doivent tous etre complets
@@ -248,7 +260,7 @@ class LotAdminWindow final : public AppWindow {
         ImGui::TextWrapped("Lot incomplet ou jamais vérifié : faites d'abord une vérif complète.");
         ImGui::PopStyleColor();
       }
-      if (ok ? primary_button("Sceller le lot et imprimer l'étiquette") : ImGui::Button("Sceller quand même"))
+      if (ok ? primary_button("Sceller le lot et imprimer les étiquettes") : ImGui::Button("Sceller quand même"))
         seal(app, !ok);
     }
 
@@ -264,8 +276,8 @@ class LotAdminWindow final : public AppWindow {
         }
         lot_ = result.data;
         seal_number_.clear();
-        app.notify("Lot scellé : collez l'étiquette sur le scellé.");
-        app.preview_labels(TemplateCategory::LotSeal, { lot_parameters(lot_) }, "Scellé " + lot_["name"].str());
+        app.notify("Lot scellé : rangez l'étiquette d'ouverture dans le lot et collez l'autre sur le scellé.");
+        preview_seal(app, lot_);
         app.refresh_lots();
       });
     }

@@ -40,7 +40,7 @@ Menu **Gestion > Réglages** (admin), section **Étiquettes et impression** :
 3. **Titre des étiquettes** : le nom de votre structure, imprimé sur les étiquettes de lot et les
    badges (par défaut « PROTECTION CIVILE / PARIS CENTRE »).
 4. **Étiquettes** : le modèle utilisé pour chaque usage (item, paquet, lot public, lot privé, scellé,
-   badge). Les modèles fournis conviennent pour commencer ; votre logo se change dans l'éditeur
+   ouverture du scellé, badge). Les modèles fournis conviennent pour commencer ; votre logo se change dans l'éditeur
    d'étiquettes (voir [Administration](administration.md#étiquettes)).
 
 Imprimez votre badge une seconde fois si le premier était raté : c'est le même QR code.
@@ -177,8 +177,8 @@ faire.
 ## Étape 8 — Sceller les lots de réserve
 
 Pour la malle catastrophe, une fois sa vérif complète : **Gestion des lots**, fiche du lot, numéro du
-scellé physique, **Sceller le lot et imprimer l'étiquette**. Posez le scellé et collez l'étiquette du
-scellé à côté. La malle reste verte sans vérif jusqu'à la première péremption de son contenu.
+scellé physique, **Sceller le lot et imprimer les étiquettes**. Rangez l'étiquette d'ouverture dans la
+malle, posez le scellé et collez l'étiquette du scellé à côté. La malle reste verte sans vérif jusqu'à la première péremption de son contenu.
 
 ## Étape 9 — Les alertes
 

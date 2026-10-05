@@ -311,6 +311,9 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True):
         data['verif_key_expires'] = _date(lot.verif_key_expires)
         data['private_url'] = public_url('verif', lot=lot.id, key=lot.verif_key)
         data['seal_url'] = public_url('seal', lot=lot.id, s=lot.seal_code) if lot.is_sealed else ''
+        # etiquette d'ouverture, a ranger dans le lot scelle : la scanner ouvre le scelle
+        data['seal_open_url'] = (public_url('unseal', lot=lot.id, c=lot.seal_open_code)
+                                 if lot.is_sealed and lot.seal_open_code else '')
     return data
 
 

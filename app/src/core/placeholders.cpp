@@ -95,6 +95,16 @@ std::vector< CategoryInfo > build_categories() {
   );
   categories.push_back(lot_seal);
 
+  CategoryInfo lot_seal_open{ TemplateCategory::LotSealOpen, "lot_seal_open", "Lot - ouverture du scellé",
+                              "Étiquette rangée à l'intérieur du lot scellé : la scanner ouvre le scellé, même sans "
+                              "être connecté. Le QR code doit contenir {{seal_open_url}}.",
+                              lot_placeholders() };
+  lot_seal_open.placeholders.push_back({ "seal_open_url", "URL d'ouverture du scellé (contenu du QR code)",
+                                         "https://example.com/unseal?lot=sacpse00000001&c=Gh34Ij56Kl78Mn90" });
+  lot_seal_open.placeholders.push_back({ "seal_number", "Numéro du scellé physique (peut être vide)", "004512" });
+  lot_seal_open.placeholders.push_back({ "sealed_date", "Date du scellage JJ/MM/AAAA", "30/09/2026" });
+  categories.push_back(lot_seal_open);
+
   CategoryInfo user{ TemplateCategory::User, "user", "Badge utilisateur",
                      "Badge de connexion d'un secouriste. Le QR code doit contenir {{badge_url}}.", {} };
   user.placeholders = {

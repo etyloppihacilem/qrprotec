@@ -74,6 +74,9 @@ static void test_scans() {
   const ParsedScan seal = parse_scan("https://example.com/seal?lot=sacpse00000001&s=AbC123");
   assert(seal.kind == ScanKind::LotSeal && seal.id == "sacpse00000001" && seal.key == "AbC123");
   assert(parse_scan("https://example.com/seal?lot=sacpse00000001").kind == ScanKind::Unknown);
+  const ParsedScan opening = parse_scan("https://example.com/unseal?lot=sacpse00000001&c=Gh34");
+  assert(opening.kind == ScanKind::LotSealOpen && opening.id == "sacpse00000001" && opening.key == "Gh34");
+  assert(parse_scan("https://example.com/unseal?lot=sacpse00000001").kind == ScanKind::Unknown);
   assert(parse_scan("n'importe quoi").kind == ScanKind::Unknown);
   assert(parse_scan("compre2026123100000!A1").kind == ScanKind::Unknown);
 }

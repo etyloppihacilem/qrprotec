@@ -987,6 +987,7 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     case ScanKind::User: login_with_badge(scan, source); return;
     case ScanKind::Lot: scan_lot(scan, source); return;
     case ScanKind::LotSeal: scan_lot_seal(scan, source); return;
+    case ScanKind::LotSealOpen: scan_lot_seal_open(scan, source); return;
     case ScanKind::Item: {
       ScanEntry &entry = stack.add(scan, source);
       const int  id    = entry.id;
@@ -1119,6 +1120,34 @@ void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
               notify(name + " : scellé intact, lot valide.");
             }
           });
+}
+
+// Etiquette d'ouverture (rangee dans le lot scelle) : son scan ouvre le scelle, que quelqu'un soit connecte ou non.
+void App::scan_lot_seal_open(const ParsedScan &scan, ScanSource source) {
+  Json body;
+  body["code"] = scan.key;
+  add_identity(body);
+  api.post("/api/lots/" + url_encode(scan.id) + "/seal-open/", body, [this, id = scan.id, source](const ApiResult &result) {
+    if (!result.ok) {
+      feedback.error(source, settings);
+      notify(result.error.empty() ? "Lot inconnu : " + id : result.error, true);
+      return;
+    }
+    const Json       &lot  = result.data["lot"];
+    const std::string name = lot["name"].str();
+    const std::string what = result.data["result"].str();
+    if (what == "opened") {
+      const bool identified = result.data["identified"].boolean();
+      notify(name + " : scellé ouvert, vérif nécessaire." +
+             (identified ? "" : " Ouverture anonyme : connectez-vous puis rescannez l'étiquette pour la signer."));
+    } else if (what == "signed") {
+      notify(name + " : ouverture du scellé signée par " + lot["unsealed_by"].str() + ".");
+    } else {
+      notify(name + " : scellé déjà ouvert le " + display_datetime(lot["unsealed"]) + ", vérif nécessaire.");
+    }
+    show_lot(id, "");
+    refresh_lots();
+  });
 }
 
 void App::scan_lot(const ParsedScan &scan, ScanSource source) {
@@ -1712,6 +1741,7 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::LotPublic: return "{{lot_url}}";
     case TemplateCategory::LotPrivate: return "{{lot_private_url}}";
     case TemplateCategory::LotSeal: return "{{seal_url}}";
+    case TemplateCategory::LotSealOpen: return "{{seal_open_url}}";
     case TemplateCategory::User: return "{{badge_url}}";
     case TemplateCategory::Generic: break;
   }

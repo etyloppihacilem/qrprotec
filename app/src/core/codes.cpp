@@ -290,6 +290,10 @@ ParsedScan parse_scan(const std::string &input) {
     scan.kind = ScanKind::LotSeal;
     scan.id   = params["lot"];
     scan.key  = params["s"];
+  } else if (route == "unseal" && !params["lot"].empty() && !params["c"].empty()) {
+    scan.kind = ScanKind::LotSealOpen;
+    scan.id   = params["lot"];
+    scan.key  = params["c"];
   } else if (route == "pack" && !params["id"].empty()) {
     scan.kind = ScanKind::SealedPack;
     scan.id   = params["id"];
@@ -304,6 +308,7 @@ const char *scan_kind_name(ScanKind kind) {
     case ScanKind::User: return "Badge";
     case ScanKind::SealedPack: return "Paquet";
     case ScanKind::LotSeal: return "Scellé";
+    case ScanKind::LotSealOpen: return "Ouverture de scellé";
     case ScanKind::Unknown: break;
   }
   return "Inconnu";

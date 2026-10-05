@@ -130,8 +130,8 @@ date de péremption ; on supprime l'item (avec raison) et on en reçoit un nouve
 
 - Clés de lot et de badge : 24 caractères tirés de `[0-9A-Za-z]` avec `secrets` (≈ 143 bits).
   Comparées en temps constant (`hmac.compare_digest`). Elles ont une date d'expiration.
-- Code de scellé : 16 caractères, changé à chaque scellage ; l'étiquette d'un ancien scellé devient
-  invalide.
+- Code de scellé et code d'ouverture (`seal_open_code`, étiquette rangée dans le lot) : 16 caractères,
+  changés à chaque scellage ; les étiquettes d'un ancien scellé deviennent invalides.
 - Les clés ne sont jamais renvoyées par l'API publique (`lot_dict(local=False)`).
 
 ## Migrations
