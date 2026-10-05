@@ -10,7 +10,7 @@
 
 """Front web mobile (page unique) servi par l'API publique.
 
-La page repond aux URLs encodees dans les QR codes (verif?lot=..., badge?m=..., pack?id=...) : scanner
+La page repond aux URLs encodees dans les QR codes (verif?lot=..., badge?m=..., item?id=..., pack?id=...) : scanner
 une etiquette avec l'appareil photo du telephone ouvre directement la bonne vue.
 """
 

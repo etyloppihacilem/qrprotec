@@ -404,7 +404,8 @@ class ManagementTests(ApiTestCase):
 
 class WebFrontTests(ApiTestCase):
     def test_qr_urls_serve_the_web_page(self):
-        for url in ('/', '/verif', f'/verif?lot={self.lot.id}&key=x', '/badge?m=M001&key=x', '/pack?id=1'):
+        for url in ('/', '/verif', f'/verif?lot={self.lot.id}&key=x', '/badge?m=M001&key=x', '/pack?id=1',
+                    '/item?id=compre20271231000000A1'):
             response = self.client.get(url)
             self.assertEqual(response.status_code, 200, url)
             self.assertIn(b'web/app.js', b''.join(response.streaming_content))
@@ -970,6 +971,7 @@ class SubLotTests(ApiTestCase):
         self.assertEqual(row['lots_fresh'], 0)
         code, body = self.call('GET', f'/api/items/{stored[0]}/', local=False)
         self.assertTrue(body['in_stock'])
+        self.assertTrue(body['url'].endswith(f'item?id={stored[0]}'))
         code, items = self.call('GET', '/api/items/?location=stock')
         self.assertEqual(len(items), 4)
         # verif d'un seul tiroir : le reste du stock n'est pas touche

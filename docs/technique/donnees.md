@@ -97,8 +97,9 @@ nom à afficher.
 
 | Objet | Contenu | Exemple |
 |---|---|---|
-| Item | iid seul | `serphy20271231000000A1` |
-| Item non périssable | date `00000000` | `garrot00000000000000A1` |
+| Item | `<base>/item?id=IID` | `https://inventaire.example.org/item?id=serphy20271231000000A1` |
+| Item, ancien format (toujours lu) | iid seul | `serphy20271231000000A1` |
+| Item non périssable | date `00000000` dans l'iid | `garrot00000000000000A1` |
 | Lot, étiquette publique | `<base>/verif?lot=ID` | `https://inventaire.example.org/verif?lot=sacpse00000001` |
 | Lot, étiquette privée | `<base>/verif?lot=ID&key=CLÉ` | `…/verif?lot=sacpse00000001&key=a1B2…` |
 | Badge | `<base>/badge?m=MATRICULE&key=CLÉ` | `…/badge?m=M0042&key=…` |

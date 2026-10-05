@@ -155,14 +155,17 @@
   // Meme format que le front ordinateur (app/src/core/codes.cpp)
   function parseCode(raw) {
     const code = raw.trim();
-    if (IID_RE.test(code)) {
-      const date = code.slice(6, 14);
-      return { kind: 'item', code, id: code, type: code.slice(0, 6), peremption: date === '00000000' ? null : parseDate(date) };
-    }
+    // etiquette d'item : l'iid seul (ancien format) ou l'URL <base>/item?id=IID
+    const itemScan = (iid) => {
+      const date = iid.slice(6, 14);
+      return { kind: 'item', code, id: iid, type: iid.slice(0, 6), peremption: date === '00000000' ? null : parseDate(date) };
+    };
+    if (IID_RE.test(code)) return itemScan(code);
     let url;
     try { url = new URL(code); } catch (e) { return { kind: 'unknown', code }; }
     const route = url.pathname.replace(/\/+$/, '').split('/').pop();
     const p = url.searchParams;
+    if (route === 'item' && IID_RE.test(p.get('id') || '')) return itemScan(p.get('id'));
     if (route === 'verif' && p.get('lot')) return { kind: 'lot', code, id: p.get('lot'), key: p.get('key') || '' };
     if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '' };
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
@@ -1984,7 +1987,7 @@
   }
 
   // ------------------------------------------------------------------------------------------------
-  // Demarrage : l'URL peut venir d'un QR code (verif?lot=..&key=.., badge?m=..&key=.., pack?id=..)
+  // Demarrage : l'URL peut venir d'un QR code (verif?lot=..&key=.., badge?m=..&key=.., item?id=.., pack?id=..)
 
   async function boot() {
     restore();
@@ -2027,6 +2030,13 @@
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);
       await startPinReset(params.get('m'), params.get('t'));
+    } else if (route === 'item' && params.get('id')) {
+      // QR d'un item scanne avec l'appareil photo : meme effet qu'un scan dans la page
+      cleanUrl(state.lotId);
+      if (state.lotId) await loadLot(state.lotId);
+      const scan = parseCode(params.get('id'));
+      if (scan.kind === 'item') await scanItem(scan);
+      else { feedback.bad(); showInfo('bad', 'Code non reconnu', params.get('id')); }
     } else if (route === 'pack' && params.get('id')) {
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);

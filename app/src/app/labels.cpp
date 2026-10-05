@@ -41,6 +41,8 @@ std::string label_date(const Json &value) {
 Parameters item_parameters(const Json &item, int index, int count) {
   Parameters parameters;
   parameters["iid"]       = item["iid"].str();
+  // QR de l'etiquette : URL du front web (l'iid seul pour un item qui n'en a pas, ex : apercu)
+  parameters["item_url"]  = item["url"].str().empty() ? item["iid"].str() : item["url"].str();
   parameters["type"]      = item["type"].str();
   parameters["type_name"] = item["type_name"].str();
   parameters["index"]     = std::to_string(index);
