@@ -6,7 +6,7 @@
 # PAGES_DIR : copie de travail de la branche gh-pages
 # BASE_URL  : URL publique de ce depot (ex : https://etyloppihacilem.github.io/qrprotec)
 # Les RPM vont dans PAGES_DIR/fedora/<version Fedora>/<arch>/ (version lue dans la release, ex
-# 1.fc43). Les KEEP_VERSIONS (5) dernieres versions sont gardees (dnf downgrade possible).
+# 1.fc43). Les KEEP_VERSIONS (5) dernieres versions de chaque paquet sont gardees (dnf downgrade possible).
 # Si GPG_KEY_ID est defini, la cle publique est publiee et gpgcheck active dans qrprotec.repo.
 set -euo pipefail
 
@@ -32,10 +32,10 @@ for rpm_file in "$@"; do
 done
 
 for dir in "${!touched[@]}"; do
-    # Garde les $keep paquets les plus recents (date de construction)
+    # Garde, pour chaque paquet (nom), les $keep versions les plus recentes (date de construction)
     mapfile -t old < <(for f in "$dir"/*.rpm; do
-        printf '%s %s\n' "$(rpm -qp --qf '%{BUILDTIME}' "$f")" "$f"
-    done | sort -n | head -n "-$keep" | cut -d' ' -f2-)
+        printf '%s %s %s\n' "$(rpm -qp --qf '%{NAME}' "$f")" "$(rpm -qp --qf '%{BUILDTIME}' "$f")" "$f"
+    done | sort -k1,1 -k2,2nr | awk -v keep="$keep" '++seen[$1] > keep { print $3 }')
     if ((${#old[@]})); then
         rm -f "${old[@]}"
     fi
