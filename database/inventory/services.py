@@ -18,7 +18,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from . import movements, notifications
-from .idendity import parse_identity
+from .idendity import SOURCE_DECLARED, parse_identity
 from .models import (
     ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, SeenWhile, VerifItem, VerifResult,
     Verifs, generate_key, qrprotec_setting,
@@ -452,6 +452,7 @@ def seal_lot(lot, identity, seal_number='', force=False):
     lot.sealed_by = identity
     lot.seal_number = seal_number[:32]
     lot.seal_code = generate_key(16)
+    lot.seal_open_code = generate_key(16)
     lot.unsealed = None
     lot.unsealed_by = ''
     lot.last_used = now
@@ -472,6 +473,37 @@ def break_seal(lot, identity, reason, now=None):
     number = f' n°{lot.seal_number}' if lot.seal_number else ''
     notifications.notify('seal_broken', f'scellé{number} du lot {lot.name} ouvert ({reason}) par {display_name(identity)}')
     return True
+
+
+# Scelle ouvert par l'etiquette d'ouverture sans utilisateur identifie
+SEAL_OPENED_ANONYMOUSLY = f"{SOURCE_DECLARED}:Anonyme (étiquette intérieure)"
+# delai pour signer une ouverture anonyme (l'utilisateur se connecte juste apres le scan)
+SEAL_OPENING_SIGN_DELAY = timedelta(hours=1)
+
+
+def open_seal_with_label(lot, identity):
+    """Etiquette d'ouverture scannee (elle est a l'interieur du lot) : le scan suffit a ouvrir le scelle, que
+    quelqu'un soit identifie ou non. Une ouverture anonyme peut etre signee juste apres (connexion apres le scan).
+
+    Renvoie 'opened' (scelle ouvert par ce scan), 'signed' (ouverture anonyme attribuee) ou 'already'.
+    """
+    if lot.is_sealed:
+        now = timezone.now()
+        # un sous-lot est range dans son lot parent : l'ouvrir suppose d'ouvrir aussi le parent
+        for sealed in _with_ancestors([lot]):
+            if sealed.is_sealed:
+                reason = "étiquette d'ouverture" if sealed.id == lot.id else "ouverture d'un sous-lot"
+                break_seal(sealed, identity or SEAL_OPENED_ANONYMOUSLY, reason, now)
+        return 'opened'
+    if (identity and lot.unsealed_by == SEAL_OPENED_ANONYMOUSLY and lot.unsealed
+            and timezone.now() - lot.unsealed <= SEAL_OPENING_SIGN_DELAY):
+        # les lots parents ouverts par le meme scan sont signes aussi
+        for opened in _with_ancestors([lot]):
+            if opened.unsealed_by == SEAL_OPENED_ANONYMOUSLY and opened.unsealed == lot.unsealed:
+                opened.unsealed_by = identity
+                opened.save(update_fields=['unsealed_by'])
+        return 'signed'
+    return 'already'
 
 
 def move_items(iids, lot, identity, context):

@@ -104,6 +104,9 @@ allow_declared)` :
 Les routes concernées sont celles qu'on peut appeler sans utilisateur connecté, avec la clé du lot :
 `lots/<id>/verif/`, `verifs/`, `lots/<id>/add/` et `lots/<id>/unseal/`. `GET /api/health/` expose
 `declared_identity` à tous les fronts (web compris), qui ne proposent la saisie du nom que s'il est vrai.
+Exception : `lots/<id>/seal-open/` (étiquette d'ouverture du scellé) ouvre le scellé même sans identité,
+puisque le code de l'étiquette rangée dans le lot prouve l'ouverture ; l'identité, si elle est donnée,
+signe l'ouverture.
 
 Les lectures réservées sur l'API publique (`lots/summary/`, `stock/summary/`, `push/*`) utilisent
 `views.badge_user(request, roles)` : badge valide, rôle, et jeton de session si l'utilisateur a un PIN.

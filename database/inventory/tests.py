@@ -713,6 +713,50 @@ class SealTests(ApiTestCase):
         self.assertEqual(public['seal_check'], 'unsealed')
         self.assertIsNotNone(public['unsealed'])
 
+    def test_open_label_opens_seal_without_login(self):
+        self.fill_lot()
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
+        open_code = body['seal_open_url'].split('c=')[1]
+        self.assertIn('/unseal?lot=', body['seal_open_url'])
+        # ni l'etiquette du scelle ni un code faux n'ouvrent le lot
+        seal_code = body['seal_url'].split('s=')[1]
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': seal_code}, local=False)
+        self.assertEqual(code, 404)
+        # scan sans personne de connecte : le scelle est ouvert, anonymement
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(body['result'], 'opened')
+        self.assertFalse(body['identified'])
+        self.assertFalse(body['lot']['is_sealed'])
+        self.assertNotIn('seal_open_url', body['lot'])
+        self.assertEqual(body['lot']['unsealed_by'], 'Anonyme (étiquette intérieure)')
+        code, public = self.call('GET', f'/api/lots/{self.lot.id}/?seal={seal_code}', local=False)
+        self.assertEqual(public['seal_check'], 'unsealed')
+        # l'utilisateur se connecte juste apres : l'ouverture est signee
+        user = {'matricule': 'M001', 'key': self.user.new_key}
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code, 'user': user},
+                               local=False)
+        self.assertEqual(body['result'], 'signed')
+        self.assertEqual(body['lot']['unsealed_by'], 'Jeanne Dupont')
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code, 'user': user},
+                               local=False)
+        self.assertEqual(body['result'], 'already')
+        # nouveau scellage : l'ancienne etiquette d'ouverture n'ouvre plus le lot
+        self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code}, local=False)
+        self.assertEqual(code, 404)
+        self.lot.refresh_from_db()
+        self.assertTrue(self.lot.is_sealed)
+
+    def test_open_label_on_station_uses_logged_user(self):
+        self.fill_lot()
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
+        open_code = body['seal_open_url'].split('c=')[1]
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code})
+        self.assertEqual(body['result'], 'opened')
+        self.assertTrue(body['identified'])
+        self.assertEqual(body['lot']['unsealed_by'], 'Admin Poste')
+
     def test_adding_items_breaks_seal(self):
         self.fill_lot()
         self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})

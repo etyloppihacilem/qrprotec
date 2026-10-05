@@ -102,6 +102,11 @@ Scanner l'étiquette du **scellé** affiche la fiche du lot :
 - **Scellé intact** (vert) : rien à faire, le lot est bon jusqu'à la date indiquée ;
 - **Ancien scellé** : l'étiquette ne correspond plus au scellé en cours ; le lot a été ouvert depuis.
 
+En ouvrant un lot scellé, **scannez l'étiquette d'ouverture** rangée à l'intérieur (« Scanner après
+l'ouverture ») : le scellé est marqué ouvert, que vous soyez connecté ou non. Il n'y a pas de bouton
+« ouvrir » : le scan suffit. Si vous n'êtes pas connecté, le téléphone vous demande ensuite votre badge
+pour signer l'ouverture.
+
 Vérifier un lot scellé, y ajouter ou en retirer quelque chose, ou ouvrir un de ses sous-lots **brise
 le scellé** (le poste prévient avant). Après la vérif, un responsable pourra le resceller.
 

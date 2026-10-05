@@ -88,8 +88,9 @@ que la personne suivante sache qu'il faut tout recompter.
 
 Un lot complet peut être **scellé** avec un scellé numéroté. Tant que le scellé est intact, le lot
 est considéré comme bon **sans vérif**, jusqu'à la première péremption de son contenu. Une étiquette
-de scellé est imprimée ; la scanner indique si c'est bien le scellé en cours. Ouvrir le lot (vérif,
-ajout, retrait, ou ouverture d'un de ses sous-lots) brise le scellé.
+de scellé est imprimée ; la scanner indique si c'est bien le scellé en cours. Une **étiquette
+d'ouverture** est rangée à l'intérieur : la scanner après l'ouverture marque le scellé comme ouvert.
+Ouvrir le lot (vérif, ajout, retrait, ou ouverture d'un de ses sous-lots) brise aussi le scellé.
 
 ## Paquet fermé
 

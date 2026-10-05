@@ -314,6 +314,9 @@ class Lots(models.Model):
     sealed_by = models.CharField(max_length=64, blank=True, default='')
     seal_number = models.CharField(max_length=32, blank=True, default='') # numero du scelle physique
     seal_code = models.CharField(max_length=32, blank=True, default='')
+    # Etiquette d'ouverture, rangee a l'interieur du lot scelle : la scanner ouvre le scelle. Le code est garde
+    # apres l'ouverture (scan anonyme signe ensuite) et change au prochain scellage.
+    seal_open_code = models.CharField(max_length=32, blank=True, default='')
     unsealed = models.DateTimeField(blank=True, null=True)
     unsealed_by = models.CharField(max_length=64, blank=True, default='')
     # Reassort : items ajoutes sans verif complete. Le lot est signale « verif recommandee » (orange)
@@ -356,6 +359,9 @@ class Lots(models.Model):
 
     def check_seal(self, code) -> bool:
         return self.is_sealed and keys_match(self.seal_code, code)
+
+    def check_seal_open(self, code) -> bool:
+        return bool(self.seal_open_code) and keys_match(self.seal_open_code, code)
 
     @property
     def storage(self) -> bool:

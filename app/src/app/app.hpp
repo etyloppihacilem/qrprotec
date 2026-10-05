@@ -291,6 +291,7 @@ class App {
     void scan_lot(const ParsedScan &scan, ScanSource source);
     void join_verif(const std::string &lot_id, const std::string &key, ScanSource source);
     void scan_lot_seal(const ParsedScan &scan, ScanSource source);
+    void scan_lot_seal_open(const ParsedScan &scan, ScanSource source);
     void entry_error(int entry_id, const std::string &message, ScanSource source);
     void draw_menu_bar();
     void draw_windows();

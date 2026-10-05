@@ -431,6 +431,30 @@ def lot_unseal(request, lot_id):
     return Response(ser.lot_dict(lot, local=is_privileged(request), with_items=True))
 
 
+@api_view(['POST'])
+@handle_errors
+def lot_seal_open(request, lot_id):
+    """Etiquette d'ouverture du scelle (rangee dans le lot) : son scan ouvre le scelle, sans cle ni connexion.
+    L'ouverture est attribuee a l'utilisateur s'il est identifie ; sinon elle est anonyme et peut etre signee
+    par un nouvel appel juste apres la connexion."""
+    lot = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=lot_id)
+    if not is_front(request) and not lot.active:
+        raise ApiError("Lot inconnu", status.HTTP_404_NOT_FOUND)
+    if not lot.check_seal_open(str(request.data.get('code', ''))):
+        raise ApiError("Étiquette d'ouverture d'un ancien scellé : elle n'ouvre plus ce lot",
+                       status.HTTP_404_NOT_FOUND)
+    allowed = ServerSettings.get().declared_identity
+    identity = identity_from_request(request.data, front_user(request), allowed)
+    with transaction.atomic():
+        result = services.open_seal_with_label(lot, identity)
+    return Response({
+        'result': result,
+        'identified': identity is not None,
+        'declared_identity': allowed,
+        'lot': ser.lot_dict(lot, local=is_privileged(request), with_items=True),
+    })
+
+
 def verif_targets(request, entries):
     """Lots d'une verif ([{"id", "key"}, ...]) : tous du meme lot global. Sur l'API publique, chaque lot doit
     etre couvert par une cle valide, la sienne ou celle d'un de ses lots parents (etiquette privee du lot global)."""

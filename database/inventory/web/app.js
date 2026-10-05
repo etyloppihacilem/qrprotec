@@ -45,6 +45,7 @@
     pushError: '',
     declaredAllowed: false, // reglage du serveur : verif et ajout possibles sans badge, sous un nom declare
     declaredName: '',       // nom declare sur ce navigateur (non verifie)
+    pendingOpening: null,   // {id, key, at} : scelle ouvert par son etiquette sans identite, a signer a la connexion
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -60,7 +61,7 @@
   function save() {
     try {
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
-        lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
+        lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif, pendingOpening: state.pendingOpening,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items }) => ({ code, kind, iid, info, expired, error, items })),
       }));
@@ -82,6 +83,7 @@
         state.lotKey = session.lotKey || '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
         state.lastVerif = session.lastVerif || null;
+        state.pendingOpening = session.pendingOpening || null;
         state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
       }
     } catch (e) { /* ignore */ }
@@ -164,6 +166,7 @@
     if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '' };
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
     if (route === 'seal' && p.get('lot') && p.get('s')) return { kind: 'seal', code, id: p.get('lot'), key: p.get('s') };
+    if (route === 'unseal' && p.get('lot') && p.get('c')) return { kind: 'sealopen', code, id: p.get('lot'), key: p.get('c') };
     if (route === 'scanner' && p.get('s') && p.get('k')) return { kind: 'remote', code, search: url.search };
     if (route === 'pinreset' && p.get('m') && p.get('t')) return { kind: 'pinreset', code, id: p.get('m'), key: p.get('t') };
     return { kind: 'unknown', code };
@@ -409,6 +412,7 @@
       case 'user': return login(scan.id, scan.key);
       case 'pack': return scanPack(scan);
       case 'seal': return scanSeal(scan);
+      case 'sealopen': return openSeal(scan);
       case 'pinreset': return startPinReset(scan.id, scan.key);
       case 'remote':
         // QR code affiche par le poste : ce telephone devient sa douchette
@@ -558,6 +562,57 @@
         lot.unsealed ? `Scellé brisé le ${fmtDateTime(lot.unsealed)}` + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '');
     }
     switchTab('lot');
+  }
+
+  // Etiquette d'ouverture, rangee dans le lot scelle : la scanner ouvre le scelle, connecte ou non (pas de
+  // bouton « ouvrir »). Sans identite, l'ouverture est enregistree anonymement puis signee a la connexion.
+  const OPENING_SIGN_DELAY = 60 * 60 * 1000; // meme delai que le serveur
+
+  async function openSeal(scan) {
+    let result;
+    try {
+      result = await api(`lots/${encodeURIComponent(scan.id)}/seal-open/`,
+        { code: scan.key, ...(hasIdentity() ? identity() : {}) });
+    } catch (e) {
+      feedback.bad();
+      showInfo('bad', "Étiquette d'ouverture refusée", e.message);
+      return;
+    }
+    const lot = result.lot;
+    if (state.lotId !== scan.id) { state.lotKey = ''; state.extra = []; state.lastVerif = null; }
+    state.lot = lot;
+    state.lotId = scan.id;
+    state.declaredAllowed = !!result.declared_identity;
+    state.pendingOpening = result.identified ? null : { id: scan.id, key: scan.key, at: Date.now() };
+    const opened = lot.unsealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ouvert le ${fmtDateTime(lot.unsealed)}`
+      + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '';
+    const sign = result.identified ? '' : state.declaredAllowed
+      ? "Scannez votre badge (ou indiquez votre nom) pour signer l'ouverture." : "Scannez votre badge pour signer l'ouverture.";
+    if (result.result === 'opened') {
+      feedback.warn();
+      showInfo('warn', `🔓 Scellé ouvert – ${lot.name}`, 'Le lot devra être vérifié avant utilisation.', opened, sign);
+    } else if (result.result === 'signed') {
+      feedback.good();
+      showInfo('ok', `🔓 Ouverture signée – ${lot.name}`, opened);
+    } else {
+      feedback.info();
+      showInfo('warn', `🔓 Scellé déjà ouvert – ${lot.name}`, 'Le lot doit être vérifié avant utilisation.', opened);
+    }
+    save();
+    switchTab('lot');
+    render();
+    // on demande quand meme a l'utilisateur de s'identifier : le nom declare tout de suite (si le serveur
+    // l'autorise), sinon le badge, dont le scan signera l'ouverture
+    if (state.pendingOpening && !state.user && state.declaredAllowed && askDeclaredName()) await signOpening();
+  }
+
+  async function signOpening() {
+    const pending = state.pendingOpening;
+    if (!pending) return;
+    state.pendingOpening = null;
+    save();
+    if (Date.now() - pending.at > OPENING_SIGN_DELAY || !hasIdentity()) return;
+    await openSeal({ kind: 'sealopen', id: pending.id, key: pending.key });
   }
 
   async function loadLot(id, seal) {
@@ -778,6 +833,7 @@
       loadLots();
       if (canSeeStock()) loadStock();
       if (state.pinReset) openPinReset();
+      if (state.pendingOpening) signOpening();
     } catch (e) {
       if (e.data && e.data.pin_blocked) {
         feedback.bad();
@@ -1946,6 +2002,9 @@
     } else if (route === 'seal' && params.get('lot') && params.get('s')) {
       await scanSeal({ kind: 'seal', code: location.href, id: params.get('lot'), key: params.get('s') });
       cleanUrl(params.get('lot'));
+    } else if (route === 'unseal' && params.get('lot') && params.get('c')) {
+      cleanUrl(params.get('lot'));
+      await openSeal({ kind: 'sealopen', code: location.href, id: params.get('lot'), key: params.get('c') });
     } else if (route === 'pinreset' && params.get('m') && params.get('t')) {
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);

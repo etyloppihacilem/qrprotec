@@ -41,7 +41,7 @@ struct Date {
 // Les annees sur 2 chiffres sont en 20xx.
 std::optional< Date > parse_user_date(const std::string &text);
 
-enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, Unknown };
+enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Unknown };
 
 // Contenu d'un QR code interprete localement (sans appel reseau).
 //   item      : iid seul (TYPE 6 + AAAAMMJJ + compteur base62 8)
@@ -49,13 +49,14 @@ enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, Unknown };
 //   user      : <base>/badge?m=MATRICULE&key=CLE
 //   sealed    : <base>/pack?id=ID
 //   lot seal  : <base>/seal?lot=ID&s=CODE (lot scelle : valide sans verif)
+//   seal open : <base>/unseal?lot=ID&c=CODE (etiquette d'ouverture, dans le lot : son scan ouvre le scelle)
 // La base (https://example.com/ par defaut) n'est pas verifiee : changer de domaine ne casse pas
 // les etiquettes deja imprimees.
 struct ParsedScan {
     ScanKind              kind = ScanKind::Unknown;
     std::string           raw;
     std::string           id;  // iid, id de lot, matricule ou id de paquet
-    std::string           key; // cle du lot (etiquette privee), du badge ou code du scelle
+    std::string           key; // cle du lot (etiquette privee), du badge ou code du scelle (ou de son etiquette d'ouverture)
     std::string           item_type;
     std::optional< Date > peremption; // items dates uniquement
 };

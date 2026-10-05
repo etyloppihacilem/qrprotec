@@ -147,6 +147,12 @@ une étiquette de scellé est imprimée (`seal?lot=…&s=CODE`). Tant que le sce
   explicitement « Briser le scellé ». Le code change : l'ancienne étiquette de scellé est reconnue
   comme `wrong`.
 - Chaque bris envoie un SMS « scellé brisé » (si activé) avec la raison.
+- **Étiquette d'ouverture** (`unseal?lot=…&c=CODE`), imprimée avec celle du scellé et rangée dans le
+  lot : son scan (`POST lots/<id>/seal-open/`, `services.open_seal_with_label`) brise le scellé (et
+  ceux des lots parents), **sans clé ni utilisateur connecté**. Sans identité, l'ouverture est
+  enregistrée `D:Anonyme (étiquette intérieure)` ; un nouvel appel identifié dans l'heure la signe
+  (le front web rappelle la route après la connexion). Le code d'ouverture est gardé après
+  l'ouverture et change au prochain scellage.
 
 ## Paquets fermés
 
