@@ -215,6 +215,7 @@ void App::reset_session() {
   login_prompt_ = false;
   pin_          = PinPrompt{};
   pending_action_ = nullptr;
+  declared_name_.clear();
   apply_default_open_state();
   refresh_lots();
   notify("Session réinitialisée après inactivité.");
@@ -405,6 +406,27 @@ void App::draw_login_modal() {
       login_manual_.clear();
     }
     ImGui::PopStyleColor();
+    if (declared_identity) {
+      // reglage du serveur : nom declare, non verifie, garde seulement pour cette action
+      ImGui::Spacing();
+      ImGui::Separator();
+      ImGui::TextDisabled("Ou, sans badge (nom non vérifié) :");
+      ImGui::SetNextItemWidth(360.0f);
+      const bool enter = ImGui::InputTextWithHint("##declared", "prénom et nom", &declared_name_,
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+      const bool empty = declared_name_.find_first_not_of(" \t") == std::string::npos;
+      ImGui::BeginDisabled(empty);
+      if ((ImGui::Button("Continuer sans badge", ImVec2(360, 0)) || enter) && !empty) {
+        auto action     = std::move(pending_action_);
+        pending_action_ = nullptr;
+        login_prompt_   = false;
+        declared_action_ = declared_name_.substr(0, 30);
+        if (action)
+          action();
+        declared_action_.clear();
+      }
+      ImGui::EndDisabled();
+    }
     if (ImGui::Button("Annuler", ImVec2(160, 0))) {
       login_prompt_   = false;
       pending_action_ = nullptr;
@@ -430,6 +452,14 @@ void App::check_setup() {
       return;
     }
     needs_admin_ = result.data["needs_admin"].boolean();
+  });
+  refresh_server_rules();
+}
+
+void App::refresh_server_rules() {
+  api.get("/api/health/", [this](const ApiResult &result) {
+    if (result.ok)
+      declared_identity = result.data["declared_identity"].boolean();
   });
 }
 
@@ -611,6 +641,22 @@ Json App::user_ref() const {
   return user ? Json(user->matricule) : Json();
 }
 
+void App::add_identity(Json &body) const {
+  if (user)
+    body["user"] = user_ref();
+  else if (!declared_action_.empty())
+    body["name"] = declared_action_;
+}
+
+bool App::identity_refused(const ApiResult &result) {
+  if (result.ok || !result.data["login_required"].boolean())
+    return false;
+  declared_identity = result.data["declared_identity"].boolean();
+  if (logged_in())
+    logout("Session expirée : scannez à nouveau votre badge.");
+  return true;
+}
+
 std::string App::user_name() const {
   return user ? user->display() : std::string();
 }
@@ -635,6 +681,7 @@ void App::require_login(const std::string &what, std::function< void() > action)
   pending_action_ = std::move(action);
   login_reason_   = what;
   login_prompt_   = true;
+  refresh_server_rules(); // le nom declare n'est propose que si le serveur l'accepte
 }
 
 void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
@@ -1232,7 +1279,8 @@ void App::cancel_verif() {
 
 // La cle d'un lot couvre ses sous-lots : l'etiquette privee du lot global suffit pour verifier un sous-lot
 bool App::verif_key_ok() const {
-  if (!verif.key.empty() || privileged() || !settings.require_private_label)
+  // sans utilisateur connecte (nom declare), le serveur exige toujours l'etiquette privee
+  if (!verif.key.empty() || privileged() || (logged_in() && !settings.require_private_label))
     return true;
   for (const VerifExtra &extra : verif.extras)
     for (const Json &parent : verif.lot["path"].items())
@@ -1400,7 +1448,7 @@ void App::submit_verif(bool partial) {
     body["items"] = Json::array();
     for (const std::string &iid : stack.iids())
       body["items"].push_back(iid);
-    body["user"] = user_ref();
+    add_identity(body);
     // le lot scanne puis les lots du meme lot global ajoutes par leur etiquette privee
     body["lots"] = Json::array();
     Json primary;
@@ -1419,6 +1467,7 @@ void App::submit_verif(bool partial) {
     api.post("/api/verifs/", body, [this, title](const ApiResult &result) {
       verif.submitting = false;
       if (!result.ok) {
+        identity_refused(result);
         notify("Vérif refusée : " + result.error, true);
         return;
       }
@@ -1478,7 +1527,7 @@ void App::restock_verif() {
       body["items"].push_back(iid);
     if (body["items"].size() == 0)
       return;
-    body["user"]            = user_ref();
+    add_identity(body);
     body["key"]             = verif.key;
     const std::string lot   = verif.lot_id;
     const std::string name  = verif.lot["name"].str(lot);
@@ -1487,6 +1536,7 @@ void App::restock_verif() {
       if (verif.lot_id == lot)
         verif.submitting = false;
       if (!result.ok) {
+        identity_refused(result);
         notify("Ajout refusé : " + result.error, true);
         return;
       }
@@ -1517,11 +1567,12 @@ void App::add_stack_to_lot() {
       notify("Aucun item à ajouter.", true);
       return;
     }
-    body["user"] = user_ref();
+    add_identity(body);
     body["key"]  = stack.target.key;
     const TargetLot target = stack.target;
     api.post("/api/lots/" + url_encode(target.id) + "/add/", body, [this, target](const ApiResult &result) {
       if (!result.ok) {
+        identity_refused(result);
         notify("Ajout refusé : " + result.error, true);
         return;
       }

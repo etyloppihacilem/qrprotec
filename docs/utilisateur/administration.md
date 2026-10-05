@@ -89,6 +89,7 @@ Menu **Gestion > Réglages** (admin) :
 | Section | Contenu |
 |---|---|
 | Serveur | Adresse de l'API (`http://127.0.0.1:8001` sur la borne), **Tester la connexion** |
+| Règles du serveur (tous les fronts) | **Autoriser les vérifs et les ajouts sans badge (nom déclaré)**, désactivé par défaut : voir ci-dessous |
 | Session et affichage | Taille du texte, réinitialisation après inactivité (15 min), alerte péremption proche (30 jours), **Exiger l'étiquette privée pour valider une vérif** |
 | Disposition par défaut | **Utiliser la disposition actuelle** : la position des fenêtres à laquelle le poste revient après inactivité |
 | Étiquettes et impression | Rouleau, titre, imprimante, modèle par usage |
@@ -96,6 +97,16 @@ Menu **Gestion > Réglages** (admin) :
 | Notifications SMS | Voir ci-dessous |
 
 La douchette se règle dans le menu **Douchette** (recherche, connexion, mode clavier, volume…).
+
+### Sans badge : nom déclaré
+
+Par défaut, valider une vérif, ajouter des items à un lot ou ouvrir un scellé exige un badge, sur le
+poste comme au téléphone. Si vous cochez **Autoriser les vérifs et les ajouts sans badge**, la
+personne qui n'a pas de badge peut saisir son nom à la place : **Continuer sans badge** dans la
+fenêtre de connexion du poste, ou un appui sur **Non connecté** au téléphone (le nom y est gardé).
+Ce nom n'est pas vérifié : l'historique l'affiche tel quel, distinct des personnes identifiées par
+leur badge. L'étiquette privée du lot reste exigée. Le réglage est enregistré sur le serveur et
+s'applique à tous les postes et à tous les téléphones.
 
 ## Notifications
 

@@ -433,6 +433,12 @@ def recipient_dict(recipient):
     }
 
 
+def server_settings_dict(settings_row):
+    return {
+        'declared_identity': settings_row.declared_identity,
+    }
+
+
 def notification_settings_dict(settings_row, recipients):
     return {
         'enabled': settings_row.enabled,

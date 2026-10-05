@@ -148,8 +148,17 @@ ne sont imprimées qu'à l'ouverture ; l'étiquette du paquet compte pour tous s
 ## Identités en texte (`M:matricule` / `D:nom`)
 
 **Choix.** Les champs « par qui » sont des chaînes, pas des clés étrangères.
-**Raison.** L'historique survit à la suppression d'un utilisateur, et l'API publique peut accepter une
+**Raison.** L'historique survit à la suppression d'un utilisateur, et le serveur peut accepter une
 identité déclarée tout en la distinguant d'une identité vérifiée.
+
+## Identité déclarée : option du serveur, désactivée par défaut
+
+**Choix.** Un nom sans badge (`D:nom`) n'est accepté que si l'admin coche « Autoriser les vérifs et les
+ajouts sans badge » (réglage `ServerSettings`, en base). Le web et l'app lisent ce réglage dans
+`/api/health/` et ne proposent la saisie du nom que s'il est actif ; sinon le serveur répond 403.
+**Raison.** Les fronts exigeaient déjà le badge, mais le serveur acceptait encore un nom, voire
+`D:anonyme`, par exemple quand la session du poste avait expiré. Le réglage en base s'applique d'un
+coup à tous les fronts, y compris les téléphones, sans redémarrer le serveur.
 
 ## Badge + PIN, pas de comptes Django
 

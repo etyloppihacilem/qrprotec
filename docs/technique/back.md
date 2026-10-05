@@ -89,12 +89,21 @@ Conventions des réponses :
 
 ### Identifier l'utilisateur d'une opération
 
-`idendity.identity_from_request(data, front_user)` :
+`views.operation_identity(request)`, qui appelle `idendity.identity_from_request(data, front_user,
+allow_declared)` :
 
 - poste (API locale ou distante) : l'utilisateur de la session (`X-QRProtec-Session`), jamais le
   matricule envoyé dans `user` ;
 - API publique : `"user": {"matricule": "M0042", "key": "…"}`, la clé du badge est vérifiée ;
-- à défaut, `"name"` donne une identité déclarée.
+- à défaut, `"name"` donne une identité déclarée, **seulement** si le réglage du serveur
+  `ServerSettings.declared_identity` est activé (désactivé par défaut, route admin
+  `GET/PATCH /api/server-settings/`, case « Règles du serveur » des Réglages de l'app) ;
+- sinon : 403 avec `login_required: true` et `declared_identity` (le réglage), pour que le front
+  redemande le badge, ou le nom si le réglage l'autorise.
+
+Les routes concernées sont celles qu'on peut appeler sans utilisateur connecté, avec la clé du lot :
+`lots/<id>/verif/`, `verifs/`, `lots/<id>/add/` et `lots/<id>/unseal/`. `GET /api/health/` expose
+`declared_identity` à tous les fronts (web compris), qui ne proposent la saisie du nom que s'il est vrai.
 
 Les lectures réservées sur l'API publique (`lots/summary/`, `stock/summary/`, `push/*`) utilisent
 `views.badge_user(request, roles)` : badge valide, rôle, et jeton de session si l'utilisateur a un PIN.

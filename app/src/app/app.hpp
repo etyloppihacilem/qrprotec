@@ -191,6 +191,11 @@ class App {
     void        reset_session(); // retour a l'etat initial (inactivite)
     void        require_login(const std::string &what, std::function< void() > action);
     Json        user_ref() const; // valeur du champ "user" des requetes
+    // identite d'une operation sur un lot (verif, ajout) : "user" connecte, sinon "name" declare sans badge
+    void        add_identity(Json &body) const;
+    // refus du serveur faute d'identite (login_required) : session expiree, ou reglage du nom declare change
+    bool        identity_refused(const ApiResult &result);
+    void        refresh_server_rules(); // relit declared_identity sur le serveur
     std::string user_name() const;
 
     // Verifs et mouvements
@@ -258,6 +263,8 @@ class App {
     Inateck                     &inateck;
     Catalog                      catalog;
     std::optional< SessionUser > user;
+    // reglage du serveur (/api/health/) : verif et ajout possibles sans badge, sous un nom declare non verifie
+    bool                         declared_identity = false;
     VerifSession                 verif;
     Json                         last_report; // dernier compte rendu de verif
     std::string                  last_report_lot;
@@ -322,6 +329,8 @@ class App {
     bool                    login_prompt_opened_ = false;
     std::string             login_reason_;
     std::string             login_manual_;
+    std::string             declared_name_;   // nom saisi dans la fenetre de connexion (sans badge)
+    std::string             declared_action_; // nom declare pendant l'action en attente, vide sinon
     std::function< void() > pending_action_;
 };
 
