@@ -80,9 +80,12 @@ class LotAdminWindow final : public AppWindow {
         selected_lot_.clear();
       if (ImGui::Checkbox("Afficher les lots archivés", &show_archived_lots_) && show_archived_lots_)
         load_all_lots(app);
+      ImGui::Checkbox("Afficher les rangements du stock", &show_storage_);
       // arborescence : chaque lot global suivi de ses sous-lots (archives compris si la case est cochee)
       const Json &lots = show_archived_lots_ ? all_lots_ : app.catalog.lots;
       for (const Json &lot : lots.items()) {
+        if (!show_storage_ && lot["storage"].boolean() && lot["id"].str() != selected_lot_)
+          continue;
         const std::string id       = lot["id"].str();
         const int         depth    = lot["depth"].integer();
         const bool        archived = !lot["active"].boolean(true);
@@ -116,11 +119,12 @@ class LotAdminWindow final : public AppWindow {
       });
     }
 
-    // Types proposes a la creation d'un lot : ni archives, ni lots uniques dont le lot existe deja
+    // Types proposes a la creation d'un lot : ni archives, ni lots uniques (rangements compris) dont le lot existe deja
     static Json new_lot_types(const App &app) {
       Json result = Json::array();
       for (const Json &lot_type : app.catalog.lot_types.items())
-        if (!lot_type["archived"].boolean() && !(lot_type["unique"].boolean() && lot_type["lot_count"].integer() > 0))
+        if (!lot_type["archived"].boolean()
+            && !((lot_type["unique"].boolean() || lot_type["storage"].boolean()) && lot_type["lot_count"].integer() > 0))
           result.push_back(lot_type);
       return result;
     }
@@ -346,7 +350,10 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SameLine();
       if (ImGui::SmallButton("les deux"))
         print_lot(app, lot_, true, true);
-      ImGui::TextDisabled("Clé valable jusqu'au %s", display_date(lot_["verif_key_expires"]).c_str());
+      if (lot_["verif_key_expires"].is_null())
+        ImGui::TextDisabled("Clé sans expiration (rangement du stock)");
+      else
+        ImGui::TextDisabled("Clé valable jusqu'au %s", display_date(lot_["verif_key_expires"]).c_str());
       if (confirm_button("Régénérer la clé",
                          "L'ancienne étiquette privée ne fonctionnera plus. Continuer ?", "rotate_key")) {
         app.api.post("/api/lots/" + url_encode(selected_lot_) + "/rotate-key/", Json::object(),
@@ -497,11 +504,17 @@ class LotAdminWindow final : public AppWindow {
         name_taken = name_taken_warning(app.catalog.lots, "id", type_name_, "", "Le lot");
       ImGui::TextUnformatted("Description");
       ImGui::InputTextMultiline("##description", &type_description_, ImVec2(-FLT_MIN, 50));
-      ImGui::Checkbox("Rangement du stock (armoire, tiroir...)", &type_storage_);
-      help_marker("Les items rangés dans un lot de ce type restent comptés dans le stock. Chaque rangement a ses "
-                  "étiquettes et se vérifie seul (un tiroir) ou avec les autres rangements du même lot global "
-                  "(une armoire et ses tiroirs). Y ranger des items ne demande pas de vérif.");
+      if (ImGui::Checkbox("Rangement du stock (armoire, tiroir...)", &type_storage_) && type_storage_)
+        type_unique_ = true;
+      help_marker("Les items rangés dans un lot de ce type restent comptés dans le stock. Un rangement est un lot "
+                  "unique (un type par armoire, par tiroir), sans contenu attendu (on y range ce qu'on veut), et son "
+                  "étiquette privée n'expire pas. Il se vérifie seul (un tiroir) ou avec les autres rangements du "
+                  "même lot global (une armoire et ses tiroirs). Y ranger des items ne demande pas de vérif.");
+      if (type_storage_ && !editing_lot_type_.empty() && !requirements_.empty())
+        ImGui::TextColored(colors::orange, "Enregistrer supprimera le contenu attendu de ce type.");
+      ImGui::BeginDisabled(type_storage_);
       ImGui::Checkbox("Lot unique (le lot est créé avec le type)", &type_unique_);
+      ImGui::EndDisabled();
       help_marker("Pour un lot qui n'existe qu'en un exemplaire (ex : le VPS, chacune de ses armoires) : le lot, du "
                   "même nom, est créé en même temps que le type, et aucun autre lot de ce type ne peut être créé. "
                   "Renommer le type renomme son lot, l'archiver archive son lot.");
@@ -535,8 +548,11 @@ class LotAdminWindow final : public AppWindow {
               return;
             }
             const bool with_lot = !result.data["created_lot"].is_null();
-            app.notify(with_lot ? "Type et lot créés : ajoutez maintenant son contenu attendu."
-                                : "Type de lot créé : ajoutez maintenant son contenu attendu.");
+            if (result.data["storage"].boolean())
+              app.notify("Rangement créé.");
+            else
+              app.notify(with_lot ? "Type et lot créés : ajoutez maintenant son contenu attendu."
+                                  : "Type de lot créé : ajoutez maintenant son contenu attendu.");
             if (with_lot && print)
               preview_lot(app, result.data["created_lot"]);
             edit_lot_type(result.data);
@@ -575,6 +591,11 @@ class LotAdminWindow final : public AppWindow {
       draw_archive_lot_type(app);
 
       ImGui::SeparatorText("Contenu attendu");
+      if (type_storage_) {
+        ImGui::TextDisabled("Un rangement du stock n'a pas de contenu attendu : on y range ce qu'on veut.");
+        ImGui::EndChild();
+        return;
+      }
       ImGui::TextDisabled("Type d'item, emplacement dans le lot (facultatif, affiché pendant la vérif), quantité.");
       int        remove     = -1;
       const Json item_types = without_archived(app.catalog.item_types);
@@ -708,6 +729,7 @@ class LotAdminWindow final : public AppWindow {
     bool        print_new_ = true;
     std::string seal_number_;
     bool        show_archived_lots_ = false;
+    bool        show_storage_       = false; // rangements du stock masques par defaut
     Json        all_lots_           = Json::array(); // archives compris (case « Afficher les lots archivés »)
     bool        focus_lots_tab_     = false;
     // Types de lots

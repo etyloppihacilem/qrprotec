@@ -151,7 +151,8 @@ s'applique à tous les postes et à tous les téléphones.
    - **résumé quotidien des périmés** (chaque matin à 7 h 45) ;
    - **PIN d'un utilisateur bloqué** (trop d'essais ou code oublié), une fois par blocage ;
    - **étiquette privée d'un lot renouvelée** et **badge renouvelé** : qui l'a fait ;
-   - **étiquette privée de lot** et **badge qui expirent bientôt ou ont expiré** : contrôlés chaque
+   - **étiquette privée de lot** (sauf les rangements du stock, qui n'expirent pas) et **badge qui
+     expirent bientôt ou ont expiré** : contrôlés chaque
      matin à 7 h 45, une alerte avant l'expiration (30 jours par défaut, champ **Alerte
      d'expiration**) puis une à l'expiration. Renouveler l'étiquette ou le badge remet l'alerte à
      zéro ;

@@ -32,6 +32,7 @@
     busy: false,
     lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
     lots: null,        // liste des lots (accueil), chargee avec le badge
+    showStorage: false, // rangements du stock dans la liste des lots (masques par defaut)
     stock: null,       // etat des stocks, roles gestion et admin uniquement
     forecast: null,    // previsions de stock (meme acces que l'etat des stocks)
     horizon: 1,        // index dans HORIZONS des previsions affichees
@@ -1502,7 +1503,13 @@
     } else {
       parts.push(el('p', { class: 'hint' }, "Touchez un lot pour afficher ce qu'il faut scanner (un lot global se vérifie avec ses sous-lots). Pour valider, scannez son étiquette privée."));
       const tags = { ok: 'green', warn: 'orange', bad: 'red' };
-      parts.push(el('ul', { class: 'list' }, ...state.lots.map((lot) => {
+      parts.push(el('label', { class: 'check' },
+        el('input', { type: 'checkbox', checked: state.showStorage ? '' : null,
+          onchange: (event) => { state.showStorage = event.target.checked; render(); } }),
+        'Afficher les rangements du stock'));
+      // rangements du stock masques par defaut (sauf le lot en cours)
+      const lots = state.lots.filter((lot) => state.showStorage || !lot.storage || lot.id === state.lotId);
+      parts.push(el('ul', { class: 'list' }, ...lots.map((lot) => {
         // lot global : son etat est celui de l'ensemble de ses lots
         const top = !lot.depth && lot.global;
         const status = top ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot);

@@ -172,6 +172,7 @@ class ItemsPacks(models.Model):
     def save(self, *args, **kwargs):
         if not self.id:
             self.id = self._build_id()
+            self.verif_key_expires = self.key_expiration()
         super().save(*args, **kwargs)
 
     def _build_id(self):
@@ -248,7 +249,8 @@ class LotType(models.Model):
     created_by = models.CharField(max_length=32, blank=True, default='')
     version = models.PositiveIntegerField(default=1)
     valid_version = models.PositiveIntegerField(default=1)
-    # Rangement du stock (armoire, tiroir...) : les items ranges dans un lot de ce type restent en stock
+    # Rangement du stock (armoire, tiroir...) : les items ranges dans un lot de ce type restent en stock.
+    # Un rangement est toujours un lot unique, sans contenu attendu, et son etiquette privee n'expire pas.
     storage = models.BooleanField(default=False)
     # Lot unique (ex : un VPS, une de ses armoires) : son lot est cree avec le type et il n'y en a jamais d'autre
     unique = models.BooleanField(default=False)
@@ -298,7 +300,8 @@ class Lots(models.Model):
     lot_type = models.ForeignKey(LotType, on_delete=models.PROTECT, db_column='type', to_field='type')
     version = models.PositiveIntegerField()
     verif_key = models.CharField(max_length=32, default=generate_key)
-    verif_key_expires = models.DateField(default=default_lot_key_expiration)
+    # vide : n'expire jamais (rangement du stock, etiquette a l'interieur d'une salle fermee)
+    verif_key_expires = models.DateField(default=default_lot_key_expiration, null=True, blank=True)
     key_expiry_stage = models.PositiveSmallIntegerField(default=0)  # alerte d'expiration envoyee (voir KeyExpiry)
     created = models.DateTimeField(default=timezone.now)
     created_by = models.CharField(max_length=32)
@@ -337,6 +340,7 @@ class Lots(models.Model):
             self.version = self.lot_type.version
         if not self.id:
             self.id = self._build_id()
+            self.verif_key_expires = self.key_expiration()
         super().save(*args, **kwargs)
 
     def _build_id(self):
@@ -349,12 +353,17 @@ class Lots(models.Model):
             unique_part = encode_base62(seq.last_sequence, length=8)
         return f"{self.lot_type_id}{unique_part}"
 
+    def key_expiration(self):
+        """Expiration d'une nouvelle cle : aucune pour un rangement du stock."""
+        return None if self.lot_type.storage else default_lot_key_expiration()
+
     def check_key(self, key) -> bool:
-        return keys_match(self.verif_key, key) and self.verif_key_expires >= timezone.localdate()
+        return keys_match(self.verif_key, key) and (self.verif_key_expires is None
+                                                    or self.verif_key_expires >= timezone.localdate())
 
     def rotate_key(self):
         self.verif_key = generate_key()
-        self.verif_key_expires = default_lot_key_expiration()
+        self.verif_key_expires = self.key_expiration()
         self.key_expiry_stage = KeyExpiry.VALID
 
     def check_seal(self, code) -> bool:

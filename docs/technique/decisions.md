@@ -124,6 +124,12 @@ dans le stock.
 **Écarté.** Un champ « emplacement » libre sur les items (pas vérifiable, pas d'étiquette).
 **Raison.** Réutiliser tout le mécanisme des lots (étiquettes, vérif d'un tiroir sans vérifier tout
 le stock) au lieu d'en inventer un second.
+**Précisé ensuite.** Un rangement est par définition **unique** (`unique` forcé : un type par
+armoire, par tiroir), n'a **jamais de contenu attendu** (on y range ce qu'on veut, l'API refuse des
+exigences) et sa clé **n'expire pas** (`verif_key_expires` vide) : l'étiquette est à l'intérieur,
+dans une salle fermée, et sera renouvelée en cas de problème. Les listes de lots les masquent par
+défaut (case « Afficher les rangements du stock »). Un ancien type de rangement qui avait déjà
+plusieurs lots les garde, mais n'en accepte plus de nouveau.
 
 ## Réassort sans vérif → « vérif recommandée »
 
