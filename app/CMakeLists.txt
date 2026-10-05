@@ -147,6 +147,7 @@ add_executable(${PROJECT_NAME}
     src/ui/label_preview.cpp
     src/ui/widgets.cpp
     src/ui/windows/inventory_window.cpp
+    src/ui/windows/journal_window.cpp
     src/ui/windows/pack_window.cpp
     src/ui/windows/phone_window.cpp
     src/ui/windows/lot_admin_window.cpp

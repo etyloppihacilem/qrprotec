@@ -415,7 +415,7 @@ Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), 
 (réception), `items/to-stock/`, `items/<iid>/delete/`, `items/<iid>/restore/`, `stock/`,
 `stock/forecast/` (GET `months`, `lead_days`, `history_months`), `stock/verif/`, `packs/`, `packs/<id>/open/`, `packs/<id>/close/`, `lot-types/`, `lot-types/<type>/`,
 `lot-types/<type>/requirements/`, `lots/`, `lots/<id>/update/`, `lots/<id>/rotate-key/`,
-`lots/<id>/seal/` (POST seal_number, force), `lots/<id>/verifs/`, `users/`, `users/<matricule>/`,
+`lots/<id>/seal/` (POST seal_number, force), `lots/<id>/verifs/`, `operations/` (GET journal des opérations : kind, by, lot, sub, since, until, q, before, limit, facets), `users/`, `users/<matricule>/`,
 `users/<matricule>/renew-key/`, `notifications/` (GET, PATCH enabled/events),
 `notifications/recipients/` (POST), `notifications/recipients/<id>/` (PATCH, DELETE),
 `notifications/test/` (POST).

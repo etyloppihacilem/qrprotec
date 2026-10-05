@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 from django.utils import timezone
 
-from .idendity import parse_identity
+from .idendity import SOURCE_VERIFIED, parse_identity
 from .models import PUSH_TYPES, ItemStatus, qrprotec_setting
 from .services import requirements_status
 
@@ -420,6 +420,24 @@ def verif_dict(verif):
         'missing_count': verif.missing_count,
         'expired_count': verif.expired_count,
         'replaced_count': verif.replaced_count,
+    }
+
+
+def operation_dict(operation, names):
+    """Ligne du journal des operations. `names` : noms affiches des identites (journal.names)."""
+    return {
+        'id': operation.id,
+        'at': _date(operation.at),
+        'kind': operation.kind,
+        'kind_label': operation.get_kind_display(),
+        'by': operation.by,
+        'by_name': names.get(operation.by, operation.by),
+        'verified': operation.by.startswith(SOURCE_VERIFIED + ':'),
+        'lot': operation.lot_id,
+        'lot_name': operation.lot_name,
+        'summary': operation.summary,
+        'details': operation.details,
+        'reconstructed': operation.reconstructed,
     }
 
 
