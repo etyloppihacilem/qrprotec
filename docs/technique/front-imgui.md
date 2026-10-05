@@ -165,7 +165,8 @@ Deux modes, gérés par `ui/inateck.cpp` :
   `QRPROTEC_HAS_INATECK`) : recherche 8 s, connexion automatique à la dernière douchette connue (son
   identifiant est retenu dans `~/.config/qrprotec/inateck-hid.conf`) et à elle seule : sinon,
   l'utilisateur choisit l'appareil dans le menu Douchette > Connecter à (les noms de douchette
-  Inateck en premier). Permet le retour d'erreur (bip, LED).
+  Inateck en premier). Tant que la douchette connue n'est pas connectée, `Inateck::update` relance
+  une recherche toutes les 15 s (`kInateckReconnectInterval`), sauf après un « Déconnecter » manuel. Permet le retour d'erreur (bip, LED).
 - **Mode clavier (HID)** : la douchette est un clavier. `HidScanClassifier` reconnaît une rafale
   (moins de 50 ms entre caractères par défaut, réglable) d'au moins 3 caractères. La durée de la
   dernière image est déduite des écarts mesurés, pour ne pas couper un scan quand l'interface est

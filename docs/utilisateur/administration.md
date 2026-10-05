@@ -123,7 +123,7 @@ Menu **Gestion > Réglages** (admin) :
 | Signal de mauvais scan | Bip, clignotement, LED et son de la douchette ; **Tester le signal d'erreur** |
 | Notifications SMS | Voir ci-dessous |
 
-La douchette se règle dans le menu **Douchette** (recherche, connexion, mode clavier, volume…).
+La douchette se règle dans le menu **Douchette** (appairage, connexion, mode clavier, volume…).
 
 ### Sans badge : nom déclaré
 

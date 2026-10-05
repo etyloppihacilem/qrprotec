@@ -118,5 +118,7 @@ private:
 
 // Duree de la recherche avant la connexion automatique (si la douchette connue n'apparait pas avant).
 inline constexpr std::chrono::seconds kInateckDiscoveryDuration{8};
+// Delai entre deux tentatives de reconnexion automatique a la douchette connue (base rallumee...).
+inline constexpr std::chrono::seconds kInateckReconnectInterval{15};
 
 } // namespace qrprotec

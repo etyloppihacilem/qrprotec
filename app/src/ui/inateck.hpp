@@ -64,6 +64,12 @@ class Inateck {
     char inateck_suffix_[64] = {};
     char inateck_name_[128] = {};
     std::string saved_device_id_;
+    // Reconnexion automatique a la derniere douchette tant qu'elle n'est pas connectee
+    std::chrono::steady_clock::time_point next_reconnect_{};
+    bool manual_disconnect_ = false; // pas de reconnexion automatique apres un « Déconnecter »
+    void start_pairing();
+    void reconnect();
+    bool can_reconnect(const InateckSnapshot& state) const;
     HidScanClassifier hid_classifier_;
     std::vector<unsigned int> pending_hid_characters_;
     HidScanClassifier::TimePoint last_hid_character_{};

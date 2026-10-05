@@ -3,8 +3,10 @@
 ## Scans
 
 **La douchette ne se connecte pas (mode Bluetooth).**
-Menu **Douchette > Rechercher**, puis, la première fois, choisissez-la dans **Douchette > Connecter à**
-(ensuite, le logiciel s'y reconnecte seul après chaque recherche). La douchette ne doit **pas** être appairée dans les réglages Bluetooth
+La première fois : menu **Douchette > Appairer une douchette**, puis choisissez-la dans **Douchette > Connecter à**.
+Ensuite, le logiciel s'y reconnecte seul : tant qu'elle n'est pas connectée (base éteinte puis rallumée,
+douchette hors de portée), il réessaie toutes les 15 secondes. **Douchette > Reconnecter la douchette**
+réessaie tout de suite. La douchette ne doit **pas** être appairée dans les réglages Bluetooth
 de l'ordinateur : si elle l'est, supprimez-la de la liste des appareils. Déconnectez aussi tout autre
 appareil Bluetooth (casque, souris) pendant la recherche : le logiciel du fabricant échoue sinon,
 sans message. À défaut, passez la douchette en **mode clavier (HID)** : elle fonctionne alors comme
