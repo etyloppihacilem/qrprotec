@@ -90,11 +90,19 @@ jobs:
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           key_id=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
           echo "GPG_KEY_ID=$key_id" >> "$GITHUB_ENV"
+          # La phrase de passe passe par gpg.conf : rpmsign garde sa propre commande gpg, dont le
+          # format change selon la version de rpm (redefinir __gpg_sign_cmd casse sur Fedora 43).
+          passfile="$RUNNER_TEMP/gpg-passphrase"
+          (umask 077; printf '%s' "$GPG_PASSPHRASE" > "$passfile")
+          printf 'batch\npinentry-mode loopback\npassphrase-file %s\n' "$passfile" >> ~/.gnupg/gpg.conf
+          rpmsign --addsign --define "_gpg_name $key_id" --define "_openpgp_sign_id $key_id" rpms/*.rpm
+          rm -f "$passfile" ~/.gnupg/gpg.conf
+          # Echoue si un paquet n'est pas signe par cette cle
+          gpg --armor --export "$key_id" > "$RUNNER_TEMP/RPM-GPG-KEY-qrprotec"
+          rpm --import "$RUNNER_TEMP/RPM-GPG-KEY-qrprotec"
           for rpm_file in rpms/*.rpm; do
-            rpmsign --addsign "$rpm_file" \
-              --define "_gpg_name $key_id" \
-              --define "__gpg_sign_cmd %{__gpg} gpg --batch --no-armor --pinentry-mode loopback --passphrase-fd 3 -u \"%{_gpg_name}\" -sbo %{__signature_filename} %{__plaintext_filename}" \
-              3<<<"$GPG_PASSPHRASE"
+            rpm -K "$rpm_file" | tee /dev/stderr | grep -q 'signatures OK' \
+              || { echo "$rpm_file : signature absente ou invalide" >&2; exit 1; }
           done
 
       - name: Release GitHub
