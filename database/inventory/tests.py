@@ -1850,11 +1850,11 @@ class TypeRulesTests(ApiTestCase):
 
     def test_unique_lot_type(self):
         code, vps = self.call('POST', '/api/lot-types/', {'type': 'vpsxxx', 'name': 'VPS', 'unique': True,
-                                                          'name_short': 'VPS', 'user': 'M001'})
+                                                          'name_short': 'autre', 'user': 'M001'})
         self.assertEqual(code, 201)
         self.assertTrue(vps['unique'])
         lot = vps['created_lot']
-        self.assertEqual((lot['name'], lot['lot_type']), ('VPS', 'vpsxxx'))
+        self.assertEqual((lot['name'], lot['name_short'], lot['lot_type']), ('VPS', 'VPS', 'vpsxxx'))
         self.assertEqual(vps['lot'], lot['id'])
         code, armoire = self.call('POST', '/api/lot-types/', {'type': 'armvp1', 'name': 'Armoire 1 VPS', 'unique': True,
                                                               'parent': lot['id']})
@@ -1864,6 +1864,7 @@ class TypeRulesTests(ApiTestCase):
         # le lot suit le nom du type
         code, body = self.call('PATCH', '/api/lot-types/vpsxxx/', {'name': 'VPS Paris'})
         self.assertEqual(Lots.objects.get(id=lot['id']).name, 'VPS Paris')
+        self.assertEqual(Lots.objects.get(id=lot['id']).name_short, 'VPS Paris')
         # archive avec son type (apres ses sous-lots)
         code, _ = self.call('PATCH', '/api/lot-types/vpsxxx/', {'archived': True})
         self.assertEqual(code, 400)

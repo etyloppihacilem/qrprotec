@@ -1761,6 +1761,7 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::LotPrivate: return "{{lot_private_url}}";
     case TemplateCategory::LotSeal: return "{{seal_url}}";
     case TemplateCategory::LotSealOpen: return "{{seal_open_url}}";
+    case TemplateCategory::LotStorage: return "{{lot_private_url}}";
     case TemplateCategory::User: return "{{badge_url}}";
     case TemplateCategory::Generic: break;
   }

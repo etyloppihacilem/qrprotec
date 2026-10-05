@@ -190,17 +190,26 @@ class LotAdminWindow final : public AppWindow {
       });
     }
 
-    // apercu des deux etiquettes du lot (publique puis privee), impression depuis la fenetre d'apercu
+    // apercu des deux etiquettes du lot (publique puis privee), impression depuis la fenetre d'apercu. Un rangement
+    // du stock n'a qu'une etiquette, celle de rangement (privee, sans expiration).
     void preview_lot(App &app, const Json &lot) {
       const Parameters        parameters = lot_parameters(lot);
       std::vector< PrintJob > jobs;
-      app.build_label_jobs(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)", jobs);
-      app.build_label_jobs(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privée)", jobs);
+      if (lot["storage"].boolean()) {
+        app.build_label_jobs(TemplateCategory::LotStorage, { parameters }, "Rangement " + lot["name"].str(), jobs);
+      } else {
+        app.build_label_jobs(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)", jobs);
+        app.build_label_jobs(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privée)", jobs);
+      }
       app.preview_jobs(std::move(jobs), "Lot " + lot["name"].str());
     }
 
     void print_lot(App &app, const Json &lot, bool public_label, bool private_label) {
       const Parameters parameters = lot_parameters(lot);
+      if (lot["storage"].boolean()) {
+        app.print_labels(TemplateCategory::LotStorage, { parameters }, "Rangement " + lot["name"].str());
+        return;
+      }
       if (public_label)
         app.print_labels(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)");
       if (private_label)
@@ -338,18 +347,26 @@ class LotAdminWindow final : public AppWindow {
       draw_seal(app);
 
       ImGui::SeparatorText("Étiquettes");
-      if (primary_button("Aperçu des étiquettes publique et privée", ImVec2(-FLT_MIN, 0)))
-        preview_lot(app, lot_);
-      ImGui::TextDisabled("Impression directe :");
-      ImGui::SameLine();
-      if (ImGui::SmallButton("publique"))
-        print_lot(app, lot_, true, false);
-      ImGui::SameLine();
-      if (ImGui::SmallButton("privée"))
-        print_lot(app, lot_, false, true);
-      ImGui::SameLine();
-      if (ImGui::SmallButton("les deux"))
-        print_lot(app, lot_, true, true);
+      if (lot_["storage"].boolean()) {
+        // rangement du stock : une seule etiquette, a coller a l'interieur
+        if (primary_button("Aperçu de l'étiquette de rangement", ImVec2(-FLT_MIN, 0)))
+          preview_lot(app, lot_);
+        if (ImGui::SmallButton("Impression directe"))
+          print_lot(app, lot_, false, true);
+      } else {
+        if (primary_button("Aperçu des étiquettes publique et privée", ImVec2(-FLT_MIN, 0)))
+          preview_lot(app, lot_);
+        ImGui::TextDisabled("Impression directe :");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("publique"))
+          print_lot(app, lot_, true, false);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("privée"))
+          print_lot(app, lot_, false, true);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("les deux"))
+          print_lot(app, lot_, true, true);
+      }
       if (lot_["verif_key_expires"].is_null())
         ImGui::TextDisabled("Clé sans expiration (rangement du stock)");
       else
@@ -363,7 +380,9 @@ class LotAdminWindow final : public AppWindow {
                          return;
                        }
                        lot_ = result.data;
-                       app.notify("Nouvelle clé générée : imprimez la nouvelle étiquette privée.");
+                       app.notify(lot_["storage"].boolean()
+                                    ? "Nouvelle clé générée : imprimez la nouvelle étiquette de rangement."
+                                    : "Nouvelle clé générée : imprimez la nouvelle étiquette privée.");
                      });
       }
 
@@ -517,11 +536,12 @@ class LotAdminWindow final : public AppWindow {
       ImGui::EndDisabled();
       help_marker("Pour un lot qui n'existe qu'en un exemplaire (ex : le VPS, chacune de ses armoires) : le lot, du "
                   "même nom, est créé en même temps que le type, et aucun autre lot de ce type ne peut être créé. "
-                  "Renommer le type renomme son lot, l'archiver archive son lot.");
+                  "Son nom court est aussi le nom du type. Renommer le type renomme son lot, l'archiver archive "
+                  "son lot.");
       if (editing_lot_type_.empty()) {
         if (type_unique_) {
           ImGui::Indent();
-          input_limited("Nom court du lot (16 car.)", type_lot_short_, 16);
+          ImGui::TextDisabled("Nom court du lot : le nom du type (tronqué à 16 caractères)");
           ImGui::TextUnformatted("Dans le lot (sous-lot)");
           search_select("new_type_lot_parent", app.catalog.lots, "id", "name", type_lot_parent_, "Aucun : lot indépendant",
                         "Aucun : lot indépendant");
@@ -538,8 +558,7 @@ class LotAdminWindow final : public AppWindow {
           body["unique"]      = type_unique_;
           body["user"]        = app.user_ref();
           if (type_unique_) {
-            body["name_short"] = type_lot_short_;
-            body["parent"]     = type_lot_parent_;
+            body["parent"] = type_lot_parent_;
           }
           const bool print = type_unique_ && print_new_;
           app.api.post("/api/lot-types/", body, [this, &app, print](const ApiResult &result) {
@@ -707,7 +726,6 @@ class LotAdminWindow final : public AppWindow {
       type_unique_      = lot_type["unique"].boolean();
       type_archived_    = lot_type["archived"].boolean();
       type_lot_         = lot_type["lot"].str();
-      type_lot_short_.clear();
       type_lot_parent_.clear();
       requirements_.clear();
       for (const Json &row : lot_type["requirements"].items())
@@ -741,8 +759,7 @@ class LotAdminWindow final : public AppWindow {
     bool                          type_unique_  = false;
     bool                          type_archived_ = false;
     std::string                   type_lot_;        // lot d'un type unique
-    std::string                   type_lot_short_;  // creation d'un type unique : nom court et parent du lot
-    std::string                   type_lot_parent_;
+    std::string                   type_lot_parent_; // creation d'un type unique : parent de son lot
     bool                          show_archived_types_ = false;
     std::vector< RequirementRow > requirements_;
 };

@@ -1007,8 +1007,8 @@ def sealed_pack_close(request, pack_id):
 def lot_types(request):
     """Types de lots, archives compris (champ archived).
 
-    Un type « lot unique » (ex : un VPS, une armoire du VPS) est cree avec son lot, du meme nom : `name_short` et
-    `parent` (lot global) s'appliquent alors a ce lot, renvoye dans `created_lot`. Un rangement du stock est
+    Un type « lot unique » (ex : un VPS, une armoire du VPS) est cree avec son lot, du meme nom (nom court compris,
+    tronque a 16 caracteres) : `parent` (lot global) s'applique alors a ce lot, renvoye dans `created_lot`. Un rangement du stock est
     toujours un lot unique.
     """
     if request.method != 'GET':
@@ -1036,8 +1036,7 @@ def lot_types(request):
         lot = None
         if unique:
             ensure_name_free(Lots.objects.filter(active=True), name, 'Le lot')
-            lot = Lots(lot_type=lot_type, name=name, name_short=str(data.get('name_short', '') or name)[:16],
-                       created_by=identity)
+            lot = Lots(lot_type=lot_type, name=name, name_short=name[:16], created_by=identity)
             lot.parent = parse_parent(lot, data.get('parent'))
             lot.save()
         journal.record(OperationKind.CATALOG, identity, f'type de lot créé : {lot_type}' + (' (lot unique)' if unique else ''),
@@ -1063,12 +1062,14 @@ def lot_type_detail(request, type_code):
                 raise ApiError("Nom obligatoire")
             ensure_name_free(LotType.objects.exclude(type=lot_type.type), name, 'Le type de lot')
             if lot_type.unique:
-                # le lot d'un type unique porte le nom du type
+                # le lot d'un type unique porte le nom du type, nom court compris
                 for lot in lots:
                     if lot.name == lot_type.name:
                         ensure_name_free(Lots.objects.filter(active=True).exclude(id=lot.id), name, 'Le lot')
                         lot.name = name
-                        lot.save(update_fields=['name'])
+                        if lot.name_short == lot_type.name[:16]:
+                            lot.name_short = name[:16]
+                        lot.save(update_fields=['name', 'name_short'])
             lot_type.name = name
         if 'description' in data:
             lot_type.description = str(data['description'])

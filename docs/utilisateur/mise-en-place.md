@@ -40,7 +40,7 @@ Menu **Gestion > Réglages** (admin), section **Étiquettes et impression** :
 3. **Titre des étiquettes** : le nom de votre structure, imprimé sur les étiquettes de lot et les
    badges (par défaut « PROTECTION CIVILE / PARIS CENTRE »).
 4. **Étiquettes** : le modèle utilisé pour chaque usage (item, paquet, lot public, lot privé, scellé,
-   ouverture du scellé, badge). Les modèles fournis conviennent pour commencer ; votre logo se change dans l'éditeur
+   ouverture du scellé, rangement du stock, badge). Les modèles fournis conviennent pour commencer ; votre logo se change dans l'éditeur
    d'étiquettes (voir [Administration](administration.md#étiquettes)).
 
 Imprimez votre badge une seconde fois si le premier était raté : c'est le même QR code.
@@ -106,13 +106,15 @@ Créez aussi :
 - des types **sans contenu** pour les regroupements : « VPS » (`vpsxxx`), « B+ » (`bplusx`) ;
 - un type **rangement** par armoire et par tiroir de la réserve : « Réserve armoire 1 » (`resar1`),
   « Tiroir 1 » (`tiroi1`)…, case **Rangement du stock** cochée. Un rangement est toujours un **lot
-  unique** : son lot est créé avec le type (nom court et lot parent dans le même formulaire). Il n'a
-  jamais de contenu attendu (on y range ce qu'on veut) et son étiquette privée **n'expire pas** :
-  elle reste à l'intérieur, dans une salle fermée, et se renouvelle seulement en cas de problème.
+  unique** : son lot est créé avec le type (lot parent dans le même formulaire). Il n'a jamais de
+  contenu attendu (on y range ce qu'on veut) et n'a qu'**une étiquette**, l'étiquette de rangement
+  (modèle `rangement.qr`) : elle contient sa clé, qui **n'expire pas**, reste à l'intérieur, dans une
+  salle fermée, et se renouvelle seulement en cas de problème.
 
 Un lot qui n'existe qu'en un exemplaire (le VPS, une armoire du VPS) n'a pas besoin d'un type puis
-d'un lot : cochez **Lot unique** à la création du type. Le lot, du même nom, est créé avec le type
-(avec son nom court et son lot parent), et aucun autre lot de ce type ne peut être créé. Renommer le
+d'un lot : cochez **Lot unique** à la création du type. Le lot, du même nom (nom court compris,
+limité à 16 caractères), est créé avec le type (avec son lot parent), et aucun autre lot de ce type
+ne peut être créé. Renommer le
 type renomme son lot ; l'archiver archive son lot.
 
 Les types de lots s'archivent comme les types d'items (case **Afficher les types archivés** pour les
@@ -143,7 +145,8 @@ accueil du front web) : cochez **Afficher les rangements du stock** pour les voi
 
 À chaque création, l'aperçu propose les étiquettes **publique** et **privée** : imprimez les deux.
 Collez la publique à l'extérieur, rangez la privée à l'intérieur (ou dans le classeur des
-responsables pour les lots sensibles). Le **nom court** apparaît sur les petites étiquettes.
+responsables pour les lots sensibles). Le **nom court** apparaît sur les petites étiquettes. Un
+rangement du stock n'a que son **étiquette de rangement**, à coller à l'intérieur.
 
 ## Étape 7 — Étiqueter le matériel existant (la transition)
 
