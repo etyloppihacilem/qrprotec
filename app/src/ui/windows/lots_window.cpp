@@ -49,6 +49,11 @@ class LotsWindow final : public AppWindow {
       }
       if (const std::string id = app.take_lot_to_show(); !id.empty())
         select(app, id, app.take_seal_to_show()); // etiquette publique ou scelle scanne
+      // rangements du stock : affiches par defaut en gestion et admin, masques sinon (a chaque changement de role)
+      if (const int privileged = app.privileged() ? 1 : 0; privileged != seen_privileged_) {
+        seen_privileged_ = privileged;
+        show_storage_    = privileged == 1;
+      }
       if (ImGui::Button("Rafraîchir"))
         app.refresh_lots();
       ImGui::SameLine();
@@ -331,6 +336,7 @@ class LotsWindow final : public AppWindow {
     std::string filter_;
     bool        only_problems_ = false;
     bool        show_storage_  = false;
+    int         seen_privileged_ = -1;
     std::string selected_;
     int         seen_lots_version_ = -1;
     Json        details_;
