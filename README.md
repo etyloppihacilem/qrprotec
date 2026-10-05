@@ -272,7 +272,7 @@ de Python).
 git tag v1.2.0 && git push origin v1.2.0
 ```
 
-Le workflow `.github/workflows/rpm.yml` construit les RPM pour Fedora 42 et 43, crée la release
+Le workflow `.github/workflows/rpm.yml` construit les RPM pour Fedora 42, 43 et 44, crée la release
 GitHub (RPM en pièces jointes) et met à jour le dépôt dnf statique sur la branche `gh-pages`
 (`fedora/<version>/<arch>/`, 5 dernières versions gardées), servi par GitHub Pages. Les bornes le
 reçoivent au prochain `sudo dnf upgrade`.
