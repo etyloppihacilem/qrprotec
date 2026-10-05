@@ -749,7 +749,7 @@
     if (lot.is_sealed) return make('ok', '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : ''));
     if (!lot.last_verif) return make('bad', '✘ Jamais vérifié');
     if (!lot.complete) return make('bad', lot.expired_count ? '✘ Incomplet (périmés)' : '✘ Incomplet');
-    if (lot.verif_recommended) return make('warn', '⚠ Vérif recommandée, réassort');
+    if (lot.verif_recommended) return make('warn', lot.restocked_count ? '⚠ Vérif recommandée, réassort' : '⚠ Vérif recommandée, scellé ouvert');
     return make('ok', '✔ Vérifié, complet');
   }
 
@@ -787,7 +787,9 @@
         + ((lot.descendants || []).length ? ` · ${lot.descendants.length} sous-lot(s) vérifiés avec lui` : ''),
       globalLine(lot),
       'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
-      lot.verif_recommended ? `Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.` : '',
+      !lot.verif_recommended ? '' : lot.restocked_count
+        ? `Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
+        : `Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
       keyOk() ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
   }
 

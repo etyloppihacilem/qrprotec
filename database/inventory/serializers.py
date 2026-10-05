@@ -128,6 +128,7 @@ STATE_LABELS = {
     'never': '✘ Jamais vérifié',
     'incomplete': '✘ Incomplet',
     'recommended': '⚠ Vérif recommandée, réassort',
+    'opened': '⚠ Vérif recommandée, scellé ouvert',
     'verified': '✔ Vérifié, complet',
 }
 KIND_ORDER = {'ok': 0, 'warn': 1, 'bad': 2}
@@ -142,10 +143,11 @@ def lot_state(data):
     elif not data['complete']:
         code = 'incomplete'
     elif data['verif_recommended']:
-        code = 'recommended'
+        # sans reassort depuis la derniere verif : recommandee par l'ouverture du scelle (etiquette d'ouverture)
+        code = 'recommended' if data['restocked_count'] else 'opened'
     else:
         code = 'verified'
-    kind = 'ok' if code in ('sealed', 'verified') else 'warn' if code == 'recommended' else 'bad'
+    kind = 'ok' if code in ('sealed', 'verified') else 'warn' if code in ('recommended', 'opened') else 'bad'
     return {'kind': kind, 'code': code, 'label': STATE_LABELS[code]}
 
 
