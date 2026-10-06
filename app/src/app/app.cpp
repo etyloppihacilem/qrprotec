@@ -684,7 +684,7 @@ void App::draw_server_modal() {
       ImGui::TextWrapped("Borne : la connexion se règle sur la machine avec sudo qrprotec-setup "
                          "(--api-url, --api-key, --local-api).");
     else
-      draw_server_settings(*this);
+      draw_server_settings(*this, true);
   }
   ImGui::Separator();
   if (editable && primary_button("Enregistrer")) {
