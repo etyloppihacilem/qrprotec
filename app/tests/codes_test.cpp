@@ -93,6 +93,21 @@ static void test_scans() {
   assert(parse_scan("https://example.com/unseal?lot=sacpse00000001").kind == ScanKind::Unknown);
   assert(parse_scan("n'importe quoi").kind == ScanKind::Unknown);
   assert(parse_scan("compre2026123100000!A1").kind == ScanKind::Unknown);
+
+  // affichage : elements distinctifs seulement, jamais l'URL ni la cle
+  assert(describe_scan(item) == "Item compre20261231000000A1");
+  assert(describe_scan(item_url) == "Item compre20261231000000A1");
+  assert(describe_scan(lot) == "Lot sacpse00000001 · étiquette privée");
+  assert(describe_scan(lot_public) == "Lot sacpse00000001");
+  assert(describe_scan(badge) == "Badge M001");
+  assert(describe_scan(pack) == "Paquet 0000002B");
+  assert(describe_scan(seal) == "Scellé du lot sacpse00000001");
+  assert(describe_scan(opening) == "Ouverture du scellé du lot sacpse00000001");
+  assert(describe_scan(parse_scan("https://example.com/scanner/?s=SESSION")) == "QR de session douchette");
+  assert(describe_scan(parse_scan("https://user:pw@autre.fr/badge?key=K")) == "Lien autre.fr");
+  assert(describe_scan(parse_scan("https://autre.fr")) == "Lien autre.fr");
+  assert(describe_scan(parse_scan("n'importe quoi")) == "n'importe quoi");
+  assert(describe_scan(parse_scan("abcdefghijklmnopqrstuvwxyz")) == "abcdefghijklmnopqrstuvwx…");
 }
 
 static void test_http() {
