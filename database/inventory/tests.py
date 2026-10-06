@@ -1,7 +1,7 @@
 import importlib
 import json
 import math
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import StringIO
 
 from django.apps import apps as django_apps
@@ -2228,17 +2228,23 @@ class ItemOutTests(ApiTestCase):
         self.assertIn(item.iid, report['reactivated'])
         self.assertEqual(services.expire_out_items(timezone.now() + timedelta(days=60)), [])
 
+    def local_noon(self, days):
+        # midi heure locale, `days` jours apres aujourd'hui : now + timedelta(days=N) tombe la veille pres de minuit
+        # quand l'intervalle traverse un changement d'heure (le delai est compte en jours calendaires)
+        day = datetime.combine(self.today + timedelta(days=days), datetime.min.time())
+        return timezone.make_aware(day + timedelta(hours=12))
+
     def test_not_seen_counts_as_used(self):
         fresh = self.create(self.garrot, None, 1)[0]
         soon = self.create(self.compresses, self.today + timedelta(days=5), 1)[0]
         self.call('POST', '/api/items/out/', {'items': [fresh.iid, soon.iid]})
         self.assertEqual(services.expire_out_items(), [])
         # peremption avant le mois : compte utilise des sa peremption
-        self.assertEqual(services.expire_out_items(timezone.now() + timedelta(days=5)), [soon.iid])
+        self.assertEqual(services.expire_out_items(self.local_noon(5)), [soon.iid])
         self.assertEqual(Items.objects.get(iid=soon.iid).status, ItemStatus.MISSING)
         self.assertTrue(ItemMovement.objects.filter(item=soon, kind=MovementKind.USED).exists())
         # non perissable : utilise au bout d'un mois
-        self.assertEqual(services.expire_out_items(timezone.now() + timedelta(days=30)), [fresh.iid])
+        self.assertEqual(services.expire_out_items(self.local_noon(30)), [fresh.iid])
         used = ItemMovement.objects.get(item=fresh, kind=MovementKind.USED)
         self.assertIsNone(used.cancelled)
         self.assertTrue(Operation.objects.filter(kind='item_out_used').exists())
