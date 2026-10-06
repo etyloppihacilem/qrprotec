@@ -175,23 +175,22 @@ AppWindow *App::window(const std::string &id) {
   return nullptr;
 }
 
-// Raccourcis d'ouverture : F1 a F4 pour les fenetres de tous, Ctrl+1 a Ctrl+8 pour celles du menu Gestion
-// (dans l'ordre du menu). Les touches de fonction ne tapent rien dans les champs, Ctrl+chiffre non plus.
+// Raccourcis d'ouverture : touches de fonction, F1 a F4 pour les fenetres de tous puis F5 a F12 pour celles du
+// menu Gestion (dans l'ordre du menu). Elles ne tapent rien dans les champs. Ctrl+chiffre choisit l'onglet
+// d'une fenetre (tab_item dans widgets.hpp).
 void App::assign_shortcuts() {
-  const std::pair< const char *, ImGuiKey > normal[] = {
-    { "scan", ImGuiKey_F1 }, { "lots", ImGuiKey_F2 }, { "verif", ImGuiKey_F3 }, { "phone", ImGuiKey_F4 }
-  };
-  for (const auto &[id, key] : normal)
-    if (AppWindow *target = window(id)) {
-      target->shortcut       = key;
-      target->shortcut_label = ImGui::GetKeyName(key);
-    }
-  int digit = 1;
+  std::vector< AppWindow * > ordered;
+  for (const char *id : { "scan", "lots", "verif", "phone" })
+    if (AppWindow *target = window(id))
+      ordered.push_back(target);
   for (auto &target : windows)
-    if (target->privileged && digit <= 9) {
-      target->shortcut       = ImGuiMod_Ctrl | (ImGuiKey_0 + digit);
-      target->shortcut_label = "Ctrl+" + std::to_string(digit++);
-    }
+    if (target->privileged)
+      ordered.push_back(target.get());
+  for (std::size_t index = 0; index < ordered.size() && index < 12; ++index) {
+    const ImGuiKey key         = static_cast< ImGuiKey >(ImGuiKey_F1 + index);
+    ordered[index]->shortcut       = key;
+    ordered[index]->shortcut_label = ImGui::GetKeyName(key);
+  }
 }
 
 void App::handle_shortcuts() {
@@ -206,7 +205,7 @@ void App::handle_shortcuts() {
       else
         open_window(target->id);
     }
-  if (ImGui::IsKeyChordPressed(ImGuiKey_F11))
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F11))
     toggle_fullscreen();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W))
     if (AppWindow *target = window(focused_window_); target && target->open && target->can_close(*this))
@@ -326,7 +325,7 @@ void App::draw_menu_bar() {
         if (!window->privileged)
           window_menu_item(*window);
       ImGui::Separator();
-      if (ImGui::MenuItem("Plein écran", "F11", fullscreen_))
+      if (ImGui::MenuItem("Plein écran", "Ctrl+F11", fullscreen_))
         toggle_fullscreen();
       if (ImGui::MenuItem("Fenêtre suivante", "Ctrl+Tab"))
         focus_next_window(1);

@@ -56,11 +56,11 @@ class LotAdminWindow final : public AppWindow {
       // « Voir le lot » depuis un type de lot unique : bascule sur l'onglet des lots
       const ImGuiTabItemFlags lots_flags = focus_lots_tab_ ? ImGuiTabItemFlags_SetSelected : 0;
       focus_lots_tab_                    = false;
-      if (ImGui::BeginTabItem("Lots", nullptr, lots_flags)) {
+      if (tab_item("Lots", lots_flags)) {
         draw_lots(app);
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem("Types de lots")) {
+      if (tab_item("Types de lots")) {
         draw_lot_types(app);
         ImGui::EndTabItem();
       }

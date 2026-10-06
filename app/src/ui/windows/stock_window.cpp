@@ -102,19 +102,19 @@ class StockWindow final : public AppWindow {
 
       if (!ImGui::BeginTabBar("stock_tabs"))
         return;
-      if (ImGui::BeginTabItem("Actuel")) {
+      if (tab_item("Actuel")) {
         draw_current(app);
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem("Projection")) {
+      if (tab_item("Projection")) {
         draw_projection(app);
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem(orders_tab.c_str())) {
+      if (tab_item(orders_tab.c_str())) {
         draw_orders(app);
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem(transfers_tab.c_str())) {
+      if (tab_item(transfers_tab.c_str())) {
         draw_transfers(app);
         ImGui::EndTabItem();
       }

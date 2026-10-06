@@ -149,6 +149,26 @@ bool small_button(const char *label) {
   return mnemonic_button(label, ImVec2(0, 0), true);
 }
 
+// Onglets : Ctrl+1 a Ctrl+9 choisissent le 1er au 9e onglet de la barre d'onglets de la fenetre qui a le focus.
+bool tab_item(const char *label, ImGuiTabItemFlags flags) {
+  static int                                 frame = -1;
+  static std::unordered_map< ImGuiID, int > counts; // onglets deja dessines, par barre d'onglets
+  if (frame != ImGui::GetFrameCount()) {
+    frame = ImGui::GetFrameCount();
+    counts.clear();
+  }
+  const ImGuiTabBar *bar   = GImGui->CurrentTabBar;
+  const int          index = bar ? ++counts[bar->ID] : 0;
+  if (index >= 1 && index <= 9 && ImGui::GetTopMostPopupModal() == nullptr
+      && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+      && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | static_cast< ImGuiKey >(ImGuiKey_0 + index)))
+    flags |= ImGuiTabItemFlags_SetSelected;
+  const bool open = ImGui::BeginTabItem(label, nullptr, flags);
+  if (index >= 1 && index <= 9)
+    ImGui::SetItemTooltip("Ctrl+%d", index);
+  return open;
+}
+
 bool danger_button(const char *label, const ImVec2 &size) {
   return colored_button(label, colors::red, size);
 }

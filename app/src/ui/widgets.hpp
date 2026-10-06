@@ -28,6 +28,8 @@ const ImVec4 yellow(0.95f, 0.80f, 0.20f, 1.0f);
 // Boutons a utiliser a la place d'ImGui::Button : raccourci Alt+lettre, lettre soulignee (voir widgets.cpp)
 bool button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool small_button(const char *label);
+// A utiliser a la place d'ImGui::BeginTabItem : Ctrl+chiffre choisit l'onglet (fermer avec ImGui::EndTabItem)
+bool tab_item(const char *label, ImGuiTabItemFlags flags = 0);
 bool danger_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool primary_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool warning_button(const char *label, const ImVec2 &size = ImVec2(0, 0)); // orange

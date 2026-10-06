@@ -58,7 +58,7 @@ class AppWindow {
     bool              focus_pending = false;
     bool              resize_pending = false; // reprendre last_pos et last_size (ecran redimensionne)
     bool              fullscreen    = false; // dessinee en plein ecran (mode plein ecran de l'application)
-    ImGuiKeyChord     shortcut      = 0;     // raccourci d'ouverture (F1, Ctrl+1...)
+    ImGuiKeyChord     shortcut      = 0;     // raccourci d'ouverture (F1 a F12)
     std::string       shortcut_label;        // affiche dans les menus
 };
 
@@ -266,7 +266,7 @@ class App {
       fullscreen_     = false;
     }
     // Plein ecran : chaque fenetre ouverte occupe toute la zone sous la barre de menu, on passe de l'une a
-    // l'autre avec Ctrl+Tab, les raccourcis ou le menu Fenetres. F11 bascule.
+    // l'autre avec Ctrl+Tab, les raccourcis ou le menu Fenetres. Ctrl+F11 bascule.
     bool        fullscreen() const { return fullscreen_; }
     void        toggle_fullscreen() { fullscreen_ = !fullscreen_; }
     void        focus_next_window(int direction); // fenetre ouverte suivante (1) ou precedente (-1)

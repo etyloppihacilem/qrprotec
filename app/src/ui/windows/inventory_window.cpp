@@ -75,19 +75,19 @@ class InventoryWindow final : public AppWindow {
       }
       if (!ImGui::BeginTabBar("inventory_tabs"))
         return;
-      if (ImGui::BeginTabItem("Réception")) {
+      if (tab_item("Réception")) {
         draw_reception(app);
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem("Types d'items")) {
+      if (tab_item("Types d'items")) {
         draw_types(app);
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem("Items")) {
+      if (tab_item("Items")) {
         draw_items(app);
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem("Paquets fermés")) {
+      if (tab_item("Paquets fermés")) {
         draw_packs(app);
         ImGui::EndTabItem();
       }

@@ -1157,7 +1157,7 @@ void Editor::draw_side_panel() {
   ImGui::BeginChild("SidePanel", ImVec2(0, 0), ImGuiChildFlags_Borders);
   ImGui::PushItemWidth(-ImGui::GetFontSize() * 8.0f);
   if (ImGui::BeginTabBar("side_tabs")) {
-    if (ImGui::BeginTabItem("Élément", nullptr, focus_element_tab_ ? ImGuiTabItemFlags_SetSelected : 0)) {
+    if (tab_item("Élément", focus_element_tab_ ? ImGuiTabItemFlags_SetSelected : 0)) {
       if (TemplateElement *element = selected())
         draw_properties(*element);
       else
@@ -1165,11 +1165,11 @@ void Editor::draw_side_panel() {
       ImGui::EndTabItem();
     }
     focus_element_tab_ = false;
-    if (ImGui::BeginTabItem("Étiquette")) {
+    if (tab_item("Étiquette")) {
       draw_document_properties();
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Placeholders")) {
+    if (tab_item("Placeholders")) {
       draw_placeholders_panel();
       ImGui::EndTabItem();
     }
