@@ -77,9 +77,13 @@ class VerifWindow final : public AppWindow {
                          "Scannez aussi les items périmés que vous retirez, puis leurs remplaçants.%s",
                          multi ? "" : " L'étiquette privée d'un autre lot du même lot global l'ajoute à la vérif.");
 
-      std::set< std::string > scanned;
-      for (const std::string &iid : app.stack.iids())
+      std::set< std::string >      scanned;
+      std::map< std::string, int > last_scan; // rang du dernier scan de chaque type d'item
+      int                          rank = 0;
+      for (const std::string &iid : app.stack.iids()) {
         scanned.insert(iid);
+        last_scan[parse_scan(iid).item_type] = rank++;
+      }
       std::set< std::string > expected; // items connus des lots de la verif
       for (const VerifPlanLot &row : plan)
         for (const Json &item : (*row.lot)["items"].items())
@@ -149,6 +153,13 @@ class VerifWindow final : public AppWindow {
             ImGui::TextUnformatted(plan_row.complete ? "complet" : "");
             ImGui::TableNextColumn();
           }
+          // ordre des types : en cours (orange, dernier type scanne en haut), puis rien de scanne (rouge),
+          // puis les autres items du lot, et les types complets (vert) en bas
+          struct TypeRow {
+              const Json *row;
+              int         required, done, missing, rank, last_scan;
+          };
+          std::vector< TypeRow >  type_rows;
           std::set< std::string > required_types;
           for (const Json &row : lot["requirements"].items()) {
             const std::string type     = row["type"].str();
@@ -156,11 +167,21 @@ class VerifWindow final : public AppWindow {
             const auto        found    = plan_row.fresh.find(type);
             const int         done     = found == plan_row.fresh.end() ? 0 : found->second;
             const int         missing  = std::max(0, required - done);
+            const auto        last     = last_scan.find(type);
             required_types.insert(type);
             remaining += missing;
+            type_rows.push_back({ &row, required, done, missing, missing == 0 ? 2 : done == 0 ? 1 : 0,
+                                  last == last_scan.end() ? -1 : last->second });
+          }
+          std::stable_sort(type_rows.begin(), type_rows.end(), [](const TypeRow &a, const TypeRow &b) {
+            return a.rank != b.rank ? a.rank < b.rank : a.rank == 0 && a.last_scan > b.last_scan;
+          });
+          const auto type_row = [&](const TypeRow &entry) {
+            const Json       &row  = *entry.row;
+            const std::string type = row["type"].str();
             // ligne du type : progression coloree (rouge = rien, orange = partiel, vert = complet)
             ImGui::TableNextRow();
-            row_color(missing == 0 ? colors::green : done == 0 ? colors::red : colors::orange, 0.25f);
+            row_color(entry.missing == 0 ? colors::green : entry.done == 0 ? colors::red : colors::orange, 0.25f);
             ImGui::TableNextColumn();
             ImGui::Text("%s", row["type_name"].str().c_str());
             if (!row["location"].str().empty()) {
@@ -168,26 +189,29 @@ class VerifWindow final : public AppWindow {
               ImGui::TextColored(colors::grey, "– %s", row["location"].str().c_str());
             }
             ImGui::TableNextColumn();
-            if (missing == 0)
+            if (entry.missing == 0)
               ImGui::TextColored(colors::green, "complet");
             else
-              ImGui::TextColored(done == 0 ? colors::red : colors::orange, "encore %d", missing);
+              ImGui::TextColored(entry.done == 0 ? colors::red : colors::orange, "encore %d", entry.missing);
             ImGui::TableNextColumn();
-            stock_bar(done, required, ImVec2(-1, 0));
+            stock_bar(entry.done, entry.required, ImVec2(-1, 0));
             // items connus du lot pour ce type, puis ce qu'il faut ajouter depuis le stock
             int known_fresh = 0;
             for (const Json *item : known_by_type[type]) {
               item_row(*item);
               known_fresh += (*item)["expired"].boolean() ? 0 : 1;
             }
-            if (missing > known_fresh) {
+            if (entry.missing > known_fresh) {
               ImGui::TableNextRow();
               ImGui::TableNextColumn();
               ImGui::Indent();
-              ImGui::TextColored(colors::orange, "+ %d à prendre dans le stock", missing - known_fresh);
+              ImGui::TextColored(colors::orange, "+ %d à prendre dans le stock", entry.missing - known_fresh);
               ImGui::Unindent();
             }
-          }
+          };
+          for (const TypeRow &entry : type_rows)
+            if (entry.rank < 2)
+              type_row(entry);
           // items du lot dont le type n'est pas (ou plus) dans la definition
           bool header = false;
           for (const auto &[type, items] : known_by_type) {
@@ -204,6 +228,9 @@ class VerifWindow final : public AppWindow {
               ++remaining;
             }
           }
+          for (const TypeRow &entry : type_rows)
+            if (entry.rank == 2)
+              type_row(entry);
         }
         ImGui::EndTable();
       }
@@ -239,6 +266,14 @@ class VerifWindow final : public AppWindow {
       if (primary_button(verif.submitting ? "Envoi..." : orange ? "Valider une vérif complète" : "Valider la vérif",
                          ImVec2(width * 0.45f, 0)))
         app.submit_verif();
+      if (!app.verif_key_ok())
+        ImGui::SetItemTooltip("Scannez d'abord l'étiquette privée du lot : c'est le QR code rangé à l'intérieur du lot.");
+      else
+        ImGui::SetItemTooltip("Enregistre la vérif : les items scannés sont présents, ceux de la liste « À scanner »\n"
+                              "sont signalés manquants. %s",
+                              remaining == 0 ? "Tout est scanné : le lot sera complet."
+                                             : (std::to_string(remaining) + " item(s) encore attendu(s) : le lot sera "
+                                                                            "incomplet.").c_str());
       ImGui::EndDisabled();
       ImGui::SameLine();
       ImGui::BeginDisabled(app.stack.empty() || verif.submitting);

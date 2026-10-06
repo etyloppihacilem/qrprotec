@@ -1,7 +1,7 @@
 /* QRProtec - front web mobile.
  *
- * Moitie haute : camera et detection des QR codes (BarcodeDetector natif si disponible, sinon jsQR).
- * Moitie basse : derniere information scannee et onglets "A scanner" / "Scannes" / "Lot".
+ * Tiers haut : camera (reductible en vignette flottante) et detection des QR codes (BarcodeDetector natif si disponible, sinon jsQR).
+ * Reste de l'ecran : derniere information scannee et onglets "A scanner" / "Scannes" / "Lot".
  * Toutes les ecritures passent par l'API publique : la verif exige la cle du lot (etiquette privee)
  * et un badge utilisateur.
  */
@@ -384,6 +384,22 @@
   document.addEventListener('resume', syncCamera);
 
   $('#start-button').addEventListener('click', startCamera);
+
+  // Camera reduite en vignette flottante (comme en appel video) : la liste prend tout l'ecran, le scan continue.
+  // Toucher la vignette remet la camera en haut. Retenu sur ce navigateur.
+  const STORAGE_CAM_MINI = 'qrprotec.camera-mini';
+  function setCameraMini(mini) {
+    document.body.classList.toggle('cam-mini', mini);
+    try { localStorage.setItem(STORAGE_CAM_MINI, mini ? '1' : ''); } catch (e) { /* stockage indisponible */ }
+  }
+  try { setCameraMini(localStorage.getItem(STORAGE_CAM_MINI) === '1'); } catch (e) { /* stockage indisponible */ }
+  $('#cam-mini').addEventListener('click', () => setCameraMini(true));
+  $('#camera').addEventListener('click', (event) => {
+    if (!document.body.classList.contains('cam-mini')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setCameraMini(false);
+  }, true);
   $('#torch').addEventListener('click', async () => {
     const track = stream && stream.getVideoTracks()[0];
     if (!track) return;
@@ -1312,14 +1328,27 @@
     return { groups, others, remaining, complete: row ? row.complete : false };
   }
 
+  // Item attendu, dans la liste depliable de son type : seulement son iid, en petit (le type est dans le titre)
   function todoItem(item) {
-    return el('li', { class: item.expired ? 'expired' : 'todo' },
-      el('div', { class: 'main' },
-        el('div', { class: 'name' }, item.type_name),
-        el('div', { class: 'sub' }, `${item.peremption ? fmtDate(item.peremption) : 'Non périssable'} · ${item.iid}`
-          + (item.tear_off ? ' · étiquette à déchirer : si elle manque, compté comme utilisé' : ''))),
+    return el('li', { class: 'iid' + (item.expired ? ' expired' : '') },
+      el('span', { class: 'main' }, item.iid),
       item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
+      item.tear_off ? el('span', { class: 'tag orange', title: 'Étiquette à déchirer : si elle manque, compté comme utilisé' }, 'à déchirer') : null,
       item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null);
+  }
+
+  // Types dont la liste des iids attendus est depliee (repliee par defaut)
+  const openGroups = new Set();
+
+  // Titre d'un type attendu : touche pour deplier ses iids
+  function groupHead(key, cls, items, main, count) {
+    const open = openGroups.has(key);
+    const toggle = items.length ? () => { if (open) openGroups.delete(key); else openGroups.add(key); renderTodo(); } : null;
+    return [
+      el('li', { class: 'group ' + cls + (toggle ? ' foldable' : ''), onclick: toggle, 'aria-expanded': toggle ? String(open) : null },
+        el('span', { class: 'chevron' }, toggle ? (open ? '▾' : '▸') : ''), main, count),
+      ...(open ? items.map(todoItem) : []),
+    ];
   }
 
   function renderTodo() {
@@ -1345,6 +1374,11 @@
     const lots = sessionLots();
     const multi = lots.length > 1;
     const rows = [];
+    const lastScan = {}; // rang du dernier scan de chaque type d'item
+    state.scanned.forEach((entry, index) => {
+      const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
+      if (type && !entry.error) lastScan[type] = index;
+    });
     let remaining = 0;
     for (const lot of lots) {
       const { groups, others, remaining: left, complete } = expectedGroups(lot, plan);
@@ -1357,24 +1391,30 @@
             el('div', { class: 'name' }, '📦 ' + lot.name),
             el('div', { class: 'sub' }, complete ? 'complet avec les scans' : `encore ${left} à scanner`))));
       }
-      for (const group of groups) {
-        const state_ = group.missing === 0 ? 'ok' : group.scanned === 0 ? 'bad' : 'partial';
-        rows.push(el('li', { class: 'group ' + state_ },
+      // en cours (orange, dernier type scanne en haut), puis rien de scanne (rouge), puis les autres items du lot,
+      // et les types complets (vert) en bas
+      const lastScanOf = (group) => (group.row.type in lastScan ? lastScan[group.row.type] : -1);
+      const rank = (group) => (group.missing === 0 ? 2 : group.scanned === 0 ? 1 : 0);
+      groups.sort((a, b) => rank(a) - rank(b)
+        || (rank(a) === 0 ? lastScanOf(b) - lastScanOf(a) : 0));
+      const groupRows = (group) => {
+        const expired = group.items.filter((item) => item.expired).length;
+        return groupHead(`${lot.id}:${group.row.type}`, rank(group) === 2 ? 'ok' : rank(group) === 1 ? 'bad' : 'partial', group.items,
           el('div', { class: 'main' },
             el('div', { class: 'name' }, group.row.type_name),
             el('div', { class: 'sub' }, [group.row.location ? '📍 ' + group.row.location : '',
-              group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`].filter(Boolean).join(' · '))),
-          el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)));
-        rows.push(...group.items.map(todoItem));
-        if (group.fromStock > 0) {
-          rows.push(el('li', { class: 'todo stock' },
-            el('div', { class: 'main' }, el('div', { class: 'name' }, `+ ${group.fromStock} à prendre dans le stock`))));
-        }
-      }
+              group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`,
+              expired ? `${expired} périmé(s)` : '',
+              group.fromStock > 0 ? `${group.fromStock} à prendre dans le stock` : ''].filter(Boolean).join(' · '))),
+          el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`));
+      };
+      for (const group of groups) if (rank(group) < 2) rows.push(...groupRows(group));
       if (others.length) {
-        rows.push(el('li', { class: 'group other' }, el('div', { class: 'main' }, 'Autres items du lot (hors définition)')));
-        rows.push(...others.map(todoItem));
+        rows.push(...groupHead(`${lot.id}:others`, 'other', others,
+          el('div', { class: 'main' }, 'Autres items du lot (hors définition)'),
+          el('span', { class: 'count' }, String(others.length))));
       }
+      for (const group of groups) if (rank(group) === 2) rows.push(...groupRows(group));
     }
     if (!remaining) rows.unshift(el('li', { class: 'group ok' }, multi ? '✅ Tout est scanné : les lots seront complets.' : '✅ Tout est scanné : le lot sera complet.'));
     list.replaceChildren(...rows);
@@ -2021,9 +2061,14 @@
     validateButton.disabled = state.busy || recorded;
     validateButton.classList.toggle('primary', !out);
     validateButton.classList.toggle('warning', out);
+    const missing = blockers(false);
+    validateButton.title = state.busy ? 'Envoi de la vérif en cours.' : recorded ? 'Cette vérif est déjà enregistrée. Scannez un item pour en commencer une nouvelle.'
+      : out ? 'Ces items ne sont dans aucun lot : ils sont enregistrés comme sortis du stock.'
+        : missing.length ? 'Pour valider : ' + missing.join(', ') + '.'
+          : 'Enregistre la vérif : les items scannés sont présents, ceux de « À scanner » sont signalés manquants.';
     validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
       : out ? `Sortir ${scannedIids().size} item(s) du stock` : restock ? 'Vérif complète…'
-        : blockers(false).length ? 'Valider la vérif…' : 'Valider la vérif';
+        : missing.length ? 'Valider la vérif…' : 'Valider la vérif';
     $('#scan-hint').textContent = out ? "Scannez l'étiquette d'un lot pour une vérif, ou sortez ces items du stock"
       : !state.lot ? "Visez l'étiquette d'un lot ou un item"
       : !hasIdentity() ? (state.declaredAllowed ? 'Scannez votre badge (ou touchez « Non connecté ») pour pouvoir valider'
