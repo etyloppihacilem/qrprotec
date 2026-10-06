@@ -123,6 +123,29 @@ Chaque fenêtre est une classe dérivée d'`AppWindow` (`draw`, `on_open`), cré
 La disposition par défaut est enregistrée en fractions de la zone de travail (`WindowLayout`) :
 elle s'adapte à la résolution de l'écran.
 
+### Clavier et plein écran
+
+- **Fenêtres** : `App::assign_shortcuts` donne `F1` à `F4` aux fenêtres de tous (Pile de scans, Lots,
+  Vérif, Téléphone) puis `F5` à `F12` à celles du menu Gestion, dans l'ordre de `App::windows`
+  (`AppWindow::shortcut`, rappelé dans les menus). `App::handle_shortcuts` les traite hors fenêtre
+  modale ; la touche d'une fenêtre déjà au premier plan la ferme. `Ctrl+W` ferme la fenêtre active,
+  `Ctrl+Tab` est celui d'ImGui (`NavEnableKeyboard`).
+- **Plein écran** (`Ctrl+F11`, `App::fullscreen_`) : `draw_windows` force chaque fenêtre ouverte sur
+  toute la zone de travail sans la laisser déplacer ; `last_pos`/`last_size` ne sont plus mis à jour,
+  ce qui rend sa place à chaque fenêtre à la sortie. Quitté par « Remettre les fenêtres en place » et
+  après inactivité.
+- **Boutons** : `button()` et `small_button()` (`ui/widgets.hpp`) remplacent `ImGui::Button` et
+  `ImGui::SmallButton`. Chaque bouton prend, dans l'ordre de dessin, la première lettre libre de sa
+  fenêtre racine (initiales des mots d'abord), la souligne et répond à `Alt` gauche + lettre quand la
+  fenêtre a le focus. Pas de lettre pour les petits boutons et ceux des tableaux. Pendant une saisie,
+  le champ est d'abord quitté et le bouton agit à la frame suivante, sinon ImGui réécrirait le texte
+  du champ. `main.cpp` jette les caractères tapés avec `Alt` gauche pour qu'ils n'arrivent pas dans le
+  champ actif (`Alt Gr` n'est pas concerné).
+- **Onglets** : `tab_item()` remplace `ImGui::BeginTabItem` ; `Ctrl+1` à `Ctrl+9` choisissent l'onglet
+  de ce rang dans la fenêtre qui a le focus.
+
+Tout nouveau bouton ou onglet passe par ces fonctions pour garder ses raccourcis.
+
 Le mode privilégié est volontairement **impossible à manquer** : fond, barres de titre et barre de
 menu orange.
 

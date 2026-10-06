@@ -35,6 +35,25 @@ badge.** Le reste de cette page détaille les cas particuliers.
 La fenêtre **Lots** (menu Fenêtres) liste tous les lots avec leur état ; un clic ouvre la fiche, avec
 **Lancer une vérif**.
 
+### Utiliser le poste au clavier
+
+Tout se fait sans souris :
+
+| Touche | Effet |
+|---|---|
+| `F1` à `F4` | Pile de scans, Lots, Vérif, Téléphone-douchette |
+| `F5` à `F12` | fenêtres du menu Gestion (rôle gestion ou admin), dans l'ordre du menu |
+| `Ctrl+1`, `Ctrl+2`… | choisir l'onglet d'une fenêtre à onglets |
+| `Alt` + lettre soulignée | actionner le bouton (ex. `Alt+V` pour **Valider la vérif** si le V est souligné) |
+| `Ctrl+F11` | plein écran : une seule fenêtre visible, sur tout l'écran |
+| `Ctrl+Tab` | passer à la fenêtre suivante |
+| `Ctrl+W` | fermer la fenêtre active |
+| flèches, `Entrée`, `Espace` | se déplacer dans la fenêtre et valider l'élément choisi |
+
+La touche d'une fenêtre déjà au premier plan la ferme. Les raccourcis sont rappelés dans les menus
+**Fenêtres** et **Gestion**. Sur un clavier français, seul le `Alt` de gauche sert aux boutons : `Alt Gr`
+tape toujours `@`, `#` ou `{`.
+
 ## Au téléphone
 
 1. Ouvrez l'appareil photo et **scannez l'étiquette privée** du sac : la page QRProtec s'ouvre.
