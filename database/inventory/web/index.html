@@ -13,14 +13,17 @@
   <link rel="stylesheet" href="web/app.css">
 </head>
 <body>
-  <!-- Moitie haute : zone de scan -->
+  <!-- Tiers haut : zone de scan (reductible en vignette flottante) -->
   <section id="camera">
     <video id="video" playsinline muted></video>
     <canvas id="frame" hidden></canvas>
     <div id="viewfinder"><span></span></div>
     <div id="topbar">
       <button id="user-chip" class="chip" type="button">Non connecté</button>
-      <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>
+      <div class="chips">
+        <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>
+        <button id="cam-mini" class="chip icon" type="button" aria-label="Réduire la caméra" title="Réduire la caméra dans un coin">↘</button>
+      </div>
     </div>
     <div id="scan-hint">Visez un QR code</div>
     <div id="start" class="overlay">
@@ -30,7 +33,7 @@
     </div>
   </section>
 
-  <!-- Moitie basse : informations et listes -->
+  <!-- Reste de l'ecran : informations et listes -->
   <section id="panel">
     <div id="info" class="info empty">Scannez l'étiquette d'un lot, un item ou votre badge.</div>
     <nav id="tabs" role="tablist">

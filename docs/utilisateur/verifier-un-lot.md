@@ -11,7 +11,9 @@ badge.** Le reste de cette page détaille les cas particuliers.
 
 1. **Scannez l'étiquette privée** du sac avec la douchette. La fenêtre **Vérif** s'ouvre : en haut
    l'état du lot (et de son lot global s'il en a un), puis la liste **À scanner** : chaque produit
-   attendu, avec « scannés / attendus » et l'emplacement dans le sac.
+   attendu, avec « scannés / attendus » et l'emplacement dans le sac. Les produits en cours de scan
+   (orange) sont en haut, le dernier scanné en premier ; puis ceux dont rien n'a été scanné (rouge) ;
+   les produits complets (vert) descendent en bas de la liste.
    - Si vous scannez l'étiquette **publique**, la fiche du lot s'affiche avec **Lancer une vérif** ;
      il faudra quand même scanner l'étiquette privée pour valider (sauf rôle gestion ou admin).
 2. **Scannez chaque objet.** Il apparaît dans la **pile de scans** (colonne de droite) et disparaît de
@@ -21,7 +23,8 @@ badge.** Le reste de cette page détaille les cas particuliers.
    - Un **code inconnu** s'affiche en rouge.
    - Un objet scanné deux fois est ignoré (simple mention « déjà scanné »).
    - **Annuler le dernier scan** retire le dernier objet de la pile ; la croix ✕ retire une ligne.
-3. **Valider la vérif.** Si vous n'êtes pas connecté, le poste demande votre **badge** (et votre PIN
+3. **Valider la vérif.** Survoler le bouton vert rappelle ce qu'il fait ou ce qui manque pour valider.
+   Si vous n'êtes pas connecté, le poste demande votre **badge** (et votre PIN
    si vous en avez un). Si l'administrateur l'a autorisé, vous pouvez aussi saisir votre nom et
    **Continuer sans badge** (il faut alors avoir scanné l'étiquette privée du lot). Le compte rendu s'affiche :
    - **✔ VÉRIF ENREGISTRÉE : LOT COMPLET** : tout va bien ;
@@ -39,10 +42,16 @@ La fenêtre **Lots** (menu Fenêtres) liste tous les lots avec leur état ; un c
 2. **Scannez votre badge** si ce n'est pas déjà fait (le téléphone s'en souvient). Saisissez votre PIN
    si demandé. Si l'administrateur l'a autorisé, vous pouvez à la place toucher **Non connecté** et
    indiquer votre nom.
-3. **Scannez chaque objet.** Onglets en bas : **À scanner** (ce qui reste, les périmés en rouge),
+3. **Scannez chaque objet.** Onglets en bas : **À scanner** (ce qui reste, par produit : en cours en
+   haut, rien de scanné ensuite, complets en bas ; touchez un produit pour déplier les codes de ses
+   items, les périmés en rouge),
    **Scannés** (avec « Annuler le dernier » et « Vider la liste »), **Lot** (exigences scannées /
    attendues). Un périmé ou un code inconnu fait clignoter l'écran en rouge, biper et vibrer.
 4. **Valider la vérif.** Le compte rendu s'affiche.
+
+La caméra occupe le tiers haut de l'écran. Le bouton **↘** la réduit en vignette dans un coin, comme
+pendant un appel vidéo : la liste prend tout l'écran et le scan continue. Touchez la vignette pour
+la remettre en haut.
 
 La liste en cours est conservée si la page se recharge ou si le téléphone se met en veille. Le menu
 **⋯** permet de saisir un code à la main, de changer de lot ou de se déconnecter.
