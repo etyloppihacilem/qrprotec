@@ -194,6 +194,11 @@ void App::assign_shortcuts() {
 }
 
 void App::handle_shortcuts() {
+  // Super+L : se deconnecter, depuis n'importe ou (aussi pendant la saisie du PIN)
+  if (logged_in() && ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_L)) {
+    logout("Déconnecté.");
+    return;
+  }
   // fenetre modale (connexion, PIN...) : elle garde la main
   if (ImGui::GetTopMostPopupModal() != nullptr)
     return;
@@ -404,7 +409,9 @@ void App::draw_menu_bar() {
     ImGui::Separator();
     if (logged_in()) {
       ImGui::TextUnformatted(who.c_str());
-      if (danger_button("Se déconnecter"))
+      const bool clicked = danger_button("Se déconnecter", ImVec2(0, 0), false);
+      ImGui::SetItemTooltip("Super+L");
+      if (clicked)
         logout("Déconnecté.");
     } else {
       ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.0f, 1.0f), "%s", who.c_str());

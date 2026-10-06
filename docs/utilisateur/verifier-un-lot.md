@@ -48,6 +48,7 @@ Tout se fait sans souris :
 | `Ctrl+F11` | plein écran : une seule fenêtre visible, sur tout l'écran |
 | `Ctrl+Tab` | passer à la fenêtre suivante |
 | `Ctrl+W` | fermer la fenêtre active |
+| `Super+L` | se déconnecter (touche Windows + L) |
 | flèches, `Entrée`, `Espace` | se déplacer dans la fenêtre et valider l'élément choisi |
 
 La touche d'une fenêtre déjà au premier plan la ferme. Les raccourcis sont rappelés dans les menus

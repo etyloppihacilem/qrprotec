@@ -131,7 +131,7 @@ juste après la première image), les fenêtres déjà placées gardent leur pla
 - **Fenêtres** : `App::assign_shortcuts` donne `F1` à `F4` aux fenêtres de tous (Pile de scans, Lots,
   Vérif, Téléphone) puis `F5` à `F12` à celles du menu Gestion, dans l'ordre de `App::windows`
   (`AppWindow::shortcut`, rappelé dans les menus). `App::handle_shortcuts` les traite hors fenêtre
-  modale ; la touche d'une fenêtre déjà au premier plan la ferme. `Ctrl+W` ferme la fenêtre active,
+  modale ; la touche d'une fenêtre déjà au premier plan la ferme. `Ctrl+W` ferme la fenêtre active, `Super+L` déconnecte (même pendant une fenêtre modale),
   `Ctrl+Tab` est celui d'ImGui (`NavEnableKeyboard`).
 - **Plein écran** (`Ctrl+F11`, `App::fullscreen_`) : `draw_windows` force chaque fenêtre ouverte sur
   toute la zone de travail sans la laisser déplacer ; `last_pos`/`last_size` ne sont plus mis à jour,
@@ -140,7 +140,7 @@ juste après la première image), les fenêtres déjà placées gardent leur pla
 - **Boutons** : `button()` et `small_button()` (`ui/widgets.hpp`) remplacent `ImGui::Button` et
   `ImGui::SmallButton`. Chaque bouton prend, dans l'ordre de dessin, la première lettre libre de sa
   fenêtre racine (initiales des mots d'abord), la souligne et répond à `Alt` gauche + lettre quand la
-  fenêtre a le focus. Pas de lettre pour les petits boutons et ceux des tableaux. Pendant une saisie,
+  fenêtre a le focus. Pas de lettre pour les petits boutons, ceux des tableaux et « Se déconnecter » (`danger_button(..., false)`), qui a `Super+L`. Pendant une saisie,
   le champ est d'abord quitté et le bouton agit à la frame suivante, sinon ImGui réécrirait le texte
   du champ. `main.cpp` jette les caractères tapés avec `Alt` gauche pour qu'ils n'arrivent pas dans le
   champ actif (`Alt Gr` n'est pas concerné).
