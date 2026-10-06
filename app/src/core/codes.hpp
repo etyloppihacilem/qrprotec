@@ -70,6 +70,9 @@ constexpr std::size_t kIidLength     = kTypeLength + kDateLength + kCounterLengt
 bool        is_iid(const std::string &code);
 ParsedScan  parse_scan(const std::string &raw);
 const char *scan_kind_name(ScanKind kind);
+// Libelle court d'un code scanne, pour l'affichage : jamais de cle (badge, etiquette privee, scelle, session),
+// pas d'URL complete. Meme rendu que describe dans database/inventory/web/scanner.js.
+std::string describe_scan(const ParsedScan &scan);
 bool        is_expired(const ParsedScan &scan, const Date &today);
 
 // Easter egg : un code contenant "douchette" (sans casse) n'est pas un scan, une phrase s'affiche.

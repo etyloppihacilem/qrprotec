@@ -350,6 +350,42 @@ const char *scan_kind_name(ScanKind kind) {
   return "Inconnu";
 }
 
+std::string describe_scan(const ParsedScan &scan) {
+  switch (scan.kind) {
+    case ScanKind::Item: return "Item " + scan.id;
+    case ScanKind::Lot: return "Lot " + scan.id + (scan.key.empty() ? "" : " · étiquette privée");
+    case ScanKind::User: return "Badge " + scan.id;
+    case ScanKind::SealedPack: return "Paquet " + scan.id;
+    case ScanKind::LotSeal: return "Scellé du lot " + scan.id;
+    case ScanKind::LotSealOpen: return "Ouverture du scellé du lot " + scan.id;
+    case ScanKind::Unknown: break;
+  }
+  const std::string &code   = scan.raw;
+  const std::size_t  scheme = code.find("://");
+  if (scheme == std::string::npos) {
+    // texte libre : tronque, comme le front web
+    if (code.size() <= 24)
+      return code;
+    std::size_t cut = 24;
+    while (cut > 0 && (static_cast< unsigned char >(code[cut]) & 0xC0) == 0x80) // pas au milieu d'un caractere UTF-8
+      --cut;
+    return code.substr(0, cut) + "…";
+  }
+  // URL non reconnue : seulement l'hote (la requete peut porter une cle)
+  const std::size_t host_start = scheme + 3;
+  const std::size_t host_end   = code.find_first_of("/?#", host_start);
+  std::string       path       = host_end == std::string::npos ? "" : code.substr(host_end, code.find_first_of("?#", host_end) - host_end);
+  while (!path.empty() && path.back() == '/')
+    path.pop_back();
+  if (path.substr(path.find_last_of('/') + 1) == "scanner")
+    return "QR de session douchette";
+  std::string host = code.substr(host_start, host_end == std::string::npos ? std::string::npos : host_end - host_start);
+  const std::size_t at = host.rfind('@'); // identifiants eventuels avant l'hote
+  if (at != std::string::npos)
+    host = host.substr(at + 1);
+  return "Lien " + host;
+}
+
 bool is_expired(const ParsedScan &scan, const Date &today) {
   return scan.kind == ScanKind::Item && scan.peremption && *scan.peremption < today;
 }

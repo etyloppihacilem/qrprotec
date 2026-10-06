@@ -1065,7 +1065,7 @@ void App::poll_remote() {
       // « Annuler le dernier » sur le telephone : seulement si le dernier scan de la pile vient de lui
       const auto &entries = stack.entries();
       if (!entries.empty() && entries.back().source == ScanSource::Phone) {
-        const std::string what = entries.back().title.empty() ? entries.back().scan.raw : entries.back().title;
+        const std::string what = entries.back().title.empty() ? describe_scan(entries.back().scan) : entries.back().title;
         stack.undo_last();
         notify("Téléphone : dernier scan annulé (" + what + ").");
       } else {
@@ -1121,7 +1121,7 @@ void App::handle_scan(const std::string &code, ScanSource source) {
   if (scan.kind == ScanKind::Item || scan.kind == ScanKind::SealedPack) {
     if (ScanEntry *existing = stack.find_code(scan.raw)) {
       existing->highlight_until = ImGui::GetTime() + 1.5;
-      last_duplicate_           = existing->title.empty() ? scan.raw : existing->title;
+      last_duplicate_           = existing->title.empty() ? describe_scan(scan) : existing->title;
       last_duplicate_time_      = ImGui::GetTime();
       return;
     }
@@ -1152,7 +1152,7 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     case ScanKind::Unknown: {
       stack.add(scan, source);
       feedback.error(source, settings);
-      notify("Code non reconnu : " + scan.raw, true);
+      notify("Code non reconnu : " + describe_scan(scan), true);
       return;
     }
   }
@@ -1165,7 +1165,7 @@ void App::entry_error(int entry_id, const std::string &message, ScanSource sourc
   entry->state  = EntryState::Error;
   entry->detail = message;
   feedback.error(source, settings);
-  notify(entry->scan.raw + " : " + message, true);
+  notify(describe_scan(entry->scan) + " : " + message, true);
 }
 
 void App::resolve_item(int entry_id) {

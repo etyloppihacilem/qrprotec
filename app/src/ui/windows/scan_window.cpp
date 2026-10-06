@@ -102,7 +102,7 @@ class ScanWindow final : public AppWindow {
             row_color(colors::yellow, 0.45f);
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(entry->title.c_str());
-          ImGui::TextDisabled("%s", entry->scan.raw.c_str());
+          ImGui::TextDisabled("%s", describe_scan(entry->scan).c_str());
           if (!entry->detail.empty())
             ImGui::TextWrapped("%s", entry->detail.c_str());
           ImGui::TableNextColumn();

@@ -11,6 +11,7 @@
 #include "inateck.hpp"
 #include "widgets.hpp"
 #include "imgui.h"
+#include "core/codes.hpp"
 #include "inateck/inateck_worker.hpp"
 #include "inateck/sdk_json.hpp"
 #include "GLFW/glfw3.h"
@@ -303,7 +304,7 @@ void Inateck::draw_inateck_window() {
     if (state.last_scan.empty())
       ImGui::TextUnformatted("Aucun code reçu.");
     else
-      ImGui::TextWrapped("%s", state.last_scan.c_str());
+      ImGui::TextWrapped("%s", describe_scan(parse_scan(state.last_scan)).c_str());
     ImGui::Text("Source : %s", state.selected_name.empty() ? "-" : state.selected_name.c_str());
     ImGui::TextUnformatted("La sortie SDK doit être activée pour recevoir les scans ici.");
   }
