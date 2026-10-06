@@ -44,11 +44,11 @@ Menu **Gestion > Gestion des lots** (rôle gestion).
 - **Nouveau lot** : type, nom, nom court (16 caractères, pour les petites étiquettes), lot parent
   (« Aucun : lot indépendant » ou le lot global). Aperçu et impression des étiquettes publique et
   privée.
-- **Fiche d'un lot** : modifier le nom ou le parent, réimprimer les étiquettes (**publique**,
+- **Fiche d'un lot** : modifier le nom, le parent ou l'**emplacement de l'étiquette privée** (ex : « poche intérieure du couvercle », affiché à qui essaie de valider une vérif sans l'avoir scannée), réimprimer les étiquettes (**publique**,
   **privée**, **les deux**), **Archiver le lot** quand il est réformé (il disparaît des listes ; il
   se réactive).
 - **Régénérer la clé** : si l'étiquette privée est perdue ou a pu être copiée. L'ancienne étiquette
-  privée ne fonctionne plus ; imprimez la nouvelle. Une clé est valable 10 ans par défaut ; la date
+  privée ne fonctionne plus ; imprimez la nouvelle. Une clé est valable 1 an par défaut ; la date
   d'expiration est affichée dans la fiche.
 
 ## Scellés

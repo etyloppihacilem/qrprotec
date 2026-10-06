@@ -1201,7 +1201,9 @@ void App::scan_lot_seal_open(const ParsedScan &scan, ScanSource source) {
 void App::scan_lot(const ParsedScan &scan, ScanSource source) {
   if (!scan.key.empty()) {
     stack.target = { scan.id, scan.key, scan.id };
-    api.get("/api/lots/" + url_encode(scan.id) + "/", [this, id = scan.id, source](const ApiResult &result) {
+    // le serveur compare la cle : sans connexion (ou role normal) il ne la renvoie pas
+    const std::string path = "/api/lots/" + url_encode(scan.id) + "/?key=" + url_encode(scan.key);
+    api.get(path, [this, id = scan.id, source](const ApiResult &result) {
       if (!result.ok) {
         if (stack.target.id == id)
           stack.target = {};
@@ -1209,9 +1211,11 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
         notify("Lot inconnu : " + id, true);
         return;
       }
-      if (result.data["verif_key"].str() != stack.target.key && stack.target.id == id) {
+      if (result.data["key_check"].str() != "valid" && stack.target.id == id) {
         feedback.error(source, settings);
-        notify("Clé de l'étiquette privée périmée : réimprimez l'étiquette du lot.", true);
+        notify(result.data["key_error"].str("Étiquette privée non reconnue : demandez à un responsable de la "
+                                            "réimprimer."),
+               true);
         stack.target = {};
         if (verif.lot_id == id)
           verif.key.clear();
@@ -1363,6 +1367,13 @@ void App::start_verif(const std::string &lot_id, const std::string &key) {
 
 void App::cancel_verif() {
   verif = {};
+}
+
+// Meme texte que Lots.key_hint cote serveur et keyHint dans le front web
+std::string key_hint(const Json &lot) {
+  const std::string location = lot["key_location"].str();
+  return "L'étiquette privée est un QR code rangé à l'intérieur du lot" +
+         (location.empty() ? std::string(".") : " (" + location + ").");
 }
 
 // La cle d'un lot couvre ses sous-lots : l'etiquette privee du lot global suffit pour verifier un sous-lot
@@ -1529,7 +1540,7 @@ void App::submit_verif(bool partial) {
     if (!verif.active || verif.submitting)
       return;
     if (!verif_key_ok()) {
-      notify("Scannez l'étiquette privée du lot pour valider la vérif.", true);
+      notify("Scannez l'étiquette privée du lot pour valider la vérif. " + key_hint(verif.lot), true);
       return;
     }
     Json body;
@@ -1606,7 +1617,7 @@ void App::restock_verif() {
     if (!verif.active || verif.submitting)
       return;
     if (!verif_key_ok()) {
-      notify("Scannez l'étiquette privée du lot pour ajouter des items.", true);
+      notify("Scannez l'étiquette privée du lot pour ajouter des items. " + key_hint(verif.lot), true);
       return;
     }
     Json body;

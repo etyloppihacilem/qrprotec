@@ -206,7 +206,19 @@ def require_lot_key(request, lot):
     if is_local(request):
         return
     if not lot.check_key(request.data.get('key')):
-        raise ApiError("Cle du lot invalide ou expiree", status.HTTP_403_FORBIDDEN)
+        raise ApiError(key_error(lot, request.data.get('key')), status.HTTP_403_FORBIDDEN)
+
+
+def key_error(lot, key):
+    """Message quand l'etiquette privee d'un lot manque ou ne vaut plus : dit ce qu'elle est et ou la trouver."""
+    state = lot.key_status(key) if key else 'missing'
+    if state == 'expired':
+        return (f"L'étiquette privée de {lot.name} a expiré le {lot.verif_key_expires.strftime('%d/%m/%Y')} : "
+                "demandez à un responsable de la réimprimer.")
+    if state == 'wrong':
+        return (f"L'étiquette privée scannée n'est plus celle de {lot.name} (clé régénérée) : "
+                "demandez à un responsable de la réimprimer.")
+    return f"Scannez l'étiquette privée de {lot.name} pour valider. " + lot.key_hint()
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -430,6 +442,13 @@ def lot_detail(request, lot_id):
     seal = request.query_params.get('seal')
     if seal is not None:
         data['seal_check'] = 'valid' if lot.check_seal(seal) else ('wrong' if lot.is_sealed else 'unsealed')
+    # etiquette privee scannee : ?key=CLE -> 'valid', 'expired' ou 'wrong'. Sans connexion la cle n'est pas
+    # renvoyee : le front ne peut pas la comparer lui-meme.
+    key = request.query_params.get('key')
+    if key is not None:
+        data['key_check'] = lot.key_status(key)
+        if data['key_check'] != 'valid':
+            data['key_error'] = key_error(lot, key)
     return Response(data)
 
 
@@ -512,8 +531,7 @@ def verif_targets(request, entries):
         authorized = {lot.id for lot in lots if lot.check_key(keys[lot.id])}
         for lot in lots:
             if lot.id not in authorized and not any(parent.id in authorized for parent in lot.ancestors()):
-                raise ApiError(f"Clé du lot {lot.name} invalide ou expirée : scannez son étiquette privée",
-                               status.HTTP_403_FORBIDDEN)
+                raise ApiError(key_error(lot, keys[lot.id]), status.HTTP_403_FORBIDDEN)
     return lots
 
 
@@ -1189,6 +1207,7 @@ def lots(request):
         lot_type=lot_type,
         name=name,
         name_short=str(data.get('name_short', '') or name)[:16],
+        key_location=str(data.get('key_location', '')).strip()[:128],
         created_by=operation_identity(request, data)[:32],
     )
     lot.parent = parse_parent(lot, data.get('parent'))
@@ -1227,6 +1246,8 @@ def lot_update(request, lot_id):
         lot.name_short = str(data['name_short'])[:16]
     if 'parent' in data:
         lot.parent = parse_parent(lot, data['parent'])
+    if 'key_location' in data:
+        lot.key_location = str(data['key_location']).strip()[:128]
     if 'active' in data:
         active = bool(data['active'])
         if not active and lot.children.filter(active=True).exists():
@@ -1247,6 +1268,8 @@ def lot_update(request, lot_id):
         changes.append('nom court')
     if 'parent' in data:
         changes.append(f'rangé dans {lot.parent.name}' if lot.parent else 'lot indépendant')
+    if 'key_location' in data:
+        changes.append("emplacement de l'étiquette privée")
     if 'active' in data:
         changes.append('actif' if lot.active else 'archivé')
     journal.record(OperationKind.LOT, front_identity(request), 'lot modifié : ' + (', '.join(changes) or 'aucun changement'),

@@ -517,6 +517,7 @@
     if (state.lotId && state.lotId !== scan.id && state.lot) {
       toast(`Lot changé : ${state.lot.name} → nouveau lot`);
     }
+    if (scan.key && !(await keyAccepted(scan.id, scan.key))) return;
     if (state.lotId !== scan.id) { state.lotKey = ''; state.lastVerif = null; state.extra = []; }
     if (scan.key) state.lotKey = scan.key;
     await loadLot(scan.id);
@@ -540,10 +541,15 @@
     if (!scan.key) return false;
     let lot;
     try {
-      lot = await api(`lots/${encodeURIComponent(scan.id)}/`);
+      lot = await api(`lots/${encodeURIComponent(scan.id)}/?key=${encodeURIComponent(scan.key)}`);
     } catch (e) {
       feedback.bad();
       showInfo('bad', 'Lot introuvable', e.message);
+      return true;
+    }
+    if (lot.key_check !== 'valid') {
+      feedback.bad();
+      showInfo('bad', 'Étiquette privée refusée', lot.key_error);
       return true;
     }
     if (rootOf(lot) !== rootOf(state.lot)) return false;
@@ -683,6 +689,25 @@
 
   const isMulti = () => sessionLots().length > 1;
 
+  // Etiquette privee scannee : le serveur dit si sa cle vaut encore (ancienne etiquette, cle expiree)
+  async function keyAccepted(id, key) {
+    try {
+      const lot = await api(`lots/${encodeURIComponent(id)}/?key=${encodeURIComponent(key)}`);
+      if (lot.key_check === 'valid') return true;
+      feedback.bad();
+      showInfo('bad', 'Étiquette privée refusée', lot.key_error);
+      return false;
+    } catch (e) {
+      return true; // lot introuvable : signale ensuite par loadLot
+    }
+  }
+
+  // Meme texte que Lots.key_hint cote serveur et key_hint dans l'app
+  function keyHint(lot) {
+    const location = lot && lot.key_location;
+    return "L'étiquette privée est un QR code rangé à l'intérieur du lot" + (location ? ` (${location}).` : '.');
+  }
+
   // Lots envoyes au serveur avec leur cle ; la cle d'un lot couvre ses sous-lots
   function sessionEntries() {
     return [{ id: state.lotId, key: state.lotKey }, ...state.extra.map(({ id, key }) => ({ id, key }))];
@@ -811,7 +836,7 @@
       !lot.verif_recommended ? '' : lot.restocked_count
         ? `Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
         : `Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
-      keyOk() ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider');
+      keyOk() ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider. ' + keyHint(lot));
   }
 
   // Saisie du PIN (ou choix du PIN pour un admin qui n'en a pas encore)
@@ -1009,7 +1034,10 @@
   function blockers(needItems = true) {
     const missing = [];
     if (!state.lot) missing.push("scannez l'étiquette du lot");
-    else if (!keyOk()) missing.push("scannez l'étiquette privée du lot");
+    else if (!keyOk()) {
+      missing.push("scannez l'étiquette privée du lot, un QR code rangé à l'intérieur du lot"
+        + (state.lot.key_location ? ` (${state.lot.key_location})` : ''));
+    }
     if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
     if (needItems && !scannedIids().size) missing.push('scannez au moins un item');
     return missing;
@@ -1467,7 +1495,7 @@
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
-        el('br'), keyOk() ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider.'),
+        el('br'), keyOk() ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider. ' + keyHint(lot)),
       el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
       lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
         + "Scannez l'étiquette privée d'un autre lot du même lot global pour l'ajouter.") : '',

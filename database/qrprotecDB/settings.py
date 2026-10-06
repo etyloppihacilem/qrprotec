@@ -74,7 +74,7 @@ QRPROTEC = {
     'USER_KEY_VALIDITY_DAYS': 365,
     # Echecs de PIN depuis le dernier PIN correct avant blocage (deblocage par un administrateur)
     'PIN_BLOCK_AFTER_FAILURES': int(os.environ.get('QRPROTEC_PIN_BLOCK_AFTER_FAILURES', '50')),
-    'LOT_KEY_VALIDITY_DAYS': int(os.environ.get('QRPROTEC_LOT_KEY_VALIDITY_DAYS', '3650')),
+    'LOT_KEY_VALIDITY_DAYS': int(os.environ.get('QRPROTEC_LOT_KEY_VALIDITY_DAYS', '365')),
     # Alerte « expire bientot » des etiquettes privees de lot et des badges, ce nombre de jours avant
     'KEY_EXPIRY_WARNING_DAYS': int(os.environ.get('QRPROTEC_KEY_EXPIRY_WARNING_DAYS', '30')),
     # Un item non perime est considere disparu apres ce nombre de verifs sans etre scanne

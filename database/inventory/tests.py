@@ -111,6 +111,37 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(body['verif_key'], self.lot.verif_key)
         self.assertIn(f'key={self.lot.verif_key}', body['private_url'])
 
+    def test_key_check_without_login(self):
+        # poste sans personne de connecte : la cle n'est pas renvoyee, le serveur la compare (bug « clé périmée »)
+        path = f'/api/lots/{self.lot.id}/?key='
+        code, body = self.call('GET', path + self.lot.verif_key, session=False)
+        self.assertEqual(code, 200)
+        self.assertNotIn('verif_key', body)
+        self.assertEqual(body['key_check'], 'valid')
+        self.assertNotIn('key_error', body)
+        code, body = self.call('GET', path + 'ancienne', session=False)
+        self.assertEqual(body['key_check'], 'wrong')
+        Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today - timedelta(days=1))
+        code, body = self.call('GET', path + self.lot.verif_key, local=False)
+        self.assertEqual(body['key_check'], 'expired')
+        self.assertIn('a expiré', body['key_error'])
+
+    def test_missing_key_message_explains_label(self):
+        Lots.objects.filter(pk=self.lot.pk).update(key_location='poche intérieure du couvercle')
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': []}, local=False)
+        self.assertEqual(code, 403)
+        self.assertIn("QR code rangé à l'intérieur du lot (poche intérieure du couvercle)", body['error'])
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(body['key_location'], 'poche intérieure du couvercle')
+
+    def test_key_location_update(self):
+        code, body = self.call('PATCH', f'/api/lots/{self.lot.id}/update/', {'key_location': '  sous le plateau  '})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['key_location'], 'sous le plateau')
+
+    def test_default_lot_key_validity_is_one_year(self):
+        self.assertEqual(self.lot.verif_key_expires, self.today + timedelta(days=365))
+
     def test_auth(self):
         code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         self.assertEqual(code, 200)
