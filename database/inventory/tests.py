@@ -2054,29 +2054,35 @@ class LotSheetTests(ApiTestCase):
     def test_one_page_per_sub_lot(self):
         root, o2 = self.sub_lots()
         response = self.client.get(f'/api/lots/{root.id}/sheet.pdf')
-        self.assertEqual(self.pages(response), 3)  # B+, Sac A, Sac O2
+        self.assertEqual(self.pages(response), 2)  # Sac A, Sac O2 : le B+ sans item attendu n'a pas de page
         texts = self.page_texts(response.content)
-        self.assertIn('Aucun item attendu', texts[0])
-        self.assertIn('(page 2)', texts[0])  # renvois vers la page de chaque sous-lot
-        self.assertIn('(page 3)', texts[0])
+        self.assertIn('(Sac A)', texts[0])
         # sac de soin : « Poche avant » avant « Sans emplacement »
-        self.assertLess(texts[1].index('(Poche avant)'), texts[1].index('(Sans emplacement)'))
-        self.assertIn('(Compresses)', texts[1])
-        self.assertIn('(Dans : B+ 1)', texts[2])
-        self.assertIn('(\xc9cran)', texts[2])
-        # un sous-lot seul : sa page uniquement
+        self.assertLess(texts[0].index('(Poche avant)'), texts[0].index('(Sans emplacement)'))
+        self.assertIn('(Compresses)', texts[0])
+        self.assertIn('dans B+ 1', texts[1])
+        self.assertIn('(\xc9cran)', texts[1])
+        self.assertNotIn('Signature', texts[0])  # liste de controle, pas de trace de verification
+        # un sous-lot seul : sa page uniquement ; le B+ seul sans sous-lot actif : une page « aucun item »
         self.assertEqual(self.pages(self.client.get(f'/api/lots/{o2.id}/sheet.pdf')), 1)
+        Lots.objects.filter(parent=root).update(active=False)
+        response = self.client.get(f'/api/lots/{root.id}/sheet.pdf')
+        self.assertEqual(self.pages(response), 1)
+        self.assertIn('Aucun item attendu', self.page_texts(response.content)[0])
 
-    def test_long_lot_continues_on_next_page(self):
-        for index in range(60):
+    def test_long_lot_fits_one_page_then_continues(self):
+        for index in range(70):
             item_type = ItemType.objects.create(type=f'it{index:04d}', name=f'Item {index}')
             LotRequirements.objects.create(lot_type=self.lot_type, item_type=item_type, location=f'Poche {index // 10}')
         response = self.client.get(f'/api/lots/{self.lot.id}/sheet.pdf')
-        self.assertGreaterEqual(self.pages(response), 3)
+        self.assertEqual(self.pages(response), 1)  # deux colonnes, texte reduit
+        for index in range(70, 200):
+            item_type = ItemType.objects.create(type=f'it{index:04d}', name=f'Item {index}')
+            LotRequirements.objects.create(lot_type=self.lot_type, item_type=item_type, location=f'Poche {index // 10}')
+        response = self.client.get(f'/api/lots/{self.lot.id}/sheet.pdf')
+        self.assertGreaterEqual(self.pages(response), 2)
         texts = self.page_texts(response.content)
         self.assertIn('Sac A \\(suite\\)', texts[1])
-        self.assertIn('Signature', texts[-1])
-        self.assertNotIn('Signature', texts[0])
 
     def test_archived_lot_hidden_from_public(self):
         self.lot.active = False

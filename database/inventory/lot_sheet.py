@@ -10,9 +10,11 @@
 
 """Fiche d'inventaire papier d'un lot, en PDF A4.
 
-Equivalent de l'inventaire papier : pour chaque lot, les types d'items attendus tries par emplacement, avec des
-cases a remplir (quantite trouvee, peremption la plus proche, OK). Un lot global donne une page par sous-lot (en
-profondeur d'abord, comme partout ailleurs). Un lot trop long continue sur une page « suite ».
+Liste de controle pour verifier sur le terrain qu'un sac est complet, sans reseau ni poste : les types d'items
+attendus, regroupes par emplacement, sur deux colonnes avec une case a cocher. La taille du texte diminue pour que la
+liste tienne en une page autant que possible ; au-dela, elle continue sur une page « suite ». Un lot global donne une
+page par sous-lot (en profondeur d'abord, comme partout ailleurs) ; un lot de regroupement sans item attendu n'a pas
+de page a lui.
 
 Le PDF est ecrit a la main (polices standard Helvetica, encodage WinAnsi) pour ne pas ajouter de dependance.
 """
@@ -26,31 +28,21 @@ from .models import LotRequirements, name_key
 
 PAGE_WIDTH = 595.28   # A4 en points
 PAGE_HEIGHT = 841.89
-MARGIN = 40
+MARGIN = 36
 CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN
+FOOTER_Y = PAGE_HEIGHT - 22
+BODY_BOTTOM = FOOTER_Y - 16
 
-ROW_HEIGHT = 20
-GROUP_HEIGHT = 18
-TABLE_HEAD_HEIGHT = 22
-SIGN_HEIGHT = 112      # bloc « verifie le / par / signature / remarques » en bas de la derniere page d'un lot
-FOOTER_Y = PAGE_HEIGHT - 24
+COLUMN_GAP = 18
+COLUMN_WIDTH = (CONTENT_WIDTH - COLUMN_GAP) / 2
 
 NO_LOCATION = 'Sans emplacement'
-PAGE_REF = '\x01'  # entoure l'id d'un sous-lot dont le numero de page n'est connu qu'a la fin
 
-# (titre, largeur) des colonnes du tableau
-COLUMNS = [
-    ("Type d'item", 255),
-    ('Attendu', 50),
-    ('Trouvé', 55),
-    ('Péremption\nla plus proche', 105),
-    ('OK', 50),
-]
+# tailles essayees dans l'ordre, jusqu'a ce que la liste tienne en une page : (texte, interligne, bandeau)
+SCALES = [(11, 19, 20), (10, 17, 18), (9, 15, 16), (8, 13, 14)]
 
 GREY_TEXT = 0.42
-GREY_BAND = 0.90
-GREY_HEAD = 0.80
-GREY_DISABLED = 0.94
+GREY_BAND = 0.88
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -238,189 +230,170 @@ class SheetWriter:
         self.lots = root.descendants()
         self.edited = timezone.localtime()
         self.pages = []        # [(page, lot)]
-        self.first_page = {}   # id du lot -> numero de sa premiere page
-        self.page = None
-        self.y = 0
+        self._groups = {}
 
-    # -- mise en page -------------------------------------------------------------------------------------------------
+    def groups(self, lot):
+        if lot.id not in self._groups:
+            self._groups[lot.id] = requirement_groups(lot)
+        return self._groups[lot.id]
 
-    def new_page(self, lot, continued=False):
-        self.page = Page()
-        self.pages.append((self.page, lot))
-        self.first_page.setdefault(lot.id, len(self.pages))
-        self.y = MARGIN
-        self.header(lot, continued)
+    # -- en-tete ------------------------------------------------------------------------------------------------------
 
-    def header(self, lot, continued):
-        page = self.page
-        page.text(MARGIN, self.y + 8, "FICHE D'INVENTAIRE", size=8, bold=True, grey=GREY_TEXT)
-        page.text(PAGE_WIDTH - MARGIN, self.y + 8, 'Éditée le ' + self.edited.strftime('%d/%m/%Y'), size=8,
-                  grey=GREY_TEXT, align='right')
-        self.y += 30
+    def header(self, lot, continued, page=None):
+        """Dessine l'en-tete (si page) et renvoie la hauteur occupee depuis le haut de la page."""
+        def text(*args, **kwargs):
+            if page is not None:
+                page.text(*args, **kwargs)
+
+        y = MARGIN
+        text(MARGIN, y + 8, "FICHE D'INVENTAIRE", size=8, bold=True, grey=GREY_TEXT)
+        text(PAGE_WIDTH - MARGIN, y + 8, 'Éditée le ' + self.edited.strftime('%d/%m/%Y'), size=8, grey=GREY_TEXT,
+             align='right')
+        y += 28
+        count = sum(requirement.quantity for _, rows in self.groups(lot) for requirement in rows)
         title = lot.name + (' (suite)' if continued else '')
-        page.text(MARGIN, self.y, fit(title, CONTENT_WIDTH, 20, True), size=20, bold=True)
-        self.y += 18
-        details = f'{lot.lot_type.name} · {lot.id} · version {lot.version}'
-        page.text(MARGIN, self.y, fit(details, CONTENT_WIDTH, 10), size=10, grey=GREY_TEXT)
-        self.y += 14
-        if continued:
-            self.y += 6
-            return
+        text(MARGIN, y, fit(title, CONTENT_WIDTH, 18, True), size=18, bold=True)
+        y += 15
         ancestors = lot.ancestors()
+        details = [lot.lot_type.name, lot.id, f'{count} item' + ('s' if count > 1 else '')]
         if ancestors:
-            path = ' › '.join(parent.name for parent in reversed(ancestors))
-            page.text(MARGIN, self.y, fit('Dans : ' + path, CONTENT_WIDTH, 10), size=10)
-            self.y += 14
+            details.insert(0, 'dans ' + ' › '.join(parent.name for parent in reversed(ancestors)))
+        text(MARGIN, y, fit(' · '.join(details), CONTENT_WIDTH, 9.5), size=9.5, grey=GREY_TEXT)
+        y += 13
         children = [sub for sub in self.lots if sub.parent_id == lot.id]
-        if children:
+        if children and not continued:
             names = ', '.join(sub.name for sub in children)
-            page.text(MARGIN, self.y, fit('Sous-lots : ' + names, CONTENT_WIDTH, 10), size=10)
-            self.y += 14
-        for line in wrap(lot.lot_type.description, CONTENT_WIDTH, 9, max_lines=3):
-            page.text(MARGIN, self.y, line, size=9, grey=GREY_TEXT)
-            self.y += 12
-        self.y += 8
+            text(MARGIN, y, fit('Sous-lots (une page chacun) : ' + names, CONTENT_WIDTH, 9.5), size=9.5)
+            y += 13
+        y += 4
+        if page is not None:
+            page.line(MARGIN, y, PAGE_WIDTH - MARGIN, y, line_width=0.8)
+        return y + 10
 
-    def space_left(self, reserve=0):
-        return FOOTER_Y - 16 - reserve - self.y
+    # -- liste ----------------------------------------------------------------------------------------------------
 
-    def table_head(self):
-        page = self.page
-        x = MARGIN
-        for label, width in COLUMNS:
-            page.rect(x, self.y, width, TABLE_HEAD_HEIGHT, fill=GREY_HEAD)
-            lines = label.split('\n')
-            baseline = self.y + 14 - (len(lines) - 1) * 4.5
-            for line in lines:
-                page.text(x + width / 2 if x > MARGIN else x + 6, baseline, fit(line, width - 6, 8, True), size=8,
-                          bold=True, align='center' if x > MARGIN else 'left')
-                baseline += 9
-            x += width
-        self.y += TABLE_HEAD_HEIGHT
+    @staticmethod
+    def entries(groups, scale):
+        """[(type, contenu, hauteur)] : bandeau d'emplacement puis ses items, le nom sur deux lignes au plus."""
+        size, line_height, band = scale
+        result = []
+        for location, rows in groups:
+            result.append(('location', location, band + 3))
+            for requirement in rows:
+                lines = wrap(requirement.item_type.name, name_width(size), size, max_lines=2)
+                result.append(('item', (requirement, lines), line_height + (len(lines) - 1) * (size + 1)))
+        return result
 
-    def group_row(self, location, continued=False):
-        self.page.rect(MARGIN, self.y, CONTENT_WIDTH, GROUP_HEIGHT, fill=GREY_BAND)
-        label = location + (' (suite)' if continued else '')
-        self.page.text(MARGIN + 6, self.y + 12.5, fit(label, CONTENT_WIDTH - 12, 9.5, True), size=9.5, bold=True)
-        self.y += GROUP_HEIGHT
+    def layout(self, lot, entries, scale, bottom=BODY_BOTTOM):
+        """Place les entrees colonne par colonne : [[(colonne, y, entree)] par page]. Un emplacement ne commence pas
+        en bas de colonne sans son premier item ; coupe, il est repete en tete de la colonne suivante (« suite »)."""
+        band = scale[2] + 3
+        pages = []
+        top = self.header(lot, False)
+        column, y = 0, top
+        location = None
+        pages.append([])
 
-    def item_row(self, requirement):
-        page = self.page
-        item_type = requirement.item_type
-        x = MARGIN
-        widths = [width for _, width in COLUMNS]
-        for index, width in enumerate(widths):
-            perishable_cell = index == 3 and not item_type.perissable
-            page.rect(x, self.y, width, ROW_HEIGHT, fill=GREY_DISABLED if perishable_cell else None)
-            x += width
-        baseline = self.y + 13.5
-        name = item_type.name
-        note = 'étiquette à déchirer' if item_type.tear_off else ''
-        name_width = widths[0] - 12
-        if note:
-            note_width = text_width(note, 7.5) + 6
-            shown = fit(name, name_width - note_width, 10)
-            page.text(MARGIN + 6, baseline, shown, size=10)
-            page.text(MARGIN + 6 + text_width(shown, 10) + 6, baseline, note, size=7.5, grey=GREY_TEXT)
-        else:
-            page.text(MARGIN + 6, baseline, fit(name, name_width, 10), size=10)
-        x = MARGIN + widths[0]
-        page.text(x + widths[1] / 2, baseline, str(requirement.quantity), size=11, bold=True, align='center')
-        x += widths[1] + widths[2]
-        if not item_type.perissable:
-            page.text(x + widths[3] / 2, baseline, 'non périssable', size=7.5, grey=GREY_TEXT, align='center')
-        else:
-            page.text(x + widths[3] / 2, baseline, '....../....../............', size=8, grey=0.6, align='center')
-        x += widths[3]
-        box = 11
-        page.rect(x + (widths[4] - box) / 2, self.y + (ROW_HEIGHT - box) / 2, box, box, line_width=0.8)
-        self.y += ROW_HEIGHT
+        def next_column():
+            nonlocal column, y, top
+            column += 1
+            if column == 2:
+                top = self.header(lot, True)
+                pages.append([])
+                column = 0
+            y = top
 
-    def signature(self):
-        page = self.page
-        self.y = max(self.y + 14, FOOTER_Y - 16 - SIGN_HEIGHT)
-        top = self.y
-        third = CONTENT_WIDTH / 3
-        for index, label in enumerate(('Vérifié le', 'Par', 'Signature')):
-            x = MARGIN + index * third
-            page.text(x, top + 10, label, size=9, bold=True)
-            page.line(x, top + 30, x + third - 14, top + 30, grey=0.5)
-        page.text(MARGIN, top + 48, 'Remarques (manquants, périmés, réassort à prévoir)', size=9, bold=True)
-        page.rect(MARGIN, top + 54, CONTENT_WIDTH, SIGN_HEIGHT - 58, line_width=0.5)
-
-    # -- contenu ------------------------------------------------------------------------------------------------------
+        for index, entry in enumerate(entries):
+            kind, content, height = entry
+            if kind == 'location':
+                location = content
+                following = entries[index + 1][2] if index + 1 < len(entries) else 0
+                if y + height + following > bottom and y > top:
+                    next_column()
+            else:
+                if y + height > bottom and y > top:
+                    next_column()
+                    if location is not None:
+                        pages[-1].append((column, y, ('location', location + ' (suite)', band)))
+                        y += band
+            pages[-1].append((column, y, entry))
+            y += height
+        return pages
 
     def lot_pages(self, lot):
-        self.new_page(lot)
-        groups = requirement_groups(lot)
-        if not groups:
-            self.page.text(MARGIN, self.y + 10, 'Aucun item attendu dans ce lot.', size=11, bold=True)
-            self.y += 26
-            children = [sub for sub in self.lots if sub.parent_id == lot.id]
-            if children:
-                self.page.text(MARGIN, self.y, 'Il regroupe les sous-lots suivants, chacun sur sa page :', size=10)
-                self.y += 18
-                self.children_list(lot)
-            return
-        total = sum(len(rows) for _, rows in groups)
-        self.table_head()
-        done = 0
-        for location, rows in groups:
-            # un emplacement ne commence pas en bas de page sans au moins un item
-            if self.space_left(GROUP_HEIGHT + ROW_HEIGHT) < 0:
-                self.new_page(lot, continued=True)
-                self.table_head()
-            self.group_row(location)
-            for requirement in rows:
-                last = done == total - 1
-                # la derniere ligne doit laisser la place du bloc de signature
-                if self.space_left(ROW_HEIGHT + (SIGN_HEIGHT + 14 if last else 0)) < 0:
-                    self.new_page(lot, continued=True)
-                    self.table_head()
-                    self.group_row(location, continued=True)
-                self.item_row(requirement)
-                done += 1
-        self.signature()
-
-    def children_list(self, lot):
-        for sub in self.lots:
-            if sub is lot or sub.depth <= lot.depth:
-                continue
-            if not any(parent.id == lot.id for parent in sub.ancestors()):
-                continue
-            if self.space_left(SIGN_HEIGHT + 30) < 0:
+        groups = self.groups(lot)
+        for scale in SCALES:
+            entries = self.entries(groups, scale)
+            layouts = self.layout(lot, entries, scale)
+            if len(layouts) == 1:
                 break
-            indent = MARGIN + 12 + (sub.depth - lot.depth - 1) * 14
-            self.page.text(indent, self.y, fit(f'• {sub.name} ({sub.lot_type.name})', CONTENT_WIDTH - indent, 10),
-                           size=10)
-            self.page.text(PAGE_WIDTH - MARGIN - 45, self.y, f'page {PAGE_REF}{sub.id}{PAGE_REF}', size=10,
-                           grey=GREY_TEXT)
-            self.y += 15
+        if len(layouts) == 1:
+            # colonnes equilibrees : la plus petite hauteur de colonne qui garde la liste sur une page
+            low, high = self.header(lot, False), BODY_BOTTOM
+            while high - low > 1:
+                middle = (low + high) / 2
+                if len(self.layout(lot, entries, scale, middle)) == 1:
+                    high = middle
+                else:
+                    low = middle
+            layouts = self.layout(lot, entries, scale, high)
+        for number, placed in enumerate(layouts):
+            page = Page()
+            self.pages.append((page, lot))
+            self.header(lot, number > 0, page)
+            for column, y, entry in placed:
+                self.draw(page, MARGIN + column * (COLUMN_WIDTH + COLUMN_GAP), y, entry, scale)
+            if not placed:
+                page.text(MARGIN, self.header(lot, False) + 12, 'Aucun item attendu dans ce lot.', size=11, bold=True)
+            elif any(column == 1 for column, _, _ in placed):  # filet entre les deux colonnes
+                x = MARGIN + COLUMN_WIDTH + COLUMN_GAP / 2
+                bottom = max(y + height for _, y, (_, _, height) in placed)
+                page.line(x, self.header(lot, number > 0), x, bottom, line_width=0.4, grey=0.7)
+
+    @staticmethod
+    def draw(page, x, y, entry, scale):
+        size, line_height, _ = scale
+        kind, content, height = entry
+        if kind == 'location':
+            page.rect(x, y, COLUMN_WIDTH, height - 3, fill=GREY_BAND, stroke=False)
+            page.text(x + 5, y + (height - 3) / 2 + size * 0.36, fit(content, COLUMN_WIDTH - 10, size, True),
+                      size=size, bold=True)
+            return
+        requirement, lines = content
+        baseline = y + (line_height + size * 0.72) / 2
+        box = size * 0.95
+        page.rect(x + 3, baseline - box * 0.85, box, box, line_width=0.8)
+        quantity_right = x + 3 + box + 6 + text_width('000', size, True)
+        page.text(quantity_right, baseline, f'{requirement.quantity}', size=size, bold=True, align='right')
+        page.text(quantity_right + 2, baseline, '×', size=size * 0.8, grey=GREY_TEXT)
+        name_x = x + COLUMN_WIDTH - name_width(size)
+        for line in lines:
+            page.text(name_x, baseline, line, size=size)
+            baseline += size + 1
+        page.line(name_x, y + height, x + COLUMN_WIDTH, y + height, line_width=0.3, grey=0.8)
 
     def write(self):
         for lot in self.lots:
-            self.lot_pages(lot)
+            # un lot de regroupement (sans item attendu) n'a pas de page, sauf s'il est seul
+            if self.groups(lot) or self.lots == [lot]:
+                self.lot_pages(lot)
+        if not self.pages:  # aucun lot n'attend d'item
+            self.lot_pages(self.root)
         total = len(self.pages)
         for number, (page, lot) in enumerate(self.pages, start=1):
-            # renvois « page {id} » de la liste des sous-lots, connus une fois toutes les pages placees
-            page.ops = [self._resolve(op) for op in page.ops]
             page.line(MARGIN, FOOTER_Y - 10, PAGE_WIDTH - MARGIN, FOOTER_Y - 10, line_width=0.4, grey=0.6)
             where = f'{self.root.name} › {lot.name}' if lot is not self.root else lot.name
-            page.text(MARGIN, FOOTER_Y, fit(f'QRProtec · {where} ({lot.id})', CONTENT_WIDTH - 80, 8), size=8,
-                      grey=GREY_TEXT)
+            page.text(MARGIN, FOOTER_Y, fit(f'QRProtec · {where} ({lot.id}) · version {lot.version}',
+                                            CONTENT_WIDTH - 80, 8), size=8, grey=GREY_TEXT)
             page.text(PAGE_WIDTH - MARGIN, FOOTER_Y, f'page {number}/{total}', size=8, grey=GREY_TEXT, align='right')
         return build_pdf([page for page, _ in self.pages], title=f"Fiche d'inventaire - {self.root.name}")
 
-    def _resolve(self, op):
-        marker = PAGE_REF.encode()
-        if marker not in op:
-            return op
-        start = op.index(marker)
-        end = op.index(marker, start + 1)
-        lot_id = op[start + 1:end].decode()
-        return op[:start] + str(self.first_page.get(lot_id, '?')).encode() + op[end + 1:]
+
+def name_width(size):
+    """Largeur du nom d'un item : la colonne moins la case et la quantite."""
+    return COLUMN_WIDTH - (3 + size * 0.95 + 6 + text_width('000', size, True) + text_width(' ×', size) + 6)
 
 
 def lot_sheet_pdf(lot):
-    """PDF de la fiche du lot et de ses sous-lots actifs (une page par lot, plus si besoin)."""
+    """PDF de la fiche du lot et de ses sous-lots actifs (une page par lot qui contient des items, plus si besoin)."""
     return SheetWriter(lot).write()

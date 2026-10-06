@@ -1508,7 +1508,7 @@
     );
   }
 
-  // Fiche d'inventaire papier (PDF A4) : items attendus par emplacement, une page par sous-lot
+  // Fiche d'inventaire papier (PDF A4) : liste de controle par emplacement, une page par sous-lot
   function sheetLink(id, label) {
     return el('a', { class: 'button-link', href: new URL(`lots/${encodeURIComponent(id)}/sheet.pdf`, API).href,
       target: '_blank', rel: 'noopener' }, '📄 ' + label);
