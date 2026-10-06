@@ -127,7 +127,7 @@ void draw_label_preview(App &app) {
         open = false;
       }
       ImGui::SameLine();
-      if (ImGui::Button("Imprimer celle-ci"))
+      if (button("Imprimer celle-ci"))
         app.print_documents({ job });
     } else if (primary_button("Imprimer")) {
       app.print_documents(preview.jobs);
@@ -135,7 +135,7 @@ void draw_label_preview(App &app) {
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Fermer"))
+    if (button("Fermer"))
       open = false;
   }
   ImGui::End();

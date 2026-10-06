@@ -40,14 +40,14 @@ class PackWindow final : public AppWindow {
       const bool enter = ImGui::InputTextWithHint("##pack_id", "Code du paquet", &input_,
                                                   ImGuiInputTextFlags_EnterReturnsTrue);
       ImGui::SameLine();
-      if ((ImGui::Button("Afficher") || enter) && !input_.empty()) {
+      if ((button("Afficher") || enter) && !input_.empty()) {
         pack_id_ = input_;
         input_.clear();
         load(app);
       }
       ImGui::SameLine();
       ImGui::BeginDisabled(pack_id_.empty());
-      if (ImGui::Button("Rafraîchir"))
+      if (button("Rafraîchir"))
         load(app);
       ImGui::EndDisabled();
       ImGui::Separator();
@@ -92,12 +92,12 @@ class PackWindow final : public AppWindow {
       ImGui::BeginDisabled(busy_);
       const std::string label = opened ? "Réimprimer les " + std::to_string(count) + " étiquettes des items"
                                        : "Ouvrir le paquet et imprimer les " + std::to_string(count) + " étiquettes";
-      if (opened ? ImGui::Button(label.c_str(), ImVec2(-1, 0))
+      if (opened ? button(label.c_str(), ImVec2(-1, 0))
                  : primary_button(label.c_str(), ImVec2(-1, ImGui::GetFrameHeight() * 1.5f)))
         open_pack(app);
       if (!opened)
         ImGui::TextDisabled("Un aperçu des étiquettes s'affiche avant l'impression.");
-      if (ImGui::Button("Étiquette du paquet"))
+      if (button("Étiquette du paquet"))
         app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack_) }, "Paquet");
       if (opened) {
         ImGui::SameLine();

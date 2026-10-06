@@ -56,6 +56,9 @@ class AppWindow {
     bool              was_open = false;
     bool              place_pending = true; // appliquer la disposition par defaut au prochain affichage
     bool              focus_pending = false;
+    bool              fullscreen    = false; // dessinee en plein ecran (mode plein ecran de l'application)
+    ImGuiKeyChord     shortcut      = 0;     // raccourci d'ouverture (F1, Ctrl+1...)
+    std::string       shortcut_label;        // affiche dans les menus
 };
 
 struct SessionUser {
@@ -257,7 +260,15 @@ class App {
     void        select_default_templates(); // modeles fournis choisis pour les usages sans modele
     bool        save_settings();
     void        save_current_layout();
-    void        request_layout_reset() { layout_pending_ = true; }
+    void        request_layout_reset() {
+      layout_pending_ = true;
+      fullscreen_     = false;
+    }
+    // Plein ecran : chaque fenetre ouverte occupe toute la zone sous la barre de menu, on passe de l'une a
+    // l'autre avec Ctrl+Tab, les raccourcis ou le menu Fenetres. F11 bascule.
+    bool        fullscreen() const { return fullscreen_; }
+    void        toggle_fullscreen() { fullscreen_ = !fullscreen_; }
+    void        focus_next_window(int direction); // fenetre ouverte suivante (1) ou precedente (-1)
     Date        today() const { return Date::today(); }
 
     AppSettings                  settings;
@@ -298,6 +309,9 @@ class App {
     void scan_lot_seal_open(const ParsedScan &scan, ScanSource source);
     void entry_error(int entry_id, const std::string &message, ScanSource source);
     void draw_menu_bar();
+    void window_menu_item(AppWindow &window);
+    void handle_shortcuts();
+    void assign_shortcuts();
     void draw_windows();
     void draw_login_modal();
     void draw_douchette_modal(); // easter egg : la douchette a ete scannee
@@ -331,6 +345,8 @@ class App {
     double                  last_activity_ = 0.0;
     bool                    reset_done_    = false;
     bool                    layout_pending_ = true;
+    bool                    fullscreen_     = false;
+    std::string             focused_window_; // derniere fenetre de l'application ayant eu le focus
     std::vector< Toast >    toasts_;
     bool                    login_prompt_ = false;
     PinPrompt               pin_;

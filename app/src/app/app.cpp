@@ -18,6 +18,7 @@
 #include "../core/paths.hpp"
 #include "../core/template_io.hpp"
 
+#include "imgui_internal.h"
 #include "imgui_stdlib.h"
 
 #include <algorithm>
@@ -79,6 +80,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_editor_window());
   windows.push_back(make_settings_window());
   windows.push_back(make_phone_window());
+  assign_shortcuts();
   feedback.on_phone_error = [this]() {
     remote.feedback_pending = true;
     remote.feedback_message.clear();
@@ -173,6 +175,58 @@ AppWindow *App::window(const std::string &id) {
   return nullptr;
 }
 
+// Raccourcis d'ouverture : F1 a F4 pour les fenetres de tous, Ctrl+1 a Ctrl+8 pour celles du menu Gestion
+// (dans l'ordre du menu). Les touches de fonction ne tapent rien dans les champs, Ctrl+chiffre non plus.
+void App::assign_shortcuts() {
+  const std::pair< const char *, ImGuiKey > normal[] = {
+    { "scan", ImGuiKey_F1 }, { "lots", ImGuiKey_F2 }, { "verif", ImGuiKey_F3 }, { "phone", ImGuiKey_F4 }
+  };
+  for (const auto &[id, key] : normal)
+    if (AppWindow *target = window(id)) {
+      target->shortcut       = key;
+      target->shortcut_label = ImGui::GetKeyName(key);
+    }
+  int digit = 1;
+  for (auto &target : windows)
+    if (target->privileged && digit <= 9) {
+      target->shortcut       = ImGuiMod_Ctrl | (ImGuiKey_0 + digit);
+      target->shortcut_label = "Ctrl+" + std::to_string(digit++);
+    }
+}
+
+void App::handle_shortcuts() {
+  // fenetre modale (connexion, PIN...) : elle garde la main
+  if (ImGui::GetTopMostPopupModal() != nullptr)
+    return;
+  for (auto &target : windows)
+    if (target->shortcut && can_open(*target) && ImGui::IsKeyChordPressed(target->shortcut)) {
+      // deja au premier plan : le meme raccourci la ferme (comme le menu Fenetres)
+      if (target->open && focused_window_ == target->id && target->can_close(*this))
+        target->open = false;
+      else
+        open_window(target->id);
+    }
+  if (ImGui::IsKeyChordPressed(ImGuiKey_F11))
+    toggle_fullscreen();
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W))
+    if (AppWindow *target = window(focused_window_); target && target->open && target->can_close(*this))
+      target->open = false;
+}
+
+void App::focus_next_window(int direction) {
+  std::vector< AppWindow * > open;
+  for (auto &target : windows)
+    if (target->open && can_open(*target))
+      open.push_back(target.get());
+  if (open.empty())
+    return;
+  std::size_t index = 0;
+  for (std::size_t i = 0; i < open.size(); ++i)
+    if (open[i]->id == focused_window_)
+      index = (i + open.size() + direction) % open.size();
+  open[index]->focus_pending = true;
+}
+
 void App::open_window(const std::string &id) {
   if (AppWindow *target = window(id)) {
     target->open          = true;
@@ -225,6 +279,7 @@ void App::reset_session() {
   pin_          = PinPrompt{};
   pending_action_ = nullptr;
   declared_name_.clear();
+  fullscreen_ = false;
   apply_default_open_state();
   refresh_lots();
   notify("Session réinitialisée après inactivité.");
@@ -235,6 +290,7 @@ ImVec4 App::background_color() const {
 }
 
 void App::draw() {
+  handle_shortcuts();
   draw_menu_bar();
   // mode privilegie : fenetres teintees d'orange en plus du fond, pour qu'il soit impossible a manquer
   const bool tint = privileged();
@@ -267,17 +323,24 @@ void App::draw_menu_bar() {
     menu_bar_height_ = ImGui::GetWindowSize().y;
     if (ImGui::BeginMenu("Fenêtres")) {
       for (auto &window : windows)
-        if (!window->privileged && window->closable && ImGui::MenuItem(window->title.c_str(), nullptr, window->open))
-          window->open ? (void)(window->open = false) : open_window(window->id);
+        if (!window->privileged)
+          window_menu_item(*window);
       ImGui::Separator();
+      if (ImGui::MenuItem("Plein écran", "F11", fullscreen_))
+        toggle_fullscreen();
+      if (ImGui::MenuItem("Fenêtre suivante", "Ctrl+Tab"))
+        focus_next_window(1);
+      const AppWindow *focused = window(focused_window_);
+      if (ImGui::MenuItem("Fermer la fenêtre", "Ctrl+W", false, focused && focused->open && focused->can_close(*this)))
+        window(focused_window_)->open = false;
       if (ImGui::MenuItem("Remettre les fenêtres en place"))
         request_layout_reset();
       ImGui::EndMenu();
     }
     if (privileged() && ImGui::BeginMenu("Gestion")) {
       for (auto &window : windows)
-        if (window->privileged && can_open(*window) && ImGui::MenuItem(window->title.c_str(), nullptr, window->open))
-          window->open ? (void)(window->open = false) : open_window(window->id);
+        if (window->privileged && can_open(*window))
+          window_menu_item(*window);
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Douchette")) {
@@ -353,6 +416,18 @@ void App::draw_menu_bar() {
     ImGui::PopStyleColor();
 }
 
+// Fenetre ouverte au premier plan : on la ferme (sauf la pile de scans, toujours ouverte). Ouverte mais derriere une autre (en plein ecran surtout) :
+// on la ramene devant. Fermee : on l'ouvre.
+void App::window_menu_item(AppWindow &target) {
+  const char *shortcut = target.shortcut_label.empty() ? nullptr : target.shortcut_label.c_str();
+  if (!ImGui::MenuItem(target.title.c_str(), shortcut, target.open))
+    return;
+  if (target.open && focused_window_ == target.id && target.can_close(*this))
+    target.open = false;
+  else
+    open_window(target.id);
+}
+
 void App::draw_windows() {
   ImVec2 origin, size;
   work_area(origin, size);
@@ -372,6 +447,24 @@ void App::draw_windows() {
       ImGui::SetNextWindowSize(ImVec2(layout->second.w * size.x, layout->second.h * size.y), cond);
     }
     window->place_pending = false;
+    // plein ecran : last_pos et last_size gardent la place d'avant, reprise a la sortie
+    ImGuiWindowFlags flags = window->flags();
+    if (fullscreen_) {
+      window->fullscreen = true;
+      ImGui::SetNextWindowPos(origin, ImGuiCond_Always);
+      ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+      ImGui::SetNextWindowCollapsed(false, ImGuiCond_Always);
+      flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
+      flags &= ~ImGuiWindowFlags_AlwaysAutoResize;
+    } else if (window->fullscreen) {
+      window->fullscreen = false;
+      if (window->last_size.x > 0.0f) {
+        ImGui::SetNextWindowPos(window->last_pos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(window->last_size, ImGuiCond_Always);
+      } else {
+        window->place_pending = true; // ouverte en plein ecran : disposition par defaut
+      }
+    }
     if (window->focus_pending) {
       ImGui::SetNextWindowFocus();
       window->focus_pending = false;
@@ -379,11 +472,15 @@ void App::draw_windows() {
     bool              open  = true;
     bool             *p_open = window->can_close(*this) ? &open : nullptr;
     const std::string label = window->title + "###" + window->id;
-    if (ImGui::Begin(label.c_str(), p_open, window->flags())) {
-      window->last_pos  = ImGui::GetWindowPos();
-      window->last_size = ImGui::GetWindowSize();
+    if (ImGui::Begin(label.c_str(), p_open, flags)) {
+      if (!fullscreen_) {
+        window->last_pos  = ImGui::GetWindowPos();
+        window->last_size = ImGui::GetWindowSize();
+      }
       window->draw(*this);
     }
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+      focused_window_ = window->id;
     ImGui::End();
     if (!open)
       window->open = false;
@@ -413,7 +510,7 @@ void App::draw_douchette_modal() {
   ImGui::PopTextWrapPos();
   ImGui::PopFont();
   ImGui::Spacing();
-  if (ImGui::Button("Pardon", ImVec2(-FLT_MIN, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)
+  if (button("Pardon", ImVec2(-FLT_MIN, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)
       || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
@@ -453,7 +550,7 @@ void App::draw_login_modal() {
                                                   ImGuiInputTextFlags_EnterReturnsTrue);
       const bool empty = declared_name_.find_first_not_of(" \t") == std::string::npos;
       ImGui::BeginDisabled(empty);
-      if ((ImGui::Button("Continuer sans badge", ImVec2(360, 0)) || enter) && !empty) {
+      if ((button("Continuer sans badge", ImVec2(360, 0)) || enter) && !empty) {
         auto action     = std::move(pending_action_);
         pending_action_ = nullptr;
         login_prompt_   = false;
@@ -464,7 +561,7 @@ void App::draw_login_modal() {
       }
       ImGui::EndDisabled();
     }
-    if (ImGui::Button("Annuler", ImVec2(160, 0))) {
+    if (button("Annuler", ImVec2(160, 0))) {
       login_prompt_   = false;
       pending_action_ = nullptr;
     }
@@ -566,7 +663,7 @@ void App::draw_server_modal() {
   }
   if (editable)
     ImGui::SameLine();
-  if (ImGui::Button("Fermer"))
+  if (button("Fermer"))
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
@@ -597,7 +694,7 @@ void App::draw_setup_modal() {
     ImGui::TextDisabled("Le PIN sera demandé à chaque connexion, après le badge.");
     ImGui::PopStyleColor();
     ImGui::BeginDisabled(setup_busy_ || setup_matricule_.empty() || setup_nom_.empty() || setup_prenom_.empty() || !pin_ok);
-    if (ImGui::Button("Créer l'administrateur", ImVec2(-1, 0)))
+    if (button("Créer l'administrateur", ImVec2(-1, 0)))
       create_first_admin();
     ImGui::EndDisabled();
     ImGui::TextDisabled("Alternative : python manage.py createadmin MATRICULE NOM PRENOM sur le serveur.");
@@ -613,17 +710,17 @@ void App::draw_setup_modal() {
     ImGui::TextUnformatted("URL du badge :");
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputText("##badge_url", &url, ImGuiInputTextFlags_ReadOnly);
-    if (ImGui::Button("Imprimer mon badge"))
+    if (button("Imprimer mon badge"))
       preview_labels(TemplateCategory::User, { user_parameters(setup_created_) }, "Badge");
     ImGui::SameLine();
-    if (ImGui::Button("Ouvrir les réglages")) {
+    if (button("Ouvrir les réglages")) {
       open_window("settings");
       notify("Choisissez le modèle de badge, puis imprimez votre badge depuis Gestion > Utilisateurs.");
       setup_created_ = Json();
       ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Terminer")) {
+    if (button("Terminer")) {
       setup_created_ = Json();
       ImGui::CloseCurrentPopup();
     }
@@ -867,7 +964,7 @@ void App::draw_pin_modal() {
   if (pin_.setup && !pin_.confirm.empty() && pin_.confirm != pin_.pin)
     ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.0f, 1.0f), "Les deux PIN sont différents.");
   ImGui::BeginDisabled(!valid || pin_.busy);
-  if (ImGui::Button(pin_.busy ? "Vérification..." : "Valider", ImVec2(150, 0)) || (submit && valid && !pin_.busy)) {
+  if (button(pin_.busy ? "Vérification..." : "Valider", ImVec2(150, 0)) || (submit && valid && !pin_.busy)) {
     const ScanSource source = static_cast< ScanSource >(pin_.source);
     if (pin_.setup)
       send_auth(pin_.matricule, pin_.key, "", pin_.pin, source);
@@ -876,7 +973,7 @@ void App::draw_pin_modal() {
   }
   ImGui::EndDisabled();
   ImGui::SameLine();
-  if (ImGui::Button("Annuler", ImVec2(150, 0))) {
+  if (button("Annuler", ImVec2(150, 0))) {
     pin_            = PinPrompt{};
     pending_action_ = nullptr;
   }
@@ -885,7 +982,7 @@ void App::draw_pin_modal() {
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::BeginDisabled(pin_.busy);
-    if (ImGui::SmallButton("Code oublié ?"))
+    if (small_button("Code oublié ?"))
       ImGui::OpenPopup("pin_forgot");
     ImGui::EndDisabled();
     ImGui::PopStyleColor(2);
@@ -896,7 +993,7 @@ void App::draw_pin_modal() {
         ImGui::CloseCurrentPopup();
       }
       ImGui::SameLine();
-      if (ImGui::Button("Annuler"))
+      if (button("Annuler"))
         ImGui::CloseCurrentPopup();
       ImGui::EndPopup();
     }

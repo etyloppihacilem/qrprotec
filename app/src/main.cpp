@@ -103,6 +103,11 @@ static void hid_key_callback(GLFWwindow* window, int key, int scancode, int acti
 static void hid_char_callback(GLFWwindow* window, unsigned int character)
 {
     note_input();
+    // Alt de gauche + lettre : raccourci d'un bouton, la lettre ne doit pas s'ecrire dans le champ actif
+    // (Alt Gr, qui tape @ # { sur un clavier francais, n'est pas concerne)
+    if (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS && glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) != GLFW_PRESS
+        && glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) != GLFW_PRESS)
+        return;
     if (!active_inateck)
         return ImGui_ImplGlfw_CharCallback(window, character);
     for (const unsigned int replay : active_inateck->handle_hid_character(character))

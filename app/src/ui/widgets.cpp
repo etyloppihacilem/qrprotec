@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -24,12 +25,110 @@
 namespace qrprotec {
 
 namespace {
+// Raccourcis Alt+lettre des boutons : chaque bouton prend la premiere lettre libre de sa fenetre (initiales
+// des mots d'abord, puis les autres lettres), soulignee dans son libelle. Les lettres sont attribuees dans
+// l'ordre de dessin, a chaque frame : elles restent les memes tant que les boutons ne changent pas.
+struct MnemonicFrame {
+  int                                         frame = -1;
+  std::unordered_map< ImGuiID, unsigned int > used; // lettres prises, par fenetre racine (bit 0 = a)
+  // raccourci presse pendant une saisie : declenche a la frame suivante (voir mnemonic_button)
+  int     deferred_frame  = -1;
+  ImGuiID deferred_root   = 0;
+  char    deferred_letter = 0;
+};
+
+MnemonicFrame &mnemonic_frame() {
+  static MnemonicFrame state;
+  if (state.frame != ImGui::GetFrameCount()) {
+    state.frame = ImGui::GetFrameCount();
+    state.used.clear();
+  }
+  return state;
+}
+
+bool ascii_letter(char character) {
+  return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+}
+
+// Position de la lettre choisie dans le libelle affiche, -1 si aucune n'est libre
+int pick_mnemonic(const char *text, const char *end, unsigned int &used) {
+  const auto take = [&](const char *at) {
+    const unsigned int bit = 1u << (std::tolower(static_cast< unsigned char >(*at)) - 'a');
+    if (used & bit)
+      return false;
+    used |= bit;
+    return true;
+  };
+  for (const char *at = text; at < end; ++at)
+    if (ascii_letter(*at) && (at == text || at[-1] == ' ' || at[-1] == '(' || at[-1] == '\'') && take(at))
+      return static_cast< int >(at - text);
+  for (const char *at = text; at < end; ++at)
+    if (ascii_letter(*at) && take(at))
+      return static_cast< int >(at - text);
+  return -1;
+}
+
+// Bouton ImGui avec raccourci Alt+lettre (Alt de gauche : Alt Gr sert a taper @, #, { sur un clavier francais).
+// Les petits boutons et les boutons des tableaux (une ligne chacun) n'en ont pas : on y va au clavier avec
+// les fleches.
+bool mnemonic_button(const char *label, const ImVec2 &size, bool small) {
+  const bool   pressed = small ? ImGui::SmallButton(label) : ImGui::Button(label, size);
+  ImGuiWindow *window  = ImGui::GetCurrentWindow();
+  if (small || ImGui::GetCurrentTable() != nullptr || window->SkipItems)
+    return pressed;
+  const char *end = ImGui::FindRenderedTextEnd(label);
+  if (end - label < 2)
+    return pressed;
+  const int index = pick_mnemonic(label, end, mnemonic_frame().used[window->RootWindow->ID]);
+  if (index < 0)
+    return pressed;
+
+  // soulignement, place comme le texte du bouton (RenderTextClipped dans ButtonEx)
+  const ImGuiStyle &style   = ImGui::GetStyle();
+  const ImVec2      min     = ImGui::GetItemRectMin();
+  const ImVec2      max     = ImGui::GetItemRectMax();
+  const ImVec2      text    = ImGui::CalcTextSize(label, end);
+  ImVec2            pos(min.x + style.FramePadding.x, min.y + style.FramePadding.y);
+  pos.x                     = std::max(pos.x, pos.x + (max.x - min.x - style.FramePadding.x * 2 - text.x) * style.ButtonTextAlign.x);
+  pos.y                     = std::max(pos.y, pos.y + (max.y - min.y - style.FramePadding.y * 2 - text.y) * style.ButtonTextAlign.y);
+  const float left          = pos.x + ImGui::CalcTextSize(label, label + index).x;
+  const float right         = left + ImGui::CalcTextSize(label + index, label + index + 1).x;
+  const float line          = std::floor(pos.y + ImGui::GetFontSize() * 0.95f);
+  if (right < max.x - style.FramePadding.x * 0.5f)
+    window->DrawList->AddLine(ImVec2(left, line), ImVec2(right, line), ImGui::GetColorU32(ImGuiCol_Text),
+                              std::max(1.0f, ImGui::GetFontSize() / 14.0f));
+
+  const char     letter = static_cast< char >(std::tolower(static_cast< unsigned char >(label[index])));
+  MnemonicFrame &state  = mnemonic_frame();
+  if (state.deferred_frame == ImGui::GetFrameCount() && state.deferred_root == window->RootWindow->ID
+      && state.deferred_letter == letter) {
+    state.deferred_frame = -1;
+    return !(GImGui->LastItemData.ItemFlags & ImGuiItemFlags_Disabled);
+  }
+  const ImGuiIO &io = ImGui::GetIO();
+  if (pressed || !ImGui::IsKeyDown(ImGuiKey_LeftAlt) || io.KeyCtrl || io.KeySuper
+      || (GImGui->LastItemData.ItemFlags & ImGuiItemFlags_Disabled)
+      || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+    return pressed;
+  if (!ImGui::IsKeyPressed(static_cast< ImGuiKey >(ImGuiKey_A + letter - 'a'), false))
+    return false;
+  if (GImGui->ActiveId == 0)
+    return true;
+  // champ en cours de saisie : on le quitte d'abord, comme un clic, et le bouton agit a la frame suivante.
+  // Sinon le champ reecrirait son texte a la frame suivante, apres que le bouton l'a vide.
+  ImGui::ClearActiveID();
+  state.deferred_frame  = ImGui::GetFrameCount() + 1;
+  state.deferred_root   = window->RootWindow->ID;
+  state.deferred_letter = letter;
+  return false;
+}
+
 bool colored_button(const char *label, const ImVec4 &color, const ImVec2 &size) {
   ImGui::PushStyleColor(ImGuiCol_Button, color);
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x * 1.1f, color.y * 1.1f, color.z * 1.1f, 1.0f));
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(color.x * 0.85f, color.y * 0.85f, color.z * 0.85f, 1.0f));
   ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-  const bool pressed = ImGui::Button(label, size);
+  const bool pressed = mnemonic_button(label, size, false);
   ImGui::PopStyleColor(4);
   return pressed;
 }
@@ -41,6 +140,14 @@ std::string lower(std::string value) {
   return value;
 }
 } // namespace
+
+bool button(const char *label, const ImVec2 &size) {
+  return mnemonic_button(label, size, false);
+}
+
+bool small_button(const char *label) {
+  return mnemonic_button(label, ImVec2(0, 0), true);
+}
 
 bool danger_button(const char *label, const ImVec2 &size) {
   return colored_button(label, colors::red, size);
@@ -363,7 +470,7 @@ bool confirm_button(const char *label, const char *question, const char *popup_i
       ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Annuler"))
+    if (button("Annuler"))
       ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   }

@@ -157,7 +157,7 @@ class InventoryWindow final : public AppWindow {
       if (primary_button(label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x * 0.7f, ImGui::GetFrameHeight() * 1.5f)))
         create_batch(app, perishable && date ? date->iso() : "");
       ImGui::SameLine();
-      const bool preview = ImGui::Button("Aperçu", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f));
+      const bool preview = button("Aperçu", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f));
       if (preview && sealed_) {
         Json pack   = sample_item(reception_type_, (*type)["name"].str(), perishable, date ? date->iso() : "");
         pack["id"]    = "00000000";
@@ -180,12 +180,12 @@ class InventoryWindow final : public AppWindow {
       ImGui::Text("%zu item(s) créés : %s", items.size(), items[0]["type_name"].str().c_str());
       if (!last_batch_["sealed_pack"].is_null()) {
         // paquet ferme : etiquette du paquet, et fiche du paquet pour l'ouvrir plus tard
-        if (ImGui::Button("Étiquette du paquet"))
+        if (button("Étiquette du paquet"))
           app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(last_batch_["sealed_pack"]) }, "Paquet");
         ImGui::SameLine();
-        if (ImGui::Button("Fiche du paquet (ouverture)"))
+        if (button("Fiche du paquet (ouverture)"))
           app.show_pack(last_batch_["sealed_pack"]["id"].str());
-      } else if (ImGui::Button("Aperçu et impression des étiquettes")) {
+      } else if (button("Aperçu et impression des étiquettes")) {
         app.preview_labels(TemplateCategory::Item, item_labels(items), "Réception");
       }
       const bool sealed_batch = !last_batch_["sealed_pack"].is_null();
@@ -195,7 +195,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::PushID(static_cast< int >(index));
         if (sealed_batch)
           ImGui::TextDisabled("dans le paquet");
-        else if (ImGui::SmallButton("Imprimer"))
+        else if (small_button("Imprimer"))
           app.print_labels(TemplateCategory::Item,
                            { item_parameters(item, static_cast< int >(index) + 1, static_cast< int >(items.size())) },
                            "Item");
@@ -240,7 +240,7 @@ class InventoryWindow final : public AppWindow {
     // ---------------------------------------------------------------------------------------------------------------
     // Types d'items
     void draw_types(App &app) {
-      if (ImGui::Button("Rafraîchir"))
+      if (button("Rafraîchir"))
         app.refresh_item_types();
       ImGui::SameLine();
       ImGui::Checkbox("Afficher les types archivés", &show_archived_);
@@ -346,12 +346,12 @@ class InventoryWindow final : public AppWindow {
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button("Nouveau type"))
+        if (button("Nouveau type"))
           clear_type_form();
       }
       ImGui::SameLine();
       ImGui::BeginDisabled(form_code_.empty());
-      if (ImGui::Button("Aperçu de l'étiquette"))
+      if (button("Aperçu de l'étiquette"))
         app.preview_labels(TemplateCategory::Item,
                            { item_parameters(sample_item(form_code_, form_name_, form_perishable_, "", form_tear_off_)) },
                            "Étiquette d'un item " + form_name_ + " (exemple)");
@@ -364,7 +364,7 @@ class InventoryWindow final : public AppWindow {
     void draw_archive_type(App &app) {
       ImGui::SameLine();
       const bool archived = editing_type_archived_;
-      if (archived ? ImGui::Button("Désarchiver le type") : ImGui::Button("Archiver le type…")) {
+      if (archived ? button("Désarchiver le type") : button("Archiver le type…")) {
         if (archived)
           archive_type(app, false);
         else
@@ -384,7 +384,7 @@ class InventoryWindow final : public AppWindow {
           ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Annuler"))
+        if (button("Annuler"))
           ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
       }
@@ -477,7 +477,7 @@ class InventoryWindow final : public AppWindow {
       ImGui::SameLine();
       changed |= ImGui::Checkbox("En stock", &search_stock_only_);
       ImGui::SameLine();
-      if (ImGui::Button("Rechercher") || changed)
+      if (button("Rechercher") || changed)
         search(app);
 
       if (ImGui::BeginTable("items", 6,
@@ -514,10 +514,10 @@ class InventoryWindow final : public AppWindow {
           ImGui::TextUnformatted(item["status"].str().c_str());
           ImGui::TableNextColumn();
           ImGui::PushID(iid.c_str());
-          if (ImGui::SmallButton("Aperçu"))
+          if (small_button("Aperçu"))
             app.preview_labels(TemplateCategory::Item, { item_parameters(item) }, "Item " + iid);
           ImGui::SameLine();
-          if (ImGui::SmallButton("Réimprimer"))
+          if (small_button("Réimprimer"))
             app.print_labels(TemplateCategory::Item, { item_parameters(item) }, "Remplacement");
           ImGui::PopID();
         }
@@ -534,7 +534,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextWrapped("Les items ne sont normalement pas supprimés : ils sont détectés comme disparus par les "
                            "vérifs. N'utilisez la suppression que pour un cas exceptionnel (casse, erreur de saisie).");
         if (selected_item_["status"].str() == "deleted") {
-          if (ImGui::Button("Restaurer l'item")) {
+          if (button("Restaurer l'item")) {
             Json body;
             body["user"] = app.user_ref();
             app.api.post("/api/items/" + url_encode(iid) + "/restore/", body, [this, &app](const ApiResult &result) {
@@ -576,7 +576,7 @@ class InventoryWindow final : public AppWindow {
     void draw_packs(App &app) {
       ImGui::TextWrapped("Paquets fermés reçus en stock. À l'ouverture, les étiquettes individuelles des items "
                          "sont imprimées. Scanner l'étiquette d'un paquet ouvre directement sa fiche.");
-      if (ImGui::Button("Rafraîchir"))
+      if (button("Rafraîchir"))
         load_packs(app);
       ImGui::SameLine();
       if (ImGui::Checkbox("Afficher les paquets déjà ouverts", &show_opened_))
@@ -612,10 +612,10 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextUnformatted(opened.c_str());
         ImGui::TableNextColumn();
         ImGui::PushID(id.c_str());
-        if (pack["opened"].is_null() ? primary_button("Ouvrir...") : ImGui::Button("Fiche"))
+        if (pack["opened"].is_null() ? primary_button("Ouvrir...") : button("Fiche"))
           app.show_pack(id);
         ImGui::SameLine();
-        if (ImGui::Button("Étiquette"))
+        if (button("Étiquette"))
           app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack) }, "Paquet");
         ImGui::PopID();
       }

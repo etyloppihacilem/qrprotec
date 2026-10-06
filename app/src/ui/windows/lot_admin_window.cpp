@@ -71,12 +71,12 @@ class LotAdminWindow final : public AppWindow {
     // ---------------------------------------------------------------------------------------------------------------
     void draw_lots(App &app) {
       ImGui::BeginChild("lots_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.4f, 0), ImGuiChildFlags_Borders);
-      if (ImGui::Button("Rafraîchir")) {
+      if (button("Rafraîchir")) {
         app.refresh_lots();
         app.refresh_lot_types();
       }
       ImGui::SameLine();
-      if (ImGui::Button("Nouveau lot"))
+      if (button("Nouveau lot"))
         selected_lot_.clear();
       if (ImGui::Checkbox("Afficher les lots archivés", &show_archived_lots_) && show_archived_lots_)
         load_all_lots(app);
@@ -234,7 +234,7 @@ class LotAdminWindow final : public AppWindow {
       if (lot_["is_sealed"].boolean()) {
         ImGui::Text("Scellé%s le %s par %s", lot_["seal_number"].str().empty() ? "" : (" n°" + lot_["seal_number"].str()).c_str(),
                     display_datetime(lot_["sealed"]).c_str(), lot_["sealed_by"].str("-").c_str());
-        if (ImGui::Button("Étiquettes du scellé"))
+        if (button("Étiquettes du scellé"))
           preview_seal(app, lot_);
         ImGui::SameLine();
         if (confirm_button("Briser le scellé", "Le lot devra être vérifié avant utilisation. Continuer ?", "unseal")) {
@@ -273,7 +273,7 @@ class LotAdminWindow final : public AppWindow {
         ImGui::TextWrapped("Lot incomplet ou jamais vérifié : faites d'abord une vérif complète.");
         ImGui::PopStyleColor();
       }
-      if (ok ? primary_button("Sceller le lot et imprimer les étiquettes") : ImGui::Button("Sceller quand même"))
+      if (ok ? primary_button("Sceller le lot et imprimer les étiquettes") : button("Sceller quand même"))
         seal(app, !ok);
     }
 
@@ -334,7 +334,7 @@ class LotAdminWindow final : public AppWindow {
       ImGui::Text("Dernière vérif : %s%s", display_datetime(lot_["last_verif"]).c_str(),
                   lot_["last_verif_by"].str().empty() ? "" : (" par " + lot_["last_verif_by"].str()).c_str());
       ImGui::SameLine();
-      if (ImGui::SmallButton("Journal du lot"))
+      if (small_button("Journal du lot"))
         app.show_journal(lot_["id"].str());
       const LotStatus status = lot_status(lot_);
       if (lot_is_group(lot_)) {
@@ -351,20 +351,20 @@ class LotAdminWindow final : public AppWindow {
         // rangement du stock : une seule etiquette, a coller a l'interieur
         if (primary_button("Aperçu de l'étiquette de rangement", ImVec2(-FLT_MIN, 0)))
           preview_lot(app, lot_);
-        if (ImGui::SmallButton("Impression directe"))
+        if (small_button("Impression directe"))
           print_lot(app, lot_, false, true);
       } else {
         if (primary_button("Aperçu des étiquettes publique et privée", ImVec2(-FLT_MIN, 0)))
           preview_lot(app, lot_);
         ImGui::TextDisabled("Impression directe :");
         ImGui::SameLine();
-        if (ImGui::SmallButton("publique"))
+        if (small_button("publique"))
           print_lot(app, lot_, true, false);
         ImGui::SameLine();
-        if (ImGui::SmallButton("privée"))
+        if (small_button("privée"))
           print_lot(app, lot_, false, true);
         ImGui::SameLine();
-        if (ImGui::SmallButton("les deux"))
+        if (small_button("les deux"))
           print_lot(app, lot_, true, true);
       }
       if (lot_["verif_key_expires"].is_null())
@@ -397,7 +397,7 @@ class LotAdminWindow final : public AppWindow {
       search_select("edit_lot_parent", app.catalog.lots, "id", "name", edit_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
       ImGui::BeginDisabled(edit_name_.empty() || name_taken);
-      if (ImGui::Button("Enregistrer")) {
+      if (button("Enregistrer")) {
         Json body;
         body["name"]       = edit_name_;
         body["name_short"] = edit_short_;
@@ -407,12 +407,12 @@ class LotAdminWindow final : public AppWindow {
       ImGui::EndDisabled();
       ImGui::SameLine();
       if (!active) {
-        if (ImGui::Button("Désarchiver le lot")) {
+        if (button("Désarchiver le lot")) {
           Json body;
           body["active"] = true;
           update_lot(app, body);
         }
-      } else if (ImGui::Button("Archiver le lot…")) {
+      } else if (button("Archiver le lot…")) {
         ImGui::OpenPopup("archive_lot");
       }
       if (ImGui::BeginPopup("archive_lot")) {
@@ -431,12 +431,12 @@ class LotAdminWindow final : public AppWindow {
           ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Annuler"))
+        if (button("Annuler"))
           ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
       }
       ImGui::SameLine();
-      if (ImGui::Button(lot_["is_sealed"].boolean() ? "Lancer une vérif (brise le scellé)" : "Lancer une vérif"))
+      if (button(lot_["is_sealed"].boolean() ? "Lancer une vérif (brise le scellé)" : "Lancer une vérif"))
         app.start_verif(selected_lot_, lot_["verif_key"].str());
 
       ImGui::SeparatorText("Contenu");
@@ -481,7 +481,7 @@ class LotAdminWindow final : public AppWindow {
     // ---------------------------------------------------------------------------------------------------------------
     void draw_lot_types(App &app) {
       ImGui::BeginChild("types_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.35f, 0), ImGuiChildFlags_Borders);
-      if (ImGui::Button("Nouveau type"))
+      if (button("Nouveau type"))
         edit_lot_type(Json());
       ImGui::Checkbox("Afficher les types archivés", &show_archived_types_);
       for (const Json &lot_type : app.catalog.lot_types.items()) {
@@ -587,13 +587,13 @@ class LotAdminWindow final : public AppWindow {
       if (type_unique_ && !type_lot_.empty()) {
         ImGui::TextDisabled("Lot :");
         ImGui::SameLine();
-        if (ImGui::SmallButton("Voir le lot")) {
+        if (small_button("Voir le lot")) {
           select_lot(app, type_lot_);
           focus_lots_tab_ = true;
         }
       }
       ImGui::BeginDisabled(type_name_.empty() || name_taken);
-      if (ImGui::Button("Enregistrer")) {
+      if (button("Enregistrer")) {
         Json body;
         body["name"]        = type_name_;
         body["description"] = type_description_;
@@ -632,13 +632,13 @@ class LotAdminWindow final : public AppWindow {
         ImGui::InputInt("##qty", &row.quantity);
         row.quantity = std::max(1, row.quantity);
         ImGui::SameLine();
-        if (ImGui::SmallButton("Retirer"))
+        if (small_button("Retirer"))
           remove = static_cast< int >(index);
         ImGui::PopID();
       }
       if (remove >= 0)
         requirements_.erase(requirements_.begin() + remove);
-      if (ImGui::Button("+ Ajouter une ligne"))
+      if (button("+ Ajouter une ligne"))
         requirements_.push_back({});
       ImGui::SameLine();
       if (primary_button("Enregistrer le contenu")) {
@@ -670,11 +670,11 @@ class LotAdminWindow final : public AppWindow {
     // Archivage : le type n'est plus propose a la creation de lots. Un lot unique est archive avec son type.
     void draw_archive_lot_type(App &app) {
       if (type_archived_) {
-        if (ImGui::Button("Désarchiver le type"))
+        if (button("Désarchiver le type"))
           archive_lot_type(app, false);
         return;
       }
-      if (ImGui::Button("Archiver le type…"))
+      if (button("Archiver le type…"))
         ImGui::OpenPopup("archive_lot_type");
       if (ImGui::BeginPopup("archive_lot_type")) {
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
@@ -691,7 +691,7 @@ class LotAdminWindow final : public AppWindow {
           ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Annuler"))
+        if (button("Annuler"))
           ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
       }

@@ -42,10 +42,10 @@ class UsersWindow final : public AppWindow {
             select(user); // fiche mise a jour avec la liste
       }
       ImGui::BeginChild("users_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.55f, 0), ImGuiChildFlags_Borders);
-      if (ImGui::Button("Rafraîchir"))
+      if (button("Rafraîchir"))
         app.refresh_users();
       ImGui::SameLine();
-      if (ImGui::Button("Nouvel utilisateur"))
+      if (button("Nouvel utilisateur"))
         select(Json());
       const Date today = app.today();
       if (ImGui::BeginTable("users", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
@@ -260,12 +260,12 @@ class UsersWindow final : public AppWindow {
       else
         ImGui::TextDisabled("Aucun PIN (facultatif).");
       ImGui::BeginDisabled(pin_.empty() || !pin_valid);
-      if (ImGui::Button("Définir le PIN"))
+      if (button("Définir le PIN"))
         update_pin(app, pin_);
       ImGui::EndDisabled();
       ImGui::SameLine();
       ImGui::BeginDisabled(!user_["has_pin"].boolean() || user_["role"].str() == "admin");
-      if (ImGui::Button("Supprimer le PIN"))
+      if (button("Supprimer le PIN"))
         update_pin(app, "");
       ImGui::EndDisabled();
 
@@ -275,7 +275,7 @@ class UsersWindow final : public AppWindow {
       ImGui::Text("Valable jusqu'au : %s", display_date(user_["key_expires"]).c_str());
       // la cle du badge n'est connue qu'a sa creation ou son renouvellement (le serveur n'en garde que l'empreinte)
       if (!user_["badge_url"].str().empty()) {
-        if (ImGui::Button("Aperçu et impression du badge"))
+        if (button("Aperçu et impression du badge"))
           app.preview_labels(TemplateCategory::User, { user_parameters(user_) },
                              "Badge de " + user_["prenom"].str() + " " + user_["nom"].str());
         ImGui::SameLine();

@@ -54,7 +54,7 @@ class LotsWindow final : public AppWindow {
         seen_privileged_ = privileged;
         show_storage_    = privileged == 1;
       }
-      if (ImGui::Button("Rafraîchir"))
+      if (button("Rafraîchir"))
         app.refresh_lots();
       ImGui::SameLine();
       ImGui::SetNextItemWidth(250.0f);
@@ -223,11 +223,11 @@ class LotsWindow final : public AppWindow {
       const std::size_t sub_lots = details_["descendants"].size();
       const std::string with     = sub_lots > 0 ? " avec ses " + std::to_string(sub_lots) + " sous-lot(s)" : "";
       if (details_["is_sealed"].boolean()) {
-        if (ImGui::Button(("Lancer une vérif" + with + " (brise le scellé)").c_str(), ImVec2(-1, 0)))
+        if (button(("Lancer une vérif" + with + " (brise le scellé)").c_str(), ImVec2(-1, 0)))
           app.start_verif(details_["id"].str(), "");
       } else if (primary_button(("Lancer une vérif" + with).c_str(), ImVec2(-1, 0)))
         app.start_verif(details_["id"].str(), "");
-      if (ImGui::Button("Fermer", ImVec2(-1, 0)))
+      if (button("Fermer", ImVec2(-1, 0)))
         selected_.clear();
       draw_global(app);
 

@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "inateck.hpp"
+#include "widgets.hpp"
 #include "imgui.h"
 #include "inateck/inateck_worker.hpp"
 #include "inateck/sdk_json.hpp"
@@ -212,7 +213,7 @@ void Inateck::draw_inateck_window() {
                        : state.discovering   ? "recherche"
                                              : "non connectée";
     ImGui::Text("Statut : %s", status);
-    if (ImGui::Button(state.discovering ? "Arrêter la recherche" : "Appairer une douchette")) {
+    if (button(state.discovering ? "Arrêter la recherche" : "Appairer une douchette")) {
       if (state.discovering)
         inateck_worker_.stop_discovery();
       else
@@ -221,7 +222,7 @@ void Inateck::draw_inateck_window() {
     ImGui::SetItemTooltip("Recherche les douchettes à proximité (choix dans « Connecter » ci-dessous).");
     ImGui::SameLine();
     ImGui::BeginDisabled(state.preferred_id.empty() || state.connected || state.connecting || state.discovering);
-    if (ImGui::Button("Reconnecter"))
+    if (button("Reconnecter"))
       start_pairing();
     ImGui::EndDisabled();
     ImGui::SetItemTooltip("Se reconnecter à la dernière douchette utilisée.");
@@ -234,7 +235,7 @@ void Inateck::draw_inateck_window() {
       ImGui::Combo("Appareil", &selected_device, device_names.data(), static_cast<int>(device_names.size()));
       const InateckDevice& device = state.devices[static_cast<std::size_t>(selected_device)];
       ImGui::TextWrapped("ID : %s", device.id.c_str());
-      if (!state.connected && !state.connecting && ImGui::Button("Connecter")) {
+      if (!state.connected && !state.connecting && button("Connecter")) {
         manual_disconnect_ = false;
         inateck_worker_.connect(device.id, device.name);
       }
@@ -243,7 +244,7 @@ void Inateck::draw_inateck_window() {
     }
     if (state.connected && settings_unlocked_) {
       ImGui::SameLine();
-      if (ImGui::Button("Déconnecter")) {
+      if (button("Déconnecter")) {
         manual_disconnect_ = true;
         inateck_worker_.disconnect();
       }
@@ -277,22 +278,22 @@ void Inateck::draw_inateck_window() {
     if (ImGui::Checkbox("Vibration", &inateck_vibration_) && ImGui::IsItemDeactivatedAfterEdit())
       inateck_worker_.set_vibration(inateck_vibration_);
     ImGui::Checkbox("Recevoir les scans dans QRProtec", &inateck_sdk_output_);
-    if (ImGui::Button("Appliquer le mode de sortie"))
+    if (button("Appliquer le mode de sortie"))
       inateck_worker_.set_sdk_output(inateck_sdk_output_);
     ImGui::Separator();
     ImGui::InputText("Préfixe", inateck_prefix_, sizeof(inateck_prefix_));
     ImGui::SameLine();
-    if (ImGui::Button("Appliquer##prefixe"))
+    if (button("Appliquer##prefixe"))
       inateck_worker_.set_prefix(inateck_prefix_);
     ImGui::InputText("Suffixe", inateck_suffix_, sizeof(inateck_suffix_));
     ImGui::SameLine();
-    if (ImGui::Button("Appliquer##suffixe"))
+    if (button("Appliquer##suffixe"))
       inateck_worker_.set_suffix(inateck_suffix_);
     ImGui::InputText("Nom Bluetooth", inateck_name_, sizeof(inateck_name_));
     ImGui::SameLine();
-    if (ImGui::Button("Appliquer##nom"))
+    if (button("Appliquer##nom"))
       inateck_worker_.set_name(inateck_name_);
-    if (ImGui::Button("Relire les paramètres"))
+    if (button("Relire les paramètres"))
       inateck_worker_.refresh_settings();
     ImGui::EndDisabled();
     ImGui::TextUnformatted("Le volume et la vibration utilisent les flags ST23 du SDK.");

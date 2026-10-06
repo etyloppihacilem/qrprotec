@@ -76,7 +76,7 @@ class StockWindow final : public AppWindow {
     }
 
     void draw(App &app) override {
-      if (ImGui::Button("Rafraîchir"))
+      if (button("Rafraîchir"))
         on_open(app);
       ImGui::SameLine();
       ImGui::SetNextItemWidth(200.0f);
@@ -363,7 +363,7 @@ class StockWindow final : public AppWindow {
           if (!lot["id"].is_null()) {
             ImGui::SameLine();
             ImGui::PushID(lot["id"].str().c_str());
-            if (ImGui::SmallButton("Afficher"))
+            if (small_button("Afficher"))
               app.show_lot(lot["id"].str());
             ImGui::PopID();
           }
@@ -475,7 +475,7 @@ class StockWindow final : public AppWindow {
                           forecast["lead_days"].integer());
       if (!rows.empty()) {
         ImGui::SameLine();
-        if (ImGui::Button("Copier la liste")) {
+        if (button("Copier la liste")) {
           std::ostringstream text;
           for (const Json *row : rows)
             text << (*row)["name"].str() << " : " << (*row)["order"]["quantity"].integer() << " (avant le "
@@ -550,7 +550,7 @@ class StockWindow final : public AppWindow {
           ImGui::TextColored(colors::orange, "· avant le %s", date_text(group["before"]).c_str());
         if (!source["id"].is_null()) {
           ImGui::SameLine();
-          if (ImGui::SmallButton("Afficher le lot"))
+          if (small_button("Afficher le lot"))
             app.show_lot(source["id"].str());
         }
         const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH;
