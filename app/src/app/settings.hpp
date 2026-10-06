@@ -70,7 +70,7 @@ struct AppSettings {
 
     // Disposition par defaut (restauree a la reinitialisation)
     std::map< std::string, WindowLayout > layout;
-    static constexpr int                  kLayoutVersion = 2; // les dispositions plus anciennes sont ignorees
+    static constexpr int                  kLayoutVersion = 3; // les dispositions plus anciennes sont ignorees
 
     static AppSettings           defaults();
     static std::filesystem::path file_path();

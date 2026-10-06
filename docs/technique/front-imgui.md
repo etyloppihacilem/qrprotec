@@ -121,7 +121,10 @@ Chaque fenêtre est une classe dérivée d'`AppWindow` (`draw`, `on_open`), cré
 | Réglages | `settings_window.cpp` | admin |
 
 La disposition par défaut est enregistrée en fractions de la zone de travail (`WindowLayout`) :
-elle s'adapte à la résolution de l'écran.
+elle s'adapte à la résolution de l'écran. Par défaut, la pile de scans occupe la colonne de droite
+et les fenêtres de travail (Lots, Vérif, Stocks…) tout le reste, sans fond perdu autour. Quand la
+fenêtre de l'application change de taille (sur le kiosk, Cage l'agrandit à la taille de l'écran
+juste après la première image), les fenêtres déjà placées gardent leur place en proportion.
 
 Le mode privilégié est volontairement **impossible à manquer** : fond, barres de titre et barre de
 menu orange.
