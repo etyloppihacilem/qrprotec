@@ -142,6 +142,9 @@ class LotAdminWindow final : public AppWindow {
                   "seul, ou avec les autres lots du même lot global. Le lot global est valide si tous ses lots le sont.");
       search_select("new_lot_parent", app.catalog.lots, "id", "name", new_lot_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
+      input_limited("Emplacement de l'étiquette privée", new_lot_key_location_, 128);
+      help_marker("Où trouver l'étiquette privée dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
+                  "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
       ImGui::Checkbox("Voir les étiquettes publique et privée après création", &print_new_);
       ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty() || name_taken);
       if (primary_button("Créer le lot")) {
@@ -149,8 +152,9 @@ class LotAdminWindow final : public AppWindow {
         body["lot_type"]   = new_lot_type_;
         body["name"]       = new_lot_name_;
         body["name_short"] = new_lot_short_;
-        body["parent"]     = new_lot_parent_;
-        body["user"]       = app.user_ref();
+        body["parent"]       = new_lot_parent_;
+        body["key_location"] = new_lot_key_location_;
+        body["user"]         = app.user_ref();
         const bool print   = print_new_;
         app.api.post("/api/lots/", body, [this, &app, print](const ApiResult &result) {
           if (!result.ok) {
@@ -162,6 +166,7 @@ class LotAdminWindow final : public AppWindow {
             preview_lot(app, result.data);
           new_lot_name_.clear();
           new_lot_short_.clear();
+          new_lot_key_location_.clear();
           selected_lot_ = result.data["id"].str();
           lot_          = result.data;
           app.refresh_lots();
@@ -184,6 +189,7 @@ class LotAdminWindow final : public AppWindow {
           edit_name_   = lot_["name"].str();
           edit_short_  = lot_["name_short"].str();
           edit_parent_ = lot_["parent"].str();
+          edit_key_location_ = lot_["key_location"].str();
         } else {
           app.notify(result.error, true);
         }
@@ -396,12 +402,16 @@ class LotAdminWindow final : public AppWindow {
       ImGui::TextUnformatted("Dans le lot (sous-lot)");
       search_select("edit_lot_parent", app.catalog.lots, "id", "name", edit_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
+      input_limited("Emplacement de l'étiquette privée", edit_key_location_, 128);
+      help_marker("Où trouver l'étiquette privée dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
+                  "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
       ImGui::BeginDisabled(edit_name_.empty() || name_taken);
       if (ImGui::Button("Enregistrer")) {
         Json body;
         body["name"]       = edit_name_;
         body["name_short"] = edit_short_;
-        body["parent"]     = edit_parent_;
+        body["parent"]       = edit_parent_;
+        body["key_location"] = edit_key_location_;
         update_lot(app, body);
       }
       ImGui::EndDisabled();
@@ -740,7 +750,9 @@ class LotAdminWindow final : public AppWindow {
     std::string edit_name_;
     std::string edit_short_;
     std::string edit_parent_;
+    std::string edit_key_location_;
     std::string new_lot_parent_;
+    std::string new_lot_key_location_;
     std::string new_lot_type_;
     std::string new_lot_name_;
     std::string new_lot_short_;

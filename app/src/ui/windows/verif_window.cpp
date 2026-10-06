@@ -71,8 +71,11 @@ class VerifWindow final : public AppWindow {
         ImGui::TextColored(colors::green, "Étiquette privée scannée : la vérif peut être validée.");
       else if (app.verif_key_ok())
         ImGui::TextColored(colors::green, "Mode gestion : validation autorisée sans étiquette privée.");
-      else
-        ImGui::TextColored(colors::orange, "Scannez l'étiquette privée du lot pour pouvoir valider.");
+      else {
+        ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
+        ImGui::TextWrapped("Scannez l'étiquette privée du lot pour pouvoir valider. %s", key_hint(verif.lot).c_str());
+        ImGui::PopStyleColor();
+      }
       ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
                          "Scannez aussi les items périmés que vous retirez, puis leurs remplaçants.%s",
                          multi ? "" : " L'étiquette privée d'un autre lot du même lot global l'ajoute à la vérif.");

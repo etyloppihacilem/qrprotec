@@ -173,6 +173,7 @@ def _lot_core(lot, today, items=None):
         'version': lot.version,
         'active': lot.active,
         'parent': lot.parent_id,
+        'key_location': lot.key_location,
         'is_sealed': lot.is_sealed,
         'sealed': _date(lot.sealed) if lot.is_sealed else None,
         'sealed_by': _who(lot.sealed_by) if lot.is_sealed else '',

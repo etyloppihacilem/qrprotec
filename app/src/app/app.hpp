@@ -347,5 +347,7 @@ class App {
 // Petites aides communes aux fenetres
 std::string display_date(const Json &value);
 std::string display_datetime(const Json &value);
+// Explication de l'etiquette privee d'un lot (QR code dans le lot) et son emplacement s'il est renseigne
+std::string key_hint(const Json &lot);
 
 } // namespace qrprotec

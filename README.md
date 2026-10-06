@@ -376,7 +376,7 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 | `QRPROTEC_DEBUG_HOSTS` | `192.168.1.201` (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement) |
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
 | `QRPROTEC_OUT_DAYS` | `30` (jours avant qu'un item sorti sans lot compte comme utilisé) |
-| `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `3650` |
+| `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `365` |
 | `QRPROTEC_SMS_SYNC` | `0` (SMS et notifications web envoyés dans un thread ; `1` = dans la requête) |
 | `QRPROTEC_WEB_PUSH_SUBJECT` | `QRPROTEC_PUBLIC_BASE_URL` (contact VAPID des notifications web : `mailto:...` ou `https://...`) |
 | `QRPROTEC_SECRET_KEY`, `QRPROTEC_DEBUG`, `QRPROTEC_DB_PATH` | réglages Django |
@@ -389,7 +389,8 @@ vérif groupée de plusieurs lots d'un même lot global), `lots/<id>/add/` (POST
 sortie du stock sans lot), `lots/<id>/unseal/` (POST
 key), `packs/<id>/`, `lots/<id>/sheet.pdf` (GET, fiche d'inventaire papier A4 : items attendus par
 emplacement, une page par sous-lot). `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
-`unsealed`. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
+`unsealed`. `lots/<id>/?key=CLE` renvoie `key_check` : `valid`, `expired` ou `wrong` (étiquette privée d'une ancienne
+clé), et `key_error` (message à afficher) si elle n'est pas valide. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
 `lots/summary/` (lots actifs et leur état, tout badge valide), `stock/summary/` (état des stocks,
 rôles gestion et admin) et `stock/forecast/summary/` (prévisions de stock, mêmes rôles, `months`). Notifications web : `push/key/` (GET, clé publique VAPID),
 `push/subscription/` (POST badge + `endpoint` pour l'état, ou + `subscription`, `stock_low`,

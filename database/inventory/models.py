@@ -338,6 +338,8 @@ class Lots(models.Model):
     # Lot global (ex : un B+ compose d'un sac de soin et d'un sac d'O2, un VPS compose d'armoires et d'un B+).
     # Chaque sous-lot a ses propres etiquettes et se verifie seul ou avec les autres sous-lots du meme lot global.
     parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='children')
+    # Ou trouver l'etiquette privee dans le lot (ex : « poche intérieure du couvercle »), affiche quand elle manque
+    key_location = models.CharField(max_length=128, blank=True, default='')
 
     def save(self, *args, **kwargs):
         if not self.version:
@@ -362,8 +364,20 @@ class Lots(models.Model):
         return None if self.lot_type.storage else default_lot_key_expiration()
 
     def check_key(self, key) -> bool:
-        return keys_match(self.verif_key, key) and (self.verif_key_expires is None
-                                                    or self.verif_key_expires >= timezone.localdate())
+        return self.key_status(key) == 'valid'
+
+    def key_status(self, key) -> str:
+        """Cle d'une etiquette privee scannee : 'valid', 'expired' (bonne cle, date depassee) ou 'wrong'."""
+        if not keys_match(self.verif_key, key):
+            return 'wrong'
+        if self.verif_key_expires is not None and self.verif_key_expires < timezone.localdate():
+            return 'expired'
+        return 'valid'
+
+    def key_hint(self) -> str:
+        """Explication de l'etiquette privee pour qui ne la connait pas, avec son emplacement s'il est renseigne."""
+        hint = "L'étiquette privée est un QR code rangé à l'intérieur du lot"
+        return hint + (f" ({self.key_location})." if self.key_location else ".")
 
     def rotate_key(self):
         self.verif_key = generate_key()
