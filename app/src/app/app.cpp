@@ -431,6 +431,24 @@ void App::window_menu_item(AppWindow &target) {
 void App::draw_windows() {
   ImVec2 origin, size;
   work_area(origin, size);
+  // ecran redimensionne (kiosk : Cage agrandit la fenetre a la taille de l'ecran apres la premiere
+  // image, dessinee en 1280x800) : les fenetres deja placees gardent leur place en proportion
+  if (last_work_size_.x > 0.0f && last_work_size_.y > 0.0f && size.x > 0.0f && size.y > 0.0f
+      && (size.x != last_work_size_.x || size.y != last_work_size_.y || origin.y != last_work_origin_.y)) {
+    const ImVec2 scale(size.x / last_work_size_.x, size.y / last_work_size_.y);
+    for (auto &window : windows) {
+      if (window->place_pending || window->last_size.x <= 0.0f)
+        continue;
+      window->last_pos = ImVec2(
+        origin.x + (window->last_pos.x - last_work_origin_.x) * scale.x,
+        origin.y + (window->last_pos.y - last_work_origin_.y) * scale.y
+      );
+      window->last_size      = ImVec2(window->last_size.x * scale.x, window->last_size.y * scale.y);
+      window->resize_pending = true;
+    }
+  }
+  last_work_origin_ = origin;
+  last_work_size_   = size;
   for (auto &window : windows) {
     if (!can_open(*window) || !window->open) {
       window->was_open = false;
@@ -438,13 +456,21 @@ void App::draw_windows() {
     }
     if (!window->was_open)
       window->on_open(*this);
+    const bool place  = layout_pending_ || window->place_pending;
     const auto layout = settings.layout.find(window->id);
     if (layout != settings.layout.end()) {
-      const ImGuiCond cond = (layout_pending_ || window->place_pending) ? ImGuiCond_Always : ImGuiCond_FirstUseEver;
+      const ImGuiCond cond = place ? ImGuiCond_Always : ImGuiCond_FirstUseEver;
       ImGui::SetNextWindowPos(
         ImVec2(origin.x + layout->second.x * size.x, origin.y + layout->second.y * size.y), cond
       );
       ImGui::SetNextWindowSize(ImVec2(layout->second.w * size.x, layout->second.h * size.y), cond);
+    }
+    if (place) {
+      window->resize_pending = false;
+    } else if (window->resize_pending && !fullscreen_) {
+      ImGui::SetNextWindowPos(window->last_pos, ImGuiCond_Always);
+      ImGui::SetNextWindowSize(window->last_size, ImGuiCond_Always);
+      window->resize_pending = false;
     }
     window->place_pending = false;
     // plein ecran : last_pos et last_size gardent la place d'avant, reprise a la sortie

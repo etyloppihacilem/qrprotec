@@ -56,6 +56,7 @@ class AppWindow {
     bool              was_open = false;
     bool              place_pending = true; // appliquer la disposition par defaut au prochain affichage
     bool              focus_pending = false;
+    bool              resize_pending = false; // reprendre last_pos et last_size (ecran redimensionne)
     bool              fullscreen    = false; // dessinee en plein ecran (mode plein ecran de l'application)
     ImGuiKeyChord     shortcut      = 0;     // raccourci d'ouverture (F1, Ctrl+1...)
     std::string       shortcut_label;        // affiche dans les menus
@@ -345,6 +346,8 @@ class App {
     double                  last_activity_ = 0.0;
     bool                    reset_done_    = false;
     bool                    layout_pending_ = true;
+    ImVec2                  last_work_origin_{ 0, 0 }; // zone de travail de l'image precedente
+    ImVec2                  last_work_size_{ 0, 0 };
     bool                    fullscreen_     = false;
     std::string             focused_window_; // derniere fenetre de l'application ayant eu le focus
     std::vector< Toast >    toasts_;

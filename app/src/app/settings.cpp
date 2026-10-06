@@ -40,19 +40,22 @@ float to_float(const std::string &value, float fallback) {
 
 AppSettings AppSettings::defaults() {
   AppSettings settings;
-  // pile de scans en colonne a droite ; les autres fenetres s'ouvrent en taille moyenne, en cascade
-  settings.layout["scan"] = { true, 0.72f, 0.0f, 0.28f, 1.0f };
-  settings.layout["lots"] = { true, 0.01f, 0.02f, 0.60f, 0.70f };
-  settings.layout["verif"] = { false, 0.03f, 0.05f, 0.58f, 0.80f };
-  settings.layout["stock"] = { false, 0.05f, 0.06f, 0.55f, 0.65f };
-  settings.layout["inventory"] = { false, 0.07f, 0.08f, 0.58f, 0.75f };
+  // pile de scans en colonne a droite, fenetres de travail sur tout le reste de l'ecran (pas de fond
+  // perdu autour, notamment sur le kiosk) ; les petites fenetres (paquet, telephone, reglages) flottent
+  constexpr float kScanWidth = 0.28f;
+  constexpr float kWorkWidth = 1.0f - kScanWidth;
+  settings.layout["scan"]      = { true, kWorkWidth, 0.0f, kScanWidth, 1.0f };
+  settings.layout["lots"]      = { true, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["verif"]     = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["stock"]     = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["inventory"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["pack"]      = { false, 0.30f, 0.15f, 0.40f, 0.55f };
   settings.layout["phone"]     = { false, 0.30f, 0.08f, 0.36f, 0.80f };
-  settings.layout["lot_admin"] = { false, 0.09f, 0.10f, 0.58f, 0.75f };
-  settings.layout["users"] = { false, 0.11f, 0.12f, 0.60f, 0.65f };
-  settings.layout["journal"] = { false, 0.04f, 0.06f, 0.66f, 0.80f };
-  settings.layout["settings"] = { false, 0.20f, 0.05f, 0.45f, 0.85f };
-  settings.layout["editor"] = { false, 0.02f, 0.03f, 0.70f, 0.85f };
+  settings.layout["lot_admin"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["users"]     = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["journal"]   = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["settings"]  = { false, 0.20f, 0.05f, 0.45f, 0.85f };
+  settings.layout["editor"]    = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   return settings;
 }
 
