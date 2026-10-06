@@ -125,6 +125,8 @@ elle s'adapte à la résolution de l'écran. Par défaut, la pile de scans occup
 et les fenêtres de travail (Lots, Vérif, Stocks…) tout le reste, sans fond perdu autour. Quand la
 fenêtre de l'application change de taille (sur le kiosk, Cage l'agrandit à la taille de l'écran
 juste après la première image), les fenêtres déjà placées gardent leur place en proportion.
+Sur le kiosk (`QRPROTEC_KIOSK`), la fenêtre principale est créée en plein écran et sans
+décorations : sinon libdecor réserve une barre de titre que Cage n'affiche pas (bande noire).
 
 ### Clavier et plein écran
 
