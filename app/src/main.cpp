@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <thread>
 #include <memory>
@@ -170,7 +171,25 @@ int main(int argc, char** argv)
 #ifdef GLFW_WAYLAND_APP_ID
     glfwWindowHintString(GLFW_WAYLAND_APP_ID, "qrprotec");
 #endif
-    GLFWwindow* window = glfwCreateWindow(1280, 800, "QRProtec", nullptr, nullptr);
+    // Kiosk (qrprotec-kiosk-session, Cage) : plein ecran sans decorations. Avec des decorations,
+    // libdecor reserve une barre de titre ou des ombres que Cage ne dessine pas : des bandes noires
+    // autour de l'interface, ou la souris peut aller mais ou rien n'est affiche.
+    GLFWmonitor* monitor = nullptr;
+    int window_width = 1280;
+    int window_height = 800;
+    if (std::getenv("QRPROTEC_KIOSK") != nullptr) {
+        glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+        glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+        monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = monitor != nullptr ? glfwGetVideoMode(monitor) : nullptr;
+        if (mode != nullptr) {
+            window_width = mode->width;
+            window_height = mode->height;
+        } else {
+            monitor = nullptr;
+        }
+    }
+    GLFWwindow* window = glfwCreateWindow(window_width, window_height, "QRProtec", monitor, nullptr);
     if (window == nullptr) {
         glfwTerminate();
         return 1;
