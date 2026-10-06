@@ -89,7 +89,7 @@ class PhoneWindow final : public AppWindow {
           ImGui::SetTooltip("Le lien contient la clé de la session : ne le partagez pas.");
       }
       ImGui::Spacing();
-      if (ImGui::Button("Nouveau QR code"))
+      if (button("Nouveau QR code"))
         app.start_remote_session();
       ImGui::SameLine();
       if (danger_button("Fermer la session"))

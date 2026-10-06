@@ -53,7 +53,7 @@ void draw_server_settings(App &app) {
             "Vide = autorités du système (Let's Encrypt...).");
   api_field("Jeton de l'API locale", "QRPROTEC_API_TOKEN", app.settings.api_token, ImGuiInputTextFlags_Password,
             "Optionnel : doit correspondre à QRPROTEC_LOCAL_API_TOKEN côté serveur.");
-  if (ImGui::Button("Tester la connexion")) {
+  if (button("Tester la connexion")) {
     app.apply_settings();
     app.api.get("/api/health/", [&app](const ApiResult &result) {
       if (!result.ok) {
@@ -130,17 +130,17 @@ class SettingsWindow final : public AppWindow {
             continue;
           ImGui::Checkbox(window->title.c_str(), &settings.layout[window->id].open);
         }
-        if (ImGui::Button("Utiliser la disposition actuelle"))
+        if (button("Utiliser la disposition actuelle"))
           app.save_current_layout();
         help_marker("Enregistre la position, la taille et l'ouverture de chaque fenêtre telles qu'elles sont "
                     "affichées maintenant.");
         ImGui::SameLine();
-        if (ImGui::Button("Disposition d'origine")) {
+        if (button("Disposition d'origine")) {
           settings.layout = AppSettings::defaults().layout;
           app.request_layout_reset();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Appliquer maintenant"))
+        if (button("Appliquer maintenant"))
           app.request_layout_reset();
       }
 
@@ -156,7 +156,7 @@ class SettingsWindow final : public AppWindow {
           scan_templates();
         }
         ImGui::TextDisabled("Utilisé : %s (vide = app/templates du dépôt)", templates_dir().string().c_str());
-        if (ImGui::Button("Relire les modèles"))
+        if (button("Relire les modèles"))
           scan_templates();
         ImGui::SameLine();
         ImGui::TextDisabled("Modèles *.qr du dossier ci-dessus (créés dans l'Éditeur d'étiquettes)");
@@ -211,7 +211,7 @@ class SettingsWindow final : public AppWindow {
           ImGui::Text("En cours : %s", status.current.c_str());
         if (status.paused) {
           ImGui::TextColored(colors::red, "Pause : %s", status.error.c_str());
-          if (ImGui::Button("Reprendre"))
+          if (button("Reprendre"))
             app.printer.resume();
           ImGui::SameLine();
         }
@@ -242,7 +242,7 @@ class SettingsWindow final : public AppWindow {
         ImGui::InputInt("Silence entre bips", &signal.beep_off);
         ImGui::SetNextItemWidth(120.0f);
         ImGui::InputInt("Nombre de bips", &signal.beep_count);
-        if (ImGui::Button("Tester le signal d'erreur"))
+        if (button("Tester le signal d'erreur"))
           app.feedback.test(settings);
       }
     }
@@ -273,7 +273,7 @@ class SettingsWindow final : public AppWindow {
     void draw_server_rules(App &app) {
       if (server_rules_.is_null()) {
         ImGui::TextDisabled("Chargement...");
-        if (ImGui::Button("Recharger##server_rules"))
+        if (button("Recharger##server_rules"))
           load_server_rules(app);
         return;
       }
@@ -331,7 +331,7 @@ class SettingsWindow final : public AppWindow {
     void draw_notifications(App &app) {
       if (notifications_.is_null()) {
         ImGui::TextDisabled("Chargement...");
-        if (ImGui::Button("Recharger"))
+        if (button("Recharger"))
           load_notifications(app);
         return;
       }
@@ -409,7 +409,7 @@ class SettingsWindow final : public AppWindow {
             ImGui::TextColored(status == "Envoyé" ? colors::green : colors::red, "%s (%s)", status.c_str(),
                                display_datetime(recipient["last_sent"]).c_str());
           ImGui::TableNextColumn();
-          if (ImGui::SmallButton("SMS de test")) {
+          if (small_button("SMS de test")) {
             Json body;
             body["recipient"] = recipient["id"];
             body["user"]      = app.user_ref();
@@ -430,7 +430,7 @@ class SettingsWindow final : public AppWindow {
         reload_at_ = 0.0;
         load_notifications(app);
       }
-      if (ImGui::Button("Rafraîchir"))
+      if (button("Rafraîchir"))
         load_notifications(app);
 
       ImGui::SeparatorText("Ajouter un destinataire");
@@ -441,7 +441,7 @@ class SettingsWindow final : public AppWindow {
       ImGui::SetNextItemWidth(200.0f);
       input_limited("Clé d'identification##sms", new_password_, 64, "clé de l'espace abonné", ImGuiInputTextFlags_Password);
       ImGui::BeginDisabled(new_name_.empty() || new_user_.empty() || new_password_.empty());
-      if (ImGui::Button("Ajouter")) {
+      if (button("Ajouter")) {
         Json body;
         body["name"]     = new_name_;
         body["user"]     = new_user_;

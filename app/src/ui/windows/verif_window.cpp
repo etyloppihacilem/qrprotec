@@ -280,7 +280,7 @@ class VerifWindow final : public AppWindow {
       ImGui::EndDisabled();
       ImGui::SameLine();
       ImGui::BeginDisabled(app.stack.empty() || verif.submitting);
-      if (ImGui::Button("Annuler le dernier scan", ImVec2(width * 0.3f, 0)))
+      if (button("Annuler le dernier scan", ImVec2(width * 0.3f, 0)))
         app.stack.undo_last();
       ImGui::SetItemTooltip("Retire de la pile le dernier item scanné (erreur de scan).");
       ImGui::EndDisabled();
@@ -362,7 +362,7 @@ class VerifWindow final : public AppWindow {
       draw_list(app, "Ajoutés à leur lot en réassort (lot non vérifié)", report["restocked"], colors::orange);
       draw_list(app, "Codes inconnus ignorés", report["unknown"], colors::red);
       ImGui::EndChild();
-      if (ImGui::Button("Fermer le compte rendu", ImVec2(-1, 0))) {
+      if (button("Fermer le compte rendu", ImVec2(-1, 0))) {
         app.last_report = Json();
         open            = false;
       }

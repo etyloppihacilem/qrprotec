@@ -6,6 +6,7 @@
 #include "core/template.hpp"
 #include "imgui.h"
 #include "imgui_stdlib.h"
+#include "widgets.hpp"
 #include <GL/gl.h>
 #include <algorithm>
 #include <cctype>
@@ -329,10 +330,10 @@ void Editor::draw_open_popup() {
   if (document_list_.empty())
     ImGui::TextDisabled("Aucun modèle (*.qr) dans ce dossier.");
   ImGui::EndChild();
-  if (ImGui::Button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+  if (button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape))
     ImGui::CloseCurrentPopup();
   ImGui::SameLine();
-  if (ImGui::Button("Actualiser la liste"))
+  if (button("Actualiser la liste"))
     reload_templates();
   ImGui::EndPopup();
 }
@@ -359,14 +360,14 @@ void Editor::draw_save_as_popup() {
   if (exists)
     ImGui::TextColored(ImVec4(0.85f, 0.45f, 0.0f, 1.0f), "%s existe déjà : il sera remplacé.", file.c_str());
   ImGui::BeginDisabled(file.empty());
-  if ((ImGui::Button(exists ? "Remplacer" : "Enregistrer") || enter) && !file.empty() && save_to(file)) {
+  if ((button(exists ? "Remplacer" : "Enregistrer") || enter) && !file.empty() && save_to(file)) {
     ImGui::CloseCurrentPopup();
     if (pending_ != PendingAction::None)
       run_pending(); // "Enregistrer" depuis le dialogue des modifications non enregistrees
   }
   ImGui::EndDisabled();
   ImGui::SameLine();
-  if (ImGui::Button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+  if (button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
     pending_ = PendingAction::None;
     ImGui::CloseCurrentPopup();
   }
@@ -384,7 +385,7 @@ void Editor::draw_unsaved_popup() {
   ImGui::Text("Le modèle « %s » a été modifié.", document_.name.c_str());
   ImGui::TextUnformatted("Enregistrer les modifications avant de continuer ?");
   ImGui::Spacing();
-  if (ImGui::Button(template_path_.empty() ? "Enregistrer sous..." : "Enregistrer")) {
+  if (button(template_path_.empty() ? "Enregistrer sous..." : "Enregistrer")) {
     ImGui::CloseCurrentPopup();
     if (template_path_.empty())
       save_as_requested_ = true; // l'action en attente suivra l'enregistrement
@@ -394,12 +395,12 @@ void Editor::draw_unsaved_popup() {
       pending_ = PendingAction::None;
   }
   ImGui::SameLine();
-  if (ImGui::Button("Ne pas enregistrer")) {
+  if (button("Ne pas enregistrer")) {
     ImGui::CloseCurrentPopup();
     run_pending();
   }
   ImGui::SameLine();
-  if (ImGui::Button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+  if (button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
     pending_ = PendingAction::None;
     ImGui::CloseCurrentPopup();
   }
@@ -419,13 +420,13 @@ void Editor::draw_export_popup() {
     ImGui::SetKeyboardFocusHere();
   ImGui::SetNextItemWidth(ImGui::GetFontSize() * 24.0f);
   const bool enter = ImGui::InputText("##png", &export_path_, ImGuiInputTextFlags_EnterReturnsTrue);
-  if (ImGui::Button("Exporter") || enter) {
+  if (button("Exporter") || enter) {
     std::string error;
     message_ = write_png(preview_, export_path_, error) ? "PNG exporté : " + export_path_ : error;
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();
-  if (ImGui::Button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+  if (button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape))
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
@@ -647,44 +648,44 @@ void Editor::handle_shortcuts() {
 // Barre d'outils
 
 void Editor::draw_toolbar() {
-  if (ImGui::Button("Nouveau"))
+  if (button("Nouveau"))
     request(PendingAction::New);
   ImGui::SetItemTooltip("Nouveau modèle (Ctrl+N)");
   ImGui::SameLine();
-  if (ImGui::Button("Ouvrir..."))
+  if (button("Ouvrir..."))
     open_requested_ = true;
   ImGui::SetItemTooltip("Ouvrir un modèle du dossier des modèles (Ctrl+O)");
   ImGui::SameLine();
-  if (ImGui::Button("Enregistrer"))
+  if (button("Enregistrer"))
     save();
   ImGui::SetItemTooltip("Enregistrer le modèle (Ctrl+S)");
   ImGui::SameLine();
-  if (ImGui::Button("Enregistrer sous..."))
+  if (button("Enregistrer sous..."))
     save_as_requested_ = true;
   ImGui::SetItemTooltip("Enregistrer sous un autre nom de fichier, par ex. pour partir d'un modèle existant (Ctrl+Maj+S)");
   ImGui::SameLine();
   ImGui::TextDisabled("|");
   ImGui::SameLine();
   ImGui::BeginDisabled(undo_.empty());
-  if (ImGui::Button("Annuler"))
+  if (button("Annuler"))
     undo();
   ImGui::EndDisabled();
   ImGui::SetItemTooltip("Annuler la dernière modification (Ctrl+Z)");
   ImGui::SameLine();
   ImGui::BeginDisabled(redo_.empty());
-  if (ImGui::Button("Rétablir"))
+  if (button("Rétablir"))
     redo();
   ImGui::EndDisabled();
   ImGui::SetItemTooltip("Rétablir (Ctrl+Y)");
   ImGui::SameLine();
   ImGui::TextDisabled("|");
   ImGui::SameLine();
-  if (ImGui::Button("Imprimer un test")) {
+  if (button("Imprimer un test")) {
     open_print_test();
     message_.clear();
   }
   ImGui::SameLine();
-  if (ImGui::Button("Exporter PNG..."))
+  if (button("Exporter PNG..."))
     export_requested_ = true;
 
   // modele en cours : nom, fichier, etat
@@ -724,23 +725,23 @@ void Editor::draw_layers_panel() {
   const float width  = static_cast< float >(document_.media.oriented_width_mm());
   const float height = static_cast< float >(document_.media.oriented_height_mm());
   const float half   = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
-  if (ImGui::Button("Texte", ImVec2(half, 0))) {
+  if (button("Texte", ImVec2(half, 0))) {
     const float box_height = std::min(8.0f, height);
     add_element({ "texte", ElementKind::Text,
                   TextElement{ "Texte", 2.0f, (height - box_height) / 2.0f, std::max(1.0f, width - 4.0f), box_height, 3.0f } });
   }
   ImGui::SetItemTooltip("Zone de texte libre. Les {{placeholders}} sont remplacés à l'impression.");
   ImGui::SameLine();
-  if (ImGui::Button("QR code", ImVec2(half, 0))) {
+  if (button("QR code", ImVec2(half, 0))) {
     const float size = std::max(kMinQrMm, std::min(16.0f, std::min(width, height) - 4.0f));
     add_element({ "qr", ElementKind::QrCode, QrElement{ "{{code}}", (width - size) / 2.0f, (height - size) / 2.0f, size } });
   }
-  if (ImGui::Button("Image", ImVec2(-FLT_MIN, 0))) {
+  if (button("Image", ImVec2(-FLT_MIN, 0))) {
     const std::string path = image_files_.empty() ? std::string(LABEL_IMAGES_DIR) + "/protection-civile.png" : image_files_.front();
     add_element({ "image", ElementKind::Image, ImageElement{ path, (width - 10.0f) / 2.0f, (height - 10.0f) / 2.0f, 10.0f, 10.0f, true, 128 } });
   }
   ImGui::SetItemTooltip("Logo ou image PNG / JPEG du dossier images/ des modèles.");
-  if (ImGui::Button("Nom de l'antenne", ImVec2(-FLT_MIN, 0))) {
+  if (button("Nom de l'antenne", ImVec2(-FLT_MIN, 0))) {
     // {{titre}} : nom de l'antenne des Reglages, centre et en gras sur toute la largeur
     TextElement title{ "{{titre}}", 1.0f, 1.0f, std::max(1.0f, width - 2.0f), 8.0f, 3.0f };
     title.bold                    = true;
@@ -781,22 +782,22 @@ void Editor::draw_layers_panel() {
   const bool selection = has_selection();
   const float third    = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
   ImGui::BeginDisabled(!selection || selected_element_ + 1 >= static_cast< int >(document_.elements.size()));
-  if (ImGui::Button("Avancer", ImVec2(third, 0)))
+  if (button("Avancer", ImVec2(third, 0)))
     move_selected(1);
   ImGui::EndDisabled();
   ImGui::SetItemTooltip("Passer devant l'élément du dessus (Page préc.)");
   ImGui::SameLine();
   ImGui::BeginDisabled(!selection || selected_element_ <= 0);
-  if (ImGui::Button("Reculer", ImVec2(third, 0)))
+  if (button("Reculer", ImVec2(third, 0)))
     move_selected(-1);
   ImGui::EndDisabled();
   ImGui::SetItemTooltip("Passer derrière l'élément du dessous (Page suiv.)");
   ImGui::SameLine();
   ImGui::BeginDisabled(!selection);
-  if (ImGui::Button("Dupliquer", ImVec2(third, 0)))
+  if (button("Dupliquer", ImVec2(third, 0)))
     duplicate_selected();
   ImGui::SetItemTooltip("Ctrl+D");
-  if (ImGui::Button("Supprimer", ImVec2(-FLT_MIN, 0)))
+  if (button("Supprimer", ImVec2(-FLT_MIN, 0)))
     delete_selected();
   ImGui::SetItemTooltip("Suppr");
   ImGui::EndDisabled();
@@ -829,17 +830,17 @@ void Editor::zoom_at(float factor, ImVec2 anchor) {
 void Editor::draw_canvas_panel() {
   ImGui::BeginChild("CanvasPanel", ImVec2(0, 0), ImGuiChildFlags_Borders);
   const ImVec2 center(canvas_size_.x / 2.0f, canvas_size_.y / 2.0f);
-  if (ImGui::Button("-"))
+  if (button("-"))
     zoom_at(0.8f, center);
   ImGui::SetItemTooltip("Dézoomer (Ctrl+-, ou Ctrl+molette)");
   ImGui::SameLine();
   ImGui::Text("%d %%", static_cast< int >(std::round(zoom_ * 100.0f)));
   ImGui::SameLine();
-  if (ImGui::Button("+"))
+  if (button("+"))
     zoom_at(1.25f, center);
   ImGui::SetItemTooltip("Zoomer (Ctrl++, ou Ctrl+molette)");
   ImGui::SameLine();
-  if (ImGui::Button("Ajuster"))
+  if (button("Ajuster"))
     fit_pending_ = true;
   ImGui::SetItemTooltip("Afficher toute l'étiquette (Ctrl+0)");
   ImGui::SameLine();
@@ -1291,21 +1292,21 @@ void Editor::draw_properties(TemplateElement &element) {
   ImGui::TextUnformatted("Aligner sur l'étiquette");
   ImGui::PushID("aligner"); // memes libelles que l'alignement du texte (Gauche, Droite)
   const float third = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
-  if (ImGui::Button("Gauche", ImVec2(third, 0)))
+  if (button("Gauche", ImVec2(third, 0)))
     align_selected(-1, 2);
   ImGui::SameLine();
-  if (ImGui::Button("Centre", ImVec2(third, 0)))
+  if (button("Centre", ImVec2(third, 0)))
     align_selected(0, 2);
   ImGui::SameLine();
-  if (ImGui::Button("Droite", ImVec2(third, 0)))
+  if (button("Droite", ImVec2(third, 0)))
     align_selected(1, 2);
-  if (ImGui::Button("Haut", ImVec2(third, 0)))
+  if (button("Haut", ImVec2(third, 0)))
     align_selected(2, -1);
   ImGui::SameLine();
-  if (ImGui::Button("Milieu", ImVec2(third, 0)))
+  if (button("Milieu", ImVec2(third, 0)))
     align_selected(2, 0);
   ImGui::SameLine();
-  if (ImGui::Button("Bas", ImVec2(third, 0)))
+  if (button("Bas", ImVec2(third, 0)))
     align_selected(2, 1);
   ImGui::PopID();
 
@@ -1360,11 +1361,11 @@ void Editor::draw_properties(TemplateElement &element) {
       preview_dirty_ = true;
   }
   ImGui::Separator();
-  if (ImGui::Button("Dupliquer"))
+  if (button("Dupliquer"))
     duplicate_selected();
   ImGui::SetItemTooltip("Ctrl+D");
   ImGui::SameLine();
-  if (ImGui::Button("Supprimer"))
+  if (button("Supprimer"))
     delete_selected();
   ImGui::SetItemTooltip("Suppr");
 }
@@ -1470,7 +1471,7 @@ void Editor::draw_print_test_popup() {
     if (print_callback_) {
       // impression par la file de l'application (reglages d'imprimante et d'etiquette communs)
       ImGui::TextDisabled("Imprimante et taille d'étiquette : Gestion > Réglages.");
-      if (ImGui::Button("Imprimer")) {
+      if (button("Imprimer")) {
         TemplateDocument test_document = document_;
         test_document.parameters       = print_values_;
         print_callback_(test_document);
@@ -1486,7 +1487,7 @@ void Editor::draw_print_test_popup() {
         print_settings_.density = density;
       if (print_task_.valid()) {
         ImGui::TextUnformatted("Impression en cours...");
-      } else if (ImGui::Button("Imprimer")) {
+      } else if (button("Imprimer")) {
         TemplateDocument test_document = document_;
         test_document.parameters       = print_values_;
         const RasterImage   test_image = render_template(test_document);
@@ -1505,7 +1506,7 @@ void Editor::draw_print_test_popup() {
       }
     }
     // ImGui::SameLine();
-    // if (!print_task_.valid() && ImGui::Button("Envoyer #20012")) {
+    // if (!print_task_.valid() && button("Envoyer #20012")) {
     //   const PrintSettings settings = print_settings_;
     //   print_task_ = std::async(std::launch::async, [this, settings]() {
     //     std::string error;
@@ -1517,7 +1518,7 @@ void Editor::draw_print_test_popup() {
     if (!message_.empty())
       ImGui::TextWrapped("%s", message_.c_str());
     ImGui::SameLine();
-    if (!print_task_.valid() && ImGui::Button("Annuler")) {
+    if (!print_task_.valid() && button("Annuler")) {
       print_test_open_ = false;
       ImGui::CloseCurrentPopup();
     }

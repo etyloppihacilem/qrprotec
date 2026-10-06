@@ -612,8 +612,15 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   dans la pile. La fenêtre et la barre de menu indiquent si le téléphone est connecté et, sinon, le
   temps restant avant la fermeture de la session (délai réglable). « Nouveau QR code » et « Fermer la
   session » sont dans la même fenêtre.
-- **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté et les
-  fenêtres remises à leur place par défaut.
+- **Clavier** : tout se fait sans souris. `F1` à `F4` ouvrent les fenêtres de tous (Pile de scans,
+  Lots, Vérif, Téléphone-douchette), `Ctrl+1` à `Ctrl+8` celles du menu Gestion, dans l'ordre du menu ;
+  le raccourci d'une fenêtre déjà au premier plan la ferme. `F11` met les fenêtres en plein écran (une
+  seule visible à la fois, sur toute la zone sous la barre de menu), `Ctrl+Tab` passe à la fenêtre
+  suivante, `Ctrl+W` ferme celle qui a le focus. Chaque bouton a une lettre soulignée : `Alt` + cette
+  lettre l'actionne (les lettres sont attribuées par fenêtre, les boutons des tableaux n'en ont pas).
+  Les flèches déplacent le focus dans une fenêtre et `Entrée` ou `Espace` valide l'élément choisi.
+- **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté, le plein
+  écran quitté et les fenêtres remises à leur place par défaut.
 
 ### Mode privilégié (badge gestion ou admin)
 

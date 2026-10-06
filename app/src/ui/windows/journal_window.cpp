@@ -192,18 +192,18 @@ class JournalWindow final : public AppWindow {
       changed |= date_field("##until", "au (inclus)", until_);
       ImGui::SameLine();
       const Date today = app.today();
-      if (ImGui::Button("Aujourd'hui")) {
+      if (button("Aujourd'hui")) {
         since_ = until_ = today.display();
         changed         = true;
       }
       ImGui::SameLine();
-      if (ImGui::Button("7 jours")) {
+      if (button("7 jours")) {
         since_ = today.plus_days(-6).display();
         until_.clear();
         changed = true;
       }
       ImGui::SameLine();
-      if (ImGui::Button("30 jours")) {
+      if (button("30 jours")) {
         since_ = today.plus_days(-29).display();
         until_.clear();
         changed = true;
@@ -215,12 +215,12 @@ class JournalWindow final : public AppWindow {
       help_marker("Cherche dans le résumé de l'opération, le nom du lot et le nom ou le matricule de la personne. "
                   "Entrée pour lancer la recherche.");
       ImGui::SameLine();
-      if (ImGui::Button("Effacer les filtres")) {
+      if (button("Effacer les filtres")) {
         reset_filters();
         changed = true;
       }
       ImGui::SameLine();
-      if (ImGui::Button("Rafraîchir") || changed)
+      if (button("Rafraîchir") || changed)
         load(app, true);
     }
 
@@ -299,7 +299,7 @@ class JournalWindow final : public AppWindow {
         ImGui::TextDisabled("%zu opération(s)%s", operations_.size(), more_ ? ", d'autres plus anciennes" : "");
       if (more_ && !loading_) {
         ImGui::SameLine();
-        if (ImGui::SmallButton("Afficher les plus anciennes"))
+        if (small_button("Afficher les plus anciennes"))
           load(app, false);
       }
     }

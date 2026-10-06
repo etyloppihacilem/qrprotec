@@ -47,13 +47,13 @@ class ScanWindow final : public AppWindow {
       if (app.verif.active) {
         ImGui::TextColored(colors::orange, "Vérif en cours : %s", app.verif_title().c_str());
         ImGui::SameLine();
-        if (ImGui::SmallButton("Voir"))
+        if (small_button("Voir"))
           app.open_window("verif");
       }
       if (app.stack.target.valid()) {
         ImGui::TextColored(colors::green, "Lot cible (étiquette privée) : %s", app.stack.target.name.c_str());
         ImGui::SameLine();
-        if (ImGui::SmallButton("Oublier"))
+        if (small_button("Oublier"))
           app.stack.target = {};
       }
     }
@@ -63,7 +63,7 @@ class ScanWindow final : public AppWindow {
       const bool submit = ImGui::InputTextWithHint("##manual", "Saisie manuelle d'un code", &manual_,
                                                    ImGuiInputTextFlags_EnterReturnsTrue);
       ImGui::SameLine();
-      if ((ImGui::Button("Ajouter") || submit) && !manual_.empty()) {
+      if ((button("Ajouter") || submit) && !manual_.empty()) {
         app.handle_scan(manual_, ScanSource::Manual);
         manual_.clear();
       }
@@ -118,7 +118,7 @@ class ScanWindow final : public AppWindow {
             ImGui::TextColored(colors::green, "OK");
           ImGui::TableNextColumn();
           ImGui::PushID(entry->id);
-          if (ImGui::SmallButton("X"))
+          if (small_button("X"))
             remove_id = entry->id;
           ImGui::SetItemTooltip("Retirer ce scan de la pile");
           ImGui::PopID();
@@ -135,11 +135,11 @@ class ScanWindow final : public AppWindow {
       const float width = ImGui::GetContentRegionAvail().x;
       const float third = (width - 2.0f * ImGui::GetStyle().ItemSpacing.x) / 3.0f;
       ImGui::BeginDisabled(stack.empty());
-      if (ImGui::Button("Annuler", ImVec2(third, 0)))
+      if (button("Annuler", ImVec2(third, 0)))
         stack.undo_last();
       ImGui::SetItemTooltip("Retire le dernier scan de la pile.");
       ImGui::SameLine();
-      if (ImGui::Button("Nettoyer", ImVec2(third, 0))) {
+      if (button("Nettoyer", ImVec2(third, 0))) {
         stack.remove_duplicates();
         stack.remove_errors();
       }
@@ -186,17 +186,17 @@ class ScanWindow final : public AppWindow {
 
       if (app.privileged()) {
         ImGui::BeginDisabled(empty);
-        if (ImGui::Button("Vérif du stock", ImVec2(third, 0)))
+        if (button("Vérif du stock", ImVec2(third, 0)))
           app.stock_verif();
         ImGui::SetItemTooltip("Stock non rangé : les items scannés sont déclarés en stock (ceux d'un rangement y restent) ;\n"
                               "les items en stock hors rangement non scannés sont signalés.\n"
                               "Pour un tiroir ou une armoire : scannez son étiquette, comme pour un lot.");
         ImGui::SameLine();
-        if (ImGui::Button("En stock", ImVec2(third, 0)))
+        if (button("En stock", ImVec2(third, 0)))
           app.stack_to_stock();
         ImGui::SetItemTooltip("Remet les items scannés en stock (sortis de leur lot).");
         ImGui::SameLine();
-        if (ImGui::Button("Réimprimer", ImVec2(third, 0)))
+        if (button("Réimprimer", ImVec2(third, 0)))
           reprint(app);
         ImGui::SetItemTooltip("Réimprime l'étiquette de chaque item scanné (étiquette abîmée).");
         ImGui::EndDisabled();
