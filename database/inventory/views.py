@@ -453,8 +453,8 @@ def lot_detail(request, lot_id):
 
 
 def lot_sheet_pdf(request, lot_id):
-    """Fiche d'inventaire papier du lot et de ses sous-lots (PDF A4, une page par lot). Meme acces que le detail
-    public du lot : la fiche ne contient que les items attendus, jamais les cles."""
+    """Fiche d'inventaire papier du lot et de ses sous-lots (PDF A4, liste de controle, une page par sous-lot). Meme
+    acces que le detail public du lot : la fiche ne contient que les items attendus, jamais les cles."""
     if request.method != 'GET':
         return HttpResponseNotAllowed(['GET'])
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
