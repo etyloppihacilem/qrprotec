@@ -618,7 +618,7 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   Utilisateurs, Éditeur d'étiquettes, Réglages). La touche d'une fenêtre déjà au premier plan la ferme.
   Dans une fenêtre à onglets, `Ctrl+1`, `Ctrl+2`… choisissent l'onglet. `Ctrl+F11` met les fenêtres en
   plein écran (une seule visible à la fois, sur toute la zone sous la barre de menu), `Ctrl+Tab` passe
-  à la fenêtre suivante, `Ctrl+W` ferme celle qui a le focus. Chaque bouton a une lettre soulignée :
+  à la fenêtre suivante, `Ctrl+W` ferme celle qui a le focus, `Super+L` déconnecte. Chaque bouton a une lettre soulignée :
   `Alt` + cette lettre l'actionne (les lettres sont attribuées par fenêtre, les boutons des tableaux
   n'en ont pas). Les flèches déplacent le focus dans une fenêtre et `Entrée` ou `Espace` valide
   l'élément choisi.

@@ -71,10 +71,10 @@ int pick_mnemonic(const char *text, const char *end, unsigned int &used) {
 // Bouton ImGui avec raccourci Alt+lettre (Alt de gauche : Alt Gr sert a taper @, #, { sur un clavier francais).
 // Les petits boutons et les boutons des tableaux (une ligne chacun) n'en ont pas : on y va au clavier avec
 // les fleches.
-bool mnemonic_button(const char *label, const ImVec2 &size, bool small) {
+bool mnemonic_button(const char *label, const ImVec2 &size, bool small, bool mnemonic = true) {
   const bool   pressed = small ? ImGui::SmallButton(label) : ImGui::Button(label, size);
   ImGuiWindow *window  = ImGui::GetCurrentWindow();
-  if (small || ImGui::GetCurrentTable() != nullptr || window->SkipItems)
+  if (small || !mnemonic || ImGui::GetCurrentTable() != nullptr || window->SkipItems)
     return pressed;
   const char *end = ImGui::FindRenderedTextEnd(label);
   if (end - label < 2)
@@ -123,12 +123,12 @@ bool mnemonic_button(const char *label, const ImVec2 &size, bool small) {
   return false;
 }
 
-bool colored_button(const char *label, const ImVec4 &color, const ImVec2 &size) {
+bool colored_button(const char *label, const ImVec4 &color, const ImVec2 &size, bool mnemonic = true) {
   ImGui::PushStyleColor(ImGuiCol_Button, color);
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x * 1.1f, color.y * 1.1f, color.z * 1.1f, 1.0f));
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(color.x * 0.85f, color.y * 0.85f, color.z * 0.85f, 1.0f));
   ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-  const bool pressed = mnemonic_button(label, size, false);
+  const bool pressed = mnemonic_button(label, size, false, mnemonic);
   ImGui::PopStyleColor(4);
   return pressed;
 }
@@ -169,8 +169,8 @@ bool tab_item(const char *label, ImGuiTabItemFlags flags) {
   return open;
 }
 
-bool danger_button(const char *label, const ImVec2 &size) {
-  return colored_button(label, colors::red, size);
+bool danger_button(const char *label, const ImVec2 &size, bool mnemonic) {
+  return colored_button(label, colors::red, size, mnemonic);
 }
 
 bool primary_button(const char *label, const ImVec2 &size) {
