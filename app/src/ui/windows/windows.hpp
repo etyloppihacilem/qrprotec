@@ -33,7 +33,8 @@ std::unique_ptr< AppWindow > make_editor_window();
 std::unique_ptr< AppWindow > make_settings_window();
 
 // Connexion au back (URL, cle de front, autorite HTTPS, jeton) avec bouton de test : fenetre Reglages, et
-// fenetre « Connexion au serveur » accessible sans badge tant que l'API est injoignable.
-void draw_server_settings(App &app);
+// fenetre « Connexion au serveur » accessible sans badge tant que l'API est injoignable. save_on_success :
+// les reglages sont enregistres des que le test reussit (premier lancement d'un front sans back local).
+void draw_server_settings(App &app, bool save_on_success = false);
 
 } // namespace qrprotec

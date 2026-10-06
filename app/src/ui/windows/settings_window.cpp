@@ -39,7 +39,7 @@ void api_field(const char *label, const char *env_name, std::string &value, ImGu
 
 } // namespace
 
-void draw_server_settings(App &app) {
+void draw_server_settings(App &app, bool save_on_success) {
   api_field("URL du serveur", "QRPROTEC_API_URL", app.settings.api_url, 0,
             "Même machine : http://127.0.0.1:8001 (API locale, port non exposé).\n"
             "Serveur distant : https://nom-du-serveur (avec une clé de front).");
@@ -55,7 +55,7 @@ void draw_server_settings(App &app) {
             "Optionnel : doit correspondre à QRPROTEC_LOCAL_API_TOKEN côté serveur.");
   if (button("Tester la connexion")) {
     app.apply_settings();
-    app.api.get("/api/health/", [&app](const ApiResult &result) {
+    app.api.get("/api/health/", [&app, save_on_success](const ApiResult &result) {
       if (!result.ok) {
         app.notify("Connexion impossible : " + result.error, true);
         return;
@@ -63,8 +63,16 @@ void draw_server_settings(App &app) {
       const std::string front = result.data["front"].str();
       app.notify("Connecté à l'API " + (front.empty() ? result.data["api"].str() : "distante (front " + front + ")")
                  + ", URLs publiques : " + result.data["public_base_url"].str());
-      if (result.data["api"].str() != "local")
+      if (result.data["api"].str() != "local") {
         app.notify("Attention : ce port est l'API publique, la gestion ne fonctionnera pas.", true);
+        return;
+      }
+      // premier lancement (fenetre « Connexion au serveur ») : la connexion qui marche est gardee tout de suite
+      if (save_on_success) {
+        app.save_settings();
+        app.refresh_item_types();
+        app.refresh_lots();
+      }
     });
   }
 }
