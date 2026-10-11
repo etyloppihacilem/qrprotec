@@ -18,6 +18,7 @@ Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la
 | `inventory/notifications.py` | SMS Free Mobile, seuils de stock | |
 | `inventory/webpush.py` | Notifications web (chiffrement RFC 8291, VAPID RFC 8292) | Sans `cryptography`, désactivé proprement. |
 | `inventory/remote_scanner.py` | Relais WebSocket téléphone → poste | Protocole décrit en tête de fichier. |
+| `inventory/live.py` | Suivi des vérifs en direct (WebSocket) | Protocole décrit en tête de fichier. |
 | `inventory/web_views.py`, `web/` | Front web | Liste blanche des fichiers servis. |
 | `inventory/management/commands/` | `serve`, `createadmin`, `check_alerts` | |
 | `inventory/tests.py` | Tests | `python manage.py test inventory` |
@@ -189,6 +190,16 @@ téléphone vers le poste et les retours d'erreur du poste vers le téléphone.
 - Les sessions sont en mémoire dans `hub` ; un thread « faucheur » ferme celles dont un côté est
   déconnecté depuis plus que le délai choisi (1 min à 24 h, 5 min par défaut).
 - Le protocole des messages est documenté en tête de `remote_scanner.py`.
+
+## Suivi des vérifs en direct
+
+`live.py` réutilise la même implémentation WebSocket. La page de scan ouvre `/ws/live/scanner` et
+publie l'état de sa vérif en cours (borné et nettoyé par `clean_state` : ce n'est que de
+l'affichage) ; les pages de suivi ouvrent `/ws/live/watch`, s'authentifient par leur premier
+message (badge) et reçoivent un instantané puis chaque mise à jour. Les noms passent par
+l'anonymisation de l'API publique. Une vérif validée reste affichée 10 min, une page de scan
+déconnectée 15 min (le temps d'un rechargement, qui reprend la même session). Les vérifs passées
+viennent de `POST /api/verifs/recent/` (badge, une ligne par vérif groupée).
 
 ## Front web servi par le back
 

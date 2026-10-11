@@ -5,27 +5,57 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="theme-color" content="#1f2a33">
   <meta name="referrer" content="no-referrer">
-  <title>QRProtec – Vérif</title>
+  <title>QRProtec</title>
   <link rel="icon" type="image/png" href="web/favicon.png">
   <link rel="icon" type="image/png" sizes="192x192" href="web/icon-192.png">
   <link rel="apple-touch-icon" href="web/icon-192.png">
   <link rel="manifest" href="web/manifest.webmanifest">
   <link rel="stylesheet" href="web/app.css">
 </head>
-<body>
+<body class="home-mode">
+  <!-- Page d'accueil : connexion (petit lecteur dans un coin), quatre entrees, reglages des notifications -->
+  <section id="home">
+    <header id="home-bar">
+      <button id="home-back" class="bar-button" type="button" aria-label="Retour à l'accueil" hidden>‹</button>
+      <h1 id="home-title">QRProtec</h1>
+      <div class="bar-buttons">
+        <button id="home-settings" class="bar-button" type="button" aria-label="Réglages des notifications" title="Réglages des notifications" hidden>⚙</button>
+        <button id="home-user" class="login-button" type="button">Se connecter</button>
+      </div>
+    </header>
+    <div id="home-pages">
+      <div class="home-page" data-page="menu">
+        <div class="tiles">
+          <button class="tile" type="button" data-go="scan"><span class="tile-icon">📷</span><b>Scanner</b><small>Lancer une vérif</small></button>
+          <button class="tile" type="button" data-go="live"><span class="tile-icon">📡</span><b>Suivi des vérifs</b><small>En direct et récentes</small></button>
+          <button class="tile" type="button" data-go="lots"><span class="tile-icon">📦</span><b>État des lots</b><small>Tous les lots et leur état</small></button>
+          <button class="tile" type="button" data-go="stock" id="tile-stock"><span class="tile-icon">📊</span><b>État des stocks</b><small id="tile-stock-sub">Connexion requise</small></button>
+        </div>
+        <p class="hint home-hint">Ce téléphone peut aussi servir de douchette au poste : sur le poste, menu Douchette &gt; Téléphone comme douchette, puis scannez le QR code affiché avec « Scanner ».</p>
+      </div>
+      <div class="home-page page" data-page="lots" id="home-lots"></div>
+      <div class="home-page page" data-page="live" id="home-live"></div>
+      <div class="home-page page" data-page="stock" id="home-stock"></div>
+    </div>
+  </section>
+
   <!-- Tiers haut : zone de scan (reductible en vignette flottante) -->
   <section id="camera">
     <video id="video" playsinline muted></video>
     <canvas id="frame" hidden></canvas>
     <div id="viewfinder"><span></span></div>
     <div id="topbar">
-      <button id="user-chip" class="chip" type="button">Non connecté</button>
+      <div class="chips">
+        <button id="go-home" class="chip icon" type="button" aria-label="Accueil" title="Accueil">🏠</button>
+        <button id="user-chip" class="chip" type="button">Non connecté</button>
+      </div>
       <div class="chips">
         <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>
         <button id="cam-mini" class="chip icon" type="button" aria-label="Réduire la caméra" title="Réduire la caméra dans un coin">↘</button>
       </div>
     </div>
     <div id="scan-hint">Visez un QR code</div>
+    <button id="reader-close" type="button" aria-label="Fermer le lecteur">✕</button>
     <div id="start" class="overlay">
       <p>Scanner d'inventaire QRProtec</p>
       <button id="start-button" class="primary big" type="button">Démarrer la caméra</button>
@@ -37,7 +67,6 @@
   <section id="panel">
     <div id="info" class="info empty">Scannez l'étiquette d'un lot, un item ou votre badge.</div>
     <nav id="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="home">Accueil</button>
       <button type="button" role="tab" data-tab="todo" class="active">À scanner <b id="count-todo">0</b></button>
       <button type="button" role="tab" data-tab="done">Scannés <b id="count-done">0</b></button>
       <button type="button" role="tab" data-tab="lot">Lot</button>
@@ -53,7 +82,6 @@
         <ul id="done-list" class="list"></ul>
       </div>
       <div class="view" data-view="lot"><div id="lot-view"></div></div>
-      <div class="view" data-view="home"><div id="home-view" class="page"></div></div>
       <div class="view" data-view="stock"><div id="stock-view" class="page"></div></div>
     </div>
     <footer id="actions">

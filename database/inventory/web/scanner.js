@@ -48,7 +48,23 @@
     void node.offsetWidth;
     node.className = kind;
   }
-  function vibrate(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
+  // Vibreur : API Vibration (Android) ; a defaut, retour haptique d'un interrupteur sur iOS 18+ (comme app.js)
+  let haptic = null;
+  function vibrate(pattern) {
+    if (navigator.vibrate) { navigator.vibrate(pattern); return; }
+    if (!haptic) {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.setAttribute('switch', '');
+      haptic = document.createElement('label');
+      haptic.style.display = 'none';
+      haptic.setAttribute('aria-hidden', 'true');
+      haptic.append(input);
+      document.body.append(haptic);
+    }
+    const pulses = Array.isArray(pattern) ? Math.ceil(pattern.length / 2) : 1;
+    for (let i = 0; i < pulses; i++) setTimeout(() => haptic.click(), i * 180);
+  }
   const feedback = {
     sent() { tone(1320, 0, 0.07, 'sine', 0.2); vibrate(40); flash('good'); },
     bad() { tone(880, 0, 0.18); tone(440, 0.22, 0.3); vibrate([250, 100, 250, 100, 250]); flash('bad'); },

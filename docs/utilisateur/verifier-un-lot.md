@@ -76,8 +76,21 @@ la remettre en haut.
 La liste en cours est conservée si la page se recharge ou si le téléphone se met en veille. Le menu
 **⋯** permet de saisir un code à la main, de changer de lot ou de se déconnecter.
 
-L'onglet **Accueil** (sans lot en cours) affiche la **liste des lots** avec leur état ; toucher un lot
-l'ouvre.
+### Page d'accueil
+
+L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **page d'accueil** :
+
+- **Se connecter** (en haut à droite) ouvre un petit lecteur dans un coin : scannez votre badge.
+- **Scanner** : l'écran de vérif, caméra prête à scanner. Le bouton 🏠 y ramène à l'accueil.
+- **Suivi des vérifs** : les vérifs **en cours, en direct** (lot, qui vérifie, items scannés,
+  reste à scanner) et les **dernières vérifs** enregistrées. Pratique pour le chef de poste qui veut
+  confirmer que ses équipiers ont fait leur vérif. Badge demandé.
+- **État des lots** : tous les lots et leur état ; toucher un lot l'ouvre.
+- **État des stocks** : rôles gestion et admin (badge demandé, grisé pour les autres).
+- ⚙ : réglages des notifications, seulement pour ceux qui peuvent en recevoir.
+
+Une vérif commencée au téléphone apparaît dans le **Suivi des vérifs** dès le premier scan, et y
+reste affichée quelques minutes une fois validée.
 
 ## Utiliser son téléphone comme douchette du poste
 
@@ -121,7 +134,7 @@ au même lot global (on ne peut pas mélanger le B+ 1 et le sac PSE A).
 ## Fiche papier du lot (PDF)
 
 Pour vérifier un lot sur papier, ouvrez-le au téléphone (scan d'une de ses étiquettes ou liste de
-l'onglet **Accueil**), puis dans l'onglet **Lot** touchez **📄 Fiche du lot en PDF**. La fiche, au
+**État des lots** de la page d'accueil), puis dans l'onglet **Lot** touchez **📄 Fiche du lot en PDF**. La fiche, au
 format A4, liste les types d'items attendus **triés par emplacement**, avec la quantité attendue et
 des cases à remplir (quantité trouvée, péremption la plus proche, OK), puis « Vérifié le / Par /
 Signature » et une zone de remarques. Les items non périssables ont la case péremption grisée.
