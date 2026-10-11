@@ -159,6 +159,7 @@ def clean_entries(value):
             'expired': bool(entry.get('expired')),
             'error': _text(entry.get('error'), 64),
             'items': [_text(iid, 32) for iid in items[:500]],
+            'place': _text(entry.get('place'), 16),  # lot de la derniere etiquette scannee avant (assign_items)
             'info': None if info is None else {
                 'type': _text(info.get('type'), 16), 'type_name': _text(info.get('type_name'), 64),
                 'peremption': _text(info.get('peremption'), 32) or None, 'count': _number(info.get('count')),
@@ -378,10 +379,13 @@ class LiveHub:
         identities = list(dict.fromkeys(identities))
         iids = [entry['iid'] for entry in entries if entry['kind'] == 'item']
         iids += [iid for entry in entries if entry['kind'] == 'pack' for iid in entry['items']]
+        places = {iid: entry['place'] for entry in entries if entry['place']
+                  for iid in ([entry['iid']] if entry['kind'] == 'item' else entry['items'])}
         if not identities or not lots or not iids:
             return False
         try:
-            report = services.perform_verif(verif_lots(lots, False), iids, identities[0], partial, identities[1:])
+            report = services.perform_verif(verif_lots(lots, False), iids, identities[0], partial, identities[1:],
+                                            places)
         except Exception:  # cle expiree, lot archive... : la verif est abandonnee
             with self.lock:
                 session.saving = False

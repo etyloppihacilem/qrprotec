@@ -57,6 +57,9 @@
     expiredSession: false,  // vérif precedente oubliee au demarrage (SESSION_TIMEOUT_MS)
     waitingTeam: false,     // vérif à plusieurs : partie validee, en attente des autres participants
     launched: '',           // lot dont la vérif a ete lancee depuis sa fiche (etiquette publique)
+    current: '',            // lot dont l'etiquette (publique ou cle) a ete scannee en dernier pendant la vérif : les
+                            // items venus du stock y sont ranges (services.assign_items)
+    askPlace: false,        // vérif rejointe sans rien scanner : demander le sous-lot ou l'on se trouve
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -76,9 +79,9 @@
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
         at: Date.now(), // derniere activite (SESSION_TIMEOUT_MS)
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif, pendingOpening: state.pendingOpening,
-        launched: state.launched,
+        launched: state.launched, current: state.current,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
-        scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items }) => ({ code, kind, iid, info, expired, error, items })),
+        scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items, place }) => ({ code, kind, iid, info, expired, error, items, place })),
       }));
       if (state.user) localStorage.setItem(STORAGE_USER, JSON.stringify(state.user));
       else localStorage.removeItem(STORAGE_USER);
@@ -102,6 +105,7 @@
         state.lotId = session.lotId || '';
         state.lotKey = session.lotKey || '';
         state.launched = session.launched || '';
+        state.current = session.current || '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
         state.lastVerif = session.lastVerif || null;
         state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
@@ -502,7 +506,7 @@
     scannedAgain();
     state.lastVerif = null; // un nouveau scan commence une nouvelle verif
     const expired = !!(scan.peremption && scan.peremption < today());
-    const entry = { code: scan.code, kind: 'item', iid: scan.id, expired, info: null, error: '' };
+    const entry = { code: scan.code, kind: 'item', iid: scan.id, expired, info: null, error: '', place: state.lot ? currentPlace() : '' };
     state.scanned.push(entry);
     if (expired) feedback.bad(); else feedback.good();
     showInfo(expired ? 'bad' : 'ok', expired ? 'PÉRIMÉ' : 'Item scanné', scan.id,
@@ -513,6 +517,22 @@
       if (entry.info.expired && !entry.expired) { entry.expired = true; feedback.bad(); }
     } catch (e) {
       if (e.status === 404) { entry.error = 'Inconnu dans la base'; feedback.bad(); }
+    }
+    // premier scan sans vérif en cours d'un item range dans un lot : c'est la vérif de ce lot qui commence
+    const info = entry.info;
+    if (!state.lot && state.scanned.length === 1 && state.scanned[0] === entry && info && info.location
+        && !info.in_stock && info.status === 'active') {
+      state.lotKey = ''; state.extra = []; state.lastVerif = null;
+      await loadLot(info.location);
+      if (state.lot && state.lotId === info.location) {
+        state.current = state.lotId;
+        entry.place = state.lotId;
+        save();
+        render();
+        showInfo('lot', `Vérif de ${state.lot.name}`, `Commencée par le scan d'un de ses items (${info.type_name}).`,
+          'Scannez les autres items du lot.');
+        return;
+      }
     }
     if (state.scanned[state.scanned.length - 1] === entry) showItemInfo(entry);
     save();
@@ -546,7 +566,8 @@
       }
       scannedAgain();
       state.lastVerif = null;
-      state.scanned.push({ code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items });
+      state.scanned.push({ code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items,
+                           place: state.lot ? currentPlace() : '' });
       if (expired) feedback.bad(); else feedback.good();
       showInfo(expired ? 'bad' : 'ok', `Paquet : ${pack.count} × ${pack.type_name}`,
         pack.peremption ? 'Péremption : ' + fmtDate(pack.peremption) : 'Non périssable',
@@ -569,44 +590,64 @@
     if (scan.key) state.lotKey = scan.key;
     await loadLot(scan.id);
     if (!state.lot) return;
+    state.current = scan.id;
+    state.askPlace = false;
     feedback.info();
     showLotInfo();
     if (!state.scanned.length) switchTab('todo');
   }
 
-  // Etiquette d'un autre lot du meme lot global pendant une verif : la verif continue et ses items attendus
-  // s'ajoutent (etiquette privee). Renvoie true si le scan a ete traite ici.
+  // Une vérif est en cours : scans (les notres ou ceux des autres participants), etiquette cle, vérif lancee depuis
+  // la fiche du lot, ou vérif rejointe
+  const checkRunning = () => !!state.lot && (allScanned().length > 0 || verifInProgress()
+    || (state.launched === state.lotId && !state.lastVerif) || live.inTeam());
+
+  // Lot ou sont ranges les items venus du stock scannes maintenant : derniere etiquette de lot scannee pendant la
+  // vérif (services.assign_items). Lot principal par defaut.
+  function currentPlace() {
+    if (state.askPlace) return ''; // vérif rejointe, sous-lot pas encore indique : regle par defaut
+    return sessionLots().some((lot) => lot.id === state.current) ? state.current : state.lotId;
+  }
+
+  // Etiquette (publique ou cle) d'un lot du meme lot global pendant une verif : la verif continue, ce lot devient
+  // le lot en cours (currentPlace) et, s'il n'en faisait pas partie, ses items attendus s'ajoutent : ses items deja
+  // scannes y ont bien ete trouves. Renvoie true si le scan a ete traite ici.
   async function joinVerif(scan) {
-    const inProgress = state.scanned.length > 0 || (!!state.lotKey && !state.lastVerif);
-    if (!inProgress) return false;
+    if (!checkRunning()) return false;
     const covered = sessionLots().find((lot) => lot.id === scan.id);
     if (covered && !scan.key) {
+      state.current = covered.id;
+      state.askPlace = false;
       feedback.info();
-      showInfo('ok', `${covered.name} fait partie de la vérif en cours`, 'Scannez ses items.');
+      showInfo('ok', `${covered.name} fait partie de la vérif en cours`, 'Scannez ses items : ceux venus du stock y seront rangés.');
+      save();
+      render();
       return true;
     }
-    if (!scan.key) return false;
     let lot;
     try {
-      lot = await api(`lots/${encodeURIComponent(scan.id)}/?key=${encodeURIComponent(scan.key)}`);
+      lot = await api(`lots/${encodeURIComponent(scan.id)}/` + (scan.key ? `?key=${encodeURIComponent(scan.key)}` : ''));
     } catch (e) {
       feedback.bad();
       showInfo('bad', 'Lot introuvable', e.message);
       return true;
     }
-    if (lot.key_check !== 'valid') {
+    if (scan.key && lot.key_check !== 'valid') {
       feedback.bad();
       showInfo('bad', 'Étiquette clé refusée', lot.key_error);
       return true;
     }
     if (rootOf(lot) !== rootOf(state.lot)) return false;
     const existing = state.extra.find((entry) => entry.id === scan.id);
-    if (existing) { existing.key = scan.key; existing.lot = lot; } else state.extra.push({ id: scan.id, key: scan.key, lot });
+    if (existing) { if (scan.key) existing.key = scan.key; existing.lot = lot; } else state.extra.push({ id: scan.id, key: scan.key || '', lot });
+    state.current = scan.id;
+    state.askPlace = false;
     feedback.info();
     showInfo('ok', `Vérif groupée : ${sessionLots().filter((sub) => !sub.depth || sub.id === lot.id).map((sub) => sub.name).join(' + ')}`,
       covered ? `${lot.name} faisait déjà partie de la vérif : son étiquette clé est enregistrée.`
         : `Les items attendus de ${lot.name} s'ajoutent à la vérif en cours.`,
-      `🔑 Étiquette clé de ${lot.name} scannée`);
+      scan.key ? `🔑 Étiquette clé de ${lot.name} scannée`
+        : keyOk() ? '' : `Scannez l'étiquette clé de ${lot.name} (ou du lot qui le contient) pour valider.`);
     save();
     render();
     if (!state.scanned.length) switchTab('todo');
@@ -760,16 +801,20 @@
     return [{ id: state.lotId, key: state.lotKey }, ...state.extra.map(({ id, key }) => ({ id, key }))];
   }
 
-  // Vérif à plusieurs : la cle d'un lot scannee par un autre participant est gardee par le serveur (keyed)
-  function keyOk() {
-    const keyed = new Set(live.keyed());
-    if (state.lotKey || keyed.has(state.lotId)) return true;
-    const parents = new Set(((state.lot && state.lot.path) || []).map((parent) => parent.id));
-    return [...state.extra.filter((entry) => entry.key).map((entry) => entry.id), ...keyed].some((id) => parents.has(id));
+  // Lots de la vérif qu'aucune etiquette cle ne couvre (la leur, ou celle d'un lot qui les contient). Vérif à
+  // plusieurs : la cle d'un lot scannee par un autre participant est gardee par le serveur (keyed).
+  function keyMissing() {
+    const keyed = new Set([...live.keyed(), ...(state.lotKey ? [state.lotId] : []),
+      ...state.extra.filter((entry) => entry.key).map((entry) => entry.id)]);
+    return [state.lot, ...state.extra.map((entry) => entry.lot)].filter(Boolean)
+      .filter((lot) => !keyed.has(lot.id) && !(lot.path || []).some((parent) => keyed.has(parent.id)));
   }
 
+  const keyOk = () => !keyMissing().length;
+
   // Repartition des items scannes entre les lots de la verif (meme regle que le serveur, services.assign_items) :
-  // un item deja dans un des lots y reste, un nouvel item va dans le premier lot qui en attend encore.
+  // un item deja dans un des lots y reste, un nouvel item va dans le lot de la derniere etiquette scannee avant lui
+  // (ou un de ses sous-lots) qui en attend encore, sinon dans le premier lot qui en attend encore.
   // complete : le lot serait complet avec ces scans (verif partielle possible).
   function planSession() {
     const lots = sessionLots();
@@ -794,8 +839,16 @@
       if (entry.error) continue;
       const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
       const iids = entry.kind === 'item' ? [entry.iid] : entry.items || [];
-      for (const iid of iids) scanned.push({ iid, type, expired: !!entry.expired });
+      for (const iid of iids) scanned.push({ iid, type, expired: !!entry.expired, place: entry.place || '' });
     }
+    // lot parent de chaque lot de la vérif : un item venu du stock va dans le lot de la derniere etiquette scannee
+    // avant lui ou un de ses sous-lots
+    const parentOf = Object.fromEntries(lots.map((lot) => [lot.id,
+      lot.parent || (lot.path && lot.path.length ? lot.path[lot.path.length - 1].id : null)]));
+    const under = (id, place) => {
+      for (let current = id; current; current = parentOf[current]) if (current === place) return true;
+      return false;
+    };
     const target = {};
     const newcomers = [];
     for (const item of scanned) {
@@ -807,13 +860,14 @@
     }
     newcomers.sort((a, b) => (a.expired - b.expired) || (a.iid < b.iid ? -1 : a.iid > b.iid ? 1 : 0));
     for (const item of newcomers) {
-      const candidates = lots.filter((lot) => item.type in required[lot.id]).map((lot) => lot.id);
+      const scope = lots.map((lot) => lot.id).filter((id) => !(item.place in parentOf) || under(id, item.place));
+      const candidates = scope.filter((id) => item.type in required[id]);
       let choice = null;
       if (!item.expired) {
         choice = candidates.find((id) => deficit[id][item.type] > 0) || null;
         if (choice) deficit[choice][item.type] -= 1;
       }
-      target[item.iid] = choice || candidates[0] || (lots[0] && lots[0].id);
+      target[item.iid] = choice || candidates[0] || scope[0];
     }
     const plan = Object.fromEntries(lots.map((lot) => [lot.id, { lot, fresh: {}, expired: {}, newFresh: {}, touched: 0 }]));
     for (const item of scanned) {
@@ -1121,8 +1175,9 @@
     const missing = [];
     if (!state.lot) missing.push("scannez l'étiquette du lot");
     else if (!keyOk()) {
-      missing.push("scannez l'étiquette clé du lot, un QR code rangé à l'intérieur du lot"
-        + (state.lot.key_location ? ` (${state.lot.key_location})` : ''));
+      const lot = keyMissing()[0];
+      missing.push(`scannez l'étiquette clé ${lot.id === state.lotId ? 'du lot' : 'de ' + lot.name}, un QR code rangé à l'intérieur du lot`
+        + (lot.key_location ? ` (${lot.key_location})` : ''));
     }
     if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
     if (needItems && !scannedIids().size) missing.push('scannez au moins un item');
@@ -1202,6 +1257,7 @@
         lots: sessionEntries(),
         ...identity(),
         items: [...scannedIids()],
+        places: scanPlaces(),
         partial,
         ...(credentials ? { live: credentials } : {}),
       });
@@ -1267,6 +1323,16 @@
     const known = knownIids();
     const iids = [...scannedIids()];
     return iids.length > 0 && !iids.some((iid) => known.has(iid));
+  }
+
+  // {iid: lot de la derniere etiquette scannee avant lui} envoye avec la vérif (services.assign_items)
+  function scanPlaces() {
+    const places = {};
+    for (const entry of allScanned()) {
+      if (entry.error || !entry.place) continue;
+      for (const iid of entry.kind === 'item' ? [entry.iid] : entry.items || []) places[iid] = entry.place;
+    }
+    return places;
   }
 
   function knownIids() {
@@ -2130,6 +2196,8 @@
     }
     state.lastVerif = null;
     state.waitingTeam = false;
+    state.current = '';
+    state.askPlace = !state.scanned.length; // on demandera ou l'on se trouve (sous-lot)
     live.join(row.id);
     enterScanner();
     switchTab('todo');
@@ -2165,9 +2233,26 @@
           if (!state.user) { toast('Scannez votre badge pour rejoindre sa vérif.', true); return; }
           if (!confirm(`Rejoindre la vérif de ${other.who || 'cette personne'} ? Vos scans s'ajoutent à la sienne.`)) return;
           state.waitingTeam = false;
+          state.askPlace = !state.scanned.length;
           live.join(other.id);
           render();
         } }, 'Rejoindre'));
+    }
+    // vérif rejointe sans rien scanner : dans quel sous-lot est-on ? (les items venus du stock y seront ranges)
+    const places = sessionLots().filter((lot) => (lot.requirements || []).length || (lot.items || []).length);
+    if (state.askPlace && places.length > 1) {
+      parts.push(el('div', { class: 'place' }, el('b', {}, '📍 Où êtes-vous ? '),
+        "Scannez l'étiquette du sous-lot en cours, ou choisissez : ",
+        ...places.map((lot) => el('button', { type: 'button', onclick: () => {
+          state.current = lot.id;
+          state.askPlace = false;
+          toast(`Lot en cours : ${lot.name}`);
+          save(); render();
+        } }, lot.name))));
+    } else if (!state.askPlace && places.length > 1 && checkRunning() && state.current) {
+      const current = places.find((lot) => lot.id === currentPlace());
+      if (current) parts.push(el('span', { title: 'Les items venus du stock scannés maintenant y sont rangés. Scannez l\'étiquette d\'un autre lot pour changer.' },
+        `📍 ${current.name}`));
     }
     box.hidden = !parts.length;
     box.replaceChildren(...parts);
@@ -2195,8 +2280,8 @@
       })),
       count: scannedIids().size,
       remaining,
-      entries: state.scanned.map(({ code, kind, iid, expired, error, items, info }) => ({
-        code, kind, iid, expired, error, items,
+      entries: state.scanned.map(({ code, kind, iid, expired, error, items, info, place }) => ({
+        code, kind, iid, expired, error, items, place,
         info: info ? { type: info.type, type_name: info.type_name, peremption: info.peremption, count: info.count } : null,
       })),
       keys: sessionEntries(),

@@ -178,6 +178,14 @@ def iid_list(data):
     return [iid.strip() for iid in items if iid.strip()]
 
 
+def place_map(data):
+    """"places" d'une verif : {iid: id du lot dont l'etiquette a ete scannee en dernier avant l'item}."""
+    places = data.get('places') or {}
+    if not isinstance(places, dict):
+        raise ApiError("places : objet {iid: lot} attendu")
+    return {str(iid): str(lot) for iid, lot in places.items() if isinstance(lot, str)}
+
+
 def parse_role(data):
     """Role demande ('role', ou l'ancien booleen 'privileged' = admin), None si absent."""
     if 'role' in data:
@@ -609,7 +617,8 @@ def lot_verif(request, lot_id):
     """Verif d'un lot et de ses sous-lots (cle du lot). 'partial' : voir verifs()."""
     lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}])
     identity = operation_identity(request)
-    report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
+    report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
+                                    places=place_map(request.data))
     return Response(report)
 
 
@@ -620,6 +629,7 @@ def verifs(request):
 
     Chaque lot est verifie avec ses sous-lots. En verif partielle, seuls les lots que les items scannes rendent
     complets sont verifies ; les items destines aux autres lots y sont ajoutes (reassort).
+    "places" : {iid: lot}, lot dont l'etiquette a ete scannee en dernier avant l'item (services.assign_items).
     Vérif à plusieurs (inventory/live.py) : "live": {"id", "pid", "token"} du participant qui envoie. Les cles des
     lots manquantes sont prises dans la verif commune, ses participants sont enregistres sur la verif et le compte
     rendu leur est envoye."""
@@ -632,7 +642,7 @@ def verifs(request):
     identity = operation_identity(request)
     participants = [value for value in team['identities'] if value != identity] if team else []
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
-                                    participants)
+                                    participants, place_map(request.data))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team:
         live.hub.finish(team, report)
