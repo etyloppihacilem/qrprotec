@@ -646,7 +646,7 @@
       covered ? `${lot.name} faisait déjà partie de la vérif : son étiquette clé est enregistrée.`
         : `Les items attendus de ${lot.name} s'ajoutent à la vérif en cours.`,
       scan.key ? `🔑 Étiquette clé de ${lot.name} scannée`
-        : keyOk() ? '' : `Scannez l'étiquette clé de ${lot.name} (ou du lot qui le contient) pour valider.`);
+        : keyOk() ? '' : `Scannez l'étiquette clé de ${lot.name} (ou d'un autre lot de la vérif) pour valider.`);
     save();
     render();
     if (!state.scanned.length) switchTab('todo');
@@ -803,13 +803,13 @@
     return [{ id: state.lotId, key: state.lotKey }, ...state.extra.map(({ id, key }) => ({ id, key }))];
   }
 
-  // Lots de la vérif qu'aucune etiquette cle ne couvre (la leur, ou celle d'un lot qui les contient). Vérif à
-  // plusieurs : la cle d'un lot scannee par un autre participant est gardee par le serveur (keyed).
+  // Lots de la vérif sans etiquette cle : une seule etiquette cle d'un des lots de la vérif (un sous-lot suffit, ex :
+  // un rangement pour le stock) valide toute la vérif, comme cote serveur. Vérif à plusieurs : la cle d'un lot
+  // scannee par un autre participant est gardee par le serveur (keyed).
   function keyMissing() {
     const keyed = new Set([...live.keyed(), ...(state.lotKey ? [state.lotId] : []),
       ...state.extra.filter((entry) => entry.key).map((entry) => entry.id)]);
-    return [state.lot, ...state.extra.map((entry) => entry.lot)].filter(Boolean)
-      .filter((lot) => !keyed.has(lot.id) && !(lot.path || []).some((parent) => keyed.has(parent.id)));
+    return keyed.size ? [] : [state.lot, ...state.extra.map((entry) => entry.lot)].filter(Boolean);
   }
 
   const keyOk = () => !keyMissing().length;

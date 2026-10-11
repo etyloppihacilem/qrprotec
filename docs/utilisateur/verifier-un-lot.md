@@ -120,8 +120,10 @@ reste affichée quelques minutes une fois validée.
   lequel vous êtes avant d'y ranger des items du stock. Le sous-lot en cours est rappelé par 📍.
 - Un item **d'un autre sous-lot** (ex : un item de l'armoire 2 pendant la vérif de l'armoire 1) est
   déplacé dans le lot vérifié. Si vous l'avez trouvé dans l'armoire 2, scannez l'étiquette
-  (publique ou clé) de l'armoire 2 : elle s'ajoute à la vérif, et l'item y reste. Il faut alors
-  l'étiquette clé de l'armoire 2 (ou du lot qui la contient) pour valider.
+  (publique ou clé) de l'armoire 2 : elle s'ajoute à la vérif, et l'item y reste.
+- Pour valider, **une seule étiquette clé** suffit, celle de n'importe quel lot de la vérif : le lot
+  global, un lot ajouté ou un de leurs sous-lots (ex : l'étiquette d'un seul rangement pour une
+  vérif du Stock).
 - Sans vérif en cours, scanner un item rangé dans un lot commence la vérif de ce lot (téléphone).
 
 ## Vérifier à plusieurs

@@ -576,8 +576,9 @@ def lot_seal_open(request, lot_id):
 
 
 def verif_targets(request, entries):
-    """Lots d'une verif ([{"id", "key"}, ...]) : tous du meme lot global. Sur l'API publique, chaque lot doit
-    etre couvert par une cle valide, la sienne ou celle d'un de ses lots parents (etiquette privee du lot global)."""
+    """Lots d'une verif ([{"id", "key"}, ...]) : tous du meme lot global. Sur l'API publique, une cle valide d'un
+    seul de ces lots suffit pour toute la verif : celle du lot global, d'un lot ajoute ou d'un de leurs sous-lots
+    (envoye dans la liste avec sa cle, il fait deja partie de la verif)."""
     return verif_lots(entries, is_local(request))
 
 
@@ -603,11 +604,11 @@ def verif_lots(entries, local):
             keys.setdefault(lot.id, '')
     if len({lot.root().id for lot in lots}) > 1:
         raise ApiError("Les lots d'une même vérif doivent appartenir au même lot global")
-    if not local:
-        authorized = {lot.id for lot in lots if lot.check_key(keys[lot.id])}
-        for lot in lots:
-            if lot.id not in authorized and not any(parent.id in authorized for parent in lot.ancestors()):
-                raise ApiError(key_error(lot, keys[lot.id]), status.HTTP_403_FORBIDDEN)
+    if not local and not any(lot.check_key(keys[lot.id]) for lot in lots):
+        # une seule etiquette cle d'un des lots (un sous-lot suffit, ex : un rangement pour le stock) valide toute
+        # la verif : les lots sont tous du meme lot global
+        lot = next((lot for lot in lots if keys[lot.id]), lots[0])
+        raise ApiError(key_error(lot, keys[lot.id]), status.HTTP_403_FORBIDDEN)
     return lots
 
 

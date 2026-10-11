@@ -142,7 +142,11 @@ Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.
 - Un sous-lot est un **vrai lot** : son propre type, ses propres étiquettes publique et clé, ses
   propres vérifs. On peut vérifier le sac O2 seul.
 - La **clé d'un lot couvre ses sous-lots** : scanner l'étiquette clé du B+ autorise la vérif
-  du sac de soin et du sac O2 (`verif_targets` accepte la clé d'un ancêtre).
+  du sac de soin et du sac O2. Dans l'autre sens, **une seule étiquette clé d'un sous-lot
+  suffit** pour valider la vérif de tout le lot global (le sac O2 pour le B+, un rangement pour
+  le Stock) : le sous-lot est envoyé dans `lots` avec sa clé, et `verif_targets` accepte la
+  vérif dès qu'une des clés est valide. Même règle dans les fronts (`keyMissing`,
+  `App::verif_key_ok`).
 - **Vérif groupée** : pendant une vérif, scanner l'étiquette clé d'un autre lot du **même lot
   global** l'ajoute à la vérif (`POST /api/verifs/` avec `lots: [{id, key}, …]`). Les attendus
   s'additionnent.
