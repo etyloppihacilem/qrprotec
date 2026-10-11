@@ -1720,8 +1720,13 @@ class RecentVerifsTests(ApiTestCase):
         # verif groupee (lot et sous-lot au meme instant) : une seule ligne
         self.assertEqual({lot['id'] for lot in grouped['lots']}, {self.lot.id, sub.id})
         self.assertEqual(grouped['present'], 4)
-        self.assertTrue(grouped['by'])
-        self.assertNotIn('P001', grouped['by'])
+        self.assertEqual(grouped['by'], 'Admin')  # nom court de l'API publique (prenom seul, pas d'homonyme)
+
+    def test_live_names_are_anonymized(self):
+        from .live import public_name
+        Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')
+        self.assertEqual(public_name('M:M001'), 'Jeanne Dup.')
+        self.assertEqual(public_name('D:Paul Martin'), 'Paul M.')
 
 
 class FakeSocket:

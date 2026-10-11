@@ -59,11 +59,7 @@ def _number(value):
 
 def public_name(identity):
     """Nom affiche dans le suivi (identite stockee M:matricule ou D:nom), anonymise comme sur l'API publique."""
-    try:
-        from .idendity import anonymized, identity_name
-    except ImportError:  # TODO: retirer quand l'anonymisation des noms publics (PR #47) sera fusionnee
-        from .serializers import _who
-        return _who(identity)
+    from .idendity import anonymized, identity_name
     try:
         with anonymized():
             return identity_name(identity)
