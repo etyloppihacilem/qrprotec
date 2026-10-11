@@ -66,6 +66,13 @@ vérifier toute la réserve. Chaque rangement est unique (un type par armoire, p
 contenu attendu et son étiquette clé n'expire pas. Les listes de lots ne les montrent qu'avec la
 case **Afficher les rangements du stock**.
 
+Tous les rangements font partie d'un même lot global, **le Stock**, qui existe toujours (on ne peut
+ni le créer ni l'archiver). Un rangement peut aussi être rangé dans un autre rangement (un tiroir
+dans une armoire), jamais dans un lot ordinaire, et un lot ordinaire n'est jamais rangé dans un
+rangement. On peut donc vérifier plusieurs rangements à la suite, comme les sous-lots d'un B+.
+Pendant la vérif d'un rangement, chaque item qui y est rangé est **attendu** : on vérifie qu'il est
+toujours là, pas une quantité par type.
+
 ## Vérif
 
 Une **vérif** consiste à scanner **tout** le contenu d'un lot puis à valider. Le logiciel compare

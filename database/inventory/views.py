@@ -45,7 +45,7 @@ from .idendity import SOURCE_VERIFIED, identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
-    PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
+    PUSH_TYPES, STOCK_LOT_TYPE, TYPE_LENGTH, Items, ItemsPacks, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     ServerSettings, SmsRecipient, Verifs, name_key, qrprotec_setting,
 )
@@ -1214,7 +1214,12 @@ def lot_type_detail(request, type_code):
     lot_type = get_object_or_404(LotType, type=type_code)
     if request.method == 'PATCH':
         data = request.data
-        lots = list(lot_type.lots_set.all())
+        lots = list(lot_type.lots_set.select_related('parent__lot_type'))  # lot.lot_type : ce type (modifie ici)
+        if lot_type.type == STOCK_LOT_TYPE and (
+                ('storage' in data and not data['storage']) or ('unique' in data and not data['unique'])
+                or data.get('archived')):
+            raise ApiError("Le stock reste un rangement unique, toujours actif : seuls son nom et sa description "
+                           "se modifient")
         if 'name' in data:
             name = str(data['name']).strip()[:64]
             if not name:
@@ -1243,6 +1248,10 @@ def lot_type_detail(request, type_code):
             raise ApiError(f"{len(lots)} lots de ce type existent : un lot unique n'en a qu'un")
         lot_type.unique = unique
         if storage != lot_type.storage:
+            # un rangement fait partie du stock, un lot ordinaire non : ni l'un ni l'autre ne contient l'autre
+            for lot in lots:
+                if lot.children.filter(active=True).exists():
+                    raise ApiError(f"Le lot {lot.name} contient des sous-lots : retirez-les d'abord")
             lot_type.storage = storage
             # rangement : jamais de contenu attendu, etiquette privee sans expiration
             if storage and lot_type.requirements.exists():
@@ -1252,7 +1261,11 @@ def lot_type_detail(request, type_code):
             for lot in lots:
                 lot.verif_key_expires = lot.key_expiration()
                 lot.key_expiry_stage = KeyExpiry.VALID
-                lot.save(update_fields=['verif_key_expires', 'key_expiry_stage'])
+                if storage and (lot.parent is None or not lot.parent.lot_type.storage):
+                    lot.parent = Lots.stock()  # un rangement est range dans le stock
+                elif not storage and lot.parent is not None and lot.parent.lot_type.storage:
+                    lot.parent = None  # n'est plus un rangement : sort du stock
+                lot.save(update_fields=['verif_key_expires', 'key_expiry_stage', 'parent'])
         if 'archived' in data:
             archived = bool(data['archived'])
             active = [lot for lot in lots if lot.active]
@@ -1269,7 +1282,7 @@ def lot_type_detail(request, type_code):
                         if not archived and not lot.active:
                             ensure_name_free(Lots.objects.filter(active=True).exclude(id=lot.id), lot.name, 'Le lot')
                         if not archived and lot.parent is not None and not lot.parent.active:
-                            lot.parent = None
+                            lot.parent = default_parent(lot)
                         lot.active = not archived
                         lot.save(update_fields=['active', 'parent'])
                 lot_type.archived = archived
@@ -1352,15 +1365,29 @@ def lots(request):
 
 
 def parse_parent(lot, value):
-    """Lot parent demande (id, ou vide pour un lot independant). Refuse un lot archive et les boucles."""
+    """Lot parent demande (id, ou vide pour un lot independant). Refuse un lot archive et les boucles.
+
+    Le stock est le lot global de tous les rangements du stock : un rangement est range dans le stock (par defaut)
+    ou dans un autre rangement, un lot ordinaire jamais dans un rangement, et le stock lui-meme dans aucun lot."""
     if value in (None, ''):
-        return None
+        return default_parent(lot)
+    if lot.is_stock:
+        raise ApiError("Le stock ne peut pas être rangé dans un autre lot")
     parent = get_object_or_404(Lots.objects.select_related('lot_type'), id=str(value))
     if not parent.active:
         raise ApiError(f"Le lot {parent.name} est archivé")
     if lot.id and (parent.id == lot.id or any(sub.id == parent.id for sub in lot.descendants())):
         raise ApiError("Un lot ne peut pas être rangé dans lui-même ou dans un de ses sous-lots")
+    if lot.lot_type.storage and not parent.lot_type.storage:
+        raise ApiError("Un rangement du stock est rangé dans le stock ou dans un autre rangement")
+    if not lot.lot_type.storage and parent.lot_type.storage:
+        raise ApiError(f"{parent.name} est un rangement du stock : seuls des rangements peuvent y être rangés")
     return parent
+
+
+def default_parent(lot):
+    """Lot parent d'un lot independant : le stock pour un rangement du stock, aucun sinon."""
+    return Lots.stock() if lot.lot_type.storage and not lot.is_stock else None
 
 
 @api_view(['PATCH'])
@@ -1390,8 +1417,10 @@ def lot_update(request, lot_id):
             if lot.lot_type.archived:
                 raise ApiError(f"Le type de lot {lot.lot_type.name} est archivé : désarchivez-le d'abord")
             ensure_name_free(Lots.objects.filter(active=True).exclude(id=lot.id), lot.name, 'Le lot')
+        if not active and lot.is_stock:
+            raise ApiError("Le stock ne peut pas être archivé")
         if active and lot.parent is not None and not lot.parent.active:
-            lot.parent = None  # le lot parent a ete archive entre-temps : le lot redevient independant
+            lot.parent = default_parent(lot)  # le lot parent a ete archive entre-temps : le lot redevient independant
         lot.active = active
     old_name = Lots.objects.filter(id=lot.id).values_list('name', flat=True).first()
     lot.save()

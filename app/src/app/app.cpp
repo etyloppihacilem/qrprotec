@@ -1773,7 +1773,9 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     bool filled = true;
     for (const auto &[type, quantity] : required[id])
       filled = filled && row.fresh[type] >= quantity;
-    row.complete = filled && left == 0 && (row.touched > 0 || !holding.count(id));
+    // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
+    const bool storage = (*row.lot)["storage"].boolean();
+    row.complete = filled && left == 0 && (storage ? !holding.count(id) : (row.touched > 0 || !holding.count(id)));
   }
   return plan;
 }

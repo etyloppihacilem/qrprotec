@@ -95,7 +95,11 @@ la commande suggérée, et échanges à faire. **⤡ Scanner** revient au scan.
 ## Vérifier la réserve
 
 - **Un rangement** (tiroir, armoire) : comme un sac. Scannez son étiquette clé, tout son contenu,
-  validez.
+  validez. Les items déjà rangés sont listés comme attendus, par type.
+- **Plusieurs rangements à la suite** : ils font tous partie du Stock. Scannez l'étiquette du premier
+  rangement et son contenu, puis l'étiquette du suivant et son contenu, etc., et validez une seule
+  fois. Les items venus d'ailleurs vont dans le dernier rangement scanné. En vérif partielle, un
+  rangement n'est vérifié que si tous ses items ont été scannés.
 - **Le stock non rangé** : scannez tout ce qui est en réserve hors rangement, puis **Vérif du stock**
   dans la pile de scans. Les items scannés sont déclarés en stock (ceux d'un rangement y restent) ;
   les items en stock non scannés sont signalés manquants.

@@ -20,7 +20,7 @@ from . import idendity
 from . import services
 from .models import (
     FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
-    Operation, Secouristes, Verifs,
+    Operation, Secouristes, STOCK_LOT_TYPE, Verifs,
 )
 
 LOCAL = {'qrprotec.role': 'local'}
@@ -1241,10 +1241,56 @@ class SubLotTests(ApiTestCase):
         self.assertEqual(body['requirements'], [])
         trousse = Lots.objects.get(name='Trousse 1')
         self.assertIsNone(trousse.verif_key_expires)
-        # n'est plus un rangement : l'etiquette expire de nouveau
+        self.assertTrue(trousse.parent.is_stock)  # un rangement fait partie du stock
+        # n'est plus un rangement : l'etiquette expire de nouveau, et le lot sort du stock
         self.call('PATCH', '/api/lot-types/trousx/', {'storage': False})
         trousse.refresh_from_db()
         self.assertIsNotNone(trousse.verif_key_expires)
+        self.assertIsNone(trousse.parent)
+
+    def test_stock_groups_storage_lots(self):
+        """Tous les rangements sont dans le stock (lot global, existe toujours) : on les verifie a la suite."""
+        stock = Lots.stock()
+        self.assertEqual(Lots.objects.filter(lot_type_id=STOCK_LOT_TYPE).count(), 1)
+        self.assertIsNone(stock.verif_key_expires)
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True})
+        armoire = body['created_lot']
+        self.assertEqual(armoire['parent'], stock.id)
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi2', 'name': 'Armoire 2', 'storage': True})
+        armoire2 = body['created_lot']
+        # le stock ne se cree pas, ne s'archive pas et reste un rangement
+        code, _ = self.call('POST', '/api/lot-types/', {'type': STOCK_LOT_TYPE, 'name': 'Autre stock', 'storage': True})
+        self.assertEqual(code, 409)
+        code, _ = self.call('POST', '/api/lots/', {'lot_type': STOCK_LOT_TYPE, 'name': 'Stock 2'})
+        self.assertEqual(code, 409)
+        code, _ = self.call('PATCH', f'/api/lots/{stock.id}/update/', {'active': False})
+        self.assertEqual(code, 400)
+        code, _ = self.call('PATCH', f'/api/lot-types/{STOCK_LOT_TYPE}/', {'storage': False})
+        self.assertEqual(code, 400)
+        code, _ = self.call('PATCH', f'/api/lots/{stock.id}/update/', {'parent': armoire['id']})
+        self.assertEqual(code, 400)
+        # un rangement reste dans le stock, un lot ordinaire n'y entre pas
+        code, body = self.call('PATCH', f"/api/lots/{armoire2['id']}/update/", {'parent': ''})
+        self.assertEqual(body['parent'], stock.id)
+        code, _ = self.call('PATCH', f"/api/lots/{armoire2['id']}/update/", {'parent': self.bplus['id']})
+        self.assertEqual(code, 400)
+        code, _ = self.call('PATCH', f"/api/lots/{self.bplus['id']}/update/", {'parent': armoire['id']})
+        self.assertEqual(code, 400)
+        # verif de deux rangements a la suite, chacun avec son etiquette
+        first, second = self.fresh(2), self.fresh(1)
+        locked = {'lots': [{'id': armoire['id'], 'key': armoire['verif_key']},
+                           {'id': armoire2['id'], 'key': armoire2['verif_key']}]}
+        code, report = self.call('POST', '/api/verifs/', {**locked, 'items': first + second, 'user': 'M001',
+                                                          'places': {second[0]: armoire2['id']}})
+        self.assertEqual(code, 200, report)
+        self.assertEqual(Items.objects.get(iid=first[0]).location_id, armoire['id'])
+        self.assertEqual(Items.objects.get(iid=second[0]).location_id, armoire2['id'])
+        # verif partielle : un rangement n'est complet que si tous ses items sont scannes (ce sont ses attendus)
+        code, report = self.call('POST', '/api/verifs/', {**locked, 'items': first[:1] + second, 'user': 'M001',
+                                                          'partial': True})
+        self.assertEqual({row['id'] for row in report['lots'] if row['verified']}, {armoire2['id']})
+        self.assertEqual(report['missing'], [])
+        self.assertEqual(Items.objects.get(iid=first[1]).missed_verifs, 0)
 
 
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})

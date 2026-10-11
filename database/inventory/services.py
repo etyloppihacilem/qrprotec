@@ -443,8 +443,10 @@ def _record_verif(lot, identity, now, verif, requirements, partial, missing, exp
 
 def _complete_lots(group, scanned, not_seen, target, replaced, today):
     """Lots que les items scannes rendent complets (verif partielle). Un lot sans aucun item scanne n'est retenu
-    que s'il ne contient rien : sinon tout son contenu serait signale manquant. Un item a etiquette a dechirer
-    non scanne ne compte pas (il a ete utilise). Meme regle dans les fronts (planSession, App::plan_verif)."""
+    que s'il ne contient rien : sinon tout son contenu serait signale manquant. Un rangement du stock n'a pas de
+    contenu attendu : ses items sont ses attendus, il n'est complet que si tous ont ete scannes. Un item a
+    etiquette a dechirer non scanne ne compte pas (il a ete utilise). Meme regle dans les fronts (planSession,
+    App::plan_verif)."""
     required = _required_by_lot(group)
     fresh = defaultdict(lambda: defaultdict(int))
     expired = defaultdict(int)
@@ -461,7 +463,7 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
     holding = {item.location_id for item in not_seen if not item.pack.item_type.tear_off}
     complete = set()
     for lot in group:
-        if lot.id not in touched and lot.id in holding:
+        if lot.id in holding and (lot.id not in touched or lot.lot_type.storage):
             continue
         if expired[lot.id]:
             continue

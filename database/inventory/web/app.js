@@ -887,7 +887,8 @@
       const expiredLeft = Object.entries(row.expired)
         .reduce((sum, [type, count]) => sum + Math.max(0, count - (row.newFresh[type] || 0)), 0);
       const filled = Object.entries(required[row.lot.id]).every(([type, quantity]) => (row.fresh[type] || 0) >= quantity);
-      row.complete = filled && !expiredLeft && (row.touched > 0 || !holding[row.lot.id]);
+      // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
+      row.complete = filled && !expiredLeft && (row.lot.storage ? !holding[row.lot.id] : (row.touched > 0 || !holding[row.lot.id]));
     }
     return { lots: lots.map((lot) => plan[lot.id]), target };
   }
@@ -1530,6 +1531,7 @@
   function expectedGroups(lot, plan) {
     const done = scannedIids();
     const row = plan.lots.find((entry) => entry.lot.id === lot.id);
+    if (lot.storage) return storageGroups(lot, done, row);
     const fresh = row ? row.fresh : {};
     const known = {};
     for (const item of lot.items || []) {
@@ -1549,6 +1551,28 @@
     const others = Object.values(known).flat();
     remaining += others.length;
     return { groups, others, remaining, complete: row ? row.complete : false };
+  }
+
+  // Rangement du stock : pas de contenu attendu par type, chaque item qui y est range est attendu (on verifie qu'il
+  // est toujours la). Un type par groupe, compte sur les items connus du rangement.
+  function storageGroups(lot, done, row) {
+    const byType = {};
+    for (const item of lot.items || []) {
+      const group = byType[item.type] = byType[item.type]
+        || { row: { type: item.type, type_name: item.type_name, location: '', required: 0 }, items: [], scanned: 0 };
+      group.row.required += 1;
+      if (done.has(item.iid)) group.scanned += 1;
+      else group.items.push(item);
+    }
+    const groups = Object.values(byType).sort((a, b) => a.row.type_name.localeCompare(b.row.type_name, 'fr'));
+    let remaining = 0;
+    for (const group of groups) {
+      group.items.sort((a, b) => b.expired - a.expired);
+      group.missing = group.row.required - group.scanned;
+      group.fromStock = 0;
+      remaining += group.missing;
+    }
+    return { groups, others: [], remaining, complete: row ? row.complete : false };
   }
 
   // Item attendu, dans la liste depliable de son type : seulement son iid, en petit (le type est dans le titre)

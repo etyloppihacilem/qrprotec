@@ -22,6 +22,15 @@ Un item actif est **dans un lot** (`location` renseigné) ou **en stock** (`loca
 Exception : un lot dont le type est un **rangement** (`LotType.storage`, une armoire, un tiroir)
 compte comme du stock. `services.in_stock_q()` est le seul filtre à utiliser pour « en stock ».
 
+Tous les rangements sont dans **le Stock** (`Lots.stock()`, type `models.STOCK_LOT_TYPE`), lot global
+créé par la migration 0024 : ni création ni archivage par les utilisateurs, toujours un rangement
+unique. Un rangement a pour parent le Stock (par défaut) ou un autre rangement ; un lot ordinaire
+n'est jamais rangé dans un rangement (`views.parse_parent`). Plusieurs rangements se vérifient donc
+ensemble comme les sous-lots d'un lot global. Un rangement n'a pas de contenu attendu : pendant la
+vérif, ses items connus sont ses attendus (par type dans les fronts), et en vérif partielle il n'est
+complet que si tous ses items ont été scannés (`services._complete_lots`, `planSession`,
+`App::plan_verif`).
+
 L'état des stocks (`services.stock_status`) compte, par type : stock frais, stock périmé, en lots
 (frais / périmés), périmant sous 30 jours, disparus. Le seuil d'alerte compare le **stock frais**
 (hors lots, non périmé) à `ItemType.min_quantity`.
@@ -121,7 +130,7 @@ Un lot peut avoir un **lot parent** (`Lots.parent`). Exemples réels :
 
 ```
 VPS 1 (regroupement, rien d'attendu)
-├── Armoire cellule (rangement)
+├── Armoire cellule
 ├── B+ 1 (regroupement)
 │   ├── Sac de soin
 │   └── Sac O2
