@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "Lot clé",
+  "name": "Lot privé",
   "category": "lot_private",
   "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
   "parameters": {"key_expires": "29/09/2036", "lot_private_url": "https://example.com/verif?lot=sacpse00000001&key=a1B2c3D4e5F6g7H8i9J0k1L2", "lot_short": "SAC DE SOIN A"},
