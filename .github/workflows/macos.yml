@@ -1,0 +1,58 @@
+# Construit le front (application ImGui, app/) pour macOS sur un runner Apple Silicon.
+# La compilation croisee depuis Linux demanderait le SDK macOS, que la licence Xcode reserve au
+# materiel Apple : on compile donc nativement.
+#
+# Artefact : qrprotec-front-macos-arm64.tar.gz, autonome (dylib Homebrew embarquees). Sur le Mac :
+#   tar xzf qrprotec-front-macos-arm64.tar.gz && xattr -dr com.apple.quarantine qrprotec-front
+#   ./qrprotec-front/qrprotec-front
+name: macos
+
+on:
+  push:
+    tags: ['v*']
+    branches: [main]
+    paths: ['app/**', '.github/workflows/macos.yml']
+  pull_request:
+    paths: ['app/**', '.github/workflows/macos.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Dependances
+        run: brew install glfw freetype libpng openssl@3 dylibbundler
+      - name: Construction
+        run: |
+          cmake -S app -B build -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+          cmake --build build -j "$(sysctl -n hw.ncpu)"
+      - name: Tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Paquet
+        run: |
+          dest=dist/qrprotec-front
+          mkdir -p "$dest"
+          cp build/QRProtecApp "$dest/"
+          cp -R build/fonts app/templates "$dest/"
+          # dylib Homebrew et Inateck copiees dans libs/ et referencees en @executable_path
+          dylibbundler -od -b -x "$dest/QRProtecApp" -d "$dest/libs" -p @executable_path/libs/ -s build
+          codesign --force --sign - "$dest"/libs/*.dylib "$dest/QRProtecApp"
+          cat > "$dest/qrprotec-front" <<'EOF'
+          #!/bin/sh
+          here="$(cd "$(dirname "$0")" && pwd)"
+          QRPROTEC_TEMPLATES_DIR="${QRPROTEC_TEMPLATES_DIR:-$here/templates}" exec "$here/QRProtecApp" "$@"
+          EOF
+          chmod +x "$dest/qrprotec-front"
+          tar -C dist -czf qrprotec-front-macos-arm64.tar.gz qrprotec-front
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qrprotec-front-macos-arm64
+          path: qrprotec-front-macos-arm64.tar.gz
+          if-no-files-found: error

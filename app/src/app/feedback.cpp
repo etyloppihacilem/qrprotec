@@ -105,7 +105,7 @@ void Feedback::play_beep(const AppSettings &settings) {
       std::fputc('\a', stderr);
       return;
     }
-    command = "aplay -q '%f' 2>/dev/null || paplay '%f' 2>/dev/null || printf '\\a'";
+    command = "aplay -q '%f' 2>/dev/null || paplay '%f' 2>/dev/null || afplay '%f' 2>/dev/null || printf '\\a'";
   }
   for (std::size_t position = command.find("%f"); position != std::string::npos; position = command.find("%f"))
     command.replace(position, 2, wav_path_);
