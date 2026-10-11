@@ -136,7 +136,7 @@ body.cam-mini #panel { height: 100dvh; padding-top: env(safe-area-inset-top); }
 body.cam-mini #toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
 
 /* ---- Previsions de stock : onglet Stock en plein ecran (camera masquee) ---- */
-body.stock-full #camera, body.stock-full #info, body.stock-full #actions { display: none; }
+body.stock-full #camera, body.stock-full #info, body.stock-full #team, body.stock-full #actions { display: none; }
 body.stock-full #panel { height: 100dvh; padding-top: env(safe-area-inset-top); }
 .segmented { display: flex; border: 1px solid var(--blue); border-radius: 10px; overflow: hidden; margin: 6px 0; }
 .segmented button { flex: 1; border-radius: 0; background: transparent; color: var(--blue); padding: 7px 0; }
@@ -161,6 +161,16 @@ body.stock-full #panel { height: 100dvh; padding-top: env(safe-area-inset-top); 
 .bar span { position: relative; display: block; text-align: right; padding-right: 6px; font-size: .8rem; line-height: 22px; font-weight: 600; }
 #actions { display: flex; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
 #actions .primary, #actions .warning { flex: 1; }
+#actions .validate-box { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#actions .validate-box button { width: 100%; }
+#validate-hint { color: var(--muted); font-size: .72rem; text-align: center; margin-top: 2px; }
+/* vérif à plusieurs : bandeau discret au-dessus des onglets */
+.team { padding: 3px 12px; font-size: .78rem; color: var(--muted); background: var(--blue-bg); display: flex;
+  flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.team .who { font-weight: 600; color: var(--blue); }
+.team .off { opacity: .55; }
+.team button { padding: 1px 8px; font-size: .75rem; }
+.team button.text-link { padding: 0; }
 
 /* ---- Dialogues ---- */
 dialog { border: 0; border-radius: 16px; padding: 14px; width: min(92vw, 420px); max-height: 80dvh; overflow-y: auto; }
@@ -285,6 +295,7 @@ body.home-mode.login-reader #toast { bottom: calc(24px + min(56vw, 240px) + env(
 .live-card .name { font-weight: 600; }
 .live-card .sub { color: var(--muted); font-size: .8rem; }
 .live-card .req { margin: 4px 0; }
+.live-card .join { margin-top: 6px; }
 .live-card ul { list-style: none; margin: 4px 0 0; padding: 0; font-size: .82rem; }
 .live-card li { display: flex; gap: 6px; align-items: center; padding: 1px 0; }
 .live-card li.expired, .live-card li.error { color: var(--red); }

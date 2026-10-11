@@ -141,7 +141,7 @@ def _with_ancestors(lots):
     return list(result.values())
 
 
-def perform_verif(lot, iids, identity, partial=False):
+def perform_verif(lot, iids, identity, partial=False, participants=()):
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -155,11 +155,13 @@ def perform_verif(lot, iids, identity, partial=False):
       destines aux autres lots y sont ajoutes comme un reassort (lot « verif recommandee »), sans toucher au
       reste de leur contenu ;
     - un item a etiquette a dechirer (ItemType.tear_off) non scanne est utilise : il passe tout de suite en
-      'disparu' (l'etiquette est arrachee a l'ouverture du sachet, les restes du sachet sont perdus).
+      'disparu' (l'etiquette est arrachee a l'ouverture du sachet, les restes du sachet sont perdus) ;
+    - participants : autres personnes de la verif a plusieurs (identites stockees), enregistrees sur la verif.
     """
     now = timezone.now()
     today = timezone.localdate()
     requested = list(dict.fromkeys(iids))
+    participants = [value[:64] for value in dict.fromkeys(participants) if value and value != identity]
     threshold = qrprotec_setting('MISSING_AFTER_VERIFS')
     if lot is None:
         group = None
@@ -235,9 +237,10 @@ def perform_verif(lot, iids, identity, partial=False):
 
         verifs = {}
         if group is None:
-            verifs[None] = Verifs.objects.create(lot=None, datetime=now, by=identity)
+            verifs[None] = Verifs.objects.create(lot=None, datetime=now, by=identity, participants=participants)
         for lot_id in verified_ids:
-            verifs[lot_id] = Verifs.objects.create(lot=by_id[lot_id], datetime=now, by=identity)
+            verifs[lot_id] = Verifs.objects.create(lot=by_id[lot_id], datetime=now, by=identity,
+                                                   participants=participants)
 
         report = {'present': [], 'expired': [], 'replaced': [], 'missing': [], 'unknown': unknown, 'reactivated': [],
                   'restocked': [], 'torn': []}
@@ -412,8 +415,10 @@ def _record_verif(lot, identity, now, verif, requirements, partial, missing, exp
         summary = ('complète' if verif.complete else 'incomplète') + (' : ' + ', '.join(parts) if parts else '')
     if partial:
         summary += ' (vérif partielle)'
+    if verif.participants:
+        summary += f' (à {len(verif.participants) + 1})'
     journal.record(OperationKind.STOCK_VERIF if lot is None else OperationKind.VERIF, identity, summary, lot=lot,
-                   at=now, verif=verif.id, complete=verif.complete, partial=partial, present=verif.present_count,
+                   at=now, verif=verif.id, participants=verif.participants, complete=verif.complete, partial=partial, present=verif.present_count,
                    missing=verif.missing_count, expired=verif.expired_count, replaced=verif.replaced_count,
                    lacking=lacking, missing_items=missing[:journal.MAX_LISTED_ITEMS],
                    expired_items=expired[:journal.MAX_LISTED_ITEMS])

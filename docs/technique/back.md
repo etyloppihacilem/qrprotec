@@ -201,6 +201,17 @@ l'anonymisation de l'API publique. Une vérif validée reste affichée 10 min, u
 déconnectée 15 min (le temps d'un rechargement, qui reprend la même session). Les vérifs passées
 viennent de `POST /api/verifs/recent/` (badge, une ligne par vérif groupée).
 
+**Vérif à plusieurs.** Une session `LiveSession` a un ou plusieurs `Participant` (identité
+stockée, scans partagés `entries`, `validated`). On la rejoint par `hello` avec `join` (badge
+vérifié exigé). Chaque participant reçoit `team` : participants, lots, lots dont le serveur a la
+clé (`keyed`, les clés ne sortent jamais), scans des autres et vérifs du même lot global
+(`nearby`). `validate` répond `submit: true` seulement au dernier participant connecté non validé ;
+celui-ci envoie `POST /api/verifs/` avec `live: {id, pid, token}` : la vue complète les clés
+manquantes, enregistre les autres participants (`Verifs.participants`, identités stockées) et
+`hub.finish` envoie le compte rendu (`report`) aux autres. Si les participants non validés se
+déconnectent (plus de `GRACE` = 20 s), le faucheur demande l'envoi (`submit`) à un participant
+qui a validé.
+
 ## Front web servi par le back
 
 `web_views.page` sert `web/index.html` pour `/`, `/verif`, `/badge`, `/pack`, `/seal` ;

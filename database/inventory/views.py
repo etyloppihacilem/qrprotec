@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from . import forecast
 from . import journal
 from . import lot_sheet
+from . import live
 from . import notifications
 from . import serializers as ser
 from . import services
@@ -554,10 +555,23 @@ def verifs(request):
     """Verif de plusieurs lots d'un meme lot global : {"lots": [{"id", "key"}], "items": [...], "partial": bool}.
 
     Chaque lot est verifie avec ses sous-lots. En verif partielle, seuls les lots que les items scannes rendent
-    complets sont verifies ; les items destines aux autres lots y sont ajoutes (reassort)."""
-    lots = verif_targets(request, request.data.get('lots'))
+    complets sont verifies ; les items destines aux autres lots y sont ajoutes (reassort).
+    Vérif à plusieurs (inventory/live.py) : "live": {"id", "pid", "token"} du participant qui envoie. Les cles des
+    lots manquantes sont prises dans la verif commune, ses participants sont enregistres sur la verif et le compte
+    rendu leur est envoye."""
+    entries = request.data.get('lots')
+    team = live.hub.verif_team(request.data.get('live'))
+    if team and isinstance(entries, list):
+        entries = [dict(entry, key=entry.get('key') or team['keys'].get(str(entry.get('id', '')), ''))
+                   if isinstance(entry, dict) else entry for entry in entries]
+    lots = verif_targets(request, entries)
     identity = operation_identity(request)
-    report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')))
+    participants = [value for value in team['identities'] if value != identity] if team else []
+    report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
+                                    participants)
+    report['participants'] = [ser._who(value) for value in [identity, *participants]]
+    if team:
+        live.hub.finish(team, report)
     return Response(report)
 
 
@@ -588,6 +602,7 @@ def verifs_recent(request):
             'id': verif.id,
             'at': ser._date(verif.datetime),
             'by': ser._who(verif.by),
+            'participants': [ser._who(value) for value in verif.participants],
             'lots': [{'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete}],
             'complete': verif.complete,
             'present': verif.present_count,

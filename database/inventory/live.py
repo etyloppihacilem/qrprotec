@@ -8,7 +8,8 @@
 #
 # ######################################################################################################################
 
-"""Suivi des vérifs en direct : relais WebSocket entre les telephones qui scannent et ceux qui suivent.
+"""Suivi des vérifs en direct, et vérifs à plusieurs : relais WebSocket entre les telephones qui scannent et ceux qui
+suivent.
 
     telephone qui verifie --(wss /ws/live/scanner)--> serveur --(wss /ws/live/watch)--> chef de poste
 
@@ -17,12 +18,27 @@ garde en memoire et le diffuse aux pages de suivi, qui exigent un badge valide. 
 affichee quelques minutes comme terminee ; les verifs passees viennent de la base (POST /api/verifs/recent/).
 Les sessions vivent en memoire, dans le processus de `manage.py serve` (comme le telephone-douchette).
 
+Vérif à plusieurs : une session (une verif) a un ou plusieurs participants, chacun sur son telephone. On rejoint une
+verif en cours depuis la page de suivi, ou depuis le scanner quand quelqu'un verifie deja le meme lot global (badge
+exige). Les scans de chacun sont partages avec les autres, qui voient les memes attendus. Chacun valide sa partie ;
+le dernier participant connecte qui valide envoie la verif (POST /api/verifs/ avec "live") : tous les participants
+sont enregistres sur la verif et le compte rendu est envoye a tous. Les cles des lots (etiquettes privees) restent
+sur le serveur : celui qui a rejoint la verif n'en a pas besoin pour l'envoyer.
+
 Messages (JSON, trames texte) :
-  scanner -> serveur : {"type": "hello", "id": "...", "token": "...", "user": {...} | "name": "..."},
-                       {"type": "state", "lot": {"id", "name"}, "lots": [...], "scanned": [...], "count": n,
-                        "remaining": n}, {"type": "done", "complete": bool, "partial": bool, "present": n},
-                       {"type": "cancel"}, {"type": "ping"}
-  serveur -> scanner : {"type": "hello", "id": "...", "token": "..."}
+  scanner -> serveur : {"type": "hello", "id", "pid", "token", "join": id de la verif a rejoindre (facultatif),
+                        "user": {...} | "name": "..."},
+                       {"type": "state", "lot": {"id", "name"}, "root": id du lot global, "lots": [...],
+                        "scanned": [...], "count": n, "remaining": n, "entries": [scans partages],
+                        "keys": [{"id", "key"}]},
+                       {"type": "validate", "partial": bool}, {"type": "unvalidate"},
+                       {"type": "done", "complete": bool, "partial": bool, "present": n},
+                       {"type": "identity", ...}, {"type": "cancel"}, {"type": "ping"}
+  serveur -> scanner : {"type": "hello", "id", "pid", "token"}, {"type": "error", "message"},
+                       {"type": "team", "participants": [...], "lots": [...], "keyed": [...], "entries": [...],
+                        "nearby": [...]},
+                       {"type": "validate", "submit": bool, "waiting": [noms]}, {"type": "submit", "partial": bool},
+                       {"type": "report", "report": {...}}
   suivi -> serveur   : {"type": "hello", "user": {"matricule", "key"}}, {"type": "ping"}
   serveur -> suivi   : {"type": "snapshot", "sessions": [...]}, {"type": "update", "session": {...}},
                        {"type": "remove", "id": "..."}, {"type": "error", "message": "..."}
@@ -40,9 +56,13 @@ from django.utils import timezone
 from .remote_scanner import ALPHABET, WebSocketClosed
 
 MAX_SESSIONS = 200          # verifs suivies en meme temps (au-dela, les nouvelles ne sont pas publiees)
-MAX_SCANNED = 150           # derniers scans gardes par verif
-LOST_KEEP = 15 * 60         # verif dont le telephone est deconnecte : gardee (rechargement de la page)
+MAX_PARTICIPANTS = 8        # personnes sur une meme verif
+MAX_SCANNED = 150           # derniers scans gardes par verif (affichage du suivi)
+MAX_ENTRIES = 300           # scans partages par participant
+MAX_LOTS = 20               # lots d'une verif groupee
+LOST_KEEP = 15 * 60         # verif dont les telephones sont deconnectes : gardee (rechargement de la page)
 DONE_KEEP = 10 * 60         # verif terminee : encore affichee comme terminee
+GRACE = 20                  # participant deconnecte depuis GRACE s : il ne retient plus l'envoi de la verif commune
 REAPER_PERIOD = 10.0
 
 
@@ -55,6 +75,10 @@ def _number(value):
         return max(0, min(100000, int(value)))
     except (TypeError, ValueError):
         return 0
+
+
+def _token(size):
+    return ''.join(secrets.choice(ALPHABET) for _ in range(size))
 
 
 def public_name(identity):
@@ -83,46 +107,17 @@ def badge_identity(credentials):
 
 
 def scanner_identity(message):
-    """Nom affiche d'une page de scan : badge verifie, sinon nom declare (marque comme tel), sinon personne."""
+    """(identite stockee, nom affiche, badge verifie) d'une page de scan : badge verifie, sinon nom declare (marque
+    comme tel), sinon personne."""
     from .idendity import SOURCE_DECLARED
     identity = badge_identity(message.get('user'))
     if identity:
-        return public_name(identity), True
+        return identity, public_name(identity), True
     name = _text(message.get('name'), 30).strip()
     if name:
-        return public_name(f'{SOURCE_DECLARED}:{name}'), False
-    return '', False
-
-
-class LiveSession:
-    def __init__(self):
-        self.id = ''.join(secrets.choice(ALPHABET) for _ in range(12))
-        self.token = ''.join(secrets.choice(ALPHABET) for _ in range(24))
-        self.who = ''
-        self.verified = False
-        self.started = timezone.now()
-        self.updated = self.started
-        self.state = None          # dernier etat publie (None : rien a montrer)
-        self.done = None           # {"complete", "partial", "present", "at"} une fois validee
-        self.socket = None
-        self.lost = time.monotonic()
-
-    def public(self):
-        state = self.state or {}
-        return {
-            'id': self.id,
-            'who': self.who,
-            'verified': self.verified,
-            'started': self.started.isoformat(timespec='seconds'),
-            'updated': self.updated.isoformat(timespec='seconds'),
-            'connected': self.socket is not None,
-            'lot': state.get('lot'),
-            'lots': state.get('lots', []),
-            'scanned': state.get('scanned', []),
-            'count': state.get('count', 0),
-            'remaining': state.get('remaining', 0),
-            'done': self.done,
-        }
+        identity = f'{SOURCE_DECLARED}:{name}'
+        return identity, public_name(identity), False
+    return '', '', False
 
 
 def clean_state(message):
@@ -138,11 +133,113 @@ def clean_state(message):
     lots = message.get('lots') if isinstance(message.get('lots'), list) else []
     return {
         'lot': {'id': _text(lot.get('id'), 16), 'name': _text(lot.get('name'), 64)},
-        'lots': [_text(name, 64) for name in lots[:20]],
+        'root': _text(message.get('root') or lot.get('id'), 16),
+        'lots': [_text(name, 64) for name in lots[:MAX_LOTS]],
         'scanned': scanned,
         'count': _number(message.get('count')),
         'remaining': _number(message.get('remaining')),
     }
+
+
+def clean_entries(value):
+    """Scans d'un participant, partages avec les autres participants (attendus et liste des scans chez eux). Ce ne
+    sont que des iids : la verif envoyee est controlee par le serveur comme toute autre verif."""
+    entries = []
+    for entry in (value if isinstance(value, list) else [])[:MAX_ENTRIES]:
+        if not isinstance(entry, dict) or entry.get('kind') not in ('item', 'pack'):
+            continue
+        info = entry.get('info') if isinstance(entry.get('info'), dict) else None
+        items = entry.get('items') if isinstance(entry.get('items'), list) else []
+        entries.append({
+            'code': _text(entry.get('code'), 200),
+            'kind': entry['kind'],
+            'iid': _text(entry.get('iid'), 32),
+            'expired': bool(entry.get('expired')),
+            'error': _text(entry.get('error'), 64),
+            'items': [_text(iid, 32) for iid in items[:500]],
+            'info': None if info is None else {
+                'type': _text(info.get('type'), 16), 'type_name': _text(info.get('type_name'), 64),
+                'peremption': _text(info.get('peremption'), 32) or None, 'count': _number(info.get('count')),
+            },
+        })
+    return entries
+
+
+def clean_keys(value):
+    """Lots de la verif et leurs cles ([{"id", "key"}]) : gardes sur le serveur, jamais renvoyes."""
+    result = []
+    for entry in (value if isinstance(value, list) else [])[:MAX_LOTS]:
+        if isinstance(entry, dict) and entry.get('id'):
+            result.append((_text(entry.get('id'), 16), _text(entry.get('key'), 64)))
+    return result
+
+
+class Participant:
+    def __init__(self, identity='', who='', verified=False):
+        self.id = _token(12)
+        self.token = _token(24)
+        self.identity = identity   # identite stockee (M:matricule ou D:nom), enregistree sur la verif
+        self.who = who
+        self.verified = verified
+        self.socket = None
+        self.lost = time.monotonic()
+        self.state = None          # dernier etat publie (None : rien a montrer)
+        self.updated = None
+        self.entries = []
+        self.validated = False     # a valide sa partie de la verif
+        self.partial = False
+
+    def public(self):
+        return {'who': self.who, 'verified': self.verified, 'connected': self.socket is not None,
+                'validated': self.validated}
+
+
+class LiveSession:
+    def __init__(self):
+        self.id = _token(12)
+        self.participants = {}     # id -> Participant, dans l'ordre d'arrivee
+        self.lots = {}             # id -> cle (vide si inconnue), dans l'ordre d'ajout
+        self.started = timezone.now()
+        self.updated = self.started
+        self.done = None           # {"complete", "partial", "present", "at"} une fois validee
+        self.submitting = None     # participant qui envoie la verif commune
+
+    @property
+    def state(self):
+        """Dernier etat publie par un participant (chacun publie toute la verif, scans des autres compris)."""
+        published = [p for p in self.participants.values() if p.state]
+        return max(published, key=lambda p: p.updated).state if published else None
+
+    @property
+    def connected(self):
+        return any(p.socket is not None for p in self.participants.values())
+
+    @property
+    def lost(self):
+        return max((p.lost for p in self.participants.values()), default=0)
+
+    @property
+    def who(self):
+        return ', '.join(p.who or 'Non identifié' for p in self.participants.values())
+
+    def public(self):
+        state = self.state or {}
+        participants = list(self.participants.values())
+        return {
+            'id': self.id,
+            'who': self.who,
+            'verified': bool(participants) and all(p.verified for p in participants),
+            'participants': [p.public() for p in participants],
+            'started': self.started.isoformat(timespec='seconds'),
+            'updated': self.updated.isoformat(timespec='seconds'),
+            'connected': self.connected,
+            'lot': state.get('lot'),
+            'lots': state.get('lots', []),
+            'scanned': state.get('scanned', []),
+            'count': state.get('count', 0),
+            'remaining': state.get('remaining', 0),
+            'done': self.done,
+        }
 
 
 class LiveHub:
@@ -166,9 +263,40 @@ class LiveHub:
         for websocket in watchers:
             websocket.send_json(message)
 
+    def _nearby(self, session):
+        """Autres verifs en cours sur le meme lot global : on peut les rejoindre depuis le scanner."""
+        state = session.state
+        if not state or session.done:
+            return []
+        return [{'id': other.id, 'who': other.who, 'lot': other.state['lot']} for other in self.sessions.values()
+                if other is not session and not other.done and other.state and other.state['root'] == state['root']]
+
+    def _team(self, session, me):
+        return {
+            'type': 'team',
+            'id': session.id,
+            'participants': [dict(p.public(), me=p is me) for p in session.participants.values()],
+            'lots': list(session.lots),
+            'keyed': [lot for lot, key in session.lots.items() if key],
+            'entries': [dict(entry, who=p.who) for p in session.participants.values() if p is not me
+                        for entry in p.entries],
+            'nearby': self._nearby(session),
+        }
+
     def _changed(self, session):
-        if session.state or session.done:
-            self.broadcast({'type': 'update', 'session': session.public()})
+        """Une verif a change : pages de suivi, participants, et participants des verifs du meme lot global."""
+        with self.lock:
+            alive = self.sessions.get(session.id) is session
+            root = (session.state or {}).get('root')
+            related = [session] + [other for other in self.sessions.values() if other is not session and root
+                                   and (other.state or {}).get('root') == root]
+            messages = [(p.socket, self._team(s, p)) for s in related if self.sessions.get(s.id) is s
+                        for p in s.participants.values() if p.socket is not None]
+            public = session.public() if alive and (session.state or session.done) else None
+        for websocket, message in messages:
+            websocket.send_json(message)
+        if public:
+            self.broadcast({'type': 'update', 'session': public})
         else:
             self.broadcast({'type': 'remove', 'id': session.id})
 
@@ -179,22 +307,52 @@ class LiveHub:
             self.broadcast({'type': 'remove', 'id': session_id})
         return session is not None
 
+    def _leave(self, session, participant):
+        """Retire un participant (il rejoint une autre verif) ; une verif sans participant disparait."""
+        session.participants.pop(participant.id, None)
+        if session.submitting == participant.id:
+            session.submitting = None
+        if not session.participants:
+            self.sessions.pop(session.id, None)
+
     # -- ramasseur -----------------------------------------------------------------------------------------------------
 
     def reap(self, now=None):
-        """Retire les verifs terminees depuis DONE_KEEP et celles dont le telephone a disparu depuis LOST_KEEP."""
+        """Retire les verifs terminees depuis DONE_KEEP et celles dont les telephones ont disparu depuis LOST_KEEP.
+        Verif a plusieurs dont tous les participants encore connectes ont valide (les autres sont partis) : un de
+        ceux qui ont valide est charge de l'envoyer."""
         now = time.monotonic() if now is None else now
         expired = []
+        submits = []
         with self.lock:
             for session in self.sessions.values():
-                if session.socket is not None:
+                if not session.connected:
+                    keep = DONE_KEEP if session.done else LOST_KEEP
+                    if now - session.lost > keep:
+                        expired.append(session.id)
                     continue
-                keep = DONE_KEEP if session.done else LOST_KEEP
-                if now - session.lost > keep:
-                    expired.append(session.id)
+                participant = self._submitter(session, now)
+                if participant is not None:
+                    session.submitting = participant.id
+                    submits.append((participant.socket, {'type': 'submit', 'partial': participant.partial}))
         for session_id in expired:
             self.remove(session_id)
+        for websocket, message in submits:
+            websocket.send_json(message)
         return expired
+
+    @staticmethod
+    def _submitter(session, now):
+        if session.done or len(session.participants) < 2:
+            return None
+        submitting = session.participants.get(session.submitting)
+        if submitting is not None and (submitting.socket is not None or now - submitting.lost < GRACE):
+            return None
+        participants = list(session.participants.values())
+        if any(not p.validated and (p.socket is not None or now - p.lost < GRACE) for p in participants):
+            return None
+        ready = [p for p in participants if p.validated and p.socket is not None]
+        return ready[-1] if ready else None
 
     def _start_reaper(self):
         with self.lock:
@@ -216,50 +374,125 @@ class LiveHub:
 
     # -- page de scan --------------------------------------------------------------------------------------------------
 
+    def _find(self, credentials):
+        """(verif, participant) designes par {"id", "pid", "token"}, (None, None) si inconnus."""
+        if not isinstance(credentials, dict):
+            return None, None
+        session = self.sessions.get(_text(credentials.get('id'), 16))
+        participant = session.participants.get(_text(credentials.get('pid'), 16)) if session else None
+        if participant is None or not hmac.compare_digest(participant.token.encode(),
+                                                          _text(credentials.get('token'), 32).encode()):
+            return None, None
+        return session, participant
+
     def attach_scanner(self, message, websocket):
-        """Reprend la session {"id", "token"} si elle existe encore (rechargement de la page), sinon en cree une."""
-        who, verified = scanner_identity(message)
+        """Reprend le participant {"id", "pid", "token"} s'il existe encore (rechargement de la page), lui fait
+        rejoindre la verif "join" (badge exige), sinon cree une nouvelle verif. Renvoie (verif, participant, erreur)."""
+        identity, who, verified = scanner_identity(message)
+        left = stale = None
         with self.lock:
-            session = self.sessions.get(_text(message.get('id'), 16))
-            if session is None or not hmac.compare_digest(session.token.encode(), _text(message.get('token'), 32).encode()):
+            session, participant = self._find(message)
+            join = _text(message.get('join'), 16)
+            if join and (session is None or session.id != join):
+                target = self.sessions.get(join)
+                if not verified:
+                    return None, None, 'Scannez votre badge pour rejoindre une vérif.'
+                if target is None or target.done:
+                    return None, None, 'Cette vérif est terminée.'
+                if len(target.participants) >= MAX_PARTICIPANTS:
+                    return None, None, 'Trop de participants sur cette vérif.'
+                if participant is not None:
+                    self._leave(session, participant)
+                    left = session
+                    if participant.socket is not websocket:
+                        stale = participant.socket
+                session, participant = target, Participant()
+                session.participants[participant.id] = participant
+            elif participant is None:
                 if len(self.sessions) >= MAX_SESSIONS:
-                    return None
-                session = LiveSession()
+                    return None, None, 'trop de vérifs suivies en même temps'
+                session, participant = LiveSession(), Participant()
+                session.participants[participant.id] = participant
                 self.sessions[session.id] = session
-            previous = session.socket
-            session.socket = websocket
-            session.who = who
-            session.verified = verified
+            previous = participant.socket
+            participant.socket = websocket
+            participant.identity, participant.who, participant.verified = identity, who, verified
         if previous is not None and previous is not websocket:
             previous.close()
+        if stale is not None:
+            stale.close()
+        if left is not None:
+            self._changed(left)
         self._start_reaper()
-        return session
+        return session, participant, None
+
+    def _restart(self, participant, websocket):
+        """Nouveau scan apres la fin d'une verif : le participant repart sur une nouvelle verif (la verif terminee
+        reste affichee, ce telephone n'y est plus connecte)."""
+        with self.lock:
+            fresh = LiveSession()
+            moved = Participant(participant.identity, participant.who, participant.verified)
+            moved.socket = websocket
+            fresh.participants[moved.id] = moved
+            self.sessions[fresh.id] = fresh
+            participant.socket = None
+            participant.lost = time.monotonic()
+        websocket.send_json({'type': 'hello', 'id': fresh.id, 'pid': moved.id, 'token': moved.token})
+        return fresh, moved
 
     def run_scanner(self, websocket):
-        session = None
+        session = participant = None
         try:
             hello = self._parse(websocket.receive())
             if hello.get('type') != 'hello':
                 return
-            session = self.attach_scanner(hello, websocket)
-            if session is None:
-                websocket.send_json({'type': 'error', 'message': 'trop de vérifs suivies en même temps'})
+            session, participant, problem = self.attach_scanner(hello, websocket)
+            if problem:
+                websocket.send_json({'type': 'error', 'message': problem, 'join': bool(hello.get('join'))})
                 return
-            websocket.send_json({'type': 'hello', 'id': session.id, 'token': session.token})
+            websocket.send_json({'type': 'hello', 'id': session.id, 'pid': participant.id, 'token': participant.token})
             self._changed(session)
             while True:
                 message = self._parse(websocket.receive())
                 kind = message.get('type')
+                with self.lock:
+                    if session.participants.get(participant.id) is not participant:
+                        return  # parti sur une autre verif
                 if kind == 'state':
+                    if session.done:
+                        previous = session
+                        session, participant = self._restart(participant, websocket)
+                        self._changed(previous)
                     with self.lock:
-                        session.state = clean_state(message)
-                        session.done = None
-                        session.updated = timezone.now()
+                        participant.state = clean_state(message)
+                        participant.entries = clean_entries(message.get('entries'))
+                        for lot_id, key in clean_keys(message.get('keys')):
+                            if key or lot_id not in session.lots:
+                                session.lots[lot_id] = key
+                        participant.updated = session.updated = timezone.now()
                     self._changed(session)
                 elif kind == 'identity':
-                    who, verified = scanner_identity(message)
+                    identity, who, verified = scanner_identity(message)
                     with self.lock:
-                        session.who, session.verified = who, verified
+                        participant.identity, participant.who, participant.verified = identity, who, verified
+                    self._changed(session)
+                elif kind == 'validate':
+                    with self.lock:
+                        participant.validated = True
+                        participant.partial = bool(message.get('partial'))
+                        waiting = [p.who or 'Non identifié' for p in session.participants.values()
+                                   if p is not participant and p.socket is not None and not p.validated]
+                        busy = session.submitting not in (None, participant.id) and session.submitting in session.participants
+                        submit = not waiting and not busy and not session.done
+                        if submit:
+                            session.submitting = participant.id
+                    websocket.send_json({'type': 'validate', 'submit': submit, 'waiting': waiting})
+                    self._changed(session)
+                elif kind == 'unvalidate':
+                    with self.lock:
+                        participant.validated = False
+                        if session.submitting == participant.id:
+                            session.submitting = None
                     self._changed(session)
                 elif kind == 'done':
                     with self.lock:
@@ -270,20 +503,51 @@ class LiveHub:
                     self._changed(session)
                 elif kind == 'cancel':
                     with self.lock:
-                        session.state = None
-                        session.done = None
+                        participant.state = None
+                        participant.entries = []
+                        participant.validated = False
                     self._changed(session)
         except WebSocketClosed:
             pass
         finally:
-            if session is not None:
+            if participant is not None:
                 with self.lock:
-                    current = session.socket is websocket
+                    current = participant.socket is websocket
                     if current:
-                        session.socket = None
-                        session.lost = time.monotonic()
+                        participant.socket = None
+                        participant.lost = time.monotonic()
                 if current:
                     self._changed(session)
+
+    # -- envoi de la verif (vue POST /api/verifs/) ---------------------------------------------------------------------
+
+    def verif_team(self, credentials):
+        """Verif a plusieurs envoyee par un de ses participants ({"id", "pid", "token"}) : cles des lots connues du
+        serveur et identites des participants (celui qui envoie, ceux qui ont valide ou scanne). None si inconnue."""
+        with self.lock:
+            session, participant = self._find(credentials)
+            if session is None or session.done:
+                return None
+            identities = [p.identity for p in session.participants.values()
+                          if p.identity and (p is participant or p.validated or p.entries)]
+            return {'id': session.id, 'pid': participant.id, 'keys': dict(session.lots),
+                    'identities': list(dict.fromkeys(identities))}
+
+    def finish(self, team, report):
+        """Verif enregistree : affichee comme terminee, compte rendu envoye aux autres participants."""
+        with self.lock:
+            session = self.sessions.get(team['id'])
+            if session is None:
+                return
+            session.done = {'complete': bool(report.get('complete')), 'partial': bool(report.get('partial')),
+                            'present': len(report.get('present') or []),
+                            'at': timezone.now().isoformat(timespec='seconds')}
+            session.updated = timezone.now()
+            session.submitting = None
+            sockets = [p.socket for p in session.participants.values() if p.id != team['pid'] and p.socket is not None]
+        for websocket in sockets:
+            websocket.send_json({'type': 'report', 'report': report})
+        self._changed(session)
 
     # -- page de suivi -------------------------------------------------------------------------------------------------
 

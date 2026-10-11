@@ -447,6 +447,7 @@ def verif_dict(verif):
         'lot': verif.lot_id,
         'datetime': _date(verif.datetime),
         'by': _who(verif.by),
+        'participants': [_who(value) for value in verif.participants],
         'complete': verif.complete,
         'present_count': verif.present_count,
         'missing_count': verif.missing_count,

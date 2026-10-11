@@ -111,6 +111,25 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
 Une vérif commencée au téléphone apparaît dans le **Suivi des vérifs** dès le premier scan, et y
 reste affichée quelques minutes une fois validée.
 
+## Vérifier à plusieurs
+
+Plusieurs personnes peuvent faire la même vérif en même temps, chacune avec son téléphone (badge
+demandé pour rejoindre) :
+
+- depuis le **Suivi des vérifs**, **👥 Rejoindre cette vérif** sur une vérif en cours ;
+- ou depuis le scanner : si quelqu'un vérifie déjà le même lot, un bandeau propose **Rejoindre**.
+
+Les scans de chacun s'ajoutent à la vérif commune : tout le monde voit les mêmes items « À scanner »,
+et l'onglet **Scannés** indique qui a scanné quoi. Un petit bandeau 👥 sous les informations liste
+les participants (✔ : a validé sa partie). Pas besoin de rescanner l'étiquette privée : celle
+scannée par un autre participant suffit.
+
+Tant que d'autres participants sont connectés, **Valider** ne valide que **votre partie** (« Valider
+ma partie de la vérif » sous le bouton). Le dernier qui valide envoie la vérif : le compte rendu
+s'affiche chez tout le monde et tous les participants sont enregistrés sur la vérif. Si les autres
+ont fermé leur page, le compte rendu part dès que ceux qui restent ont tous validé. Scanner un item
+après avoir validé sa partie la « dé-valide ». **Quitter** dans le bandeau reprend la vérif seul.
+
 ## Utiliser son téléphone comme douchette du poste
 
 Pratique quand la douchette est déchargée, ou pour scanner dans le véhicule pendant que le poste
