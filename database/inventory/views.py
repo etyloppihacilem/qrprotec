@@ -427,8 +427,9 @@ def pin_reset(request):
 @api_view(['GET'])
 @handle_errors
 def item_detail(request, iid):
-    item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location'), iid=iid)
-    return Response(ser.item_dict(item))
+    item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location__lot_type'), iid=iid)
+    # fiche de l'item (front web) : dernier emplacement connu, pour ouvrir son lot ou lancer sa verif
+    return Response({**ser.item_dict(item), 'last_location': ser.item_last_location(item)})
 
 
 @api_view(['GET'])
