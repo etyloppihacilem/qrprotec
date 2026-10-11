@@ -1789,6 +1789,46 @@ class RemoteScannerTests(TestCase):
         self.assertEqual(self.ws('public', f'/ws/scanner/phone?s={session_id}&k={key}').status, 404)
 
 
+class VerifPlacesTests(ApiTestCase):
+    """Verif de sous-lots : un item venu du stock va dans le lot dont l'etiquette a ete scannee en dernier."""
+
+    def setUp(self):
+        super().setUp()
+        vps_type = LotType.objects.create(type='vpsvps', name='VPS')
+        self.vps = Lots(lot_type=vps_type, name='VPS', name_short='V', created_by='test')
+        self.vps.save()
+        self.armoire1 = Lots(lot_type=self.lot_type, name='Armoire 1', name_short='A1', created_by='test', parent=self.vps)
+        self.armoire1.save()
+        self.armoire2 = Lots(lot_type=self.lot_type, name='Armoire 2', name_short='A2', created_by='test', parent=self.vps)
+        self.armoire2.save()
+
+    def location(self, item):
+        return Items.objects.get(iid=item.iid).location_id
+
+    def test_stock_item_goes_to_last_scanned_lot(self):
+        stock = self.create(self.compresses, self.today + timedelta(days=100), 2)
+        code, _ = self.call('POST', '/api/verifs/', {
+            'lots': [{'id': self.vps.id}], 'items': [item.iid for item in stock],
+            'places': {stock[0].iid: self.armoire2.id, stock[1].iid: self.vps.id}})
+        self.assertEqual(code, 200)
+        # armoire 1 attendait aussi des compresses, mais c'est l'armoire 2 qui a ete scannee
+        self.assertEqual(self.location(stock[0]), self.armoire2.id)
+        # etiquette du VPS : un de ses sous-lots qui en attend encore
+        self.assertEqual(self.location(stock[1]), self.armoire1.id)
+
+    def test_item_of_a_sibling_lot_moves_unless_its_label_was_scanned(self):
+        found = self.create(self.compresses, self.today + timedelta(days=100), 2)
+        self.call('POST', f'/api/lots/{self.armoire2.id}/add/', {'items': [item.iid for item in found]})
+        # vérif de l'armoire 1 seule : l'item de l'armoire 2 y est deplace
+        self.call('POST', '/api/verifs/', {'lots': [{'id': self.armoire1.id}], 'items': [found[0].iid],
+                                           'places': {found[0].iid: self.armoire1.id}})
+        self.assertEqual(self.location(found[0]), self.armoire1.id)
+        # armoire 2 ajoutee a la vérif (son etiquette scannee) : son item y a bien ete trouve
+        self.call('POST', '/api/verifs/', {'lots': [{'id': self.armoire1.id}, {'id': self.armoire2.id}],
+                                           'items': [found[1].iid], 'places': {found[1].iid: self.armoire1.id}})
+        self.assertEqual(self.location(found[1]), self.armoire2.id)
+
+
 class RecentVerifsTests(ApiTestCase):
     def test_recent_verifs_need_a_badge_and_group_lots(self):
         sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)

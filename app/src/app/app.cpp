@@ -1224,6 +1224,7 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     case ScanKind::Item: {
       ScanEntry &entry = stack.add(scan, source);
       const int  id    = entry.id;
+      entry.place      = verif_place();
       if (entry.expired) {
         feedback.error(source, settings);
         notify("PÉRIMÉ : " + scan.id + " (" + scan.peremption->display() + ")", true);
@@ -1232,7 +1233,9 @@ void App::handle_scan(const std::string &code, ScanSource source) {
       return;
     }
     case ScanKind::SealedPack: {
-      const int id = stack.add(scan, source).id;
+      ScanEntry &entry = stack.add(scan, source);
+      entry.place      = verif_place();
+      const int id     = entry.id;
       resolve_pack(id);
       // le responsable peut ouvrir le paquet directement depuis sa fiche
       if (privileged())
@@ -1415,12 +1418,13 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
         stack.target.name = result.data["name"].str();
     });
   }
-  // etiquette publique : fiche du lot d'abord, la verif se lance depuis la fiche
-  if (scan.key.empty() && !(verif.active && verif_covers(scan.id))) {
+  // etiquette publique hors verif : fiche du lot d'abord, la verif se lance depuis la fiche
+  if (scan.key.empty() && !verif.active) {
     show_lot(scan.id);
     return;
   }
   if (verif.active && verif.lot_id == scan.id) {
+    verif.current = scan.id;
     if (!scan.key.empty()) {
       verif.key = scan.key;
       notify("Étiquette clé du lot reconnue.");
@@ -1428,12 +1432,14 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
     open_window("verif");
     return;
   }
-  if (verif.active && scan.key.empty()) {
-    notify("Ce lot fait déjà partie de la vérif en cours.");
+  if (verif.active && scan.key.empty() && verif_covers(scan.id)) {
+    verif.current = scan.id;
+    notify("Ce lot fait partie de la vérif en cours : les items venus du stock scannés maintenant y sont rangés.");
     open_window("verif");
     return;
   }
-  // etiquette privee d'un autre lot du meme lot global : ses items attendus s'ajoutent a la verif en cours
+  // etiquette (publique ou cle) d'un autre lot du meme lot global : ses items attendus s'ajoutent a la verif en
+  // cours, et ses items deja scannes y ont bien ete trouves
   if (verif.active) {
     join_verif(scan.id, scan.key, source);
     return;
@@ -1455,7 +1461,9 @@ std::string root_of(const Json &lot) {
 void App::join_verif(const std::string &lot_id, const std::string &key, ScanSource source) {
   for (VerifExtra &extra : verif.extras)
     if (extra.id == lot_id) {
-      extra.key = key;
+      verif.current = lot_id;
+      if (!key.empty())
+        extra.key = key;
       notify(extra.lot["name"].str(lot_id) + " fait déjà partie de la vérif.");
       open_window("verif");
       return;
@@ -1465,6 +1473,10 @@ void App::join_verif(const std::string &lot_id, const std::string &key, ScanSour
     if (!verif.active || verif.loading || !result.ok)
       return; // lot inconnu : signale par scan_lot
     if (root_of(result.data) != root_of(verif.lot)) {
+      if (key.empty()) { // etiquette publique d'un autre lot global : sa fiche, la verif continue
+        show_lot(lot_id);
+        return;
+      }
       feedback.error(source, settings);
       notify(result.data["name"].str(lot_id) + " n'est pas dans le même lot global : terminez ou annulez la vérif en "
                "cours.",
@@ -1473,8 +1485,11 @@ void App::join_verif(const std::string &lot_id, const std::string &key, ScanSour
       return;
     }
     verif.extras.push_back({ lot_id, key, result.data });
+    verif.current = lot_id;
     notify(covered ? result.data["name"].str() + " faisait déjà partie de la vérif : étiquette clé enregistrée."
-                   : "Vérif groupée : " + verif_title() + ".");
+                   : "Vérif groupée : " + verif_title() + "." +
+                       (verif_key_ok() ? "" : " Scannez l'étiquette clé de " + result.data["name"].str() +
+                                                  " (ou du lot qui le contient) pour valider."));
     open_window("verif");
   });
 }
@@ -1536,6 +1551,7 @@ void App::start_verif(const std::string &lot_id, const std::string &key) {
     verif.active  = true;
     verif.lot_id  = lot_id;
     verif.key     = key;
+    verif.current = lot_id;
     verif.loading = true;
     open_window("verif");
     api.get("/api/lots/" + url_encode(lot_id) + "/", [this, lot_id](const ApiResult &result) {
@@ -1563,16 +1579,39 @@ std::string key_hint(const Json &lot) {
          (location.empty() ? std::string(".") : " (" + location + ").");
 }
 
-// La cle d'un lot couvre ses sous-lots : l'etiquette privee du lot global suffit pour verifier un sous-lot
+// La cle d'un lot couvre ses sous-lots : l'etiquette privee du lot global suffit pour verifier un sous-lot.
+// Chaque lot de la verif (le lot scanne et ceux ajoutes) doit etre couvert par sa cle ou celle d'un lot parent.
 bool App::verif_key_ok() const {
   // sans utilisateur connecte (nom declare), le serveur exige toujours l'etiquette privee
-  if (!verif.key.empty() || privileged() || (logged_in() && !settings.require_private_label))
+  if (privileged() || (logged_in() && !settings.require_private_label))
     return true;
+  std::set< std::string > keyed;
+  if (!verif.key.empty())
+    keyed.insert(verif.lot_id);
   for (const VerifExtra &extra : verif.extras)
-    for (const Json &parent : verif.lot["path"].items())
-      if (!extra.key.empty() && parent["id"].str() == extra.id)
+    if (!extra.key.empty())
+      keyed.insert(extra.id);
+  const auto covered = [&](const std::string &id, const Json &lot) {
+    if (keyed.count(id))
+      return true;
+    for (const Json &parent : lot["path"].items())
+      if (keyed.count(parent["id"].str()))
         return true;
-  return false;
+    return false;
+  };
+  if (!covered(verif.lot_id, verif.lot))
+    return false;
+  for (const VerifExtra &extra : verif.extras)
+    if (!covered(extra.id, extra.lot))
+      return false;
+  return true;
+}
+
+// Lot ou vont les items venus du stock scannes maintenant : derniere etiquette de lot scannee pendant la verif
+std::string App::verif_place() const {
+  if (!verif.active)
+    return "";
+  return verif.current.empty() ? verif.lot_id : verif.current;
 }
 
 std::vector< const Json * > App::verif_lots() const {
@@ -1637,8 +1676,34 @@ std::vector< VerifPlanLot > App::plan_verif() const {
   if (plan.empty())
     return plan;
   struct Scanned {
-      std::string iid, type;
+      std::string iid, type, place;
       bool        expired = false;
+  };
+  // lot de la derniere etiquette scannee avant chaque item, et lot parent de chaque lot de la verif
+  std::map< std::string, std::string > place_of, parent_of;
+  for (const ScanEntry &entry : stack.entries()) {
+    if (entry.place.empty())
+      continue;
+    if (entry.scan.kind == ScanKind::Item)
+      place_of.emplace(entry.scan.id, entry.place);
+    else if (entry.scan.kind == ScanKind::SealedPack)
+      for (const std::string &iid : entry.pack_items)
+        place_of.emplace(iid, entry.place);
+  }
+  for (const Json *lot : lots) {
+    const Json &path = (*lot)["path"];
+    parent_of[(*lot)["id"].str()] =
+      !(*lot)["parent"].str().empty() ? (*lot)["parent"].str()
+                                      : (path.size() > 0 ? path[path.size() - 1]["id"].str() : std::string());
+  }
+  const auto under = [&](std::string id, const std::string &place) {
+    for (int guard = 0; !id.empty() && guard < 64; ++guard) {
+      if (id == place)
+        return true;
+      const auto found = parent_of.find(id);
+      id               = found == parent_of.end() ? std::string() : found->second;
+    }
+    return false;
   };
   const Date              today = this->today();
   std::vector< Scanned >  newcomers;
@@ -1646,7 +1711,9 @@ std::vector< VerifPlanLot > App::plan_verif() const {
   std::vector< Scanned >  all;
   for (const std::string &iid : scanned) {
     const ParsedScan parsed = parse_scan(iid);
-    Scanned          item{ iid, parsed.item_type, is_expired(parsed, today) };
+    const auto       place = place_of.find(iid);
+    Scanned item{ iid, parsed.item_type, place == place_of.end() ? std::string() : place->second,
+                  is_expired(parsed, today) };
     all.push_back(item);
     if (const auto found = location_of.find(iid); found != location_of.end()) {
       target[iid] = found->second;
@@ -1660,9 +1727,13 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     return a.expired != b.expired ? !a.expired : a.iid < b.iid;
   });
   for (const Scanned &item : newcomers) {
-    std::vector< std::string > candidates;
+    const bool                 placed = index.count(item.place) > 0;
+    std::vector< std::string > scope, candidates;
     for (const VerifPlanLot &row : plan) {
       const std::string id = (*row.lot)["id"].str();
+      if (placed && !under(id, item.place))
+        continue;
+      scope.push_back(id);
       if (required[id].count(item.type))
         candidates.push_back(id);
     }
@@ -1675,7 +1746,7 @@ std::vector< VerifPlanLot > App::plan_verif() const {
           break;
         }
     if (choice.empty())
-      choice = candidates.empty() ? (*plan.front().lot)["id"].str() : candidates.front();
+      choice = candidates.empty() ? scope.front() : candidates.front();
     target[item.iid] = choice;
   }
   std::map< std::string, std::map< std::string, int > > expired, new_fresh;
@@ -1734,6 +1805,18 @@ void App::submit_verif(bool partial) {
     body["items"] = Json::array();
     for (const std::string &iid : stack.iids())
       body["items"].push_back(iid);
+    // lot de la derniere etiquette scannee avant chaque item (services.assign_items)
+    body["places"] = Json::object();
+    for (const ScanEntry &entry : stack.entries()) {
+      if (entry.place.empty() || entry.state == EntryState::Error)
+        continue;
+      if (entry.scan.kind == ScanKind::Item && !body["places"].contains(entry.scan.id))
+        body["places"][entry.scan.id] = entry.place;
+      else if (entry.scan.kind == ScanKind::SealedPack)
+        for (const std::string &iid : entry.pack_items)
+          if (!body["places"].contains(iid))
+            body["places"][iid] = entry.place;
+    }
     add_identity(body);
     // le lot scanne puis les lots du meme lot global ajoutes par leur etiquette privee
     body["lots"] = Json::array();

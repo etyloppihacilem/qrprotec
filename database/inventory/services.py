@@ -95,14 +95,28 @@ def _required_by_lot(group):
     return {lot.id: dict(by_type.get(lot.lot_type_id, {})) for lot in group}
 
 
-def assign_items(group, scanned, today):
+def assign_items(group, scanned, today, places=None):
     """Lot de destination de chaque item scanne pendant une verif de plusieurs lots.
 
-    Un item deja range dans un des lots y reste. Un item venu d'ailleurs (stock, autre lot) va dans le
-    premier lot qui en attend encore, sinon dans le premier lot qui en contient dans sa definition, sinon dans
-    le premier lot de la verif. Meme regle dans les fronts (aperçu de la vérif partielle).
+    Un item deja range dans un des lots y reste (on l'a trouve la, meme scanne pendant qu'on verifiait un autre
+    lot). Un item venu d'ailleurs (stock, autre lot hors de la verif) va dans le lot dont l'etiquette (publique ou
+    cle) a ete scannee en dernier avant lui (`places` : {iid: id du lot}) : ce lot ou un de ses sous-lots, celui qui
+    en attend encore, sinon le premier qui en contient dans sa definition, sinon ce lot lui-meme. Sans lot connu :
+    le premier lot de la verif qui en attend encore, sinon le premier qui en contient, sinon le premier lot.
+    Meme regle dans les fronts (planSession du front web, App::plan_verif du poste).
     """
+    places = places or {}
     ids = {lot.id for lot in group}
+    parent = {lot.id: lot.parent_id for lot in group}
+
+    def under(lot_id, place):
+        """lot_id est le lot `place` ou un de ses sous-lots (dans la verif)."""
+        while lot_id is not None:
+            if lot_id == place:
+                return True
+            lot_id = parent.get(lot_id)
+        return False
+
     required = _required_by_lot(group)
     deficit = {lot_id: dict(rows) for lot_id, rows in required.items()}
     target = {}
@@ -119,14 +133,16 @@ def assign_items(group, scanned, today):
     newcomers.sort(key=lambda item: (item.is_expired(today), item.iid))
     for item in newcomers:
         type_id = item.pack.item_type_id
-        candidates = [lot.id for lot in group if type_id in required[lot.id]]
+        place = places.get(item.iid)
+        scope = [lot.id for lot in group if place not in ids or under(lot.id, place)]
+        candidates = [lot_id for lot_id in scope if type_id in required[lot_id]]
         choice = None
         if not item.is_expired(today):
             choice = next((lot_id for lot_id in candidates if deficit[lot_id].get(type_id, 0) > 0), None)
             if choice is not None:
                 deficit[choice][type_id] -= 1
         if choice is None:
-            choice = candidates[0] if candidates else group[0].id
+            choice = candidates[0] if candidates else scope[0]
         target[item.iid] = choice
     return target
 
@@ -141,7 +157,7 @@ def _with_ancestors(lots):
     return list(result.values())
 
 
-def perform_verif(lot, iids, identity, partial=False, participants=()):
+def perform_verif(lot, iids, identity, partial=False, participants=(), places=None):
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -156,7 +172,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=()):
       reste de leur contenu ;
     - un item a etiquette a dechirer (ItemType.tear_off) non scanne est utilise : il passe tout de suite en
       'disparu' (l'etiquette est arrachee a l'ouverture du sachet, les restes du sachet sont perdus) ;
-    - participants : autres personnes de la verif a plusieurs (identites stockees), enregistrees sur la verif.
+    - participants : autres personnes de la verif a plusieurs (identites stockees), enregistrees sur la verif ;
+    - places : {iid: id du lot} dernier lot dont l'etiquette a ete scannee avant l'item (voir assign_items).
     """
     now = timezone.now()
     today = timezone.localdate()
@@ -188,7 +205,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=()):
                 for item in scanned
             }
         else:
-            target = assign_items(group, scanned, today)
+            target = assign_items(group, scanned, today, places)
 
         # Detection des remplacements : par lot et par type, nombre d'items frais nouvellement arrives
         new_fresh = defaultdict(int)

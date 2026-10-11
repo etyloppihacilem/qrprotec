@@ -32,6 +32,7 @@ struct ScanEntry {
     bool                       duplicate = false;
     bool                       warning   = false; // item signale disparu/supprime...
     std::vector< std::string > pack_items;       // iids contenus dans un paquet scelle
+    std::string                place;            // verif : lot de la derniere etiquette scannee avant (assign_items)
     double                     highlight_until = 0.0; // rescanne : ligne surlignee brievement
     Json                       data;             // reponse de l'API
 };

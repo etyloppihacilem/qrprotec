@@ -115,13 +115,14 @@ struct VerifSession {
     std::string               key; // cle de l'etiquette privee si scannee
     Json                      lot; // detail du lot (items attendus, exigences, sous-lots)
     std::vector< VerifExtra > extras;
+    std::string               current; // lot de la derniere etiquette scannee : les items du stock y vont
     bool                      loading    = false;
     bool                      submitting = false;
 };
 
 // Repartition des items scannes entre les lots d'une verif (meme regle que le serveur,
-// services.assign_items) : un item deja dans un des lots y reste, un nouvel item va dans le premier lot
-// qui en attend encore.
+// services.assign_items) : un item deja dans un des lots y reste, un nouvel item va dans le lot de la derniere
+// etiquette scannee avant lui (ou un de ses sous-lots) qui en attend encore, sinon le premier lot qui en attend.
 struct VerifPlanLot {
     const Json                   *lot = nullptr;
     int                           depth = 0;
@@ -230,6 +231,7 @@ class App {
     void submit_verif(bool partial = false);
     void restock_verif(); // reassort : ajoute les items scannes au lot sans verif complete
     bool verif_key_ok() const;
+    std::string verif_place() const;
     std::vector< const Json * >   verif_lots() const; // lots couverts : lot scanne, sous-lots, lots ajoutes
     bool                          verif_covers(const std::string &lot_id) const;
     std::string                   verif_title() const; // ex : "Sac de soin + Sac O2"

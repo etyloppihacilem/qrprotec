@@ -336,6 +336,7 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True):
                              .order_by('iid'))
             row = _lot_core(sub_lot, today, sub_items)
             row['depth'] = sub_lot.depth
+            row['parent'] = sub_lot.parent_id  # repartition des items par lot (services.assign_items)
             _add_items(row, sub_lot, sub_items, today)
             data['descendants'].append(row)
     if local:
