@@ -275,6 +275,8 @@ class App {
     // Fenetre d'apercu (image de l'etiquette + bouton Imprimer) ; plusieurs etiquettes se parcourent
     bool preview_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what);
     void preview_jobs(std::vector< PrintJob > jobs, const std::string &title);
+    // etiquettes d'un scellage (Gestion des lots, compte rendu de vérif) : scelle et ouverture seulement
+    void preview_seal_labels(const Json &lot);
     bool build_label_jobs(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what,
                           std::vector< PrintJob > &jobs);
     void print_documents(std::vector< PrintJob > jobs); // documents deja remplis (test de l'editeur)
