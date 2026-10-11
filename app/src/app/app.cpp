@@ -89,7 +89,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   // session refusee par le serveur (badge renouvele, PIN bloque, 12 h ecoulees) : on redemande le badge
   api.on_login_required = [this]() {
     if (logged_in())
-      logout("Session expirée : scannez à nouveau votre badge.");
+      session_expired();
   };
   refresh_item_types();
   refresh_lots();
@@ -131,6 +131,7 @@ bool App::save_settings() {
     notify(error, true);
     return false;
   }
+  apply_shared_machine();
   notify("Réglages enregistrés.");
   return true;
 }
@@ -196,7 +197,7 @@ void App::assign_shortcuts() {
 void App::handle_shortcuts() {
   // Super+L : se deconnecter, depuis n'importe ou (aussi pendant la saisie du PIN)
   if (logged_in() && ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_L)) {
-    logout("Déconnecté.");
+    manual_logout();
     return;
   }
   // fenetre modale (connexion, PIN...) : elle garde la main
@@ -265,7 +266,7 @@ void App::begin_frame() {
 }
 
 void App::check_inactivity() {
-  if (settings.inactivity_minutes <= 0 || reset_done_)
+  if (!settings.shared_machine || settings.inactivity_minutes <= 0 || reset_done_)
     return;
   if (ImGui::GetTime() - last_activity_ < settings.inactivity_minutes * 60.0)
     return;
@@ -413,7 +414,7 @@ void App::draw_menu_bar() {
       const bool clicked = danger_button("Se déconnecter", ImVec2(0, 0), false);
       ImGui::SetItemTooltip("Super+L");
       if (clicked)
-        logout("Déconnecté.");
+        manual_logout();
     } else {
       ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.0f, 1.0f), "%s", who.c_str());
     }
@@ -620,19 +621,22 @@ void App::draw_login_modal() {
 void App::draw_name_login() {
   ImGui::SeparatorText("Sans badge");
   ImGui::TextDisabled("Si vous avez un code PIN :");
+  const auto filled = [](const std::string &text) { return text.find_first_not_of(" \t") != std::string::npos; };
+  // nom et prenom deja remplis (session d'une machine non partagee) : le curseur va directement au PIN
+  const bool focus_pin = name_login_.focus && filled(name_login_.prenom) && filled(name_login_.nom);
   ImGui::SetNextItemWidth(360.0f);
-  if (name_login_.focus) {
+  if (name_login_.focus && !focus_pin)
     ImGui::SetKeyboardFocusHere();
-    name_login_.focus = false;
-  }
   ImGui::InputTextWithHint("##name_prenom", "prénom", &name_login_.prenom);
   ImGui::SetNextItemWidth(360.0f);
   ImGui::InputTextWithHint("##name_nom", "nom", &name_login_.nom);
   ImGui::SetNextItemWidth(360.0f);
+  if (focus_pin)
+    ImGui::SetKeyboardFocusHere();
+  name_login_.focus = false;
   const bool enter = ImGui::InputTextWithHint("##name_pin", "code PIN", &name_login_.pin,
                                               ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal
                                                   | ImGuiInputTextFlags_EnterReturnsTrue);
-  const auto filled = [](const std::string &text) { return text.find_first_not_of(" \t") != std::string::npos; };
   const bool ready  = filled(name_login_.prenom) && filled(name_login_.nom) && name_login_.pin.size() >= 4
                      && name_login_.pin.size() <= 8;
   if (!name_login_.error.empty())
@@ -653,7 +657,11 @@ void App::send_name_login() {
   api.post("/api/auth/name/", body, [this](const ApiResult &result) {
     name_login_.busy = false;
     if (result.ok) {
-      name_login_ = NameLogin{};
+      StoredLogin login;
+      login.nom    = name_login_.nom;
+      login.prenom = name_login_.prenom;
+      name_login_  = NameLogin{};
+      remember_login(login);
       complete_login(result.data);
       return;
     }
@@ -676,6 +684,10 @@ void App::check_setup() {
       return;
     }
     needs_admin_ = result.data["needs_admin"].boolean();
+    if (restore_pending_) {
+      restore_pending_ = false;
+      restore_login();
+    }
   });
   refresh_server_rules();
 }
@@ -877,7 +889,7 @@ bool App::identity_refused(const ApiResult &result) {
     return false;
   declared_identity = result.data["declared_identity"].boolean();
   if (logged_in())
-    logout("Session expirée : scannez à nouveau votre badge.");
+    session_expired();
   return true;
 }
 
@@ -895,6 +907,65 @@ void App::logout(const std::string &reason) {
   pending_action_ = nullptr;
   if (was_logged && !reason.empty())
     notify(reason);
+}
+
+void App::manual_logout() {
+  forget_login();
+  logout("Déconnecté.");
+}
+
+void App::session_expired() {
+  if (settings.shared_machine || (last_login_.empty() && StoredLogin::load().empty())) {
+    logout("Session expirée : scannez à nouveau votre badge.");
+    return;
+  }
+  logout("Session expirée : reconnexion.");
+  restore_login();
+}
+
+void App::remember_login(StoredLogin login) {
+  last_login_ = std::move(login);
+  if (settings.shared_machine)
+    return;
+  std::string error;
+  if (!last_login_.save(error))
+    notify(error, true);
+}
+
+void App::forget_login() {
+  last_login_ = StoredLogin{};
+  StoredLogin::clear();
+}
+
+void App::apply_shared_machine() {
+  if (settings.shared_machine) {
+    StoredLogin::clear();
+    return;
+  }
+  // machine qui devient personnelle : l'utilisateur deja connecte le reste aux prochains demarrages
+  std::string error;
+  if (logged_in() && !last_login_.empty() && !last_login_.save(error))
+    notify(error, true);
+}
+
+void App::restore_login() {
+  if (settings.shared_machine || logged_in() || pin_.active || pin_.busy || name_login_.busy)
+    return;
+  if (last_login_.empty())
+    last_login_ = StoredLogin::load();
+  if (last_login_.badge()) {
+    // le serveur redemande le PIN si l'utilisateur en a un (fenetre « Code PIN »)
+    send_auth(last_login_.matricule, last_login_.key, "", "", ScanSource::Manual);
+  } else if (last_login_.by_name()) {
+    // sans badge : nom et prenom deja remplis, seul le PIN est demande
+    login_reason_      = "reprendre votre session";
+    login_prompt_      = true;
+    name_login_        = NameLogin{};
+    name_login_.open   = true;
+    name_login_.focus  = true;
+    name_login_.nom    = last_login_.nom;
+    name_login_.prenom = last_login_.prenom;
+  }
 }
 
 void App::require_login(const std::string &what, std::function< void() > action) {
@@ -929,6 +1000,10 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
     pin_.busy = false;
     if (result.ok) {
       pin_ = PinPrompt{};
+      StoredLogin login;
+      login.matricule = matricule;
+      login.key       = key;
+      remember_login(login);
       complete_login(result.data);
       return;
     }
@@ -957,6 +1032,9 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
       return;
     }
     pin_ = PinPrompt{};
+    // badge renouvele ou desactive : la session gardee ne sert plus (serveur injoignable : on la garde)
+    if (result.status != 0 && matricule == last_login_.matricule && key == last_login_.key)
+      forget_login();
     feedback.error(source, settings);
     notify("Badge refusé : " + result.error, true);
   });

@@ -99,6 +99,14 @@ mémorise l'action, affiche la fenêtre de connexion et l'exécute après le bad
 `inactivity_minutes` sans activité (15 par défaut), `reset_session()` vide la pile, déconnecte et
 remet les fenêtres en place : une borne partagée revient toujours à un état neutre.
 
+Le réglage `shared_machine` (« Machine partagée », coché par défaut) est local au poste. Décoché, il
+n'y a plus de réinitialisation après inactivité, et la dernière connexion (matricule et clé du badge,
+ou nom et prénom après une connexion sans badge) est gardée dans `~/.config/qrprotec/session.conf`
+(droits `0600`). Au démarrage, dès que le serveur répond, `restore_login()` se reconnecte avec : le
+serveur redemande le PIN si l'utilisateur en a un. Même chose quand le jeton de 12 h expire en cours
+d'utilisation. Seul « Se déconnecter » (`manual_logout()`) ou un badge refusé efface ce fichier, ainsi
+que le fait de recocher « Machine partagée ».
+
 ### Fenêtres
 
 Chaque fenêtre est une classe dérivée d'`AppWindow` (`draw`, `on_open`), créée par une fonction

@@ -43,6 +43,9 @@ struct AppSettings {
     // Interface
     float font_size             = 18.0f;
     int   inactivity_minutes    = 15;   // 0 = jamais
+    // Machine partagee (kiosk, poste commun) : reinitialisation apres inactivite et session perdue au redemarrage.
+    // Decochee (poste personnel) : l'utilisateur reste connecte jusqu'a « Se deconnecter » (voir StoredLogin).
+    bool  shared_machine        = true;
     int   expiring_soon_days    = 30;
     int   order_lead_days       = 15; // previsions : delai de livraison d'une commande
     int   forecast_history_months = 6; // previsions : mois d'historique pour mesurer la consommation
@@ -80,6 +83,25 @@ struct AppSettings {
     ApiEndpoint                  api_endpoint() const; // reglages + variables d'environnement
     // Valeur imposee par l'environnement (QRPROTEC_API_URL...) ou nullptr
     static const char           *api_env(const char *name);
+};
+
+// Derniere connexion d'une machine non partagee, relue au demarrage pour reconnecter l'utilisateur (le serveur
+// redemande le PIN s'il en a un). Fichier a part (session.conf, lisible par son seul proprietaire) : il contient
+// la cle du badge, et il est efface par « Se deconnecter » ou en recochant « Machine partagee ».
+struct StoredLogin {
+    std::string matricule; // connexion par badge : matricule et cle
+    std::string key;
+    std::string nom;       // connexion sans badge : nom et prenom, le PIN est redemande
+    std::string prenom;
+
+    bool badge() const { return !matricule.empty() && !key.empty(); }
+    bool by_name() const { return !nom.empty() && !prenom.empty(); }
+    bool empty() const { return !badge() && !by_name(); }
+
+    static std::filesystem::path file_path();
+    static StoredLogin           load();
+    bool                         save(std::string &error) const;
+    static void                  clear();
 };
 
 } // namespace qrprotec
