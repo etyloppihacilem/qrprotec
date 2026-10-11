@@ -146,6 +146,8 @@ void AppSettings::load() {
       forecast_history_months = std::clamp(to_int(value, forecast_history_months), 1, 36);
     else if (key == "require_private_label")
       require_private_label = to_int(value, 1) != 0;
+    else if (key == "shared_machine")
+      shared_machine = to_int(value, 1) != 0;
     else if (key == "printer_device")
       print.serial.device = value;
     else if (key == "printer_baud")
@@ -231,6 +233,7 @@ bool AppSettings::save(std::string &error) const {
          << "api_ca_file=" << api_ca_file << '\n'
          << "font_size=" << font_size << '\n'
          << "inactivity_minutes=" << inactivity_minutes << '\n'
+         << "shared_machine=" << (shared_machine ? 1 : 0) << '\n'
          << "expiring_soon_days=" << expiring_soon_days << '\n'
          << "order_lead_days=" << order_lead_days << '\n'
          << "forecast_history_months=" << forecast_history_months << '\n'
@@ -268,6 +271,63 @@ bool AppSettings::save(std::string &error) const {
     return false;
   }
   return true;
+}
+
+std::filesystem::path StoredLogin::file_path() {
+  return AppSettings::file_path().parent_path() / "session.conf";
+}
+
+StoredLogin StoredLogin::load() {
+  StoredLogin   login;
+  std::ifstream input(file_path());
+  std::string   line;
+  while (std::getline(input, line)) {
+    const std::size_t separator = line.find('=');
+    if (separator == std::string::npos || line[0] == '#')
+      continue;
+    const std::string key   = line.substr(0, separator);
+    const std::string value = line.substr(separator + 1);
+    if (key == "matricule")
+      login.matricule = value;
+    else if (key == "key")
+      login.key = value;
+    else if (key == "nom")
+      login.nom = unescape_line(value);
+    else if (key == "prenom")
+      login.prenom = unescape_line(value);
+  }
+  return login;
+}
+
+bool StoredLogin::save(std::string &error) const {
+  const std::filesystem::path path = file_path();
+  std::error_code             code;
+  if (path.has_parent_path())
+    std::filesystem::create_directories(path.parent_path(), code);
+  std::filesystem::remove(path, code);
+  // cree vide puis restreint au proprietaire avant d'y ecrire la cle du badge
+  std::ofstream output(path);
+  if (!output) {
+    error = "Impossible d'écrire " + path.string();
+    return false;
+  }
+  std::filesystem::permissions(path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+                               std::filesystem::perm_options::replace, code);
+  output << "# Session QRProtec de cette machine (non partagée), effacée par « Se déconnecter »\n";
+  if (badge())
+    output << "matricule=" << matricule << '\n' << "key=" << key << '\n';
+  else
+    output << "nom=" << escape_line(nom) << '\n' << "prenom=" << escape_line(prenom) << '\n';
+  if (!output) {
+    error = "Erreur d'écriture de la session";
+    return false;
+  }
+  return true;
+}
+
+void StoredLogin::clear() {
+  std::error_code code;
+  std::filesystem::remove(file_path(), code);
 }
 
 } // namespace qrprotec

@@ -106,10 +106,18 @@ class SettingsWindow final : public AppWindow {
         draw_server_rules(app);
 
       if (ImGui::CollapsingHeader("Session et affichage", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Machine partagée", &settings.shared_machine);
+        help_marker("Cochée (poste commun, kiosk) : réinitialisation après inactivité et nouvelle connexion à "
+                    "chaque démarrage.\nDécochée (poste personnel) : pas de réinitialisation, et l'utilisateur "
+                    "reste connecté jusqu'à « Se déconnecter », même après un redémarrage de l'application ; seul "
+                    "son code PIN est redemandé à l'ouverture s'il en a un.");
+        ImGui::BeginDisabled(!settings.shared_machine);
         ImGui::SetNextItemWidth(150.0f);
         ImGui::InputInt("Réinitialisation après inactivité (min)", &settings.inactivity_minutes);
         settings.inactivity_minutes = std::clamp(settings.inactivity_minutes, 0, 24 * 60);
-        help_marker("La pile est vidée, l'utilisateur déconnecté et les fenêtres remises en place. 0 = jamais.");
+        ImGui::EndDisabled();
+        help_marker("La pile est vidée, l'utilisateur déconnecté et les fenêtres remises en place. 0 = jamais. "
+                    "Seulement sur une machine partagée.");
         ImGui::SetNextItemWidth(150.0f);
         ImGui::InputInt("Alerte péremption proche (jours)", &settings.expiring_soon_days);
         settings.expiring_soon_days = std::clamp(settings.expiring_soon_days, 0, 3650);

@@ -205,6 +205,9 @@ class App {
       return (!window.privileged || privileged()) && (!window.admin_only || admin());
     }
     void        logout(const std::string &reason = {});
+    void        manual_logout(); // « Se deconnecter » : oublie aussi la session d'une machine non partagee
+    // reglage « Machine partagee » enregistre : garde ou efface la session de cette machine
+    void        apply_shared_machine();
     void        reset_session(); // retour a l'etat initial (inactivite)
     void        require_login(const std::string &what, std::function< void() > action);
     Json        user_ref() const; // valeur du champ "user" des requetes
@@ -314,6 +317,11 @@ class App {
     void send_auth(const std::string &matricule, const std::string &key, const std::string &pin,
                    const std::string &new_pin, ScanSource source);
     void complete_login(const Json &data);
+    // Machine non partagee : session gardee d'un demarrage a l'autre (voir StoredLogin)
+    void remember_login(StoredLogin login);
+    void forget_login();
+    void restore_login();   // reconnexion avec la session gardee (PIN redemande par le serveur s'il en a un)
+    void session_expired(); // jeton refuse par le serveur : deconnexion, puis reconnexion si machine non partagee
     void show_pin_blocked(const Json &data, ScanSource source);
     void forgot_pin();
     void draw_pin_modal();
@@ -360,6 +368,8 @@ class App {
     Json                    setup_created_; // compte cree, pour imprimer le badge
     double                  last_activity_ = 0.0;
     bool                    reset_done_    = false;
+    StoredLogin             last_login_;            // derniere connexion reussie (en memoire)
+    bool                    restore_pending_ = true; // reconnexion au premier contact avec le serveur
     bool                    layout_pending_ = true;
     ImVec2                  last_work_origin_{ 0, 0 }; // zone de travail de l'image precedente
     ImVec2                  last_work_size_{ 0, 0 };

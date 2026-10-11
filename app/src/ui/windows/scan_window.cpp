@@ -39,7 +39,7 @@ class ScanWindow final : public AppWindow {
         const bool logout = danger_button("Se déconnecter", ImVec2(-1, ImGui::GetFrameHeight() * 1.3f), false);
         ImGui::SetItemTooltip("Super+L");
         if (logout)
-          app.logout("Déconnecté.");
+          app.manual_logout();
       } else {
         ImGui::TextColored(colors::orange, "Non connecté : scannez votre badge.");
       }
