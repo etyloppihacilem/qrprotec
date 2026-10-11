@@ -19,14 +19,16 @@ affichee quelques minutes comme terminee ; les verifs passees viennent de la bas
 Les sessions vivent en memoire, dans le processus de `manage.py serve` (comme le telephone-douchette).
 
 Vérif à plusieurs : une session (une verif) a un ou plusieurs participants, chacun sur son telephone. On rejoint une
-verif en cours depuis la page de suivi, ou depuis le scanner quand quelqu'un verifie deja le meme lot global (badge
-exige). Les scans de chacun sont partages avec les autres, qui voient les memes attendus. Chacun valide sa partie ;
+verif en cours depuis la page de suivi (badge exige). Une verif qui commence sur un lot global ou une autre est deja en
+cours (meme lot, ou un autre de ses sous-lots) la rejoint automatiquement : les deux verifs sont fusionnees en une
+verif commune de tous leurs lots (hello "merged"), sauf pour qui a quitte la verif commune (hello "solo"). Les scans de chacun sont partages avec les autres, qui voient les memes attendus. Chacun valide sa partie ;
 le dernier participant connecte qui valide envoie la verif (POST /api/verifs/ avec "live") : tous les participants
 sont enregistres sur la verif et le compte rendu est envoye a tous. Les cles des lots (etiquettes privees) restent
 sur le serveur : celui qui a rejoint la verif n'en a pas besoin pour l'envoyer.
 
 Messages (JSON, trames texte) :
   scanner -> serveur : {"type": "hello", "id", "pid", "token", "join": id de la verif a rejoindre (facultatif),
+                        "solo": bool (nouvelle verif a ne pas fusionner),
                         "user": {...} | "name": "..."},
                        {"type": "state", "lot": {"id", "name"}, "root": id du lot global, "lots": [...],
                         "scanned": [...], "count": n, "remaining": n, "entries": [scans partages],
@@ -34,7 +36,7 @@ Messages (JSON, trames texte) :
                        {"type": "validate", "partial": bool}, {"type": "unvalidate"},
                        {"type": "done", "complete": bool, "partial": bool, "present": n},
                        {"type": "identity", ...}, {"type": "cancel"}, {"type": "ping"}
-  serveur -> scanner : {"type": "hello", "id", "pid", "token"}, {"type": "error", "message"},
+  serveur -> scanner : {"type": "hello", "id", "pid", "token", "merged": bool, "who"}, {"type": "error", "message"},
                        {"type": "team", "participants": [...], "lots": [...], "keyed": [...], "entries": [...],
                         "nearby": [...]},
                        {"type": "validate", "submit": bool, "waiting": [noms]}, {"type": "submit", "partial": bool},
@@ -207,6 +209,7 @@ class LiveSession:
         self.done = None           # {"complete", "partial", "present", "at"} une fois validee
         self.submitting = None     # participant qui envoie la verif commune
         self.saving = False        # verif sans participant en cours d'enregistrement par le serveur
+        self.solo = False          # « Quitter » la verif commune : pas de fusion automatique
         self.finished = 0          # fin de la verif (time.monotonic), pour DONE_KEEP
 
     @property
@@ -466,6 +469,7 @@ class LiveHub:
                 if len(self.sessions) >= MAX_SESSIONS:
                     return None, None, 'trop de vérifs suivies en même temps'
                 session, participant = LiveSession(), Participant()
+                session.solo = bool(message.get('solo'))
                 session.participants[participant.id] = participant
                 self.sessions[session.id] = session
             previous = participant.socket
@@ -479,6 +483,53 @@ class LiveHub:
             self._changed(left)
         self._start_reaper()
         return session, participant, None
+
+    def _session_of(self, participant, hint):
+        """Verif ou se trouve le participant (une fusion a pu le deplacer), None s'il l'a quittee."""
+        if self.sessions.get(hint.id) is hint and hint.participants.get(participant.id) is participant:
+            return hint
+        return next((session for session in self.sessions.values()
+                     if session.participants.get(participant.id) is participant), None)
+
+    def _merge(self, session):
+        """Une verif est deja en cours sur le meme lot global (meme lot, ou un autre sous-lot du meme lot) : les
+        verifs sont fusionnees dans la plus ancienne, une verif commune de tous leurs lots. Les participants des autres
+        recoivent un nouveau hello (meme pid et jeton) marque "merged". Renvoie la verif commune, None sinon."""
+        with self.lock:
+            root = (session.state or {}).get('root')
+            if not root or session.done or session.solo or session.saving or self.sessions.get(session.id) is not session:
+                return None
+            group = [session] + [other for other in self.sessions.values()
+                                 if other is not session and not other.done and not other.solo and not other.saving
+                                 and other.state and other.state['root'] == root]
+            if len(group) < 2:
+                return None
+            group.sort(key=lambda other: other.started)
+            target = group[0]
+            moving = []
+            for other in group[1:]:
+                if len(target.participants) + len(other.participants) > MAX_PARTICIPANTS:
+                    continue
+                for participant in other.participants.values():
+                    target.participants[participant.id] = participant
+                    moving.append(participant)
+                for lot_id, key in other.lots.items():
+                    if key or lot_id not in target.lots:
+                        target.lots[lot_id] = key
+                self.sessions.pop(other.id, None)
+            if not moving:
+                return None
+            removed = [other.id for other in group[1:] if other.id not in self.sessions]
+            target.updated = timezone.now()
+            hellos = [(p.socket, {'type': 'hello', 'id': target.id, 'pid': p.id, 'token': p.token, 'merged': True,
+                                  'who': ', '.join(o.who or 'Non identifié' for o in target.participants.values()
+                                                   if o not in moving)})
+                      for p in moving if p.socket is not None]
+        for websocket, message in hellos:
+            websocket.send_json(message)
+        for session_id in removed:
+            self.broadcast({'type': 'remove', 'id': session_id})
+        return target
 
     def _restart(self, participant, websocket):
         """Nouveau scan apres la fin d'une verif : le participant repart sur une nouvelle verif (la verif terminee
@@ -510,8 +561,9 @@ class LiveHub:
                 message = self._parse(websocket.receive())
                 kind = message.get('type')
                 with self.lock:
-                    if session.participants.get(participant.id) is not participant:
-                        return  # parti sur une autre verif
+                    session = self._session_of(participant, session)
+                if session is None:
+                    return  # parti sur une autre verif
                 if kind == 'state':
                     if session.done:
                         previous = session
@@ -524,7 +576,8 @@ class LiveHub:
                             if key or lot_id not in session.lots:
                                 session.lots[lot_id] = key
                         participant.updated = session.updated = timezone.now()
-                    self._changed(session)
+                    merged = self._merge(session)
+                    self._changed(merged or session)
                 elif kind == 'identity':
                     identity, who, verified = scanner_identity(message)
                     with self.lock:
@@ -567,6 +620,7 @@ class LiveHub:
         finally:
             if participant is not None:
                 with self.lock:
+                    session = self._session_of(participant, session) or session
                     current = participant.socket is websocket
                     if current:
                         participant.socket = None

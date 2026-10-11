@@ -129,7 +129,9 @@ Plusieurs personnes peuvent faire la même vérif en même temps, chacune avec s
 demandé pour rejoindre) :
 
 - depuis le **Suivi des vérifs**, **👥 Rejoindre cette vérif** sur une vérif en cours ;
-- ou depuis le scanner : si quelqu'un vérifie déjà le même lot, un bandeau propose **Rejoindre**.
+- ou automatiquement depuis le scanner : si quelqu'un vérifie déjà le même lot, ou un autre
+  sous-lot du même lot parent, votre vérif rejoint la sienne (« 👥 Vérif commune avec … »). La vérif
+  commune couvre les sous-lots que chacun vérifie, pas tout le lot parent.
 
 Si vous rejoignez une vérif de plusieurs sous-lots sans avoir rien scanné, le bandeau demande où vous
 êtes : choisissez le sous-lot, ou scannez son étiquette.
@@ -143,7 +145,7 @@ Tant que d'autres participants sont connectés, **Valider** ne valide que **votr
 ma partie de la vérif » sous le bouton). Le dernier qui valide envoie la vérif : le compte rendu
 s'affiche chez tout le monde et tous les participants sont enregistrés sur la vérif. Si les autres
 ont fermé leur page, le compte rendu part dès que ceux qui restent ont tous validé. Scanner un item
-après avoir validé sa partie la « dé-valide ». **Quitter** dans le bandeau reprend la vérif seul.
+après avoir validé sa partie la « dé-valide ». **Quitter** dans le bandeau reprend la vérif seul, sans être rejoint automatiquement ensuite.
 
 La vérif est sur le serveur, partagée, dès qu'elle commence : premier item scanné, étiquette clé du
 lot, ou **Lancer une vérif** depuis la fiche du lot. Une vérif dont tous les téléphones sont fermés

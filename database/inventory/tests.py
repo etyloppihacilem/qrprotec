@@ -2105,6 +2105,44 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(sum(m['type'] == 'submit' for m in first.sent), 1)
         first.push(None)
 
+    def test_checks_of_the_same_global_lot_are_merged(self):
+        sub_a = Lots(lot_type=self.lot_type, name='Armoire 1', name_short='A1', created_by='test', parent=self.lot)
+        sub_a.save()
+        sub_b = Lots(lot_type=self.lot_type, name='Armoire 2', name_short='A2', created_by='test', parent=self.lot)
+        sub_b.save()
+
+        def start(hello, lot, key):
+            socket = FakeSocket(hello)
+            self.run_socket(self.hub.run_scanner, socket)
+            self.wait(lambda: socket.sent)
+            socket.push({'type': 'state', 'lot': {'id': lot.id, 'name': lot.name}, 'root': self.lot.id,
+                         'keys': [{'id': lot.id, 'key': key}]})
+            return socket
+
+        first = start({'type': 'hello', 'user': self.badge}, sub_a, 'cle-a')
+        self.wait(lambda: self.hub.visible())
+        # quelqu'un commence la vérif d'un autre sous-lot du meme lot : il rejoint la vérif commune
+        second = start({'type': 'hello', 'name': 'Paul Martin'}, sub_b, 'cle-b')
+        self.wait(lambda: any(m['type'] == 'hello' and m.get('merged') for m in second.sent))
+        merged = next(m for m in second.sent if m.get('merged'))
+        self.assertEqual(merged['id'], first.sent[0]['id'])
+        self.assertEqual(merged['who'], 'Jeanne')
+        self.assertEqual(len(self.hub.sessions), 1)
+        session = self.hub.sessions[merged['id']]
+        self.assertEqual(list(session.lots), [sub_a.id, sub_b.id])
+        self.wait(lambda: any(m['type'] == 'team' and len(m['participants']) == 2 for m in first.sent))
+        # la connexion de Paul suit la vérif commune
+        second.push({'type': 'validate'})
+        self.wait(lambda: any(m['type'] == 'validate' for m in second.sent))
+        self.assertTrue(session.participants[merged['pid']].validated)
+        # « Quitter » : nouvelle vérif seule, jamais fusionnee
+        third = start({'type': 'hello', 'name': 'Luc', 'solo': True}, sub_b, '')
+        self.wait(lambda: any(other.state for other in list(self.hub.sessions.values()) if other is not session))
+        self.assertEqual(len(self.hub.sessions), 2)
+        self.assertFalse(any(m.get('merged') for m in third.sent))
+        for socket in (first, second, third):
+            socket.push(None)
+
     def lonely_check(self, validate, remaining):
         """Verif d'un seul participant qui ferme sa page ; renvoie la session apres le delai d'abandon."""
         items = self.create(self.compresses, self.today + timedelta(days=200), 2)
