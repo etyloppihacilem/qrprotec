@@ -8,7 +8,6 @@
 
 ##################################################################################################################### */
 
-#include "../../app/labels.hpp"
 #include "../widgets.hpp"
 #include "windows.hpp"
 
@@ -340,9 +339,15 @@ class VerifWindow final : public AppWindow {
         sealed_.clear();
         seal_number_.clear();
       }
+      // lots deja scelles (scelle intact constate, ou scelle depuis) : rien a resceller
+      std::set< std::string > already;
+      for (const Json &lot : app.catalog.lots.items())
+        if (lot["is_sealed"].boolean())
+          already.insert(lot["id"].str());
       std::vector< const Json * > lots;
       for (const Json &row : report["lots"].items())
-        if (row["verified"].boolean() && row["complete"].boolean())
+        if (row["verified"].boolean() && row["complete"].boolean() && !row["sealed"].boolean()
+            && (!already.count(row["id"].str()) || sealed_.count(row["id"].str())))
           lots.push_back(&row);
       if (lots.empty())
         return;
@@ -374,13 +379,7 @@ class VerifWindow final : public AppWindow {
         const Json &lot = result.data;
         sealed_.insert(id);
         seal_number_.clear();
-        // etiquette publique d'un lot a scelle obligatoire, celle du scelle et celle d'ouverture (a ranger dedans)
-        const Parameters        parameters = lot_parameters(lot);
-        std::vector< PrintJob > jobs;
-        app.build_label_jobs(TemplateCategory::LotSeal, { parameters }, "Scellé " + lot["name"].str(), jobs);
-        if (!lot["seal_open_url"].str().empty())
-          app.build_label_jobs(TemplateCategory::LotSealOpen, { parameters }, "Ouverture " + lot["name"].str(), jobs);
-        app.preview_jobs(std::move(jobs), "Scellé " + lot["name"].str());
+        app.preview_seal_labels(lot);
         app.notify("Lot " + lot["name"].str()
                    + " scellé : rangez l'étiquette d'ouverture dans le lot et collez celle du scellé sur le scellé.");
         app.refresh_lots();

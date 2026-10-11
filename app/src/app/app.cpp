@@ -2335,6 +2335,18 @@ bool App::preview_labels(TemplateCategory category, const std::vector< Parameter
   return true;
 }
 
+// Etiquettes d'un scellage : celle collee sur le scelle (elle tient lieu d'etiquette publique) et l'etiquette
+// d'ouverture rangee dans le lot (son scan ouvre le scelle). Meme apercu partout ou l'on scelle un lot.
+void App::preview_seal_labels(const Json &lot) {
+  const Parameters        parameters = lot_parameters(lot);
+  std::vector< PrintJob > jobs;
+  build_label_jobs(TemplateCategory::LotSeal, { parameters }, "Scellé " + lot["name"].str(), jobs);
+  // scelle pose avant l'etiquette d'ouverture : il n'en a pas
+  if (!lot["seal_open_url"].str().empty())
+    build_label_jobs(TemplateCategory::LotSealOpen, { parameters }, "Ouverture " + lot["name"].str(), jobs);
+  preview_jobs(std::move(jobs), "Scellé " + lot["name"].str());
+}
+
 void App::preview_jobs(std::vector< PrintJob > jobs, const std::string &title) {
   if (jobs.empty())
     return;

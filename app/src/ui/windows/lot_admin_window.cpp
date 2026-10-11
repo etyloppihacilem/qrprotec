@@ -152,9 +152,9 @@ class LotAdminWindow final : public AppWindow {
       input_limited("Emplacement de l'étiquette clé", new_lot_key_location_, 128);
       help_marker("Où trouver l'étiquette clé dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
                   "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
-      // scelle obligatoire : l'etiquette publique est imprimee au scellage du lot
-      ImGui::Checkbox(type_seal_required(app, new_lot_type_) ? "Voir l'étiquette clé après création (la publique sera "
-                                                              "imprimée au scellage)"
+      // scelle obligatoire : l'etiquette du scelle tient lieu d'etiquette publique
+      ImGui::Checkbox(type_seal_required(app, new_lot_type_) ? "Voir l'étiquette clé après création (celle du scellé "
+                                                              "sert d'étiquette publique)"
                                                             : "Voir les étiquettes publique et clé après création",
                       &print_new_);
       ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty() || name_taken);
@@ -209,7 +209,7 @@ class LotAdminWindow final : public AppWindow {
 
     // apercu des deux etiquettes du lot (publique puis privee), impression depuis la fenetre d'apercu. Un rangement
     // du stock n'a qu'une etiquette, celle de rangement (privee, sans expiration). Sans with_public (creation d'un
-    // lot a scelle obligatoire), seulement l'etiquette cle : la publique est imprimee au scellage.
+    // lot a scelle obligatoire), seulement l'etiquette cle : celle du scelle tient lieu d'etiquette publique.
     void preview_lot(App &app, const Json &lot, bool with_public = true) {
       const Parameters        parameters = lot_parameters(lot);
       std::vector< PrintJob > jobs;
@@ -236,21 +236,6 @@ class LotAdminWindow final : public AppWindow {
         app.print_labels(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (clé)");
     }
 
-    // etiquettes d'un scelle : celle collee sur le scelle, et l'etiquette d'ouverture rangee dans le lot (son
-    // scan ouvre le scelle). Un lot a scelle obligatoire recoit aussi son etiquette publique au scellage.
-    void preview_seal(App &app, const Json &lot) {
-      const Parameters        parameters = lot_parameters(lot);
-      std::vector< PrintJob > jobs;
-      if (lot["seal_required"].boolean())
-        app.build_label_jobs(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)",
-                             jobs);
-      app.build_label_jobs(TemplateCategory::LotSeal, { parameters }, "Scellé " + lot["name"].str(), jobs);
-      // scelle pose avant l'etiquette d'ouverture : il n'en a pas
-      if (!lot["seal_open_url"].str().empty())
-        app.build_label_jobs(TemplateCategory::LotSealOpen, { parameters }, "Ouverture " + lot["name"].str(), jobs);
-      app.preview_jobs(std::move(jobs), "Scellé " + lot["name"].str());
-    }
-
     // Scelle : un lot scelle est valide sans verif ; une verif, un ajout ou un retrait d'items brise le scelle.
     void draw_seal(App &app) {
       ImGui::SeparatorText("Scellé");
@@ -258,7 +243,7 @@ class LotAdminWindow final : public AppWindow {
         ImGui::Text("Scellé%s le %s par %s", lot_["seal_number"].str().empty() ? "" : (" n°" + lot_["seal_number"].str()).c_str(),
                     display_datetime(lot_["sealed"]).c_str(), lot_["sealed_by"].str("-").c_str());
         if (button("Étiquettes du scellé"))
-          preview_seal(app, lot_);
+          app.preview_seal_labels(lot_);
         ImGui::SameLine();
         if (confirm_button("Briser le scellé", "Le lot devra être vérifié avant utilisation. Continuer ?", "unseal")) {
           Json body;
@@ -312,11 +297,8 @@ class LotAdminWindow final : public AppWindow {
         }
         lot_ = result.data;
         seal_number_.clear();
-        app.notify(lot_["seal_required"].boolean()
-                     ? "Lot scellé : rangez l'étiquette d'ouverture dans le lot, collez celle du scellé sur le scellé "
-                       "et l'étiquette publique sur le lot."
-                     : "Lot scellé : rangez l'étiquette d'ouverture dans le lot et collez l'autre sur le scellé.");
-        preview_seal(app, lot_);
+        app.notify("Lot scellé : rangez l'étiquette d'ouverture dans le lot et collez l'autre sur le scellé.");
+        app.preview_seal_labels(lot_);
         app.refresh_lots();
       });
     }

@@ -80,11 +80,11 @@ devra être vérifié avant utilisation.
 **Scellé obligatoire** : cochez cette case dans le type de lot (onglet des types de lot) pour les lots
 qui doivent toujours être scellés, comme les kits accouchement. Un lot de ce type ouvert est rouge ;
 après sa vérif complète il reste rouge (« doit être scellé ») jusqu'à ce qu'il soit scellé à nouveau.
-À la création d'un lot de ce type, seule l'étiquette clé est proposée : l'étiquette publique est
-imprimée au scellage, avec celles du scellé et d'ouverture.
+À la création d'un lot de ce type, seule l'étiquette clé est proposée : l'étiquette du scellé, imprimée
+au scellage avec l'étiquette d'ouverture, tient lieu d'étiquette publique.
 
 Raccourci : après une vérif complète dans l'application, le compte rendu propose aux rôles gestion et
-admin un bouton **Sceller** pour chaque lot trouvé complet (numéro du scellé facultatif). Il scelle le
+admin un bouton **Sceller** pour chaque lot trouvé complet et pas déjà scellé (numéro du scellé facultatif). Il scelle le
 lot et ouvre l'aperçu des mêmes étiquettes que depuis la fiche du lot.
 
 ## Journal des opérations
