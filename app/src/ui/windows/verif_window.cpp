@@ -368,9 +368,6 @@ class VerifWindow final : public AppWindow {
         // etiquette publique d'un lot a scelle obligatoire, celle du scelle et celle d'ouverture (a ranger dedans)
         const Parameters        parameters = lot_parameters(lot);
         std::vector< PrintJob > jobs;
-        if (lot["seal_required"].boolean())
-          app.build_label_jobs(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)",
-                               jobs);
         app.build_label_jobs(TemplateCategory::LotSeal, { parameters }, "Scellé " + lot["name"].str(), jobs);
         if (!lot["seal_open_url"].str().empty())
           app.build_label_jobs(TemplateCategory::LotSealOpen, { parameters }, "Ouverture " + lot["name"].str(), jobs);
