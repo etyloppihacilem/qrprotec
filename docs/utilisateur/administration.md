@@ -80,6 +80,8 @@ devra être vérifié avant utilisation.
 **Scellé obligatoire** : cochez cette case dans le type de lot (onglet des types de lot) pour les lots
 qui doivent toujours être scellés, comme les kits accouchement. Un lot de ce type ouvert est rouge ;
 après sa vérif complète il reste rouge (« doit être scellé ») jusqu'à ce qu'il soit scellé à nouveau.
+À la création d'un lot de ce type, seule l'étiquette clé est proposée : l'étiquette publique est
+imprimée au scellage, avec celles du scellé et d'ouverture.
 
 ## Journal des opérations
 
