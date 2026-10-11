@@ -68,7 +68,8 @@ tape toujours `@`, `#` ou `{`.
    items, les périmés en rouge),
    **Scannés** (avec « Annuler le dernier » et « Vider la liste »), **Lot** (exigences scannées /
    attendues). Un périmé ou un code inconnu fait clignoter l'écran en rouge, biper et vibrer.
-4. **Valider la vérif.** Le compte rendu s'affiche.
+4. **Valider la vérif.** Le compte rendu s'affiche, et le lot est désélectionné (comme avec
+   **Changer de lot**) : il n'apparaît plus « en cours » dans l'état des lots.
 
 La caméra occupe le tiers haut de l'écran. Le bouton **↘** la réduit en vignette dans un coin, comme
 pendant un appel vidéo : la liste prend tout l'écran et le scan continue. Touchez la vignette pour

@@ -1270,13 +1270,9 @@
       });
       state.waitingTeam = false;
       state.scanned = [];
-      state.lastVerif = { lotId: state.lot.id, at: new Date().toISOString(), complete: report.complete,
-                          present: report.present.length, partial: report.partial,
-                          lots: (report.lots || []).filter((row) => row.verified).length };
       showReport(report);
       live.done(report);
-      await loadLot(state.lot.id);
-      showLotInfo();
+      forgetLot('Vérif enregistrée. Scannez un item ou l\'étiquette d\'un lot pour en commencer une autre.');
       loadLots();
     } catch (e) {
       identityRefused(e);
@@ -1417,6 +1413,14 @@
     $('#report').showModal();
   }
 
+  // Plus de lot selectionne (« Changer de lot », ou vérif enregistree : le lot n'est plus « en cours »)
+  function forgetLot(message = "Scannez l'étiquette d'un lot.") {
+    state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = [];
+    state.lastVerif = null; state.launched = ''; state.current = ''; state.askPlace = false;
+    showInfo('empty', message);
+    save(); render();
+  }
+
   $('#report-close').addEventListener('click', () => $('#report').close());
   $('#validate').addEventListener('click', () => (takingOut() ? takeOut() : validate(false)));
   $('#restock').addEventListener('click', () => {
@@ -1442,11 +1446,7 @@
       }
     }
     if (action === 'notifications') openNotifications();
-    if (action === 'forget-lot') {
-      state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = [];
-      showInfo('empty', "Scannez l'étiquette d'un lot.");
-      save(); render();
-    }
+    if (action === 'forget-lot') forgetLot();
     if (action === 'logout') logout();
   });
 
@@ -2190,15 +2190,9 @@
     showReport(report);
     state.scanned = [];
     state.waitingTeam = false;
-    if (state.lot) {
-      state.lastVerif = { lotId: state.lot.id, at: new Date().toISOString(), complete: report.complete,
-                          present: report.present.length, partial: report.partial,
-                          lots: (report.lots || []).filter((row) => row.verified).length };
-    }
     live.done(null);
-    save();
-    render();
-    if (state.lot) loadLot(state.lot.id).then(() => loadLots());
+    forgetLot('Vérif enregistrée. Scannez un item ou l\'étiquette d\'un lot pour en commencer une autre.');
+    loadLots();
   }
 
   // Rejoindre une vérif en cours (page de suivi) : ses scans et ses lots arrivent par la connexion
