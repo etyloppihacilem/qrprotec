@@ -17,6 +17,14 @@ Menu **Gestion > Utilisateurs**.
 - **Départ d'un bénévole** : décochez **Compte actif**. Son nom reste dans l'historique des vérifs.
 - **PIN** : **Définir le PIN** / **Supprimer le PIN** (impossible pour un admin). Un admin sans PIN le
   choisit à sa prochaine connexion. Après 5 PIN faux, le compte est bloqué 5 minutes.
+- **PIN obligatoire ou désactivé** : **Rendre le PIN obligatoire** (sans PIN, il le choisit à sa
+  prochaine connexion), **Désactiver le PIN** (PIN supprimé et plus jamais demandé), **Réglage par
+  défaut** pour revenir au réglage **Réglages > Règles du serveur > Code PIN obligatoire par défaut
+  pour les secouristes** (décoché au départ). Les admins ont toujours un PIN.
+- **Connexion sans badge** : un utilisateur qui a un PIN peut se connecter avec son prénom, son nom
+  et son PIN (téléphone : bouton « Nom + PIN » du petit lecteur ou puce « Non connecté » ; poste :
+  lien « Sans badge » de la fenêtre de connexion). Après 5 essais faux, pause de 15 minutes ; après
+  20, il doit se reconnecter une fois avec son badge.
 - **PIN bloqué** (50 PIN faux) : la fiche l'indique en rouge. **Réinitialiser le PIN** le débloque ;
   l'utilisateur en choisit un nouveau à sa prochaine connexion. L'utilisateur peut aussi envoyer le
   lien affiché sur son téléphone : l'admin le scanne avec le front web, se connecte et confirme.

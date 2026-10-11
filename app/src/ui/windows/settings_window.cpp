@@ -303,6 +303,26 @@ class SettingsWindow final : public AppWindow {
       help_marker("Désactivé (par défaut) : une vérif, un ajout d'items ou l'ouverture d'un scellé exige un "
                   "badge.\nActivé : à la place du badge, la personne peut saisir son nom, enregistré sans "
                   "vérification (« D:nom »). L'étiquette privée du lot reste exigée.");
+      bool pin_default = server_rules_["pin_required_default"].boolean();
+      if (ImGui::Checkbox("Code PIN obligatoire par défaut pour les secouristes", &pin_default)) {
+        Json body;
+        body["pin_required_default"] = pin_default;
+        app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify("Règles du serveur : " + result.error, true);
+            return;
+          }
+          server_rules_ = result.data;
+          app.notify(server_rules_["pin_required_default"].boolean()
+                         ? "Code PIN obligatoire par défaut : choisi à la prochaine connexion par ceux qui n'en ont pas."
+                         : "Code PIN facultatif par défaut (toujours obligatoire pour les administrateurs).");
+          app.refresh_users();
+        });
+      }
+      help_marker("Désactivé (par défaut) : le PIN n'est obligatoire que pour les administrateurs et les "
+                  "secouristes pour qui il a été rendu obligatoire (fenêtre Utilisateurs).\nActivé : tous les "
+                  "secouristes doivent avoir un PIN, sauf ceux dont le PIN est désactivé ; ceux qui n'en ont pas le "
+                  "choisissent à leur prochaine connexion.");
     }
 
     // -----------------------------------------------------------------------------------------------------------

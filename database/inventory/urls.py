@@ -16,6 +16,7 @@ from . import views, web_views
 public_patterns = [
     path('health/', views.health),
     path('auth/', views.auth),
+    path('auth/name/', views.auth_name),
     path('pin-reset/', views.pin_reset),
     path('pin-forgot/', views.pin_forgot),
     path('items/out/', views.items_out),         # avant items/<iid>/

@@ -482,6 +482,12 @@ PIN_LOCK_DURATION = timedelta(minutes=5)
 # est bloque jusqu'a sa reinitialisation par un administrateur (lien envoye depuis le front web).
 
 
+class PinMode(models.TextChoices):
+    DEFAULT = '', 'Réglage par défaut'   # obligatoire si ServerSettings.pin_required_default, facultatif sinon
+    REQUIRED = 'required', 'Obligatoire'  # choisi a la prochaine connexion s'il n'existe pas encore
+    DISABLED = 'disabled', 'Désactivé'    # pas de PIN (refuse pour un administrateur)
+
+
 class Role(models.TextChoices):
     NORMAL = 'normal', 'Secouriste'
     GESTION = 'gestion', 'Gestion'   # consultation et gestion de l'inventaire, sans les reglages du front
@@ -524,6 +530,12 @@ class Secouristes(models.Model):
     pin_reset_required = models.BooleanField(default=False)      # PIN reinitialise : a choisir a la connexion
     pin_forgotten = models.BooleanField(default=False)           # blocage demande par l'utilisateur (code oublie)
     pin_reset_notified = models.BooleanField(default=False)      # admins deja prevenus de ce blocage (une seule fois)
+    # PIN obligatoire ou desactive pour ce secouriste, ou reglage par defaut du serveur (voir PinMode)
+    pin_mode = models.CharField(max_length=8, choices=PinMode.choices, blank=True, default=PinMode.DEFAULT)
+    # Connexion sans badge (nom, prenom et PIN) : echecs comptes a part du PIN, pour qu'un inconnu qui connait le
+    # nom ne puisse pas bloquer le PIN du badge. Remis a zero par une connexion reussie.
+    name_login_failures = models.PositiveIntegerField(default=0)
+    name_login_locked_until = models.DateTimeField(blank=True, null=True)
     # Administrateur a prevenir quand le PIN est bloque (affiche sur le telephone avec le lien de deblocage)
     pin_contact = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     # Admin a contacter par defaut (un seul) : pour les utilisateurs sans admin a contacter choisi
@@ -555,11 +567,33 @@ class Secouristes(models.Model):
 
     @property
     def pin_required(self) -> bool:
-        return self.has_pin or self.role == Role.ADMIN or self.pin_reset_required
+        """PIN demande apres le badge : toujours pour un admin, jamais si desactive, sinon s'il existe ou s'il est
+        obligatoire (pour ce secouriste, ou pour tous par le reglage du serveur)."""
+        if self.role == Role.ADMIN or self.pin_reset_required:
+            return True
+        if self.pin_mode == PinMode.DISABLED:
+            return False
+        if self.has_pin or self.pin_mode == PinMode.REQUIRED:
+            return True
+        return ServerSettings.get().pin_required_default
+
+    def set_pin_mode(self, mode):
+        """PIN obligatoire, desactive (le PIN existant est supprime) ou reglage par defaut."""
+        if mode not in PinMode.values:
+            raise ValueError('pin_mode : required, disabled ou vide (réglage par défaut)')
+        if mode == PinMode.DISABLED:
+            if self.role == Role.ADMIN:
+                raise ValueError('Le PIN est obligatoire pour un administrateur')
+            self.pin_hash = ''
+            self._clear_pin_failures()
+            self.pin_reset_required = False
+        self.pin_mode = mode
 
     def set_pin(self, pin):
         """pin vide : supprime le PIN (refuse pour un admin). Leve ValueError si le format est invalide."""
         pin = str(pin or '').strip()
+        if pin and self.pin_mode == PinMode.DISABLED:
+            self.pin_mode = PinMode.DEFAULT  # un PIN choisi par un admin reactive le PIN
         if not pin:
             if self.role == Role.ADMIN:
                 raise ValueError('Le PIN est obligatoire pour un administrateur')
@@ -740,6 +774,9 @@ class ServerSettings(models.Model):
     # Operations sur un lot (verif, ajout d'items, ouverture du scelle) sans badge, sous un nom declare et non
     # verifie (identite D:nom). Desactive (defaut) : badge, ou utilisateur connecte sur le poste, obligatoire.
     declared_identity = models.BooleanField(default=False)
+    # PIN obligatoire pour tous les secouristes (sauf ceux dont le PIN est desactive) : ceux qui n'en ont pas le
+    # choisissent a leur prochaine connexion. Desactive (defaut) : obligatoire seulement pour les admins.
+    pin_required_default = models.BooleanField(default=False)
 
     @classmethod
     def get(cls):

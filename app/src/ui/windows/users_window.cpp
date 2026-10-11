@@ -189,7 +189,8 @@ class UsersWindow final : public AppWindow {
       ImGui::SetNextItemWidth(160.0f);
       input_limited(creating ? "Code PIN" : "Nouveau PIN", pin_, 8, "4 à 8 chiffres", pin_flags);
       help_marker("Demandé après le badge à chaque connexion. Obligatoire pour un administrateur (s'il n'en a pas, "
-                  "il le choisit à sa prochaine connexion), facultatif pour les autres rôles.");
+                  "il le choisit à sa prochaine connexion) ; pour les autres rôles, selon le réglage par défaut ou "
+                  "le choix fait plus bas (obligatoire ou désactivé).");
       const bool pin_valid = pin_.empty() || (pin_.size() >= 4 && pin_.size() <= 8);
       if (!pin_valid)
         ImGui::TextColored(colors::orange, "Le PIN doit comporter 4 à 8 chiffres.");
@@ -233,6 +234,8 @@ class UsersWindow final : public AppWindow {
         });
       }
       ImGui::SeparatorText("Code PIN");
+      const std::string pin_mode = user_["pin_mode"].str();
+      const bool        admin    = user_["role"].str() == "admin";
       if (user_["pin_blocked"].boolean()) {
         if (user_["pin_forgotten"].boolean())
           ImGui::TextColored(colors::red, "Code PIN oublié, signalé le %s.", display_datetime(user_["pin_blocked_since"]).c_str());
@@ -253,9 +256,11 @@ class UsersWindow final : public AppWindow {
         }
       } else if (user_["pin_reset_required"].boolean())
         ImGui::TextColored(colors::orange, "PIN réinitialisé : il sera choisi à la prochaine connexion.");
+      else if (pin_mode == "disabled")
+        ImGui::TextDisabled("PIN désactivé : jamais demandé.");
       else if (user_["has_pin"].boolean())
-        ImGui::TextColored(colors::green, "PIN défini.");
-      else if (kRoles[role_] == std::string("admin"))
+        ImGui::TextColored(colors::green, "PIN défini%s.", pin_mode == "required" ? " (obligatoire)" : "");
+      else if (user_["pin_required"].boolean())
         ImGui::TextColored(colors::orange, "Aucun PIN : il sera choisi à la prochaine connexion (obligatoire).");
       else
         ImGui::TextDisabled("Aucun PIN (facultatif).");
@@ -264,10 +269,30 @@ class UsersWindow final : public AppWindow {
         update_pin(app, pin_);
       ImGui::EndDisabled();
       ImGui::SameLine();
-      ImGui::BeginDisabled(!user_["has_pin"].boolean() || user_["role"].str() == "admin");
+      ImGui::BeginDisabled(!user_["has_pin"].boolean() || admin);
       if (button("Supprimer le PIN"))
         update_pin(app, "");
       ImGui::EndDisabled();
+      // PIN obligatoire ou desactive pour ce secouriste, sinon le reglage par defaut (Reglages > Regles du serveur)
+      if (!admin) {
+        if (pin_mode != "required" && button("Rendre le PIN obligatoire"))
+          update_pin_mode(app, "required");
+        if (pin_mode != "required" && pin_mode != "disabled")
+          ImGui::SameLine();
+        if (pin_mode != "disabled"
+            && confirm_button("Désactiver le PIN", "Le PIN de cet utilisateur sera supprimé et ne lui sera plus "
+                                                   "demandé, même s'il est obligatoire par défaut. Continuer ?",
+                              "pin_disable"))
+          update_pin_mode(app, "disabled");
+        if (!pin_mode.empty()) {
+          ImGui::SameLine();
+          if (button("Réglage par défaut"))
+            update_pin_mode(app, "");
+        }
+        help_marker("Obligatoire : sans PIN, il le choisit à sa prochaine connexion. Désactivé : jamais de PIN, même "
+                    "si le PIN est obligatoire par défaut (Réglages > Règles du serveur). Un utilisateur qui a un PIN "
+                    "peut aussi se connecter sans badge, avec son nom, son prénom et son PIN.");
+      }
 
       draw_notifications(app);
 
@@ -295,6 +320,21 @@ class UsersWindow final : public AppWindow {
       }
       if (user_["badge_url"].str().empty())
         ImGui::TextDisabled("Pour réimprimer un badge, renouvelez-le : sa clé n'est affichée qu'à sa création.");
+    }
+
+    void update_pin_mode(App &app, const std::string &mode) {
+      Json body;
+      body["pin_mode"] = mode;
+      app.api.patch("/api/users/" + url_encode(selected_) + "/", body, [this, &app, mode](const ApiResult &result) {
+        app.notify(!result.ok            ? result.error
+                   : mode == "required" ? "PIN obligatoire : choisi à la prochaine connexion s'il n'existe pas."
+                   : mode == "disabled" ? "PIN désactivé."
+                                        : "PIN selon le réglage par défaut.",
+                   !result.ok);
+        if (result.ok)
+          select(result.data);
+        app.refresh_users();
+      });
     }
 
     void update_pin(App &app, const std::string &pin) {

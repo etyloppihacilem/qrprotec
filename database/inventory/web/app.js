@@ -12,6 +12,7 @@
   const IID_RE = /^[A-Za-z0-9]{6}\d{8}[A-Za-z0-9]{8}$/;
   const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
   const STORAGE_USER = 'qrprotec.user';
+  const NAME_SESSION_MS = 11.5 * 3600 * 1000;  // connexion par nom et PIN : jeton de session valable 12 h
   const STORAGE_SESSION = 'qrprotec.session';
   const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
   const STORAGE_NAME = 'qrprotec.declared-name';   // nom declare (sans badge), si le serveur l'autorise
@@ -63,8 +64,10 @@
   // identite des operations sur un lot : le badge, sinon le nom declare (si le serveur l'autorise)
   const declared = () => !state.user && state.declaredAllowed && !!state.declaredName;
   const hasIdentity = () => !!state.user || declared();
-  const identity = () => (state.user ? { user: { matricule: state.user.matricule, key: state.user.key } }
-    : { name: state.declaredName });
+  // identifiants de l'utilisateur connecte : la cle du badge, ou seulement le jeton de session apres une connexion
+  // par nom et PIN (le serveur accepte l'un ou l'autre)
+  const credentials = () => ({ matricule: state.user.matricule, key: state.user.key, session: state.user.session });
+  const identity = () => (state.user ? { user: credentials() } : { name: state.declaredName });
 
   function save() {
     try {
@@ -84,7 +87,9 @@
   function restore() {
     try {
       const user = JSON.parse(localStorage.getItem(STORAGE_USER) || 'null');
-      if (user && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
+      // connexion par nom et PIN : pas de cle de badge, le jeton de session (12 h) est le seul identifiant
+      const sessionOk = user && (user.key || (user.loginAt && Date.now() - user.loginAt < NAME_SESSION_MS));
+      if (user && sessionOk && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
       state.declaredName = localStorage.getItem(STORAGE_NAME) || '';
       const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
       if (session) state.pendingOpening = session.pendingOpening || null; // delai propre (OPENING_SIGN_DELAY)
@@ -900,22 +905,7 @@
   async function login(matricule, key, extra = {}) {
     try {
       const user = await api('auth/', { matricule, key, ...extra });
-      state.user = { ...user, key };
-      state.lots = null;
-      state.stock = null;
-      state.push = null;
-      state.pushDevices = null;
-      feedback.info();
-      showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
-        canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est dans l'onglet Stock.` : 'Vous êtes connecté.');
-      save();
-      render();
-      loadLots();
-      if (canSeeStock()) loadStock();
-      live.identity();
-      afterLogin();
-      if (state.pinReset) openPinReset();
-      if (state.pendingOpening) signOpening();
+      loggedIn({ ...user, key });
     } catch (e) {
       if (e.data && e.data.pin_blocked) {
         feedback.bad();
@@ -932,6 +922,56 @@
       feedback.bad();
       showInfo('bad', 'Badge refusé', e.message);
     }
+  }
+
+  // Connexion sans badge (nom, prenom et code PIN) : discrete, depuis le petit lecteur de l'accueil ou la puce
+  // « Non connecté » du scanner. Le serveur ne dit pas si le nom existe.
+  function openNameLogin() {
+    const dialog = $('#name-login');
+    $('#name-login-pin').value = '';
+    $('#name-login-error').textContent = '';
+    const declaredLink = $('#name-login-declared');
+    declaredLink.hidden = !state.declaredAllowed || inHome();
+    declaredLink.onclick = () => { dialog.close(); askDeclaredName(); };
+    $('#name-login-form').onsubmit = async (event) => {
+      event.preventDefault();
+      const prenom = $('#name-login-prenom').value.trim();
+      const nom = $('#name-login-nom').value.trim();
+      const pin = $('#name-login-pin').value.trim();
+      if (!prenom || !nom) { $('#name-login-error').textContent = 'Saisissez votre prénom et votre nom.'; return; }
+      if (!/^\d{4,8}$/.test(pin)) { $('#name-login-error').textContent = 'Le PIN doit comporter 4 à 8 chiffres.'; return; }
+      try {
+        const user = await api('auth/name/', { nom, prenom, pin });
+        dialog.close();
+        loggedIn({ ...user, loginAt: Date.now() });
+      } catch (e) {
+        feedback.bad();
+        $('#name-login-pin').value = '';
+        $('#name-login-error').textContent = e.message;
+      }
+    };
+    $('#name-login-cancel').onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+    setTimeout(() => ($('#name-login-prenom').value ? $('#name-login-pin') : $('#name-login-prenom')).focus(), 50);
+  }
+
+  function loggedIn(user) {
+    state.user = user;
+    state.lots = null;
+    state.stock = null;
+    state.push = null;
+    state.pushDevices = null;
+    feedback.info();
+    showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
+      canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est dans l'onglet Stock.` : 'Vous êtes connecté.');
+    save();
+    render();
+    loadLots();
+    if (canSeeStock()) loadStock();
+    live.identity();
+    afterLogin();
+    if (state.pinReset) openPinReset();
+    if (state.pendingOpening) signOpening();
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -1300,10 +1340,9 @@
         state.declaredName = '';
         save(); render();
       }
-    } else if (!state.user && state.declaredAllowed) {
-      if (!askDeclaredName()) toast('Scannez votre badge pour vous connecter, ou indiquez votre nom.');
     } else if (!state.user) {
-      toast('Scannez votre badge pour vous connecter.');
+      // scannez votre badge, ou sans badge : nom et PIN (ou nom seul si le serveur l'autorise)
+      openNameLogin();
     }
   });
 
@@ -1574,7 +1613,7 @@
   // État des stocks. Chaque page a son ancre (#lots, #suivi, #stock, #scan) : le bouton retour du telephone
   // revient a l'accueil, et un rechargement rouvre la meme page.
 
-  const badge = () => ({ matricule: state.user.matricule, key: state.user.key, session: state.user.session });
+  const badge = credentials;
   const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock' };
   const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'État des stocks' };
   // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
@@ -1633,6 +1672,7 @@
     renderHomePage();
   }
   $('#reader-close').addEventListener('click', (event) => { event.stopPropagation(); closeReader(); });
+  $('#reader-name').addEventListener('click', (event) => { event.stopPropagation(); openNameLogin(); });
 
   // Badge scanne : le petit lecteur se ferme et la page demandee s'ouvre. La carte scannee hors de l'appli
   // (badge?m=...) ou dans le scanner sans vérif en cours mene aussi a l'accueil.
@@ -1821,7 +1861,7 @@
       } catch (e) { /* stockage indisponible */ }
     }
 
-    const who = () => (state.user ? { user: { matricule: state.user.matricule, key: state.user.key } }
+    const who = () => (state.user ? { user: credentials() }
       : declared() ? { name: state.declaredName } : {});
 
     function send(message) {
@@ -1940,7 +1980,7 @@
     const current = new WebSocket(socketUrl('ws/live/watch'));
     watch.socket = current;
     current.onopen = () => {
-      current.send(JSON.stringify({ type: 'hello', user: { matricule: state.user.matricule, key: state.user.key } }));
+      current.send(JSON.stringify({ type: 'hello', user: credentials() }));
       clearInterval(watch.ping);
       watch.ping = setInterval(() => { if (current.readyState === WebSocket.OPEN) current.send('{"type":"ping"}'); }, PING_MS);
     };
