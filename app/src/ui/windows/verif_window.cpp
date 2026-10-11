@@ -159,37 +159,56 @@ class VerifWindow final : public AppWindow {
           // ordre des types : en cours (orange, dernier type scanne en haut), puis rien de scanne (rouge),
           // puis les autres items du lot, et les types complets (vert) en bas
           struct TypeRow {
-              const Json *row;
+              std::string type, type_name, location;
               int         required, done, missing, rank, last_scan;
+              bool        storage;
           };
           std::vector< TypeRow >  type_rows;
           std::set< std::string > required_types;
-          for (const Json &row : lot["requirements"].items()) {
-            const std::string type     = row["type"].str();
-            const int         required = row["required"].integer();
-            const auto        found    = plan_row.fresh.find(type);
-            const int         done     = found == plan_row.fresh.end() ? 0 : found->second;
-            const int         missing  = std::max(0, required - done);
-            const auto        last     = last_scan.find(type);
+          const auto add_type = [&](const std::string &type, const std::string &type_name,
+                                    const std::string &location, int required, int done, bool storage) {
+            const int  missing = std::max(0, required - done);
+            const auto last    = last_scan.find(type);
             required_types.insert(type);
             remaining += missing;
-            type_rows.push_back({ &row, required, done, missing, missing == 0 ? 2 : done == 0 ? 1 : 0,
-                                  last == last_scan.end() ? -1 : last->second });
+            type_rows.push_back({ type, type_name, location, required, done, missing,
+                                  missing == 0 ? 2 : done == 0 ? 1 : 0,
+                                  last == last_scan.end() ? -1 : last->second, storage });
+          };
+          if (lot["storage"].boolean()) {
+            // rangement du stock : pas de contenu attendu par type, chaque item range est attendu (on verifie
+            // qu'il est toujours la), compte par type sur les items connus du rangement
+            std::map< std::string, std::pair< std::string, std::pair< int, int > > > by_type; // nom, connus, scannes
+            for (const Json &item : lot["items"].items()) {
+              auto &entry = by_type[item["type"].str()];
+              entry.first = item["type_name"].str();
+              ++entry.second.first;
+              if (scanned.count(item["iid"].str()))
+                ++entry.second.second;
+            }
+            for (const auto &[type, entry] : by_type)
+              add_type(type, entry.first, "", entry.second.first, entry.second.second, true);
+          } else {
+            for (const Json &row : lot["requirements"].items()) {
+              const std::string type  = row["type"].str();
+              const auto        found = plan_row.fresh.find(type);
+              add_type(type, row["type_name"].str(), row["location"].str(), row["required"].integer(),
+                       found == plan_row.fresh.end() ? 0 : found->second, false);
+            }
           }
           std::stable_sort(type_rows.begin(), type_rows.end(), [](const TypeRow &a, const TypeRow &b) {
             return a.rank != b.rank ? a.rank < b.rank : a.rank == 0 && a.last_scan > b.last_scan;
           });
           const auto type_row = [&](const TypeRow &entry) {
-            const Json       &row  = *entry.row;
-            const std::string type = row["type"].str();
+            const std::string &type = entry.type;
             // ligne du type : progression coloree (rouge = rien, orange = partiel, vert = complet)
             ImGui::TableNextRow();
             row_color(entry.missing == 0 ? colors::green : entry.done == 0 ? colors::red : colors::orange, 0.25f);
             ImGui::TableNextColumn();
-            ImGui::Text("%s", row["type_name"].str().c_str());
-            if (!row["location"].str().empty()) {
+            ImGui::Text("%s", entry.type_name.c_str());
+            if (!entry.location.empty()) {
               ImGui::SameLine();
-              ImGui::TextColored(colors::grey, "– %s", row["location"].str().c_str());
+              ImGui::TextColored(colors::grey, "– %s", entry.location.c_str());
             }
             ImGui::TableNextColumn();
             if (entry.missing == 0)
@@ -204,7 +223,7 @@ class VerifWindow final : public AppWindow {
               item_row(*item);
               known_fresh += (*item)["expired"].boolean() ? 0 : 1;
             }
-            if (entry.missing > known_fresh) {
+            if (!entry.storage && entry.missing > known_fresh) {
               ImGui::TableNextRow();
               ImGui::TableNextColumn();
               ImGui::Indent();

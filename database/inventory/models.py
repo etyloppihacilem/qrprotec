@@ -298,6 +298,21 @@ class KeyExpiry(models.IntegerChoices):
         return cls.VALID
 
 
+# Le stock : lot global de tous les rangements du stock (armoires, tiroirs), pour les verifier a la suite. Il existe
+# toujours (cree par la migration 0024) et ne peut etre ni cree ni archive par les utilisateurs.
+STOCK_LOT_TYPE = 'stock0'
+STOCK_LOT_NAME = 'Stock'
+
+
+def stock_lot_name(taken):
+    """Nom du lot du stock : « Stock », sauf si un autre lot actif porte deja ce nom (taken : noms deja pris)."""
+    keys = {name_key(name) for name in taken}
+    for name in (STOCK_LOT_NAME, 'Stock général', 'Stock (rangements)'):
+        if name_key(name) not in keys:
+            return name
+    return f'Stock {generate_key(4)}'
+
+
 def default_lot_key_expiration():
     return timezone.localdate() + timedelta(days=qrprotec_setting('LOT_KEY_VALIDITY_DAYS'))
 
@@ -396,6 +411,27 @@ class Lots(models.Model):
     @property
     def storage(self) -> bool:
         return self.lot_type.storage
+
+    @property
+    def is_stock(self) -> bool:
+        """Lot du stock (lot global des rangements du stock)."""
+        return self.lot_type_id == STOCK_LOT_TYPE
+
+    @classmethod
+    def stock(cls):
+        """Lot du stock, recree s'il manque (base creee avant la migration 0024 puis videe, par exemple)."""
+        lot = cls.objects.select_related('lot_type').filter(lot_type_id=STOCK_LOT_TYPE).order_by('-active', 'created').first()
+        if lot is None:
+            lot_type, _ = LotType.objects.get_or_create(type=STOCK_LOT_TYPE, defaults={
+                'name': STOCK_LOT_NAME, 'description': 'Lot global de tous les rangements du stock.',
+                'storage': True, 'unique': True, 'created_by': 'qrprotec'})
+            name = stock_lot_name(cls.objects.filter(active=True).values_list('name', flat=True))
+            lot = cls(lot_type=lot_type, name=name, name_short=name[:16], created_by='qrprotec')
+            lot.save()
+        elif not lot.active:
+            lot.active = True
+            lot.save(update_fields=['active'])
+        return lot
 
     def ancestors(self):
         """Lots parents, du parent direct au lot global."""
