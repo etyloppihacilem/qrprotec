@@ -13,6 +13,8 @@ import hmac
 from django.conf import settings
 from django.http import JsonResponse
 
+from .idendity import anonymized
+
 ROLE_ENVIRON_KEY = 'qrprotec.role'
 LOCAL_TOKEN_HEADER = 'HTTP_X_QRPROTEC_TOKEN'
 FRONT_KEY_HEADER = 'HTTP_X_QRPROTEC_KEY'
@@ -102,4 +104,8 @@ class ApiRoleMiddleware:
             request.qrprotec_local = True
             request.qrprotec_front = front.name
             request.urlconf = 'qrprotecDB.urls_remote'
+        else:
+            # API publique : les noms des secouristes sont raccourcis (prenom, initiale en cas d'homonyme)
+            with anonymized():
+                return self.get_response(request)
         return self.get_response(request)

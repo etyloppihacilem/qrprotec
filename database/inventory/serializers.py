@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 from django.utils import timezone
 
-from .idendity import SOURCE_VERIFIED, parse_identity
+from .idendity import SOURCE_VERIFIED, identity_name
 from .models import PUSH_TYPES, ItemStatus, qrprotec_setting
 from .services import out_deadline, requirements_status
 
@@ -37,7 +37,8 @@ def _date(value):
 
 
 def _who(value):
-    return parse_identity(value)['display_name'] if value else ''
+    # nom court (prenom, initiale en cas d'homonyme) sur l'API publique, voir idendity.anonymized
+    return identity_name(value)
 
 
 def item_type_dict(item_type):
