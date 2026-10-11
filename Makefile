@@ -20,13 +20,23 @@ SHELL_SCRIPTS := bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
 
 .PHONY: rpm rpm-local image sources lint clean version icon doc
 
+# Proprietaire de dist/ a la fin de la construction, vu depuis le conteneur. En podman rootless
+# (defaut sur Fedora), root du conteneur est deja l'utilisateur courant : chown vers son uid le
+# donnerait a un uid subordonne (100999...), que seul root peut ensuite supprimer. Idem pour docker
+# rootless. Sous sudo, on rend dist/ a l'utilisateur qui a lance sudo.
+# (Evaluation paresseuse : `podman info` n'est lance que pour `make rpm`.)
+ROOTLESS = $(shell { $(CONTAINER_ENGINE) info --format '{{.Host.Security.Rootless}}' 2>/dev/null; \
+               $(CONTAINER_ENGINE) info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless \
+               && echo true; } | grep -qx true && echo true)
+DIST_OWNER ?= $(if $(ROOTLESS),0:0,$(or $(SUDO_UID),$(shell id -u)):$(or $(SUDO_GID),$(shell id -g)))
+
 rpm: image
 	$(CONTAINER_ENGINE) run --rm \
 		-v "$(CURDIR):/src:Z" \
 		-e RPMBUILD_ARGS="$(RPMBUILD_ARGS)" \
 		-e QRPROTEC_VERSION="$(QRPROTEC_VERSION)" \
 		$(IMAGE) \
-		bash -c 'packaging/build-rpm.sh; status=$$?; chown -R $(shell id -u):$(shell id -g) dist; exit $$status'
+		bash -c 'packaging/build-rpm.sh; status=$$?; chown -R $(DIST_OWNER) dist; exit $$status'
 
 image:
 	@test -n "$(CONTAINER_ENGINE)" || { echo "podman ou docker requis (ou : make rpm-local)"; exit 1; }
