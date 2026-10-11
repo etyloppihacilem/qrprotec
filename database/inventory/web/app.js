@@ -1527,6 +1527,7 @@
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
         el('br'), keyOk() ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider. ' + keyHint(lot)),
+      expiryLine(lot),
       el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
       lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
         + "Scannez l'étiquette privée d'un autre lot du même lot global pour l'ajouter.") : '',
@@ -1635,13 +1636,15 @@
   $('#reader-close').addEventListener('click', (event) => { event.stopPropagation(); closeReader(); });
 
   // Badge scanne : le petit lecteur se ferme et la page demandee s'ouvre. La carte scannee hors de l'appli
-  // (badge?m=...) ou dans le scanner sans vérif en cours mene aussi a l'accueil.
+  // (badge?m=...) ou dans le scanner vide (aucun lot, aucun scan) mene aussi a l'accueil : apres un scan
+  // (item seul, hors vérif compris), on reste dans le scanner.
   function afterLogin() {
     const next = pendingAfterLogin;
     if (readerOpen()) closeReader();
     if (next === 'stock' && !canSeeStock()) toast("L'état des stocks est réservé aux rôles gestion et admin.", true);
     if (next) showHome(next === 'stock' && !canSeeStock() ? 'menu' : next);
-    else if (!inHome() && !verifInProgress() && !state.pendingOpening && !state.pinReset) showHome('menu');
+    else if (!inHome() && !verifInProgress() && !state.lot && !state.scanned.length && !state.pendingOpening
+      && !state.pinReset) showHome('menu');
     else if (inHome()) showHome(state.homePage || 'menu', false);
   }
 
@@ -2700,6 +2703,7 @@
         + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif
         ? fmtDateTime(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
+      expiryLine(lot),
       !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
         ? `⚠ Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : `⚠ Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
@@ -2723,10 +2727,14 @@
     const lots = [lot, ...(lot.descendants || [])];
     const tags = { ok: 'green', warn: 'orange', bad: 'red' };
     for (const sub of lots) {
-      const items = [...(sub.items || [])].sort((a, b) => a.type_name.localeCompare(b.type_name, 'fr')
+      const requirements = sub.requirements || [];
+      // emplacement d'un item dans le lot : celui prevu pour son type (ex. « pochette bleue »)
+      const places = new Map(requirements.filter((row) => row.location).map((row) => [row.type, row.location]));
+      const place = (item) => places.get(item.type) || '';
+      const items = [...(sub.items || [])].sort((a, b) => place(a).localeCompare(place(b), 'fr')
+        || a.type_name.localeCompare(b.type_name, 'fr')
         || String(a.peremption || '9').localeCompare(String(b.peremption || '9')));
       const missing = sub.missing_items || [];
-      const requirements = sub.requirements || [];
       if (sub !== lot) {
         if (!requirements.length && !items.length && !missing.length && !(sub.descendants || []).length) continue;
         const subStatus = lotStatus(sub);
@@ -2739,8 +2747,8 @@
       parts.push(...requirements.map((row) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''),
         row.present, row.required)));
       const rows = [
-        ...items.map((item) => itemRow(item)),
-        ...missing.map((item) => itemRow(item, 'disparu')),
+        ...items.map((item) => itemRow(item, '', place(item))),
+        ...missing.map((item) => itemRow(item, 'disparu', place(item))),
       ];
       if (rows.length) parts.push(el('ul', { class: 'list' }, ...rows));
       else if (!requirements.length && sub === lot && lots.length === 1) parts.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
@@ -2748,13 +2756,32 @@
     body.replaceChildren(...parts);
   }
 
+  // Prochaine peremption d'un lot et de ses sous-lots : la plus proche parmi les items pas encore perimes
+  function expiryLine(lot) {
+    let next = null;
+    let expired = 0;
+    for (const sub of [lot, ...(lot.descendants || [])]) {
+      for (const item of sub.items || []) {
+        if (item.expired) { expired += 1; continue; }
+        if (!item.peremption) continue;
+        if (!next || item.peremption < next.date) next = { date: item.peremption, names: new Set() };
+        if (item.peremption === next.date) next.names.add(item.type_name);
+      }
+    }
+    const soon = next && parseDate(next.date) - today() <= 30 * 86400000;
+    return el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Prochaine péremption : ',
+      el('b', {}, next ? fmtDate(next.date) : 'aucune'),
+      next ? ` (${[...next.names].join(', ')})` : ' (aucun item périssable)',
+      expired ? ` · ${expired} item(s) déjà périmé(s)` : '');
+  }
+
   // Item du contenu d'un lot : touche pour ouvrir sa fiche
-  function itemRow(item, missingTag) {
+  function itemRow(item, missingTag, place) {
     return el('li', { class: item.expired ? 'expired' : missingTag ? 'extra' : '', onclick: () => openFiche('item', item.iid) },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, ficheLink('item', item.iid, item.type_name)),
-        el('div', { class: 'sub' }, (item.peremption ? 'Péremption : ' + fmtDate(item.peremption) : 'Non périssable')
-          + ' · ' + item.iid)),
+        el('div', { class: 'sub' }, [place ? '📍 ' + cap(place) : '',
+          item.peremption ? 'Péremption : ' + fmtDate(item.peremption) : 'Non périssable', item.iid].filter(Boolean).join(' · '))),
       item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
       missingTag ? el('span', { class: 'tag orange' }, missingTag) : null,
       item.tear_off ? el('span', { class: 'tag orange' }, 'à déchirer') : null);
