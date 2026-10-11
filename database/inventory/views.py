@@ -570,9 +570,13 @@ def lot_seal_open(request, lot_id):
 def verif_targets(request, entries):
     """Lots d'une verif ([{"id", "key"}, ...]) : tous du meme lot global. Sur l'API publique, chaque lot doit
     etre couvert par une cle valide, la sienne ou celle d'un de ses lots parents (etiquette privee du lot global)."""
+    return verif_lots(entries, is_local(request))
+
+
+def verif_lots(entries, local):
+    """verif_targets hors requete (vérif à plusieurs enregistree par le serveur, live.py)."""
     if not isinstance(entries, list) or not entries:
         raise ApiError("lots : liste de lots attendue")
-    local = is_local(request)
     lots = []
     keys = {}
     for entry in entries:

@@ -2040,6 +2040,44 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(sum(m['type'] == 'submit' for m in first.sent), 1)
         first.push(None)
 
+    def lonely_check(self, validate, remaining):
+        """Verif d'un seul participant qui ferme sa page ; renvoie la session apres le delai d'abandon."""
+        items = self.create(self.compresses, self.today + timedelta(days=200), 2)
+        scanner = FakeSocket({'type': 'hello', 'user': self.badge})
+        thread = self.run_socket(self.hub.run_scanner, scanner)
+        self.wait(lambda: scanner.sent)
+        hello = scanner.sent[0]
+        scanner.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'count': 2, 'remaining': remaining,
+                      'entries': [{'code': item.iid, 'kind': 'item', 'iid': item.iid} for item in items],
+                      'keys': [{'id': self.lot.id, 'key': self.lot.verif_key}]})
+        if validate:
+            scanner.push({'type': 'validate'})
+        scanner.push(None)
+        thread.join(5)
+        session = self.hub.sessions[hello['id']]
+        self.assertEqual(self.hub.reap(session.lost + 60), [])  # rechargement de la page possible
+        return session, self.hub.reap(session.lost + self.live.LOST_KEEP + 1)
+
+    def test_abandoned_check_is_dropped(self):
+        session, expired = self.lonely_check(validate=False, remaining=3)
+        self.assertEqual(expired, [session.id])
+        self.assertFalse(Verifs.objects.exists())
+
+    def test_validated_check_without_participants_is_saved(self):
+        session, expired = self.lonely_check(validate=True, remaining=3)
+        self.assertEqual(expired, [])
+        verif = Verifs.objects.get(lot=self.lot)
+        self.assertEqual((verif.by, verif.present_count), ('M:M001', 2))
+        self.assertIsNotNone(session.done)
+        # affichee comme terminee DONE_KEEP a partir de son enregistrement
+        self.assertEqual(self.hub.reap(session.finished + 60), [])
+        self.assertEqual(self.hub.reap(session.finished + self.live.DONE_KEEP + 1), [session.id])
+
+    def test_complete_check_without_participants_is_saved(self):
+        session, expired = self.lonely_check(validate=False, remaining=0)
+        self.assertEqual(expired, [])
+        self.assertTrue(Verifs.objects.get(lot=self.lot).complete)
+
     def test_state_is_bounded(self):
         state = self.live.clean_state({'lot': {'id': 'x' * 50, 'name': 'n' * 500}, 'count': -3, 'remaining': 'a',
                                        'scanned': [{'name': 'i'}] * 1000, 'lots': ['a'] * 100})

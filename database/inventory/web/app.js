@@ -56,6 +56,7 @@
     pendingOpening: null,   // {id, key, at} : scelle ouvert par son etiquette sans identite, a signer a la connexion
     expiredSession: false,  // vérif precedente oubliee au demarrage (SESSION_TIMEOUT_MS)
     waitingTeam: false,     // vérif à plusieurs : partie validee, en attente des autres participants
+    launched: '',           // lot dont la vérif a ete lancee depuis sa fiche (etiquette publique)
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -75,6 +76,7 @@
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
         at: Date.now(), // derniere activite (SESSION_TIMEOUT_MS)
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif, pendingOpening: state.pendingOpening,
+        launched: state.launched,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items }) => ({ code, kind, iid, info, expired, error, items })),
       }));
@@ -99,6 +101,7 @@
       if (fresh) {
         state.lotId = session.lotId || '';
         state.lotKey = session.lotKey || '';
+        state.launched = session.launched || '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
         state.lastVerif = session.lastVerif || null;
         state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
@@ -2173,8 +2176,10 @@
   // Etat publie : lot, lots de la vérif groupee, items scannes (nom, perime, inconnu, nouveau), reste a scanner.
   // entries (nos scans) et keys (cles des lots) ne vont qu'au serveur et aux autres participants de la vérif.
   function liveSnapshot(remaining) {
+    // la vérif commence (et vit sur le serveur, partagee) des le premier scan, l'etiquette cle du lot, ou
+    // « Lancer une vérif » depuis la fiche du lot
     const scanned = allScanned();
-    if (!state.lot || !scanned.length) return null;
+    if (!state.lot || !(scanned.length || verifInProgress() || (state.launched === state.lotId && !state.lastVerif))) return null;
     const expected = knownIids();
     return {
       lot: { id: state.lot.id, name: state.lot.name },
@@ -2288,7 +2293,8 @@
     const lot = row.lot || { id: '', name: '?' };
     const status = done
       ? `${done.complete ? '✔' : done.partial ? '↷' : '✘'} Validée à ${timeOf(done.at)} : ${done.complete ? 'complet' : done.partial ? 'vérif partielle' : 'incomplet'}, ${done.present} présent(s)`
-      : row.connected ? `En cours · dernier scan ${ago(row.updated)}` : `Connexion perdue ${ago(row.updated)}`;
+      : row.connected ? (row.scanned.length ? `En cours · dernier scan ${ago(row.updated)}` : 'En cours · aucun item scanné')
+        : `Connexion perdue ${ago(row.updated)}`;
     const open = watch.open.has(row.id);
     const shown = open ? [...row.scanned].reverse() : row.scanned.slice(-4).reverse();
     const people = row.participants || [{ who: row.who, verified: row.verified, connected: row.connected }];
@@ -2923,6 +2929,7 @@
       state.extra = [];
     }
     if (key) state.lotKey = key;
+    state.launched = id;
     await loadLot(id);
     if (!state.lot) return;
     feedback.info();

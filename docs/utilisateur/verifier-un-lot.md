@@ -121,7 +121,7 @@ demandé pour rejoindre) :
 
 Les scans de chacun s'ajoutent à la vérif commune : tout le monde voit les mêmes items « À scanner »,
 et l'onglet **Scannés** indique qui a scanné quoi. Un petit bandeau 👥 sous les informations liste
-les participants (✔ : a validé sa partie). Pas besoin de rescanner l'étiquette privée : celle
+les participants (✔ : a validé sa partie). Pas besoin de rescanner l'étiquette clé : celle
 scannée par un autre participant suffit.
 
 Tant que d'autres participants sont connectés, **Valider** ne valide que **votre partie** (« Valider
@@ -129,6 +129,12 @@ ma partie de la vérif » sous le bouton). Le dernier qui valide envoie la véri
 s'affiche chez tout le monde et tous les participants sont enregistrés sur la vérif. Si les autres
 ont fermé leur page, le compte rendu part dès que ceux qui restent ont tous validé. Scanner un item
 après avoir validé sa partie la « dé-valide ». **Quitter** dans le bandeau reprend la vérif seul.
+
+La vérif est sur le serveur, partagée, dès qu'elle commence : premier item scanné, étiquette clé du
+lot, ou **Lancer une vérif** depuis la fiche du lot. Une vérif dont tous les téléphones sont fermés
+depuis 15 minutes est **abandonnée**, sauf si tout ce qui était attendu a été scanné ou si au moins
+une personne a validé sa partie : elle est alors enregistrée telle quelle, au nom de ceux qui y ont
+participé.
 
 ## Utiliser son téléphone comme douchette du poste
 
