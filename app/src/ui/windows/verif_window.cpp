@@ -8,6 +8,7 @@
 
 ##################################################################################################################### */
 
+#include "../../app/labels.hpp"
 #include "../widgets.hpp"
 #include "windows.hpp"
 
@@ -319,6 +320,71 @@ class VerifWindow final : public AppWindow {
       ImGui::Unindent();
     }
 
+    // Raccourci gestion / admin : sceller tout de suite un lot que la verif vient de trouver complet (ex : un lot a
+    // scelle obligatoire, rouge tant qu'il n'est pas scelle). Memes etiquettes que depuis la Gestion des lots.
+    void draw_seal_shortcut(App &app, const Json &report) {
+      if (!app.privileged())
+        return;
+      const std::string verif = report["verif_id"].str();
+      if (verif != seal_report_) {
+        seal_report_ = verif;
+        sealed_.clear();
+        seal_number_.clear();
+      }
+      std::vector< const Json * > lots;
+      for (const Json &row : report["lots"].items())
+        if (row["verified"].boolean() && row["complete"].boolean())
+          lots.push_back(&row);
+      if (lots.empty())
+        return;
+      ImGui::SetNextItemWidth(160.0f);
+      input_limited("Numéro du scellé", seal_number_, 32, "facultatif");
+      for (const Json *row : lots) {
+        const std::string id = (*row)["id"].str();
+        ImGui::SameLine();
+        if (sealed_.count(id)) {
+          ImGui::TextColored(colors::green, "✔ %s scellé", (*row)["name"].str().c_str());
+          continue;
+        }
+        ImGui::PushID(id.c_str());
+        if (button(("Sceller " + (*row)["name"].str()).c_str()))
+          seal(app, id);
+        ImGui::PopID();
+      }
+    }
+
+    void seal(App &app, const std::string &id) {
+      Json body;
+      body["user"]        = app.user_ref();
+      body["seal_number"] = seal_number_;
+      app.api.post("/api/lots/" + url_encode(id) + "/seal/", body, [this, &app, id](const ApiResult &result) {
+        if (!result.ok) {
+          app.notify(result.error, true);
+          return;
+        }
+        const Json &lot = result.data;
+        sealed_.insert(id);
+        seal_number_.clear();
+        // etiquette publique d'un lot a scelle obligatoire, celle du scelle et celle d'ouverture (a ranger dedans)
+        const Parameters        parameters = lot_parameters(lot);
+        std::vector< PrintJob > jobs;
+        if (lot["seal_required"].boolean())
+          app.build_label_jobs(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)",
+                               jobs);
+        app.build_label_jobs(TemplateCategory::LotSeal, { parameters }, "Scellé " + lot["name"].str(), jobs);
+        if (!lot["seal_open_url"].str().empty())
+          app.build_label_jobs(TemplateCategory::LotSealOpen, { parameters }, "Ouverture " + lot["name"].str(), jobs);
+        app.preview_jobs(std::move(jobs), "Scellé " + lot["name"].str());
+        app.notify("Lot " + lot["name"].str()
+                   + " scellé : rangez l'étiquette d'ouverture dans le lot et collez celle du scellé sur le scellé.");
+        app.refresh_lots();
+      });
+    }
+
+    std::string             seal_report_; // verif du compte rendu affiche (remise a zero du raccourci)
+    std::string             seal_number_;
+    std::set< std::string > sealed_;
+
     void draw_report(App &app) {
       const Json &report = app.last_report;
       ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
@@ -340,6 +406,7 @@ class VerifWindow final : public AppWindow {
                            names.empty() ? "lot" : names.c_str());
       }
       ImGui::Text("%zu item(s) présent(s).", report["present"].size());
+      draw_seal_shortcut(app, report);
       // verif groupee : resultat de chaque lot
       if (several)
         for (const Json &row : report["lots"].items()) {

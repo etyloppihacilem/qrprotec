@@ -83,6 +83,10 @@ après sa vérif complète il reste rouge (« doit être scellé ») jusqu'à ce
 À la création d'un lot de ce type, seule l'étiquette clé est proposée : l'étiquette publique est
 imprimée au scellage, avec celles du scellé et d'ouverture.
 
+Raccourci : après une vérif complète dans l'application, le compte rendu propose aux rôles gestion et
+admin un bouton **Sceller** pour chaque lot trouvé complet (numéro du scellé facultatif). Il scelle le
+lot et ouvre l'aperçu des mêmes étiquettes que depuis la fiche du lot.
+
 ## Journal des opérations
 
 Menu **Gestion > Journal des opérations** (rôles gestion et admin) : toutes les opérations, de la plus
