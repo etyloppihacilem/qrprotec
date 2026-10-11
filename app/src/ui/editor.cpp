@@ -7,7 +7,11 @@
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "widgets.hpp"
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 #include <algorithm>
 #include <cctype>
 #include <chrono>
