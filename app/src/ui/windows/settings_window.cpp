@@ -126,7 +126,7 @@ class SettingsWindow final : public AppWindow {
         ImGui::SetNextItemWidth(150.0f);
         ImGui::SliderFloat("Taille du texte", &settings.font_size, 12.0f, 32.0f, "%.0f px");
         ImGui::GetStyle().FontSizeBase = settings.font_size;
-        ImGui::Checkbox("Exiger l'étiquette privée pour valider une vérif (hors gestion et admin)",
+        ImGui::Checkbox("Exiger l'étiquette clé pour valider une vérif (hors gestion et admin)",
                         &settings.require_private_label);
       }
 
@@ -302,7 +302,7 @@ class SettingsWindow final : public AppWindow {
       }
       help_marker("Désactivé (par défaut) : une vérif, un ajout d'items ou l'ouverture d'un scellé exige un "
                   "badge.\nActivé : à la place du badge, la personne peut saisir son nom, enregistré sans "
-                  "vérification (« D:nom »). L'étiquette privée du lot reste exigée.");
+                  "vérification (« D:nom »). L'étiquette clé du lot reste exigée.");
       bool pin_default = server_rules_["pin_required_default"].boolean();
       if (ImGui::Checkbox("Code PIN obligatoire par défaut pour les secouristes", &pin_default)) {
         Json body;
@@ -379,8 +379,8 @@ class SettingsWindow final : public AppWindow {
         { "seal_broken", "Scellé d'un lot brisé" },
         { "expired_daily", "Résumé quotidien des lots contenant des périmés (commande check_alerts)" },
         { "pin_blocked", "PIN d'un utilisateur bloqué (trop d'essais faux ou code oublié), une fois par blocage" },
-        { "lot_key_renewed", "Étiquette privée d'un lot renouvelée" },
-        { "lot_key_expiring", "Étiquette privée de lot qui expire bientôt ou a expiré (commande check_alerts)" },
+        { "lot_key_renewed", "Étiquette clé d'un lot renouvelée" },
+        { "lot_key_expiring", "Étiquette clé de lot qui expire bientôt ou a expiré (commande check_alerts)" },
         { "badge_renewed", "Badge d'un utilisateur renouvelé" },
         { "badge_expiring", "Badge qui expire bientôt ou a expiré (commande check_alerts)" },
         { "order_due", "Commande à passer d'après les prévisions de stock (commande check_alerts)" },
@@ -403,7 +403,7 @@ class SettingsWindow final : public AppWindow {
         body["key_expiry_warning_days"] = std::clamp(warning_days_, 1, 365);
         notifications_request(app, "PATCH", "/api/notifications/", body, "");
       }
-      help_marker("Étiquettes privées de lot et badges : alerte « expire bientôt » ce nombre de jours avant "
+      help_marker("Étiquettes clés de lot et badges : alerte « expire bientôt » ce nombre de jours avant "
                   "l'expiration (SMS et notifications web), puis une alerte le jour de l'expiration.");
 
       ImGui::SeparatorText("Destinataires");

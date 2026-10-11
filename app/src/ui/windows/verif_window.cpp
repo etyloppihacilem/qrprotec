@@ -68,17 +68,17 @@ class VerifWindow final : public AppWindow {
       if (!sealed.empty())
         status_banner("Scellé (" + sealed + ") : valider cette vérif brisera le scellé", colors::orange, 1.0f);
       if (!verif.key.empty() || (!verif.extras.empty() && app.verif_key_ok()))
-        ImGui::TextColored(colors::green, "Étiquette privée scannée : la vérif peut être validée.");
+        ImGui::TextColored(colors::green, "Étiquette clé scannée : la vérif peut être validée.");
       else if (app.verif_key_ok())
-        ImGui::TextColored(colors::green, "Mode gestion : validation autorisée sans étiquette privée.");
+        ImGui::TextColored(colors::green, "Mode gestion : validation autorisée sans étiquette clé.");
       else {
         ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
-        ImGui::TextWrapped("Scannez l'étiquette privée du lot pour pouvoir valider. %s", key_hint(verif.lot).c_str());
+        ImGui::TextWrapped("Scannez l'étiquette clé du lot pour pouvoir valider. %s", key_hint(verif.lot).c_str());
         ImGui::PopStyleColor();
       }
       ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
                          "Scannez aussi les items périmés que vous retirez, puis leurs remplaçants.%s",
-                         multi ? "" : " L'étiquette privée d'un autre lot du même lot global l'ajoute à la vérif.");
+                         multi ? "" : " L'étiquette clé d'un autre lot du même lot global l'ajoute à la vérif.");
 
       std::set< std::string >      scanned;
       std::map< std::string, int > last_scan; // rang du dernier scan de chaque type d'item
@@ -270,7 +270,7 @@ class VerifWindow final : public AppWindow {
                          ImVec2(width * 0.45f, 0)))
         app.submit_verif();
       if (!app.verif_key_ok())
-        ImGui::SetItemTooltip("Scannez d'abord l'étiquette privée du lot : c'est le QR code rangé à l'intérieur du lot.");
+        ImGui::SetItemTooltip("Scannez d'abord l'étiquette clé du lot : c'est le QR code rangé à l'intérieur du lot.");
       else
         ImGui::SetItemTooltip("Enregistre la vérif : les items scannés sont présents, ceux de la liste « À scanner »\n"
                               "sont signalés manquants. %s",

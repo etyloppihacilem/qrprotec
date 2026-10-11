@@ -1400,7 +1400,7 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
       }
       if (result.data["key_check"].str() != "valid" && stack.target.id == id) {
         feedback.error(source, settings);
-        notify(result.data["key_error"].str("Étiquette privée non reconnue : demandez à un responsable de la "
+        notify(result.data["key_error"].str("Étiquette clé non reconnue : demandez à un responsable de la "
                                             "réimprimer."),
                true);
         stack.target = {};
@@ -1423,7 +1423,7 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
   if (verif.active && verif.lot_id == scan.id) {
     if (!scan.key.empty()) {
       verif.key = scan.key;
-      notify("Étiquette privée du lot reconnue.");
+      notify("Étiquette clé du lot reconnue.");
     }
     open_window("verif");
     return;
@@ -1473,7 +1473,7 @@ void App::join_verif(const std::string &lot_id, const std::string &key, ScanSour
       return;
     }
     verif.extras.push_back({ lot_id, key, result.data });
-    notify(covered ? result.data["name"].str() + " faisait déjà partie de la vérif : étiquette privée enregistrée."
+    notify(covered ? result.data["name"].str() + " faisait déjà partie de la vérif : étiquette clé enregistrée."
                    : "Vérif groupée : " + verif_title() + ".");
     open_window("verif");
   });
@@ -1559,7 +1559,7 @@ void App::cancel_verif() {
 // Meme texte que Lots.key_hint cote serveur et keyHint dans le front web
 std::string key_hint(const Json &lot) {
   const std::string location = lot["key_location"].str();
-  return "L'étiquette privée est un QR code rangé à l'intérieur du lot" +
+  return "L'étiquette clé est un QR code rangé à l'intérieur du lot" +
          (location.empty() ? std::string(".") : " (" + location + ").");
 }
 
@@ -1727,7 +1727,7 @@ void App::submit_verif(bool partial) {
     if (!verif.active || verif.submitting)
       return;
     if (!verif_key_ok()) {
-      notify("Scannez l'étiquette privée du lot pour valider la vérif. " + key_hint(verif.lot), true);
+      notify("Scannez l'étiquette clé du lot pour valider la vérif. " + key_hint(verif.lot), true);
       return;
     }
     Json body;
@@ -1804,7 +1804,7 @@ void App::restock_verif() {
     if (!verif.active || verif.submitting)
       return;
     if (!verif_key_ok()) {
-      notify("Scannez l'étiquette privée du lot pour ajouter des items. " + key_hint(verif.lot), true);
+      notify("Scannez l'étiquette clé du lot pour ajouter des items. " + key_hint(verif.lot), true);
       return;
     }
     Json body;

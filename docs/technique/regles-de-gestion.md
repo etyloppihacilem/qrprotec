@@ -85,7 +85,7 @@ son contenu serait déclaré manquant). Les items scannés destinés aux autres 
 réassort** (voir ci-dessous) sans toucher au reste de leur contenu.
 
 Cas d'usage : on a refait le sac O2 du B+ mais pas le sac de soin ; on scanne les deux étiquettes
-privées et le contenu du sac O2, la vérif partielle valide le sac O2 seul.
+clés et le contenu du sac O2, la vérif partielle valide le sac O2 seul.
 
 ## Le réassort
 
@@ -130,11 +130,11 @@ VPS 1 (regroupement, rien d'attendu)
 
 Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.md#sous-lots-comme-vrais-lots)) :
 
-- Un sous-lot est un **vrai lot** : son propre type, ses propres étiquettes publique et privée, ses
+- Un sous-lot est un **vrai lot** : son propre type, ses propres étiquettes publique et clé, ses
   propres vérifs. On peut vérifier le sac O2 seul.
-- La **clé privée d'un lot couvre ses sous-lots** : scanner l'étiquette privée du B+ autorise la vérif
+- La **clé d'un lot couvre ses sous-lots** : scanner l'étiquette clé du B+ autorise la vérif
   du sac de soin et du sac O2 (`verif_targets` accepte la clé d'un ancêtre).
-- **Vérif groupée** : pendant une vérif, scanner l'étiquette privée d'un autre lot du **même lot
+- **Vérif groupée** : pendant une vérif, scanner l'étiquette clé d'un autre lot du **même lot
   global** l'ajoute à la vérif (`POST /api/verifs/` avec `lots: [{id, key}, …]`). Les attendus
   s'additionnent.
 - **État global** (`serializers.aggregate_tree`) : le lot global prend le **pire état** de ses lots

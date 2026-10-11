@@ -51,12 +51,12 @@ Menu **Gestion > Gestion des lots** (rôle gestion).
   stock** pour les armoires et tiroirs.
 - **Nouveau lot** : type, nom, nom court (16 caractères, pour les petites étiquettes), lot parent
   (« Aucun : lot indépendant » ou le lot global). Aperçu et impression des étiquettes publique et
-  privée.
-- **Fiche d'un lot** : modifier le nom, le parent ou l'**emplacement de l'étiquette privée** (ex : « poche intérieure du couvercle », affiché à qui essaie de valider une vérif sans l'avoir scannée), réimprimer les étiquettes (**publique**,
-  **privée**, **les deux**), **Archiver le lot** quand il est réformé (il disparaît des listes ; il
+  clé.
+- **Fiche d'un lot** : modifier le nom, le parent ou l'**emplacement de l'étiquette clé** (ex : « poche intérieure du couvercle », affiché à qui essaie de valider une vérif sans l'avoir scannée), réimprimer les étiquettes (**publique**,
+  **clé**, **les deux**), **Archiver le lot** quand il est réformé (il disparaît des listes ; il
   se réactive).
-- **Régénérer la clé** : si l'étiquette privée est perdue ou a pu être copiée. L'ancienne étiquette
-  privée ne fonctionne plus ; imprimez la nouvelle. Une clé est valable 1 an par défaut ; la date
+- **Régénérer la clé** : si l'étiquette clé est perdue ou a pu être copiée. L'ancienne étiquette
+  clé ne fonctionne plus ; imprimez la nouvelle. Une clé est valable 1 an par défaut ; la date
   d'expiration est affichée dans la fiche.
 
 ## Scellés
@@ -101,7 +101,7 @@ ouverture de chaque lot.
 ## Étiquettes
 
 Menu **Gestion > Éditeur d'étiquettes** (admin). Chaque modèle a un **usage** (item, paquet, lot
-public, lot privé, scellé, ouverture du scellé, badge) qui détermine les informations disponibles,
+public, lot clé, scellé, ouverture du scellé, badge) qui détermine les informations disponibles,
 listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{lot_name}}`…).
 
 - **Ajouter texte / QR / image (logo)**, positions et tailles en millimètres, texte en gras et
@@ -126,7 +126,7 @@ Menu **Gestion > Réglages** (admin) :
 |---|---|
 | Serveur | Adresse de l'API (`http://127.0.0.1:8001` sur la borne), **Tester la connexion** |
 | Règles du serveur (tous les fronts) | **Autoriser les vérifs et les ajouts sans badge (nom déclaré)**, désactivé par défaut : voir ci-dessous |
-| Session et affichage | Taille du texte, réinitialisation après inactivité (15 min), alerte péremption proche (30 jours), **Exiger l'étiquette privée pour valider une vérif** |
+| Session et affichage | Taille du texte, réinitialisation après inactivité (15 min), alerte péremption proche (30 jours), **Exiger l'étiquette clé pour valider une vérif** |
 | Disposition par défaut | **Utiliser la disposition actuelle** : la position des fenêtres à laquelle le poste revient après inactivité |
 | Étiquettes et impression | Rouleau, titre, imprimante, modèle par usage |
 | Signal de mauvais scan | Bip, clignotement, LED et son de la douchette ; **Tester le signal d'erreur** |
@@ -141,7 +141,7 @@ poste comme au téléphone. Si vous cochez **Autoriser les vérifs et les ajouts
 personne qui n'a pas de badge peut saisir son nom à la place : **Continuer sans badge** dans la
 fenêtre de connexion du poste, ou un appui sur **Non connecté** au téléphone (le nom y est gardé).
 Ce nom n'est pas vérifié : l'historique l'affiche tel quel, distinct des personnes identifiées par
-leur badge. L'étiquette privée du lot reste exigée. Le réglage est enregistré sur le serveur et
+leur badge. L'étiquette clé du lot reste exigée. Le réglage est enregistré sur le serveur et
 s'applique à tous les postes et à tous les téléphones.
 
 ## Notifications
@@ -159,8 +159,8 @@ s'applique à tous les postes et à tous les téléphones.
    - **scellé brisé** ;
    - **résumé quotidien des périmés** (chaque matin à 7 h 45) ;
    - **PIN d'un utilisateur bloqué** (trop d'essais ou code oublié), une fois par blocage ;
-   - **étiquette privée d'un lot renouvelée** et **badge renouvelé** : qui l'a fait ;
-   - **étiquette privée de lot** (sauf les rangements du stock, qui n'expirent pas) et **badge qui
+   - **étiquette clé d'un lot renouvelée** et **badge renouvelé** : qui l'a fait ;
+   - **étiquette clé de lot** (sauf les rangements du stock, qui n'expirent pas) et **badge qui
      expirent bientôt ou ont expiré** : contrôlés chaque
      matin à 7 h 45, une alerte avant l'expiration (30 jours par défaut, champ **Alerte
      d'expiration**) puis une à l'expiration. Renouveler l'étiquette ou le badge remet l'alerte à
@@ -181,7 +181,7 @@ Sur le téléphone d'un utilisateur gestion ou admin : scanner son badge, menu *
 test**. Le même écran liste tous ses appareils abonnés : on y change les alertes de chacun, ou on le
 retire (un téléphone perdu, par exemple).
 
-- Gestion : stock bas, stock vide, commande à passer, renouvellement et expiration des étiquettes privées de lot.
+- Gestion : stock bas, stock vide, commande à passer, renouvellement et expiration des étiquettes clés de lot.
 - Admin : en plus, PIN bloqué, renouvellement et expiration des badges.
 - Sur le poste, **Utilisateurs > Notifications web** : décochez un type pour le couper à cet
   utilisateur sur tous ses appareils. La fiche indique aussi combien d'appareils sont abonnés. Les alertes arrivent même page fermée.

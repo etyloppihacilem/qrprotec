@@ -142,10 +142,10 @@ class LotAdminWindow final : public AppWindow {
                   "seul, ou avec les autres lots du même lot global. Le lot global est valide si tous ses lots le sont.");
       search_select("new_lot_parent", app.catalog.lots, "id", "name", new_lot_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
-      input_limited("Emplacement de l'étiquette privée", new_lot_key_location_, 128);
-      help_marker("Où trouver l'étiquette privée dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
+      input_limited("Emplacement de l'étiquette clé", new_lot_key_location_, 128);
+      help_marker("Où trouver l'étiquette clé dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
                   "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
-      ImGui::Checkbox("Voir les étiquettes publique et privée après création", &print_new_);
+      ImGui::Checkbox("Voir les étiquettes publique et clé après création", &print_new_);
       ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty() || name_taken);
       if (primary_button("Créer le lot")) {
         Json body;
@@ -174,7 +174,7 @@ class LotAdminWindow final : public AppWindow {
       }
       ImGui::EndDisabled();
       ImGui::Spacing();
-      ImGui::TextWrapped("Pour remplir un lot : scannez les items puis l'étiquette privée du lot, et cliquez sur "
+      ImGui::TextWrapped("Pour remplir un lot : scannez les items puis l'étiquette clé du lot, et cliquez sur "
                          "\"Ajouter au lot\" dans la pile de scans.");
     }
 
@@ -205,7 +205,7 @@ class LotAdminWindow final : public AppWindow {
         app.build_label_jobs(TemplateCategory::LotStorage, { parameters }, "Rangement " + lot["name"].str(), jobs);
       } else {
         app.build_label_jobs(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)", jobs);
-        app.build_label_jobs(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privée)", jobs);
+        app.build_label_jobs(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (clé)", jobs);
       }
       app.preview_jobs(std::move(jobs), "Lot " + lot["name"].str());
     }
@@ -219,7 +219,7 @@ class LotAdminWindow final : public AppWindow {
       if (public_label)
         app.print_labels(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)");
       if (private_label)
-        app.print_labels(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (privée)");
+        app.print_labels(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (clé)");
     }
 
     // etiquettes d'un scelle : celle collee sur le scelle, et l'etiquette d'ouverture rangee dans le lot (son
@@ -360,14 +360,14 @@ class LotAdminWindow final : public AppWindow {
         if (small_button("Impression directe"))
           print_lot(app, lot_, false, true);
       } else {
-        if (primary_button("Aperçu des étiquettes publique et privée", ImVec2(-FLT_MIN, 0)))
+        if (primary_button("Aperçu des étiquettes publique et clé", ImVec2(-FLT_MIN, 0)))
           preview_lot(app, lot_);
         ImGui::TextDisabled("Impression directe :");
         ImGui::SameLine();
         if (small_button("publique"))
           print_lot(app, lot_, true, false);
         ImGui::SameLine();
-        if (small_button("privée"))
+        if (small_button("clé"))
           print_lot(app, lot_, false, true);
         ImGui::SameLine();
         if (small_button("les deux"))
@@ -378,7 +378,7 @@ class LotAdminWindow final : public AppWindow {
       else
         ImGui::TextDisabled("Clé valable jusqu'au %s", display_date(lot_["verif_key_expires"]).c_str());
       if (confirm_button("Régénérer la clé",
-                         "L'ancienne étiquette privée ne fonctionnera plus. Continuer ?", "rotate_key")) {
+                         "L'ancienne étiquette clé ne fonctionnera plus. Continuer ?", "rotate_key")) {
         app.api.post("/api/lots/" + url_encode(selected_lot_) + "/rotate-key/", Json::object(),
                      [this, &app](const ApiResult &result) {
                        if (!result.ok) {
@@ -388,7 +388,7 @@ class LotAdminWindow final : public AppWindow {
                        lot_ = result.data;
                        app.notify(lot_["storage"].boolean()
                                     ? "Nouvelle clé générée : imprimez la nouvelle étiquette de rangement."
-                                    : "Nouvelle clé générée : imprimez la nouvelle étiquette privée.");
+                                    : "Nouvelle clé générée : imprimez la nouvelle étiquette clé.");
                      });
       }
 
@@ -402,8 +402,8 @@ class LotAdminWindow final : public AppWindow {
       ImGui::TextUnformatted("Dans le lot (sous-lot)");
       search_select("edit_lot_parent", app.catalog.lots, "id", "name", edit_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
-      input_limited("Emplacement de l'étiquette privée", edit_key_location_, 128);
-      help_marker("Où trouver l'étiquette privée dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
+      input_limited("Emplacement de l'étiquette clé", edit_key_location_, 128);
+      help_marker("Où trouver l'étiquette clé dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
                   "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
       ImGui::BeginDisabled(edit_name_.empty() || name_taken);
       if (button("Enregistrer")) {
@@ -537,7 +537,7 @@ class LotAdminWindow final : public AppWindow {
         type_unique_ = true;
       help_marker("Les items rangés dans un lot de ce type restent comptés dans le stock. Un rangement est un lot "
                   "unique (un type par armoire, par tiroir), sans contenu attendu (on y range ce qu'on veut), et son "
-                  "étiquette privée n'expire pas. Il se vérifie seul (un tiroir) ou avec les autres rangements du "
+                  "étiquette clé n'expire pas. Il se vérifie seul (un tiroir) ou avec les autres rangements du "
                   "même lot global (une armoire et ses tiroirs). Y ranger des items ne demande pas de vérif.");
       if (type_storage_ && !editing_lot_type_.empty() && !requirements_.empty())
         ImGui::TextColored(colors::orange, "Enregistrer supprimera le contenu attendu de ce type.");

@@ -78,7 +78,7 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   interrupteur `<input switch>` (iOS 18+, au mieux : Safari peut l'ignorer hors d'un toucher).
 
 Toutes les écritures passent par l'**API publique** : la vérif exige la clé du lot (étiquette
-privée) et un badge.
+clé) et un badge.
 
 ## Service worker
 

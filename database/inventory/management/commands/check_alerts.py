@@ -27,7 +27,7 @@ from inventory.models import ItemStatus, Lots
 
 class Command(BaseCommand):
     help = ('Envoie les notifications de stock bas, le résumé des lots contenant des périmés et les alertes '
-            "d'expiration des étiquettes privées de lot et des badges, et les commandes à passer.")
+            "d'expiration des étiquettes clés de lot et des badges, et les commandes à passer.")
 
     def handle(self, *args, **options):
         used = services.expire_out_items()

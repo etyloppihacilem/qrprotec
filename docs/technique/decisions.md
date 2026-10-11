@@ -24,7 +24,7 @@ vérif partielle), à garder synchrones (voir [regles-de-gestion.md](regles-de-g
 
 **Contexte.** Le poste de la borne doit tout pouvoir faire sans friction ; les téléphones, sur
 Internet, ne doivent pouvoir faire que des vérifs et des réassorts sur les lots dont ils ont
-l'étiquette privée.
+l'étiquette clé.
 **Choix.** Une seule application Django, deux serveurs : l'API locale (gestion sans clé) n'écoute que
 sur la boucle locale et n'est jamais derrière le reverse proxy ; l'API publique est la seule exposée.
 Le rôle est attaché par le serveur qui reçoit la requête, pas par l'URL.
@@ -62,14 +62,14 @@ le poste n'a que les lectures du kiosk et les droits d'un téléphone.
 badges et à créer un admin) ; des comptes et mots de passe en plus du badge.
 **Raison.** La clé identifie la machine, le badge et le PIN la personne : il faut les deux.
 
-## Étiquette publique, étiquette privée
+## Étiquette publique, étiquette clé
 
 **Contexte.** Un sac est posé dans un véhicule ; n'importe qui peut photographier son étiquette.
 **Choix.** Chaque lot a deux étiquettes : **publique** (consultation : état, contenu) collée à
-l'extérieur, et **privée** (contient la clé, autorise vérif et réassort) rangée à l'intérieur ou
-gardée par les responsables. La clé se régénère (« Régénérer la clé ») si l'étiquette privée est
+l'extérieur, et **clé** (contient la clé, autorise vérif et réassort) rangée à l'intérieur ou
+gardée par les responsables. La clé se régénère (« Régénérer la clé ») si l'étiquette clé est
 perdue ; l'ancienne devient invalide.
-**Raison.** Sans compte utilisateur sur le téléphone, la possession physique de l'étiquette privée
+**Raison.** Sans compte utilisateur sur le téléphone, la possession physique de l'étiquette clé
 est l'autorisation. C'est simple à expliquer et robuste.
 
 ## Les QR codes sont des URLs, le domaine est ignoré
@@ -113,7 +113,7 @@ pouvoir vérifier le sac O2 seul.
 à l'intérieur d'un lot. **Choix du responsable du projet : option 1** (`Lots.parent`).
 **Raison.** Chaque sac garde ses étiquettes, son historique et son état, se vérifie seul ou avec les
 autres ; l'état du lot global se déduit (pire état, plus ancienne vérif). La clé d'un lot couvre ses
-sous-lots, pour qu'une seule étiquette privée suffise à vérifier tout un B+.
+sous-lots, pour qu'une seule étiquette clé suffise à vérifier tout un B+.
 **Non fait.** Les sous-lots attendus par **type** de lot (aujourd'hui l'arborescence se construit à
 la main, lot par lot).
 

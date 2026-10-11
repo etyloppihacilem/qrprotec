@@ -26,7 +26,7 @@ Menu **Gestion > Inventaire**, onglet **Réception**, une ligne de commande à l
 6. Collez les étiquettes, rangez le matériel.
 
 Les items reçus sont **en stock**. Pour les ranger dans une armoire ou un tiroir étiqueté : scannez
-les items, puis l'étiquette privée du rangement, puis **Ajouter au lot** dans la pile (ou faites une
+les items, puis l'étiquette clé du rangement, puis **Ajouter au lot** dans la pile (ou faites une
 vérif du rangement).
 
 La section **Dernière réception** permet de réimprimer une étiquette ratée ou toute la série.
@@ -94,7 +94,7 @@ la commande suggérée, et échanges à faire. **⤡ Scanner** revient au scan.
 
 ## Vérifier la réserve
 
-- **Un rangement** (tiroir, armoire) : comme un sac. Scannez son étiquette privée, tout son contenu,
+- **Un rangement** (tiroir, armoire) : comme un sac. Scannez son étiquette clé, tout son contenu,
   validez.
 - **Le stock non rangé** : scannez tout ce qui est en réserve hors rangement, puis **Vérif du stock**
   dans la pile de scans. Les items scannés sont déclarés en stock (ceux d'un rangement y restent) ;
