@@ -163,8 +163,16 @@ int main(int argc, char** argv)
     if (!glfwInit())
         return 1;
 
+#ifdef __APPLE__
+    // macOS ne fournit OpenGL 3 qu'en profil core (GLSL 150, choisi par ImGui_ImplOpenGL3_Init)
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#else
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+#endif
     // identifiant de l'application : le bureau y associe qrprotec.desktop (nom, icone)
     glfwWindowHintString(GLFW_X11_CLASS_NAME, "qrprotec");
     glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "qrprotec");

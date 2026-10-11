@@ -23,6 +23,11 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#ifndef MSG_NOSIGNAL
+// macOS : pas de MSG_NOSIGNAL, SIGPIPE est coupe par SO_NOSIGPIPE a l'ouverture du socket
+#define MSG_NOSIGNAL 0
+#endif
+
 namespace qrprotec {
 
 namespace {
@@ -95,6 +100,10 @@ bool Connection::open(const HttpUrl &url, int timeout_ms, std::string &error) {
       continue;
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+#ifdef SO_NOSIGPIPE
+    const int no_sigpipe = 1;
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#endif
     if (::connect(fd, address->ai_addr, address->ai_addrlen) == 0)
       fd_ = fd;
     else

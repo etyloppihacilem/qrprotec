@@ -19,27 +19,52 @@ find_package(Threads REQUIRED)
 # HTTPS vers un back distant (fronts sur d'autres machines)
 find_package(OpenSSL REQUIRED)
 
-set(INATECK_SDK_DEFAULT_LIBRARY
-    "${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble/linux/x86_64-unknown-linux-gnu/libinateck_scanner_ble.so")
+# macOS : la bibliotheque Inateck existe en dylib (scanner_lib/ble/mac), sans libxdo
+if(APPLE)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+        set(INATECK_SDK_TRIPLE "mac/aarch64-apple-darwin")
+    else()
+        set(INATECK_SDK_TRIPLE "mac/x86_64-apple-darwin")
+    endif()
+    set(INATECK_SDK_DEFAULT_LIBRARY
+        "${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble/${INATECK_SDK_TRIPLE}/libinateck_scanner_ble.dylib")
+else()
+    set(INATECK_SDK_DEFAULT_LIBRARY
+        "${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble/linux/x86_64-unknown-linux-gnu/libinateck_scanner_ble.so")
+endif()
 if(NOT DEFINED INATECK_SDK_LIBRARY OR
    (INATECK_SDK_LIBRARY STREQUAL "" AND EXISTS "${INATECK_SDK_DEFAULT_LIBRARY}"))
     set(INATECK_SDK_LIBRARY "${INATECK_SDK_DEFAULT_LIBRARY}" CACHE FILEPATH
-        "Path to the Inateck Linux shared library" FORCE)
+        "Path to the Inateck shared library" FORCE)
 endif()
 if(INATECK_SDK_LIBRARY)
     if(NOT EXISTS "${INATECK_SDK_LIBRARY}")
         message(FATAL_ERROR "Inateck SDK library not found: ${INATECK_SDK_LIBRARY}")
     endif()
-    find_library(INATECK_XDO_LIBRARY NAMES xdo libxdo.so.3)
-    if(NOT INATECK_XDO_LIBRARY)
-        message(FATAL_ERROR "The Inateck Linux SDK requires libxdo.so.3. Install libxdo-dev or configure with -DINATECK_SDK_LIBRARY=.")
-    endif()
     add_library(InateckScannerBle SHARED IMPORTED)
-    # La bibliotheque n'a pas de SONAME : sans IMPORTED_NO_SONAME, l'editeur de liens enregistrerait son
-    # chemin absolu de compilation dans l'executable (DT_NEEDED), introuvable une fois installe.
-    set_target_properties(InateckScannerBle PROPERTIES
-        IMPORTED_LOCATION "${INATECK_SDK_LIBRARY}"
-        IMPORTED_NO_SONAME TRUE)
+    if(APPLE)
+        # Le dylib fourni porte comme identifiant un chemin absolu de la machine d'Inateck : copie
+        # renommee en @rpath/... (puis re-signee, obligatoire sur arm64) pour la trouver a cote de
+        # l'executable.
+        set(INATECK_SDK_COPY "${CMAKE_CURRENT_BINARY_DIR}/libinateck_scanner_ble.dylib")
+        if("${INATECK_SDK_LIBRARY}" IS_NEWER_THAN "${INATECK_SDK_COPY}")
+            file(COPY_FILE "${INATECK_SDK_LIBRARY}" "${INATECK_SDK_COPY}")
+            execute_process(COMMAND install_name_tool -id @rpath/libinateck_scanner_ble.dylib "${INATECK_SDK_COPY}"
+                            COMMAND_ERROR_IS_FATAL ANY)
+            execute_process(COMMAND codesign --force --sign - "${INATECK_SDK_COPY}" COMMAND_ERROR_IS_FATAL ANY)
+        endif()
+        set_target_properties(InateckScannerBle PROPERTIES IMPORTED_LOCATION "${INATECK_SDK_COPY}")
+    else()
+        find_library(INATECK_XDO_LIBRARY NAMES xdo libxdo.so.3)
+        if(NOT INATECK_XDO_LIBRARY)
+            message(FATAL_ERROR "The Inateck Linux SDK requires libxdo.so.3. Install libxdo-dev or configure with -DINATECK_SDK_LIBRARY=.")
+        endif()
+        # La bibliotheque n'a pas de SONAME : sans IMPORTED_NO_SONAME, l'editeur de liens enregistrerait son
+        # chemin absolu de compilation dans l'executable (DT_NEEDED), introuvable une fois installe.
+        set_target_properties(InateckScannerBle PROPERTIES
+            IMPORTED_LOCATION "${INATECK_SDK_LIBRARY}"
+            IMPORTED_NO_SONAME TRUE)
+    endif()
     target_compile_definitions(InateckScannerBle INTERFACE QRPROTEC_HAS_INATECK=1)
 endif()
 
@@ -182,10 +207,23 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts $<TARGET_FILE_DIR:${PROJECT_NAME}>/fonts)
 
+if(APPLE)
+    # OpenGL est deprecie (mais toujours present) sur macOS
+    target_compile_definitions(${PROJECT_NAME} PRIVATE GL_SILENCE_DEPRECATION)
+endif()
+
 if(TARGET InateckScannerBle)
-    target_link_libraries(${PROJECT_NAME} PRIVATE InateckScannerBle ${INATECK_XDO_LIBRARY})
-    set_target_properties(${PROJECT_NAME} PROPERTIES
-        BUILD_RPATH "${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble/linux/x86_64-unknown-linux-gnu")
+    if(APPLE)
+        target_link_libraries(${PROJECT_NAME} PRIVATE InateckScannerBle)
+        # le dylib est copie a cote de l'executable
+        set_target_properties(${PROJECT_NAME} PROPERTIES BUILD_RPATH "@executable_path")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${INATECK_SDK_COPY} $<TARGET_FILE_DIR:${PROJECT_NAME}>)
+    else()
+        target_link_libraries(${PROJECT_NAME} PRIVATE InateckScannerBle ${INATECK_XDO_LIBRARY})
+        set_target_properties(${PROJECT_NAME} PROPERTIES
+            BUILD_RPATH "${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble/linux/x86_64-unknown-linux-gnu")
+    endif()
 endif()
 
 if(BUILD_TESTING)

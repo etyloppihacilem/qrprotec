@@ -16,6 +16,10 @@
 #include <filesystem>
 #include <vector>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 namespace qrprotec {
 
 namespace {
@@ -42,10 +46,17 @@ std::string find_font(bool bold) {
   std::vector< std::filesystem::path > candidates;
   if (const char *env = std::getenv(bold ? "QRPROTEC_FONT_BOLD" : "QRPROTEC_FONT"))
     candidates.emplace_back(env);
+#ifdef __APPLE__
+  std::array< char, 4096 > executable_path{};
+  uint32_t                 executable_size = executable_path.size();
+  if (_NSGetExecutablePath(executable_path.data(), &executable_size) == 0)
+    candidates.push_back(std::filesystem::path(executable_path.data()).parent_path() / "fonts" / file);
+#else
   std::error_code error;
   const auto      executable = std::filesystem::read_symlink("/proc/self/exe", error);
   if (!error)
     candidates.push_back(executable.parent_path() / "fonts" / file);
+#endif
 #ifdef QRPROTEC_FONT_DIR
   candidates.push_back(std::filesystem::path(QRPROTEC_FONT_DIR) / file);
 #endif
