@@ -136,6 +136,7 @@ def lot_type_dict(lot_type):
         'version': lot_type.version,
         'storage': lot_type.storage,
         'unique': lot_type.unique,
+        'seal_required': lot_type.seal_required,
         'archived': lot_type.archived,
         'lot': lot.id if lot else '',
         'lot_count': lot_type.lots_set.count(),
@@ -158,6 +159,8 @@ STATE_LABELS = {
     'incomplete': '✘ Incomplet',
     'recommended': '⚠ Vérif recommandée, réassort',
     'opened': '⚠ Vérif recommandée, scellé ouvert',
+    'seal_opened': '✘ Scellé ouvert, vérif complète puis scellé requis',
+    'must_seal': '✘ Vérifié, doit être scellé',
     'verified': '✔ Vérifié, complet',
 }
 KIND_ORDER = {'ok': 0, 'warn': 1, 'bad': 2}
@@ -171,6 +174,9 @@ def lot_state(data):
         code = 'never'
     elif not data['complete']:
         code = 'incomplete'
+    elif data.get('seal_required'):
+        # type a scelle obligatoire : un lot ouvert est rouge, meme verifie, jusqu'a un nouveau scelle
+        code = 'seal_opened' if data['verif_recommended'] else 'must_seal'
     elif data['verif_recommended']:
         # sans reassort depuis la derniere verif : recommandee par l'ouverture du scelle (etiquette d'ouverture)
         code = 'recommended' if data['restocked_count'] else 'opened'
@@ -193,6 +199,7 @@ def _lot_core(lot, today, items=None):
         'lot_type': lot.lot_type_id,
         'lot_type_name': lot.lot_type.name,
         'storage': lot.lot_type.storage,
+        'seal_required': lot.lot_type.seal_required,
         'name': lot.name,
         'name_short': lot.name_short,
         'version': lot.version,
@@ -303,8 +310,8 @@ def lot_global(lot, today):
         return None
     rows = [_tree_row(sub_lot, today, sub_lot.depth) for sub_lot in tree]
     summary = aggregate_tree(rows)
-    keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'parent', 'depth', 'is_sealed', 'last_verif',
-            'last_verif_by', 'item_count', 'expired_count', 'complete', 'verif_recommended', 'state', 'effective',
+    keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed',
+            'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'complete', 'verif_recommended', 'state', 'effective',
             'counted')
     summary.update({
         'id': root.id,

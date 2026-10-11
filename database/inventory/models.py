@@ -258,6 +258,9 @@ class LotType(models.Model):
     storage = models.BooleanField(default=False)
     # Lot unique (ex : un VPS, une de ses armoires) : son lot est cree avec le type et il n'y en a jamais d'autre
     unique = models.BooleanField(default=False)
+    # Scelle obligatoire (ex : kit accouchement) : un lot de ce type ouvert est rouge, et reste rouge (« doit etre
+    # scelle ») apres une verif complete, jusqu'a un nouveau scelle.
+    seal_required = models.BooleanField(default=False)
     archived = models.BooleanField(default=False) # plus propose a la creation de lots, desarchivable
 
     def __str__(self):

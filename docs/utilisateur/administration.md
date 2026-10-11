@@ -77,6 +77,10 @@ signer l'ouverture ; sans cela, elle reste enregistrée comme anonyme.
 **Briser le scellé** depuis la fiche quand on ouvre le lot pour autre chose qu'une vérif. Le lot
 devra être vérifié avant utilisation.
 
+**Scellé obligatoire** : cochez cette case dans le type de lot (onglet des types de lot) pour les lots
+qui doivent toujours être scellés, comme les kits accouchement. Un lot de ce type ouvert est rouge ;
+après sa vérif complète il reste rouge (« doit être scellé ») jusqu'à ce qu'il soit scellé à nouveau.
+
 ## Journal des opérations
 
 Menu **Gestion > Journal des opérations** (rôles gestion et admin) : toutes les opérations, de la plus

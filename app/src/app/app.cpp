@@ -1374,14 +1374,17 @@ void App::scan_lot_seal_open(const ParsedScan &scan, ScanSource source) {
     const Json       &lot  = result.data["lot"];
     const std::string name = lot["name"].str();
     const std::string what = result.data["result"].str();
+    // type a scelle obligatoire : verif complete puis nouveau scelle
+    const std::string todo =
+      lot["seal_required"].boolean() ? "vérif puis nouveau scellé nécessaires" : "vérif nécessaire";
     if (what == "opened") {
       const bool identified = result.data["identified"].boolean();
-      notify(name + " : scellé ouvert, vérif nécessaire." +
+      notify(name + " : scellé ouvert, " + todo + "." +
              (identified ? "" : " Ouverture anonyme : connectez-vous puis rescannez l'étiquette pour la signer."));
     } else if (what == "signed") {
       notify(name + " : ouverture du scellé signée par " + lot["unsealed_by"].str() + ".");
     } else {
-      notify(name + " : scellé déjà ouvert le " + display_datetime(lot["unsealed"]) + ", vérif nécessaire.");
+      notify(name + " : scellé déjà ouvert le " + display_datetime(lot["unsealed"]) + ", " + todo + ".");
     }
     show_lot(id, "");
     refresh_lots();

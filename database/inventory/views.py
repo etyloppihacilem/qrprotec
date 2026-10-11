@@ -986,7 +986,7 @@ ITEM_TYPE_FIELDS = {
     'archived': 'archivage',
 }
 LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',
-                   'archived': 'archivage'}
+                   'seal_required': 'scellé obligatoire', 'archived': 'archivage'}
 
 
 @api_view(['GET'])
@@ -1190,7 +1190,7 @@ def lot_types(request):
     with transaction.atomic():
         lot_type = LotType.objects.create(
             type=code, name=name, description=str(data.get('description', '')), created_by=identity,
-            storage=storage, unique=unique,
+            storage=storage, unique=unique, seal_required=bool(data.get('seal_required', False)),
         )
         lot = None
         if unique:
@@ -1232,6 +1232,8 @@ def lot_type_detail(request, type_code):
             lot_type.name = name
         if 'description' in data:
             lot_type.description = str(data['description'])
+        if 'seal_required' in data:
+            lot_type.seal_required = bool(data['seal_required'])
         storage = bool(data.get('storage', lot_type.storage))
         # un rangement du stock est un lot unique (sauf un ancien type de rangement qui a deja plusieurs lots)
         unique = bool(data.get('unique', lot_type.unique)) or (storage and len(lots) <= 1)

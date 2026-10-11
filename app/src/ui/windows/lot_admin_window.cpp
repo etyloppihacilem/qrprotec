@@ -542,6 +542,12 @@ class LotAdminWindow final : public AppWindow {
       if (type_storage_ && !editing_lot_type_.empty() && !requirements_.empty())
         ImGui::TextColored(colors::orange, "Enregistrer supprimera le contenu attendu de ce type.");
       ImGui::BeginDisabled(type_storage_);
+      ImGui::Checkbox("Scellé obligatoire (ex : kit accouchement)", &type_seal_required_);
+      ImGui::EndDisabled();
+      help_marker("Un lot de ce type doit toujours être scellé : une fois le scellé ouvert, il est rouge (et non "
+                  "orange). Une vérif complète le marque « doit être scellé », toujours en rouge, jusqu'à la pose "
+                  "d'un nouveau scellé.");
+      ImGui::BeginDisabled(type_storage_);
       ImGui::Checkbox("Lot unique (le lot est créé avec le type)", &type_unique_);
       ImGui::EndDisabled();
       help_marker("Pour un lot qui n'existe qu'en un exemplaire (ex : le VPS, chacune de ses armoires) : le lot, du "
@@ -561,12 +567,13 @@ class LotAdminWindow final : public AppWindow {
         ImGui::BeginDisabled(type_code_.size() != 6 || type_name_.empty() || name_taken || code_taken);
         if (primary_button(type_unique_ ? "Créer le type et son lot" : "Créer le type de lot")) {
           Json body;
-          body["type"]        = type_code_;
-          body["name"]        = type_name_;
-          body["description"] = type_description_;
-          body["storage"]     = type_storage_;
-          body["unique"]      = type_unique_;
-          body["user"]        = app.user_ref();
+          body["type"]          = type_code_;
+          body["name"]          = type_name_;
+          body["description"]   = type_description_;
+          body["storage"]       = type_storage_;
+          body["unique"]        = type_unique_;
+          body["seal_required"] = type_seal_required_ && !type_storage_;
+          body["user"]          = app.user_ref();
           if (type_unique_) {
             body["parent"] = type_lot_parent_;
           }
@@ -605,10 +612,11 @@ class LotAdminWindow final : public AppWindow {
       ImGui::BeginDisabled(type_name_.empty() || name_taken);
       if (button("Enregistrer")) {
         Json body;
-        body["name"]        = type_name_;
-        body["description"] = type_description_;
-        body["storage"]     = type_storage_;
-        body["unique"]      = type_unique_;
+        body["name"]          = type_name_;
+        body["description"]   = type_description_;
+        body["storage"]       = type_storage_;
+        body["unique"]        = type_unique_;
+        body["seal_required"] = type_seal_required_ && !type_storage_;
         app.api.patch("/api/lot-types/" + url_encode(editing_lot_type_) + "/", body, [&app](const ApiResult &result) {
           app.notify(result.ok ? "Type de lot enregistré." : result.error, !result.ok);
           app.refresh_lot_types();
@@ -729,13 +737,14 @@ class LotAdminWindow final : public AppWindow {
 
     void edit_lot_type(const Json &lot_type) {
       editing_lot_type_ = lot_type["type"].str();
-      type_code_        = editing_lot_type_;
-      type_name_        = lot_type["name"].str();
-      type_description_ = lot_type["description"].str();
-      type_storage_     = lot_type["storage"].boolean();
-      type_unique_      = lot_type["unique"].boolean();
-      type_archived_    = lot_type["archived"].boolean();
-      type_lot_         = lot_type["lot"].str();
+      type_code_          = editing_lot_type_;
+      type_name_          = lot_type["name"].str();
+      type_description_   = lot_type["description"].str();
+      type_storage_       = lot_type["storage"].boolean();
+      type_unique_        = lot_type["unique"].boolean();
+      type_seal_required_ = lot_type["seal_required"].boolean();
+      type_archived_      = lot_type["archived"].boolean();
+      type_lot_           = lot_type["lot"].str();
       type_lot_parent_.clear();
       requirements_.clear();
       for (const Json &row : lot_type["requirements"].items())
@@ -769,6 +778,7 @@ class LotAdminWindow final : public AppWindow {
     std::string                   type_description_;
     bool                          type_storage_ = false;
     bool                          type_unique_  = false;
+    bool                          type_seal_required_ = false;
     bool                          type_archived_ = false;
     std::string                   type_lot_;        // lot d'un type unique
     std::string                   type_lot_parent_; // creation d'un type unique : parent de son lot

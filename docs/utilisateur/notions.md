@@ -94,6 +94,10 @@ de scellé est imprimée ; la scanner indique si c'est bien le scellé en cours.
 d'ouverture** est rangée à l'intérieur : la scanner après l'ouverture marque le scellé comme ouvert.
 Ouvrir le lot (vérif, ajout, retrait, ou ouverture d'un de ses sous-lots) brise aussi le scellé.
 
+Tous les lots peuvent être scellés, mais certains types de lot (un kit accouchement par exemple) ont
+un **scellé obligatoire** : une fois ouvert, le lot est **rouge**, pas orange. Une vérif complète le
+marque « doit être scellé », toujours en rouge, jusqu'à la pose d'un nouveau scellé.
+
 ## Paquet fermé
 
 Une boîte qu'on n'ouvre pas tout de suite (boîte de 25 compresses) : à la réception, une seule
@@ -107,7 +111,7 @@ Scanner l'étiquette de la boîte compte pour les 25 compresses.
 | 🟢 **Vert** « Vérifié, complet » | Vérifié, rien ne manque, rien de périmé |
 | 🟢 **Vert** « Scellé » | Scellé intact, rien de périmé |
 | 🟠 **Orange** « Vérif recommandée » | Complet à la dernière vérif, mais du matériel a été ajouté depuis sans vérif, ou son scellé a été ouvert (étiquette d'ouverture scannée) |
-| 🔴 **Rouge** | Jamais vérifié, incomplet, ou contient des périmés |
+| 🔴 **Rouge** | Jamais vérifié, incomplet, contient des périmés, ou lot à scellé obligatoire qui n'est pas scellé |
 
 Dans l'état des stocks : barre **verte** au-dessus du minimum, **orange** en dessous, **rouge** à
 zéro.
