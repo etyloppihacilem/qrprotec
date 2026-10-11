@@ -427,6 +427,13 @@ Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), 
 Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricule": ..., "key": ...}`
 (vérifié) ou `"name": ...` (déclaré). Sur l'API locale, `"user": "MATRICULE"` suffit.
 
+Les noms renvoyés par l'API publique (`last_verif_by`, `last_seen_by`, `sealed_by`, `by`…) sont anonymisés :
+prénom seul, suivi du plus court début de nom qui le distingue quand plusieurs secouristes partagent ce prénom
+(Michel, Julien D., Julien S. ; Julien De. et Julien Du. s'il y a un Julien Deraine et un Julien Dubois).
+Un nom déclaré est réduit à son premier mot et l'initiale du suivant. Les postes (API locale et distante)
+reçoivent les noms complets. Hors requête (WebSocket, tâche), envelopper la sérialisation dans
+`idendity.anonymized()` pour obtenir les mêmes noms.
+
 ### Règles de gestion
 
 - **Vérif** : les items scannés sont placés dans le lot (ou le stock). Un item périmé scanné alors que

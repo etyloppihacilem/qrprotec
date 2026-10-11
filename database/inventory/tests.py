@@ -15,6 +15,7 @@ from . import serializers as ser
 from . import views
 from .base62 import decode_base62
 from . import forecast
+from . import idendity
 from . import services
 from .models import (
     FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
@@ -248,6 +249,47 @@ class DeclaredIdentityTests(ApiTestCase):
         code, _, items = self.verif({'name': 'Jean'}, local=True)
         self.assertEqual(code, 200)
         self.assertEqual(Items.objects.get(iid=items[0].iid).last_seen_by, 'D:Jean')
+
+
+class PublicNamesTests(ApiTestCase):
+    """API publique : prenom seul, plus le debut du nom qui distingue les homonymes de meme prenom."""
+
+    def test_short_names(self):
+        people = [(1, 'Michel', 'Dubois'), (2, 'Julien', 'Dubois'), (3, 'Julien', 'Saxe')]
+        self.assertEqual(idendity.short_names(people), {1: 'Michel', 2: 'Julien D.', 3: 'Julien S.'})
+        people.append((4, 'julien', 'Deraine'))
+        self.assertEqual(idendity.short_names(people),
+                         {1: 'Michel', 2: 'Julien Du.', 3: 'Julien S.', 4: 'julien De.'})
+        # accents et casse ignores ; homonymes complets et noms contenus dans un autre : nom entier
+        self.assertEqual(idendity.short_names([(1, 'Émile', 'Roux'), (2, 'Emile', 'rousseau'),
+                                               (3, 'Ana', 'Lima'), (4, 'Ana', 'Lima')]),
+                         {1: 'Émile Roux', 2: 'Emile rous.', 3: 'Ana Lima', 4: 'Ana Lima'})
+        self.assertEqual(idendity.short_names([(1, 'Yann', 'Le Gall'), (2, 'Yann', 'Le Roux')]),
+                         {1: 'Yann Le G.', 2: 'Yann Le R.'})
+
+    def test_declared_short_name(self):
+        self.assertEqual(idendity.declared_short_name('Jean martin dupuis'), 'Jean M.')
+        self.assertEqual(idendity.declared_short_name(' Jean '), 'Jean')
+
+    def test_public_api_hides_last_names(self):
+        Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')
+        items = self.create(self.compresses, self.today + timedelta(days=10), 2)
+        payload = {'items': [item.iid for item in items], 'key': self.lot.verif_key,
+                   'user': {'matricule': 'M001', 'key': self.user.new_key}}
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=False)
+        self.assertEqual(code, 200)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(body['last_verif_by'], 'Jeanne Dup.')
+        self.assertEqual(self.call('GET', f'/api/items/{items[0].iid}/', local=False)[1]['last_seen_by'], 'Jeanne Dup.')
+        # poste : nom complet
+        self.assertEqual(self.call('GET', f'/api/lots/{self.lot.id}/')[1]['last_verif_by'], 'Jeanne Dupont')
+        # identite declaree et matricule disparu
+        Lots.objects.filter(pk=self.lot.pk).update(last_verif_by='D:Jean Martin')
+        self.assertEqual(self.call('GET', f'/api/lots/{self.lot.id}/', local=False)[1]['last_verif_by'], 'Jean M.')
+        Lots.objects.filter(pk=self.lot.pk).update(last_verif_by='M:X999')
+        self.assertEqual(self.call('GET', f'/api/lots/{self.lot.id}/', local=False)[1]['last_verif_by'], 'Inconnu')
+        # hors requete (notifications, journal) : nom complet
+        self.assertEqual(ser._who('M:M001'), 'Jeanne Dupont')
 
 
 class FrontSessionTests(ApiTestCase):
@@ -792,7 +834,7 @@ class SealTests(ApiTestCase):
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code, 'user': user},
                                local=False)
         self.assertEqual(body['result'], 'signed')
-        self.assertEqual(body['lot']['unsealed_by'], 'Jeanne Dupont')
+        self.assertEqual(body['lot']['unsealed_by'], 'Jeanne')  # API publique : prenom seul
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code, 'user': user},
                                local=False)
         self.assertEqual(body['result'], 'already')

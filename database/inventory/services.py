@@ -18,7 +18,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from . import journal, movements, notifications
-from .idendity import SOURCE_DECLARED, parse_identity
+from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity
 from .models import (
     ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, OperationKind, SeenWhile, VerifItem,
     Operation, VerifResult, Verifs, generate_key, qrprotec_setting,
@@ -512,7 +512,7 @@ def break_seal(lot, identity, reason, now=None):
 
 
 # Scelle ouvert par l'etiquette d'ouverture sans utilisateur identifie
-SEAL_OPENED_ANONYMOUSLY = f"{SOURCE_DECLARED}:Anonyme (étiquette intérieure)"
+SEAL_OPENED_ANONYMOUSLY = f"{SOURCE_DECLARED}:{ANONYMOUS_OPENING}"
 # delai pour signer une ouverture anonyme (l'utilisateur se connecte juste apres le scan)
 SEAL_OPENING_SIGN_DELAY = timedelta(hours=1)
 
