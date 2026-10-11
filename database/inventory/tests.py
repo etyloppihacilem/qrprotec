@@ -1115,6 +1115,33 @@ class SubLotTests(ApiTestCase):
         code, body = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 200)
 
+    def test_sealed_sub_lot_scanned_counts_as_verified(self):
+        # sac O2 rempli et scelle
+        self.call('POST', f"/api/lots/{self.sac_o2['id']}/verif/", {'items': [self.bottle()], 'user': 'M001'})
+        code, sealed = self.call('POST', f"/api/lots/{self.sac_o2['id']}/seal/", {'user': 'M001'})
+        seal_code = sealed['seal_url'].split('s=')[1]
+        # vérif du B+ : le sac de soin est scanne, l'etiquette du scelle du sac O2 aussi
+        payload = {'lots': [{'id': self.bplus['id'], 'key': self.keys[self.bplus['id']]}], 'items': self.fresh(),
+                   'user': self.badge, 'sealed': [{'id': self.sac_o2['id'], 'code': seal_code}]}
+        code, report = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 200)
+        self.assertTrue(report['complete'])
+        self.assertFalse(report['partial'])
+        self.assertEqual(report['missing'], [])  # la bouteille du sac scelle n'est pas attendue
+        rows = {row['id']: row for row in report['lots']}
+        self.assertTrue(rows[self.sac_o2['id']]['sealed'])
+        self.assertEqual(report['sealed_lots'], ['Sac O2'])
+        self.assertTrue(Lots.objects.get(id=self.sac_o2['id']).is_sealed)  # scelle garde
+        # verif d'un seul sous-lot, le lot scelle n'en fait pas partie : il est compte quand meme
+        payload['lots'] = [{'id': self.soin['id'], 'key': self.keys[self.soin['id']]}]
+        code, report = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 200)
+        self.assertIn(self.sac_o2['id'], {row['id'] for row in report['lots'] if row.get('sealed')})
+        # etiquette d'un ancien scelle refusee
+        payload['sealed'] = [{'id': self.sac_o2['id'], 'code': 'wrong'}]
+        code, body = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 400)
+
     def test_lots_must_share_global_lot(self):
         payload = {'lots': [{'id': self.soin['id']}, {'id': self.lot.id}], 'items': [], 'user': 'M001'}
         code, body = self.call('POST', '/api/verifs/', payload)

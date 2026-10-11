@@ -611,6 +611,30 @@ def verif_lots(entries, local):
     return lots
 
 
+def sealed_targets(data, lots):
+    """"sealed" d'une verif : [{"id", "code"}], lots scelles dont l'etiquette du scelle a ete scannee pendant la verif
+    (services.perform_verif). Le code du scelle prouve le scan (il remplace la cle, rangee dans le lot scelle). Un lot
+    d'un autre lot global, au scelle brise ou a l'etiquette d'un ancien scelle est refuse."""
+    entries = data.get('sealed') or []
+    if not isinstance(entries, list):
+        raise ApiError("sealed : liste [{id, code}] attendue")
+    roots = {lot.root().id for lot in lots}
+    result = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ApiError("sealed : liste [{id, code}] attendue")
+        lot = Lots.objects.select_related('lot_type', 'parent').filter(id=str(entry.get('id', '')), active=True).first()
+        if lot is None:
+            raise ApiError(f"Lot scellé inconnu : {entry.get('id', '')}", status.HTTP_404_NOT_FOUND)
+        if lot.root().id not in roots:
+            raise ApiError(f"Le lot scellé {lot.name} n'appartient pas au lot global vérifié")
+        if not lot.check_seal(str(entry.get('code', ''))):
+            raise ApiError(f"Scellé de {lot.name} brisé ou étiquette d'un ancien scellé : vérifiez son contenu")
+        if lot.id not in {done.id for done in result}:
+            result.append(lot)
+    return result
+
+
 @api_view(['POST'])
 @handle_errors
 def lot_verif(request, lot_id):
@@ -618,7 +642,7 @@ def lot_verif(request, lot_id):
     lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}])
     identity = operation_identity(request)
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
-                                    places=place_map(request.data))
+                                    places=place_map(request.data), sealed=sealed_targets(request.data, lots))
     return Response(report)
 
 
@@ -630,6 +654,8 @@ def verifs(request):
     Chaque lot est verifie avec ses sous-lots. En verif partielle, seuls les lots que les items scannes rendent
     complets sont verifies ; les items destines aux autres lots y sont ajoutes (reassort).
     "places" : {iid: lot}, lot dont l'etiquette a ete scannee en dernier avant l'item (services.assign_items).
+    "sealed" : [{"id", "code"}], lots scelles dont l'etiquette du scelle a ete scannee : scelle intact, comptes
+    comme verifies sans etre ouverts (sealed_targets).
     Vérif à plusieurs (inventory/live.py) : "live": {"id", "pid", "token"} du participant qui envoie. Les cles des
     lots manquantes sont prises dans la verif commune, ses participants sont enregistres sur la verif et le compte
     rendu leur est envoye."""
@@ -642,7 +668,7 @@ def verifs(request):
     identity = operation_identity(request)
     participants = [value for value in team['identities'] if value != identity] if team else []
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
-                                    participants, place_map(request.data))
+                                    participants, place_map(request.data), sealed_targets(request.data, lots))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team:
         live.hub.finish(team, report)

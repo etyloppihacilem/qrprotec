@@ -81,7 +81,7 @@
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif, pendingOpening: state.pendingOpening,
         launched: state.launched, current: state.current,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
-        scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items, place }) => ({ code, kind, iid, info, expired, error, items, place })),
+        scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place }) => ({ code, kind, iid, key, info, expired, error, items, place })),
       }));
       if (state.user) localStorage.setItem(STORAGE_USER, JSON.stringify(state.user));
       else localStorage.removeItem(STORAGE_USER);
@@ -655,8 +655,10 @@
 
   const rootOf = (lot) => (lot.global ? lot.global.id : lot.path && lot.path.length ? lot.path[0].id : lot.id);
 
-  // QR code du scelle d'un lot : lot valide sans verif tant que le scelle est intact
+  // QR code du scelle d'un lot : lot valide sans verif tant que le scelle est intact. Pendant une vérif du meme lot
+  // global, le lot scelle (et ses sous-lots) compte comme verifie sans etre ouvert (intactLots).
   async function scanSeal(scan) {
+    if (state.lot && state.lotId !== scan.id && checkRunning() && await sealDuringVerif(scan)) return;
     if (state.lotId !== scan.id) { state.lotKey = ''; state.lastVerif = null; }
     await loadLot(scan.id, scan.key);
     const lot = state.lot;
@@ -677,6 +679,39 @@
         lot.unsealed ? `Scellé brisé le ${fmtDateTime(lot.unsealed)}` + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '');
     }
     switchTab('lot');
+  }
+
+  // Etiquette du scelle d'un lot du meme lot global scannee pendant une vérif : scan « scellé intact ». Renvoie true si
+  // le scan a ete traite ici (false : lot d'un autre lot global, la vérif n'est pas concernee).
+  async function sealDuringVerif(scan) {
+    if (allScanned().some((entry) => entry.kind === 'seal' && entry.iid === scan.id)) {
+      showInfo('ok', '✓ Déjà scanné', 'Scellé intact');
+      return true;
+    }
+    let lot;
+    try {
+      lot = await api(`lots/${encodeURIComponent(scan.id)}/?seal=${encodeURIComponent(scan.key)}`);
+    } catch (e) {
+      feedback.bad();
+      showInfo('bad', 'Lot introuvable', e.message);
+      return true;
+    }
+    if (rootOf(lot) !== rootOf(state.lot)) return false;
+    if (lot.seal_check !== 'valid' || lot.expired_count) {
+      feedback.bad();
+      showInfo('bad', lot.seal_check !== 'valid'
+        ? `✘ ${lot.seal_check === 'wrong' ? "Étiquette d'un ancien scellé" : 'Scellé brisé'} – ${lot.name}`
+        : `✘ Scellé intact mais périmés – ${lot.name}`, 'Ouvrez le lot et scannez son contenu.');
+      return true;
+    }
+    scannedAgain();
+    state.scanned.push({ code: scan.code, kind: 'seal', iid: lot.id, key: scan.key, expired: false, error: '', items: [],
+      place: '', info: { type_name: `🔒 Scellé intact – ${lot.name}` } });
+    feedback.good();
+    showInfo('ok', `🔒 Scellé intact – ${lot.name}`, 'Compté comme vérifié, avec ses sous-lots, sans être ouvert.');
+    save();
+    render();
+    return true;
   }
 
   // Etiquette d'ouverture, rangee dans le lot scelle : la scanner ouvre le scelle, connecte ou non (pas de
@@ -814,12 +849,34 @@
 
   const keyOk = () => !keyMissing().length;
 
+  // Lots de la vérif dont le scelle a ete constate intact (etiquette du scelle scannee), avec leurs sous-lots : ni
+  // attendus ni ouverts (services.perform_verif). Un lot dont un item a ete scanne a ete ouvert.
+  function intactLots() {
+    const lots = sessionLots();
+    const parentOf = Object.fromEntries(lots.map((lot) => [lot.id,
+      lot.parent || (lot.path && lot.path.length ? lot.path[lot.path.length - 1].id : null)]));
+    const under = (id, top) => {
+      for (let current = id; current; current = parentOf[current]) if (current === top) return true;
+      return false;
+    };
+    const done = scannedIids();
+    const result = new Set();
+    for (const entry of allScanned()) {
+      if (entry.kind !== 'seal' || entry.error) continue;
+      const subtree = lots.filter((lot) => under(lot.id, entry.iid));
+      const opened = subtree.some((lot) => [...(lot.items || []), ...(lot.missing_items || [])].some((item) => done.has(item.iid)));
+      if (!opened) for (const lot of subtree) result.add(lot.id);
+    }
+    return result;
+  }
+
   // Repartition des items scannes entre les lots de la verif (meme regle que le serveur, services.assign_items) :
   // un item deja dans un des lots y reste, un nouvel item va dans le lot de la derniere etiquette scannee avant lui
   // (ou un de ses sous-lots) qui en attend encore, sinon dans le premier lot qui en attend encore.
   // complete : le lot serait complet avec ces scans (verif partielle possible).
   function planSession() {
-    const lots = sessionLots();
+    const intact = intactLots();
+    const lots = sessionLots().filter((lot) => !intact.has(lot.id));
     const locationOf = {};
     const holding = {};
     const done = scannedIids();
@@ -890,7 +947,7 @@
       // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
       row.complete = filled && !expiredLeft && (row.lot.storage ? !holding[row.lot.id] : (row.touched > 0 || !holding[row.lot.id]));
     }
-    return { lots: lots.map((lot) => plan[lot.id]), target };
+    return { lots: lots.map((lot) => plan[lot.id]), target, intact };
   }
 
   // Etat d'un lot : verifie et complet (vert), reassort depuis la derniere verif (orange : verif complete
@@ -1242,7 +1299,8 @@
     }
     const lots = sessionLots();
     const plan = planSession();
-    const verified = partial ? plan.lots.filter((row) => row.complete).map((row) => row.lot) : lots;
+    const verified = partial ? plan.lots.filter((row) => row.complete).map((row) => row.lot)
+      : lots.filter((lot) => !plan.intact.has(lot.id));
     const sealed = verified.filter((lot) => lot.is_sealed).map((lot) => lot.name);
     const confirmed = () => {
       if (auto) return true;
@@ -1266,6 +1324,8 @@
         ...identity(),
         items: [...scannedIids()],
         places: scanPlaces(),
+        // etiquettes de scelle scannees : lots scelles intacts, comptes comme verifies
+        sealed: allScanned().filter((entry) => entry.kind === 'seal' && !entry.error).map((entry) => ({ id: entry.iid, code: entry.key })),
         partial,
         ...(credentials ? { live: credentials } : {}),
       });
@@ -1393,11 +1453,13 @@
           : report.partial ? '↷ Vérif partielle enregistrée' : '⚠️ Lot NON complet'),
       el('p', {}, `${report.present.length} item(s) présent(s).`),
       (report.participants || []).length > 1 ? el('p', {}, `👥 Vérif à plusieurs : ${report.participants.join(', ')}.`) : '',
+      (report.sealed_lots || []).length ? el('p', {}, `🔒 Scellé intact, compté comme vérifié : ${report.sealed_lots.join(', ')}.`) : '',
       report.unsealed ? el('p', { style: 'color:var(--orange)' },
         `🔓 Scellé brisé par cette vérif : ${(report.unsealed_lots || []).join(', ') || 'lot'}.`) : '',
       ...((report.lots || []).length > 1 ? [el('h3', {}, report.partial ? 'Vérif partielle' : 'Lots vérifiés'),
         el('ul', {}, report.lots.map((row) => el('li', {}, '  '.repeat(row.depth || 0)
-          + (row.verified ? (row.complete ? '✔ ' : '✘ ') + row.name + (row.complete ? ' : complet' : ' : incomplet')
+          + (row.sealed ? `🔒 ${row.name} : scellé intact`
+            : row.verified ? (row.complete ? '✔ ' : '✘ ') + row.name + (row.complete ? ' : complet' : ' : incomplet')
             : `↷ ${row.name} : non vérifié` + (row.restocked ? `, ${row.restocked} item(s) ajouté(s) (réassort)` : '')))))] : []),
       ...(report.requirements || []).map((row) => requirementRow(
         (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row.required)),
@@ -1529,6 +1591,7 @@
   // Attendus d'un lot : la definition de son type (quantite par type), puis les items deja connus du lot.
   // Les items scannes comptent pour le lot ou ils seront ranges (planSession).
   function expectedGroups(lot, plan) {
+    if (plan.intact.has(lot.id)) return { groups: [], others: [], remaining: 0, complete: true, sealed: true };
     const done = scannedIids();
     const row = plan.lots.find((entry) => entry.lot.id === lot.id);
     if (lot.storage) return storageGroups(lot, done, row);
@@ -1628,8 +1691,14 @@
     });
     let remaining = 0;
     for (const lot of lots) {
-      const { groups, others, remaining: left, complete } = expectedGroups(lot, plan);
+      const { groups, others, remaining: left, complete, sealed } = expectedGroups(lot, plan);
       remaining += left;
+      if (sealed) {
+        rows.push(el('li', { class: 'lot-head ok', style: `margin-left:${(lot.depth || 0) * 12}px` },
+          el('div', { class: 'main' }, el('div', { class: 'name' }, '🔒 ' + lot.name),
+            el('div', { class: 'sub' }, 'scellé intact : compté comme vérifié'))));
+        continue;
+      }
       // verif groupee : un titre par lot (un lot qui ne contient rien et n'attend rien n'est qu'un regroupement)
       if (multi) {
         if (!groups.length && !others.length && !(lot.items || []).length) continue;
@@ -2315,8 +2384,8 @@
       })),
       count: scannedIids().size,
       remaining,
-      entries: state.scanned.map(({ code, kind, iid, expired, error, items, info, place }) => ({
-        code, kind, iid, expired, error, items, place,
+      entries: state.scanned.map(({ code, kind, iid, key, expired, error, items, info, place }) => ({
+        code, kind, iid, key, expired, error, items, place,
         info: info ? { type: info.type, type_name: info.type_name, peremption: info.peremption, count: info.count } : null,
       })),
       keys: sessionEntries(),

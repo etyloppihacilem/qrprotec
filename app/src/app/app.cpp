@@ -1413,10 +1413,24 @@ void App::resolve_pack(int entry_id) {
 }
 
 // QR code d'un scelle : le lot est valide sans verif tant que le scelle est intact.
+namespace {
+// Lot global d'un lot (detail de l'API) : son identifiant
+std::string root_of(const Json &lot) {
+  if (!lot["global"].is_null())
+    return lot["global"]["id"].str();
+  if (lot["path"].size() > 0)
+    return lot["path"][0]["id"].str();
+  return lot["id"].str();
+}
+} // namespace
+
 void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
-  show_lot(scan.id, scan.key);
+  // verif en cours d'un autre lot : le scelle d'un lot du meme lot global est constate intact (VerifSession::sealed)
+  const bool during_verif = verif.active && !verif.loading && scan.id != verif.lot_id;
+  if (!during_verif)
+    show_lot(scan.id, scan.key);
   api.get("/api/lots/" + url_encode(scan.id) + "/?seal=" + url_encode(scan.key),
-          [this, id = scan.id, source](const ApiResult &result) {
+          [this, id = scan.id, code = scan.key, source, during_verif](const ApiResult &result) {
             if (!result.ok) {
               feedback.error(source, settings);
               notify("Lot inconnu : " + id, true);
@@ -1424,6 +1438,24 @@ void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
             }
             const std::string check = result.data["seal_check"].str();
             const std::string name  = result.data["name"].str();
+            if (during_verif && verif.active && root_of(result.data) == root_of(verif.lot)) {
+              if (check != "valid" || result.data["expired_count"].integer() > 0) {
+                feedback.error(source, settings);
+                notify(name + (check != "valid" ? " : scellé brisé ou étiquette d'un ancien scellé"
+                                                : " : scellé intact mais contient des périmés")
+                         + ", ouvrez le lot et scannez son contenu.",
+                       true);
+                return;
+              }
+              const bool known = std::any_of(verif.sealed.begin(), verif.sealed.end(),
+                                             [&](const VerifSealed &sealed) { return sealed.id == id; });
+              if (!known)
+                verif.sealed.push_back({ id, code, name });
+              notify(name + " : scellé intact, compté comme vérifié sans être ouvert.");
+              return;
+            }
+            if (during_verif)
+              show_lot(id, code);
             if (check != "valid") {
               feedback.error(source, settings);
               notify(check == "wrong" ? name + " : étiquette d'un ancien scellé, vérif nécessaire."
@@ -1528,16 +1560,6 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
   start_verif(scan.id, scan.key);
 }
 
-namespace {
-// Lot global d'un lot (detail de l'API) : son identifiant
-std::string root_of(const Json &lot) {
-  if (!lot["global"].is_null())
-    return lot["global"]["id"].str();
-  if (lot["path"].size() > 0)
-    return lot["path"][0]["id"].str();
-  return lot["id"].str();
-}
-} // namespace
 
 void App::join_verif(const std::string &lot_id, const std::string &key, ScanSource source) {
   for (VerifExtra &extra : verif.extras)
@@ -1730,8 +1752,53 @@ std::string App::verif_title() const {
   return title;
 }
 
+std::set< std::string > App::verif_intact() const {
+  std::set< std::string > result;
+  if (verif.sealed.empty())
+    return result;
+  const std::vector< const Json * >    lots = verif_lots();
+  std::map< std::string, std::string > parent_of;
+  for (const Json *lot : lots) {
+    const Json &path = (*lot)["path"];
+    parent_of[(*lot)["id"].str()] =
+      !(*lot)["parent"].str().empty() ? (*lot)["parent"].str()
+                                      : (path.size() > 0 ? path[path.size() - 1]["id"].str() : std::string());
+  }
+  const auto under = [&](std::string id, const std::string &top) {
+    for (int guard = 0; !id.empty() && guard < 64; ++guard) {
+      if (id == top)
+        return true;
+      const auto found = parent_of.find(id);
+      id               = found == parent_of.end() ? std::string() : found->second;
+    }
+    return false;
+  };
+  const std::vector< std::string > scanned = stack.iids();
+  const std::set< std::string >    done(scanned.begin(), scanned.end());
+  for (const VerifSealed &sealed : verif.sealed) {
+    std::vector< std::string > subtree;
+    bool                       opened = false; // un item du lot scanne : le lot a ete ouvert
+    for (const Json *lot : lots) {
+      if (!under((*lot)["id"].str(), sealed.id))
+        continue;
+      subtree.push_back((*lot)["id"].str());
+      for (const char *list : { "items", "missing_items" })
+        for (const Json &item : (*lot)[list].items())
+          opened = opened || done.count(item["iid"].str()) > 0;
+    }
+    if (!opened)
+      result.insert(subtree.begin(), subtree.end());
+  }
+  return result;
+}
+
 std::vector< VerifPlanLot > App::plan_verif() const {
-  const std::vector< const Json * > lots = verif_lots();
+  // lots scelles intacts : ni attendus ni destinataires d'items (services.perform_verif)
+  const std::set< std::string > intact = verif_intact();
+  std::vector< const Json * >   lots   = verif_lots();
+  lots.erase(std::remove_if(lots.begin(), lots.end(),
+                            [&](const Json *lot) { return intact.count((*lot)["id"].str()) > 0; }),
+             lots.end());
   std::vector< VerifPlanLot >       plan;
   std::map< std::string, std::size_t > index;          // id du lot -> position dans plan
   std::map< std::string, std::string > location_of;    // iid connu -> lot
@@ -1912,6 +1979,14 @@ void App::submit_verif(bool partial) {
       entry["id"]  = extra.id;
       entry["key"] = extra.key;
       body["lots"].push_back(entry);
+    }
+    // etiquettes de scelle scannees : lots scelles intacts, comptes comme verifies
+    body["sealed"] = Json::array();
+    for (const VerifSealed &sealed : verif.sealed) {
+      Json entry;
+      entry["id"]   = sealed.id;
+      entry["code"] = sealed.code;
+      body["sealed"].push_back(entry);
     }
     body["partial"]  = partial;
     verif.submitting  = true;

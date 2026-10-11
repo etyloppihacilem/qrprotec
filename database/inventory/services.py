@@ -157,7 +157,7 @@ def _with_ancestors(lots):
     return list(result.values())
 
 
-def perform_verif(lot, iids, identity, partial=False, participants=(), places=None):
+def perform_verif(lot, iids, identity, partial=False, participants=(), places=None, sealed=()):
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -173,7 +173,11 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
     - un item a etiquette a dechirer (ItemType.tear_off) non scanne est utilise : il passe tout de suite en
       'disparu' (l'etiquette est arrachee a l'ouverture du sachet, les restes du sachet sont perdus) ;
     - participants : autres personnes de la verif a plusieurs (identites stockees), enregistrees sur la verif ;
-    - places : {iid: id du lot} dernier lot dont l'etiquette a ete scannee avant l'item (voir assign_items).
+    - places : {iid: id du lot} dernier lot dont l'etiquette a ete scannee avant l'item (voir assign_items) ;
+    - sealed : lots scelles dont l'etiquette du scelle a ete scannee pendant la verif (scelle intact constate, voir
+      views.sealed_targets). Ils comptent comme verifies avec leurs sous-lots, sans etre ouverts ni scannes : leur
+      contenu n'est ni attendu ni signale manquant, et ils ne recoivent pas d'items. Un lot dont un item est scanne
+      a ete ouvert : il est verifie normalement.
     """
     now = timezone.now()
     today = timezone.localdate()
@@ -190,6 +194,24 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         scanned = list(_items_queryset().select_for_update(of=('self',)).filter(iid__in=requested).order_by('iid'))
         scanned_ids = {item.iid for item in scanned}
         unknown = [iid for iid in requested if iid not in scanned_ids]
+
+        # Lots scelles intacts (etiquette du scelle scannee) : eux et leurs sous-lots sont mis de cote
+        intact = []
+        if group is not None:
+            opened_from = {item.location_id for item in scanned if item.location_id}
+            for sealed_lot in sealed:
+                subtree = sealed_lot.descendants()
+                if sealed_lot.is_sealed and not opened_from & {sub_lot.id for sub_lot in subtree}:
+                    intact += [sub_lot for sub_lot in subtree if sub_lot.id not in {done.id for done in intact}]
+        intact_ids = {sub_lot.id for sub_lot in intact}
+        if intact_ids:
+            depths = {sub_lot.id: sub_lot.depth for sub_lot in group}
+            for sub_lot in intact:
+                sub_lot.depth = depths.get(sub_lot.id, sub_lot.depth)
+            group = [sub_lot for sub_lot in group if sub_lot.id not in intact_ids]
+            by_id = {sub_lot.id: sub_lot for sub_lot in group}
+            if scanned and not group:
+                raise ValueError('Items scannés hors des lots scellés : vérifiez aussi le lot qui doit les recevoir')
         scope = Q(location_id__in=list(by_id)) if group is not None else Q(location__isnull=True)
         not_seen = list(
             _items_queryset().select_for_update(of=('self',))
@@ -228,7 +250,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             verified_ids = _complete_lots(group, scanned, not_seen, target, replaced, today)
         else:
             verified_ids = set(by_id)
-        if group is not None and partial and not verified_ids and not scanned:
+        if group is not None and partial and not verified_ids and not scanned and not intact:
             raise ValueError('Rien à valider : aucun item scanné')
         not_seen = [item for item in not_seen if group is None or item.location_id in verified_ids]
 
@@ -338,6 +360,13 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
 
         lots_report = []
         complete = True
+        for sub_lot in intact:
+            # scelle intact constate : le lot (et ses sous-lots) est valide sans etre ouvert
+            lots_report.append({'id': sub_lot.id, 'name': sub_lot.name, 'parent': sub_lot.parent_id,
+                                'depth': sub_lot.depth, 'verified': False, 'sealed': True, 'complete': True,
+                                'restocked': 0})
+            journal.record(OperationKind.VERIF, identity, 'scellé intact constaté pendant une vérif', lot=sub_lot,
+                           at=now, sealed_intact=True)
         for sub_lot in group or []:
             row = {'id': sub_lot.id, 'name': sub_lot.name, 'parent': sub_lot.parent_id, 'depth': sub_lot.depth,
                    'verified': sub_lot.id in verified_ids, 'restocked': restocked.get(sub_lot.id, 0)}
@@ -406,7 +435,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
 
     verified_rows = [row for row in lots_report if row['verified']]
     report['lots'] = lots_report
-    report['partial'] = bool(group) and len(verified_rows) < len(lots_report)
+    report['partial'] = group is not None and any(not row['verified'] and not row.get('sealed') for row in lots_report)
+    report['sealed_lots'] = [row['name'] for row in lots_report if row.get('sealed')]
     report['complete'] = complete
     report['verif_id'] = verifs[None].id if group is None else (verified_rows[0]['verif_id'] if verified_rows else None)
     # exigences des lots verifies (nom du lot precise quand la verif en couvre plusieurs)

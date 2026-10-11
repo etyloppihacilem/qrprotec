@@ -68,6 +68,14 @@ class VerifWindow final : public AppWindow {
           sealed += (sealed.empty() ? "" : ", ") + (*row.lot)["name"].str();
       if (!sealed.empty())
         status_banner("Scellé (" + sealed + ") : valider cette vérif brisera le scellé", colors::orange, 1.0f);
+      // etiquette du scelle scannee : lot scelle compte comme verifie sans etre ouvert (scelle garde)
+      const std::set< std::string > intact = app.verif_intact();
+      std::string                   kept;
+      for (const VerifSealed &lot : verif.sealed)
+        if (intact.count(lot.id) || !app.verif_covers(lot.id))
+          kept += (kept.empty() ? "" : ", ") + lot.name;
+      if (!kept.empty())
+        status_banner("Scellé intact (" + kept + ") : compté comme vérifié, sans l'ouvrir", colors::green, 1.0f);
       if (!verif.key.empty() || (!verif.extras.empty() && app.verif_key_ok()))
         ImGui::TextColored(colors::green, "Étiquette clé scannée : la vérif peut être validée.");
       else if (app.verif_key_ok())
@@ -80,6 +88,7 @@ class VerifWindow final : public AppWindow {
       ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
                          "Scannez aussi les items périmés que vous retirez, puis leurs remplaçants.%s",
                          multi ? "" : " L'étiquette clé d'un autre lot du même lot global l'ajoute à la vérif.");
+      ImGui::TextDisabled("L'étiquette du scellé d'un lot scellé du même lot global le compte comme vérifié sans l'ouvrir.");
 
       std::set< std::string >      scanned;
       std::map< std::string, int > last_scan; // rang du dernier scan de chaque type d'item
@@ -403,12 +412,20 @@ class VerifWindow final : public AppWindow {
                            names.empty() ? "lot" : names.c_str());
       }
       ImGui::Text("%zu item(s) présent(s).", report["present"].size());
+      if (report["sealed_lots"].size() > 0) {
+        std::string names;
+        for (const Json &name : report["sealed_lots"].items())
+          names += (names.empty() ? "" : ", ") + name.str();
+        ImGui::TextColored(colors::green, "✔ Scellé intact, compté comme vérifié : %s.", names.c_str());
+      }
       draw_seal_shortcut(app, report);
       // verif groupee : resultat de chaque lot
       if (several)
         for (const Json &row : report["lots"].items()) {
           ImGui::Indent(row["depth"].integer() * 16.0f + 1.0f);
-          if (!row["verified"].boolean())
+          if (row["sealed"].boolean())
+            ImGui::TextColored(colors::green, "✔ %s : scellé intact", row["name"].str().c_str());
+          else if (!row["verified"].boolean())
             ImGui::TextColored(colors::orange, "↷ %s : non vérifié%s", row["name"].str().c_str(),
                                row["restocked"].integer() > 0
                                  ? (", " + row["restocked"].str() + " item(s) ajouté(s) en réassort").c_str()

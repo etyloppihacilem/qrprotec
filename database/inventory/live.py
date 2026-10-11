@@ -150,7 +150,8 @@ def clean_entries(value):
     sont que des iids : la verif envoyee est controlee par le serveur comme toute autre verif."""
     entries = []
     for entry in (value if isinstance(value, list) else [])[:MAX_ENTRIES]:
-        if not isinstance(entry, dict) or entry.get('kind') not in ('item', 'pack'):
+        # 'seal' : etiquette du scelle d'un lot (iid : id du lot, key : code du scelle), scelle intact
+        if not isinstance(entry, dict) or entry.get('kind') not in ('item', 'pack', 'seal'):
             continue
         info = entry.get('info') if isinstance(entry.get('info'), dict) else None
         items = entry.get('items') if isinstance(entry.get('items'), list) else []
@@ -162,6 +163,7 @@ def clean_entries(value):
             'error': _text(entry.get('error'), 64),
             'items': [_text(iid, 32) for iid in items[:500]],
             'place': _text(entry.get('place'), 16),  # lot de la derniere etiquette scannee avant (assign_items)
+            'key': _text(entry.get('key'), 32) if entry['kind'] == 'seal' else '',
             'info': None if info is None else {
                 'type': _text(info.get('type'), 16), 'type_name': _text(info.get('type_name'), 64),
                 'peremption': _text(info.get('peremption'), 32) or None, 'count': _number(info.get('count')),
@@ -371,7 +373,7 @@ class LiveHub:
         """Enregistre la verif commune comme si son dernier participant l'avait envoyee : scans de tous, cles des lots
         gardees par le serveur, au nom de celui qui a valide (sinon du premier participant). False si impossible."""
         from . import services
-        from .views import verif_lots
+        from .views import sealed_targets, verif_lots
         with self.lock:
             participants = list(session.participants.values())
             entries = [entry for p in participants for entry in p.entries if not entry['error']]
@@ -384,11 +386,13 @@ class LiveHub:
         iids += [iid for entry in entries if entry['kind'] == 'pack' for iid in entry['items']]
         places = {iid: entry['place'] for entry in entries if entry['place']
                   for iid in ([entry['iid']] if entry['kind'] == 'item' else entry['items'])}
-        if not identities or not lots or not iids:
+        sealed = [{'id': entry['iid'], 'code': entry['key']} for entry in entries if entry['kind'] == 'seal']
+        if not identities or not lots or not (iids or sealed):
             return False
         try:
-            report = services.perform_verif(verif_lots(lots, False), iids, identities[0], partial, identities[1:],
-                                            places)
+            targets = verif_lots(lots, False)
+            report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places,
+                                            sealed_targets({'sealed': sealed}, targets))
         except Exception:  # cle expiree, lot archive... : la verif est abandonnee
             with self.lock:
                 session.saving = False
