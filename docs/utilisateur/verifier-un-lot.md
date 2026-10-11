@@ -241,3 +241,11 @@ le scellé** (le poste prévient avant). Après la vérif, un responsable pourra
 | Attendus mais non scannés | Le logiciel les croyait dans le lot | Les chercher ; sinon ils deviendront « disparus » |
 | Retrouvés | Étaient signalés disparus, ils sont revenus | — |
 | Codes inconnus ignorés | Étiquette illisible ou d'un autre système | Réimprimer l'étiquette (rôle gestion) |
+
+## Lot scellé dans le lot vérifié
+
+Pendant la vérif d'un lot global (un VPS) ou de quelques-uns de ses sous-lots, scannez l'**étiquette du
+scellé** d'un lot scellé qu'il contient (un kit accouchement) : le lot est compté comme vérifié, avec
+ses sous-lots, sans l'ouvrir ni scanner son contenu, et son scellé est gardé. Un scellé brisé, l'étiquette
+d'un ancien scellé ou un lot scellé contenant des périmés sont refusés : ouvrez le lot et scannez son
+contenu.

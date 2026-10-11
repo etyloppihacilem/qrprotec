@@ -25,6 +25,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -109,12 +110,21 @@ struct VerifExtra {
     Json        lot; // detail du lot (items attendus, exigences, sous-lots)
 };
 
+// Lot scelle du meme lot global dont l'etiquette du scelle a ete scannee pendant la verif : scelle intact, compte
+// comme verifie avec ses sous-lots sans etre ouvert (services.perform_verif)
+struct VerifSealed {
+    std::string id;
+    std::string code; // code du scelle (preuve du scan)
+    std::string name;
+};
+
 struct VerifSession {
     bool                      active = false;
     std::string               lot_id;
     std::string               key; // cle de l'etiquette privee si scannee
     Json                      lot; // detail du lot (items attendus, exigences, sous-lots)
     std::vector< VerifExtra > extras;
+    std::vector< VerifSealed > sealed;
     std::string               current; // lot de la derniere etiquette scannee : les items du stock y vont
     bool                      loading    = false;
     bool                      submitting = false;
@@ -239,6 +249,7 @@ class App {
     bool                          verif_covers(const std::string &lot_id) const;
     std::string                   verif_title() const; // ex : "Sac de soin + Sac O2"
     std::vector< VerifPlanLot >   plan_verif() const;
+    std::set< std::string >       verif_intact() const; // lots scelles intacts de la verif et leurs sous-lots
     std::vector< const Json * >   partial_verif_lots() const; // lots complets d'une verif groupee incomplete
     void add_stack_to_lot();
     void verif_target_lot();

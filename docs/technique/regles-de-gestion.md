@@ -190,6 +190,12 @@ une étiquette de scellé est imprimée (`seal?lot=…&s=CODE`). Tant que le sce
   `lot_status` de l'application) : état `seal_opened` tant que `verif_recommended` est levé (scellé
   ouvert, réassort), puis `must_seal` (« doit être scellé ») après une vérif complète, jusqu'au
   prochain scellage. Jamais vérifié et incomplet gardent leurs états habituels.
+- **Lot scellé pendant une vérif** : scanner l'étiquette du scellé d'un lot du même lot global pendant
+  une vérif (front web, application, vérif à plusieurs) le compte comme vérifié avec ses sous-lots, sans
+  l'ouvrir : `sealed` [{id, code}] de `POST /api/verifs/` (`views.sealed_targets` contrôle le code du
+  scellé, qui tient lieu de clé). Son contenu n'est ni attendu ni signalé manquant, il ne reçoit pas
+  d'items et son scellé est gardé (`services.perform_verif`, `intactLots` du front web,
+  `App::verif_intact`). Si un de ses items est scanné, le lot a été ouvert : il est vérifié normalement.
 
 ## Paquets fermés
 
