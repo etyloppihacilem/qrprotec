@@ -111,6 +111,18 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
 Une vérif commencée au téléphone apparaît dans le **Suivi des vérifs** dès le premier scan, et y
 reste affichée quelques minutes une fois validée.
 
+## Vérif d'un lot qui a des sous-lots : où va un item ?
+
+- Un item **déjà rangé dans un des lots de la vérif** y reste : on l'a trouvé là.
+- Un item **venu du stock** va dans le dernier lot dont vous avez scanné l'étiquette (publique ou
+  clé), ou dans un de ses sous-lots qui en attend encore. Scannez donc l'étiquette du sous-lot devant
+  lequel vous êtes avant d'y ranger des items du stock. Le sous-lot en cours est rappelé par 📍.
+- Un item **d'un autre sous-lot** (ex : un item de l'armoire 2 pendant la vérif de l'armoire 1) est
+  déplacé dans le lot vérifié. Si vous l'avez trouvé dans l'armoire 2, scannez l'étiquette
+  (publique ou clé) de l'armoire 2 : elle s'ajoute à la vérif, et l'item y reste. Il faut alors
+  l'étiquette clé de l'armoire 2 (ou du lot qui la contient) pour valider.
+- Sans vérif en cours, scanner un item rangé dans un lot commence la vérif de ce lot (téléphone).
+
 ## Vérifier à plusieurs
 
 Plusieurs personnes peuvent faire la même vérif en même temps, chacune avec son téléphone (badge
@@ -118,6 +130,9 @@ demandé pour rejoindre) :
 
 - depuis le **Suivi des vérifs**, **👥 Rejoindre cette vérif** sur une vérif en cours ;
 - ou depuis le scanner : si quelqu'un vérifie déjà le même lot, un bandeau propose **Rejoindre**.
+
+Si vous rejoignez une vérif de plusieurs sous-lots sans avoir rien scanné, le bandeau demande où vous
+êtes : choisissez le sous-lot, ou scannez son étiquette.
 
 Les scans de chacun s'ajoutent à la vérif commune : tout le monde voit les mêmes items « À scanner »,
 et l'onglet **Scannés** indique qui a scanné quoi. Un petit bandeau 👥 sous les informations liste
