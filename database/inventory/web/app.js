@@ -509,7 +509,7 @@
     const entry = { code: scan.code, kind: 'item', iid: scan.id, expired, info: null, error: '', place: state.lot ? currentPlace() : '' };
     state.scanned.push(entry);
     if (expired) feedback.bad(); else feedback.good();
-    showInfo(expired ? 'bad' : 'ok', expired ? 'PÉRIMÉ' : 'Item scanné', scan.id,
+    showInfo(expired ? 'bad' : 'ok', expired ? 'PÉRIMÉ' : 'Item scanné',
       scan.peremption ? 'Péremption : ' + fmtDate(scan.peremption) : 'Non périssable');
     render();
     try {
@@ -552,8 +552,7 @@
     showInfo(entry.expired ? 'bad' : status ? 'warn' : 'ok',
       (entry.expired ? 'PÉRIMÉ – ' : '') + info.type_name,
       info.peremption ? 'Péremption : ' + fmtDate(info.peremption) : 'Non périssable',
-      where + (status ? ' · ' + status : ''),
-      info.iid);
+      where + (status ? ' · ' + status : ''));
   }
 
   async function scanPack(scan) {
