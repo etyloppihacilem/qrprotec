@@ -1984,6 +1984,7 @@
     let sent = '';
     let join = '';
     let joined = !!(session && session.joined); // vérif rejointe : connexion gardee meme sans scan de notre part
+    let solo = false;   // « Quitter » : la nouvelle vérif n'est pas fusionnee avec celle du meme lot
     let answer = null;  // validation en attente de la reponse du serveur
 
     function store() {
@@ -2005,7 +2006,7 @@
       const current = new WebSocket(socketUrl('ws/live/scanner'));
       socket = current;
       current.onopen = () => {
-        send({ type: 'hello', ...(session || {}), ...(join ? { join } : {}), ...who() });
+        send({ type: 'hello', ...(session || {}), ...(join ? { join } : {}), ...(solo && !session ? { solo } : {}), ...who() });
         clearInterval(ping);
         ping = setInterval(() => send({ type: 'ping' }), PING_MS);
       };
@@ -2013,7 +2014,15 @@
         let message;
         try { message = JSON.parse(event.data); } catch (e) { return; }
         if (message.type === 'hello') {
-          if (!session || session.id !== message.id) { team = null; if (!join) joined = false; } // vérif expiree
+          if (!session || session.id !== message.id) { team = null; if (!join && !message.merged) joined = false; } // vérif expiree
+          // une vérif etait deja en cours sur le meme lot global : les deux sont fusionnees en une vérif commune
+          if (message.merged) {
+            joined = true;
+            feedback.info();
+            showInfo('lot', `👥 Vérif commune avec ${message.who || 'un autre secouriste'}`,
+              'Une vérif était déjà en cours sur ce lot : vos scans s\'y ajoutent automatiquement.');
+          }
+          solo = false;
           session = { id: message.id, pid: message.pid, token: message.token };
           if (join) joined = true;
           join = '';
@@ -2102,6 +2111,7 @@
         team = null;
         join = '';
         joined = false;
+        solo = true;
         store();
         sent = '';
         if (pending) restart(); else stop();
