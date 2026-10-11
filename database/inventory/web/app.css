@@ -221,6 +221,72 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .list.tree li.group-lot { border-left: 5px solid #8a8f94; color: var(--muted); }
 .list.tree li.current { background: var(--blue-bg); }
 
+/* ---- Page d'accueil (plein ecran) : connexion, quatre entrees, sous-pages lots / suivi / stocks ---- */
+#home { display: none; }
+body.home-mode #home { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); }
+body.home-mode #camera, body.home-mode #panel { display: none; }
+body.home-mode #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
+#home-bar { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
+  background: var(--dark); color: #fff; }
+#home-bar h1 { flex: 1; margin: 0; font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-buttons { display: flex; gap: 8px; align-items: center; }
+.bar-button { background: rgba(255, 255, 255, .12); color: #fff; padding: 6px 12px; font-size: 1.1rem; line-height: 1.2; }
+.bar-button[hidden] { display: none; }
+.login-button { background: var(--orange); color: #fff; font-weight: 600; padding: 7px 14px; border-radius: 999px;
+  max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.login-button.ok { background: rgba(31, 143, 58, .9); }
+#home-pages { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.home-page { display: none; }
+.home-page.active { display: block; }
+.home-page.page { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px 14px 8px; max-width: 560px; margin: 0 auto; }
+.tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 30dvh;
+  max-height: 220px; padding: 14px 8px; border-radius: 16px; background: var(--panel); box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+  text-align: center; }
+.tile b { font-size: 1.05rem; }
+.tile small { color: var(--muted); font-size: .8rem; }
+.tile .tile-icon { font-size: 2.2rem; line-height: 1.1; }
+.tile[data-go="scan"] { background: var(--green); color: #fff; }
+.tile[data-go="scan"] small { color: rgba(255, 255, 255, .9); }
+.tile.disabled { opacity: .45; filter: grayscale(1); }
+.home-hint { max-width: 560px; margin: 8px auto; padding: 0 16px; }
+.home-page .list li .tag { flex: none; }
+a.field, button.field { color: var(--blue); text-decoration: underline; background: none; padding: 0; font: inherit; cursor: pointer; }
+
+/* Lecteur de badge : petite camera dans un coin de l'accueil */
+#reader-close { display: none; }
+body.home-mode.login-reader #camera { display: block; position: fixed; z-index: 40; right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom)); width: min(42vw, 180px); height: auto; aspect-ratio: 3 / 4;
+  border-radius: 14px; box-shadow: 0 4px 18px rgba(0, 0, 0, .4); outline: 3px solid var(--orange); }
+body.home-mode.login-reader #camera.hit { outline-color: #4ade80; }
+body.home-mode.login-reader #topbar { display: none; }
+body.home-mode.login-reader #viewfinder span { width: 60%; box-shadow: none; border-width: 2px; }
+body.home-mode.login-reader #scan-hint { font-size: .78rem; bottom: 6px; }
+body.home-mode.login-reader #start { padding: 6px; }
+body.home-mode.login-reader #start > p:first-child { display: none; }
+body.home-mode.login-reader #start .big { font-size: .85rem; padding: 8px 10px; }
+body.home-mode.login-reader #camera-error { font-size: .72rem; }
+body.home-mode.login-reader #reader-close { display: block; position: absolute; top: 6px; right: 6px; z-index: 2;
+  background: rgba(0, 0, 0, .6); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: .9rem; }
+body.home-mode.login-reader #toast { bottom: calc(24px + min(56vw, 240px) + env(safe-area-inset-bottom)); }
+
+/* Suivi des verifs */
+.live-status { font-size: .8rem; color: var(--muted); font-weight: normal; }
+.live-status i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; background: #aaa; }
+.live-status.on i { background: var(--green); animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+.live-card { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-left: 6px solid var(--blue);
+  border-radius: 10px; background: var(--panel); }
+.live-card.ok { border-left-color: var(--green); }
+.live-card.bad { border-left-color: var(--red); }
+.live-card.lost { border-left-color: #8a8f94; opacity: .75; }
+.live-card .name { font-weight: 600; }
+.live-card .sub { color: var(--muted); font-size: .8rem; }
+.live-card .req { margin: 4px 0; }
+.live-card ul { list-style: none; margin: 4px 0 0; padding: 0; font-size: .82rem; }
+.live-card li { display: flex; gap: 6px; align-items: center; padding: 1px 0; }
+.live-card li.expired, .live-card li.error { color: var(--red); }
+
 /* ---- Fiche d'un lot ou d'un item (page d'arrivee d'une etiquette, sans camera) ---- */
 body.fiche-open #camera, body.fiche-open #panel { display: none; }
 body.fiche-open #toast { bottom: calc(90px + env(safe-area-inset-bottom)); }

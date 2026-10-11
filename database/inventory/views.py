@@ -374,6 +374,8 @@ def auth(request):
     verify_pin(user, request.data)
     data = ser.user_dict(user)
     data['session'] = session_token(user)
+    # reglages des notifications web affiches seulement si l'utilisateur peut en recevoir
+    data['notifications'] = bool(user.push_types()) and webpush.available()
     return Response(data)
 
 
@@ -559,6 +561,44 @@ def verifs(request):
     return Response(report)
 
 
+RECENT_VERIFS = 30
+
+
+@api_view(['POST'])
+@handle_errors
+def verifs_recent(request):
+    """Dernieres verifs de lots (page « Suivi des vérifs ») : tout badge valide. Une verif groupee (meme instant,
+    meme personne) forme une seule ligne avec la liste de ses lots."""
+    badge_user(request)
+    limit = parse_int(request.data.get('limit', RECENT_VERIFS), 'limit', 1, 100)
+    rows = []
+    for verif in Verifs.objects.select_related('lot').filter(lot__isnull=False).order_by('-datetime', '-id')[:limit * 5]:
+        last = rows[-1] if rows else None
+        if last and last['_key'] == (verif.datetime, verif.by):
+            last['lots'].append({'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete})
+            last['complete'] = last['complete'] and verif.complete
+            last['present'] += verif.present_count
+            last['missing'] += verif.missing_count
+            last['expired'] += verif.expired_count
+            continue
+        if len(rows) >= limit:
+            break
+        rows.append({
+            '_key': (verif.datetime, verif.by),
+            'id': verif.id,
+            'at': ser._date(verif.datetime),
+            'by': ser._who(verif.by),
+            'lots': [{'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete}],
+            'complete': verif.complete,
+            'present': verif.present_count,
+            'missing': verif.missing_count,
+            'expired': verif.expired_count,
+        })
+    for row in rows:
+        del row['_key']
+    return Response(rows)
+
+
 @api_view(['POST'])
 @handle_errors
 def items_out(request):
@@ -580,9 +620,11 @@ def lot_add_items(request, lot_id):
 @api_view(['POST'])
 @handle_errors
 def lots_summary(request):
-    """Liste des lots actifs et de leur etat (lecture seule) pour choisir un lot a verifier.
-    Tout badge valide ; les cles des lots ne sont jamais renvoyees."""
-    badge_user(request)
+    """Liste des lots actifs et de leur etat (lecture seule) : page « État des lots » et choix d'un lot a verifier.
+    Publique comme le detail d'un lot (etiquettes publiques) ; un badge envoye doit etre valide. Les cles des lots
+    ne sont jamais renvoyees."""
+    if request.data.get('user') is not None:
+        badge_user(request)
     today = timezone.localdate()
     queryset = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     return Response(ser.lot_list(queryset, today=today))

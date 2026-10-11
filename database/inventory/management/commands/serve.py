@@ -24,7 +24,8 @@ doit porter une cle de front (`manage.py frontkey add NOM`, en-tete X-QRProtec-K
 boucle locale et doit etre exposee par le reverse proxy HTTPS (voir packaging/files/qrprotec.caddyfile).
 
 Cette commande gere aussi les WebSockets du telephone-douchette (/ws/scanner/..., voir
-inventory/remote_scanner.py) : le reverse proxy doit transmettre les en-tetes Upgrade/Connection.
+inventory/remote_scanner.py) et du suivi des verifs en direct (/ws/live/..., voir inventory/live.py) : le
+reverse proxy doit transmettre les en-tetes Upgrade/Connection.
 """
 
 import ipaddress
@@ -42,6 +43,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.core.servers.basehttp import WSGIRequestHandler, WSGIServer, get_internal_wsgi_application
 
 from inventory.middleware import RoleWSGIHandler, local_access_error, authenticate_front, remote_client_address
+from inventory.live import hub as live_hub
 from inventory.remote_scanner import RECEIVE_TIMEOUT, WebSocket, accept_key, hub
 
 CERT_DIR = Path(settings.BASE_DIR) / '.dev-certs'
@@ -116,7 +118,8 @@ def tls_server_class(cert, key):
 
 
 class QRProtecRequestHandler(WSGIRequestHandler):
-    """Requetes HTTP ordinaires, plus les WebSockets du telephone-douchette (/ws/scanner/phone et /front)."""
+    """Requetes HTTP ordinaires, plus les WebSockets du telephone-douchette (/ws/scanner/phone et /front) et du
+    suivi des verifs en direct (/ws/live/scanner et /watch, authentifies par leur premier message)."""
 
     def handle_one_request(self):
         self.raw_requestline = self.rfile.readline(65537)
@@ -151,7 +154,10 @@ class QRProtecRequestHandler(WSGIRequestHandler):
         key = self.headers.get('Sec-WebSocket-Key', '')
         if not key:
             return self.refuse(400, 'Sec-WebSocket-Key manquant')
-        if path == '/ws/scanner/phone':
+        session = None
+        if path in ('/ws/live/scanner', '/ws/live/watch'):
+            pass
+        elif path == '/ws/scanner/phone':
             session = hub.check_key(params.get('s', ''), params.get('k', ''))
             if session is None:
                 return self.refuse(404, 'Session inconnue ou fermee : scannez un nouveau QR code')
@@ -181,7 +187,11 @@ class QRProtecRequestHandler(WSGIRequestHandler):
         self.connection.settimeout(RECEIVE_TIMEOUT)
         websocket = WebSocket(self.rfile, self.wfile, self.connection)
         try:
-            if path == '/ws/scanner/phone':
+            if path == '/ws/live/scanner':
+                live_hub.run_scanner(websocket)
+            elif path == '/ws/live/watch':
+                live_hub.run_watcher(websocket)
+            elif path == '/ws/scanner/phone':
                 hub.run_phone(session, websocket, self.headers.get('User-Agent', ''))
             else:
                 hub.run_front(session, websocket)

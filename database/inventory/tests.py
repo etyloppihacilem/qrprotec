@@ -779,13 +779,21 @@ class RoleTests(ApiTestCase):
         self.assertEqual(code, 403)
         code, _ = self.call('POST', '/api/stock/summary/', {}, local=False)
         self.assertEqual(code, 403)
-        # liste des lots : tout badge valide, sans les cles
+        # liste des lots : publique (page « État des lots »), sans les cles ; un badge envoye doit etre valide
         code, lots = self.call('POST', '/api/lots/summary/', {'user': self.badge(self.user)}, local=False)
         self.assertEqual(code, 200)
         self.assertEqual(lots[0]['id'], self.lot.id)
         self.assertNotIn('verif_key', lots[0])
+        code, lots = self.call('POST', '/api/lots/summary/', {}, local=False)
+        self.assertEqual((code, lots[0]['id']), (200, self.lot.id))
+        self.assertNotIn('verif_key', lots[0])
         code, _ = self.call('POST', '/api/lots/summary/', {'user': {'matricule': 'M001', 'key': 'faux'}}, local=False)
         self.assertEqual(code, 403)
+        # reglages des notifications web : seulement pour qui peut en recevoir
+        code, body = self.call('POST', '/api/auth/', self.badge(gestion), local=False)
+        self.assertTrue(body['notifications'])
+        code, body = self.call('POST', '/api/auth/', self.badge(self.user), local=False)
+        self.assertFalse(body['notifications'])
         # changement de role, et ancien champ privileged = admin
         code, body = self.call('PATCH', '/api/users/M001/', {'role': 'admin'})
         self.assertEqual(body['role'], 'admin')
@@ -1689,6 +1697,175 @@ class RemoteScannerTests(TestCase):
         self.assertEqual(self.hub.reap(session.phone_lost + 61), [session_id])
         self.assertEqual(front.receive()['type'], 'closed')
         self.assertEqual(self.ws('public', f'/ws/scanner/phone?s={session_id}&k={key}').status, 404)
+
+
+class RecentVerifsTests(ApiTestCase):
+    def test_recent_verifs_need_a_badge_and_group_lots(self):
+        sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
+        sub.save()
+        items = self.create(self.compresses, self.today + timedelta(days=200), 4)
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in items[:2]]})
+        self.call('POST', f'/api/lots/{sub.id}/add/', {'items': [item.iid for item in items[2:]]})
+        self.call('POST', '/api/verifs/', {'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items]})
+        self.call('POST', f'/api/lots/{sub.id}/verif/', {'items': [items[2].iid]})
+        code, _ = self.call('POST', '/api/verifs/recent/', {}, local=False)
+        self.assertEqual(code, 403)
+        badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
+        code, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(len(rows), 2)
+        latest, grouped = rows
+        self.assertEqual([lot['id'] for lot in latest['lots']], [sub.id])
+        self.assertFalse(latest['complete'])
+        # verif groupee (lot et sous-lot au meme instant) : une seule ligne
+        self.assertEqual({lot['id'] for lot in grouped['lots']}, {self.lot.id, sub.id})
+        self.assertEqual(grouped['present'], 4)
+        self.assertEqual(grouped['by'], 'Admin')  # nom court de l'API publique (prenom seul, pas d'homonyme)
+
+    def test_live_names_are_anonymized(self):
+        from .live import public_name
+        Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')
+        self.assertEqual(public_name('M:M001'), 'Jeanne Dup.')
+        self.assertEqual(public_name('D:Paul Martin'), 'Paul M.')
+
+
+class FakeSocket:
+    """WebSocket factice pour LiveHub : messages a recevoir (file), messages envoyes (liste)."""
+
+    def __init__(self, *incoming):
+        import queue
+        self.incoming = queue.Queue()
+        for message in incoming:
+            self.push(message)
+        self.sent = []
+        self.closed = False
+
+    def push(self, message):
+        self.incoming.put(json.dumps(message) if message is not None else None)
+
+    def receive(self):
+        from .remote_scanner import WebSocketClosed
+        message = self.incoming.get(timeout=5)
+        if message is None:
+            raise WebSocketClosed('fin')
+        return message
+
+    def send_json(self, message):
+        self.sent.append(message)
+        return True
+
+    def close(self, code=1000):
+        self.closed = True
+
+
+class LiveHubTests(ApiTestCase):
+    """Suivi des vérifs en direct : publication par la page de scan, diffusion aux pages de suivi."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        from . import live
+        self.live = live
+        self.hub = live.LiveHub()
+        # les connexions tournent dans des threads : le badge est verifie sans la base de test
+        users = {self.user.matricule: self.user.new_key}
+        patcher = mock.patch.object(live, 'badge_identity', side_effect=lambda credentials: (
+            f'M:{credentials["matricule"]}' if isinstance(credentials, dict)
+            and users.get(credentials.get('matricule')) == credentials.get('key') else None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        names = mock.patch.object(live, 'public_name', side_effect=lambda identity: 'Jeanne' if identity == 'M:M001'
+                                  else identity.partition(':')[2])
+        names.start()
+        self.addCleanup(names.stop)
+        self.badge = {'matricule': 'M001', 'key': self.user.new_key}
+
+    def run_socket(self, target, socket):
+        import threading
+        thread = threading.Thread(target=target, args=(socket,), daemon=True)
+        thread.start()
+        return thread
+
+    def wait(self, condition):
+        import time
+        for _ in range(200):
+            if condition():
+                return
+            time.sleep(0.01)
+        self.fail('condition jamais remplie')
+
+    def test_watcher_needs_a_badge(self):
+        socket = FakeSocket({'type': 'hello', 'user': {'matricule': 'M001', 'key': 'faux'}})
+        self.hub.run_watcher(socket)
+        self.assertEqual(socket.sent[0]['type'], 'error')
+        self.assertTrue(socket.sent[0]['login_required'])
+        self.assertFalse(self.hub.watchers)
+
+    def test_scans_are_relayed_live_then_done(self):
+        watcher = FakeSocket({'type': 'hello', 'user': self.badge})
+        watching = self.run_socket(self.hub.run_watcher, watcher)
+        self.wait(lambda: watcher.sent)
+        self.assertEqual(watcher.sent[0], {'type': 'snapshot', 'sessions': []})
+        scanner = FakeSocket({'type': 'hello', 'user': self.badge})
+        scanning = self.run_socket(self.hub.run_scanner, scanner)
+        self.wait(lambda: scanner.sent)
+        hello = scanner.sent[0]
+        self.assertEqual(hello['type'], 'hello')
+        scanner.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'lots': [],
+                      'scanned': [{'name': 'Compresses', 'expired': True}], 'count': 1, 'remaining': 1})
+        self.wait(lambda: any(m['type'] == 'update' for m in watcher.sent))
+        update = next(m for m in watcher.sent if m['type'] == 'update')['session']
+        self.assertEqual(update['who'], 'Jeanne')
+        self.assertTrue(update['verified'])
+        self.assertTrue(update['connected'])
+        self.assertEqual(update['lot'], {'id': self.lot.id, 'name': 'Sac A'})
+        self.assertEqual(update['scanned'], [{'name': 'Compresses', 'expired': True, 'error': False, 'extra': False}])
+        self.assertNotIn('token', update)
+        scanner.push({'type': 'done', 'complete': True, 'present': 2})
+        self.wait(lambda: watcher.sent[-1]['type'] == 'update' and watcher.sent[-1]['session']['done'])
+        self.assertEqual(watcher.sent[-1]['session']['done']['present'], 2)
+        # page de scan fermee : la verif terminee reste affichee DONE_KEEP, puis disparait
+        scanner.push(None)
+        scanning.join(5)
+        session = self.hub.sessions[hello['id']]
+        self.assertEqual(self.hub.reap(session.lost + 60), [])
+        self.assertEqual(self.hub.reap(session.lost + self.live.DONE_KEEP + 1), [hello['id']])
+        self.wait(lambda: watcher.sent[-1] == {'type': 'remove', 'id': hello['id']})
+        watcher.push(None)
+        watching.join(5)
+        self.assertFalse(self.hub.watchers)
+
+    def test_reload_resumes_the_session(self):
+        first = FakeSocket({'type': 'hello', 'name': 'Paul Martin'})
+        thread = self.run_socket(self.hub.run_scanner, first)
+        self.wait(lambda: first.sent)
+        hello = first.sent[0]
+        first.push(None)
+        thread.join(5)
+        second = FakeSocket({'type': 'hello', 'id': hello['id'], 'token': hello['token'], 'name': 'Paul Martin'})
+        thread = self.run_socket(self.hub.run_scanner, second)
+        self.wait(lambda: second.sent)
+        self.assertEqual(second.sent[0]['id'], hello['id'])
+        session = self.hub.sessions[hello['id']]
+        self.assertEqual((session.who, session.verified), ('Paul Martin', False))
+        # mauvais jeton : nouvelle session
+        third = FakeSocket({'type': 'hello', 'id': hello['id'], 'token': 'faux'})
+        other = self.run_socket(self.hub.run_scanner, third)
+        self.wait(lambda: third.sent)
+        self.assertNotEqual(third.sent[0]['id'], hello['id'])
+        for socket, running in ((second, thread), (third, other)):
+            socket.push(None)
+            running.join(5)
+
+    def test_state_is_bounded(self):
+        state = self.live.clean_state({'lot': {'id': 'x' * 50, 'name': 'n' * 500}, 'count': -3, 'remaining': 'a',
+                                       'scanned': [{'name': 'i'}] * 1000, 'lots': ['a'] * 100})
+        self.assertEqual(len(state['lot']['id']), 16)
+        self.assertEqual(len(state['lot']['name']), 64)
+        self.assertEqual((state['count'], state['remaining']), (0, 0))
+        self.assertEqual(len(state['scanned']), self.live.MAX_SCANNED)
+        self.assertEqual(len(state['lots']), 20)
+        self.assertIsNone(self.live.clean_state({'lot': None}))
 
 
 class RawWebSocket:

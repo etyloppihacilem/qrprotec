@@ -58,9 +58,24 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   (`POST api/verifs/` avec les clés), `addToLot` (réassort), `showReport` (compte rendu).
 - **Connexion** : `login` (`POST api/auth/`, PIN via `askPin`), jeton de session conservé pour les
   lectures réservées.
-- **Accueil** (`renderHome`) : liste des lots et accès à la douchette du poste ; **Stock**
-  (`renderStock`) pour les rôles gestion/admin ; **gestionnaire des notifications** (menu > Notifications, `renderNotifications`) pour les rôles
-  gestion/admin : activation sur cet appareil, puis alertes et retrait de chacun de ses appareils.
+- **Page d'accueil** (`#home`, `showHome`/`renderHomePage`) : plein écran, affichée à l'ouverture
+  de `/` et après le scan d'une carte (`badge?m=...`). Bouton **Se connecter** qui ouvre un petit
+  lecteur de badge dans un coin (`openReader` : la caméra en vignette ; un autre code que le badge
+  ouvre le scanner), et quatre tuiles : **Scanner** (`enterScanner`, l'écran de vérif, caméra
+  démarrée), **Suivi des vérifs** (`renderLive`), **État des lots** (`renderLotsPage`, liste publique
+  `POST api/lots/summary/`), **État des stocks** (`stockParts`, badge gestion/admin, grisée sinon).
+  Chaque page a son ancre (`#lots`, `#suivi`, `#stock`, `#scan`) : le bouton retour du téléphone
+  ramène à l'accueil. Le bouton ⚙ (**gestionnaire des notifications**, `renderNotifications`)
+  n'apparaît que pour les utilisateurs qui peuvent recevoir des notifications (`notifications` dans
+  la réponse de `api/auth/`).
+- **Suivi des vérifs en direct** : `live` publie la vérif en cours de la page de scan (lot, scans,
+  reste à scanner) sur `/ws/live/scanner`, avec une session conservée dans `sessionStorage` pour
+  survivre à un rechargement ; la page de suivi ouvre `/ws/live/watch` (badge exigé) et reçoit les
+  mises à jour, puis l'historique par `POST api/verifs/recent/`. Voir `inventory/live.py`.
+- **Lampe et vibreur** : la lampe (🔦) n'est proposée que si la caméra l'expose (Chrome Android ;
+  ni Safari iOS ni Firefox ne la donnent aux pages web) et se rallume quand la caméra redémarre.
+  Le vibreur utilise `navigator.vibrate` (Android) ; sur iPhone, à défaut, le retour haptique d'un
+  interrupteur `<input switch>` (iOS 18+, au mieux : Safari peut l'ignorer hors d'un toucher).
 
 Toutes les écritures passent par l'**API publique** : la vérif exige la clé du lot (étiquette
 privée) et un badge.

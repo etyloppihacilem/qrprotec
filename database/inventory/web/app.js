@@ -35,7 +35,7 @@
     tab: 'todo',
     busy: false,
     lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
-    lots: null,        // liste des lots (accueil), chargee avec le badge
+    lots: null,        // liste des lots (page « État des lots »)
     showStorage: false, // rangements du stock dans la liste des lots (masques par defaut)
     stock: null,       // etat des stocks, roles gestion et admin uniquement
     forecast: null,    // previsions de stock (meme acces que l'etat des stocks)
@@ -43,6 +43,8 @@
     stockFull: false,  // onglet Stock en plein ecran (camera masquee)
     pinReset: null,    // {matricule, token} : deblocage du PIN d'un utilisateur, en attente d'un admin connecte
     loading: '',       // 'lots' ou 'stock' pendant un chargement
+    homePage: 'menu',  // page affichee : 'menu', 'lots', 'live', 'stock' (accueil) ou 'scan' (scanner)
+    homeForecast: false, // page « État des stocks » de l'accueil : previsions plutot que l'etat actuel
     push: null,        // notifications web de ce navigateur (admins) : {subscribed, stock_low, stock_empty, ...}
     pushBusy: false,
     pushEndpoint: '', // abonnement de ce navigateur (pour le reperer dans la liste)
@@ -221,7 +223,19 @@
     node.className = kind;
   }
 
-  function vibrate(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
+  // Vibreur : API Vibration (Android). Safari iOS ne l'a pas : a partir d'iOS 18, basculer un interrupteur
+  // (<input type="checkbox" switch>) donne un retour haptique, utilise ici a defaut (best effort).
+  let haptic = null;
+  function vibrate(pattern) {
+    if (navigator.vibrate) { navigator.vibrate(pattern); return; }
+    if (!haptic) {
+      const input = el('input', { type: 'checkbox', switch: '' });
+      haptic = el('label', { 'aria-hidden': 'true', style: 'display:none' }, input);
+      document.body.append(haptic);
+    }
+    const pulses = Array.isArray(pattern) ? Math.ceil(pattern.length / 2) : 1;
+    for (let i = 0; i < pulses; i++) setTimeout(() => haptic.click(), i * 180);
+  }
 
   const feedback = {
     good() { tone(1320, 0, 0.08, 'sine', 0.2); vibrate(40); flash('good'); },
@@ -263,6 +277,7 @@
   let opening = null;       // ouverture en cours (getUserMedia peut prendre plusieurs secondes)
   let lastCode = '';
   let lastCodeTime = 0;
+  let torchWanted = false;  // lampe torche (Chrome Android ; Safari iOS et Firefox ne la proposent pas aux pages web)
 
   // Jamais de camera ouverte quand la page est cachee, et une seule ouverture a la fois : sur Firefox
   // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
@@ -328,6 +343,10 @@
     const track = stream.getVideoTracks()[0];
     const capabilities = track.getCapabilities ? track.getCapabilities() : {};
     $('#torch').hidden = !capabilities.torch;
+    // lampe allumee avant une coupure de la camera (ecran eteint, retour sur la page) : rallumee
+    if (capabilities.torch && torchWanted) {
+      track.applyConstraints({ advanced: [{ torch: true }] }).then(() => $('#torch').classList.add('on')).catch(() => {});
+    }
     $('#start').hidden = true;
     requestWakeLock();
     scanLoop(media);
@@ -404,7 +423,7 @@
   try { setCameraMini(localStorage.getItem(STORAGE_CAM_MINI) === '1'); } catch (e) { /* stockage indisponible */ }
   $('#cam-mini').addEventListener('click', () => setCameraMini(true));
   $('#camera').addEventListener('click', (event) => {
-    if (!document.body.classList.contains('cam-mini')) return;
+    if (!document.body.classList.contains('cam-mini') || document.body.classList.contains('home-mode')) return;
     event.preventDefault();
     event.stopPropagation();
     setCameraMini(false);
@@ -415,6 +434,7 @@
     const on = !$('#torch').classList.contains('on');
     try {
       await track.applyConstraints({ advanced: [{ torch: on }] });
+      torchWanted = on;
       $('#torch').classList.toggle('on', on);
     } catch (e) { toast('Lampe indisponible', true); }
   });
@@ -436,6 +456,8 @@
     unlockAudio();
     if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
     const scan = parseCode(raw);
+    // petit lecteur de l'accueil : un badge connecte et l'on reste sur l'accueil, tout autre code ouvre le scanner
+    if (readerOpen() && scan.kind !== 'user') enterScanner(false);
     switch (scan.kind) {
       case 'item': return scanItem(scan);
       case 'lot': return scanLot(scan);
@@ -890,6 +912,8 @@
       render();
       loadLots();
       if (canSeeStock()) loadStock();
+      live.identity();
+      afterLogin();
       if (state.pinReset) openPinReset();
       if (state.pendingOpening) signOpening();
     } catch (e) {
@@ -1104,6 +1128,7 @@
       state.lastVerif = { lotId: state.lot.id, at: new Date().toISOString(), complete: report.complete,
                           present: report.present.length, partial: report.partial,
                           lots: (report.lots || []).filter((row) => row.verified).length };
+      live.done(report);
       showReport(report);
       await loadLot(state.lot.id);
       showLotInfo();
@@ -1264,17 +1289,12 @@
       showInfo('empty', "Scannez l'étiquette d'un lot.");
       save(); render();
     }
-    if (action === 'logout') {
-      state.user = null;
-      toast('Déconnecté.');
-      save(); render();
-    }
+    if (action === 'logout') logout();
   });
 
   $('#user-chip').addEventListener('click', () => {
     if (state.user && confirm(`Déconnecter ${state.user.prenom} ${state.user.nom} ?`)) {
-      state.user = null;
-      save(); render();
+      logout();
     } else if (declared()) {
       if (confirm(`Oublier le nom « ${state.declaredName} » ? Scannez votre badge pour vous identifier.`)) {
         state.declaredName = '';
@@ -1550,16 +1570,130 @@
   }
 
   // ------------------------------------------------------------------------------------------------
-  // Accueil : connexion, liste des lots pour lancer une verif, telephone-douchette ; onglet Stock
+  // Page d'accueil : connexion (petit lecteur de badge dans un coin), Scanner, Suivi des vérifs, État des lots,
+  // État des stocks. Chaque page a son ancre (#lots, #suivi, #stock, #scan) : le bouton retour du telephone
+  // revient a l'accueil, et un rechargement rouvre la meme page.
 
   const badge = () => ({ matricule: state.user.matricule, key: state.user.key, session: state.user.session });
+  const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock' };
+  const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'État des stocks' };
+  // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
+  const hasNotifications = () => !!state.user && (state.user.notifications !== undefined ? !!state.user.notifications : canSeeStock());
+
+  let pendingAfterLogin = '';  // page a ouvrir une fois le badge scanne dans le petit lecteur
+
+  const inHome = () => document.body.classList.contains('home-mode');
+  const readerOpen = () => inHome() && document.body.classList.contains('login-reader');
+
+  function pageFromHash(hash) {
+    const name = (hash || '').replace(/^#/, '');
+    if (name === 'scan') return 'scan';
+    return Object.keys(HOME_PAGES).find((page) => HOME_PAGES[page] === name) || 'menu';
+  }
+
+  // Ouvre une page de l'accueil. push : nouvelle entree d'historique (le bouton retour y ramene)
+  function showHome(page = 'menu', push = true) {
+    if (push) history.pushState(null, '', new URL(HOME_PAGES[page] ? '#' + HOME_PAGES[page] : './', document.baseURI).href);
+    if (ficheOpen()) closeFiche();
+    state.homePage = page;
+    if (!readerOpen()) { cameraWanted = false; syncCamera(); }
+    setStockFull(false);
+    document.body.classList.add('home-mode');
+    if (page === 'lots' && !state.lots && state.loading !== 'lots') loadLots();
+    if (page === 'stock' && canSeeStock() && !state.stock && state.loading !== 'stock') loadStock();
+    if (page === 'live') watchStart(); else watchStop();
+    renderHomePage();
+    $('#home-pages').scrollTop = 0;
+  }
+
+  // Scanner : l'ecran de vérif habituel, camera demarree (le geste de l'utilisateur debloque aussi le son)
+  function enterScanner(start = true, push = true) {
+    if (push) history.pushState(null, '', new URL('./#scan', document.baseURI).href);
+    watchStop();
+    if (ficheOpen()) closeFiche();
+    document.body.classList.remove('home-mode', 'login-reader');
+    state.homePage = 'scan';
+    if (start) startCamera();
+    if (state.lotId && !state.lot) loadLot(state.lotId).then(() => { if (state.lot) showLotInfo(); });
+    render();
+  }
+
+  function openReader(after = '') {
+    pendingAfterLogin = after;
+    document.body.classList.add('login-reader');
+    $('#scan-hint').textContent = 'Scannez votre badge';
+    startCamera();
+    renderHomePage();
+  }
+
+  function closeReader() {
+    pendingAfterLogin = '';
+    document.body.classList.remove('login-reader');
+    if (inHome()) { cameraWanted = false; syncCamera(); }
+    renderHomePage();
+  }
+  $('#reader-close').addEventListener('click', (event) => { event.stopPropagation(); closeReader(); });
+
+  // Badge scanne : le petit lecteur se ferme et la page demandee s'ouvre. La carte scannee hors de l'appli
+  // (badge?m=...) ou dans le scanner sans vérif en cours mene aussi a l'accueil.
+  function afterLogin() {
+    const next = pendingAfterLogin;
+    if (readerOpen()) closeReader();
+    if (next === 'stock' && !canSeeStock()) toast("L'état des stocks est réservé aux rôles gestion et admin.", true);
+    if (next) showHome(next === 'stock' && !canSeeStock() ? 'menu' : next);
+    else if (!inHome() && !verifInProgress() && !state.pendingOpening && !state.pinReset) showHome('menu');
+    else if (inHome()) showHome(state.homePage || 'menu', false);
+  }
+
+  function logout() {
+    state.user = null;
+    toast('Déconnecté.');
+    save();
+    live.identity();
+    if (inHome() && (state.homePage === 'live' || state.homePage === 'stock')) showHome('menu', false);
+    render();
+  }
+
+  $('#home-user').addEventListener('click', () => {
+    if (state.user) {
+      if (confirm(`Déconnecter ${state.user.prenom} ${state.user.nom} ?`)) logout();
+    } else if (readerOpen()) closeReader();
+    else openReader();
+  });
+  $('#home-settings').addEventListener('click', openNotifications);
+  $('#home-back').addEventListener('click', () => history.back());
+  $('#go-home').addEventListener('click', (event) => { event.stopPropagation(); showHome('menu'); });
+  document.querySelectorAll('.tile').forEach((tile) => tile.addEventListener('click', () => {
+    const page = tile.dataset.go;
+    if (page === 'scan') { enterScanner(); return; }
+    if (page === 'live' && !state.user) { openReader('live'); toast('Scannez votre badge pour suivre les vérifs.'); return; }
+    if (page === 'stock' && !state.user) { openReader('stock'); toast('Scannez votre badge pour voir les stocks.'); return; }
+    if (page === 'stock' && !canSeeStock()) { toast("L'état des stocks est réservé aux rôles gestion et admin.", true); return; }
+    showHome(page);
+  }));
+  // bouton retour du telephone : l'adresse dit quoi afficher (fiche d'un lot ou d'un item, lecteur, page de l'accueil)
+  window.addEventListener('popstate', () => {
+    const route = location.pathname.replace(/\/+$/, '').split('/').pop();
+    const params = new URLSearchParams(location.search);
+    if (route === 'verif' && params.get('lot')) { openFiche('lot', params.get('lot'), { push: false }); return; }
+    if (route === 'item' && IID_RE.test(params.get('id') || '')) { openFiche('item', params.get('id'), { push: false }); return; }
+    closeFiche();
+    const page = route === 'verif' ? 'scan' : pageFromHash(location.hash);
+    if (page === 'scan') enterScanner(true, false);
+    else showHome(page, false);
+  });
+
+  // Page d'un lot (depuis l'etat des lots ou le suivi) : sa fiche
+  function openLot(id) {
+    openFiche('lot', id);
+  }
 
   async function loadLots() {
-    if (!state.user) return;
     state.loading = 'lots';
     render();
     try {
-      state.lots = await api('lots/summary/', { user: badge() });
+      // liste publique ; le badge, s'il y en a un, est verifie
+      state.lots = await api('lots/summary/', state.user ? { user: badge() } : {});
     } catch (e) {
       toast('Lots : ' + e.message, true);
       if (e.status === 403) { state.user = null; save(); }
@@ -1589,7 +1723,7 @@
     }
   }
 
-  async function chooseLot(id) {
+  async function chooseLot(id, tab = 'todo') {
     if (state.lotId !== id) {
       if (state.scanned.length && !confirm('Changer de lot ? Les items déjà scannés restent dans la liste.')) return;
       state.lotKey = '';
@@ -1598,59 +1732,327 @@
     }
     await loadLot(id);
     if (!state.lot) return;
+    if (inHome()) enterScanner(false);
     showLotInfo();
-    switchTab('todo');
+    switchTab(tab);
   }
 
-  function renderHome() {
-    const view = $('#home-view');
-    const user = state.user;
-    const parts = [];
-    parts.push(el('h3', {}, 'Connexion'));
-    if (user) {
-      parts.push(el('p', {}, `👤 ${user.prenom} ${user.nom} · ${ROLE_LABELS[user.role] || (user.privileged ? 'Gestion' : 'Secouriste')}`));
-    } else {
-      parts.push(el('p', {}, 'Scannez votre badge avec la caméra pour afficher la liste des lots.'));
-    }
+  function renderHomePage() {
+    const page = state.homePage || 'menu';
+    document.querySelectorAll('.home-page').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
+    $('#home-title').textContent = HOME_TITLES[page] || 'QRProtec';
+    $('#home-back').hidden = page === 'menu';
+    $('#home-settings').hidden = !hasNotifications();
+    const userButton = $('#home-user');
+    userButton.textContent = state.user ? `👤 ${state.user.prenom}` : readerOpen() ? 'Annuler' : 'Se connecter';
+    userButton.classList.toggle('ok', !!state.user);
+    const stockTile = $('#tile-stock');
+    stockTile.classList.toggle('disabled', !!state.user && !canSeeStock());
+    stockTile.setAttribute('aria-disabled', String(!!state.user && !canSeeStock()));
+    $('#tile-stock-sub').textContent = !state.user ? 'Connexion requise' : canSeeStock() ? 'Stock et prévisions'
+      : 'Réservé gestion et admin';
+    if (page === 'lots') renderLotsPage();
+    if (page === 'live') renderLive();
+  }
 
-    const head = el('div', { class: 'row-head' }, el('h3', {}, 'Commencer une vérif'),
-      user ? el('button', { type: 'button', onclick: loadLots }, state.loading === 'lots' ? 'Chargement…' : 'Actualiser') : '');
-    parts.push(head);
-    if (!user) {
-      parts.push(el('p', { class: 'hint' }, "Sans badge : scannez directement l'étiquette du lot."));
-    } else if (!state.lots) {
+  function renderLotsPage() {
+    const view = $('#home-lots');
+    const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'Lots'),
+      el('button', { type: 'button', onclick: loadLots }, state.loading === 'lots' ? 'Chargement…' : 'Actualiser'))];
+    if (!state.lots) {
       parts.push(el('p', { class: 'hint' }, state.loading === 'lots' ? 'Chargement des lots…' : 'Liste non chargée.'));
-    } else {
-      parts.push(el('p', { class: 'hint' }, "Touchez un lot pour afficher ce qu'il faut scanner (un lot global se vérifie avec ses sous-lots). Pour valider, scannez son étiquette privée."));
-      const tags = { ok: 'green', warn: 'orange', bad: 'red' };
-      parts.push(el('label', { class: 'check' },
-        el('input', { type: 'checkbox', checked: state.showStorage ? '' : null,
-          onchange: (event) => { state.showStorage = event.target.checked; render(); } }),
-        'Afficher les rangements du stock'));
-      // rangements du stock masques par defaut (sauf le lot en cours)
-      const lots = state.lots.filter((lot) => state.showStorage || !lot.storage || lot.id === state.lotId);
-      parts.push(el('ul', { class: 'list' }, ...lots.map((lot) => {
-        // lot global : son etat est celui de l'ensemble de ses lots
-        const top = !lot.depth && lot.global;
-        const status = top ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot);
-        const verif = top ? lot.global.last_verif : lot.last_verif;
-        return el('li', { class: status.kind, style: lot.depth ? `padding-left:${12 + lot.depth * 16}px` : null,
-          onclick: () => chooseLot(lot.id) },
-          el('div', { class: 'main' },
-            el('div', { class: 'name' }, (lot.depth ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
-            el('div', { class: 'sub' }, `${lot.lot_type_name}${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : `
-              + (verif ? fmtDateTime(verif) : 'jamais'))),
-          el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]));
-      })));
+      view.replaceChildren(...parts);
+      return;
+    }
+    parts.push(el('p', { class: 'hint' }, "Touchez un lot pour l'ouvrir. Un lot global affiche l'état de l'ensemble de ses sous-lots."));
+    parts.push(el('label', { class: 'check' },
+      el('input', { type: 'checkbox', checked: state.showStorage ? '' : null,
+        onchange: (event) => { state.showStorage = event.target.checked; renderLotsPage(); } }),
+      'Afficher les rangements du stock'));
+    const tags = { ok: 'green', warn: 'orange', bad: 'red' };
+    // rangements du stock masques par defaut (sauf le lot en cours)
+    const lots = state.lots.filter((lot) => state.showStorage || !lot.storage || lot.id === state.lotId);
+    parts.push(el('ul', { class: 'list' }, ...lots.map((lot) => {
+      // lot global : son etat est celui de l'ensemble de ses lots
+      const top = !lot.depth && lot.global;
+      const status = top ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot);
+      const verif = top ? lot.global.last_verif : lot.last_verif;
+      return el('li', { class: status.kind, style: lot.depth ? `padding-left:${12 + lot.depth * 16}px` : null,
+        onclick: () => openLot(lot.id) },
+        el('div', { class: 'main' },
+          el('div', { class: 'name' }, (lot.depth ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
+          el('div', { class: 'sub' }, `${lot.lot_type_name}${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : `
+            + (verif ? fmtDateTime(verif) : 'jamais'))),
+        el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]));
+    })));
+    view.replaceChildren(...parts);
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // Suivi des vérifs en direct : la page de scan publie sa vérif en cours (WebSocket /ws/live/scanner), les
+  // pages de suivi la recoivent en direct (/ws/live/watch, badge exige). Les vérifs passees viennent de l'API.
+
+  function socketUrl(path) {
+    const url = new URL(path, document.baseURI);
+    url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url;
+  }
+
+  const PING_MS = 15000;
+
+  // Publication de la vérif en cours (page de scan). La session survit a un rechargement de l'onglet.
+  const live = (() => {
+    const STORAGE_LIVE = 'qrprotec.live';
+    let session = null;
+    try { session = JSON.parse(sessionStorage.getItem(STORAGE_LIVE) || 'null'); } catch (e) { session = null; }
+    let socket = null;
+    let ready = false;
+    let wanted = false;
+    let retry = 0;
+    let ping = 0;
+    let timer = 0;
+    let pending = null;
+    let sent = '';
+
+    function store() {
+      try {
+        if (session) sessionStorage.setItem(STORAGE_LIVE, JSON.stringify(session));
+        else sessionStorage.removeItem(STORAGE_LIVE);
+      } catch (e) { /* stockage indisponible */ }
     }
 
-    parts.push(el('h3', {}, 'Douchette du poste'));
-    parts.push(el('p', {}, 'Ce téléphone peut servir de douchette au poste : sur le poste, menu Douchette > Téléphone comme douchette > '
-      + '« Créer une session », puis scannez le QR code affiché avec cette caméra.'));
+    const who = () => (state.user ? { user: { matricule: state.user.matricule, key: state.user.key } }
+      : declared() ? { name: state.declaredName } : {});
 
-    if (canSeeStock()) {
-      parts.push(el('h3', {}, 'État des stocks'));
-      parts.push(el('button', { type: 'button', onclick: () => { switchTab('stock'); loadStock(); } }, 'Voir l\'état des stocks'));
+    function send(message) {
+      if (socket && socket.readyState === WebSocket.OPEN) socket.send(typeof message === 'string' ? message : JSON.stringify(message));
+    }
+
+    function connect() {
+      if (socket || !('WebSocket' in window)) return;
+      const current = new WebSocket(socketUrl('ws/live/scanner'));
+      socket = current;
+      current.onopen = () => {
+        send({ type: 'hello', ...(session || {}), ...who() });
+        clearInterval(ping);
+        ping = setInterval(() => send({ type: 'ping' }), PING_MS);
+      };
+      current.onmessage = (event) => {
+        let message;
+        try { message = JSON.parse(event.data); } catch (e) { return; }
+        if (message.type === 'hello') {
+          session = { id: message.id, token: message.token };
+          store();
+          ready = true;
+          retry = 0;
+          sent = '';
+          flush();
+        }
+      };
+      current.onclose = () => {
+        if (socket !== current) return;
+        clearInterval(ping);
+        socket = null;
+        ready = false;
+        if (wanted) setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++));
+      };
+    }
+
+    function flush() {
+      if (!ready) return;
+      const text = JSON.stringify(pending ? { type: 'state', ...pending } : { type: 'cancel' });
+      if (text === sent) return;
+      sent = text;
+      send(text);
+      if (!pending) stop();
+    }
+
+    function stop() {
+      wanted = false;
+      if (socket) { const current = socket; socket = null; ready = false; clearInterval(ping); current.close(); }
+    }
+
+    return {
+      // snapshot : etat de la vérif en cours, null s'il n'y en a pas
+      publish(snapshot) {
+        pending = snapshot;
+        if (snapshot) { wanted = true; connect(); }
+        clearTimeout(timer);
+        timer = setTimeout(flush, 300);
+      },
+      // vérif validee : affichee comme terminee chez ceux qui suivent, la suivante sera une nouvelle session
+      done(report) {
+        if (ready) {
+          send({ type: 'done', complete: !!report.complete, partial: !!report.partial, present: (report.present || []).length });
+        }
+        pending = null;
+        session = null;
+        store();
+        stop();
+      },
+      identity() { if (ready) send({ type: 'identity', ...who() }); },
+    };
+  })();
+
+  // Etat publie : lot, lots de la vérif groupee, items scannes (nom, perime, inconnu, nouveau), reste a scanner
+  function liveSnapshot(remaining) {
+    if (!state.lot || !state.scanned.length) return null;
+    const expected = knownIids();
+    return {
+      lot: { id: state.lot.id, name: state.lot.name },
+      lots: sessionLots().filter((lot) => lot.id !== state.lot.id && ((lot.requirements || []).length || (lot.items || []).length))
+        .map((lot) => lot.name),
+      scanned: state.scanned.map((entry) => ({
+        name: entry.kind === 'pack' && entry.info ? `Paquet : ${entry.info.count} × ${entry.info.type_name}`
+          : (entry.info && entry.info.type_name) || entry.iid || 'code inconnu',
+        expired: !!entry.expired,
+        error: !!entry.error,
+        extra: entry.kind === 'item' && !expected.has(entry.iid),
+      })),
+      count: scannedIids().size,
+      remaining,
+    };
+  }
+
+  // Page de suivi
+  const watch = { socket: null, active: false, connected: false, sessions: new Map(), error: '', retry: 0, ping: 0,
+    tick: 0, recent: null, recentLoading: false, open: new Set() };
+
+  function watchStart() {
+    if (!state.user) { renderLive(); return; }
+    watch.active = true;
+    watchConnect();
+    loadRecent();
+    clearInterval(watch.tick);
+    watch.tick = setInterval(renderLive, 15000); // « il y a 2 min »
+  }
+
+  function watchStop() {
+    watch.active = false;
+    clearInterval(watch.tick);
+    if (watch.socket) { const current = watch.socket; watch.socket = null; current.close(); }
+    clearInterval(watch.ping);
+    watch.connected = false;
+  }
+
+  function watchConnect() {
+    if (watch.socket || !watch.active || !state.user || !('WebSocket' in window)) return;
+    const current = new WebSocket(socketUrl('ws/live/watch'));
+    watch.socket = current;
+    current.onopen = () => {
+      current.send(JSON.stringify({ type: 'hello', user: { matricule: state.user.matricule, key: state.user.key } }));
+      clearInterval(watch.ping);
+      watch.ping = setInterval(() => { if (current.readyState === WebSocket.OPEN) current.send('{"type":"ping"}'); }, PING_MS);
+    };
+    current.onmessage = (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch (e) { return; }
+      if (message.type === 'snapshot') {
+        watch.connected = true;
+        watch.retry = 0;
+        watch.error = '';
+        watch.sessions = new Map(message.sessions.map((row) => [row.id, row]));
+      } else if (message.type === 'update') {
+        const before = watch.sessions.get(message.session.id);
+        watch.sessions.set(message.session.id, message.session);
+        if (message.session.done && !(before && before.done)) loadRecent(); // vérif validee : historique a jour
+      } else if (message.type === 'remove') {
+        watch.sessions.delete(message.id);
+      } else if (message.type === 'error') {
+        watch.error = message.message;
+        if (message.login_required) watch.active = false;
+      }
+      renderLive();
+    };
+    current.onclose = () => {
+      if (watch.socket !== current) return;
+      clearInterval(watch.ping);
+      watch.socket = null;
+      watch.connected = false;
+      renderLive();
+      if (watch.active) setTimeout(watchConnect, Math.min(30000, 1000 * 2 ** watch.retry++));
+    };
+  }
+
+  async function loadRecent() {
+    if (!state.user) return;
+    watch.recentLoading = true;
+    renderLive();
+    try {
+      watch.recent = await api('verifs/recent/', { user: badge() });
+    } catch (e) {
+      toast('Vérifs récentes : ' + e.message, true);
+    } finally {
+      watch.recentLoading = false;
+      renderLive();
+    }
+  }
+
+  function ago(value) {
+    const seconds = Math.max(0, (Date.now() - new Date(value)) / 1000);
+    if (seconds < 60) return "à l'instant";
+    if (seconds < 3600) return `il y a ${Math.round(seconds / 60)} min`;
+    return fmtDateTime(value);
+  }
+
+  const timeOf = (value) => new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+
+  function liveCard(row) {
+    const done = row.done;
+    const kind = done ? (done.complete ? 'ok' : 'bad') : row.connected ? '' : 'lost';
+    const lot = row.lot || { id: '', name: '?' };
+    const status = done
+      ? `${done.complete ? '✔' : done.partial ? '↷' : '✘'} Validée à ${timeOf(done.at)} : ${done.complete ? 'complet' : done.partial ? 'vérif partielle' : 'incomplet'}, ${done.present} présent(s)`
+      : row.connected ? `En cours · dernier scan ${ago(row.updated)}` : `Connexion perdue ${ago(row.updated)}`;
+    const open = watch.open.has(row.id);
+    const shown = open ? [...row.scanned].reverse() : row.scanned.slice(-4).reverse();
+    return el('div', { class: 'live-card ' + kind },
+      el('div', { class: 'name' }, '📦 ', lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
+      el('div', { class: 'sub' }, `${row.who || 'Non identifié'}${row.who && !row.verified ? ' (nom déclaré)' : ''} · `
+        + `commencée à ${timeOf(row.started)}`),
+      el('div', { class: 'sub' }, status),
+      done ? null : requirementRow('Scannés', row.count, row.count + row.remaining),
+      row.scanned.length ? el('ul', {}, shown.map((item) => el('li', { class: item.error ? 'error' : item.expired ? 'expired' : '' },
+        item.name, item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
+        item.error ? el('span', { class: 'tag red' }, 'INCONNU') : null,
+        item.extra ? el('span', { class: 'tag blue' }, 'nouveau') : null))) : null,
+      row.scanned.length > 4 ? el('button', { type: 'button', class: 'text-link', onclick: () => {
+        if (open) watch.open.delete(row.id); else watch.open.add(row.id);
+        renderLive();
+      } }, open ? 'Réduire' : `Voir les ${row.scanned.length} scans`) : null);
+  }
+
+  function renderLive() {
+    const view = $('#home-live');
+    if (!view || state.homePage !== 'live') return;
+    if (!state.user) {
+      view.replaceChildren(
+        el('p', {}, 'Scannez votre badge pour suivre les vérifs en direct et voir les dernières vérifs.'),
+        el('button', { type: 'button', class: 'primary', onclick: () => openReader('live') }, 'Se connecter'));
+      return;
+    }
+    const parts = [el('div', { class: 'row-head' },
+      el('h3', {}, 'En direct ', el('span', { class: 'live-status' + (watch.connected ? ' on' : '') }, el('i'),
+        watch.connected ? 'connecté' : watch.active ? 'connexion…' : 'hors ligne')))];
+    if (watch.error) parts.push(el('p', { class: 'error' }, watch.error));
+    const rows = [...watch.sessions.values()].sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0)
+      || (a.updated < b.updated ? 1 : -1));
+    if (!rows.length) parts.push(el('p', { class: 'hint' }, 'Aucune vérif en cours. Les scans apparaissent ici en direct.'));
+    parts.push(...rows.map(liveCard));
+    parts.push(el('div', { class: 'row-head' }, el('h3', {}, 'Vérifs récentes'),
+      el('button', { type: 'button', onclick: loadRecent }, watch.recentLoading ? 'Chargement…' : 'Actualiser')));
+    if (!watch.recent) {
+      parts.push(el('p', { class: 'hint' }, watch.recentLoading ? 'Chargement…' : 'Liste non chargée.'));
+    } else if (!watch.recent.length) {
+      parts.push(el('p', { class: 'hint' }, 'Aucune vérif enregistrée.'));
+    } else {
+      parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad' },
+        el('div', { class: 'main' },
+          el('div', { class: 'name' }, ...row.lots.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)])),
+          el('div', { class: 'sub' }, `${fmtDateTime(row.at)} · ${row.by || '?'} · ${row.present} présent(s)`
+            + (row.missing ? ` · ${row.missing} manquant(s)` : '') + (row.expired ? ` · ${row.expired} périmé(s)` : ''))),
+        el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
     }
     view.replaceChildren(...parts);
   }
@@ -1846,7 +2248,7 @@
         if (params.get('m') && params.get('t')) startPinReset(params.get('m'), params.get('t'));
         return;
       }
-      if (event.data && event.data.tab === 'stock' && canSeeStock()) { switchTab('stock'); loadStock(); }
+      if (event.data && event.data.tab === 'stock' && canSeeStock()) { showHome('stock'); loadStock(); }
     });
     if (navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
   }
@@ -2028,26 +2430,29 @@
     }
   }
 
-  function renderStock() {
-    const view = $('#stock-view');
-    if (!canSeeStock()) {
-      view.replaceChildren(el('p', {}, 'Réservé aux rôles gestion et admin : scannez votre badge.'));
-      return;
-    }
+  // Etat des stocks : onglet Stock du scanner (forecast : plein ecran, camera masquee) et page de l'accueil
+  function stockParts(forecastMode, home) {
+    if (!canSeeStock()) return [el('p', {}, 'Réservé aux rôles gestion et admin : scannez votre badge.')];
+    const toggle = home
+      ? el('div', { class: 'segmented', role: 'group', 'aria-label': 'Vue' },
+        el('button', { type: 'button', class: forecastMode ? '' : 'active', onclick: () => { state.homeForecast = false; renderStock(); } }, 'État actuel'),
+        el('button', { type: 'button', class: forecastMode ? 'active' : '', onclick: () => { state.homeForecast = true; renderStock(); } }, 'Prévisions'))
+      : null;
     const head = el('div', { class: 'row-head' },
-      el('h3', {}, state.stockFull ? 'Stock à venir' : 'État des stocks (lecture seule)'),
+      el('h3', {}, forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
       el('div', { class: 'buttons' },
         el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser'),
-        el('button', { type: 'button', onclick: () => setStockFull(!state.stockFull) },
+        home ? null : el('button', { type: 'button', onclick: () => setStockFull(!state.stockFull) },
           state.stockFull ? '⤡ Scanner' : '⤢ Prévisions')));
-    const parts = [head];
-    if (state.stockFull) {
+    const parts = [toggle, head];
+    if (forecastMode) {
       renderForecast(parts);
-      view.replaceChildren(...parts);
-      return;
+      return parts;
     }
-    parts.push(el('p', { class: 'hint' }, 'Alertes de stock sur votre téléphone : ',
-      el('button', { type: 'button', class: 'text-link', onclick: openNotifications }, 'Notifications')));
+    if (hasNotifications()) {
+      parts.push(el('p', { class: 'hint' }, 'Alertes de stock sur votre téléphone : ',
+        el('button', { type: 'button', class: 'text-link', onclick: openNotifications }, 'Notifications')));
+    }
     if (!state.stock) {
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
     } else {
@@ -2065,7 +2470,12 @@
           el('div', { class: 'sub hint' }, details.join(' · '))));
       }
     }
-    view.replaceChildren(...parts);
+    return parts;
+  }
+
+  function renderStock() {
+    $('#stock-view').replaceChildren(...stockParts(state.stockFull, false).filter(Boolean));
+    $('#home-stock').replaceChildren(...stockParts(!!state.homeForecast, true).filter(Boolean));
   }
 
   // Items scannes sans etiquette de lot : le bouton de vérif devient « Sortir du stock »
@@ -2074,14 +2484,15 @@
   }
 
   function render() {
-    $('#count-todo').textContent = renderTodo();
+    const remaining = renderTodo();
+    $('#count-todo').textContent = remaining;
     $('#count-done').textContent = renderDone();
     renderLot();
-    if (!state.user) { state.lots = null; state.stock = null; state.push = null; state.pushDevices = null; }
-    renderHome();
+    if (!state.user) { state.stock = null; state.push = null; state.pushDevices = null; }
+    renderHomePage();
     $('#tab-stock').hidden = !canSeeStock();
-    $('#menu-notifications').hidden = !canSeeStock();
-    if (state.tab === 'stock' && !canSeeStock()) switchTab('home');
+    $('#menu-notifications').hidden = !hasNotifications();
+    if (state.tab === 'stock' && !canSeeStock()) switchTab('todo');
     renderStock();
     const chip = $('#user-chip');
     chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}`
@@ -2109,7 +2520,8 @@
     validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
       : out ? `Sortir ${scannedIids().size} item(s) du stock` : restock ? 'Vérif complète…'
         : missing.length ? 'Valider la vérif…' : 'Valider la vérif';
-    $('#scan-hint').textContent = out ? "Scannez l'étiquette d'un lot pour une vérif, ou sortez ces items du stock"
+    live.publish(liveSnapshot(remaining));
+    $('#scan-hint').textContent = readerOpen() ? 'Scannez votre badge' : out ? "Scannez l'étiquette d'un lot pour une vérif, ou sortez ces items du stock"
       : !state.lot ? "Visez l'étiquette d'un lot ou un item"
       : !hasIdentity() ? (state.declaredAllowed ? 'Scannez votre badge (ou touchez « Non connecté ») pour pouvoir valider'
         : 'Scannez votre badge pour pouvoir valider')
@@ -2162,6 +2574,9 @@
     if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id));
     $('#fiche').hidden = false;
     document.body.classList.add('fiche-open');
+    document.body.classList.remove('home-mode', 'login-reader');
+    state.homePage = 'scan';
+    watchStop();
     syncCamera();
     renderFiche();
     $('#fiche-body').scrollTop = 0;
@@ -2240,20 +2655,12 @@
   $('#fiche-add').addEventListener('click', addFicheItem);
   $('#fiche-back').addEventListener('click', () => {
     if (history.state && history.state.inApp) history.back();
-    else { closeFiche(); switchTab(state.lot ? 'todo' : 'home'); }
+    else if (state.lot) { closeFiche(); enterScanner(true); switchTab('todo'); }
+    else { closeFiche(); showHome('menu'); }
   });
   $('#fiche-home').addEventListener('click', () => {
     closeFiche();
-    history.pushState({ inApp: true }, '', 'verif');
-    switchTab('home');
-  });
-  // bouton retour du telephone : l'adresse dit quelle fiche afficher (ou le lecteur)
-  window.addEventListener('popstate', () => {
-    const route = location.pathname.replace(/\/+$/, '').split('/').pop();
-    const params = new URLSearchParams(location.search);
-    if (route === 'verif' && params.get('lot')) openFiche('lot', params.get('lot'), { push: false });
-    else if (route === 'item' && IID_RE.test(params.get('id') || '')) openFiche('item', params.get('id'), { push: false });
-    else closeFiche();
+    showHome('menu');
   });
 
   function renderFiche() {
@@ -2399,6 +2806,9 @@
     const params = new URLSearchParams(location.search);
     // on retire la cle de la barre d'adresse (historique, partage d'ecran)
     const cleanUrl = (lot) => history.replaceState(null, '', lot ? `verif?lot=${encodeURIComponent(lot)}` : 'verif');
+    // etiquette scannee avec l'appareil photo : ecran de scan (sans demarrer la camera, il faut un geste)
+    const qrRoute = ['verif', 'seal', 'unseal', 'pinreset', 'item', 'pack'].includes(route) && [...params.keys()].length > 0;
+    if (qrRoute) { document.body.classList.remove('home-mode'); state.homePage = 'scan'; }
     if (route === 'verif' && params.get('lot')) {
       // etiquette publique ou privee d'un lot : fiche du lot, « Lancer une vérif » ouvre le lecteur (la cle est
       // gardee pour cet onglet, retiree de l'adresse)
@@ -2407,9 +2817,10 @@
       if (state.lotId) await loadLot(state.lotId); // vérif en cours (rejointe si c'est un lot du meme lot global)
       await openFiche('lot', id, { key: params.get('key') || '', push: false });
     } else if (route === 'badge' && params.get('m')) {
-      cleanUrl(state.lotId);
+      // carte scannee : page d'accueil
+      history.replaceState(null, '', './');
+      showHome('menu', false);
       await login(params.get('m'), params.get('key') || '');
-      if (state.lotId) await loadLot(state.lotId);
     } else if (route === 'seal' && params.get('lot') && params.get('s')) {
       await scanSeal({ kind: 'seal', code: location.href, id: params.get('lot'), key: params.get('s') });
       cleanUrl(params.get('lot'));
@@ -2430,19 +2841,18 @@
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);
       await scanPack({ kind: 'pack', code: location.href, id: params.get('id') });
-    } else if (state.lotId) {
-      await loadLot(state.lotId);
-      showLotInfo();
+    } else if (route === 'verif') {
+      // lecteur (adresse du lecteur ouvert depuis une fiche), rechargement compris
+      enterScanner(false, false);
+    } else {
+      // page d'accueil, ou la page de son ancre (#stock : depuis une notification de stock, #scan : scanner)
+      const page = pageFromHash(location.hash);
+      if (page === 'scan') enterScanner(false, false);
+      else showHome(page === 'stock' && !canSeeStock() ? 'menu' : page, false);
     }
     if (state.expiredSession && !state.lot) toast('Vérif précédente oubliée : plus de 20 minutes sans activité.');
-    // page d'accueil quand aucun lot n'est en cours ; #stock : ouverture depuis une notification de stock
-    if (location.hash === '#stock' && canSeeStock()) switchTab('stock');
-    else if (!state.lot) switchTab('home');
     render();
-    if (state.user) {
-      loadLots();
-      if (canSeeStock()) loadStock();
-    }
+    if (state.user && canSeeStock()) loadStock();
   }
 
   boot();
