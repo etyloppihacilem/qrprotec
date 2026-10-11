@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("inventory", "0019_lot_key_location"),
+        ("inventory", "0021_etiquette_cle"),
     ]
 
     operations = [
