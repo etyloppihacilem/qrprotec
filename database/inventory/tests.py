@@ -1858,14 +1858,14 @@ class LiveHubTests(ApiTestCase):
         self.live = live
         self.hub = live.LiveHub()
         # les connexions tournent dans des threads : le badge est verifie sans la base de test
-        users = {self.user.matricule: self.user.new_key}
+        self.users = users = {self.user.matricule: self.user.new_key}
         patcher = mock.patch.object(live, 'badge_identity', side_effect=lambda credentials: (
             f'M:{credentials["matricule"]}' if isinstance(credentials, dict)
             and users.get(credentials.get('matricule')) == credentials.get('key') else None))
         patcher.start()
         self.addCleanup(patcher.stop)
-        names = mock.patch.object(live, 'public_name', side_effect=lambda identity: 'Jeanne' if identity == 'M:M001'
-                                  else identity.partition(':')[2])
+        names = mock.patch.object(live, 'public_name', side_effect=lambda identity: {'M:M001': 'Jeanne', 'M:M002': 'Paul'}
+                                  .get(identity, identity.partition(':')[2]))
         names.start()
         self.addCleanup(names.stop)
         self.badge = {'matricule': 'M001', 'key': self.user.new_key}
@@ -1932,20 +1932,113 @@ class LiveHubTests(ApiTestCase):
         hello = first.sent[0]
         first.push(None)
         thread.join(5)
-        second = FakeSocket({'type': 'hello', 'id': hello['id'], 'token': hello['token'], 'name': 'Paul Martin'})
+        second = FakeSocket({'type': 'hello', 'id': hello['id'], 'pid': hello['pid'], 'token': hello['token'],
+                             'name': 'Paul Martin'})
         thread = self.run_socket(self.hub.run_scanner, second)
         self.wait(lambda: second.sent)
-        self.assertEqual(second.sent[0]['id'], hello['id'])
-        session = self.hub.sessions[hello['id']]
-        self.assertEqual((session.who, session.verified), ('Paul Martin', False))
+        self.assertEqual((second.sent[0]['id'], second.sent[0]['pid']), (hello['id'], hello['pid']))
+        participant = self.hub.sessions[hello['id']].participants[hello['pid']]
+        self.assertEqual((participant.who, participant.verified, participant.identity),
+                         ('Paul Martin', False, 'D:Paul Martin'))
         # mauvais jeton : nouvelle session
-        third = FakeSocket({'type': 'hello', 'id': hello['id'], 'token': 'faux'})
+        third = FakeSocket({'type': 'hello', 'id': hello['id'], 'pid': hello['pid'], 'token': 'faux'})
         other = self.run_socket(self.hub.run_scanner, third)
         self.wait(lambda: third.sent)
         self.assertNotEqual(third.sent[0]['id'], hello['id'])
         for socket, running in ((second, thread), (third, other)):
             socket.push(None)
             running.join(5)
+
+    def join_team(self):
+        """Jeanne commence la verif du lot, Paul (badge) la rejoint depuis la page de suivi."""
+        from .models import Secouristes
+        paul = Secouristes(matricule='M002', nom='Martin', prenom='Paul')
+        paul.renew_key()
+        paul.save()
+        self.users['M002'] = paul.new_key
+        self.paul = {'matricule': 'M002', 'key': paul.new_key}
+        items = self.create(self.compresses, self.today + timedelta(days=200), 2)
+        first = FakeSocket({'type': 'hello', 'user': self.badge})
+        self.run_socket(self.hub.run_scanner, first)
+        self.wait(lambda: first.sent)
+        hello = first.sent[0]
+        entry = {'code': items[0].iid, 'kind': 'item', 'iid': items[0].iid, 'info': {'type_name': 'Compresses'}}
+        first.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id,
+                    'scanned': [{'name': 'Compresses'}], 'count': 1, 'remaining': 1, 'entries': [entry],
+                    'keys': [{'id': self.lot.id, 'key': self.lot.verif_key}]})
+        self.wait(lambda: self.hub.sessions[hello['id']].state)
+        # nom declare : on ne rejoint pas une verif
+        stranger = FakeSocket({'type': 'hello', 'join': hello['id'], 'name': 'Inconnu'})
+        self.hub.run_scanner(stranger)
+        self.assertEqual(stranger.sent[0]['type'], 'error')
+        second = FakeSocket({'type': 'hello', 'join': hello['id'], 'user': self.paul})
+        self.run_socket(self.hub.run_scanner, second)
+        self.wait(lambda: any(m['type'] == 'team' for m in second.sent))
+        joined = second.sent[0]
+        self.assertEqual(joined['id'], hello['id'])
+        team = next(m for m in second.sent if m['type'] == 'team')
+        self.assertEqual(team['lots'], [self.lot.id])
+        self.assertEqual(team['keyed'], [self.lot.id])
+        self.assertNotIn(self.lot.verif_key, json.dumps(second.sent))  # la cle reste sur le serveur
+        self.assertEqual([e['iid'] for e in team['entries']], [items[0].iid])
+        self.assertEqual(team['entries'][0]['who'], 'Jeanne')
+        self.assertEqual([p['who'] for p in team['participants']], ['Jeanne', 'Paul'])
+        second.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id,
+                     'entries': [{'code': items[1].iid, 'kind': 'item', 'iid': items[1].iid}], 'count': 2})
+        self.wait(lambda: any(m['type'] == 'team' and m['entries'] for m in first.sent))
+        self.wait(lambda: any(m['type'] == 'team' and len(m['participants']) == 2 and m['entries']
+                              and m['entries'][-1]['iid'] == items[1].iid for m in first.sent))
+        return first, second, hello, joined, items
+
+    def test_team_check_is_sent_by_the_last_participant(self):
+        from unittest import mock
+        first, second, hello, joined, items = self.join_team()
+        public = self.hub.visible()[0]
+        self.assertEqual([p['who'] for p in public['participants']], ['Jeanne', 'Paul'])
+        # Jeanne valide sa partie : Paul est encore connecte, rien n'est envoye
+        first.push({'type': 'validate'})
+        self.wait(lambda: any(m['type'] == 'validate' for m in first.sent))
+        answer = next(m for m in first.sent if m['type'] == 'validate')
+        self.assertEqual(answer, {'type': 'validate', 'submit': False, 'waiting': ['Paul']})
+        # Paul valide en dernier : c'est lui qui envoie la verif, sans la cle du lot
+        second.push({'type': 'validate'})
+        self.wait(lambda: any(m['type'] == 'validate' for m in second.sent))
+        self.assertTrue(next(m for m in second.sent if m['type'] == 'validate')['submit'])
+        with mock.patch.object(self.live, 'hub', self.hub):
+            code, report = self.call('POST', '/api/verifs/', {
+                'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items], 'user': self.paul,
+                'live': {'id': joined['id'], 'pid': joined['pid'], 'token': joined['token']}}, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertTrue(report['complete'])
+        self.assertEqual(report['participants'], ['Paul', 'Jeanne'])
+        verif = Verifs.objects.get(lot=self.lot)
+        self.assertEqual((verif.by, verif.participants), ('M:M002', ['M:M001']))
+        # le compte rendu arrive chez Jeanne, la verif est terminee pour le suivi
+        self.wait(lambda: any(m['type'] == 'report' for m in first.sent))
+        self.assertTrue(next(m for m in first.sent if m['type'] == 'report')['report']['complete'])
+        self.assertFalse(any(m['type'] == 'report' for m in second.sent))
+        self.assertTrue(self.hub.sessions[hello['id']].done['complete'])
+        code, rows = self.call('POST', '/api/verifs/recent/', {'user': self.badge}, local=False)
+        self.assertEqual((rows[0]['by'], rows[0]['participants']), ('Paul', ['Jeanne']))
+        for socket in (first, second):
+            socket.push(None)
+
+    def test_validated_participant_sends_once_the_others_left(self):
+        first, second, hello, joined, items = self.join_team()
+        first.push({'type': 'validate', 'partial': True})
+        self.wait(lambda: any(m['type'] == 'validate' for m in first.sent))
+        second.push(None)  # Paul ferme la page sans valider
+        session = self.hub.sessions[hello['id']]
+        paul = session.participants[joined['pid']]
+        self.wait(lambda: paul.socket is None)
+        self.hub.reap(paul.lost + 1)  # encore dans le delai
+        self.assertFalse(any(m['type'] == 'submit' for m in first.sent))
+        self.hub.reap(paul.lost + self.live.GRACE + 1)
+        self.assertEqual(first.sent[-1], {'type': 'submit', 'partial': True})
+        self.assertEqual(session.submitting, hello['pid'])
+        self.hub.reap(paul.lost + self.live.GRACE + 2)  # une seule demande
+        self.assertEqual(sum(m['type'] == 'submit' for m in first.sent), 1)
+        first.push(None)
 
     def test_state_is_bounded(self):
         state = self.live.clean_state({'lot': {'id': 'x' * 50, 'name': 'n' * 500}, 'count': -3, 'remaining': 'a',

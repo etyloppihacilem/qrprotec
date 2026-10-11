@@ -691,6 +691,8 @@ class Verifs(models.Model):
     lot = models.ForeignKey(Lots, on_delete=models.CASCADE, null=True, blank=True) # None = verif du stock
     datetime = models.DateTimeField(default=timezone.now)
     by = models.CharField(max_length=64)
+    # vérif à plusieurs : identites stockees des autres participants (by : celui qui a envoye la verif)
+    participants = models.JSONField(default=list, blank=True)
     complete = models.BooleanField(default=False) # toutes les exigences du type de lot sont remplies
     present_count = models.PositiveIntegerField(default=0)
     missing_count = models.PositiveIntegerField(default=0)

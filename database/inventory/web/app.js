@@ -55,6 +55,7 @@
     declaredName: '',       // nom declare sur ce navigateur (non verifie)
     pendingOpening: null,   // {id, key, at} : scelle ouvert par son etiquette sans identite, a signer a la connexion
     expiredSession: false,  // vérif precedente oubliee au demarrage (SESSION_TIMEOUT_MS)
+    waitingTeam: false,     // vérif à plusieurs : partie validee, en attente des autres participants
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -449,7 +450,7 @@
 
   function scannedIids() {
     const iids = new Set();
-    for (const entry of state.scanned) {
+    for (const entry of allScanned()) {
       if (entry.error) continue;
       if (entry.kind === 'item') iids.add(entry.iid);
       for (const iid of entry.items || []) iids.add(iid);
@@ -490,6 +491,12 @@
       showInfo('ok', '✓ Déjà scanné', (existing.info && existing.info.type_name) || scan.id);
       return;
     }
+    const shared = live.entries().find((entry) => entry.kind === 'item' && entry.iid === scan.id);
+    if (shared) {
+      showInfo('ok', `✓ Déjà scanné par ${shared.who || 'un autre participant'}`, (shared.info && shared.info.type_name) || scan.id);
+      return;
+    }
+    scannedAgain();
     state.lastVerif = null; // un nouveau scan commence une nouvelle verif
     const expired = !!(scan.peremption && scan.peremption < today());
     const entry = { code: scan.code, kind: 'item', iid: scan.id, expired, info: null, error: '' };
@@ -530,10 +537,11 @@
     try {
       const pack = await api(`packs/${encodeURIComponent(scan.id)}/`);
       const expired = !!(pack.peremption && parseDate(pack.peremption) < today());
-      if (state.scanned.some((entry) => entry.kind === 'pack' && entry.code === scan.code)) {
+      if (allScanned().some((entry) => entry.kind === 'pack' && entry.code === scan.code)) {
         showInfo('ok', '✓ Déjà scanné', `Paquet : ${pack.count} × ${pack.type_name}`);
         return;
       }
+      scannedAgain();
       state.lastVerif = null;
       state.scanned.push({ code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items });
       if (expired) feedback.bad(); else feedback.good();
@@ -749,10 +757,12 @@
     return [{ id: state.lotId, key: state.lotKey }, ...state.extra.map(({ id, key }) => ({ id, key }))];
   }
 
+  // Vérif à plusieurs : la cle d'un lot scannee par un autre participant est gardee par le serveur (keyed)
   function keyOk() {
-    if (state.lotKey) return true;
+    const keyed = new Set(live.keyed());
+    if (state.lotKey || keyed.has(state.lotId)) return true;
     const parents = new Set(((state.lot && state.lot.path) || []).map((parent) => parent.id));
-    return state.extra.some((entry) => entry.key && parents.has(entry.id));
+    return [...state.extra.filter((entry) => entry.key).map((entry) => entry.id), ...keyed].some((id) => parents.has(id));
   }
 
   // Repartition des items scannes entre les lots de la verif (meme regle que le serveur, services.assign_items) :
@@ -777,7 +787,7 @@
     }
     const deficit = Object.fromEntries(lots.map((lot) => [lot.id, { ...required[lot.id] }]));
     const scanned = [];
-    for (const entry of state.scanned) {
+    for (const entry of allScanned()) {
       if (entry.error) continue;
       const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
       const iids = entry.kind === 'item' ? [entry.iid] : entry.items || [];
@@ -1137,44 +1147,75 @@
     state.declaredAllowed = !!e.data.declared_identity;
   }
 
-  async function validate(partial = false) {
-    if (!ensureIdentity()) return;
+  // Vérif à plusieurs : chacun valide sa partie, le dernier participant connecte envoie la vérif commune.
+  // auto : le serveur demande l'envoi (les autres participants sont partis), sans redemander de confirmation.
+  async function validate(partial = false, auto = false) {
+    if (state.busy) return;
+    if (!auto && !ensureIdentity()) return;
     const missing = blockers(false);
-    if (missing.length) { feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return; }
+    if (missing.length) {
+      if (auto) live.unvalidate();
+      feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return;
+    }
+    const team = live.inTeam();
+    if (team && !auto) {
+      state.busy = true;
+      render();
+      const answer = await live.validate(partial);
+      state.busy = false;
+      if (!answer) { render(); toast('Connexion à la vérif commune perdue : réessayez.', true); return; }
+      if (!answer.submit) {
+        state.waitingTeam = true;
+        feedback.good();
+        showInfo('ok', '✔ Votre partie de la vérif est validée',
+          answer.waiting.length ? `En attente de ${answer.waiting.join(', ')}.` : 'En attente des autres participants.',
+          'Le compte rendu s\'affichera quand tout le monde aura validé.');
+        render();
+        return;
+      }
+    }
     const lots = sessionLots();
     const plan = planSession();
     const verified = partial ? plan.lots.filter((row) => row.complete).map((row) => row.lot) : lots;
     const sealed = verified.filter((lot) => lot.is_sealed).map((lot) => lot.name);
-    if (sealed.length && !confirm(`${sealed.join(', ')} : scellé, valider une vérif brisera le scellé. Continuer ?`)) return;
-    if (partial) {
-      const names = verified.filter((lot) => lot.items && (lot.requirements.length || lot.items.length)).map((lot) => lot.name);
-      if (!confirm(`Vérif partielle : seuls ${names.join(', ') || 'les lots complets'} seront vérifiés.\n`
-        + 'Les autres items scannés sont ajoutés à leur lot (réassort, vérif recommandée). Continuer ?')) return;
-    } else {
+    const confirmed = () => {
+      if (auto) return true;
+      if (sealed.length && !confirm(`${sealed.join(', ')} : scellé, valider une vérif brisera le scellé. Continuer ?`)) return false;
+      if (partial) {
+        const names = verified.filter((lot) => lot.items && (lot.requirements.length || lot.items.length)).map((lot) => lot.name);
+        return confirm(`Vérif partielle : seuls ${names.join(', ') || 'les lots complets'} seront vérifiés.\n`
+          + 'Les autres items scannés sont ajoutés à leur lot (réassort, vérif recommandée). Continuer ?');
+      }
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const what = isMulti() ? 'les lots seront incomplets' : 'le lot sera incomplet';
-      if (expected && !confirm(`${expected} item(s) attendu(s) manquent : ${what}. Valider quand même ?`)) return;
-    }
+      return !expected || confirm(`${expected} item(s) attendu(s) manquent : ${what}. Valider quand même ?`);
+    };
+    if (!confirmed()) { if (team || auto) live.unvalidate(); return; }
     state.busy = true;
     render();
     try {
+      const credentials = live.credentials();
       const report = await api('verifs/', {
         lots: sessionEntries(),
         ...identity(),
         items: [...scannedIids()],
         partial,
+        ...(credentials ? { live: credentials } : {}),
       });
+      state.waitingTeam = false;
       state.scanned = [];
       state.lastVerif = { lotId: state.lot.id, at: new Date().toISOString(), complete: report.complete,
                           present: report.present.length, partial: report.partial,
                           lots: (report.lots || []).filter((row) => row.verified).length };
-      live.done(report);
       showReport(report);
+      live.done(report);
       await loadLot(state.lot.id);
       showLotInfo();
       loadLots();
     } catch (e) {
       identityRefused(e);
+      if (team || auto) live.unvalidate();
+      state.waitingTeam = false;
       feedback.bad();
       toast('Vérif refusée : ' + e.message, true);
     } finally {
@@ -1219,7 +1260,7 @@
 
   // Seulement des items qui ne sont pas dans les lots de la verif : reassort plutot que verif
   function onlyNewItems() {
-    if (!state.lot || !state.scanned.length) return false;
+    if (!state.lot || !allScanned().length) return false;
     const known = knownIids();
     const iids = [...scannedIids()];
     return iids.length > 0 && !iids.some((iid) => known.has(iid));
@@ -1231,7 +1272,7 @@
 
   // Verif partielle : des lots sont complets, mais pas tous (verif groupee seulement)
   function partialLots() {
-    if (!isMulti() || !state.scanned.length) return [];
+    if (!isMulti() || !allScanned().length) return [];
     const plan = planSession();
     if (plan.lots.every((row) => row.complete)) return [];
     return plan.lots.filter((row) => row.complete && row.touched > 0).map((row) => row.lot);
@@ -1263,7 +1304,7 @@
 
   function iidLabel(iid) {
     const known = sessionLots().flatMap((lot) => lot.items || []).find((item) => item.iid === iid);
-    const entry = state.scanned.find((e) => e.iid === iid && e.info);
+    const entry = allScanned().find((e) => e.iid === iid && e.info);
     const info = (known) || (entry && entry.info);
     return info ? `${info.type_name} – ${info.peremption ? fmtDate(info.peremption) : 'non périssable'}` : iid;
   }
@@ -1278,6 +1319,7 @@
         report.complete ? ((report.lots || []).length > 1 ? '✅ Lots complets' : '✅ Lot complet')
           : report.partial ? '↷ Vérif partielle enregistrée' : '⚠️ Lot NON complet'),
       el('p', {}, `${report.present.length} item(s) présent(s).`),
+      (report.participants || []).length > 1 ? el('p', {}, `👥 Vérif à plusieurs : ${report.participants.join(', ')}.`) : '',
       report.unsealed ? el('p', { style: 'color:var(--orange)' },
         `🔓 Scellé brisé par cette vérif : ${(report.unsealed_lots || []).join(', ') || 'lot'}.`) : '',
       ...((report.lots || []).length > 1 ? [el('h3', {}, report.partial ? 'Vérif partielle' : 'Lots vérifiés'),
@@ -1346,7 +1388,15 @@
     }
   });
 
+  // Nouveau scan (ou scan retire) apres avoir valide sa partie : la partie n'est plus validee
+  function scannedAgain() {
+    if (!state.waitingTeam) return;
+    state.waitingTeam = false;
+    live.unvalidate();
+  }
+
   function undoLastScan() {
+    if (state.scanned.length) scannedAgain();
     const last = state.scanned.pop();
     if (last) {
       const name = last.kind === 'pack' && last.info ? `paquet ${last.info.count} × ${last.info.type_name}`
@@ -1360,6 +1410,7 @@
 
   $('#clear').addEventListener('click', () => {
     if (!state.scanned.length || !confirm('Vider la liste des items scannés ?')) return;
+    scannedAgain();
     state.scanned = [];
     save(); render();
   });
@@ -1389,7 +1440,7 @@
   // Items frais scannes par type (un paquet compte pour son nombre d'items)
   function freshByType() {
     const fresh = {};
-    for (const entry of state.scanned) {
+    for (const entry of allScanned()) {
       if (entry.error || entry.expired) continue;
       const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
       const count = entry.kind === 'pack' ? (entry.items || []).length : 1;
@@ -1454,7 +1505,7 @@
       return 0;
     }
     const last = state.lastVerif;
-    if (last && last.lotId === state.lot.id && !state.scanned.length) {
+    if (last && last.lotId === state.lot.id && !allScanned().length) {
       const at = new Date(last.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
       const what = last.partial ? `vérif partielle (${last.lots} lot(s) vérifié(s))`
         : `${last.lots > 1 ? 'lots' : 'lot'} ${last.complete ? 'complet' + (last.lots > 1 ? 's' : '') : 'incomplet'}`;
@@ -1471,7 +1522,7 @@
     const multi = lots.length > 1;
     const rows = [];
     const lastScan = {}; // rang du dernier scan de chaque type d'item
-    state.scanned.forEach((entry, index) => {
+    allScanned().forEach((entry, index) => {
       const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
       if (type && !entry.error) lastScan[type] = index;
     });
@@ -1517,12 +1568,15 @@
     return remaining;
   }
 
+  // Scannes : les notres (retirables), et ceux des autres participants de la vérif commune, avec leur nom
   function renderDone() {
     const list = $('#done-list');
     const expected = knownIids();
-    const rows = state.scanned.map((entry, index) => {
+    const all = allScanned();
+    const rows = all.map((entry, index) => {
+      const mine = index < state.scanned.length;
       const info = entry.info;
-      let name = entry.kind === 'pack' ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : entry.iid;
+      let name = entry.kind === 'pack' && info ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : entry.iid;
       let cls = 'ok';
       const tags = [];
       if (entry.error) { cls = 'error'; tags.push(el('span', { class: 'tag red' }, 'INCONNU')); }
@@ -1534,15 +1588,16 @@
       return el('li', { class: cls },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, name),
-          el('div', { class: 'sub' }, [peremption ? fmtDate(peremption) : info && entry.kind === 'item' ? 'Non périssable' : '', entry.iid].filter(Boolean).join(' · '))),
+          el('div', { class: 'sub' }, [peremption ? fmtDate(peremption) : info && entry.kind === 'item' ? 'Non périssable' : '', entry.iid,
+            mine ? '' : `par ${entry.who || 'un autre participant'}`].filter(Boolean).join(' · '))),
         ...tags,
-        el('button', {
+        mine && el('button', {
           class: 'remove', type: 'button', 'aria-label': 'Retirer',
-          onclick: () => { state.scanned.splice(index, 1); save(); render(); },
+          onclick: () => { scannedAgain(); state.scanned.splice(index, 1); save(); render(); },
         }, '✕'));
     }).reverse(); // dernier scan en haut
     list.replaceChildren(...(rows.length ? rows : [el('li', { class: 'empty' }, 'Aucun item scanné.')]));
-    return state.scanned.length;
+    return all.length;
   }
 
   function renderLot() {
@@ -1844,10 +1899,13 @@
   const PING_MS = 15000;
 
   // Publication de la vérif en cours (page de scan). La session survit a un rechargement de l'onglet.
+  // Vérif à plusieurs : la session peut avoir d'autres participants (team), dont les scans s'ajoutent aux notres.
   const live = (() => {
     const STORAGE_LIVE = 'qrprotec.live';
-    let session = null;
+    let session = null; // {id, pid, token} ; join : vérif a rejoindre a la prochaine connexion
     try { session = JSON.parse(sessionStorage.getItem(STORAGE_LIVE) || 'null'); } catch (e) { session = null; }
+    if (session && !session.pid) session = null; // ancien format
+    let team = null;    // {participants, lots, keyed, entries, nearby} : dernier etat de la vérif commune
     let socket = null;
     let ready = false;
     let wanted = false;
@@ -1856,6 +1914,9 @@
     let timer = 0;
     let pending = null;
     let sent = '';
+    let join = '';
+    let joined = !!(session && session.joined); // vérif rejointe : connexion gardee meme sans scan de notre part
+    let answer = null;  // validation en attente de la reponse du serveur
 
     function store() {
       try {
@@ -1876,7 +1937,7 @@
       const current = new WebSocket(socketUrl('ws/live/scanner'));
       socket = current;
       current.onopen = () => {
-        send({ type: 'hello', ...(session || {}), ...who() });
+        send({ type: 'hello', ...(session || {}), ...(join ? { join } : {}), ...who() });
         clearInterval(ping);
         ping = setInterval(() => send({ type: 'ping' }), PING_MS);
       };
@@ -1884,12 +1945,27 @@
         let message;
         try { message = JSON.parse(event.data); } catch (e) { return; }
         if (message.type === 'hello') {
-          session = { id: message.id, token: message.token };
+          if (!session || session.id !== message.id) { team = null; if (!join) joined = false; } // vérif expiree
+          session = { id: message.id, pid: message.pid, token: message.token };
+          if (join) joined = true;
+          join = '';
+          session.joined = joined;
           store();
           ready = true;
           retry = 0;
           sent = '';
           flush();
+        } else if (message.type === 'error') {
+          if (message.join) { join = ''; toast(message.message, true); }
+        } else if (message.type === 'team') {
+          team = message;
+          teamChanged();
+        } else if (message.type === 'validate') {
+          if (answer) { const resolve = answer; answer = null; resolve(message); }
+        } else if (message.type === 'submit') {
+          validate(message.partial, true); // les autres sont partis : on envoie la vérif commune
+        } else if (message.type === 'report') {
+          teamReport(message.report);
         }
       };
       current.onclose = () => {
@@ -1897,6 +1973,7 @@
         clearInterval(ping);
         socket = null;
         ready = false;
+        if (answer) { const resolve = answer; answer = null; resolve(null); }
         if (wanted) setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++));
       };
     }
@@ -1907,7 +1984,7 @@
       if (text === sent) return;
       sent = text;
       send(text);
-      if (!pending) stop();
+      if (!pending && !inTeam()) stop();
     }
 
     function stop() {
@@ -1915,37 +1992,196 @@
       if (socket) { const current = socket; socket = null; ready = false; clearInterval(ping); current.close(); }
     }
 
+    function restart() {
+      if (socket) { const current = socket; socket = null; ready = false; clearInterval(ping); current.close(); }
+      wanted = true;
+      connect();
+    }
+
+    const others = () => (team ? team.participants.filter((row) => !row.me) : []);
+    const inTeam = () => !!join || joined || others().length > 0;
+
     return {
       // snapshot : etat de la vérif en cours, null s'il n'y en a pas
       publish(snapshot) {
         pending = snapshot;
-        if (snapshot) { wanted = true; connect(); }
+        if (snapshot || joined) { wanted = true; connect(); }
         clearTimeout(timer);
         timer = setTimeout(flush, 300);
       },
       // vérif validee : affichee comme terminee chez ceux qui suivent, la suivante sera une nouvelle session
       done(report) {
-        if (ready) {
+        if (ready && report) {
           send({ type: 'done', complete: !!report.complete, partial: !!report.partial, present: (report.present || []).length });
         }
         pending = null;
         session = null;
+        team = null;
+        joined = false;
         store();
         stop();
       },
       identity() { if (ready) send({ type: 'identity', ...who() }); },
+      // rejoindre la vérif `id` (page de suivi, ou autre vérif du meme lot vue depuis le scanner)
+      join(id) {
+        join = id;
+        team = null;
+        restart();
+      },
+      // quitter la vérif commune : la suite se fait seul, sur une nouvelle session
+      leave() {
+        session = null;
+        team = null;
+        join = '';
+        joined = false;
+        store();
+        sent = '';
+        if (pending) restart(); else stop();
+      },
+      // valider sa partie : le serveur dit si l'on est le dernier (submit) ; sans connexion, on envoie seul
+      validate(partial) {
+        if (!ready || !inTeam()) return Promise.resolve({ submit: true, waiting: [] });
+        if (answer) answer(null);
+        return new Promise((resolve) => {
+          answer = resolve;
+          send({ type: 'validate', partial: !!partial });
+          setTimeout(() => { if (answer === resolve) { answer = null; resolve(null); } }, 8000);
+        });
+      },
+      unvalidate() { if (ready) send({ type: 'unvalidate' }); },
+      credentials: () => (session && !join ? { id: session.id, pid: session.pid, token: session.token } : null),
+      get team() { return team; },
+      others,
+      inTeam,
+      joining: () => !!join,
+      me: () => (team ? team.participants.find((row) => row.me) : null),
+      keyed: () => (team ? team.keyed : []),
+      entries: () => (team ? team.entries : []),
     };
   })();
 
-  // Etat publie : lot, lots de la vérif groupee, items scannes (nom, perime, inconnu, nouveau), reste a scanner
+  // Scans de la vérif commune : les notres puis ceux des autres participants (un meme code n'est compte qu'une fois)
+  const entryKey = (entry) => (entry.kind === 'item' ? 'i:' + entry.iid : 'p:' + entry.code);
+  function allScanned() {
+    const seen = new Set(state.scanned.map(entryKey));
+    const shared = live.entries().filter((entry) => !seen.has(entryKey(entry)) && seen.add(entryKey(entry)));
+    return shared.length ? [...state.scanned, ...shared] : state.scanned;
+  }
+
+  // Lots de la vérif commune qui manquent ici (on vient de la rejoindre, ou un autre participant en a ajoute un)
+  let teamLoading = false;
+  async function syncTeamLots() {
+    const lots = live.team ? live.team.lots : [];
+    if (!lots.length || teamLoading) return;
+    const known = new Set(sessionLots().map((lot) => lot.id));
+    const missing = lots.filter((id) => !known.has(id));
+    if (!missing.length) return;
+    teamLoading = true;
+    try {
+      if (!state.lot) {
+        await loadLot(lots[0]);
+        if (!state.lot) return;
+      }
+      const ids = new Set(sessionLots().map((lot) => lot.id));
+      for (const id of lots) if (!ids.has(id) && !state.extra.some((entry) => entry.id === id)) state.extra.push({ id, key: '', lot: null });
+      await loadExtra();
+      save();
+    } finally {
+      teamLoading = false;
+      render();
+    }
+  }
+
+  function teamChanged() {
+    const me = live.me();
+    if (me && !me.validated && state.waitingTeam) state.waitingTeam = false;
+    syncTeamLots();
+    render();
+  }
+
+  // Compte rendu de la vérif commune, envoyee par un autre participant
+  function teamReport(report) {
+    showReport(report);
+    state.scanned = [];
+    state.waitingTeam = false;
+    if (state.lot) {
+      state.lastVerif = { lotId: state.lot.id, at: new Date().toISOString(), complete: report.complete,
+                          present: report.present.length, partial: report.partial,
+                          lots: (report.lots || []).filter((row) => row.verified).length };
+    }
+    live.done(null);
+    save();
+    render();
+    if (state.lot) loadLot(state.lot.id).then(() => loadLots());
+  }
+
+  // Rejoindre une vérif en cours (page de suivi) : ses scans et ses lots arrivent par la connexion
+  function joinLiveVerif(row) {
+    if (!state.user) { openReader('live'); toast('Scannez votre badge pour rejoindre une vérif.'); return; }
+    const lotId = row.lot && row.lot.id;
+    if (state.scanned.length && state.lotId !== lotId
+      && !confirm('Rejoindre cette vérif ? Les items que vous avez déjà scannés sur un autre lot sont oubliés.')) return;
+    if (state.lotId !== lotId) {
+      state.scanned = [];
+      state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = [];
+    }
+    state.lastVerif = null;
+    state.waitingTeam = false;
+    live.join(row.id);
+    enterScanner();
+    switchTab('todo');
+    if (lotId) loadLot(lotId);
+    showInfo('lot', `Vérif de ${row.who || 'quelqu\'un'} rejointe`, 'Scannez vos items : ils s\'ajoutent à la vérif commune.');
+    save();
+    render();
+  }
+
+  // Bandeau discret pendant une vérif à plusieurs : qui participe, qui a valide ; autre vérif du meme lot a rejoindre
+  function renderTeam() {
+    const box = $('#team');
+    const team = live.team;
+    const others = live.others();
+    const parts = [];
+    if (others.length) {
+      parts.push(el('span', {}, `👥 Vérif à ${team.participants.length} :`),
+        ...team.participants.map((row) => el('span', { class: (row.me ? 'who' : '') + (row.connected ? '' : ' off'),
+          title: row.connected ? (row.validated ? 'A validé sa partie' : 'Connecté') : 'Déconnecté' },
+        (row.me ? 'vous' : row.who || 'Non identifié') + (row.validated ? ' ✔' : ''))),
+        el('button', { type: 'button', class: 'text-link', onclick: () => {
+          if (!confirm('Quitter la vérif commune ? Vous continuez seul, avec vos propres scans.')) return;
+          state.waitingTeam = false;
+          live.leave();
+          render();
+        } }, 'Quitter'));
+    } else if (live.joining()) {
+      parts.push(el('span', {}, '👥 Connexion à la vérif commune…'));
+    } else if (team && team.nearby.length && state.lot) {
+      const other = team.nearby[0];
+      parts.push(el('span', {}, `👥 ${other.who || 'Quelqu\'un'} vérifie aussi ${other.lot ? other.lot.name : 'ce lot'}.`),
+        el('button', { type: 'button', onclick: () => {
+          if (!state.user) { toast('Scannez votre badge pour rejoindre sa vérif.', true); return; }
+          if (!confirm(`Rejoindre la vérif de ${other.who || 'cette personne'} ? Vos scans s'ajoutent à la sienne.`)) return;
+          state.waitingTeam = false;
+          live.join(other.id);
+          render();
+        } }, 'Rejoindre'));
+    }
+    box.hidden = !parts.length;
+    box.replaceChildren(...parts);
+  }
+
+  // Etat publie : lot, lots de la vérif groupee, items scannes (nom, perime, inconnu, nouveau), reste a scanner.
+  // entries (nos scans) et keys (cles des lots) ne vont qu'au serveur et aux autres participants de la vérif.
   function liveSnapshot(remaining) {
-    if (!state.lot || !state.scanned.length) return null;
+    const scanned = allScanned();
+    if (!state.lot || !scanned.length) return null;
     const expected = knownIids();
     return {
       lot: { id: state.lot.id, name: state.lot.name },
+      root: rootOf(state.lot),
       lots: sessionLots().filter((lot) => lot.id !== state.lot.id && ((lot.requirements || []).length || (lot.items || []).length))
         .map((lot) => lot.name),
-      scanned: state.scanned.map((entry) => ({
+      scanned: scanned.map((entry) => ({
         name: entry.kind === 'pack' && entry.info ? `Paquet : ${entry.info.count} × ${entry.info.type_name}`
           : (entry.info && entry.info.type_name) || entry.iid || 'code inconnu',
         expired: !!entry.expired,
@@ -1954,6 +2190,11 @@
       })),
       count: scannedIids().size,
       remaining,
+      entries: state.scanned.map(({ code, kind, iid, expired, error, items, info }) => ({
+        code, kind, iid, expired, error, items,
+        info: info ? { type: info.type, type_name: info.type_name, peremption: info.peremption, count: info.count } : null,
+      })),
+      keys: sessionEntries(),
     };
   }
 
@@ -2050,10 +2291,14 @@
       : row.connected ? `En cours · dernier scan ${ago(row.updated)}` : `Connexion perdue ${ago(row.updated)}`;
     const open = watch.open.has(row.id);
     const shown = open ? [...row.scanned].reverse() : row.scanned.slice(-4).reverse();
+    const people = row.participants || [{ who: row.who, verified: row.verified, connected: row.connected }];
+    const mine = (live.credentials() || {}).id === row.id;
     return el('div', { class: 'live-card ' + kind },
       el('div', { class: 'name' }, '📦 ', lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
-      el('div', { class: 'sub' }, `${row.who || 'Non identifié'}${row.who && !row.verified ? ' (nom déclaré)' : ''} · `
-        + `commencée à ${timeOf(row.started)}`),
+      el('div', { class: 'sub' }, (people.length > 1 ? '👥 ' : '') + people.map((person) => (person.who || 'Non identifié')
+        + (person.who && !person.verified ? ' (nom déclaré)' : '') + (people.length > 1 && !done && person.validated ? ' ✔' : '')
+        + (people.length > 1 && !done && !person.connected ? ' (déconnecté)' : '')).join(', ')
+        + ` · commencée à ${timeOf(row.started)}`),
       el('div', { class: 'sub' }, status),
       done ? null : requirementRow('Scannés', row.count, row.count + row.remaining),
       row.scanned.length ? el('ul', {}, shown.map((item) => el('li', { class: item.error ? 'error' : item.expired ? 'expired' : '' },
@@ -2063,7 +2308,11 @@
       row.scanned.length > 4 ? el('button', { type: 'button', class: 'text-link', onclick: () => {
         if (open) watch.open.delete(row.id); else watch.open.add(row.id);
         renderLive();
-      } }, open ? 'Réduire' : `Voir les ${row.scanned.length} scans`) : null);
+      } }, open ? 'Réduire' : `Voir les ${row.scanned.length} scans`) : null,
+      // vérif à plusieurs : rejoindre la vérif, ses scans s'ajoutent a ceux de ce telephone
+      !done && row.lot && !mine ? el('div', { class: 'join' },
+        el('button', { type: 'button', onclick: () => joinLiveVerif(row) }, '👥 Rejoindre cette vérif')) : null,
+      mine && !done ? el('div', { class: 'sub' }, 'Vous participez à cette vérif.') : null);
   }
 
   function renderLive() {
@@ -2093,7 +2342,7 @@
       parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad' },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, ...row.lots.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)])),
-          el('div', { class: 'sub' }, `${fmtDateTime(row.at)} · ${row.by || '?'} · ${row.present} présent(s)`
+          el('div', { class: 'sub' }, `${fmtDateTime(row.at)} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${row.present} présent(s)`
             + (row.missing ? ` · ${row.missing} manquant(s)` : '') + (row.expired ? ` · ${row.expired} périmé(s)` : ''))),
         el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
     }
@@ -2550,9 +2799,12 @@
       ? `Vérif partielle (${partial.map((lot) => lot.name_short || lot.name).join(', ')})`
       : `Ajouter ${scannedIids().size} au lot (réassort)`;
     const validateButton = $('#validate');
-    const recorded = state.lastVerif && state.lot && state.lastVerif.lotId === state.lot.id && !state.scanned.length;
+    const recorded = state.lastVerif && state.lot && state.lastVerif.lotId === state.lot.id && !allScanned().length;
     const out = takingOut();
-    validateButton.disabled = state.busy || recorded;
+    const waiting = state.waitingTeam && !state.busy;
+    // vérif à plusieurs : d'autres participants n'ont pas encore valide, on ne valide que sa partie
+    const shared = !out && !recorded && live.others().some((row) => row.connected && !row.validated);
+    validateButton.disabled = state.busy || recorded || waiting;
     validateButton.classList.toggle('primary', !out);
     validateButton.classList.toggle('warning', out);
     const missing = blockers(false);
@@ -2560,10 +2812,14 @@
       : out ? 'Ces items ne sont dans aucun lot : ils sont enregistrés comme sortis du stock.'
         : missing.length ? 'Pour valider : ' + missing.join(', ') + '.'
           : 'Enregistre la vérif : les items scannés sont présents, ceux de « À scanner » sont signalés manquants.';
-    validateButton.textContent = state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
+    $('#validate-hint').hidden = !shared && !waiting;
+    $('#validate-hint').textContent = waiting ? 'En attente des autres participants' : 'Valider ma partie de la vérif';
+    if (waiting) validateButton.title = 'Votre partie est validée. Scannez un item pour la reprendre.';
+    validateButton.textContent = waiting ? 'Partie validée ✔' : state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
       : out ? `Sortir ${scannedIids().size} item(s) du stock` : restock ? 'Vérif complète…'
         : missing.length ? 'Valider la vérif…' : 'Valider la vérif';
     live.publish(liveSnapshot(remaining));
+    renderTeam();
     $('#scan-hint').textContent = readerOpen() ? 'Scannez votre badge' : out ? "Scannez l'étiquette d'un lot pour une vérif, ou sortez ces items du stock"
       : !state.lot ? "Visez l'étiquette d'un lot ou un item"
       : !hasIdentity() ? (state.declaredAllowed ? 'Scannez votre badge (ou touchez « Non connecté ») pour pouvoir valider'

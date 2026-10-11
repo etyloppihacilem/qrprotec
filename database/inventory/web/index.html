@@ -67,6 +67,8 @@
   <!-- Reste de l'ecran : informations et listes -->
   <section id="panel">
     <div id="info" class="info empty">Scannez l'étiquette d'un lot, un item ou votre badge.</div>
+    <!-- Vérif à plusieurs : participants connectes, ou autre vérif en cours sur le meme lot -->
+    <div id="team" class="team" hidden></div>
     <nav id="tabs" role="tablist">
       <button type="button" role="tab" data-tab="todo" class="active">À scanner <b id="count-todo">0</b></button>
       <button type="button" role="tab" data-tab="done">Scannés <b id="count-done">0</b></button>
@@ -87,7 +89,10 @@
     </div>
     <footer id="actions">
       <button id="restock" class="warning" type="button" hidden>Ajouter au lot (réassort)</button>
-      <button id="validate" class="primary" type="button">Valider la vérif</button>
+      <div class="validate-box">
+        <button id="validate" class="primary" type="button">Valider la vérif</button>
+        <small id="validate-hint" hidden>Valider ma partie de la vérif</small>
+      </div>
       <button id="undo-last" class="secondary" type="button" aria-label="Annuler le dernier scan" title="Annuler le dernier scan" hidden>↶</button>
       <button id="more" class="secondary" type="button" aria-label="Plus d'actions">⋯</button>
     </footer>
