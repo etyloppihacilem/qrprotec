@@ -57,8 +57,9 @@ tape toujours `@`, `#` ou `{`.
 
 ## Au téléphone
 
-1. Ouvrez l'appareil photo et **scannez l'étiquette privée** du sac : la page QRProtec s'ouvre.
-   Touchez **Démarrer la caméra** (et autorisez la caméra la première fois).
+1. Ouvrez l'appareil photo et **scannez l'étiquette privée** du sac : la **fiche du lot** s'ouvre
+   (état de la vérif, contenu, emplacement de l'étiquette privée). Touchez **Lancer une vérif** : le
+   lecteur s'ouvre sur ce lot, étiquette privée déjà scannée (autorisez la caméra la première fois).
 2. **Scannez votre badge** si ce n'est pas déjà fait (le téléphone s'en souvient). Saisissez votre PIN
    si demandé. Si l'administrateur l'a autorisé, vous pouvez à la place toucher **Non connecté** et
    indiquer votre nom.
@@ -73,8 +74,26 @@ La caméra occupe le tiers haut de l'écran. Le bouton **↘** la réduit en vig
 pendant un appel vidéo : la liste prend tout l'écran et le scan continue. Touchez la vignette pour
 la remettre en haut.
 
-La liste en cours est conservée si la page se recharge ou si le téléphone se met en veille. Le menu
-**⋯** permet de saisir un code à la main, de changer de lot ou de se déconnecter.
+La liste en cours est conservée si la page se recharge ou si le téléphone se met en veille. Après
+**20 minutes sans scan**, une vérif en cours est oubliée au rechargement de la page ou à l'ouverture
+d'une étiquette avec l'appareil photo : on ne retombe pas sur une vérif commencée une heure plus tôt.
+Le menu **⋯** permet de saisir un code à la main, de changer de lot ou de se déconnecter.
+
+### Fiches des lots et des items
+
+Une étiquette scannée avec l'appareil photo du téléphone (hors du lecteur QRProtec) ouvre une fiche,
+sans caméra :
+
+- **étiquette publique d'un sac** : fiche du lot, avec son état, la date de la dernière vérif, son
+  contenu (sous-lot par sous-lot) et l'emplacement de son étiquette privée. Le petit bouton
+  **📄 Fiche PDF** en haut imprime la fiche d'inventaire. **Lancer une vérif** ouvre le lecteur.
+- **étiquette privée** : la même fiche, étiquette privée déjà scannée.
+- **étiquette d'un item** : produit, péremption, état et **dernier emplacement connu** (le lot où il
+  est, ou celui qu'il a quitté s'il a été utilisé, sorti ou signalé disparu). **Lancer une vérif**
+  lance la vérif de ce lot. Pendant une vérif, un bouton ajoute l'item aux scans en cours.
+
+Dans une fiche, les lots et les items sont cliquables : touchez un sous-lot, le lot global ou un item
+du contenu pour ouvrir sa fiche. Le bouton retour du téléphone revient à la fiche précédente.
 
 L'onglet **Accueil** (sans lot en cours) affiche la **liste des lots** avec leur état ; toucher un lot
 l'ouvre.

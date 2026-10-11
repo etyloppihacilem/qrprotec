@@ -83,6 +83,30 @@ def item_dict(item, today=None):
     }
 
 
+def item_last_location(item):
+    """Dernier emplacement connu d'un item (fiche d'item du front web) : son lot actuel, ou pour un item qui n'est
+    plus actif (sorti, disparu, utilise...) le lot qu'il a quitte en dernier. None : en stock, ou jamais range."""
+    lot, at = None, None
+    if item.location_id:
+        lot, at = item.location, item.last_seen
+    elif item.status != ItemStatus.ACTIVE:
+        movement = (item.movements.select_related('from_lot__lot_type').filter(from_lot__isnull=False)
+                    .order_by('-at', '-id').first())
+        if movement:
+            lot, at = movement.from_lot, movement.at
+    if lot is None or not lot.active:
+        return None
+    return {
+        'id': lot.id,
+        'name': lot.name,
+        'lot_type_name': lot.lot_type.name,
+        'storage': lot.lot_type.storage,
+        'path': [{'id': parent.id, 'name': parent.name} for parent in reversed(lot.ancestors())],
+        'current': item.location_id == lot.id,
+        'at': _date(at),
+    }
+
+
 def sealed_pack_dict(sealed_pack, with_items=True):
     data = {
         'id': sealed_pack.id,
