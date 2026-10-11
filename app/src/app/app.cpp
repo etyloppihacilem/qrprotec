@@ -1492,7 +1492,7 @@ void App::join_verif(const std::string &lot_id, const std::string &key, ScanSour
     notify(covered ? result.data["name"].str() + " faisait déjà partie de la vérif : étiquette clé enregistrée."
                    : "Vérif groupée : " + verif_title() + "." +
                        (verif_key_ok() ? "" : " Scannez l'étiquette clé de " + result.data["name"].str() +
-                                                  " (ou du lot qui le contient) pour valider."));
+                                                  " (ou d'un autre lot de la vérif) pour valider."));
     open_window("verif");
   });
 }
@@ -1582,8 +1582,8 @@ std::string key_hint(const Json &lot) {
          (location.empty() ? std::string(".") : " (" + location + ").");
 }
 
-// La cle d'un lot couvre ses sous-lots : l'etiquette privee du lot global suffit pour verifier un sous-lot.
-// Chaque lot de la verif (le lot scanne et ceux ajoutes) doit etre couvert par sa cle ou celle d'un lot parent.
+// Une seule etiquette cle d'un lot de la verif suffit : celle du lot global couvre ses sous-lots, et celle d'un
+// sous-lot (ajoute a la verif en la scannant) valide la verif de tout le lot global.
 bool App::verif_key_ok() const {
   // sans utilisateur connecte (nom declare), le serveur exige toujours l'etiquette privee
   if (privileged() || (logged_in() && !settings.require_private_label))
@@ -1594,20 +1594,8 @@ bool App::verif_key_ok() const {
   for (const VerifExtra &extra : verif.extras)
     if (!extra.key.empty())
       keyed.insert(extra.id);
-  const auto covered = [&](const std::string &id, const Json &lot) {
-    if (keyed.count(id))
-      return true;
-    for (const Json &parent : lot["path"].items())
-      if (keyed.count(parent["id"].str()))
-        return true;
-    return false;
-  };
-  if (!covered(verif.lot_id, verif.lot))
-    return false;
-  for (const VerifExtra &extra : verif.extras)
-    if (!covered(extra.id, extra.lot))
-      return false;
-  return true;
+  // une seule etiquette cle d'un lot de la verif (un sous-lot suffit) valide toute la verif, comme cote serveur
+  return !keyed.empty();
 }
 
 // Lot ou vont les items venus du stock scannes maintenant : derniere etiquette de lot scannee pendant la verif

@@ -1105,15 +1105,28 @@ class SubLotTests(ApiTestCase):
         self.assertTrue(report['complete'])
         self.assertEqual(len(report['lots']), 2)
         self.assertEqual(Items.objects.get(iid=bottle).location_id, self.sac_o2['id'])
-        # cle manquante pour un des lots
+        # aucune cle valide
+        payload['lots'][0]['key'] = 'faux'
         payload['lots'][1]['key'] = 'faux'
         code, body = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 403)
+        # une seule cle valide suffit pour toute la verif
+        payload['lots'][1]['key'] = self.keys[self.sac_o2['id']]
+        code, body = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 200)
         # la cle du lot global couvre ses sous-lots
         payload['lots'] = [{'id': self.sac_o2['id']}, {'id': self.bplus['id'], 'key': self.keys[self.bplus['id']]}]
         payload['items'] = [bottle]
         code, body = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 200)
+        # et la cle d'un seul sous-lot suffit pour la verif du lot global
+        payload['lots'] = [{'id': self.bplus['id']}, {'id': self.sac_o2['id'], 'key': self.keys[self.sac_o2['id']]}]
+        code, report = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual({row['id'] for row in report['lots']}, {self.bplus['id'], self.soin['id'], self.sac_o2['id']})
+        payload['lots'] = [{'id': self.bplus['id']}]
+        code, body = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 403)
 
     def test_lots_must_share_global_lot(self):
         payload = {'lots': [{'id': self.soin['id']}, {'id': self.lot.id}], 'items': [], 'user': 'M001'}
