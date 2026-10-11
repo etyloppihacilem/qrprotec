@@ -7,6 +7,7 @@ from io import StringIO
 from django.apps import apps as django_apps
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -711,6 +712,95 @@ class PinTests(ApiTestCase):
         self.user.refresh_from_db()
         self.assertFalse(self.user.pin_forgotten)
         self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
+
+class PinModeTests(ApiTestCase):
+    """PIN obligatoire ou desactive par secouriste, et PIN obligatoire par defaut (reglage du serveur)."""
+
+    def auth(self, user, **extra):
+        return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key, **extra}, local=False)
+
+    def test_required_then_disabled(self):
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': 'required'})
+        self.assertEqual((code, body['pin_mode'], body['pin_required']), (200, 'required', True))
+        code, body = self.auth(self.user)
+        self.assertEqual((code, body.get('pin_setup_required')), (403, True))
+        self.assertEqual(self.auth(self.user, new_pin='2468')[0], 200)
+        self.assertEqual(self.auth(self.user)[0], 403)
+        # desactive : PIN supprime, plus demande
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
+        self.assertEqual((code, body['has_pin'], body['pin_required']), (200, False, False))
+        self.assertEqual(self.auth(self.user)[0], 200)
+        # refuse pour un admin, et un mode inconnu
+        self.assertEqual(self.call('PATCH', '/api/users/P001/', {'pin_mode': 'disabled'})[0], 400)
+        self.assertEqual(self.call('PATCH', '/api/users/M001/', {'pin_mode': 'parfois'})[0], 400)
+        # un PIN choisi par un admin reactive le PIN
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin': '1357'})
+        self.assertEqual((body['pin_mode'], body['pin_required']), ('', True))
+
+    def test_server_default(self):
+        self.assertEqual(self.auth(self.user)[0], 200)
+        code, body = self.call('PATCH', '/api/server-settings/', {'pin_required_default': True})
+        self.assertEqual((code, body['pin_required_default']), (200, True))
+        code, body = self.auth(self.user)
+        self.assertEqual((code, body.get('pin_setup_required')), (403, True))
+        # desactive pour ce secouriste : le reglage par defaut ne s'applique plus
+        self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
+        self.assertEqual(self.auth(self.user)[0], 200)
+        # reservee aux admins
+        self.assertEqual(self.call('PATCH', '/api/server-settings/', {'pin_required_default': False},
+                                   session=views.session_token(self.user))[0], 403)
+
+
+class NameLoginTests(ApiTestCase):
+    """Connexion sans badge par nom, prenom et PIN : ne dit jamais si le nom existe, essais limites."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.user.set_pin('2468')
+        self.user.save()
+
+    def login(self, nom='Dupont', prenom='Jeanne', pin='2468', address='10.0.0.1'):
+        response = self.client.post('/api/auth/name/', json.dumps({'nom': nom, 'prenom': prenom, 'pin': pin}),
+                                    content_type='application/json', REMOTE_ADDR=address)
+        return response.status_code, response.json()
+
+    def test_login_and_session_as_badge(self):
+        code, body = self.login(nom='DUPONT', prenom='jeanne')
+        self.assertEqual((code, body['matricule']), (200, 'M001'))
+        credentials = {'matricule': 'M001', 'session': body['session']}
+        # le jeton remplace la cle du badge pour identifier les operations du telephone
+        self.assertEqual(self.call('POST', '/api/verifs/recent/', {'user': credentials}, local=False)[0], 200)
+        self.assertEqual(idendity.identity_from_request({'user': credentials}), 'M:M001')
+        self.assertIsNone(idendity.identity_from_request({'user': {'matricule': 'M001', 'session': 'faux'}}))
+
+    def test_refusals_look_the_same(self):
+        unknown = self.login(nom='Personne')
+        wrong = self.login(pin='1111')
+        self.assertEqual(unknown, wrong)
+        self.assertEqual(unknown[0], 403)
+        # sans PIN, ou PIN desactive : meme refus
+        self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
+        self.assertEqual(self.login(), unknown)
+
+    def test_failures_pause_without_blocking_badge_pin(self):
+        for _ in range(5):
+            self.login(pin='1111', address='10.0.0.2')
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.name_login_locked_until)
+        self.assertEqual(self.user.pin_failures, 0)  # le PIN du badge n'est pas touche
+        self.assertEqual(self.login(address='10.0.0.3')[0], 403)  # en pause, meme avec le bon PIN
+        # une connexion avec le badge leve la pause
+        self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key,
+                                                          'pin': '2468'}, local=False)[0], 200)
+        self.assertEqual(self.login(address='10.0.0.3')[0], 200)
+
+    def test_address_limit(self):
+        for _ in range(10):
+            self.login(nom='Personne', address='10.0.0.4')
+        self.assertEqual(self.login(address='10.0.0.4')[0], 429)
+        self.assertEqual(self.login(address='10.0.0.5')[0], 200)
+
 
 class BadgeKeyTests(ApiTestCase):
     def test_badge_key_only_at_creation_and_renewal(self):

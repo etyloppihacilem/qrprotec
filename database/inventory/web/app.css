@@ -25,7 +25,7 @@ button:disabled { opacity: .45; }
 .primary { background: var(--green); color: #fff; font-weight: 600; }
 .warning { background: var(--orange); color: #fff; font-weight: 600; }
 .warning[hidden], .secondary[hidden] { display: none; }
-#pin h2 { margin: 0 0 6px; font-size: 1.2rem; }
+#pin h2, #name-login h2 { margin: 0 0 6px; font-size: 1.2rem; }
 #pin input { display: block; width: 100%; font-size: 1.4rem; letter-spacing: .3em; text-align: center; padding: 10px;
   margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; }
 #pin input[hidden] { display: none; }
@@ -268,6 +268,11 @@ body.home-mode.login-reader #start { padding: 6px; }
 body.home-mode.login-reader #start > p:first-child { display: none; }
 body.home-mode.login-reader #start .big { font-size: .85rem; padding: 8px 10px; }
 body.home-mode.login-reader #camera-error { font-size: .72rem; }
+#reader-name { display: none; }
+body.home-mode.login-reader #reader-name { display: block; position: absolute; top: 6px; left: 6px; z-index: 2;
+  padding: 3px 7px; border-radius: 10px; background: rgba(0, 0, 0, .55); color: #fff; font-size: .7rem; }
+#name-login input { display: block; width: 100%; margin: 6px 0; font-size: 1.05rem; padding: 10px;
+  border: 1px solid var(--line); border-radius: 8px; }
 body.home-mode.login-reader #reader-close { display: block; position: absolute; top: 6px; right: 6px; z-index: 2;
   background: rgba(0, 0, 0, .6); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: .9rem; }
 body.home-mode.login-reader #toast { bottom: calc(24px + min(56vw, 240px) + env(safe-area-inset-bottom)); }

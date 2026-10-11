@@ -281,6 +281,7 @@ void App::reset_session() {
   logout();
   login_prompt_ = false;
   pin_          = PinPrompt{};
+  name_login_   = NameLogin{};
   pending_action_ = nullptr;
   declared_name_.clear();
   fullscreen_ = false;
@@ -572,6 +573,15 @@ void App::draw_login_modal() {
       login_manual_.clear();
     }
     ImGui::PopStyleColor();
+    // sans badge, pour un secouriste qui a un code PIN : discret, replie par defaut
+    ImGui::Spacing();
+    if (name_login_.open)
+      draw_name_login();
+    else if (ImGui::TextLink("Sans badge : nom, prénom et code PIN")) {
+      name_login_       = NameLogin{};
+      name_login_.open  = true;
+      name_login_.focus = true;
+    }
     if (declared_identity) {
       // reglage du serveur : nom declare, non verifie, garde seulement pour cette action
       ImGui::Spacing();
@@ -603,7 +613,55 @@ void App::draw_login_modal() {
   } else if (login_prompt_opened_) {
     login_prompt_opened_ = false;
     login_prompt_        = false;
+    name_login_          = NameLogin{};
   }
+}
+
+void App::draw_name_login() {
+  ImGui::SeparatorText("Sans badge");
+  ImGui::TextDisabled("Si vous avez un code PIN :");
+  ImGui::SetNextItemWidth(360.0f);
+  if (name_login_.focus) {
+    ImGui::SetKeyboardFocusHere();
+    name_login_.focus = false;
+  }
+  ImGui::InputTextWithHint("##name_prenom", "prénom", &name_login_.prenom);
+  ImGui::SetNextItemWidth(360.0f);
+  ImGui::InputTextWithHint("##name_nom", "nom", &name_login_.nom);
+  ImGui::SetNextItemWidth(360.0f);
+  const bool enter = ImGui::InputTextWithHint("##name_pin", "code PIN", &name_login_.pin,
+                                              ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal
+                                                  | ImGuiInputTextFlags_EnterReturnsTrue);
+  const auto filled = [](const std::string &text) { return text.find_first_not_of(" \t") != std::string::npos; };
+  const bool ready  = filled(name_login_.prenom) && filled(name_login_.nom) && name_login_.pin.size() >= 4
+                     && name_login_.pin.size() <= 8;
+  if (!name_login_.error.empty())
+    ImGui::TextColored(colors::red, "%s", name_login_.error.c_str());
+  ImGui::BeginDisabled(!ready || name_login_.busy);
+  if ((button("Se connecter", ImVec2(360, 0)) || enter) && ready && !name_login_.busy)
+    send_name_login();
+  ImGui::EndDisabled();
+}
+
+// Le serveur ne dit pas si le nom existe : un seul message d'erreur, et les essais sont limites
+void App::send_name_login() {
+  Json body;
+  body["prenom"]   = name_login_.prenom;
+  body["nom"]      = name_login_.nom;
+  body["pin"]      = name_login_.pin;
+  name_login_.busy = true;
+  api.post("/api/auth/name/", body, [this](const ApiResult &result) {
+    name_login_.busy = false;
+    if (result.ok) {
+      name_login_ = NameLogin{};
+      complete_login(result.data);
+      return;
+    }
+    feedback.error(ScanSource::Manual, settings);
+    name_login_.pin.clear();
+    name_login_.error = result.error;
+    name_login_.focus = false;
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

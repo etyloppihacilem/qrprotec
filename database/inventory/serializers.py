@@ -413,6 +413,7 @@ def user_dict(user, local=False):
         'privileged': user.privileged,  # gestion ou admin (mode privilegie du front)
         'has_pin': user.has_pin,
         'pin_required': user.pin_required,
+        'pin_mode': user.pin_mode,  # '' : reglage par defaut du serveur, 'required' ou 'disabled'
         'active': user.active,
         'key_expires': _date(user.key_expires),
         'pin_blocked': user.pin_blocked is not None,
@@ -489,6 +490,7 @@ def recipient_dict(recipient):
 def server_settings_dict(settings_row):
     return {
         'declared_identity': settings_row.declared_identity,
+        'pin_required_default': settings_row.pin_required_default,
     }
 
 

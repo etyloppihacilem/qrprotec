@@ -230,8 +230,20 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 
 - Le **badge** (QR avec matricule et clé) identifie. Il expire au bout d'un an ; le renouveler
   invalide l'ancien.
-- Le **PIN** (4 à 8 chiffres) authentifie : obligatoire pour les admins, facultatif pour les autres.
-  Un admin sans PIN le choisit à sa connexion suivante. 5 erreurs : blocage 5 minutes.
+- Le **PIN** (4 à 8 chiffres) authentifie : obligatoire pour les admins. Pour les autres, selon
+  `pin_mode` du secouriste : `required` (obligatoire), `disabled` (jamais de PIN, le PIN existant est
+  supprimé ; refusé pour un admin) ou vide, le réglage du serveur `pin_required_default`
+  (`/api/server-settings/`, facultatif par défaut). Un PIN existant est toujours demandé, sauf s'il est
+  désactivé. Sans PIN alors qu'il est obligatoire, il est choisi à la connexion suivante
+  (`pin_setup_required`). 5 erreurs : blocage 5 minutes.
+- **Connexion sans badge** : `POST /api/auth/name/` (`nom`, `prenom`, `pin`, sans casse ni accents),
+  pour un secouriste qui a un PIN non désactivé et un badge valide. Même réponse que `/api/auth/` ; le
+  jeton `session` remplace alors la clé du badge dans les identifiants (`{"matricule", "session"}`,
+  accepté partout où `{"matricule", "key"}` l'est). Un refus ne dit jamais si le nom existe
+  (« Nom, prénom ou code PIN incorrect », même temps de réponse). Les échecs sont comptés à part du
+  PIN du badge (`name_login_failures`), pour qu'un inconnu ne puisse pas bloquer le PIN de quelqu'un :
+  pause de 15 min tous les 5 échecs, connexion par nom coupée après 20 jusqu'à une connexion avec le
+  badge, et au plus 10 échecs par adresse et par quart d'heure (429).
 - **50 erreurs** depuis le dernier PIN correct (`QRPROTEC_PIN_BLOCK_AFTER_FAILURES`) : le PIN est
   bloqué jusqu'à ce qu'un admin le réinitialise, et les sessions ouvertes ne valent plus rien.
   `POST /api/auth/` répond alors `pin_blocked` avec `pin_reset` : URL `<base>/pinreset?m=…&t=…`

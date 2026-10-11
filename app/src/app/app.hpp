@@ -91,6 +91,17 @@ struct PinPrompt {
     int         source = 0; // ScanSource du badge
 };
 
+// Connexion sans badge (nom, prenom et code PIN) dans la fenetre « Connexion requise »
+struct NameLogin {
+    bool        open  = false;
+    bool        busy  = false;
+    bool        focus = false;
+    std::string prenom;
+    std::string nom;
+    std::string pin;
+    std::string error;
+};
+
 // Autre lot du meme lot global ajoute a la verif en cours par son etiquette privee
 struct VerifExtra {
     std::string id;
@@ -315,6 +326,8 @@ class App {
     void assign_shortcuts();
     void draw_windows();
     void draw_login_modal();
+    void draw_name_login();
+    void send_name_login();
     void draw_douchette_modal(); // easter egg : la douchette a ete scannee
     void check_setup();
     void draw_setup_modal();
@@ -353,6 +366,7 @@ class App {
     std::vector< Toast >    toasts_;
     bool                    login_prompt_ = false;
     PinPrompt               pin_;
+    NameLogin               name_login_;
     bool                    login_prompt_opened_ = false;
     bool                    douchette_pending_   = false;
     std::size_t             douchette_index_     = 0;

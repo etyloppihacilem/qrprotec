@@ -68,14 +68,15 @@ def public_name(identity):
 
 
 def badge_identity(credentials):
-    """Identite stockee d'un badge valide ({"matricule", "key"}), None sinon. Acces base : appele hors verrou."""
-    from .models import Secouristes
+    """Identite stockee d'un badge valide ({"matricule", "key"}, ou "session" apres une connexion par nom et PIN),
+    None sinon. Acces base : appele hors verrou."""
     from .idendity import SOURCE_VERIFIED
+    from .sessions import credentials_user
     if not isinstance(credentials, dict):
         return None
     try:
-        user = Secouristes.objects.filter(matricule=str(credentials.get('matricule', ''))[:16]).first()
-        if user is None or not user.active or not user.check_key(credentials.get('key')):
+        user = credentials_user(credentials)
+        if user is None:
             return None
         return f'{SOURCE_VERIFIED}:{user.matricule}'
     finally:

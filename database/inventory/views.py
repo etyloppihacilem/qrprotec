@@ -16,11 +16,14 @@ Deux familles de vues :
 - locales (servies uniquement sur le port local) : gestion complete sans cle.
 """
 
+import functools
 import hmac
 import re
-from datetime import date
+from datetime import date, timedelta
 
+from django.contrib.auth.hashers import check_password, make_password
 from django.core import signing
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, HttpResponseNotAllowed
@@ -39,9 +42,10 @@ from . import services
 from . import webpush
 from .idendity import SOURCE_VERIFIED, identity_from_request
 from .remote_scanner import hub as scanner_hub
+from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
     PUSH_TYPES, TYPE_LENGTH, Items, ItemsPacks, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
-    NotificationSettings, Operation, OperationKind, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
+    NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     ServerSettings, SmsRecipient, Verifs, name_key, qrprotec_setting,
 )
 
@@ -186,12 +190,13 @@ def parse_role(data):
 
 
 def badge_user(request, roles=None):
-    """Secouriste authentifie par son badge ({"user": {"matricule", "key"}}), avec l'un des roles donnes."""
+    """Secouriste authentifie par son badge ({"user": {"matricule", "key"}}) ou par son jeton de session
+    ({"user": {"matricule", "session"}}), avec l'un des roles donnes."""
     credentials = request.data.get('user')
     if not isinstance(credentials, dict):
         raise ApiError("Scannez votre badge", status.HTTP_403_FORBIDDEN)
-    user = Secouristes.objects.filter(matricule=str(credentials.get('matricule', ''))).first()
-    if user is None or not user.check_key(credentials.get('key')):
+    user = credentials_user(credentials)  # badge, ou jeton de session (connexion par nom et PIN)
+    if user is None:
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
     if roles and user.role not in roles:
         message = "Réservé aux administrateurs" if tuple(roles) == (Role.ADMIN,) else "Réservé aux rôles gestion et admin"
@@ -240,36 +245,6 @@ def health(request):
         # operations sur un lot possibles sans badge, sous un nom declare (reglage du serveur)
         'declared_identity': ServerSettings.get().declared_identity,
     })
-
-
-SESSION_SALT = 'qrprotec.session'
-SESSION_MAX_AGE = 12 * 3600  # jeton de session du front web apres verification du PIN
-
-
-def session_token(user):
-    # lie au badge courant : renouveler le badge invalide les sessions
-    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]}, salt=SESSION_SALT)
-
-
-def session_user(token):
-    """Utilisateur d'un jeton de session valide (badge valide, PIN non bloque), None sinon."""
-    try:
-        data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
-    except signing.BadSignature:
-        return None
-    user = Secouristes.objects.filter(matricule=str(data.get('m', ''))).first()
-    if user is None or not user.badge_valid() or not session_valid(user, token):
-        return None
-    return user
-
-
-def session_valid(user, token):
-    try:
-        data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
-    except signing.BadSignature:
-        return False
-    # un PIN bloque coupe aussi les sessions deja ouvertes
-    return data.get('m') == user.matricule and data.get('k') == user.key_hash[-8:] and user.pin_blocked is None
 
 
 PIN_RESET_SALT = 'qrprotec.pin-reset'
@@ -372,11 +347,96 @@ def auth(request):
     if user is None or not user.check_key(request.data.get('key')):
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
     verify_pin(user, request.data)
+    if user.name_login_failures or user.name_login_locked_until:
+        # le badge prouve que c'est bien lui : la connexion par nom et PIN redevient possible
+        user.name_login_failures = 0
+        user.name_login_locked_until = None
+        user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
+    return Response(login_response(user))
+
+
+def login_response(user):
     data = ser.user_dict(user)
     data['session'] = session_token(user)
     # reglages des notifications web affiches seulement si l'utilisateur peut en recevoir
     data['notifications'] = bool(user.push_types()) and webpush.available()
-    return Response(data)
+    return data
+
+
+NAME_LOGIN_ERROR = "Nom, prénom ou code PIN incorrect"
+NAME_LOGIN_LOCK_EVERY = 5                    # essais faux consecutifs avant une pause
+NAME_LOGIN_LOCK_DURATION = timedelta(minutes=15)
+NAME_LOGIN_MAX_FAILURES = 20                 # puis connexion par nom coupee jusqu'a une connexion avec le badge
+NAME_LOGIN_ADDRESS_LIMIT = 10                # essais faux par adresse et par periode
+NAME_LOGIN_ADDRESS_PERIOD = 15 * 60
+
+
+@functools.cache
+def dummy_pin_hash():
+    """Hache d'un PIN quelconque : meme temps de reponse que le nom existe ou non."""
+    return make_password('0000')
+
+
+def client_address(request):
+    """Adresse du client ; derriere le reverse proxy local (Caddy), celle qu'il transmet."""
+    address = request.META.get('REMOTE_ADDR', '') or ''
+    forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if forwarded and address in ('127.0.0.1', '::1'):
+        return forwarded.split(',')[0].strip()[:64]
+    return address[:64]
+
+
+def name_login_candidates(nom, prenom):
+    """Secouristes de ce nom (sans accents ni casse) qui peuvent se connecter par nom et PIN : PIN defini et
+    utilisable, badge valide, connexion par nom pas en pause."""
+    now = timezone.now()
+    key = (name_key(nom), name_key(prenom))
+    queryset = Secouristes.objects.filter(active=True, key_expires__gte=timezone.localdate()).exclude(pin_hash='')
+    return [user for user in queryset
+            if (name_key(user.nom), name_key(user.prenom)) == key
+            and user.pin_blocked is None and not user.pin_locked()
+            and user.pin_mode != PinMode.DISABLED
+            and user.name_login_failures < NAME_LOGIN_MAX_FAILURES
+            and (user.name_login_locked_until is None or user.name_login_locked_until <= now)]
+
+
+@api_view(['POST'])
+@handle_errors
+def auth_name(request):
+    """Connexion sans badge : {"nom", "prenom", "pin"}, pour un secouriste qui a un code PIN. Meme reponse que
+    /api/auth/ (jeton `session` a renvoyer a la place de la cle du badge).
+
+    Un refus ne dit jamais si le nom existe (les noms sont anonymises sur l'API publique). Les essais faux sont
+    comptes a part du PIN du badge : pause de 15 min tous les 5 essais, connexion par nom coupee apres 20 (une
+    connexion avec le badge la retablit), et 10 essais faux au plus par adresse et par quart d'heure.
+    """
+    data = request.data
+    address_key = 'qrprotec.name-login.' + client_address(request)
+    if cache.get(address_key, 0) >= NAME_LOGIN_ADDRESS_LIMIT:
+        raise ApiError("Trop d'essais : réessayez dans quelques minutes", status.HTTP_429_TOO_MANY_REQUESTS)
+    nom, prenom, pin = (str(data.get(field, '') or '').strip() for field in ('nom', 'prenom', 'pin'))
+    if not nom or not prenom or not PIN_RE.match(pin):
+        raise ApiError("Saisissez votre nom, votre prénom et votre code PIN (4 à 8 chiffres)")
+    candidates = name_login_candidates(nom, prenom)
+    if not candidates:
+        check_password(pin, dummy_pin_hash())
+    user = next((candidate for candidate in candidates if check_password(pin, candidate.pin_hash)), None)
+    if user is None:
+        try:
+            cache.add(address_key, 0, NAME_LOGIN_ADDRESS_PERIOD)
+            cache.incr(address_key)
+        except ValueError:
+            cache.set(address_key, 1, NAME_LOGIN_ADDRESS_PERIOD)
+        for candidate in candidates:
+            candidate.name_login_failures += 1
+            if candidate.name_login_failures % NAME_LOGIN_LOCK_EVERY == 0:
+                candidate.name_login_locked_until = timezone.now() + NAME_LOGIN_LOCK_DURATION
+            candidate.save(update_fields=['name_login_failures', 'name_login_locked_until'])
+        raise ApiError(NAME_LOGIN_ERROR, status.HTTP_403_FORBIDDEN)
+    user.name_login_failures = 0
+    user.name_login_locked_until = None
+    user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
+    return Response(login_response(user))
 
 
 @api_view(['POST'])
@@ -1466,6 +1526,8 @@ def users(request):
         raise ApiError("Nom et prenom obligatoires")
     role = Role.ADMIN if first_admin else parse_role(data) or Role.NORMAL
     user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=role)
+    if data.get('pin_mode'):
+        user.set_pin_mode(str(data['pin_mode']))
     if data.get('pin'):
         user.set_pin(data['pin'])  # sinon, un admin choisira son PIN a sa premiere connexion
     if data.get('pin_contact'):
@@ -1496,6 +1558,10 @@ def user_detail(request, matricule):
         role = parse_role(data)
         if role:
             user.role = role
+            if role == Role.ADMIN and user.pin_mode == PinMode.DISABLED:
+                user.pin_mode = PinMode.DEFAULT  # PIN toujours obligatoire pour un admin
+        if 'pin_mode' in data:
+            user.set_pin_mode(str(data['pin_mode'] or ''))  # 'disabled' supprime le PIN (refuse pour un admin)
         if 'active' in data:
             user.active = bool(data['active'])
         if 'pin' in data:
@@ -1515,7 +1581,7 @@ def user_detail(request, matricule):
     return Response(ser.user_dict(user, local=True))
 
 
-USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé',
+USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé', 'pin_mode': 'mode du PIN',
                'pin_contact': 'admin à contacter', 'push_disabled': 'notifications', 'default_contact': 'contact par défaut'}
 
 
@@ -1600,12 +1666,19 @@ def server_settings(request):
     require_front(request, ADMIN)
     settings_row = ServerSettings.get()
     if request.method == 'PATCH':
+        changes = []
         if 'declared_identity' in request.data:
             settings_row.declared_identity = bool(request.data['declared_identity'])
+            changes.append('identité déclarée (nom sans badge) '
+                           + ('autorisée' if settings_row.declared_identity else 'refusée'))
+        if 'pin_required_default' in request.data:
+            settings_row.pin_required_default = bool(request.data['pin_required_default'])
+            changes.append('PIN ' + ('obligatoire' if settings_row.pin_required_default else 'facultatif')
+                           + ' par défaut pour les secouristes')
         settings_row.save()
-        journal.record(OperationKind.SETTINGS, front_identity(request), 'identité déclarée (nom sans badge) '
-                       + ('autorisée' if settings_row.declared_identity else 'refusée'),
-                       declared_identity=settings_row.declared_identity)
+        journal.record(OperationKind.SETTINGS, front_identity(request), ', '.join(changes) or 'aucun changement',
+                       declared_identity=settings_row.declared_identity,
+                       pin_required_default=settings_row.pin_required_default)
     return Response(ser.server_settings_dict(settings_row))
 
 
