@@ -72,13 +72,13 @@ std::vector< CategoryInfo > build_categories() {
                            "Étiquette visible du lot. Le QR code doit contenir {{lot_url}}.", lot_placeholders() };
   categories.push_back(lot_public);
 
-  CategoryInfo lot_private{ TemplateCategory::LotPrivate, "lot_private", "Lot - étiquette privée",
+  CategoryInfo lot_private{ TemplateCategory::LotPrivate, "lot_private", "Lot - étiquette clé",
                             "Étiquette contenant la clé du lot (à garder à l'abri). Le QR code doit contenir "
                             "{{lot_private_url}}.",
                             lot_placeholders() };
   lot_private.placeholders.push_back({ "lot_key", "Clé de vérification du lot", "a1B2c3D4e5F6g7H8i9J0k1L2" });
   lot_private.placeholders.push_back(
-    { "lot_private_url", "URL de vérif avec la clé (QR de l'étiquette privée)",
+    { "lot_private_url", "URL de vérif avec la clé (QR de l'étiquette clé)",
       "https://example.com/verif?lot=sacpse00000001&key=a1B2c3D4e5F6g7H8i9J0k1L2" }
   );
   lot_private.placeholders.push_back({ "key_expires", "Date d'expiration de la clé JJ/MM/AAAA", "29/09/2036" });

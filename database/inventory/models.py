@@ -376,7 +376,7 @@ class Lots(models.Model):
 
     def key_hint(self) -> str:
         """Explication de l'etiquette privee pour qui ne la connait pas, avec son emplacement s'il est renseigne."""
-        hint = "L'étiquette privée est un QR code rangé à l'intérieur du lot"
+        hint = "L'étiquette clé est un QR code rangé à l'intérieur du lot"
         return hint + (f" ({self.key_location})." if self.key_location else ".")
 
     def rotate_key(self):
@@ -450,7 +450,7 @@ class OperationKind(models.TextChoices):
     PACK_OPEN = 'pack_open', 'Ouverture de paquet'
     PACK_CLOSE = 'pack_close', 'Paquet refermé'
     LOT = 'lot', 'Gestion des lots'
-    LOT_KEY = 'lot_key', 'Étiquette privée renouvelée'
+    LOT_KEY = 'lot_key', 'Étiquette clé renouvelée'
     CATALOG = 'catalog', "Types d'items et de lots"
     USER = 'user', 'Utilisateurs'
     SETTINGS = 'settings', 'Réglages'
@@ -502,8 +502,8 @@ PUSH_TYPES = {
     'stock_low': ('Stock bas (sous le minimum fixé)', _GESTION_ROLES, True),
     'stock_empty': ('Stock vide (0 en stock)', _GESTION_ROLES, True),
     'pin_blocked': ("PIN d'un utilisateur bloqué (lien de déblocage)", _ADMIN_ROLES, True),
-    'lot_key_renewed': ("Étiquette privée d'un lot renouvelée", _GESTION_ROLES, False),
-    'lot_key_expiring': ('Étiquette privée de lot qui expire bientôt ou a expiré', _GESTION_ROLES, False),
+    'lot_key_renewed': ("Étiquette clé d'un lot renouvelée", _GESTION_ROLES, False),
+    'lot_key_expiring': ('Étiquette clé de lot qui expire bientôt ou a expiré', _GESTION_ROLES, False),
     'badge_renewed': ("Badge d'un utilisateur renouvelé", _ADMIN_ROLES, False),
     'badge_expiring': ('Badge qui expire bientôt ou a expiré', _ADMIN_ROLES, False),
     'order_due': ('Commande à passer (prévisions de stock)', _GESTION_ROLES, True),

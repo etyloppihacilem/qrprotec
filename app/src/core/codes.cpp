@@ -353,7 +353,7 @@ const char *scan_kind_name(ScanKind kind) {
 std::string describe_scan(const ParsedScan &scan) {
   switch (scan.kind) {
     case ScanKind::Item: return "Item " + scan.id;
-    case ScanKind::Lot: return "Lot " + scan.id + (scan.key.empty() ? "" : " · étiquette privée");
+    case ScanKind::Lot: return "Lot " + scan.id + (scan.key.empty() ? "" : " · étiquette clé");
     case ScanKind::User: return "Badge " + scan.id;
     case ScanKind::SealedPack: return "Paquet " + scan.id;
     case ScanKind::LotSeal: return "Scellé du lot " + scan.id;

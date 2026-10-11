@@ -31,10 +31,10 @@ Chaque lot a **deux étiquettes** :
 | Étiquette | Où la mettre | Ce qu'elle permet |
 |---|---|---|
 | **Publique** | collée à l'extérieur du sac | voir l'état du lot et son contenu |
-| **Privée** | à l'intérieur du sac, ou gardée par les responsables | **vérifier** le lot et y **ajouter** du matériel |
+| **Clé** | à l'intérieur du sac, ou gardée par les responsables | **vérifier** le lot et y **ajouter** du matériel |
 
 Quelqu'un qui photographie l'étiquette publique peut voir l'état du sac, mais pas modifier
-l'inventaire. Si une étiquette privée est perdue, un responsable régénère la clé : l'ancienne ne
+l'inventaire. Si une étiquette clé est perdue, un responsable régénère la clé : l'ancienne ne
 marche plus et on en imprime une nouvelle.
 
 ## Sous-lot et lot global
@@ -53,7 +53,7 @@ VPS 1
 Le **B+ 1** est le **lot global** du sac de soin et du sac O2. Chaque sous-lot a ses propres
 étiquettes et se vérifie seul. Le lot global est vert seulement si **tous** ses sous-lots le sont,
 et sa date de dernière vérif est celle du sous-lot vérifié **le plus anciennement**. L'étiquette
-privée d'un lot global permet de vérifier tous ses sous-lots.
+clé d'un lot global permet de vérifier tous ses sous-lots.
 
 Un lot qui ne contient rien lui-même (le « VPS 1 », le « B+ 1 ») sert juste à regrouper.
 
@@ -63,7 +63,7 @@ Le **stock** est tout ce qui n'est dans aucun lot : la réserve. On peut organis
 **rangements** (armoire, tiroir, étagère) : ce sont des lots d'un type marqué « rangement ». Le
 matériel qui y est rangé **compte dans le stock**, et on peut vérifier un tiroir comme un sac, sans
 vérifier toute la réserve. Chaque rangement est unique (un type par armoire, par tiroir), n'a pas de
-contenu attendu et son étiquette privée n'expire pas. Les listes de lots ne les montrent qu'avec la
+contenu attendu et son étiquette clé n'expire pas. Les listes de lots ne les montrent qu'avec la
 case **Afficher les rangements du stock**.
 
 ## Vérif

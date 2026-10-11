@@ -194,7 +194,7 @@ def check_key_expirations(today=None):
     warning_days = NotificationSettings.get().expiry_warning_days
     limit = today + timedelta(days=warning_days)
     sources = (
-        ('lot_key_expiring', 'étiquette privée de lot', 'étiquettes privées de lot', 'expirées',
+        ('lot_key_expiring', 'étiquette clé de lot', 'étiquettes clés de lot', 'expirées',
          Lots.objects.filter(active=True, verif_key_expires__lte=limit).order_by('verif_key_expires', 'name'),
          'verif_key_expires', lambda lot: lot.name),
         ('badge_expiring', 'badge', 'badges', 'expirés',

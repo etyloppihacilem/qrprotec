@@ -38,12 +38,12 @@ Il n'a pas été scanné (étiquette cachée, objet resté dans une poche). Refa
 scannant : il est retrouvé. Il ne devient « disparu » qu'après trois vérifs sans être vu (ou tout de
 suite s'il est périmé).
 
-**« Scannez l'étiquette privée du lot pour pouvoir valider ».**
-L'étiquette publique ne suffit pas à valider. Scannez l'étiquette privée (à l'intérieur du sac), ou
+**« Scannez l'étiquette clé du lot pour pouvoir valider ».**
+L'étiquette publique ne suffit pas à valider. Scannez l'étiquette clé (à l'intérieur du sac), ou
 demandez à un responsable.
 
 **« Les lots d'une même vérif doivent appartenir au même lot global ».**
-Vous avez scanné l'étiquette privée d'un autre sac sans rapport avec la vérif en cours. Terminez ou
+Vous avez scanné l'étiquette clé d'un autre sac sans rapport avec la vérif en cours. Terminez ou
 annulez la vérif, puis commencez celle de l'autre sac.
 
 **J'ai ajouté du matériel et le sac est passé orange.**

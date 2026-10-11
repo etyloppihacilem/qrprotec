@@ -39,7 +39,7 @@ Menu **Gestion > Réglages** (admin), section **Étiquettes et impression** :
 2. **Étiquettes chargées dans l'imprimante** : largeur et hauteur du rouleau (40 × 30 mm).
 3. **Titre des étiquettes** : le nom de votre structure, imprimé sur les étiquettes de lot et les
    badges (par défaut « PROTECTION CIVILE / PARIS CENTRE »).
-4. **Étiquettes** : le modèle utilisé pour chaque usage (item, paquet, lot public, lot privé, scellé,
+4. **Étiquettes** : le modèle utilisé pour chaque usage (item, paquet, lot public, lot clé, scellé,
    ouverture du scellé, rangement du stock, badge). Les modèles fournis conviennent pour commencer ; votre logo se change dans l'éditeur
    d'étiquettes (voir [Administration](administration.md#étiquettes)).
 
@@ -144,8 +144,8 @@ Les rangements du stock sont masqués des listes de lots (fenêtres **Lots** et 
 accueil du front web) : cochez **Afficher les rangements du stock** pour les voir. Dans la fenêtre
 **Lots**, la case est cochée par défaut pour les rôles gestion et admin.
 
-À chaque création, l'aperçu propose les étiquettes **publique** et **privée** : imprimez les deux.
-Collez la publique à l'extérieur, rangez la privée à l'intérieur (ou dans le classeur des
+À chaque création, l'aperçu propose les étiquettes **publique** et **clé** : imprimez les deux.
+Collez la publique à l'extérieur, rangez l'étiquette clé à l'intérieur (ou dans le classeur des
 responsables pour les lots sensibles). Le **nom court** apparaît sur les petites étiquettes. Un
 rangement du stock n'a que son **étiquette de rangement**, à coller à l'intérieur.
 
@@ -161,7 +161,7 @@ C'est l'étape la plus longue. On la fait **lot par lot**, en commençant par le
 3. **Coller** chaque étiquette sur son objet. Les objets trop petits (un comprimé, un pansement) se
    gèrent par leur contenant : étiquetez la boîte ou le sachet comme un seul item, ou utilisez un
    paquet fermé.
-4. Les items créés sont pour l'instant **en stock**. Scannez l'**étiquette privée** du sac : la
+4. Les items créés sont pour l'instant **en stock**. Scannez l'**étiquette clé** du sac : la
    fenêtre Vérif s'ouvre et affiche ce qui est attendu.
 5. **Scannez tout** en remettant les objets dans le sac. Chaque item scanné disparaît de la liste
    « À scanner ».
@@ -169,11 +169,11 @@ C'est l'étape la plus longue. On la fait **lot par lot**, en commençant par le
    complet. Les items sont maintenant **dans le sac**.
 
 Pour un **B+**, faites le sac de soin et le sac O2 séparément, ou ensemble : pendant la vérif du sac de
-soin, scannez l'étiquette privée du sac O2, elle s'ajoute à la vérif et chaque item va dans le sac
+soin, scannez l'étiquette clé du sac O2, elle s'ajoute à la vérif et chaque item va dans le sac
 où il manque.
 
 Pour la **réserve**, même méthode, armoire par armoire ou tiroir par tiroir : réception, étiquettes,
-puis vérif du rangement (étiquette privée du tiroir et contenu). Ce qui n'a pas de rangement reste
+puis vérif du rangement (étiquette clé du tiroir et contenu). Ce qui n'a pas de rangement reste
 simplement en stock.
 
 Les **boîtes encore fermées** de la réserve : à la réception, cochez **Paquet fermé** ; une seule

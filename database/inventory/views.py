@@ -218,12 +218,12 @@ def key_error(lot, key):
     """Message quand l'etiquette privee d'un lot manque ou ne vaut plus : dit ce qu'elle est et ou la trouver."""
     state = lot.key_status(key) if key else 'missing'
     if state == 'expired':
-        return (f"L'étiquette privée de {lot.name} a expiré le {lot.verif_key_expires.strftime('%d/%m/%Y')} : "
+        return (f"L'étiquette clé de {lot.name} a expiré le {lot.verif_key_expires.strftime('%d/%m/%Y')} : "
                 "demandez à un responsable de la réimprimer.")
     if state == 'wrong':
-        return (f"L'étiquette privée scannée n'est plus celle de {lot.name} (clé régénérée) : "
+        return (f"L'étiquette clé scannée n'est plus celle de {lot.name} (clé régénérée) : "
                 "demandez à un responsable de la réimprimer.")
-    return f"Scannez l'étiquette privée de {lot.name} pour valider. " + lot.key_hint()
+    return f"Scannez l'étiquette clé de {lot.name} pour valider. " + lot.key_hint()
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1372,7 +1372,7 @@ def lot_update(request, lot_id):
     if 'parent' in data:
         changes.append(f'rangé dans {lot.parent.name}' if lot.parent else 'lot indépendant')
     if 'key_location' in data:
-        changes.append("emplacement de l'étiquette privée")
+        changes.append("emplacement de l'étiquette clé")
     if 'active' in data:
         changes.append('actif' if lot.active else 'archivé')
     journal.record(OperationKind.LOT, front_identity(request), 'lot modifié : ' + (', '.join(changes) or 'aucun changement'),
@@ -1397,10 +1397,10 @@ def lot_rotate_key(request, lot_id):
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     lot.rotate_key()
     lot.save(update_fields=['verif_key', 'verif_key_expires', 'key_expiry_stage'])
-    journal.record(OperationKind.LOT_KEY, front_identity(request), 'étiquette privée renouvelée (ancienne invalidée)',
+    journal.record(OperationKind.LOT_KEY, front_identity(request), 'étiquette clé renouvelée (ancienne invalidée)',
                    lot=lot)
     notifications.notify_admins('lot_key_renewed', 'étiquette de lot renouvelée',
-                                f'étiquette privée du lot {lot.name} renouvelée par {front_user(request)}')
+                                f'étiquette clé du lot {lot.name} renouvelée par {front_user(request)}')
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 

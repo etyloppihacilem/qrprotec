@@ -97,7 +97,7 @@ static void test_scans() {
   // affichage : elements distinctifs seulement, jamais l'URL ni la cle
   assert(describe_scan(item) == "Item compre20261231000000A1");
   assert(describe_scan(item_url) == "Item compre20261231000000A1");
-  assert(describe_scan(lot) == "Lot sacpse00000001 · étiquette privée");
+  assert(describe_scan(lot) == "Lot sacpse00000001 · étiquette clé");
   assert(describe_scan(lot_public) == "Lot sacpse00000001");
   assert(describe_scan(badge) == "Badge M001");
   assert(describe_scan(pack) == "Paquet 0000002B");

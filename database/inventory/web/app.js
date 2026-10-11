@@ -585,7 +585,7 @@
     }
     if (lot.key_check !== 'valid') {
       feedback.bad();
-      showInfo('bad', 'Étiquette privée refusée', lot.key_error);
+      showInfo('bad', 'Étiquette clé refusée', lot.key_error);
       return true;
     }
     if (rootOf(lot) !== rootOf(state.lot)) return false;
@@ -593,9 +593,9 @@
     if (existing) { existing.key = scan.key; existing.lot = lot; } else state.extra.push({ id: scan.id, key: scan.key, lot });
     feedback.info();
     showInfo('ok', `Vérif groupée : ${sessionLots().filter((sub) => !sub.depth || sub.id === lot.id).map((sub) => sub.name).join(' + ')}`,
-      covered ? `${lot.name} faisait déjà partie de la vérif : son étiquette privée est enregistrée.`
+      covered ? `${lot.name} faisait déjà partie de la vérif : son étiquette clé est enregistrée.`
         : `Les items attendus de ${lot.name} s'ajoutent à la vérif en cours.`,
-      `🔑 Étiquette privée de ${lot.name} scannée`);
+      `🔑 Étiquette clé de ${lot.name} scannée`);
     save();
     render();
     if (!state.scanned.length) switchTab('todo');
@@ -731,7 +731,7 @@
       const lot = await api(`lots/${encodeURIComponent(id)}/?key=${encodeURIComponent(key)}`);
       if (lot.key_check === 'valid') return true;
       feedback.bad();
-      showInfo('bad', 'Étiquette privée refusée', lot.key_error);
+      showInfo('bad', 'Étiquette clé refusée', lot.key_error);
       return false;
     } catch (e) {
       return true; // lot introuvable : signale ensuite par loadLot
@@ -741,7 +741,7 @@
   // Meme texte que Lots.key_hint cote serveur et key_hint dans l'app
   function keyHint(lot) {
     const location = lot && lot.key_location;
-    return "L'étiquette privée est un QR code rangé à l'intérieur du lot" + (location ? ` (${location}).` : '.');
+    return "L'étiquette clé est un QR code rangé à l'intérieur du lot" + (location ? ` (${location}).` : '.');
   }
 
   // Lots envoyes au serveur avec leur cle ; la cle d'un lot couvre ses sous-lots
@@ -872,7 +872,7 @@
       !lot.verif_recommended ? '' : lot.restocked_count
         ? `Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
         : `Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
-      keyOk() ? '🔑 Étiquette privée scannée' : 'Scannez l\'étiquette privée pour pouvoir valider. ' + keyHint(lot));
+      keyOk() ? '🔑 Étiquette clé scannée' : 'Scannez l\'étiquette clé pour pouvoir valider. ' + keyHint(lot));
   }
 
   // Saisie du PIN (ou choix du PIN pour un admin qui n'en a pas encore)
@@ -1108,7 +1108,7 @@
     const missing = [];
     if (!state.lot) missing.push("scannez l'étiquette du lot");
     else if (!keyOk()) {
-      missing.push("scannez l'étiquette privée du lot, un QR code rangé à l'intérieur du lot"
+      missing.push("scannez l'étiquette clé du lot, un QR code rangé à l'intérieur du lot"
         + (state.lot.key_location ? ` (${state.lot.key_location})` : ''));
     }
     if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
@@ -1549,7 +1549,7 @@
     const view = $('#lot-view');
     const lot = state.lot;
     if (!lot) {
-      view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette publique ou privée d'un lot, ou saisissez son identifiant (menu ⋯)."));
+      view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette publique ou clé d'un lot, ou saisissez son identifiant (menu ⋯)."));
       return;
     }
     const plan = planSession();
@@ -1565,11 +1565,11 @@
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
-        el('br'), keyOk() ? '🔑 Étiquette privée scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette privée pour valider. ' + keyHint(lot)),
+        el('br'), keyOk() ? '🔑 Étiquette clé scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette clé pour valider. ' + keyHint(lot)),
       expiryLine(lot),
       el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
       lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
-        + "Scannez l'étiquette privée d'un autre lot du même lot global pour l'ajouter.") : '',
+        + "Scannez l'étiquette clé d'un autre lot du même lot global pour l'ajouter.") : '',
       ...renderGlobal(lot),
       el('h3', {}, 'Scannés / attendus'),
       ...(lot.requirements || []).map((row) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''),
@@ -2753,13 +2753,13 @@
 
     // etiquette privee : scannee (cle verifiee par le serveur) ou ou la trouver
     const keyBox = [];
-    if (fiche.keyCheck === 'valid') keyBox.push(el('b', {}, '🔑 Étiquette privée scannée : la vérif pourra être validée.'));
-    else if (fiche.keyCheck) keyBox.push(el('b', {}, '✘ Étiquette privée refusée'), el('div', {}, fiche.keyError));
+    if (fiche.keyCheck === 'valid') keyBox.push(el('b', {}, '🔑 Étiquette clé scannée : la vérif pourra être validée.'));
+    else if (fiche.keyCheck) keyBox.push(el('b', {}, '✘ Étiquette clé refusée'), el('div', {}, fiche.keyError));
     keyBox.push(el('div', {}, lot.key_location ? `Emplacement : ${cap(lot.key_location)}` : 'Emplacement non renseigné'));
     if (fiche.keyCheck !== 'valid') {
       keyBox.push(el('div', { class: 'sub' }, "QR code rangé à l'intérieur du lot, à scanner pendant la vérif pour pouvoir la valider."));
     }
-    parts.push(el('h3', {}, 'Étiquette privée'),
+    parts.push(el('h3', {}, 'Étiquette clé'),
       el('div', { class: 'key-box' + (fiche.keyCheck && fiche.keyCheck !== 'valid' ? ' bad' : '') }, ...keyBox));
 
     // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres)

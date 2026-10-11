@@ -1338,7 +1338,7 @@ class SmsTests(ApiTestCase):
             self.assertEqual(self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')[0], 200)
             self.assertEqual(self.call('POST', '/api/users/M001/renew-key/')[0], 200)
         messages = [message for user, message in self.sent if user == 'u1']
-        self.assertEqual(messages, ['QRProtec : étiquette privée du lot Sac A renouvelée par Admin Poste',
+        self.assertEqual(messages, ['QRProtec : étiquette clé du lot Sac A renouvelée par Admin Poste',
                                     'QRProtec : badge de Jeanne Dupont (M001) renouvelé par Admin Poste'])
 
     def test_key_expirations_once_per_stage(self):
@@ -1352,7 +1352,7 @@ class SmsTests(ApiTestCase):
         messages = [message for user, message in self.sent if user == 'u1']
         day = (self.today + timedelta(days=10)).strftime('%d/%m/%Y')
         self.assertEqual(len(messages), 2)
-        self.assertIn(f'étiquettes privées de lot qui expirent bientôt : Sac A ({day})', messages[0])
+        self.assertIn(f'étiquettes clés de lot qui expirent bientôt : Sac A ({day})', messages[0])
         self.assertIn('badges expirés : Jeanne Dupont (M001)', messages[1])
         # deja annonce : rien de plus
         self.sent.clear()
@@ -1364,7 +1364,7 @@ class SmsTests(ApiTestCase):
         with self.captureOnCommitCallbacks(execute=True):
             call_command('check_alerts', stdout=StringIO())
         self.assertEqual(len(self.sent), 2)
-        self.assertIn('étiquettes privées de lot expirées : Sac A', self.sent[0][1])
+        self.assertIn('étiquettes clés de lot expirées : Sac A', self.sent[0][1])
         # renouvellement : l'alerte reviendra a la prochaine expiration
         self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
         self.lot.refresh_from_db()

@@ -80,7 +80,7 @@ Tous les scans (SDK, clavier HID, saisie manuelle, téléphone) arrivent dans
 2. un item ou paquet déjà dans la pile est ignoré (mis en surbrillance) ;
 3. selon le type :
    - **badge** → connexion (`login_with_badge`, puis PIN si nécessaire) ;
-   - **lot** → étiquette publique : fiche du lot ; étiquette privée : lance la vérif, ou l'ajoute à la
+   - **lot** → étiquette publique : fiche du lot ; étiquette clé : lance la vérif, ou l'ajoute à la
      vérif en cours si c'est un lot du même lot global (`join_verif`) ;
    - **scellé** → fiche du lot avec le résultat du contrôle du scellé ;
    - **ouverture de scellé** → le scellé est ouvert (signé par l'utilisateur connecté, sinon anonyme) ;
@@ -168,7 +168,7 @@ PrintQueue (thread) ── NiimbotB1Printer ── SerialPort (/dev/ttyACM0, 115
 ```
 
 - **Modèles** : fichiers JSON `.qr` (`version`, `category`, `media` en mm, `elements` texte / QR /
-  image, positions en mm). La catégorie (item, paquet, lot public, lot privé, scellé, ouverture du scellé, badge) détermine
+  image, positions en mm). La catégorie (item, paquet, lot public, lot clé, scellé, ouverture du scellé, badge) détermine
   les placeholders disponibles (`core/placeholders.cpp`, liste affichée dans l'onglet Placeholders de
   l'éditeur). Un modèle par usage se choisit dans les Réglages ; sans modèle, le QR seul est imprimé.
 - **Dossier des modèles** (`core/paths.cpp`) : réglage de l'application, sinon

@@ -293,7 +293,7 @@ publier dans un dépôt public dédié, par exemple `etyloppihacilem/qrprotec-rp
 | Item, ancien format (toujours lu) | l'iid seul | `serphy20271231000000A1` |
 | Item non périssable | date `00000000` dans l'iid | `garrot00000000000000A1` |
 | Lot, étiquette publique | `<base>/verif?lot=ID` | `https://example.com/verif?lot=sacpse00000001` |
-| Lot, étiquette privée | `<base>/verif?lot=ID&key=CLE` | `...verif?lot=sacpse00000001&key=a1B2...` |
+| Lot, étiquette clé | `<base>/verif?lot=ID&key=CLE` | `...verif?lot=sacpse00000001&key=a1B2...` |
 | Badge utilisateur | `<base>/badge?m=MATRICULE&key=CLE` (clé valable 1 an) | `...badge?m=M0042&key=...` |
 | Paquet fermé | `<base>/pack?id=ID` | `...pack?id=0000002B` |
 | Scellé d'un lot | `<base>/seal?lot=ID&s=CODE` (code changé à chaque scellage) | `...seal?lot=sacpse00000001&s=...` |
@@ -352,7 +352,7 @@ douchette (`ScanSource::Phone`).
    `/ws/scanner/phone?s=SESSION&k=CLE` (API publique, HTTPS obligatoire pour la caméra).
 3. Chaque code lu est relayé au front ; le front renvoie les erreurs (produit périmé, code inconnu)
    avec leur message, et le téléphone clignote en rouge, bipe et vibre. Le téléphone n'affiche qu'un
-   libellé court par code (« Item compre · 31/12/2027 », « Badge M0042 », « Lot … · étiquette privée »),
+   libellé court par code (« Item compre · 31/12/2027 », « Badge M0042 », « Lot … · étiquette clé »),
    jamais les clés ; « Annuler le dernier » retire du poste le dernier scan venu du téléphone.
 4. Si le téléphone (ou le poste) reste déconnecté plus longtemps que le délai choisi (5 min par
    défaut, réglable dans la fenêtre du front), la session est fermée : la clé du QR code ne marche
@@ -389,7 +389,7 @@ vérif groupée de plusieurs lots d'un même lot global), `lots/<id>/add/` (POST
 sortie du stock sans lot), `lots/<id>/unseal/` (POST
 key), `packs/<id>/`, `lots/<id>/sheet.pdf` (GET, fiche d'inventaire papier A4 : liste de contrôle
 des items attendus par emplacement sur deux colonnes, pour vérifier un sac sans réseau ; une page par sous-lot). `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
-`unsealed`. `lots/<id>/?key=CLE` renvoie `key_check` : `valid`, `expired` ou `wrong` (étiquette privée d'une ancienne
+`unsealed`. `lots/<id>/?key=CLE` renvoie `key_check` : `valid`, `expired` ou `wrong` (étiquette clé d'une ancienne
 clé), et `key_error` (message à afficher) si elle n'est pas valide. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
 `lots/summary/` (lots actifs et leur état, tout badge valide), `stock/summary/` (état des stocks,
 rôles gestion et admin) et `stock/forecast/summary/` (prévisions de stock, mêmes rôles, `months`). Notifications web : `push/key/` (GET, clé publique VAPID),
@@ -465,11 +465,11 @@ reçoivent les noms complets. Hors requête (WebSocket, tâche), envelopper la s
   nombre d'items, la date et l'auteur du réassort) jusqu'à la prochaine vérif, pour que la personne
   suivante vérifie tout le lot. Un lot incomplet reste rouge.
 - **Lots et sous-lots** : un lot peut avoir un lot parent (ex : B+ = sac de soin + sac O2 ; VPS =
-  armoires + B+). Chaque sous-lot a ses propres QR (public et privé) et se vérifie seul ; sa fiche
+  armoires + B+). Chaque sous-lot a ses propres QR (public et clé) et se vérifie seul ; sa fiche
   affiche aussi l'état du lot global. Un lot global est valide si tous ses sous-lots le sont, et sa
   dernière vérif est la plus ancienne de ses sous-lots. Un lot sans contenu attendu ni items qui a des
-  sous-lots est un simple regroupement. La clé privée d'un lot couvre ses sous-lots.
-- **Vérif groupée** : pendant une vérif, scanner le QR privé d'un autre lot du même lot global
+  sous-lots est un simple regroupement. La clé d'un lot couvre ses sous-lots.
+- **Vérif groupée** : pendant une vérif, scanner l'étiquette clé d'un autre lot du même lot global
   l'ajoute à la vérif en cours (les items attendus s'additionnent ; chaque item scanné est rangé dans
   le lot où il manque). Les lots doivent partager le même lot global.
 - **Vérif partielle** : si la vérif est validée alors que seuls certains lots sont complets, le bouton
@@ -540,7 +540,7 @@ ouvre donc directement la bonne vue. Les fichiers sont dans `database/inventory/
 - **Produit périmé ou code inconnu** : écran rouge qui clignote, bip grave et vibration (la vibration
   n'existe pas sur iPhone). Un item déjà scanné n'est pas ajouté une seconde fois.
 - **Badge** : scanner son badge connecte l'utilisateur (conservé sur le téléphone jusqu'à
-  déconnexion). **Valider la vérif** exige l'étiquette privée du lot et un badge ; le menu ⋯ permet
+  déconnexion). **Valider la vérif** exige l'étiquette clé du lot et un badge ; le menu ⋯ permet
   aussi d'ajouter les items scannés au lot, de saisir un code ou un identifiant de lot à la main, de
   changer de lot et de se déconnecter.
 - La liste en cours est conservée si la page est rechargée. La clé présente dans l'URL est retirée de
@@ -588,18 +588,18 @@ disposition par défaut des fenêtres, signal de mauvais scan.
 
 - **Pile de scans** (colonne de droite, toujours ouverte) : chaque scan s'y ajoute ; les périmés et
   les codes inconnus sont en rouge, les doublons en jaune, avec des boutons pour annuler le dernier
-  scan, retirer une ligne, nettoyer ou vider la pile. Après avoir scanné l'**étiquette privée** d'un
+  scan, retirer une ligne, nettoyer ou vider la pile. Après avoir scanné l'**étiquette clé** d'un
   lot : **Ajouter au lot** (range les items scannés) ou **Valider comme vérif** (le contenu du lot
   devient la pile).
 - **Lots** : état de chaque lot (périmés, bientôt périmés, complet), détail du contenu, lancement
   d'une vérif.
 - **Vérif** : le scan de l'étiquette **publique** d'un lot ouvre sa fiche (état, contenu, bouton
-  « Lancer une vérif ») ; le scan de l'étiquette **privée** lance directement la vérif, clé
+  « Lancer une vérif ») ; le scan de l'étiquette **clé** lance directement la vérif, clé
   pré-remplie. L'état de chaque lot est affiché en vert (vérifié et complet) ou en rouge
   (incomplet, périmés, jamais vérifié). Les attendus suivent la définition du type de lot : pour
   chaque type d'item, scannés / attendus, puis les items connus du lot et ce qu'il faut prendre dans
   le stock. Liste des items attendus : chaque item scanné bascule dans la pile et disparaît de la
-  liste. Hors mode responsable, la validation exige l'étiquette privée du lot.
+  liste. Hors mode responsable, la validation exige l'étiquette clé du lot.
 - **Connexion** : scanner son badge. Le nom de l'utilisateur connecté est affiché en haut à droite et
   dans la pile, avec un bouton **Se déconnecter**. La connexion n'est demandée qu'au moment de valider une vérif ou un
   ajout (badge scanné ou code saisi dans la fenêtre de connexion).
@@ -644,11 +644,11 @@ Fond orange. Menu **Gestion** (Réglages, Utilisateurs et Éditeur d'étiquettes
 - **Paquet fermé** : fiche d'un paquet (ouverte en scannant son étiquette, depuis la dernière
   réception ou la liste des paquets) et ouverture avec impression de toutes ses étiquettes.
 - **Gestion des lots** : types de lots et contenu attendu (avec emplacement), création de lots,
-  étiquettes publique et privée, régénération de la clé, scellage (numéro du scellé, étiquette du
+  étiquettes publique et clé, régénération de la clé, scellage (numéro du scellé, étiquette du
   scellé) et bris du scellé.
 - **Utilisateurs** (admin) : création, rôle (secouriste, gestion, admin), renouvellement et impression
   des badges.
-- **Éditeur d'étiquettes** (admin) : modèles avec usage (item, paquet, lot public, lot privé, scellé, badge),
+- **Éditeur d'étiquettes** (admin) : modèles avec usage (item, paquet, lot public, lot clé, scellé, badge),
   onglet **Placeholders** listant les `{{placeholders}}` disponibles, textes, QR codes et images
   (logo PNG ou JPEG). Il se manie comme un logiciel de dessin : barre d'outils (Nouveau, Ouvrir,
   Enregistrer, Enregistrer sous, Annuler, Rétablir), calques à gauche (glisser pour changer l'ordre),
@@ -674,7 +674,7 @@ dates de péremption se tapent librement : `02/09/2026`, `2/9/26`, `020926`, ou 
 l'étiquette précédente (code 0x31…), la commande est réessayée automatiquement.
 
 **Aperçu** : à la création d'un type d'item (étiquette d'exemple), d'un lot (étiquettes publique et
-privée), d'un utilisateur (badge) et à la réception d'une commande, une fenêtre montre les étiquettes
+clé), d'un utilisateur (badge) et à la réception d'une commande, une fenêtre montre les étiquettes
 avant impression, avec les boutons pour les imprimer.
 
 **QR codes** : le masque de chaque QR est choisi automatiquement parmi les 8 de la norme (pénalité

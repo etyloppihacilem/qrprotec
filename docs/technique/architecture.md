@@ -41,7 +41,7 @@ Le back expose **la même application Django sur trois ports** :
 
 - **API publique** (port 8000, derrière Caddy en HTTPS) : ce qu'un téléphone peut faire. Lecture d'un
   item, d'un lot, d'un paquet ; écriture seulement avec la **clé** de l'objet (la clé d'un lot est
-  imprimée sur son étiquette privée). Elle sert aussi le front web et les WebSockets du
+  imprimée sur son étiquette clé). Elle sert aussi le front web et les WebSockets du
   téléphone-douchette.
 - **API locale** (port 8001, jamais exposée) : routes de gestion (types, réception, utilisateurs,
   réglages, admin Django), ouvertes selon le rôle de l'utilisateur connecté sur le poste (jeton de
@@ -72,7 +72,7 @@ back décide. Exemple d'une vérif de lot depuis le poste :
 1. La douchette lit `serphy20271231000000A1` ; le front reconnaît localement un iid
    (`core/codes.cpp`, sans réseau), l'ajoute à la pile et demande `GET /api/items/<iid>/` pour
    afficher son type et sa péremption.
-2. L'utilisateur scanne l'étiquette privée du sac (`…/verif?lot=sacpse00000001&key=…`) : le front
+2. L'utilisateur scanne l'étiquette clé du sac (`…/verif?lot=sacpse00000001&key=…`) : le front
    charge le lot (`GET /api/lots/<id>/`) et affiche ce qui est attendu.
 3. Il scanne son badge (`…/badge?m=M0042&key=…`) : `POST /api/auth/` (plus le PIN si besoin).
 4. Il valide : `POST /api/lots/<id>/verif/` avec la liste des iids et l'utilisateur. Le back

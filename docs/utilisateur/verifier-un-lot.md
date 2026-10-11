@@ -1,6 +1,6 @@
 # Vérifier un lot
 
-Une vérif, c'est : **scanner l'étiquette privée du lot, scanner tout son contenu, valider avec son
+Une vérif, c'est : **scanner l'étiquette clé du lot, scanner tout son contenu, valider avec son
 badge.** Le reste de cette page détaille les cas particuliers.
 
 > **La règle d'or : tout scanner.** Ce qui n'est pas scanné est considéré comme absent. Scannez aussi
@@ -9,13 +9,13 @@ badge.** Le reste de cette page détaille les cas particuliers.
 
 ## Au poste
 
-1. **Scannez l'étiquette privée** du sac avec la douchette. La fenêtre **Vérif** s'ouvre : en haut
+1. **Scannez l'étiquette clé** du sac avec la douchette. La fenêtre **Vérif** s'ouvre : en haut
    l'état du lot (et de son lot global s'il en a un), puis la liste **À scanner** : chaque produit
    attendu, avec « scannés / attendus » et l'emplacement dans le sac. Les produits en cours de scan
    (orange) sont en haut, le dernier scanné en premier ; puis ceux dont rien n'a été scanné (rouge) ;
    les produits complets (vert) descendent en bas de la liste.
    - Si vous scannez l'étiquette **publique**, la fiche du lot s'affiche avec **Lancer une vérif** ;
-     il faudra quand même scanner l'étiquette privée pour valider (sauf rôle gestion ou admin).
+     il faudra quand même scanner l'étiquette clé pour valider (sauf rôle gestion ou admin).
 2. **Scannez chaque objet.** Il apparaît dans la **pile de scans** (colonne de droite) et disparaît de
    la liste « À scanner ».
    - Un **périmé** fait biper la douchette (LED orange) et s'affiche en rouge « PÉRIMÉ ». Si vous le
@@ -26,7 +26,7 @@ badge.** Le reste de cette page détaille les cas particuliers.
 3. **Valider la vérif.** Survoler le bouton vert rappelle ce qu'il fait ou ce qui manque pour valider.
    Si vous n'êtes pas connecté, le poste demande votre **badge** (et votre PIN
    si vous en avez un). Si l'administrateur l'a autorisé, vous pouvez aussi saisir votre nom et
-   **Continuer sans badge** (il faut alors avoir scanné l'étiquette privée du lot). Le compte rendu s'affiche :
+   **Continuer sans badge** (il faut alors avoir scanné l'étiquette clé du lot). Le compte rendu s'affiche :
    - **✔ VÉRIF ENREGISTRÉE : LOT COMPLET** : tout va bien ;
    - **✘ INCOMPLET** : la liste de ce qui manque, des périmés restés dans le lot, des items attendus
      mais non scannés. Complétez depuis le stock et refaites une vérif, ou signalez-le à la
@@ -57,9 +57,9 @@ tape toujours `@`, `#` ou `{`.
 
 ## Au téléphone
 
-1. Ouvrez l'appareil photo et **scannez l'étiquette privée** du sac : la **fiche du lot** s'ouvre
-   (état de la vérif, contenu, emplacement de l'étiquette privée). Touchez **Lancer une vérif** : le
-   lecteur s'ouvre sur ce lot, étiquette privée déjà scannée (autorisez la caméra la première fois).
+1. Ouvrez l'appareil photo et **scannez l'étiquette clé** du sac : la **fiche du lot** s'ouvre
+   (état de la vérif, contenu, emplacement de l'étiquette clé). Touchez **Lancer une vérif** : le
+   lecteur s'ouvre sur ce lot, étiquette clé déjà scannée (autorisez la caméra la première fois).
 2. **Scannez votre badge** si ce n'est pas déjà fait (le téléphone s'en souvient). Saisissez votre PIN
    si demandé. Si l'administrateur l'a autorisé, vous pouvez à la place toucher **Non connecté** et
    indiquer votre nom.
@@ -85,9 +85,9 @@ Une étiquette scannée avec l'appareil photo du téléphone (hors du lecteur QR
 sans caméra :
 
 - **étiquette publique d'un sac** : fiche du lot, avec son état, la date de la dernière vérif, son
-  contenu (sous-lot par sous-lot) et l'emplacement de son étiquette privée. Le petit bouton
+  contenu (sous-lot par sous-lot) et l'emplacement de son étiquette clé. Le petit bouton
   **📄 Fiche PDF** en haut imprime la fiche d'inventaire. **Lancer une vérif** ouvre le lecteur.
-- **étiquette privée** : la même fiche, étiquette privée déjà scannée.
+- **étiquette clé** : la même fiche, étiquette clé déjà scannée.
 - **étiquette d'un item** : produit, péremption, état et **dernier emplacement connu** (le lot où il
   est, ou celui qu'il a quitté s'il a été utilisé, sorti ou signalé disparu). **Lancer une vérif**
   lance la vérif de ce lot. Pendant une vérif, un bouton ajoute l'item aux scans en cours.
@@ -129,10 +129,10 @@ QR code.
 
 Au retour d'intervention, quand on remet dans le sac ce qui a été utilisé :
 
-- **Au poste** : scannez les objets ajoutés, puis l'**étiquette privée** du sac, puis **Ajouter au
+- **Au poste** : scannez les objets ajoutés, puis l'**étiquette clé** du sac, puis **Ajouter au
   lot … (réassort)** dans la pile de scans. Pendant une vérif où vous n'avez scanné que des objets
   nouveaux, un bouton orange **Ajouter N item(s) au lot – réassort, sans vérif** fait la même chose.
-- **Au téléphone** : scannez l'étiquette privée, les objets ajoutés, puis **Ajouter au lot
+- **Au téléphone** : scannez l'étiquette clé, les objets ajoutés, puis **Ajouter au lot
   (réassort)**.
 
 Le reste du contenu du sac n'est pas touché. Le sac passe **orange** « vérif recommandée », avec le
@@ -142,9 +142,9 @@ nombre d'objets ajoutés, la date et votre nom, jusqu'à la prochaine vérif com
 
 Exemple : refaire tout le B+ (sac de soin + sac O2) d'un coup.
 
-- Scannez l'étiquette privée du **B+** : la vérif couvre automatiquement ses deux sacs, la liste « À
+- Scannez l'étiquette clé du **B+** : la vérif couvre automatiquement ses deux sacs, la liste « À
   scanner » est regroupée par sac.
-- Ou scannez l'étiquette privée du **sac de soin**, puis pendant la vérif celle du **sac O2** : elle
+- Ou scannez l'étiquette clé du **sac de soin**, puis pendant la vérif celle du **sac O2** : elle
   s'ajoute à la vérif.
 
 Chaque objet scanné est rangé dans le sac où il manque. Les lots d'une même vérif doivent appartenir

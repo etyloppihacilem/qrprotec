@@ -34,7 +34,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 |---|---|---|
 | `LotType` | Modèle de lot (« Sac PSE ») | Clé `type` (6 caractères). `storage=True` : **rangement du stock** (armoire, tiroir) : ses items comptent dans le stock ; c'est toujours un lot unique, sans contenu attendu, dont la clé n'expire pas (`Lots.verif_key_expires` vide). `version` est incrémentée à chaque changement du contenu attendu. `unique=True` : **lot unique**, son lot est créé avec le type et il n'y en a pas d'autre. `archived` : plus proposé à la création de lots. Noms des types et des lots actifs uniques (sans accents ni casse, `models.name_key`). |
 | `LotRequirements` | Contenu attendu d'un type de lot | (type de lot, type d'item) unique, `quantity`, `location` libre (« pochette bleue ») affichée pendant la vérif. |
-| `Lots` | Un lot physique | Identifiant `type + compteur base 62 sur 8` (`sacpse00000001`). `verif_key` (24 caractères, valable `LOT_KEY_VALIDITY_DAYS`, 1 an par défaut) : la clé de l'**étiquette privée**. `key_location` : où trouver l'étiquette privée dans le lot, affiché quand elle n'a pas été scannée. `parent` : lot global (sous-lots, voir [règles](regles-de-gestion.md#lots-et-sous-lots)). Champs du scellé (`is_sealed`, `seal_code`, `seal_number`…), du réassort (`verif_recommended`, `restocked*`), de la dernière vérif (`last_verif*`). `active=False` : lot archivé. |
+| `Lots` | Un lot physique | Identifiant `type + compteur base 62 sur 8` (`sacpse00000001`). `verif_key` (24 caractères, valable `LOT_KEY_VALIDITY_DAYS`, 1 an par défaut) : la clé de l'**étiquette clé**. `key_location` : où trouver l'étiquette clé dans le lot, affiché quand elle n'a pas été scannée. `parent` : lot global (sous-lots, voir [règles](regles-de-gestion.md#lots-et-sous-lots)). Champs du scellé (`is_sealed`, `seal_code`, `seal_number`…), du réassort (`verif_recommended`, `restocked*`), de la dernière vérif (`last_verif*`). `active=False` : lot archivé. |
 | `LotSequence` | Compteur d'identifiants par type de lot | Incrémenté sous verrou. |
 
 ### Vérifs
@@ -101,7 +101,7 @@ nom à afficher.
 | Item, ancien format (toujours lu) | iid seul | `serphy20271231000000A1` |
 | Item non périssable | date `00000000` dans l'iid | `garrot00000000000000A1` |
 | Lot, étiquette publique | `<base>/verif?lot=ID` | `https://inventaire.example.org/verif?lot=sacpse00000001` |
-| Lot, étiquette privée | `<base>/verif?lot=ID&key=CLÉ` | `…/verif?lot=sacpse00000001&key=a1B2…` |
+| Lot, étiquette clé | `<base>/verif?lot=ID&key=CLÉ` | `…/verif?lot=sacpse00000001&key=a1B2…` |
 | Badge | `<base>/badge?m=MATRICULE&key=CLÉ` | `…/badge?m=M0042&key=…` |
 | Paquet fermé | `<base>/pack?id=ID` | `…/pack?id=0000002B` |
 | Scellé | `<base>/seal?lot=ID&s=CODE` | `…/seal?lot=sacpse00000001&s=…` |

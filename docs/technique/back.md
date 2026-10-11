@@ -115,7 +115,7 @@ Les lectures réservées sur l'API publique (`lots/summary/`, `stock/summary/`, 
 ### Clés de lot sur l'API publique
 
 `views.require_lot_key` (écritures sur un lot) et `views.verif_targets` (vérifs) : la clé envoyée
-doit être celle du lot **ou d'un de ses ancêtres** (l'étiquette privée d'un lot global couvre ses
+doit être celle du lot **ou d'un de ses ancêtres** (l'étiquette clé d'un lot global couvre ses
 sous-lots), non expirée. Sur l'API locale, aucune clé n'est demandée.
 
 ## Services
