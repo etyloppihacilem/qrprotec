@@ -982,6 +982,31 @@ class SealTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertFalse(self.lot.verif_recommended)
 
+    def test_seal_required_lot_stays_red_until_resealed(self):
+        code, body = self.call('PATCH', f'/api/lot-types/{self.lot_type.type}/', {'seal_required': True})
+        self.assertEqual(code, 200)
+        self.assertTrue(body['seal_required'])
+        self.fill_lot()
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertTrue(body['seal_required'])
+        self.assertEqual(body['state']['code'], 'must_seal')  # verifie mais jamais scelle
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
+        self.assertEqual(ser.lot_state(body)['code'], 'sealed')
+        open_code = body['seal_open_url'].split('c=')[1]
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code}, local=False)
+        # ouvert : rouge, pas orange
+        self.assertEqual(ser.lot_state(body['lot'])['code'], 'seal_opened')
+        self.assertEqual(ser.lot_state(body['lot'])['kind'], 'bad')
+        # une verif complete le marque « doit etre scelle », toujours rouge
+        items = list(Items.objects.filter(location=self.lot, status=ItemStatus.ACTIVE))
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertEqual(body['state']['code'], 'must_seal')
+        self.assertEqual(body['state']['kind'], 'bad')
+        # un nouveau scelle le remet au vert
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
+        self.assertEqual(ser.lot_state(body)['kind'], 'ok')
+
     def test_open_label_on_station_uses_logged_user(self):
         self.fill_lot()
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})

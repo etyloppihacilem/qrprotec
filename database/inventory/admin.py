@@ -24,7 +24,7 @@ class LotRequirementsInline(admin.TabularInline):
 
 @admin.register(LotType)
 class LotTypeAdmin(admin.ModelAdmin):
-    list_display = ('type', 'name', 'version')
+    list_display = ('type', 'name', 'version', 'seal_required')
     inlines = [LotRequirementsInline]
 
 

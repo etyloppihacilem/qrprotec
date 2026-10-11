@@ -524,6 +524,9 @@ LotStatus lot_status(const Json &lot) {
     return LotStatus::Never;
   if (!lot["complete"].boolean())
     return LotStatus::Incomplete;
+  // type a scelle obligatoire : rouge tant qu'un nouveau scelle n'est pas pose
+  if (lot["seal_required"].boolean())
+    return lot["verif_recommended"].boolean() ? LotStatus::SealOpened : LotStatus::MustSeal;
   return lot["verif_recommended"].boolean() ? LotStatus::Recommended : LotStatus::Verified;
 }
 
@@ -545,6 +548,8 @@ const char *lot_status_label(LotStatus status) {
     case LotStatus::Sealed: return "✔ Scellé";
     case LotStatus::SealedExpired: return "✘ Scellé, périmés";
     case LotStatus::Recommended: return "! Vérif recommandée";
+    case LotStatus::SealOpened: return "✘ Scellé ouvert";
+    case LotStatus::MustSeal: return "✘ Doit être scellé";
   }
   return "";
 }
@@ -582,6 +587,14 @@ std::string lot_status_banner(const Json &lot) {
         banner += " par " + lot["restocked_by"].str();
       return banner;
     }
+    case LotStatus::SealOpened: {
+      banner = "✘ SCELLÉ OUVERT – vérif complète puis nouveau scellé requis";
+      if (const auto when = Date::parse(lot["unsealed"].str()))
+        banner += " (ouvert le " + when->display()
+                  + (lot["unsealed_by"].str().empty() ? "" : " par " + lot["unsealed_by"].str()) + ")";
+      return banner;
+    }
+    case LotStatus::MustSeal: return "✘ LOT VÉRIFIÉ, DOIT ÊTRE SCELLÉ – posez un nouveau scellé";
     case LotStatus::Never: banner = "✘ LOT JAMAIS VÉRIFIÉ"; break;
     case LotStatus::Incomplete:
       banner = "✘ LOT INCOMPLET";

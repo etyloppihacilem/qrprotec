@@ -703,15 +703,18 @@
       + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '';
     const sign = result.identified ? '' : state.declaredAllowed
       ? "Scannez votre badge (ou indiquez votre nom) pour signer l'ouverture." : "Scannez votre badge pour signer l'ouverture.";
+    // type a scelle obligatoire : le lot ouvert est rouge jusqu'a une verif complete et un nouveau scelle
+    const todo = lot.seal_required ? 'Le lot devra être vérifié puis scellé à nouveau avant utilisation.'
+      : 'Le lot devra être vérifié avant utilisation.';
     if (result.result === 'opened') {
       feedback.warn();
-      showInfo('warn', `🔓 Scellé ouvert – ${lot.name}`, 'Le lot devra être vérifié avant utilisation.', opened, sign);
+      showInfo(lot.seal_required ? 'bad' : 'warn', `🔓 Scellé ouvert – ${lot.name}`, todo, opened, sign);
     } else if (result.result === 'signed') {
       feedback.good();
       showInfo('ok', `🔓 Ouverture signée – ${lot.name}`, opened);
     } else {
       feedback.info();
-      showInfo('warn', `🔓 Scellé déjà ouvert – ${lot.name}`, 'Le lot doit être vérifié avant utilisation.', opened);
+      showInfo(lot.seal_required ? 'bad' : 'warn', `🔓 Scellé déjà ouvert – ${lot.name}`, todo, opened);
     }
     save();
     switchTab('lot');
@@ -890,13 +893,17 @@
   }
 
   // Etat d'un lot : verifie et complet (vert), reassort depuis la derniere verif (orange : verif complete
-  // recommandee), sinon incomplet ou jamais verifie (rouge). kind : 'ok', 'warn' ou 'bad'.
+  // recommandee), sinon incomplet ou jamais verifie (rouge). Un lot dont le type est a scelle obligatoire est
+  // rouge tant qu'il n'est pas scelle. kind : 'ok', 'warn' ou 'bad'.
   function lotStatus(lot) {
     const make = (kind, label) => ({ ok: kind === 'ok', kind, label });
     if (lot.is_sealed && lot.expired_count) return make('bad', '✘ Scellé, contient des périmés');
     if (lot.is_sealed) return make('ok', '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : ''));
     if (!lot.last_verif) return make('bad', '✘ Jamais vérifié');
     if (!lot.complete) return make('bad', lot.expired_count ? '✘ Incomplet (périmés)' : '✘ Incomplet');
+    if (lot.seal_required) {
+      return make('bad', lot.verif_recommended ? '✘ Scellé ouvert, vérif complète puis scellé requis' : '✘ Vérifié, doit être scellé');
+    }
     if (lot.verif_recommended) return make('warn', lot.restocked_count ? '⚠ Vérif recommandée, réassort' : '⚠ Vérif recommandée, scellé ouvert');
     return make('ok', '✔ Vérifié, complet');
   }
@@ -938,6 +945,7 @@
       !lot.verif_recommended ? '' : lot.restocked_count
         ? `Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
         : `Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
+      lot.seal_required && !lot.is_sealed ? 'Scellé obligatoire : posez un nouveau scellé après la vérif complète.' : '',
       keyOk() ? '🔑 Étiquette clé scannée' : 'Scannez l\'étiquette clé pour pouvoir valider. ' + keyHint(lot));
   }
 
@@ -3094,6 +3102,8 @@
       !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
         ? `⚠ Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : `⚠ Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
+      lot.seal_required && !lot.is_sealed
+        ? el('p', {}, '🔒 Scellé obligatoire pour ce type de lot : il reste à traiter tant qu\'un nouveau scellé n\'est pas posé.') : '',
       lot.global && lot.global.id !== lot.id
         ? el('p', {}, 'Lot global : ', ficheLink('lot', lot.global.id, lot.global.name), ` · ${lot.global.label}`) : '',
     ];

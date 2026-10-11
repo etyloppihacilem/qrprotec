@@ -172,6 +172,11 @@ une étiquette de scellé est imprimée (`seal?lot=…&s=CODE`). Tant que le sce
   l'ouverture et change au prochain scellage. Le lot, ses sous-lots et les lots parents ouverts avec
   lui passent en **vérif recommandée** (orange, état `opened` : `verif_recommended` sans réassort,
   `restocked_count` à 0) jusqu'à la prochaine vérif complète.
+- **Scellé obligatoire** (`LotType.seal_required`, ex : kit accouchement) : un lot de ce type qui
+  n'est pas scellé est toujours **rouge** (`serializers.lot_state`, `lotStatus` du front web,
+  `lot_status` de l'application) : état `seal_opened` tant que `verif_recommended` est levé (scellé
+  ouvert, réassort), puis `must_seal` (« doit être scellé ») après une vérif complète, jusqu'au
+  prochain scellage. Jamais vérifié et incomplet gardent leurs états habituels.
 
 ## Paquets fermés
 
