@@ -60,7 +60,8 @@ MAX_PARTICIPANTS = 8        # personnes sur une meme verif
 MAX_SCANNED = 150           # derniers scans gardes par verif (affichage du suivi)
 MAX_ENTRIES = 300           # scans partages par participant
 MAX_LOTS = 20               # lots d'une verif groupee
-LOST_KEEP = 15 * 60         # verif dont les telephones sont deconnectes : gardee (rechargement de la page)
+LOST_KEEP = 15 * 60         # verif dont les telephones sont deconnectes : gardee (rechargement de la page), puis
+                            # abandonnee, ou enregistree par le serveur si elle est complete ou si quelqu'un a valide
 DONE_KEEP = 10 * 60         # verif terminee : encore affichee comme terminee
 GRACE = 20                  # participant deconnecte depuis GRACE s : il ne retient plus l'envoi de la verif commune
 REAPER_PERIOD = 10.0
@@ -204,6 +205,8 @@ class LiveSession:
         self.updated = self.started
         self.done = None           # {"complete", "partial", "present", "at"} une fois validee
         self.submitting = None     # participant qui envoie la verif commune
+        self.saving = False        # verif sans participant en cours d'enregistrement par le serveur
+        self.finished = 0          # fin de la verif (time.monotonic), pour DONE_KEEP
 
     @property
     def state(self):
@@ -319,17 +322,24 @@ class LiveHub:
     # -- ramasseur -----------------------------------------------------------------------------------------------------
 
     def reap(self, now=None):
-        """Retire les verifs terminees depuis DONE_KEEP et celles dont les telephones ont disparu depuis LOST_KEEP.
+        """Retire les verifs terminees depuis DONE_KEEP et celles dont les telephones ont disparu depuis LOST_KEEP
+        (abandonnees), sauf celles qui sont completes ou qu'un participant a validees : le serveur les enregistre.
         Verif a plusieurs dont tous les participants encore connectes ont valide (les autres sont partis) : un de
         ceux qui ont valide est charge de l'envoyer."""
         now = time.monotonic() if now is None else now
         expired = []
         submits = []
+        unattended = []
         with self.lock:
             for session in self.sessions.values():
                 if not session.connected:
                     keep = DONE_KEEP if session.done else LOST_KEEP
-                    if now - session.lost > keep:
+                    if session.saving or now - max(session.lost, session.finished) <= keep:
+                        continue
+                    if not session.done and not session.saving and self._worth_saving(session):
+                        session.saving = True
+                        unattended.append(session)
+                    else:
                         expired.append(session.id)
                     continue
                 participant = self._submitter(session, now)
@@ -338,9 +348,48 @@ class LiveHub:
                     submits.append((participant.socket, {'type': 'submit', 'partial': participant.partial}))
         for session_id in expired:
             self.remove(session_id)
+        for session in unattended:
+            if not self.save_unattended(session):
+                self.remove(session.id)
         for websocket, message in submits:
             websocket.send_json(message)
         return expired
+
+    @staticmethod
+    def _worth_saving(session):
+        """Verif sans participant a enregistrer plutot qu'a abandonner : quelqu'un a valide sa partie, ou tout
+        ce qui etait attendu a ete scanne."""
+        state = session.state or {}
+        complete = bool(state.get('count')) and not state.get('remaining')
+        return any(p.validated for p in session.participants.values()) or complete
+
+    def save_unattended(self, session):
+        """Enregistre la verif commune comme si son dernier participant l'avait envoyee : scans de tous, cles des lots
+        gardees par le serveur, au nom de celui qui a valide (sinon du premier participant). False si impossible."""
+        from . import services
+        from .views import verif_lots
+        with self.lock:
+            participants = list(session.participants.values())
+            entries = [entry for p in participants for entry in p.entries if not entry['error']]
+            lots = [{'id': lot_id, 'key': key} for lot_id, key in session.lots.items()]
+            validated = [p for p in participants if p.validated]
+            partial = any(p.partial for p in validated)
+            identities = [p.identity for p in validated + participants if p.identity and (p.validated or p.entries)]
+        identities = list(dict.fromkeys(identities))
+        iids = [entry['iid'] for entry in entries if entry['kind'] == 'item']
+        iids += [iid for entry in entries if entry['kind'] == 'pack' for iid in entry['items']]
+        if not identities or not lots or not iids:
+            return False
+        try:
+            report = services.perform_verif(verif_lots(lots, False), iids, identities[0], partial, identities[1:])
+        except Exception:  # cle expiree, lot archive... : la verif est abandonnee
+            with self.lock:
+                session.saving = False
+            return False
+        finally:
+            close_old_connections()
+        self.finish({'id': session.id, 'pid': None}, report)
+        return True
 
     @staticmethod
     def _submitter(session, now):
@@ -501,6 +550,7 @@ class LiveHub:
                                         'present': _number(message.get('present')),
                                         'at': timezone.now().isoformat(timespec='seconds')}
                         session.updated = timezone.now()
+                        session.finished = time.monotonic()
                     self._changed(session)
                 elif kind == 'cancel':
                     with self.lock:
@@ -527,7 +577,7 @@ class LiveHub:
         serveur et identites des participants (celui qui envoie, ceux qui ont valide ou scanne). None si inconnue."""
         with self.lock:
             session, participant = self._find(credentials)
-            if session is None or session.done:
+            if session is None or session.done or session.saving:
                 return None
             identities = [p.identity for p in session.participants.values()
                           if p.identity and (p is participant or p.validated or p.entries)]
@@ -545,6 +595,8 @@ class LiveHub:
                             'at': timezone.now().isoformat(timespec='seconds')}
             session.updated = timezone.now()
             session.submitting = None
+            session.saving = False
+            session.finished = time.monotonic()
             sockets = [p.socket for p in session.participants.values() if p.id != team['pid'] and p.socket is not None]
         for websocket in sockets:
             websocket.send_json({'type': 'report', 'report': report})

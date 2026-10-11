@@ -210,7 +210,11 @@ celui-ci envoie `POST /api/verifs/` avec `live: {id, pid, token}` : la vue compl
 manquantes, enregistre les autres participants (`Verifs.participants`, identités stockées) et
 `hub.finish` envoie le compte rendu (`report`) aux autres. Si les participants non validés se
 déconnectent (plus de `GRACE` = 20 s), le faucheur demande l'envoi (`submit`) à un participant
-qui a validé.
+qui a validé. Quand plus aucun participant n'est connecté depuis `LOST_KEEP` (15 min), la vérif est
+abandonnée, sauf si un participant a validé ou si le dernier état publié n'a plus rien à scanner :
+`save_unattended` l'enregistre alors avec les scans de tous et les clés gardées par le serveur
+(`views.verif_lots`, contrôle des clés de l'API publique). Le front publie la vérif dès son début
+(premier scan, étiquette clé, ou « Lancer une vérif » depuis la fiche).
 
 ## Front web servi par le back
 
