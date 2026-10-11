@@ -2,10 +2,10 @@
 # La compilation croisee depuis Linux demanderait le SDK macOS, que la licence Xcode reserve au
 # materiel Apple : on compile donc nativement.
 #
-# Artefact : qrprotec-front-macos-arm64.tar.gz, autonome (dylib Homebrew embarquees). Sur le Mac :
-#   tar xzf qrprotec-front-macos-arm64.tar.gz && xattr -dr com.apple.quarantine qrprotec-front
-#   ./qrprotec-front/qrprotec-front
-# Sur un tag vX.Y.Z, l'archive est aussi jointe a la release GitHub.
+# Artefact : QRProtec-macos-arm64.dmg, qui contient QRProtec.app (dylib Homebrew embarquees), a glisser
+# dans Applications. Signature ad hoc seulement : au premier lancement, clic droit > Ouvrir (ou
+# `xattr -dr com.apple.quarantine /Applications/QRProtec.app`).
+# Sur un tag vX.Y.Z, le .dmg est aussi joint a la release GitHub.
 name: macos
 
 on:
@@ -36,29 +36,75 @@ jobs:
           cmake --build build -j "$(sysctl -n hw.ncpu)"
       - name: Tests
         run: ctest --test-dir build --output-on-failure
-      - name: Paquet
+      - name: Application (.app) et image disque (.dmg)
         run: |
-          dest=dist/qrprotec-front
-          mkdir -p "$dest"
-          cp build/QRProtecApp "$dest/"
-          cp -R build/fonts app/templates "$dest/"
-          # dylib Homebrew et Inateck copiees dans libs/ et referencees en @executable_path
-          dylibbundler -od -b -x "$dest/QRProtecApp" -d "$dest/libs" -p @executable_path/libs/ -s build
-          codesign --force --sign - "$dest"/libs/*.dylib "$dest/QRProtecApp"
-          cat > "$dest/qrprotec-front" <<'EOF'
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || version=0.0.0
+          app=dist/QRProtec.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
+          cp build/QRProtecApp "$app/Contents/MacOS/"
+          cp -R build/fonts app/templates "$app/Contents/Resources/"
+          # dylib Homebrew et Inateck copiees dans Frameworks/
+          dylibbundler -od -b -x "$app/Contents/MacOS/QRProtecApp" -d "$app/Contents/Frameworks" \
+            -p @executable_path/../Frameworks/ -s build
+          # Lanceur : comme qrprotec-front sous Linux, modeles modifiables copies dans le dossier de
+          # l'utilisateur au premier lancement (le contenu du .app est en lecture seule et signe)
+          cat > "$app/Contents/MacOS/qrprotec-front" <<'SCRIPT'
           #!/bin/sh
-          here="$(cd "$(dirname "$0")" && pwd)"
-          QRPROTEC_TEMPLATES_DIR="${QRPROTEC_TEMPLATES_DIR:-$here/templates}" exec "$here/QRProtecApp" "$@"
-          EOF
-          chmod +x "$dest/qrprotec-front"
-          tar -C dist -czf qrprotec-front-macos-arm64.tar.gz qrprotec-front
+          contents="$(cd "$(dirname "$0")/.." && pwd)"
+          templates="${QRPROTEC_TEMPLATES_DIR:-$HOME/Library/Application Support/QRProtec/templates}"
+          mkdir -p "$templates"
+          cp -Rn "$contents/Resources/templates/" "$templates/" 2>/dev/null || :
+          export QRPROTEC_TEMPLATES_DIR="$templates"
+          export QRPROTEC_FONT="${QRPROTEC_FONT:-$contents/Resources/fonts/DejaVuSans.ttf}"
+          export QRPROTEC_FONT_BOLD="${QRPROTEC_FONT_BOLD:-$contents/Resources/fonts/DejaVuSans-Bold.ttf}"
+          exec "$contents/MacOS/QRProtecApp" "$@"
+          SCRIPT
+          chmod +x "$app/Contents/MacOS/qrprotec-front"
+          # Icone : celle du site web
+          iconset=build/QRProtec.iconset
+          mkdir -p "$iconset"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size database/inventory/web/icon-512.png --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            double=$((size * 2)); [ $double -le 512 ] || double=512
+            sips -z $double $double database/inventory/web/icon-512.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o "$app/Contents/Resources/QRProtec.icns"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>QRProtec</string>
+            <key>CFBundleDisplayName</key><string>QRProtec</string>
+            <key>CFBundleIdentifier</key><string>fr.qrprotec.front</string>
+            <key>CFBundleExecutable</key><string>qrprotec-front</string>
+            <key>CFBundleIconFile</key><string>QRProtec</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>$version</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>NSBluetoothAlwaysUsageDescription</key><string>Connexion a la douchette Inateck.</string>
+          </dict>
+          </plist>
+          PLIST
+          # Signature ad hoc (pas de compte developpeur Apple : Gatekeeper demandera une confirmation)
+          codesign --force --sign - "$app"/Contents/Frameworks/*.dylib "$app/Contents/MacOS/QRProtecApp"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          # Image disque : glisser QRProtec dans Applications
+          mkdir -p dist/dmg
+          cp -R "$app" dist/dmg/
+          ln -s /Applications dist/dmg/Applications
+          hdiutil create -volname QRProtec -srcfolder dist/dmg -format UDZO -ov QRProtec-macos-arm64.dmg
       - uses: actions/upload-artifact@v7
         with:
           name: qrprotec-front-macos-arm64
-          path: qrprotec-front-macos-arm64.tar.gz
+          path: QRProtec-macos-arm64.dmg
           if-no-files-found: error
 
-  # Sur un tag vX.Y.Z : archive jointe a la release GitHub (creee ici ou par le workflow rpm)
+  # Sur un tag vX.Y.Z : .dmg joint a la release GitHub (creee ici ou par le workflow rpm)
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
@@ -73,7 +119,7 @@ jobs:
           name: qrprotec-front-macos-arm64
       - name: Release GitHub
         run: |
-          gh release upload "$GITHUB_REF_NAME" qrprotec-front-macos-arm64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber \
-            || gh release create "$GITHUB_REF_NAME" qrprotec-front-macos-arm64.tar.gz \
+          gh release upload "$GITHUB_REF_NAME" QRProtec-macos-arm64.dmg --repo "$GITHUB_REPOSITORY" --clobber \
+            || gh release create "$GITHUB_REF_NAME" QRProtec-macos-arm64.dmg \
                  --repo "$GITHUB_REPOSITORY" --title "QRProtec $GITHUB_REF_NAME" --generate-notes \
-            || gh release upload "$GITHUB_REF_NAME" qrprotec-front-macos-arm64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+            || gh release upload "$GITHUB_REF_NAME" QRProtec-macos-arm64.dmg --repo "$GITHUB_REPOSITORY" --clobber
