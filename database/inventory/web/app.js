@@ -15,6 +15,10 @@
   const STORAGE_SESSION = 'qrprotec.session';
   const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
   const STORAGE_NAME = 'qrprotec.declared-name';   // nom declare (sans badge), si le serveur l'autorise
+  const STORAGE_FICHE_KEY = 'qrprotec.fiche-key';  // etiquette privee ouverte (fiche du lot), gardee au rechargement
+  // Vérif en cours oubliee au rechargement de la page (ou a l'ouverture d'une etiquette hors du lecteur) apres
+  // 20 minutes sans activite : on ne retombe pas sur le lot d'une vérif commencee il y a une heure.
+  const SESSION_TIMEOUT_MS = 20 * 60 * 1000;
 
   const $ = (selector) => document.querySelector(selector);
 
@@ -49,6 +53,7 @@
     declaredAllowed: false, // reglage du serveur : verif et ajout possibles sans badge, sous un nom declare
     declaredName: '',       // nom declare sur ce navigateur (non verifie)
     pendingOpening: null,   // {id, key, at} : scelle ouvert par son etiquette sans identite, a signer a la connexion
+    expiredSession: false,  // vérif precedente oubliee au demarrage (SESSION_TIMEOUT_MS)
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -64,6 +69,7 @@
   function save() {
     try {
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
+        at: Date.now(), // derniere activite (SESSION_TIMEOUT_MS)
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif, pendingOpening: state.pendingOpening,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, info, expired, error, items }) => ({ code, kind, iid, info, expired, error, items })),
@@ -81,15 +87,18 @@
       if (user && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
       state.declaredName = localStorage.getItem(STORAGE_NAME) || '';
       const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
-      if (session) {
+      if (session) state.pendingOpening = session.pendingOpening || null; // delai propre (OPENING_SIGN_DELAY)
+      const fresh = session && session.at && Date.now() - session.at < SESSION_TIMEOUT_MS;
+      if (session && !fresh && (session.lotId || (session.scanned || []).length)) state.expiredSession = true;
+      if (fresh) {
         state.lotId = session.lotId || '';
         state.lotKey = session.lotKey || '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
         state.lastVerif = session.lastVerif || null;
-        state.pendingOpening = session.pendingOpening || null;
         state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
       }
     } catch (e) { /* ignore */ }
+    if (state.expiredSession) save(); // vérif oubliee : on ne la signale qu'une fois
     try { state.pinReset = JSON.parse(sessionStorage.getItem(STORAGE_PIN_RESET) || 'null'); } catch (e) { /* ignore */ }
   }
 
@@ -273,7 +282,7 @@
   // Jamais de camera ouverte quand la page est cachee, et une seule ouverture a la fois : sur Firefox
   // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
   // camera « utilisee par Firefox » jusqu'au redemarrage du telephone.
-  function cameraShouldRun() { return cameraWanted && !document.hidden; }
+  function cameraShouldRun() { return cameraWanted && !document.hidden && !ficheOpen(); }
 
   function syncCamera() {
     if (!cameraShouldRun()) stopCamera();
@@ -1510,8 +1519,10 @@
     view.replaceChildren(
       el('h2', {}, lot.name),
       el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`),
-      (lot.path || []).length ? el('div', { class: 'sub' }, 'Dans : ' + lot.path.map((parent) => parent.name).join(' › ')) : '',
+      (lot.path || []).length ? el('div', { class: 'sub' }, 'Dans : ',
+        ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       el('div', { class: 'banner ' + (groupStatus(lot) || lotStatus(lot)).kind }, (groupStatus(lot) || lotStatus(lot)).label),
+      el('p', {}, ficheLink('lot', lot.id, 'Fiche du lot : contenu et emplacement des items')),
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
@@ -1546,7 +1557,8 @@
       el('p', { class: 'hint' }, 'Vérif la plus ancienne : ' + (global.last_verif ? fmtDateTime(global.last_verif) : 'jamais')),
       el('ul', { class: 'list tree' }, global.lots.map((row) => el('li', {
         class: (row.counted ? row.effective.kind : 'group-lot') + (row.id === lot.id ? ' current' : ''),
-        style: `padding-left:${12 + row.depth * 16}px`,
+        style: `padding-left:${12 + row.depth * 16}px;cursor:pointer`,
+        onclick: () => openFiche('lot', row.id), // fiche du lot
       },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, (row.depth ? '└ ' : '') + row.name + (row.id === lot.id ? ' (ce lot)' : '')),
@@ -1582,6 +1594,7 @@
   // Ouvre une page de l'accueil. push : nouvelle entree d'historique (le bouton retour y ramene)
   function showHome(page = 'menu', push = true) {
     if (push) history.pushState(null, '', new URL(HOME_PAGES[page] ? '#' + HOME_PAGES[page] : './', document.baseURI).href);
+    if (ficheOpen()) closeFiche();
     state.homePage = page;
     if (!readerOpen()) { cameraWanted = false; syncCamera(); }
     setStockFull(false);
@@ -1597,6 +1610,7 @@
   function enterScanner(start = true, push = true) {
     if (push) history.pushState(null, '', new URL('./#scan', document.baseURI).href);
     watchStop();
+    if (ficheOpen()) closeFiche();
     document.body.classList.remove('home-mode', 'login-reader');
     state.homePage = 'scan';
     if (start) startCamera();
@@ -1631,8 +1645,6 @@
     else if (inHome()) showHome(state.homePage || 'menu', false);
   }
 
-  const verifInProgress = () => state.scanned.length > 0 || (!!state.lot && !!state.lotKey && !state.lastVerif);
-
   function logout() {
     state.user = null;
     toast('Déconnecté.');
@@ -1659,15 +1671,21 @@
     if (page === 'stock' && !canSeeStock()) { toast("L'état des stocks est réservé aux rôles gestion et admin.", true); return; }
     showHome(page);
   }));
+  // bouton retour du telephone : l'adresse dit quoi afficher (fiche d'un lot ou d'un item, lecteur, page de l'accueil)
   window.addEventListener('popstate', () => {
-    const page = pageFromHash(location.hash);
+    const route = location.pathname.replace(/\/+$/, '').split('/').pop();
+    const params = new URLSearchParams(location.search);
+    if (route === 'verif' && params.get('lot')) { openFiche('lot', params.get('lot'), { push: false }); return; }
+    if (route === 'item' && IID_RE.test(params.get('id') || '')) { openFiche('item', params.get('id'), { push: false }); return; }
+    closeFiche();
+    const page = route === 'verif' ? 'scan' : pageFromHash(location.hash);
     if (page === 'scan') enterScanner(true, false);
     else showHome(page, false);
   });
 
-  // Page d'un lot (depuis l'etat des lots ou le suivi) : vue du lot dans le scanner
+  // Page d'un lot (depuis l'etat des lots ou le suivi) : sa fiche
   function openLot(id) {
-    chooseLot(id, 'lot');
+    openFiche('lot', id);
   }
 
   async function loadLots() {
@@ -1979,9 +1997,6 @@
 
   const timeOf = (value) => new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-  // Nom d'un lot cliquable : ouvre sa page
-  const lotLink = (id, name) => el('button', { type: 'button', class: 'field',
-    onclick: (event) => { event.stopPropagation(); openLot(id); } }, name);
 
   function liveCard(row) {
     const done = row.done;
@@ -1993,7 +2008,7 @@
     const open = watch.open.has(row.id);
     const shown = open ? [...row.scanned].reverse() : row.scanned.slice(-4).reverse();
     return el('div', { class: 'live-card ' + kind },
-      el('div', { class: 'name' }, '📦 ', lotLink(lot.id, lot.name), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
+      el('div', { class: 'name' }, '📦 ', lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
       el('div', { class: 'sub' }, `${row.who || 'Non identifié'}${row.who && !row.verified ? ' (nom déclaré)' : ''} · `
         + `commencée à ${timeOf(row.started)}`),
       el('div', { class: 'sub' }, status),
@@ -2034,7 +2049,7 @@
     } else {
       parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad' },
         el('div', { class: 'main' },
-          el('div', { class: 'name' }, ...row.lots.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot.id, lot.name)])),
+          el('div', { class: 'name' }, ...row.lots.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)])),
           el('div', { class: 'sub' }, `${fmtDateTime(row.at)} · ${row.by || '?'} · ${row.present} présent(s)`
             + (row.missing ? ` · ${row.missing} manquant(s)` : '') + (row.expired ? ` · ${row.expired} périmé(s)` : ''))),
         el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
@@ -2514,6 +2529,272 @@
   }
 
   // ------------------------------------------------------------------------------------------------
+  // Fiches lot et item : page d'arrivee d'une etiquette ouverte avec l'appareil photo du telephone (sans le lecteur
+  // integre), ou d'un lot / item touche dans une fiche. Pas de camera : « Lancer une vérif » ouvre le lecteur sur le
+  // bon lot (le lot de la fiche, ou le dernier emplacement connu de l'item).
+
+  const fiche = { kind: '', id: '', key: '', lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0 };
+
+  function ficheOpen() { return !$('#fiche').hidden; }
+
+  // Premiere lettre en majuscule (texte saisi au poste, ex : emplacement de l'etiquette privee)
+  const cap = (text) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : '');
+
+  const ficheUrl = (kind, id) => (kind === 'lot' ? `verif?lot=${encodeURIComponent(id)}` : `item?id=${encodeURIComponent(id)}`);
+
+  // Lien vers la fiche d'un lot ou d'un item (vraie URL : appui long pour l'ouvrir dans un autre onglet)
+  function ficheLink(kind, id, label) {
+    return el('a', { class: 'link', href: ficheUrl(kind, id), onclick: (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openFiche(kind, id);
+    } }, label);
+  }
+  const lotLink = (lot) => ficheLink('lot', lot.id, lot.name);
+
+  // Cle de l'etiquette privee ouverte : retiree de l'adresse, gardee pour cet onglet (rechargement, retour)
+  function storedFicheKey(id) {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(STORAGE_FICHE_KEY) || 'null');
+      return saved && saved.id === id && Date.now() - saved.at < SESSION_TIMEOUT_MS ? saved.key : '';
+    } catch (e) { return ''; }
+  }
+
+  function storeFicheKey(id, key) {
+    try { sessionStorage.setItem(STORAGE_FICHE_KEY, JSON.stringify({ id, key, at: Date.now() })); } catch (e) { /* ignore */ }
+  }
+
+  // push : nouvelle entree d'historique (le bouton retour du telephone revient a la page precedente)
+  async function openFiche(kind, id, { key = '', push = true } = {}) {
+    if (kind === 'lot') {
+      if (key) storeFicheKey(id, key); else key = storedFicheKey(id);
+    }
+    const token = fiche.token + 1;
+    Object.assign(fiche, { kind, id, key, lot: null, item: null, error: '', keyCheck: '', keyError: '', token });
+    if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id));
+    $('#fiche').hidden = false;
+    document.body.classList.add('fiche-open');
+    document.body.classList.remove('home-mode', 'login-reader');
+    state.homePage = 'scan';
+    watchStop();
+    syncCamera();
+    renderFiche();
+    $('#fiche-body').scrollTop = 0;
+    try {
+      if (kind === 'lot') {
+        const lot = await api(`lots/${encodeURIComponent(id)}/` + (key ? `?key=${encodeURIComponent(key)}` : ''));
+        if (fiche.token !== token) return;
+        fiche.lot = lot;
+        if (key) { fiche.keyCheck = lot.key_check; fiche.keyError = lot.key_error || ''; }
+      } else {
+        const item = await api(`items/${encodeURIComponent(id)}/`);
+        if (fiche.token !== token) return;
+        fiche.item = item;
+      }
+    } catch (e) {
+      if (fiche.token !== token) return;
+      fiche.error = e.status === 404 ? (kind === 'lot' ? 'Lot introuvable' : 'Item inconnu dans la base') : e.message;
+    }
+    renderFiche();
+  }
+
+  function closeFiche() {
+    if (!ficheOpen()) return;
+    fiche.token += 1;
+    $('#fiche').hidden = true;
+    document.body.classList.remove('fiche-open');
+    syncCamera();
+    render();
+  }
+
+  // Une vérif est en cours sur ce telephone (items scannes, ou etiquette privee scannee et pas encore validee)
+  const verifInProgress = () => !!state.lot && (state.scanned.length > 0 || (!!state.lotKey && !state.lastVerif));
+
+  // Ouvre le lecteur sur un lot. key : etiquette privee deja scannee (verifiee par le serveur).
+  async function launchVerif(id, key) {
+    startCamera(); // pendant le clic : le navigateur peut exiger un geste de l'utilisateur
+    closeFiche();
+    history.pushState({ inApp: true }, '', 'verif');
+    // etiquette privee d'un autre lot du meme lot global pendant une vérif : elle rejoint la vérif en cours
+    if (state.lot && state.lotId !== id && key && await joinVerif({ kind: 'lot', code: '', id, key })) return;
+    if (state.lotId !== id) {
+      if (state.scanned.length && !confirm('Changer de lot ? Les items déjà scannés restent dans la liste.')) return;
+      state.lotKey = '';
+      state.lastVerif = null;
+      state.extra = [];
+    }
+    if (key) state.lotKey = key;
+    await loadLot(id);
+    if (!state.lot) return;
+    feedback.info();
+    showLotInfo();
+    switchTab('todo');
+  }
+
+  function launchFromFiche() {
+    if (fiche.kind === 'item') {
+      const where = fiche.item && fiche.item.last_location;
+      if (where) launchVerif(where.id, '');
+    } else if (fiche.lot) {
+      launchVerif(fiche.id, fiche.keyCheck === 'valid' ? fiche.key : '');
+    }
+  }
+
+  // Item ouvert hors du lecteur pendant une vérif : on peut l'ajouter aux scans de la vérif en cours
+  function addFicheItem() {
+    const scan = parseCode(fiche.id);
+    if (scan.kind !== 'item') return;
+    startCamera();
+    closeFiche();
+    history.pushState({ inApp: true }, '', 'verif');
+    switchTab('todo');
+    scanItem(scan);
+  }
+
+  $('#fiche-launch').addEventListener('click', launchFromFiche);
+  $('#fiche-add').addEventListener('click', addFicheItem);
+  $('#fiche-back').addEventListener('click', () => {
+    if (history.state && history.state.inApp) history.back();
+    else if (state.lot) { closeFiche(); enterScanner(true); switchTab('todo'); }
+    else { closeFiche(); showHome('menu'); }
+  });
+  $('#fiche-home').addEventListener('click', () => {
+    closeFiche();
+    showHome('menu');
+  });
+
+  function renderFiche() {
+    const body = $('#fiche-body');
+    const launch = $('#fiche-launch');
+    const add = $('#fiche-add');
+    add.hidden = true;
+    launch.disabled = false;
+    if (fiche.error) {
+      body.replaceChildren(el('div', { class: 'banner bad' }, fiche.error), el('p', { class: 'sub' }, fiche.id));
+      launch.disabled = true;
+      return;
+    }
+    if (fiche.kind === 'lot' && fiche.lot) renderLotFiche(body, fiche.lot);
+    else if (fiche.kind === 'item' && fiche.item) renderItemFiche(body, fiche.item);
+    else {
+      body.replaceChildren(el('p', { class: 'sub' }, 'Chargement…'));
+      launch.disabled = true;
+    }
+  }
+
+  function renderLotFiche(body, lot) {
+    const status = groupStatus(lot) || lotStatus(lot);
+    const current = state.lotId === lot.id && verifInProgress();
+    const launch = $('#fiche-launch');
+    launch.textContent = current ? 'Reprendre la vérif' : 'Lancer une vérif';
+    const parts = [
+      el('div', { class: 'title-row' },
+        el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`)),
+        el('a', { class: 'pdf-link', href: new URL(`lots/${encodeURIComponent(lot.id)}/sheet.pdf`, API).href,
+          target: '_blank', rel: 'noopener', title: "Fiche d'inventaire papier (PDF)" }, '📄 Fiche PDF')),
+      (lot.path || []).length ? el('p', { class: 'sub' }, 'Dans : ',
+        ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
+      el('div', { class: 'banner ' + status.kind }, status.label),
+      current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${state.scanned.length} scan(s).`) : '',
+      lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}`
+        + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
+      el('p', {}, 'Dernière vérif : ' + (lot.last_verif
+        ? fmtDateTime(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
+      !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
+        ? `⚠ Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
+        : `⚠ Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
+      lot.global && lot.global.id !== lot.id
+        ? el('p', {}, 'Lot global : ', ficheLink('lot', lot.global.id, lot.global.name), ` · ${lot.global.label}`) : '',
+    ];
+
+    // etiquette privee : scannee (cle verifiee par le serveur) ou ou la trouver
+    const keyBox = [];
+    if (fiche.keyCheck === 'valid') keyBox.push(el('b', {}, '🔑 Étiquette privée scannée : la vérif pourra être validée.'));
+    else if (fiche.keyCheck) keyBox.push(el('b', {}, '✘ Étiquette privée refusée'), el('div', {}, fiche.keyError));
+    keyBox.push(el('div', {}, lot.key_location ? `Emplacement : ${cap(lot.key_location)}` : 'Emplacement non renseigné'));
+    if (fiche.keyCheck !== 'valid') {
+      keyBox.push(el('div', { class: 'sub' }, "QR code rangé à l'intérieur du lot, à scanner pendant la vérif pour pouvoir la valider."));
+    }
+    parts.push(el('h3', {}, 'Étiquette privée'),
+      el('div', { class: 'key-box' + (fiche.keyCheck && fiche.keyCheck !== 'valid' ? ' bad' : '') }, ...keyBox));
+
+    // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres)
+    parts.push(el('h3', {}, 'Contenu'));
+    const lots = [lot, ...(lot.descendants || [])];
+    const tags = { ok: 'green', warn: 'orange', bad: 'red' };
+    for (const sub of lots) {
+      const items = [...(sub.items || [])].sort((a, b) => a.type_name.localeCompare(b.type_name, 'fr')
+        || String(a.peremption || '9').localeCompare(String(b.peremption || '9')));
+      const missing = sub.missing_items || [];
+      const requirements = sub.requirements || [];
+      if (sub !== lot) {
+        if (!requirements.length && !items.length && !missing.length && !(sub.descendants || []).length) continue;
+        const subStatus = lotStatus(sub);
+        parts.push(el('ul', { class: 'list' }, el('li', { class: 'lot-head ' + subStatus.kind,
+          style: `padding-left:${12 + Math.max(0, (sub.depth || 1) - 1) * 14}px`, onclick: () => openFiche('lot', sub.id) },
+        el('div', { class: 'main' }, el('div', { class: 'name' }, '📦 ', ficheLink('lot', sub.id, sub.name)),
+          el('div', { class: 'sub' }, `${sub.lot_type_name} · ${sub.item_count} item(s)`)),
+        el('span', { class: 'tag ' + tags[subStatus.kind] }, subStatus.label.replace(/^[✔✘⚠] /, '').split(',')[0]))));
+      }
+      parts.push(...requirements.map((row) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''),
+        row.present, row.required)));
+      const rows = [
+        ...items.map((item) => itemRow(item)),
+        ...missing.map((item) => itemRow(item, 'disparu')),
+      ];
+      if (rows.length) parts.push(el('ul', { class: 'list' }, ...rows));
+      else if (!requirements.length && sub === lot && lots.length === 1) parts.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
+    }
+    body.replaceChildren(...parts);
+  }
+
+  // Item du contenu d'un lot : touche pour ouvrir sa fiche
+  function itemRow(item, missingTag) {
+    return el('li', { class: item.expired ? 'expired' : missingTag ? 'extra' : '', onclick: () => openFiche('item', item.iid) },
+      el('div', { class: 'main' },
+        el('div', { class: 'name' }, ficheLink('item', item.iid, item.type_name)),
+        el('div', { class: 'sub' }, (item.peremption ? 'Péremption : ' + fmtDate(item.peremption) : 'Non périssable')
+          + ' · ' + item.iid)),
+      item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
+      missingTag ? el('span', { class: 'tag orange' }, missingTag) : null,
+      item.tear_off ? el('span', { class: 'tag orange' }, 'à déchirer') : null);
+  }
+
+  const ITEM_STATUS = { out: 'Sorti du stock', missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Remplacé (périmé)' };
+
+  function renderItemFiche(body, item) {
+    const where = item.last_location;
+    const launch = $('#fiche-launch');
+    launch.textContent = where ? `Lancer une vérif de ${where.name}` : 'Lancer une vérif';
+    launch.disabled = !where;
+    const add = $('#fiche-add');
+    add.hidden = !verifInProgress();
+    add.textContent = `Ajouter aux scans de la vérif en cours (${state.lot ? state.lot.name : ''})`;
+    const statusText = ITEM_STATUS[item.status];
+    const banner = item.expired ? { kind: 'bad', label: '✘ Périmé' + (statusText ? ' · ' + statusText : '') }
+      : statusText ? { kind: 'warn', label: '⚠ ' + statusText } : { kind: 'ok', label: '✔ Valide' };
+    const fact = (label, ...value) => [el('dt', {}, label), el('dd', {}, ...value)];
+    const place = where
+      ? [...where.path.flatMap((parent) => [lotLink(parent), ' › ']), lotLink(where),
+        where.current ? '' : el('div', { class: 'sub' }, 'Dernier emplacement connu' + (where.at ? `, quitté le ${fmtDateTime(where.at)}` : ''))]
+      : [item.status === 'active' ? 'En stock' : 'Inconnu'];
+    body.replaceChildren(
+      el('h2', {}, item.type_name),
+      el('div', { class: 'sub' }, item.iid),
+      el('div', { class: 'banner ' + banner.kind }, banner.label),
+      el('dl', { class: 'facts' },
+        fact('Péremption', item.peremption ? fmtDate(item.peremption) : 'Non périssable'),
+        fact(where && !where.current ? 'Dernier lieu' : 'Emplacement', ...place),
+        item.status === 'out' && item.out_until ? fact('Compté utilisé', `le ${fmtDate(item.out_until)} s'il ne revient pas`) : [],
+        fact('Dernier passage', item.last_seen ? fmtDateTime(item.last_seen) + (item.last_seen_by ? ' par ' + item.last_seen_by : '') : '–'),
+        fact('Ajouté', item.added ? fmtDateTime(item.added) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
+        item.tear_off ? fact('Étiquette', 'à déchirer avant utilisation') : [],
+        item.deleted_reason ? fact('Raison', item.deleted_reason) : []),
+      where ? '' : el('p', { class: 'sub' }, "Aucun lot connu pour cet item : il n'y a pas de vérif à lancer."),
+    );
+  }
+
+  // ------------------------------------------------------------------------------------------------
   // Demarrage : l'URL peut venir d'un QR code (verif?lot=..&key=.., badge?m=..&key=.., item?id=.., pack?id=..)
 
   async function boot() {
@@ -2529,23 +2810,12 @@
     const qrRoute = ['verif', 'seal', 'unseal', 'pinreset', 'item', 'pack'].includes(route) && [...params.keys()].length > 0;
     if (qrRoute) { document.body.classList.remove('home-mode'); state.homePage = 'scan'; }
     if (route === 'verif' && params.get('lot')) {
+      // etiquette publique ou privee d'un lot : fiche du lot, « Lancer une vérif » ouvre le lecteur (la cle est
+      // gardee pour cet onglet, retiree de l'adresse)
       const id = params.get('lot');
-      const key = params.get('key') || '';
-      // etiquette d'un autre lot du meme lot global pendant une verif : elle rejoint la verif en cours
-      let joined = false;
-      if (state.lotId && id !== state.lotId) {
-        await loadLot(state.lotId);
-        joined = !!state.lot && await joinVerif({ kind: 'lot', code: location.href, id, key });
-      }
-      if (joined) {
-        cleanUrl(state.lotId);
-      } else {
-        if (id !== state.lotId) { state.lotKey = ''; state.extra = []; state.lastVerif = null; }
-        if (key) state.lotKey = key;
-        cleanUrl(id);
-        await loadLot(id);
-        showLotInfo();
-      }
+      cleanUrl(id);
+      if (state.lotId) await loadLot(state.lotId); // vérif en cours (rejointe si c'est un lot du meme lot global)
+      await openFiche('lot', id, { key: params.get('key') || '', push: false });
     } else if (route === 'badge' && params.get('m')) {
       // carte scannee : page d'accueil
       history.replaceState(null, '', './');
@@ -2562,22 +2832,25 @@
       if (state.lotId) await loadLot(state.lotId);
       await startPinReset(params.get('m'), params.get('t'));
     } else if (route === 'item' && params.get('id')) {
-      // QR d'un item scanne avec l'appareil photo : meme effet qu'un scan dans la page
-      cleanUrl(state.lotId);
+      // QR d'un item scanne avec l'appareil photo : fiche de l'item et de son dernier emplacement connu
       if (state.lotId) await loadLot(state.lotId);
       const scan = parseCode(params.get('id'));
-      if (scan.kind === 'item') await scanItem(scan);
-      else { feedback.bad(); showInfo('bad', 'Code non reconnu', params.get('id')); }
+      if (scan.kind === 'item') await openFiche('item', scan.id, { push: false });
+      else { cleanUrl(state.lotId); feedback.bad(); showInfo('bad', 'Code non reconnu', params.get('id')); }
     } else if (route === 'pack' && params.get('id')) {
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);
       await scanPack({ kind: 'pack', code: location.href, id: params.get('id') });
+    } else if (route === 'verif') {
+      // lecteur (adresse du lecteur ouvert depuis une fiche), rechargement compris
+      enterScanner(false, false);
     } else {
       // page d'accueil, ou la page de son ancre (#stock : depuis une notification de stock, #scan : scanner)
       const page = pageFromHash(location.hash);
       if (page === 'scan') enterScanner(false, false);
       else showHome(page === 'stock' && !canSeeStock() ? 'menu' : page, false);
     }
+    if (state.expiredSession && !state.lot) toast('Vérif précédente oubliée : plus de 20 minutes sans activité.');
     render();
     if (state.user && canSeeStock()) loadStock();
   }

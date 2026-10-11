@@ -139,6 +139,25 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual(body['key_location'], 'sous le plateau')
 
+    def test_item_detail_last_location(self):
+        # fiche d'item du front web : lot actuel, puis le lot quitte en dernier une fois l'item sorti
+        sub = Lots(lot_type=self.lot_type, name='Poche', name_short='P', created_by='test', parent=self.lot)
+        sub.save()
+        stock_item, item = self.create(self.garrot, None, 2)
+        code, body = self.call('GET', f'/api/items/{stock_item.iid}/', local=False)
+        self.assertEqual(code, 200)
+        self.assertIsNone(body['last_location'])
+        self.call('POST', f'/api/lots/{sub.id}/add/', {'items': [item.iid]})
+        code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertEqual(body['last_location']['id'], sub.id)
+        self.assertTrue(body['last_location']['current'])
+        self.assertEqual(body['last_location']['path'], [{'id': self.lot.id, 'name': 'Sac A'}])
+        self.call('POST', f'/api/items/{item.iid}/delete/', {'reason': 'cassé'})
+        code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertEqual(body['status'], 'deleted')
+        self.assertEqual(body['last_location']['id'], sub.id)
+        self.assertFalse(body['last_location']['current'])
+
     def test_default_lot_key_validity_is_one_year(self):
         self.assertEqual(self.lot.verif_key_expires, self.today + timedelta(days=365))
 

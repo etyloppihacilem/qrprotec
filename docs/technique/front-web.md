@@ -19,7 +19,10 @@ elle tient en un fichier JS lisible. Voir [decisions.md](decisions.md#front-web-
 
 La page répond aux adresses mêmes des QR codes : `/`, `/verif?lot=…[&key=…]`, `/badge?m=…&key=…`,
 `/item?id=…`, `/pack?id=…`, `/seal?lot=…&s=…`. Scanner une étiquette avec l'appareil photo natif du téléphone ouvre
-donc directement la bonne vue. Les fichiers sont référencés en relatif (`web/app.js`) et l'API par
+donc directement la bonne vue. `/verif?lot=…` et `/item?id=…` ouvrent une **fiche** sans caméra (`openFiche`,
+section `#fiche`) : « Lancer une vérif » ouvre le lecteur sur le lot (`launchVerif`). La navigation entre fiches
+passe par `history.pushState` (bouton retour du téléphone, `popstate`). La fiche d'un item affiche
+`last_location`, renvoyé par `GET /api/items/<iid>/` seulement (`serializers.item_last_location`). Les fichiers sont référencés en relatif (`web/app.js`) et l'API par
 `new URL('api/', document.baseURI)` : la page fonctionne aussi sous un sous-chemin.
 
 Le back ne sert que les fichiers déclarés dans `web_views.ASSETS` (liste blanche). **Ajouter un
@@ -36,7 +39,8 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
 
 - **État** : utilisateur (badge), lot en cours et sa clé, lots ajoutés (`extra`, vérif groupée),
   liste des scans, onglet, dernière vérif. Conservé dans `localStorage` (`save`/`restore`) : un
-  rechargement de page ne perd pas une vérif en cours. La clé présente dans l'URL est retirée de la
+  rechargement de page ne perd pas une vérif en cours, sauf après `SESSION_TIMEOUT_MS` (20 min) sans
+  activité, où le lot, sa clé et les scans sont oubliés au démarrage. La clé présente dans l'URL est retirée de la
   barre d'adresse (`history.replaceState`).
 - **Caméra** (`startCamera`, `scanLoop`, `detect`) : caméra arrière, `BarcodeDetector` natif si
   disponible, sinon jsQR sur une image du `<canvas>`. Un même code vu en continu n'est traité qu'une
