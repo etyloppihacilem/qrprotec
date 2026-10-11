@@ -14,7 +14,11 @@
 #include "../render/raster.hpp"
 #include "widgets.hpp"
 
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 #include <algorithm>
 #include <vector>
 
