@@ -181,6 +181,8 @@ Requires(postun): systemd
 Recommends:     swayidle
 Recommends:     wlopm
 Recommends:     wlr-randr
+# Mise en veille des moniteurs externes par DDC/CI (ceux qui restent allumes sans signal)
+Recommends:     ddcutil
 
 %description kiosk
 Runs the QRProtec front full screen in the Cage Wayland kiosk compositor on

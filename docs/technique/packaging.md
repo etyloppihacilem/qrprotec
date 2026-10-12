@@ -82,7 +82,8 @@ le `%post` active `httpd_can_network_connect` pour que Caddy joigne le back.
 ### Kiosk
 
 `qrprotec-kiosk-session` : copie les modèles fournis dans `~qrprotec-kiosk/templates` **sans écraser**
-ceux modifiés sur la borne, programme l'extinction de l'écran (swayidle + wlopm, ou wlr-randr),
+ceux modifiés sur la borne, programme l'extinction de l'écran (swayidle + wlopm, ou wlr-randr, plus rétroéclairage via
+logind et DDC/CI via ddcutil),
 vérifie la présence des bibliothèques Wayland chargées dynamiquement par GLFW (cause classique
 d'écran noir), puis lance le front. `Ctrl+Alt+F2` donne une console de maintenance (`cage -s`).
 

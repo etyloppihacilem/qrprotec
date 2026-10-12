@@ -148,7 +148,8 @@ logs...) : il est préservé par les mises à jour.
 **Kiosk** : `/etc/qrprotec/kiosk.conf` (`XKB_DEFAULT_LAYOUT`, `QRPROTEC_SCREEN_BLANK_SECONDS`,
 1800 s par défaut) puis `sudo systemctl restart qrprotec-kiosk`. La mise en veille est désactivée
 (`logind.conf.d`, `sleep.conf.d`), l'écran s'éteint après 30 min sans activité (swayidle + wlopm, ou
-wlr-randr) et se rallume à la première touche ; curseur et clavier restent normaux. Les réglages du
+wlr-randr, plus rétroéclairage via logind et DDC/CI via ddcutil pour les écrans qui restent noirs mais
+allumés sans signal) et se rallume à la première touche ; curseur et clavier restent normaux. Les réglages du
 front (`api_url`, imprimante...) sont dans `/var/lib/qrprotec-kiosk/.config/qrprotec/app.conf` (le
 back distant, s'il y en a un, dans `/etc/qrprotec/front-api.conf`) et
 les modèles d'étiquettes dans `/var/lib/qrprotec-kiosk/templates/` (images dans son sous-dossier `images/`).
