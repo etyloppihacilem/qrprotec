@@ -79,6 +79,11 @@ Conseils :
   dès qu'on entame l'ensemble. À la vérif suivante, l'étiquette manquante compte l'ensemble comme
   **utilisé** tout de suite (sans attendre plusieurs vérifs) : il faut remettre un ensemble complet,
   les restes de l'ancien sont considérés comme perdus.
+- **Tâches à la vérif** (une par ligne, ex : DAE « Voyant vert allumé », « Électrodes dans leur
+  date ») : les items de ce type reçoivent une **étiquette de tâches** à la place de l'étiquette
+  d'item (modèle `tache.qr`, avec la liste des tâches). À la vérif, la scanner ouvre la liste à
+  cocher : l'item n'est compté qu'une fois toutes ses tâches cochées et validées. Laissez vide pour
+  un item ordinaire.
 - Le nom d'un type doit être unique (sans tenir compte des accents ni des majuscules) : le formulaire
   le signale pendant la saisie.
 - Un type qui ne sert plus s'**archive** (bouton **Archiver le type…**) : il n'est plus proposé à la

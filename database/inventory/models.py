@@ -158,6 +158,10 @@ class ItemType(models.Model):
     # Etiquette a dechirer avant utilisation (ex : sachet de plusieurs serums phy etiquete une seule fois) : un
     # item non scanne a une verif est considere comme utilise tout de suite, et les restes du sachet sont perdus.
     tear_off = models.BooleanField(default=False)
+    # Taches a faire a chaque verif (ex : DAE « voyant vert allume », « electrodes dans leur date ») : scanner l'item
+    # (son etiquette de taches ou d'item) ouvre la liste a cocher sur les fronts, et l'item n'est compte comme vu
+    # qu'une fois toutes les taches cochees et validees. Liste de libelles, vide = item ordinaire.
+    tasks = models.JSONField(default=list, blank=True)
     archived = models.BooleanField(default=False) # plus propose (reception, contenu des lots), desarchivable
 
     def __str__(self):

@@ -57,6 +57,24 @@ std::vector< CategoryInfo > build_categories() {
   item.placeholders.push_back({ "pack_id", "Paquet scellé d'origine (vide sinon)", "0000002B" });
   categories.push_back(item);
 
+  // etiquette de taches (TaskItem) : remplace l'etiquette d'item des types qui ont des taches
+  CategoryInfo task_item{ TemplateCategory::TaskItem, "task_item", "Item - étiquette de tâches",
+                          "Étiquette des items dont le type a des tâches à faire à la vérif (ex : DAE), imprimée à "
+                          "la place de l'étiquette d'item. La scanner ouvre la liste des tâches à cocher. Le QR code "
+                          "doit contenir {{task_url}}.",
+                          {} };
+  task_item.placeholders.push_back({ "task_url", "URL des tâches de l'item (contenu du QR code)",
+                                     "https://example.com/task?id=defibr00000000000000A1" });
+  task_item.placeholders.push_back({ "tasks", "Liste des tâches, une par ligne",
+                                     "□ Voyant vert allumé\n□ Électrodes dans leur date" });
+  task_item.placeholders.push_back({ "task_count", "Nombre de tâches", "2" });
+  task_item.placeholders.push_back({ "iid", "Identifiant unique de l'item", "defibr00000000000000A1" });
+  for (const PlaceholderInfo &info : item_type_placeholders())
+    task_item.placeholders.push_back(info);
+  task_item.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "1" });
+  task_item.placeholders.push_back({ "count", "Nombre d'étiquettes de la série", "1" });
+  categories.push_back(task_item);
+
   CategoryInfo pack{ TemplateCategory::ItemPack, "itempack", "Paquet fermé (ItemPack)",
                      "Étiquette d'un paquet fermé : les étiquettes individuelles seront imprimées à l'ouverture. "
                      "Le QR code doit contenir {{pack_url}}.",

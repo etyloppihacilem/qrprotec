@@ -50,6 +50,7 @@ def item_type_dict(item_type):
         'perissable': item_type.perissable,
         'default_pack_size': item_type.default_pack_size,
         'tear_off': item_type.tear_off,
+        'tasks': list(item_type.tasks or []),
         'archived': item_type.archived,
     }
 
@@ -64,6 +65,9 @@ def item_dict(item, today=None):
         'type_name': item.pack.item_type.name,
         # etiquette a dechirer avant utilisation : un item non scanne a une verif est utilise
         'tear_off': item.pack.item_type.tear_off,
+        # taches a cocher a la verif (etiquette de taches) : l'item ne compte qu'une fois toutes validees
+        'tasks': list(item.pack.item_type.tasks or []),
+        'task_url': public_url('task', id=item.iid),
         'peremption': _date(item.pack.peremption),
         'expired': item.is_expired(today),
         'status': item.status,

@@ -487,6 +487,25 @@ class ManagementTests(ApiTestCase):
         self.assertTrue(body['id'].startswith('sacpse'))
         self.assertEqual(len(body['id']), 14)
 
+    def test_item_type_tasks(self):
+        """Taches d'un type d'item (etiquette de taches) : nettoyees, exposees sur l'item avec l'URL de l'etiquette."""
+        code, body = self.call('POST', '/api/item-types/', {'type': 'defibr', 'name': 'DAE',
+                                                            'tasks': [' Voyant  vert ', '', 'Électrodes', 'Voyant vert']})
+        self.assertEqual(code, 201)
+        self.assertEqual(body['tasks'], ['Voyant vert', 'Électrodes'])
+        code, _ = self.call('PATCH', '/api/item-types/defibr/', {'tasks': 'pas une liste'})
+        self.assertEqual(code, 400)
+        code, _ = self.call('PATCH', '/api/item-types/defibr/', {'tasks': [str(n) for n in range(30)]})
+        self.assertEqual(code, 400)
+        item = self.create(ItemType.objects.get(type='defibr'), None, 1)[0]
+        code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertEqual(body['tasks'], ['Voyant vert', 'Électrodes'])
+        self.assertTrue(body['task_url'].endswith(f'task?id={item.iid}'))
+        code, body = self.call('PATCH', '/api/item-types/defibr/', {'tasks': []})
+        self.assertEqual(body['tasks'], [])
+        code, body = self.call('GET', f'/api/items/{self.create(self.garrot, None, 1)[0].iid}/', local=False)
+        self.assertEqual(body['tasks'], [])
+
     def test_delete_requires_reason(self):
         item = self.create(self.garrot, None, 1)[0]
         code, _ = self.call('POST', f'/api/items/{item.iid}/delete/', {})
@@ -500,7 +519,7 @@ class ManagementTests(ApiTestCase):
 class WebFrontTests(ApiTestCase):
     def test_qr_urls_serve_the_web_page(self):
         for url in ('/', '/verif', f'/verif?lot={self.lot.id}&key=x', '/badge?m=M001&key=x', '/pack?id=1',
-                    '/item?id=compre20271231000000A1'):
+                    '/item?id=compre20271231000000A1', '/task?id=compre20271231000000A1'):
             response = self.client.get(url)
             self.assertEqual(response.status_code, 200, url)
             self.assertIn(b'web/app.js', b''.join(response.streaming_content))

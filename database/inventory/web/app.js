@@ -180,9 +180,10 @@
   function parseCode(raw) {
     const code = raw.trim();
     // etiquette d'item : l'iid seul (ancien format) ou l'URL <base>/item?id=IID
-    const itemScan = (iid) => {
+    // etiquette de taches (TaskItem) : <base>/task?id=IID, un item dont les taches sont a cocher a la verif
+    const itemScan = (iid, task = false) => {
       const date = iid.slice(6, 14);
-      return { kind: 'item', code, id: iid, type: iid.slice(0, 6), peremption: date === '00000000' ? null : parseDate(date) };
+      return { kind: 'item', code, id: iid, type: iid.slice(0, 6), peremption: date === '00000000' ? null : parseDate(date), task };
     };
     if (IID_RE.test(code)) return itemScan(code);
     let url;
@@ -190,6 +191,7 @@
     const route = url.pathname.replace(/\/+$/, '').split('/').pop();
     const p = url.searchParams;
     if (route === 'item' && IID_RE.test(p.get('id') || '')) return itemScan(p.get('id'));
+    if (route === 'task' && IID_RE.test(p.get('id') || '')) return itemScan(p.get('id'), true);
     if (route === 'verif' && p.get('lot')) return { kind: 'lot', code, id: p.get('lot'), key: p.get('key') || '' };
     if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '' };
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
@@ -253,6 +255,12 @@
   const feedback = {
     good() { tone(1320, 0, 0.08, 'sine', 0.2); vibrate(40); flash('good'); },
     info() { tone(990, 0, 0.06, 'sine', 0.15); vibrate(30); },
+    // etiquette de taches : trois notes montantes et ecran bleu (meme signal que l'app, Feedback::task)
+    task() {
+      tone(660, 0, 0.09, 'sine', 0.22); tone(880, 0.11, 0.09, 'sine', 0.22); tone(1100, 0.22, 0.14, 'sine', 0.22);
+      vibrate([40, 60, 40, 60, 40]);
+      flash('task');
+    },
     warn() { tone(660, 0, 0.12, 'triangle', 0.25); vibrate([60, 60, 60]); },
     bad() {
       // produit perime, code inconnu : ecran rouge qui clignote, bip grave, vibration longue
@@ -469,6 +477,8 @@
     unlockAudio();
     if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
     const scan = parseCode(raw);
+    // fenetre des taches ouverte et autre code scanne : l'item reste non valide (le rescanner reprend ses taches)
+    if (taskPopup && !(scan.kind === 'item' && scan.id === taskPopup.entry.iid)) finishTasks(false);
     // petit lecteur de l'accueil : un badge connecte et l'on reste sur l'accueil, tout autre code ouvre le scanner
     if (readerOpen() && scan.kind !== 'user') enterScanner(false);
     switch (scan.kind) {
@@ -492,6 +502,13 @@
   }
 
   async function scanItem(scan) {
+    // taches de cet item deja affichees : un administrateur les valide toutes en scannant l'etiquette une 2e fois
+    if (taskPopup && taskPopup.entry.iid === scan.id) {
+      if (isAdmin()) { finishTasks(true); return; }
+      feedback.task();
+      toast('Cochez toutes les tâches pour valider cet item.');
+      return;
+    }
     const existing = state.scanned.find((entry) => entry.kind === 'item' && entry.iid === scan.id);
     if (existing) {
       // doublon : ignore, sans son ni vibration
@@ -507,16 +524,43 @@
     state.lastVerif = null; // un nouveau scan commence une nouvelle verif
     const expired = !!(scan.peremption && scan.peremption < today());
     const entry = { code: scan.code, kind: 'item', iid: scan.id, expired, info: null, error: '', place: state.lot ? currentPlace() : '' };
+    if (scan.task) {
+      // etiquette de taches : l'item n'est compte qu'une fois ses taches validees (fenetre des taches)
+      feedback.task();
+      showInfo('task', 'Étiquette de tâches', 'Chargement des tâches…');
+      try {
+        entry.info = await api(`items/${encodeURIComponent(scan.id)}/`);
+        if (entry.info.expired) entry.expired = true;
+      } catch (e) {
+        if (e.status === 404) entry.error = 'Inconnu dans la base';
+      }
+      if (entry.info && !entry.error && (entry.info.tasks || []).length) { openTasks(entry); return; }
+    }
+    await addItem(entry, scan);
+  }
+
+  // Item scanne ajoute a la vérif. Un item dont le type a des taches n'y entre qu'une fois ses taches validees.
+  async function addItem(entry, scan, loaded = !!entry.info || !!entry.error) {
     state.scanned.push(entry);
-    if (expired) feedback.bad(); else feedback.good();
-    showInfo(expired ? 'bad' : 'ok', expired ? 'PÉRIMÉ' : 'Item scanné',
+    if (entry.expired || entry.error) feedback.bad(); else if (!scan.task || entry.tasksDone) feedback.good();
+    showInfo(entry.expired ? 'bad' : 'ok', entry.expired ? 'PÉRIMÉ' : 'Item scanné',
       scan.peremption ? 'Péremption : ' + fmtDate(scan.peremption) : 'Non périssable');
     render();
-    try {
-      entry.info = await api(`items/${encodeURIComponent(scan.id)}/`);
-      if (entry.info.expired && !entry.expired) { entry.expired = true; feedback.bad(); }
-    } catch (e) {
-      if (e.status === 404) { entry.error = 'Inconnu dans la base'; feedback.bad(); }
+    if (!loaded) {
+      try {
+        entry.info = await api(`items/${encodeURIComponent(scan.id)}/`);
+        if (entry.info.expired && !entry.expired) { entry.expired = true; feedback.bad(); }
+      } catch (e) {
+        if (e.status === 404) { entry.error = 'Inconnu dans la base'; feedback.bad(); }
+      }
+      // etiquette d'item d'un item a taches : retire des scans tant que ses taches ne sont pas validees
+      if (entry.info && !entry.error && !entry.tasksDone && (entry.info.tasks || []).length) {
+        const index = state.scanned.indexOf(entry);
+        if (index >= 0) state.scanned.splice(index, 1);
+        feedback.task();
+        openTasks(entry);
+        return;
+      }
     }
     // premier scan sans vérif en cours d'un item range dans un lot : c'est la vérif de ce lot qui commence
     const info = entry.info;
@@ -538,6 +582,42 @@
     save();
     render();
   }
+
+  // Fenetre des taches d'un item (etiquette de taches) : toutes cochees et validees, l'item compte comme vu
+  let taskPopup = null; // {entry, scan}
+  function openTasks(entry) {
+    const dialog = $('#tasks');
+    const tasks = entry.info.tasks;
+    taskPopup = { entry, scan: parseCode(entry.code) };
+    $('#tasks-title').textContent = entry.info.type_name;
+    $('#tasks-sub').textContent = entry.iid + (entry.expired ? ' · PÉRIMÉ' : '');
+    const boxes = tasks.map((task) => el('input', { type: 'checkbox' }));
+    const update = () => { $('#tasks-ok').disabled = !boxes.every((box) => box.checked); };
+    for (const box of boxes) box.addEventListener('change', update);
+    $('#tasks-list').replaceChildren(...tasks.map((task, index) => el('li', {}, el('label', {}, boxes[index], ' ', task))));
+    $('#tasks-admin').hidden = !isAdmin();
+    update();
+    showInfo('task', 'Tâches : ' + entry.info.type_name, `${tasks.length} tâche(s) à compléter pour valider cet item.`);
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function finishTasks(done) {
+    if (!taskPopup) return;
+    const { entry, scan } = taskPopup;
+    taskPopup = null;
+    const dialog = $('#tasks');
+    if (dialog.open) dialog.close();
+    if (!done) {
+      showInfo('warn', 'Item non validé : ' + entry.info.type_name, 'Toutes ses tâches doivent être cochées. Rescannez-le pour les reprendre.');
+      return;
+    }
+    entry.tasksDone = true;
+    addItem(entry, { ...scan, task: true }, true);
+  }
+
+  $('#tasks-form').addEventListener('submit', (event) => { event.preventDefault(); finishTasks(true); });
+  $('#tasks-cancel').addEventListener('click', () => finishTasks(false));
+  $('#tasks').addEventListener('cancel', (event) => { event.preventDefault(); finishTasks(false); });
 
   function showItemInfo(entry) {
     const info = entry.info;
@@ -1644,6 +1724,7 @@
       el('span', { class: 'main' }, item.iid),
       item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
       item.tear_off ? el('span', { class: 'tag orange', title: 'Étiquette à déchirer : si elle manque, compté comme utilisé' }, 'à déchirer') : null,
+      (item.tasks || []).length ? el('span', { class: 'tag blue', title: 'Tâches à cocher au scan de cet item' }, 'tâches') : null,
       item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null);
   }
 
@@ -1943,7 +2024,7 @@
     const route = location.pathname.replace(/\/+$/, '').split('/').pop();
     const params = new URLSearchParams(location.search);
     if (route === 'verif' && params.get('lot')) { openFiche('lot', params.get('lot'), { push: false }); return; }
-    if (route === 'item' && IID_RE.test(params.get('id') || '')) { openFiche('item', params.get('id'), { push: false }); return; }
+    if ((route === 'item' || route === 'task') && IID_RE.test(params.get('id') || '')) { openFiche('item', params.get('id'), { push: false }); return; }
     closeFiche();
     const page = route === 'verif' ? 'scan' : pageFromHash(location.hash);
     if (page === 'scan') enterScanner(true, false);
@@ -3310,6 +3391,7 @@
         fact('Dernier passage', item.last_seen ? fmtDateTime(item.last_seen) + (item.last_seen_by ? ' par ' + item.last_seen_by : '') : '–'),
         fact('Ajouté', item.added ? fmtDateTime(item.added) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
         item.tear_off ? fact('Étiquette', 'à déchirer avant utilisation') : [],
+        (item.tasks || []).length ? fact('Tâches à la vérif', el('ul', { class: 'tasks-facts' }, ...item.tasks.map((task) => el('li', {}, task)))) : [],
         item.deleted_reason ? fact('Raison', item.deleted_reason) : []),
       where ? '' : el('p', { class: 'sub' }, "Aucun lot connu pour cet item : il n'y a pas de vérif à lancer."),
     );
@@ -3328,7 +3410,7 @@
     // on retire la cle de la barre d'adresse (historique, partage d'ecran)
     const cleanUrl = (lot) => history.replaceState(null, '', lot ? `verif?lot=${encodeURIComponent(lot)}` : 'verif');
     // etiquette scannee avec l'appareil photo : ecran de scan (sans demarrer la camera, il faut un geste)
-    const qrRoute = ['verif', 'seal', 'unseal', 'pinreset', 'item', 'pack'].includes(route) && [...params.keys()].length > 0;
+    const qrRoute = ['verif', 'seal', 'unseal', 'pinreset', 'item', 'task', 'pack'].includes(route) && [...params.keys()].length > 0;
     if (qrRoute) { document.body.classList.remove('home-mode'); state.homePage = 'scan'; }
     if (route === 'verif' && params.get('lot')) {
       // etiquette publique ou privee d'un lot : fiche du lot, « Lancer une vérif » ouvre le lecteur (la cle est
@@ -3352,7 +3434,7 @@
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);
       await startPinReset(params.get('m'), params.get('t'));
-    } else if (route === 'item' && params.get('id')) {
+    } else if ((route === 'item' || route === 'task') && params.get('id')) {
       // QR d'un item scanne avec l'appareil photo : fiche de l'item et de son dernier emplacement connu
       if (state.lotId) await loadLot(state.lotId);
       const scan = parseCode(params.get('id'));

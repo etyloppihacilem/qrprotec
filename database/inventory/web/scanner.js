@@ -103,6 +103,7 @@
     const route = url.pathname.replace(/\/+$/, '').split('/').pop();
     const p = url.searchParams;
     if (route === 'item' && IID_RE.test(p.get('id') || '')) return describe(p.get('id'));
+    if (route === 'task' && IID_RE.test(p.get('id') || '')) return 'Tâches · ' + describe(p.get('id'));
     if (route === 'verif' && p.get('lot')) return `Lot ${p.get('lot')}` + (p.get('key') ? ' · étiquette clé' : '');
     if (route === 'badge' && p.get('m')) return `Badge ${p.get('m')}`;
     if (route === 'pack' && p.get('id')) return `Paquet ${p.get('id')}`;

@@ -28,7 +28,7 @@ const Json *find_type(const App &app, const std::string &type) {
 
 // Item fictif pour l'apercu d'un type d'item (avant toute reception)
 Json sample_item(const std::string &type, const std::string &name, bool perishable, const std::string &peremption_iso,
-                 bool tear_off = false) {
+                 bool tear_off = false, const std::vector< std::string > &tasks = {}) {
   const auto  date = Date::parse(peremption_iso);
   const Date  when = date ? *date : Date::today().plus_days(365);
   std::string code = type;
@@ -40,7 +40,18 @@ Json sample_item(const std::string &type, const std::string &name, bool perishab
   item["type_name"]  = name;
   item["peremption"] = perishable ? Json(when.iso()) : Json();
   item["tear_off"]   = tear_off;
+  item["task_url"]   = "https://example.com/task?id=" + item["iid"].str();
+  item["tasks"]      = Json::array();
+  for (const std::string &task : tasks)
+    item["tasks"].push_back(task);
   return item;
+}
+
+std::vector< std::string > tasks_of(const Json &item_type) {
+  std::vector< std::string > tasks;
+  for (const Json &task : item_type["tasks"].items())
+    tasks.push_back(task.str());
+  return tasks;
 }
 
 std::vector< Parameters > item_labels(const Json &items) {
@@ -168,7 +179,8 @@ class InventoryWindow final : public AppWindow {
       } else if (preview) {
         app.preview_labels(TemplateCategory::Item,
                            { item_parameters(sample_item(reception_type_, (*type)["name"].str(), perishable,
-                                                         date ? date->iso() : "", (*type)["tear_off"].boolean())) },
+                                                         date ? date->iso() : "", (*type)["tear_off"].boolean(),
+                                                         tasks_of(*type))) },
                            "Exemple d'étiquette (avant création)");
       }
       ImGui::EndDisabled();
@@ -244,7 +256,7 @@ class InventoryWindow final : public AppWindow {
         app.refresh_item_types();
       ImGui::SameLine();
       ImGui::Checkbox("Afficher les types archivés", &show_archived_);
-      if (ImGui::BeginTable("types", 6,
+      if (ImGui::BeginTable("types", 7,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, ImGui::GetContentRegionAvail().y * 0.45f))) {
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -254,6 +266,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableSetupColumn("Périssable", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Par paquet", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("À déchirer", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("Tâches", ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableHeadersRow();
         for (const Json &item_type : app.catalog.item_types.items()) {
           const bool archived = item_type["archived"].boolean();
@@ -276,6 +289,11 @@ class InventoryWindow final : public AppWindow {
           ImGui::Text("%d", item_type["default_pack_size"].integer(1));
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item_type["tear_off"].boolean() ? "oui" : "non");
+          ImGui::TableNextColumn();
+          if (item_type["tasks"].size() > 0)
+            ImGui::Text("%zu", item_type["tasks"].size());
+          else
+            ImGui::TextDisabled("-");
         }
         ImGui::EndTable();
       }
@@ -306,6 +324,12 @@ class InventoryWindow final : public AppWindow {
                   "« Déchirer avant utilisation » : on l'arrache dès qu'on entame l'ensemble. À la vérif suivante, "
                   "l'étiquette manquante compte l'ensemble comme utilisé tout de suite : il faut remettre un "
                   "ensemble complet, les restes de l'ancien sont considérés comme perdus.");
+      ImGui::TextUnformatted("Tâches à la vérif (une par ligne)");
+      help_marker("Ex : DAE « Voyant vert allumé », « Électrodes dans leur date ». Les items de ce type ont une "
+                  "étiquette de tâches : la scanner pendant une vérif ouvre la liste à cocher, et l'item n'est "
+                  "compté qu'une fois toutes ses tâches cochées et validées. Un administrateur peut scanner deux "
+                  "fois de suite l'étiquette pour toutes les valider. Vide : item ordinaire.");
+      ImGui::InputTextMultiline("##tasks", &form_tasks_, ImVec2(-FLT_MIN, 70));
       form_min_       = std::max(0, form_min_);
       form_pack_size_ = std::max(1, form_pack_size_);
 
@@ -316,6 +340,9 @@ class InventoryWindow final : public AppWindow {
       body["perissable"]        = form_perishable_;
       body["default_pack_size"] = form_pack_size_;
       body["tear_off"]          = form_tear_off_;
+      body["tasks"]             = Json::array();
+      for (const std::string &task : form_task_list())
+        body["tasks"].push_back(task);
       if (editing_type_.empty()) {
         ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty() || name_taken || code_taken);
         if (primary_button("Créer le type")) {
@@ -326,12 +353,12 @@ class InventoryWindow final : public AppWindow {
               return;
             }
             app.notify("Type " + result.data["type"].str() + " créé.");
-            clear_type_form();
             app.preview_labels(TemplateCategory::Item,
                                { item_parameters(sample_item(result.data["type"].str(), result.data["name"].str(),
                                                              result.data["perissable"].boolean(), "",
-                                                             result.data["tear_off"].boolean())) },
+                                                             result.data["tear_off"].boolean(), form_task_list())) },
                                "Étiquette d'un item " + result.data["name"].str() + " (exemple)");
+            clear_type_form();
             app.refresh_item_types();
           });
         }
@@ -353,7 +380,8 @@ class InventoryWindow final : public AppWindow {
       ImGui::BeginDisabled(form_code_.empty());
       if (button("Aperçu de l'étiquette"))
         app.preview_labels(TemplateCategory::Item,
-                           { item_parameters(sample_item(form_code_, form_name_, form_perishable_, "", form_tear_off_)) },
+                           { item_parameters(sample_item(form_code_, form_name_, form_perishable_, "", form_tear_off_,
+                                                         form_task_list())) },
                            "Étiquette d'un item " + form_name_ + " (exemple)");
       ImGui::EndDisabled();
       if (!editing_type_.empty())
@@ -421,6 +449,9 @@ class InventoryWindow final : public AppWindow {
       form_pack_size_   = item_type["default_pack_size"].integer(1);
       form_perishable_  = item_type["perissable"].boolean();
       form_tear_off_    = item_type["tear_off"].boolean();
+      form_tasks_.clear();
+      for (const std::string &task : tasks_of(item_type))
+        form_tasks_ += (form_tasks_.empty() ? "" : "\n") + task;
       editing_type_archived_ = item_type["archived"].boolean();
     }
 
@@ -433,7 +464,28 @@ class InventoryWindow final : public AppWindow {
       form_pack_size_  = 1;
       form_perishable_ = true;
       form_tear_off_   = false;
+      form_tasks_.clear();
       editing_type_archived_ = false;
+    }
+
+    // Taches saisies, une par ligne (lignes vides ignorees)
+    std::vector< std::string > form_task_list() const {
+      std::vector< std::string > tasks;
+      std::size_t                start = 0;
+      while (start <= form_tasks_.size()) {
+        std::size_t end = form_tasks_.find('\n', start);
+        if (end == std::string::npos)
+          end = form_tasks_.size();
+        std::string line = form_tasks_.substr(start, end - start);
+        while (!line.empty() && std::isspace(static_cast< unsigned char >(line.back())))
+          line.pop_back();
+        while (!line.empty() && std::isspace(static_cast< unsigned char >(line.front())))
+          line.erase(line.begin());
+        if (!line.empty())
+          tasks.push_back(line);
+        start = end + 1;
+      }
+      return tasks;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -640,6 +692,7 @@ class InventoryWindow final : public AppWindow {
     int         form_pack_size_  = 1;
     bool        form_perishable_ = true;
     bool        form_tear_off_   = false;
+    std::string form_tasks_;
     bool        editing_type_archived_ = false;
     bool        show_archived_   = false;
     // Items

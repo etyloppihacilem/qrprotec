@@ -122,6 +122,21 @@
   </dialog>
 
   <!-- Compte rendu de verif -->
+  <!-- Taches d'un item (etiquette de taches) : toutes cochees et validees, l'item compte comme vu -->
+  <dialog id="tasks">
+    <form id="tasks-form">
+      <h2 id="tasks-title"></h2>
+      <p id="tasks-sub" class="hint"></p>
+      <p>Vous devez compléter toutes les tâches pour valider cet item.</p>
+      <ul id="tasks-list" class="tasks"></ul>
+      <p id="tasks-admin" class="hint" hidden>Administrateur : scanner à nouveau l'étiquette valide toutes les tâches.</p>
+      <div class="dialog-buttons">
+        <button type="button" id="tasks-cancel" class="secondary">Annuler</button>
+        <button type="submit" id="tasks-ok" class="primary">Valider</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Code PIN apres le badge (admins, ou utilisateurs ayant un PIN) -->
   <dialog id="pin">
     <form id="pin-form">

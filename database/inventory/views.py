@@ -160,6 +160,26 @@ def parse_int(value, field, minimum=0, maximum=None):
     return number
 
 
+MAX_TASKS = 20
+TASK_LENGTH = 120
+
+
+def parse_tasks(value):
+    """Taches d'un type d'item (etiquette de taches) : liste de libelles, sans vides ni doublons."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ApiError("tasks : liste de tâches attendue")
+    tasks = []
+    for task in value:
+        text = ' '.join(str(task).split())[:TASK_LENGTH]
+        if text and text not in tasks:
+            tasks.append(text)
+    if len(tasks) > MAX_TASKS:
+        raise ApiError(f"Au plus {MAX_TASKS} tâches par type d'item")
+    return tasks
+
+
 def ensure_name_free(queryset, name, what):
     """Refuse un nom deja pris dans `queryset` (sans accents ni casse, voir name_key). Les fronts font la meme
     verification pendant la saisie."""
@@ -958,6 +978,7 @@ def item_types(request):
         perissable=bool(data.get('perissable', False)),
         default_pack_size=parse_int(data.get('default_pack_size', 1), 'default_pack_size', 1),
         tear_off=bool(data.get('tear_off', False)),
+        tasks=parse_tasks(data.get('tasks')),
     )
     journal.record(OperationKind.CATALOG, front_identity(request), f"type d'item créé : {item_type}", type=code)
     return Response(ser.item_type_dict(item_type), status=status.HTTP_201_CREATED)
@@ -990,6 +1011,8 @@ def item_type_detail(request, type_code):
             item_type.perissable = perissable
         if 'tear_off' in data:
             item_type.tear_off = bool(data['tear_off'])
+        if 'tasks' in data:
+            item_type.tasks = parse_tasks(data['tasks'])
         if 'archived' in data:
             archived = bool(data['archived'])
             if archived:
@@ -1010,7 +1033,7 @@ def item_type_detail(request, type_code):
 ITEM_TYPE_FIELDS = {
     'name': 'nom', 'description': 'description', 'min_quantity': 'stock minimum',
     'default_pack_size': 'taille de paquet', 'perissable': 'périssable', 'tear_off': 'étiquette à déchirer',
-    'archived': 'archivage',
+    'tasks': 'tâches', 'archived': 'archivage',
 }
 LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',
                    'seal_required': 'scellé obligatoire', 'archived': 'archivage'}
