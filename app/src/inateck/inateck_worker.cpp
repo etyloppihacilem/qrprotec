@@ -3,6 +3,7 @@
 #include "sdk_json.hpp"
 
 #include <algorithm>
+#include <ctime>
 #include <iostream>
 #include <utility>
 
@@ -87,14 +88,36 @@ void InateckWorker::start_discovery() { enqueue({CommandType::StartDiscovery}); 
 void InateckWorker::stop_discovery() { enqueue({CommandType::StopDiscovery}); }
 void InateckWorker::connect(const std::string& id, const std::string& name) { enqueue({CommandType::Connect, id + "\n" + name}); }
 void InateckWorker::disconnect() { enqueue({CommandType::Disconnect}); }
+void InateckWorker::set_model(int model) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (snapshot_.model_choice == model)
+            return;
+        snapshot_.model_choice = model;
+        snapshot_.model = model ? model : detect_scanner_model(snapshot_.selected_name);
+        snapshot_.settings.clear();
+        if (!snapshot_.connected)
+            return;
+    }
+    refresh_settings();
+}
 void InateckWorker::refresh_settings() { enqueue({CommandType::RefreshSettings}); }
-void InateckWorker::set_volume(int value) { enqueue({CommandType::SetVolume, {}, value}); }
-void InateckWorker::set_vibration(bool enabled) { enqueue({CommandType::SetVibration, {}, enabled ? 1 : 0}); }
+void InateckWorker::set_setting(int flag, int value) { enqueue({CommandType::SetSetting, {}, value, flag}); }
+void InateckWorker::beep() { enqueue({CommandType::Beep}); }
+void InateckWorker::sync_time() { enqueue({CommandType::SyncTime}); }
+void InateckWorker::restart() { enqueue({CommandType::Restart}); }
+void InateckWorker::factory_reset() { enqueue({CommandType::FactoryReset}); }
+void InateckWorker::open_all_codes() { enqueue({CommandType::OpenAllCodes}); }
+void InateckWorker::close_all_codes() { enqueue({CommandType::CloseAllCodes}); }
+void InateckWorker::reset_all_codes() { enqueue({CommandType::ResetAllCodes}); }
+void InateckWorker::upload_cache() { enqueue({CommandType::UploadCache}); }
+void InateckWorker::read_cache_count() { enqueue({CommandType::ReadCacheCount}); }
+void InateckWorker::clear_cache() { enqueue({CommandType::ClearCache}); }
 void InateckWorker::set_prefix(const std::string& value) { enqueue({CommandType::SetPrefix, value}); }
 void InateckWorker::set_suffix(const std::string& value) { enqueue({CommandType::SetSuffix, value}); }
 void InateckWorker::set_name(const std::string& value) { enqueue({CommandType::SetName, value}); }
 void InateckWorker::set_sdk_output(bool enabled) { enqueue({CommandType::SetSdkOutput, {}, enabled ? 1 : 0}); }
-void InateckWorker::signal_error(const ScannerErrorSignal& signal) { enqueue({CommandType::SignalError, {}, 0, signal}); }
+void InateckWorker::signal_error(const ScannerErrorSignal& signal) { enqueue({CommandType::SignalError, {}, 0, 0, signal}); }
 
 std::vector<ScanEvent> InateckWorker::take_scans() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -150,11 +173,17 @@ void InateckWorker::on_disconnect() {
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.connected = false;
     snapshot_.authenticated = false;
+    snapshot_.settings_loading = false;
 }
 
 void InateckWorker::set_error(const std::string& error) {
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.error = error;
+}
+
+void InateckWorker::set_message(const std::string& message) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.message = message;
 }
 
 void InateckWorker::run() {
@@ -241,9 +270,71 @@ bool InateckWorker::connect_device(const std::string& device_id, const std::stri
     snapshot_.selected_id = device_id;
     snapshot_.selected_name = device_name;
     snapshot_.preferred_id = device_id;
+    snapshot_.model = snapshot_.model_choice ? snapshot_.model_choice : detect_scanner_model(device_name);
+    snapshot_.settings.clear();
+    snapshot_.message.clear();
     snapshot_.error.clear();
     auto_connect_ = false;
+    // Parametres lus des la connexion : la fenetre affiche les valeurs reelles de la douchette
+    commands_.push_back({CommandType::RefreshSettings});
     return true;
+#endif
+}
+
+#ifdef QRPROTEC_HAS_INATECK
+namespace {
+std::string data_text(const char* result) {
+    return sdk_json_success(result) ? sdk_json_data_text(result) : std::string();
+}
+} // namespace
+#endif
+
+// Parametres (selon le modele) et informations de la douchette.
+void InateckWorker::read_settings(const std::string& device_id) {
+#ifndef QRPROTEC_HAS_INATECK
+    (void)device_id;
+#else
+    int model = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.settings_loading = true;
+        model = snapshot_.model;
+    }
+    const std::string battery = data_text(inateck_scanner_ble_get_battery(device_id.c_str()));
+    const std::string software = data_text(inateck_scanner_ble_get_software_version(device_id.c_str()));
+    const std::string hardware = data_text(inateck_scanner_ble_get_hardware_version(device_id.c_str()));
+    const std::string mac = data_text(inateck_scanner_ble_get_mac(device_id.c_str()));
+    const std::string prefix = data_text(inateck_scanner_ble_get_prefix(device_id.c_str()));
+    const std::string suffix = data_text(inateck_scanner_ble_get_suffix(device_id.c_str()));
+    const char* version = inateck_scanner_ble_sdk_version();
+    std::vector<ScannerSettingValue> settings;
+    std::string error;
+    if (model == 0) {
+        error = "Modèle de douchette inconnu : choisissez-le dans « Modèle » pour lire ses paramètres.";
+    } else {
+        const char* result = inateck_scanner_ble_get_setting_info(device_id.c_str(), model);
+        std::cerr << "[Inateck BLE] parametres (" << scanner_model_label(model) << "): "
+                  << (result ? result : "<null>") << std::endl;
+        if (sdk_json_success(result))
+            settings = sdk_json_settings(result);
+        if (settings.empty())
+            error = std::string("Lecture des paramètres impossible pour le modèle ") + scanner_model_label(model) +
+                    " : vérifiez le modèle choisi." + (result ? std::string(" (") + result + ")" : std::string());
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.settings_loading = false;
+    snapshot_.battery = battery;
+    snapshot_.software_version = software;
+    snapshot_.hardware_version = hardware;
+    snapshot_.mac = mac;
+    snapshot_.prefix = prefix;
+    snapshot_.suffix = suffix;
+    snapshot_.sdk_version = version ? sdk_json_data_text(version) : std::string();
+    if (snapshot_.sdk_version.empty() && version)
+        snapshot_.sdk_version = version;
+    snapshot_.settings = std::move(settings);
+    if (!error.empty())
+        snapshot_.error = error;
 #endif
 }
 
@@ -350,20 +441,95 @@ void InateckWorker::execute(const Command& command) {
         on_disconnect();
         break;
     case CommandType::RefreshSettings:
-        if (!id.empty()) {
-            inateck_scanner_ble_get_battery(id.c_str());
-            inateck_scanner_ble_get_prefix(id.c_str());
-            inateck_scanner_ble_get_suffix(id.c_str());
-        }
-        break;
-    case CommandType::SetVolume:
-    case CommandType::SetVibration: {
+        if (!id.empty() && snapshot().connected)
+            read_settings(id);
+        return;
+    case CommandType::SetSetting: {
+        const int model = snapshot().model;
         if (id.empty()) return;
-        const int flag = command.type == CommandType::SetVolume ? 1001 : 1002;
-        const std::string setting = "[{\"flag\":" + std::to_string(flag) + ",\"value\":" + std::to_string(command.number) + "}]";
-        result = inateck_scanner_ble_set_setting_info(id.c_str(), setting.c_str(), 3);
+        if (model == 0) { set_error("Choisissez le modèle de la douchette avant de modifier ses paramètres."); return; }
+        const std::string setting = scanner_setting_command({{command.flag, {}, command.number}});
+        result = inateck_scanner_ble_set_setting_info(id.c_str(), setting.c_str(), model);
+        std::cerr << "[Inateck BLE] " << setting << " -> " << (result ? result : "<null>") << std::endl;
+        if (!sdk_json_success(result)) {
+            set_error(result ? result : "Modification du paramètre impossible");
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.error.clear();
+            for (ScannerSettingValue& value : snapshot_.settings)
+                if (value.flag == command.flag)
+                    value.value = command.number;
+        }
+        // Volume ou vibration : la douchette fait entendre le nouveau reglage
+        if (command.flag == 1001 || command.flag == 1002 || command.flag == 1035 || command.flag == 1047)
+            inateck_scanner_ble_bee_or_shake(id.c_str());
+        return;
+    }
+    case CommandType::Beep:
+        if (!id.empty()) result = inateck_scanner_ble_bee_or_shake(id.c_str());
+        break;
+    case CommandType::SyncTime: {
+        if (id.empty()) return;
+        const std::time_t now = std::time(nullptr);
+        std::tm local{};
+#ifdef _WIN32
+        localtime_s(&local, &now);
+#else
+        localtime_r(&now, &local);
+#endif
+        result = inateck_scanner_ble_set_time(id.c_str(), local.tm_hour, local.tm_min, local.tm_sec,
+                                              local.tm_year + 1900, local.tm_mon + 1, local.tm_mday);
+        if (sdk_json_success(result))
+            set_message("Heure de la douchette synchronisée.");
         break;
     }
+    case CommandType::Restart:
+        if (!id.empty()) result = inateck_scanner_ble_restart(id.c_str());
+        break;
+    case CommandType::FactoryReset:
+        if (id.empty()) return;
+        result = inateck_scanner_ble_reset(id.c_str());
+        if (sdk_json_success(result)) {
+            set_message("Réglages d'usine restaurés.");
+            read_settings(id);
+        }
+        break;
+    case CommandType::OpenAllCodes:
+    case CommandType::CloseAllCodes:
+    case CommandType::ResetAllCodes:
+        if (id.empty()) return;
+        result = command.type == CommandType::OpenAllCodes  ? inateck_scanner_ble_open_all_code(id.c_str())
+               : command.type == CommandType::CloseAllCodes ? inateck_scanner_ble_close_all_code(id.c_str())
+                                                            : inateck_scanner_ble_reset_all_code(id.c_str());
+        if (sdk_json_success(result))
+            read_settings(id);
+        break;
+    case CommandType::UploadCache:
+        if (id.empty()) return;
+        result = inateck_scanner_ble_inventory_upload_cache(id.c_str());
+        if (sdk_json_success(result))
+            set_message("Codes en mémoire envoyés.");
+        break;
+    case CommandType::ReadCacheCount: {
+        if (id.empty()) return;
+        result = inateck_scanner_ble_inventory_upload_cache_number(id.c_str());
+        if (sdk_json_success(result)) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.cache_count = sdk_json_data_text(result);
+        }
+        break;
+    }
+    case CommandType::ClearCache:
+        if (id.empty()) return;
+        result = inateck_scanner_ble_inventory_clear_cache(id.c_str());
+        if (sdk_json_success(result)) {
+            set_message("Mémoire de la douchette vidée.");
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.cache_count = "0";
+        }
+        break;
     case CommandType::SetPrefix:
     case CommandType::SetSuffix: {
         if (id.empty() || command.value.size() > 31) return;
@@ -395,8 +561,20 @@ void InateckWorker::execute(const Command& command) {
     case CommandType::Shutdown:
         return;
     }
-    if (result && !sdk_json_success(result))
+    if (result && !sdk_json_success(result)) {
         set_error(result);
+        return;
+    }
+    if (!result)
+        return;
+    switch (command.type) {
+    case CommandType::SetPrefix: set_message("Préfixe appliqué."); break;
+    case CommandType::SetSuffix: set_message("Suffixe appliqué."); break;
+    case CommandType::SetName: set_message("Nom Bluetooth appliqué (visible après redémarrage de la douchette)."); break;
+    case CommandType::SetSdkOutput: set_message("Mode de sortie appliqué."); break;
+    case CommandType::Restart: set_message("Douchette redémarrée."); break;
+    default: break;
+    }
 #endif
 }
 

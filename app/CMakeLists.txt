@@ -166,6 +166,7 @@ add_executable(${PROJECT_NAME}
     src/app/settings.cpp
     src/inateck/hid_classifier.cpp
     src/inateck/inateck_worker.cpp
+    src/inateck/scanner_settings.cpp
     src/inateck/sdk_json.cpp
     src/ui/inateck.cpp
     src/ui/editor.cpp
@@ -251,6 +252,7 @@ if(BUILD_TESTING)
 
     add_executable(QRProtecSdkJsonTest
         tests/sdk_json_test.cpp
+        src/inateck/scanner_settings.cpp
         src/inateck/sdk_json.cpp
     )
     target_include_directories(QRProtecSdkJsonTest PRIVATE src)

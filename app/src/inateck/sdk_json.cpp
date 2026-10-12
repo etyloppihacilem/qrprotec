@@ -1,9 +1,11 @@
 #include "sdk_json.hpp"
 
 #include "inateck_worker.hpp"
+#include "scanner_settings.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 
 namespace qrprotec {
@@ -120,6 +122,115 @@ std::vector<std::string> sdk_json_device_objects(const char* json) {
         }
     }
     return objects;
+}
+
+namespace {
+
+// Entier de "key" dans un objet JSON plat (false si absent ou non numerique).
+bool json_int(const std::string& object, const char* key, int& value) {
+    const std::string needle = std::string("\"") + key + "\"";
+    std::size_t position = object.find(needle);
+    if (position == std::string::npos)
+        return false;
+    position = object.find(':', position + needle.size());
+    if (position == std::string::npos)
+        return false;
+    const char* start = object.c_str() + position + 1;
+    char* end = nullptr;
+    const long parsed = std::strtol(start, &end, 10);
+    if (end == start)
+        return false;
+    value = static_cast<int>(parsed);
+    return true;
+}
+
+// Objets {...} de premier niveau du tableau qui suit `array` (pointeur sur '[').
+std::vector<std::string> array_objects(const char* array) {
+    std::vector<std::string> objects;
+    const char* object_start = nullptr;
+    int depth = 0;
+    bool in_string = false;
+    for (const char* cursor = array + 1; *cursor; ++cursor) {
+        if (in_string) {
+            if (*cursor == '\\' && cursor[1])
+                ++cursor;
+            else if (*cursor == '"')
+                in_string = false;
+            continue;
+        }
+        if (*cursor == '"') {
+            in_string = true;
+        } else if (*cursor == '{') {
+            if (depth == 0)
+                object_start = cursor;
+            ++depth;
+        } else if (*cursor == '}' && depth > 0) {
+            --depth;
+            if (depth == 0 && object_start)
+                objects.emplace_back(object_start, cursor + 1);
+        } else if (*cursor == ']' && depth == 0) {
+            break;
+        }
+    }
+    return objects;
+}
+
+} // namespace
+
+std::vector<ScannerSettingValue> sdk_json_settings(const char* json) {
+    std::vector<ScannerSettingValue> settings;
+    if (!json)
+        return settings;
+    const char* data = std::strstr(json, "\"data\"");
+    if (!data)
+        return settings;
+    data = std::strchr(data, '[');
+    if (!data)
+        return settings;
+    for (const std::string& object : array_objects(data)) {
+        ScannerSettingValue setting;
+        if (!json_int(object, "flag", setting.flag) || !json_int(object, "value", setting.value))
+            continue;
+        setting.name = sdk_json_string(object.c_str(), "name");
+        settings.push_back(std::move(setting));
+    }
+    return settings;
+}
+
+std::string sdk_json_data_text(const char* json) {
+    if (!json)
+        return {};
+    const char* data = std::strstr(json, "\"data\"");
+    if (!data)
+        return {};
+    data = std::strchr(data, ':');
+    if (!data)
+        return {};
+    ++data;
+    while (*data && std::isspace(static_cast<unsigned char>(*data)))
+        ++data;
+    if (*data == '"')
+        return sdk_json_string(json, "data");
+    // nombre, booleen, tableau ou objet : texte brut jusqu'a la fin de la valeur
+    int depth = 0;
+    const char* cursor = data;
+    for (; *cursor; ++cursor) {
+        if (*cursor == '[' || *cursor == '{')
+            ++depth;
+        else if (*cursor == ']' || *cursor == '}') {
+            if (depth == 0)
+                break;
+            if (--depth == 0) {
+                ++cursor;
+                break;
+            }
+        } else if (*cursor == ',' && depth == 0)
+            break;
+    }
+    std::string text(data, cursor);
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+        text.pop_back();
+    return text;
 }
 
 std::string clean_scan_code(std::string code) {

@@ -11,6 +11,7 @@
 #pragma once
 
 #include <chrono>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -50,12 +51,15 @@ class Inateck {
 
   private:
     void draw_inateck_window();
+    void draw_scanner_settings(const InateckSnapshot& state);
+    void draw_scanner_setting(const ScannerSettingValue& setting);
+    void draw_scanner_actions(const InateckSnapshot& state);
 
     InateckWorker inateck_worker_;
     bool inateck_window_open_ = false;
     bool settings_unlocked_ = false;
-    int inateck_volume_ = 2;
-    bool inateck_vibration_ = false;
+    int scanner_model_ = 0; // 0 : deduit du nom de la douchette
+    std::map<int, int> pending_values_; // curseurs en cours de deplacement (flag -> valeur)
     bool inateck_sdk_output_ = true;
     bool hid_enabled_ = false;
     int hid_timeout_ms_ = 50;
