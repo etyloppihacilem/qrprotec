@@ -526,7 +526,7 @@ void Inateck::draw_inventory(const InateckSnapshot& state) {
   ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
   if (button("Lire la mémoire"))
     show_inventory_qr(InventoryQr::Upload);
-  ImGui::SetItemTooltip("Demande à la douchette les codes gardés en mémoire (sans les traiter).");
+  ImGui::SetItemTooltip("Affiche le code à scanner pour que la douchette envoie les codes gardés en mémoire.");
   ImGui::SameLine();
   if (button("Compter"))
     show_inventory_qr(InventoryQr::Count);
@@ -559,7 +559,6 @@ void Inateck::show_inventory_qr(InventoryQr qr) {
   focus_inventory_qr_ = true;
   if (qr == InventoryQr::Upload) {
     inateck_worker_.capture_inventory(InateckWorker::InventoryCapture::Codes);
-    inateck_worker_.upload_cache();
   } else if (qr == InventoryQr::Count) {
     inateck_worker_.capture_inventory(InateckWorker::InventoryCapture::Count);
   }
@@ -584,10 +583,9 @@ void Inateck::draw_inventory_qr(const InateckSnapshot& state) {
       if (button("Annuler"))
         open = false;
     } else {
-      // Envoi : la commande du SDK est deja partie ; la BCST-23 l'ignore, le QR prend le relais.
-      // Nombre : seul le QR marche (fonction du SDK defaillante).
+      // Les commandes d'envoi du SDK n'envoient que sur le cable USB : en Bluetooth, seul le QR marche
       if (inventory_qr_ == InventoryQr::Upload)
-        ImGui::TextUnformatted("Envoi des codes demandé à la douchette. Si rien n'arrive, scannez ce code :");
+        ImGui::TextUnformatted("Scannez ce code avec la douchette : elle envoie les codes gardés en mémoire.");
       else
         ImGui::TextUnformatted("Scannez ce code avec la douchette : elle envoie le nombre de codes en mémoire.");
       draw_qr(inventory_qr_ == InventoryQr::Upload ? "/*SetFun84*/" : "/*SetFun85*/", 220.0f);
