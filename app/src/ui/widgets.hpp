@@ -79,6 +79,12 @@ bool name_taken_warning(const Json &list, const char *key_field, const std::stri
 // Champ texte avec bouton de confirmation en deux temps (pour les actions sensibles)
 bool confirm_button(const char *label, const char *question, const char *popup_id);
 
+// Remplace ImGui::NewFrame() : note si Echap vient de fermer un popup (ImGui ferme seul les popups non modaux)
+void new_frame();
+// Echap pour annuler le dialogue en cours (fenetre ou popup modal qui a le focus). Faux si la touche vient de
+// fermer un popup ouvert par-dessus : un seul Echap ne ferme qu'un niveau.
+bool escape_pressed();
+
 void help_marker(const char *text);
 
 // Bandeau pleine largeur de couleur vive, texte blanc agrandi (etat d'un lot, resultat d'une verif)

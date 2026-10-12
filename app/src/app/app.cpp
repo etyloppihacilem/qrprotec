@@ -546,7 +546,7 @@ void App::draw_douchette_modal() {
   ImGui::PopFont();
   ImGui::Spacing();
   if (button("Pardon", ImVec2(-FLT_MIN, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)
-      || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+      || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
@@ -605,7 +605,7 @@ void App::draw_login_modal() {
       }
       ImGui::EndDisabled();
     }
-    if (button("Annuler", ImVec2(160, 0))) {
+    if (button("Annuler", ImVec2(160, 0)) || escape_pressed()) {
       login_prompt_   = false;
       pending_action_ = nullptr;
     }
@@ -766,7 +766,7 @@ void App::draw_server_modal() {
   }
   if (editable)
     ImGui::SameLine();
-  if (button("Fermer"))
+  if (button("Fermer") || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
@@ -1142,7 +1142,7 @@ void App::draw_pin_modal() {
   }
   ImGui::EndDisabled();
   ImGui::SameLine();
-  if (button("Annuler", ImVec2(150, 0))) {
+  if (button("Annuler", ImVec2(150, 0)) || escape_pressed()) {
     pin_            = PinPrompt{};
     pending_action_ = nullptr;
   }
@@ -1484,7 +1484,7 @@ void App::draw_tasks_modal() {
     close = done = true;
   ImGui::EndDisabled();
   ImGui::SameLine();
-  if (button("Annuler", ImVec2(ImGui::GetFontSize() * 10.0f, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+  if (button("Annuler", ImVec2(ImGui::GetFontSize() * 10.0f, 0)) || escape_pressed())
     close = true;
   if (close) {
     ImGui::CloseCurrentPopup();

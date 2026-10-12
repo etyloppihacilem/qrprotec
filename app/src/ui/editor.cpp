@@ -334,7 +334,7 @@ void Editor::draw_open_popup() {
   if (document_list_.empty())
     ImGui::TextDisabled("Aucun modèle (*.qr) dans ce dossier.");
   ImGui::EndChild();
-  if (button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+  if (button("Annuler") || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::SameLine();
   if (button("Actualiser la liste"))
@@ -371,7 +371,7 @@ void Editor::draw_save_as_popup() {
   }
   ImGui::EndDisabled();
   ImGui::SameLine();
-  if (button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+  if (button("Annuler") || escape_pressed()) {
     pending_ = PendingAction::None;
     ImGui::CloseCurrentPopup();
   }
@@ -404,7 +404,7 @@ void Editor::draw_unsaved_popup() {
     run_pending();
   }
   ImGui::SameLine();
-  if (button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+  if (button("Annuler") || escape_pressed()) {
     pending_ = PendingAction::None;
     ImGui::CloseCurrentPopup();
   }
@@ -430,7 +430,7 @@ void Editor::draw_export_popup() {
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();
-  if (button("Annuler") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+  if (button("Annuler") || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
@@ -1522,7 +1522,7 @@ void Editor::draw_print_test_popup() {
     if (!message_.empty())
       ImGui::TextWrapped("%s", message_.c_str());
     ImGui::SameLine();
-    if (!print_task_.valid() && button("Annuler")) {
+    if (!print_task_.valid() && (button("Annuler") || escape_pressed())) {
       print_test_open_ = false;
       ImGui::CloseCurrentPopup();
     }

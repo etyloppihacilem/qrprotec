@@ -479,6 +479,23 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
   return changed;
 }
 
+namespace {
+bool escape_closed_popup = false;
+} // namespace
+
+void new_frame() {
+  const ImGuiContext &context = *ImGui::GetCurrentContext();
+  const int           popups  = context.OpenPopupStack.Size;
+  ImGui::NewFrame();
+  escape_closed_popup = ImGui::IsKeyPressed(ImGuiKey_Escape, false) && context.OpenPopupStack.Size < popups;
+}
+
+bool escape_pressed() {
+  return !escape_closed_popup
+      && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows | ImGuiFocusedFlags_NoPopupHierarchy)
+      && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+}
+
 bool confirm_button(const char *label, const char *question, const char *popup_id) {
   if (danger_button(label))
     ImGui::OpenPopup(popup_id);
