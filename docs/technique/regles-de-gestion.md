@@ -264,6 +264,12 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
   (`/api/server-settings/`, facultatif par défaut). Un PIN existant est toujours demandé, sauf s'il est
   désactivé. Sans PIN alors qu'il est obligatoire, il est choisi à la connexion suivante
   (`pin_setup_required`). 5 erreurs : blocage 5 minutes.
+- **Volume de la douchette** : propre à chaque secouriste (`scanner_volume`, 0, 2, 4 ou 8), renvoyé à
+  la connexion (`scanner_volume` dans la réponse de `/api/auth/`, toujours rempli) et enregistré par
+  `PATCH /api/me/scanner-volume/` (`{"volume": 4}`, vide : revient au défaut). Sans choix, et sans
+  utilisateur connecté, le front applique `scanner_volume_default` (`/api/health/`, réglé par un admin
+  dans `/api/server-settings/`, 4 par défaut). Les autres réglages de la douchette sont réservés aux
+  admins ; appairage et connexion restent ouverts à tous.
 - **Connexion sans badge** : `POST /api/auth/name/` (`nom`, `prenom`, `pin`, sans casse ni accents),
   pour un secouriste qui a un PIN non désactivé et un badge valide. Même réponse que `/api/auth/` ; le
   jeton `session` remplace alors la clé du badge dans les identifiants (`{"matricule", "session"}`,

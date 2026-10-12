@@ -35,6 +35,17 @@ std::filesystem::path hid_settings_path() {
   return std::filesystem::path(home) / ".config" / "qrprotec" / "inateck-hid.conf";
 }
 
+constexpr int kVolumeFlag = 1001;
+constexpr int kInventoryFlag = 1013;
+
+// Valeur lue sur la douchette, -1 si inconnue (parametres pas encore lus)
+int setting_value(const InateckSnapshot& state, int flag) {
+  for (const ScannerSettingValue& setting : state.settings)
+    if (setting.flag == flag)
+      return setting.value;
+  return -1;
+}
+
 }
 
 Inateck::Inateck() {
@@ -102,6 +113,29 @@ void Inateck::update() {
     next_reconnect_ = now + kInateckReconnectInterval;
   else if (can_reconnect(state) && now >= next_reconnect_)
     reconnect();
+  apply_volume(state);
+}
+
+// Le volume suit l'utilisateur connecte : renvoye a la douchette a chaque changement d'utilisateur et a chaque
+// reconnexion de la douchette.
+void Inateck::apply_volume(const InateckSnapshot& state) {
+  if (!state.authenticated) {
+    applied_volume_ = -1;
+    return;
+  }
+  if (desired_volume_ < 0 || desired_volume_ == applied_volume_)
+    return;
+  applied_volume_ = desired_volume_;
+  if (setting_value(state, kVolumeFlag) != desired_volume_)
+    inateck_worker_.set_setting(kVolumeFlag, desired_volume_);
+}
+
+void Inateck::change_volume(int volume) {
+  desired_volume_ = volume;
+  applied_volume_ = volume;
+  inateck_worker_.set_setting(kVolumeFlag, volume);
+  if (logged_in_ && volume_changed_)
+    volume_changed_(volume);
 }
 
 bool Inateck::can_reconnect(const InateckSnapshot& state) const {
@@ -248,7 +282,7 @@ void Inateck::draw_inateck_window() {
     } else {
       ImGui::TextUnformatted("Aucun appareil découvert.");
     }
-    if (state.connected && settings_unlocked_) {
+    if (state.connected && logged_in_) {
       ImGui::SameLine();
       if (button("Déconnecter")) {
         manual_disconnect_ = true;
@@ -257,13 +291,22 @@ void Inateck::draw_inateck_window() {
     }
   }
 
-  // Seules la recherche et la connexion sont accessibles sans utilisateur connecte
+  // Seules la recherche et la connexion sont accessibles sans utilisateur connecte ; volume et mode
+  // inventaire a tout utilisateur connecte, le reste aux admins
   const bool settings_open = ImGui::CollapsingHeader("Paramétrage", ImGuiTreeNodeFlags_DefaultOpen);
-  if (settings_open && !settings_unlocked_) {
-    ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "Connectez-vous (scannez votre badge) pour modifier");
-    ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "les paramètres de la douchette.");
+  if (settings_open && !logged_in_) {
+    ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "Connectez-vous (scannez votre badge) pour régler");
+    ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "le volume ou le mode inventaire de la douchette.");
   }
-  if (settings_open && settings_unlocked_) {
+  if (settings_open && logged_in_ && !admin_) {
+    ImGui::BeginDisabled(!state.authenticated);
+    draw_quick_settings(state);
+    ImGui::EndDisabled();
+    if (!state.message.empty())
+      ImGui::TextColored(colors::green, "%s", state.message.c_str());
+    ImGui::TextDisabled("Les autres réglages de la douchette sont réservés aux administrateurs.");
+  }
+  if (settings_open && admin_) {
     if (ImGui::Checkbox("Mode HID clavier", &hid_enabled_)) {
       apply_hid_settings();
       save_hid_settings();
@@ -419,8 +462,12 @@ void Inateck::draw_scanner_setting(const ScannerSettingValue& setting) {
         preview = option.label;
     if (ImGui::BeginCombo(label.c_str(), preview.c_str())) {
       for (const ScannerSettingOption& option : info.options)
-        if (ImGui::Selectable(option.label, option.value == setting.value) && option.value != setting.value)
-          inateck_worker_.set_setting(setting.flag, option.value);
+        if (ImGui::Selectable(option.label, option.value == setting.value) && option.value != setting.value) {
+          if (setting.flag == kVolumeFlag)
+            change_volume(option.value); // volume propre a chaque utilisateur
+          else
+            inateck_worker_.set_setting(setting.flag, option.value);
+        }
       ImGui::EndCombo();
     }
     break;
@@ -453,21 +500,6 @@ void Inateck::draw_scanner_setting(const ScannerSettingValue& setting) {
     ImGui::SetItemTooltip("%s", info.help);
 }
 
-namespace {
-
-constexpr int kVolumeFlag = 1001;
-constexpr int kInventoryFlag = 1013;
-
-// Valeur lue sur la douchette, -1 si inconnue (parametres pas encore lus)
-int setting_value(const InateckSnapshot& state, int flag) {
-  for (const ScannerSettingValue& setting : state.settings)
-    if (setting.flag == flag)
-      return setting.value;
-  return -1;
-}
-
-} // namespace
-
 void Inateck::draw_quick_settings(const InateckSnapshot& state) {
   ImGui::SeparatorText("Réglages rapides");
   const int volume = setting_value(state, kVolumeFlag);
@@ -479,9 +511,10 @@ void Inateck::draw_quick_settings(const InateckSnapshot& state) {
   if (ImGui::BeginCombo("Volume##rapide", preview.c_str())) {
     for (const ScannerSettingOption& option : volume_info.options)
       if (ImGui::Selectable(option.label, option.value == volume) && option.value != volume)
-        inateck_worker_.set_setting(kVolumeFlag, option.value);
+        change_volume(option.value);
     ImGui::EndCombo();
   }
+  ImGui::SetItemTooltip("Volume propre à chaque utilisateur, repris à sa prochaine connexion.");
   draw_inventory(state);
 }
 
@@ -495,12 +528,9 @@ void Inateck::draw_inventory(const InateckSnapshot& state) {
   else
     ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
   ImGui::BeginDisabled(state.inventory_reading);
-  if (button("Compter"))
-    inateck_worker_.read_cache_count();
-  ImGui::SameLine();
-  if (button("Récupérer les codes"))
+  if (button("Lire la mémoire"))
     inateck_worker_.upload_cache();
-  ImGui::SetItemTooltip("Lit les codes gardés en mémoire ; ils s'affichent ci-dessous.");
+  ImGui::SetItemTooltip("Compte et affiche ci-dessous les codes gardés en mémoire (sans les traiter).");
   ImGui::SameLine();
   if (danger_button("Supprimer les codes en mémoire…"))
     confirm_clear_cache_ = true;
@@ -535,12 +565,12 @@ void Inateck::draw_inventory(const InateckSnapshot& state) {
 }
 
 void Inateck::draw_quick_menu(const InateckSnapshot& state) {
-  const bool enabled = state.authenticated && settings_unlocked_;
+  const bool enabled = state.authenticated && logged_in_;
   if (ImGui::BeginMenu("Volume", enabled)) {
     const int volume = setting_value(state, kVolumeFlag);
     for (const ScannerSettingOption& option : scanner_setting_info(kVolumeFlag, "volume").options)
       if (ImGui::MenuItem(option.label, nullptr, option.value == volume) && option.value != volume)
-        inateck_worker_.set_setting(kVolumeFlag, option.value);
+        change_volume(option.value);
     ImGui::EndMenu();
   }
   const bool inventory = setting_value(state, kInventoryFlag) == 1;
@@ -552,9 +582,7 @@ void Inateck::draw_quick_menu(const InateckSnapshot& state) {
       ImGui::TextDisabled("Lecture de la mémoire…");
     else
       ImGui::TextDisabled("Nombre : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
-    if (ImGui::MenuItem("Compter", nullptr, false, !state.inventory_reading))
-      inateck_worker_.read_cache_count();
-    if (ImGui::MenuItem("Récupérer les codes", nullptr, false, !state.inventory_reading)) {
+    if (ImGui::MenuItem("Lire la mémoire", nullptr, false, !state.inventory_reading)) {
       inateck_worker_.upload_cache();
       inateck_window_open_ = true; // les codes s'affichent dans la fenetre
     }
@@ -633,7 +661,7 @@ void Inateck::draw_menu() {
     }
     ImGui::EndMenu();
   }
-  if (ImGui::MenuItem("Déconnecter", nullptr, false, state.connected && settings_unlocked_)) {
+  if (ImGui::MenuItem("Déconnecter", nullptr, false, state.connected && logged_in_)) {
     manual_disconnect_ = true;
     inateck_worker_.disconnect();
   }

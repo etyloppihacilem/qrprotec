@@ -11,6 +11,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -31,8 +32,17 @@ class Inateck {
     void draw_menu();   // contenu du menu "Douchette" (a appeler dans une barre de menu)
     void draw_window(); // fenetre de parametrage si ouverte
     void open_window() { inateck_window_open_ = true; }
-    // Parametres (HID, volume, prefixe...) et deconnexion reserves aux utilisateurs connectes
-    void set_settings_unlocked(bool unlocked) { settings_unlocked_ = unlocked; }
+    // Recherche et connexion ouvertes a tous ; volume, mode inventaire et deconnexion aux utilisateurs
+    // connectes ; les autres parametres (HID, modele, parametres du SDK, entretien) aux admins.
+    void set_access(bool logged_in, bool admin) {
+      logged_in_ = logged_in;
+      admin_     = admin;
+    }
+    // Volume voulu (celui de l'utilisateur connecte, sinon le volume par defaut du serveur), applique des que la
+    // douchette est authentifiee et a chaque reconnexion. -1 : ne touche pas au volume de la douchette.
+    void set_user_volume(int volume) { desired_volume_ = volume; }
+    // Appele quand l'utilisateur connecte change le volume (pour l'enregistrer sur le serveur)
+    void set_volume_changed_callback(std::function<void(int)> callback) { volume_changed_ = std::move(callback); }
 
     std::vector<ScanEvent> take_scans() { return inateck_worker_.take_scans(); }
     void signal_error(const ScannerErrorSignal& signal) { inateck_worker_.signal_error(signal); }
@@ -62,7 +72,13 @@ class Inateck {
 
     InateckWorker inateck_worker_;
     bool inateck_window_open_ = false;
-    bool settings_unlocked_ = false;
+    bool logged_in_ = false;
+    bool admin_ = false;
+    int desired_volume_ = -1;
+    int applied_volume_ = -1; // volume envoye a la douchette connectee (-1 apres une deconnexion)
+    std::function<void(int)> volume_changed_;
+    void change_volume(int volume); // choix de l'utilisateur : envoye a la douchette et enregistre
+    void apply_volume(const InateckSnapshot& state);
     int scanner_model_ = 0; // 0 : deduit du nom de la douchette
     std::map<int, int> pending_values_; // curseurs en cours de deplacement (flag -> valeur)
     bool inateck_sdk_output_ = true;

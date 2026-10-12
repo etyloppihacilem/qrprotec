@@ -271,6 +271,34 @@ class DeclaredIdentityTests(ApiTestCase):
         self.assertEqual(Items.objects.get(iid=items[0].iid).last_seen_by, 'D:Jean')
 
 
+class ScannerVolumeTests(ApiTestCase):
+    """Volume de la douchette : choisi par chaque utilisateur, sinon defaut du serveur fixe par un admin."""
+
+    def login(self, user):
+        code, body = self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key}, local=False)
+        self.assertEqual(code, 200)
+        return body
+
+    def test_default_then_own_volume(self):
+        self.assertEqual(self.call('GET', '/api/health/', local=False)[1]['scanner_volume_default'], 4)
+        self.assertEqual(self.login(self.user)['scanner_volume'], 4)
+        session = views.session_token(self.user)
+        # un utilisateur normal regle son propre volume, repris a sa prochaine connexion
+        code, body = self.call('PATCH', '/api/me/scanner-volume/', {'volume': 0}, session=session)
+        self.assertEqual((code, body['scanner_volume'], body['custom']), (200, 0, True))
+        self.assertEqual(self.login(self.user)['scanner_volume'], 0)
+        self.assertEqual(self.call('PATCH', '/api/me/scanner-volume/', {'volume': 3}, session=session)[0], 400)
+        self.assertEqual(self.call('PATCH', '/api/me/scanner-volume/', {'volume': 2}, session=False)[0], 403)
+        # defaut du serveur : admin seulement, et sans effet sur un volume deja choisi
+        self.assertEqual(self.call('PATCH', '/api/server-settings/', {'scanner_volume_default': 8},
+                                   session=session)[0], 403)
+        code, body = self.call('PATCH', '/api/server-settings/', {'scanner_volume_default': 8})
+        self.assertEqual((code, body['scanner_volume_default']), (200, 8))
+        self.assertEqual(self.login(self.user)['scanner_volume'], 0)
+        self.call('PATCH', '/api/me/scanner-volume/', {'volume': None}, session=session)
+        self.assertEqual(self.login(self.user)['scanner_volume'], 8)
+
+
 class PublicNamesTests(ApiTestCase):
     """API publique : prenom seul, plus le debut du nom qui distingue les homonymes de meme prenom."""
 

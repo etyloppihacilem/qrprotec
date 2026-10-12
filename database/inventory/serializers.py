@@ -504,6 +504,7 @@ def server_settings_dict(settings_row):
     return {
         'declared_identity': settings_row.declared_identity,
         'pin_required_default': settings_row.pin_required_default,
+        'scanner_volume_default': settings_row.scanner_volume_default,
     }
 
 

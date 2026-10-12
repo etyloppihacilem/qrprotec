@@ -233,7 +233,9 @@ class App {
     void        add_identity(Json &body) const;
     // refus du serveur faute d'identite (login_required) : session expiree, ou reglage du nom declare change
     bool        identity_refused(const ApiResult &result);
-    void        refresh_server_rules(); // relit declared_identity sur le serveur
+    void        refresh_server_rules(); // relit declared_identity et le volume par defaut sur le serveur
+    // volume de la douchette sans utilisateur connecte : celui par defaut du serveur
+    void        apply_default_scanner_volume();
     std::string user_name() const;
 
     // Verifs et mouvements
@@ -319,6 +321,8 @@ class App {
     std::optional< SessionUser > user;
     // reglage du serveur (/api/health/) : verif et ajout possibles sans badge, sous un nom declare non verifie
     bool                         declared_identity = false;
+    // reglage du serveur (/api/health/) : volume de la douchette des utilisateurs qui n'en ont pas choisi (-1 : inconnu)
+    int                          scanner_volume_default = -1;
     VerifSession                 verif;
     Json                         last_report; // dernier compte rendu de verif
     std::string                  last_report_lot;

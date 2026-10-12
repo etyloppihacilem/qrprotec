@@ -47,7 +47,7 @@ from .sessions import credentials_user, session_token, session_user, session_val
 from .models import (
     PUSH_TYPES, STOCK_LOT_TYPE, TYPE_LENGTH, Items, ItemsPacks, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
-    ServerSettings, SmsRecipient, Verifs, name_key, qrprotec_setting,
+    SCANNER_VOLUMES, ServerSettings, SmsRecipient, Verifs, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -64,6 +64,7 @@ class ApiError(Exception):
 
 GESTION = (Role.GESTION, Role.ADMIN)
 ADMIN = (Role.ADMIN,)
+ALL_ROLES = tuple(Role.values)
 SESSION_HEADER = 'HTTP_X_QRPROTEC_SESSION'
 
 
@@ -273,6 +274,8 @@ def health(request):
         'front': getattr(request, 'qrprotec_front', ''),
         # operations sur un lot possibles sans badge, sous un nom declare (reglage du serveur)
         'declared_identity': ServerSettings.get().declared_identity,
+        # volume de la douchette quand personne n'est connecte (et des utilisateurs sans volume choisi)
+        'scanner_volume_default': ServerSettings.get().scanner_volume_default,
     })
 
 
@@ -389,6 +392,7 @@ def login_response(user):
     data['session'] = session_token(user)
     # reglages des notifications web affiches seulement si l'utilisateur peut en recevoir
     data['notifications'] = bool(user.push_types()) and webpush.available()
+    data['scanner_volume'] = user.effective_scanner_volume
     return data
 
 
@@ -1785,11 +1789,37 @@ def server_settings(request):
             settings_row.pin_required_default = bool(request.data['pin_required_default'])
             changes.append('PIN ' + ('obligatoire' if settings_row.pin_required_default else 'facultatif')
                            + ' par défaut pour les secouristes')
+        if 'scanner_volume_default' in request.data:
+            settings_row.scanner_volume_default = parse_scanner_volume(request.data['scanner_volume_default'])
+            changes.append(f'volume de la douchette par défaut : {settings_row.scanner_volume_default}')
         settings_row.save()
         journal.record(OperationKind.SETTINGS, front_identity(request), ', '.join(changes) or 'aucun changement',
                        declared_identity=settings_row.declared_identity,
-                       pin_required_default=settings_row.pin_required_default)
+                       pin_required_default=settings_row.pin_required_default,
+                       scanner_volume_default=settings_row.scanner_volume_default)
     return Response(ser.server_settings_dict(settings_row))
+
+
+def parse_scanner_volume(value):
+    try:
+        volume = int(value)
+    except (TypeError, ValueError):
+        volume = -1
+    if volume not in SCANNER_VOLUMES:
+        raise ApiError("Volume de la douchette : 0, 2, 4 ou 8")
+    return volume
+
+
+@api_view(['PATCH'])
+@handle_errors
+def my_scanner_volume(request):
+    """Volume de la douchette de l'utilisateur connecte sur le poste (tous les roles), repris a sa connexion.
+    `volume` vide : revient au volume par defaut du serveur."""
+    user = require_front(request, ALL_ROLES)
+    value = request.data.get('volume')
+    user.scanner_volume = None if value in (None, '') else parse_scanner_volume(value)
+    user.save(update_fields=['scanner_volume'])
+    return Response({'scanner_volume': user.effective_scanner_volume, 'custom': user.scanner_volume is not None})
 
 
 def parse_warning_days(value):
