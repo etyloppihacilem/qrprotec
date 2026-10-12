@@ -46,6 +46,7 @@ enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Unknown
 
 // Contenu d'un QR code interprete localement (sans appel reseau).
 //   item      : iid seul (TYPE 6 + AAAAMMJJ + compteur base62 8)
+//   taches    : <base>/task?id=IID (etiquette de taches : item dont les taches sont a cocher a la verif)
 //   lot       : <base>/verif?lot=ID[&key=CLE]
 //   user      : <base>/badge?m=MATRICULE&key=CLE
 //   sealed    : <base>/pack?id=ID
@@ -60,6 +61,7 @@ struct ParsedScan {
     std::string           key; // cle du lot (etiquette privee), du badge ou code du scelle (ou de son etiquette d'ouverture)
     std::string           item_type;
     std::optional< Date > peremption; // items dates uniquement
+    bool                  task = false; // item scanne par son etiquette de taches (TaskItem)
 };
 
 constexpr std::size_t kTypeLength    = 6;

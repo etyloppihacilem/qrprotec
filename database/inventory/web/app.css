@@ -74,6 +74,7 @@ dl.facts dd { margin: 0; }
 .info.ok { border-color: var(--green); background: var(--green-bg); }
 .info.bad { border-color: var(--red); background: var(--red-bg); }
 .info.warn { border-color: var(--orange); background: var(--orange-bg); }
+.info.task { border-color: var(--blue); background: var(--blue-bg); }
 .info.lot { border-color: var(--blue); background: var(--blue-bg); }
 #tabs { display: flex; border-bottom: 1px solid var(--line); }
 #tabs button { flex: 1 1 auto; white-space: nowrap; font-size: .86rem; border-radius: 0; background: transparent; padding: 10px 3px; color: var(--muted); border-bottom: 3px solid transparent; }
@@ -184,6 +185,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 /* ---- Retours visuels ---- */
 #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; z-index: 50; }
 #flash.bad { background: var(--red); animation: blink .8s steps(1) 1; }
+#flash.task { background: var(--blue); animation: blink .8s steps(1) 1; }
 #flash.good { background: var(--green); animation: fade .35s ease-out 1; }
 @keyframes blink { 0% { opacity: .75; } 25% { opacity: 0; } 50% { opacity: .75; } 75%, 100% { opacity: 0; } }
 @keyframes fade { from { opacity: .3; } to { opacity: 0; } }
@@ -338,3 +340,11 @@ a.link { color: var(--blue); text-decoration: underline; text-underline-offset: 
 #fiche-body .list li { padding-top: 5px; padding-bottom: 5px; }
 .warn-text { color: var(--orange); }
 .team .place { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; color: var(--text); }
+
+/* ---- Taches d'un item (etiquette de taches) ---- */
+ul.tasks { list-style: none; padding: 0; margin: 8px 0; }
+ul.tasks li { border-bottom: 1px solid var(--line); }
+ul.tasks label { display: flex; gap: 10px; align-items: center; padding: 10px 2px; }
+ul.tasks input { width: 22px; height: 22px; flex: none; }
+#tasks-ok:disabled { opacity: .45; }
+ul.tasks-facts { margin: 0; padding-left: 18px; }

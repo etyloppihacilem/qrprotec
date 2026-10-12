@@ -76,6 +76,12 @@ static void test_scans() {
   assert(item_url.peremption && item_url.peremption->iso() == "2026-12-31");
   assert(parse_scan("https://autre.fr/sous/item/?id=garrot00000000000000A1").kind == ScanKind::Item);
   assert(parse_scan("https://example.com/item?id=pas-un-iid").kind == ScanKind::Unknown);
+  assert(!item_url.task);
+  // etiquette de taches (TaskItem) : l'item, avec ses taches a cocher
+  const ParsedScan task = parse_scan("https://example.com/task?id=defibr00000000000000A1");
+  assert(task.kind == ScanKind::Item && task.task && task.id == "defibr00000000000000A1" && !task.peremption);
+  assert(parse_scan("https://example.com/task?id=pas-un-iid").kind == ScanKind::Unknown);
+  assert(describe_scan(task) == "Tâches de l'item defibr00000000000000A1");
 
   const ParsedScan lot = parse_scan("https://example.com/verif?lot=sacpse00000001&key=abc%2Bd");
   assert(lot.kind == ScanKind::Lot && lot.id == "sacpse00000001" && lot.key == "abc+d");

@@ -53,12 +53,13 @@ void run_detached(const std::string &command) {
 
 } // namespace
 
-bool write_error_wav(const std::string &path) {
+namespace {
+
+bool write_tones_wav(const std::string &path, const std::vector< double > &tones, int duration_ms) {
   const int                   rate    = 16000;
-  const double                tones[] = { 880.0, 440.0 };
   std::vector< std::int16_t > samples;
   for (const double frequency : tones) {
-    const int count = rate * 18 / 100;
+    const int count = rate * duration_ms / 1000;
     for (int index = 0; index < count; ++index) {
       const double time     = static_cast< double >(index) / rate;
       const double envelope = std::min(1.0, std::min(index, count - index) / (rate * 0.01));
@@ -89,26 +90,39 @@ bool write_error_wav(const std::string &path) {
   return static_cast< bool >(output);
 }
 
+} // namespace
+
+bool write_error_wav(const std::string &path) {
+  return write_tones_wav(path, { 880.0, 440.0 }, 180);
+}
+
+bool write_task_wav(const std::string &path) {
+  return write_tones_wav(path, { 660.0, 880.0, 1100.0 }, 100);
+}
+
 Feedback::Feedback(Inateck &inateck) : inateck_(inateck) {
   std::error_code code;
   wav_path_ = (std::filesystem::temp_directory_path(code) / "qrprotec-erreur.wav").string();
   if (!write_error_wav(wav_path_))
     wav_path_.clear();
+  task_wav_path_ = (std::filesystem::temp_directory_path(code) / "qrprotec-taches.wav").string();
+  if (!write_task_wav(task_wav_path_))
+    task_wav_path_.clear();
 }
 
-void Feedback::play_beep(const AppSettings &settings) {
+void Feedback::play_beep(const AppSettings &settings, const std::string &wav) {
   if (!settings.sound_enabled)
     return;
   std::string command = settings.beep_command;
   if (command.empty()) {
-    if (wav_path_.empty()) {
+    if (wav.empty()) {
       std::fputc('\a', stderr);
       return;
     }
     command = "aplay -q '%f' 2>/dev/null || paplay '%f' 2>/dev/null || afplay '%f' 2>/dev/null || printf '\\a'";
   }
   for (std::size_t position = command.find("%f"); position != std::string::npos; position = command.find("%f"))
-    command.replace(position, 2, wav_path_);
+    command.replace(position, 2, wav);
   run_detached(command);
 }
 
@@ -119,16 +133,41 @@ void Feedback::error(ScanSource source, const AppSettings &settings) {
   if (from_sdk && inateck_.sdk_connected())
     inateck_.signal_error(settings.scanner_signal);
   if (!from_sdk || !inateck_.sdk_connected())
-    play_beep(settings);
-  if (settings.flash_enabled && (!from_sdk || settings.flash_in_sdk_mode))
+    play_beep(settings, wav_path_);
+  if (settings.flash_enabled && (!from_sdk || settings.flash_in_sdk_mode)) {
     flash_start_ = ImGui::GetTime();
+    flash_task_  = false;
+  }
+}
+
+void Feedback::task(ScanSource source, const AppSettings &settings) {
+  const bool from_sdk = source == ScanSource::Sdk;
+  if (from_sdk && inateck_.sdk_connected()) {
+    // LED bleue et bips courts : distinct du signal d'erreur (orange, bips longs)
+    ScannerErrorSignal signal;
+    signal.beep_on    = 1;
+    signal.beep_off   = 1;
+    signal.beep_count = 2;
+    signal.led_color  = 3;
+    signal.led_on     = 3;
+    signal.led_off    = 2;
+    signal.led_count  = 4;
+    inateck_.signal_error(signal);
+  }
+  if (!from_sdk || !inateck_.sdk_connected())
+    play_beep(settings, task_wav_path_);
+  if (settings.flash_enabled && (!from_sdk || settings.flash_in_sdk_mode)) {
+    flash_start_ = ImGui::GetTime();
+    flash_task_  = true;
+  }
 }
 
 void Feedback::test(const AppSettings &settings) {
   if (inateck_.sdk_connected())
     inateck_.signal_error(settings.scanner_signal);
-  play_beep(settings);
+  play_beep(settings, wav_path_);
   flash_start_ = ImGui::GetTime();
+  flash_task_  = false;
 }
 
 void Feedback::draw_overlay() {
@@ -148,7 +187,7 @@ void Feedback::draw_overlay() {
   ImGui::GetForegroundDrawList()->AddRectFilled(
     viewport->Pos,
     ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
-    ImGui::GetColorU32(ImVec4(0.9f, 0.05f, 0.05f, alpha))
+    ImGui::GetColorU32(flash_task_ ? ImVec4(0.12f, 0.40f, 0.85f, alpha) : ImVec4(0.9f, 0.05f, 0.05f, alpha))
   );
 }
 

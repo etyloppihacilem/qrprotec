@@ -314,6 +314,9 @@ ParsedScan parse_scan(const std::string &input) {
   auto              params = parse_query(code.substr(question + 1));
   if (route == "item" && is_iid(params["id"])) {
     set_item(scan, params["id"]);
+  } else if (route == "task" && is_iid(params["id"])) {
+    set_item(scan, params["id"]);
+    scan.task = true;
   } else if (route == "verif" && !params["lot"].empty()) {
     scan.kind = ScanKind::Lot;
     scan.id   = params["lot"];
@@ -352,7 +355,7 @@ const char *scan_kind_name(ScanKind kind) {
 
 std::string describe_scan(const ParsedScan &scan) {
   switch (scan.kind) {
-    case ScanKind::Item: return "Item " + scan.id;
+    case ScanKind::Item: return (scan.task ? "Tâches de l'item " : "Item ") + scan.id;
     case ScanKind::Lot: return "Lot " + scan.id + (scan.key.empty() ? "" : " · étiquette clé");
     case ScanKind::User: return "Badge " + scan.id;
     case ScanKind::SealedPack: return "Paquet " + scan.id;

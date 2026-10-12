@@ -116,6 +116,8 @@ class ScanWindow final : public AppWindow {
             ImGui::TextUnformatted("Doublon");
           else if (entry->state == EntryState::Pending)
             ImGui::TextDisabled("...");
+          else if (entry->tasks_pending)
+            ImGui::TextColored(colors::orange, "Tâches");
           else
             ImGui::TextColored(colors::green, "OK");
           ImGui::TableNextColumn();

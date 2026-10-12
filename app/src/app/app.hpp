@@ -158,6 +158,14 @@ struct RemoteSession {
     std::string feedback_message;
 };
 
+// Fenetre des taches d'un item scanne (etiquette de taches) : toutes cochees et validees, l'item compte comme vu
+struct TaskPopup {
+    int                        entry_id = 0; // 0 : fermee
+    std::vector< std::string > tasks;
+    std::vector< char >        checked;
+    bool                       open_pending = false;
+};
+
 struct LabelPreviewState {
     std::vector< PrintJob > jobs;
     std::string             title;
@@ -352,6 +360,9 @@ class App {
     void draw_name_login();
     void send_name_login();
     void draw_douchette_modal(); // easter egg : la douchette a ete scannee
+    void open_tasks(int entry_id);
+    void finish_tasks(bool done); // done : toutes les taches validees, l'item compte comme vu
+    void draw_tasks_modal();
     void check_setup();
     void draw_setup_modal();
     void draw_server_modal(); // connexion au back, sans badge tant que l'API est injoignable
@@ -395,6 +406,7 @@ class App {
     bool                    login_prompt_opened_ = false;
     bool                    douchette_pending_   = false;
     std::size_t             douchette_index_     = 0;
+    TaskPopup               tasks_;
     std::string             login_reason_;
     std::string             login_manual_;
     std::string             declared_name_;   // nom saisi dans la fenetre de connexion (sans badge)

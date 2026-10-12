@@ -34,6 +34,9 @@ struct ScanEntry {
     std::vector< std::string > pack_items;       // iids contenus dans un paquet scelle
     std::string                place;            // verif : lot de la derniere etiquette scannee avant (assign_items)
     double                     highlight_until = 0.0; // rescanne : ligne surlignee brievement
+    // item a taches (etiquette de taches) : hors des iids tant que ses taches ne sont pas toutes cochees
+    bool                       tasks_pending = false;
+    bool                       tasks_done    = false;
     Json                       data;             // reponse de l'API
 };
 
@@ -50,6 +53,7 @@ class ScanStack {
     ScanEntry &add(const ParsedScan &scan, ScanSource source);
     ScanEntry *find(int id);
     ScanEntry *find_code(const std::string &raw); // entree deja scannee avec ce code (hors erreurs)
+    ScanEntry *find_item(const std::string &iid); // item deja scanne, par son etiquette d'item ou de taches
     void       remove(int id);
     void       remove_duplicates();
     void       remove_errors();
@@ -59,7 +63,8 @@ class ScanStack {
     const std::vector< ScanEntry > &entries() const { return entries_; }
     bool                            empty() const { return entries_.empty(); }
 
-    // iids a envoyer a l'API : items scannes + contenu des paquets, sans doublons ni erreurs.
+    // iids a envoyer a l'API : items scannes + contenu des paquets, sans doublons ni erreurs ni items dont les
+    // taches restent a faire.
     std::vector< std::string > iids() const;
     bool                       contains_iid(const std::string &iid) const;
     std::size_t                expired_count() const;

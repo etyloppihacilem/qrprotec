@@ -315,6 +315,7 @@ void App::draw() {
   draw_login_modal();
   draw_pin_modal();
   draw_douchette_modal();
+  draw_tasks_modal();
   draw_label_preview(*this);
   draw_toasts();
   feedback.draw_overlay();
@@ -1285,9 +1286,29 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     return;
   }
   const ParsedScan scan = parse_scan(code);
+  const bool       same_item = tasks_.entry_id && scan.kind == ScanKind::Item && stack.find(tasks_.entry_id)
+                        && stack.find(tasks_.entry_id)->scan.id == scan.id;
+  // fenetre des taches ouverte et autre code scanne : l'item reste a faire (le rescanner reprend ses taches)
+  if (tasks_.entry_id && !same_item)
+    finish_tasks(false);
+  // item a taches rescanne : un administrateur valide toutes ses taches en scannant deux fois de suite son
+  // etiquette, sinon la fenetre des taches se rouvre
+  if (scan.kind == ScanKind::Item) {
+    ScanEntry *existing = stack.find_item(scan.id);
+    if (existing && existing->tasks_pending) {
+      if (same_item && user && user->admin()) {
+        finish_tasks(true);
+      } else {
+        feedback.task(source, settings);
+        open_tasks(existing->id);
+      }
+      return;
+    }
+  }
   // scanner deux fois la meme chose n'a pas de sens : le doublon est ignore, sans signal sonore
   if (scan.kind == ScanKind::Item || scan.kind == ScanKind::SealedPack) {
-    if (ScanEntry *existing = stack.find_code(scan.raw)) {
+    ScanEntry *existing = scan.kind == ScanKind::Item ? stack.find_item(scan.id) : stack.find_code(scan.raw);
+    if (existing) {
       existing->highlight_until = ImGui::GetTime() + 1.5;
       last_duplicate_           = existing->title.empty() ? describe_scan(scan) : existing->title;
       last_duplicate_time_      = ImGui::GetTime();
@@ -1306,6 +1327,8 @@ void App::handle_scan(const std::string &code, ScanSource source) {
       if (entry.expired) {
         feedback.error(source, settings);
         notify("PÉRIMÉ : " + scan.id + " (" + scan.peremption->display() + ")", true);
+      } else if (scan.task) {
+        feedback.task(source, settings);
       }
       resolve_item(id);
       return;
@@ -1378,7 +1401,96 @@ void App::resolve_item(int entry_id) {
       entry->expired = true;
       feedback.error(source, settings);
     }
+    // item a taches : compte comme vu seulement une fois ses taches cochees et validees
+    if (item["tasks"].size() > 0 && !entry->tasks_done) {
+      entry->tasks_pending = true;
+      if (!entry->scan.task && !entry->expired)
+        feedback.task(source, settings);
+      open_tasks(entry_id);
+    }
   });
+}
+
+void App::open_tasks(int entry_id) {
+  const ScanEntry *entry = stack.find(entry_id);
+  if (!entry)
+    return;
+  tasks_.open_pending = true;
+  if (tasks_.entry_id == entry_id)
+    return; // deja ouverte : les cases cochees restent
+  tasks_.entry_id = entry_id;
+  tasks_.tasks.clear();
+  for (const Json &task : entry->data["tasks"].items())
+    tasks_.tasks.push_back(task.str());
+  tasks_.checked.assign(tasks_.tasks.size(), 0);
+}
+
+void App::finish_tasks(bool done) {
+  ScanEntry *entry = stack.find(tasks_.entry_id);
+  tasks_.entry_id  = 0;
+  tasks_.open_pending = false;
+  if (!entry)
+    return;
+  if (!done) {
+    notify(entry->title + " : non validé, toutes ses tâches doivent être cochées (rescannez-le pour les reprendre).", true);
+    return;
+  }
+  entry->tasks_pending = false;
+  entry->tasks_done    = true;
+  entry->detail        = "Tâches faites - " + entry->detail;
+  notify(entry->title + " : tâches faites, item validé.");
+}
+
+void App::draw_tasks_modal() {
+  static const char *kTitle = "Tâches de l'item###tasks";
+  if (tasks_.open_pending) {
+    tasks_.open_pending = false;
+    if (!ImGui::IsPopupOpen(kTitle))
+      ImGui::OpenPopup(kTitle);
+  }
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  const ScanEntry *entry = stack.find(tasks_.entry_id);
+  if (!entry || !entry->tasks_pending) {
+    ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return;
+  }
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
+  ImGui::TextUnformatted(entry->title.c_str());
+  ImGui::PopFont();
+  ImGui::TextDisabled("%s", entry->scan.id.c_str());
+  ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+  ImGui::TextUnformatted("Vous devez compléter toutes les tâches pour valider cet item.");
+  ImGui::Separator();
+  bool all = true;
+  for (std::size_t index = 0; index < tasks_.tasks.size(); ++index) {
+    bool checked = tasks_.checked[index] != 0;
+    ImGui::PushID(static_cast< int >(index));
+    if (ImGui::Checkbox(tasks_.tasks[index].c_str(), &checked))
+      tasks_.checked[index] = checked ? 1 : 0;
+    ImGui::PopID();
+    all = all && checked;
+  }
+  ImGui::Separator();
+  if (user && user->admin())
+    ImGui::TextDisabled("Administrateur : scanner à nouveau l'étiquette valide toutes les tâches.");
+  ImGui::PopTextWrapPos();
+  bool close = false, done = false;
+  ImGui::BeginDisabled(!all);
+  if (button("Valider", ImVec2(ImGui::GetFontSize() * 10.0f, 0)))
+    close = done = true;
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (button("Annuler", ImVec2(ImGui::GetFontSize() * 10.0f, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    close = true;
+  if (close) {
+    ImGui::CloseCurrentPopup();
+    finish_tasks(done);
+  }
+  ImGui::EndPopup();
 }
 
 void App::resolve_pack(int entry_id) {
@@ -2257,6 +2369,7 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::LotSealOpen: return "{{seal_open_url}}";
     case TemplateCategory::LotStorage: return "{{lot_private_url}}";
     case TemplateCategory::User: return "{{badge_url}}";
+    case TemplateCategory::TaskItem: return "{{task_url}}";
     case TemplateCategory::Generic: break;
   }
   return "{{iid}}";
@@ -2282,33 +2395,48 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
                            std::vector< PrintJob > &jobs) {
   if (labels.empty())
     return false;
-  const CategoryInfo &info = category_info(category);
-  std::string         path;
-  if (const auto configured = settings.label_templates.find(info.id); configured != settings.label_templates.end())
-    path = configured->second;
-  // pas de modele choisi : premier modele du dossier fait pour cet usage (ex : scelle.qr)
-  for (const auto &candidate : path.empty() ? glob_templates("*.qr") : std::vector< std::filesystem::path >{}) {
-    TemplateDocument document;
-    std::string      ignored;
-    if (load_template(document, candidate.string(), ignored) && document.category == category) {
-      path = candidate.filename().string();
-      break;
+  const auto model_for = [this](TemplateCategory wanted, TemplateDocument &model) {
+    const CategoryInfo &info = category_info(wanted);
+    std::string         path;
+    if (const auto configured = settings.label_templates.find(info.id); configured != settings.label_templates.end())
+      path = configured->second;
+    // pas de modele choisi : premier modele du dossier fait pour cet usage (ex : scelle.qr)
+    for (const auto &candidate : path.empty() ? glob_templates("*.qr") : std::vector< std::filesystem::path >{}) {
+      TemplateDocument document;
+      std::string      ignored;
+      if (load_template(document, candidate.string(), ignored) && document.category == wanted) {
+        path = candidate.filename().string();
+        break;
+      }
     }
-  }
-  TemplateDocument model;
-  std::string      error;
-  if (path.empty()) {
-    // pas de modele : on imprime simplement le QR code centre sur l'etiquette
-    model = qr_only_template(category);
-    notify("Aucun modèle « " + info.label + " » : QR code seul (Gestion > Réglages pour en choisir un).");
-  } else if (!build_label(path, {}, model, error)) {
-    notify("Modèle d'étiquette « " + info.label + " » : " + error + " (Gestion > Réglages).", true);
+    std::string error;
+    if (path.empty()) {
+      // pas de modele : on imprime simplement le QR code centre sur l'etiquette
+      model = qr_only_template(wanted);
+      notify("Aucun modèle « " + info.label + " » : QR code seul (Gestion > Réglages pour en choisir un).");
+    } else if (!build_label(path, {}, model, error)) {
+      notify("Modèle d'étiquette « " + info.label + " » : " + error + " (Gestion > Réglages).", true);
+      return false;
+    }
+    return true;
+  };
+  // items dont le type a des taches : etiquette de taches (TaskItem) a la place de l'etiquette d'item
+  const auto has_tasks = [category](const Parameters &label) {
+    const auto count = label.find("task_count");
+    return category == TemplateCategory::Item && count != label.end() && !count->second.empty() && count->second != "0";
+  };
+  TemplateDocument model, task_model;
+  bool             need_plain = false, need_tasks = false;
+  for (const Parameters &label : labels)
+    (has_tasks(label) ? need_tasks : need_plain) = true;
+  if (need_plain && !model_for(category, model))
     return false;
-  }
+  if (need_tasks && !model_for(TemplateCategory::TaskItem, task_model))
+    return false;
   for (std::size_t index = 0; index < labels.size(); ++index) {
     PrintJob job;
     job.description = what + (labels.size() > 1 ? " " + std::to_string(index + 1) + "/" + std::to_string(labels.size()) : "");
-    job.document    = model;
+    job.document    = has_tasks(labels[index]) ? task_model : model;
     job.document.parameters["today"]      = today().display();
     job.document.parameters["printed_by"] = user_name();
     job.document.parameters["titre"]      = settings.label_title;

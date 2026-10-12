@@ -49,6 +49,13 @@ Parameters item_parameters(const Json &item, int index, int count) {
   parameters["count"]     = std::to_string(count);
   parameters["pack_id"]     = item["sealed_pack"].str();
   parameters["tear_notice"] = tear_notice(item);
+  // etiquette de taches : imprimee a la place de l'etiquette d'item quand le type a des taches
+  std::string tasks;
+  for (const Json &task : item["tasks"].items())
+    tasks += (tasks.empty() ? "" : "\n") + std::string("□ ") + task.str();
+  parameters["tasks"]      = tasks;
+  parameters["task_count"] = std::to_string(item["tasks"].size());
+  parameters["task_url"]   = item["task_url"].str().empty() ? item["iid"].str() : item["task_url"].str();
   add_peremption(parameters, item["peremption"]);
   return parameters;
 }

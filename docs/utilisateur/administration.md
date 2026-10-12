@@ -111,14 +111,15 @@ ouverture de chaque lot.
 ## Étiquettes
 
 Menu **Gestion > Éditeur d'étiquettes** (admin). Chaque modèle a un **usage** (item, paquet, lot
-public, lot clé, scellé, ouverture du scellé, badge) qui détermine les informations disponibles,
+public, lot clé, scellé, ouverture du scellé, badge, étiquette de tâches) qui détermine les informations disponibles,
 listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{lot_name}}`…).
 
 - **Ajouter texte / QR / image (logo)**, positions et tailles en millimètres, texte en gras et
   aligné. **Ajouter le titre** insère `{{titre}}` (le nom de votre structure, défini dans les
   Réglages).
 - Le QR code d'une étiquette **doit** contenir le placeholder prévu (`{{item_url}}`, `{{lot_url}}`…),
-  sinon l'étiquette ne sera pas reconnue. Un QR d'item qui ne contient que `{{iid}}` (ancien
+  sinon l'étiquette ne sera pas reconnue. L'étiquette de tâches contient `{{task_url}}` et peut
+  afficher la liste `{{tasks}}` : elle remplace l'étiquette d'item pour les types qui ont des tâches. Un QR d'item qui ne contient que `{{iid}}` (ancien
   format) reste lu par les fronts, mais n'ouvre pas le front web avec l'appareil photo du téléphone. L'éditeur signale un QR trop petit pour être lu.
 - Les images (logo PNG ou JPEG) se placent dans le dossier `images/` des modèles et se choisissent
   avec « Choisir une image du dossier ».

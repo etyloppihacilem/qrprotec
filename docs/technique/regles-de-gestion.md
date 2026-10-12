@@ -59,6 +59,10 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    suite : l'étiquette est arrachée à l'ouverture, l'ensemble est utilisé (rapport `torn`). En vérif
    partielle, un tel item non scanné ne retient pas son lot (même règle dans `services._complete_lots`,
    `planSession` du front web et `App::plan_verif` du poste).
+   **Items à tâches** (`ItemType.tasks`, étiquette de tâches `<base>/task?id=IID`) : les fronts
+   n'envoient l'item dans les scans de la vérif qu'une fois toutes ses tâches cochées et validées
+   (web `openTasks`/`addItem`, poste `ScanEntry.tasks_pending`, hors de `ScanStack::iids`). Le
+   serveur n'a donc pas de règle à part : un item dont les tâches ne sont pas faites est non vu.
 6. **Exigences** (`requirements_status`) : seuls les items vus à la dernière vérif (ou ajoutés depuis,
    `missed_verifs == 0`) et non périmés comptent comme présents. Le lot est **complet** si chaque
    ligne du contenu attendu est atteinte et qu'il ne contient aucun périmé.

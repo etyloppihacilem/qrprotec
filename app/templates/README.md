@@ -17,8 +17,10 @@ après chaque clone.
   rangement du stock, badge) se choisit dans les Réglages.
 - `rangement.qr` est la seule étiquette d'un rangement du stock (armoire, tiroir) : elle contient sa
   clé, qui n'expire pas, et se colle à l'intérieur. Un rangement n'a pas d'étiquette publique.
+- `tache.qr` est l'étiquette de tâches : elle remplace `item.qr` pour les items dont le type a des
+  tâches à faire à la vérif (ex : DAE), avec la liste des tâches à cocher.
 - `scelle_ouverture.qr` est l'étiquette d'ouverture, imprimée avec celle du scellé et rangée **à
   l'intérieur** du lot : la scanner ouvre le scellé, même sans être connecté.
 
-Modèles fournis (40 × 30 mm) : `item.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
+Modèles fournis (40 × 30 mm) : `item.qr`, `tache.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
 `scelle_ouverture.qr`, `rangement.qr`, `badge.qr`.

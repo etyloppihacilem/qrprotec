@@ -170,6 +170,20 @@ reste au local :
 Si le téléphone reste déconnecté plus de 5 minutes (réglable), la session se ferme : créez un nouveau
 QR code.
 
+## Items à tâches (étiquette de tâches)
+
+Certains items ont des tâches à faire à chaque vérif (ex : DAE : voyant vert allumé, électrodes dans
+leur date). Leur étiquette de tâches porte la liste. Quand vous la scannez (ou l'étiquette d'item du
+même objet), la douchette clignote en **bleu** avec un bip différent, l'écran clignote en bleu et une
+fenêtre s'ouvre avec le nom de l'item et ses tâches à cocher :
+
+- cochez **toutes** les tâches puis **Valider** : l'item est compté comme vu ;
+- **Annuler** (ou scanner autre chose) : l'item n'est **pas** compté. Rescannez-le pour reprendre
+  ses tâches.
+
+Un **administrateur** peut scanner deux fois de suite l'étiquette de tâches pour valider toutes les
+tâches d'un coup.
+
 ## Réassort : ajouter du matériel sans tout vérifier
 
 Au retour d'intervention, quand on remet dans le sac ce qui a été utilisé :

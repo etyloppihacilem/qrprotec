@@ -45,6 +45,13 @@ ScanEntry *ScanStack::find_code(const std::string &raw) {
   return nullptr;
 }
 
+ScanEntry *ScanStack::find_item(const std::string &iid) {
+  for (ScanEntry &entry : entries_)
+    if (entry.scan.kind == ScanKind::Item && entry.scan.id == iid && entry.state != EntryState::Error)
+      return &entry;
+  return nullptr;
+}
+
 void ScanStack::refresh_duplicates() {
   std::set< std::string > seen;
   for (ScanEntry &entry : entries_) {
@@ -97,7 +104,7 @@ std::vector< std::string > ScanStack::iids() const {
       result.push_back(iid);
   };
   for (const ScanEntry &entry : entries_) {
-    if (entry.state == EntryState::Error)
+    if (entry.state == EntryState::Error || entry.tasks_pending)
       continue;
     if (entry.scan.kind == ScanKind::Item)
       push(entry.scan.id);
@@ -110,7 +117,7 @@ std::vector< std::string > ScanStack::iids() const {
 
 bool ScanStack::contains_iid(const std::string &iid) const {
   for (const ScanEntry &entry : entries_) {
-    if (entry.state == EntryState::Error)
+    if (entry.state == EntryState::Error || entry.tasks_pending)
       continue;
     if (entry.scan.kind == ScanKind::Item && entry.scan.id == iid)
       return true;
