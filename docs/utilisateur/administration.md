@@ -143,16 +143,23 @@ Menu **Gestion > Réglages** (admin) :
 | Signal de mauvais scan | Bip, clignotement, LED et son de la douchette ; **Tester le signal d'erreur** |
 | Notifications SMS | Voir ci-dessous |
 
-La douchette se règle dans le menu **Douchette > Ouvrir les paramètres** (appairage, connexion, mode
-clavier). Une fois connecté, la section **Paramétrage** lit les réglages de la douchette et les affiche
+La douchette se règle dans le menu **Douchette > Ouvrir les paramètres**. Tout le monde peut
+appairer et connecter une douchette, même sans être connecté. Un utilisateur connecté règle le volume et
+le mode inventaire ; le reste est réservé aux administrateurs. Pour un administrateur, la section
+**Paramétrage** (mode clavier, modèle, réglages de la douchette, entretien) lit les réglages de la douchette et les affiche
 par thème : volume, vibration, éclairage, mode de lecture, clavier de l'ordinateur, Entrée après chaque
 code, types de codes lus, extinction automatique, mémoire… Chaque changement part tout de suite à la
 douchette. Le **Modèle** est reconnu d'après le nom de la douchette (ex. BCST-75S) ; pour une version
 AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus. Le volume et le
 **mode inventaire** se changent aussi directement dans le menu **Douchette** (utilisateur connecté).
-En mode inventaire, la douchette garde les codes lus en mémoire : **Compter** affiche leur nombre,
-**Récupérer les codes** les affiche dans la fenêtre (**Traiter ces codes** les envoie dans la pile
-de scans) et **Supprimer les codes en mémoire** les efface de la douchette.
+En mode inventaire, la douchette garde les codes lus en mémoire : **Lire la mémoire** les compte et les
+affiche dans la fenêtre (**Traiter ces codes** les envoie dans la pile de scans) et **Supprimer les
+codes en mémoire** les efface de la douchette.
+
+Le volume de la douchette est propre à chaque utilisateur : chacun retrouve le dernier volume qu'il a
+choisi dès qu'il se connecte, sur n'importe quel poste. Ceux qui n'ont rien choisi, et le poste sans
+utilisateur connecté, ont le **Volume de la douchette par défaut** des règles du serveur
+(**Réglages**, administrateurs).
 
 ### Sans badge : nom déclaré
 

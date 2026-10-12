@@ -10,6 +10,7 @@
 
 #include "../../core/paths.hpp"
 #include "../../core/template_io.hpp"
+#include "../../inateck/scanner_settings.hpp"
 #include "../editor.hpp"
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
@@ -331,6 +332,32 @@ class SettingsWindow final : public AppWindow {
                   "secouristes pour qui il a été rendu obligatoire (fenêtre Utilisateurs).\nActivé : tous les "
                   "secouristes doivent avoir un PIN, sauf ceux dont le PIN est désactivé ; ceux qui n'en ont pas le "
                   "choisissent à leur prochaine connexion.");
+      const int volume = server_rules_["scanner_volume_default"].integer(4);
+      const ScannerSettingInfo volume_info = scanner_setting_info(1001, "volume");
+      std::string preview = "Valeur " + std::to_string(volume);
+      for (const ScannerSettingOption &option : volume_info.options)
+        if (option.value == volume)
+          preview = option.label;
+      if (ImGui::BeginCombo("Volume de la douchette par défaut", preview.c_str())) {
+        for (const ScannerSettingOption &option : volume_info.options) {
+          if (!ImGui::Selectable(option.label, option.value == volume) || option.value == volume)
+            continue;
+          Json body;
+          body["scanner_volume_default"] = option.value;
+          app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+            if (!result.ok) {
+              app.notify("Règles du serveur : " + result.error, true);
+              return;
+            }
+            server_rules_              = result.data;
+            app.scanner_volume_default = server_rules_["scanner_volume_default"].integer(4);
+            app.notify("Volume de la douchette par défaut enregistré.");
+          });
+        }
+        ImGui::EndCombo();
+      }
+      help_marker("Volume de la douchette pour les utilisateurs qui n'ont pas choisi le leur, et quand personne "
+                  "n'est connecté. Chaque utilisateur retrouve le dernier volume qu'il a choisi.");
     }
 
     // -----------------------------------------------------------------------------------------------------------

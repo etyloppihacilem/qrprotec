@@ -585,6 +585,9 @@ class Secouristes(models.Model):
     default_contact = models.BooleanField(default=False)
     # Types de notifications web coupes par un admin pour cet utilisateur (voir PUSH_TYPES)
     push_disabled = models.JSONField(default=list, blank=True)
+    # Volume de la douchette (SDK Inateck : 0 muet, 2, 4, 8) choisi par l'utilisateur, applique a sa connexion
+    # sur un poste. Vide : volume par defaut du serveur (ServerSettings.scanner_volume_default).
+    scanner_volume = models.PositiveSmallIntegerField(blank=True, null=True)
 
     def contact_admin(self):
         """Admin a contacter si le PIN est bloque : celui choisi pour l'utilisateur, sinon l'admin par defaut."""
@@ -694,6 +697,13 @@ class Secouristes(models.Model):
             self.pin_locked_until = timezone.now() + PIN_LOCK_DURATION
         self.save(update_fields=['pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked'])
         return False
+
+    @property
+    def effective_scanner_volume(self) -> int:
+        """Volume de la douchette a appliquer quand il se connecte : le sien, sinon celui du serveur."""
+        if self.scanner_volume is not None:
+            return self.scanner_volume
+        return ServerSettings.get().scanner_volume_default
 
     @property
     def privileged(self) -> bool:
@@ -814,6 +824,10 @@ class NotificationSettings(models.Model):
         return settings_row
 
 
+# Volumes de la douchette acceptes par le SDK Inateck (flag 1001) : muet, faible, moyen, fort
+SCANNER_VOLUMES = (0, 2, 4, 8)
+
+
 class ServerSettings(models.Model):
     """Reglages du serveur communs a tous les fronts (une seule ligne, pk=1)."""
     # Operations sur un lot (verif, ajout d'items, ouverture du scelle) sans badge, sous un nom declare et non
@@ -822,6 +836,8 @@ class ServerSettings(models.Model):
     # PIN obligatoire pour tous les secouristes (sauf ceux dont le PIN est desactive) : ceux qui n'en ont pas le
     # choisissent a leur prochaine connexion. Desactive (defaut) : obligatoire seulement pour les admins.
     pin_required_default = models.BooleanField(default=False)
+    # Volume de la douchette des utilisateurs qui n'en ont pas choisi, et quand personne n'est connecte
+    scanner_volume_default = models.PositiveSmallIntegerField(default=4)
 
     @classmethod
     def get(cls):

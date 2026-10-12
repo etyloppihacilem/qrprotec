@@ -65,6 +65,17 @@ std::string Catalog::item_type_description(const std::string &type) const {
 }
 
 App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
+  // volume choisi par l'utilisateur connecte : repris a sa prochaine connexion, sur n'importe quel poste
+  inateck.set_volume_changed_callback([this](int volume) {
+    if (!logged_in())
+      return;
+    Json body;
+    body["volume"] = volume;
+    api.patch("/api/me/scanner-volume/", body, [this](const ApiResult &result) {
+      if (!result.ok)
+        notify("Volume de la douchette non enregistré : " + result.error, true);
+    });
+  });
   settings = AppSettings::defaults();
   settings.load();
   apply_settings();
@@ -255,7 +266,7 @@ void App::begin_frame() {
   if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f || io.MouseWheel != 0.0f || ImGui::IsAnyMouseDown()
       || io.InputQueueCharacters.Size > 0)
     note_activity();
-  inateck.set_settings_unlocked(logged_in());
+  inateck.set_access(logged_in(), admin());
   inateck.update();
   api.poll();
   poll_remote();
@@ -696,9 +707,18 @@ void App::check_setup() {
 
 void App::refresh_server_rules() {
   api.get("/api/health/", [this](const ApiResult &result) {
-    if (result.ok)
-      declared_identity = result.data["declared_identity"].boolean();
+    if (!result.ok)
+      return;
+    declared_identity = result.data["declared_identity"].boolean();
+    const Json &volume = result.data["scanner_volume_default"];
+    scanner_volume_default = volume.is_number() ? volume.integer() : -1;
+    if (!logged_in())
+      apply_default_scanner_volume();
   });
+}
+
+void App::apply_default_scanner_volume() {
+  inateck.set_user_volume(scanner_volume_default);
 }
 
 void App::create_first_admin() {
@@ -909,6 +929,7 @@ void App::logout(const std::string &reason) {
   if (privileged_session)
     refresh_lots(); // la liste ne garde pas les cles des lots apres la deconnexion
   pending_action_ = nullptr;
+  apply_default_scanner_volume();
   if (was_logged && !reason.empty())
     notify(reason);
 }
@@ -1054,6 +1075,9 @@ void App::complete_login(const Json &data) {
   session.role        = data["role"].str(session.privileged ? "admin" : "normal");
   user                = session;
   api.set_session(data["session"].str());
+  // volume de la douchette propre a l'utilisateur (sinon celui par defaut du serveur)
+  if (const Json &volume = data["scanner_volume"]; volume.is_number())
+    inateck.set_user_volume(volume.integer());
   notify("Bonjour " + session.display()
          + (session.admin() ? " : mode administrateur activé." : session.privileged ? " : mode gestion activé." : "."));
   if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
