@@ -120,7 +120,6 @@ void InateckWorker::process_inventory_codes() {
     snapshot_.inventory_codes.clear();
 }
 
-void InateckWorker::upload_cache() { enqueue({CommandType::UploadCache}); }
 void InateckWorker::clear_cache() { enqueue({CommandType::ClearCache}); }
 
 void InateckWorker::capture_inventory(InventoryCapture capture) {
@@ -596,11 +595,6 @@ void InateckWorker::execute(const Command& command) {
                                                             : inateck_scanner_ble_reset_all_code(id.c_str());
         if (sdk_json_success(result))
             read_settings(id);
-        break;
-    case CommandType::UploadCache:
-        if (id.empty()) return;
-        result = inateck_scanner_ble_inventory_upload_cache(id.c_str());
-        info_log(std::string("Douchette : envoi de la mémoire demandé au SDK : ") + (result ? result : "<null>"));
         break;
     case CommandType::ClearCache:
         if (id.empty()) return;

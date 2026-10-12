@@ -153,8 +153,8 @@ douchette. Le **Modèle** est reconnu d'après le nom de la douchette (ex. BCST-
 AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus. Le volume et le
 **mode inventaire** se changent aussi directement dans le menu **Douchette** (utilisateur connecté).
 En mode inventaire, la douchette garde les codes lus en mémoire (elle clignote en bleu au lieu de vert).
-**Lire la mémoire** demande ses codes à la douchette. Si rien n'arrive, scannez le QR code affiché (le
-« Data Upload » de son manuel). **Compter** affiche le QR qui lui fait renvoyer son nombre de codes
+**Lire la mémoire** affiche le QR code à scanner avec la douchette pour qu'elle envoie ses codes en
+Bluetooth (le « Data Upload » de son manuel ; les commandes du SDK ne les envoient que sur le câble USB). **Compter** affiche le QR qui lui fait renvoyer son nombre de codes
 (« Total Counters = … »). Les codes reçus s'affichent dans la fenêtre, et **Traiter ces codes** les
 envoie dans la pile de scans. Lire la mémoire ne la vide pas : **Vider la mémoire** l'efface, après
 confirmation.
