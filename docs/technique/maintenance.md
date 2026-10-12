@@ -134,6 +134,7 @@ La CI construit, teste, publie la release et le dépôt dnf ; les bornes la reç
 journalctl -u qrprotec -f            # back (requêtes, migrations, erreurs)
 journalctl -u qrprotec-kiosk -b      # Cage et front ; ajouter QRPROTEC_FRONT_ARGS=--verbose dans kiosk.conf
 journalctl -t qrprotec-front -p err -b   # erreurs affichées par le front (API, douchette, imprimante…), via syslog
+journalctl -t qrprotec-front -b          # idem, avec les échanges de la lecture de la mémoire de la douchette
 journalctl -u caddy -f               # certificats, proxy
 sudo qrprotec-manage shell           # shell Django sur la base de production (prudence)
 sudo qrprotec-manage dbshell         # SQL brut (sqlite3 doit être installé)
