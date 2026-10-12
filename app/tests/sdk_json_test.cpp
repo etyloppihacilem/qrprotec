@@ -16,6 +16,11 @@ int main() {
     assert(clean_scan_code(sdk_json_string(scan, "code")) == "PRODUIT-42");
     assert(clean_scan_code("ABC\r\n") == "ABC");
     assert(clean_scan_code("ABC") == "ABC");
+    assert(inventory_count("Total Counters = 0") == "0");
+    assert(inventory_count("Total Counters = 125") == "125");
+    assert(inventory_count("Total Counters:7") == "7");
+    assert(inventory_count("Total Counters").empty());
+    assert(inventory_count("PRODUIT-42").empty());
     assert(sdk_json_string("{\"code\": \"a\\\"b\\\\c\\u00e9\"}", "code") == "a\"b\\c\xC3\xA9");
     assert(sdk_json_string("{\"code\":12}", "code").empty());
     assert(sdk_json_string("{}", "code").empty());

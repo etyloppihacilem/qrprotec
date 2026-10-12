@@ -101,13 +101,16 @@ public:
     void open_all_codes();
     void close_all_codes();
     void reset_all_codes();
-    // Capte ce que la douchette renvoie de sa memoire : les codes, ou leur nombre. L'envoi se declenche en
-    // scannant le QR « Data Upload » (/*SetFun84*/) ou « Upload the Number » (/*SetFun85*/) : les fonctions
-    // du SDK 0.2.1 ne marchent pas sur la BCST-23 (upload_cache repond OK sans rien envoyer,
-    // upload_cache_number echoue toujours avec InvalidCmdType).
+    // Capte ce que la douchette renvoie de sa memoire : les codes, ou leur nombre (« Total Counters = N »).
+    // Sur la BCST-23, upload_cache repond OK sans que les codes arrivent par le rappel des scans, et
+    // upload_cache_number echoue toujours (InvalidCmdType, le SDK 0.2.1 envoie la commande 3 qu'il
+    // refuse) : le QR « Data Upload » (/*SetFun84*/) ou « Upload the Number » (/*SetFun85*/) scanne a
+    // l'ecran prend le relais.
     enum class InventoryCapture { Codes, Count };
     void capture_inventory(InventoryCapture capture);
     void stop_inventory_capture();
+    void upload_cache(); // commande du SDK, a appeler apres capture_inventory(Codes)
+    void clear_cache();
     // Envoie les codes recuperes de la memoire dans la pile de scans, comme s'ils venaient d'etre lus
     void process_inventory_codes();
     void set_prefix(const std::string& value);
@@ -127,7 +130,7 @@ public:
 private:
     enum class CommandType {
         StartDiscovery, StopDiscovery, Connect, Disconnect, RefreshSettings, SetSetting, Beep, SyncTime,
-        Restart, FactoryReset, OpenAllCodes, CloseAllCodes, ResetAllCodes, SetPrefix, SetSuffix, SetName, SetSdkOutput, SignalError, Shutdown
+        Restart, FactoryReset, OpenAllCodes, CloseAllCodes, ResetAllCodes, UploadCache, ClearCache, SetPrefix, SetSuffix, SetName, SetSdkOutput, SignalError, Shutdown
     };
     struct Command {
         CommandType type;

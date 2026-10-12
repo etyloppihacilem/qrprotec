@@ -526,7 +526,7 @@ void Inateck::draw_inventory(const InateckSnapshot& state) {
   ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
   if (button("Lire la mémoire"))
     show_inventory_qr(InventoryQr::Upload);
-  ImGui::SetItemTooltip("Affiche le code à scanner pour que la douchette envoie les codes gardés en mémoire.");
+  ImGui::SetItemTooltip("Demande à la douchette les codes gardés en mémoire (sans les traiter).");
   ImGui::SameLine();
   if (button("Compter"))
     show_inventory_qr(InventoryQr::Count);
@@ -557,10 +557,12 @@ void Inateck::show_inventory_qr(InventoryQr qr) {
   inateck_worker_.stop_inventory_capture();
   inventory_qr_ = qr;
   focus_inventory_qr_ = true;
-  if (qr == InventoryQr::Upload)
+  if (qr == InventoryQr::Upload) {
     inateck_worker_.capture_inventory(InateckWorker::InventoryCapture::Codes);
-  else if (qr == InventoryQr::Count)
+    inateck_worker_.upload_cache();
+  } else if (qr == InventoryQr::Count) {
     inateck_worker_.capture_inventory(InateckWorker::InventoryCapture::Count);
+  }
 }
 
 void Inateck::draw_inventory_qr(const InateckSnapshot& state) {
@@ -571,31 +573,36 @@ void Inateck::draw_inventory_qr(const InateckSnapshot& state) {
     ImGui::SetNextWindowFocus();
   focus_inventory_qr_ = false;
   if (ImGui::Begin("Mémoire de la douchette", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
-    const char* payload = inventory_qr_ == InventoryQr::Upload  ? "/*SetFun84*/"
-                        : inventory_qr_ == InventoryQr::Count   ? "/*SetFun85*/"
-                                                                : "/*SetFun83*/";
     if (inventory_qr_ == InventoryQr::Clear) {
-      ImGui::TextUnformatted("Scannez ce code avec la douchette pour effacer");
-      ImGui::TextColored(colors::red, "les codes gardés en mémoire (définitif).");
+      ImGui::TextUnformatted("Supprimer les codes gardés en mémoire par la douchette ?");
+      ImGui::TextColored(colors::red, "Ils ne pourront plus être récupérés.");
+      if (danger_button("Supprimer")) {
+        inateck_worker_.clear_cache();
+        open = false;
+      }
+      ImGui::SameLine();
+      if (button("Annuler"))
+        open = false;
     } else {
-      ImGui::TextUnformatted(inventory_qr_ == InventoryQr::Upload
-                                 ? "Scannez ce code avec la douchette : elle envoie les codes gardés en mémoire."
-                                 : "Scannez ce code avec la douchette : elle envoie le nombre de codes en mémoire.");
+      // Envoi : la commande du SDK est deja partie ; la BCST-23 l'ignore, le QR prend le relais.
+      // Nombre : seul le QR marche (fonction du SDK defaillante).
+      if (inventory_qr_ == InventoryQr::Upload)
+        ImGui::TextUnformatted("Envoi des codes demandé à la douchette. Si rien n'arrive, scannez ce code :");
+      else
+        ImGui::TextUnformatted("Scannez ce code avec la douchette : elle envoie le nombre de codes en mémoire.");
+      draw_qr(inventory_qr_ == InventoryQr::Upload ? "/*SetFun84*/" : "/*SetFun85*/", 220.0f);
       ImGui::TextDisabled("La mémoire n'est pas vidée.");
-    }
-    draw_qr(payload, 220.0f);
-    if (inventory_qr_ != InventoryQr::Clear) {
       if (state.inventory_waiting)
-        ImGui::TextDisabled("En attente du scan…");
+        ImGui::TextDisabled("En attente de la douchette…");
       else if (state.inventory_reading)
         ImGui::Text("Réception : %zu code(s)…", state.inventory_codes.size());
       else if (!state.message.empty())
         ImGui::TextColored(colors::green, "%s", state.message.c_str());
       if (inventory_qr_ == InventoryQr::Upload)
         draw_inventory_codes(state);
+      if (button("Fermer"))
+        open = false;
     }
-    if (button("Fermer"))
-      open = false;
   }
   ImGui::End();
   if (!open) {

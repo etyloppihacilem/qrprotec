@@ -120,6 +120,9 @@ void InateckWorker::process_inventory_codes() {
     snapshot_.inventory_codes.clear();
 }
 
+void InateckWorker::upload_cache() { enqueue({CommandType::UploadCache}); }
+void InateckWorker::clear_cache() { enqueue({CommandType::ClearCache}); }
+
 void InateckWorker::capture_inventory(InventoryCapture capture) {
     std::lock_guard<std::mutex> lock(mutex_);
     inventory_capture_ = capture;
@@ -226,15 +229,19 @@ void InateckWorker::on_scan_text(const std::string& code, ScanSource source) {
     if (code.empty())
         return;
     std::lock_guard<std::mutex> lock(mutex_);
-    if (source == ScanSource::Sdk && inventory_capture_) {
-        snapshot_.inventory_waiting = false;
-        if (*inventory_capture_ == InventoryCapture::Count) {
-            snapshot_.cache_count = code;
-            snapshot_.message = "Codes en mémoire : " + code;
+    // Reponse au QR « Upload the Number » : « Total Counters = 12 », jamais un code a traiter
+    if (const std::string count = inventory_count(code); !count.empty()) {
+        snapshot_.cache_count = count;
+        snapshot_.message = "Codes en mémoire : " + count;
+        if (inventory_capture_ && *inventory_capture_ == InventoryCapture::Count) {
             inventory_capture_.reset();
             snapshot_.inventory_reading = false;
-            return;
+            snapshot_.inventory_waiting = false;
         }
+        return;
+    }
+    if (source == ScanSource::Sdk && inventory_capture_ && *inventory_capture_ == InventoryCapture::Codes) {
+        snapshot_.inventory_waiting = false;
         snapshot_.inventory_codes.push_back(code);
         snapshot_.cache_count = std::to_string(snapshot_.inventory_codes.size());
         inventory_deadline_ = std::chrono::steady_clock::now() + kInventoryReadTimeout;
@@ -589,6 +596,21 @@ void InateckWorker::execute(const Command& command) {
                                                             : inateck_scanner_ble_reset_all_code(id.c_str());
         if (sdk_json_success(result))
             read_settings(id);
+        break;
+    case CommandType::UploadCache:
+        if (id.empty()) return;
+        result = inateck_scanner_ble_inventory_upload_cache(id.c_str());
+        info_log(std::string("Douchette : envoi de la mémoire demandé au SDK : ") + (result ? result : "<null>"));
+        break;
+    case CommandType::ClearCache:
+        if (id.empty()) return;
+        result = inateck_scanner_ble_inventory_clear_cache(id.c_str());
+        if (sdk_json_success(result)) {
+            set_message("Codes en mémoire de la douchette supprimés.");
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.cache_count = "0";
+            snapshot_.inventory_codes.clear();
+        }
         break;
     case CommandType::SetPrefix:
     case CommandType::SetSuffix: {
