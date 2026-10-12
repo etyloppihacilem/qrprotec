@@ -296,7 +296,7 @@ void Inateck::draw_inateck_window() {
   const bool settings_open = ImGui::CollapsingHeader("Paramétrage", ImGuiTreeNodeFlags_DefaultOpen);
   if (settings_open && !logged_in_) {
     ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "Connectez-vous (scannez votre badge) pour régler");
-    ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "le volume ou le mode inventaire de la douchette.");
+    ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "le volume de la douchette.");
   }
   if (settings_open && logged_in_ && !admin_) {
     ImGui::BeginDisabled(!state.authenticated);
@@ -451,8 +451,12 @@ void Inateck::draw_scanner_setting(const ScannerSettingValue& setting) {
   switch (info.kind) {
   case ScannerSettingKind::Toggle: {
     bool enabled = setting.value != 0;
-    if (ImGui::Checkbox(label.c_str(), &enabled))
-      inateck_worker_.set_setting(setting.flag, enabled ? 1 : 0);
+    if (ImGui::Checkbox(label.c_str(), &enabled)) {
+      if (setting.flag == kInventoryFlag)
+        set_inventory_mode(enabled);
+      else
+        inateck_worker_.set_setting(setting.flag, enabled ? 1 : 0);
+    }
     break;
   }
   case ScannerSettingKind::Choice: {
@@ -515,13 +519,14 @@ void Inateck::draw_quick_settings(const InateckSnapshot& state) {
     ImGui::EndCombo();
   }
   ImGui::SetItemTooltip("Volume propre à chaque utilisateur, repris à sa prochaine connexion.");
-  draw_inventory(state);
+  if (admin_)
+    draw_inventory(state);
 }
 
 void Inateck::draw_inventory(const InateckSnapshot& state) {
   bool inventory = setting_value(state, kInventoryFlag) == 1;
   if (ImGui::Checkbox("Mode inventaire##rapide", &inventory))
-    inateck_worker_.set_setting(kInventoryFlag, inventory ? 1 : 0);
+    set_inventory_mode(inventory);
   ImGui::SetItemTooltip("La douchette garde les codes lus en mémoire au lieu de les envoyer tout de suite.");
   ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
   if (button("Lire la mémoire"))
@@ -549,8 +554,20 @@ void Inateck::draw_inventory_codes(const InateckSnapshot& state) {
   ImGui::BeginDisabled(state.inventory_reading);
   if (button("Traiter ces codes"))
     inateck_worker_.process_inventory_codes();
-  ImGui::EndDisabled();
   ImGui::SetItemTooltip("Les envoie dans la pile de scans, comme s'ils venaient d'être scannés.");
+  ImGui::SameLine();
+  if (warning_button("Traiter et supprimer les codes")) {
+    inateck_worker_.process_inventory_codes();
+    inateck_worker_.clear_cache();
+  }
+  ImGui::SetItemTooltip("Les envoie dans la pile de scans et vide la mémoire de la douchette.");
+  ImGui::EndDisabled();
+}
+
+void Inateck::set_inventory_mode(bool enabled) {
+  inateck_worker_.set_setting(kInventoryFlag, enabled ? 1 : 0);
+  if (enabled)
+    show_inventory_qr(InventoryQr::Upload);
 }
 
 void Inateck::show_inventory_qr(InventoryQr qr) {
@@ -618,9 +635,11 @@ void Inateck::draw_quick_menu(const InateckSnapshot& state) {
         change_volume(option.value);
     ImGui::EndMenu();
   }
+  if (!admin_) // mode inventaire reserve aux admins
+    return;
   const bool inventory = setting_value(state, kInventoryFlag) == 1;
   if (ImGui::MenuItem("Mode inventaire", nullptr, inventory, enabled))
-    inateck_worker_.set_setting(kInventoryFlag, inventory ? 0 : 1);
+    set_inventory_mode(!inventory);
   ImGui::SetItemTooltip("La douchette garde les codes lus en mémoire au lieu de les envoyer tout de suite.");
   if (ImGui::BeginMenu("Codes en mémoire", enabled)) {
     ImGui::TextDisabled("Nombre : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());

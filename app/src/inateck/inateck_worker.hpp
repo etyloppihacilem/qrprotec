@@ -167,9 +167,8 @@ private:
 
 // Duree de la recherche avant la connexion automatique (si la douchette connue n'apparait pas avant).
 inline constexpr std::chrono::seconds kInateckDiscoveryDuration{8};
-// Capture de la memoire (mode inventaire) : attente du scan du QR d'envoi, puis fin apres ce delai sans
-// nouveau code.
-inline constexpr std::chrono::seconds kInventoryWaitTimeout{90};
+// Capture de la memoire (mode inventaire) : attente du scan du QR d'envoi tant que la fenetre est ouverte,
+// puis fin apres ce delai sans nouveau code.
 inline constexpr std::chrono::seconds kInventoryReadTimeout{4};
 // Delai entre deux tentatives de reconnexion automatique a la douchette connue (base rallumee...).
 inline constexpr std::chrono::seconds kInateckReconnectInterval{15};
