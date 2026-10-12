@@ -139,7 +139,7 @@ void draw_label_preview(App &app) {
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (button("Fermer"))
+    if (button("Fermer") || escape_pressed())
       open = false;
   }
   ImGui::End();

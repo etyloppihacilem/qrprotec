@@ -6,6 +6,7 @@
 #include "core/fonts.hpp"
 #include "printer/logging.hpp"
 #include "ui/inateck.hpp"
+#include "ui/widgets.hpp"
 
 #include <GLFW/glfw3.h>
 #include "stb_image.h"
@@ -250,7 +251,7 @@ int main(int argc, char** argv)
             ImGui_ImplGlfw_CharCallback(window, character);
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        qrprotec::new_frame();
         app->begin_frame();
         app->draw();
 
