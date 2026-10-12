@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "label_preview.hpp"
+#include "../printer/logging.hpp"
 
 #include "../app/app.hpp"
 #include "../render/raster.hpp"
@@ -62,6 +63,7 @@ void upload(App &app) {
   MediaSettings media;
   texture.error.clear();
   texture.rotated = fit_to_label(image, label, fitted, media, texture.error) && fitted.width != image.width;
+  error_log(texture.error, "aperçu d'étiquette");
   app.preview.dirty = false;
 }
 

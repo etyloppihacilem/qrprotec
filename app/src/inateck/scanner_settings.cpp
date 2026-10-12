@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <string>
+#include <utility>
 
 namespace qrprotec {
 
@@ -63,6 +65,34 @@ ScannerSettingInfo character(int flag, const char* label, const char* group, con
     return info;
 }
 
+// Dispositions de clavier (flag 1005) : valeurs Windows/Android, Mac/iOS = valeur Windows + 32.
+std::vector<ScannerSettingOption> keyboard_options() {
+    static const std::vector<std::pair<int, const char*>> layouts = {
+        {1, "Anglais US"}, {2, "Italien"}, {3, "Allemand"}, {4, "Espagnol"}, {5, "Français"}, {6, "Anglais UK"},
+        {7, "Japonais (romaji)"}, {8, "Canadien"}, {11, "Suédois"}, {12, "Néerlandais"}, {13, "Danois"},
+        {14, "Norvégien"}, {16, "Portugais"}, {17, "Polonais"}};
+    static std::vector<std::string> labels;
+    std::vector<ScannerSettingOption> options;
+    if (labels.empty()) {
+        for (const auto& layout : layouts)
+            labels.push_back(std::string(layout.second) + " (Windows, Android)");
+        for (const auto& layout : layouts)
+            labels.push_back(std::string(layout.second) + " (Mac, iOS)");
+        labels.push_back("Belge français (Mac, iOS)");
+        labels.push_back("Belge allemand (Mac, iOS)");
+        labels.push_back("Hongrois (Mac, iOS)");
+        labels.push_back("Tchèque (Mac, iOS)");
+    }
+    std::size_t index = 0;
+    for (const auto& layout : layouts)
+        options.push_back({layout.first, labels[index++].c_str()});
+    for (const auto& layout : layouts)
+        options.push_back({layout.first + 32, labels[index++].c_str()});
+    for (int value = 50; value <= 53; ++value)
+        options.push_back({value, labels[index++].c_str()});
+    return options;
+}
+
 // Valeurs documentees par Inateck (docs.inateck.com/scanner-sdk-en/ble/desktop_setting_list) ; tailles
 // des champs tirees des tables de la bibliotheque (scanner_lib).
 std::map<int, ScannerSettingInfo> build_catalogue() {
@@ -80,12 +110,13 @@ std::map<int, ScannerSettingInfo> build_catalogue() {
         number(1061, "Mise en veille de l'écran", kSound, 0, 255),
         // Lecture
         choice(1006, "Mode de lecture", kScan,
-               {{0, "Gâchette"}, {1, "Lecture continue"}, {2, "Extinction automatique du laser"},
-                {3, "Détection automatique"}, {5, "Mains libres"}}),
+               {{0, "Gâchette"}, {1, "Lecture continue"}, {2, "Gâchette, laser éteint automatiquement"},
+                {3, "Détection automatique"}, {5, "Mains libres"}},
+               "BCST-23 : « Gâchette, laser éteint automatiquement » est le réglage d'usine."),
         number(1022, "Pause en lecture continue", kScan, 0, 255,
                "Unités d'environ 200 ms. Seulement en mode « Lecture continue »."),
-        number(1023, "Délai d'extinction automatique du laser", kScan, 0, 255,
-               "Seulement en mode « Extinction automatique du laser »."),
+        number(1023, "Délai d'extinction du laser", kScan, 0, 255,
+               "Seulement en mode « Gâchette, laser éteint automatiquement »."),
         number(1024, "Distance de détection automatique", kScan, 0, 255,
                "Seulement en mode « Détection automatique »."),
         number(1036, "Niveau de sécurité de lecture", kScan, 0, 3,
@@ -119,11 +150,7 @@ std::map<int, ScannerSettingInfo> build_catalogue() {
         number(1026, "Caractères masqués à la fin", kOutput, 0, 255),
         number(1033, "Types de codes concernés par le masquage", kOutput, 0, 255),
         choice(1008, "Casse des lettres", kOutput, {{0, "Inchangée"}, {1, "Minuscules"}, {2, "Majuscules"}}),
-        choice(1005, "Clavier de l'ordinateur (mode HID)", kOutput,
-               {{1, "Anglais US (Windows)"}, {3, "Allemand (Windows)"}, {5, "Français (Windows)"},
-                {6, "Anglais UK (Windows)"}, {17, "Polonais (Windows)"}, {33, "Anglais US (Mac)"},
-                {35, "Allemand (Mac)"}, {37, "Français (Mac)"}, {50, "Belge français (Mac)"},
-                {51, "Belge allemand (Mac)"}, {52, "Hongrois (Mac)"}, {53, "Tchèque (Mac)"}},
+        choice(1005, "Clavier de l'ordinateur (mode HID)", kOutput, keyboard_options(),
                "Doit correspondre au clavier de l'ordinateur, sinon les codes tapés en mode HID sont faux."),
         toggle(1051, "Gérer la touche Verr. Maj", kOutput),
         number(1037, "Type de caractères envoyés", kOutput, 0, 3),
@@ -144,8 +171,8 @@ std::map<int, ScannerSettingInfo> build_catalogue() {
         toggle(3036, "FUNC1 envoyé comme caractère ASCII 29", kOutput),
         number(1062, "Langue / gestion des données", kOutput, 0, 255),
         // Alimentation, connexion, memoire
-        toggle(1012, "Extinction automatique", kPower),
-        choice(1021, "Délai d'extinction automatique", kPower,
+        toggle(1012, "Mise en veille automatique", kPower),
+        choice(1021, "Délai de mise en veille", kPower,
                {{1, "1 min"}, {3, "3 min"}, {5, "5 min"}, {10, "10 min"}, {30, "30 min"}, {60, "60 min"}}),
         number(1007, "Mode Bluetooth", kPower, 0, 3),
         toggle(1045, "Mode sans fil", kPower),

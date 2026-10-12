@@ -2,6 +2,7 @@
 #include "../src/inateck/scanner_settings.hpp"
 #include "../src/inateck/sdk_json.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <string>
 #include <vector>
@@ -48,6 +49,13 @@ int main() {
     assert(settings[1].flag == 1001 && settings[1].name == "volume" && settings[1].value == 4);
     assert(settings[2].name == "a]b" && settings[2].flag == 2022);
     assert(sdk_json_settings("{\"status\":2,\"data\":[]}").empty());
+    // "data" transmis comme texte JSON, valeurs en texte ou booleens, status non nul : lus quand meme
+    const auto escaped = sdk_json_settings(
+        "{\"status\":1,\"data\":\"[{\\\"name\\\":\\\"volume\\\",\\\"flag\\\":1001,\\\"value\\\":\\\"8\\\"},"
+        "{\\\"flag\\\": 1006, \\\"value\\\": true}]\"}");
+    assert(escaped.size() == 2);
+    assert(escaped[0].flag == 1001 && escaped[0].value == 8 && escaped[0].name == "volume");
+    assert(escaped[1].flag == 1006 && escaped[1].value == 1);
     assert(sdk_json_settings(nullptr).empty());
 
     assert(sdk_json_data_text("{\"status\":0,\"data\":\"85\"}") == "85");
@@ -73,6 +81,12 @@ int main() {
     assert(scanner_setting_info(1002, "shake_Reminder").options.size() == 4);
     assert(scanner_setting_info(1002, "shake_intensity").options.size() == 2);
     assert(scanner_setting_info(2022, "qrcode_on").kind == ScannerSettingKind::Toggle);
+    const ScannerSettingInfo keyboard = scanner_setting_info(1005, "country");
+    const auto french = std::find_if(keyboard.options.begin(), keyboard.options.end(),
+                                     [](const ScannerSettingOption& option) { return option.value == 5; });
+    assert(french != keyboard.options.end() && std::string(french->label) == "Français (Windows, Android)");
+    assert(std::any_of(keyboard.options.begin(), keyboard.options.end(),
+                       [](const ScannerSettingOption& option) { return option.value == 37; }));
     assert(std::string(scanner_setting_info(9999, "x").group) == "Autres");
     return 0;
 }

@@ -126,7 +126,7 @@ std::vector<std::string> sdk_json_device_objects(const char* json) {
 
 namespace {
 
-// Entier de "key" dans un objet JSON plat (false si absent ou non numerique).
+// Entier de "key" dans un objet JSON plat : nombre, nombre entre guillemets ou booleen (false si absent).
 bool json_int(const std::string& object, const char* key, int& value) {
     const std::string needle = std::string("\"") + key + "\"";
     std::size_t position = object.find(needle);
@@ -136,6 +136,14 @@ bool json_int(const std::string& object, const char* key, int& value) {
     if (position == std::string::npos)
         return false;
     const char* start = object.c_str() + position + 1;
+    while (*start && std::isspace(static_cast<unsigned char>(*start)))
+        ++start;
+    if (*start == '"')
+        ++start;
+    if (std::strncmp(start, "true", 4) == 0 || std::strncmp(start, "false", 5) == 0) {
+        value = *start == 't' ? 1 : 0;
+        return true;
+    }
     char* end = nullptr;
     const long parsed = std::strtol(start, &end, 10);
     if (end == start)
@@ -144,35 +152,16 @@ bool json_int(const std::string& object, const char* key, int& value) {
     return true;
 }
 
-// Objets {...} de premier niveau du tableau qui suit `array` (pointeur sur '[').
-std::vector<std::string> array_objects(const char* array) {
-    std::vector<std::string> objects;
-    const char* object_start = nullptr;
-    int depth = 0;
-    bool in_string = false;
-    for (const char* cursor = array + 1; *cursor; ++cursor) {
-        if (in_string) {
-            if (*cursor == '\\' && cursor[1])
-                ++cursor;
-            else if (*cursor == '"')
-                in_string = false;
-            continue;
-        }
-        if (*cursor == '"') {
-            in_string = true;
-        } else if (*cursor == '{') {
-            if (depth == 0)
-                object_start = cursor;
-            ++depth;
-        } else if (*cursor == '}' && depth > 0) {
-            --depth;
-            if (depth == 0 && object_start)
-                objects.emplace_back(object_start, cursor + 1);
-        } else if (*cursor == ']' && depth == 0) {
-            break;
-        }
+// Retire un niveau d'echappement (\" -> ", \\ -> \) : JSON transmis comme texte dans un JSON.
+std::string unescape_once(const std::string& text) {
+    std::string result;
+    result.reserve(text.size());
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        if (text[index] == '\\' && index + 1 < text.size() && (text[index + 1] == '"' || text[index + 1] == '\\'))
+            ++index;
+        result += text[index];
     }
-    return objects;
+    return result;
 }
 
 } // namespace
@@ -181,15 +170,23 @@ std::vector<ScannerSettingValue> sdk_json_settings(const char* json) {
     std::vector<ScannerSettingValue> settings;
     if (!json)
         return settings;
-    const char* data = std::strstr(json, "\"data\"");
-    if (!data)
-        return settings;
-    data = std::strchr(data, '[');
-    if (!data)
-        return settings;
-    for (const std::string& object : array_objects(data)) {
+    // Selon la version du SDK, "data" est un tableau ou un texte qui contient le tableau
+    std::string text = json;
+    if (text.find("\\\"flag\\\"") != std::string::npos)
+        text = unescape_once(text);
+    // Chaque objet plat qui porte un "flag" est un parametre, ou qu'il soit dans la reponse
+    for (std::size_t position = text.find("\"flag\""); position != std::string::npos;
+         position = text.find("\"flag\"", position + 1)) {
+        const std::size_t start = text.rfind('{', position);
+        const std::size_t end = text.find('}', position);
+        if (start == std::string::npos || end == std::string::npos)
+            continue;
+        const std::string object = text.substr(start, end - start + 1);
         ScannerSettingValue setting;
         if (!json_int(object, "flag", setting.flag) || !json_int(object, "value", setting.value))
+            continue;
+        if (std::any_of(settings.begin(), settings.end(),
+                        [&setting](const ScannerSettingValue& known) { return known.flag == setting.flag; }))
             continue;
         setting.name = sdk_json_string(object.c_str(), "name");
         settings.push_back(std::move(setting));

@@ -148,7 +148,8 @@ clavier). Une fois connecté, la section **Paramétrage** lit les réglages de l
 par thème : volume, vibration, éclairage, mode de lecture, clavier de l'ordinateur, Entrée après chaque
 code, types de codes lus, extinction automatique, mémoire… Chaque changement part tout de suite à la
 douchette. Le **Modèle** est reconnu d'après le nom de la douchette (ex. BCST-75S) ; pour une version
-AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus.
+AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus. Le volume et la
+lecture continue se changent aussi directement dans le menu **Douchette** (utilisateur connecté).
 
 ### Sans badge : nom déclaré
 

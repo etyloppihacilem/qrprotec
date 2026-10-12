@@ -54,6 +54,9 @@ class Inateck {
     void draw_scanner_settings(const InateckSnapshot& state);
     void draw_scanner_setting(const ScannerSettingValue& setting);
     void draw_scanner_actions(const InateckSnapshot& state);
+    // Volume et lecture continue : dans la fenetre et dans le menu Douchette
+    void draw_quick_settings(const InateckSnapshot& state);
+    void draw_quick_menu(const InateckSnapshot& state);
 
     InateckWorker inateck_worker_;
     bool inateck_window_open_ = false;
