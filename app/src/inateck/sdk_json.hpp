@@ -25,6 +25,9 @@ std::string sdk_json_data_text(const char* json);
 
 // Code lu par la douchette sans le retour a la ligne final que le SDK ajoute.
 std::string clean_scan_code(std::string code);
+// Nombre de codes en memoire renvoye par la douchette (mode inventaire) : « Total Counters = 12 » -> "12",
+// "" pour un code ordinaire.
+std::string inventory_count(const std::string& code);
 
 // Le nom ressemble-t-il a celui d'une douchette Inateck ?
 bool looks_like_scanner(const std::string& name);

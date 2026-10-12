@@ -230,6 +230,21 @@ std::string sdk_json_data_text(const char* json) {
     return text;
 }
 
+std::string inventory_count(const std::string& code) {
+    static const std::string prefix = "Total Counters";
+    if (code.compare(0, prefix.size(), prefix) != 0)
+        return {};
+    std::string digits;
+    for (std::size_t i = prefix.size(); i < code.size(); ++i) {
+        const char c = code[i];
+        if (c >= '0' && c <= '9')
+            digits += c;
+        else if (!digits.empty())
+            break;
+    }
+    return digits;
+}
+
 std::string clean_scan_code(std::string code) {
     while (!code.empty() && (code.back() == '\n' || code.back() == '\r'))
         code.pop_back();
