@@ -64,6 +64,10 @@ struct InateckSnapshot {
     std::string prefix;
     std::string suffix;
     std::string cache_count;
+    // Mode inventaire : la douchette renvoie le nombre de codes et les codes gardes en memoire comme
+    // des scans. Pendant ces lectures, ils sont captes ici au lieu d'aller dans la pile de scans.
+    bool inventory_reading = false;
+    std::vector<std::string> inventory_codes;
     std::string sdk_version;
     std::string message; // resultat de la derniere action (ex. "Heure synchronisee")
 };
@@ -98,6 +102,8 @@ public:
     void upload_cache();
     void read_cache_count();
     void clear_cache();
+    // Envoie les codes recuperes de la memoire dans la pile de scans, comme s'ils venaient d'etre lus
+    void process_inventory_codes();
     void set_prefix(const std::string& value);
     void set_suffix(const std::string& value);
     void set_name(const std::string& value);
@@ -148,10 +154,17 @@ private:
     bool stop_requested_ = false;
     std::chrono::steady_clock::time_point discovery_deadline_{};
     std::vector<std::string> rejected_ids_; // appareils qui ne repondent pas comme une douchette
+    enum class InventoryRead { None, Count, Codes };
+    InventoryRead inventory_read_ = InventoryRead::None;
+    std::chrono::steady_clock::time_point inventory_deadline_{};
+    void start_inventory_read(InventoryRead read);
+    void expire_inventory_read(); // mutex_ verrouille
 };
 
 // Duree de la recherche avant la connexion automatique (si la douchette connue n'apparait pas avant).
 inline constexpr std::chrono::seconds kInateckDiscoveryDuration{8};
+// Attente des codes de la memoire (mode inventaire) : fin de la lecture apres ce delai sans code recu.
+inline constexpr std::chrono::seconds kInventoryReadTimeout{4};
 // Delai entre deux tentatives de reconnexion automatique a la douchette connue (base rallumee...).
 inline constexpr std::chrono::seconds kInateckReconnectInterval{15};
 
