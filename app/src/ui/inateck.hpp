@@ -68,7 +68,14 @@ class Inateck {
     void draw_quick_settings(const InateckSnapshot& state);
     void draw_quick_menu(const InateckSnapshot& state);
     void draw_inventory(const InateckSnapshot& state); // mode inventaire : memoire de la douchette
-    bool confirm_clear_cache_ = false; // ouvre la confirmation (aussi depuis le menu)
+    void draw_inventory_codes(const InateckSnapshot& state);
+    // Envoi, nombre ou effacement de la memoire : la douchette scanne un QR de reglage affiche a l'ecran (les
+    // commandes du SDK ne marchent pas sur la BCST-23).
+    enum class InventoryQr { None, Upload, Count, Clear };
+    InventoryQr inventory_qr_ = InventoryQr::None;
+    bool focus_inventory_qr_ = false;
+    void show_inventory_qr(InventoryQr qr);
+    void draw_inventory_qr(const InateckSnapshot& state);
 
     InateckWorker inateck_worker_;
     bool inateck_window_open_ = false;
