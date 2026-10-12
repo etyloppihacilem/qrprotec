@@ -11,5 +11,7 @@ void debug_log(const std::string& message);
 // sortie d'erreur si c'est un terminal). Avec une `source`, un message identique au precedent de cette source n'est
 // pas repete (erreurs reaffichees a chaque tentative de connexion...).
 void error_log(const std::string& message, const std::string& source = {});
+// Trace utile au diagnostic (echanges avec la douchette...), dans le journal systeme comme error_log
+void info_log(const std::string& message);
 
 } // namespace qrprotec
