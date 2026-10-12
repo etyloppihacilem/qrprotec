@@ -320,6 +320,7 @@ void Inateck::draw_scanner_settings(const InateckSnapshot& state) {
   ImGui::SetItemTooltip("Modèle inscrit sous la douchette. Les versions AI se choisissent à la main.");
 
   ImGui::BeginDisabled(!state.authenticated);
+  draw_quick_settings(state);
   if (state.authenticated) {
     if (!state.battery.empty())
       ImGui::Text("Batterie : %s %%", state.battery.c_str());
@@ -452,6 +453,58 @@ void Inateck::draw_scanner_setting(const ScannerSettingValue& setting) {
     ImGui::SetItemTooltip("%s", info.help);
 }
 
+namespace {
+
+constexpr int kVolumeFlag = 1001;
+constexpr int kScanModeFlag = 1006;
+constexpr int kScanModeTrigger = 2; // gachette, laser eteint automatiquement (reglage d'usine)
+constexpr int kScanModeContinuous = 1;
+
+// Valeur lue sur la douchette, -1 si inconnue (parametres pas encore lus)
+int setting_value(const InateckSnapshot& state, int flag) {
+  for (const ScannerSettingValue& setting : state.settings)
+    if (setting.flag == flag)
+      return setting.value;
+  return -1;
+}
+
+} // namespace
+
+void Inateck::draw_quick_settings(const InateckSnapshot& state) {
+  ImGui::SeparatorText("Réglages rapides");
+  const int volume = setting_value(state, kVolumeFlag);
+  const ScannerSettingInfo volume_info = scanner_setting_info(kVolumeFlag, "volume");
+  std::string preview = volume < 0 ? "?" : "Valeur " + std::to_string(volume);
+  for (const ScannerSettingOption& option : volume_info.options)
+    if (option.value == volume)
+      preview = option.label;
+  if (ImGui::BeginCombo("Volume##rapide", preview.c_str())) {
+    for (const ScannerSettingOption& option : volume_info.options)
+      if (ImGui::Selectable(option.label, option.value == volume) && option.value != volume)
+        inateck_worker_.set_setting(kVolumeFlag, option.value);
+    ImGui::EndCombo();
+  }
+  bool continuous = setting_value(state, kScanModeFlag) == kScanModeContinuous;
+  if (ImGui::Checkbox("Lecture continue##rapide", &continuous))
+    inateck_worker_.set_setting(kScanModeFlag, continuous ? kScanModeContinuous : kScanModeTrigger);
+  ImGui::SetItemTooltip("La douchette lit sans appuyer sur la gâchette. Décoché : lecture à la gâchette.");
+}
+
+void Inateck::draw_quick_menu(const InateckSnapshot& state) {
+  const bool enabled = state.authenticated && settings_unlocked_;
+  if (ImGui::BeginMenu("Volume", enabled)) {
+    const int volume = setting_value(state, kVolumeFlag);
+    for (const ScannerSettingOption& option : scanner_setting_info(kVolumeFlag, "volume").options)
+      if (ImGui::MenuItem(option.label, nullptr, option.value == volume) && option.value != volume)
+        inateck_worker_.set_setting(kVolumeFlag, option.value);
+    ImGui::EndMenu();
+  }
+  const bool continuous = setting_value(state, kScanModeFlag) == kScanModeContinuous;
+  if (ImGui::MenuItem("Lecture continue", nullptr, continuous, enabled))
+    inateck_worker_.set_setting(kScanModeFlag, continuous ? kScanModeTrigger : kScanModeContinuous);
+  ImGui::SetItemTooltip("La douchette lit sans appuyer sur la gâchette.");
+}
+
 void Inateck::draw_scanner_actions(const InateckSnapshot& state) {
   if (!ImGui::TreeNode("Mémoire et entretien"))
     return;
@@ -501,6 +554,8 @@ void Inateck::draw_menu() {
     ImGui::TextDisabled("Nouvel essai de connexion dans %d s", static_cast<int>(std::max<long long>(0, remaining.count())));
   }
   ImGui::Text("Mode HID clavier : %s", hid_enabled_ ? "actif" : "inactif");
+  draw_quick_menu(state);
+  ImGui::Separator();
   const bool idle = !state.connected && !state.connecting && !state.discovering;
   if (ImGui::MenuItem("Reconnecter la douchette", nullptr, false, idle && !state.preferred_id.empty()))
     start_pairing();

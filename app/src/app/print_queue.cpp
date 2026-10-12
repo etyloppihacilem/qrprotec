@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "print_queue.hpp"
+#include "../printer/logging.hpp"
 
 #include "../render/raster.hpp"
 
@@ -110,6 +111,7 @@ void PrintQueue::run() {
     } else {
       status_.paused = true;
       status_.error  = job.description + " : " + error;
+      error_log("Impression en pause : " + status_.error, "imprimante");
       printer_.disconnect();
       connected = false;
     }

@@ -1,6 +1,7 @@
 #include "inateck_worker.hpp"
 
 #include "sdk_json.hpp"
+#include "../printer/logging.hpp"
 
 #include <algorithm>
 #include <ctime>
@@ -46,6 +47,7 @@ InateckWorker::InateckWorker() {
     callback_owner = this;
 #else
     snapshot_.error = "Bibliotheque Inateck Linux indisponible";
+    error_log(snapshot_.error, "douchette");
 #endif
     thread_ = std::thread(&InateckWorker::run, this);
 }
@@ -177,6 +179,7 @@ void InateckWorker::on_disconnect() {
 }
 
 void InateckWorker::set_error(const std::string& error) {
+    error_log(error, "douchette");
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.error = error;
 }
@@ -247,6 +250,7 @@ bool InateckWorker::connect_device(const std::string& device_id, const std::stri
         std::lock_guard<std::mutex> lock(mutex_);
         snapshot_.connecting = false;
         snapshot_.error = result ? result : fallback;
+        error_log(snapshot_.error, "douchette");
         return false;
     };
     const char* result = inateck_scanner_ble_connect(device_id.c_str());
@@ -315,11 +319,11 @@ void InateckWorker::read_settings(const std::string& device_id) {
         const char* result = inateck_scanner_ble_get_setting_info(device_id.c_str(), model);
         std::cerr << "[Inateck BLE] parametres (" << scanner_model_label(model) << "): "
                   << (result ? result : "<null>") << std::endl;
-        if (sdk_json_success(result))
-            settings = sdk_json_settings(result);
+        // Les parametres sont pris des qu'ils sont lisibles, quel que soit le "status" renvoye
+        settings = sdk_json_settings(result);
         if (settings.empty())
             error = std::string("Lecture des paramètres impossible pour le modèle ") + scanner_model_label(model) +
-                    " : vérifiez le modèle choisi." + (result ? std::string(" (") + result + ")" : std::string());
+                    " : vérifiez le modèle choisi (réponse du SDK dans journalctl).";
     }
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.settings_loading = false;
@@ -333,8 +337,10 @@ void InateckWorker::read_settings(const std::string& device_id) {
     if (snapshot_.sdk_version.empty() && version)
         snapshot_.sdk_version = version;
     snapshot_.settings = std::move(settings);
-    if (!error.empty())
+    if (!error.empty()) {
         snapshot_.error = error;
+        error_log(error, "douchette");
+    }
 #endif
 }
 
@@ -458,9 +464,12 @@ void InateckWorker::execute(const Command& command) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.error.clear();
-            for (ScannerSettingValue& value : snapshot_.settings)
-                if (value.flag == command.flag)
-                    value.value = command.number;
+            const auto known = std::find_if(snapshot_.settings.begin(), snapshot_.settings.end(),
+                                            [&command](const ScannerSettingValue& value) { return value.flag == command.flag; });
+            if (known != snapshot_.settings.end())
+                known->value = command.number;
+            else
+                snapshot_.settings.push_back({command.flag, {}, command.number});
         }
         // Volume ou vibration : la douchette fait entendre le nouveau reglage
         if (command.flag == 1001 || command.flag == 1002 || command.flag == 1035 || command.flag == 1047)

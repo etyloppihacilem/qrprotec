@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "app.hpp"
+#include "../printer/logging.hpp"
 
 #include "../ui/inateck.hpp"
 #include "../ui/label_preview.hpp"
@@ -832,6 +833,8 @@ void App::draw_setup_modal() {
 }
 
 void App::notify(const std::string &message, bool error) {
+  if (error)
+    error_log(message);
   // mauvais scan venant du telephone : le message accompagne le signal d'erreur envoye au telephone
   if (error && remote.feedback_pending && remote.feedback_message.empty())
     remote.feedback_message = message;

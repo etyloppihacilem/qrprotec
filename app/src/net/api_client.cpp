@@ -155,6 +155,8 @@ void ApiClient::run() {
         }
       }
     }
+    if (!result.error.empty())
+      error_log("API " + job.method + " " + job.path + " : " + result.error, result.status == 0 ? "serveur" : "");
     std::lock_guard< std::mutex > lock(mutex_);
     working_ = false;
     online_  = result.status != 0;

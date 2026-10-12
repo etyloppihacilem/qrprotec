@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "remote_scanner_link.hpp"
+#include "../printer/logging.hpp"
 
 #include <cctype>
 #include <chrono>
@@ -102,6 +103,7 @@ void RemoteScannerLink::run(ApiEndpoint endpoint, std::string session_id) {
         std::lock_guard< std::mutex > lock(mutex_);
         error_ = error;
       }
+      error_log(error, "téléphone-douchette");
       if (status == 404) { // session fermee (expiree) cote serveur : inutile d'insister
         session_gone_ = true;
         break;
@@ -144,6 +146,7 @@ void RemoteScannerLink::run(ApiEndpoint endpoint, std::string session_id) {
     }
     std::lock_guard< std::mutex > lock(mutex_);
     error_ = "Connexion au serveur perdue";
+    error_log(error_, "téléphone-douchette");
   }
   connected_ = false;
   running_   = false;
