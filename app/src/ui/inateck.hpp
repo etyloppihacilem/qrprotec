@@ -54,9 +54,11 @@ class Inateck {
     void draw_scanner_settings(const InateckSnapshot& state);
     void draw_scanner_setting(const ScannerSettingValue& setting);
     void draw_scanner_actions(const InateckSnapshot& state);
-    // Volume et lecture continue : dans la fenetre et dans le menu Douchette
+    // Volume et mode inventaire : dans la fenetre et dans le menu Douchette
     void draw_quick_settings(const InateckSnapshot& state);
     void draw_quick_menu(const InateckSnapshot& state);
+    void draw_inventory(const InateckSnapshot& state); // mode inventaire : memoire de la douchette
+    bool confirm_clear_cache_ = false; // ouvre la confirmation (aussi depuis le menu)
 
     InateckWorker inateck_worker_;
     bool inateck_window_open_ = false;

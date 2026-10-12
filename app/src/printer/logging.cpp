@@ -4,6 +4,11 @@
 #include <map>
 #include <mutex>
 
+#ifndef _WIN32
+#include <syslog.h>
+#include <unistd.h>
+#endif
+
 namespace qrprotec {
 namespace {
 bool verbose = false;
@@ -40,7 +45,21 @@ void error_log(const std::string& message, const std::string& source)
             return;
         last = message;
     }
-    std::cerr << "[QRProtec] erreur" << (source.empty() ? "" : " (" + source + ")") << " : " << message << std::endl;
+    const std::string line = "[QRProtec] erreur" + (source.empty() ? std::string() : " (" + source + ")") + " : " + message;
+#ifdef _WIN32
+    std::cerr << line << std::endl;
+#else
+    // syslog arrive dans journalctl quel que soit le devenir de la sortie d'erreur (Cage, bureau...),
+    // rattache a l'unite qui a lance le front (journalctl -u qrprotec-kiosk)
+    static const bool opened = [] {
+        openlog("qrprotec-front", LOG_PID, LOG_USER);
+        return true;
+    }();
+    (void)opened;
+    syslog(LOG_ERR, "%s", line.c_str());
+    if (isatty(STDERR_FILENO))
+        std::cerr << line << std::endl;
+#endif
 }
 
 } // namespace qrprotec

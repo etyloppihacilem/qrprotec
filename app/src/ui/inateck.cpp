@@ -456,9 +456,7 @@ void Inateck::draw_scanner_setting(const ScannerSettingValue& setting) {
 namespace {
 
 constexpr int kVolumeFlag = 1001;
-constexpr int kScanModeFlag = 1006;
-constexpr int kScanModeTrigger = 2; // gachette, laser eteint automatiquement (reglage d'usine)
-constexpr int kScanModeContinuous = 1;
+constexpr int kInventoryFlag = 1013;
 
 // Valeur lue sur la douchette, -1 si inconnue (parametres pas encore lus)
 int setting_value(const InateckSnapshot& state, int flag) {
@@ -484,10 +482,56 @@ void Inateck::draw_quick_settings(const InateckSnapshot& state) {
         inateck_worker_.set_setting(kVolumeFlag, option.value);
     ImGui::EndCombo();
   }
-  bool continuous = setting_value(state, kScanModeFlag) == kScanModeContinuous;
-  if (ImGui::Checkbox("Lecture continue##rapide", &continuous))
-    inateck_worker_.set_setting(kScanModeFlag, continuous ? kScanModeContinuous : kScanModeTrigger);
-  ImGui::SetItemTooltip("La douchette lit sans appuyer sur la gâchette. Décoché : lecture à la gâchette.");
+  draw_inventory(state);
+}
+
+void Inateck::draw_inventory(const InateckSnapshot& state) {
+  bool inventory = setting_value(state, kInventoryFlag) == 1;
+  if (ImGui::Checkbox("Mode inventaire##rapide", &inventory))
+    inateck_worker_.set_setting(kInventoryFlag, inventory ? 1 : 0);
+  ImGui::SetItemTooltip("La douchette garde les codes lus en mémoire au lieu de les envoyer tout de suite.");
+  if (state.inventory_reading)
+    ImGui::TextDisabled("Lecture de la mémoire de la douchette…");
+  else
+    ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
+  ImGui::BeginDisabled(state.inventory_reading);
+  if (button("Compter"))
+    inateck_worker_.read_cache_count();
+  ImGui::SameLine();
+  if (button("Récupérer les codes"))
+    inateck_worker_.upload_cache();
+  ImGui::SetItemTooltip("Lit les codes gardés en mémoire ; ils s'affichent ci-dessous.");
+  ImGui::SameLine();
+  if (danger_button("Supprimer les codes en mémoire…"))
+    confirm_clear_cache_ = true;
+  ImGui::EndDisabled();
+  if (confirm_clear_cache_) {
+    ImGui::OpenPopup("scanner_clear_cache");
+    confirm_clear_cache_ = false;
+  }
+  if (ImGui::BeginPopup("scanner_clear_cache")) {
+    ImGui::TextUnformatted("Supprimer les codes gardés en mémoire par la douchette ?");
+    if (danger_button("Supprimer")) {
+      inateck_worker_.clear_cache();
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (button("Annuler"))
+      ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
+  if (!state.inventory_codes.empty()) {
+    ImGui::Text("%zu code(s) récupéré(s) :", state.inventory_codes.size());
+    if (ImGui::BeginChild("inventory_codes", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6),
+                          ImGuiChildFlags_Borders)) {
+      for (const std::string& code : state.inventory_codes)
+        ImGui::TextUnformatted(code.c_str());
+    }
+    ImGui::EndChild();
+    if (button("Traiter ces codes"))
+      inateck_worker_.process_inventory_codes();
+    ImGui::SetItemTooltip("Les envoie dans la pile de scans, comme s'ils venaient d'être scannés.");
+  }
 }
 
 void Inateck::draw_quick_menu(const InateckSnapshot& state) {
@@ -499,25 +543,33 @@ void Inateck::draw_quick_menu(const InateckSnapshot& state) {
         inateck_worker_.set_setting(kVolumeFlag, option.value);
     ImGui::EndMenu();
   }
-  const bool continuous = setting_value(state, kScanModeFlag) == kScanModeContinuous;
-  if (ImGui::MenuItem("Lecture continue", nullptr, continuous, enabled))
-    inateck_worker_.set_setting(kScanModeFlag, continuous ? kScanModeTrigger : kScanModeContinuous);
-  ImGui::SetItemTooltip("La douchette lit sans appuyer sur la gâchette.");
+  const bool inventory = setting_value(state, kInventoryFlag) == 1;
+  if (ImGui::MenuItem("Mode inventaire", nullptr, inventory, enabled))
+    inateck_worker_.set_setting(kInventoryFlag, inventory ? 0 : 1);
+  ImGui::SetItemTooltip("La douchette garde les codes lus en mémoire au lieu de les envoyer tout de suite.");
+  if (ImGui::BeginMenu("Codes en mémoire", enabled)) {
+    if (state.inventory_reading)
+      ImGui::TextDisabled("Lecture de la mémoire…");
+    else
+      ImGui::TextDisabled("Nombre : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
+    if (ImGui::MenuItem("Compter", nullptr, false, !state.inventory_reading))
+      inateck_worker_.read_cache_count();
+    if (ImGui::MenuItem("Récupérer les codes", nullptr, false, !state.inventory_reading)) {
+      inateck_worker_.upload_cache();
+      inateck_window_open_ = true; // les codes s'affichent dans la fenetre
+    }
+    if (ImGui::MenuItem("Supprimer les codes en mémoire…", nullptr, false, !state.inventory_reading)) {
+      inateck_window_open_ = true;
+      confirm_clear_cache_ = true;
+    }
+    ImGui::EndMenu();
+  }
 }
 
 void Inateck::draw_scanner_actions(const InateckSnapshot& state) {
-  if (!ImGui::TreeNode("Mémoire et entretien"))
+  (void)state;
+  if (!ImGui::TreeNode("Entretien"))
     return;
-  ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
-  ImGui::SameLine();
-  if (button("Compter"))
-    inateck_worker_.read_cache_count();
-  if (button("Envoyer les codes en mémoire"))
-    inateck_worker_.upload_cache();
-  ImGui::SetItemTooltip("Mode inventaire : la douchette envoie les codes lus hors de portée.");
-  ImGui::SameLine();
-  if (button("Vider la mémoire"))
-    inateck_worker_.clear_cache();
   if (button("Redémarrer la douchette"))
     inateck_worker_.restart();
   ImGui::SameLine();

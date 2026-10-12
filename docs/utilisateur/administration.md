@@ -148,8 +148,11 @@ clavier). Une fois connecté, la section **Paramétrage** lit les réglages de l
 par thème : volume, vibration, éclairage, mode de lecture, clavier de l'ordinateur, Entrée après chaque
 code, types de codes lus, extinction automatique, mémoire… Chaque changement part tout de suite à la
 douchette. Le **Modèle** est reconnu d'après le nom de la douchette (ex. BCST-75S) ; pour une version
-AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus. Le volume et la
-lecture continue se changent aussi directement dans le menu **Douchette** (utilisateur connecté).
+AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus. Le volume et le
+**mode inventaire** se changent aussi directement dans le menu **Douchette** (utilisateur connecté).
+En mode inventaire, la douchette garde les codes lus en mémoire : **Compter** affiche leur nombre,
+**Récupérer les codes** les affiche dans la fenêtre (**Traiter ces codes** les envoie dans la pile
+de scans) et **Supprimer les codes en mémoire** les efface de la douchette.
 
 ### Sans badge : nom déclaré
 
