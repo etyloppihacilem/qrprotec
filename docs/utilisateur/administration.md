@@ -144,20 +144,23 @@ Menu **Gestion > Réglages** (admin) :
 | Notifications SMS | Voir ci-dessous |
 
 La douchette se règle dans le menu **Douchette > Ouvrir les paramètres**. Tout le monde peut
-appairer et connecter une douchette, même sans être connecté. Un utilisateur connecté règle le volume et
-le mode inventaire ; le reste est réservé aux administrateurs. Pour un administrateur, la section
+appairer et connecter une douchette, même sans être connecté. Un utilisateur connecté règle le volume ;
+le reste, mode inventaire compris, est réservé aux administrateurs. Pour un administrateur, la section
 **Paramétrage** (mode clavier, modèle, réglages de la douchette, entretien) lit les réglages de la douchette et les affiche
 par thème : volume, vibration, éclairage, mode de lecture, clavier de l'ordinateur, Entrée après chaque
 code, types de codes lus, extinction automatique, mémoire… Chaque changement part tout de suite à la
 douchette. Le **Modèle** est reconnu d'après le nom de la douchette (ex. BCST-75S) ; pour une version
-AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus. Le volume et le
-**mode inventaire** se changent aussi directement dans le menu **Douchette** (utilisateur connecté).
+AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus. Le volume (et
+pour un administrateur le **mode inventaire**) se change aussi directement dans le menu **Douchette**.
+
 En mode inventaire, la douchette garde les codes lus en mémoire (elle clignote en bleu au lieu de vert).
-**Lire la mémoire** affiche le QR code à scanner avec la douchette pour qu'elle envoie ses codes en
-Bluetooth (le « Data Upload » de son manuel ; les commandes du SDK ne les envoient que sur le câble USB). **Compter** affiche le QR qui lui fait renvoyer son nombre de codes
-(« Total Counters = … »). Les codes reçus s'affichent dans la fenêtre, et **Traiter ces codes** les
-envoie dans la pile de scans. Lire la mémoire ne la vide pas : **Vider la mémoire** l'efface, après
-confirmation.
+À l'activation du mode inventaire, la fenêtre **Mémoire de la douchette** s'ouvre avec le QR code à
+scanner une fois les codes lus : la douchette envoie alors ses codes en Bluetooth (le « Data Upload » de
+son manuel ; les commandes du SDK ne les envoient que sur le câble USB). **Lire la mémoire** rouvre ce QR
+code, **Compter** affiche celui qui lui fait renvoyer son nombre de codes (« Total Counters = … »). Les
+codes reçus s'affichent dans la fenêtre : **Traiter ces codes** les envoie dans la pile de scans,
+**Traiter et supprimer les codes** vide en plus la mémoire de la douchette. Lire la mémoire ne la vide
+pas ; **Vider la mémoire** l'efface, après confirmation.
 
 Le volume de la douchette est propre à chaque utilisateur : chacun retrouve le dernier volume qu'il a
 choisi dès qu'il se connecte, sur n'importe quel poste. Ceux qui n'ont rien choisi, et le poste sans

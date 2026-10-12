@@ -75,6 +75,8 @@ class Inateck {
     InventoryQr inventory_qr_ = InventoryQr::None;
     bool focus_inventory_qr_ = false;
     void show_inventory_qr(InventoryQr qr);
+    // Activation : ouvre aussi le QR d'envoi, a scanner une fois les codes lus
+    void set_inventory_mode(bool enabled);
     void draw_inventory_qr(const InateckSnapshot& state);
 
     InateckWorker inateck_worker_;

@@ -125,7 +125,7 @@ void InateckWorker::clear_cache() { enqueue({CommandType::ClearCache}); }
 void InateckWorker::capture_inventory(InventoryCapture capture) {
     std::lock_guard<std::mutex> lock(mutex_);
     inventory_capture_ = capture;
-    inventory_deadline_ = std::chrono::steady_clock::now() + kInventoryWaitTimeout;
+    inventory_deadline_ = std::chrono::steady_clock::time_point::max(); // jusqu'au premier code ou a l'arret
     snapshot_.inventory_reading = true;
     snapshot_.inventory_waiting = true;
     if (capture == InventoryCapture::Codes)
