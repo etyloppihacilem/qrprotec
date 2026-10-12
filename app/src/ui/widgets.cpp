@@ -14,6 +14,7 @@
 #include "../core/search.hpp"
 #include "imgui_internal.h"
 #include "imgui_stdlib.h"
+#include "qrcodegen.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -670,6 +671,23 @@ std::string group_banner(const Json &lot, ImVec4 &color, bool *all_ok) {
   }
   color = warn && problems == 1 ? colors::orange : colors::red;
   return "✘ " + std::to_string(problems) + " SOUS-LOT(S) À TRAITER SUR " + std::to_string(counted);
+}
+
+void draw_qr(const std::string &payload, float size) {
+  const qrcodegen::QrCode code  = qrcodegen::QrCode::encodeText(payload.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
+  const int               count = code.getSize() + 8; // marge blanche de 4 modules
+  const float             cell  = std::floor(size / static_cast< float >(count));
+  const float             side  = cell * static_cast< float >(count);
+  const ImVec2            origin = ImGui::GetCursorScreenPos();
+  ImDrawList             *draw   = ImGui::GetWindowDrawList();
+  draw->AddRectFilled(origin, ImVec2(origin.x + side, origin.y + side), IM_COL32(255, 255, 255, 255));
+  for (int y = 0; y < code.getSize(); ++y)
+    for (int x = 0; x < code.getSize(); ++x)
+      if (code.getModule(x, y)) {
+        const ImVec2 corner(origin.x + (x + 4) * cell, origin.y + (y + 4) * cell);
+        draw->AddRectFilled(corner, ImVec2(corner.x + cell, corner.y + cell), IM_COL32(0, 0, 0, 255));
+      }
+  ImGui::Dummy(ImVec2(side, side));
 }
 
 } // namespace qrprotec

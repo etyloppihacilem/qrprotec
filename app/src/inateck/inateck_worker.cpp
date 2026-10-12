@@ -112,8 +112,6 @@ void InateckWorker::factory_reset() { enqueue({CommandType::FactoryReset}); }
 void InateckWorker::open_all_codes() { enqueue({CommandType::OpenAllCodes}); }
 void InateckWorker::close_all_codes() { enqueue({CommandType::CloseAllCodes}); }
 void InateckWorker::reset_all_codes() { enqueue({CommandType::ResetAllCodes}); }
-void InateckWorker::upload_cache() { enqueue({CommandType::UploadCache}); }
-void InateckWorker::clear_cache() { enqueue({CommandType::ClearCache}); }
 
 void InateckWorker::process_inventory_codes() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -122,24 +120,39 @@ void InateckWorker::process_inventory_codes() {
     snapshot_.inventory_codes.clear();
 }
 
-void InateckWorker::start_inventory_read() {
+void InateckWorker::capture_inventory(InventoryCapture capture) {
     std::lock_guard<std::mutex> lock(mutex_);
-    inventory_read_ = true;
-    inventory_deadline_ = std::chrono::steady_clock::now() + kInventoryReadTimeout;
+    inventory_capture_ = capture;
+    inventory_deadline_ = std::chrono::steady_clock::now() + kInventoryWaitTimeout;
     snapshot_.inventory_reading = true;
-    snapshot_.inventory_codes.clear();
+    snapshot_.inventory_waiting = true;
+    if (capture == InventoryCapture::Codes)
+        snapshot_.inventory_codes.clear();
+}
+
+void InateckWorker::stop_inventory_capture() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!inventory_capture_)
+        return;
+    inventory_deadline_ = std::chrono::steady_clock::now();
+    expire_inventory_read();
 }
 
 void InateckWorker::expire_inventory_read() {
-    if (!inventory_read_ || std::chrono::steady_clock::now() < inventory_deadline_)
+    if (!inventory_capture_ || std::chrono::steady_clock::now() < inventory_deadline_)
         return;
-    snapshot_.cache_count = std::to_string(snapshot_.inventory_codes.size());
-    snapshot_.message = snapshot_.inventory_codes.empty()
-        ? "La douchette n'a renvoyé aucun code de sa mémoire (mémoire vide, ou sortie SDK désactivée ?)."
-        : std::to_string(snapshot_.inventory_codes.size()) + " code(s) récupéré(s) de la mémoire.";
-    info_log("Douchette : lecture de la mémoire terminée, " + snapshot_.cache_count + " code(s) reçu(s)");
-    inventory_read_ = false;
+    if (*inventory_capture_ == InventoryCapture::Codes) {
+        snapshot_.message = snapshot_.inventory_codes.empty()
+            ? "Aucun code reçu de la mémoire de la douchette."
+            : std::to_string(snapshot_.inventory_codes.size()) + " code(s) récupéré(s) de la mémoire.";
+        info_log("Douchette : lecture de la mémoire terminée, " +
+                 std::to_string(snapshot_.inventory_codes.size()) + " code(s) reçu(s)");
+    } else if (snapshot_.inventory_waiting) {
+        snapshot_.message = "La douchette n'a pas renvoyé le nombre de codes en mémoire.";
+    }
+    inventory_capture_.reset();
     snapshot_.inventory_reading = false;
+    snapshot_.inventory_waiting = false;
 }
 void InateckWorker::set_prefix(const std::string& value) { enqueue({CommandType::SetPrefix, value}); }
 void InateckWorker::set_suffix(const std::string& value) { enqueue({CommandType::SetSuffix, value}); }
@@ -189,7 +202,7 @@ void InateckWorker::on_scan(const char* json) {
     bool inventory = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        inventory = inventory_read_;
+        inventory = inventory_capture_.has_value();
     }
     if (inventory) {
         // Lecture de la memoire : trace brute (format non documente), plusieurs codes possibles par envoi
@@ -213,9 +226,17 @@ void InateckWorker::on_scan_text(const std::string& code, ScanSource source) {
     if (code.empty())
         return;
     std::lock_guard<std::mutex> lock(mutex_);
-    if (source == ScanSource::Sdk && inventory_read_) {
-        info_log("Douchette : code de la mémoire : " + code);
+    if (source == ScanSource::Sdk && inventory_capture_) {
+        snapshot_.inventory_waiting = false;
+        if (*inventory_capture_ == InventoryCapture::Count) {
+            snapshot_.cache_count = code;
+            snapshot_.message = "Codes en mémoire : " + code;
+            inventory_capture_.reset();
+            snapshot_.inventory_reading = false;
+            return;
+        }
         snapshot_.inventory_codes.push_back(code);
+        snapshot_.cache_count = std::to_string(snapshot_.inventory_codes.size());
         inventory_deadline_ = std::chrono::steady_clock::now() + kInventoryReadTimeout;
         return;
     }
@@ -569,22 +590,6 @@ void InateckWorker::execute(const Command& command) {
         if (sdk_json_success(result))
             read_settings(id);
         break;
-    case CommandType::UploadCache:
-        if (id.empty()) return;
-        // Les codes arrivent ensuite par le rappel des scans (on_scan_text)
-        start_inventory_read();
-        result = inateck_scanner_ble_inventory_upload_cache(id.c_str());
-        info_log(std::string("Douchette : lecture de la mémoire demandée : ") + (result ? result : "<null>"));
-        break;
-    case CommandType::ClearCache:
-        if (id.empty()) return;
-        result = inateck_scanner_ble_inventory_clear_cache(id.c_str());
-        if (sdk_json_success(result)) {
-            set_message("Codes en mémoire de la douchette supprimés.");
-            std::lock_guard<std::mutex> lock(mutex_);
-            snapshot_.cache_count = "0";
-        }
-        break;
     case CommandType::SetPrefix:
     case CommandType::SetSuffix: {
         if (id.empty() || command.value.size() > 31) return;
@@ -617,11 +622,6 @@ void InateckWorker::execute(const Command& command) {
         return;
     }
     if (result && !sdk_json_success(result)) {
-        if (command.type == CommandType::UploadCache) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            inventory_read_ = false;
-            snapshot_.inventory_reading = false;
-        }
         set_error(result);
         return;
     }

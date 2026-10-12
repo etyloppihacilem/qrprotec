@@ -35,6 +35,9 @@ bool danger_button(const char *label, const ImVec2 &size = ImVec2(0, 0), bool mn
 bool primary_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool warning_button(const char *label, const ImVec2 &size = ImVec2(0, 0)); // orange
 
+// QR code dessine module par module (net a toute taille, sans texture), a la position du curseur.
+void draw_qr(const std::string &payload, float size);
+
 // Barre de stock : verte si quantite >= minimum, orange si en dessous, rouge si vide.
 // Le texte "quantite/minimum" est affiche dans la barre.
 void stock_bar(int quantity, int minimum, const ImVec2 &size = ImVec2(-1.0f, 0.0f));

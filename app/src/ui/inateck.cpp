@@ -523,44 +523,84 @@ void Inateck::draw_inventory(const InateckSnapshot& state) {
   if (ImGui::Checkbox("Mode inventaire##rapide", &inventory))
     inateck_worker_.set_setting(kInventoryFlag, inventory ? 1 : 0);
   ImGui::SetItemTooltip("La douchette garde les codes lus en mémoire au lieu de les envoyer tout de suite.");
-  if (state.inventory_reading)
-    ImGui::TextDisabled("Lecture de la mémoire de la douchette…");
-  else
-    ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
-  ImGui::BeginDisabled(state.inventory_reading);
+  ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
   if (button("Lire la mémoire"))
-    inateck_worker_.upload_cache();
-  ImGui::SetItemTooltip("Compte et affiche ci-dessous les codes gardés en mémoire (sans les traiter).");
+    show_inventory_qr(InventoryQr::Upload);
+  ImGui::SetItemTooltip("Affiche le code à scanner pour que la douchette envoie les codes gardés en mémoire.");
   ImGui::SameLine();
-  if (danger_button("Supprimer les codes en mémoire…"))
-    confirm_clear_cache_ = true;
+  if (button("Compter"))
+    show_inventory_qr(InventoryQr::Count);
+  ImGui::SameLine();
+  if (danger_button("Vider la mémoire…"))
+    show_inventory_qr(InventoryQr::Clear);
+  draw_inventory_codes(state);
+}
+
+void Inateck::draw_inventory_codes(const InateckSnapshot& state) {
+  if (state.inventory_codes.empty())
+    return;
+  ImGui::Text("%zu code(s) récupéré(s) :", state.inventory_codes.size());
+  if (ImGui::BeginChild("inventory_codes", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6),
+                        ImGuiChildFlags_Borders)) {
+    for (const std::string& code : state.inventory_codes)
+      ImGui::TextUnformatted(code.c_str());
+  }
+  ImGui::EndChild();
+  ImGui::BeginDisabled(state.inventory_reading);
+  if (button("Traiter ces codes"))
+    inateck_worker_.process_inventory_codes();
   ImGui::EndDisabled();
-  if (confirm_clear_cache_) {
-    ImGui::OpenPopup("scanner_clear_cache");
-    confirm_clear_cache_ = false;
-  }
-  if (ImGui::BeginPopup("scanner_clear_cache")) {
-    ImGui::TextUnformatted("Supprimer les codes gardés en mémoire par la douchette ?");
-    if (danger_button("Supprimer")) {
-      inateck_worker_.clear_cache();
-      ImGui::CloseCurrentPopup();
+  ImGui::SetItemTooltip("Les envoie dans la pile de scans, comme s'ils venaient d'être scannés.");
+}
+
+void Inateck::show_inventory_qr(InventoryQr qr) {
+  inateck_worker_.stop_inventory_capture();
+  inventory_qr_ = qr;
+  focus_inventory_qr_ = true;
+  if (qr == InventoryQr::Upload)
+    inateck_worker_.capture_inventory(InateckWorker::InventoryCapture::Codes);
+  else if (qr == InventoryQr::Count)
+    inateck_worker_.capture_inventory(InateckWorker::InventoryCapture::Count);
+}
+
+void Inateck::draw_inventory_qr(const InateckSnapshot& state) {
+  if (inventory_qr_ == InventoryQr::None)
+    return;
+  bool open = true;
+  if (focus_inventory_qr_)
+    ImGui::SetNextWindowFocus();
+  focus_inventory_qr_ = false;
+  if (ImGui::Begin("Mémoire de la douchette", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
+    const char* payload = inventory_qr_ == InventoryQr::Upload  ? "/*SetFun84*/"
+                        : inventory_qr_ == InventoryQr::Count   ? "/*SetFun85*/"
+                                                                : "/*SetFun83*/";
+    if (inventory_qr_ == InventoryQr::Clear) {
+      ImGui::TextUnformatted("Scannez ce code avec la douchette pour effacer");
+      ImGui::TextColored(colors::red, "les codes gardés en mémoire (définitif).");
+    } else {
+      ImGui::TextUnformatted(inventory_qr_ == InventoryQr::Upload
+                                 ? "Scannez ce code avec la douchette : elle envoie les codes gardés en mémoire."
+                                 : "Scannez ce code avec la douchette : elle envoie le nombre de codes en mémoire.");
+      ImGui::TextDisabled("La mémoire n'est pas vidée.");
     }
-    ImGui::SameLine();
-    if (button("Annuler"))
-      ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
-  }
-  if (!state.inventory_codes.empty()) {
-    ImGui::Text("%zu code(s) récupéré(s) :", state.inventory_codes.size());
-    if (ImGui::BeginChild("inventory_codes", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6),
-                          ImGuiChildFlags_Borders)) {
-      for (const std::string& code : state.inventory_codes)
-        ImGui::TextUnformatted(code.c_str());
+    draw_qr(payload, 220.0f);
+    if (inventory_qr_ != InventoryQr::Clear) {
+      if (state.inventory_waiting)
+        ImGui::TextDisabled("En attente du scan…");
+      else if (state.inventory_reading)
+        ImGui::Text("Réception : %zu code(s)…", state.inventory_codes.size());
+      else if (!state.message.empty())
+        ImGui::TextColored(colors::green, "%s", state.message.c_str());
+      if (inventory_qr_ == InventoryQr::Upload)
+        draw_inventory_codes(state);
     }
-    ImGui::EndChild();
-    if (button("Traiter ces codes"))
-      inateck_worker_.process_inventory_codes();
-    ImGui::SetItemTooltip("Les envoie dans la pile de scans, comme s'ils venaient d'être scannés.");
+    if (button("Fermer"))
+      open = false;
+  }
+  ImGui::End();
+  if (!open) {
+    inateck_worker_.stop_inventory_capture();
+    inventory_qr_ = InventoryQr::None;
   }
 }
 
@@ -578,18 +618,13 @@ void Inateck::draw_quick_menu(const InateckSnapshot& state) {
     inateck_worker_.set_setting(kInventoryFlag, inventory ? 0 : 1);
   ImGui::SetItemTooltip("La douchette garde les codes lus en mémoire au lieu de les envoyer tout de suite.");
   if (ImGui::BeginMenu("Codes en mémoire", enabled)) {
-    if (state.inventory_reading)
-      ImGui::TextDisabled("Lecture de la mémoire…");
-    else
-      ImGui::TextDisabled("Nombre : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
-    if (ImGui::MenuItem("Lire la mémoire", nullptr, false, !state.inventory_reading)) {
-      inateck_worker_.upload_cache();
-      inateck_window_open_ = true; // les codes s'affichent dans la fenetre
-    }
-    if (ImGui::MenuItem("Supprimer les codes en mémoire…", nullptr, false, !state.inventory_reading)) {
-      inateck_window_open_ = true;
-      confirm_clear_cache_ = true;
-    }
+    ImGui::TextDisabled("Nombre : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
+    if (ImGui::MenuItem("Lire la mémoire"))
+      show_inventory_qr(InventoryQr::Upload);
+    if (ImGui::MenuItem("Compter"))
+      show_inventory_qr(InventoryQr::Count);
+    if (ImGui::MenuItem("Vider la mémoire…"))
+      show_inventory_qr(InventoryQr::Clear);
     ImGui::EndMenu();
   }
 }
@@ -669,6 +704,7 @@ void Inateck::draw_menu() {
 
 void Inateck::draw_window() {
   draw_inateck_window();
+  draw_inventory_qr(inateck_worker_.snapshot());
 }
 
 void Inateck::draw() {
