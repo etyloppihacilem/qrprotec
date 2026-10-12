@@ -7,6 +7,8 @@
 #include <thread>
 #include <vector>
 
+#include "scanner_settings.hpp"
+
 namespace qrprotec {
 
 struct InateckDevice {
@@ -47,6 +49,23 @@ struct InateckSnapshot {
     std::string last_scan;
     std::string error;
     std::vector<InateckDevice> devices;
+
+    // Modele utilise pour lire et ecrire les parametres : choisi a la main (model_choice) ou deduit
+    // du nom de la douchette (model_choice == 0). 0 = inconnu.
+    int model_choice = 0;
+    int model = 0;
+    bool settings_loading = false;
+    std::vector<ScannerSettingValue> settings; // vide tant que non lus
+    // Informations lues sur la douchette (texte renvoye par le SDK)
+    std::string battery;
+    std::string software_version;
+    std::string hardware_version;
+    std::string mac;
+    std::string prefix;
+    std::string suffix;
+    std::string cache_count;
+    std::string sdk_version;
+    std::string message; // resultat de la derniere action (ex. "Heure synchronisee")
 };
 
 class InateckWorker {
@@ -64,9 +83,21 @@ public:
     void stop_discovery();
     void connect(const std::string& device_id, const std::string& device_name);
     void disconnect();
+    // 0 : modele deduit du nom de la douchette
+    void set_model(int model);
+    // Relit tous les parametres et les informations de la douchette (fait aussi a la connexion)
     void refresh_settings();
-    void set_volume(int volume);
-    void set_vibration(bool enabled);
+    void set_setting(int flag, int value);
+    void beep();
+    void sync_time();
+    void restart();
+    void factory_reset();
+    void open_all_codes();
+    void close_all_codes();
+    void reset_all_codes();
+    void upload_cache();
+    void read_cache_count();
+    void clear_cache();
     void set_prefix(const std::string& value);
     void set_suffix(const std::string& value);
     void set_name(const std::string& value);
@@ -83,14 +114,15 @@ public:
 
 private:
     enum class CommandType {
-        StartDiscovery, StopDiscovery, Connect, Disconnect, RefreshSettings,
-        SetVolume, SetVibration, SetPrefix, SetSuffix, SetName, SetSdkOutput,
-        SignalError, Shutdown
+        StartDiscovery, StopDiscovery, Connect, Disconnect, RefreshSettings, SetSetting, Beep, SyncTime,
+        Restart, FactoryReset, OpenAllCodes, CloseAllCodes, ResetAllCodes, UploadCache, ReadCacheCount,
+        ClearCache, SetPrefix, SetSuffix, SetName, SetSdkOutput, SignalError, Shutdown
     };
     struct Command {
         CommandType type;
         std::string value;
         int number = 0;
+        int flag = 0;
         ScannerErrorSignal signal{};
     };
 
@@ -101,6 +133,8 @@ private:
     void finish_discovery();
     bool connect_device(const std::string& device_id, const std::string& device_name);
     void reject_device(const std::string& device_id);
+    void read_settings(const std::string& device_id);
+    void set_message(const std::string& message);
 
     mutable std::mutex mutex_;
     std::condition_variable condition_;

@@ -1,4 +1,5 @@
 #include "../src/inateck/inateck_worker.hpp"
+#include "../src/inateck/scanner_settings.hpp"
 #include "../src/inateck/sdk_json.hpp"
 
 #include <cassert>
@@ -38,5 +39,40 @@ int main() {
     assert(candidates[0].id == "3" && candidates[1].id == "2" && candidates[2].id == "1");
     candidates = ordered_devices(devices, "", {});
     assert(candidates.size() == 4 && candidates[0].id == "2" && candidates[1].id == "1");
+
+    // Reponse de inateck_scanner_ble_get_setting_info (format de la bibliotheque scanner_lib)
+    const auto settings = sdk_json_settings(
+        "{\"status\":0,\"data\":[{\"name\":\"auto_off\",\"flag\":1012,\"value\":1},"
+        "{\"name\":\"volume\",\"flag\":1001,\"value\":4},{\"name\":\"a]b\",\"flag\":2022,\"value\":0}]}");
+    assert(settings.size() == 3);
+    assert(settings[1].flag == 1001 && settings[1].name == "volume" && settings[1].value == 4);
+    assert(settings[2].name == "a]b" && settings[2].flag == 2022);
+    assert(sdk_json_settings("{\"status\":2,\"data\":[]}").empty());
+    assert(sdk_json_settings(nullptr).empty());
+
+    assert(sdk_json_data_text("{\"status\":0,\"data\":\"85\"}") == "85");
+    assert(sdk_json_data_text("{\"status\":0,\"data\":85}") == "85");
+    assert(sdk_json_data_text("{\"data\": [1, 2],\"status\":0}") == "[1, 2]");
+    assert(sdk_json_data_text("{\"status\":0}").empty());
+
+    // Modele deduit du nom Bluetooth (valeurs de INATECK_DEVICE_TYPE)
+    assert(detect_scanner_model("BCST-75S") == 37);
+    assert(detect_scanner_model("Inateck BCST-75") == 9);
+    assert(detect_scanner_model("bcst 73") == 8);
+    assert(detect_scanner_model("BCST-751") == 0);
+    assert(detect_scanner_model("Inateck P7") == 11);
+    assert(detect_scanner_model("Pro 8 SE") == 46);
+    assert(detect_scanner_model("JBL Flip") == 0);
+    assert(std::string(scanner_model_label(37)) == "BCST-75S");
+
+    assert(scanner_setting_command({{1001, "volume", 8}, {2022, "", 1}}) ==
+           "[{\"flag\":1001,\"value\":8},{\"flag\":2022,\"value\":1}]");
+    // Le volume se regle en 0/2/4/8, pas en 0-3
+    const ScannerSettingInfo volume = scanner_setting_info(1001, "volume");
+    assert(volume.kind == ScannerSettingKind::Choice && volume.options.size() == 4 && volume.options[3].value == 8);
+    assert(scanner_setting_info(1002, "shake_Reminder").options.size() == 4);
+    assert(scanner_setting_info(1002, "shake_intensity").options.size() == 2);
+    assert(scanner_setting_info(2022, "qrcode_on").kind == ScannerSettingKind::Toggle);
+    assert(std::string(scanner_setting_info(9999, "x").group) == "Autres");
     return 0;
 }

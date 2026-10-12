@@ -21,7 +21,7 @@ Les dossiers suivent les dépendances : `core` ne dépend de rien, `ui` dépend 
 | `src/net/` | `QRProtecCore` | `connection` (TCP, chiffré par OpenSSL si l'URL est en `https://`, certificat et nom d'hôte vérifiés), `http` (client HTTP/1.1), `api_client` (client asynchrone de l'API), `websocket` + `remote_scanner_link` (téléphone-douchette). |
 | `src/render/` | `QRProtecCore` | `raster` (rendu d'un modèle en image 1 bit, rotation vers l'étiquette physique, export PNG), `image_loader` (PNG/JPEG en niveaux de gris, cache). |
 | `src/printer/` | `QRProtecPrinter` | `serial` (port série POSIX), `niimbot_protocol` (paquets Niimbot), `printer` (`NiimbotB1Printer`). |
-| `src/inateck/` | exécutable | `inateck_worker` (thread du SDK Bluetooth), `hid_classifier` (douchette en mode clavier), `sdk_json`. |
+| `src/inateck/` | exécutable | `inateck_worker` (thread du SDK Bluetooth), `hid_classifier` (douchette en mode clavier), `sdk_json`, `scanner_settings` (modèles et libellés des paramètres du SDK : `get/set_setting_info` prennent le modèle, `INATECK_DEVICE_TYPE`, et la liste des paramètres vient de la douchette). |
 | `src/app/` | exécutable | `App` (état global, scans, vérifs, connexion), `scan_stack`, `settings`, `print_queue`, `feedback` (signal de mauvais scan), `labels` (objets API → placeholders). |
 | `src/ui/` | exécutable | `widgets` (champs de recherche, saisie de date…), `editor` (éditeur d'étiquettes), `label_preview`, `inateck` (fenêtre et menu Douchette), `windows/*` (une fenêtre par fichier). |
 

@@ -143,7 +143,12 @@ Menu **Gestion > Réglages** (admin) :
 | Signal de mauvais scan | Bip, clignotement, LED et son de la douchette ; **Tester le signal d'erreur** |
 | Notifications SMS | Voir ci-dessous |
 
-La douchette se règle dans le menu **Douchette** (appairage, connexion, mode clavier, volume…).
+La douchette se règle dans le menu **Douchette > Ouvrir les paramètres** (appairage, connexion, mode
+clavier). Une fois connecté, la section **Paramétrage** lit les réglages de la douchette et les affiche
+par thème : volume, vibration, éclairage, mode de lecture, clavier de l'ordinateur, Entrée après chaque
+code, types de codes lus, extinction automatique, mémoire… Chaque changement part tout de suite à la
+douchette. Le **Modèle** est reconnu d'après le nom de la douchette (ex. BCST-75S) ; pour une version
+AI ou un nom modifié, choisissez-le à la main, sinon les réglages ne peuvent pas être lus.
 
 ### Sans badge : nom déclaré
 

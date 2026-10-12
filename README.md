@@ -609,7 +609,8 @@ disposition par défaut des fenêtres, signal de mauvais scan.
 - **Mauvais scan** (produit périmé, code inconnu) : bip et LED orange de la douchette via le SDK Inateck ;
   en mode HID, bip de l'ordinateur et clignotement rouge de l'écran.
 - **Douchette** : la recherche et la connexion sont accessibles à tous ; les paramètres (mode HID,
-  volume, préfixe…) et la déconnexion demandent un utilisateur connecté. À la fin d'une recherche
+  et tous les réglages du SDK Inateck : volume, vibration, mode de lecture, types de codes, préfixe…,
+  lus sur la douchette selon son modèle) et la déconnexion demandent un utilisateur connecté. À la fin d'une recherche
   (8 s, ou dès qu'elle apparaît), l'application se reconnecte seule à la dernière douchette utilisée ;
   sinon, la douchette se choisit dans **Douchette > Connecter à** (accessible à tous). Un appareil qui
   refuse l'authentification du SDK n'est plus proposé. La douchette ne doit pas être appairée à l'ordinateur, et aucun autre appareil Bluetooth

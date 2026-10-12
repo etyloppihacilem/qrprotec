@@ -13,6 +13,7 @@
 #include "imgui.h"
 #include "core/codes.hpp"
 #include "inateck/inateck_worker.hpp"
+#include "inateck/scanner_settings.hpp"
 #include "inateck/sdk_json.hpp"
 #include "GLFW/glfw3.h"
 #include <algorithm>
@@ -40,6 +41,7 @@ Inateck::Inateck() {
   load_hid_settings();
   apply_hid_settings();
   inateck_worker_.set_preferred_device(saved_device_id_);
+  inateck_worker_.set_model(scanner_model_);
 }
 
 Inateck::~Inateck() { save_hid_settings(); }
@@ -62,6 +64,8 @@ void Inateck::load_hid_settings() {
         hid_minimum_length_ = std::clamp(std::stoi(value), 1, 64);
       else if (key == "device_id")
         saved_device_id_ = value;
+      else if (key == "model")
+        scanner_model_ = std::max(0, std::stoi(value));
     } catch (const std::exception&) {
       // Keep the defaults for malformed individual settings.
     }
@@ -79,7 +83,8 @@ void Inateck::save_hid_settings() const {
   settings << "enabled=" << (hid_enabled_ ? 1 : 0) << '\n'
            << "timeout_ms=" << hid_timeout_ms_ << '\n'
            << "minimum_length=" << hid_minimum_length_ << '\n'
-           << "device_id=" << saved_device_id_ << '\n';
+           << "device_id=" << saved_device_id_ << '\n'
+           << "model=" << scanner_model_ << '\n';
 }
 
 void Inateck::update() {
@@ -264,40 +269,18 @@ void Inateck::draw_inateck_window() {
       save_hid_settings();
     }
     ImGui::SetItemTooltip("Traiter les saisies clavier très rapides comme des scans.");
-    if (ImGui::SliderInt("Délai HID (ms)", &hid_timeout_ms_, 5, 500) && ImGui::IsItemDeactivatedAfterEdit()) {
+    // La valeur est appliquee au relachement du curseur (le curseur ne renvoie plus true a ce moment-la)
+    ImGui::SliderInt("Délai HID (ms)", &hid_timeout_ms_, 5, 500);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
       apply_hid_settings();
       save_hid_settings();
     }
-    if (ImGui::SliderInt("Longueur minimale HID", &hid_minimum_length_, 1, 64) && ImGui::IsItemDeactivatedAfterEdit()) {
+    ImGui::SliderInt("Longueur minimale HID", &hid_minimum_length_, 1, 64);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
       apply_hid_settings();
       save_hid_settings();
     }
-    ImGui::Separator();
-    ImGui::BeginDisabled(!state.authenticated);
-    if (ImGui::SliderInt("Volume", &inateck_volume_, 0, 3) && ImGui::IsItemDeactivatedAfterEdit())
-      inateck_worker_.set_volume(inateck_volume_);
-    if (ImGui::Checkbox("Vibration", &inateck_vibration_) && ImGui::IsItemDeactivatedAfterEdit())
-      inateck_worker_.set_vibration(inateck_vibration_);
-    ImGui::Checkbox("Recevoir les scans dans QRProtec", &inateck_sdk_output_);
-    if (button("Appliquer le mode de sortie"))
-      inateck_worker_.set_sdk_output(inateck_sdk_output_);
-    ImGui::Separator();
-    ImGui::InputText("Préfixe", inateck_prefix_, sizeof(inateck_prefix_));
-    ImGui::SameLine();
-    if (button("Appliquer##prefixe"))
-      inateck_worker_.set_prefix(inateck_prefix_);
-    ImGui::InputText("Suffixe", inateck_suffix_, sizeof(inateck_suffix_));
-    ImGui::SameLine();
-    if (button("Appliquer##suffixe"))
-      inateck_worker_.set_suffix(inateck_suffix_);
-    ImGui::InputText("Nom Bluetooth", inateck_name_, sizeof(inateck_name_));
-    ImGui::SameLine();
-    if (button("Appliquer##nom"))
-      inateck_worker_.set_name(inateck_name_);
-    if (button("Relire les paramètres"))
-      inateck_worker_.refresh_settings();
-    ImGui::EndDisabled();
-    ImGui::TextUnformatted("Le volume et la vibration utilisent les flags ST23 du SDK.");
+    draw_scanner_settings(state);
   }
 
   if (ImGui::CollapsingHeader("Dernier scan", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -310,6 +293,198 @@ void Inateck::draw_inateck_window() {
   }
   ImGui::End();
   inateck_window_open_ = open;
+}
+
+void Inateck::draw_scanner_settings(const InateckSnapshot& state) {
+  ImGui::SeparatorText("Douchette");
+  // Modele : le SDK lit et ecrit les parametres a des adresses propres a chaque modele
+  const int detected = detect_scanner_model(state.selected_name);
+  std::string automatic = "Automatique";
+  automatic += detected ? std::string(" (") + scanner_model_label(detected) + ")" : " (non reconnu)";
+  const char* preview = scanner_model_ ? scanner_model_label(scanner_model_) : automatic.c_str();
+  if (ImGui::BeginCombo("Modèle", preview)) {
+    if (ImGui::Selectable(automatic.c_str(), scanner_model_ == 0)) {
+      scanner_model_ = 0;
+      inateck_worker_.set_model(0);
+      save_hid_settings();
+    }
+    for (const ScannerModel& model : scanner_models()) {
+      if (ImGui::Selectable(model.label, scanner_model_ == model.type)) {
+        scanner_model_ = model.type;
+        inateck_worker_.set_model(model.type);
+        save_hid_settings();
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::SetItemTooltip("Modèle inscrit sous la douchette. Les versions AI se choisissent à la main.");
+
+  ImGui::BeginDisabled(!state.authenticated);
+  if (state.authenticated) {
+    if (!state.battery.empty())
+      ImGui::Text("Batterie : %s %%", state.battery.c_str());
+    if (!state.software_version.empty() || !state.hardware_version.empty())
+      ImGui::TextDisabled("Version logicielle %s, matérielle %s", state.software_version.c_str(),
+                          state.hardware_version.c_str());
+    if (!state.mac.empty())
+      ImGui::TextDisabled("Adresse MAC : %s", state.mac.c_str());
+    if (!state.sdk_version.empty())
+      ImGui::TextDisabled("SDK Inateck %s", state.sdk_version.c_str());
+  }
+  if (!state.message.empty())
+    ImGui::TextColored(colors::green, "%s", state.message.c_str());
+  if (button("Relire les paramètres"))
+    inateck_worker_.refresh_settings();
+  ImGui::SameLine();
+  if (button("Bip de test"))
+    inateck_worker_.beep();
+  ImGui::SameLine();
+  if (button("Synchroniser l'heure"))
+    inateck_worker_.sync_time();
+  ImGui::SetItemTooltip("Règle l'horloge de la douchette sur celle de l'ordinateur (date et heure ajoutées aux codes).");
+
+  ImGui::Checkbox("Recevoir les scans dans QRProtec", &inateck_sdk_output_);
+  ImGui::SameLine();
+  if (button("Appliquer le mode de sortie"))
+    inateck_worker_.set_sdk_output(inateck_sdk_output_);
+  ImGui::InputText("Préfixe", inateck_prefix_, sizeof(inateck_prefix_));
+  ImGui::SameLine();
+  if (button("Appliquer##prefixe"))
+    inateck_worker_.set_prefix(inateck_prefix_);
+  if (!state.prefix.empty())
+    ImGui::TextDisabled("Préfixe actuel : %s", state.prefix.c_str());
+  ImGui::InputText("Suffixe", inateck_suffix_, sizeof(inateck_suffix_));
+  ImGui::SameLine();
+  if (button("Appliquer##suffixe"))
+    inateck_worker_.set_suffix(inateck_suffix_);
+  if (!state.suffix.empty())
+    ImGui::TextDisabled("Suffixe actuel : %s", state.suffix.c_str());
+  ImGui::InputText("Nom Bluetooth", inateck_name_, sizeof(inateck_name_));
+  ImGui::SameLine();
+  if (button("Appliquer##nom"))
+    inateck_worker_.set_name(inateck_name_);
+
+  if (state.settings_loading)
+    ImGui::TextDisabled("Lecture des paramètres de la douchette…");
+  else if (state.authenticated && state.settings.empty())
+    ImGui::TextDisabled("Paramètres non lus : vérifiez le modèle puis « Relire les paramètres ».");
+
+  // Un groupe par theme, avec les seuls parametres que ce modele de douchette connait
+  for (const char* group : scanner_setting_groups()) {
+    std::vector<const ScannerSettingValue*> settings;
+    for (const ScannerSettingValue& setting : state.settings)
+      if (std::string(scanner_setting_info(setting.flag, setting.name).group) == group)
+        settings.push_back(&setting);
+    const bool codes = std::string(group) == scanner_setting_groups()[4];
+    if (settings.empty() && !(codes && !state.settings.empty()))
+      continue;
+    const ImGuiTreeNodeFlags flags = group == scanner_setting_groups().front() ? ImGuiTreeNodeFlags_DefaultOpen : 0;
+    if (!ImGui::TreeNodeEx(group, flags))
+      continue;
+    if (codes) {
+      if (button("Tout activer"))
+        inateck_worker_.open_all_codes();
+      ImGui::SameLine();
+      if (button("Tout désactiver"))
+        inateck_worker_.close_all_codes();
+      ImGui::SameLine();
+      if (button("Types par défaut"))
+        inateck_worker_.reset_all_codes();
+      ImGui::SetItemTooltip("Remet les types de codes lus à leur réglage d'usine.");
+    }
+    for (const ScannerSettingValue* setting : settings)
+      draw_scanner_setting(*setting);
+    ImGui::TreePop();
+  }
+  draw_scanner_actions(state);
+  ImGui::EndDisabled();
+}
+
+void Inateck::draw_scanner_setting(const ScannerSettingValue& setting) {
+  const ScannerSettingInfo info = scanner_setting_info(setting.flag, setting.name);
+  const std::string label = std::string(*info.label ? info.label : setting.name.c_str()) + "##" +
+                            std::to_string(setting.flag);
+  switch (info.kind) {
+  case ScannerSettingKind::Toggle: {
+    bool enabled = setting.value != 0;
+    if (ImGui::Checkbox(label.c_str(), &enabled))
+      inateck_worker_.set_setting(setting.flag, enabled ? 1 : 0);
+    break;
+  }
+  case ScannerSettingKind::Choice: {
+    std::string preview = "Valeur " + std::to_string(setting.value);
+    for (const ScannerSettingOption& option : info.options)
+      if (option.value == setting.value)
+        preview = option.label;
+    if (ImGui::BeginCombo(label.c_str(), preview.c_str())) {
+      for (const ScannerSettingOption& option : info.options)
+        if (ImGui::Selectable(option.label, option.value == setting.value) && option.value != setting.value)
+          inateck_worker_.set_setting(setting.flag, option.value);
+      ImGui::EndCombo();
+    }
+    break;
+  }
+  case ScannerSettingKind::Number:
+  case ScannerSettingKind::Character: {
+    // La valeur part a la douchette au relachement du curseur, pas a chaque deplacement
+    const auto pending = pending_values_.find(setting.flag);
+    int value = pending != pending_values_.end() ? pending->second : setting.value;
+    const int minimum = std::min(info.minimum, value);
+    const int maximum = std::max(info.maximum, value);
+    ImGui::SliderInt(label.c_str(), &value, minimum, maximum);
+    if (ImGui::IsItemActive())
+      pending_values_[setting.flag] = value;
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+      pending_values_.erase(setting.flag);
+      if (value != setting.value)
+        inateck_worker_.set_setting(setting.flag, value);
+    } else if (!ImGui::IsItemActive() && pending != pending_values_.end() && !ImGui::IsItemDeactivated()) {
+      pending_values_.erase(setting.flag);
+    }
+    if (info.kind == ScannerSettingKind::Character && value > 32 && value < 127) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("« %c »", static_cast<char>(value));
+    }
+    break;
+  }
+  }
+  if (*info.help)
+    ImGui::SetItemTooltip("%s", info.help);
+}
+
+void Inateck::draw_scanner_actions(const InateckSnapshot& state) {
+  if (!ImGui::TreeNode("Mémoire et entretien"))
+    return;
+  ImGui::Text("Codes en mémoire : %s", state.cache_count.empty() ? "?" : state.cache_count.c_str());
+  ImGui::SameLine();
+  if (button("Compter"))
+    inateck_worker_.read_cache_count();
+  if (button("Envoyer les codes en mémoire"))
+    inateck_worker_.upload_cache();
+  ImGui::SetItemTooltip("Mode inventaire : la douchette envoie les codes lus hors de portée.");
+  ImGui::SameLine();
+  if (button("Vider la mémoire"))
+    inateck_worker_.clear_cache();
+  if (button("Redémarrer la douchette"))
+    inateck_worker_.restart();
+  ImGui::SameLine();
+  if (danger_button("Réglages d'usine…"))
+    ImGui::OpenPopup("scanner_factory_reset");
+  if (ImGui::BeginPopup("scanner_factory_reset")) {
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+    ImGui::TextWrapped("Remettre la douchette à ses réglages d'usine ? Volume, types de codes, préfixe, suffixe, "
+                       "clavier… sont effacés.");
+    ImGui::PopTextWrapPos();
+    if (danger_button("Réinitialiser")) {
+      inateck_worker_.factory_reset();
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (button("Annuler"))
+      ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
+  ImGui::TreePop();
 }
 
 void Inateck::draw_menu() {

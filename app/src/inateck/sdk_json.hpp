@@ -6,6 +6,7 @@
 namespace qrprotec {
 
 struct InateckDevice;
+struct ScannerSettingValue;
 
 // Lecture minimale des reponses JSON du SDK Inateck (pas de dependance JSON).
 
@@ -15,6 +16,12 @@ std::string sdk_json_string(const char* json, const char* key);
 bool sdk_json_success(const char* json);
 // Objets du tableau "devices" (ou "device_list"), chacun sous forme de texte JSON.
 std::vector<std::string> sdk_json_device_objects(const char* json);
+
+// Parametres renvoyes par inateck_scanner_ble_get_setting_info :
+// {"status":0,"data":[{"name":"volume","flag":1001,"value":4},...]}.
+std::vector<ScannerSettingValue> sdk_json_settings(const char* json);
+// Valeur de "data" en texte lisible (texte, nombre, ou tableau/objet tel quel). "" si absente.
+std::string sdk_json_data_text(const char* json);
 
 // Code lu par la douchette sans le retour a la ligne final que le SDK ajoute.
 std::string clean_scan_code(std::string code);
