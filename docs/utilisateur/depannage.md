@@ -61,7 +61,7 @@ Le badge a plus d'un an ou a été renouvelé. Demandez un nouveau badge à un a
 
 **« PIN bloqué ».**
 Cinq PIN faux : attendez 5 minutes. PIN oublié : un administrateur en définit un nouveau
-(**Gestion > Utilisateurs**), ou touchez **Code oublié ?** sous la saisie du PIN sur le téléphone.
+(**Administration > Utilisateurs**), ou touchez **Code oublié ?** sous la saisie du PIN sur le téléphone.
 Votre PIN est alors bloqué et l'écran de déblocage s'affiche, comme ci-dessous.
 
 **« Code PIN bloqué après trop d'essais ».**

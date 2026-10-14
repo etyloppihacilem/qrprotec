@@ -4,7 +4,7 @@ Cette page concerne le rôle **admin** (sauf « Lots » et « Scellés », acces
 
 ## Utilisateurs et badges
 
-Menu **Gestion > Utilisateurs**.
+Menu **Administration > Utilisateurs**.
 
 - **Nouvel utilisateur** : matricule (1 à 16 lettres, chiffres, `-` ou `_`, définitif), prénom, nom,
   rôle, PIN éventuel. **Créer et voir le badge** affiche l'aperçu ; imprimez-le.
@@ -123,7 +123,7 @@ ouverture de chaque lot.
 
 ## Étiquettes
 
-Menu **Gestion > Éditeur d'étiquettes** (admin). Chaque modèle a un **usage** (item, paquet, lot
+Menu **Administration > Éditeur d'étiquettes** (admin). Chaque modèle a un **usage** (item, paquet, lot
 public, lot clé, scellé, ouverture du scellé, badge, étiquette de tâches) qui détermine les informations disponibles,
 listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{lot_name}}`…).
 
@@ -144,7 +144,7 @@ sens est tourné automatiquement (**Retourner les étiquettes (180°)** si elles
 
 ## Réglages du poste
 
-Menu **Gestion > Réglages** (admin) :
+Menu **Administration > Réglages** (admin) :
 
 | Section | Contenu |
 |---|---|
