@@ -69,7 +69,11 @@ def item_dict(item, today=None):
         'tasks': list(item.pack.item_type.tasks or []),
         'task_url': public_url('task', id=item.iid),
         'peremption': _date(item.pack.peremption),
-        'expired': item.is_expired(today),
+        # a remplacer : perime, ou signale inutilisable (ne compte plus dans son lot, voir reports.py)
+        'expired': item.needs_replacement(today),
+        'outdated': item.is_expired(today),  # perime seulement
+        'unusable': item.unusable,
+        'reported': item.reported,  # signalement ouvert : jamais marque disparu par une verif
         'status': item.status,
         'location': item.location_id,
         'location_name': item.location.name if item.location_id else '',
@@ -195,7 +199,7 @@ def _lot_core(lot, today, items=None):
     if items is None:
         items = list(lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE).order_by('iid'))
     requirements = requirements_status(lot, today)
-    expired = [item for item in items if item.is_expired(today)]
+    expired = [item for item in items if item.needs_replacement(today)]
     soon_limit = today + timedelta(days=30)
     soon = [item for item in items if item.pack.peremption and today <= item.pack.peremption <= soon_limit]
     data = {
@@ -522,6 +526,7 @@ def notification_settings_dict(settings_row, recipients):
             'badge_renewed': settings_row.badge_renewed,
             'badge_expiring': settings_row.badge_expiring,
             'order_due': settings_row.order_due,
+            'problem_report': settings_row.problem_report,
         },
         # delai de l'alerte « expire bientot » des etiquettes privees de lot et des badges (SMS et web)
         'key_expiry_warning_days': settings_row.expiry_warning_days,

@@ -1,7 +1,8 @@
 from django.contrib import admin
 
 from .models import (
-    FrontKey, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, SealedPacks, Secouristes, VerifItem, Verifs,
+    FrontKey, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, ProblemReport, SealedPacks, Secouristes,
+    VerifItem, Verifs,
 )
 
 
@@ -42,6 +43,12 @@ admin.site.register(ItemsPacks)
 admin.site.register(SealedPacks)
 admin.site.register(Verifs)
 admin.site.register(VerifItem)
+
+
+@admin.register(ProblemReport)
+class ProblemReportAdmin(admin.ModelAdmin):
+    list_display = ('id', 'created', 'status', 'usable', 'lot_name', 'item', 'by')
+    list_filter = ('status', 'usable')
 
 
 @admin.register(FrontKey)

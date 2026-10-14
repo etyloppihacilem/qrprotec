@@ -40,6 +40,9 @@ public_patterns = [
     path('push/test/', views.push_test),
     path('push/devices/', views.push_devices),
     path('push/devices/<int:device_id>/', views.push_device),
+    path('reports/', views.reports_create),
+    path('reports/list/', views.reports_list),
+    path('reports/<int:report_id>/', views.report_update),
 ]
 
 # Servies uniquement par l'API locale (poste de gestion). Elles doivent preceder les routes publiques

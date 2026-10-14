@@ -30,12 +30,14 @@
           <button class="tile" type="button" data-go="live"><span class="tile-icon">📡</span><b>Suivi des vérifs</b><small>En direct et récentes</small></button>
           <button class="tile" type="button" data-go="lots"><span class="tile-icon">📦</span><b>État des lots</b><small>Tous les lots et leur état</small></button>
           <button class="tile" type="button" data-go="stock" id="tile-stock"><span class="tile-icon">📊</span><b>État des stocks</b><small id="tile-stock-sub">Connexion requise</small></button>
+          <button class="tile wide" type="button" data-go="reports" id="tile-reports"><span class="tile-icon">⚠</span><span><b>Signalements</b><small id="tile-reports-sub">Connexion requise</small></span></button>
         </div>
         <p class="hint home-hint">Ce téléphone peut aussi servir de douchette au poste : sur le poste, menu Douchette &gt; Téléphone comme douchette, puis scannez le QR code affiché avec « Scanner ».</p>
       </div>
       <div class="home-page page" data-page="lots" id="home-lots"></div>
       <div class="home-page page" data-page="live" id="home-live"></div>
       <div class="home-page page" data-page="stock" id="home-stock"></div>
+      <div class="home-page page" data-page="reports" id="home-reports"></div>
     </div>
   </section>
 
@@ -133,6 +135,36 @@
       <div class="dialog-buttons">
         <button type="button" id="tasks-cancel" class="secondary">Annuler</button>
         <button type="submit" id="tasks-ok" class="primary">Valider</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Signalement d'un probleme : connexion demandee avant de rediger -->
+  <dialog id="login-needed">
+    <h2>Connexion requise</h2>
+    <p id="login-needed-text"></p>
+    <div class="dialog-stack">
+      <button type="button" id="login-needed-badge" class="primary">Scanner mon badge</button>
+      <button type="button" id="login-needed-name" class="secondary">Sans badge : nom et code PIN</button>
+      <button type="button" id="login-needed-cancel" class="secondary">Annuler</button>
+    </div>
+  </dialog>
+
+  <dialog id="problem">
+    <form id="problem-form">
+      <h2>Signaler un problème</h2>
+      <p id="problem-target" class="hint"></p>
+      <p><b id="problem-question">L'objet est-il toujours utilisable ?</b></p>
+      <div class="choice">
+        <label><input type="radio" name="problem-usable" id="problem-usable-yes"> Oui, toujours utilisable</label>
+        <label><input type="radio" name="problem-usable" id="problem-usable-no"> Non, à remplacer</label>
+      </div>
+      <textarea id="problem-comment" rows="4" maxlength="1000" placeholder="Décrivez le problème (facultatif)"></textarea>
+      <p class="hint">Envoyé tout de suite aux administrateurs, indépendamment de la vérif.</p>
+      <p id="problem-error" class="pin-error"></p>
+      <div class="dialog-buttons">
+        <button type="button" id="problem-cancel" class="secondary">Annuler</button>
+        <button type="submit" id="problem-send" class="primary">Envoyer</button>
       </div>
     </form>
   </dialog>

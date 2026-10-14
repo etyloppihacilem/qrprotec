@@ -268,10 +268,13 @@ def notify_pin_blocked(text, url):
     }) for subscription in subscriptions_for('pin_blocked')])
 
 
-def notify_event(field, title, body, url='../'):
-    """Evenement simple (renouvellement, expiration) vers les abonnements qui l'ont choisi."""
-    return queue([(subscription.id, {'title': title, 'body': body, 'tag': field, 'url': url})
-                  for subscription in subscriptions_for(field)])
+def notify_event(field, title, body, url='../', tag='', tab=''):
+    """Evenement simple (renouvellement, expiration, signalement) vers les abonnements qui l'ont choisi. tab : page
+    du front web ouverte au clic quand il est deja ouvert (voir app.js)."""
+    message = {'title': title, 'body': body, 'tag': tag or field, 'url': url}
+    if tab:
+        message['tab'] = tab
+    return queue([(subscription.id, dict(message)) for subscription in subscriptions_for(field)])
 
 
 def device_name(user_agent):
