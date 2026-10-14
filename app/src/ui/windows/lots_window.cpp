@@ -54,6 +54,11 @@ class LotsWindow final : public AppWindow {
         seen_privileged_ = privileged;
         show_storage_    = privileged == 1;
       }
+      if (app.take_lots_to_treat()) { // voyant de la barre de menu
+        only_problems_ = true;
+        show_storage_  = false; // comme le voyant, qui ne compte pas les rangements du stock
+        filter_.clear();
+      }
       if (button("Rafraîchir"))
         app.refresh_lots();
       ImGui::SameLine();
@@ -84,8 +89,8 @@ class LotsWindow final : public AppWindow {
     void draw_table(App &app) {
       const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
                                   | ImGuiTableFlags_Resizable;
-      // fiche ouverte : la liste est etroite, on masque les colonnes secondaires
-      const bool compact = !selected_.empty();
+      // fiche ouverte ou fenetre etroite (a cote des Signalements) : on masque les colonnes secondaires
+      const bool compact = !selected_.empty() || ImGui::GetContentRegionAvail().x < 700.0f;
       if (!ImGui::BeginTable(compact ? "lots_compact" : "lots", compact ? 3 : 5, flags))
         return;
       ImGui::TableSetupScrollFreeze(0, 1);
