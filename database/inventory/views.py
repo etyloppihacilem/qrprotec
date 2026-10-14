@@ -46,7 +46,7 @@ from .idendity import SOURCE_VERIFIED, identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
-    PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
+    PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     SCANNER_VOLUMES, ServerSettings, SmsRecipient, Verifs, name_key, qrprotec_setting,
 )
@@ -988,13 +988,36 @@ def reports_list(request):
 @api_view(['POST'])
 @handle_errors
 def report_update(request, report_id):
-    """Prise en charge par un admin : {"user", "status": new|progress|resolved, "usable": bool, "note": texte}."""
+    """Prise en charge par un admin : {"user", "status": new|progress|resolved, "usable": bool, "note": texte,
+    "resolution": ok|disabled|removed (issue pour l'item, en resolvant)}."""
     user = connected_user(request, ADMIN)
     report = get_object_or_404(ProblemReport.objects.select_related('item_type', 'item', 'lot'), id=report_id)
     data = request.data
     reports.update(report, f'{SOURCE_VERIFIED}:{user.matricule}', status=data.get('status'),
-                   usable=data.get('usable'), note=data.get('note'))
+                   usable=data.get('usable'), note=data.get('note'), resolution=data.get('resolution'))
     return Response(reports.report_dict(report))
+
+
+@api_view(['POST'])
+@handle_errors
+def item_disable(request, iid):
+    """Desactive ou reactive un item (rappel produit, non-conformite), au poste ou sur le web (gestion, admin) :
+    {"user", "disabled": bool, "reason": texte (obligatoire pour desactiver), "pack": bool}. `pack` : tous les items
+    encore en service du meme type et de la meme date (meme paquet d'etiquettes), pour un rappel de lot fabricant."""
+    user = connected_user(request, GESTION)
+    item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
+    disabled = bool(request.data.get('disabled', True))
+    if request.data.get('pack'):
+        targets = list(Items.objects.select_related('pack__item_type', 'location__lot_type').filter(
+            pack=item.pack, status__in=(ItemStatus.ACTIVE, ItemStatus.OUT, ItemStatus.LOOSE)))
+        if item not in targets:
+            targets.append(item)
+    else:
+        targets = [item]
+    changed = services.set_disabled(targets, f'{SOURCE_VERIFIED}:{user.matricule}', disabled,
+                                    request.data.get('reason', ''))
+    item.refresh_from_db()
+    return Response({'item': ser.item_dict(item), 'count': len(changed)})
 
 
 @api_view(['GET'])

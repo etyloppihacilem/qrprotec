@@ -110,8 +110,10 @@ class ScanWindow final : public AppWindow {
             ImGui::TextWrapped("%s", entry->detail.c_str());
           ImGui::TableNextColumn();
           if (entry->expired)
-            ImGui::TextColored(colors::red, entry->data["unusable"].boolean() && !entry->data["outdated"].boolean()
-                                              ? "INUTILISABLE" : "PÉRIMÉ");
+            ImGui::TextColored(colors::red, entry->data["outdated"].boolean()   ? "PÉRIMÉ"
+                                            : entry->data["disabled"].boolean() ? "DÉSACTIVÉ"
+                                            : entry->data["unusable"].boolean() ? "INUTILISABLE"
+                                                                                : "PÉRIMÉ");
           else if (entry->state == EntryState::Error)
             ImGui::TextColored(colors::red, "Erreur");
           else if (entry->duplicate)

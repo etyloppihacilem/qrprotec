@@ -90,9 +90,9 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_journal_window());
   windows.push_back(make_users_window());
   windows.push_back(make_editor_window());
-  windows.push_back(make_settings_window());
+  windows.push_back(make_reports_window());
+  windows.push_back(make_settings_window()); // derniere du menu Administration : toujours F12
   windows.push_back(make_phone_window());
-  windows.push_back(make_reports_window()); // apres les autres : pas de touche F (F1 a F12 deja prises)
   assign_shortcuts();
   feedback.on_phone_error = [this]() {
     remote.feedback_pending = true;
@@ -190,7 +190,8 @@ AppWindow *App::window(const std::string &id) {
 }
 
 // Raccourcis d'ouverture : touches de fonction, F1 a F4 pour les fenetres de tous puis F5 a F12 pour celles des
-// menus Gestion puis Administration (dans l'ordre de windows). Elles ne tapent rien dans les champs. Ctrl+chiffre
+// menus Gestion puis Administration (dans l'ordre de windows, sauf les paquets fermes, ouverts depuis le scan d'un
+// paquet) : Signalements en F11, Reglages toujours en F12. Elles ne tapent rien dans les champs. Ctrl+chiffre
 // choisit l'onglet d'une fenetre (tab_item dans widgets.hpp).
 void App::assign_shortcuts() {
   std::vector< AppWindow * > ordered;
@@ -198,7 +199,7 @@ void App::assign_shortcuts() {
     if (AppWindow *target = window(id))
       ordered.push_back(target);
   for (auto &target : windows)
-    if (target->privileged)
+    if (target->privileged && target->id != "pack")
       ordered.push_back(target.get());
   for (std::size_t index = 0; index < ordered.size() && index < 12; ++index) {
     const ImGuiKey key         = static_cast< ImGuiKey >(ImGuiKey_F1 + index);
@@ -1449,7 +1450,9 @@ void App::resolve_item(int entry_id) {
       detail += item["out_until"].is_null()
                   ? std::string(" - sorti du stock (non consommable)")
                   : " - sorti du stock, compté utilisé le " + display_date(item["out_until"]) + " s'il ne revient pas";
-    if (item["unusable"].boolean())
+    if (item["disabled"].boolean())
+      detail += " - désactivé (" + item["disabled_reason"].str() + ") : à remplacer";
+    else if (item["unusable"].boolean())
       detail += " - signalé inutilisable : à remplacer";
     else if (item["reported"].boolean())
       detail += " - problème signalé";
@@ -2013,14 +2016,14 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     return false;
   };
   const Date              today = this->today();
-  // items signales inutilisables (signalement ouvert) : a remplacer comme des perimes
+  // items signales inutilisables (signalement ouvert) ou desactives : a remplacer comme des perimes
   std::set< std::string > unusable;
   for (const ScanEntry &entry : stack.entries())
-    if (entry.data["unusable"].boolean())
+    if (entry.data["unusable"].boolean() || entry.data["disabled"].boolean())
       unusable.insert(entry.scan.id);
   for (const Json *lot : lots)
     for (const Json &item : (*lot)["items"].items())
-      if (item["unusable"].boolean())
+      if (item["unusable"].boolean() || item["disabled"].boolean())
         unusable.insert(item["iid"].str());
   std::vector< Scanned >  newcomers;
   std::map< std::string, std::string > target;

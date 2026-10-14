@@ -576,6 +576,11 @@ class InventoryWindow final : public AppWindow {
                                  : item["location"].is_null() ? "Stock" : item["location_name"].str().c_str());
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item["status"].str().c_str());
+          if (item["disabled"].boolean()) {
+            ImGui::SameLine();
+            ImGui::TextColored(colors::red, "désactivé");
+            ImGui::SetItemTooltip("%s", item["disabled_reason"].str().c_str());
+          }
           ImGui::TableNextColumn();
           ImGui::PushID(iid.c_str());
           if (small_button("Aperçu"))
@@ -640,7 +645,63 @@ class InventoryWindow final : public AppWindow {
           }
           ImGui::EndDisabled();
         }
+        if (selected_item_["status"].str() != "deleted" && selected_item_["status"].str() != "replaced")
+          draw_disable(app, iid);
       }
+    }
+
+    // Desactivation (rappel produit, non-conformite) : l'item est invalide comme un perime et doit etre remplace.
+    // « Tout le paquet » : tous les items encore en service du meme type et de la meme date (rappel d'un lot).
+    void draw_disable(App &app, const std::string &iid) {
+      ImGui::SeparatorText("Rappel produit, non-conformité");
+      const auto send = [this, &app, iid](Json body) {
+        body["user"] = app.user_ref();
+        app.api.post("/api/items/" + url_encode(iid) + "/disable/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          const int count = result.data["count"].integer();
+          app.notify(result.data["item"]["disabled"].boolean()
+                       ? (count > 1 ? std::to_string(count) + " items désactivés." : std::string("Item désactivé."))
+                       : std::string("Item réactivé."));
+          disable_reason_.clear();
+          disable_pack_  = false;
+          selected_item_ = Json();
+          search(app);
+        });
+      };
+      if (selected_item_["disabled"].boolean()) {
+        ImGui::TextColored(colors::red, "Désactivé le %s par %s : %s",
+                           display_datetime(selected_item_["disabled_at"]).c_str(),
+                           selected_item_["disabled_by"].str("-").c_str(),
+                           selected_item_["disabled_reason"].str().c_str());
+        if (button("Réactiver l'item")) {
+          Json body;
+          body["disabled"] = false;
+          send(body);
+        }
+        return;
+      }
+      ImGui::TextWrapped("Un item désactivé est invalide comme s'il était périmé : il ne compte plus dans son lot et "
+                         "doit être remplacé (le remplaçant le sort du lot à la vérif).");
+      ImGui::SetNextItemWidth(300.0f);
+      input_limited("##disable_reason", disable_reason_, 128, "Raison (obligatoire), ex : rappel produit");
+      ImGui::SameLine();
+      ImGui::Checkbox("Tout le paquet (même type, même date)", &disable_pack_);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(disable_reason_.empty());
+      if (confirm_button(disable_pack_ ? "Désactiver le paquet" : "Désactiver l'item",
+                         disable_pack_ ? "Désactiver tous les items de ce type et de cette date ?"
+                                       : "Désactiver cet item ?",
+                         "confirm_disable")) {
+        Json body;
+        body["disabled"] = true;
+        body["reason"]   = disable_reason_;
+        body["pack"]     = disable_pack_;
+        send(body);
+      }
+      ImGui::EndDisabled();
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -731,6 +792,8 @@ class InventoryWindow final : public AppWindow {
     Json        items_ = Json::array();
     Json        selected_item_;
     std::string delete_reason_;
+    std::string disable_reason_;
+    bool        disable_pack_ = false;
     // Paquets
     Json packs_       = Json::array();
     bool show_opened_        = false;

@@ -334,11 +334,12 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 if expired:
                     report['expired'].append(item.iid)
                     counts[destination]['expired'] += 1
-                if item.unusable:
-                    report['unusable'].append(item.iid)  # signale inutilisable (compte aussi dans expired)
+                if item.unusable or item.disabled:
+                    # signale inutilisable ou desactive : a remplacer (compte aussi dans expired)
+                    report['unusable'].append(item.iid)
                 entries.append(VerifItem(verif=verif, item=item, result=VerifResult.PRESENT, expired=expired))
         for item in not_seen:
-            expired = item.is_expired(today)
+            expired = item.needs_replacement(today)
             verif = verifs[item.location_id if group is not None else None]
             if item.missed_verifs == 0:
                 moves.append(movements.absence(item, now, identity, verif))
@@ -565,7 +566,8 @@ def seal_lot(lot, identity, seal_number='', force=False):
         today = timezone.localdate()
         for sub_lot in lot.descendants():
             rows = requirements_status(sub_lot, today)
-            expired = Items.objects.filter(Q(pack__peremption__lt=today) | Q(unusable=True), location=sub_lot,
+            expired = Items.objects.filter(Q(pack__peremption__lt=today) | Q(unusable=True) | Q(disabled=True),
+                                           location=sub_lot,
                                            status=ItemStatus.ACTIVE).exists()
             if expired or any(row['present'] < row['required'] for row in rows):
                 what = 'Lot' if sub_lot.id == lot.id else f'Sous-lot {sub_lot.name}'
@@ -829,6 +831,34 @@ def mark_deleted(item, identity, reason):
     notifications.check_stock_levels([item.pack.item_type_id])
 
 
+def set_disabled(items, identity, disabled, reason=''):
+    """Desactive (rappel produit, non-conformite) ou reactive des items. Desactive, un item est invalide comme un
+    perime : il ne compte plus dans son lot et doit etre remplace (le remplacant le sort du lot a la verif)."""
+    reason = str(reason or '').strip()[:128]
+    if disabled and not reason:
+        raise ValueError('Une raison est obligatoire pour désactiver un item')
+    items = [item for item in items if item.disabled != bool(disabled)]
+    if not items:
+        return []
+    now = timezone.now()
+    with transaction.atomic():
+        for item in items:
+            item.disabled = bool(disabled)
+            item.disabled_reason = reason if disabled else ''
+            item.disabled_at = now if disabled else None
+            item.disabled_by = identity[:64] if disabled else ''
+            item.save(update_fields=['disabled', 'disabled_reason', 'disabled_at', 'disabled_by'])
+        first = items[0]
+        what = first.pack.item_type.name + (f' ({len(items)} items)' if len(items) > 1 else f' {first.iid}')
+        if disabled:
+            journal.record(OperationKind.ITEM_DISABLE, identity, f'{what} : {reason}', at=now,
+                           items=[item.iid for item in items], reason=reason)
+        else:
+            journal.record(OperationKind.ITEM_ENABLE, identity, what, at=now, items=[item.iid for item in items])
+    notifications.check_stock_levels(sorted({item.pack.item_type_id for item in items}))
+    return items
+
+
 def restore(item, identity):
     now = timezone.now()
     movements.found_again([item.iid], now, identity)
@@ -852,8 +882,10 @@ def stock_status(soon_days=30):
     soon = today + timedelta(days=soon_days)
     items = 'itemspacks__items'
     active = Q(**{f'{items}__status': ItemStatus.ACTIVE})
-    fresh = Q(itemspacks__peremption__isnull=True) | Q(itemspacks__peremption__gte=today)
-    expired = Q(itemspacks__peremption__lt=today)
+    # un item desactive (rappel produit, non-conformite) compte avec les perimes
+    disabled = Q(**{f'{items}__disabled': True})
+    fresh = (Q(itemspacks__peremption__isnull=True) | Q(itemspacks__peremption__gte=today)) & ~disabled
+    expired = Q(itemspacks__peremption__lt=today) | disabled
     # les rangements du stock (armoires, tiroirs) comptent dans le stock, pas dans les lots
     in_stock = in_stock_q(f'{items}__')
     in_lot = Q(**{f'{items}__location__isnull': False, f'{items}__location__lot_type__storage': False})

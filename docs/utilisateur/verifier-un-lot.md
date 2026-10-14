@@ -42,7 +42,7 @@ Tout se fait sans souris :
 | Touche | Effet |
 |---|---|
 | `F1` à `F4` | Pile de scans, Lots, Vérif, Téléphone-douchette |
-| `F5` à `F12` | fenêtres des menus Gestion (rôle gestion ou admin) puis Administration (admin), dans l'ordre des menus |
+| `F5` à `F12` | fenêtres des menus Gestion (rôle gestion ou admin) puis Administration (admin), dans l'ordre des menus, sauf Paquet fermé ; Signalements en `F11`, Réglages toujours en `F12` |
 | `Ctrl+1`, `Ctrl+2`… | choisir l'onglet d'une fenêtre à onglets |
 | `Alt` + lettre soulignée | actionner le bouton (ex. `Alt+V` pour **Valider la vérif** si le V est souligné) |
 | `Ctrl+F11` | plein écran : une seule fenêtre visible, sur tout l'écran |

@@ -190,13 +190,14 @@ void draw_hatching(ImDrawList *draw, const ImVec2 &min, const ImVec2 &max, float
     return ImGui::GetColorU32(ImVec4(std::min(1.0f, color.x * shade), std::min(1.0f, color.y * shade),
                                      std::min(1.0f, color.z * shade), 1.0f));
   };
-  draw->AddRectFilled(min, max, tint(colors::red), rounding);
+  // noir et jaune : signaletique, sans faire croire a un probleme en cours
+  draw->AddRectFilled(min, max, tint(ImVec4(0.07f, 0.07f, 0.07f, 1.0f)), rounding);
   draw->PushClipRect(min, max, true);
   const float band   = std::max(5.0f, (max.y - min.y) * 0.35f);
   const float height = max.y - min.y;
   for (float x = min.x - height; x < max.x; x += band * 2.0f)
     draw->AddQuadFilled(ImVec2(x, max.y), ImVec2(x + band, max.y), ImVec2(x + band + height, min.y),
-                        ImVec2(x + height, min.y), tint(colors::orange));
+                        ImVec2(x + height, min.y), tint(ImVec4(1.0f, 0.83f, 0.0f, 1.0f)));
   draw->PopClipRect();
 }
 
@@ -208,7 +209,9 @@ bool hatched(const char *id, const char *text, const ImVec2 &size, float roundin
   draw_hatching(draw, min, max, rounding, ImGui::IsItemHovered(), ImGui::IsItemActive());
   const ImVec2 text_size = ImGui::CalcTextSize(text);
   const ImVec2 at((min.x + max.x - text_size.x) * 0.5f, (min.y + max.y - text_size.y) * 0.5f);
-  draw->AddText(ImVec2(at.x + 1, at.y + 1), IM_COL32(0, 0, 0, 160), text);
+  // contour noir : texte lisible sur les bandes jaunes comme sur les noires
+  for (const ImVec2 offset : { ImVec2(-1, 0), ImVec2(1, 0), ImVec2(0, -1), ImVec2(0, 1), ImVec2(1, 1) })
+    draw->AddText(ImVec2(at.x + offset.x, at.y + offset.y), IM_COL32(0, 0, 0, 230), text);
   draw->AddText(at, IM_COL32_WHITE, text);
   return clicked;
 }
@@ -549,8 +552,8 @@ bool escape_pressed() {
       && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
-bool confirm_button(const char *label, const char *question, const char *popup_id) {
-  if (danger_button(label))
+bool confirm_button(const char *label, const char *question, const char *popup_id, const ImVec2 &size) {
+  if (danger_button(label, size))
     ImGui::OpenPopup(popup_id);
   bool confirmed = false;
   if (ImGui::BeginPopup(popup_id)) {

@@ -26,8 +26,13 @@ std::string report_label(const Json &report) {
   const std::string status = report["status"].str();
   if (status == "new")
     return "Nouveau";
-  if (status == "resolved")
-    return "Résolu";
+  if (status == "resolved") {
+    const std::string resolution = report["resolution"].str();
+    return resolution == "ok"         ? "Résolu · remis en service"
+           : resolution == "disabled" ? "Résolu · item désactivé"
+           : resolution == "removed"  ? "Résolu · item retiré"
+                                      : "Résolu";
+  }
   return report["usable"].boolean() ? "En cours · utilisable" : "En cours · inutilisable";
 }
 
@@ -58,7 +63,7 @@ class ReportsWindow final : public AppWindow {
       ImGui::TextDisabled("Rouge : nouveau. Orange : en cours, objet inutilisable (à remplacer). Vert : en cours et "
                           "toujours utilisable, ou résolu.");
 
-      const float detail = selected() ? ImGui::GetFrameHeightWithSpacing() * 9.0f : 0.0f;
+      const float detail = selected() ? ImGui::GetFrameHeightWithSpacing() * 10.0f : 0.0f;
       if (ImGui::BeginTable("reports", 5,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, -detail))) {
@@ -152,9 +157,32 @@ class ReportsWindow final : public AppWindow {
           changes["usable"] = false;
         }
         ImGui::SetItemTooltip("Pris en charge, l'objet n'est pas disponible (orange) : un item est à remplacer.");
-        ImGui::SameLine();
-        if (primary_button("Résolu", ImVec2(-1, 0)))
-          changes["status"] = "resolved";
+        if (report["item"].str().empty()) {
+          ImGui::SameLine();
+          if (primary_button("Résolu", ImVec2(-1, 0)))
+            changes["status"] = "resolved";
+        } else {
+          // item non conforme : desactive (remplace a la prochaine verif comme un perime) ou deja retire (jete)
+          if (primary_button("Résolu · remis en service", ImVec2(third, 0))) {
+            changes["status"]     = "resolved";
+            changes["resolution"] = "ok";
+          }
+          ImGui::SetItemTooltip("L'item est conforme ou réparé : il redevient normal.");
+          ImGui::SameLine();
+          if (confirm_button("Résolu · item désactivé", "Désactiver l'item ? Il devra être remplacé comme un périmé.",
+                             "confirm_disable", ImVec2(third, 0))) {
+            changes["status"]     = "resolved";
+            changes["resolution"] = "disabled";
+          }
+          ImGui::SetItemTooltip("Item non conforme : invalide comme un périmé, remplacé à la prochaine vérif.");
+          ImGui::SameLine();
+          if (confirm_button("Résolu · item retiré", "Retirer l'item de l'inventaire (déjà jeté) ?", "confirm_remove",
+                             ImVec2(-1, 0))) {
+            changes["status"]     = "resolved";
+            changes["resolution"] = "removed";
+          }
+          ImGui::SetItemTooltip("L'item a déjà été jeté : il est marqué supprimé.");
+        }
       }
       if (!changes.is_null())
         update(app, report["id"].integer(), changes);

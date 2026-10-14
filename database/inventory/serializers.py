@@ -72,11 +72,16 @@ def item_dict(item, today=None):
         'tasks': list(item.pack.item_type.tasks or []),
         'task_url': public_url('task', id=item.iid),
         'peremption': _date(item.pack.peremption),
-        # a remplacer : perime, ou signale inutilisable (ne compte plus dans son lot, voir reports.py)
+        # a remplacer : perime, signale inutilisable ou desactive (ne compte plus dans son lot, voir reports.py)
         'expired': item.needs_replacement(today),
         'outdated': item.is_expired(today),  # perime seulement
         'unusable': item.unusable,
         'reported': item.reported,  # signalement ouvert : jamais marque disparu par une verif
+        # desactive (rappel produit, non-conformite) : invalide comme un perime, a remplacer
+        'disabled': item.disabled,
+        'disabled_reason': item.disabled_reason,
+        'disabled_at': _date(item.disabled_at),
+        'disabled_by': _who(item.disabled_by),
         'status': item.status,
         'location': item.location_id,
         'location_name': item.location.name if item.location_id else '',

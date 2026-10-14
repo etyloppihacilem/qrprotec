@@ -124,7 +124,7 @@ def check_stock_levels(type_ids=None):
         in_stock = Q(location__isnull=True) | Q(location__lot_type__storage=True)  # rangements du stock compris
         count = Items.objects.filter(
             in_stock, pack__item_type=item_type, status=ItemStatus.ACTIVE
-        ).exclude(pack__peremption__lt=today).count()
+        ).exclude(pack__peremption__lt=today).exclude(disabled=True).count()
         changed = []
         if count < item_type.min_quantity and not item_type.low_notified:
             low.append((item_type.name, count, item_type.min_quantity))
