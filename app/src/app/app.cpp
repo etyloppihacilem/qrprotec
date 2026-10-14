@@ -1111,6 +1111,8 @@ void App::complete_login(const Json &data) {
   pending_action_ = nullptr;
   if (action)
     action();
+  else if (session.admin() && !verif.active)
+    open_window("reports"); // configuration par defaut d'un admin : les signalements en cours (pas pendant une verif)
   if (session.privileged) {
     refresh_item_types();
     refresh_lot_types();
