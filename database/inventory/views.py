@@ -1034,6 +1034,7 @@ def item_types(request):
         perissable=bool(data.get('perissable', False)),
         default_pack_size=parse_int(data.get('default_pack_size', 1), 'default_pack_size', 1),
         tear_off=bool(data.get('tear_off', False)),
+        consumable=bool(data.get('consumable', True)),
         tasks=parse_tasks(data.get('tasks')),
     )
     journal.record(OperationKind.CATALOG, front_identity(request), f"type d'item créé : {item_type}", type=code)
@@ -1067,6 +1068,8 @@ def item_type_detail(request, type_code):
             item_type.perissable = perissable
         if 'tear_off' in data:
             item_type.tear_off = bool(data['tear_off'])
+        if 'consumable' in data:
+            item_type.consumable = bool(data['consumable'])
         if 'tasks' in data:
             item_type.tasks = parse_tasks(data['tasks'])
         if 'archived' in data:
@@ -1089,7 +1092,7 @@ def item_type_detail(request, type_code):
 ITEM_TYPE_FIELDS = {
     'name': 'nom', 'description': 'description', 'min_quantity': 'stock minimum',
     'default_pack_size': 'taille de paquet', 'perissable': 'périssable', 'tear_off': 'étiquette à déchirer',
-    'tasks': 'tâches', 'archived': 'archivage',
+    'consumable': 'consommable', 'tasks': 'tâches', 'archived': 'archivage',
 }
 LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',
                    'seal_required': 'scellé obligatoire', 'archived': 'archivage'}

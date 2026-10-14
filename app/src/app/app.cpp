@@ -1437,7 +1437,9 @@ void App::resolve_item(int entry_id) {
     else if (status == "replaced")
       detail += " - déjà remplacé";
     else if (status == "out")
-      detail += " - sorti du stock, compté utilisé le " + display_date(item["out_until"]) + " s'il ne revient pas";
+      detail += item["out_until"].is_null()
+                  ? std::string(" - sorti du stock (non consommable)")
+                  : " - sorti du stock, compté utilisé le " + display_date(item["out_until"]) + " s'il ne revient pas";
     if (item["unusable"].boolean())
       detail += " - signalé inutilisable : à remplacer";
     else if (item["reported"].boolean())
@@ -1959,8 +1961,10 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     for (const char *list : { "items", "missing_items" })
       for (const Json &item : (*lot)[list].items()) {
         location_of[item["iid"].str()] = id;
-        // un item a etiquette a dechirer non scanne a ete utilise : il ne retient pas le lot
-        if (!done.count(item["iid"].str()) && !item["tear_off"].boolean())
+        // un item a etiquette a dechirer non scanne a ete utilise, un item non consommable non scanne d'un lot
+        // ordinaire repasse en stock (services.returns_to_stock) : ils ne retiennent pas le lot
+        if (!done.count(item["iid"].str()) && !item["tear_off"].boolean()
+            && (item["consumable"].boolean(true) || (*lot)["storage"].boolean()))
           holding.insert(id);
       }
     for (const Json &row : (*lot)["requirements"].items())

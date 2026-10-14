@@ -59,6 +59,12 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    suite : l'étiquette est arrachée à l'ouverture, l'ensemble est utilisé (rapport `torn`). En vérif
    partielle, un tel item non scanné ne retient pas son lot (même règle dans `services._complete_lots`,
    `planSession` du front web et `App::plan_verif` du poste).
+   Un item **non consommable** (`ItemType.consumable` faux, ex : lecteur de glycémie) non scanné
+   dans un lot ordinaire vérifié en a été retiré : il repasse en stock (hors lot, `active`,
+   `missed_verifs=0`, mouvement `move` vers le stock, opération `remove`, rapport `stocked`), sans
+   compter comme utilisé ni manquant (`services.returns_to_stock`). Il ne retient pas non plus son
+   lot en vérif partielle. Dans un rangement du stock il manque comme les autres. Sorti du stock
+   sans lot, il reste `out` jusqu'à son retour (`out_deadline` vaut `None`).
    **Items à tâches** (`ItemType.tasks`, étiquette de tâches `<base>/task?id=IID`) : les fronts
    n'envoient l'item dans les scans de la vérif qu'une fois toutes ses tâches cochées et validées
    (web `openTasks`/`addItem`, poste `ScanEntry.tasks_pending`, hors de `ScanStack::iids`). Le
