@@ -184,7 +184,7 @@ fenêtre s'ouvre avec le nom de l'item et ses tâches à cocher :
 - **Annuler** (ou scanner autre chose) : l'item n'est **pas** compté. Rescannez-le pour reprendre
   ses tâches.
 
-Un **administrateur** peut scanner deux fois de suite l'étiquette de tâches pour valider toutes les
+Le **TECH** peut scanner deux fois de suite l'étiquette de tâches pour valider toutes les
 tâches d'un coup.
 
 ## Réassort : ajouter du matériel sans tout vérifier
@@ -271,7 +271,8 @@ Le signalement part tout de suite, indépendamment de la vérif. Un item signal�
 pendant la vérif en cours et n'est **jamais marqué disparu** tant que son signalement est ouvert.
 
 Scanner un item (ou un paquet) qui a un signalement en cours, quel qu'il soit, fait **biper** le
-téléphone ou le poste et ouvre une **fenêtre** avec les signalements et leurs commentaires.
+téléphone ou le poste (la douchette elle-même si elle est en mode SDK) et ouvre une **fenêtre** avec
+les signalements et leurs commentaires.
 
 Les signalements en cours se suivent en lecture seule sur le téléphone, tuile **Signalements** de la
 page d'accueil (rouge : nouveau ; orange : pris en charge, objet inutilisable ; vert : pris en charge
