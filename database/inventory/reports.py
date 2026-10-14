@@ -11,7 +11,8 @@
 """Signalements de problemes (ProblemReport) : un utilisateur connecte signale un item, un type d'item d'un lot ou
 un lot, pendant une verif ou depuis sa fiche. Les admins sont prevenus (SMS et notifications web) et suivent le
 signalement : nouveau (rouge), en cours de resolution (orange si l'objet est inutilisable, vert s'il l'est toujours),
-resolu (vert).
+resolu (vert). Resolu, un signalement d'item indique son issue : item remis en service, desactive (non conforme :
+invalide comme un perime, remplace a la prochaine verif) ou retire de l'inventaire.
 
 Un item signale inutilisable doit etre remplace comme un perime tant que son signalement est ouvert
 (Items.unusable) ; un item signale n'est pas marque disparu par une verif (Items.reported).
@@ -20,9 +21,9 @@ Un item signale inutilisable doit etre remplace comme un perime tant que son sig
 from django.db import transaction
 from django.utils import timezone
 
-from . import journal, notifications
+from . import journal, notifications, services
 from .idendity import identity_name
-from .models import Items, ItemType, Lots, OperationKind, ProblemReport, ReportStatus
+from .models import Items, ItemStatus, ItemType, Lots, OperationKind, ProblemReport, ReportResolution, ReportStatus
 
 COMMENT_LENGTH = 1000
 NOTE_LENGTH = 1000
@@ -69,6 +70,8 @@ def report_dict(report):
         'updated_by': identity_name(report.updated_by),
         'resolved': report.resolved.isoformat() if report.resolved else None,
         'resolved_by': identity_name(report.resolved_by),
+        'resolution': report.resolution,
+        'resolution_label': ReportResolution(report.resolution).label if report.resolution else '',
     }
     return data
 
@@ -112,25 +115,39 @@ def create(identity, lot_id='', iid='', type_code='', comment='', usable=True):
     return report, item
 
 
-def update(report, identity, status=None, usable=None, note=None):
-    """Prise en charge par un admin : statut, objet utilisable ou non, reponse."""
+def update(report, identity, status=None, usable=None, note=None, resolution=None):
+    """Prise en charge par un admin : statut, objet utilisable ou non, reponse. En resolvant le signalement d'un
+    item, `resolution` dit ce qu'il devient : 'ok' (remis en service), 'disabled' (desactive, non conforme) ou
+    'removed' (retire de l'inventaire, deja jete)."""
     changes = []
     now = timezone.now()
-    if status is not None:
-        if status not in ReportStatus.values:
-            raise ValueError('Statut inconnu (new, progress ou resolved)')
-        if status != report.status:
-            report.status = status
-            changes.append(ReportStatus(status).label.lower())
-            if status == ReportStatus.RESOLVED:
-                report.resolved = now
-                report.resolved_by = identity
-            else:
-                report.resolved = None
-                report.resolved_by = ''
+    if status is not None and status not in ReportStatus.values:
+        raise ValueError('Statut inconnu (new, progress ou resolved)')
+    if resolution is not None:
+        resolution = str(resolution or '')
+        if resolution not in ReportResolution.values:
+            raise ValueError('Issue inconnue (ok, disabled ou removed)')
+        if resolution and (status or report.status) != ReportStatus.RESOLVED:
+            raise ValueError("L'issue se donne en résolvant le signalement")
+        if resolution in (ReportResolution.DISABLED, ReportResolution.REMOVED) and report.item is None:
+            raise ValueError("Ce signalement ne porte pas sur un item : il ne peut pas être désactivé ni retiré")
+    if status is not None and status != report.status:
+        report.status = status
+        changes.append(ReportStatus(status).label.lower())
+        if status == ReportStatus.RESOLVED:
+            report.resolved = now
+            report.resolved_by = identity
+        else:
+            report.resolved = None
+            report.resolved_by = ''
+            report.resolution = ReportResolution.NONE
     if usable is not None and bool(usable) != report.usable:
         report.usable = bool(usable)
         changes.append('utilisable' if report.usable else 'inutilisable')
+    resolution_changed = bool(resolution) and resolution != report.resolution
+    if resolution_changed:
+        report.resolution = resolution
+        changes.append(ReportResolution(resolution).label.lower())
     if note is not None:
         note = str(note).strip()[:NOTE_LENGTH]
         if note != report.note:
@@ -142,9 +159,19 @@ def update(report, identity, status=None, usable=None, note=None):
     report.updated_by = identity
     with transaction.atomic():
         report.save()
-        refresh_item(report.item)
+        item = report.item
+        if item is not None and resolution_changed:
+            reason = f'Non conforme (signalement n°{report.id})'
+            if report.comment:
+                reason += f' : {report.comment}'
+            if resolution == ReportResolution.DISABLED:
+                services.set_disabled([item], identity, True, reason)
+            elif resolution == ReportResolution.REMOVED and item.status != ItemStatus.DELETED:
+                services.mark_deleted(item, identity, reason)
+        refresh_item(item)
         journal.record(OperationKind.REPORT, identity, f'{target_name(report)} : ' + ', '.join(changes),
-                       lot=report.lot, report=report.id, status=report.status, usable=report.usable)
+                       lot=report.lot, report=report.id, status=report.status, usable=report.usable,
+                       resolution=report.resolution)
     return report
 
 

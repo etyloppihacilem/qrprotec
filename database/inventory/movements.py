@@ -22,8 +22,8 @@ def movement(item, kind, at, by, from_lot_id=None, to_lot_id=None, verif=None):
 
 
 def absence(item, at, by, verif=None):
-    """Premiere absence d'un item a une verif : utilise s'il etait encore bon, jete s'il etait perime."""
-    kind = MovementKind.DISCARDED if item.is_expired(timezone.localdate(at)) else MovementKind.USED
+    """Premiere absence d'un item a une verif : utilise s'il etait encore bon, jete s'il etait perime ou desactive."""
+    kind = MovementKind.DISCARDED if item.needs_replacement(timezone.localdate(at)) else MovementKind.USED
     return movement(item, kind, at, by, from_lot_id=item.location_id, verif=verif)
 
 

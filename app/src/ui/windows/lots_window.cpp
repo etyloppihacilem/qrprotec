@@ -278,7 +278,10 @@ class LotsWindow final : public AppWindow {
           ImGui::PopID();
           ImGui::SameLine();
           ImGui::TextUnformatted(item["type_name"].str().c_str());
-          if (item["unusable"].boolean()) {
+          if (item["disabled"].boolean()) {
+            ImGui::SameLine();
+            ImGui::TextColored(colors::red, "(désactivé)");
+          } else if (item["unusable"].boolean()) {
             ImGui::SameLine();
             ImGui::TextColored(colors::red, "(signalé inutilisable)");
           } else if (item["reported"].boolean()) {

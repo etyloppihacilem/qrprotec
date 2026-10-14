@@ -68,6 +68,7 @@
   // roles gestion et admin : acces en lecture a l'etat des stocks
   const canSeeStock = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin' || state.user.privileged));
   const isAdmin = () => !!(state.user && state.user.role === 'admin');
+  const canManageItems = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin'));
   const ROLE_LABELS = { normal: 'Secouriste', gestion: 'Gestion', admin: 'Administrateur' };
   // identite des operations sur un lot : le badge, sinon le nom declare (si le serveur l'autorise)
   const declared = () => !state.user && state.declaredAllowed && !!state.declaredName;
@@ -2019,7 +2020,10 @@
   function afterLogin() {
     const next = pendingAfterLogin;
     if (readerOpen()) closeReader();
-    if (ficheOpen()) return; // connexion depuis une fiche (signalement) : on y reste
+    if (ficheOpen()) { // connexion depuis une fiche (signalement) : on y reste, avec les actions du role
+      openFiche(fiche.kind, fiche.id, { key: fiche.key, push: false });
+      return;
+    }
     if (next === 'stock' && !canSeeStock()) toast("L'état des stocks est réservé aux rôles gestion et admin.", true);
     if (next) showHome(next === 'stock' && !canSeeStock() ? 'menu' : next);
     else if (!inHome() && !verifInProgress() && !state.lot && !state.scanned.length && !state.pendingOpening
@@ -3440,7 +3444,8 @@
     add.hidden = !verifInProgress();
     add.textContent = `Ajouter aux scans de la vérif en cours (${state.lot ? state.lot.name : ''})`;
     const statusText = ITEM_STATUS[item.status];
-    const banner = item.unusable ? { kind: 'bad', label: '✘ Signalé inutilisable : à remplacer' + (statusText ? ' · ' + statusText : '') }
+    const banner = item.disabled ? { kind: 'bad', label: '✘ Désactivé : à remplacer' + (statusText ? ' · ' + statusText : '') }
+      : item.unusable ? { kind: 'bad', label: '✘ Signalé inutilisable : à remplacer' + (statusText ? ' · ' + statusText : '') }
       : item.expired ? { kind: 'bad', label: '✘ Périmé' + (statusText ? ' · ' + statusText : '') }
       : statusText ? { kind: 'warn', label: '⚠ ' + statusText } : { kind: 'ok', label: '✔ Valide' };
     const fact = (label, ...value) => [el('dt', {}, label), el('dd', {}, ...value)];
@@ -3454,7 +3459,13 @@
       el('div', { class: 'banner ' + banner.kind }, banner.label),
       item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par les administrateurs.') : '',
       reportButton({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
+      canManageItems() && !['deleted', 'replaced'].includes(item.status) ? (item.disabled
+        ? el('button', { type: 'button', class: 'item-disable', onclick: () => enableItem(item) }, "Réactiver l'item")
+        : el('button', { type: 'button', class: 'item-disable warning', onclick: () => showDisableDialog(item) },
+          "Désactiver l'item (rappel produit, non-conformité)")) : '',
       el('dl', { class: 'facts' },
+        item.disabled ? fact('Désactivé', item.disabled_reason || '–', el('div', { class: 'sub' },
+          [item.disabled_at ? 'le ' + fmtDateTime(item.disabled_at) : '', item.disabled_by ? 'par ' + item.disabled_by : ''].filter(Boolean).join(' '))) : [],
         fact('Péremption', item.peremption ? fmtDate(item.peremption) : 'Non périssable'),
         fact(where && !where.current ? 'Dernier lieu' : 'Emplacement', ...place),
         item.status === 'out' && item.out_until ? fact('Compté utilisé', `le ${fmtDate(item.out_until)} s'il ne revient pas`) : [],
@@ -3469,13 +3480,60 @@
   }
 
 
+  // Desactivation d'un item (gestion, admins) : rappel produit, non-conformite. Invalide comme un perime ; `pack` :
+  // tous les items encore en service du meme type et de la meme date (rappel d'un lot fabricant).
+  function showDisableDialog(item) {
+    const dialog = $('#disable');
+    $('#disable-target').textContent = `${item.type_name} (${item.iid})`;
+    $('#disable-reason').value = '';
+    $('#disable-pack').checked = false;
+    $('#disable-pack-label').textContent = item.peremption
+      ? `Tous les items « ${item.type_name} » périmant le ${fmtDate(item.peremption)} (rappel d'un lot)`
+      : `Tous les items « ${item.type_name} » de la même série d'étiquettes`;
+    $('#disable-error').textContent = '';
+    $('#disable-send').disabled = false;
+    $('#disable-form').onsubmit = async (event) => {
+      event.preventDefault();
+      const reason = $('#disable-reason').value.trim();
+      if (!reason) { $('#disable-error').textContent = 'Indiquez la raison.'; return; }
+      $('#disable-send').disabled = true;
+      try {
+        const body = await api(`items/${encodeURIComponent(item.iid)}/disable/`,
+          { user: credentials(), disabled: true, reason, pack: $('#disable-pack').checked });
+        dialog.close();
+        toast(body.count > 1 ? `${body.count} items désactivés.` : 'Item désactivé.');
+        itemChanged();
+      } catch (e) {
+        $('#disable-send').disabled = false;
+        $('#disable-error').textContent = e.message;
+      }
+    };
+    $('#disable-cancel').onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  async function enableItem(item) {
+    try {
+      await api(`items/${encodeURIComponent(item.iid)}/disable/`, { user: credentials(), disabled: false });
+      toast('Item réactivé.');
+      itemChanged();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  function itemChanged() {
+    if (state.lotId) loadLot(state.lotId);
+    if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, push: false });
+  }
+
   // ------------------------------------------------------------------------------------------------
   // Signalements de problemes : (!) a cote d'un item ou d'un type pendant la vérif, « Signaler un problème » sur les
   // fiches et l'onglet Lot. Connexion demandee avant de rediger quoi que ce soit ; envoye tout de suite, sans
   // attendre la vérif. Un item signale pendant la vérif compte comme vu (jamais marque disparu) ; signale
   // inutilisable, il est a remplacer comme un perime.
 
-  const badLabel = (info) => (info && info.unusable && !info.outdated ? 'INUTILISABLE' : 'PÉRIMÉ');
+  const badLabel = (info) => (!info || info.outdated ? 'PÉRIMÉ' : info.disabled ? 'DÉSACTIVÉ' : info.unusable ? 'INUTILISABLE' : 'PÉRIMÉ');
   let loginAction = null; // {action, at} : a lancer une fois connecte
 
   function takeLoginAction() {
@@ -3586,8 +3644,9 @@
     }
   }
 
-  const REPORT_LABELS = { new: 'Nouveau', resolved: 'Résolu' };
-  const reportLabel = (row) => REPORT_LABELS[row.status] || `En cours · ${row.usable ? 'utilisable' : 'inutilisable'}`;
+  const reportLabel = (row) => (row.status === 'new' ? 'Nouveau'
+    : row.status === 'resolved' ? 'Résolu' + (row.resolution_label ? ' · ' + row.resolution_label.toLowerCase() : '')
+    : `En cours · ${row.usable ? 'utilisable' : 'inutilisable'}`);
 
   async function updateReport(row, changes) {
     try {
@@ -3620,7 +3679,17 @@
             row.status === 'progress' && row.usable ? '✔ En cours · utilisable' : 'En cours · utilisable'),
           el('button', { type: 'button', class: 'warning', onclick: () => updateReport(row, { status: 'progress', usable: false }) },
             row.status === 'progress' && !row.usable ? '✔ En cours · inutilisable' : 'En cours · inutilisable'),
-          el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved' }) }, 'Résolu'),
+          ...(row.item ? [
+            // item non conforme : desactive (remplace a la prochaine verif comme un perime) ou deja retire
+            el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved', resolution: 'ok' }) },
+              'Résolu · remis en service'),
+            el('button', { type: 'button', class: 'warning', onclick: () => {
+              if (confirm(`Désactiver ${row.item} ? Il devra être remplacé comme un périmé.`)) updateReport(row, { status: 'resolved', resolution: 'disabled' });
+            } }, 'Résolu · item désactivé'),
+            el('button', { type: 'button', class: 'danger', onclick: () => {
+              if (confirm(`Retirer ${row.item} de l'inventaire (déjà jeté) ?`)) updateReport(row, { status: 'resolved', resolution: 'removed' });
+            } }, 'Résolu · item retiré'),
+          ] : [el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved' }) }, 'Résolu')]),
         ];
       parts.push(el('div', { class: 'report-manage' }, note,
         el('button', { type: 'button', onclick: () => updateReport(row, { note: note.value }) }, 'Enregistrer la réponse'),

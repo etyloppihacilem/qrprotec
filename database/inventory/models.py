@@ -238,6 +238,11 @@ class Items(models.Model):
     # inutilisable (a remplacer comme un perime : il ne compte plus dans le lot)
     reported = models.BooleanField(default=False)
     unusable = models.BooleanField(default=False)
+    # desactive par un responsable (rappel produit, non-conformite) : invalide comme un perime, a remplacer
+    disabled = models.BooleanField(default=False)
+    disabled_reason = models.CharField(max_length=128, blank=True, default='')
+    disabled_at = models.DateTimeField(blank=True, null=True)
+    disabled_by = models.CharField(max_length=64, blank=True, default='')
 
     @property
     def item_type(self):
@@ -254,8 +259,8 @@ class Items(models.Model):
         return peremption < (today or timezone.localdate())
 
     def needs_replacement(self, today=None) -> bool:
-        """Perime, ou signale inutilisable : ne compte plus dans son lot et doit etre remplace."""
-        return self.unusable or self.is_expired(today)
+        """Perime, signale inutilisable ou desactive : ne compte plus dans son lot et doit etre remplace."""
+        return self.unusable or self.disabled or self.is_expired(today)
 
     def touch(self, user, context, now=None):
         self.last_seen = now or timezone.now()
@@ -502,6 +507,8 @@ class OperationKind(models.TextChoices):
     RECEPTION = 'reception', 'Réception'
     ITEM_DELETE = 'item_delete', "Suppression d'item"
     ITEM_RESTORE = 'item_restore', "Restauration d'item"
+    ITEM_DISABLE = 'item_disable', "Désactivation d'item"
+    ITEM_ENABLE = 'item_enable', "Réactivation d'item"
     ITEM_OUT = 'item_out', 'Sortie du stock'
     ITEM_OUT_USED = 'item_out_used', 'Sortie non revenue'
     PACK_OPEN = 'pack_open', 'Ouverture de paquet'
@@ -958,6 +965,15 @@ class ReportStatus(models.TextChoices):
     RESOLVED = 'resolved', 'Résolu'                  # vert
 
 
+class ReportResolution(models.TextChoices):
+    """Issue d'un signalement resolu sur un item : remis en service, desactive (non conforme, a remplacer a la
+    prochaine verif comme un perime) ou retire de l'inventaire (deja jete)."""
+    NONE = '', '-'
+    OK = 'ok', 'Remis en service'
+    DISABLED = 'disabled', 'Item désactivé'
+    REMOVED = 'removed', 'Item retiré'
+
+
 class ProblemReport(models.Model):
     """Probleme signale sur un item, sur un type d'item d'un lot, ou sur un lot, par un utilisateur connecte.
 
@@ -980,6 +996,7 @@ class ProblemReport(models.Model):
     updated_by = models.CharField(max_length=64, blank=True, default='')
     resolved = models.DateTimeField(blank=True, null=True)
     resolved_by = models.CharField(max_length=64, blank=True, default='')
+    resolution = models.CharField(max_length=8, choices=ReportResolution.choices, blank=True, default='')
 
     @property
     def open(self) -> bool:

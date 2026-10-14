@@ -83,7 +83,7 @@ bool name_taken_warning(const Json &list, const char *key_field, const std::stri
                         const char *what);
 
 // Champ texte avec bouton de confirmation en deux temps (pour les actions sensibles)
-bool confirm_button(const char *label, const char *question, const char *popup_id);
+bool confirm_button(const char *label, const char *question, const char *popup_id, const ImVec2 &size = ImVec2(0, 0));
 
 // Remplace ImGui::NewFrame() : note si Echap vient de fermer un popup (ImGui ferme seul les popups non modaux)
 void new_frame();

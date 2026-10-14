@@ -169,6 +169,23 @@
     </form>
   </dialog>
 
+  <!-- Desactivation d'un item (rappel produit, non-conformite) : gestion et admins -->
+  <dialog id="disable">
+    <form id="disable-form">
+      <h2>Désactiver l'item</h2>
+      <p id="disable-target" class="hint"></p>
+      <p class="hint">Désactivé, l'item est invalide comme s'il était périmé : il ne compte plus dans son lot et doit être
+        remplacé (le remplaçant le sort du lot à la vérif).</p>
+      <input id="disable-reason" type="text" maxlength="128" placeholder="Raison (obligatoire), ex : rappel produit">
+      <label class="check"><input type="checkbox" id="disable-pack"> <span id="disable-pack-label">Tout le paquet</span></label>
+      <p id="disable-error" class="pin-error"></p>
+      <div class="dialog-buttons">
+        <button type="button" id="disable-cancel" class="secondary">Annuler</button>
+        <button type="submit" id="disable-send" class="warning">Désactiver</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Code PIN apres le badge (admins, ou utilisateurs ayant un PIN) -->
   <dialog id="pin">
     <form id="pin-form">

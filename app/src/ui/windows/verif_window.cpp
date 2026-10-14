@@ -116,7 +116,10 @@ class VerifWindow final : public AppWindow {
         ImGui::PopID();
         ImGui::SameLine();
         ImGui::TextUnformatted(item["type_name"].str().c_str());
-        if (item["unusable"].boolean() && !item["outdated"].boolean()) {
+        if (item["disabled"].boolean() && !item["outdated"].boolean()) {
+          ImGui::SameLine();
+          ImGui::TextColored(colors::red, "(désactivé : à remplacer)");
+        } else if (item["unusable"].boolean() && !item["outdated"].boolean()) {
           ImGui::SameLine();
           ImGui::TextColored(colors::red, "(signalé inutilisable : à remplacer)");
         } else if (item["expired"].boolean()) {
