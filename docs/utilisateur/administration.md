@@ -91,7 +91,8 @@ lot et ouvre l'aperçu des mêmes étiquettes que depuis la fiche du lot.
 
 Chaque signalement envoie une notification aux admins (SMS et notification web, événement « Problème
 signalé »). Ils se gèrent dans la page **Signalements**, au poste (compteur rouge dans la barre de
-menu) comme sur le téléphone (tuile de l'accueil) :
+menu) comme sur le téléphone (tuile de l'accueil). Au poste, la fenêtre s'ouvre d'elle-même sur les
+signalements en cours quand un admin se connecte (sauf pendant une vérif) :
 
 - **Nouveau** (rouge) : personne ne s'en occupe encore ;
 - **En cours · utilisable** (vert) / **En cours · inutilisable** (orange) : pris en charge ; l'admin
