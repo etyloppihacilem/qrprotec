@@ -482,6 +482,14 @@
     const scan = parseCode(raw);
     // fenetre des taches ouverte et autre code scanne : l'item reste non valide (le rescanner reprend ses taches)
     if (taskPopup && !(scan.kind === 'item' && scan.id === taskPopup.entry.iid)) finishTasks(false);
+    // scanner sans vérif en cours et pile vide : l'etiquette d'un item ou d'un lot ouvre sa fiche en grand, comme
+    // le lien ouvert avec l'appareil photo du telephone (« Lancer une vérif » y ramene au scanner)
+    if (!inHome() && !ficheOpen() && !taskPopup && ((scan.kind === 'item' && !scan.task) || scan.kind === 'lot')
+        && !checkRunning() && !allScanned().length && !state.pendingOpening) {
+      feedback.info();
+      openFiche(scan.kind, scan.id, { key: scan.key || '' });
+      return;
+    }
     // petit lecteur de l'accueil : un badge connecte et l'on reste sur l'accueil, tout autre code ouvre le scanner
     if (readerOpen() && scan.kind !== 'user') enterScanner(false);
     switch (scan.kind) {
