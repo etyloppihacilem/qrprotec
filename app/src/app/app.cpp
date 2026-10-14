@@ -341,6 +341,7 @@ void App::draw() {
   draw_tasks_modal();
   draw_problem_modal();
   draw_reports_alert();
+  draw_seal_opening_modal();
   draw_label_preview(*this);
   draw_toasts();
   feedback.draw_overlay();
@@ -1707,21 +1708,176 @@ void App::scan_lot_seal_open(const ParsedScan &scan, ScanSource source) {
     const Json       &lot  = result.data["lot"];
     const std::string name = lot["name"].str();
     const std::string what = result.data["result"].str();
-    // type a scelle obligatoire : verif complete puis nouveau scelle
-    const std::string todo =
-      lot["seal_required"].boolean() ? "vérif puis nouveau scellé nécessaires" : "vérif nécessaire";
-    if (what == "opened") {
-      const bool identified = result.data["identified"].boolean();
-      notify(name + " : scellé ouvert, " + todo + "." +
-             (identified ? "" : " Ouverture anonyme : connectez-vous puis rescannez l'étiquette pour la signer."));
-    } else if (what == "signed") {
+    if (what == "signed") {
       notify(name + " : ouverture du scellé signée par " + lot["unsealed_by"].str() + ".");
+      if (seal_opening_.result["lot"]["id"].str() == id)
+        seal_opening_.result = result.data;
     } else {
-      notify(name + " : scellé déjà ouvert le " + display_datetime(lot["unsealed"]) + ", " + todo + ".");
+      // ecran en grand : rassurer, dire que les responsables sont au courant, pas de verif
+      if (!result.data["seal"]["valid"].boolean())
+        feedback.notice(source, settings);
+      seal_opening_.result       = result.data;
+      seal_opening_.open_pending = true;
     }
-    show_lot(id, "");
     refresh_lots();
   });
+}
+
+void App::draw_seal_opening_modal() {
+  static const char *kTitle = "Ouverture du scellé###seal_opening";
+  if (seal_opening_.open_pending) {
+    seal_opening_.open_pending = false;
+    if (!ImGui::IsPopupOpen(kTitle))
+      ImGui::OpenPopup(kTitle);
+  }
+  // en grand : presque tout l'ecran, visible de loin
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.8f, viewport->WorkSize.y * 0.85f), ImGuiCond_Always);
+  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+    return;
+  const Json       &result = seal_opening_.result;
+  const Json       &lot    = result["lot"];
+  const Json       &seal   = result["seal"];
+  const float       base   = ImGui::GetStyle().FontSizeBase;
+  const float       footer = ImGui::GetFrameHeightWithSpacing() * 1.6f + ImGui::GetStyle().ItemSpacing.y;
+  ImGui::BeginChild("seal_opening_body", ImVec2(0, -footer));
+  ImGui::PushTextWrapPos(0.0f);
+
+  ImGui::PushFont(nullptr, base * 1.8f);
+  ImGui::TextUnformatted(result["result"].str() == "already" ? "Scellé déjà ouvert"
+                                                             : "Ouverture du scellé enregistrée");
+  ImGui::PopFont();
+  ImGui::PushFont(nullptr, base * 1.2f);
+  ImGui::TextDisabled("%s - %s", lot["name"].str().c_str(), lot["lot_type_name"].str().c_str());
+  ImGui::PopFont();
+  ImGui::Spacing();
+
+  std::string sealed;
+  if (!seal["sealed"].is_null()) {
+    sealed = "Scellé" + (seal["seal_number"].str().empty() ? "" : " n°" + seal["seal_number"].str()) + " posé le " +
+             display_datetime(seal["sealed"]) +
+             (seal["sealed_by"].str().empty() ? "" : " par " + seal["sealed_by"].str());
+  }
+  ImGui::Separator();
+  if (seal["valid"].boolean()) {
+    ImGui::PushFont(nullptr, base * 1.6f);
+    ImGui::TextColored(colors::green, "✔ Le scellé était valide");
+    ImGui::PopFont();
+    if (seal["valid_until"].is_null()) {
+      ImGui::PushFont(nullptr, base * 1.3f);
+      ImGui::TextUnformatted("Contenu validé, sans date de péremption");
+      ImGui::PopFont();
+    } else {
+      ImGui::PushFont(nullptr, base * 1.3f);
+      ImGui::TextUnformatted("Contenu validé jusqu'au");
+      ImGui::PopFont();
+      ImGui::PushFont(nullptr, base * 2.6f);
+      ImGui::TextColored(colors::green, "%s", display_date(seal["valid_until"]).c_str());
+      ImGui::PopFont();
+    }
+  } else {
+    ImGui::PushFont(nullptr, base * 1.6f);
+    ImGui::TextColored(colors::orange, "⚠ Une partie du contenu n'était plus valide");
+    ImGui::PopFont();
+    ImGui::TextUnformatted("Vérifiez les dates avant d'utiliser un item (en rouge ci-dessous).");
+  }
+  if (!sealed.empty())
+    ImGui::TextDisabled("%s", sealed.c_str());
+
+  ImGui::Separator();
+  ImGui::PushFont(nullptr, base * 1.4f);
+  ImGui::TextUnformatted("Le TECH est au courant");
+  ImGui::PopFont();
+  const std::string tech = std::string("L'ouverture est enregistrée et signalée aux responsables : inutile de la "
+                                       "signaler. ") +
+                           (lot["seal_required"].boolean() ? "Le lot sera vérifié puis scellé à nouveau plus tard."
+                                                           : "Le lot sera vérifié plus tard.");
+  ImGui::TextUnformatted(tech.c_str());
+  if (!lot["unsealed"].is_null())
+    ImGui::TextDisabled("Ouvert le %s%s", display_datetime(lot["unsealed"]).c_str(),
+                        result["identified"].boolean() && !lot["unsealed_by"].str().empty()
+                          ? (" par " + lot["unsealed_by"].str()).c_str()
+                          : "");
+  if (!result["identified"].boolean())
+    ImGui::TextUnformatted("Pour signer l'ouverture, connectez-vous puis rescannez l'étiquette.");
+
+  // contenu du scelle : le lot puis ses sous-lots, items regroupes par type
+  ImGui::Separator();
+  ImGui::PushFont(nullptr, base * 1.4f);
+  ImGui::TextUnformatted("Contenu du scellé");
+  ImGui::PopFont();
+  std::vector< const Json * > lots{ &lot };
+  for (const Json &sub : lot["descendants"].items())
+    lots.push_back(&sub);
+  bool any = false;
+  for (const Json *sub : lots) {
+    struct Group {
+      std::string name;
+      int         count   = 0;
+      int         expired = 0;
+      std::string first; // premiere peremption (AAAA-MM-JJ)
+      Json        first_json;
+    };
+    std::vector< Group > groups;
+    for (const Json &item : (*sub)["items"].items()) {
+      const std::string name  = item["type_name"].str();
+      auto              found = std::find_if(groups.begin(), groups.end(), [&](const Group &g) { return g.name == name; });
+      if (found == groups.end()) {
+        groups.push_back({ name });
+        found = groups.end() - 1;
+      }
+      found->count += 1;
+      if (item["expired"].boolean())
+        found->expired += 1;
+      const std::string date = item["peremption"].str();
+      if (!date.empty() && (found->first.empty() || date < found->first)) {
+        found->first      = date;
+        found->first_json = item["peremption"];
+      }
+    }
+    if (groups.empty())
+      continue;
+    any = true;
+    std::sort(groups.begin(), groups.end(), [](const Group &a, const Group &b) { return a.name < b.name; });
+    if (lots.size() > 1) {
+      ImGui::Spacing();
+      ImGui::Indent(std::max(0, (*sub)["depth"].integer() - 1) * ImGui::GetFontSize());
+      ImGui::TextUnformatted((*sub)["name"].str().c_str());
+      ImGui::Unindent(std::max(0, (*sub)["depth"].integer() - 1) * ImGui::GetFontSize());
+    }
+    ImGui::PushID(sub);
+    if (ImGui::BeginTable("seal_content", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+      ImGui::TableSetupColumn("n", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 3.0f);
+      ImGui::TableSetupColumn("type", ImGuiTableColumnFlags_WidthStretch);
+      ImGui::TableSetupColumn("date", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 9.0f);
+      for (const Group &group : groups) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::Text("%d ×", group.count);
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(group.name.c_str());
+        ImGui::TableNextColumn();
+        if (group.expired)
+          ImGui::TextColored(colors::red, "%d à remplacer", group.expired);
+        else if (!group.first.empty())
+          ImGui::TextDisabled("jusqu'au %s", display_date(group.first_json).c_str());
+      }
+      ImGui::EndTable();
+    }
+    ImGui::PopID();
+  }
+  if (!any)
+    ImGui::TextDisabled("Aucun item enregistré dans ce lot.");
+  ImGui::PopTextWrapPos();
+  ImGui::EndChild();
+
+  ImGui::Separator();
+  // pas de fermeture par Entree : la douchette en mode clavier en envoie une a chaque scan
+  if (primary_button("J'ai compris", ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.6f)) ||
+      ImGui::IsKeyPressed(ImGuiKey_Escape))
+    ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
 }
 
 void App::scan_lot(const ParsedScan &scan, ScanSource source) {

@@ -597,6 +597,8 @@ def lot_seal_open(request, lot_id):
         'identified': identity is not None,
         'declared_identity': allowed,
         'lot': ser.lot_dict(lot, local=is_privileged(request), with_items=True),
+        # ecran d'ouverture : le scelle etait-il valide, et jusqu'a quand
+        'seal': ser.seal_opening_dict(lot),
     })
 
 

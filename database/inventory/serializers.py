@@ -380,6 +380,23 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True):
     return data
 
 
+def seal_opening_dict(lot):
+    """Scelle tel qu'il etait quand son etiquette d'ouverture a ete scannee (ecran d'ouverture des fronts) : pose
+    quand, par qui, valide ou non a l'ouverture (aucun item perime, inutilisable ou desactive sous le scelle) et
+    jusqu'a quand le contenu etait valide (premiere peremption, sous-lots compris)."""
+    opened = timezone.localtime(lot.unsealed).date() if lot.unsealed else timezone.localdate()
+    items = [item for sub_lot in lot.descendants()
+             for item in sub_lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE)]
+    return {
+        'sealed': _date(lot.sealed),
+        'sealed_by': _who(lot.sealed_by),
+        'seal_number': lot.seal_number,
+        'opened': _date(lot.unsealed),
+        'valid': lot.sealed is not None and not any(item.needs_replacement(opened) for item in items),
+        'valid_until': _date(min((item.pack.peremption for item in items if item.pack.peremption), default=None)),
+    }
+
+
 def _add_items(data, lot, items, today):
     data['items'] = [item_dict(item, today) for item in items]
     data['missing_items'] = [

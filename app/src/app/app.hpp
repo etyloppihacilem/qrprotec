@@ -185,6 +185,13 @@ struct ReportsAlert {
     double      last_at = -1000.0;
 };
 
+// Etiquette d'ouverture d'un scelle scannee : ecran en grand (scelle valide jusqu'au..., responsables prevenus,
+// contenu), sans verif
+struct SealOpening {
+    bool open_pending = false;
+    Json result; // reponse de /api/lots/<id>/seal-open/
+};
+
 struct ProblemPrompt {
     bool          open_pending = false;
     bool          busy         = false;
@@ -416,6 +423,7 @@ class App {
     void draw_tasks_modal();
     void draw_problem_modal();
     void draw_reports_alert();
+    void draw_seal_opening_modal();
     void send_problem();
     void reload_verif_lots(); // contenu a jour des lots de la verif (item signale inutilisable : a remplacer)
     void check_setup();
@@ -468,6 +476,7 @@ class App {
     TaskPopup               tasks_;
     ProblemPrompt           problem_;
     ReportsAlert            reports_alert_;
+    SealOpening             seal_opening_;
     double                  next_reports_poll_ = 0.0;
     bool                    login_declared_    = true; // nom declare accepte pour l'action en attente
     std::string             login_reason_;

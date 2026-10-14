@@ -306,7 +306,9 @@
   // Jamais de camera ouverte quand la page est cachee, et une seule ouverture a la fois : sur Firefox
   // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
   // camera « utilisee par Firefox » jusqu'au redemarrage du telephone.
-  function cameraShouldRun() { return cameraWanted && !document.hidden && (!ficheOpen() || readerOpen()); }
+  function cameraShouldRun() {
+    return cameraWanted && !document.hidden && (!ficheOpen() || readerOpen()) && $('#opening').hidden;
+  }
 
   function syncCamera() {
     if (!cameraShouldRun()) stopCamera();
@@ -493,7 +495,7 @@
       return;
     }
     // petit lecteur de l'accueil : un badge connecte et l'on reste sur l'accueil, tout autre code ouvre le scanner
-    if (readerOpen() && scan.kind !== 'user') enterScanner(false);
+    if (readerOpen() && scan.kind !== 'user' && scan.kind !== 'sealopen') enterScanner(false);
     switch (scan.kind) {
       case 'item': return scanItem(scan);
       case 'lot': return scanLot(scan);
@@ -816,7 +818,8 @@
   // bouton « ouvrir »). Sans identite, l'ouverture est enregistree anonymement puis signee a la connexion.
   const OPENING_SIGN_DELAY = 60 * 60 * 1000; // meme delai que le serveur
 
-  async function openSeal(scan) {
+  // fromUrl : etiquette ouverte avec l'appareil photo (adresse) : l'ecran fermé, on arrive sur l'accueil
+  async function openSeal(scan, { fromUrl = false } = {}) {
     let result;
     try {
       result = await api(`lots/${encodeURIComponent(scan.id)}/seal-open/`,
@@ -827,34 +830,106 @@
       return;
     }
     const lot = result.lot;
-    if (state.lotId !== scan.id) { state.lotKey = ''; state.extra = []; state.lastVerif = null; }
-    state.lot = lot;
-    state.lotId = scan.id;
     state.declaredAllowed = !!result.declared_identity;
     state.pendingOpening = result.identified ? null : { id: scan.id, key: scan.key, at: Date.now() };
     const opened = lot.unsealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ouvert le ${fmtDateTime(lot.unsealed)}`
       + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '';
-    const sign = result.identified ? '' : state.declaredAllowed
-      ? "Scannez votre badge (ou indiquez votre nom) pour signer l'ouverture." : "Scannez votre badge pour signer l'ouverture.";
-    // type a scelle obligatoire : le lot ouvert est rouge jusqu'a une verif complete et un nouveau scelle
-    const todo = lot.seal_required ? 'Le lot devra être vérifié puis scellé à nouveau avant utilisation.'
-      : 'Le lot devra être vérifié avant utilisation.';
-    if (result.result === 'opened') {
-      feedback.warn();
-      showInfo(lot.seal_required ? 'bad' : 'warn', `🔓 Scellé ouvert – ${lot.name}`, todo, opened, sign);
-    } else if (result.result === 'signed') {
+    if (result.result === 'signed') {
+      // ouverture anonyme signee a la connexion : l'ecran d'ouverture, s'il est encore affiche, perd sa demande
       feedback.good();
       showInfo('ok', `🔓 Ouverture signée – ${lot.name}`, opened);
-    } else {
-      feedback.info();
-      showInfo(lot.seal_required ? 'bad' : 'warn', `🔓 Scellé déjà ouvert – ${lot.name}`, todo, opened);
+      if (openingShown() && sealScreen.lot && sealScreen.lot.id === lot.id) showOpening(result, sealScreen.fromUrl);
+      save();
+      return;
     }
+    if (result.seal && result.seal.valid) feedback.good(); else feedback.warn();
+    showInfo(result.result === 'opened' && result.seal && result.seal.valid ? 'ok' : 'warn',
+      `🔓 ${result.result === 'opened' ? 'Scellé ouvert' : 'Scellé déjà ouvert'} – ${lot.name}`, opened);
     save();
-    switchTab('lot');
-    render();
+    // ecran en grand, pas de vérif : l'ouverture est enregistree, les responsables le voient
+    showOpening(result, fromUrl);
     // on demande quand meme a l'utilisateur de s'identifier : le nom declare tout de suite (si le serveur
     // l'autorise), sinon le badge, dont le scan signera l'ouverture
     if (state.pendingOpening && !state.user && state.declaredAllowed && askDeclaredName()) await signOpening();
+  }
+
+  // Ecran d'ouverture d'un scelle : rassurer (le scelle etait valide, jusqu'a quand) et dire que l'ouverture est
+  // connue des responsables (TECH), pour eviter qu'on la signale. Contenu du scelle, aucun bouton de vérif.
+  let sealScreen = { lot: null, fromUrl: false };
+  const openingShown = () => !$('#opening').hidden;
+
+  function showOpening(result, fromUrl = false) {
+    const lot = result.lot;
+    const seal = result.seal || {};
+    sealScreen = { lot, fromUrl };
+    const sealedLine = seal.sealed ? `Scellé${seal.seal_number ? ' n°' + seal.seal_number : ''} posé le ${fmtDateTime(seal.sealed)}`
+      + (seal.sealed_by ? ' par ' + seal.sealed_by : '') : '';
+    const openedLine = lot.unsealed ? `Ouvert le ${fmtDateTime(lot.unsealed)}`
+      + (lot.unsealed_by && result.identified ? ' par ' + lot.unsealed_by : '') : '';
+    const parts = [
+      el('div', { class: 'opening-head' },
+        el('div', { class: 'icon' }, '🔓'),
+        el('h2', {}, result.result === 'already' ? 'Scellé déjà ouvert' : 'Ouverture du scellé enregistrée'),
+        el('div', { class: 'sub' }, lot.name + (lot.lot_type_name ? ` · ${lot.lot_type_name}` : ''))),
+      seal.valid
+        ? el('div', { class: 'opening-box ok' },
+          el('b', {}, '✔ Le scellé était valide'),
+          el('p', {}, seal.valid_until ? 'Contenu validé jusqu\'au' : 'Contenu validé, sans date de péremption'),
+          seal.valid_until ? el('div', { class: 'valid-until' }, fmtDate(seal.valid_until)) : '',
+          sealedLine ? el('p', { class: 'sub' }, sealedLine) : '')
+        : el('div', { class: 'opening-box warn' },
+          el('b', {}, '⚠ Une partie du contenu n\'était plus valide'),
+          el('p', {}, 'Vérifiez les dates avant d\'utiliser un item (en rouge ci-dessous).'),
+          sealedLine ? el('p', { class: 'sub' }, sealedLine) : ''),
+      el('div', { class: 'opening-box tech' },
+        el('b', {}, '🛠 Le TECH est au courant'),
+        el('p', {}, 'L\'ouverture est enregistrée et signalée aux responsables : inutile de la signaler. '
+          + (lot.seal_required ? 'Le lot sera vérifié puis scellé à nouveau plus tard.' : 'Le lot sera vérifié plus tard.')),
+        openedLine ? el('p', { class: 'sub' }, openedLine) : '',
+        state.pendingOpening && state.pendingOpening.id === lot.id && !state.user
+          ? el('p', {}, 'Pour signer l\'ouverture, scannez ensuite votre badge.') : ''),
+      el('h3', {}, 'Contenu du scellé'),
+    ];
+    // items du lot puis de chacun de ses sous-lots (ils etaient sous le meme scelle), regroupes par type
+    const lots = [lot, ...(lot.descendants || [])];
+    let any = false;
+    for (const sub of lots) {
+      const groups = new Map();
+      for (const item of sub.items || []) {
+        const group = groups.get(item.type_name) || { name: item.type_name, count: 0, first: null, expired: 0 };
+        group.count += 1;
+        if (item.expired) group.expired += 1;
+        if (item.peremption && (!group.first || item.peremption < group.first)) group.first = item.peremption;
+        groups.set(item.type_name, group);
+      }
+      if (!groups.size) continue;
+      any = true;
+      if (lots.length > 1) {
+        parts.push(el('div', { class: 'opening-lot', style: `padding-left:${Math.max(0, (sub.depth || 0) - 1) * 12}px` },
+          '📦 ' + sub.name));
+      }
+      const rows = [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+      parts.push(el('ul', { class: 'opening-items' }, ...rows.map((group) => el('li', { class: group.expired ? 'expired' : '' },
+        el('span', { class: 'count' }, `${group.count} ×`),
+        el('span', {}, group.name),
+        el('span', { class: 'date' }, group.expired ? `${group.expired} à remplacer`
+          : group.first ? 'jusqu\'au ' + fmtDate(group.first) : '')))));
+    }
+    if (!any) parts.push(el('p', { class: 'sub' }, 'Aucun item enregistré dans ce lot.'));
+    $('#opening-body').replaceChildren(...parts);
+    $('#opening-body').scrollTop = 0;
+    $('#opening').hidden = false;
+    syncCamera();
+  }
+
+  function closeOpening() {
+    if (!openingShown()) return;
+    $('#opening').hidden = true;
+    const home = sealScreen.fromUrl && !verifInProgress() && !ficheOpen();
+    sealScreen = { lot: null, fromUrl: false };
+    syncCamera();
+    if (home) showHome('menu');
+    else render();
   }
 
   async function signOpening() {
@@ -3284,6 +3359,7 @@
     scanItem(scan);
   }
 
+  $('#opening-close').addEventListener('click', closeOpening);
   $('#fiche-launch').addEventListener('click', launchFromFiche);
   $('#fiche-add').addEventListener('click', addFicheItem);
   $('#fiche-back').addEventListener('click', () => {
@@ -3729,7 +3805,7 @@
       cleanUrl(params.get('lot'));
     } else if (route === 'unseal' && params.get('lot') && params.get('c')) {
       cleanUrl(params.get('lot'));
-      await openSeal({ kind: 'sealopen', code: location.href, id: params.get('lot'), key: params.get('c') });
+      await openSeal({ kind: 'sealopen', code: location.href, id: params.get('lot'), key: params.get('c') }, { fromUrl: true });
     } else if (route === 'pinreset' && params.get('m') && params.get('t')) {
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);

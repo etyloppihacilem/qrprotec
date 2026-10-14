@@ -991,6 +991,11 @@ class SealTests(ApiTestCase):
         self.assertFalse(body['lot']['is_sealed'])
         self.assertNotIn('seal_open_url', body['lot'])
         self.assertEqual(body['lot']['unsealed_by'], 'Anonyme (étiquette intérieure)')
+        # ecran d'ouverture : le scelle etait valide, contenu valide jusqu'a la premiere peremption
+        self.assertTrue(body['seal']['valid'])
+        self.assertTrue(body['seal']['sealed'])
+        self.assertEqual(body['seal']['valid_until'], body['lot']['valid_until'])
+        self.assertIsNotNone(body['seal']['opened'])
         code, public = self.call('GET', f'/api/lots/{self.lot.id}/?seal={seal_code}', local=False)
         self.assertEqual(public['seal_check'], 'unsealed')
         # l'utilisateur se connecte juste apres : l'ouverture est signee
