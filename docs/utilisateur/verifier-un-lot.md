@@ -124,7 +124,10 @@ reste affichée quelques minutes une fois validée.
 - Pour valider, **une seule étiquette clé** suffit, celle de n'importe quel lot de la vérif : le lot
   global, un lot ajouté ou un de leurs sous-lots (ex : l'étiquette d'un seul rangement pour une
   vérif du Stock).
-- Sans vérif en cours, scanner un item rangé dans un lot commence la vérif de ce lot (téléphone).
+- Sans vérif en cours et sans rien dans la liste des scans, scanner l'étiquette d'un item ou d'un lot
+  dans le scanner ouvre sa **fiche** en grand, comme le lien ouvert avec l'appareil photo du
+  téléphone. **Lancer une vérif** y commence la vérif du lot (pour un item, celle du lot où il est
+  rangé).
 
 ## Vérifier à plusieurs
 
