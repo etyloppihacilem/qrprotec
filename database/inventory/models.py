@@ -86,6 +86,9 @@ class ItemStatus(models.TextChoices):
     # Sorti du stock sans lot (ex : pris pour une intervention) : compte comme utilise s'il n'est pas revu a une
     # verif dans les QRPROTEC['OUT_DAYS'] jours, ou a sa peremption (voir services.expire_out_items)
     OUT = 'out', 'Sorti'
+    # Hors lot : item non consommable absent a la verif de son lot (retire du lot), ni dans un lot ni en stock. Il
+    # passe en stock quand il est scanne (verif du stock, rangement) ou remis en stock a la main (gestion).
+    LOOSE = 'loose', 'Hors lot'
 
 
 # models.py
@@ -159,7 +162,7 @@ class ItemType(models.Model):
     # item non scanne a une verif est considere comme utilise tout de suite, et les restes du sachet sont perdus.
     tear_off = models.BooleanField(default=False)
     # Consommable (par defaut). Un item non consommable (ex : lecteur de glycemie) ne s'use pas : absent a la verif
-    # d'un lot ordinaire, il a ete retire du lot et repasse en stock au lieu d'etre compte comme utilise ou disparu.
+    # d'un lot ordinaire, il a ete retire du lot et passe « hors lot » au lieu d'etre compte comme utilise ou disparu.
     consumable = models.BooleanField(default=True)
     # Taches a faire a chaque verif (ex : DAE « voyant vert allume », « electrodes dans leur date ») : scanner l'item
     # (son etiquette de taches ou d'item) ouvre la liste a cocher sur les fronts, et l'item n'est compte comme vu

@@ -1427,7 +1427,7 @@ void App::resolve_item(int entry_id) {
     entry->data      = item;
     entry->title     = item["type_name"].str();
     std::string detail = item["peremption"].is_null() ? "Non périssable" : "Exp. " + display_date(item["peremption"]);
-    detail += item["status"].str() == "out" ? "" : item["location"].is_null() ? " - en stock" : " - " + item["location_name"].str();
+    detail += item["status"].str() == "out" || item["status"].str() == "loose" ? "" : item["location"].is_null() ? " - en stock" : " - " + item["location_name"].str();
     const std::string status = item["status"].str();
     entry->warning           = status != "active";
     if (status == "missing")
@@ -1436,6 +1436,8 @@ void App::resolve_item(int entry_id) {
       detail += " - marqué supprimé";
     else if (status == "replaced")
       detail += " - déjà remplacé";
+    else if (status == "loose")
+      detail += " - hors lot (retiré de son lot), pas encore en stock";
     else if (status == "out")
       detail += item["out_until"].is_null()
                   ? std::string(" - sorti du stock (non consommable)")
@@ -1962,7 +1964,7 @@ std::vector< VerifPlanLot > App::plan_verif() const {
       for (const Json &item : (*lot)[list].items()) {
         location_of[item["iid"].str()] = id;
         // un item a etiquette a dechirer non scanne a ete utilise, un item non consommable non scanne d'un lot
-        // ordinaire repasse en stock (services.returns_to_stock) : ils ne retiennent pas le lot
+        // ordinaire passe hors lot (services.leaves_lot) : ils ne retiennent pas le lot
         if (!done.count(item["iid"].str()) && !item["tear_off"].boolean()
             && (item["consumable"].boolean(true) || (*lot)["storage"].boolean()))
           holding.insert(id);

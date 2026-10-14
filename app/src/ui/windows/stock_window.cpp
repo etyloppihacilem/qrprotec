@@ -149,7 +149,7 @@ class StockWindow final : public AppWindow {
       ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 80.0f);
       ImGui::TableSetupColumn("Bientôt périmés", ImGuiTableColumnFlags_WidthFixed, 120.0f);
       ImGui::TableSetupColumn("Disparus", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-      ImGui::TableSetupColumn("Sortis", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+      ImGui::TableSetupColumn("Sortis / hors lot", ImGuiTableColumnFlags_WidthFixed, 140.0f);
       ImGui::TableHeadersRow();
       for (const Json *row_ptr : rows) {
         const Json &row      = *row_ptr;
@@ -176,6 +176,11 @@ class StockWindow final : public AppWindow {
         ImGui::TableNextColumn();
         ImGui::Text("%d", row["out"].integer());
         ImGui::SetItemTooltip("Sortis du stock sans lot : comptés utilisés s'ils ne reviennent pas à une vérif.");
+        if (row["loose"].integer() > 0) {
+          ImGui::SameLine();
+          ImGui::TextColored(colors::orange, "+%d hors lot", row["loose"].integer());
+          ImGui::SetItemTooltip("Non consommables retirés de leur lot, pas encore remis en stock.");
+        }
       }
       ImGui::EndTable();
     }

@@ -66,7 +66,7 @@ def item_dict(item, today=None):
         'type_name': item.pack.item_type.name,
         # etiquette a dechirer avant utilisation : un item non scanne a une verif est utilise
         'tear_off': item.pack.item_type.tear_off,
-        # non consommable : absent a la verif d'un lot, il repasse en stock (ni utilise, ni disparu)
+        # non consommable : absent a la verif d'un lot, il passe hors lot (ni utilise, ni disparu)
         'consumable': item.pack.item_type.consumable,
         # taches a cocher a la verif (etiquette de taches) : l'item ne compte qu'une fois toutes validees
         'tasks': list(item.pack.item_type.tasks or []),
@@ -81,7 +81,7 @@ def item_dict(item, today=None):
         'location': item.location_id,
         'location_name': item.location.name if item.location_id else '',
         # en stock : hors lot, ou range dans un rangement du stock (armoire, tiroir...)
-        'in_stock': item.status != ItemStatus.OUT and (item.location_id is None or item.location.lot_type.storage),
+        'in_stock': item.status not in (ItemStatus.OUT, ItemStatus.LOOSE) and (item.location_id is None or item.location.lot_type.storage),
         # sorti du stock sans lot : compte comme utilise a cette date s'il n'est pas revu a une verif
         'out_until': _date(out_deadline(item)) if item.status == ItemStatus.OUT else None,
         'sealed_pack': item.sealed_pack_id,

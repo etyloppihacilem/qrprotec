@@ -478,8 +478,8 @@ class VerifWindow final : public AppWindow {
       }
       draw_list(app, "Étiquette déchirée : utilisés", report["torn"], colors::orange);
       draw_list(app, "Attendus mais non scannés", missing, colors::orange);
-      // non consommable absent du lot : retire du lot, il est en stock (pas perdu)
-      draw_list(app, "Non consommables absents : remis en stock", report["stocked"], colors::green);
+      // non consommable absent du lot : retire du lot, hors lot (pas perdu) jusqu'a son retour en stock
+      draw_list(app, "Non consommables absents : hors lot (à remettre en stock)", report["loose"], colors::orange);
       draw_list(app, "Retrouvés (étaient signalés disparus)", report["reactivated"], colors::green);
       draw_list(app, "Ajoutés à leur lot en réassort (lot non vérifié)", report["restocked"], colors::orange);
       draw_list(app, "Codes inconnus ignorés", report["unknown"], colors::red);
