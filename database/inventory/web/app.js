@@ -628,11 +628,12 @@
     if (!info) return;
     const inLot = info.location && sessionLots().some((lot) => lot.id === info.location);
     const where = inLot ? 'Dans ' + (isMulti() ? 'le lot ' + info.location_name : 'ce lot')
-      : info.status === 'out' ? 'Hors du stock' : info.in_stock ? 'En stock' + (info.location ? ' · ' + info.location_name : '')
+      : info.status === 'out' || info.status === 'loose' ? 'Hors du stock' : info.in_stock ? 'En stock' + (info.location ? ' · ' + info.location_name : '')
         : info.location ? 'Rangé dans : ' + info.location_name : 'En stock';
     const status = info.status === 'out' ? (info.out_until
       ? `Sorti du stock, compté utilisé le ${fmtDate(info.out_until)} s'il ne revient pas` : 'Sorti du stock (non consommable)')
-      : { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé' }[info.status];
+      : { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé',
+        loose: 'Hors lot (retiré de son lot), pas encore en stock' }[info.status];
     showInfo(entry.expired ? 'bad' : status ? 'warn' : 'ok',
       (entry.expired ? badLabel(info) + ' – ' : '') + info.type_name,
       info.peremption ? 'Péremption : ' + fmtDate(info.peremption) : 'Non périssable',
@@ -968,7 +969,7 @@
       for (const item of [...(lot.items || []), ...(lot.missing_items || [])]) {
         locationOf[item.iid] = lot.id;
         // un item a etiquette a dechirer non scanne a ete utilise, un item non consommable non scanne d'un lot
-        // ordinaire repasse en stock (services.returns_to_stock) : ils ne retiennent pas le lot
+        // ordinaire passe hors lot (services.leaves_lot) : ils ne retiennent pas le lot
         if (!done.has(item.iid) && !item.tear_off && (item.consumable !== false || lot.storage)) holding[lot.id] = true;
       }
     }
@@ -1557,8 +1558,8 @@
       // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
       ...section('Étiquette déchirée : utilisés', report.torn),
       ...section('Attendus mais non scannés', report.missing.filter((iid) => !(report.torn || []).includes(iid))),
-      // non consommable absent du lot : retire du lot, il est en stock (pas perdu)
-      ...section('Non consommables absents : remis en stock', report.stocked),
+      // non consommable absent du lot : retire du lot, hors lot (pas perdu) jusqu'a son retour en stock
+      ...section('Non consommables absents : hors lot (à remettre en stock)', report.loose),
       ...section('Retrouvés', report.reactivated),
       ...section('Ajoutés en réassort', report.restocked),
       ...section('Codes inconnus ignorés', report.unknown),
@@ -1737,7 +1738,7 @@
       item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
       item.reported && !item.unusable ? el('span', { class: 'tag orange', title: 'Problème signalé, toujours utilisable' }, 'signalé') : null,
       item.tear_off ? el('span', { class: 'tag orange', title: 'Étiquette à déchirer : si elle manque, compté comme utilisé' }, 'à déchirer') : null,
-      item.consumable === false ? el('span', { class: 'tag blue', title: 'Non consommable : s\'il manque, il repasse en stock' }, 'non consommable') : null,
+      item.consumable === false ? el('span', { class: 'tag blue', title: 'Non consommable : s\'il manque, il passe hors lot (pas perdu)' }, 'non consommable') : null,
       (item.tasks || []).length ? el('span', { class: 'tag blue', title: 'Tâches à cocher au scan de cet item' }, 'tâches') : null,
       item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null);
   }
@@ -3065,6 +3066,7 @@
         if (row.expiring_soon) details.push(`${row.expiring_soon} bientôt périmé(s)`);
         if (row.missing) details.push(`${row.missing} disparu(s)`);
         if (row.out) details.push(`${row.out} sorti(s) sans lot`);
+        if (row.loose) details.push(`${row.loose} hors lot`);
         parts.push(el('div', { class: 'stock-row' },
           requirementRow(row.name, row.stock_fresh, row.min_quantity),
           el('div', { class: 'sub hint' }, details.join(' · '))));
@@ -3396,7 +3398,7 @@
       item.tear_off ? el('span', { class: 'tag orange' }, 'à déchirer') : null);
   }
 
-  const ITEM_STATUS = { out: 'Sorti du stock', missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Remplacé (périmé)' };
+  const ITEM_STATUS = { out: 'Sorti du stock', loose: 'Hors lot, pas encore en stock', missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Remplacé (périmé)' };
 
   function renderItemFiche(body, item) {
     const where = item.last_location;
@@ -3428,7 +3430,7 @@
         fact('Dernier passage', item.last_seen ? fmtDateTime(item.last_seen) + (item.last_seen_by ? ' par ' + item.last_seen_by : '') : '–'),
         fact('Ajouté', item.added ? fmtDateTime(item.added) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
         item.tear_off ? fact('Étiquette', 'à déchirer avant utilisation') : [],
-        item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il repasse en stock') : [],
+        item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il passe hors lot (pas perdu)') : [],
         (item.tasks || []).length ? fact('Tâches à la vérif', el('ul', { class: 'tasks-facts' }, ...item.tasks.map((task) => el('li', {}, task)))) : [],
         item.deleted_reason ? fact('Raison', item.deleted_reason) : []),
       where ? '' : el('p', { class: 'sub' }, "Aucun lot connu pour cet item : il n'y a pas de vérif à lancer."),

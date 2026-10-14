@@ -60,9 +60,12 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    partielle, un tel item non scanné ne retient pas son lot (même règle dans `services._complete_lots`,
    `planSession` du front web et `App::plan_verif` du poste).
    Un item **non consommable** (`ItemType.consumable` faux, ex : lecteur de glycémie) non scanné
-   dans un lot ordinaire vérifié en a été retiré : il repasse en stock (hors lot, `active`,
-   `missed_verifs=0`, mouvement `move` vers le stock, opération `remove`, rapport `stocked`), sans
-   compter comme utilisé ni manquant (`services.returns_to_stock`). Il ne retient pas non plus son
+   dans un lot ordinaire vérifié en a été retiré : il passe **hors lot** (`status=loose`, sans lot,
+   `missed_verifs=0`, mouvement `move` vers le stock, opération `remove`, rapport `loose`), sans
+   compter comme utilisé ni manquant (`services.leaves_lot`). Hors lot, il n'est ni dans les lots ni
+   dans le stock (`stock_status` le compte dans `loose`) et une vérif du stock qui ne le voit pas ne
+   le signale pas. Il entre en stock quand il est scanné (vérif du stock ou d'un rangement) ou remis
+   en stock à la main (`items/to-stock`, fenêtre Inventaire du poste). Il ne retient pas non plus son
    lot en vérif partielle. Dans un rangement du stock il manque comme les autres. Sorti du stock
    sans lot, il reste `out` jusqu'à son retour (`out_deadline` vaut `None`).
    **Items à tâches** (`ItemType.tasks`, étiquette de tâches `<base>/task?id=IID`) : les fronts

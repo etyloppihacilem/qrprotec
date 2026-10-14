@@ -329,8 +329,8 @@ class InventoryWindow final : public AppWindow {
                   "ensemble complet, les restes de l'ancien sont considérés comme perdus.");
       ImGui::Checkbox("Non consommable (matériel réutilisable)", &form_non_consumable_);
       help_marker("Ex : lecteur de glycémie, oxymètre. Un item non consommable ne s'use pas : s'il manque à la vérif "
-                  "d'un lot, il a été retiré du lot et repasse en stock au lieu d'être compté comme utilisé ou "
-                  "perdu. Sorti du stock sans lot, il reste « sorti » jusqu'à son retour. Dans un rangement du "
+                  "d'un lot, il a été retiré du lot : il passe « hors lot » au lieu d'être compté comme utilisé ou "
+                  "perdu, et rejoint le stock quand il y est scanné ou remis en stock à la main. Sorti du stock sans lot, il reste « sorti » jusqu'à son retour. Dans un rangement du "
                   "stock, il manque comme les autres items.");
       ImGui::TextUnformatted("Tâches à la vérif (une par ligne)");
       help_marker("Ex : DAE « Voyant vert allumé », « Électrodes dans leur date ». Les items de ce type ont une "
@@ -507,7 +507,7 @@ class InventoryWindow final : public AppWindow {
         query += "&q=" + url_encode(search_text_);
       if (!search_type_.empty())
         query += "&type=" + url_encode(search_type_);
-      static const char *statuses[] = { "", "active", "missing", "replaced", "deleted", "out" };
+      static const char *statuses[] = { "", "active", "missing", "replaced", "deleted", "out", "loose" };
       if (search_status_ > 0)
         query += std::string("&status=") + statuses[search_status_];
       if (search_stock_only_)
@@ -536,7 +536,7 @@ class InventoryWindow final : public AppWindow {
                                "Filtrer par type…", "Tous les types", 240.0f);
       ImGui::SameLine();
       ImGui::SetNextItemWidth(150.0f);
-      changed |= ImGui::Combo("##status", &search_status_, "Tous statuts\0Presents\0Disparus\0Remplaces\0Supprimes\0Sortis\0");
+      changed |= ImGui::Combo("##status", &search_status_, "Tous statuts\0Presents\0Disparus\0Remplaces\0Supprimes\0Sortis\0Hors lot\0");
       ImGui::SameLine();
       changed |= ImGui::Checkbox("En stock", &search_stock_only_);
       ImGui::SameLine();
@@ -572,7 +572,8 @@ class InventoryWindow final : public AppWindow {
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(display_date(item["peremption"]).c_str());
           ImGui::TableNextColumn();
-          ImGui::TextUnformatted(item["location"].is_null() ? "Stock" : item["location_name"].str().c_str());
+          ImGui::TextUnformatted(item["status"].str() == "loose" ? "Hors lot"
+                                 : item["location"].is_null() ? "Stock" : item["location_name"].str().c_str());
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item["status"].str().c_str());
           ImGui::TableNextColumn();
@@ -596,6 +597,21 @@ class InventoryWindow final : public AppWindow {
       if (ImGui::CollapsingHeader("Actions avancées")) {
         ImGui::TextWrapped("Les items ne sont normalement pas supprimés : ils sont détectés comme disparus par les "
                            "vérifs. N'utilisez la suppression que pour un cas exceptionnel (casse, erreur de saisie).");
+        if (selected_item_["status"].str() == "loose") {
+          // non consommable retire de son lot : il rejoint le stock a la main (ou en le scannant a une verif du stock)
+          if (button("Remettre en stock")) {
+            Json body;
+            body["user"]  = app.user_ref();
+            body["items"] = Json::array();
+            body["items"].push_back(iid);
+            app.api.post("/api/items/to-stock/", body, [this, &app](const ApiResult &result) {
+              app.notify(result.ok ? "Item remis en stock." : result.error, !result.ok);
+              selected_item_ = Json();
+              search(app);
+            });
+          }
+          ImGui::SameLine();
+        }
         if (selected_item_["status"].str() == "deleted") {
           if (button("Restaurer l'item")) {
             Json body;

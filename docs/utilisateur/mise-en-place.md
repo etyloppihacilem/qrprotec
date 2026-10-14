@@ -80,9 +80,10 @@ Conseils :
   **utilisé** tout de suite (sans attendre plusieurs vérifs) : il faut remettre un ensemble complet,
   les restes de l'ancien sont considérés comme perdus.
 - **Non consommable** : pour du matériel réutilisable (ex : lecteur de glycémie, oxymètre). S'il
-  manque à la vérif d'un lot, il a été retiré du lot : il est indiqué **en stock** au lieu d'être
-  compté comme utilisé ou perdu. La prochaine vérif du stock le signale s'il n'y est pas. Sorti du
-  stock sans lot, il reste « sorti » jusqu'à son retour.
+  manque à la vérif d'un lot, il a été retiré du lot : il est indiqué **hors lot** (ni dans un lot,
+  ni en stock) au lieu d'être compté comme utilisé ou perdu. Il rejoint le stock quand il est scanné
+  à une vérif du stock, ou avec « Remettre en stock » dans l'Inventaire. Sorti du stock sans lot, il
+  reste « sorti » jusqu'à son retour.
 - **Tâches à la vérif** (une par ligne, ex : DAE « Voyant vert allumé », « Électrodes dans leur
   date ») : les items de ce type reçoivent une **étiquette de tâches** à la place de l'étiquette
   d'item (modèle `tache.qr`, avec la liste des tâches). À la vérif, la scanner ouvre la liste à
