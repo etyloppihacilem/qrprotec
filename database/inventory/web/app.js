@@ -1658,14 +1658,14 @@
   // ------------------------------------------------------------------------------------------------
   // Affichage
 
-  function requirementRow(label, present, required) {
+  function requirementRow(label, present, required, after = null) {
     const ratio = required > 0 ? Math.min(1, present / required) : 1;
     const color = present <= 0 ? 'var(--red)' : present < required ? 'var(--orange)' : 'var(--green)';
     return el('div', { class: 'req' },
       el('span', { class: 'label' }, label),
       el('div', { class: 'bar' },
         el('i', { style: `width:${present <= 0 ? 100 : ratio * 100}%;background:${color}` }),
-        el('span', { style: present <= 0 ? 'color:#fff' : '' }, `${present}/${required}`)));
+        el('span', { style: present <= 0 ? 'color:#fff' : '' }, `${present}/${required}`)), after);
   }
 
   // Items frais scannes par type (un paquet compte pour son nombre d'items)
@@ -3142,7 +3142,7 @@
   // integre), ou d'un lot / item touche dans une fiche. Pas de camera : « Lancer une vérif » ouvre le lecteur sur le
   // bon lot (le lot de la fiche, ou le dernier emplacement connu de l'item).
 
-  const fiche = { kind: '', id: '', key: '', lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0 };
+  const fiche = { kind: '', id: '', key: '', lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set() };
 
   function ficheOpen() { return !$('#fiche').hidden; }
 
@@ -3179,7 +3179,7 @@
       if (key) storeFicheKey(id, key); else key = storedFicheKey(id);
     }
     const token = fiche.token + 1;
-    Object.assign(fiche, { kind, id, key, lot: null, item: null, error: '', keyCheck: '', keyError: '', token });
+    Object.assign(fiche, { kind, id, key, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set() });
     if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id));
     $('#fiche').hidden = false;
     document.body.classList.add('fiche-open');
@@ -3354,16 +3354,45 @@
           el('div', { class: 'sub' }, `${sub.lot_type_name} · ${sub.item_count} item(s)`)),
         el('span', { class: 'tag ' + tags[subStatus.kind] }, subStatus.label.replace(/^[✔✘⚠] /, '').split(',')[0]))));
       }
-      parts.push(...requirements.map((row) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''),
-        row.present, row.required)));
-      const rows = [
-        ...items.map((item) => itemRow(item, '', place(item))),
-        ...missing.map((item) => itemRow(item, 'disparu', place(item))),
-      ];
-      if (rows.length) parts.push(el('ul', { class: 'list' }, ...rows));
-      else if (!requirements.length && sub === lot && lots.length === 1) parts.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
+      // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption
+      const pairs = [...items.map((item) => [item, '']), ...missing.map((item) => [item, 'disparu'])];
+      const ofType = (type) => pairs.filter(([item]) => item.type === type);
+      for (const row of requirements) {
+        parts.push(...ficheFold(`${sub.id}:${row.type}`, ofType(row.type), (arrow) => requirementRow(
+          row.type_name + (row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)));
+      }
+      // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
+      const known = new Set(requirements.map((row) => row.type));
+      const extra = [...new Set(pairs.filter(([item]) => !known.has(item.type)).map(([item]) => item.type))];
+      for (const type of extra) {
+        const rows = ofType(type);
+        const label = rows[0][0].type_name + (requirements.length ? ' (hors définition)' : '');
+        parts.push(...ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
+          el('span', { class: 'label' }, label), el('span', { class: 'req-count' }, String(rows.filter(([, tag]) => !tag).length)), arrow)));
+      }
+      if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) parts.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
     }
     body.replaceChildren(...parts);
+  }
+
+  // Ligne d'un type dans la fiche de lot, avec une fleche au bout pour deplier ses iids (replies par defaut,
+  // remis a zero a chaque fiche ouverte)
+  function ficheFold(key, rows, line) {
+    const open = fiche.folds.has(key);
+    const arrow = el('button', { type: 'button', class: 'fold', disabled: !rows.length, 'aria-expanded': String(open),
+      'aria-label': open ? 'Replier les items' : 'Afficher les items',
+      onclick: () => { if (open) fiche.folds.delete(key); else fiche.folds.add(key); renderFiche(); } }, open ? '▾' : '▸');
+    return [line(arrow), open ? el('ul', { class: 'iids' }, ...rows.map(([item, tag]) => iidRow(item, tag))) : ''];
+  }
+
+  // Item deplie sous sa jauge : iid et peremption, touche pour ouvrir sa fiche
+  function iidRow(item, missingTag) {
+    return el('li', { class: item.expired ? 'expired' : missingTag ? 'missing' : '', onclick: () => openFiche('item', item.iid) },
+      el('span', { class: 'iid' }, ficheLink('item', item.iid, item.iid)),
+      el('span', { class: 'date' }, item.peremption ? fmtDate(item.peremption) : 'non périssable'),
+      item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
+      item.reported && !item.unusable ? el('span', { class: 'tag orange' }, 'signalé') : null,
+      missingTag ? el('span', { class: 'tag orange' }, missingTag) : null);
   }
 
   // Prochaine peremption d'un lot et de ses sous-lots : la plus proche parmi les items pas encore perimes
@@ -3383,19 +3412,6 @@
       el('b', {}, next ? fmtDate(next.date) : 'aucune'),
       next ? ` (${[...next.names].join(', ')})` : ' (aucun item périssable)',
       expired ? ` · ${expired} item(s) déjà périmé(s)` : '');
-  }
-
-  // Item du contenu d'un lot : touche pour ouvrir sa fiche
-  function itemRow(item, missingTag, place) {
-    return el('li', { class: item.expired ? 'expired' : missingTag ? 'extra' : '', onclick: () => openFiche('item', item.iid) },
-      el('div', { class: 'main' },
-        el('div', { class: 'name' }, ficheLink('item', item.iid, item.type_name)),
-        el('div', { class: 'sub' }, [place ? '📍 ' + cap(place) : '',
-          item.peremption ? 'Péremption : ' + fmtDate(item.peremption) : 'Non périssable', item.iid].filter(Boolean).join(' · '))),
-      item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
-      item.reported && !item.unusable ? el('span', { class: 'tag orange' }, 'signalé') : null,
-      missingTag ? el('span', { class: 'tag orange' }, missingTag) : null,
-      item.tear_off ? el('span', { class: 'tag orange' }, 'à déchirer') : null);
   }
 
   const ITEM_STATUS = { out: 'Sorti du stock', loose: 'Hors lot, pas encore en stock', missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Remplacé (périmé)' };
