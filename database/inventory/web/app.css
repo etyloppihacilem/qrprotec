@@ -324,6 +324,16 @@ body.fiche-open #toast { bottom: calc(90px + env(safe-area-inset-bottom)); }
 #fiche-body .list li { cursor: pointer; }
 #fiche-body .list li.static { cursor: default; }
 #fiche-body .list li.lot-head { margin-top: 10px; }
+/* jauge d'un type : fleche au bout pour deplier ses iids */
+#fiche-body .req .fold { flex: none; width: 28px; height: 28px; padding: 0; border-radius: 6px; background: #eee; color: var(--text); font-size: .9rem; line-height: 28px; }
+#fiche-body .req .fold:disabled { visibility: hidden; }
+#fiche-body .req .req-count { font-weight: 600; font-size: .85rem; }
+#fiche-body ul.iids { list-style: none; margin: -2px 0 6px; padding: 0 0 0 10px; border-left: 2px solid var(--line); }
+#fiche-body ul.iids li { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: .85rem; cursor: pointer; }
+#fiche-body ul.iids .iid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }
+#fiche-body ul.iids .date { color: var(--muted); margin-left: auto; white-space: nowrap; }
+#fiche-body ul.iids li.expired .date { color: var(--red); }
+#fiche-body ul.iids .tag { font-size: .66rem; padding: 0 5px; }
 #fiche-body .key-box { padding: 8px 10px; border-radius: 10px; background: var(--blue-bg); }
 #fiche-body .key-box.bad { background: var(--red-bg); }
 #fiche-body .key-box b { display: block; }
