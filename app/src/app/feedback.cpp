@@ -148,9 +148,11 @@ void Feedback::error(ScanSource source, const AppSettings &settings) {
 }
 
 void Feedback::notice(ScanSource source, const AppSettings &settings) {
+  // douchette en mode SDK : c'est elle qui bipe, pas l'ordinateur
   if (source == ScanSource::Sdk && inateck_.sdk_connected())
     inateck_.signal_error(settings.scanner_signal);
-  play_beep(settings, notice_wav_path_);
+  else
+    play_beep(settings, notice_wav_path_);
 }
 
 void Feedback::task(ScanSource source, const AppSettings &settings) {

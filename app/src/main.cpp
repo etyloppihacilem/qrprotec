@@ -87,6 +87,10 @@ static void load_font(float size)
         std::fprintf(stderr, "Aucune police avec accents trouvee (installez DejaVu Sans ou definissez QRPROTEC_FONT)\n");
     else
         qrprotec::debug_log("Police : " + path);
+    // police grasse pour le texte des boutons de signalement (gras synthetique a defaut)
+    const std::string& bold = qrprotec::bold_font_path();
+    if (!bold.empty() && io.Fonts->Fonts.Size > 0)
+        qrprotec::set_bold_font(io.Fonts->AddFontFromFileTTF(bold.c_str(), size));
     ImGui::GetStyle().FontSizeBase = size;
 }
 

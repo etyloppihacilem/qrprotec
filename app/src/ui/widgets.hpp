@@ -34,9 +34,11 @@ bool tab_item(const char *label, ImGuiTabItemFlags flags = 0);
 bool danger_button(const char *label, const ImVec2 &size = ImVec2(0, 0), bool mnemonic = true);
 bool primary_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool warning_button(const char *label, const ImVec2 &size = ImVec2(0, 0)); // orange
-// Signalement d'un probleme : bouton hachure orange et rouge, et petit (!) rond (meme style que le front web)
+// Signalement d'un probleme : bouton hachure noir et jaune, et petit (!) rond (meme style que le front web)
 bool hatched_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool report_mark(const char *id); // id unique dans la fenetre (ex : "##report")
+// Police grasse chargee au demarrage (texte des boutons hachures), nullptr : gras synthetique
+void set_bold_font(ImFont *font);
 
 // QR code dessine module par module (net a toute taille, sans texture), a la position du curseur.
 void draw_qr(const std::string &payload, float size);
