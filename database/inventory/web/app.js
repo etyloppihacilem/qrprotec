@@ -883,7 +883,7 @@
           sealedLine ? el('p', { class: 'sub' }, sealedLine) : ''),
       el('div', { class: 'opening-box tech' },
         el('b', {}, '🛠 Le TECH est au courant'),
-        el('p', {}, 'L\'ouverture est enregistrée et signalée aux responsables : inutile de la signaler. '
+        el('p', {}, 'L\'ouverture est enregistrée et le TECH en est informé : inutile de la signaler. '
           + (lot.seal_required ? 'Le lot sera vérifié puis scellé à nouveau plus tard.' : 'Le lot sera vérifié plus tard.')),
         openedLine ? el('p', { class: 'sub' }, openedLine) : '',
         state.pendingOpening && state.pendingOpening.id === lot.id && !state.user

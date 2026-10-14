@@ -1752,7 +1752,7 @@ void App::draw_seal_opening_modal() {
   ImGui::PushFont(nullptr, base * 1.4f);
   ImGui::TextUnformatted("Le TECH est au courant");
   ImGui::PopFont();
-  const std::string tech = std::string("L'ouverture est enregistrée et signalée aux responsables : inutile de la "
+  const std::string tech = std::string("L'ouverture est enregistrée et le TECH en est informé : inutile de la "
                                        "signaler. ") +
                            (lot["seal_required"].boolean() ? "Le lot sera vérifié puis scellé à nouveau plus tard."
                                                            : "Le lot sera vérifié plus tard.");
