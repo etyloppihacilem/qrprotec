@@ -129,12 +129,18 @@ class ScanWindow final : public AppWindow {
           if (small_button("X"))
             remove_id = entry->id;
           ImGui::SetItemTooltip("Retirer ce scan de la pile");
-          // item scanne : signaler un probleme (connexion demandee d'abord)
+          // item ou paquet scanne : signaler un probleme (connexion demandee d'abord)
           if (entry->scan.kind == ScanKind::Item && entry->state == EntryState::Ok) {
             ImGui::SameLine();
             if (report_mark("##report"))
               report_target = { entry->data["location"].str(), entry->data["location_name"].str(), entry->scan.id, "",
                                 entry->title + " (" + entry->scan.id + ")" };
+          } else if (entry->scan.kind == ScanKind::SealedPack && entry->state == EntryState::Ok) {
+            ImGui::SameLine();
+            if (report_mark("##report"))
+              report_target = { "", "", "", entry->data["type"].str(),
+                                "Paquet de " + entry->data["type_name"].str() + " (" + entry->scan.id + ")",
+                                entry->scan.id };
           }
           ImGui::PopID();
         }

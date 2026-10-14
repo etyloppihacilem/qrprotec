@@ -46,9 +46,9 @@ dl.facts dd { margin: 0; }
 .error { color: #ffb4b4; }
 .danger-text { color: var(--red); background: transparent; }
 .danger { background: var(--red); color: #fff; font-weight: 600; }
-#disable .check { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
-#disable .check input { flex: none; width: 20px; height: 20px; }
-#disable input[type=text] { width: 100%; font: inherit; padding: 8px; }
+#reported .reported-item { border-left: 4px solid var(--orange); padding: 6px 10px; margin: 8px 0; }
+#reported .reported-item.bad { border-color: var(--red); }
+#reported .reported-item p { margin: 4px 0; }
 
 /* ---- Tiers haut : camera ---- */
 #camera { position: relative; height: 33dvh; background: #000; overflow: hidden; }
@@ -371,13 +371,12 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
 .report-mark { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; line-height: 26px; text-align: center;
   font-size: .95rem; box-shadow: 0 0 0 2px #fff; }
 .list li.iid .report-mark { width: 20px; height: 20px; line-height: 20px; font-size: .75rem; font-family: system-ui, sans-serif; }
-.item-disable { display: block; width: 100%; margin: 8px 0; }
 .report-wide { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; }
 .tiles .tile.wide { grid-column: span 2; min-height: 0; flex-direction: row; gap: 14px; padding: 12px 16px; }
 .tiles .tile.wide > span:last-child { display: flex; flex-direction: column; align-items: flex-start; }
 .tiles .tile.alert { box-shadow: 0 0 0 3px var(--red); }
 .dialog-stack { display: flex; flex-direction: column; gap: 8px; }
-#problem h2, #login-needed h2, #disable h2 { margin: 0 0 6px; font-size: 1.2rem; }
+#problem h2, #login-needed h2, #reported h2 { margin: 0 0 6px; font-size: 1.2rem; }
 #problem .choice { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
 #problem .choice label { display: flex; align-items: center; gap: 8px; padding: 6px 2px; }
 #problem .choice input { width: 20px; height: 20px; flex: none; }

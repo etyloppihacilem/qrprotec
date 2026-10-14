@@ -68,7 +68,6 @@
   // roles gestion et admin : acces en lecture a l'etat des stocks
   const canSeeStock = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin' || state.user.privileged));
   const isAdmin = () => !!(state.user && state.user.role === 'admin');
-  const canManageItems = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin'));
   const ROLE_LABELS = { normal: 'Secouriste', gestion: 'Gestion', admin: 'Administrateur' };
   // identite des operations sur un lot : le badge, sinon le nom declare (si le serveur l'autorise)
   const declared = () => !state.user && state.declaredAllowed && !!state.declaredName;
@@ -576,8 +575,9 @@
         return;
       }
     }
-    // premier scan sans vérif en cours d'un item range dans un lot : c'est la vérif de ce lot qui commence
     const info = entry.info;
+    if (info && info.reported) alertReports('item:' + info.iid, `Item signalé : ${info.type_name}`, info.reports);
+    // premier scan sans vérif en cours d'un item range dans un lot : c'est la vérif de ce lot qui commence
     if (!state.lot && state.scanned.length === 1 && state.scanned[0] === entry && info && info.location
         && !info.in_stock && info.status === 'active') {
       state.lotKey = ''; state.extra = []; state.lastVerif = null;
@@ -654,7 +654,8 @@
   async function scanPack(scan) {
     try {
       const pack = await api(`packs/${encodeURIComponent(scan.id)}/`);
-      const expired = !!(pack.peremption && parseDate(pack.peremption) < today());
+      // perime, ou entierement desactive (rappel produit) : a remplacer
+      const expired = !!(pack.peremption && parseDate(pack.peremption) < today()) || (pack.disabled > 0 && pack.disabled >= pack.count);
       if (allScanned().some((entry) => entry.kind === 'pack' && entry.code === scan.code)) {
         showInfo('ok', '✓ Déjà scanné', `Paquet : ${pack.count} × ${pack.type_name}`);
         return;
@@ -664,6 +665,7 @@
       state.scanned.push({ code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items,
                            place: state.lot ? currentPlace() : '' });
       if (expired) feedback.bad(); else feedback.good();
+      alertReports('pack:' + pack.id, `Paquet signalé : ${pack.count} × ${pack.type_name}`, pack.reports);
       showInfo(expired ? 'bad' : 'ok', `Paquet : ${pack.count} × ${pack.type_name}`,
         pack.peremption ? 'Péremption : ' + fmtDate(pack.peremption) : 'Non périssable',
         pack.opened ? 'Paquet ouvert le ' + fmtDateTime(pack.opened) : 'Paquet fermé');
@@ -1869,7 +1871,8 @@
             mine ? '' : `par ${entry.who || 'un autre participant'}`].filter(Boolean).join(' · '))),
         ...tags,
         entry.kind === 'item' && !entry.error ? reportMark({ item: entry.iid, label: `${name} (${entry.iid})`,
-          lot: info && info.location, lotName: info && info.location_name }) : null,
+          lot: info && info.location, lotName: info && info.location_name })
+          : entry.kind === 'pack' && info ? reportMark({ pack: info.id, label: `Paquet de ${info.type_name} (${info.id})` }) : null,
         mine && el('button', {
           class: 'remove', type: 'button', 'aria-label': 'Retirer',
           onclick: () => { scannedAgain(); state.scanned.splice(index, 1); save(); render(); },
@@ -3213,6 +3216,7 @@
         const item = await api(`items/${encodeURIComponent(id)}/`);
         if (fiche.token !== token) return;
         fiche.item = item;
+        if (item.reported) alertReports('item:' + item.iid, `Item signalé : ${item.type_name}`, item.reports);
       }
     } catch (e) {
       if (fiche.token !== token) return;
@@ -3459,10 +3463,6 @@
       el('div', { class: 'banner ' + banner.kind }, banner.label),
       item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par les administrateurs.') : '',
       reportButton({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
-      canManageItems() && !['deleted', 'replaced'].includes(item.status) ? (item.disabled
-        ? el('button', { type: 'button', class: 'item-disable', onclick: () => enableItem(item) }, "Réactiver l'item")
-        : el('button', { type: 'button', class: 'item-disable warning', onclick: () => showDisableDialog(item) },
-          "Désactiver l'item (rappel produit, non-conformité)")) : '',
       el('dl', { class: 'facts' },
         item.disabled ? fact('Désactivé', item.disabled_reason || '–', el('div', { class: 'sub' },
           [item.disabled_at ? 'le ' + fmtDateTime(item.disabled_at) : '', item.disabled_by ? 'par ' + item.disabled_by : ''].filter(Boolean).join(' '))) : [],
@@ -3480,51 +3480,23 @@
   }
 
 
-  // Desactivation d'un item (gestion, admins) : rappel produit, non-conformite. Invalide comme un perime ; `pack` :
-  // tous les items encore en service du meme type et de la meme date (rappel d'un lot fabricant).
-  function showDisableDialog(item) {
-    const dialog = $('#disable');
-    $('#disable-target').textContent = `${item.type_name} (${item.iid})`;
-    $('#disable-reason').value = '';
-    $('#disable-pack').checked = false;
-    $('#disable-pack-label').textContent = item.peremption
-      ? `Tous les items « ${item.type_name} » périmant le ${fmtDate(item.peremption)} (rappel d'un lot)`
-      : `Tous les items « ${item.type_name} » de la même série d'étiquettes`;
-    $('#disable-error').textContent = '';
-    $('#disable-send').disabled = false;
-    $('#disable-form').onsubmit = async (event) => {
-      event.preventDefault();
-      const reason = $('#disable-reason').value.trim();
-      if (!reason) { $('#disable-error').textContent = 'Indiquez la raison.'; return; }
-      $('#disable-send').disabled = true;
-      try {
-        const body = await api(`items/${encodeURIComponent(item.iid)}/disable/`,
-          { user: credentials(), disabled: true, reason, pack: $('#disable-pack').checked });
-        dialog.close();
-        toast(body.count > 1 ? `${body.count} items désactivés.` : 'Item désactivé.');
-        itemChanged();
-      } catch (e) {
-        $('#disable-send').disabled = false;
-        $('#disable-error').textContent = e.message;
-      }
-    };
-    $('#disable-cancel').onclick = () => dialog.close();
+  // Item (ou paquet ferme) signale scanne, quel que soit le signalement : popup avec les signalements ouverts et
+  // leurs commentaires, et bip. Une seule fois par objet sur une courte duree (fiche rouverte, rescan).
+  let lastReportAlert = { key: '', at: 0 };
+  function alertReports(key, title, reports) {
+    if (!reports || !reports.length) return;
+    if (lastReportAlert.key === key && Date.now() - lastReportAlert.at < 30000) return;
+    lastReportAlert = { key, at: Date.now() };
+    feedback.warn();
+    $('#reported-title').textContent = title;
+    $('#reported-body').replaceChildren(...reports.map((report) => el('div', { class: 'reported-item' + (report.usable ? '' : ' bad') },
+      el('b', {}, report.usable ? '⚠ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
+      el('div', { class: 'sub' }, `${report.status_label} · signalé par ${report.by} le ${fmtDateTime(report.created)}`),
+      report.comment ? el('p', { class: 'comment' }, '« ' + report.comment + ' »') : el('p', { class: 'sub' }, 'Sans commentaire.'),
+      report.note ? el('p', { class: 'note' }, '💬 ' + report.note) : '')));
+    const dialog = $('#reported');
+    $('#reported-close').onclick = () => dialog.close();
     if (!dialog.open) dialog.showModal();
-  }
-
-  async function enableItem(item) {
-    try {
-      await api(`items/${encodeURIComponent(item.iid)}/disable/`, { user: credentials(), disabled: false });
-      toast('Item réactivé.');
-      itemChanged();
-    } catch (e) {
-      toast(e.message, true);
-    }
-  }
-
-  function itemChanged() {
-    if (state.lotId) loadLot(state.lotId);
-    if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, push: false });
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -3575,9 +3547,9 @@
 
   function showReportDialog(target) {
     const dialog = $('#problem');
-    const what = target.item || target.type ? "l'objet" : 'le lot';
+    const what = target.pack ? 'le paquet' : target.item || target.type ? "l'objet" : 'le lot';
     $('#problem-target').textContent = target.label || '';
-    $('#problem-question').textContent = `${what === 'le lot' ? 'Le lot est-il' : "L'objet est-il"} toujours utilisable ?`;
+    $('#problem-question').textContent = `${what === 'le lot' ? 'Le lot est-il' : what === 'le paquet' ? 'Le paquet est-il' : "L'objet est-il"} toujours utilisable ?`;
     $('#problem-usable-yes').checked = false;
     $('#problem-usable-no').checked = false;
     $('#problem-comment').value = '';
@@ -3592,11 +3564,14 @@
       }
       $('#problem-send').disabled = true;
       try {
-        const body = await api('reports/', { user: credentials(), lot: target.item ? '' : target.lot || '',
-          item: target.item || '', type: target.type || '', comment: $('#problem-comment').value, usable: yes });
+        const body = await api('reports/', { user: credentials(), lot: target.item || target.pack ? '' : target.lot || '',
+          item: target.item || '', type: target.type || '', pack: target.pack || '', comment: $('#problem-comment').value,
+          usable: yes });
         dialog.close();
         feedback.info();
         toast('Signalement envoyé aux administrateurs.');
+        // son propre signalement : pas de popup quand la fiche se recharge
+        lastReportAlert = { key: target.item ? 'item:' + target.item : 'pack:' + (target.pack || ''), at: Date.now() };
         reported(body.item);
         state.reports = null;
       } catch (e) {

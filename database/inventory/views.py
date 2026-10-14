@@ -25,7 +25,7 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.core import signing
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Max, Min, Q
 from django.http import Http404, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -42,7 +42,7 @@ from . import reports
 from . import serializers as ser
 from . import services
 from . import webpush
-from .idendity import SOURCE_VERIFIED, identity_from_request
+from .idendity import SOURCE_VERIFIED, identity_from_request, identity_name
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
@@ -958,7 +958,7 @@ def connected_user(request, roles=None):
 @api_view(['POST'])
 @handle_errors
 def reports_create(request):
-    """Nouveau signalement : {"user", "lot"?, "item"?, "type"?, "comment", "usable"}. Envoye aux admins, independant
+    """Nouveau signalement : {"user", "lot"?, "item"?, "type"?, "pack"? (paquet ferme), "comment", "usable"}. Envoye aux admins, independant
     de toute verif. Repond le signalement et l'item a jour (signale inutilisable : a remplacer)."""
     user = connected_user(request)
     data = request.data
@@ -967,6 +967,7 @@ def reports_create(request):
     report, item = reports.create(
         f'{SOURCE_VERIFIED}:{user.matricule}', lot_id=str(data.get('lot') or ''), iid=str(data.get('item') or ''),
         type_code=str(data.get('type') or ''), comment=data.get('comment', ''), usable=bool(data['usable']),
+        pack_id=str(data.get('pack') or ''),
     )
     response = {'report': reports.report_dict(report)}
     if item is not None:
@@ -996,28 +997,6 @@ def report_update(request, report_id):
     reports.update(report, f'{SOURCE_VERIFIED}:{user.matricule}', status=data.get('status'),
                    usable=data.get('usable'), note=data.get('note'), resolution=data.get('resolution'))
     return Response(reports.report_dict(report))
-
-
-@api_view(['POST'])
-@handle_errors
-def item_disable(request, iid):
-    """Desactive ou reactive un item (rappel produit, non-conformite), au poste ou sur le web (gestion, admin) :
-    {"user", "disabled": bool, "reason": texte (obligatoire pour desactiver), "pack": bool}. `pack` : tous les items
-    encore en service du meme type et de la meme date (meme paquet d'etiquettes), pour un rappel de lot fabricant."""
-    user = connected_user(request, GESTION)
-    item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
-    disabled = bool(request.data.get('disabled', True))
-    if request.data.get('pack'):
-        targets = list(Items.objects.select_related('pack__item_type', 'location__lot_type').filter(
-            pack=item.pack, status__in=(ItemStatus.ACTIVE, ItemStatus.OUT, ItemStatus.LOOSE)))
-        if item not in targets:
-            targets.append(item)
-    else:
-        targets = [item]
-    changed = services.set_disabled(targets, f'{SOURCE_VERIFIED}:{user.matricule}', disabled,
-                                    request.data.get('reason', ''))
-    item.refresh_from_db()
-    return Response({'item': ser.item_dict(item), 'count': len(changed)})
 
 
 @api_view(['GET'])
@@ -1194,6 +1173,65 @@ def item_delete(request, iid):
         raise ApiError("Une raison est obligatoire pour supprimer un item")
     services.mark_deleted(item, operation_identity(request)[:32], reason)
     return Response(ser.item_dict(item))
+
+
+@api_view(['POST'])
+@handle_errors
+def items_disable(request):
+    """Desactive ou reactive des items (rappel produit, non-conformite), au poste, par un admin (fenetre Inventaire) :
+    {"user", "disabled": bool, "reason": texte (obligatoire pour desactiver), et les items vises : "items" (iids),
+    "reception" (un iid : tous les items recus avec lui, meme paquet d'etiquettes et meme instant) et/ou "pack"
+    (paquet ferme : tous ses items)}. Desactive, un item est invalide comme un perime."""
+    require_front(request, ADMIN)
+    data = request.data
+    where = Q(iid__in=iid_list(data)) if data.get('items') else Q(pk__in=[])
+    if data.get('reception'):
+        first = get_object_or_404(Items, iid=str(data['reception']))
+        where |= Q(pack_id=first.pack_id, added=first.added)
+    if data.get('pack'):
+        where |= Q(sealed_pack_id=get_object_or_404(SealedPacks, id=str(data['pack'])).id)
+    targets = list(Items.objects.select_related('pack__item_type').filter(where))
+    if not targets:
+        raise ApiError('Aucun item à désactiver')
+    changed = services.set_disabled(targets, operation_identity(request), bool(data.get('disabled', True)),
+                                    data.get('reason', ''))
+    return Response({'count': len(changed), 'total': len(targets)})
+
+
+@api_view(['GET'])
+@handle_errors
+def receptions(request):
+    """Receptions passees (items crees ensemble : meme paquet d'etiquettes, meme instant), les plus recentes
+    d'abord : ?type=CODE, ?item=IID (la reception de cet item), ?limit=N. Sert a desactiver d'un coup tout ce qui a
+    ete recu ensemble (paquet ouvert a la reception, rappel produit)."""
+    require_front(request, GESTION)
+    params = request.query_params
+    queryset = Items.objects.all()
+    if params.get('type'):
+        queryset = queryset.filter(pack__item_type_id=params['type'])
+    if params.get('item'):
+        item = get_object_or_404(Items, iid=params['item'])
+        queryset = queryset.filter(pack_id=item.pack_id, added=item.added)
+    limit = parse_int(params.get('limit', 100), 'limit', 1, 1000)
+    rows = (queryset.values('pack_id', 'pack__item_type_id', 'pack__item_type__name', 'pack__peremption', 'added',
+                            'added_by')
+            .annotate(count=Count('iid'), first=Min('iid'), last=Max('iid'), sealed_pack=Max('sealed_pack_id'),
+                      active=Count('iid', filter=Q(status=ItemStatus.ACTIVE)),
+                      disabled=Count('iid', filter=Q(disabled=True)))
+            .order_by('-added')[:limit])
+    return Response([{
+        'item': row['first'],
+        'last': row['last'],
+        'type': row['pack__item_type_id'],
+        'type_name': row['pack__item_type__name'],
+        'peremption': row['pack__peremption'].isoformat() if row['pack__peremption'] else None,
+        'added': timezone.localtime(row['added']).isoformat(),
+        'added_by': identity_name(row['added_by']),
+        'count': row['count'],
+        'active': row['active'],
+        'disabled': row['disabled'],
+        'sealed_pack': row['sealed_pack'],
+    } for row in rows])
 
 
 @api_view(['POST'])

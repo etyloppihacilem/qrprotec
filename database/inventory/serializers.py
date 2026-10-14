@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .models import PUSH_TYPES, ItemStatus, qrprotec_setting
+from .reports import item_reports, pack_reports
 from .services import out_deadline, requirements_status
 
 
@@ -77,6 +78,8 @@ def item_dict(item, today=None):
         'outdated': item.is_expired(today),  # perime seulement
         'unusable': item.unusable,
         'reported': item.reported,  # signalement ouvert : jamais marque disparu par une verif
+        # signalements ouverts (de l'item ou de son paquet ferme) : popup et bip quand il est scanne
+        'reports': item_reports(item),
         # desactive (rappel produit, non-conformite) : invalide comme un perime, a remplacer
         'disabled': item.disabled,
         'disabled_reason': item.disabled_reason,
@@ -136,6 +139,10 @@ def sealed_pack_dict(sealed_pack, with_items=True):
         'opened': _date(sealed_pack.opened),
         'opened_by': _who(sealed_pack.opened_by),
         'url': public_url('pack', id=sealed_pack.id),
+        # items desactives (rappel produit, non-conformite) et signalements ouverts du paquet
+        'disabled': sealed_pack.items.filter(disabled=True).count(),
+        'reported': sealed_pack.reports.exclude(status='resolved').count(),
+        'reports': pack_reports(sealed_pack),
     }
     if with_items:
         data['items'] = [item.iid for item in sealed_pack.items.order_by('iid')]

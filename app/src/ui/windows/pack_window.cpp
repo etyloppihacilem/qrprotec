@@ -109,6 +109,37 @@ class PackWindow final : public AppWindow {
       }
       ImGui::EndDisabled();
 
+      // signalement du paquet (vaut pour tous ses items) et desactivation (rappel produit, admins)
+      ImGui::Spacing();
+      if (pack_["reported"].integer() > 0)
+        ImGui::TextColored(colors::orange, "%d signalement(s) en cours sur ce paquet.", pack_["reported"].integer());
+      if (hatched_button("Signaler un problème sur ce paquet", ImVec2(-1, 0)))
+        app.report_problem({ "", "", "", pack_["type"].str(),
+                             "Paquet de " + pack_["type_name"].str() + " (" + pack_["id"].str() + ")",
+                             pack_["id"].str() });
+      const int disabled = pack_["disabled"].integer();
+      if (disabled > 0)
+        ImGui::TextColored(colors::red, "%d item(s) sur %d désactivé(s) : à remplacer comme des périmés.", disabled,
+                           count);
+      if (app.admin()) {
+        ImGui::BeginDisabled(busy_);
+        if (disabled > 0) {
+          if (button("Réactiver le paquet"))
+            set_disabled(app, false);
+          ImGui::SameLine();
+        }
+        if (disabled < count) {
+          ImGui::SetNextItemWidth(280.0f);
+          input_limited("##disable_reason", reason_, 128, "Raison (obligatoire), ex : rappel produit");
+          ImGui::SameLine();
+          ImGui::BeginDisabled(reason_.empty());
+          if (confirm_button("Désactiver le paquet", "Désactiver tous les items du paquet ?", "disable_pack"))
+            set_disabled(app, true);
+          ImGui::EndDisabled();
+        }
+        ImGui::EndDisabled();
+      }
+
       if (ImGui::CollapsingHeader("Items du paquet")) {
         for (const Json &iid : pack_["items"].items())
           ImGui::BulletText("%s", iid.str().c_str());
@@ -151,6 +182,28 @@ class PackWindow final : public AppWindow {
       });
     }
 
+    void set_disabled(App &app, bool disabled) {
+      busy_ = true;
+      Json body;
+      body["user"]         = app.user_ref();
+      body["pack"]         = pack_id_;
+      body["disabled"]     = disabled;
+      body["reason"]       = reason_;
+      const std::string id = pack_id_;
+      app.api.post("/api/items/disable/", body, [this, &app, id, disabled](const ApiResult &result) {
+        busy_ = false;
+        if (!result.ok) {
+          app.notify(result.error, true);
+          return;
+        }
+        app.notify(std::string(disabled ? "Paquet désactivé" : "Paquet réactivé") + " (" + result.data["count"].str()
+                   + " item(s)).");
+        reason_.clear();
+        if (id == pack_id_)
+          load(app);
+      });
+    }
+
     void close_pack(App &app) {
       busy_ = true;
       Json body;
@@ -171,6 +224,7 @@ class PackWindow final : public AppWindow {
 
     std::string pack_id_;
     std::string input_;
+    std::string reason_; // raison de la desactivation
     Json        pack_;
     std::string error_;
     bool        loading_ = false;

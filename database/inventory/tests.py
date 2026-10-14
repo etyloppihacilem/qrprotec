@@ -3171,7 +3171,7 @@ class ProblemReportTests(ApiTestCase):
         self.assertEqual(code, 400)
         code, body = self.call('POST', f'/api/reports/{first}/', {'status': 'resolved', 'resolution': 'disabled'})
         self.assertEqual(code, 200)
-        self.assertEqual((body['resolution'], body['resolution_label']), ('disabled', 'Item désactivé'))
+        self.assertEqual((body['resolution'], body['resolution_label']), ('disabled', 'Désactivé'))
         item = Items.objects.get(iid=disabled.iid)
         self.assertTrue(item.disabled and not item.unusable and not item.reported)
         self.assertIn('Date effacée', item.disabled_reason)
@@ -3196,18 +3196,25 @@ class ItemDisableTests(ApiTestCase):
         self.items = self.create(self.compresses, self.today + timedelta(days=30), 3)
         Items.objects.filter(iid__in=[item.iid for item in self.items[:2]]).update(location=self.lot)
 
+    def disable(self, data, **kwargs):
+        return self.call('POST', '/api/items/disable/', data, **kwargs)
+
     def test_disable_one_item(self):
         target, other, _ = self.items
-        code, _ = self.call('POST', f'/api/items/{target.iid}/disable/', {'disabled': True})
+        code, _ = self.disable({'items': [target.iid]})
         self.assertEqual(code, 400)  # raison obligatoire
-        code, _ = self.call('POST', f'/api/items/{target.iid}/disable/', {'reason': 'Rappel'},
-                            local=False)
-        self.assertEqual(code, 403)  # connexion (gestion) obligatoire
-        code, body = self.call('POST', f'/api/items/{target.iid}/disable/', {'reason': 'Rappel produit'})
-        self.assertEqual(code, 200)
-        self.assertEqual(body['count'], 1)
-        self.assertTrue(body['item']['disabled'] and body['item']['expired'] and not body['item']['outdated'])
-        self.assertEqual(body['item']['disabled_reason'], 'Rappel produit')
+        code, _ = self.disable({'items': [target.iid], 'reason': 'Rappel'}, local=False)
+        self.assertIn(code, (403, 405))  # au poste seulement (route absente de l'API publique)
+        gestion = Secouristes(matricule='G001', nom='Gestion', prenom='Gil', role='gestion')
+        gestion.renew_key()
+        gestion.save()
+        code, _ = self.disable({'items': [target.iid], 'reason': 'Rappel'}, session=views.session_token(gestion))
+        self.assertEqual(code, 403)  # administrateurs seulement
+        code, body = self.disable({'items': [target.iid], 'reason': 'Rappel produit'})
+        self.assertEqual((code, body['count']), (200, 1))
+        _, item = self.call('GET', f'/api/items/{target.iid}/')
+        self.assertTrue(item['disabled'] and item['expired'] and not item['outdated'])
+        self.assertEqual(item['disabled_reason'], 'Rappel produit')
         self.assertTrue(Operation.objects.filter(kind='item_disable').exists())
         # comme un perime : le lot est incomplet, le remplacant sort l'item desactive du lot
         code, lot = self.call('GET', f'/api/lots/{self.lot.id}/')
@@ -3217,16 +3224,50 @@ class ItemDisableTests(ApiTestCase):
         self.assertTrue(report['complete'])
         self.assertEqual(report['replaced'], [target.iid])
         # reactivation
-        code, body = self.call('POST', f'/api/items/{target.iid}/disable/', {'disabled': False})
-        self.assertFalse(body['item']['disabled'])
-        self.assertEqual(body['item']['disabled_reason'], '')
+        code, body = self.disable({'items': [target.iid], 'disabled': False})
+        self.assertEqual(body['count'], 1)
+        self.assertFalse(Items.objects.get(iid=target.iid).disabled)
 
-    def test_disable_whole_pack_and_stock(self):
-        code, body = self.call('POST', f'/api/items/{self.items[0].iid}/disable/',
-                               {'reason': 'Rappel sérum phy', 'pack': True})
+    def test_receptions_and_whole_reception(self):
+        later = self.create(self.compresses, self.today + timedelta(days=30), 2)  # autre reception, meme paquet
+        code, rows = self.call('GET', '/api/receptions/?type=compre')
+        self.assertEqual(code, 200)
+        self.assertEqual([row['count'] for row in rows], [2, 3])
+        code, rows = self.call('GET', f'/api/receptions/?item={self.items[1].iid}')
+        self.assertEqual((len(rows), rows[0]['item'], rows[0]['count']), (1, self.items[0].iid, 3))
+        code, body = self.disable({'reception': self.items[1].iid, 'reason': 'Rappel sérum phy'})
         self.assertEqual(body['count'], 3)
-        self.assertEqual(Items.objects.filter(disabled=True).count(), 3)
+        self.assertFalse(Items.objects.get(iid=later[0].iid).disabled)
+        code, rows = self.call('GET', '/api/receptions/?type=compre')
+        self.assertEqual(rows[1]['disabled'], 3)
         code, stock = self.call('GET', '/api/stock/')
         row = next(row for row in stock if row['type'] == 'compre')
-        self.assertEqual((row['stock_fresh'], row['stock_expired']), (0, 1))
+        self.assertEqual((row['stock_fresh'], row['stock_expired']), (2, 1))
         self.assertEqual((row['lots_fresh'], row['lots_expired']), (0, 2))
+
+    def test_sealed_pack_report_and_disable(self):
+        date = (self.today + timedelta(days=200)).isoformat()
+        _, body = self.call('POST', '/api/items/batch/',
+                            {'type': 'compre', 'peremption': date, 'count': 3, 'sealed_pack': True, 'user': 'M001'})
+        pack_id = body['sealed_pack']['id']
+        badge = {'matricule': 'M001', 'key': self.user.new_key}
+        code, body = self.call('POST', '/api/reports/', {'user': badge, 'pack': pack_id, 'usable': True,
+                                                         'comment': 'Boîte écrasée'}, local=False)
+        self.assertEqual(code, 201)
+        self.assertEqual(body['report']['pack'], pack_id)
+        self.assertEqual(body['report']['target'], f'Paquet de Compresses ({pack_id})')
+        report_id = body['report']['id']
+        # tous les items du paquet sont signales : popup au scan, avec le commentaire
+        iid = Items.objects.filter(sealed_pack_id=pack_id).first().iid
+        _, item = self.call('GET', f'/api/items/{iid}/', local=False)
+        self.assertTrue(item['reported'])
+        self.assertEqual(item['reports'][0]['comment'], 'Boîte écrasée')
+        _, pack = self.call('GET', f'/api/packs/{pack_id}/', local=False)
+        self.assertEqual((pack['reported'], pack['disabled']), (1, 0))
+        # resolu : paquet desactive
+        code, body = self.call('POST', f'/api/reports/{report_id}/', {'status': 'resolved', 'resolution': 'disabled'})
+        self.assertEqual(code, 200)
+        self.assertEqual(Items.objects.filter(sealed_pack_id=pack_id, disabled=True, reported=False).count(), 3)
+        # desactivation directe d'un paquet (reactivation ici)
+        code, body = self.disable({'pack': pack_id, 'disabled': False})
+        self.assertEqual(body['count'], 3)

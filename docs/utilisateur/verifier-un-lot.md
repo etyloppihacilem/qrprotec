@@ -253,10 +253,12 @@ le scellé** (le poste prévient avant). Après la vérif, un responsable pourra
 Un objet abîmé, un sac déchiré, un appareil qui ne marche plus : n'importe quel utilisateur connecté
 peut le **signaler** aux admins, pendant une vérif ou en dehors.
 
-- **Pendant une vérif** : touchez le **(!)** hachuré orange et rouge à côté de l'item (ou du type
+- **Pendant une vérif** : touchez le **(!)** hachuré noir et jaune à côté de l'item (ou du type
   d'item) dans la liste ;
 - **Hors vérif** : scannez l'étiquette de l'item ou du lot, puis **Signaler un problème** sur sa fiche.
-  Au poste, le bouton est dans la fenêtre du lot et le (!) dans la pile de scans.
+  Au poste, le bouton est dans la fenêtre du lot et le (!) dans la pile de scans ;
+- **Paquet fermé** : le (!) à côté du paquet scanné (téléphone et pile de scans), ou **Signaler un
+  problème sur ce paquet** dans la fenêtre Paquet fermé du poste. Le signalement vaut pour tous ses items.
 
 La connexion est demandée **avant** de rédiger. Il faut ensuite répondre à **« L'objet est-il toujours
 utilisable ? »** et, si on veut, ajouter un commentaire :
@@ -267,6 +269,9 @@ utilisable ? »** et, si on veut, ajouter un commentaire :
 
 Le signalement part tout de suite, indépendamment de la vérif. Un item signalé est compté comme vu
 pendant la vérif en cours et n'est **jamais marqué disparu** tant que son signalement est ouvert.
+
+Scanner un item (ou un paquet) qui a un signalement en cours, quel qu'il soit, fait **biper** le
+téléphone ou le poste et ouvre une **fenêtre** avec les signalements et leurs commentaires.
 
 Les signalements en cours se suivent en lecture seule sur le téléphone, tuile **Signalements** de la
 page d'accueil (rouge : nouveau ; orange : pris en charge, objet inutilisable ; vert : pris en charge

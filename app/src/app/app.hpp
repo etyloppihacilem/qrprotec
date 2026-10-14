@@ -173,6 +173,16 @@ struct ProblemTarget {
     std::string iid;      // item signale
     std::string type;     // type d'item d'un lot (ligne d'un type pendant la verif)
     std::string label;    // ce qui est signale, affiche dans la fenetre
+    std::string pack;     // paquet ferme signale (vaut pour tous ses items)
+};
+
+// Item ou paquet signale scanne : popup des signalements ouverts et de leurs commentaires
+struct ReportsAlert {
+    bool        open_pending = false;
+    std::string title;
+    Json        reports;
+    std::string last_key; // meme objet sur une courte duree : une seule popup (rescan, son propre signalement)
+    double      last_at = -1000.0;
 };
 
 struct ProblemPrompt {
@@ -290,6 +300,8 @@ class App {
     // Signalements de problemes : connexion demandee avant la fenetre (pas de nom declare), envoi independant de la
     // verif. Pendant la verif, un item signale compte comme vu (ajoute a la pile).
     void report_problem(const ProblemTarget &target);
+    // popup et bip si l'objet scanne a des signalements ouverts (key : "item:IID" ou "pack:ID")
+    void alert_reports(const std::string &key, const std::string &title, const Json &reports, ScanSource source);
     void refresh_report_counts(); // nouveaux signalements (admins) : rappel dans la barre de menu
     Json report_counts = Json::object();
 
@@ -393,6 +405,7 @@ class App {
     void finish_tasks(bool done); // done : toutes les taches validees, l'item compte comme vu
     void draw_tasks_modal();
     void draw_problem_modal();
+    void draw_reports_alert();
     void send_problem();
     void reload_verif_lots(); // contenu a jour des lots de la verif (item signale inutilisable : a remplacer)
     void check_setup();
@@ -440,6 +453,7 @@ class App {
     std::size_t             douchette_index_     = 0;
     TaskPopup               tasks_;
     ProblemPrompt           problem_;
+    ReportsAlert            reports_alert_;
     double                  next_reports_poll_ = 0.0;
     bool                    login_declared_    = true; // nom declare accepte pour l'action en attente
     std::string             login_reason_;
