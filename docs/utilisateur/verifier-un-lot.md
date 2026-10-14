@@ -127,7 +127,7 @@ reste affichée quelques minutes une fois validée.
 - Sans vérif en cours et sans rien dans la liste des scans, scanner l'étiquette d'un item ou d'un lot
   dans le scanner ouvre sa **fiche** en grand, comme le lien ouvert avec l'appareil photo du
   téléphone. **Lancer une vérif** y commence la vérif du lot (pour un item, celle du lot où il est
-  rangé).
+  rangé, avec l'item déjà compté comme scanné).
 
 ## Vérifier à plusieurs
 

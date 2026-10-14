@@ -476,6 +476,7 @@
     return iids;
   }
 
+  let scannedFiche = null; // item ou lot scanne dans le scanner qui a ouvert la fiche
   async function handleCode(raw) {
     unlockAudio();
     if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
@@ -488,6 +489,7 @@
         && !checkRunning() && !allScanned().length && !state.pendingOpening) {
       feedback.info();
       openFiche(scan.kind, scan.id, { key: scan.key || '' });
+      scannedFiche = scan;
       return;
     }
     // petit lecteur de l'accueil : un badge connecte et l'on reste sur l'accueil, tout autre code ouvre le scanner
@@ -3218,6 +3220,7 @@
   function closeFiche() {
     if (!ficheOpen()) return;
     fiche.token += 1;
+    scannedFiche = null;
     $('#fiche').hidden = true;
     document.body.classList.remove('fiche-open', 'login-reader');
     syncCamera();
@@ -3249,10 +3252,14 @@
     switchTab('todo');
   }
 
-  function launchFromFiche() {
+  async function launchFromFiche() {
     if (fiche.kind === 'item') {
       const where = fiche.item && fiche.item.last_location;
-      if (where) launchVerif(where.id, '');
+      const scanned = scannedFiche && scannedFiche.id === fiche.id ? scannedFiche : null;
+      if (!where) return;
+      await launchVerif(where.id, '');
+      // fiche ouverte par un scan dans le scanner : l'item scanne compte dans la vérif, sans le rescanner
+      if (scanned && state.lotId === where.id) await scanItem(scanned);
     } else if (fiche.lot) {
       launchVerif(fiche.id, fiche.keyCheck === 'valid' ? fiche.key : '');
     }
