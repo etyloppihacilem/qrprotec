@@ -630,7 +630,8 @@
     const where = inLot ? 'Dans ' + (isMulti() ? 'le lot ' + info.location_name : 'ce lot')
       : info.status === 'out' ? 'Hors du stock' : info.in_stock ? 'En stock' + (info.location ? ' · ' + info.location_name : '')
         : info.location ? 'Rangé dans : ' + info.location_name : 'En stock';
-    const status = info.status === 'out' ? `Sorti du stock, compté utilisé le ${fmtDate(info.out_until)} s'il ne revient pas`
+    const status = info.status === 'out' ? (info.out_until
+      ? `Sorti du stock, compté utilisé le ${fmtDate(info.out_until)} s'il ne revient pas` : 'Sorti du stock (non consommable)')
       : { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé' }[info.status];
     showInfo(entry.expired ? 'bad' : status ? 'warn' : 'ok',
       (entry.expired ? badLabel(info) + ' – ' : '') + info.type_name,
@@ -966,8 +967,9 @@
     for (const lot of lots) {
       for (const item of [...(lot.items || []), ...(lot.missing_items || [])]) {
         locationOf[item.iid] = lot.id;
-        // un item a etiquette a dechirer non scanne a ete utilise : il ne retient pas le lot
-        if (!done.has(item.iid) && !item.tear_off) holding[lot.id] = true;
+        // un item a etiquette a dechirer non scanne a ete utilise, un item non consommable non scanne d'un lot
+        // ordinaire repasse en stock (services.returns_to_stock) : ils ne retiennent pas le lot
+        if (!done.has(item.iid) && !item.tear_off && (item.consumable !== false || lot.storage)) holding[lot.id] = true;
       }
     }
     const required = {};
@@ -1555,6 +1557,8 @@
       // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
       ...section('Étiquette déchirée : utilisés', report.torn),
       ...section('Attendus mais non scannés', report.missing.filter((iid) => !(report.torn || []).includes(iid))),
+      // non consommable absent du lot : retire du lot, il est en stock (pas perdu)
+      ...section('Non consommables absents : remis en stock', report.stocked),
       ...section('Retrouvés', report.reactivated),
       ...section('Ajoutés en réassort', report.restocked),
       ...section('Codes inconnus ignorés', report.unknown),
@@ -1733,6 +1737,7 @@
       item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
       item.reported && !item.unusable ? el('span', { class: 'tag orange', title: 'Problème signalé, toujours utilisable' }, 'signalé') : null,
       item.tear_off ? el('span', { class: 'tag orange', title: 'Étiquette à déchirer : si elle manque, compté comme utilisé' }, 'à déchirer') : null,
+      item.consumable === false ? el('span', { class: 'tag blue', title: 'Non consommable : s\'il manque, il repasse en stock' }, 'non consommable') : null,
       (item.tasks || []).length ? el('span', { class: 'tag blue', title: 'Tâches à cocher au scan de cet item' }, 'tâches') : null,
       item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null);
   }
@@ -3423,6 +3428,7 @@
         fact('Dernier passage', item.last_seen ? fmtDateTime(item.last_seen) + (item.last_seen_by ? ' par ' + item.last_seen_by : '') : '–'),
         fact('Ajouté', item.added ? fmtDateTime(item.added) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
         item.tear_off ? fact('Étiquette', 'à déchirer avant utilisation') : [],
+        item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il repasse en stock') : [],
         (item.tasks || []).length ? fact('Tâches à la vérif', el('ul', { class: 'tasks-facts' }, ...item.tasks.map((task) => el('li', {}, task)))) : [],
         item.deleted_reason ? fact('Raison', item.deleted_reason) : []),
       where ? '' : el('p', { class: 'sub' }, "Aucun lot connu pour cet item : il n'y a pas de vérif à lancer."),

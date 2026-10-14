@@ -19,7 +19,7 @@ from . import forecast
 from . import idendity
 from . import services
 from .models import (
-    FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
+    ABSENCE_KINDS, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
     Operation, Secouristes, STOCK_LOT_TYPE, Verifs,
 )
 
@@ -2690,6 +2690,75 @@ class TearOffTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual({row['id'] for row in report['lots'] if row['verified']}, {self.lot.id, trousse.id})
         self.assertEqual(report['torn'], [sachet.iid])
+
+
+class NonConsumableTests(ApiTestCase):
+    """Lecteur de glycemie : non consommable, absent a la verif de son lot il repasse en stock au lieu d'etre perdu."""
+
+    def setUp(self):
+        super().setUp()
+        code, body = self.call('POST', '/api/item-types/', {'type': 'glycem', 'name': 'Lecteur de glycémie',
+                                                             'consumable': False})
+        self.assertEqual((code, body['consumable']), (201, False))
+        self.glycemie = ItemType.objects.get(type='glycem')
+
+    def test_flag_editable(self):
+        code, body = self.call('PATCH', '/api/item-types/glycem/', {'consumable': True})
+        self.assertTrue(body['consumable'])
+        self.assertTrue(ItemType.objects.get(type='glycem').consumable)
+        self.assertTrue(ItemType.objects.get(type='garrot').consumable)  # consommable par defaut
+
+    def test_missing_from_lot_goes_to_stock(self):
+        fresh = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), 2)]
+        lecteur = self.create(self.glycemie, None, 1)[0]
+        Items.objects.filter(iid__in=fresh + [lecteur.iid]).update(location=self.lot)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertEqual({item['iid'] for item in body['items'] if not item['consumable']}, {lecteur.iid})
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': fresh, 'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertEqual(report['stocked'], [lecteur.iid])
+        self.assertEqual(report['missing'], [])
+        lecteur.refresh_from_db()
+        self.assertEqual((lecteur.status, lecteur.location_id, lecteur.missed_verifs), (ItemStatus.ACTIVE, None, 0))
+        # ni utilise ni jete : un deplacement vers le stock
+        self.assertFalse(ItemMovement.objects.filter(item=lecteur, kind__in=ABSENCE_KINDS).exists())
+        self.assertTrue(ItemMovement.objects.filter(item=lecteur, kind=MovementKind.MOVE, from_lot=self.lot,
+                                                    to_lot=None).exists())
+        self.assertTrue(Operation.objects.filter(kind='remove', lot=self.lot).exists())
+        # une verif du stock qui ne le voit pas le signale bien absent
+        code, report = self.call('POST', '/api/stock/verif/', {'items': []})
+        self.assertIn(lecteur.iid, report['missing'])
+
+    def test_partial_verif_not_held_by_non_consumable(self):
+        fresh = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), 2)]
+        lecteur = self.create(self.glycemie, None, 1)[0]
+        Items.objects.filter(iid=lecteur.iid).update(location=self.lot)
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/',
+                                 {'items': fresh, 'user': 'M001', 'partial': True})
+        self.assertEqual(code, 200)
+        self.assertIn(self.lot.id, {row['id'] for row in report['lots'] if row['verified']})
+        self.assertEqual(report['stocked'], [lecteur.iid])
+
+    def test_missing_from_storage_is_missing(self):
+        storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
+        armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test')
+        armoire.save()
+        lecteur = self.create(self.glycemie, None, 1)[0]
+        Items.objects.filter(iid=lecteur.iid).update(location=armoire)
+        code, report = self.call('POST', f'/api/lots/{armoire.id}/verif/', {'items': [], 'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertEqual(report['stocked'], [])
+        self.assertEqual(report['missing'], [lecteur.iid])
+        self.assertEqual(Items.objects.get(iid=lecteur.iid).location_id, armoire.id)
+
+    def test_out_is_never_counted_used(self):
+        lecteur = self.create(self.glycemie, None, 1)[0]
+        code, body = self.call('POST', '/api/items/out/', {'items': [lecteur.iid]})
+        self.assertEqual((code, body['until']), (200, None))
+        code, info = self.call('GET', f'/api/items/{lecteur.iid}/', local=False)
+        self.assertIsNone(info['out_until'])
+        self.assertEqual(services.expire_out_items(timezone.now() + timedelta(days=400)), [])
+        self.assertEqual(Items.objects.get(iid=lecteur.iid).status, ItemStatus.OUT)
 
 
 class DefaultContactTests(ApiTestCase):

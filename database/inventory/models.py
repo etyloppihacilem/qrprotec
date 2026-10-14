@@ -158,6 +158,9 @@ class ItemType(models.Model):
     # Etiquette a dechirer avant utilisation (ex : sachet de plusieurs serums phy etiquete une seule fois) : un
     # item non scanne a une verif est considere comme utilise tout de suite, et les restes du sachet sont perdus.
     tear_off = models.BooleanField(default=False)
+    # Consommable (par defaut). Un item non consommable (ex : lecteur de glycemie) ne s'use pas : absent a la verif
+    # d'un lot ordinaire, il a ete retire du lot et repasse en stock au lieu d'etre compte comme utilise ou disparu.
+    consumable = models.BooleanField(default=True)
     # Taches a faire a chaque verif (ex : DAE « voyant vert allume », « electrodes dans leur date ») : scanner l'item
     # (son etiquette de taches ou d'item) ouvre la liste a cocher sur les fronts, et l'item n'est compte comme vu
     # qu'une fois toutes les taches cochees et validees. Liste de libelles, vide = item ordinaire.

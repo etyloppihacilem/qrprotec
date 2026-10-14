@@ -172,6 +172,9 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
       reste de leur contenu ;
     - un item a etiquette a dechirer (ItemType.tear_off) non scanne est utilise : il passe tout de suite en
       'disparu' (l'etiquette est arrachee a l'ouverture du sachet, les restes du sachet sont perdus) ;
+    - un item non consommable (ItemType.consumable faux) non scanne dans un lot ordinaire verifie en a ete retire :
+      il repasse en stock (hors lot, actif), sans compter comme utilise ni manquant. Dans un rangement du stock, il
+      manque comme les autres ;
     - participants : autres personnes de la verif a plusieurs (identites stockees), enregistrees sur la verif ;
     - places : {iid: id du lot} dernier lot dont l'etiquette a ete scannee avant l'item (voir assign_items) ;
     - sealed : lots scelles dont l'etiquette du scelle a ete scannee pendant la verif (scelle intact constate, voir
@@ -254,6 +257,9 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         if group is not None and partial and not verified_ids and not scanned and not intact:
             raise ValueError('Rien à valider : aucun item scanné')
         not_seen = [item for item in not_seen if group is None or item.location_id in verified_ids]
+        # items non consommables absents d'un lot ordinaire verifie : retires du lot, ils repassent en stock
+        stocked = [item for item in not_seen if returns_to_stock(item)]
+        not_seen = [item for item in not_seen if not returns_to_stock(item)]
 
         # Scelles : lots verifies, lots ou des items sont ajoutes, lots d'ou des items sont retires, et leurs parents
         opened_ids = set(verified_ids)
@@ -283,12 +289,12 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                                                    participants=participants)
 
         report = {'present': [], 'expired': [], 'replaced': [], 'missing': [], 'unknown': unknown, 'reactivated': [],
-                  'restocked': [], 'torn': [], 'unusable': []}
+                  'restocked': [], 'torn': [], 'unusable': [], 'stocked': [item.iid for item in stocked]}
         entries = []
         moves = []
         origin = {item.iid: item.location_id for item in scanned}
         # items retrouves apres avoir ete notes absents : leur absence ne compte plus comme une utilisation
-        movements.found_again([item.iid for item in scanned if movements.may_be_absent(item)], now, identity)
+        movements.found_again([item.iid for item in scanned + stocked if movements.may_be_absent(item)], now, identity)
         counts = defaultdict(lambda: defaultdict(int))  # lot id -> compteurs de la verif
         restocked = defaultdict(int)
         restocked_items = defaultdict(list)  # lot id -> items ranges par reassort (journal)
@@ -350,6 +356,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             scanned, ['status', 'location', 'missed_verifs', 'last_seen', 'last_seen_by', 'last_seen_while']
         )
         Items.objects.bulk_update(not_seen, ['status', 'missed_verifs'])
+        _return_to_stock(stocked, identity, now)
         for item in scanned:
             if item.status == ItemStatus.REPLACED:
                 moves.append(movements.movement(item, MovementKind.REPLACED, now, identity, origin[item.iid]))
@@ -433,7 +440,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             verif.save()
             _record_verif(None, identity, now, verif, [], False, report['missing'], report['expired'])
 
-        affected = {item.pack.item_type_id for item in scanned} | {item.pack.item_type_id for item in not_seen}
+        affected = {item.pack.item_type_id for item in scanned + not_seen + stocked}
         notifications.check_stock_levels(affected)
 
     verified_rows = [row for row in lots_report if row['verified']]
@@ -450,6 +457,34 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
     report['unsealed'] = bool(unsealed)
     report['unsealed_lots'] = unsealed
     return report
+
+
+def returns_to_stock(item) -> bool:
+    """Item non consommable range dans un lot ordinaire : absent a la verif du lot, il en a ete retire et repasse en
+    stock (un lecteur de glycemie ne s'use pas). Dans un rangement du stock (ou hors lot), il manque normalement."""
+    return (not item.pack.item_type.consumable and item.location_id is not None
+            and not item.location.lot_type.storage)
+
+
+def _return_to_stock(items, identity, now):
+    """Items non consommables absents a la verif de leur lot : sortis du lot, en stock (hors lot) et actifs."""
+    if not items:
+        return
+    ItemMovement.objects.bulk_create([movements.movement(item, MovementKind.MOVE, now, identity, item.location_id)
+                                      for item in items])
+    by_origin = defaultdict(list)
+    for item in items:
+        by_origin[item.location_id].append(item)
+    for origin_items in by_origin.values():
+        journal.record(OperationKind.REMOVE, identity,
+                       f"{journal.types_summary(origin_items)} (non consommable absent à la vérif : en stock)",
+                       lot=origin_items[0].location, at=now, count=len(origin_items),
+                       items=journal.item_ids(origin_items), non_consumable=True)
+    for item in items:
+        item.location = None
+        item.status = ItemStatus.ACTIVE
+        item.missed_verifs = 0
+    Items.objects.bulk_update(items, ['location', 'status', 'missed_verifs'])
 
 
 def _record_verif(lot, identity, now, verif, requirements, partial, missing, expired):
@@ -478,8 +513,8 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
     """Lots que les items scannes rendent complets (verif partielle). Un lot sans aucun item scanne n'est retenu
     que s'il ne contient rien : sinon tout son contenu serait signale manquant. Un rangement du stock n'a pas de
     contenu attendu : ses items sont ses attendus, il n'est complet que si tous ont ete scannes. Un item a
-    etiquette a dechirer non scanne ne compte pas (il a ete utilise). Meme regle dans les fronts (planSession,
-    App::plan_verif)."""
+    etiquette a dechirer (utilise) ou non consommable (repasse en stock) non scanne ne compte pas. Meme regle dans
+    les fronts (planSession, App::plan_verif)."""
     required = _required_by_lot(group)
     fresh = defaultdict(lambda: defaultdict(int))
     expired = defaultdict(int)
@@ -493,7 +528,9 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
             expired[destination] += 1
         else:
             fresh[destination][item.pack.item_type_id] += 1
-    holding = {item.location_id for item in not_seen if not item.pack.item_type.tear_off}
+    # un item a dechirer ou non consommable (repasse en stock) non scanne ne retient pas son lot
+    holding = {item.location_id for item in not_seen
+               if not item.pack.item_type.tear_off and not returns_to_stock(item)}
     complete = set()
     for lot in group:
         if lot.id in holding and (lot.id not in touched or lot.lot_type.storage):
@@ -693,7 +730,7 @@ def mark_out(iids, identity):
     Seuls les items en stock (hors lot ou dans un rangement du stock) peuvent sortir ; un item deja sorti repart pour
     un nouveau delai. Un item sorti qui reapparait (verif, ajout a un lot, retour en stock) redevient actif. Sinon il
     est compte comme utilise (ou jete s'il est perime) apres QRPROTEC['OUT_DAYS'] jours ou a sa peremption, voir
-    expire_out_items.
+    expire_out_items. Un item non consommable ne s'use pas : il reste « sorti » jusqu'a son retour.
     """
     now = timezone.now()
     requested = list(dict.fromkeys(iids))
@@ -731,14 +768,20 @@ def mark_out(iids, identity):
         'out': [item.iid for item in out],
         'refused': refused,
         'unknown': [iid for iid in requested if iid not in found],
-        'until': out_deadline(out[0], now).isoformat() if len(out) == 1 else None,
+        'until': _date_iso(out_deadline(out[0], now)) if len(out) == 1 else None,
         'days': qrprotec_setting('OUT_DAYS'),
     }
 
 
+def _date_iso(value):
+    return value.isoformat() if value else None
+
+
 def out_deadline(item, since=None):
     """Date a laquelle un item sorti non revu compte comme utilise : OUT_DAYS jours apres sa sortie, ou sa
-    peremption si elle tombe avant."""
+    peremption si elle tombe avant. None pour un item non consommable : il ne s'use pas, il reste sorti."""
+    if not item.pack.item_type.consumable:
+        return None
     deadline = timezone.localdate(since or item.last_seen) + timedelta(days=qrprotec_setting('OUT_DAYS'))
     peremption = item.pack.peremption
     return min(deadline, peremption) if peremption else deadline
@@ -752,7 +795,8 @@ def expire_out_items(now=None):
     expired = []
     with transaction.atomic():
         for item in _items_queryset().select_for_update(of=('self',)).filter(status=ItemStatus.OUT).order_by('iid'):
-            if out_deadline(item) <= today:
+            deadline = out_deadline(item)
+            if deadline is not None and deadline <= today:
                 expired.append(item)
         if not expired:
             return []
