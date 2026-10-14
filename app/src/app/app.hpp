@@ -271,6 +271,14 @@ class App {
     void start_verif(const std::string &lot_id, const std::string &key);
     void show_lot(const std::string &lot_id, const std::string &seal_code = {}); // fiche du lot (fenetre Lots)
     std::string take_lot_to_show();            // lu par la fenetre Lots
+    void show_lots_to_treat();                 // fenetre Lots filtree sur les lots a traiter (voyant de la barre)
+    bool take_lots_to_treat();                 // lu par la fenetre Lots
+    // lots qui demandent de l'attention (incomplets, perimes, jamais verifies, verif recommandee...), hors
+    // rangements du stock et lots qui ne font que regrouper des sous-lots (comptes par leurs sous-lots)
+    struct LotsAttention {
+      int total = 0, red = 0, recommended = 0, expired = 0;
+    };
+    LotsAttention lots_attention() const;
     std::string take_seal_to_show();           // code du QR de scelle scanne (vide sinon)
     void show_pack(const std::string &pack_id); // ouvre la fiche du paquet ferme (mode privilegie)
     std::string take_pack_to_show();            // lu par la fenetre Paquet
@@ -303,6 +311,8 @@ class App {
     // popup et bip si l'objet scanne a des signalements ouverts (key : "item:IID" ou "pack:ID")
     void alert_reports(const std::string &key, const std::string &title, const Json &reports, ScanSource source);
     void refresh_report_counts(); // nouveaux signalements (admins) : rappel dans la barre de menu
+    // connexion d'un admin : Signalements ouverte a cote de la fenetre Lots s'il y a des signalements non traites
+    void open_reports_beside_lots();
     Json report_counts = Json::object();
 
     // Telephone-douchette
@@ -312,7 +322,7 @@ class App {
     // Donnees
     void refresh_item_types();
     void refresh_lot_types();
-    void refresh_lots();
+    void refresh_lots(bool quiet = false); // quiet : rafraichissement periodique, pas de message d'erreur
     void refresh_users();
     void refresh_stock();
     void refresh_forecast();
@@ -420,6 +430,10 @@ class App {
 
     float                   menu_bar_height_ = 0.0f;
     std::string             lot_to_show_;
+    bool                    lots_to_treat_ = false;
+    bool                    reports_on_login_ = false; // en attente du compte des signalements
+    bool                    reports_beside_lots_ = false; // Lots retrecie : reprend sa place a la deconnexion
+    double                  next_lots_poll_ = 0.0;
     std::string             seal_to_show_;
     std::string             pack_to_show_;
     std::string             journal_lot_;

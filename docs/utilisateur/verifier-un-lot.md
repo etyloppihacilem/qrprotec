@@ -35,6 +35,10 @@ badge.** Le reste de cette page détaille les cas particuliers.
 La fenêtre **Lots** (menu Fenêtres) liste tous les lots avec leur état ; un clic ouvre la fiche, avec
 **Lancer une vérif**.
 
+Le voyant **● N lots à traiter** de la barre de menu compte les lots incomplets, jamais vérifiés, avec
+des périmés ou en vérif recommandée (rouge s'il y en a un incomplet ou périmé, orange s'il ne reste
+que des vérifs recommandées). Un clic ouvre la fenêtre Lots sur ces lots seulement.
+
 ### Utiliser le poste au clavier
 
 Tout se fait sans souris :

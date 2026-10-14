@@ -64,14 +64,18 @@ class ReportsWindow final : public AppWindow {
                           "toujours utilisable, ou résolu.");
 
       const float detail = selected() ? ImGui::GetFrameHeightWithSpacing() * 10.0f : 0.0f;
-      if (ImGui::BeginTable("reports", 5,
+      // fenetre etroite (a cote des Lots) : date et auteur seulement dans le detail
+      const bool compact = ImGui::GetContentRegionAvail().x < 800.0f;
+      if (ImGui::BeginTable(compact ? "reports_compact" : "reports", compact ? 3 : 5,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, -detail))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, 190.0f);
-        ImGui::TableSetupColumn("Signalé", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, compact ? 150.0f : 190.0f);
+        if (!compact)
+          ImGui::TableSetupColumn("Signalé", ImGuiTableColumnFlags_WidthFixed, 150.0f);
         ImGui::TableSetupColumn("Objet", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Par", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        if (!compact)
+          ImGui::TableSetupColumn("Par", ImGuiTableColumnFlags_WidthFixed, 150.0f);
         ImGui::TableSetupColumn("Commentaire", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
         for (const Json &report : reports_.items()) {
@@ -86,16 +90,20 @@ class ReportsWindow final : public AppWindow {
             note_     = report["note"].str();
           }
           ImGui::PopID();
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted(display_datetime(report["created"]).c_str());
+          if (!compact) {
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(display_datetime(report["created"]).c_str());
+          }
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(report["target"].str().c_str());
           if (!report["item"].str().empty()) {
             ImGui::SameLine();
             ImGui::TextDisabled("%s", report["item"].str().c_str());
           }
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted(report["by"].str().c_str());
+          if (!compact) {
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(report["by"].str().c_str());
+          }
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(first_line(report["comment"].str()).c_str());
         }

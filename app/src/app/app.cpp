@@ -26,6 +26,7 @@
 #include <map>
 #include <random>
 #include <set>
+#include <utility>
 
 namespace qrprotec {
 
@@ -279,6 +280,12 @@ void App::begin_frame() {
     check_setup();
   if (admin() && ImGui::GetTime() >= next_reports_poll_)
     refresh_report_counts();
+  // voyant des lots a traiter : liste tenue a jour meme fenetre Lots fermee (pas pendant une verif)
+  if (!verif.active && !catalog.loading_lots && ImGui::GetTime() >= next_lots_poll_) {
+    next_lots_poll_ = ImGui::GetTime() + 120.0;
+    if (catalog.lots_version > 0)
+      refresh_lots(true);
+  }
 }
 
 void App::check_inactivity() {
@@ -374,6 +381,24 @@ void App::draw_menu_bar() {
         if (window->privileged && window->admin_only && can_open(*window))
           window_menu_item(*window);
       ImGui::EndMenu();
+    }
+    // voyant : lots qui demandent de l'attention (rouge s'il y en a d'incomplets ou perimes, orange sinon)
+    if (const LotsAttention lots = lots_attention(); lots.total > 0) {
+      ImGui::PushStyleColor(ImGuiCol_Text, lots.red > 0 ? colors::red : colors::orange);
+      const std::string label = "● " + std::to_string(lots.total) + " lot" + (lots.total > 1 ? "s" : "") + " à traiter";
+      if (ImGui::MenuItem(label.c_str()))
+        show_lots_to_treat();
+      ImGui::PopStyleColor();
+      if (ImGui::BeginItemTooltip()) {
+        if (lots.red > 0)
+          ImGui::Text("%d incomplet(s), jamais vérifié(s) ou à sceller", lots.red);
+        if (lots.expired > 0)
+          ImGui::Text("%d avec des périmés", lots.expired);
+        if (lots.recommended > 0)
+          ImGui::Text("%d vérif(s) recommandée(s)", lots.recommended);
+        ImGui::TextDisabled("Cliquer : liste des lots à traiter.");
+        ImGui::EndTooltip();
+      }
     }
     // admins : signalements pas encore pris en charge
     const int fresh_reports = admin() ? report_counts["new"].integer() : 0;
@@ -949,6 +974,13 @@ void App::logout(const std::string &reason) {
   const bool privileged_session = was_logged && user->privileged;
   user.reset();
   api.set_session("");
+  // prochain admin : Signalements rouverte seulement s'il reste des signalements non traites
+  reports_on_login_ = false;
+  if (AppWindow *reports = window("reports"))
+    reports->open = false;
+  if (std::exchange(reports_beside_lots_, false))
+    if (AppWindow *lots = window("lots"))
+      lots->place_pending = true; // fenetre Lots retrecie pour les Signalements : disposition par defaut
   if (privileged_session)
     refresh_lots(); // la liste ne garde pas les cles des lots apres la deconnexion
   pending_action_ = nullptr;
@@ -1111,8 +1143,11 @@ void App::complete_login(const Json &data) {
   pending_action_ = nullptr;
   if (action)
     action();
-  else if (session.admin() && !verif.active)
-    open_window("reports"); // configuration par defaut d'un admin : les signalements en cours (pas pendant une verif)
+  else if (session.admin() && !verif.active) {
+    // configuration par defaut d'un admin : les signalements non traites, a cote des lots (pas pendant une verif)
+    reports_on_login_ = true;
+    refresh_report_counts();
+  }
   if (session.privileged) {
     refresh_item_types();
     refresh_lot_types();
@@ -2401,15 +2436,16 @@ void App::refresh_lot_types() {
   });
 }
 
-void App::refresh_lots() {
+void App::refresh_lots(bool quiet) {
+  next_lots_poll_      = ImGui::GetTime() + 120.0;
   catalog.loading_lots = true;
-  api.get("/api/lots/", [this](const ApiResult &result) {
+  api.get("/api/lots/", [this, quiet](const ApiResult &result) {
     catalog.loading_lots = false;
     if (result.ok) {
       catalog.lots = result.data;
       ++catalog.lots_version;
     }
-    else
+    else if (!quiet)
       notify("Lots : " + result.error, true);
   });
 }
@@ -2768,7 +2804,60 @@ void App::refresh_report_counts() {
   api.post("/api/reports/list/", body, [this](const ApiResult &result) {
     if (result.ok)
       report_counts = result.data["counts"];
+    if (reports_on_login_ && admin() && !verif.active && report_counts["new"].integer() > 0)
+      open_reports_beside_lots();
+    reports_on_login_ = false;
   });
+}
+
+void App::open_reports_beside_lots() {
+  // place pour la session (la disposition enregistree ne change pas) : Lots a gauche, Signalements a droite
+  const auto place = [this](const std::string &id, float x, float width) {
+    AppWindow *target = window(id);
+    if (!target)
+      return;
+    open_window(id);
+    if (last_work_size_.x <= 0.0f)
+      return;
+    target->place_pending  = false;
+    target->resize_pending = true;
+    target->last_pos       = ImVec2(last_work_origin_.x + x * last_work_size_.x, last_work_origin_.y);
+    target->last_size      = ImVec2(width * last_work_size_.x, last_work_size_.y);
+  };
+  const auto  scan = settings.layout.find("scan");
+  const float work = scan != settings.layout.end() && scan->second.x > 0.0f ? scan->second.x : 0.72f;
+  reports_beside_lots_ = true;
+  place("lots", 0.0f, work * 0.5f);
+  place("reports", work * 0.5f, work * 0.5f);
+}
+
+App::LotsAttention App::lots_attention() const {
+  LotsAttention count;
+  for (const Json &lot : catalog.lots.items()) {
+    if (lot["storage"].boolean() || lot_is_group(lot))
+      continue;
+    const LotStatus status  = lot_status(lot);
+    const bool      expired = lot["expired_count"].integer() > 0;
+    if (lot_ok(status) && !expired)
+      continue;
+    ++count.total;
+    if (expired)
+      ++count.expired;
+    if (status == LotStatus::Recommended && !expired)
+      ++count.recommended;
+    else
+      ++count.red;
+  }
+  return count;
+}
+
+void App::show_lots_to_treat() {
+  lots_to_treat_ = true;
+  open_window("lots");
+}
+
+bool App::take_lots_to_treat() {
+  return std::exchange(lots_to_treat_, false);
 }
 
 } // namespace qrprotec
