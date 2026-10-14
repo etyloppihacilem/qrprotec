@@ -182,6 +182,58 @@ bool warning_button(const char *label, const ImVec2 &size) {
   return colored_button(label, colors::orange, size);
 }
 
+namespace {
+// fond hachure orange et rouge (boutons de signalement), bandes a 45 degres decoupees par le rectangle
+void draw_hatching(ImDrawList *draw, const ImVec2 &min, const ImVec2 &max, float rounding, bool hovered, bool held) {
+  const float shade  = held ? 0.80f : hovered ? 1.10f : 1.0f;
+  const auto  tint   = [shade](const ImVec4 &color) {
+    return ImGui::GetColorU32(ImVec4(std::min(1.0f, color.x * shade), std::min(1.0f, color.y * shade),
+                                     std::min(1.0f, color.z * shade), 1.0f));
+  };
+  draw->AddRectFilled(min, max, tint(colors::red), rounding);
+  draw->PushClipRect(min, max, true);
+  const float band   = std::max(5.0f, (max.y - min.y) * 0.35f);
+  const float height = max.y - min.y;
+  for (float x = min.x - height; x < max.x; x += band * 2.0f)
+    draw->AddQuadFilled(ImVec2(x, max.y), ImVec2(x + band, max.y), ImVec2(x + band + height, min.y),
+                        ImVec2(x + height, min.y), tint(colors::orange));
+  draw->PopClipRect();
+}
+
+bool hatched(const char *id, const char *text, const ImVec2 &size, float rounding) {
+  const bool  clicked = ImGui::InvisibleButton(id, size);
+  const ImVec2 min    = ImGui::GetItemRectMin();
+  const ImVec2 max    = ImGui::GetItemRectMax();
+  ImDrawList  *draw   = ImGui::GetWindowDrawList();
+  draw_hatching(draw, min, max, rounding, ImGui::IsItemHovered(), ImGui::IsItemActive());
+  const ImVec2 text_size = ImGui::CalcTextSize(text);
+  const ImVec2 at((min.x + max.x - text_size.x) * 0.5f, (min.y + max.y - text_size.y) * 0.5f);
+  draw->AddText(ImVec2(at.x + 1, at.y + 1), IM_COL32(0, 0, 0, 160), text);
+  draw->AddText(at, IM_COL32_WHITE, text);
+  return clicked;
+}
+} // namespace
+
+bool hatched_button(const char *label, const ImVec2 &size) {
+  const char  *end  = ImGui::FindRenderedTextEnd(label);
+  std::string  text(label, end);
+  const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
+  const ImVec2 padding   = ImGui::GetStyle().FramePadding;
+  ImVec2       actual(size.x, size.y > 0 ? size.y : text_size.y + padding.y * 2);
+  if (actual.x < 0)
+    actual.x = std::max(1.0f, ImGui::GetContentRegionAvail().x + actual.x + 1.0f);
+  else if (actual.x == 0)
+    actual.x = text_size.x + padding.x * 4;
+  return hatched(label, text.c_str(), actual, ImGui::GetStyle().FrameRounding);
+}
+
+bool report_mark(const char *id) {
+  const float side = ImGui::GetFrameHeight() * 0.8f;
+  const bool  clicked = hatched(id, "!", ImVec2(side, side), side * 0.5f);
+  ImGui::SetItemTooltip("Signaler un problème");
+  return clicked;
+}
+
 void stock_bar(int quantity, int minimum, const ImVec2 &size) {
   const ImVec4 color = quantity <= 0 ? colors::red : quantity < minimum ? colors::orange : colors::green;
   float        fraction = minimum > 0 ? static_cast< float >(quantity) / static_cast< float >(minimum) : 1.0f;

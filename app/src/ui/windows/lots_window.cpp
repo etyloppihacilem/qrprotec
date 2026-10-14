@@ -227,6 +227,8 @@ class LotsWindow final : public AppWindow {
           app.start_verif(details_["id"].str(), "");
       } else if (primary_button(("Lancer une vérif" + with).c_str(), ImVec2(-1, 0)))
         app.start_verif(details_["id"].str(), "");
+      if (hatched_button("⚠ Signaler un problème sur ce lot", ImVec2(-1, 0)))
+        app.report_problem({ details_["id"].str(), details_["name"].str(), "", "", details_["name"].str() });
       if (button("Fermer", ImVec2(-1, 0)))
         selected_.clear();
       draw_global(app);
@@ -260,6 +262,7 @@ class LotsWindow final : public AppWindow {
         ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 220.0f);
         ImGui::TableHeadersRow();
+        ProblemTarget report;
         for (const Json &item : details_["items"].items()) {
           const auto date = Date::parse(item["peremption"].str());
           ImGui::TableNextRow();
@@ -268,7 +271,20 @@ class LotsWindow final : public AppWindow {
           else if (date && *date <= soon)
             row_color(colors::orange, 0.3f);
           ImGui::TableNextColumn();
+          ImGui::PushID(item["iid"].str().c_str());
+          if (report_mark("##report"))
+            report = { details_["id"].str(), details_["name"].str(), item["iid"].str(), "",
+                       item["type_name"].str() + " (" + item["iid"].str() + ")" };
+          ImGui::PopID();
+          ImGui::SameLine();
           ImGui::TextUnformatted(item["type_name"].str().c_str());
+          if (item["unusable"].boolean()) {
+            ImGui::SameLine();
+            ImGui::TextColored(colors::red, "(signalé inutilisable)");
+          } else if (item["reported"].boolean()) {
+            ImGui::SameLine();
+            ImGui::TextColored(colors::orange, "(problème signalé)");
+          }
           if (item["missed_verifs"].integer() > 0) {
             ImGui::SameLine();
             ImGui::TextDisabled("(non vu à la dernière vérif)");
@@ -289,6 +305,8 @@ class LotsWindow final : public AppWindow {
           ImGui::TextDisabled("%s", item["iid"].str().c_str());
         }
         ImGui::EndTable();
+        if (!report.label.empty())
+          app.report_problem(report);
       }
     }
 
