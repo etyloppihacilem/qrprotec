@@ -71,6 +71,7 @@ class InventoryWindow final : public AppWindow {
       app.refresh_item_types();
       search(app);
       load_packs(app);
+      load_receptions(app);
     }
 
     void draw(App &app) override {
@@ -100,6 +101,12 @@ class InventoryWindow final : public AppWindow {
       }
       if (tab_item("Paquets fermés")) {
         draw_packs(app);
+        ImGui::EndTabItem();
+      }
+      const bool select = show_receptions_;
+      show_receptions_  = false;
+      if (tab_item("Réceptions passées", select ? ImGuiTabItemFlags_SetSelected : 0)) {
+        draw_receptions(app);
         ImGui::EndTabItem();
       }
       ImGui::EndTabBar();
@@ -650,27 +657,51 @@ class InventoryWindow final : public AppWindow {
       }
     }
 
-    // Desactivation (rappel produit, non-conformite) : l'item est invalide comme un perime et doit etre remplace.
-    // « Tout le paquet » : tous les items encore en service du meme type et de la meme date (rappel d'un lot).
+    // Desactivation (rappel produit, non-conformite), par un admin : l'item est invalide comme un perime et doit etre
+    // remplace. « Toute sa reception » : tous les items recus avec lui (paquet ouvert a la reception, rappel d'un lot).
+    void send_disable(App &app, Json body, const std::string &done) {
+      body["user"] = app.user_ref();
+      app.api.post("/api/items/disable/", body, [this, &app, done](const ApiResult &result) {
+        if (!result.ok) {
+          app.notify(result.error, true);
+          return;
+        }
+        app.notify(done + " (" + result.data["count"].str() + " item(s) modifié(s)).");
+        disable_reason_.clear();
+        disable_reception_ = false;
+        search(app);
+        load_receptions(app);
+      });
+    }
+
     void draw_disable(App &app, const std::string &iid) {
       ImGui::SeparatorText("Rappel produit, non-conformité");
-      const auto send = [this, &app, iid](Json body) {
-        body["user"] = app.user_ref();
-        app.api.post("/api/items/" + url_encode(iid) + "/disable/", body, [this, &app](const ApiResult &result) {
-          if (!result.ok) {
-            app.notify(result.error, true);
-            return;
-          }
-          const int count = result.data["count"].integer();
-          app.notify(result.data["item"]["disabled"].boolean()
-                       ? (count > 1 ? std::to_string(count) + " items désactivés." : std::string("Item désactivé."))
-                       : std::string("Item réactivé."));
-          disable_reason_.clear();
-          disable_pack_  = false;
-          selected_item_ = Json();
-          search(app);
+      if (item_reception_iid_ != iid) {
+        item_reception_iid_ = iid;
+        item_reception_     = Json();
+        app.api.get("/api/receptions/?item=" + url_encode(iid), [this, iid](const ApiResult &result) {
+          if (result.ok && result.data.size() > 0 && item_reception_iid_ == iid)
+            item_reception_ = result.data[0];
         });
-      };
+      }
+      if (!item_reception_.is_null()) {
+        ImGui::TextDisabled("Reçu le %s par %s, avec %d autre(s) item(s)%s.",
+                            display_datetime(item_reception_["added"]).c_str(),
+                            item_reception_["added_by"].str("-").c_str(), item_reception_["count"].integer() - 1,
+                            item_reception_["sealed_pack"].is_null()
+                              ? ""
+                              : (" (paquet fermé " + item_reception_["sealed_pack"].str() + ")").c_str());
+        ImGui::SameLine();
+        if (small_button("Voir les réceptions de ce type")) {
+          receptions_type_ = selected_item_["type"].str();
+          show_receptions_ = true;
+          load_receptions(app);
+        }
+      }
+      if (!app.admin()) {
+        ImGui::TextDisabled("La désactivation d'un item est réservée aux administrateurs.");
+        return;
+      }
       if (selected_item_["disabled"].boolean()) {
         ImGui::TextColored(colors::red, "Désactivé le %s par %s : %s",
                            display_datetime(selected_item_["disabled_at"]).c_str(),
@@ -679,7 +710,9 @@ class InventoryWindow final : public AppWindow {
         if (button("Réactiver l'item")) {
           Json body;
           body["disabled"] = false;
-          send(body);
+          body["items"]    = Json::array();
+          body["items"].push_back(iid);
+          send_disable(app, body, "Item réactivé");
         }
         return;
       }
@@ -688,20 +721,132 @@ class InventoryWindow final : public AppWindow {
       ImGui::SetNextItemWidth(300.0f);
       input_limited("##disable_reason", disable_reason_, 128, "Raison (obligatoire), ex : rappel produit");
       ImGui::SameLine();
-      ImGui::Checkbox("Tout le paquet (même type, même date)", &disable_pack_);
+      const int count = item_reception_.is_null() ? 1 : item_reception_["count"].integer();
+      ImGui::BeginDisabled(count <= 1);
+      const std::string whole = "Toute sa réception (" + std::to_string(count) + " items)";
+      ImGui::Checkbox(whole.c_str(), &disable_reception_);
+      ImGui::EndDisabled();
       ImGui::SameLine();
       ImGui::BeginDisabled(disable_reason_.empty());
-      if (confirm_button(disable_pack_ ? "Désactiver le paquet" : "Désactiver l'item",
-                         disable_pack_ ? "Désactiver tous les items de ce type et de cette date ?"
-                                       : "Désactiver cet item ?",
+      const bool all = disable_reception_ && count > 1;
+      if (confirm_button(all ? "Désactiver la réception" : "Désactiver l'item",
+                         all ? "Désactiver tous les items reçus avec celui-ci ?" : "Désactiver cet item ?",
                          "confirm_disable")) {
         Json body;
         body["disabled"] = true;
         body["reason"]   = disable_reason_;
-        body["pack"]     = disable_pack_;
-        send(body);
+        if (all)
+          body["reception"] = iid;
+        else {
+          body["items"] = Json::array();
+          body["items"].push_back(iid);
+        }
+        send_disable(app, body, all ? "Réception désactivée" : "Item désactivé");
       }
       ImGui::EndDisabled();
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Receptions passees : items recus ensemble (meme type, meme date, meme instant), pour desactiver d'un coup ce
+    // qui a ete recu ensemble (paquet ouvert des la reception, rappel produit).
+    void load_receptions(App &app) {
+      std::string query = "/api/receptions/?limit=200";
+      if (!receptions_type_.empty())
+        query += "&type=" + url_encode(receptions_type_);
+      app.api.get(query, [this, &app](const ApiResult &result) {
+        if (!result.ok) {
+          app.notify("Réceptions : " + result.error, true);
+          return;
+        }
+        receptions_ = result.data;
+      });
+    }
+
+    void draw_receptions(App &app) {
+      if (search_select("receptions_type", app.catalog.item_types, "type", "name", receptions_type_,
+                        "Filtrer par type…", "Tous les types", 240.0f))
+        load_receptions(app);
+      ImGui::SameLine();
+      if (button("Rafraîchir"))
+        load_receptions(app);
+      const float detail = app.admin() && !selected_reception_.empty() ? ImGui::GetFrameHeightWithSpacing() * 4 : 0;
+      if (ImGui::BeginTable("receptions", 7,
+                            ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
+                              | ImGuiTableFlags_Resizable,
+                            ImVec2(0, -detail))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Reçu le", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("00/00/0000 à 00:00").x);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn("Présents", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("Désactivés", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("Par", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+        for (const Json &row : receptions_.items()) {
+          const std::string first = row["item"].str();
+          ImGui::TableNextRow();
+          if (row["disabled"].integer() > 0)
+            row_color(colors::red, row["disabled"].integer() == row["count"].integer() ? 0.35f : 0.18f);
+          ImGui::TableNextColumn();
+          ImGui::PushID(first.c_str());
+          if (ImGui::Selectable(display_datetime(row["added"]).c_str(), selected_reception_ == first,
+                                ImGuiSelectableFlags_SpanAllColumns))
+            selected_reception_ = first;
+          ImGui::PopID();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row["type_name"].str().c_str());
+          if (!row["sealed_pack"].is_null()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("paquet %s", row["sealed_pack"].str().c_str());
+          }
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row["peremption"].is_null() ? "-" : display_date(row["peremption"]).c_str());
+          ImGui::TableNextColumn();
+          ImGui::Text("%d", row["count"].integer());
+          ImGui::TableNextColumn();
+          ImGui::Text("%d", row["active"].integer());
+          ImGui::TableNextColumn();
+          ImGui::Text("%d", row["disabled"].integer());
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row["added_by"].str().c_str());
+        }
+        ImGui::EndTable();
+      }
+      if (receptions_.size() == 0)
+        ImGui::TextDisabled("Aucune réception.");
+      if (selected_reception_.empty() || !app.admin())
+        return;
+      const Json *selected = nullptr;
+      for (const Json &row : receptions_.items())
+        if (row["item"].str() == selected_reception_)
+          selected = &row;
+      if (!selected)
+        return;
+      const Json row = *selected;
+      ImGui::SeparatorText((row["type_name"].str() + " reçus le " + display_datetime(row["added"])).c_str());
+      ImGui::SetNextItemWidth(300.0f);
+      input_limited("##reception_reason", disable_reason_, 128, "Raison (obligatoire), ex : rappel produit");
+      ImGui::SameLine();
+      ImGui::BeginDisabled(disable_reason_.empty());
+      const std::string label = "Désactiver les " + row["count"].str() + " items";
+      if (confirm_button(label.c_str(), "Désactiver tous les items de cette réception ?", "confirm_reception")) {
+        Json body;
+        body["disabled"]  = true;
+        body["reason"]    = disable_reason_;
+        body["reception"] = selected_reception_;
+        send_disable(app, body, "Réception désactivée");
+      }
+      ImGui::EndDisabled();
+      if (row["disabled"].integer() > 0) {
+        ImGui::SameLine();
+        if (button("Réactiver la réception")) {
+          Json body;
+          body["disabled"]  = false;
+          body["reception"] = selected_reception_;
+          send_disable(app, body, "Réception réactivée");
+        }
+      }
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -793,7 +938,13 @@ class InventoryWindow final : public AppWindow {
     Json        selected_item_;
     std::string delete_reason_;
     std::string disable_reason_;
-    bool        disable_pack_ = false;
+    bool        disable_reception_ = false;
+    std::string item_reception_iid_; // reception de l'item selectionne (actions avancees)
+    Json        item_reception_;
+    Json        receptions_ = Json::array();
+    std::string receptions_type_;
+    std::string selected_reception_;
+    bool        show_receptions_ = false; // onglet Receptions a selectionner (bouton d'un item)
     // Paquets
     Json packs_       = Json::array();
     bool show_opened_        = false;

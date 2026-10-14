@@ -96,9 +96,23 @@ menu) comme sur le téléphone (tuile de l'accueil) :
 - **Nouveau** (rouge) : personne ne s'en occupe encore ;
 - **En cours · utilisable** (vert) / **En cours · inutilisable** (orange) : pris en charge ; l'admin
   confirme ou corrige si l'objet reste disponible. Inutilisable, l'item doit être remplacé ;
-- **Résolu** (vert) : l'item redevient normal. Un signalement résolu peut être rouvert.
+- **Résolu** (vert) : pour un item ou un paquet, l'admin choisit ce qu'il devient : **remis en service**
+  (redevient normal), **désactivé** (non conforme : à remplacer comme un périmé) ou **retiré** (déjà
+  jeté : marqué supprimé). Un signalement résolu peut être rouvert.
 
 Une réponse (facultative) est visible de tous les utilisateurs qui suivent les signalements.
+
+### Désactiver des items (rappel produit, non-conformité)
+
+Réservé aux admins, au poste. Un item désactivé est invalide comme s'il était périmé : il ne compte plus
+dans son lot ni dans le stock, s'affiche **DÉSACTIVÉ** et le remplaçant le sort du lot à la vérif. Une
+raison est obligatoire ; tout se réactive de la même façon.
+
+- **Un item** : **Gestion > Inventaire**, onglet Items, sélectionnez l'item, **Actions avancées** ;
+- **Toute une réception** : onglet **Réceptions passées** (filtrable par type, ou « Voir les réceptions
+  de ce type » depuis un item). Une réception regroupe les items reçus ensemble : utile pour un paquet
+  ouvert dès la réception, ou un rappel de lot du fabricant ;
+- **Un paquet fermé** : scannez son étiquette, fenêtre **Paquet fermé**, **Désactiver le paquet**.
 
 ## Journal des opérations
 

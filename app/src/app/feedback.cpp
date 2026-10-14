@@ -100,6 +100,10 @@ bool write_task_wav(const std::string &path) {
   return write_tones_wav(path, { 660.0, 880.0, 1100.0 }, 100);
 }
 
+bool write_notice_wav(const std::string &path) {
+  return write_tones_wav(path, { 1000.0, 1000.0 }, 140);
+}
+
 Feedback::Feedback(Inateck &inateck) : inateck_(inateck) {
   std::error_code code;
   wav_path_ = (std::filesystem::temp_directory_path(code) / "qrprotec-erreur.wav").string();
@@ -108,6 +112,9 @@ Feedback::Feedback(Inateck &inateck) : inateck_(inateck) {
   task_wav_path_ = (std::filesystem::temp_directory_path(code) / "qrprotec-taches.wav").string();
   if (!write_task_wav(task_wav_path_))
     task_wav_path_.clear();
+  notice_wav_path_ = (std::filesystem::temp_directory_path(code) / "qrprotec-signalement.wav").string();
+  if (!write_notice_wav(notice_wav_path_))
+    notice_wav_path_.clear();
 }
 
 void Feedback::play_beep(const AppSettings &settings, const std::string &wav) {
@@ -138,6 +145,12 @@ void Feedback::error(ScanSource source, const AppSettings &settings) {
     flash_start_ = ImGui::GetTime();
     flash_task_  = false;
   }
+}
+
+void Feedback::notice(ScanSource source, const AppSettings &settings) {
+  if (source == ScanSource::Sdk && inateck_.sdk_connected())
+    inateck_.signal_error(settings.scanner_signal);
+  play_beep(settings, notice_wav_path_);
 }
 
 void Feedback::task(ScanSource source, const AppSettings &settings) {

@@ -333,6 +333,7 @@ void App::draw() {
   draw_douchette_modal();
   draw_tasks_modal();
   draw_problem_modal();
+  draw_reports_alert();
   draw_label_preview(*this);
   draw_toasts();
   feedback.draw_overlay();
@@ -1461,6 +1462,8 @@ void App::resolve_item(int entry_id) {
       entry->expired = true;
       feedback.error(source, settings);
     }
+    if (item["reported"].boolean())
+      alert_reports("item:" + item["iid"].str(), "Item signalé : " + item["type_name"].str(), item["reports"], source);
     // item a taches : compte comme vu seulement une fois ses taches cochees et validees
     if (item["tasks"].size() > 0 && !entry->tasks_done) {
       entry->tasks_pending = true;
@@ -1581,6 +1584,17 @@ void App::resolve_pack(int entry_id) {
       entry->expired = true;
       feedback.error(source, settings);
     }
+    if (result.data["disabled"].integer() > 0) {
+      // items desactives (rappel produit) : a remplacer comme des perimes
+      entry->detail += " - " + result.data["disabled"].str() + " item(s) désactivé(s)";
+      if (!entry->expired) {
+        entry->expired = true;
+        feedback.error(source, settings);
+      }
+    }
+    alert_reports("pack:" + result.data["id"].str(),
+                  "Paquet signalé : " + result.data["count"].str() + " x " + result.data["type_name"].str(),
+                  result.data["reports"], source);
   });
 }
 
@@ -2018,9 +2032,14 @@ std::vector< VerifPlanLot > App::plan_verif() const {
   const Date              today = this->today();
   // items signales inutilisables (signalement ouvert) ou desactives : a remplacer comme des perimes
   std::set< std::string > unusable;
-  for (const ScanEntry &entry : stack.entries())
-    if (entry.data["unusable"].boolean() || entry.data["disabled"].boolean())
+  for (const ScanEntry &entry : stack.entries()) {
+    if (entry.scan.kind == ScanKind::SealedPack) {
+      // paquet ferme entierement desactive : tous ses items sont a remplacer
+      if (entry.data["disabled"].integer() > 0 && entry.data["disabled"].integer() >= entry.data["count"].integer())
+        unusable.insert(entry.pack_items.begin(), entry.pack_items.end());
+    } else if (entry.data["unusable"].boolean() || entry.data["disabled"].boolean())
       unusable.insert(entry.scan.id);
+  }
   for (const Json *lot : lots)
     for (const Json &item : (*lot)["items"].items())
       if (item["unusable"].boolean() || item["disabled"].boolean())
@@ -2589,13 +2608,16 @@ void App::draw_problem_modal() {
   ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
   if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     return;
+  const bool  pack   = !problem_.target.pack.empty();
   const bool  object = !problem_.target.iid.empty() || !problem_.target.type.empty();
   const float width  = ImGui::GetFontSize() * 26.0f;
   ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
   ImGui::TextUnformatted(problem_.target.label.c_str());
   ImGui::PopFont();
   ImGui::Spacing();
-  ImGui::TextUnformatted(object ? "L'objet est-il toujours utilisable ?" : "Le lot est-il toujours utilisable ?");
+  ImGui::TextUnformatted(pack     ? "Le paquet est-il toujours utilisable ?"
+                         : object ? "L'objet est-il toujours utilisable ?"
+                                  : "Le lot est-il toujours utilisable ?");
   ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f)); // cases visibles sur le fond blanc
   if (ImGui::RadioButton("Oui, toujours utilisable", problem_.usable == 1))
     problem_.usable = 1;
@@ -2634,7 +2656,8 @@ void App::send_problem() {
   Json body;
   body["user"]    = user_ref();
   body["item"]    = problem_.target.iid;
-  body["lot"]     = problem_.target.iid.empty() ? problem_.target.lot : std::string();
+  body["pack"]    = problem_.target.pack;
+  body["lot"]     = problem_.target.iid.empty() && problem_.target.pack.empty() ? problem_.target.lot : std::string();
   body["type"]    = problem_.target.type;
   body["comment"] = problem_.comment;
   body["usable"]  = problem_.usable == 1;
@@ -2646,6 +2669,9 @@ void App::send_problem() {
       problem_.error = result.error;
       return;
     }
+    // son propre signalement : pas de popup quand l'item est relu
+    reports_alert_.last_key = problem_.target.pack.empty() ? "item:" + problem_.target.iid : "pack:" + problem_.target.pack;
+    reports_alert_.last_at  = ImGui::GetTime();
     problem_ = ProblemPrompt{}; // ferme la fenetre
     notify("Signalement envoyé aux administrateurs.");
     if (admin())
@@ -2661,6 +2687,57 @@ void App::send_problem() {
       handle_scan(iid, ScanSource::Manual);
     reload_verif_lots();
   });
+}
+
+void App::alert_reports(const std::string &key, const std::string &title, const Json &reports, ScanSource source) {
+  if (reports.size() == 0)
+    return;
+  const double now = ImGui::GetTime();
+  if (reports_alert_.last_key == key && now - reports_alert_.last_at < 30.0)
+    return;
+  reports_alert_.last_key     = key;
+  reports_alert_.last_at      = now;
+  reports_alert_.title        = title;
+  reports_alert_.reports      = reports;
+  reports_alert_.open_pending = true;
+  feedback.notice(source, settings);
+}
+
+void App::draw_reports_alert() {
+  static const char *kTitle = "Objet signalé###reports_alert";
+  if (reports_alert_.open_pending && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+    reports_alert_.open_pending = false;
+    ImGui::OpenPopup(kTitle);
+  }
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  const float width = ImGui::GetFontSize() * 28.0f;
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
+  ImGui::TextColored(colors::orange, "%s", reports_alert_.title.c_str());
+  ImGui::PopFont();
+  ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+  for (const Json &report : reports_alert_.reports.items()) {
+    ImGui::Separator();
+    const bool usable = report["usable"].boolean();
+    ImGui::TextColored(usable ? colors::orange : colors::red, "%s",
+                       usable ? "Toujours utilisable" : "Inutilisable : à remplacer");
+    ImGui::TextDisabled("%s - signalé par %s le %s", report["status_label"].str().c_str(), report["by"].str().c_str(),
+                        display_datetime(report["created"]).c_str());
+    if (report["comment"].str().empty())
+      ImGui::TextDisabled("Sans commentaire.");
+    else
+      ImGui::TextWrapped("« %s »", report["comment"].str().c_str());
+    if (!report["note"].str().empty())
+      ImGui::TextWrapped("Réponse : %s", report["note"].str().c_str());
+  }
+  ImGui::PopTextWrapPos();
+  ImGui::Separator();
+  // pas de fermeture par Entree : la douchette en mode clavier en envoie une a chaque scan
+  if (primary_button("J'ai compris", ImVec2(width, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
 }
 
 void App::reload_verif_lots() {

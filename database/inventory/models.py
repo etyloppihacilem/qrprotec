@@ -966,12 +966,12 @@ class ReportStatus(models.TextChoices):
 
 
 class ReportResolution(models.TextChoices):
-    """Issue d'un signalement resolu sur un item : remis en service, desactive (non conforme, a remplacer a la
-    prochaine verif comme un perime) ou retire de l'inventaire (deja jete)."""
+    """Issue d'un signalement resolu sur un item (ou un paquet ferme, pour tous ses items) : remis en service,
+    desactive (non conforme, a remplacer a la prochaine verif comme un perime) ou retire de l'inventaire (deja jete)."""
     NONE = '', '-'
     OK = 'ok', 'Remis en service'
-    DISABLED = 'disabled', 'Item désactivé'
-    REMOVED = 'removed', 'Item retiré'
+    DISABLED = 'disabled', 'Désactivé'
+    REMOVED = 'removed', 'Retiré'
 
 
 class ProblemReport(models.Model):
@@ -988,6 +988,9 @@ class ProblemReport(models.Model):
     lot_name = models.CharField(max_length=64, blank=True, default='')
     item = models.ForeignKey(Items, on_delete=models.SET_NULL, null=True, blank=True, related_name='reports')
     item_type = models.ForeignKey(ItemType, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    # paquet ferme signale (etiquette du paquet scannee) : vaut pour tous ses items
+    sealed_pack = models.ForeignKey(SealedPacks, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='reports')
     comment = models.TextField(blank=True, default='')
     usable = models.BooleanField(default=True)
     status = models.CharField(max_length=8, choices=ReportStatus.choices, default=ReportStatus.NEW, db_index=True)
