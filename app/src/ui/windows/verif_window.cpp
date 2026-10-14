@@ -102,16 +102,29 @@ class VerifWindow final : public AppWindow {
           expected.insert(item["iid"].str());
       int remaining = 0;
 
+      ProblemTarget report; // (!) touche dans la liste : signalement apres la table
       const auto item_row = [&](const Json &item) {
         ImGui::TableNextRow();
         if (item["expired"].boolean())
           row_color(colors::red, 0.45f);
         ImGui::TableNextColumn();
         ImGui::Indent();
+        ImGui::PushID(item["iid"].str().c_str());
+        if (report_mark("##report"))
+          report = { item["location"].str(), item["location_name"].str(), item["iid"].str(), "",
+                     item["type_name"].str() + " (" + item["iid"].str() + ")" };
+        ImGui::PopID();
+        ImGui::SameLine();
         ImGui::TextUnformatted(item["type_name"].str().c_str());
-        if (item["expired"].boolean()) {
+        if (item["unusable"].boolean() && !item["outdated"].boolean()) {
+          ImGui::SameLine();
+          ImGui::TextColored(colors::red, "(signalé inutilisable : à remplacer)");
+        } else if (item["expired"].boolean()) {
           ImGui::SameLine();
           ImGui::TextColored(colors::red, "(périmé : à remplacer)");
+        } else if (item["reported"].boolean()) {
+          ImGui::SameLine();
+          ImGui::TextColored(colors::orange, "(problème signalé)");
         } else if (item["missed_verifs"].integer() > 0) {
           ImGui::SameLine();
           ImGui::TextDisabled("(non vu à la dernière vérif)");
@@ -214,6 +227,11 @@ class VerifWindow final : public AppWindow {
             ImGui::TableNextRow();
             row_color(entry.missing == 0 ? colors::green : entry.done == 0 ? colors::red : colors::orange, 0.25f);
             ImGui::TableNextColumn();
+            ImGui::PushID((lot["id"].str() + ":" + type).c_str());
+            if (report_mark("##report"))
+              report = { lot["id"].str(), lot["name"].str(), "", type, entry.type_name + " (" + lot["name"].str() + ")" };
+            ImGui::PopID();
+            ImGui::SameLine();
             ImGui::Text("%s", entry.type_name.c_str());
             if (!entry.location.empty()) {
               ImGui::SameLine();
@@ -265,6 +283,8 @@ class VerifWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
+      if (!report.label.empty())
+        app.report_problem(report);
       if (remaining == 0)
         status_banner(multi ? "✔ Tout est scanné : les lots seront complets" : "✔ Tout est scanné : le lot sera complet",
                       colors::green, 1.0f);
@@ -444,7 +464,8 @@ class VerifWindow final : public AppWindow {
       }
       ImGui::Separator();
       ImGui::BeginChild("report", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
-      draw_list(app, "Périmés toujours dans le lot : à remplacer", report["expired"], colors::red);
+      draw_list(app, "Périmés ou signalés inutilisables, toujours dans le lot : à remplacer", report["expired"],
+                colors::red);
       draw_list(app, "Périmés considérés comme remplacés", report["replaced"], colors::green);
       // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
       Json missing = Json::array();

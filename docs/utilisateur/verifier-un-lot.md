@@ -245,6 +245,30 @@ prochaine vérif complète.
 Vérifier un lot scellé, y ajouter ou en retirer quelque chose, ou ouvrir un de ses sous-lots **brise
 le scellé** (le poste prévient avant). Après la vérif, un responsable pourra le resceller.
 
+## Signaler un problème
+
+Un objet abîmé, un sac déchiré, un appareil qui ne marche plus : n'importe quel utilisateur connecté
+peut le **signaler** aux admins, pendant une vérif ou en dehors.
+
+- **Pendant une vérif** : touchez le **(!)** hachuré orange et rouge à côté de l'item (ou du type
+  d'item) dans la liste ;
+- **Hors vérif** : scannez l'étiquette de l'item ou du lot, puis **Signaler un problème** sur sa fiche.
+  Au poste, le bouton est dans la fenêtre du lot et le (!) dans la pile de scans.
+
+La connexion est demandée **avant** de rédiger. Il faut ensuite répondre à **« L'objet est-il toujours
+utilisable ? »** et, si on veut, ajouter un commentaire :
+
+- **Oui** : l'item reste compté normalement, la vérif n'est pas bloquée ;
+- **Non** : l'item est marqué **INUTILISABLE** et doit être **remplacé**, comme un périmé, tant que le
+  signalement est ouvert.
+
+Le signalement part tout de suite, indépendamment de la vérif. Un item signalé est compté comme vu
+pendant la vérif en cours et n'est **jamais marqué disparu** tant que son signalement est ouvert.
+
+Les signalements en cours se suivent en lecture seule sur le téléphone, tuile **Signalements** de la
+page d'accueil (rouge : nouveau ; orange : pris en charge, objet inutilisable ; vert : pris en charge
+et toujours utilisable, ou résolu).
+
 ## Comprendre le compte rendu
 
 | Rubrique | Signification | Que faire |

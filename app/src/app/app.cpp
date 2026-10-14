@@ -92,6 +92,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_editor_window());
   windows.push_back(make_settings_window());
   windows.push_back(make_phone_window());
+  windows.push_back(make_reports_window()); // apres les autres : pas de touche F (F1 a F12 deja prises)
   assign_shortcuts();
   feedback.on_phone_error = [this]() {
     remote.feedback_pending = true;
@@ -275,6 +276,8 @@ void App::begin_frame() {
   check_inactivity();
   if (!setup_known_ && ImGui::GetTime() >= next_setup_check_)
     check_setup();
+  if (admin() && ImGui::GetTime() >= next_reports_poll_)
+    refresh_report_counts();
 }
 
 void App::check_inactivity() {
@@ -328,6 +331,7 @@ void App::draw() {
   draw_pin_modal();
   draw_douchette_modal();
   draw_tasks_modal();
+  draw_problem_modal();
   draw_label_preview(*this);
   draw_toasts();
   feedback.draw_overlay();
@@ -361,6 +365,16 @@ void App::draw_menu_bar() {
         if (window->privileged && can_open(*window))
           window_menu_item(*window);
       ImGui::EndMenu();
+    }
+    // admins : signalements pas encore pris en charge
+    const int fresh_reports = admin() ? report_counts["new"].integer() : 0;
+    if (fresh_reports > 0) {
+      ImGui::PushStyleColor(ImGuiCol_Text, colors::red);
+      const std::string label = "⚠ " + std::to_string(fresh_reports) + " signalement" + (fresh_reports > 1 ? "s" : "");
+      if (ImGui::MenuItem(label.c_str()))
+        open_window("reports");
+      ImGui::PopStyleColor();
+      ImGui::SetItemTooltip("Problèmes signalés pas encore pris en charge : ouvrir la gestion des signalements.");
     }
     if (ImGui::BeginMenu("Douchette")) {
       if (ImGui::MenuItem("Téléphone comme douchette...", nullptr, remote.active))
@@ -596,7 +610,7 @@ void App::draw_login_modal() {
       name_login_.open  = true;
       name_login_.focus = true;
     }
-    if (declared_identity) {
+    if (declared_identity && login_declared_) {
       // reglage du serveur : nom declare, non verifie, garde seulement pour cette action
       ImGui::Spacing();
       ImGui::Separator();
@@ -993,11 +1007,12 @@ void App::restore_login() {
   }
 }
 
-void App::require_login(const std::string &what, std::function< void() > action) {
+void App::require_login(const std::string &what, std::function< void() > action, bool allow_declared) {
   if (logged_in()) {
     action();
     return;
   }
+  login_declared_ = allow_declared;
   pending_action_ = std::move(action);
   login_reason_   = what;
   login_prompt_   = true;
@@ -1423,6 +1438,10 @@ void App::resolve_item(int entry_id) {
       detail += " - déjà remplacé";
     else if (status == "out")
       detail += " - sorti du stock, compté utilisé le " + display_date(item["out_until"]) + " s'il ne revient pas";
+    if (item["unusable"].boolean())
+      detail += " - signalé inutilisable : à remplacer";
+    else if (item["reported"].boolean())
+      detail += " - problème signalé";
     entry->detail = detail;
     if (item["expired"].boolean() && !entry->expired) {
       entry->expired = true;
@@ -1981,6 +2000,15 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     return false;
   };
   const Date              today = this->today();
+  // items signales inutilisables (signalement ouvert) : a remplacer comme des perimes
+  std::set< std::string > unusable;
+  for (const ScanEntry &entry : stack.entries())
+    if (entry.data["unusable"].boolean())
+      unusable.insert(entry.scan.id);
+  for (const Json *lot : lots)
+    for (const Json &item : (*lot)["items"].items())
+      if (item["unusable"].boolean())
+        unusable.insert(item["iid"].str());
   std::vector< Scanned >  newcomers;
   std::map< std::string, std::string > target;
   std::vector< Scanned >  all;
@@ -1988,7 +2016,7 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     const ParsedScan parsed = parse_scan(iid);
     const auto       place = place_of.find(iid);
     Scanned item{ iid, parsed.item_type, place == place_of.end() ? std::string() : place->second,
-                  is_expired(parsed, today) };
+                  is_expired(parsed, today) || unusable.count(iid) > 0 };
     all.push_back(item);
     if (const auto found = location_of.find(iid); found != location_of.end()) {
       target[iid] = found->second;
@@ -2517,6 +2545,135 @@ void App::print_documents(std::vector< PrintJob > jobs) {
   const std::size_t count = jobs.size();
   printer.enqueue(std::move(jobs), settings.print, settings.physical_label());
   notify(std::to_string(count) + " étiquette(s) envoyée(s) à l'imprimante.");
+}
+
+} // namespace qrprotec
+
+namespace qrprotec {
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Signalements de problemes (database/inventory/reports.py)
+
+void App::report_problem(const ProblemTarget &target) {
+  require_login("signaler un problème", [this, target]() {
+    problem_              = ProblemPrompt{};
+    problem_.target       = target;
+    problem_.open_pending = true;
+  }, false);
+}
+
+void App::draw_problem_modal() {
+  static const char *kTitle = "Signaler un problème###problem";
+  if (problem_.open_pending) {
+    problem_.open_pending = false;
+    if (!ImGui::IsPopupOpen(kTitle))
+      ImGui::OpenPopup(kTitle);
+  }
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  const bool  object = !problem_.target.iid.empty() || !problem_.target.type.empty();
+  const float width  = ImGui::GetFontSize() * 26.0f;
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
+  ImGui::TextUnformatted(problem_.target.label.c_str());
+  ImGui::PopFont();
+  ImGui::Spacing();
+  ImGui::TextUnformatted(object ? "L'objet est-il toujours utilisable ?" : "Le lot est-il toujours utilisable ?");
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f)); // cases visibles sur le fond blanc
+  if (ImGui::RadioButton("Oui, toujours utilisable", problem_.usable == 1))
+    problem_.usable = 1;
+  if (ImGui::RadioButton("Non, à remplacer", problem_.usable == 0))
+    problem_.usable = 0;
+  ImGui::Spacing();
+  if (ImGui::IsWindowAppearing())
+    ImGui::SetKeyboardFocusHere();
+  ImGui::InputTextMultiline("##comment", &problem_.comment, ImVec2(width, ImGui::GetTextLineHeight() * 5));
+  ImGui::PopStyleColor();
+  if (problem_.comment.size() > 1000)
+    problem_.comment.resize(1000);
+  ImGui::TextDisabled("Commentaire facultatif. Envoyé tout de suite aux administrateurs, indépendamment de la vérif.");
+  if (!problem_.error.empty())
+    ImGui::TextColored(colors::red, "%s", problem_.error.c_str());
+  ImGui::Spacing();
+  ImGui::BeginDisabled(problem_.busy);
+  if (primary_button(problem_.busy ? "Envoi..." : "Envoyer", ImVec2(width * 0.5f, 0))) {
+    if (problem_.usable < 0)
+      problem_.error = object ? "Indiquez si l'objet est toujours utilisable." : "Indiquez si le lot est toujours utilisable.";
+    else
+      send_problem();
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (button("Annuler", ImVec2(-1, 0)) || (!problem_.busy && escape_pressed())) {
+    problem_ = ProblemPrompt{};
+    ImGui::CloseCurrentPopup();
+  }
+  if (problem_.target.label.empty() && !problem_.busy) // envoye
+    ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
+void App::send_problem() {
+  Json body;
+  body["user"]    = user_ref();
+  body["item"]    = problem_.target.iid;
+  body["lot"]     = problem_.target.iid.empty() ? problem_.target.lot : std::string();
+  body["type"]    = problem_.target.type;
+  body["comment"] = problem_.comment;
+  body["usable"]  = problem_.usable == 1;
+  problem_.busy   = true;
+  problem_.error.clear();
+  api.post("/api/reports/", body, [this](const ApiResult &result) {
+    problem_.busy = false;
+    if (!result.ok) {
+      problem_.error = result.error;
+      return;
+    }
+    problem_ = ProblemPrompt{}; // ferme la fenetre
+    notify("Signalement envoyé aux administrateurs.");
+    if (admin())
+      refresh_report_counts();
+    const Json &item = result.data["item"];
+    if (item.is_null() || !verif.active || verif.loading || !verif_covers(item["location"].str()))
+      return;
+    // item du lot en cours de verif : il est la, il compte comme vu (jamais marque disparu)
+    const std::string iid = item["iid"].str();
+    if (const ScanEntry *entry = stack.find_item(iid))
+      resolve_item(entry->id); // deja scanne : etat relu (inutilisable = a remplacer)
+    else
+      handle_scan(iid, ScanSource::Manual);
+    reload_verif_lots();
+  });
+}
+
+void App::reload_verif_lots() {
+  const std::string lot_id = verif.lot_id;
+  api.get("/api/lots/" + url_encode(lot_id) + "/", [this, lot_id](const ApiResult &result) {
+    if (result.ok && verif.active && verif.lot_id == lot_id)
+      verif.lot = result.data;
+  });
+  for (const VerifExtra &extra : verif.extras) {
+    const std::string id = extra.id;
+    api.get("/api/lots/" + url_encode(id) + "/", [this, id](const ApiResult &result) {
+      if (!result.ok || !verif.active)
+        return;
+      for (VerifExtra &row : verif.extras)
+        if (row.id == id)
+          row.lot = result.data;
+    });
+  }
+}
+
+void App::refresh_report_counts() {
+  next_reports_poll_ = ImGui::GetTime() + 60.0;
+  Json body;
+  body["user"] = user_ref();
+  body["show"] = "open";
+  api.post("/api/reports/list/", body, [this](const ApiResult &result) {
+    if (result.ok)
+      report_counts = result.data["counts"];
+  });
 }
 
 } // namespace qrprotec

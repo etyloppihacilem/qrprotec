@@ -419,6 +419,7 @@ class SettingsWindow final : public AppWindow {
         { "badge_renewed", "Badge d'un utilisateur renouvelé" },
         { "badge_expiring", "Badge qui expire bientôt ou a expiré (commande check_alerts)" },
         { "order_due", "Commande à passer d'après les prévisions de stock (commande check_alerts)" },
+        { "problem_report", "Problème signalé sur un item ou un lot" },
       };
       for (const auto &[event, label] : events) {
         bool value = notifications_["events"][event].boolean();

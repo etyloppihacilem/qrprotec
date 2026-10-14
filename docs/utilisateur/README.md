@@ -7,9 +7,9 @@ structure qui gère aujourd'hui son matériel sur papier ou sur tableur.
 |---|---|---|
 | [Les notions](notions.md) | tout le monde | Item, lot, sous-lot, stock, rangement, scellé, vérif, réassort, couleurs, rôles. **À lire en premier.** |
 | [Mise en place et transition](mise-en-place.md) | responsables | Passer d'un inventaire papier à QRProtec, pas à pas, sur un exemple réel (VPS, B+, réserve). |
-| [Vérifier un lot](verifier-un-lot.md) | secouristes | Vérif au poste et au téléphone, réassort, vérif groupée et partielle, comprendre le compte rendu. |
+| [Vérifier un lot](verifier-un-lot.md) | secouristes | Vérif au poste et au téléphone, réassort, vérif groupée et partielle, signaler un problème, comprendre le compte rendu. |
 | [Gérer le stock](gerer-le-stock.md) | rôle gestion | Réception d'une commande, paquets fermés, rangements, état des stocks, périmés, alertes. |
-| [Administration](administration.md) | rôle admin | Utilisateurs et badges, PIN, lots et étiquettes, scellés, réglages, notifications, sauvegardes. |
+| [Administration](administration.md) | rôle admin | Utilisateurs et badges, PIN, lots et étiquettes, scellés, signalements, réglages, notifications, sauvegardes. |
 | [Questions fréquentes et dépannage](depannage.md) | tout le monde | Ce qu'il faut faire quand quelque chose ne se passe pas comme prévu. |
 
 Le logiciel s'utilise de deux façons :

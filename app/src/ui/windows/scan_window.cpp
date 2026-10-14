@@ -83,13 +83,14 @@ class ScanWindow final : public AppWindow {
         ImGui::SameLine();
         ImGui::TextColored(colors::red, "- %zu périmé(s) !", app.stack.expired_count());
       }
-      int remove_id = 0;
+      int           remove_id = 0;
+      ProblemTarget report_target;
       const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY;
       if (ImGui::BeginTable("stack", 3, flags, ImVec2(0, -footer))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Produit", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+        ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("INUTILISABLE").x + 4.0f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFrameHeight() * 2.2f);
         ImGui::TableHeadersRow();
         // le dernier scan en haut
         for (auto entry = entries.rbegin(); entry != entries.rend(); ++entry) {
@@ -109,7 +110,8 @@ class ScanWindow final : public AppWindow {
             ImGui::TextWrapped("%s", entry->detail.c_str());
           ImGui::TableNextColumn();
           if (entry->expired)
-            ImGui::TextColored(colors::red, "PÉRIMÉ");
+            ImGui::TextColored(colors::red, entry->data["unusable"].boolean() && !entry->data["outdated"].boolean()
+                                              ? "INUTILISABLE" : "PÉRIMÉ");
           else if (entry->state == EntryState::Error)
             ImGui::TextColored(colors::red, "Erreur");
           else if (entry->duplicate)
@@ -125,12 +127,21 @@ class ScanWindow final : public AppWindow {
           if (small_button("X"))
             remove_id = entry->id;
           ImGui::SetItemTooltip("Retirer ce scan de la pile");
+          // item scanne : signaler un probleme (connexion demandee d'abord)
+          if (entry->scan.kind == ScanKind::Item && entry->state == EntryState::Ok) {
+            ImGui::SameLine();
+            if (report_mark("##report"))
+              report_target = { entry->data["location"].str(), entry->data["location_name"].str(), entry->scan.id, "",
+                                entry->title + " (" + entry->scan.id + ")" };
+          }
           ImGui::PopID();
         }
         ImGui::EndTable();
       }
       if (remove_id)
         app.stack.remove(remove_id);
+      if (!report_target.iid.empty())
+        app.report_problem(report_target);
     }
 
     void draw_actions(App &app) {

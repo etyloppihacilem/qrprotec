@@ -166,6 +166,24 @@ struct TaskPopup {
     bool                       open_pending = false;
 };
 
+// Signalement d'un probleme : un item, un type d'item d'un lot, ou un lot (fenetre « Signaler un problème »)
+struct ProblemTarget {
+    std::string lot;      // lot concerne (vide pour un item : le serveur prend son lot)
+    std::string lot_name;
+    std::string iid;      // item signale
+    std::string type;     // type d'item d'un lot (ligne d'un type pendant la verif)
+    std::string label;    // ce qui est signale, affiche dans la fenetre
+};
+
+struct ProblemPrompt {
+    bool          open_pending = false;
+    bool          busy         = false;
+    ProblemTarget target;
+    int           usable = -1; // reponse a « toujours utilisable ? » : -1 pas encore, 1 oui, 0 non (a remplacer)
+    std::string   comment;
+    std::string   error;
+};
+
 struct LabelPreviewState {
     std::vector< PrintJob > jobs;
     std::string             title;
@@ -227,7 +245,8 @@ class App {
     // reglage « Machine partagee » enregistre : garde ou efface la session de cette machine
     void        apply_shared_machine();
     void        reset_session(); // retour a l'etat initial (inactivite)
-    void        require_login(const std::string &what, std::function< void() > action);
+    // allow_declared : le nom declare sans badge (reglage du serveur) suffit pour cette action
+    void        require_login(const std::string &what, std::function< void() > action, bool allow_declared = true);
     Json        user_ref() const; // valeur du champ "user" des requetes
     // identite d'une operation sur un lot (verif, ajout) : "user" connecte, sinon "name" declare sans badge
     void        add_identity(Json &body) const;
@@ -267,6 +286,12 @@ class App {
     // items scannes sans lot : sortis du stock (comptes utilises s'ils ne reviennent pas a une verif)
     void stack_out();
     void stock_verif();
+
+    // Signalements de problemes : connexion demandee avant la fenetre (pas de nom declare), envoi independant de la
+    // verif. Pendant la verif, un item signale compte comme vu (ajoute a la pile).
+    void report_problem(const ProblemTarget &target);
+    void refresh_report_counts(); // nouveaux signalements (admins) : rappel dans la barre de menu
+    Json report_counts = Json::object();
 
     // Telephone-douchette
     void start_remote_session();
@@ -367,6 +392,9 @@ class App {
     void open_tasks(int entry_id);
     void finish_tasks(bool done); // done : toutes les taches validees, l'item compte comme vu
     void draw_tasks_modal();
+    void draw_problem_modal();
+    void send_problem();
+    void reload_verif_lots(); // contenu a jour des lots de la verif (item signale inutilisable : a remplacer)
     void check_setup();
     void draw_setup_modal();
     void draw_server_modal(); // connexion au back, sans badge tant que l'API est injoignable
@@ -411,6 +439,9 @@ class App {
     bool                    douchette_pending_   = false;
     std::size_t             douchette_index_     = 0;
     TaskPopup               tasks_;
+    ProblemPrompt           problem_;
+    double                  next_reports_poll_ = 0.0;
+    bool                    login_declared_    = true; // nom declare accepte pour l'action en attente
     std::string             login_reason_;
     std::string             login_manual_;
     std::string             declared_name_;   // nom saisi dans la fenetre de connexion (sans badge)

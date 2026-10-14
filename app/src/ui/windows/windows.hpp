@@ -29,6 +29,7 @@ std::unique_ptr< AppWindow > make_pack_window(); // fiche d'un paquet ferme, ouv
 std::unique_ptr< AppWindow > make_lot_admin_window();
 std::unique_ptr< AppWindow > make_users_window();
 std::unique_ptr< AppWindow > make_journal_window(); // journal des operations (qui fait quoi et quand)
+std::unique_ptr< AppWindow > make_reports_window(); // signalements de problemes (admins)
 std::unique_ptr< AppWindow > make_editor_window();
 std::unique_ptr< AppWindow > make_settings_window();
 

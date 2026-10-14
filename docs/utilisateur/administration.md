@@ -87,6 +87,19 @@ Raccourci : après une vérif complète dans l'application, le compte rendu prop
 admin un bouton **Sceller** pour chaque lot trouvé complet et pas déjà scellé (numéro du scellé facultatif). Il scelle le
 lot et ouvre l'aperçu des mêmes étiquettes que depuis la fiche du lot.
 
+## Signalements de problèmes
+
+Chaque signalement envoie une notification aux admins (SMS et notification web, événement « Problème
+signalé »). Ils se gèrent dans la page **Signalements**, au poste (compteur rouge dans la barre de
+menu) comme sur le téléphone (tuile de l'accueil) :
+
+- **Nouveau** (rouge) : personne ne s'en occupe encore ;
+- **En cours · utilisable** (vert) / **En cours · inutilisable** (orange) : pris en charge ; l'admin
+  confirme ou corrige si l'objet reste disponible. Inutilisable, l'item doit être remplacé ;
+- **Résolu** (vert) : l'item redevient normal. Un signalement résolu peut être rouvert.
+
+Une réponse (facultative) est visible de tous les utilisateurs qui suivent les signalements.
+
 ## Journal des opérations
 
 Menu **Gestion > Journal des opérations** (rôles gestion et admin) : toutes les opérations, de la plus
