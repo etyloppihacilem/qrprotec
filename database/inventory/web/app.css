@@ -396,3 +396,31 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
 .report-manage { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .report-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .report-actions button { flex: 1 1 auto; padding: 8px 10px; font-size: .9rem; }
+
+/* Ouverture d'un scelle (etiquette d'ouverture) : plein ecran par-dessus tout le reste, rassurant */
+#opening { position: fixed; inset: 0; z-index: 45; display: flex; flex-direction: column; background: var(--panel); }
+#opening[hidden] { display: none; }
+#opening-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: calc(16px + env(safe-area-inset-top)) 16px 20px; }
+#opening-body .opening-head { text-align: center; margin: 4px 0 14px; }
+#opening-body .opening-head .icon { font-size: 3rem; line-height: 1; }
+#opening-body .opening-head h2 { margin: 6px 0 2px; font-size: 1.5rem; }
+#opening-body .opening-head .sub { color: var(--muted); }
+#opening-body .opening-box { border-radius: 14px; padding: 14px 16px; margin: 10px 0; }
+#opening-body .opening-box b { display: block; font-size: 1.15rem; }
+#opening-body .opening-box p { margin: 4px 0 0; }
+#opening-body .opening-box.ok { background: var(--green-bg); border: 2px solid var(--green); }
+#opening-body .opening-box.ok b { color: var(--green); }
+#opening-body .opening-box.warn { background: var(--orange-bg); border: 2px solid var(--orange); }
+#opening-body .opening-box.warn b { color: var(--orange); }
+#opening-body .opening-box.tech { background: var(--blue-bg); }
+#opening-body .valid-until { font-size: 1.6rem; font-weight: 800; color: var(--green); margin-top: 6px; }
+#opening-body h3 { margin: 18px 0 6px; font-size: 1rem; }
+#opening-body .opening-lot { margin: 10px 0 2px; font-weight: 700; }
+#opening-body ul.opening-items { list-style: none; margin: 0; padding: 0; }
+#opening-body ul.opening-items li { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--line); }
+#opening-body ul.opening-items .count { font-weight: 700; min-width: 2.2em; }
+#opening-body ul.opening-items .date { color: var(--muted); margin-left: auto; white-space: nowrap; font-size: .85rem; }
+#opening-body ul.opening-items li.expired .date { color: var(--red); }
+#opening-actions { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+#opening-actions button { width: 100%; }
