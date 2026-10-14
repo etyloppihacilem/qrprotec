@@ -48,7 +48,7 @@ STATUS_MESSAGES = {
 }
 
 EVENTS = ('stock_low', 'verif_problem', 'seal_broken', 'expired_daily', 'pin_blocked',
-          'lot_key_renewed', 'lot_key_expiring', 'badge_renewed', 'badge_expiring', 'order_due')
+          'lot_key_renewed', 'lot_key_expiring', 'badge_renewed', 'badge_expiring', 'order_due', 'problem_report')
 
 
 def send_free_sms(user, password, message, timeout=10):
@@ -173,9 +173,10 @@ def notify_pin_blocked(user, url):
     return True
 
 
-def notify_admins(event, title, message):
-    """Evenement envoye par SMS (reglages) et aux notifications web des admins qui l'ont choisi."""
-    return notify(event, message) + webpush.notify_event(event, f'QRProtec : {title}', message)
+def notify_admins(event, title, message, **web):
+    """Evenement envoye par SMS (reglages) et aux notifications web des admins qui l'ont choisi (web : url, tag, tab
+    de la notification web)."""
+    return notify(event, message) + webpush.notify_event(event, f'QRProtec : {title}', message, **web)
 
 
 def _day(value):

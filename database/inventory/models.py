@@ -228,6 +228,10 @@ class Items(models.Model):
     deleted = models.DateTimeField(blank=True, null=True)
     deleted_by = models.CharField(max_length=32, blank=True, default='')
     deleted_reason = models.CharField(max_length=128, blank=True, default='')
+    # signalements ouverts (ProblemReport non resolus, voir reports.refresh_item) : signale, et signale comme
+    # inutilisable (a remplacer comme un perime : il ne compte plus dans le lot)
+    reported = models.BooleanField(default=False)
+    unusable = models.BooleanField(default=False)
 
     @property
     def item_type(self):
@@ -242,6 +246,10 @@ class Items(models.Model):
         if peremption is None:
             return False
         return peremption < (today or timezone.localdate())
+
+    def needs_replacement(self, today=None) -> bool:
+        """Perime, ou signale inutilisable : ne compte plus dans son lot et doit etre remplace."""
+        return self.unusable or self.is_expired(today)
 
     def touch(self, user, context, now=None):
         self.last_seen = now or timezone.now()
@@ -497,6 +505,7 @@ class OperationKind(models.TextChoices):
     CATALOG = 'catalog', "Types d'items et de lots"
     USER = 'user', 'Utilisateurs'
     SETTINGS = 'settings', 'Réglages'
+    REPORT = 'report', 'Signalement'
 
 
 class Operation(models.Model):
@@ -550,6 +559,7 @@ PUSH_TYPES = {
     'badge_renewed': ("Badge d'un utilisateur renouvelé", _ADMIN_ROLES, False),
     'badge_expiring': ('Badge qui expire bientôt ou a expiré', _ADMIN_ROLES, False),
     'order_due': ('Commande à passer (prévisions de stock)', _GESTION_ROLES, True),
+    'problem_report': ("Signalement d'un problème sur un item ou un lot", _ADMIN_ROLES, True),
 }
 
 
@@ -809,6 +819,7 @@ class NotificationSettings(models.Model):
     badge_renewed = models.BooleanField(default=False)     # badge d'un utilisateur renouvele
     badge_expiring = models.BooleanField(default=False)    # badge qui expire bientot ou a expire (check_alerts)
     order_due = models.BooleanField(default=False)         # commande a passer d'apres les previsions (check_alerts)
+    problem_report = models.BooleanField(default=True)     # probleme signale sur un item ou un lot
     # jours avant l'expiration pour l'alerte « expire bientot » (vide : QRPROTEC_KEY_EXPIRY_WARNING_DAYS)
     key_expiry_warning_days = models.PositiveSmallIntegerField(blank=True, null=True)
 
@@ -879,6 +890,7 @@ class PushSubscription(models.Model):
     lot_key_expiring = models.BooleanField(default=False)
     badge_renewed = models.BooleanField(default=False)
     badge_expiring = models.BooleanField(default=False)
+    problem_report = models.BooleanField(default=True)  # probleme signale sur un item ou un lot (admins)
     device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme, d'apres le User-Agent
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)
@@ -932,3 +944,46 @@ class FrontKey(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ReportStatus(models.TextChoices):
+    NEW = 'new', 'Nouveau'                          # rouge : pas encore pris en charge
+    IN_PROGRESS = 'progress', 'En cours de résolution'  # orange (inutilisable) ou vert (toujours utilisable)
+    RESOLVED = 'resolved', 'Résolu'                  # vert
+
+
+class ProblemReport(models.Model):
+    """Probleme signale sur un item, sur un type d'item d'un lot, ou sur un lot, par un utilisateur connecte.
+
+    Envoye aux admins (SMS et notifications web), suivi en lecture seule par tout utilisateur connecte. `usable` :
+    reponse de l'utilisateur a « l'objet est-il toujours utilisable ? », modifiable par l'admin qui le prend en
+    charge. Un item signale inutilisable doit etre remplace (comme un perime) tant que le signalement est ouvert ;
+    un item signale n'est jamais marque disparu par une verif.
+    """
+    created = models.DateTimeField(default=timezone.now, db_index=True)
+    by = models.CharField(max_length=64)  # identite stockee (M:matricule)
+    lot = models.ForeignKey(Lots, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    lot_name = models.CharField(max_length=64, blank=True, default='')
+    item = models.ForeignKey(Items, on_delete=models.SET_NULL, null=True, blank=True, related_name='reports')
+    item_type = models.ForeignKey(ItemType, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    comment = models.TextField(blank=True, default='')
+    usable = models.BooleanField(default=True)
+    status = models.CharField(max_length=8, choices=ReportStatus.choices, default=ReportStatus.NEW, db_index=True)
+    note = models.TextField(blank=True, default='')  # reponse de l'admin, visible de tous
+    updated = models.DateTimeField(blank=True, null=True)
+    updated_by = models.CharField(max_length=64, blank=True, default='')
+    resolved = models.DateTimeField(blank=True, null=True)
+    resolved_by = models.CharField(max_length=64, blank=True, default='')
+
+    @property
+    def open(self) -> bool:
+        return self.status != ReportStatus.RESOLVED
+
+    @property
+    def color(self) -> str:
+        """red (nouveau), orange (en cours, inutilisable) ou green (en cours et utilisable, ou resolu)."""
+        if self.status == ReportStatus.NEW:
+            return 'red'
+        if self.status == ReportStatus.IN_PROGRESS and not self.usable:
+            return 'orange'
+        return 'green'

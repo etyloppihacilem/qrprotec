@@ -45,7 +45,10 @@
     pinReset: null,    // {matricule, token} : deblocage du PIN d'un utilisateur, en attente d'un admin connecte
     loading: '',       // 'lots' ou 'stock' pendant un chargement
     homePage: 'menu',  // page affichee : 'menu', 'lots', 'live', 'stock' (accueil) ou 'scan' (scanner)
-    homeForecast: false, // page « État des stocks » de l'accueil : previsions plutot que l'etat actuel
+    homeForecast: false,
+    reports: null,     // signalements : {counts, reports, can_manage}
+    reportsShow: 'open', // 'open' (en cours) ou 'all'
+    reportsBusy: false, // page « État des stocks » de l'accueil : previsions plutot que l'etat actuel
     push: null,        // notifications web de ce navigateur (admins) : {subscribed, stock_low, stock_empty, ...}
     pushBusy: false,
     pushEndpoint: '', // abonnement de ce navigateur (pour le reperer dans la liste)
@@ -303,7 +306,7 @@
   // Jamais de camera ouverte quand la page est cachee, et une seule ouverture a la fois : sur Firefox
   // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
   // camera « utilisee par Firefox » jusqu'au redemarrage du telephone.
-  function cameraShouldRun() { return cameraWanted && !document.hidden && !ficheOpen(); }
+  function cameraShouldRun() { return cameraWanted && !document.hidden && (!ficheOpen() || readerOpen()); }
 
   function syncCamera() {
     if (!cameraShouldRun()) stopCamera();
@@ -543,7 +546,7 @@
   async function addItem(entry, scan, loaded = !!entry.info || !!entry.error) {
     state.scanned.push(entry);
     if (entry.expired || entry.error) feedback.bad(); else if (!scan.task || entry.tasksDone) feedback.good();
-    showInfo(entry.expired ? 'bad' : 'ok', entry.expired ? 'PÉRIMÉ' : 'Item scanné',
+    showInfo(entry.expired ? 'bad' : 'ok', entry.expired ? badLabel(entry.info) : 'Item scanné',
       scan.peremption ? 'Péremption : ' + fmtDate(scan.peremption) : 'Non périssable');
     render();
     if (!loaded) {
@@ -630,7 +633,7 @@
     const status = info.status === 'out' ? `Sorti du stock, compté utilisé le ${fmtDate(info.out_until)} s'il ne revient pas`
       : { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé' }[info.status];
     showInfo(entry.expired ? 'bad' : status ? 'warn' : 'ok',
-      (entry.expired ? 'PÉRIMÉ – ' : '') + info.type_name,
+      (entry.expired ? badLabel(info) + ' – ' : '') + info.type_name,
       info.peremption ? 'Péremption : ' + fmtDate(info.peremption) : 'Non périssable',
       where + (status ? ' · ' + status : ''));
   }
@@ -1168,6 +1171,7 @@
   }
 
   function loggedIn(user) {
+    const action = takeLoginAction(); // action qui attendait la connexion (signalement)
     state.user = user;
     state.lots = null;
     state.stock = null;
@@ -1184,6 +1188,9 @@
     afterLogin();
     if (state.pinReset) openPinReset();
     if (state.pendingOpening) signOpening();
+    state.reports = null;
+    if (isAdmin()) loadReports(true);
+    if (action) setTimeout(action, 0);
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -1543,7 +1550,7 @@
             : `↷ ${row.name} : non vérifié` + (row.restocked ? `, ${row.restocked} item(s) ajouté(s) (réassort)` : '')))))] : []),
       ...(report.requirements || []).map((row) => requirementRow(
         (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row.required)),
-      ...section('Périmés encore dans le lot : à remplacer', report.expired),
+      ...section('Périmés ou inutilisables encore dans le lot : à remplacer', report.expired),
       ...section('Périmés remplacés', report.replaced),
       // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
       ...section('Étiquette déchirée : utilisés', report.torn),
@@ -1721,8 +1728,10 @@
   // Item attendu, dans la liste depliable de son type : seulement son iid, en petit (le type est dans le titre)
   function todoItem(item) {
     return el('li', { class: 'iid' + (item.expired ? ' expired' : '') },
+      reportMark({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
       el('span', { class: 'main' }, item.iid),
-      item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
+      item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
+      item.reported && !item.unusable ? el('span', { class: 'tag orange', title: 'Problème signalé, toujours utilisable' }, 'signalé') : null,
       item.tear_off ? el('span', { class: 'tag orange', title: 'Étiquette à déchirer : si elle manque, compté comme utilisé' }, 'à déchirer') : null,
       (item.tasks || []).length ? el('span', { class: 'tag blue', title: 'Tâches à cocher au scan de cet item' }, 'tâches') : null,
       item.missed_verifs > 0 ? el('span', { class: 'tag orange' }, 'non vu') : null);
@@ -1803,7 +1812,8 @@
               group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`,
               expired ? `${expired} périmé(s)` : '',
               group.fromStock > 0 ? `${group.fromStock} à prendre dans le stock` : ''].filter(Boolean).join(' · '))),
-          el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`));
+          [reportMark({ lot: lot.id, lotName: lot.name, type: group.row.type, label: `${group.row.type_name} (${lot.name})` }),
+            el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)]);
       };
       for (const group of groups) if (rank(group) < 2) rows.push(...groupRows(group));
       if (others.length) {
@@ -1830,7 +1840,7 @@
       let cls = 'ok';
       const tags = [];
       if (entry.error) { cls = 'error'; tags.push(el('span', { class: 'tag red' }, 'INCONNU')); }
-      else if (entry.expired) { cls = 'expired'; tags.push(el('span', { class: 'tag red' }, 'PÉRIMÉ')); }
+      else if (entry.expired) { cls = 'expired'; tags.push(el('span', { class: 'tag red' }, badLabel(info))); }
       else if (state.lot && entry.kind === 'item' && !expected.has(entry.iid)) {
         cls = 'extra'; tags.push(el('span', { class: 'tag blue' }, 'nouveau'));
       }
@@ -1841,6 +1851,8 @@
           el('div', { class: 'sub' }, [peremption ? fmtDate(peremption) : info && entry.kind === 'item' ? 'Non périssable' : '', entry.iid,
             mine ? '' : `par ${entry.who || 'un autre participant'}`].filter(Boolean).join(' · '))),
         ...tags,
+        entry.kind === 'item' && !entry.error ? reportMark({ item: entry.iid, label: `${name} (${entry.iid})`,
+          lot: info && info.location, lotName: info && info.location_name }) : null,
         mine && el('button', {
           class: 'remove', type: 'button', 'aria-label': 'Retirer',
           onclick: () => { scannedAgain(); state.scanned.splice(index, 1); save(); render(); },
@@ -1867,6 +1879,7 @@
         ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       el('div', { class: 'banner ' + (groupStatus(lot) || lotStatus(lot)).kind }, (groupStatus(lot) || lotStatus(lot)).label),
       el('p', {}, ficheLink('lot', lot.id, 'Fiche du lot : contenu et emplacement des items')),
+      reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
@@ -1920,15 +1933,17 @@
   // revient a l'accueil, et un rechargement rouvre la meme page.
 
   const badge = credentials;
-  const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock' };
-  const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'État des stocks' };
+  const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock', reports: 'signalements' };
+  const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'État des stocks',
+    reports: 'Signalements' };
   // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
   const hasNotifications = () => !!state.user && (state.user.notifications !== undefined ? !!state.user.notifications : canSeeStock());
 
   let pendingAfterLogin = '';  // page a ouvrir une fois le badge scanne dans le petit lecteur
 
   const inHome = () => document.body.classList.contains('home-mode');
-  const readerOpen = () => inHome() && document.body.classList.contains('login-reader');
+  // petit lecteur de badge : sur l'accueil, ou sur une fiche (connexion avant un signalement)
+  const readerOpen = () => (inHome() || ficheOpen()) && document.body.classList.contains('login-reader');
 
   function pageFromHash(hash) {
     const name = (hash || '').replace(/^#/, '');
@@ -1946,6 +1961,7 @@
     document.body.classList.add('home-mode');
     if (page === 'lots' && !state.lots && state.loading !== 'lots') loadLots();
     if (page === 'stock' && canSeeStock() && !state.stock && state.loading !== 'stock') loadStock();
+    if (page === 'reports' && state.user) loadReports();
     if (page === 'live') watchStart(); else watchStop();
     renderHomePage();
     $('#home-pages').scrollTop = 0;
@@ -1973,8 +1989,9 @@
 
   function closeReader() {
     pendingAfterLogin = '';
+    loginAction = null;
     document.body.classList.remove('login-reader');
-    if (inHome()) { cameraWanted = false; syncCamera(); }
+    if (inHome() || ficheOpen()) { cameraWanted = false; syncCamera(); }
     renderHomePage();
   }
   $('#reader-close').addEventListener('click', (event) => { event.stopPropagation(); closeReader(); });
@@ -1986,6 +2003,7 @@
   function afterLogin() {
     const next = pendingAfterLogin;
     if (readerOpen()) closeReader();
+    if (ficheOpen()) return; // connexion depuis une fiche (signalement) : on y reste
     if (next === 'stock' && !canSeeStock()) toast("L'état des stocks est réservé aux rôles gestion et admin.", true);
     if (next) showHome(next === 'stock' && !canSeeStock() ? 'menu' : next);
     else if (!inHome() && !verifInProgress() && !state.lot && !state.scanned.length && !state.pendingOpening
@@ -1998,7 +2016,8 @@
     toast('Déconnecté.');
     save();
     live.identity();
-    if (inHome() && (state.homePage === 'live' || state.homePage === 'stock')) showHome('menu', false);
+    state.reports = null;
+    if (inHome() && ['live', 'stock', 'reports'].includes(state.homePage)) showHome('menu', false);
     render();
   }
 
@@ -2016,6 +2035,7 @@
     if (page === 'scan') { enterScanner(); return; }
     if (page === 'live' && !state.user) { openReader('live'); toast('Scannez votre badge pour suivre les vérifs.'); return; }
     if (page === 'stock' && !state.user) { openReader('stock'); toast('Scannez votre badge pour voir les stocks.'); return; }
+    if (page === 'reports' && !state.user) { openReader('reports'); toast('Scannez votre badge pour suivre les signalements.'); return; }
     if (page === 'stock' && !canSeeStock()) { toast("L'état des stocks est réservé aux rôles gestion et admin.", true); return; }
     showHome(page);
   }));
@@ -2099,8 +2119,14 @@
     stockTile.setAttribute('aria-disabled', String(!!state.user && !canSeeStock()));
     $('#tile-stock-sub').textContent = !state.user ? 'Connexion requise' : canSeeStock() ? 'Stock et prévisions'
       : 'Réservé gestion et admin';
+    const counts = state.reports && state.reports.counts;
+    $('#tile-reports-sub').textContent = !state.user ? 'Connexion requise'
+      : counts && isAdmin() && counts.new ? `${counts.new} nouveau(x) à traiter`
+        : counts && counts.new + counts.progress ? `${counts.new + counts.progress} en cours` : 'En cours et résolus';
+    $('#tile-reports').classList.toggle('alert', !!(counts && isAdmin() && counts.new));
     if (page === 'lots') renderLotsPage();
     if (page === 'live') renderLive();
+    if (page === 'reports') renderReports();
   }
 
   function renderLotsPage() {
@@ -2817,6 +2843,7 @@
         return;
       }
       if (event.data && event.data.tab === 'stock' && canSeeStock()) { showHome('stock'); loadStock(); }
+      if (event.data && event.data.tab === 'reports' && state.user) showHome('reports');
     });
     if (navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
   }
@@ -3177,7 +3204,7 @@
     if (!ficheOpen()) return;
     fiche.token += 1;
     $('#fiche').hidden = true;
-    document.body.classList.remove('fiche-open');
+    document.body.classList.remove('fiche-open', 'login-reader');
     syncCamera();
     render();
   }
@@ -3271,6 +3298,7 @@
       (lot.path || []).length ? el('p', { class: 'sub' }, 'Dans : ',
         ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       el('div', { class: 'banner ' + status.kind }, status.label),
+      reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${state.scanned.length} scan(s).`) : '',
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}`
         + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
@@ -3357,7 +3385,8 @@
         el('div', { class: 'name' }, ficheLink('item', item.iid, item.type_name)),
         el('div', { class: 'sub' }, [place ? '📍 ' + cap(place) : '',
           item.peremption ? 'Péremption : ' + fmtDate(item.peremption) : 'Non périssable', item.iid].filter(Boolean).join(' · '))),
-      item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
+      item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
+      item.reported && !item.unusable ? el('span', { class: 'tag orange' }, 'signalé') : null,
       missingTag ? el('span', { class: 'tag orange' }, missingTag) : null,
       item.tear_off ? el('span', { class: 'tag orange' }, 'à déchirer') : null);
   }
@@ -3373,7 +3402,8 @@
     add.hidden = !verifInProgress();
     add.textContent = `Ajouter aux scans de la vérif en cours (${state.lot ? state.lot.name : ''})`;
     const statusText = ITEM_STATUS[item.status];
-    const banner = item.expired ? { kind: 'bad', label: '✘ Périmé' + (statusText ? ' · ' + statusText : '') }
+    const banner = item.unusable ? { kind: 'bad', label: '✘ Signalé inutilisable : à remplacer' + (statusText ? ' · ' + statusText : '') }
+      : item.expired ? { kind: 'bad', label: '✘ Périmé' + (statusText ? ' · ' + statusText : '') }
       : statusText ? { kind: 'warn', label: '⚠ ' + statusText } : { kind: 'ok', label: '✔ Valide' };
     const fact = (label, ...value) => [el('dt', {}, label), el('dd', {}, ...value)];
     const place = where
@@ -3384,6 +3414,8 @@
       el('h2', {}, item.type_name),
       el('div', { class: 'sub' }, item.iid),
       el('div', { class: 'banner ' + banner.kind }, banner.label),
+      item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par les administrateurs.') : '',
+      reportButton({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
       el('dl', { class: 'facts' },
         fact('Péremption', item.peremption ? fmtDate(item.peremption) : 'Non périssable'),
         fact(where && !where.current ? 'Dernier lieu' : 'Emplacement', ...place),
@@ -3395,6 +3427,191 @@
         item.deleted_reason ? fact('Raison', item.deleted_reason) : []),
       where ? '' : el('p', { class: 'sub' }, "Aucun lot connu pour cet item : il n'y a pas de vérif à lancer."),
     );
+  }
+
+
+  // ------------------------------------------------------------------------------------------------
+  // Signalements de problemes : (!) a cote d'un item ou d'un type pendant la vérif, « Signaler un problème » sur les
+  // fiches et l'onglet Lot. Connexion demandee avant de rediger quoi que ce soit ; envoye tout de suite, sans
+  // attendre la vérif. Un item signale pendant la vérif compte comme vu (jamais marque disparu) ; signale
+  // inutilisable, il est a remplacer comme un perime.
+
+  const badLabel = (info) => (info && info.unusable && !info.outdated ? 'INUTILISABLE' : 'PÉRIMÉ');
+  let loginAction = null; // {action, at} : a lancer une fois connecte
+
+  function takeLoginAction() {
+    const pending = loginAction;
+    loginAction = null;
+    return pending && Date.now() - pending.at < 5 * 60 * 1000 ? pending.action : null;
+  }
+
+  // Action reservee a un utilisateur connecte : badge (petit lecteur, ou camera du scanner) ou nom + PIN
+  function requireLogin(reason, action) {
+    if (state.user) { action(); return; }
+    const dialog = $('#login-needed');
+    $('#login-needed-text').textContent = `Connectez-vous pour ${reason}.`;
+    $('#login-needed-badge').onclick = () => {
+      dialog.close();
+      if (inHome() || ficheOpen()) openReader();
+      else { startCamera(); toast(`Scannez votre badge pour ${reason}.`); }
+      loginAction = { action, at: Date.now() };
+    };
+    $('#login-needed-name').onclick = () => { dialog.close(); loginAction = { action, at: Date.now() }; openNameLogin(); };
+    $('#login-needed-cancel').onclick = () => { dialog.close(); loginAction = null; };
+    if (!dialog.open) dialog.showModal();
+  }
+
+  // target : {item, lot, lotName, type, label}
+  function reportMark(target) {
+    return el('button', { type: 'button', class: 'report-btn report-mark', title: 'Signaler un problème',
+      'aria-label': 'Signaler un problème', onclick: (event) => { event.stopPropagation(); openReport(target); } }, '!');
+  }
+
+  function reportButton(target) {
+    return el('button', { type: 'button', class: 'report-btn report-wide', onclick: () => openReport(target) },
+      '⚠ Signaler un problème');
+  }
+
+  function openReport(target) {
+    requireLogin('signaler un problème', () => showReportDialog(target));
+  }
+
+  function showReportDialog(target) {
+    const dialog = $('#problem');
+    const what = target.item || target.type ? "l'objet" : 'le lot';
+    $('#problem-target').textContent = target.label || '';
+    $('#problem-question').textContent = `${what === 'le lot' ? 'Le lot est-il' : "L'objet est-il"} toujours utilisable ?`;
+    $('#problem-usable-yes').checked = false;
+    $('#problem-usable-no').checked = false;
+    $('#problem-comment').value = '';
+    $('#problem-error').textContent = '';
+    $('#problem-send').disabled = false;
+    $('#problem-form').onsubmit = async (event) => {
+      event.preventDefault();
+      const yes = $('#problem-usable-yes').checked;
+      if (!yes && !$('#problem-usable-no').checked) {
+        $('#problem-error').textContent = `Indiquez si ${what} est toujours utilisable.`;
+        return;
+      }
+      $('#problem-send').disabled = true;
+      try {
+        const body = await api('reports/', { user: credentials(), lot: target.item ? '' : target.lot || '',
+          item: target.item || '', type: target.type || '', comment: $('#problem-comment').value, usable: yes });
+        dialog.close();
+        feedback.info();
+        toast('Signalement envoyé aux administrateurs.');
+        reported(body.item);
+        state.reports = null;
+      } catch (e) {
+        $('#problem-send').disabled = false;
+        $('#problem-error').textContent = e.message;
+        if (e.status === 403) { state.user = null; save(); render(); }
+      }
+    };
+    $('#problem-cancel').onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  // Item signale : pendant la vérif de son lot, il compte comme vu (ajoute aux scans s'il n'y est pas)
+  async function reported(item) {
+    if (item && state.lot && item.location && sessionLots().some((lot) => lot.id === item.location)) {
+      const entry = state.scanned.find((row) => row.kind === 'item' && row.iid === item.iid);
+      if (entry) Object.assign(entry, { info: item, expired: item.expired });
+      else if (!live.entries().some((row) => row.kind === 'item' && row.iid === item.iid)) {
+        scannedAgain();
+        state.lastVerif = null;
+        state.scanned.push({ code: item.iid, kind: 'item', iid: item.iid, expired: item.expired, info: item, error: '',
+          place: item.location });
+        showInfo(item.expired ? 'bad' : 'warn', `Signalé : ${item.type_name}`,
+          item.expired ? 'Inutilisable : à remplacer, compté comme vu.' : 'Toujours utilisable : compté comme vu.');
+      }
+      save();
+      await loadLot(state.lotId); // etat a jour des items du lot (inutilisable : a remplacer)
+    }
+    if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, push: false });
+  }
+
+  // Page « Signalements » : lecture seule pour tous, gestion pour les admins
+  async function loadReports(quiet = false) {
+    if (!state.user || state.reportsBusy) return;
+    state.reportsBusy = true;
+    if (!quiet) renderHomePage();
+    try {
+      state.reports = await api('reports/list/', { user: credentials(), show: state.reportsShow });
+    } catch (e) {
+      if (!quiet) toast('Signalements : ' + e.message, true);
+      if (e.data && e.data.pin_required) { state.user = null; save(); }
+    } finally {
+      state.reportsBusy = false;
+      renderHomePage();
+    }
+  }
+
+  const REPORT_LABELS = { new: 'Nouveau', resolved: 'Résolu' };
+  const reportLabel = (row) => REPORT_LABELS[row.status] || `En cours · ${row.usable ? 'utilisable' : 'inutilisable'}`;
+
+  async function updateReport(row, changes) {
+    try {
+      await api(`reports/${row.id}/`, { user: credentials(), ...changes });
+      toast('Signalement mis à jour.');
+    } catch (e) {
+      toast(e.message, true);
+      if (e.data && e.data.pin_required) { state.user = null; save(); }
+    }
+    loadReports(true);
+  }
+
+  function reportCard(row, manage) {
+    const target = row.item ? ficheLink('item', row.item, row.target) : row.lot ? ficheLink('lot', row.lot, row.target) : row.target;
+    const parts = [
+      el('div', { class: 'row-head' }, el('div', { class: 'name' }, target), el('span', { class: 'tag ' + row.color }, reportLabel(row))),
+      el('div', { class: 'sub' }, `Signalé par ${row.by} le ${fmtDateTime(row.created)}` + (row.item ? ` · ${row.item}` : '')),
+      el('div', {}, row.usable ? '✔ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
+      row.comment ? el('p', { class: 'comment' }, row.comment) : '',
+      row.note ? el('p', { class: 'note' }, '💬 ' + row.note) : '',
+      row.updated ? el('div', { class: 'sub' }, `Mis à jour le ${fmtDateTime(row.updated)}` + (row.updated_by ? ` par ${row.updated_by}` : '')) : '',
+    ];
+    if (manage) {
+      const note = el('textarea', { rows: 2, maxlength: 1000, placeholder: 'Réponse visible de tous (facultatif)' });
+      note.value = row.note || '';
+      const buttons = row.status === 'resolved'
+        ? [el('button', { type: 'button', onclick: () => updateReport(row, { status: 'progress' }) }, 'Rouvrir')]
+        : [
+          el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'progress', usable: true }) },
+            row.status === 'progress' && row.usable ? '✔ En cours · utilisable' : 'En cours · utilisable'),
+          el('button', { type: 'button', class: 'warning', onclick: () => updateReport(row, { status: 'progress', usable: false }) },
+            row.status === 'progress' && !row.usable ? '✔ En cours · inutilisable' : 'En cours · inutilisable'),
+          el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved' }) }, 'Résolu'),
+        ];
+      parts.push(el('div', { class: 'report-manage' }, note,
+        el('button', { type: 'button', onclick: () => updateReport(row, { note: note.value }) }, 'Enregistrer la réponse'),
+        el('div', { class: 'report-actions' }, ...buttons)));
+    }
+    return el('div', { class: 'report-card ' + row.color }, ...parts);
+  }
+
+  function renderReports() {
+    const view = $('#home-reports');
+    const data = state.reports;
+    const choose = (show) => { state.reportsShow = show; loadReports(); };
+    const parts = [
+      el('div', { class: 'row-head' }, el('h3', {}, 'Signalements'),
+        el('button', { type: 'button', onclick: () => loadReports() }, state.reportsBusy ? 'Chargement…' : 'Actualiser')),
+      el('div', { class: 'segmented' },
+        el('button', { type: 'button', class: state.reportsShow === 'open' ? 'active' : '', onclick: () => choose('open') }, 'En cours'),
+        el('button', { type: 'button', class: state.reportsShow === 'all' ? 'active' : '', onclick: () => choose('all') }, 'Tous')),
+    ];
+    if (!data) {
+      parts.push(el('p', { class: 'hint' }, state.reportsBusy ? 'Chargement…' : 'Liste non chargée.'));
+      view.replaceChildren(...parts);
+      return;
+    }
+    parts.push(el('p', { class: 'hint' }, data.can_manage
+      ? 'Rouge : nouveau. Orange : en cours, objet inutilisable. Vert : en cours et toujours utilisable, ou résolu.'
+      : 'Suivi en lecture seule. Rouge : nouveau, orange : en cours (inutilisable), vert : utilisable ou résolu.'));
+    if (!data.reports.length) parts.push(el('p', { class: 'hint' }, state.reportsShow === 'open' ? 'Aucun signalement en cours.' : 'Aucun signalement.'));
+    parts.push(...data.reports.map((row) => reportCard(row, data.can_manage)));
+    view.replaceChildren(...parts);
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -3451,11 +3668,12 @@
       // page d'accueil, ou la page de son ancre (#stock : depuis une notification de stock, #scan : scanner)
       const page = pageFromHash(location.hash);
       if (page === 'scan') enterScanner(false, false);
-      else showHome(page === 'stock' && !canSeeStock() ? 'menu' : page, false);
+      else showHome((page === 'stock' && !canSeeStock()) || (page === 'reports' && !state.user) ? 'menu' : page, false);
     }
     if (state.expiredSession && !state.lot) toast('Vérif précédente oubliée : plus de 20 minutes sans activité.');
     render();
     if (state.user && canSeeStock()) loadStock();
+    if (isAdmin()) loadReports(true);
   }
 
   boot();

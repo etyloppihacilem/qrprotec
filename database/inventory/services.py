@@ -55,7 +55,7 @@ def requirements_status(lot, today=None):
     for item in _items_queryset().filter(location=lot, status=ItemStatus.ACTIVE):
         if item.missed_verifs > 0:
             unconfirmed[item.pack.item_type_id] += 1
-        elif item.is_expired(today):
+        elif item.needs_replacement(today):
             expired[item.pack.item_type_id] += 1
         else:
             fresh[item.pack.item_type_id] += 1
@@ -125,19 +125,19 @@ def assign_items(group, scanned, today, places=None):
         if item.location_id in ids:
             target[item.iid] = item.location_id
             type_id = item.pack.item_type_id
-            if not item.is_expired(today) and deficit[item.location_id].get(type_id, 0) > 0:
+            if not item.needs_replacement(today) and deficit[item.location_id].get(type_id, 0) > 0:
                 deficit[item.location_id][type_id] -= 1
         else:
             newcomers.append(item)
     # items frais d'abord : ce sont eux qui remplissent les manques
-    newcomers.sort(key=lambda item: (item.is_expired(today), item.iid))
+    newcomers.sort(key=lambda item: (item.needs_replacement(today), item.iid))
     for item in newcomers:
         type_id = item.pack.item_type_id
         place = places.get(item.iid)
         scope = [lot.id for lot in group if place not in ids or under(lot.id, place)]
         candidates = [lot_id for lot_id in scope if type_id in required[lot_id]]
         choice = None
-        if not item.is_expired(today):
+        if not item.needs_replacement(today):
             choice = next((lot_id for lot_id in candidates if deficit[lot_id].get(type_id, 0) > 0), None)
             if choice is not None:
                 deficit[choice][type_id] -= 1
@@ -217,6 +217,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             _items_queryset().select_for_update(of=('self',))
             .filter(scope, status__in=[ItemStatus.ACTIVE, ItemStatus.MISSING])
             .exclude(iid__in=scanned_ids)
+            .exclude(reported=True)  # signale (signalement ouvert) : jamais marque disparu
             .order_by('iid')
         )
 
@@ -234,7 +235,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         expired_by_key = defaultdict(list)
         for item in scanned:
             key = (target[item.iid], item.pack.item_type_id)
-            if item.is_expired(today):
+            if item.needs_replacement(today):
                 expired_by_key[key].append(item)
             elif item.location_id != target[item.iid] or item.status != ItemStatus.ACTIVE:
                 new_fresh[key] += 1
@@ -282,7 +283,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                                                    participants=participants)
 
         report = {'present': [], 'expired': [], 'replaced': [], 'missing': [], 'unknown': unknown, 'reactivated': [],
-                  'restocked': [], 'torn': []}
+                  'restocked': [], 'torn': [], 'unusable': []}
         entries = []
         moves = []
         origin = {item.iid: item.location_id for item in scanned}
@@ -293,7 +294,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         restocked_items = defaultdict(list)  # lot id -> items ranges par reassort (journal)
         for item in scanned:
             destination = target[item.iid]
-            expired = item.is_expired(today)
+            expired = item.needs_replacement(today)
             if group is not None and destination not in verified_ids:
                 # reassort (verif partielle) : l'item est range dans son lot sans verif de ce lot
                 if item.location_id != destination:
@@ -327,6 +328,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 if expired:
                     report['expired'].append(item.iid)
                     counts[destination]['expired'] += 1
+                if item.unusable:
+                    report['unusable'].append(item.iid)  # signale inutilisable (compte aussi dans expired)
                 entries.append(VerifItem(verif=verif, item=item, result=VerifResult.PRESENT, expired=expired))
         for item in not_seen:
             expired = item.is_expired(today)
@@ -486,7 +489,7 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
         touched.add(destination)
         if item.iid in replaced:
             continue
-        if item.is_expired(today):
+        if item.needs_replacement(today):
             expired[destination] += 1
         else:
             fresh[destination][item.pack.item_type_id] += 1
@@ -526,7 +529,8 @@ def seal_lot(lot, identity, seal_number='', force=False):
         today = timezone.localdate()
         for sub_lot in lot.descendants():
             rows = requirements_status(sub_lot, today)
-            expired = Items.objects.filter(location=sub_lot, status=ItemStatus.ACTIVE, pack__peremption__lt=today).exists()
+            expired = Items.objects.filter(Q(pack__peremption__lt=today) | Q(unusable=True), location=sub_lot,
+                                           status=ItemStatus.ACTIVE).exists()
             if expired or any(row['present'] < row['required'] for row in rows):
                 what = 'Lot' if sub_lot.id == lot.id else f'Sous-lot {sub_lot.name}'
                 raise ValueError(f'{what} incomplet ou contenant des périmés : faites une vérif complète avant de '

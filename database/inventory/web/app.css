@@ -269,25 +269,25 @@ a.field, button.field { color: var(--blue); text-decoration: underline; backgrou
 
 /* Lecteur de badge : petite camera dans un coin de l'accueil */
 #reader-close { display: none; }
-body.home-mode.login-reader #camera { display: block; position: fixed; z-index: 40; right: 12px;
+:is(body.home-mode, body.fiche-open).login-reader #camera { display: block; position: fixed; z-index: 40; right: 12px;
   bottom: calc(12px + env(safe-area-inset-bottom)); width: min(42vw, 180px); height: auto; aspect-ratio: 3 / 4;
   border-radius: 14px; box-shadow: 0 4px 18px rgba(0, 0, 0, .4); outline: 3px solid var(--orange); }
-body.home-mode.login-reader #camera.hit { outline-color: #4ade80; }
-body.home-mode.login-reader #topbar { display: none; }
-body.home-mode.login-reader #viewfinder span { width: 60%; box-shadow: none; border-width: 2px; }
-body.home-mode.login-reader #scan-hint { font-size: .78rem; bottom: 6px; }
-body.home-mode.login-reader #start { padding: 6px; }
-body.home-mode.login-reader #start > p:first-child { display: none; }
-body.home-mode.login-reader #start .big { font-size: .85rem; padding: 8px 10px; }
-body.home-mode.login-reader #camera-error { font-size: .72rem; }
+:is(body.home-mode, body.fiche-open).login-reader #camera.hit { outline-color: #4ade80; }
+:is(body.home-mode, body.fiche-open).login-reader #topbar { display: none; }
+:is(body.home-mode, body.fiche-open).login-reader #viewfinder span { width: 60%; box-shadow: none; border-width: 2px; }
+:is(body.home-mode, body.fiche-open).login-reader #scan-hint { font-size: .78rem; bottom: 6px; }
+:is(body.home-mode, body.fiche-open).login-reader #start { padding: 6px; }
+:is(body.home-mode, body.fiche-open).login-reader #start > p:first-child { display: none; }
+:is(body.home-mode, body.fiche-open).login-reader #start .big { font-size: .85rem; padding: 8px 10px; }
+:is(body.home-mode, body.fiche-open).login-reader #camera-error { font-size: .72rem; }
 #reader-name { display: none; }
-body.home-mode.login-reader #reader-name { display: block; position: absolute; top: 6px; left: 6px; z-index: 2;
+:is(body.home-mode, body.fiche-open).login-reader #reader-name { display: block; position: absolute; top: 6px; left: 6px; z-index: 2;
   padding: 3px 7px; border-radius: 10px; background: rgba(0, 0, 0, .55); color: #fff; font-size: .7rem; }
 #name-login input { display: block; width: 100%; margin: 6px 0; font-size: 1.05rem; padding: 10px;
   border: 1px solid var(--line); border-radius: 8px; }
-body.home-mode.login-reader #reader-close { display: block; position: absolute; top: 6px; right: 6px; z-index: 2;
+:is(body.home-mode, body.fiche-open).login-reader #reader-close { display: block; position: absolute; top: 6px; right: 6px; z-index: 2;
   background: rgba(0, 0, 0, .6); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: .9rem; }
-body.home-mode.login-reader #toast { bottom: calc(24px + min(56vw, 240px) + env(safe-area-inset-bottom)); }
+:is(body.home-mode, body.fiche-open).login-reader #toast { bottom: calc(24px + min(56vw, 240px) + env(safe-area-inset-bottom)); }
 
 /* Suivi des verifs */
 .live-status { font-size: .8rem; color: var(--muted); font-weight: normal; }
@@ -348,3 +348,36 @@ ul.tasks label { display: flex; gap: 10px; align-items: center; padding: 10px 2p
 ul.tasks input { width: 22px; height: 22px; flex: none; }
 #tasks-ok:disabled { opacity: .45; }
 ul.tasks-facts { margin: 0; padding-left: 18px; }
+
+/* ---- Signalements de problemes ---- */
+/* bouton hachure orange et rouge : (!) dans les listes de la verif, « Signaler un problème » sur les fiches */
+.report-btn { background: repeating-linear-gradient(-45deg, var(--orange) 0 9px, var(--red) 9px 18px); color: #fff;
+  font-weight: 800; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
+.report-mark { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; line-height: 26px; text-align: center;
+  font-size: .95rem; box-shadow: 0 0 0 2px #fff; }
+.list li.iid .report-mark { width: 20px; height: 20px; line-height: 20px; font-size: .75rem; font-family: system-ui, sans-serif; }
+.report-wide { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; }
+.tiles .tile.wide { grid-column: span 2; min-height: 0; flex-direction: row; gap: 14px; padding: 12px 16px; }
+.tiles .tile.wide > span:last-child { display: flex; flex-direction: column; align-items: flex-start; }
+.tiles .tile.alert { box-shadow: 0 0 0 3px var(--red); }
+.dialog-stack { display: flex; flex-direction: column; gap: 8px; }
+#problem h2, #login-needed h2 { margin: 0 0 6px; font-size: 1.2rem; }
+#problem .choice { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
+#problem .choice label { display: flex; align-items: center; gap: 8px; padding: 6px 2px; }
+#problem .choice input { width: 20px; height: 20px; flex: none; }
+#problem textarea, .report-manage textarea { display: block; width: 100%; font: inherit; padding: 8px;
+  border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+.segmented { display: flex; gap: 6px; margin: 6px 0; }
+.segmented button { flex: 1; padding: 6px 10px; }
+.segmented button.active { background: var(--dark); color: #fff; }
+.report-card { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-left: 6px solid var(--red);
+  border-radius: 10px; background: var(--panel); }
+.report-card.orange { border-left-color: var(--orange); }
+.report-card.green { border-left-color: var(--green); }
+.report-card .name { font-weight: 600; }
+.report-card .sub { color: var(--muted); font-size: .8rem; }
+.report-card .comment { white-space: pre-wrap; background: var(--bg); padding: 6px 8px; border-radius: 8px; }
+.report-card .note { white-space: pre-wrap; color: var(--blue); }
+.report-manage { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.report-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.report-actions button { flex: 1 1 auto; padding: 8px 10px; font-size: .9rem; }

@@ -1762,7 +1762,7 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual([(row['device'], row['current']) for row in body['devices']],
                          [('Firefox · Linux', False), ('Navigateur', True)])
-        self.assertEqual(len(body['types']), 8)
+        self.assertEqual(len(body['types']), 9)
         # alertes d'un autre appareil, puis desabonnement a distance
         code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
                                local=False)
@@ -2968,3 +2968,105 @@ class ItemOutTests(ApiTestCase):
         Items.objects.filter(iid=item.iid).update(last_seen=timezone.now() - timedelta(days=31))
         call_command('check_alerts', stdout=StringIO())
         self.assertEqual(Items.objects.get(iid=item.iid).status, ItemStatus.MISSING)
+
+
+@override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
+class ProblemReportTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        from . import notifications
+        from .models import NotificationSettings, SmsRecipient
+        self.sent = []
+        original = notifications.send_free_sms
+        notifications.send_free_sms = lambda user, password, message: (self.sent.append(message) or (True, 'Envoyé'))
+        self.addCleanup(setattr, notifications, 'send_free_sms', original)
+        NotificationSettings.objects.update_or_create(pk=1, defaults={'enabled': True})
+        SmsRecipient.objects.create(name='A', user='u', password='p')
+        self.badge = {'matricule': 'M001', 'key': self.user.new_key}
+        self.items = self.create(self.compresses, self.today + timedelta(days=30), 2)
+        Items.objects.filter(iid__in=[item.iid for item in self.items]).update(location=self.lot)
+
+    def report(self, data, local=False):
+        payload = {'user': self.badge, **data} if not local else data
+        return self.call('POST', '/api/reports/', payload, local=local)
+
+    def test_login_required(self):
+        code, _ = self.call('POST', '/api/reports/', {'item': self.items[0].iid, 'usable': True}, local=False)
+        self.assertEqual(code, 403)
+        code, _ = self.call('POST', '/api/reports/', {'item': self.items[0].iid, 'usable': True}, session=False)
+        self.assertEqual(code, 403)
+        code, body = self.report({'item': self.items[0].iid})  # la question « utilisable ? » est obligatoire
+        self.assertEqual(code, 400)
+
+    def test_report_notifies_admins_and_lists(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            code, body = self.report({'item': self.items[0].iid, 'comment': 'Emballage déchiré', 'usable': True})
+        self.assertEqual(code, 201)
+        self.assertEqual(body['report']['color'], 'red')
+        self.assertEqual(body['report']['lot'], self.lot.id)
+        self.assertEqual(body['report']['type'], 'compre')
+        self.assertTrue(body['item']['reported'])
+        self.assertFalse(body['item']['expired'])
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('Emballage déchiré', self.sent[0])
+        # suivi en lecture seule : tout utilisateur connecte
+        code, body = self.call('POST', '/api/reports/list/', {'user': self.badge}, local=False)
+        self.assertEqual(code, 200)
+        self.assertFalse(body['can_manage'])
+        self.assertEqual(body['counts']['new'], 1)
+        self.assertEqual(body['reports'][0]['comment'], 'Emballage déchiré')
+        code, _ = self.call('POST', '/api/reports/list/', {}, local=False)
+        self.assertEqual(code, 403)
+        # signalement d'un type d'item d'un lot, depuis le poste
+        code, body = self.report({'lot': self.lot.id, 'type': 'compre', 'usable': False}, local=True)
+        self.assertEqual(code, 201)
+        self.assertEqual(body['report']['target'], 'Compresses (Sac A)')
+        self.assertTrue(Operation.objects.filter(kind='report').exists())
+
+    def test_admin_update(self):
+        _, body = self.report({'item': self.items[0].iid, 'usable': True})
+        report_id = body['report']['id']
+        # un secouriste ne gere pas les signalements
+        code, _ = self.call('POST', f'/api/reports/{report_id}/', {'user': self.badge, 'status': 'progress'}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', f'/api/reports/{report_id}/', {'status': 'progress', 'usable': False,
+                                                                      'note': 'Commandé'})
+        self.assertEqual(code, 200)
+        self.assertEqual((body['status'], body['color'], body['note']), ('progress', 'orange', 'Commandé'))
+        self.assertTrue(Items.objects.get(iid=self.items[0].iid).unusable)
+        code, body = self.call('POST', f'/api/reports/{report_id}/', {'usable': True})
+        self.assertEqual(body['color'], 'green')
+        code, body = self.call('POST', f'/api/reports/{report_id}/', {'status': 'resolved'})
+        self.assertEqual(body['color'], 'green')
+        item = Items.objects.get(iid=self.items[0].iid)
+        self.assertFalse(item.reported or item.unusable)
+        code, body = self.call('POST', '/api/reports/list/', {})
+        self.assertTrue(body['can_manage'])
+        self.assertEqual(body['reports'], [])
+        code, body = self.call('POST', '/api/reports/list/', {'show': 'all'})
+        self.assertEqual(len(body['reports']), 1)
+
+    def test_unusable_item_must_be_replaced(self):
+        broken, other = self.items
+        self.report({'item': broken.iid, 'usable': False})
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertFalse(body['complete'])
+        self.assertEqual(body['requirements'][0]['present'], 1)
+        # verif : l'item inutilisable scanne reste a remplacer
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [broken.iid, other.iid]})
+        self.assertFalse(report['complete'])
+        self.assertEqual(report['unusable'], [broken.iid])
+        # remplacant scanne : l'item inutilisable sort du lot
+        new = self.create(self.compresses, self.today + timedelta(days=300), 1)[0]
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [broken.iid, other.iid, new.iid]})
+        self.assertTrue(report['complete'])
+        self.assertEqual(report['replaced'], [broken.iid])
+
+    def test_reported_item_never_missing(self):
+        reported, other = self.items
+        self.report({'item': reported.iid, 'usable': True})
+        for _ in range(3):
+            code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [other.iid]})
+            self.assertNotIn(reported.iid, report['missing'])
+        item = Items.objects.get(iid=reported.iid)
+        self.assertEqual((item.status, item.missed_verifs), (ItemStatus.ACTIVE, 0))

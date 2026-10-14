@@ -38,6 +38,7 @@ from . import journal
 from . import lot_sheet
 from . import live
 from . import notifications
+from . import reports
 from . import serializers as ser
 from . import services
 from . import webpush
@@ -45,7 +46,7 @@ from .idendity import SOURCE_VERIFIED, identity_from_request
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
-    PUSH_TYPES, STOCK_LOT_TYPE, TYPE_LENGTH, Items, ItemsPacks, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
+    PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     SCANNER_VOLUMES, ServerSettings, SmsRecipient, Verifs, name_key, qrprotec_setting,
 )
@@ -943,6 +944,57 @@ def push_test(request):
         'url': '../',
     })])
     return Response({'queued': True})
+
+
+# Signalements de problemes (voir reports.py) : utilisateur connecte, sur le front web (badge ou session) comme
+# sur un poste (session du poste)
+
+def connected_user(request, roles=None):
+    if is_front(request):
+        return require_front(request, roles or ALL_ROLES)
+    return badge_user(request, roles)
+
+
+@api_view(['POST'])
+@handle_errors
+def reports_create(request):
+    """Nouveau signalement : {"user", "lot"?, "item"?, "type"?, "comment", "usable"}. Envoye aux admins, independant
+    de toute verif. Repond le signalement et l'item a jour (signale inutilisable : a remplacer)."""
+    user = connected_user(request)
+    data = request.data
+    if 'usable' not in data:
+        raise ApiError("Indiquez si l'objet est toujours utilisable")
+    report, item = reports.create(
+        f'{SOURCE_VERIFIED}:{user.matricule}', lot_id=str(data.get('lot') or ''), iid=str(data.get('item') or ''),
+        type_code=str(data.get('type') or ''), comment=data.get('comment', ''), usable=bool(data['usable']),
+    )
+    response = {'report': reports.report_dict(report)}
+    if item is not None:
+        item.refresh_from_db()
+        response['item'] = ser.item_dict(item)
+    return Response(response, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@handle_errors
+def reports_list(request):
+    """Signalements en lecture seule pour tout utilisateur connecte : {"user", "show": "open" | "all"}.
+    `can_manage` : l'utilisateur est admin (prise en charge, statut, reponse)."""
+    user = connected_user(request)
+    show = 'all' if request.data.get('show') == 'all' else 'open'
+    return Response({**reports.listing(show), 'can_manage': user.role == Role.ADMIN})
+
+
+@api_view(['POST'])
+@handle_errors
+def report_update(request, report_id):
+    """Prise en charge par un admin : {"user", "status": new|progress|resolved, "usable": bool, "note": texte}."""
+    user = connected_user(request, ADMIN)
+    report = get_object_or_404(ProblemReport.objects.select_related('item_type', 'item', 'lot'), id=report_id)
+    data = request.data
+    reports.update(report, f'{SOURCE_VERIFIED}:{user.matricule}', status=data.get('status'),
+                   usable=data.get('usable'), note=data.get('note'))
+    return Response(reports.report_dict(report))
 
 
 @api_view(['GET'])
