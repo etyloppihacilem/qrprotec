@@ -83,7 +83,7 @@ déployer sans `QRPROTEC_SECRET_KEY` et `QRPROTEC_DEBUG=0` (le paquet s'en charg
    `on_open`), et `make_ma_fenetre_window()`.
 2. La déclarer dans `windows.hpp`, l'ajouter dans `CMakeLists.txt` et dans le constructeur d'`App`
    (`windows.push_back(...)`).
-3. `privileged=true` pour le menu Gestion, `admin_only=true` pour les admins.
+3. `privileged=true` pour le menu Gestion, `admin_only=true` en plus pour le menu Administration (admins).
 4. Disposition par défaut : dans `AppSettings::defaults()` (`settings.cpp`).
 5. Requêtes : toujours `app.api.get/post(..., callback)`, jamais de réseau bloquant dans `draw`.
 

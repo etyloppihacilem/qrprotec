@@ -7,7 +7,7 @@ après chaque clone.
 - L'application lit et enregistre les modèles dans ce dossier par défaut, quel que soit le dossier
   depuis lequel elle est lancée. Un nom de fichier saisi dans l'éditeur (ex : `item.qr`) est
   enregistré ici.
-- Un autre dossier peut être choisi dans **Gestion > Réglages > Étiquettes et impression**, ou avec la
+- Un autre dossier peut être choisi dans **Administration > Réglages > Étiquettes et impression**, ou avec la
   variable d'environnement `QRPROTEC_TEMPLATES_DIR`.
 - Les images à mettre sur les étiquettes (logos…) vont dans le sous-dossier `images/` : l'éditeur les
   propose dans « Choisir une image du dossier » et les modèles les référencent en `images/nom.png`.

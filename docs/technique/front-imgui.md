@@ -111,7 +111,8 @@ que le fait de recocher « Machine partagée ».
 
 Chaque fenêtre est une classe dérivée d'`AppWindow` (`draw`, `on_open`), créée par une fonction
 `make_*_window()` (`ui/windows/windows.hpp`) et enregistrée dans le constructeur d'`App`. Drapeaux :
-`privileged` (menu Gestion, rôles gestion/admin), `admin_only` (Réglages, Utilisateurs, Éditeur).
+`privileged` (menu Gestion, rôles gestion/admin), `admin_only` en plus (menu Administration : Utilisateurs,
+Éditeur, Réglages, Signalements).
 
 | Fenêtre | Fichier | Mode |
 |---|---|---|
@@ -139,7 +140,7 @@ décorations : sinon libdecor réserve une barre de titre que Cage n'affiche pas
 ### Clavier et plein écran
 
 - **Fenêtres** : `App::assign_shortcuts` donne `F1` à `F4` aux fenêtres de tous (Pile de scans, Lots,
-  Vérif, Téléphone) puis `F5` à `F12` à celles du menu Gestion, dans l'ordre de `App::windows`
+  Vérif, Téléphone) puis `F5` à `F12` à celles des menus Gestion puis Administration, dans l'ordre de `App::windows`
   (`AppWindow::shortcut`, rappelé dans les menus). `App::handle_shortcuts` les traite hors fenêtre
   modale ; la touche d'une fenêtre déjà au premier plan la ferme. `Ctrl+W` ferme la fenêtre active, `Super+L` déconnecte (même pendant une fenêtre modale),
   `Ctrl+Tab` est celui d'ImGui (`NavEnableKeyboard`).

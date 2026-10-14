@@ -754,7 +754,7 @@ void Editor::draw_layers_panel() {
     add_element({ "nom-antenne", ElementKind::Text, title });
   }
   ImGui::SetItemTooltip("Ajoute le nom de l'antenne, centré et en gras :\n\n%s\n\n"
-                        "Ce texte se change dans Gestion > Réglages et s'applique à toutes les étiquettes.",
+                        "Ce texte se change dans Administration > Réglages et s'applique à toutes les étiquettes.",
                         label_title_.c_str());
 
   ImGui::SeparatorText("Calques");
@@ -1235,7 +1235,7 @@ void Editor::draw_document_properties() {
       preview_dirty_ = true;
     ImGui::EndDisabled();
     if (placeholder == "titre")
-      ImGui::SetItemTooltip("Nom de l'antenne, défini dans Gestion > Réglages.");
+      ImGui::SetItemTooltip("Nom de l'antenne, défini dans Administration > Réglages.");
   }
   if (placeholder_names_.empty())
     ImGui::TextDisabled("Aucun placeholder dans ce modèle.");
@@ -1474,7 +1474,7 @@ void Editor::draw_print_test_popup() {
     }
     if (print_callback_) {
       // impression par la file de l'application (reglages d'imprimante et d'etiquette communs)
-      ImGui::TextDisabled("Imprimante et taille d'étiquette : Gestion > Réglages.");
+      ImGui::TextDisabled("Imprimante et taille d'étiquette : Administration > Réglages.");
       if (button("Imprimer")) {
         TemplateDocument test_document = document_;
         test_document.parameters       = print_values_;

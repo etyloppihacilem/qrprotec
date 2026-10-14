@@ -189,9 +189,9 @@ AppWindow *App::window(const std::string &id) {
   return nullptr;
 }
 
-// Raccourcis d'ouverture : touches de fonction, F1 a F4 pour les fenetres de tous puis F5 a F12 pour celles du
-// menu Gestion (dans l'ordre du menu). Elles ne tapent rien dans les champs. Ctrl+chiffre choisit l'onglet
-// d'une fenetre (tab_item dans widgets.hpp).
+// Raccourcis d'ouverture : touches de fonction, F1 a F4 pour les fenetres de tous puis F5 a F12 pour celles des
+// menus Gestion puis Administration (dans l'ordre de windows). Elles ne tapent rien dans les champs. Ctrl+chiffre
+// choisit l'onglet d'une fenetre (tab_item dans widgets.hpp).
 void App::assign_shortcuts() {
   std::vector< AppWindow * > ordered;
   for (const char *id : { "scan", "lots", "verif", "phone" })
@@ -360,9 +360,16 @@ void App::draw_menu_bar() {
         request_layout_reset();
       ImGui::EndMenu();
     }
+    // Gestion : le stock (roles gestion et admin) ; Administration : ce qui est reserve aux admins
     if (privileged() && ImGui::BeginMenu("Gestion")) {
       for (auto &window : windows)
-        if (window->privileged && can_open(*window))
+        if (window->privileged && !window->admin_only && can_open(*window))
+          window_menu_item(*window);
+      ImGui::EndMenu();
+    }
+    if (admin() && ImGui::BeginMenu("Administration")) {
+      for (auto &window : windows)
+        if (window->privileged && window->admin_only && can_open(*window))
           window_menu_item(*window);
       ImGui::EndMenu();
     }
@@ -843,7 +850,7 @@ void App::draw_setup_modal() {
     ImGui::Text("Bienvenue %s %s", setup_created_["prenom"].str().c_str(), setup_created_["nom"].str().c_str());
     ImGui::PopFont();
     ImGui::TextWrapped("Imprimez maintenant votre badge : il permet de repasser en mode privilégié. Il faut un "
-                       "modèle « Badge utilisateur » choisi dans Gestion > Réglages (badge.qr est fourni).");
+                       "modèle « Badge utilisateur » choisi dans Administration > Réglages (badge.qr est fourni).");
     std::string url = setup_created_["badge_url"].str();
     ImGui::TextUnformatted("URL du badge :");
     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -853,7 +860,7 @@ void App::draw_setup_modal() {
     ImGui::SameLine();
     if (button("Ouvrir les réglages")) {
       open_window("settings");
-      notify("Choisissez le modèle de badge, puis imprimez votre badge depuis Gestion > Utilisateurs.");
+      notify("Choisissez le modèle de badge, puis imprimez votre badge depuis Administration > Utilisateurs.");
       setup_created_ = Json();
       ImGui::CloseCurrentPopup();
     }
@@ -2474,9 +2481,9 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
     if (path.empty()) {
       // pas de modele : on imprime simplement le QR code centre sur l'etiquette
       model = qr_only_template(wanted);
-      notify("Aucun modèle « " + info.label + " » : QR code seul (Gestion > Réglages pour en choisir un).");
+      notify("Aucun modèle « " + info.label + " » : QR code seul (Administration > Réglages pour en choisir un).");
     } else if (!build_label(path, {}, model, error)) {
-      notify("Modèle d'étiquette « " + info.label + " » : " + error + " (Gestion > Réglages).", true);
+      notify("Modèle d'étiquette « " + info.label + " » : " + error + " (Administration > Réglages).", true);
       return false;
     }
     return true;

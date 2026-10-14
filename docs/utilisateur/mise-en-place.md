@@ -33,7 +33,7 @@ administrateur sur le serveur : `sudo qrprotec-manage createadmin M001 Nom Prén
 
 ## Étape 2 — Régler l'impression
 
-Menu **Gestion > Réglages** (admin), section **Étiquettes et impression** :
+Menu **Administration > Réglages** (admin), section **Étiquettes et impression** :
 
 1. **Imprimante Niimbot B1** : port (`/dev/ttyACM0` en général), puis **Imprimer test**.
 2. **Étiquettes chargées dans l'imprimante** : largeur et hauteur du rouleau (40 × 30 mm).
@@ -47,7 +47,7 @@ Imprimez votre badge une seconde fois si le premier était raté : c'est le mêm
 
 ## Étape 3 — Les utilisateurs
 
-Menu **Gestion > Utilisateurs** : créez d'abord l'équipe logistique (rôle **gestion**), puis un ou deux
+Menu **Administration > Utilisateurs** : créez d'abord l'équipe logistique (rôle **gestion**), puis un ou deux
 autres **admins** pour ne jamais dépendre d'une seule personne. Les secouristes peuvent être créés
 plus tard, au fil des besoins. À chaque création, un aperçu du badge s'affiche : imprimez-le et
 remettez-le à la personne.
@@ -202,7 +202,7 @@ malle, posez le scellé et collez l'étiquette du scellé à côté. La malle re
 
 ## Étape 9 — Les alertes
 
-Menu **Gestion > Réglages > Notifications SMS** (avec une ligne Free Mobile) et/ou les notifications
+Menu **Administration > Réglages > Notifications SMS** (avec une ligne Free Mobile) et/ou les notifications
 web sur le téléphone d'un admin (onglet **Stock**). Voir [Administration](administration.md#notifications).
 Choisissez au moins « stock bas » et « vérif incomplète ».
 
