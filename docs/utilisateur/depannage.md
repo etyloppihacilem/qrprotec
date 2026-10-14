@@ -57,21 +57,21 @@ retrouvés sont réactivés.
 ## Connexion
 
 **« Badge invalide ou expiré ».**
-Le badge a plus d'un an ou a été renouvelé. Demandez un nouveau badge à un administrateur.
+Le badge a plus d'un an ou a été renouvelé. Demandez un nouveau badge au TECH.
 
 **« PIN bloqué ».**
-Cinq PIN faux : attendez 5 minutes. PIN oublié : un administrateur en définit un nouveau
-(**Administration > Utilisateurs**), ou touchez **Code oublié ?** sous la saisie du PIN sur le téléphone.
+Cinq PIN faux : attendez 5 minutes. PIN oublié : le TECH en définit un nouveau,
+ou touchez **Code oublié ?** sous la saisie du PIN sur le téléphone.
 Votre PIN est alors bloqué et l'écran de déblocage s'affiche, comme ci-dessous.
 
 **« Code PIN bloqué après trop d'essais ».**
-Après 50 PIN faux, seul un administrateur peut débloquer. Sur le téléphone, prenez une photo de
-l'écran (QR code et lien) et envoyez-la à l'administrateur indiqué. Il scanne le QR code, se
+Après 50 PIN faux, seul le TECH peut débloquer. Sur le téléphone, prenez une photo de
+l'écran (QR code et lien) et envoyez-la au TECH (ou à la personne indiquée). Il scanne le QR code, se
 connecte et touche **Réinitialiser le PIN**. À votre prochaine connexion, choisissez un nouveau PIN.
-Si les notifications sont activées, les administrateurs reçoivent déjà le lien (une seule fois).
+Si les notifications sont activées, le TECH reçoit déjà le lien (une seule fois).
 
 **Le poste m'a déconnecté et a vidé la pile.**
-Après 15 minutes sans activité, le poste revient à son état de départ (réglable par un admin).
+Après 15 minutes sans activité, le poste revient à son état de départ (réglable par le TECH).
 
 ## Impression
 
