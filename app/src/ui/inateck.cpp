@@ -304,7 +304,7 @@ void Inateck::draw_inateck_window() {
     ImGui::EndDisabled();
     if (!state.message.empty())
       ImGui::TextColored(colors::green, "%s", state.message.c_str());
-    ImGui::TextDisabled("Les autres réglages de la douchette sont réservés aux administrateurs.");
+    ImGui::TextDisabled("Les autres réglages de la douchette sont réservés au TECH.");
   }
   if (settings_open && admin_) {
     if (ImGui::Checkbox("Mode HID clavier", &hid_enabled_)) {

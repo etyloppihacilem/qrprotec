@@ -326,8 +326,8 @@ def pin_blocked_error(user):
     """PIN bloque : previent les admins (une seule fois par blocage) et renvoie le lien de deblocage."""
     info = pin_reset_info(user)
     info['notified'] = notifications.notify_pin_blocked(user, info['url'])
-    message = ("Code PIN oublié : un administrateur doit le réinitialiser" if user.pin_forgotten
-               else "Code PIN bloqué après trop d'essais : un administrateur doit le réinitialiser")
+    message = ("Code PIN oublié : le TECH doit le réinitialiser" if user.pin_forgotten
+               else "Code PIN bloqué après trop d'essais : le TECH doit le réinitialiser")
     return ApiError(message, status.HTTP_403_FORBIDDEN, pin_required=True, pin_blocked=True, pin_reset=info)
 
 

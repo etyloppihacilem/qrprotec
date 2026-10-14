@@ -1127,10 +1127,10 @@ void App::show_pin_blocked(const Json &data, ScanSource source) {
   const std::string contact = data["pin_reset"]["contact"].str();
   notify(std::string(data["pin_reset"]["forgotten"].boolean() ? "Code PIN oublié : "
                                                               : "Code PIN bloqué après trop d'essais : ")
-             + (contact.empty() ? std::string("un administrateur") : contact)
+             + (contact.empty() ? std::string("le TECH") : contact)
              + " doit le réinitialiser (Utilisateurs > Réinitialiser le PIN, ou lien affiché en scannant le badge "
                "avec un téléphone)."
-             + (data["pin_reset"]["notified"].boolean() ? " Les administrateurs ont été prévenus." : ""),
+             + (data["pin_reset"]["notified"].boolean() ? " Le TECH a été prévenu." : ""),
          true);
 }
 
@@ -1207,7 +1207,7 @@ void App::draw_pin_modal() {
     ImGui::EndDisabled();
     ImGui::PopStyleColor(2);
     if (ImGui::BeginPopup("pin_forgot")) {
-      ImGui::TextUnformatted("Votre code PIN sera bloqué jusqu'à ce qu'un administrateur le réinitialise.");
+      ImGui::TextUnformatted("Votre code PIN sera bloqué jusqu'à ce que le TECH le réinitialise.");
       if (danger_button("Confirmer")) {
         forgot_pin();
         ImGui::CloseCurrentPopup();
@@ -2630,7 +2630,7 @@ void App::draw_problem_modal() {
   ImGui::PopStyleColor();
   if (problem_.comment.size() > 1000)
     problem_.comment.resize(1000);
-  ImGui::TextDisabled("Commentaire facultatif. Envoyé tout de suite aux administrateurs, indépendamment de la vérif.");
+  ImGui::TextDisabled("Commentaire facultatif. Envoyé tout de suite au TECH, indépendamment de la vérif.");
   if (!problem_.error.empty())
     ImGui::TextColored(colors::red, "%s", problem_.error.c_str());
   ImGui::Spacing();
@@ -2673,7 +2673,7 @@ void App::send_problem() {
     reports_alert_.last_key = problem_.target.pack.empty() ? "item:" + problem_.target.iid : "pack:" + problem_.target.pack;
     reports_alert_.last_at  = ImGui::GetTime();
     problem_ = ProblemPrompt{}; // ferme la fenetre
-    notify("Signalement envoyé aux administrateurs.");
+    notify("Signalement envoyé au TECH.");
     if (admin())
       refresh_report_counts();
     const Json &item = result.data["item"];

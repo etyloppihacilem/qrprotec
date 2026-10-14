@@ -135,5 +135,8 @@ autres peuvent en avoir un.
 | **Gestion** | + gérer le stock (réception, paquets), les lots et leurs étiquettes ; voir l'état des stocks sur le téléphone |
 | **Admin** | + gérer les utilisateurs, les réglages du poste, les modèles d'étiquettes, les notifications |
 
+L'admin est le **TECH**, le responsable technique de l'antenne : les messages destinés aux secouristes
+(PIN à réinitialiser, signalement envoyé…) parlent du TECH.
+
 Sur le poste, quand un utilisateur gestion ou admin est connecté, l'écran devient **orange** (mode
 privilégié). Après 15 minutes sans activité, le poste se déconnecte et revient à son état de départ.

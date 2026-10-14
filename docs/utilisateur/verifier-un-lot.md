@@ -25,7 +25,7 @@ badge.** Le reste de cette page détaille les cas particuliers.
    - **Annuler le dernier scan** retire le dernier objet de la pile ; la croix ✕ retire une ligne.
 3. **Valider la vérif.** Survoler le bouton vert rappelle ce qu'il fait ou ce qui manque pour valider.
    Si vous n'êtes pas connecté, le poste demande votre **badge** (et votre PIN
-   si vous en avez un). Si l'administrateur l'a autorisé, vous pouvez aussi saisir votre nom et
+   si vous en avez un). Si le TECH l'a autorisé, vous pouvez aussi saisir votre nom et
    **Continuer sans badge** (il faut alors avoir scanné l'étiquette clé du lot). Le compte rendu s'affiche :
    - **✔ VÉRIF ENREGISTRÉE : LOT COMPLET** : tout va bien ;
    - **✘ INCOMPLET** : la liste de ce qui manque, des périmés restés dans le lot, des items attendus
@@ -61,7 +61,7 @@ tape toujours `@`, `#` ou `{`.
    (état de la vérif, contenu, emplacement de l'étiquette clé). Touchez **Lancer une vérif** : le
    lecteur s'ouvre sur ce lot, étiquette clé déjà scannée (autorisez la caméra la première fois).
 2. **Scannez votre badge** si ce n'est pas déjà fait (le téléphone s'en souvient). Saisissez votre PIN
-   si demandé. Si l'administrateur l'a autorisé, vous pouvez à la place toucher **Non connecté** et
+   si demandé. Si le TECH l'a autorisé, vous pouvez à la place toucher **Non connecté** et
    indiquer votre nom.
 3. **Scannez chaque objet.** Onglets en bas : **À scanner** (ce qui reste, par produit : en cours en
    haut, rien de scanné ensuite, complets en bas ; touchez un produit pour déplier les codes de ses
@@ -251,7 +251,7 @@ le scellé** (le poste prévient avant). Après la vérif, un responsable pourra
 ## Signaler un problème
 
 Un objet abîmé, un sac déchiré, un appareil qui ne marche plus : n'importe quel utilisateur connecté
-peut le **signaler** aux admins, pendant une vérif ou en dehors.
+peut le **signaler** au TECH, pendant une vérif ou en dehors.
 
 - **Pendant une vérif** : touchez le **(!)** hachuré noir et jaune à côté de l'item (ou du type
   d'item) dans la liste ;

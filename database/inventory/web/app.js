@@ -1216,7 +1216,7 @@
 
   // Code oublie : le PIN est bloque comme apres trop d'essais, et l'ecran du lien de deblocage s'affiche
   async function forgotPin(matricule, key) {
-    if (!confirm("Votre code PIN sera bloqué jusqu'à ce qu'un administrateur le réinitialise. Continuer ?")) return;
+    if (!confirm("Votre code PIN sera bloqué jusqu'à ce que le TECH le réinitialise. Continuer ?")) return;
     $('#pin').close();
     try {
       await api('pin-forgot/', { matricule, key });
@@ -1238,9 +1238,9 @@
     $('#pin-blocked-title').textContent = reset.forgotten ? 'Code PIN oublié' : 'Code PIN bloqué';
     $('#pin-blocked-text').textContent = `${reset.name || ''} (${reset.matricule || ''}) : `
       + (reset.forgotten ? 'code PIN oublié. ' : 'trop de codes PIN faux. ')
-      + 'Un administrateur doit réinitialiser votre PIN, vous en choisirez un nouveau à la prochaine connexion.';
+      + 'Le TECH doit réinitialiser votre PIN, vous en choisirez un nouveau à la prochaine connexion.';
     $('#pin-blocked-notified').hidden = !reset.notified;
-    $('#pin-blocked-contact').textContent = reset.contact || 'un administrateur';
+    $('#pin-blocked-contact').textContent = reset.contact ? `à ${reset.contact}` : 'au TECH';
     const link = $('#pin-blocked-link');
     link.href = reset.url || '';
     link.textContent = reset.url || '';
@@ -3461,7 +3461,7 @@
       el('h2', {}, item.type_name),
       el('div', { class: 'sub' }, item.iid),
       el('div', { class: 'banner ' + banner.kind }, banner.label),
-      item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par les administrateurs.') : '',
+      item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par le TECH.') : '',
       reportButton({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
       el('dl', { class: 'facts' },
         item.disabled ? fact('Désactivé', item.disabled_reason || '–', el('div', { class: 'sub' },
@@ -3569,7 +3569,7 @@
           usable: yes });
         dialog.close();
         feedback.info();
-        toast('Signalement envoyé aux administrateurs.');
+        toast('Signalement envoyé au TECH.');
         // son propre signalement : pas de popup quand la fiche se recharge
         lastReportAlert = { key: target.item ? 'item:' + target.item : 'pack:' + (target.pack || ''), at: Date.now() };
         reported(body.item);
