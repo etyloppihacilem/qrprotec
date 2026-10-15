@@ -55,6 +55,8 @@ class AppWindow {
     ImVec2            last_pos{ 0, 0 };
     ImVec2            last_size{ 0, 0 };
     bool              was_open = false;
+    bool              reload_pending = false; // on_open au prochain affichage (ecran rallume)
+    bool              reload_on_wake = true;  // false : saisies en cours a ne pas ecraser (Reglages)
     bool              place_pending = true; // appliquer la disposition par defaut au prochain affichage
     bool              focus_pending = false;
     bool              resize_pending = false; // reprendre last_pos et last_size (ecran redimensionne)
@@ -509,6 +511,7 @@ class App {
     void create_first_admin();
     void draw_toasts();
     void check_inactivity();
+    void reload_after_wake(); // ecran rallume : donnees des fenetres ouvertes rechargees
     void apply_default_open_state();
 
     void   work_area(ImVec2 &origin, ImVec2 &size) const;
@@ -535,6 +538,8 @@ class App {
     std::string             setup_pin_confirm_;
     Json                    setup_created_; // compte cree, pour imprimer le badge
     double                  last_activity_ = 0.0;
+    // kiosk : extinction de l'ecran apres QRPROTEC_SCREEN_BLANK_SECONDS sans activite (0 = jamais)
+    double                  screen_blank_seconds_ = 0.0;
     bool                    reset_done_    = false;
     StoredLogin             last_login_;            // derniere connexion reussie (en memoire)
     bool                    restore_pending_ = true; // reconnexion au premier contact avec le serveur

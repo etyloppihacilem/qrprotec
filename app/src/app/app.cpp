@@ -23,6 +23,7 @@
 #include "imgui_stdlib.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <ctime>
 #include <map>
 #include <random>
@@ -78,6 +79,11 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   settings = AppSettings::defaults();
   settings.load();
   apply_settings();
+  // meme delai et meme defaut que swayidle dans qrprotec-kiosk-session
+  if (std::getenv("QRPROTEC_KIOSK") != nullptr) {
+    const char *blank    = std::getenv("QRPROTEC_SCREEN_BLANK_SECONDS");
+    screen_blank_seconds_ = blank != nullptr ? std::atof(blank) : 1800.0;
+  }
   select_default_templates();
   windows.push_back(make_scan_window());
   windows.push_back(make_lots_window());
@@ -257,8 +263,21 @@ void App::open_window(const std::string &id) {
 // Boucle principale
 
 void App::note_activity() {
-  last_activity_ = ImGui::GetTime();
+  const double now = ImGui::GetTime();
+  // premiere activite apres le delai d'extinction : l'ecran se rallume, ce qu'il affiche date
+  if (screen_blank_seconds_ > 0.0 && last_activity_ > 0.0 && now - last_activity_ >= screen_blank_seconds_)
+    reload_after_wake();
+  last_activity_ = now;
   reset_done_    = false;
+}
+
+void App::reload_after_wake() {
+  info_log("Écran rallumé : rechargement des fenêtres ouvertes");
+  for (auto &window : windows)
+    if (window->open && window->reload_on_wake)
+      window->reload_pending = true;
+  next_lots_poll_    = 0.0; // voyant des lots a traiter
+  next_reports_poll_ = 0.0; // rappel des signalements (admins)
 }
 
 void App::begin_frame() {
@@ -524,8 +543,9 @@ void App::draw_windows() {
       window->was_open = false;
       continue;
     }
-    if (!window->was_open)
+    if (!window->was_open || window->reload_pending)
       window->on_open(*this);
+    window->reload_pending = false;
     const bool place  = layout_pending_ || window->place_pending;
     const auto layout = settings.layout.find(window->id);
     if (layout != settings.layout.end()) {
