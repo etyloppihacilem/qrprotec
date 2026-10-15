@@ -69,6 +69,7 @@
     done: {},               // lots valides pendant cette vérif : {id: {at, by, complete, sealed}}
     keys: {},               // etiquettes cles de sous-lots scannees pendant la vérif : {id: cle}
     entered: [],            // lots ou l'on est entre : leurs sous-lots non faits sont laisses de cote, pas manquants
+    startedIn: '',          // sous-lot dont on a lance la vérif (ex : un kit dans le VPS)
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -89,7 +90,7 @@
         at: Date.now(), // derniere activite (SESSION_TIMEOUT_MS)
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif, pendingOpening: state.pendingOpening,
         launched: state.launched, current: state.current,
-        path: state.path, done: state.done, keys: state.keys, entered: state.entered,
+        path: state.path, done: state.done, keys: state.keys, entered: state.entered, startedIn: state.startedIn,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place }) => ({ code, kind, iid, key, info, expired, error, items, place })),
       }));
@@ -120,6 +121,7 @@
         state.done = session.done && typeof session.done === 'object' ? session.done : {};
         state.keys = session.keys && typeof session.keys === 'object' ? session.keys : {};
         state.entered = Array.isArray(session.entered) ? session.entered : [];
+        state.startedIn = typeof session.startedIn === 'string' ? session.startedIn : '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
         state.lastVerif = session.lastVerif || null;
         state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
@@ -1103,7 +1105,7 @@
       const root = !seal && lot.global && lot.global.id !== id ? lot.global.id : '';
       if (root) lot = await api(`lots/${encodeURIComponent(root)}/`);
       const target = root || id;
-      if (state.lotId !== target) { state.extra = []; resetCascade(); }
+      if (state.lotId !== target) { state.extra = []; resetCascade(); state.startedIn = root ? id : ''; }
       state.lot = lot;
       state.lotId = target;
       // chemin vers le sous-lot demande, ou chemin garde (rechargement) tant qu'il existe encore
@@ -1169,7 +1171,7 @@
     || Object.keys(state.done).length > 0 || Object.keys(state.keys).length > 0);
 
   function resetCascade() {
-    state.path = []; state.done = {}; state.keys = {}; state.entered = [];
+    state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.startedIn = '';
   }
 
   // lot id dans le lot top (ou top lui-meme)
@@ -1840,6 +1842,10 @@
 
   // Valider le lot en cours de la vérif en cascade (partial : vérif partielle ou reassort de ce lot). Il est enregistre
   // tout de suite, avec ses sous-lots commences ; on revient au lot qui le contient. Au lot global, la vérif se termine.
+  // Vérif lancee sur un kit a scelle obligatoire du lot global, et l'on y est : sa validation termine la vérif
+  const sealNextLevel = () => inCascade() && !!state.startedIn && levelId() === state.startedIn
+    && !!(lotById(state.startedIn) || {}).seal_required;
+
   // Vérif en cascade : le lot ou l'on est (pas le lot global) est complet, rien d'attendu n'y manque, et peut etre
   // valide sans question
   function levelComplete() {
@@ -1928,7 +1934,13 @@
         report.missing && report.missing.length ? `${report.missing.length} item(s) manquant(s)` : '',
         atRoot && finished ? '' : finished ? `Retour à ${(lotById(parentIdOf(top)) || state.lot).name}.` : '');
       if (incomplete.length || (report.unknown || []).length) showReport(report);
-      if (atRoot && finished) {
+      // kit a scelle obligatoire dont on a lance la vérif (scanne dans le VPS) : valide complet, la vérif s'arrete la,
+      // sur le compte rendu ; le lot est a resceller (on n'a vu que l'etiquette exterieure des autres lots)
+      const sealNext = !atRoot && finished && sealNextLevel() && done.some((row) => row.id === top.id && row.complete);
+      if (sealNext) {
+        showReport(report);
+        finishCascade(report, `${top.name} validé complet : à resceller (le TECH le scelle depuis le poste).`);
+      } else if (atRoot && finished) {
         finishCascade(report);
       } else {
         if (finished && !atRoot) { state.path.pop(); state.current = levelId(); }
@@ -1980,14 +1992,14 @@
 
   // Fin de la vérif en cascade (lot global valide, ou plus rien a faire) : on quitte la vérif commune, les autres
   // participants continuent la leur
-  function finishCascade(report = null) {
+  function finishCascade(report = null, message = '') {
     const done = Object.values(state.done).length;
     const name = state.lot ? state.lot.name : '';
     const left = state.scanned.length;
     live.quit();
     state.scanned = [];
     resetCascade();
-    forgetLot(`Vérif de ${name} terminée : ${done} lot(s) validé(s)` + (left ? `, ${left} scan(s) non validé(s) oublié(s).` : '.'));
+    forgetLot(message || `Vérif de ${name} terminée : ${done} lot(s) validé(s)` + (left ? `, ${left} scan(s) non validé(s) oublié(s).` : '.'));
     if (!report) feedback.good();
   }
 
@@ -2414,7 +2426,8 @@
     });
     rows.push(el('li', { class: 'cascade-path' },
       el('div', { class: 'main' }, el('div', { class: 'crumbs' }, ...crumbs),
-        el('div', { class: 'sub' }, parent ? `Validez ${level.name} pour revenir à ${parent.name}.`
+        el('div', { class: 'sub' }, sealNextLevel() ? `Validez ${level.name} : la vérif s'arrête là, le lot est ensuite à resceller.`
+          : parent ? `Validez ${level.name} pour revenir à ${parent.name}.`
           : childrenOf(level.id).length ? 'Scannez l\'étiquette d\'un sous-lot pour y entrer.' : '')),
       parent ? el('button', { type: 'button', class: 'secondary', title: `Revenir à ${parent.name} sans valider ${level.name} (ses scans sont gardés)`,
         onclick: goUp }, '← ' + (parent.name_short || parent.name)) : null));
@@ -2460,7 +2473,7 @@
     }
     if (!left && !remaining) {
       rows.splice(1, 0, el('li', { class: 'group ok' }, `✅ Tout est fait : validez ${level.name}`
-        + (parent ? ` pour revenir à ${parent.name}.` : ' pour terminer la vérif.')));
+        + (sealNextLevel() ? ', puis rescellez-le.' : parent ? ` pour revenir à ${parent.name}.` : ' pour terminer la vérif.')));
     }
     list.replaceChildren(...rows);
     return remaining + left;

@@ -2105,7 +2105,8 @@ void App::start_verif(const std::string &lot_id, const std::string &key) {
       // sous-lot d'un lot global : vérif en cascade du lot global, en entrant dans ce sous-lot
       const std::string root = result.data["global"].is_null() ? std::string() : result.data["global"]["id"].str();
       if (!root.empty() && root != lot_id) {
-        verif.lot_id = root;
+        verif.lot_id     = root;
+        verif.started_in = lot_id;
         if (!verif.key.empty())
           verif.keys[lot_id] = verif.key;
         verif.key.clear();
@@ -2540,12 +2541,12 @@ void App::leave_level() {
   verif.current = verif_level();
 }
 
-void App::finish_cascade() {
+void App::finish_cascade(const std::string &message) {
   const std::size_t done = verif.done.size();
   const std::string name = verif.lot["name"].str(verif.lot_id);
   stack.clear();
   cancel_verif();
-  notify("Vérif de " + name + " terminée : " + std::to_string(done) + " lot(s) validé(s).");
+  notify(!message.empty() ? message : "Vérif de " + name + " terminée : " + std::to_string(done) + " lot(s) validé(s).");
   refresh_lots();
 }
 
@@ -2663,6 +2664,19 @@ void App::submit_step(bool partial) {
       verif.sealed.erase(std::remove_if(verif.sealed.begin(), verif.sealed.end(),
                                         [&](const VerifSealed &sealed) { return sent_seals.count(sealed.id) > 0; }),
                          verif.sealed.end());
+      // kit a scelle obligatoire dont on a lance la verif (dans le VPS) : valide complet, la verif s'arrete la, sur le
+      // compte rendu qui propose de le sceller (on ne voit que l'etiquette exterieure des lots scelles du VPS)
+      const Json *top_lot = verif_lot(top);
+      if (!at_root && finished && top == verif.started_in && top_lot && (*top_lot)["seal_required"].boolean()
+          && verif.done.count(top) && verif.done[top].complete) {
+        last_report     = result.data;
+        last_report_lot = name;
+        verif.after_step.clear();
+        finish_cascade(name + (privileged() ? " validé complet : scellez-le depuis le compte rendu."
+                                            : " validé complet : à resceller par le TECH."));
+        open_window("verif");
+        return;
+      }
       if (at_root && finished) {
         last_report     = result.data;
         last_report_lot = name;

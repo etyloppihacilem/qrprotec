@@ -270,7 +270,9 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SetNextItemWidth(160.0f);
       input_limited("Numéro du scellé", seal_number_, 32, "facultatif");
       // un lot global se scelle avec ses sous-lots : ils doivent tous etre complets
-      bool ok = lot_ok(lot_status(lot_));
+      // complet et verifie : « Doit etre scelle » (scelle obligatoire, vérif complete faite) est pret a sceller
+      const LotStatus status = lot_status(lot_);
+      bool            ok     = lot_ok(status) || status == LotStatus::MustSeal;
       if (lot_is_group(lot_)) {
         ImVec4 color;
         group_banner(lot_, color, &ok);
