@@ -8,7 +8,7 @@
 #
 # ######################################################################################################################
 
-"""Notifications web (Web Push) : alternative aux SMS, quel que soit l'operateur.
+"""Notifications web (Web Push) : seul canal des alertes (l'API SMS n'est plus maintenue), quel que soit l'operateur.
 
 Un admin connecte sur le front web active les notifications depuis l'onglet Stock : le navigateur
 fournit un abonnement (PushSubscription), que le serveur utilise pour envoyer les alertes de stock bas
@@ -203,8 +203,8 @@ def _deliver(jobs):
 
 
 def _dispatch(jobs):
-    # meme reglage que les SMS : envoi dans la requete (tests) ou dans un thread
-    if qrprotec_setting('SMS_SYNC'):
+    # envoi dans la requete (tests) ou dans un thread
+    if qrprotec_setting('NOTIFY_SYNC'):
         _deliver(jobs)
     else:
         threading.Thread(target=_deliver, args=(jobs,), daemon=True).start()

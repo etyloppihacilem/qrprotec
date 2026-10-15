@@ -8,111 +8,113 @@
 #
 # ######################################################################################################################
 
-"""Notifications SMS par l'API de Free Mobile (les notifications web sont dans webpush.py).
+"""Alertes envoyees aux admins et a la gestion par les notifications web (webpush.py).
 
-    https://smsapi.free-mobile.fr/sendmsg?user=IDENTIFIANT&pass=CLE&msg=MESSAGE
-
-Chaque destinataire (SmsRecipient) a son propre couple identifiant / cle : l'API de Free n'envoie
-qu'au titulaire de la ligne. Les envois partent dans un thread apres la validation de la transaction,
-pour ne pas ralentir l'API ; le resultat est garde dans last_status.
+L'API SMS de Free Mobile n'est plus maintenue : elle n'etait pas utilisee et les notifications web la
+remplacent. Son code est garde en commentaire ci-dessous, sans garantie qu'il fonctionne encore ; les
+reglages (NotificationSettings) et les destinataires (SmsRecipient) restent en base mais ne servent plus.
 """
 
-import logging
-import threading
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import timedelta
 
-from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from . import forecast, webpush
-from .models import (
-    ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, SmsRecipient, qrprotec_setting,
-)
+from .models import ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes
 
-logger = logging.getLogger(__name__)
-
-FREE_SMS_URL = 'https://smsapi.free-mobile.fr/sendmsg'
-MAX_LENGTH = 900  # l'API refuse les messages trop longs
-
-# Codes de retour documentes par Free
-STATUS_MESSAGES = {
-    200: 'Envoyé',
-    400: 'Paramètre manquant',
-    402: "Trop d'envois en peu de temps",
-    403: "Service non activé sur l'espace abonné ou identifiants incorrects",
-    500: 'Erreur du serveur Free, réessayez plus tard',
-}
-
-EVENTS = ('stock_low', 'verif_problem', 'seal_broken', 'expired_daily', 'pin_blocked',
-          'lot_key_renewed', 'lot_key_expiring', 'badge_renewed', 'badge_expiring', 'order_due', 'problem_report')
-
-
-def send_free_sms(user, password, message, timeout=10):
-    """Envoie un SMS ; retourne (ok, statut lisible). Remplacee dans les tests."""
-    query = urllib.parse.urlencode({'user': user, 'pass': password, 'msg': message})
-    try:
-        with urllib.request.urlopen(f'{FREE_SMS_URL}?{query}', timeout=timeout) as response:
-            code = response.status
-    except urllib.error.HTTPError as exc:
-        code = exc.code
-    except (urllib.error.URLError, OSError) as exc:
-        return False, f'Réseau : {exc}'
-    return code == 200, STATUS_MESSAGES.get(code, f'Code {code}')
-
-
-def _deliver(recipient_ids, message):
-    close_old_connections()
-    try:
-        for recipient in SmsRecipient.objects.filter(id__in=recipient_ids):
-            ok, status = send_free_sms(recipient.user, recipient.password, message)
-            if not ok:
-                logger.warning('SMS vers %s : %s', recipient.name, status)
-            recipient.last_sent = timezone.now()
-            recipient.last_status = status[:128]
-            recipient.save(update_fields=['last_sent', 'last_status'])
-    finally:
-        close_old_connections()
-
-
-def _dispatch(recipient_ids, message):
-    if qrprotec_setting('SMS_SYNC'):
-        _deliver(recipient_ids, message)
-    else:
-        threading.Thread(target=_deliver, args=(recipient_ids, message), daemon=True).start()
-
-
-def send(message, recipients=None):
-    """Envoie a tous les destinataires actifs (ou a ceux donnes), sans verifier les reglages."""
-    if recipients is None:
-        recipients = SmsRecipient.objects.filter(active=True)
-    recipient_ids = [recipient.id for recipient in recipients]
-    if not recipient_ids:
-        return 0
-    message = message.strip()
-    if len(message) > MAX_LENGTH:
-        message = message[:MAX_LENGTH - 3] + '...'
-    transaction.on_commit(lambda: _dispatch(recipient_ids, message))
-    return len(recipient_ids)
-
-
-def notify(event, message):
-    """Notification d'un evenement, si les SMS et cet evenement sont actives dans les reglages."""
-    assert event in EVENTS, event
-    settings_row = NotificationSettings.get()
-    if not settings_row.enabled or not getattr(settings_row, event):
-        return 0
-    return send(f'QRProtec : {message}')
+# ----------------------------------------------------------------------------------------------------------------------
+# API SMS de Free Mobile : PLUS MAINTENUE, gardee en commentaire pour memoire.
+#
+#     https://smsapi.free-mobile.fr/sendmsg?user=IDENTIFIANT&pass=CLE&msg=MESSAGE
+#
+# Chaque destinataire (SmsRecipient) avait son propre couple identifiant / cle : l'API de Free n'envoie
+# qu'au titulaire de la ligne. Les envois partaient dans un thread apres la validation de la transaction,
+# pour ne pas ralentir l'API ; le resultat etait garde dans last_status.
+#
+# Imports necessaires : logging, threading, urllib.error, urllib.parse, urllib.request,
+# django.db.close_old_connections, django.db.transaction, SmsRecipient, qrprotec_setting.
+#
+# logger = logging.getLogger(__name__)
+#
+# FREE_SMS_URL = 'https://smsapi.free-mobile.fr/sendmsg'
+# MAX_LENGTH = 900  # l'API refuse les messages trop longs
+#
+# # Codes de retour documentes par Free
+# STATUS_MESSAGES = {
+#     200: 'Envoyé',
+#     400: 'Paramètre manquant',
+#     402: "Trop d'envois en peu de temps",
+#     403: "Service non activé sur l'espace abonné ou identifiants incorrects",
+#     500: 'Erreur du serveur Free, réessayez plus tard',
+# }
+#
+# EVENTS = ('stock_low', 'verif_problem', 'seal_broken', 'expired_daily', 'pin_blocked',
+#           'lot_key_renewed', 'lot_key_expiring', 'badge_renewed', 'badge_expiring', 'order_due', 'problem_report')
+#
+#
+# def send_free_sms(user, password, message, timeout=10):
+#     """Envoie un SMS ; retourne (ok, statut lisible). Remplacee dans les tests."""
+#     query = urllib.parse.urlencode({'user': user, 'pass': password, 'msg': message})
+#     try:
+#         with urllib.request.urlopen(f'{FREE_SMS_URL}?{query}', timeout=timeout) as response:
+#             code = response.status
+#     except urllib.error.HTTPError as exc:
+#         code = exc.code
+#     except (urllib.error.URLError, OSError) as exc:
+#         return False, f'Réseau : {exc}'
+#     return code == 200, STATUS_MESSAGES.get(code, f'Code {code}')
+#
+#
+# def _deliver(recipient_ids, message):
+#     close_old_connections()
+#     try:
+#         for recipient in SmsRecipient.objects.filter(id__in=recipient_ids):
+#             ok, status = send_free_sms(recipient.user, recipient.password, message)
+#             if not ok:
+#                 logger.warning('SMS vers %s : %s', recipient.name, status)
+#             recipient.last_sent = timezone.now()
+#             recipient.last_status = status[:128]
+#             recipient.save(update_fields=['last_sent', 'last_status'])
+#     finally:
+#         close_old_connections()
+#
+#
+# def _dispatch(recipient_ids, message):
+#     if qrprotec_setting('SMS_SYNC'):
+#         _deliver(recipient_ids, message)
+#     else:
+#         threading.Thread(target=_deliver, args=(recipient_ids, message), daemon=True).start()
+#
+#
+# def send(message, recipients=None):
+#     """Envoie a tous les destinataires actifs (ou a ceux donnes), sans verifier les reglages."""
+#     if recipients is None:
+#         recipients = SmsRecipient.objects.filter(active=True)
+#     recipient_ids = [recipient.id for recipient in recipients]
+#     if not recipient_ids:
+#         return 0
+#     message = message.strip()
+#     if len(message) > MAX_LENGTH:
+#         message = message[:MAX_LENGTH - 3] + '...'
+#     transaction.on_commit(lambda: _dispatch(recipient_ids, message))
+#     return len(recipient_ids)
+#
+#
+# def notify(event, message):
+#     """Notification d'un evenement, si les SMS et cet evenement sont actives dans les reglages."""
+#     assert event in EVENTS, event
+#     settings_row = NotificationSettings.get()
+#     if not settings_row.enabled or not getattr(settings_row, event):
+#         return 0
+#     return send(f'QRProtec : {message}')
+# ----------------------------------------------------------------------------------------------------------------------
 
 
 def check_stock_levels(type_ids=None):
     """Alerte quand le stock (hors lots, non perime) d'un type passe sous son minimum ou arrive a 0.
 
-    SMS (stock bas) et notifications web (stock bas, stock vide) : une seule alerte par passage sous le
-    seuil. ItemType.low_notified est remis a zero quand le stock remonte au minimum, empty_notified
+    Notifications web (stock bas, stock vide) : une seule alerte par passage sous le seuil. ItemType.low_notified est remis a zero quand le stock remonte au minimum, empty_notified
     quand il redevient positif.
     """
     today = timezone.localdate()
@@ -143,14 +145,12 @@ def check_stock_levels(type_ids=None):
         if changed:
             item_type.save(update_fields=changed)
     low_text = [f'{name} {count}/{minimum}' for name, count, minimum in low]
-    if low_text:
-        notify('stock_low', 'stock bas : ' + ', '.join(low_text))
     webpush.notify_stock(low, empty)
     return low_text
 
 
 def notify_pin_blocked(user, url):
-    """PIN bloque (50 essais faux ou code oublie) : SMS et notifications web des admins, avec le lien de deblocage.
+    """PIN bloque (50 essais faux ou code oublie) : notification web des admins, avec le lien de deblocage.
 
     Une seule notification par blocage, quel que soit le nombre de tentatives ou de demandes (pas de spam
     possible) : pin_reset_notified n'est remis a zero que par la reinitialisation du PIN. Retourne True si les
@@ -162,10 +162,7 @@ def notify_pin_blocked(user, url):
         user.pin_reset_notified = True
         return True
     reason = 'a oublié son code PIN' if user.pin_forgotten else 'a son code PIN bloqué après trop d\'essais'
-    contact = user.contact_admin()
-    contact_text = f' (contact : {contact})' if contact is not None else ''
-    message = f'{user} ({user.matricule}) {reason}{contact_text}. Débloquer : {url}'
-    sent = notify('pin_blocked', message) + webpush.notify_pin_blocked(f'{user} ({user.matricule}) {reason}', url)
+    sent = webpush.notify_pin_blocked(f'{user} ({user.matricule}) {reason}', url)
     if not sent:  # aucun destinataire : la prochaine tentative reessaiera (ex. notifications activees entre-temps)
         Secouristes.objects.filter(pk=user.pk).update(pin_reset_notified=False)
         return False
@@ -174,9 +171,9 @@ def notify_pin_blocked(user, url):
 
 
 def notify_admins(event, title, message, **web):
-    """Evenement envoye par SMS (reglages) et aux notifications web des admins qui l'ont choisi (web : url, tag, tab
-    de la notification web)."""
-    return notify(event, message) + webpush.notify_event(event, f'QRProtec : {title}', message, **web)
+    """Evenement envoye aux notifications web des admins qui l'ont choisi (web : url, tag, tab de la notification
+    web)."""
+    return webpush.notify_event(event, f'QRProtec : {title}', message, **web)
 
 
 def _day(value):

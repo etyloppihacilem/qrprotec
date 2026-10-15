@@ -523,17 +523,18 @@ def operation_dict(operation, names):
     }
 
 
-def recipient_dict(recipient):
-    # la cle d'identification n'est jamais renvoyee
-    return {
-        'id': recipient.id,
-        'name': recipient.name,
-        'user': recipient.user,
-        'has_password': bool(recipient.password),
-        'active': recipient.active,
-        'last_sent': _date(recipient.last_sent),
-        'last_status': recipient.last_status,
-    }
+# Destinataire SMS : API SMS plus maintenue (voir notifications.py), garde en commentaire.
+# def recipient_dict(recipient):
+#     # la cle d'identification n'est jamais renvoyee
+#     return {
+#         'id': recipient.id,
+#         'name': recipient.name,
+#         'user': recipient.user,
+#         'has_password': bool(recipient.password),
+#         'active': recipient.active,
+#         'last_sent': _date(recipient.last_sent),
+#         'last_status': recipient.last_status,
+#     }
 
 
 def server_settings_dict(settings_row):
@@ -544,23 +545,7 @@ def server_settings_dict(settings_row):
     }
 
 
-def notification_settings_dict(settings_row, recipients):
-    return {
-        'enabled': settings_row.enabled,
-        'events': {
-            'stock_low': settings_row.stock_low,
-            'verif_problem': settings_row.verif_problem,
-            'seal_broken': settings_row.seal_broken,
-            'expired_daily': settings_row.expired_daily,
-            'pin_blocked': settings_row.pin_blocked,
-            'lot_key_renewed': settings_row.lot_key_renewed,
-            'lot_key_expiring': settings_row.lot_key_expiring,
-            'badge_renewed': settings_row.badge_renewed,
-            'badge_expiring': settings_row.badge_expiring,
-            'order_due': settings_row.order_due,
-            'problem_report': settings_row.problem_report,
-        },
-        # delai de l'alerte « expire bientot » des etiquettes privees de lot et des badges (SMS et web)
-        'key_expiry_warning_days': settings_row.expiry_warning_days,
-        'recipients': [recipient_dict(recipient) for recipient in recipients],
-    }
+def notification_settings_dict(settings_row):
+    # delai de l'alerte « expire bientot » des etiquettes privees de lot et des badges (notifications web) ; les
+    # evenements et destinataires SMS ne sont plus exposes (API SMS plus maintenue, voir notifications.py)
+    return {'key_expiry_warning_days': settings_row.expiry_warning_days}

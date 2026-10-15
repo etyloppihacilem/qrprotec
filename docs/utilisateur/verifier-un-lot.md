@@ -30,7 +30,7 @@ badge.** Le reste de cette page détaille les cas particuliers.
    - **✔ VÉRIF ENREGISTRÉE : LOT COMPLET** : tout va bien ;
    - **✘ INCOMPLET** : la liste de ce qui manque, des périmés restés dans le lot, des items attendus
      mais non scannés. Complétez depuis le stock et refaites une vérif, ou signalez-le à la
-     logistique (un SMS lui a peut-être déjà été envoyé).
+     logistique.
 
 La fenêtre **Lots** (menu Fenêtres) liste tous les lots avec leur état ; un clic ouvre la fiche, avec
 **Lancer une vérif**.

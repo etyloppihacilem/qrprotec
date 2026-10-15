@@ -73,8 +73,7 @@ La fenêtre **État des stocks** a quatre onglets :
 - **Commandes** : les types qui passeront sous leur minimum, avec la quantité à commander (minimum +
   deux mois de consommation, arrondi au conditionnement) et la date limite pour la recevoir à temps.
   **Copier la liste** pour la coller dans un bon de commande. Quand la date limite est atteinte, les
-  utilisateurs gestion et admin reçoivent l'alerte **commande à passer** (notification web, ou SMS si
-  l'événement est coché dans les Réglages).
+  utilisateurs gestion et admin reçoivent l'alerte **commande à passer** (notification web).
 - **Transferts** : les items qui périmeront là où ils sont (typiquement dans un scellé qui ne s'ouvre
   pas) et le lot où ils seraient utilisés à temps. Chaque ligne est un **échange** : sortir les items
   indiqués, les mettre dans le lot d'arrivée, et reprendre en échange les plus récents de ce lot, pour
@@ -128,8 +127,6 @@ dans la pile de scans.
   l'état des stocks a une colonne « Bientôt périmés ».
 - Dans un sac, on remplace un périmé **pendant une vérif** : scanner le périmé et le neuf, le
   logiciel sort le périmé du sac.
-- Un résumé quotidien des lots contenant des périmés peut être envoyé par SMS (voir
-  [Administration](administration.md#notifications)).
 
 ## Rechercher un item, réimprimer une étiquette
 

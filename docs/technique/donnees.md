@@ -13,7 +13,7 @@ ItemType ──< ItemsPacks ──< Items >── Lots >── LotType ──< L
                               ├── sealed_pack ──> SealedPacks (paquet fermé)
                               └──< VerifItem >── Verifs ──> Lots (None = stock)
 
-Secouristes ──< PushSubscription        NotificationSettings (1 ligne)   SmsRecipient
+Secouristes ──< PushSubscription        NotificationSettings (1 ligne)   SmsRecipient (inutilisé)
 PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 ```
 
@@ -74,8 +74,8 @@ devine pas par dictionnaire.
 
 ### Notifications
 
-`NotificationSettings` (une seule ligne, `pk=1`, `get()` la crée), `SmsRecipient` (identifiant et clé
-Free Mobile par destinataire, jamais renvoyés par l'API), `PushKeys` (clés VAPID du serveur, une
+`NotificationSettings` (une seule ligne, `pk=1`, `get()` la crée ; seul `key_expiry_warning_days` sert
+encore), `SmsRecipient` (destinataires de l'API SMS, plus maintenue : table gardée, plus lue), `PushKeys` (clés VAPID du serveur, une
 ligne générée au premier usage), `PushSubscription` (abonnement d'un navigateur d'admin).
 
 ## Les identités dans la base

@@ -161,7 +161,7 @@ class SettingsWindow final : public AppWindow {
           app.request_layout_reset();
       }
 
-      if (ImGui::CollapsingHeader("Notifications SMS"))
+      if (ImGui::CollapsingHeader("Notifications"))
         draw_notifications(app);
 
       if (ImGui::CollapsingHeader("Étiquettes et impression", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -361,7 +361,8 @@ class SettingsWindow final : public AppWindow {
     }
 
     // -----------------------------------------------------------------------------------------------------------
-    // Notifications SMS (API Free Mobile) : reglages enregistres sur le serveur, appliques immediatement.
+    // Notifications : reglages enregistres sur le serveur, appliques immediatement. Les alertes partent en
+    // notifications web (front web) ; l'API SMS de Free Mobile n'est plus maintenue (voir notifications.py).
     void load_notifications(App &app) {
       app.api.get("/api/notifications/", [this](const ApiResult &result) {
         if (!result.ok)
@@ -398,6 +399,9 @@ class SettingsWindow final : public AppWindow {
           load_notifications(app);
         return;
       }
+      ImGui::TextWrapped("Les alertes sont envoyées en notifications web : chaque admin ou gestionnaire les active "
+                         "et choisit leurs types sur le front web.");
+      /* API SMS plus maintenue : activation et choix des evenements SMS, gardes en commentaire.
       bool enabled = notifications_["enabled"].boolean();
       if (ImGui::Checkbox("Activer les notifications SMS", &enabled)) {
         Json body;
@@ -430,8 +434,9 @@ class SettingsWindow final : public AppWindow {
         }
       }
       ImGui::EndDisabled();
+      */
 
-      // delai commun aux SMS et aux notifications web, envoye en quittant le champ
+      // delai de l'alerte « expire bientot » des notifications web, envoye en quittant le champ
       ImGui::SetNextItemWidth(80.0f);
       ImGui::InputInt("Alerte d'expiration (jours avant)", &warning_days_, 0, 0);
       if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -440,8 +445,9 @@ class SettingsWindow final : public AppWindow {
         notifications_request(app, "PATCH", "/api/notifications/", body, "");
       }
       help_marker("Étiquettes clés de lot et badges : alerte « expire bientôt » ce nombre de jours avant "
-                  "l'expiration (SMS et notifications web), puis une alerte le jour de l'expiration.");
+                  "l'expiration (notifications web), puis une alerte le jour de l'expiration.");
 
+      /* API SMS plus maintenue : destinataires et SMS de test, gardes en commentaire.
       ImGui::SeparatorText("Destinataires");
       if (ImGui::BeginTable("sms_recipients", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch);
@@ -516,16 +522,18 @@ class SettingsWindow final : public AppWindow {
         new_password_.clear();
       }
       ImGui::EndDisabled();
+      */
     }
 
     std::vector< std::pair< std::string, TemplateCategory > > templates_;
     Json                                                      notifications_;
     Json                                                      server_rules_;
     int                                                       warning_days_ = 30;
-    std::string                                               new_name_;
-    std::string                                               new_user_;
-    std::string                                               new_password_;
-    double                                                    reload_at_ = 0.0;
+    // API SMS plus maintenue (destinataires, voir draw_notifications) :
+    // std::string                                               new_name_;
+    // std::string                                               new_user_;
+    // std::string                                               new_password_;
+    // double                                                    reload_at_ = 0.0;
 };
 
 class EditorWindow final : public AppWindow {

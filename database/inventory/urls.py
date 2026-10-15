@@ -79,9 +79,10 @@ local_patterns = [
     path('server-settings/', views.server_settings),
     path('me/scanner-volume/', views.my_scanner_volume),
     path('notifications/', views.notification_settings),
-    path('notifications/recipients/', views.sms_recipients),
-    path('notifications/recipients/<int:recipient_id>/', views.sms_recipient_detail),
-    path('notifications/test/', views.sms_test),
+    # API SMS plus maintenue (voir notifications.py)
+    # path('notifications/recipients/', views.sms_recipients),
+    # path('notifications/recipients/<int:recipient_id>/', views.sms_recipient_detail),
+    # path('notifications/test/', views.sms_test),
     path('remote-scanner/', views.remote_scanner_sessions),
     path('remote-scanner/<str:session_id>/', views.remote_scanner_session),
 ]

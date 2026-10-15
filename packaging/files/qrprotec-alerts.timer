@@ -1,5 +1,5 @@
 [Unit]
-Description=QRProtec : notifications SMS quotidiennes (7 h 45)
+Description=QRProtec : alertes quotidiennes (7 h 45)
 
 [Timer]
 OnCalendar=*-*-* 07:45:00

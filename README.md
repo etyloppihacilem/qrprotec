@@ -26,7 +26,7 @@ le packaging est dans `packaging/`.
 | Configuration | `/etc/qrprotec/qrprotec.conf`, `/etc/qrprotec/kiosk.conf`, `/etc/qrprotec/front-api.conf` (back distant du kiosk, `0600`), `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` |
 | Clé secrète Django | `/etc/qrprotec/secret_key` (générée à l'installation, `0640 root:qrprotec`) |
 | Données (base SQLite) | `/var/lib/qrprotec/db.sqlite3` |
-| Services | `qrprotec.service` (back), `qrprotec-kiosk.service` (Cage), `qrprotec-alerts.timer` (SMS, 7 h 45), `qrprotec-backup.timer` (sauvegardes), `caddy.service` |
+| Services | `qrprotec.service` (back), `qrprotec-kiosk.service` (Cage), `qrprotec-alerts.timer` (alertes, 7 h 45), `qrprotec-backup.timer` (sauvegardes), `caddy.service` |
 | Sauvegardes | `/var/backups/qrprotec/qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz` (réglages : `/etc/qrprotec/backup.conf`) |
 | Utilisateurs (`sysusers.d`) | `qrprotec` (back, sans shell), `qrprotec-kiosk` (session Cage ; groupes `dialout`, `video`, `render`, `input`, `audio`) |
 | Commandes | `qrprotec-setup` (assistant), `qrprotec-manage` (`manage.py` avec la configuration de la borne), `qrprotec-backup` (sauvegarde / restauration) |
@@ -41,7 +41,7 @@ distante). Caddy expose 80 (redirection) et 443 : il proxifie l'API publique et 
 | Paquet | Contenu | Pour |
 |---|---|---|
 | `qrprotec` | `qrprotec-server` + `qrprotec-kiosk` (paquet meta) | la borne complète, comme avant |
-| `qrprotec-server` | back Django, Caddy, alertes SMS, `qrprotec-manage` | le back seul, serveur sans écran |
+| `qrprotec-server` | back Django, Caddy, alertes quotidiennes, `qrprotec-manage` | le back seul, serveur sans écran |
 | `qrprotec-kiosk` | front en plein écran dans Cage sur `tty1` (dépend de `qrprotec-front`) | un poste dédié, avec back local ou distant |
 | `qrprotec-front` | front en application de bureau (menu, icône), sans kiosk | un ordinateur qui ne sert pas qu'à ça |
 | `qrprotec-common` | `qrprotec-setup`, `qrprotec-backup` et son timer | installé avec `-server` ou `-kiosk` |
@@ -242,7 +242,7 @@ retire avec `sudo rm /etc/yum.repos.d/qrprotec.repo`.
 journalctl -u qrprotec -f            # back (requêtes, migrations)
 journalctl -u qrprotec-kiosk -b      # Cage et front
 journalctl -u caddy -f               # reverse proxy, certificats
-journalctl -u qrprotec-alerts        # notifications SMS quotidiennes
+journalctl -u qrprotec-alerts        # alertes quotidiennes
 journalctl -u qrprotec-backup        # sauvegardes
 systemctl status qrprotec qrprotec-kiosk caddy
 ```
@@ -378,7 +378,7 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
 | `QRPROTEC_OUT_DAYS` | `30` (jours avant qu'un item sorti sans lot compte comme utilisé) |
 | `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `365` |
-| `QRPROTEC_SMS_SYNC` | `0` (SMS et notifications web envoyés dans un thread ; `1` = dans la requête) |
+| `QRPROTEC_NOTIFY_SYNC` | `0` (notifications web envoyées dans un thread ; `1` = dans la requête). Ancien nom `QRPROTEC_SMS_SYNC` encore lu |
 | `QRPROTEC_WEB_PUSH_SUBJECT` | `QRPROTEC_PUBLIC_BASE_URL` (contact VAPID des notifications web : `mailto:...` ou `https://...`) |
 | `QRPROTEC_SECRET_KEY`, `QRPROTEC_DEBUG`, `QRPROTEC_DB_PATH` | réglages Django |
 
@@ -406,7 +406,7 @@ appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). R
 |---|---|---|
 | `normal` (Secouriste) | vérifs, pile de scans, ajout aux lots | vérifs, liste des lots |
 | `gestion` | mode privilégié : stocks, inventaire, paquets, lots ; **pas** les Réglages, les Utilisateurs ni l'éditeur d'étiquettes | + onglet **Stock** (lecture seule) |
-| `admin` | tout, dont Réglages (serveur, étiquettes, notifications SMS…), Utilisateurs et éditeur d'étiquettes | + onglet **Stock** |
+| `admin` | tout, dont Réglages (serveur, étiquettes, notifications…), Utilisateurs et éditeur d'étiquettes | + onglet **Stock** |
 
 **Code PIN** (4 à 8 chiffres, haché) : demandé après le badge à chaque connexion, obligatoire pour les
 administrateurs, facultatif pour les autres rôles (défini dans **Administration > Utilisateurs**). Un
@@ -485,19 +485,14 @@ reçoivent les noms complets. Hors requête (WebSocket, tâche), envelopper la s
 - **Emplacements** : chaque ligne du contenu attendu d'un type de lot peut préciser un emplacement
   (ex : sérum phy dans la pochette bleue du sac de soin), affiché pendant la vérif.
 
-### Notifications SMS (Free Mobile)
+### Notifications SMS (plus maintenues)
 
-Le serveur envoie des SMS par l'API de Free Mobile
-(`https://smsapi.free-mobile.fr/sendmsg?user=..&pass=..&msg=..`). Chaque destinataire active
-« Notifications par SMS » dans son espace abonné Free, qui donne son identifiant et sa clé
-d'identification ; l'API n'envoie qu'au titulaire de la ligne, d'où un couple identifiant / clé par
-destinataire. Destinataires et événements se gèrent dans **Administration > Réglages > Notifications SMS**
-du front (activation générale, SMS de test, dernier statut d'envoi) ; la clé n'est jamais renvoyée
-par l'API.
+L'API SMS de Free Mobile n'est plus maintenue : elle n'était pas utilisée et les notifications web la
+remplacent. Son code reste en commentaire dans `database/inventory/notifications.py`, les anciens
+réglages et destinataires restent en base sans servir. Le résumé quotidien des lots contenant des
+périmés et l'alerte « vérif incomplète », qui n'existaient qu'en SMS, ne sont plus envoyés.
 
-Événements : stock d'un type sous son minimum (un SMS par passage sous le seuil, stock hors lots non
-périmé), vérif de lot incomplète (manquants, périmés, disparus), scellé brisé, et résumé quotidien des
-lots contenant des périmés. Les péremptions faisant baisser le stock sans action, lancer chaque jour :
+Les péremptions faisant baisser le stock sans action, lancer chaque jour :
 
 ```sh
 python manage.py check_alerts   # ex. crontab : 45 7 * * * cd .../database && python manage.py check_alerts
@@ -505,11 +500,10 @@ python manage.py check_alerts   # ex. crontab : 45 7 * * * cd .../database && py
 
 ### Notifications web (tous navigateurs)
 
-Les SMS ne fonctionnent qu'avec une ligne Free. Un administrateur connecté sur le téléphone (badge +
-PIN) peut aussi activer, dans l'onglet **Stock**, des notifications web sur son appareil : **stock bas**
+Seul canal des alertes. Un administrateur connecté sur le téléphone (badge + PIN) peut activer, dans l'onglet **Stock**, des notifications web sur son appareil : **stock bas**
 (un type passe sous son minimum) et/ou **stock vide** (un type arrive à 0). Le navigateur ne demande
 l'autorisation qu'au clic sur « Activer les notifications » ; un bouton envoie une notification de test.
-Les alertes arrivent même page fermée (une par passage sous le seuil, comme les SMS) et ouvrent
+Les alertes arrivent même page fermée (une par passage sous le seuil) et ouvrent
 l'onglet Stock.
 
 - Il faut HTTPS avec un certificat reconnu par le téléphone (avec `tls internal`, installer l'autorité
@@ -660,7 +654,7 @@ Fond orange. Menu **Gestion** (Réglages, Utilisateurs et Éditeur d'étiquettes
   propriétés à droite. Raccourcis : Ctrl+S, Ctrl+O, Ctrl+N, Ctrl+Z / Ctrl+Y, Ctrl+C / Ctrl+V / Ctrl+D,
   Suppr, flèches (0,1 mm, Maj : 1 mm). Les modifications non enregistrées sont signalées avant
   d'ouvrir un autre modèle.
-- **Réglages** : dont les notifications SMS. Sans modèle choisi pour un usage, le premier modèle du
+- **Réglages** : dont le délai d'alerte d'expiration des notifications. Sans modèle choisi pour un usage, le premier modèle du
   dossier fait pour cet usage est utilisé (ex : `scelle.qr`), sinon le QR code seul.
 
 **Impression** : la taille des étiquettes chargées dans l'imprimante (largeur dans le sens de la tête,

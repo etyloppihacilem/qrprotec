@@ -141,7 +141,7 @@ recompter. Il fallait que ce soit possible **et** visible.
 ## Scellés
 
 **Choix.** Un lot complet peut être scellé ; il est alors valide sans vérif jusqu'à la première
-péremption, et toute opération sur lui ou ses sous-lots brise le scellé (code changé, SMS).
+péremption, et toute opération sur lui ou ses sous-lots brise le scellé (code changé, notification).
 **Raison.** Les lots scellés (lots de réserve, malles catastrophe) ne doivent pas être ouverts pour
 être vérifiés ; le scellé physique numéroté fait foi.
 
@@ -217,11 +217,12 @@ douchettes, et il est propriétaire (x86_64 seulement).
 **Choix.** Supporter aussi la douchette en mode clavier, reconnue à la vitesse de frappe.
 **Raison.** Le poste reste utilisable avec n'importe quelle douchette du commerce.
 
-## Notifications SMS Free Mobile, puis web
+## Notifications web seules (SMS Free Mobile plus maintenus)
 
-**Raison.** L'API SMS de Free est gratuite et triviale pour un titulaire de ligne Free ; les
-notifications web couvrent tous les autres opérateurs sans service payant. Une alerte par passage
-sous le seuil (pas une par heure).
+**Raison.** L'API SMS de Free, gratuite pour un titulaire de ligne Free, a d'abord servi ; les
+notifications web couvrent tous les opérateurs sans service payant et l'ont rendue caduque. Elle
+n'était pas utilisée : son code reste en commentaire (`notifications.py`), plus maintenu. Une alerte
+par passage sous le seuil (pas une par heure).
 
 ## Modèles d'étiquettes en JSON, versionnés dans le dépôt
 

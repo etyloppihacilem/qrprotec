@@ -38,7 +38,7 @@ qrprotec/
 │       ├── serializers.py    modèles -> JSON, état des lots et des lots globaux
 │       ├── middleware.py     choix API publique / locale selon le port
 │       ├── idendity.py       format des identités (« M:matricule » / « D:nom »)
-│       ├── notifications.py  SMS Free Mobile + seuils de stock
+│       ├── notifications.py  alertes (seuils, expirations, commandes) ; SMS en commentaire
 │       ├── webpush.py        notifications web (RFC 8291 / VAPID)
 │       ├── remote_scanner.py relais WebSocket téléphone -> poste
 │       ├── web/              front web (HTML/JS/CSS sans framework, jsQR fourni)

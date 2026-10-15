@@ -84,7 +84,7 @@ Puis installez les postes : [front seul](front-seul.md).
 |---|---|
 | `qrprotec.service` | Back : API publique `:8000`, API locale `:8001`, API distante `:8002`, toutes sur `127.0.0.1` |
 | `caddy.service` | HTTPS sur 443 ; envoie à l'API distante les requêtes qui portent l'en-tête `X-QRProtec-Key`, le reste à l'API publique |
-| `qrprotec-alerts.timer` | Alertes SMS quotidiennes (7 h 45) |
+| `qrprotec-alerts.timer` | Alertes quotidiennes (7 h 45) |
 | `qrprotec-backup.timer` | Sauvegardes (base, configuration, clé secrète) |
 
 L'API distante a les mêmes routes que l'API locale, mais refuse toute requête sans clé valide (401).

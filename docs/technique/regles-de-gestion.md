@@ -80,7 +80,7 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    ligne du contenu attendu est atteinte et qu'il ne contient aucun périmé.
 7. **Écriture** : une ligne `Verifs` par lot vérifié, une `VerifItem` par item, `last_verif*` du lot,
    effacement de « vérif recommandée ».
-8. **Effets de bord** : scellés brisés (voir plus bas), SMS « vérif incomplète », contrôle des seuils
+8. **Effets de bord** : scellés brisés (voir plus bas), contrôle des seuils
    de stock pour les types touchés.
 
 La **vérif du stock** (`lot=None`, `POST /api/stock/verif/`, poste en mode privilégié) suit la même
@@ -192,7 +192,7 @@ une étiquette de scellé est imprimée (`seal?lot=…&s=CODE`) ; scannée hors 
   l'ouverture d'un **sous-lot** (on ne peut pas ouvrir le sac O2 sans ouvrir le B+), ou
   explicitement « Briser le scellé ». Le code change : l'ancienne étiquette de scellé est reconnue
   comme `wrong`.
-- Chaque bris envoie un SMS « scellé brisé » (si activé) avec la raison.
+- Chaque ouverture envoie une notification web « scellé ouvert » avec la raison (une par opération).
 - **Étiquette d'ouverture** (`unseal?lot=…&c=CODE`), imprimée avec celle du scellé et rangée dans le
   lot : son scan (`POST lots/<id>/seal-open/`, `services.open_seal_with_label`) brise le scellé (et
   ceux des lots parents), **sans clé ni utilisateur connecté**. Sans identité, l'ouverture est
@@ -301,8 +301,8 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 - **Code oublié** (lien discret sous la saisie du PIN, front web et poste) : `POST /api/pin-forgot/`
   (`matricule`, `key` du badge) bloque le PIN de la même façon (`pin_forgotten`) et renvoie la même
   réponse `pin_blocked`, pour le même parcours de déblocage. Refusé si l'utilisateur n'a pas de PIN.
-- **Notification des admins** au blocage (50 erreurs ou code oublié) : SMS (événement `pin_blocked`)
-  et notifications web (option de l'abonnement), avec le lien de déblocage. **Une seule par
+- **Notification des admins** au blocage (50 erreurs ou code oublié) : notifications web (option
+  `pin_blocked` de l'abonnement), avec le lien de déblocage. **Une seule par
   blocage** : `pin_reset_notified` est pris avant l'envoi et ne revient à `False` qu'à la
   réinitialisation du PIN, donc répéter les demandes ou les essais n'envoie rien de plus. S'il n'y
   avait aucun destinataire, la tentative suivante réessaie.

@@ -155,7 +155,7 @@ class ItemType(models.Model):
     min_quantity = models.PositiveIntegerField(default=0) # minimum value that should be in stock
     perissable = models.BooleanField(default=False) # if false, date is not mandatory
     default_pack_size = models.PositiveIntegerField(default=1) # nombre d'items dans un paquet a la reception
-    low_notified = models.BooleanField(default=False) # SMS "stock bas" deja envoye (remis a zero au-dessus du minimum)
+    low_notified = models.BooleanField(default=False) # alerte "stock bas" deja envoyee (remis a zero au-dessus du minimum)
     empty_notified = models.BooleanField(default=False) # notification "stock vide" deja envoyee (remis a zero au-dessus de 0)
     order_notified = models.BooleanField(default=False) # alerte "commande a passer" deja envoyee (remis a zero sans commande due)
     # Etiquette a dechirer avant utilisation (ex : sachet de plusieurs serums phy etiquete une seule fois) : un
@@ -821,7 +821,10 @@ class ItemMovement(models.Model):
 
 
 class NotificationSettings(models.Model):
-    """Reglages des notifications SMS (une seule ligne, pk=1)."""
+    """Reglages des notifications (une seule ligne, pk=1).
+
+    Seul key_expiry_warning_days sert encore : enabled et les evenements reglaient les SMS, dont l'API n'est plus
+    maintenue (voir notifications.py). Les champs restent en base, inutilises."""
     enabled = models.BooleanField(default=False)
     stock_low = models.BooleanField(default=True)        # stock d'un type sous son minimum
     verif_problem = models.BooleanField(default=True)    # verif de lot incomplete, perimes, disparus
@@ -871,7 +874,9 @@ class ServerSettings(models.Model):
 
 
 class SmsRecipient(models.Model):
-    """Destinataire de l'API SMS de Free Mobile (identifiant + cle d'identification de l'espace abonne)."""
+    """Destinataire de l'API SMS de Free Mobile (identifiant + cle d'identification de l'espace abonne).
+
+    API SMS plus maintenue (voir notifications.py) : table gardee en base, plus lue ni exposee."""
     name = models.CharField(max_length=64)
     user = models.CharField(max_length=32)
     password = models.CharField(max_length=64)

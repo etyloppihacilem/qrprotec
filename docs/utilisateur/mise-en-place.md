@@ -202,9 +202,9 @@ malle, posez le scellé et collez l'étiquette du scellé à côté. La malle re
 
 ## Étape 9 — Les alertes
 
-Menu **Administration > Réglages > Notifications SMS** (avec une ligne Free Mobile) et/ou les notifications
-web sur le téléphone d'un admin (onglet **Stock**). Voir [Administration](administration.md#notifications).
-Choisissez au moins « stock bas » et « vérif incomplète ».
+Activez les notifications web sur le téléphone de chaque utilisateur gestion ou admin (onglet **Stock**).
+Voir [Administration](administration.md#notifications). Choisissez au moins « stock bas » et « ouverture
+d'un lot scellé ».
 
 ## Étape 10 — Former les secouristes
 
