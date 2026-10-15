@@ -185,41 +185,20 @@ bool warning_button(const char *label, const ImVec2 &size) {
 namespace {
 ImFont *bold_font = nullptr;
 
-// fond hachure noir et jaune (boutons de signalement), bandes a 45 degres decoupees par le rectangle
-void draw_hatching(ImDrawList *draw, const ImVec2 &min, const ImVec2 &max, float rounding, float band, bool hovered,
-                   bool held) {
-  const float shade  = held ? 0.80f : hovered ? 1.10f : 1.0f;
-  const auto  tint   = [shade](const ImVec4 &color) {
-    return ImGui::GetColorU32(ImVec4(std::min(1.0f, color.x * shade), std::min(1.0f, color.y * shade),
-                                     std::min(1.0f, color.z * shade), 1.0f));
-  };
-  // noir et jaune : signaletique, sans faire croire a un probleme en cours
-  draw->AddRectFilled(min, max, tint(ImVec4(0.07f, 0.07f, 0.07f, 1.0f)), rounding);
-  draw->PushClipRect(min, max, true);
-  const float height = max.y - min.y;
-  for (float x = min.x - height; x < max.x; x += band * 2.0f)
-    draw->AddQuadFilled(ImVec2(x, max.y), ImVec2(x + band, max.y), ImVec2(x + band + height, min.y),
-                        ImVec2(x + height, min.y), tint(ImVec4(1.0f, 0.83f, 0.0f, 1.0f)));
-  draw->PopClipRect();
-}
-
-// band : largeur des bandes ; les gros boutons ont des bandes plus larges, plus lisibles
-bool hatched(const char *id, const char *text, const ImVec2 &size, float rounding, float band) {
-  const bool  clicked = ImGui::InvisibleButton(id, size);
-  const ImVec2 min    = ImGui::GetItemRectMin();
-  const ImVec2 max    = ImGui::GetItemRectMax();
-  ImDrawList  *draw   = ImGui::GetWindowDrawList();
-  draw_hatching(draw, min, max, rounding, band, ImGui::IsItemHovered(), ImGui::IsItemActive());
-  // texte blanc en gras, cerne de noir : lisible sur les bandes jaunes comme sur les noires
-  ImFont     *font      = bold_font ? bold_font : ImGui::GetFont();
-  const float font_size = ImGui::GetFontSize();
-  const float extra     = bold_font ? 0.0f : 1.0f; // gras synthetique : texte redessine decale d'un pixel
+// Bouton de signalement : fond noir plein, texte blanc en gras (signalement
+// reconnaissable sans faire croire a un probleme en cours, meme sur un lot tout vert)
+bool report_shape(const char *id, const char *text, const ImVec2 &size, float rounding) {
+  const bool   clicked = ImGui::InvisibleButton(id, size);
+  const ImVec2 min     = ImGui::GetItemRectMin();
+  const ImVec2 max     = ImGui::GetItemRectMax();
+  ImDrawList  *draw    = ImGui::GetWindowDrawList();
+  const float  shade   = ImGui::IsItemActive() ? 0.30f : ImGui::IsItemHovered() ? 0.22f : 0.07f;
+  draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(shade, shade, shade, 1.0f)), rounding);
+  ImFont      *font      = bold_font ? bold_font : ImGui::GetFont();
+  const float  font_size = ImGui::GetFontSize();
+  const float  extra     = bold_font ? 0.0f : 1.0f; // gras synthetique : texte redessine decale d'un pixel
   const ImVec2 text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text);
   const ImVec2 at((min.x + max.x - text_size.x - extra) * 0.5f, (min.y + max.y - text_size.y) * 0.5f);
-  for (float dx = -1.0f; dx <= 1.0f + extra; dx += 1.0f)
-    for (float dy = -1.0f; dy <= 1.0f; dy += 1.0f)
-      if (dx != 0.0f || dy != 0.0f)
-        draw->AddText(font, font_size, ImVec2(at.x + dx, at.y + dy), IM_COL32(0, 0, 0, 235), text);
   draw->AddText(font, font_size, at, IM_COL32_WHITE, text);
   if (extra > 0.0f)
     draw->AddText(font, font_size, ImVec2(at.x + extra, at.y), IM_COL32_WHITE, text);
@@ -231,23 +210,23 @@ void set_bold_font(ImFont *font) {
   bold_font = font;
 }
 
-bool hatched_button(const char *label, const ImVec2 &size) {
+bool report_button(const char *label, const ImVec2 &size) {
   const char  *end  = ImGui::FindRenderedTextEnd(label);
   std::string  text(label, end);
   const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
   const ImVec2 padding   = ImGui::GetStyle().FramePadding;
-  // plus haut qu'un bouton ordinaire : bandes larges et texte bien detache
+  // plus haut qu'un bouton ordinaire : bien reperable
   ImVec2       actual(size.x, size.y > 0 ? size.y : text_size.y + padding.y * 2 + ImGui::GetFontSize() * 0.6f);
   if (actual.x < 0)
     actual.x = std::max(1.0f, ImGui::GetContentRegionAvail().x + actual.x + 1.0f);
   else if (actual.x == 0)
     actual.x = text_size.x + padding.x * 4;
-  return hatched(label, text.c_str(), actual, ImGui::GetStyle().FrameRounding, std::max(10.0f, actual.y * 0.6f));
+  return report_shape(label, text.c_str(), actual, ImGui::GetStyle().FrameRounding);
 }
 
 bool report_mark(const char *id) {
   const float side = ImGui::GetFrameHeight() * 0.8f;
-  const bool  clicked = hatched(id, "!", ImVec2(side, side), side * 0.5f, std::max(5.0f, side * 0.35f));
+  const bool  clicked = report_shape(id, "!", ImVec2(side, side), side * 0.5f);
   ImGui::SetItemTooltip("Signaler un problème");
   return clicked;
 }

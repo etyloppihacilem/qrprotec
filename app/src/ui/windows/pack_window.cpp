@@ -113,7 +113,7 @@ class PackWindow final : public AppWindow {
       ImGui::Spacing();
       if (pack_["reported"].integer() > 0)
         ImGui::TextColored(colors::orange, "%d signalement(s) en cours sur ce paquet.", pack_["reported"].integer());
-      if (hatched_button("Signaler un problème sur ce paquet", ImVec2(-1, 0)))
+      if (report_button("⚠ Signaler un problème sur ce paquet", ImVec2(-1, 0)))
         app.report_problem({ "", "", "", pack_["type"].str(),
                              "Paquet de " + pack_["type_name"].str() + " (" + pack_["id"].str() + ")",
                              pack_["id"].str() });
