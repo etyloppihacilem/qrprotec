@@ -26,21 +26,27 @@ le dernier participant connecte qui valide envoie la verif (POST /api/verifs/ av
 sont enregistres sur la verif et le compte rendu est envoye a tous. Les cles des lots (etiquettes privees) restent
 sur le serveur : celui qui a rejoint la verif n'en a pas besoin pour l'envoyer.
 
+Vérif en cascade (lot global avec des sous-lots, ex : VPS > armoires > sacs) : la vérif est celle du lot global, chacun
+entre dans un sous-lot et le valide a part (POST /api/verifs/ avec "step"). La vérif commune continue : le lot valide
+est note pour tous ("done" de "team"), les scans envoyes sont retires, et chacun quitte la vérif quand il a fini
+("leave"). Rien n'est enregistre par le serveur pour une vérif en cascade abandonnee : ce qui est valide l'est deja.
+
 Messages (JSON, trames texte) :
   scanner -> serveur : {"type": "hello", "id", "pid", "token", "join": id de la verif a rejoindre (facultatif),
                         "solo": bool (nouvelle verif a ne pas fusionner),
                         "user": {...} | "name": "..."},
                        {"type": "state", "lot": {"id", "name"}, "root": id du lot global, "lots": [...],
                         "scanned": [...], "count": n, "remaining": n, "entries": [scans partages],
-                        "keys": [{"id", "key"}]},
-                       {"type": "validate", "partial": bool}, {"type": "unvalidate"},
+                        "keys": [{"id", "key"}], "cascade": bool, "level": {"id", "name"} (lot ou l'on se trouve)},
+                       {"type": "validate", "partial": bool}, {"type": "unvalidate"}, {"type": "leave"},
                        {"type": "done", "complete": bool, "partial": bool, "present": n},
                        {"type": "identity", ...}, {"type": "cancel"}, {"type": "ping"}
   serveur -> scanner : {"type": "hello", "id", "pid", "token", "merged": bool, "who"}, {"type": "error", "message"},
                        {"type": "team", "participants": [...], "lots": [...], "keyed": [...], "entries": [...],
-                        "nearby": [...]},
+                        "nearby": [...], "done": {lot id: {"at", "by", "complete", "sealed"}}},
                        {"type": "validate", "submit": bool, "waiting": [noms]}, {"type": "submit", "partial": bool},
-                       {"type": "report", "report": {...}}
+                       {"type": "report", "report": {...}},
+                       {"type": "step", "by", "lots": [...], "items": [...]} (vérif en cascade : lot valide)
   suivi -> serveur   : {"type": "hello", "user": {"matricule", "key"}}, {"type": "ping"}
   serveur -> suivi   : {"type": "snapshot", "sessions": [...]}, {"type": "update", "session": {...}},
                        {"type": "remove", "id": "..."}, {"type": "error", "message": "..."}
@@ -135,8 +141,12 @@ def clean_state(message):
             scanned.append({'name': _text(entry.get('name'), 64), 'expired': bool(entry.get('expired')),
                             'error': bool(entry.get('error')), 'extra': bool(entry.get('extra'))})
     lots = message.get('lots') if isinstance(message.get('lots'), list) else []
+    level = message.get('level') if isinstance(message.get('level'), dict) else {}
     return {
         'lot': {'id': _text(lot.get('id'), 16), 'name': _text(lot.get('name'), 64)},
+        # vérif en cascade : lot ou se trouve le participant (sous-lot du lot global en cours de verif)
+        'cascade': bool(message.get('cascade')),
+        'level': {'id': _text(level.get('id'), 16), 'name': _text(level.get('name'), 64)} if level.get('id') else None,
         'root': _text(message.get('root') or lot.get('id'), 16),
         'lots': [_text(name, 64) for name in lots[:MAX_LOTS]],
         'scanned': scanned,
@@ -198,7 +208,7 @@ class Participant:
 
     def public(self):
         return {'who': self.who, 'verified': self.verified, 'connected': self.socket is not None,
-                'validated': self.validated}
+                'validated': self.validated, 'level': (self.state or {}).get('level')}
 
 
 class LiveSession:
@@ -213,6 +223,7 @@ class LiveSession:
         self.saving = False        # verif sans participant en cours d'enregistrement par le serveur
         self.solo = False          # « Quitter » la verif commune : pas de fusion automatique
         self.finished = 0          # fin de la verif (time.monotonic), pour DONE_KEEP
+        self.steps = {}            # vérif en cascade : lot id -> {"at", "by", "complete", "sealed"}, lots deja valides
 
     @property
     def state(self):
@@ -291,6 +302,7 @@ class LiveHub:
             'entries': [dict(entry, who=p.who) for p in session.participants.values() if p is not me
                         for entry in p.entries],
             'nearby': self._nearby(session),
+            'done': session.steps,
         }
 
     def _changed(self, session):
@@ -366,6 +378,8 @@ class LiveHub:
         """Verif sans participant a enregistrer plutot qu'a abandonner : quelqu'un a valide sa partie, ou tout
         ce qui etait attendu a ete scanne."""
         state = session.state or {}
+        if state.get('cascade'):
+            return False  # vérif en cascade : chaque lot a ete enregistre a sa validation, le reste n'est pas fini
         complete = bool(state.get('count')) and not state.get('remaining')
         return any(p.validated for p in session.participants.values()) or complete
 
@@ -613,6 +627,13 @@ class LiveHub:
                         session.updated = timezone.now()
                         session.finished = time.monotonic()
                     self._changed(session)
+                elif kind == 'leave':
+                    # vérif en cascade terminee par ce participant : les autres continuent sans lui
+                    with self.lock:
+                        participant.socket = None
+                        self._leave(session, participant)
+                    self._changed(session)
+                    return
                 elif kind == 'cancel':
                     with self.lock:
                         participant.state = None
@@ -634,17 +655,56 @@ class LiveHub:
 
     # -- envoi de la verif (vue POST /api/verifs/) ---------------------------------------------------------------------
 
-    def verif_team(self, credentials):
+    def verif_team(self, credentials, step=None):
         """Verif a plusieurs envoyee par un de ses participants ({"id", "pid", "token"}) : cles des lots connues du
-        serveur et identites des participants (celui qui envoie, ceux qui ont valide ou scanne). None si inconnue."""
+        serveur et identites des participants (celui qui envoie, ceux qui ont valide ou scanne). None si inconnue.
+        step : vérif en cascade, iids (et lots scelles) envoyes : seuls ceux qui en ont scanne y participent."""
         with self.lock:
             session, participant = self._find(credentials)
             if session is None or session.done or session.saving:
                 return None
-            identities = [p.identity for p in session.participants.values()
-                          if p.identity and (p is participant or p.validated or p.entries)]
+            if step is None:
+                identities = [p.identity for p in session.participants.values()
+                              if p.identity and (p is participant or p.validated or p.entries)]
+            else:
+                identities = [p.identity for p in session.participants.values()
+                              if p.identity and (p is participant or any(self._entry_in(entry, step) for entry in p.entries))]
             return {'id': session.id, 'pid': participant.id, 'keys': dict(session.lots),
                     'identities': list(dict.fromkeys(identities))}
+
+    @staticmethod
+    def _entry_in(entry, iids):
+        """Scan partage compris dans les iids (et lots scelles) d'une vérif envoyee."""
+        if entry['kind'] == 'pack':
+            return bool(iids & set(entry['items']))
+        return entry['iid'] in iids
+
+    def step(self, team, report, iids):
+        """Vérif en cascade : un participant a valide un lot (et ses sous-lots faits). La vérif commune continue : le
+        lot est note valide pour tous, les scans envoyes sont retires des scans partages."""
+        rows = [row for row in report.get('lots') or [] if row.get('verified') or row.get('sealed')]
+        sent = set(iids) | {row['id'] for row in rows if row.get('sealed')}
+        with self.lock:
+            session = self.sessions.get(team['id'])
+            if session is None:
+                return
+            poster = session.participants.get(team['pid'])
+            who = poster.who if poster is not None else ''
+            at = timezone.now().isoformat(timespec='seconds')
+            for row in rows:
+                if len(session.steps) < 500 or row['id'] in session.steps:
+                    session.steps[row['id']] = {'at': at, 'by': who, 'complete': bool(row.get('complete')),
+                                                'sealed': bool(row.get('sealed'))}
+            for participant in session.participants.values():
+                participant.entries = [entry for entry in participant.entries if not self._entry_in(entry, sent)]
+            session.updated = timezone.now()
+            sockets = [p.socket for p in session.participants.values() if p.id != team['pid'] and p.socket is not None]
+        message = {'type': 'step', 'by': who, 'items': sorted(sent),
+                   'lots': [{'id': row['id'], 'name': row['name'], 'complete': bool(row.get('complete')),
+                             'sealed': bool(row.get('sealed'))} for row in rows]}
+        for websocket in sockets:
+            websocket.send_json(message)
+        self._changed(session)
 
     def finish(self, team, report):
         """Verif enregistree : affichee comme terminee, compte rendu envoye aux autres participants."""

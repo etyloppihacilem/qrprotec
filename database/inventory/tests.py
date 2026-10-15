@@ -1207,6 +1207,42 @@ class SubLotTests(ApiTestCase):
         code, body = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 400)
 
+    def test_cascade_steps(self):
+        """Vérif en cascade du B+ : chaque sac est valide a part, avec la cle du B+ scannee au debut."""
+        bplus_key = [{'id': self.bplus['id'], 'key': self.keys[self.bplus['id']]}]
+        bottle = self.bottle()
+        # sac O2 seul, la cle du B+ (lot non verifie) valide l'etape
+        payload = {'lots': [{'id': self.sac_o2['id']}], 'keys': bplus_key, 'items': [bottle], 'user': self.badge,
+                   'step': True}
+        code, report = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertEqual([row['id'] for row in report['lots']], [self.sac_o2['id']])
+        self.assertTrue(report['complete'])
+        # sans cle : refuse ; la cle d'un lot d'un autre lot global ne compte pas
+        code, body = self.call('POST', '/api/verifs/', dict(payload, keys=[]), local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', '/api/verifs/', dict(payload, keys=[{'id': self.lot.id, 'key': self.lot.verif_key}]),
+                               local=False)
+        self.assertEqual(code, 403)
+        # le B+ ensuite : le sac O2, deja valide, est laisse de cote ; le sac de soin, pas fait, aussi
+        before = Lots.objects.get(id=self.soin['id']).last_verif
+        code, report = self.call('POST', '/api/verifs/', {
+            'lots': bplus_key, 'items': [], 'user': self.badge,
+            'exclude': [self.sac_o2['id'], self.soin['id']]}, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertEqual([row['id'] for row in report['lots']], [self.bplus['id']])
+        self.assertEqual(report['missing'], [])
+        self.assertEqual(Items.objects.get(iid=bottle).status, ItemStatus.ACTIVE)
+        self.assertEqual(Lots.objects.get(id=self.soin['id']).last_verif, before)
+        # exclure un lot verifie, ou un lot hors de la verif : refuse
+        code, body = self.call('POST', '/api/verifs/', {'lots': bplus_key, 'items': [], 'user': self.badge,
+                                                         'exclude': [self.bplus['id']]}, local=False)
+        self.assertEqual(code, 400)
+        code, body = self.call('POST', '/api/verifs/', {'lots': [{'id': self.soin['id']}], 'keys': bplus_key,
+                                                         'items': [], 'user': self.badge,
+                                                         'exclude': [self.sac_o2['id']]}, local=False)
+        self.assertEqual(code, 400)
+
     def test_lots_must_share_global_lot(self):
         payload = {'lots': [{'id': self.soin['id']}, {'id': self.lot.id}], 'items': [], 'user': 'M001'}
         code, body = self.call('POST', '/api/verifs/', payload)
@@ -2269,6 +2305,64 @@ class LiveHubTests(ApiTestCase):
         self.assertFalse(any(m.get('merged') for m in third.sent))
         for socket in (first, second, third):
             socket.push(None)
+
+    def test_cascade_step_keeps_the_team_check(self):
+        """Vérif en cascade a deux : Jeanne valide son armoire, la vérif commune continue pour Paul."""
+        from unittest import mock
+        sub_a = Lots(lot_type=self.lot_type, name='Armoire 1', name_short='A1', created_by='test', parent=self.lot)
+        sub_a.save()
+        sub_b = Lots(lot_type=self.lot_type, name='Armoire 2', name_short='A2', created_by='test', parent=self.lot)
+        sub_b.save()
+        mine = self.create(self.compresses, self.today + timedelta(days=200), 2)
+        theirs = self.create(self.compresses, self.today + timedelta(days=200), 1)
+
+        def start(hello, level, entries, keys):
+            socket = FakeSocket(hello)
+            self.run_socket(self.hub.run_scanner, socket)
+            self.wait(lambda: socket.sent)
+            socket.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id,
+                         'cascade': True, 'level': {'id': level.id, 'name': level.name}, 'keys': keys,
+                         'entries': [{'code': item.iid, 'kind': 'item', 'iid': item.iid, 'place': level.id}
+                                     for item in entries]})
+            return socket
+
+        first = start({'type': 'hello', 'user': self.badge}, sub_a, mine,
+                      [{'id': self.lot.id, 'key': self.lot.verif_key}])
+        self.wait(lambda: self.hub.visible())
+        second = start({'type': 'hello', 'name': 'Paul Martin'}, sub_b, theirs, [])
+        self.wait(lambda: any(m.get('merged') for m in second.sent))
+        merged = next(m for m in second.sent if m.get('merged'))
+        session = self.hub.sessions[merged['id']]
+        self.wait(lambda: len(session.participants) == 2 and all(p.entries for p in session.participants.values()))
+        hello = first.sent[0]
+        # Jeanne valide l'armoire 1 sans cle : celle du lot global, gardee par le serveur, suffit
+        with mock.patch.object(self.live, 'hub', self.hub):
+            code, report = self.call('POST', '/api/verifs/', {
+                'lots': [{'id': sub_a.id}], 'items': [item.iid for item in mine], 'user': self.badge, 'step': True,
+                'live': {'id': hello['id'], 'pid': hello['pid'], 'token': hello['token']}}, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertEqual(report['participants'], ['Jeanne'])  # Paul n'a rien scanne dans l'armoire 1
+        self.assertIsNone(session.done)  # la vérif commune continue
+        self.assertEqual(set(session.steps), {sub_a.id})
+        self.assertEqual(session.steps[sub_a.id]['by'], 'Jeanne')
+        self.assertEqual(session.participants[hello['pid']].entries, [])
+        self.assertEqual(len(session.participants[merged['pid']].entries), 1)
+        self.wait(lambda: any(m['type'] == 'step' for m in second.sent))
+        step = next(m for m in second.sent if m['type'] == 'step')
+        self.assertEqual(([row['id'] for row in step['lots']], step['by']), ([sub_a.id], 'Jeanne'))
+        self.wait(lambda: any(m['type'] == 'team' and sub_a.id in m['done'] for m in second.sent))
+        team = [m for m in second.sent if m['type'] == 'team'][-1]
+        self.assertEqual({row['who']: (row['level'] or {}).get('name') for row in team['participants']},
+                         {'Jeanne': 'Armoire 1', 'Paul Martin': 'Armoire 2'})
+        # Jeanne a fini : elle quitte la vérif, Paul continue seul ; abandonnee, rien n'est enregistre par le serveur
+        first.push({'type': 'leave'})
+        self.wait(lambda: len(session.participants) == 1)
+        self.assertIn(session.id, self.hub.sessions)
+        second.push(None)
+        self.wait(lambda: not session.connected)
+        self.hub.reap(session.lost + self.live.LOST_KEEP + 1)
+        self.assertNotIn(session.id, self.hub.sessions)
+        self.assertEqual(Verifs.objects.filter(lot=sub_b).count(), 0)
 
     def lonely_check(self, validate, remaining):
         """Verif d'un seul participant qui ferme sa page ; renvoie la session apres le delai d'abandon."""

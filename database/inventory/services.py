@@ -157,7 +157,7 @@ def _with_ancestors(lots):
     return list(result.values())
 
 
-def perform_verif(lot, iids, identity, partial=False, participants=(), places=None, sealed=()):
+def perform_verif(lot, iids, identity, partial=False, participants=(), places=None, sealed=(), exclude=()):
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -180,7 +180,10 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
     - sealed : lots scelles dont l'etiquette du scelle a ete scannee pendant la verif (scelle intact constate, voir
       views.sealed_targets). Ils comptent comme verifies avec leurs sous-lots, sans etre ouverts ni scannes : leur
       contenu n'est ni attendu ni signale manquant, et ils ne recoivent pas d'items. Un lot dont un item est scanne
-      a ete ouvert : il est verifie normalement.
+      a ete ouvert : il est verifie normalement ;
+    - exclude : sous-lots des lots verifies laisses de cote avec leurs propres sous-lots (vérif en cascade : deja
+      valides pendant cette vérif, pas encore faits, ou faits par un autre participant). Ils ne sont ni attendus, ni
+      verifies, ni ouverts.
     """
     now = timezone.now()
     today = timezone.localdate()
@@ -191,6 +194,9 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         group = None
     else:
         group = verif_lots(lot if isinstance(lot, (list, tuple)) else [lot])
+        if exclude:
+            left_out = {sub_lot.id for excluded in exclude for sub_lot in excluded.descendants()}
+            group = [sub_lot for sub_lot in group if sub_lot.id not in left_out]
     by_id = {sub_lot.id: sub_lot for sub_lot in group or []}
 
     with transaction.atomic():

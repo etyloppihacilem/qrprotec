@@ -609,8 +609,9 @@ def verif_targets(request, entries):
     return verif_lots(entries, is_local(request))
 
 
-def verif_lots(entries, local):
-    """verif_targets hors requete (vérif à plusieurs enregistree par le serveur, live.py)."""
+def verif_lots(entries, local, holders=()):
+    """verif_targets hors requete (vérif à plusieurs enregistree par le serveur, live.py). holders : [(lot, cle)]
+    autres lots du meme lot global dont l'etiquette cle a ete scannee pendant la vérif (key_holders)."""
     if not isinstance(entries, list) or not entries:
         raise ApiError("lots : liste de lots attendue")
     lots = []
@@ -629,14 +630,52 @@ def verif_lots(entries, local):
             keys[lot.id] = entry['key']
         else:
             keys.setdefault(lot.id, '')
-    if len({lot.root().id for lot in lots}) > 1:
+    roots = {lot.root().id for lot in lots}
+    if len(roots) > 1:
         raise ApiError("Les lots d'une même vérif doivent appartenir au même lot global")
-    if not local and not any(lot.check_key(keys[lot.id]) for lot in lots):
+    if not local and not any(lot.check_key(keys[lot.id]) for lot in lots) \
+            and not any(lot.root().id in roots and lot.check_key(key) for lot, key in holders):
         # une seule etiquette cle d'un des lots (un sous-lot suffit, ex : un rangement pour le stock) valide toute
-        # la verif : les lots sont tous du meme lot global
+        # la verif : les lots sont tous du meme lot global. Vérif en cascade : celle d'un autre lot du meme lot global
+        # scannee plus tot dans la vérif (holders) aussi.
         lot = next((lot for lot in lots if keys[lot.id]), lots[0])
         raise ApiError(key_error(lot, keys[lot.id]), status.HTTP_403_FORBIDDEN)
     return lots
+
+
+def key_holders(data, extra=None):
+    """"keys" d'une vérif en cascade : [{"id", "key"}], etiquettes cles d'autres lots du meme lot global scannees
+    plus tot dans la vérif (ex : celle du VPS, puis la vérif d'une de ses armoires). Elles valident la vérif sans que
+    ces lots en fassent partie. extra : {lot id: cle} gardees par la vérif à plusieurs (live.py)."""
+    entries = data.get('keys') or []
+    if not isinstance(entries, list):
+        raise ApiError("keys : liste [{id, key}] attendue")
+    wanted = {}
+    for entry in entries[:50]:
+        if isinstance(entry, dict) and entry.get('id') and entry.get('key'):
+            wanted[str(entry['id'])] = str(entry['key'])
+    for lot_id, key in (extra or {}).items():
+        if key:
+            wanted.setdefault(lot_id, key)
+    lots = Lots.objects.select_related('parent').filter(id__in=list(wanted), active=True)
+    return [(lot, wanted[lot.id]) for lot in lots]
+
+
+def excluded_lots(data, lots):
+    """"exclude" d'une vérif en cascade : [id], sous-lots des lots verifies laisses de cote avec leurs sous-lots
+    (services.perform_verif). Un lot verifie lui-meme ne peut pas etre exclu."""
+    ids = data.get('exclude') or []
+    if not isinstance(ids, list) or not all(isinstance(value, str) for value in ids):
+        raise ApiError("exclude : liste d'ids de lots attendue")
+    inside = {sub_lot.id: sub_lot for sub_lot in services.verif_lots(lots)}
+    result = []
+    for lot_id in dict.fromkeys(ids):
+        if lot_id in {lot.id for lot in lots}:
+            raise ApiError("exclude : un lot vérifié ne peut pas être laissé de côté")
+        if lot_id not in inside:
+            raise ApiError(f"exclude : {lot_id} n'est pas un sous-lot des lots vérifiés")
+        result.append(inside[lot_id])
+    return result
 
 
 def sealed_targets(data, lots):
@@ -686,19 +725,30 @@ def verifs(request):
     comme verifies sans etre ouverts (sealed_targets).
     Vérif à plusieurs (inventory/live.py) : "live": {"id", "pid", "token"} du participant qui envoie. Les cles des
     lots manquantes sont prises dans la verif commune, ses participants sont enregistres sur la verif et le compte
-    rendu leur est envoye."""
+    rendu leur est envoye.
+    Vérif en cascade (lot global, ex : VPS > armoires > sacs) : chaque lot est valide a part, au fil de la vérif.
+    "exclude" : [id], sous-lots laisses de cote (deja valides, pas faits, ou faits par un autre participant) ;
+    "keys" : [{"id", "key"}], etiquettes cles d'autres lots du meme lot global scannees plus tot (key_holders) ;
+    "step" : avec "live", la vérif commune continue (les autres participants voient le lot valide) au lieu de se
+    terminer."""
     entries = request.data.get('lots')
-    team = live.hub.verif_team(request.data.get('live'))
+    iids = iid_list(request.data)
+    step = bool(request.data.get('step'))
+    sealed_ids = [str(entry.get('id', '')) for entry in request.data.get('sealed') or [] if isinstance(entry, dict)]
+    team = live.hub.verif_team(request.data.get('live'), set(iids) | set(sealed_ids) if step else None)
     if team and isinstance(entries, list):
         entries = [dict(entry, key=entry.get('key') or team['keys'].get(str(entry.get('id', '')), ''))
                    if isinstance(entry, dict) else entry for entry in entries]
-    lots = verif_targets(request, entries)
+    lots = verif_lots(entries, is_local(request), key_holders(request.data, team['keys'] if team else None))
     identity = operation_identity(request)
     participants = [value for value in team['identities'] if value != identity] if team else []
-    report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
-                                    participants, place_map(request.data), sealed_targets(request.data, lots))
+    report = services.perform_verif(lots, iids, identity, bool(request.data.get('partial')),
+                                    participants, place_map(request.data), sealed_targets(request.data, lots),
+                                    excluded_lots(request.data, lots))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
-    if team:
+    if team and step:
+        live.hub.step(team, report, iids)
+    elif team:
         live.hub.finish(team, report)
     return Response(report)
 
