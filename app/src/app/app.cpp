@@ -1507,11 +1507,17 @@ void App::resolve_item(int entry_id) {
                true);
         return;
       }
-      if (where != verif_level() && verif_under(where, verif_level())) {
+      // item d'un autre lot alors que le lot en cours est complet : celui-ci est valide automatiquement, puis on entre
+      // dans le lot de l'item ; l'item compte dans son lot, pas dans celui qui est valide
+      const std::string place = entry->place;
+      entry->place            = where; // pas envoye avec le lot valide automatiquement
+      const bool closing = !verif_under(where, verif_level()) && leave_complete_level(where, true);
+      if (!closing && where != verif_level() && verif_under(where, verif_level())) {
         enter_level(where);
-        entry->place = where;
         notify("Entrée dans " + name + " : scannez son contenu, puis validez-le pour revenir à "
                + (*verif_lot(verif_parent(where)))["name"].str() + ".");
+      } else if (!closing) {
+        entry->place = place;
       }
     }
     if (item["expired"].boolean() && !entry->expired) {
@@ -1696,6 +1702,9 @@ void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
               const bool known = std::any_of(verif.sealed.begin(), verif.sealed.end(),
                                              [&](const VerifSealed &sealed) { return sealed.id == id; })
                                  || (verif.done.count(id) && verif.done[id].sealed);
+              // scelle d'un lot hors du lot en cours, alors que celui-ci est complet : il est valide automatiquement
+              if (verif_cascade() && verif_lot(id) && !verif_under(id, verif_level()))
+                leave_complete_level(id, false);
               if (!known)
                 verif.sealed.push_back({ id, code, name });
               notify(name + " : scellé intact, compté comme vérifié sans être ouvert.");
@@ -1947,6 +1956,11 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
         verif.key = scan.key;
       else
         verif.keys[scan.id] = scan.key;
+    }
+    // etiquette d'un lot hors du lot en cours, alors que celui-ci est complet : il est valide automatiquement d'abord
+    if (scan.id != verif_level() && !verif_under(scan.id, verif_level()) && leave_complete_level(scan.id, true)) {
+      open_window("verif");
+      return;
     }
     const bool reopened = verif.done.count(scan.id) > 0;
     enter_level(scan.id);
@@ -2607,24 +2621,28 @@ void App::submit_step(bool partial) {
     for (const std::string &id : exclude)
       body["exclude"].push_back(id);
     body["sealed"] = Json::array();
+    std::set< std::string > sent_seals;
     for (const VerifSealed &sealed : verif.sealed) {
       Json entry;
       entry["id"]   = sealed.id;
       entry["code"] = sealed.code;
       body["sealed"].push_back(entry);
+      sent_seals.insert(sealed.id);
     }
     body["partial"]  = partial;
     body["step"]     = true;
     verif.submitting = true;
     const std::string root = verif.lot_id;
     const std::string name = (*lot)["name"].str(top);
-    api.post("/api/verifs/", body, [this, root, top, name, at_root, partial, sent](const ApiResult &result) {
+    api.post("/api/verifs/", body, [this, root, top, name, at_root, partial, sent, sent_seals](const ApiResult &result) {
       if (!verif.active || verif.lot_id != root)
         return;
       verif.submitting = false;
       if (!result.ok) {
         identity_refused(result);
         notify("Vérif refusée : " + result.error, true);
+        verif.after_step.clear();
+        verif.auto_done.clear();
         return;
       }
       const std::string at       = now_hhmm();
@@ -2642,7 +2660,9 @@ void App::submit_step(bool partial) {
       }
       for (int id : sent)
         stack.remove(id);
-      verif.sealed.clear();
+      verif.sealed.erase(std::remove_if(verif.sealed.begin(), verif.sealed.end(),
+                                        [&](const VerifSealed &sealed) { return sent_seals.count(sealed.id) > 0; }),
+                         verif.sealed.end());
       if (at_root && finished) {
         last_report     = result.data;
         last_report_lot = name;
@@ -2651,18 +2671,83 @@ void App::submit_step(bool partial) {
         return;
       }
       const std::size_t missing = result.data["missing"].size();
-      if (finished)
+      if (!finished)
+        notify(name + (verified ? " : vérif partielle enregistrée." : " : réassort enregistré."));
+      else if (verif.after_step.empty()) // validation automatique : message plus bas
         notify(name + " validé" + (incomplete ? " : incomplet, " + std::to_string(missing) + " item(s) manquant(s)." : ".")
                  + " Retour au lot qui le contient.",
                incomplete > 0);
-      else
-        notify(name + (verified ? " : vérif partielle enregistrée." : " : réassort enregistré."));
       if (finished)
         leave_level();
+      // validation automatique : on continue vers le lot scanne (autre lot complet a quitter, ou entree dans ce lot)
+      if (finished && !verif.after_step.empty()) {
+        const std::string target = verif.after_step;
+        const bool        enter  = verif.after_enter;
+        verif.after_step.clear();
+        verif.auto_done.push_back(name);
+        if (!verif_under(target, verif_level()) && leave_complete_level(target, enter)) {
+          reload_verif_lots();
+          return;
+        }
+        std::string done_names;
+        for (const std::string &done_name : verif.auto_done)
+          done_names += (done_names.empty() ? "" : ", ") + done_name;
+        verif.auto_done.clear();
+        if (enter && target != verif_level() && verif_under(target, verif_level())) {
+          enter_level(target);
+          notify(done_names + " complet : validé automatiquement. Entrée dans " + (*verif_lot(target))["name"].str()
+                 + " : scannez son contenu, puis validez-le.");
+        } else {
+          notify(done_names + " complet : validé automatiquement.");
+        }
+      }
+      flush_cascade_seals();
       reload_verif_lots();
       refresh_lots();
     });
   });
+}
+
+// Lot en cours (pas le lot global) complet : rien d'attendu n'y manque, il peut etre valide sans question (meme regle
+// que levelComplete du front web)
+bool App::verif_level_complete() const {
+  if (!verif_cascade() || verif.loading || verif.submitting || !logged_in() || !verif_key_ok())
+    return false;
+  const std::string top = verif_level();
+  const Json       *lot = verif_lot(top);
+  if (top == verif.lot_id || !lot)
+    return false;
+  const std::set< std::string > scope = verif_scope(top);
+  bool scanned = false;
+  for (const ScanEntry &entry : stack.entries()) {
+    if (entry.state == EntryState::Error || entry.tasks_pending)
+      continue;
+    scanned = scanned || scope.count(entry.place.empty() ? verif.lot_id : entry.place) > 0;
+  }
+  if (!scanned && own_content(*lot))
+    return false;
+  for (const VerifPlanLot &row : plan_verif()) {
+    if (!scope.count((*row.lot)["id"].str()))
+      continue;
+    if (!row.complete || (*row.lot)["is_sealed"].boolean())
+      return false;
+  }
+  return true;
+}
+
+// Scan d'un lot `id` hors du lot en cours : si celui-ci est complet, il est valide automatiquement (submit_step), puis
+// on continue vers `id`. true si la validation est lancee.
+bool App::leave_complete_level(const std::string &id, bool enter) {
+  if (!verif_level_complete())
+    return false;
+  verif.after_step  = id;
+  verif.after_enter = enter;
+  submit_step(false);
+  if (!verif.submitting) { // pas envoyee (lot de regroupement sans rien a enregistrer : deja remonte)
+    verif.after_step.clear();
+    return false;
+  }
+  return true;
 }
 
 // Scelles intacts constates (etiquette du scelle scannee) : enregistres tout de suite si l'on peut deja valider, sinon

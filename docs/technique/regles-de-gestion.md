@@ -178,7 +178,12 @@ Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.
     : 400 ;
   - un scan appartient au niveau où il a été fait ; un item d'un sous-lot du niveau y fait entrer ;
     un item d'un lot déjà validé dans la cascade est refusé ; l'étiquette d'un scellé est envoyée
-    tout de suite.
+    tout de suite. Item, étiquette ou scellé d'un lot hors du niveau alors que le niveau est complet
+    (rien d'attendu ne manque, clé connue, pas de lot scellé) : le niveau est validé automatiquement
+    (`leaveCompleteLevels` / `App::leave_complete_level`), en remontant tant que le lot scanné n'est
+    pas dedans, puis on y entre.
+  - Suivi : les participants de même identité (même personne sur deux pages) sont regroupés
+    (`LiveSession.people`) ; la validation de l'un vaut pour les autres.
   - Vérif commune : `step` garde la session live (`LiveHub.step`) : les lignes validées vont dans
     `team.done`, les entrées envoyées sont retirées, les autres reçoivent `{type: 'step'}`. Chaque
     participant publie son niveau (`level`). `leave` sort de la session sans la terminer ; une

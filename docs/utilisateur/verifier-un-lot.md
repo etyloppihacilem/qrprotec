@@ -237,6 +237,12 @@ les armoires faites restent faites. Un lot où vous n'êtes pas entré n'est pas
 cette vérif est refusé (« Déjà vérifié ») : rentrez dans le lot (touchez sa ligne) pour le refaire.
 **← Retour** remonte d'un niveau sans valider.
 
+**Validation automatique** : quand le lot où vous êtes est complet (plus rien d'attendu à scanner) et
+que vous scannez un item, l'étiquette ou le scellé d'un autre lot (ex : un item de l'armoire 2 alors que
+l'armoire 1 est complète), le lot complet est validé tout seul (« ✔ Armoire 1 complet : validé
+automatiquement ») et vous entrez dans l'autre. Un lot incomplet n'est jamais validé tout seul : il faut
+le valider à la main.
+
 Lancer la vérif d'un sous-lot (l'armoire 1, ou un sac via son étiquette clé) ouvre la même vue,
 directement dans ce sous-lot : on voit où il est dans le VPS.
 
@@ -252,6 +258,8 @@ commune, voir « Vérifier à plusieurs ») :
   · Julien » ;
 - quand Julien valide l'armoire 1, elle passe « Validé par Julien » chez Camille aussi ;
 - Camille n'a pas besoin de scanner une clé si Julien en a déjà scanné une ;
+- une même personne n'apparaît qu'une fois, même si elle a la vérif ouverte sur deux téléphones ou deux
+  onglets (ex : étiquette clé ouverte avec l'appareil photo, qui ouvre un nouvel onglet) ;
 - **Terminer** (ou valider le VPS) fait sortir de la vérif commune ; les autres continuent. Quand le dernier
   participant encore connecté termine, la vérif passe « Terminée » dans le **Suivi des vérifs**, avec le
   nombre de lots validés.
