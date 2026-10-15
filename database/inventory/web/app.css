@@ -361,7 +361,7 @@ ul.tasks li { border-bottom: 1px solid var(--line); }
 ul.tasks label { display: flex; gap: 10px; align-items: center; padding: 10px 2px; }
 ul.tasks input { width: 22px; height: 22px; flex: none; }
 #tasks-ok:disabled { opacity: .45; }
-#disabled-item .disabled-banner { background: var(--red); color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 8px 0; }
+#replace-item .replace-banner { background: var(--red); color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 8px 0; }
 ul.tasks-facts { margin: 0; padding-left: 18px; }
 
 /* ---- Signalements de problemes ---- */
@@ -377,7 +377,7 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
 .tiles .tile.wide > span:last-child { display: flex; flex-direction: column; align-items: flex-start; }
 .tiles .tile.alert { box-shadow: 0 0 0 3px var(--red); }
 .dialog-stack { display: flex; flex-direction: column; gap: 8px; }
-#problem h2, #login-needed h2, #reported h2, #disabled-item h2 { margin: 0 0 6px; font-size: 1.2rem; }
+#problem h2, #login-needed h2, #reported h2, #replace-item h2 { margin: 0 0 6px; font-size: 1.2rem; }
 #problem .choice { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
 #problem .choice label { display: flex; align-items: center; gap: 8px; padding: 6px 2px; }
 #problem .choice input { width: 20px; height: 20px; flex: none; }
