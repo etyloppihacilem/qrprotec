@@ -148,16 +148,16 @@
     </form>
   </dialog>
 
-  <!-- Item a taches desactive : sa desactivation s'affiche avant ses taches -->
-  <dialog id="disabled-item">
-    <h2 id="disabled-item-title"></h2>
-    <p id="disabled-item-sub" class="hint"></p>
-    <div class="disabled-banner">✘ Désactivé : à remplacer</div>
-    <p>Désactivé, l'item est invalide comme s'il était périmé : il ne compte plus dans son lot et doit être remplacé.</p>
-    <p><b>Motif :</b> <span id="disabled-item-reason"></span><br><span id="disabled-item-when" class="hint"></span></p>
+  <!-- Item a taches a remplacer (perime, desactive) : sa fiche s'affiche avant ses taches -->
+  <dialog id="replace-item">
+    <h2 id="replace-item-title"></h2>
+    <p id="replace-item-sub" class="hint"></p>
+    <div id="replace-item-banner" class="replace-banner"></div>
+    <p>L'item ne compte plus dans son lot et doit être remplacé.</p>
+    <div id="replace-item-facts"></div>
     <div class="dialog-buttons">
-      <button type="button" id="disabled-item-cancel" class="secondary">Fermer</button>
-      <button type="button" id="disabled-item-next" class="primary">Voir les tâches</button>
+      <button type="button" id="replace-item-cancel" class="secondary">Fermer</button>
+      <button type="button" id="replace-item-next" class="primary">Voir les tâches</button>
     </div>
   </dialog>
 

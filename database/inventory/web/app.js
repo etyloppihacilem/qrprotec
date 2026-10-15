@@ -497,9 +497,9 @@
     // fenetre des taches ouverte et autre code scanne : l'item reste non valide (le rescanner reprend ses taches)
     if (taskPopup && !(scan.kind === 'item' && scan.id === taskPopup.entry.iid)) finishTasks(false);
     // fiche de desactivation affichee : rescanner l'item passe a ses taches, un autre code le laisse non valide
-    if (disabledPopup) {
-      if (scan.kind === 'item' && scan.id === disabledPopup.iid) { closeDisabled(true); return; }
-      closeDisabled(false);
+    if (replacePopup) {
+      if (scan.kind === 'item' && scan.id === replacePopup.iid) { closeReplace(true); return; }
+      closeReplace(false);
     }
     // scanner sans vérif en cours et pile vide : l'etiquette d'un item ou d'un lot ouvre sa fiche en grand, comme
     // le lien ouvert avec l'appareil photo du telephone (« Lancer une vérif » y ramene au scanner)
@@ -573,7 +573,7 @@
         if (e.status === 404) entry.error = 'Inconnu dans la base';
       }
       if (entry.info && !entry.error && (entry.info.tasks || []).length) {
-        if (entry.info.disabled) feedback.bad();
+        if (entry.expired) feedback.bad();
         openTasks(entry);
         return;
       }
@@ -599,7 +599,7 @@
       if (entry.info && !entry.error && !entry.tasksDone && (entry.info.tasks || []).length) {
         const index = state.scanned.indexOf(entry);
         if (index >= 0) state.scanned.splice(index, 1);
-        if (!entry.info.disabled) feedback.task();
+        if (!entry.expired) feedback.task();
         openTasks(entry);
         return;
       }
@@ -628,44 +628,53 @@
 
   // Fenetre des taches d'un item (etiquette de taches) : toutes cochees et validees, l'item compte comme vu
   let taskPopup = null; // {entry, scan}
-  // Item desactive : sa fiche de desactivation s'affiche d'abord, ses taches ensuite (bouton « Voir les tâches »)
+  // Item a remplacer (perime, desactive, signale inutilisable) : sa fiche (peremption ou desactivation) s'affiche
+  // d'abord, ses taches ensuite (bouton « Voir les tâches »)
   function openTasks(entry) {
-    if (entry.info.disabled && !entry.disabledSeen) { openDisabled(entry); return; }
+    if (entry.expired && !entry.replaceSeen) { openReplace(entry); return; }
     showTasks(entry);
   }
 
-  let disabledPopup = null; // entry dont la fiche de desactivation est affichee avant ses taches
-  function openDisabled(entry) {
+  let replacePopup = null; // entry a remplacer dont la fiche est affichee avant ses taches
+  function openReplace(entry) {
     const info = entry.info;
-    disabledPopup = entry;
-    $('#disabled-item-title').textContent = info.type_name;
-    $('#disabled-item-sub').textContent = entry.iid;
-    $('#disabled-item-reason').textContent = info.disabled_reason || '–';
-    $('#disabled-item-when').textContent = [info.disabled_at ? cap(fmtOn(info.disabled_at, { long: true })) : '',
-      info.disabled_by ? 'par ' + info.disabled_by : ''].filter(Boolean).join(' ');
-    showInfo('bad', 'DÉSACTIVÉ – ' + info.type_name, 'Item désactivé : à remplacer.');
-    const dialog = $('#disabled-item');
+    replacePopup = entry;
+    $('#replace-item-title').textContent = info.type_name;
+    $('#replace-item-sub').textContent = entry.iid;
+    const label = badLabel(info);
+    $('#replace-item-banner').textContent = '✘ ' + cap(label.toLowerCase()) + ' : à remplacer';
+    const facts = [];
+    if (info.disabled) {
+      facts.push(el('p', {}, el('b', {}, 'Désactivé : '), info.disabled_reason || '–', el('br'),
+        el('span', { class: 'hint' }, [info.disabled_at ? cap(fmtOn(info.disabled_at, { long: true })) : '',
+          info.disabled_by ? 'par ' + info.disabled_by : ''].filter(Boolean).join(' '))));
+    }
+    if (info.unusable && !info.disabled) facts.push(el('p', {}, el('b', {}, 'Signalé inutilisable.')));
+    if (info.peremption) facts.push(el('p', {}, el('b', {}, 'Péremption : '), fmtDate(info.peremption)));
+    $('#replace-item-facts').replaceChildren(...facts);
+    showInfo('bad', label + ' – ' + info.type_name, 'Item à remplacer.');
+    const dialog = $('#replace-item');
     if (!dialog.open) dialog.showModal();
   }
 
-  function closeDisabled(next) {
-    const entry = disabledPopup;
-    disabledPopup = null;
-    const dialog = $('#disabled-item');
+  function closeReplace(next) {
+    const entry = replacePopup;
+    replacePopup = null;
+    const dialog = $('#replace-item');
     if (dialog.open) dialog.close();
     if (!entry) return;
     if (!next) {
-      showInfo('warn', 'Item non validé : ' + entry.info.type_name, 'Désactivé, à remplacer. Rescannez-le pour voir ses tâches.');
+      showInfo('warn', 'Item non validé : ' + entry.info.type_name, badLabel(entry.info) + ', à remplacer. Rescannez-le pour voir ses tâches.');
       return;
     }
-    entry.disabledSeen = true;
+    entry.replaceSeen = true;
     feedback.task();
     showTasks(entry);
   }
 
-  $('#disabled-item-next').addEventListener('click', () => closeDisabled(true));
-  $('#disabled-item-cancel').addEventListener('click', () => closeDisabled(false));
-  $('#disabled-item').addEventListener('cancel', (event) => { event.preventDefault(); closeDisabled(false); });
+  $('#replace-item-next').addEventListener('click', () => closeReplace(true));
+  $('#replace-item-cancel').addEventListener('click', () => closeReplace(false));
+  $('#replace-item').addEventListener('cancel', (event) => { event.preventDefault(); closeReplace(false); });
 
   function showTasks(entry) {
     const dialog = $('#tasks');
