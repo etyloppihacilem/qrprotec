@@ -2873,6 +2873,22 @@ class LotSheetTests(ApiTestCase):
         texts = self.page_texts(response.content)
         self.assertIn('Sac A \\(suite\\)', texts[1])
 
+    def test_short_list_stays_on_one_column(self):
+        """Un seul item sans emplacement : une colonne, le bandeau avec son item, pas de « suite »."""
+        lot_type = LotType.objects.create(type='armoir', name='Armoire')
+        LotRequirements.objects.create(lot_type=lot_type, item_type=self.garrot, quantity=1)
+        lot = Lots(lot_type=lot_type, name='Armoire 1', name_short='AR1', created_by='test')
+        lot.save()
+        for count in (1, 3):
+            response = self.client.get(f'/api/lots/{lot.id}/sheet.pdf')
+            text = self.page_texts(response.content)[0]
+            self.assertEqual(text.count('(Sans emplacement'), 1)
+            self.assertNotIn('suite', text)
+            self.assertNotIn('0.7 G 0.4 w', text)  # pas de filet entre deux colonnes
+            for index in range(count, 3):
+                item_type = ItemType.objects.create(type=f'ar{index:04d}', name=f'Item {index}')
+                LotRequirements.objects.create(lot_type=lot_type, item_type=item_type)
+
     def test_archived_lot_hidden_from_public(self):
         self.lot.active = False
         self.lot.save()

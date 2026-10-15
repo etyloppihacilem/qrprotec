@@ -328,15 +328,14 @@ class SheetWriter:
             if len(layouts) == 1:
                 break
         if len(layouts) == 1:
-            # colonnes equilibrees : la plus petite hauteur de colonne qui garde la liste sur une page
-            low, high = self.header(lot, False), BODY_BOTTOM
-            while high - low > 1:
-                middle = (low + high) / 2
-                if len(self.layout(lot, entries, scale, middle)) == 1:
-                    high = middle
-                else:
-                    low = middle
-            layouts = self.layout(lot, entries, scale, high)
+            # colonnes equilibrees : la plus petite hauteur de colonne qui garde la liste sur une page, sans colonne
+            # faite d'un bandeau seul ni emplacement coupe pour un item isole ; une liste courte reste sur une colonne
+            top = self.header(lot, False)
+            for bottom in range(int(top) + 1, int(BODY_BOTTOM)):
+                placed = self.layout(lot, entries, scale, bottom)
+                if len(placed) == 1 and self.balanced(placed[0], bottom):
+                    layouts = placed
+                    break
         for number, placed in enumerate(layouts):
             page = Page()
             self.pages.append((page, lot))
@@ -349,6 +348,26 @@ class SheetWriter:
                 x = MARGIN + COLUMN_WIDTH + COLUMN_GAP / 2
                 bottom = max(y + height for _, y, (_, _, height) in placed)
                 page.line(x, self.header(lot, number > 0), x, bottom, line_width=0.4, grey=0.7)
+
+    @staticmethod
+    def balanced(placed, bottom):
+        """Repartition acceptable : tout tient au-dessus de bottom, chaque colonne a au moins un item, et un emplacement
+        coupe garde au moins deux items de chaque cote."""
+        if any(y + height > bottom for _, y, (_, _, height) in placed):
+            return False
+        counts = {}  # (colonne, emplacement) -> nombre d'items
+        location = None
+        for column, _, (kind, content, _) in placed:
+            if kind == 'location':
+                location = content.removesuffix(' (suite)')
+                counts.setdefault((column, location), 0)
+            else:
+                counts[column, location] = counts.get((column, location), 0) + 1
+        for column in {column for column, _ in counts}:
+            if not any(counts[key] for key in counts if key[0] == column):
+                return False
+        locations = [location for _, location in counts]
+        return all(count >= 2 for (_, location), count in counts.items() if locations.count(location) > 1)
 
     @staticmethod
     def draw(page, x, y, entry, scale):
