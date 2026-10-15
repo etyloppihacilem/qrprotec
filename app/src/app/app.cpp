@@ -1499,6 +1499,15 @@ void App::resolve_item(int entry_id) {
     }
     if (item["reported"].boolean())
       alert_reports("item:" + item["iid"].str(), "Item signalé : " + item["type_name"].str(), item["reports"], source);
+    // item a taches desactive : a remplacer, ses taches n'ont plus de sens. L'ecran clignote en rouge, sans
+    // fenetre des taches, et l'item compte comme un perime.
+    if (item["tasks"].size() > 0 && item["disabled"].boolean()) {
+      if (!entry->expired) { // normalement deja fait plus haut : un item desactive est renvoye perime
+        entry->expired = true;
+        feedback.error(source, settings);
+      }
+      return;
+    }
     // item a taches : compte comme vu seulement une fois ses taches cochees et validees
     if (item["tasks"].size() > 0 && !entry->tasks_done) {
       entry->tasks_pending = true;

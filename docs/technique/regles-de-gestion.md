@@ -72,6 +72,8 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    n'envoient l'item dans les scans de la vérif qu'une fois toutes ses tâches cochées et validées
    (web `openTasks`/`addItem`, poste `ScanEntry.tasks_pending`, hors de `ScanStack::iids`). Le
    serveur n'a donc pas de règle à part : un item dont les tâches ne sont pas faites est non vu.
+   Item à tâches désactivé : le web montre sa désactivation (`#disabled-item`) avant les tâches ;
+   le poste clignote en rouge sans fenêtre de tâches et l'envoie dans les scans comme un périmé.
 6. **Exigences** (`requirements_status`) : seuls les items vus à la dernière vérif (ou ajoutés depuis,
    `missed_verifs == 0`) et non périmés comptent comme présents. Le lot est **complet** si chaque
    ligne du contenu attendu est atteinte et qu'il ne contient aucun périmé.

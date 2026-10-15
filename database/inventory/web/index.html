@@ -148,6 +148,19 @@
     </form>
   </dialog>
 
+  <!-- Item a taches desactive : sa desactivation s'affiche avant ses taches -->
+  <dialog id="disabled-item">
+    <h2 id="disabled-item-title"></h2>
+    <p id="disabled-item-sub" class="hint"></p>
+    <div class="disabled-banner">✘ Désactivé : à remplacer</div>
+    <p>Désactivé, l'item est invalide comme s'il était périmé : il ne compte plus dans son lot et doit être remplacé.</p>
+    <p><b>Motif :</b> <span id="disabled-item-reason"></span><br><span id="disabled-item-when" class="hint"></span></p>
+    <div class="dialog-buttons">
+      <button type="button" id="disabled-item-cancel" class="secondary">Fermer</button>
+      <button type="button" id="disabled-item-next" class="primary">Voir les tâches</button>
+    </div>
+  </dialog>
+
   <!-- Signalement d'un probleme : connexion demandee avant de rediger -->
   <dialog id="login-needed">
     <h2>Connexion requise</h2>
