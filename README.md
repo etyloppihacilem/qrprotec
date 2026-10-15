@@ -490,7 +490,7 @@ reçoivent les noms complets. Hors requête (WebSocket, tâche), envelopper la s
 L'API SMS de Free Mobile n'est plus maintenue : elle n'était pas utilisée et les notifications web la
 remplacent. Son code reste en commentaire dans `database/inventory/notifications.py`, les anciens
 réglages et destinataires restent en base sans servir. Le résumé quotidien des lots contenant des
-périmés et l'alerte « vérif incomplète », qui n'existaient qu'en SMS, ne sont plus envoyés.
+périmés et l'alerte « vérif incomplète » (désactivée par défaut) sont devenus des notifications web.
 
 Les péremptions faisant baisser le stock sans action, lancer chaque jour :
 

@@ -574,6 +574,8 @@ PUSH_TYPES = {
     'order_due': ('Commande à passer (prévisions de stock)', _GESTION_ROLES, True),
     'problem_report': ("Signalement d'un problème sur un item ou un lot", _ADMIN_ROLES, True),
     'seal_broken': ("Ouverture d'un lot scellé (étiquette d'ouverture, vérif, ajout ou retrait)", _GESTION_ROLES, True),
+    'expired_daily': ('Résumé quotidien des lots contenant des périmés (7 h 45)', _GESTION_ROLES, True),
+    'verif_problem': ('Vérif de lot incomplète (manquants, périmés, disparus)', _GESTION_ROLES, False),
 }
 
 
@@ -911,6 +913,8 @@ class PushSubscription(models.Model):
     badge_expiring = models.BooleanField(default=False)
     problem_report = models.BooleanField(default=True)  # probleme signale sur un item ou un lot (admins)
     seal_broken = models.BooleanField(default=True)     # scelle d'un lot ouvert
+    expired_daily = models.BooleanField(default=True)   # resume quotidien des lots contenant des perimes (check_alerts)
+    verif_problem = models.BooleanField(default=False)  # verif de lot incomplete (manquants, perimes, disparus)
     device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme, d'apres le User-Agent
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)

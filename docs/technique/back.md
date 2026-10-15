@@ -153,8 +153,9 @@ bloqué ou oublié : une fois par blocage (`notify_pin_blocked`). Les expiration
 son code est en commentaire en tête de `notifications.py`, ses routes (`notifications/recipients/`,
 `notifications/test/`) dans `urls.py` et `views.py`. `NotificationSettings` (hors
 `key_expiry_warning_days`) et `SmsRecipient` restent en base, inutilisés. `GET/PATCH /api/notifications/`
-ne porte plus que `key_expiry_warning_days`. Les évènements SMS seuls (`verif_problem`,
-`expired_daily`) ne sont plus envoyés.
+ne porte plus que `key_expiry_warning_days`. Les évènements qui n'existaient qu'en SMS sont devenus des types
+web : `expired_daily` (résumé des lots contenant des périmés, `check_alerts`, actif par défaut) et
+`verif_problem` (vérif incomplète, `services.notify_verif_problem`, désactivé par défaut, ouvre la fiche du lot).
 
 **Ouverture d'un scellé** (`seal_broken`, web, gestion et admin) : `services.notify_seals_broken`, une
 notification par opération (étiquette d'ouverture, vérif, ajout, retrait, ouverture depuis le poste) même si les

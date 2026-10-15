@@ -80,8 +80,8 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    ligne du contenu attendu est atteinte et qu'il ne contient aucun périmé.
 7. **Écriture** : une ligne `Verifs` par lot vérifié, une `VerifItem` par item, `last_verif*` du lot,
    effacement de « vérif recommandée ».
-8. **Effets de bord** : scellés brisés (voir plus bas), contrôle des seuils
-   de stock pour les types touchés.
+8. **Effets de bord** : scellés brisés (voir plus bas), notification web « vérif incomplète »
+   (désactivée par défaut), contrôle des seuils de stock pour les types touchés.
 
 La **vérif du stock** (`lot=None`, `POST /api/stock/verif/`, poste en mode privilégié) suit la même
 logique sur les items hors lots : un item scanné revient en stock, sauf s'il est dans un rangement

@@ -1508,6 +1508,20 @@ class AlertTests(ApiTestCase):
         self.assertEqual(run(), [])
         self.assertFalse(ItemType.objects.get(pk='compre').order_notified)
 
+    def test_verif_problem(self):
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'M001'})
+        messages = [text for event, text in self.sent if event == 'verif_problem']
+        self.assertEqual(len(messages), 1)
+        self.assertIn('vérif du lot Sac A incomplète', messages[0])
+        self.assertIn('manque 2 Compresses', messages[0])
+
+    def test_expired_daily_summary(self):
+        from django.core.management import call_command
+        expired = self.create(self.compresses, self.today - timedelta(days=1), 2)
+        Items.objects.filter(iid__in=[item.iid for item in expired]).update(location=self.lot)
+        call_command('check_alerts', stdout=StringIO())
+        self.assertIn(('expired_daily', 'lots contenant des périmés : Sac A (2)'), self.sent)
+
     def test_key_expiry_warning_days_setting(self):
         from django.core.management import call_command
         self.assertEqual(self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 0})[0], 400)
@@ -1742,7 +1756,7 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual([(row['device'], row['current']) for row in body['devices']],
                          [('Firefox · Linux', False), ('Navigateur', True)])
-        self.assertEqual(len(body['types']), 10)
+        self.assertEqual(len(body['types']), 12)
         # alertes d'un autre appareil, puis desabonnement a distance
         code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
                                local=False)
@@ -1759,7 +1773,7 @@ class WebPushTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/push/devices/{mine.id}/', {'user': badge, 'delete': True}, local=False)
         self.assertEqual(code, 404)
         code, body = self.call('POST', '/api/push/devices/', {'user': badge}, local=False)
-        self.assertEqual((body['devices'], len(body['types'])), ([], 6))
+        self.assertEqual((body['devices'], len(body['types'])), ([], 8))
 
     def test_admin_disables_types_per_user(self):
         self.subscribe()

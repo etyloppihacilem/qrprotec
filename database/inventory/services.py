@@ -281,7 +281,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 if sealed.id in by_id:
                     by_id[sealed.id].refresh_from_db(fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
         notify_seals_broken(broken, identity)
-        # was_missing = {item.iid for item in not_seen if item.status == ItemStatus.MISSING}  # SMS plus maintenu
+        was_missing = {item.iid for item in not_seen if item.status == ItemStatus.MISSING}
 
         verifs = {}
         if group is None:
@@ -368,8 +368,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                                                   item.location_id))
         ItemMovement.objects.bulk_create(moves)
         by_iid_location = {item.iid: item.location_id for item in not_seen}
-        # SMS plus maintenu :
-        # newly_missing = [item for item in not_seen if item.status == ItemStatus.MISSING and item.iid not in was_missing]
+        newly_missing = [item for item in not_seen if item.status == ItemStatus.MISSING and item.iid not in was_missing]
         VerifItem.objects.bulk_create(entries)
 
         lots_report = []
@@ -408,11 +407,10 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 _record_verif(sub_lot, identity, now, verif, requirements, partial,
                               [iid for iid in report['missing'] if by_iid_location.get(iid) == sub_lot.id],
                               lot_expired)
-                # SMS « vérif incomplète » : API SMS plus maintenue, sans équivalent web (voir notifications.py)
-                # if not lot_complete:
-                #     lot_missing = [item for item in newly_missing if item.location_id == sub_lot.id]
-                #     notify_verif_problem(sub_lot, identity, requirements,
-                #                          {'expired': lot_expired}, lot_missing)
+                if not lot_complete:
+                    lot_missing = [item for item in newly_missing if item.location_id == sub_lot.id]
+                    notify_verif_problem(sub_lot, identity, requirements,
+                                         {'expired': lot_expired}, lot_missing)
             else:
                 complete = False
                 row['complete'] = None
@@ -546,20 +544,21 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
     return complete
 
 
-# SMS « vérif incomplète » : API SMS plus maintenue (voir notifications.py), garde en commentaire.
-# def notify_verif_problem(lot, identity, requirements, report, newly_missing):
-#     parts = []
-#     lacking = [f"{row['required'] - row['present']} {row['type_name']}"
-#                for row in requirements if row['present'] < row['required']]
-#     if lacking:
-#         parts.append('manque ' + ', '.join(lacking))
-#     if report['expired']:
-#         parts.append(f"{len(report['expired'])} périmé(s)")
-#     if newly_missing:
-#         parts.append(f'{len(newly_missing)} item(s) signalé(s) disparu(s)')
-#     notifications.notify(
-#         'verif_problem', f'vérif du lot {lot.name} incomplète ({display_name(identity)}) : ' + ' ; '.join(parts)
-#     )
+def notify_verif_problem(lot, identity, requirements, report, newly_missing):
+    """Vérif incomplète : notification web (type verif_problem, désactivé par défaut), qui ouvre la fiche du lot."""
+    parts = []
+    lacking = [f"{row['required'] - row['present']} {row['type_name']}"
+               for row in requirements if row['present'] < row['required']]
+    if lacking:
+        parts.append('manque ' + ', '.join(lacking))
+    if report['expired']:
+        parts.append(f"{len(report['expired'])} périmé(s)")
+    if newly_missing:
+        parts.append(f'{len(newly_missing)} item(s) signalé(s) disparu(s)')
+    return notifications.notify_admins(
+        'verif_problem', 'vérif incomplète',
+        f'vérif du lot {lot.name} incomplète ({display_name(identity)}) : ' + ' ; '.join(parts),
+        url=f'../verif?lot={lot.id}', tag=f'verif-{lot.id}', tab='lot')
 
 
 def seal_lot(lot, identity, seal_number='', force=False):

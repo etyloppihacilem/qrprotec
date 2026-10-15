@@ -1,5 +1,5 @@
 [Unit]
-Description=QRProtec : alertes quotidiennes (stock bas, expirations, commandes)
+Description=QRProtec : alertes quotidiennes (stock bas, lots perimes, expirations, commandes)
 Documentation=file:///usr/share/doc/qrprotec/README.md
 After=qrprotec.service
 

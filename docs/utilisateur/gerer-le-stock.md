@@ -125,6 +125,8 @@ dans la pile de scans.
 - Le poste signale un périmé **dès qu'il est scanné**.
 - La fiche de chaque lot indique les items périmés et ceux qui périment dans les 30 jours ;
   l'état des stocks a une colonne « Bientôt périmés ».
+- Chaque matin à 7 h 45, les utilisateurs gestion et admin abonnés reçoivent la liste des lots
+  contenant des périmés (notification web « résumé quotidien des périmés »).
 - Dans un sac, on remplace un périmé **pendant une vérif** : scanner le périmé et le neuf, le
   logiciel sort le périmé du sac.
 
