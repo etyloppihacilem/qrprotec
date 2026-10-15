@@ -182,6 +182,9 @@ Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.
     (rien d'attendu ne manque, clé connue, pas de lot scellé) : le niveau est validé automatiquement
     (`leaveCompleteLevels` / `App::leave_complete_level`), en remontant tant que le lot scanné n'est
     pas dedans, puis on y entre.
+  - Vérif lancée sur un sous-lot à scellé obligatoire (`started_in` / `state.startedIn`) : validé
+    complet, la cascade se termine sur son compte rendu (raccourci « Sceller » au poste) au lieu de
+    remonter au lot parent.
   - Suivi : les participants de même identité (même personne sur deux pages) sont regroupés
     (`LiveSession.people`) ; la validation de l'un vaut pour les autres.
   - Vérif commune : `step` garde la session live (`LiveHub.step`) : les lignes validées vont dans

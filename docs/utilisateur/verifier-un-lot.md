@@ -246,6 +246,10 @@ le valider à la main.
 Lancer la vérif d'un sous-lot (l'armoire 1, ou un sac via son étiquette clé) ouvre la même vue,
 directement dans ce sous-lot : on voit où il est dans le VPS.
 
+**Kit à scellé obligatoire** (ex : kit accouchement) dont vous lancez la vérif : une fois validé
+complet, la vérif s'arrête là, sur le compte rendu, sans revenir au VPS. Au poste, un compte gestion
+ou admin y trouve le bouton **Sceller** pour poser le nouveau scellé tout de suite.
+
 **Une seule étiquette clé** suffit pour tout le VPS : celle de n'importe quel lot de la cascade
 (celle d'une armoire permet de valider le sac qu'elle contient, et inversement).
 
