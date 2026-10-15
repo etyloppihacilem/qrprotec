@@ -427,3 +427,17 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
 #opening-body ul.opening-items li.expired .date { color: var(--red); }
 #opening-actions { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
 #opening-actions button { width: 100%; }
+
+/* Vérif en cascade : fil du lot global au lot en cours, sous-lots a faire */
+.list li.cascade-path { background: var(--blue-bg); align-items: center; }
+.list li.cascade-path .crumbs { font-size: .95rem; }
+.list li.cascade-path .crumbs .sep { color: var(--muted); }
+.list li.cascade-path .crumbs button.text-link { padding: 0; font-size: .95rem; }
+.list li.cascade-path > button { flex: none; padding: 4px 10px; font-size: .85rem; }
+.list li.sub-lot { cursor: pointer; }
+.list li.sub-lot .chevron { font-size: 1.4rem; opacity: .8; }
+.list li.lot-head.todo { border-left-color: #8a8f94; }
+.list li.cascade-own { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; padding-top: 10px; }
+.list li.sub-lot.ok { background: var(--green); border-left-color: var(--green); }
+.list li.sub-lot.bad { background: var(--red); border-left-color: var(--red); }
+.list li.sub-lot.ok .sub, .list li.sub-lot.bad .sub { color: #fff; }
