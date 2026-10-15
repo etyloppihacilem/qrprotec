@@ -23,6 +23,7 @@
 #include "imgui_stdlib.h"
 
 #include <algorithm>
+#include <ctime>
 #include <map>
 #include <random>
 #include <set>
@@ -1493,6 +1494,26 @@ void App::resolve_item(int entry_id) {
     else if (item["reported"].boolean())
       detail += " - problème signalé";
     entry->detail = detail;
+    // verif en cascade : un item d'un lot deja valide pendant la verif n'est pas recompte ; un item d'un sous-lot du
+    // lot en cours fait entrer dans ce sous-lot
+    if (verif_cascade() && !item["location"].str().empty() && verif_lot(item["location"].str())) {
+      const std::string where = item["location"].str();
+      const std::string name  = (*verif_lot(where))["name"].str();
+      if (verif.done.count(where)) {
+        stack.remove(entry_id);
+        feedback.notice(source, settings);
+        notify(item["type_name"].str() + " : " + name + " a déjà été validé, item non recompté (scannez l'étiquette de "
+                 + name + " pour le refaire).",
+               true);
+        return;
+      }
+      if (where != verif_level() && verif_under(where, verif_level())) {
+        enter_level(where);
+        entry->place = where;
+        notify("Entrée dans " + name + " : scannez son contenu, puis validez-le pour revenir à "
+               + (*verif_lot(verif_parent(where)))["name"].str() + ".");
+      }
+    }
     if (item["expired"].boolean() && !entry->expired) {
       entry->expired = true;
       feedback.error(source, settings);
@@ -1673,10 +1694,12 @@ void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
                 return;
               }
               const bool known = std::any_of(verif.sealed.begin(), verif.sealed.end(),
-                                             [&](const VerifSealed &sealed) { return sealed.id == id; });
+                                             [&](const VerifSealed &sealed) { return sealed.id == id; })
+                                 || (verif.done.count(id) && verif.done[id].sealed);
               if (!known)
                 verif.sealed.push_back({ id, code, name });
               notify(name + " : scellé intact, compté comme vérifié sans être ouvert.");
+              flush_cascade_seals();
               return;
             }
             if (during_verif)
@@ -1902,6 +1925,7 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
         stack.target = {};
         if (verif.lot_id == id)
           verif.key.clear();
+        verif.keys.erase(id);
         verif.extras.erase(std::remove_if(verif.extras.begin(), verif.extras.end(),
                                           [&id](const VerifExtra &extra) { return extra.id == id; }),
                            verif.extras.end());
@@ -1914,6 +1938,24 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
   // etiquette publique hors verif : fiche du lot d'abord, la verif se lance depuis la fiche
   if (scan.key.empty() && !verif.active) {
     show_lot(scan.id);
+    return;
+  }
+  // verif en cascade : l'etiquette d'un lot du meme lot global fait entrer dans ce lot
+  if (verif.active && verif_cascade() && verif_covers(scan.id)) {
+    if (!scan.key.empty()) {
+      if (scan.id == verif.lot_id)
+        verif.key = scan.key;
+      else
+        verif.keys[scan.id] = scan.key;
+    }
+    const bool reopened = verif.done.count(scan.id) > 0;
+    enter_level(scan.id);
+    const std::string name = (*verif_lot(scan.id))["name"].str();
+    notify(reopened ? name + " : déjà validé pendant cette vérif, vous le refaites."
+           : scan.id == verif.lot_id ? name + " : scannez l'étiquette d'un sous-lot pour y entrer."
+                                     : "Entrée dans " + name + " : scannez son contenu, puis validez-le.");
+    open_window("verif");
+    flush_cascade_seals();
     return;
   }
   if (verif.active && verif.lot_id == scan.id) {
@@ -2040,13 +2082,35 @@ void App::start_verif(const std::string &lot_id, const std::string &key) {
     api.get("/api/lots/" + url_encode(lot_id) + "/", [this, lot_id](const ApiResult &result) {
       if (!verif.active || verif.lot_id != lot_id)
         return;
-      verif.loading = false;
       if (!result.ok) {
+        verif.loading = false;
         notify("Lot " + lot_id + " : " + result.error, true);
         cancel_verif();
         return;
       }
-      verif.lot = result.data;
+      // sous-lot d'un lot global : vérif en cascade du lot global, en entrant dans ce sous-lot
+      const std::string root = result.data["global"].is_null() ? std::string() : result.data["global"]["id"].str();
+      if (!root.empty() && root != lot_id) {
+        verif.lot_id = root;
+        if (!verif.key.empty())
+          verif.keys[lot_id] = verif.key;
+        verif.key.clear();
+        api.get("/api/lots/" + url_encode(root) + "/", [this, root, lot_id](const ApiResult &result) {
+          if (!verif.active || verif.lot_id != root)
+            return;
+          verif.loading = false;
+          if (!result.ok) {
+            notify("Lot " + root + " : " + result.error, true);
+            cancel_verif();
+            return;
+          }
+          verif.lot = result.data;
+          enter_level(lot_id);
+        });
+        return;
+      }
+      verif.loading = false;
+      verif.lot     = result.data;
     });
   }
 }
@@ -2074,6 +2138,9 @@ bool App::verif_key_ok() const {
   for (const VerifExtra &extra : verif.extras)
     if (!extra.key.empty())
       keyed.insert(extra.id);
+  for (const auto &[id, key] : verif.keys) // vérif en cascade : etiquettes cles des sous-lots
+    if (!key.empty())
+      keyed.insert(id);
   // une seule etiquette cle d'un lot de la verif (un sous-lot suffit) valide toute la verif, comme cote serveur
   return !keyed.empty();
 }
@@ -2082,6 +2149,8 @@ bool App::verif_key_ok() const {
 std::string App::verif_place() const {
   if (!verif.active)
     return "";
+  if (verif_cascade())
+    return verif_level(); // vérif en cascade : le lot ou l'on est entre
   return verif.current.empty() ? verif.lot_id : verif.current;
 }
 
@@ -2164,8 +2233,11 @@ std::vector< VerifPlanLot > App::plan_verif() const {
   // lots scelles intacts : ni attendus ni destinataires d'items (services.perform_verif)
   const std::set< std::string > intact = verif_intact();
   std::vector< const Json * >   lots   = verif_lots();
+  // vérif en cascade : les lots deja valides ne sont plus attendus
   lots.erase(std::remove_if(lots.begin(), lots.end(),
-                            [&](const Json *lot) { return intact.count((*lot)["id"].str()) > 0; }),
+                            [&](const Json *lot) {
+                              return intact.count((*lot)["id"].str()) > 0 || verif.done.count((*lot)["id"].str()) > 0;
+                            }),
              lots.end());
   std::vector< VerifPlanLot >       plan;
   std::map< std::string, std::size_t > index;          // id du lot -> position dans plan
@@ -2327,7 +2399,329 @@ std::vector< const Json * > App::partial_verif_lots() const {
   return result;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Vérif en cascade : un lot global qui contient des sous-lots (ex : VPS > armoires > sacs) se verifie lot par lot. On
+// entre dans un sous-lot en scannant son etiquette (ou un de ses items), on le valide : sa verif est enregistree tout
+// de suite (POST /api/verifs/ avec "exclude" et "keys") et l'on revient au lot qui le contient. Les sous-lots non faits
+// restent tels quels. Meme fonctionnement que le front web (renderCascade, validateStep).
+
+namespace {
+bool own_content(const Json &lot) {
+  return lot["requirements"].size() > 0 || lot["items"].size() > 0 || lot["missing_items"].size() > 0;
+}
+
+std::string now_hhmm() {
+  const std::time_t now = std::time(nullptr);
+  std::tm           local{};
+#ifdef _WIN32
+  localtime_s(&local, &now);
+#else
+  localtime_r(&now, &local);
+#endif
+  char text[8];
+  std::strftime(text, sizeof(text), "%H:%M", &local);
+  return text;
+}
+} // namespace
+
+bool App::verif_cascade() const {
+  return verif.active && !verif.loading && verif.extras.empty() && verif.lot["descendants"].size() > 0;
+}
+
+std::string App::verif_level() const {
+  return verif.path.empty() ? verif.lot_id : verif.path.back();
+}
+
+const Json *App::verif_lot(const std::string &id) const {
+  for (const Json *lot : verif_lots())
+    if ((*lot)["id"].str() == id)
+      return lot;
+  return nullptr;
+}
+
+std::string App::verif_parent(const std::string &id) const {
+  const Json *lot = verif_lot(id);
+  if (!lot)
+    return "";
+  const Json &path = (*lot)["path"];
+  return !(*lot)["parent"].str().empty() ? (*lot)["parent"].str()
+                                         : (path.size() > 0 ? path[path.size() - 1]["id"].str() : std::string());
+}
+
+std::vector< const Json * > App::verif_children(const std::string &id) const {
+  std::vector< const Json * > result;
+  for (const Json *lot : verif_lots())
+    if ((*lot)["id"].str() != id && verif_parent((*lot)["id"].str()) == id)
+      result.push_back(lot);
+  return result;
+}
+
+bool App::verif_under(const std::string &id, const std::string &top) const {
+  std::string current = id;
+  for (int guard = 0; !current.empty() && guard < 64; ++guard) {
+    if (current == top)
+      return true;
+    current = verif_parent(current);
+  }
+  return false;
+}
+
+std::set< std::string > App::verif_subtree(const std::string &id) const {
+  std::set< std::string > result;
+  for (const Json *lot : verif_lots())
+    if (verif_under((*lot)["id"].str(), id))
+      result.insert((*lot)["id"].str());
+  return result;
+}
+
+bool App::verif_touched(const std::string &id) const {
+  const std::set< std::string > ids = verif_subtree(id);
+  for (const std::string &lot : verif.entered)
+    if (ids.count(lot))
+      return true;
+  for (const ScanEntry &entry : stack.entries())
+    if (entry.state != EntryState::Error && ids.count(entry.place.empty() ? verif.lot_id : entry.place))
+      return true;
+  return false;
+}
+
+std::vector< std::string > App::verif_excluded(const std::string &top) const {
+  std::vector< std::string > result;
+  const std::function< void(const std::string &) > walk = [&](const std::string &id) {
+    for (const Json *child : verif_children(id)) {
+      const std::string child_id = (*child)["id"].str();
+      if (verif.done.count(child_id) || !verif_touched(child_id))
+        result.push_back(child_id);
+      else
+        walk(child_id);
+    }
+  };
+  walk(top);
+  return result;
+}
+
+std::set< std::string > App::verif_scope(const std::string &top) const {
+  std::set< std::string > result = verif_subtree(top);
+  for (const std::string &excluded : verif_excluded(top))
+    for (const std::string &id : verif_subtree(excluded))
+      result.erase(id);
+  return result;
+}
+
+void App::enter_level(const std::string &id) {
+  if (!verif_lot(id))
+    return;
+  verif.path.clear();
+  for (std::string current = id; !current.empty() && current != verif.lot_id && verif.path.size() < 64;
+       current = verif_parent(current))
+    verif.path.insert(verif.path.begin(), current);
+  verif.current = id;
+  verif.entered.insert(id);
+  verif.done.erase(id);
+}
+
+void App::leave_level() {
+  if (!verif.path.empty())
+    verif.path.pop_back();
+  verif.current = verif_level();
+}
+
+void App::finish_cascade() {
+  const std::size_t done = verif.done.size();
+  const std::string name = verif.lot["name"].str(verif.lot_id);
+  stack.clear();
+  cancel_verif();
+  notify("Vérif de " + name + " terminée : " + std::to_string(done) + " lot(s) validé(s).");
+  refresh_lots();
+}
+
+void App::submit_step(bool partial) {
+  require_login(partial ? "valider la vérif partielle" : "valider le lot", [this, partial]() {
+    if (!verif_cascade() || verif.submitting)
+      return;
+    const std::string                top     = verif_level();
+    const bool                       at_root = top == verif.lot_id;
+    const std::vector< std::string > exclude = verif_excluded(top);
+    const std::set< std::string >    scope   = verif_scope(top);
+    const Json                      *lot     = verif_lot(top);
+    // scans faits dans les lots verifies (lieu du scan : le lot ou l'on etait entre)
+    Json             items  = Json::array();
+    Json             places = Json::object();
+    std::vector< int > sent;
+    std::set< std::string > seen;
+    for (const ScanEntry &entry : stack.entries()) {
+      if (entry.state == EntryState::Error || entry.tasks_pending)
+        continue;
+      const std::string place = entry.place.empty() ? verif.lot_id : entry.place;
+      if (!scope.count(place))
+        continue;
+      std::vector< std::string > iids;
+      if (entry.scan.kind == ScanKind::Item)
+        iids.push_back(entry.scan.id);
+      else if (entry.scan.kind == ScanKind::SealedPack)
+        iids = entry.pack_items;
+      else
+        continue;
+      sent.push_back(entry.id);
+      for (const std::string &iid : iids)
+        if (seen.insert(iid).second) {
+          items.push_back(iid);
+          places[iid] = place;
+        }
+    }
+    if (!own_content(*lot) && !(*lot)["storage"].boolean() && sent.empty() && scope.size() <= 1 && verif.sealed.empty()) {
+      // lot de regroupement sans rien a enregistrer : ses sous-lots sont faits ou laisses tels quels
+      if (at_root)
+        finish_cascade();
+      else
+        leave_level();
+      return;
+    }
+    if (!verif_key_ok()) {
+      notify("Scannez l'étiquette clé du lot pour valider. " + key_hint(*lot), true);
+      return;
+    }
+    Json body;
+    body["items"]  = items;
+    body["places"] = places;
+    add_identity(body);
+    Json primary;
+    primary["id"]  = top;
+    primary["key"] = at_root ? verif.key : (verif.keys.count(top) ? verif.keys.at(top) : std::string());
+    body["lots"]   = Json::array();
+    body["lots"].push_back(primary);
+    // etiquettes cles des autres lots du lot global scannees pendant la verif
+    body["keys"] = Json::array();
+    const auto add_key = [&](const std::string &id, const std::string &key) {
+      if (key.empty() || id == top)
+        return;
+      Json entry;
+      entry["id"]  = id;
+      entry["key"] = key;
+      body["keys"].push_back(entry);
+    };
+    add_key(verif.lot_id, verif.key);
+    for (const auto &[id, key] : verif.keys)
+      add_key(id, key);
+    body["exclude"] = Json::array();
+    for (const std::string &id : exclude)
+      body["exclude"].push_back(id);
+    body["sealed"] = Json::array();
+    for (const VerifSealed &sealed : verif.sealed) {
+      Json entry;
+      entry["id"]   = sealed.id;
+      entry["code"] = sealed.code;
+      body["sealed"].push_back(entry);
+    }
+    body["partial"]  = partial;
+    body["step"]     = true;
+    verif.submitting = true;
+    const std::string root = verif.lot_id;
+    const std::string name = (*lot)["name"].str(top);
+    api.post("/api/verifs/", body, [this, root, top, name, at_root, partial, sent](const ApiResult &result) {
+      if (!verif.active || verif.lot_id != root)
+        return;
+      verif.submitting = false;
+      if (!result.ok) {
+        identity_refused(result);
+        notify("Vérif refusée : " + result.error, true);
+        return;
+      }
+      const std::string at       = now_hhmm();
+      bool              finished = !partial;
+      int               verified = 0, incomplete = 0;
+      for (const Json &row : result.data["lots"].items()) {
+        if (!row["verified"].boolean() && !row["sealed"].boolean())
+          continue;
+        verif.done[row["id"].str()] = { at, row["complete"].boolean(), row["sealed"].boolean() };
+        if (row["verified"].boolean()) {
+          ++verified;
+          incomplete += row["complete"].boolean() ? 0 : 1;
+          finished = finished || row["id"].str() == top;
+        }
+      }
+      for (int id : sent)
+        stack.remove(id);
+      verif.sealed.clear();
+      if (at_root && finished) {
+        last_report     = result.data;
+        last_report_lot = name;
+        finish_cascade();
+        open_window("verif");
+        return;
+      }
+      const std::size_t missing = result.data["missing"].size();
+      if (finished)
+        notify(name + " validé" + (incomplete ? " : incomplet, " + std::to_string(missing) + " item(s) manquant(s)." : ".")
+                 + " Retour au lot qui le contient.",
+               incomplete > 0);
+      else
+        notify(name + (verified ? " : vérif partielle enregistrée." : " : réassort enregistré."));
+      if (finished)
+        leave_level();
+      reload_verif_lots();
+      refresh_lots();
+    });
+  });
+}
+
+// Scelles intacts constates (etiquette du scelle scannee) : enregistres tout de suite si l'on peut deja valider, sinon
+// a la validation suivante
+void App::flush_cascade_seals() {
+  if (!verif_cascade() || verif.sealed.empty() || verif.submitting || !logged_in() || !verif_key_ok())
+    return;
+  Json body;
+  body["items"] = Json::array();
+  add_identity(body);
+  Json primary;
+  primary["id"]  = verif.sealed.front().id;
+  primary["key"] = verif.keys.count(primary["id"].str()) ? verif.keys.at(primary["id"].str()) : std::string();
+  body["lots"]   = Json::array();
+  body["lots"].push_back(primary);
+  body["keys"] = Json::array();
+  const auto add_key = [&](const std::string &id, const std::string &key) {
+    if (key.empty())
+      return;
+    Json entry;
+    entry["id"]  = id;
+    entry["key"] = key;
+    body["keys"].push_back(entry);
+  };
+  add_key(verif.lot_id, verif.key);
+  for (const auto &[id, key] : verif.keys)
+    add_key(id, key);
+  body["sealed"] = Json::array();
+  for (const VerifSealed &sealed : verif.sealed) {
+    Json entry;
+    entry["id"]   = sealed.id;
+    entry["code"] = sealed.code;
+    body["sealed"].push_back(entry);
+  }
+  body["step"]     = true;
+  verif.submitting = true;
+  const std::string root = verif.lot_id;
+  api.post("/api/verifs/", body, [this, root](const ApiResult &result) {
+    if (!verif.active || verif.lot_id != root)
+      return;
+    verif.submitting = false;
+    if (!result.ok) {
+      notify("Scellé non enregistré : " + result.error, true);
+      return;
+    }
+    const std::string at = now_hhmm();
+    for (const Json &row : result.data["lots"].items())
+      if (row["sealed"].boolean())
+        verif.done[row["id"].str()] = { at, true, true };
+    verif.sealed.clear();
+    refresh_lots();
+  });
+}
+
 void App::submit_verif(bool partial) {
+  if (verif_cascade()) {
+    submit_step(partial);
+    return;
+  }
   require_login(partial ? "valider la vérif partielle" : "valider la vérif", [this, partial]() {
     if (!verif.active || verif.submitting)
       return;
@@ -2422,7 +2816,7 @@ void App::verif_target_lot() {
 void App::restock_verif() {
   // verif groupee : le serveur range chaque item dans son lot (verif partielle sans lot complet = reassort)
   if (verif.extras.size() > 0 || verif.lot["descendants"].size() > 0) {
-    submit_verif(true);
+    submit_verif(true); // vérif en cascade : reassort du lot en cours
     return;
   }
   require_login("ajouter les items au lot", [this]() {
