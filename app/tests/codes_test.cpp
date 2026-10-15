@@ -49,6 +49,15 @@ static void test_dates() {
   assert(!Date::parse("2026-02-30"));
   assert(Date::parse("2026-09-29T10:00:00Z")->iso() == "2026-09-29");
   assert((Date{ 2026, 1, 1 }.plus_days(-1) == Date{ 2025, 12, 31 }));
+  assert((Date{ 2026, 10, 15 }.weekday() == "jeudi"));
+  assert((Date{ 2024, 2, 29 }.weekday() == "jeudi"));
+  assert((Date{ 2027, 1, 3 }.weekday() == "dimanche"));
+  const Date today{ 2026, 10, 15 };
+  assert(relative_datetime("2026-10-15T09:05:00+02:00", today) == "aujourd'hui à 09:05");
+  assert(relative_datetime("2026-10-14T23:59:00+02:00", today, true, true) == "hier à 23:59");
+  assert(relative_datetime("2026-10-12T08:00:00+02:00", today) == "12/10/2026 à 08:00");
+  assert(relative_datetime("2026-10-12T08:00:00+02:00", today, true, true) == "le lundi 12/10/2026 à 08:00");
+  assert(relative_datetime("", today) == "-");
 }
 
 static void test_douchette() {

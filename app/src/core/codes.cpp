@@ -98,6 +98,27 @@ std::string Date::display() const {
   return buffer;
 }
 
+std::string Date::weekday() const {
+  // Sakamoto : 0 = dimanche
+  static const int t[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
+  static const char *const names[] = { "dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi" };
+  const int y = month < 3 ? year - 1 : year;
+  return names[(y + y / 4 - y / 100 + y / 400 + t[month - 1] + day) % 7];
+}
+
+std::string relative_datetime(const std::string &timestamp, const Date &today, bool long_form, bool on) {
+  const auto date = Date::parse(timestamp);
+  if (!date)
+    return "-";
+  // horodatage en heure locale (le serveur l'envoie deja converti)
+  const std::string time = timestamp.size() >= 16 && timestamp[10] == 'T' ? " à " + timestamp.substr(11, 5) : "";
+  if (*date == today)
+    return "aujourd'hui" + time;
+  if (*date == today.plus_days(-1))
+    return "hier" + time;
+  return (on ? "le " : "") + (long_form ? date->weekday() + " " : "") + date->display() + time;
+}
+
 Date Date::plus_days(int days) const {
   Date result = *this;
   while (days > 0) {

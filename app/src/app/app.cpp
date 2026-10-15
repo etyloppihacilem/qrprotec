@@ -40,15 +40,12 @@ std::string display_date(const Json &value) {
   return date ? date->display() : "-";
 }
 
-std::string display_datetime(const Json &value) {
-  const std::string text = value.str();
-  const auto        date = Date::parse(text);
-  if (!date)
-    return "-";
-  // horodatage en heure locale (le serveur l'envoie deja converti)
-  if (text.size() >= 16 && text[10] == 'T')
-    return date->display() + " à " + text.substr(11, 5);
-  return date->display();
+std::string display_datetime(const Json &value, bool long_form) {
+  return relative_datetime(value.str(), Date::today(), long_form);
+}
+
+std::string display_on(const Json &value, bool long_form) {
+  return relative_datetime(value.str(), Date::today(), long_form, true);
 }
 
 std::string Catalog::item_type_name(const std::string &type) const {
@@ -1755,8 +1752,8 @@ void App::draw_seal_opening_modal() {
 
   std::string sealed;
   if (!seal["sealed"].is_null()) {
-    sealed = "Scellé" + (seal["seal_number"].str().empty() ? "" : " n°" + seal["seal_number"].str()) + " posé le " +
-             display_datetime(seal["sealed"]) +
+    sealed = "Scellé" + (seal["seal_number"].str().empty() ? "" : " n°" + seal["seal_number"].str()) + " posé " +
+             display_on(seal["sealed"], true) +
              (seal["sealed_by"].str().empty() ? "" : " par " + seal["sealed_by"].str());
   }
   ImGui::Separator();
@@ -1795,7 +1792,7 @@ void App::draw_seal_opening_modal() {
                                                            : "Le lot sera vérifié plus tard.");
   ImGui::TextUnformatted(tech.c_str());
   if (!lot["unsealed"].is_null())
-    ImGui::TextDisabled("Ouvert le %s%s", display_datetime(lot["unsealed"]).c_str(),
+    ImGui::TextDisabled("Ouvert %s%s", display_on(lot["unsealed"], true).c_str(),
                         result["identified"].boolean() && !lot["unsealed_by"].str().empty()
                           ? (" par " + lot["unsealed_by"].str()).c_str()
                           : "");
@@ -2917,8 +2914,8 @@ void App::draw_reports_alert() {
     const bool usable = report["usable"].boolean();
     ImGui::TextColored(usable ? colors::orange : colors::red, "%s",
                        usable ? "Toujours utilisable" : "Inutilisable : à remplacer");
-    ImGui::TextDisabled("%s - signalé par %s le %s", report["status_label"].str().c_str(), report["by"].str().c_str(),
-                        display_datetime(report["created"]).c_str());
+    ImGui::TextDisabled("%s - signalé par %s %s", report["status_label"].str().c_str(), report["by"].str().c_str(),
+                        display_on(report["created"]).c_str());
     if (report["comment"].str().empty())
       ImGui::TextDisabled("Sans commentaire.");
     else

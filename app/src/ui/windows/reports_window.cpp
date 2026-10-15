@@ -135,13 +135,13 @@ class ReportsWindow final : public AppWindow {
       ImGui::SeparatorText(report["target"].str().c_str());
       ImGui::TextColored(report_color(report), "%s", report_label(report).c_str());
       ImGui::SameLine();
-      ImGui::TextDisabled("signalé le %s par %s – %s", display_datetime(report["created"]).c_str(),
+      ImGui::TextDisabled("signalé %s par %s – %s", display_on(report["created"], true).c_str(),
                           report["by"].str().c_str(),
                           report["usable"].boolean() ? "toujours utilisable" : "inutilisable : à remplacer");
       if (!report["comment"].str().empty())
         ImGui::TextWrapped("« %s »", report["comment"].str().c_str());
       if (!report["updated"].is_null())
-        ImGui::TextDisabled("Mis à jour le %s par %s", display_datetime(report["updated"]).c_str(),
+        ImGui::TextDisabled("Mis à jour %s par %s", display_on(report["updated"], true).c_str(),
                             report["updated_by"].str("-").c_str());
       ImGui::SetNextItemWidth(-200.0f);
       ImGui::InputTextWithHint("##note", "Réponse visible de tous (facultatif)", &note_);

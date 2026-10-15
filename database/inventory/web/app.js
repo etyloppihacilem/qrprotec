@@ -136,12 +136,23 @@
     return d ? d.toLocaleDateString('fr-FR') : '–';
   }
 
-  // Date et heure (dernieres verifs...) ; les dates seules sont reservees aux peremptions et expirations
-  function fmtDateTime(value) {
+  // Date et heure d'une action passee (verif, signalement...) : « aujourd'hui » / « hier » quand c'est le cas,
+  // l'heure toujours visible ; long ajoute le jour de la semaine quand la date est ecrite en entier (fiches).
+  // Les dates seules (fmtDate) restent reservees aux peremptions et expirations.
+  function fmtDateTime(value, { long = false, on = false } = {}) {
     const d = value ? new Date(value) : null;
     if (!d || isNaN(d)) return '–';
-    return d.toLocaleDateString('fr-FR') + ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const time = ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const day = new Date(d); day.setHours(0, 0, 0, 0);
+    const diff = Math.round((today() - day) / 86400000);
+    if (diff === 0) return "aujourd'hui" + time;
+    if (diff === 1) return 'hier' + time;
+    const date = (long ? d.toLocaleDateString('fr-FR', { weekday: 'long' }) + ' ' : '') + d.toLocaleDateString('fr-FR');
+    return (on ? 'le ' : '') + date + time;
   }
+
+  // Meme chose apres un verbe : « scellé le 12/10/2026 à 9:00 », « scellé aujourd'hui à 9:00 »
+  const fmtOn = (value, opts = {}) => fmtDateTime(value, { ...opts, on: true });
 
   function el(tag, attrs = {}, ...children) {
     const node = document.createElement(tag);
@@ -670,7 +681,7 @@
       alertReports('pack:' + pack.id, `Paquet signalé : ${pack.count} × ${pack.type_name}`, pack.reports);
       showInfo(expired ? 'bad' : 'ok', `Paquet : ${pack.count} × ${pack.type_name}`,
         pack.peremption ? 'Péremption : ' + fmtDate(pack.peremption) : 'Non périssable',
-        pack.opened ? 'Paquet ouvert le ' + fmtDateTime(pack.opened) : 'Paquet fermé');
+        pack.opened ? 'Paquet ouvert ' + fmtOn(pack.opened) : 'Paquet fermé');
       save();
       render();
     } catch (e) {
@@ -763,7 +774,7 @@
     await loadLot(scan.id, scan.key);
     const lot = state.lot;
     if (!lot || state.lotId !== scan.id) return;
-    const sealInfo = lot.is_sealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
+    const sealInfo = lot.is_sealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed)}` +
       (lot.sealed_by ? ' par ' + lot.sealed_by : '') : '';
     if (lot.seal_check === 'valid' && !lot.expired_count) {
       feedback.good();
@@ -776,7 +787,7 @@
       feedback.bad();
       showInfo('bad', `✘ ${lot.seal_check === 'wrong' ? "Étiquette d'un ancien scellé" : 'Scellé brisé'} – ${lot.name}`,
         'Le lot doit être vérifié.',
-        lot.unsealed ? `Scellé brisé le ${fmtDateTime(lot.unsealed)}` + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '');
+        lot.unsealed ? `Scellé brisé ${fmtOn(lot.unsealed)}` + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '');
     }
     switchTab('lot');
   }
@@ -832,7 +843,7 @@
     const lot = result.lot;
     state.declaredAllowed = !!result.declared_identity;
     state.pendingOpening = result.identified ? null : { id: scan.id, key: scan.key, at: Date.now() };
-    const opened = lot.unsealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ouvert le ${fmtDateTime(lot.unsealed)}`
+    const opened = lot.unsealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ouvert ${fmtOn(lot.unsealed)}`
       + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '';
     if (result.result === 'signed') {
       // ouverture anonyme signee a la connexion : l'ecran d'ouverture, s'il est encore affiche, perd sa demande
@@ -862,9 +873,9 @@
     const lot = result.lot;
     const seal = result.seal || {};
     sealScreen = { lot, fromUrl };
-    const sealedLine = seal.sealed ? `Scellé${seal.seal_number ? ' n°' + seal.seal_number : ''} posé le ${fmtDateTime(seal.sealed)}`
+    const sealedLine = seal.sealed ? `Scellé${seal.seal_number ? ' n°' + seal.seal_number : ''} posé ${fmtOn(seal.sealed, { long: true })}`
       + (seal.sealed_by ? ' par ' + seal.sealed_by : '') : '';
-    const openedLine = lot.unsealed ? `Ouvert le ${fmtDateTime(lot.unsealed)}`
+    const openedLine = lot.unsealed ? `Ouvert ${fmtOn(lot.unsealed, { long: true })}`
       + (lot.unsealed_by && result.identified ? ' par ' + lot.unsealed_by : '') : '';
     const parts = [
       el('div', { class: 'opening-head' },
@@ -1173,10 +1184,10 @@
       `${lot.lot_type_name} · ${lot.item_count} item(s)` + (lot.expired_count ? ` · ${lot.expired_count} périmé(s)` : '')
         + ((lot.descendants || []).length ? ` · ${lot.descendants.length} sous-lot(s) vérifiés avec lui` : ''),
       globalLine(lot),
-      'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
+      'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
       !lot.verif_recommended ? '' : lot.restocked_count
-        ? `Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
-        : `Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
+        ? `Réassort de ${lot.restocked_count} item(s) ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
+        : `Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
       lot.seal_required && !lot.is_sealed ? 'Scellé obligatoire : posez un nouveau scellé après la vérif complète.' : '',
       keyOk() ? '🔑 Étiquette clé scannée' : 'Scannez l\'étiquette clé pour pouvoir valider. ' + keyHint(lot));
   }
@@ -1384,7 +1395,7 @@
         fact('Utilisateur', `${info.prenom} ${info.nom}`),
         fact('Matricule', info.matricule),
         fact('Rôle', info.role_label),
-        fact('Bloqué le', info.blocked_since ? fmtDateTime(info.blocked_since) : '-'),
+        fact('Bloqué', info.blocked_since ? cap(fmtDateTime(info.blocked_since, { long: true })) : '-'),
         fact('Essais faux', String(info.failures)),
         info.contact ? fact('Admin à contacter', info.contact) : [],
         info.active ? [] : fact('Compte', 'désactivé')),
@@ -1975,7 +1986,7 @@
       el('div', { class: 'banner ' + (groupStatus(lot) || lotStatus(lot)).kind }, (groupStatus(lot) || lotStatus(lot)).label),
       el('p', {}, ficheLink('lot', lot.id, 'Fiche du lot : contenu et emplacement des items')),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
-      lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}` +
+      lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed)}` +
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
         el('br'), keyOk() ? '🔑 Étiquette clé scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette clé pour valider. ' + keyHint(lot)),
@@ -2742,7 +2753,7 @@
       parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad' },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, ...row.lots.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)])),
-          el('div', { class: 'sub' }, `${fmtDateTime(row.at)} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${row.present} présent(s)`
+          el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${row.present} présent(s)`
             + (row.missing ? ` · ${row.missing} manquant(s)` : '') + (row.expired ? ` · ${row.expired} périmé(s)` : ''))),
         el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
     }
@@ -2996,7 +3007,7 @@
       parts.push(el('p', { class: 'hint' }, 'Aucun appareil ne reçoit vos notifications.'));
     } else {
       for (const device of list.devices) {
-        const sent = device.last_sent ? `dernier envoi le ${fmtDateTime(device.last_sent)} (${device.last_status})` : 'aucun envoi';
+        const sent = device.last_sent ? `dernier envoi ${fmtOn(device.last_sent)} (${device.last_status})` : 'aucun envoi';
         parts.push(el('div', { class: 'device' },
           el('div', { class: 'row-head' },
             el('b', {}, device.device + (device.current ? ' · cet appareil' : '')),
@@ -3406,14 +3417,14 @@
       el('div', { class: 'banner ' + status.kind }, status.label),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${state.scanned.length} scan(s).`) : '',
-      lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} le ${fmtDateTime(lot.sealed)}`
+      lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
         + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif
-        ? fmtDateTime(lot.last_verif) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
+        ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
       expiryLine(lot),
       !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
-        ? `⚠ Réassort de ${lot.restocked_count} item(s) le ${fmtDateTime(lot.restocked)}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
-        : `⚠ Scellé ouvert${lot.unsealed ? ' le ' + fmtDateTime(lot.unsealed) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
+        ? `⚠ Réassort de ${lot.restocked_count} item(s) ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
+        : `⚠ Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
       lot.seal_required && !lot.is_sealed
         ? el('p', {}, '🔒 Scellé obligatoire pour ce type de lot : il reste à traiter tant qu\'un nouveau scellé n\'est pas posé.') : '',
       lot.global && lot.global.id !== lot.id
@@ -3531,7 +3542,7 @@
     const fact = (label, ...value) => [el('dt', {}, label), el('dd', {}, ...value)];
     const place = where
       ? [...where.path.flatMap((parent) => [lotLink(parent), ' › ']), lotLink(where),
-        where.current ? '' : el('div', { class: 'sub' }, 'Dernier emplacement connu' + (where.at ? `, quitté le ${fmtDateTime(where.at)}` : ''))]
+        where.current ? '' : el('div', { class: 'sub' }, 'Dernier emplacement connu' + (where.at ? `, quitté ${fmtOn(where.at, { long: true })}` : ''))]
       : [item.status === 'active' ? 'En stock' : 'Inconnu'];
     body.replaceChildren(
       el('h2', {}, item.type_name),
@@ -3541,12 +3552,12 @@
       reportButton({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
       el('dl', { class: 'facts' },
         item.disabled ? fact('Désactivé', item.disabled_reason || '–', el('div', { class: 'sub' },
-          [item.disabled_at ? 'le ' + fmtDateTime(item.disabled_at) : '', item.disabled_by ? 'par ' + item.disabled_by : ''].filter(Boolean).join(' '))) : [],
+          [item.disabled_at ? cap(fmtOn(item.disabled_at, { long: true })) : '', item.disabled_by ? 'par ' + item.disabled_by : ''].filter(Boolean).join(' '))) : [],
         fact('Péremption', item.peremption ? fmtDate(item.peremption) : 'Non périssable'),
         fact(where && !where.current ? 'Dernier lieu' : 'Emplacement', ...place),
         item.status === 'out' && item.out_until ? fact('Compté utilisé', `le ${fmtDate(item.out_until)} s'il ne revient pas`) : [],
-        fact('Dernier passage', item.last_seen ? fmtDateTime(item.last_seen) + (item.last_seen_by ? ' par ' + item.last_seen_by : '') : '–'),
-        fact('Ajouté', item.added ? fmtDateTime(item.added) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
+        fact('Dernier passage', item.last_seen ? cap(fmtDateTime(item.last_seen, { long: true })) + (item.last_seen_by ? ' par ' + item.last_seen_by : '') : '–'),
+        fact('Ajouté', item.added ? cap(fmtDateTime(item.added, { long: true })) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
         item.tear_off ? fact('Étiquette', 'à déchirer avant utilisation') : [],
         item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il passe hors lot (pas perdu)') : [],
         (item.tasks || []).length ? fact('Tâches à la vérif', el('ul', { class: 'tasks-facts' }, ...item.tasks.map((task) => el('li', {}, task)))) : [],
@@ -3567,7 +3578,7 @@
     $('#reported-title').textContent = title;
     $('#reported-body').replaceChildren(...reports.map((report) => el('div', { class: 'reported-item' + (report.usable ? '' : ' bad') },
       el('b', {}, report.usable ? '⚠ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
-      el('div', { class: 'sub' }, `${report.status_label} · signalé par ${report.by} le ${fmtDateTime(report.created)}`),
+      el('div', { class: 'sub' }, `${report.status_label} · signalé par ${report.by} ${fmtOn(report.created)}`),
       report.comment ? el('p', { class: 'comment' }, '« ' + report.comment + ' »') : el('p', { class: 'sub' }, 'Sans commentaire.'),
       report.note ? el('p', { class: 'note' }, '💬 ' + report.note) : '')));
     const dialog = $('#reported');
@@ -3714,11 +3725,11 @@
     const target = row.item ? ficheLink('item', row.item, row.target) : row.lot ? ficheLink('lot', row.lot, row.target) : row.target;
     const parts = [
       el('div', { class: 'row-head' }, el('div', { class: 'name' }, target), el('span', { class: 'tag ' + row.color }, reportLabel(row))),
-      el('div', { class: 'sub' }, `Signalé par ${row.by} le ${fmtDateTime(row.created)}` + (row.item ? ` · ${row.item}` : '')),
+      el('div', { class: 'sub' }, `Signalé par ${row.by} ${fmtOn(row.created, { long: true })}` + (row.item ? ` · ${row.item}` : '')),
       el('div', {}, row.usable ? '✔ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
       row.comment ? el('p', { class: 'comment' }, row.comment) : '',
       row.note ? el('p', { class: 'note' }, '💬 ' + row.note) : '',
-      row.updated ? el('div', { class: 'sub' }, `Mis à jour le ${fmtDateTime(row.updated)}` + (row.updated_by ? ` par ${row.updated_by}` : '')) : '',
+      row.updated ? el('div', { class: 'sub' }, `Mis à jour ${fmtOn(row.updated, { long: true })}` + (row.updated_by ? ` par ${row.updated_by}` : '')) : '',
     ];
     if (manage) {
       const note = el('textarea', { rows: 2, maxlength: 1000, placeholder: 'Réponse visible de tous (facultatif)' });

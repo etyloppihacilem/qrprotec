@@ -310,7 +310,7 @@ class JournalWindow final : public AppWindow {
       const Json &operation = operations_[selected_];
       ImGui::BeginChild("journal_details", ImVec2(0, 0), ImGuiChildFlags_Borders);
       ImGui::Text("%s — %s, %s", operation["kind_label"].str().c_str(), operation["by_name"].str().c_str(),
-                  display_datetime(operation["at"]).c_str());
+                  display_datetime(operation["at"], true).c_str());
       if (!operation["verified"].boolean())
         ImGui::TextColored(colors::orange, "Identité non vérifiée par un badge (%s)", operation["by"].str().c_str());
       if (!operation["lot_name"].str().empty())

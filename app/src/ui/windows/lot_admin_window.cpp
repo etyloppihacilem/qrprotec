@@ -240,8 +240,8 @@ class LotAdminWindow final : public AppWindow {
     void draw_seal(App &app) {
       ImGui::SeparatorText("Scellé");
       if (lot_["is_sealed"].boolean()) {
-        ImGui::Text("Scellé%s le %s par %s", lot_["seal_number"].str().empty() ? "" : (" n°" + lot_["seal_number"].str()).c_str(),
-                    display_datetime(lot_["sealed"]).c_str(), lot_["sealed_by"].str("-").c_str());
+        ImGui::Text("Scellé%s %s par %s", lot_["seal_number"].str().empty() ? "" : (" n°" + lot_["seal_number"].str()).c_str(),
+                    display_on(lot_["sealed"], true).c_str(), lot_["sealed_by"].str("-").c_str());
         if (button("Étiquettes du scellé"))
           app.preview_seal_labels(lot_);
         ImGui::SameLine();
@@ -262,7 +262,7 @@ class LotAdminWindow final : public AppWindow {
         return;
       }
       if (!lot_["unsealed"].is_null())
-        ImGui::TextDisabled("Dernier scellé brisé le %s par %s", display_datetime(lot_["unsealed"]).c_str(),
+        ImGui::TextDisabled("Dernier scellé brisé %s par %s", display_on(lot_["unsealed"], true).c_str(),
                             lot_["unsealed_by"].str("-").c_str());
       ImGui::TextWrapped("Un lot scellé est valide sans vérif tant que le scellé est intact. Faites une vérif "
                          "complète, rangez l'étiquette d'ouverture dans le lot, fermez-le avec un scellé et collez "
@@ -339,7 +339,7 @@ class LotAdminWindow final : public AppWindow {
           children += (children.empty() ? "" : ", ") + child["name"].str();
         ImGui::TextWrapped("Sous-lots : %s", children.c_str());
       }
-      ImGui::Text("Dernière vérif : %s%s", display_datetime(lot_["last_verif"]).c_str(),
+      ImGui::Text("Dernière vérif : %s%s", display_datetime(lot_["last_verif"], true).c_str(),
                   lot_["last_verif_by"].str().empty() ? "" : (" par " + lot_["last_verif_by"].str()).c_str());
       ImGui::SameLine();
       if (small_button("Journal du lot"))
