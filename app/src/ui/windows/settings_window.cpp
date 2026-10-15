@@ -82,7 +82,10 @@ namespace {
 
 class SettingsWindow final : public AppWindow {
   public:
-    SettingsWindow() : AppWindow("settings", "Réglages", true, true) { admin_only = true; }
+    SettingsWindow() : AppWindow("settings", "Réglages", true, true) {
+      admin_only     = true;
+      reload_on_wake = false; // reglages en cours de saisie
+    }
 
     void on_open(App &app) override {
       scan_templates();
