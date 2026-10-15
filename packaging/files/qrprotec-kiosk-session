@@ -15,17 +15,29 @@ readonly FRONT=@BINDIR@/qrprotec-front
 #   - les moniteurs externes par DDC/CI (ddcutil), sauf QRPROTEC_SCREEN_DDC=0.
 readonly STATE_DIR=${XDG_RUNTIME_DIR:-/tmp}/qrprotec-screen
 
+# Journal du kiosk (journalctl -u qrprotec-kiosk), y compris depuis les commandes de swayidle
+log() {
+    echo "qrprotec-kiosk : $*" >&2
+}
+
 # Sorties Wayland : DPMS (wlopm, wlr-output-power-management) si Cage le gere, sinon desactivation
 # des sorties (wlr-randr, wlr-output-management ; Cage n'implemente que celui-ci).
 outputs() {
     local state=$1 output
     if command -v wlopm >/dev/null && wlopm "--$state" '*' 2>/dev/null; then
+        log "ecrans $state (wlopm)"
         return 0
     fi
     if command -v wlr-randr >/dev/null; then
         while read -r output; do
-            wlr-randr --output "$output" "--$state"
+            if wlr-randr --output "$output" "--$state"; then
+                log "sortie $output $state (wlr-randr)"
+            else
+                log "sortie $output : wlr-randr --$state a echoue"
+            fi
         done < <(wlr-randr | awk '/^[^[:space:]]/ {print $1}')
+    else
+        log "ni wlopm ni wlr-randr : sorties video laissees allumees"
     fi
 }
 
@@ -43,9 +55,12 @@ backlight() {
         else
             level=$(cat "$saved" 2>/dev/null || cat "$dev/max_brightness")
         fi
-        busctl call org.freedesktop.login1 /org/freedesktop/login1/session/auto \
-            org.freedesktop.login1.Session SetBrightness ssu backlight "$name" "$level" ||
-            echo "qrprotec-kiosk : retroeclairage $name non modifiable" >&2
+        if busctl call org.freedesktop.login1 /org/freedesktop/login1/session/auto \
+            org.freedesktop.login1.Session SetBrightness ssu backlight "$name" "$level"; then
+            log "retroeclairage $name a $level"
+        else
+            log "retroeclairage $name non modifiable"
+        fi
     done
 }
 
@@ -59,13 +74,17 @@ ddc() {
     fi
     [[ -r $STATE_DIR/ddc ]] || return 0
     while read -r display; do
-        ddcutil --display "$display" --noverify setvcp D6 "$([[ $state == off ]] && echo 04 || echo 01)" ||
-            echo "qrprotec-kiosk : ecran DDC/CI $display non modifiable" >&2
+        if ddcutil --display "$display" --noverify setvcp D6 "$([[ $state == off ]] && echo 04 || echo 01)"; then
+            log "ecran DDC/CI $display $state"
+        else
+            log "ecran DDC/CI $display non modifiable"
+        fi
     done <"$STATE_DIR/ddc"
 }
 
 screen() {
     mkdir -p "$STATE_DIR"
+    log "$([[ $1 == off ]] && echo "inactivite : extinction" || echo "activite : rallumage") de l'ecran"
     if [[ $1 == off ]]; then
         backlight off
         ddc off
@@ -93,9 +112,12 @@ blank=${QRPROTEC_SCREEN_BLANK_SECONDS:-1800}
 if [[ $blank =~ ^[0-9]+$ ]] && ((blank > 0)); then
     if command -v swayidle >/dev/null && { command -v wlopm || command -v wlr-randr; } >/dev/null; then
         swayidle -w timeout "$blank" "$0 --screen off" resume "$0 --screen on" &
+        log "extinction de l'ecran apres $blank s sans activite (swayidle, pid $!)"
     else
-        echo "qrprotec-kiosk : swayidle ou wlopm/wlr-randr absent, pas d'extinction de l'ecran" >&2
+        log "swayidle ou wlopm/wlr-randr absent, pas d'extinction de l'ecran"
     fi
+else
+    log "extinction de l'ecran desactivee (QRPROTEC_SCREEN_BLANK_SECONDS=$blank)"
 fi
 
 # Diagnostic (journalctl -u qrprotec-kiosk) : bibliotheques que GLFW charge avec dlopen
