@@ -191,6 +191,10 @@ fenêtre s'ouvre avec le nom de l'item et ses tâches à cocher :
 Le **TECH** peut scanner deux fois de suite l'étiquette de tâches pour valider toutes les
 tâches d'un coup.
 
+Item à tâches **désactivé** (à remplacer) : sur le téléphone, sa fiche de désactivation (motif,
+date, qui) s'affiche d'abord, puis **Voir les tâches** ouvre ses tâches. Au poste, l'écran clignote
+en rouge, sans fenêtre de tâches : l'item compte comme un périmé, à remplacer.
+
 ## Réassort : ajouter du matériel sans tout vérifier
 
 Au retour d'intervention, quand on remet dans le sac ce qui a été utilisé :

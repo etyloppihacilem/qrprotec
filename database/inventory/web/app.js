@@ -496,6 +496,11 @@
     const scan = parseCode(raw);
     // fenetre des taches ouverte et autre code scanne : l'item reste non valide (le rescanner reprend ses taches)
     if (taskPopup && !(scan.kind === 'item' && scan.id === taskPopup.entry.iid)) finishTasks(false);
+    // fiche de desactivation affichee : rescanner l'item passe a ses taches, un autre code le laisse non valide
+    if (disabledPopup) {
+      if (scan.kind === 'item' && scan.id === disabledPopup.iid) { closeDisabled(true); return; }
+      closeDisabled(false);
+    }
     // scanner sans vérif en cours et pile vide : l'etiquette d'un item ou d'un lot ouvre sa fiche en grand, comme
     // le lien ouvert avec l'appareil photo du telephone (« Lancer une vérif » y ramene au scanner)
     if (!inHome() && !ficheOpen() && !taskPopup && ((scan.kind === 'item' && !scan.task) || scan.kind === 'lot')
@@ -567,7 +572,11 @@
       } catch (e) {
         if (e.status === 404) entry.error = 'Inconnu dans la base';
       }
-      if (entry.info && !entry.error && (entry.info.tasks || []).length) { openTasks(entry); return; }
+      if (entry.info && !entry.error && (entry.info.tasks || []).length) {
+        if (entry.info.disabled) feedback.bad();
+        openTasks(entry);
+        return;
+      }
     }
     await addItem(entry, scan);
   }
@@ -590,7 +599,7 @@
       if (entry.info && !entry.error && !entry.tasksDone && (entry.info.tasks || []).length) {
         const index = state.scanned.indexOf(entry);
         if (index >= 0) state.scanned.splice(index, 1);
-        feedback.task();
+        if (!entry.info.disabled) feedback.task();
         openTasks(entry);
         return;
       }
@@ -619,12 +628,51 @@
 
   // Fenetre des taches d'un item (etiquette de taches) : toutes cochees et validees, l'item compte comme vu
   let taskPopup = null; // {entry, scan}
+  // Item desactive : sa fiche de desactivation s'affiche d'abord, ses taches ensuite (bouton « Voir les tâches »)
   function openTasks(entry) {
+    if (entry.info.disabled && !entry.disabledSeen) { openDisabled(entry); return; }
+    showTasks(entry);
+  }
+
+  let disabledPopup = null; // entry dont la fiche de desactivation est affichee avant ses taches
+  function openDisabled(entry) {
+    const info = entry.info;
+    disabledPopup = entry;
+    $('#disabled-item-title').textContent = info.type_name;
+    $('#disabled-item-sub').textContent = entry.iid;
+    $('#disabled-item-reason').textContent = info.disabled_reason || '–';
+    $('#disabled-item-when').textContent = [info.disabled_at ? cap(fmtOn(info.disabled_at, { long: true })) : '',
+      info.disabled_by ? 'par ' + info.disabled_by : ''].filter(Boolean).join(' ');
+    showInfo('bad', 'DÉSACTIVÉ – ' + info.type_name, 'Item désactivé : à remplacer.');
+    const dialog = $('#disabled-item');
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function closeDisabled(next) {
+    const entry = disabledPopup;
+    disabledPopup = null;
+    const dialog = $('#disabled-item');
+    if (dialog.open) dialog.close();
+    if (!entry) return;
+    if (!next) {
+      showInfo('warn', 'Item non validé : ' + entry.info.type_name, 'Désactivé, à remplacer. Rescannez-le pour voir ses tâches.');
+      return;
+    }
+    entry.disabledSeen = true;
+    feedback.task();
+    showTasks(entry);
+  }
+
+  $('#disabled-item-next').addEventListener('click', () => closeDisabled(true));
+  $('#disabled-item-cancel').addEventListener('click', () => closeDisabled(false));
+  $('#disabled-item').addEventListener('cancel', (event) => { event.preventDefault(); closeDisabled(false); });
+
+  function showTasks(entry) {
     const dialog = $('#tasks');
     const tasks = entry.info.tasks;
     taskPopup = { entry, scan: parseCode(entry.code) };
     $('#tasks-title').textContent = entry.info.type_name;
-    $('#tasks-sub').textContent = entry.iid + (entry.expired ? ' · PÉRIMÉ' : '');
+    $('#tasks-sub').textContent = entry.iid + (entry.expired ? ' · ' + badLabel(entry.info) : '');
     const boxes = tasks.map((task) => el('input', { type: 'checkbox' }));
     const update = () => { $('#tasks-ok').disabled = !boxes.every((box) => box.checked); };
     for (const box of boxes) box.addEventListener('change', update);
