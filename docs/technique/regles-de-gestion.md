@@ -163,9 +163,26 @@ Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.
   le Stock) : le sous-lot est envoyé dans `lots` avec sa clé, et `verif_targets` accepte la
   vérif dès qu'une des clés est valide. Même règle dans les fronts (`keyMissing`,
   `App::verif_key_ok`).
-- **Vérif groupée** : pendant une vérif, scanner l'étiquette clé d'un autre lot du **même lot
-  global** l'ajoute à la vérif (`POST /api/verifs/` avec `lots: [{id, key}, …]`). Les attendus
+- **Vérif groupée** (API) : `lots` peut contenir plusieurs lots du **même lot global** (`POST /api/verifs/` avec `lots: [{id, key}, …]`). Les attendus
   s'additionnent.
+- **Vérif en cascade** : toute vérif d'un lot qui a un lot global charge la **racine** et se
+  déplace dans l'arbre (`state.path`, `App::VerifSession::path`). Chaque lot est validé à part,
+  aussitôt (`POST /api/verifs/` avec `lots: [{id}]`, `keys: [{id, key}]`, `exclude: [ids]`,
+  `step: true`) :
+  - `keys` : n'importe quelle clé valide d'un lot du **même lot global** autorise
+    (`views.key_holders`, `verif_lots(holders=…)`), plus les clés des participants de la vérif
+    commune ;
+  - `exclude` : sous-lots **stricts** du lot validé laissés de côté (déjà validés dans cette cascade,
+    pas ouverts, ou en cours chez un autre participant) ; `perform_verif(exclude=…)` les retire avec
+    leurs descendants, rien n'y est déclaré manquant. Un id hors de l'arbre ou le lot validé lui-même
+    : 400 ;
+  - un scan appartient au niveau où il a été fait ; un item d'un sous-lot du niveau y fait entrer ;
+    un item d'un lot déjà validé dans la cascade est refusé ; l'étiquette d'un scellé est envoyée
+    tout de suite.
+  - Vérif commune : `step` garde la session live (`LiveHub.step`) : les lignes validées vont dans
+    `team.done`, les entrées envoyées sont retirées, les autres reçoivent `{type: 'step'}`. Chaque
+    participant publie son niveau (`level`). `leave` sort de la session sans la terminer ; une
+    session en cascade n'est jamais enregistrée seule à l'abandon (tout est déjà envoyé).
 - **État global** (`serializers.aggregate_tree`) : le lot global prend le **pire état** de ses lots
   (vert < orange < rouge) ; sa dernière vérif est la **plus ancienne** des dernières vérifs de ses
   lots (aucune si l'un n'a jamais été vérifié).

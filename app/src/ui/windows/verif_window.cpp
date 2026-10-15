@@ -47,23 +47,35 @@ class VerifWindow final : public AppWindow {
   private:
     void draw_active(App &app) {
       VerifSession &verif = app.verif;
+      const bool    cascade = app.verif_cascade();
+      const std::string level = cascade ? app.verif_level() : verif.lot_id;
       ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
-      ImGui::Text("Vérif : %s", app.verif_title().c_str());
+      if (cascade) {
+        // fil du lot global au lot en cours
+        std::string title = verif.lot["name"].str(verif.lot_id);
+        for (const std::string &id : verif.path)
+          if (const Json *lot = app.verif_lot(id))
+            title += "  ›  " + (*lot)["name"].str();
+        ImGui::Text("Vérif : %s", title.c_str());
+      } else {
+        ImGui::Text("Vérif : %s", app.verif_title().c_str());
+      }
       ImGui::PopFont();
       if (verif.loading) {
         ImGui::TextDisabled("Chargement du contenu du lot...");
         return;
       }
       const std::vector< VerifPlanLot > plan  = app.plan_verif();
-      const bool                        multi = plan.size() > 1;
+      const bool                        multi = !cascade && plan.size() > 1;
       if (!verif.lot["global"].is_null()) {
         const Json &global = verif.lot["global"];
         ImGui::TextDisabled("Lot global %s : %s – vérif la plus ancienne : %s", global["name"].str().c_str(),
                             global["label"].str().c_str(), display_datetime(global["last_verif"]).c_str());
       }
-      std::string sealed;
+      std::string                   sealed;
+      const std::set< std::string > verified = cascade ? app.verif_scope(level) : std::set< std::string >();
       for (const VerifPlanLot &row : plan)
-        if ((*row.lot)["is_sealed"].boolean())
+        if ((*row.lot)["is_sealed"].boolean() && (!cascade || verified.count((*row.lot)["id"].str())))
           sealed += (sealed.empty() ? "" : ", ") + (*row.lot)["name"].str();
       if (!sealed.empty())
         status_banner("Scellé (" + sealed + ") : valider cette vérif brisera le scellé", colors::orange, 1.0f);
@@ -75,7 +87,7 @@ class VerifWindow final : public AppWindow {
           kept += (kept.empty() ? "" : ", ") + lot.name;
       if (!kept.empty())
         status_banner("Scellé intact (" + kept + ") : compté comme vérifié, sans l'ouvrir", colors::green, 1.0f);
-      if (!verif.key.empty() || (!verif.extras.empty() && app.verif_key_ok()))
+      if (!verif.key.empty() || ((!verif.extras.empty() || !verif.keys.empty()) && app.verif_key_ok()))
         ImGui::TextColored(colors::green, "Étiquette clé scannée : la vérif peut être validée.");
       else if (app.verif_key_ok())
         ImGui::TextColored(colors::green, "Mode gestion : validation autorisée sans étiquette clé.");
@@ -84,10 +96,15 @@ class VerifWindow final : public AppWindow {
         ImGui::TextWrapped("Scannez l'étiquette clé du lot pour pouvoir valider. %s", key_hint(verif.lot).c_str());
         ImGui::PopStyleColor();
       }
-      ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
-                         "Scannez aussi les items périmés que vous retirez, puis leurs remplaçants.%s",
-                         multi ? "" : " L'étiquette clé d'un autre lot du même lot global l'ajoute à la vérif.");
-      ImGui::TextDisabled("L'étiquette du scellé d'un lot scellé du même lot global le compte comme vérifié sans l'ouvrir.");
+      if (cascade) {
+        if (draw_cascade(app, level, plan))
+          return;
+      } else {
+        ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
+                           "Scannez aussi les items périmés que vous retirez, puis leurs remplaçants.%s",
+                           multi ? "" : " L'étiquette clé d'un autre lot du même lot global l'ajoute à la vérif.");
+        ImGui::TextDisabled("L'étiquette du scellé d'un lot scellé du même lot global le compte comme vérifié sans l'ouvrir.");
+      }
 
       std::set< std::string >      scanned;
       std::map< std::string, int > last_scan; // rang du dernier scan de chaque type d'item
@@ -96,10 +113,21 @@ class VerifWindow final : public AppWindow {
         scanned.insert(iid);
         last_scan[parse_scan(iid).item_type] = rank++;
       }
+      // vérif en cascade : lots verifies a la validation du lot en cours, et scans faits dedans
+      const std::set< std::string > scope = cascade ? app.verif_scope(level) : std::set< std::string >();
+      std::set< std::string >       in_scope; // iids scannes dans ces lots
+      for (const ScanEntry &entry : app.stack.entries())
+        if (cascade && scope.count(entry.place.empty() ? verif.lot_id : entry.place)) {
+          if (entry.scan.kind == ScanKind::Item)
+            in_scope.insert(entry.scan.id);
+          else
+            in_scope.insert(entry.pack_items.begin(), entry.pack_items.end());
+        }
       std::set< std::string > expected; // items connus des lots de la verif
       for (const VerifPlanLot &row : plan)
-        for (const Json &item : (*row.lot)["items"].items())
-          expected.insert(item["iid"].str());
+        if (!cascade || scope.count((*row.lot)["id"].str()))
+          for (const Json &item : (*row.lot)["items"].items())
+            expected.insert(item["iid"].str());
       int remaining = 0;
 
       ProblemTarget report; // (!) touche dans la liste : signalement apres la table
@@ -140,19 +168,39 @@ class VerifWindow final : public AppWindow {
       };
 
       int added = 0, known_scanned = 0;
-      for (const std::string &iid : scanned)
+      for (const std::string &iid : cascade ? in_scope : scanned)
         if (!expected.count(iid))
           ++added;
         else
           ++known_scanned;
       // seulement des items qui ne sont pas dans le lot : probablement un reassort, pas une verif
-      const bool                        restock = added > 0 && known_scanned == 0;
-      const std::vector< const Json * > partial = app.partial_verif_lots();
+      const bool                  restock = added > 0 && known_scanned == 0;
+      std::vector< const Json * > partial;
+      if (!cascade) {
+        partial = app.partial_verif_lots();
+      } else if (!in_scope.empty()) {
+        // vérif partielle du lot en cours : des lots sont complets avec les scans, pas tous
+        bool all = true;
+        for (const VerifPlanLot &row : plan)
+          if (scope.count((*row.lot)["id"].str()))
+            all = all && row.complete;
+        if (!all)
+          for (const VerifPlanLot &row : plan)
+            if (scope.count((*row.lot)["id"].str()) && row.complete && row.touched > 0)
+              partial.push_back(row.lot);
+      }
       const bool                        orange  = restock || !partial.empty();
 
-      ImGui::SeparatorText("À scanner");
+      // vérif en cascade : un lot qui ne fait que regrouper des sous-lots n'a rien a scanner lui-meme
+      const Json &level_lot = cascade ? *app.verif_lot(level) : verif.lot;
+      const bool  grouping  = cascade && level_lot["requirements"].size() == 0 && level_lot["items"].size() == 0
+                           && !level_lot["storage"].boolean();
+      if (!grouping)
+        ImGui::SeparatorText("À scanner");
       const float footer = ImGui::GetFrameHeightWithSpacing() * (orange ? 4.4f : 3.2f);
-      if (ImGui::BeginTable("expected", 3,
+      if (grouping)
+        ImGui::Dummy(ImVec2(0, std::max(0.0f, ImGui::GetContentRegionAvail().y - footer)));
+      else if (ImGui::BeginTable("expected", 3,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, -footer))) {
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -162,6 +210,8 @@ class VerifWindow final : public AppWindow {
         ImGui::TableHeadersRow();
         for (const VerifPlanLot &plan_row : plan) {
           const Json &lot = *plan_row.lot;
+          if (cascade && lot["id"].str() != level)
+            continue; // vérif en cascade : le contenu du lot en cours, ses sous-lots sont au-dessus
           // items du lot pas encore scannes, par type
           std::map< std::string, std::vector< const Json * > > known_by_type;
           for (const Json &item : lot["items"].items())
@@ -288,7 +338,12 @@ class VerifWindow final : public AppWindow {
       }
       if (!report.label.empty())
         app.report_problem(report);
-      if (remaining == 0)
+      if (grouping)
+        status_banner(level == verif.lot_id ? "Les sous-lots validés sont enregistrés : terminez quand vous avez fini"
+                                            : "Validez les sous-lots, puis revenez", colors::grey, 1.0f);
+      else if (cascade && remaining == 0)
+        status_banner("✔ Tout est scanné dans " + (*app.verif_lot(level))["name"].str(), colors::green, 1.0f);
+      else if (remaining == 0)
         status_banner(multi ? "✔ Tout est scanné : les lots seront complets" : "✔ Tout est scanné : le lot sera complet",
                       colors::green, 1.0f);
       else
@@ -317,8 +372,16 @@ class VerifWindow final : public AppWindow {
                               "fasse une vérif complète.");
       }
       const float width = ImGui::GetContentRegionAvail().x;
-      if (primary_button(verif.submitting ? "Envoi..." : orange ? "Valider une vérif complète" : "Valider la vérif",
-                         ImVec2(width * 0.45f, 0)))
+      std::string validate = verif.submitting ? "Envoi..." : orange ? "Valider une vérif complète" : "Valider la vérif";
+      if (cascade && !verif.submitting) {
+        const Json &lot     = *app.verif_lot(level);
+        const bool  at_root = level == verif.lot_id;
+        const bool  content = lot["requirements"].size() > 0 || lot["items"].size() > 0 || lot["storage"].boolean()
+                             || !in_scope.empty() || scope.size() > 1 || !verif.sealed.empty();
+        validate = !content ? (at_root ? "Terminer la vérif" : "Revenir (rien à valider)")
+                   : (orange ? "Vérif complète de " : "Valider ") + lot["name"].str() + (at_root ? " et terminer" : "");
+      }
+      if (primary_button(validate.c_str(), ImVec2(width * 0.45f, 0)))
         app.submit_verif();
       if (!app.verif_key_ok())
         ImGui::SetItemTooltip("Scannez d'abord l'étiquette clé du lot : c'est le QR code rangé à l'intérieur du lot.");
@@ -336,8 +399,68 @@ class VerifWindow final : public AppWindow {
       ImGui::SetItemTooltip("Retire de la pile le dernier item scanné (erreur de scan).");
       ImGui::EndDisabled();
       ImGui::SameLine();
-      if (danger_button("Annuler la vérif", ImVec2(-1, 0)))
+      if (danger_button(cascade && !verif.done.empty() ? "Quitter la vérif" : "Annuler la vérif", ImVec2(-1, 0)))
         app.cancel_verif();
+      if (cascade && !verif.done.empty())
+        ImGui::SetItemTooltip("Les lots déjà validés restent enregistrés ; les scans pas encore validés sont oubliés.");
+    }
+
+    // Vérif en cascade : retour au lot qui contient le lot en cours, et ses sous-lots (faits en vert, commencés en
+    // orange, à faire) ; cliquer un sous-lot (ou scanner son étiquette) y fait entrer. Renvoie true si l'on vient de
+    // changer de lot (la suite de la fenêtre est dessinée a la prochaine image).
+    bool draw_cascade(App &app, const std::string &level, const std::vector< VerifPlanLot > &plan) {
+      VerifSession &verif = app.verif;
+      if (level != verif.lot_id) {
+        const Json *parent = app.verif_lot(app.verif_parent(level));
+        const std::string back = "← Revenir à " + (parent ? (*parent)["name"].str() : std::string("lot global"));
+        if (button(back.c_str())) {
+          app.leave_level();
+          return true;
+        }
+        ImGui::SetItemTooltip("Sans valider ce lot : ses scans sont gardés.");
+        ImGui::SameLine();
+        ImGui::TextDisabled("Validez ce lot pour revenir au lot qui le contient.");
+      }
+      const std::vector< const Json * > children = app.verif_children(level);
+      if (children.empty())
+        return false;
+      ImGui::SeparatorText("Sous-lots : scannez l'étiquette d'un sous-lot (ou cliquez-le) pour y entrer");
+      const std::set< std::string > intact = app.verif_intact();
+      bool                          moved  = false;
+      for (const Json *child : children) {
+        const std::string id   = (*child)["id"].str();
+        const auto        done = verif.done.find(id);
+        std::string       text = std::string((*child)["is_sealed"].boolean() ? "[scellé] " : "") + (*child)["name"].str();
+        ImVec4            color;
+        if (done != verif.done.end()) {
+          color = done->second.complete || done->second.sealed ? colors::green : colors::red;
+          text += done->second.sealed ? "  –  scellé intact constaté à " + done->second.at
+                                      : "  –  validé à " + done->second.at + (done->second.complete ? "" : ", incomplet");
+        } else if (intact.count(id)) {
+          color = colors::green;
+          text += "  –  scellé intact : enregistré à la validation";
+        } else if (app.verif_touched(id)) {
+          color = colors::orange;
+          text += "  –  commencé, pas encore validé";
+        } else {
+          color = colors::grey;
+          text += std::string("  –  à faire · état actuel : ") + lot_status_label(lot_status(*child));
+        }
+        const std::size_t subs = app.verif_children(id).size();
+        if (subs)
+          text += " · " + std::to_string(subs) + " sous-lot(s)";
+        ImGui::PushID(id.c_str());
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(color.x, color.y, color.z, 0.45f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(color.x, color.y, color.z, 0.65f));
+        if (ImGui::Selectable(text.c_str(), true)) {
+          app.enter_level(id);
+          moved = true;
+        }
+        ImGui::PopStyleColor(2);
+        ImGui::PopID();
+      }
+      (void)plan;
+      return moved;
     }
 
     void draw_list(const App &app, const char *title, const Json &iids, const ImVec4 &color) {

@@ -118,6 +118,13 @@ struct VerifSealed {
     std::string name;
 };
 
+// Vérif en cascade : lot valide pendant la verif (enregistre a sa validation)
+struct CascadeDone {
+    std::string at; // heure (HH:MM)
+    bool        complete = false;
+    bool        sealed   = false; // scelle intact constate
+};
+
 struct VerifSession {
     bool                      active = false;
     std::string               lot_id;
@@ -126,6 +133,13 @@ struct VerifSession {
     std::vector< VerifExtra > extras;
     std::vector< VerifSealed > sealed;
     std::string               current; // lot de la derniere etiquette scannee : les items du stock y vont
+    // Vérif en cascade (lot global avec des sous-lots, ex : VPS > armoires > sacs) : la verif est celle du lot global
+    // (lot_id). On entre dans un sous-lot en scannant son etiquette (ou un de ses items), on le valide a part, et l'on
+    // revient au lot qui le contient (meme fonctionnement que le front web).
+    std::vector< std::string >            path;    // sous-lots ou l'on est entre, du lot global au lot en cours
+    std::map< std::string, CascadeDone >  done;    // lots valides pendant la verif
+    std::map< std::string, std::string >  keys;    // etiquettes cles de sous-lots scannees
+    std::set< std::string >               entered; // lots ou l'on est entre : leurs sous-lots non faits restent tels quels
     bool                      loading    = false;
     bool                      submitting = false;
 };
@@ -305,6 +319,23 @@ class App {
     std::vector< VerifPlanLot >   plan_verif() const;
     std::set< std::string >       verif_intact() const; // lots scelles intacts de la verif et leurs sous-lots
     std::vector< const Json * >   partial_verif_lots() const; // lots complets d'une verif groupee incomplete
+    // Vérif en cascade
+    bool                        verif_cascade() const; // lot global avec des sous-lots
+    std::string                 verif_level() const;   // lot en cours (le lot global au depart)
+    const Json                 *verif_lot(const std::string &id) const;
+    std::string                 verif_parent(const std::string &id) const;
+    std::vector< const Json * > verif_children(const std::string &id) const;
+    bool                        verif_under(const std::string &id, const std::string &top) const;
+    std::set< std::string >     verif_subtree(const std::string &id) const;
+    bool                        verif_touched(const std::string &id) const; // entre dedans ou scans dedans
+    // sous-lots laisses de cote a la validation de top : deja valides ou pas commences
+    std::vector< std::string >  verif_excluded(const std::string &top) const;
+    std::set< std::string >     verif_scope(const std::string &top) const; // lots verifies a la validation de top
+    void                        enter_level(const std::string &id);
+    void                        leave_level(); // retour au lot qui contient le lot en cours, sans le valider
+    // valide le lot en cours (partial : verif partielle ou reassort de ce lot) et revient au lot qui le contient
+    void                        submit_step(bool partial = false);
+    void                        finish_cascade();
     void add_stack_to_lot();
     void verif_target_lot();
     void stack_to_stock();
@@ -426,6 +457,7 @@ class App {
     void draw_seal_opening_modal();
     void send_problem();
     void reload_verif_lots(); // contenu a jour des lots de la verif (item signale inutilisable : a remplacer)
+    void flush_cascade_seals(); // vérif en cascade : scelles intacts constates enregistres tout de suite
     void check_setup();
     void draw_setup_modal();
     void draw_server_modal(); // connexion au back, sans badge tant que l'API est injoignable

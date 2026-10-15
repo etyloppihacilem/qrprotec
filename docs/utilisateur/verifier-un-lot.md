@@ -118,6 +118,9 @@ reste affichée quelques minutes une fois validée.
 
 ## Vérif d'un lot qui a des sous-lots : où va un item ?
 
+La vérif d'un lot qui a des sous-lots se fait **en cascade**, un lot à la fois (voir « Vérif en
+cascade » plus bas). Dans le lot où vous êtes :
+
 - Un item **déjà rangé dans un des lots de la vérif** y reste : on l'a trouvé là.
 - Un item **venu du stock** va dans le dernier lot dont vous avez scanné l'étiquette (publique ou
   clé), ou dans un de ses sous-lots qui en attend encore. Scannez donc l'étiquette du sous-lot devant
@@ -209,17 +212,52 @@ Au retour d'intervention, quand on remet dans le sac ce qui a été utilisé :
 Le reste du contenu du sac n'est pas touché. Le sac passe **orange** « vérif recommandée », avec le
 nombre d'objets ajoutés, la date et votre nom, jusqu'à la prochaine vérif complète.
 
-## Vérifier plusieurs sous-lots ensemble (vérif groupée)
+## Vérif en cascade : un lot qui contient des lots (VPS, armoires, B+)
 
-Exemple : refaire tout le B+ (sac de soin + sac O2) d'un coup.
+On ne vérifie jamais tout un VPS d'un coup : on fait un lot, puis une armoire, puis le suivant. La
+vérif suit donc l'arborescence des lots.
 
-- Scannez l'étiquette clé du **B+** : la vérif couvre automatiquement ses deux sacs, la liste « À
-  scanner » est regroupée par sac.
-- Ou scannez l'étiquette clé du **sac de soin**, puis pendant la vérif celle du **sac O2** : elle
-  s'ajoute à la vérif.
+1. Lancez la vérif du **VPS** (étiquette clé, ou **Lancer une vérif** sur sa fiche). L'écran liste ses
+   sous-lots : Armoire 1, Armoire 2, Lot accouchement… avec leur état actuel, et en dessous ce que le
+   VPS contient directement.
+2. Scannez l'étiquette (publique ou clé) de l'**Armoire 1**, ou touchez sa ligne : vous **entrez**
+   dedans. Le chemin (VPS 1 › Armoire 1) est rappelé en haut. Scanner directement un item de l'armoire
+   y entre aussi.
+3. Dans l'armoire, scannez un **sac de soin** : vous entrez dans le sac, vous faites sa vérif, puis
+   **Valider Sac de soin** : il est enregistré tout de suite et vous revenez dans l'Armoire 1, où il
+   est en **vert** (rouge s'il manque quelque chose).
+4. **Valider Armoire 1** : retour au VPS, l'armoire est verte. Passez à l'armoire 2, etc.
+5. Les **lots scellés** : scannez l'étiquette de leur scellé, ils sont comptés vérifiés sans les ouvrir.
+6. À la fin, au niveau du VPS : **Valider VPS 1 et terminer** (ou **Terminer la vérif** si le VPS ne
+   contient que des lots).
 
-Chaque objet scanné est rangé dans le sac où il manque. Les lots d'une même vérif doivent appartenir
-au même lot global (on ne peut pas mélanger le B+ 1 et le sac PSE A).
+Chaque lot validé est une vérif à part, enregistrée dès sa validation : si vous vous arrêtez au milieu,
+les armoires faites restent faites. Un lot où vous n'êtes pas entré n'est pas touché (pas de
+« manquants » pour une armoire que vous n'avez pas ouverte). Un item d'un lot déjà validé pendant
+cette vérif est refusé (« Déjà vérifié ») : rentrez dans le lot (touchez sa ligne) pour le refaire.
+**← Retour** remonte d'un niveau sans valider.
+
+Lancer la vérif d'un sous-lot (l'armoire 1, ou un sac via son étiquette clé) ouvre la même vue,
+directement dans ce sous-lot : on voit où il est dans le VPS.
+
+**Une seule étiquette clé** suffit pour tout le VPS : celle de n'importe quel lot de la cascade
+(celle d'une armoire permet de valider le sac qu'elle contient, et inversement).
+
+### À plusieurs dans le même VPS
+
+Si Julien vérifie l'armoire 1 et Camille l'armoire 2, ils font **la même vérif du VPS** (vérif
+commune, voir « Vérifier à plusieurs ») :
+
+- chacun voit où est l'autre (📍 Armoire 1, 📍 Armoire 2) et l'armoire de l'autre apparaît « En cours
+  · Julien » ;
+- quand Julien valide l'armoire 1, elle passe « Validé par Julien » chez Camille aussi ;
+- Camille n'a pas besoin de scanner une clé si Julien en a déjà scanné une ;
+- **Terminer** fait sortir de la vérif commune ; les autres continuent.
+
+### Vérif partielle
+
+Si un lot est incomplet (il manque des masques O2), **Vérif partielle** dans ce lot ajoute les objets
+scannés en réassort (il passe orange), sans déclarer manquant le reste de son contenu.
 
 ## Fiche papier du lot (PDF)
 
@@ -234,12 +272,6 @@ Un lot global (un B+) donne **une page par sous-lot** : la première page liste 
 numéro de leur page. Depuis un sous-lot, **Fiche du lot global en PDF** imprime tout le lot global.
 Un lot trop long continue sur une page « suite ». La fiche ne contient aucune clé : elle peut être
 imprimée et laissée dans le lot.
-
-## Vérif partielle
-
-Si, dans une vérif groupée, un des sacs est complet et l'autre non (il manque des masques O2), le
-bouton **Vérif partielle** valide **seulement les sacs complets**. Les objets scannés pour l'autre sac
-y sont ajoutés en réassort (il passe orange), sans que le reste de son contenu soit déclaré manquant.
 
 ## Lot scellé
 
@@ -307,7 +339,7 @@ et toujours utilisable, ou résolu).
 
 ## Lot scellé dans le lot vérifié
 
-Pendant la vérif d'un lot global (un VPS) ou de quelques-uns de ses sous-lots, scannez l'**étiquette du
+Pendant la vérif d'un lot global (un VPS), dans le lot qui le contient, scannez l'**étiquette du
 scellé** d'un lot scellé qu'il contient (un kit accouchement) : le lot est compté comme vérifié, avec
 ses sous-lots, sans l'ouvrir ni scanner son contenu, et son scellé est gardé. Un scellé brisé, l'étiquette
 d'un ancien scellé ou un lot scellé contenant des périmés sont refusés : ouvrez le lot et scannez son
