@@ -225,7 +225,8 @@ test**. Le même écran liste tous ses appareils abonnés : on y change les aler
 retire (un téléphone perdu, par exemple).
 
 - Gestion : stock bas, stock vide, commande à passer, ouverture d'un lot scellé (le clic ouvre la fiche du lot),
-  renouvellement et expiration des étiquettes clés de lot.
+  résumé quotidien des lots contenant des périmés (7 h 45), vérif incomplète (désactivée par défaut,
+  le clic ouvre la fiche du lot), renouvellement et expiration des étiquettes clés de lot.
 - Admin : en plus, PIN bloqué, signalements, renouvellement et expiration des badges.
 - Sur le poste, **Utilisateurs > Notifications web** : décochez un type pour le couper à cet
   utilisateur sur tous ses appareils. La fiche indique aussi combien d'appareils sont abonnés. Les alertes arrivent même page fermée.

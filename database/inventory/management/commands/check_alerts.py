@@ -11,7 +11,7 @@
 """Verification periodique (a lancer par cron, ex: chaque matin) :
 
 - stock sous le minimum (une notification web par passage sous le seuil) ;
-- lots contenant des items perimes (affiches seulement : le resume par SMS n'est plus maintenu) ;
+- resume des lots contenant des items perimes (notification web « résumé quotidien des périmés ») ;
 - etiquettes privees de lot et badges qui expirent bientot ou ont expire (une alerte par etape) ;
 - commandes a passer d'apres les previsions de stock (une alerte par type et par commande) ;
 - items sortis du stock sans lot et non revus dans le delai : comptes comme utilises.
@@ -26,7 +26,7 @@ from inventory.models import ItemStatus, Lots
 
 
 class Command(BaseCommand):
-    help = ('Envoie les notifications web de stock bas et les alertes '
+    help = ('Envoie les notifications web de stock bas, le résumé des lots contenant des périmés et les alertes '
             "d'expiration des étiquettes clés de lot et des badges, et les commandes à passer.")
 
     def handle(self, *args, **options):
@@ -40,9 +40,9 @@ class Command(BaseCommand):
             .order_by('name')
         )
         summary = [f'{lot.name} ({lot.expired})' for lot in lots]
-        # resume quotidien par SMS : API SMS plus maintenue, sans equivalent web (voir notifications.py)
-        # if summary:
-        #     notifications.notify('expired_daily', 'lots contenant des périmés : ' + ', '.join(summary))
+        if summary:
+            notifications.notify_admins('expired_daily', 'lots avec périmés',
+                                        'lots contenant des périmés : ' + ', '.join(summary), tag='expired-daily')
         self.stdout.write(f'Stock bas : {", ".join(low) or "aucun"}')
         self.stdout.write(f'Lots avec périmés : {", ".join(summary) or "aucun"}')
         expirations = notifications.check_key_expirations(today)
