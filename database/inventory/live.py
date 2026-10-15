@@ -29,7 +29,8 @@ sur le serveur : celui qui a rejoint la verif n'en a pas besoin pour l'envoyer.
 Vérif en cascade (lot global avec des sous-lots, ex : VPS > armoires > sacs) : la vérif est celle du lot global, chacun
 entre dans un sous-lot et le valide a part (POST /api/verifs/ avec "step"). La vérif commune continue : le lot valide
 est note pour tous ("done" de "team"), les scans envoyes sont retires, et chacun quitte la vérif quand il a fini
-("leave"). Rien n'est enregistre par le serveur pour une vérif en cascade abandonnee : ce qui est valide l'est deja.
+("leave"). Le dernier participant connecte qui part termine la vérif en direct (affichee « Terminee » avec les lots
+valides). Rien n'est enregistre par le serveur pour une vérif en cascade abandonnee : ce qui est valide l'est deja.
 
 Messages (JSON, trames texte) :
   scanner -> serveur : {"type": "hello", "id", "pid", "token", "join": id de la verif a rejoindre (facultatif),
@@ -329,6 +330,34 @@ class LiveHub:
             self.broadcast({'type': 'remove', 'id': session_id})
         return session is not None
 
+    def leave_cascade(self, session, participant):
+        """Vérif en cascade terminee par un participant. S'il reste d'autres participants connectes, la vérif commune
+        continue sans lui ; sinon elle est terminee : affichee comme validee (lots valides) dans le suivi, ou retiree si
+        rien n'a ete valide. Les participants deconnectes ne la retiennent pas : tout ce qui est valide est enregistre."""
+        with self.lock:
+            if session.done or self.sessions.get(session.id) is not session:
+                return
+            participant.socket = None
+            participant.lost = time.monotonic()
+            if any(p is not participant and p.socket is not None for p in session.participants.values()):
+                self._leave(session, participant)
+            elif session.steps:
+                self._close_cascade(session)
+            else:
+                self.sessions.pop(session.id, None)
+        self._changed(session)
+
+    @staticmethod
+    def _close_cascade(session):
+        """Vérif en cascade terminee (sous verrou) : resume des lots valides, gardee DONE_KEEP dans le suivi."""
+        steps = list(session.steps.values())
+        incomplete = sum(1 for step in steps if not step['complete'] and not step['sealed'])
+        session.done = {'complete': not incomplete, 'partial': False, 'present': 0, 'lots': len(steps),
+                        'incomplete': incomplete, 'at': timezone.now().isoformat(timespec='seconds')}
+        session.updated = timezone.now()
+        session.submitting = None
+        session.finished = time.monotonic()
+
     def _leave(self, session, participant):
         """Retire un participant (il rejoint une autre verif) ; une verif sans participant disparait."""
         session.participants.pop(participant.id, None)
@@ -348,13 +377,17 @@ class LiveHub:
         expired = []
         submits = []
         unattended = []
+        closed = []
         with self.lock:
             for session in self.sessions.values():
                 if not session.connected:
                     keep = DONE_KEEP if session.done else LOST_KEEP
                     if session.saving or now - max(session.lost, session.finished) <= keep:
                         continue
-                    if not session.done and not session.saving and self._worth_saving(session):
+                    if not session.done and session.steps and (session.state or {}).get('cascade'):
+                        self._close_cascade(session)  # vérif en cascade abandonnee : les lots valides sont enregistres
+                        closed.append(session)
+                    elif not session.done and not session.saving and self._worth_saving(session):
                         session.saving = True
                         unattended.append(session)
                     else:
@@ -366,6 +399,8 @@ class LiveHub:
                     submits.append((participant.socket, {'type': 'submit', 'partial': participant.partial}))
         for session_id in expired:
             self.remove(session_id)
+        for session in closed:
+            self._changed(session)
         for session in unattended:
             if not self.save_unattended(session):
                 self.remove(session.id)
@@ -629,10 +664,7 @@ class LiveHub:
                     self._changed(session)
                 elif kind == 'leave':
                     # vérif en cascade terminee par ce participant : les autres continuent sans lui
-                    with self.lock:
-                        participant.socket = None
-                        self._leave(session, participant)
-                    self._changed(session)
+                    self.leave_cascade(session, participant)
                     return
                 elif kind == 'cancel':
                     with self.lock:
@@ -679,9 +711,10 @@ class LiveHub:
             return bool(iids & set(entry['items']))
         return entry['iid'] in iids
 
-    def step(self, team, report, iids):
+    def step(self, team, report, iids, final=False):
         """Vérif en cascade : un participant a valide un lot (et ses sous-lots faits). La vérif commune continue : le
-        lot est note valide pour tous, les scans envoyes sont retires des scans partages."""
+        lot est note valide pour tous, les scans envoyes sont retires des scans partages. final : le lot global a ete
+        valide, ce participant a fini (comme "leave", sans attendre son message)."""
         rows = [row for row in report.get('lots') or [] if row.get('verified') or row.get('sealed')]
         sent = set(iids) | {row['id'] for row in rows if row.get('sealed')}
         with self.lock:
@@ -704,7 +737,10 @@ class LiveHub:
                              'sealed': bool(row.get('sealed'))} for row in rows]}
         for websocket in sockets:
             websocket.send_json(message)
-        self._changed(session)
+        if final and poster is not None:
+            self.leave_cascade(session, poster)
+        else:
+            self._changed(session)
 
     def finish(self, team, report):
         """Verif enregistree : affichee comme terminee, compte rendu envoye aux autres participants."""

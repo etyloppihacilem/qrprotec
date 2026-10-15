@@ -1870,6 +1870,7 @@
         ...payload,
         partial,
         step: true,
+        finish: atRoot && !partial, // lot global valide : on quitte la vérif commune cote serveur aussi
         ...(credentials ? { live: credentials } : {}),
       });
       stepDone(report, [...payload.items, ...payload.sealed.map((row) => row.id)]);
@@ -3236,7 +3237,9 @@
     const done = row.done;
     const kind = done ? (done.complete ? 'ok' : 'bad') : row.connected ? '' : 'lost';
     const lot = row.lot || { id: '', name: '?' };
-    const status = done
+    const status = done && done.lots != null
+      ? `${done.complete ? '✔' : '✘'} Terminée à ${timeOf(done.at)} : ${done.lots} lot(s) validé(s)` + (done.incomplete ? `, dont ${done.incomplete} incomplet(s)` : '')
+      : done
       ? `${done.complete ? '✔' : done.partial ? '↷' : '✘'} Validée à ${timeOf(done.at)} : ${done.complete ? 'complet' : done.partial ? 'vérif partielle' : 'incomplet'}, ${done.present} présent(s)`
       : row.connected ? (row.scanned.length ? `En cours · dernier scan ${ago(row.updated)}` : 'En cours · aucun item scanné')
         : `Connexion perdue ${ago(row.updated)}`;

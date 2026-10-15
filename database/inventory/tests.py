@@ -2354,15 +2354,72 @@ class LiveHubTests(ApiTestCase):
         team = [m for m in second.sent if m['type'] == 'team'][-1]
         self.assertEqual({row['who']: (row['level'] or {}).get('name') for row in team['participants']},
                          {'Jeanne': 'Armoire 1', 'Paul Martin': 'Armoire 2'})
-        # Jeanne a fini : elle quitte la vérif, Paul continue seul ; abandonnee, rien n'est enregistre par le serveur
+        # Jeanne a fini : elle quitte la vérif, Paul continue seul ; abandonnee, rien de plus n'est enregistre par le
+        # serveur, la vérif s'affiche terminee avec les lots deja valides
         first.push({'type': 'leave'})
         self.wait(lambda: len(session.participants) == 1)
         self.assertIn(session.id, self.hub.sessions)
         second.push(None)
         self.wait(lambda: not session.connected)
         self.hub.reap(session.lost + self.live.LOST_KEEP + 1)
-        self.assertNotIn(session.id, self.hub.sessions)
         self.assertEqual(Verifs.objects.filter(lot=sub_b).count(), 0)
+        self.assertEqual((session.done['lots'], session.done['complete']), (1, True))
+        self.assertEqual(self.hub.visible()[0]['done']['lots'], 1)
+        self.hub.reap(session.finished + self.live.DONE_KEEP + 1)
+        self.assertNotIn(session.id, self.hub.sessions)
+
+    def test_cascade_closes_when_the_global_lot_is_validated(self):
+        """Vérif en cascade : valider le lot global termine la vérif en direct, meme si un participant deconnecte y
+        est encore (page fermee, ancienne vérif fusionnee) ; elle n'apparait plus en cours dans le suivi."""
+        from unittest import mock
+        sub_a = Lots(lot_type=self.lot_type, name='Armoire 1', name_short='A1', created_by='test', parent=self.lot)
+        sub_a.save()
+        mine = self.create(self.compresses, self.today + timedelta(days=200), 2)
+        stale = FakeSocket({'type': 'hello', 'name': 'Paul Martin'})
+        self.run_socket(self.hub.run_scanner, stale)
+        self.wait(lambda: stale.sent)
+        stale.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id, 'cascade': True,
+                    'entries': []})
+        self.wait(lambda: self.hub.visible())
+        stale.push(None)
+        self.wait(lambda: not self.hub.visible()[0]['connected'])
+        scanner = FakeSocket({'type': 'hello', 'user': self.badge})
+        self.run_socket(self.hub.run_scanner, scanner)
+        self.wait(lambda: scanner.sent)
+        scanner.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id, 'cascade': True,
+                      'level': {'id': self.lot.id, 'name': 'Sac A'}, 'keys': [{'id': self.lot.id, 'key': self.lot.verif_key}],
+                      'entries': [{'code': item.iid, 'kind': 'item', 'iid': item.iid, 'place': sub_a.id} for item in mine]})
+        self.wait(lambda: any(m.get('merged') for m in scanner.sent))
+        hello = next(m for m in scanner.sent if m.get('merged'))
+        session = self.hub.sessions[hello['id']]
+        self.assertEqual(len(session.participants), 2)
+        with mock.patch.object(self.live, 'hub', self.hub):
+            code, report = self.call('POST', '/api/verifs/', {
+                'lots': [{'id': sub_a.id}], 'items': [item.iid for item in mine], 'user': self.badge, 'step': True,
+                'live': {'id': hello['id'], 'pid': hello['pid'], 'token': hello['token']}}, local=False)
+            self.assertEqual(code, 200, report)
+            self.assertIsNone(session.done)
+            # lot global valide (rien a y scanner directement) : la vérif est terminee pour tous
+            code, report = self.call('POST', '/api/verifs/', {
+                'lots': [{'id': self.lot.id}], 'exclude': [sub_a.id], 'user': self.badge, 'step': True, 'finish': True,
+                'live': {'id': hello['id'], 'pid': hello['pid'], 'token': hello['token']}}, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertEqual(session.done['lots'], 2)
+        self.wait(lambda: self.hub.visible() and self.hub.visible()[0]['done'])
+        scanner.push({'type': 'leave'})  # le message de la page arrive ensuite : sans effet
+        scanner.push(None)
+        self.assertEqual(self.hub.visible()[0]['done']['lots'], 2)
+
+    def test_cascade_leave_without_validated_lot_drops_the_check(self):
+        """Dernier participant connecte qui quitte une vérif en cascade sans rien valider : elle disparait du suivi."""
+        scanner = FakeSocket({'type': 'hello', 'user': self.badge})
+        self.run_socket(self.hub.run_scanner, scanner)
+        self.wait(lambda: scanner.sent)
+        scanner.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id, 'cascade': True,
+                      'entries': []})
+        self.wait(lambda: self.hub.visible())
+        scanner.push({'type': 'leave'})
+        self.wait(lambda: not self.hub.sessions)
 
     def lonely_check(self, validate, remaining):
         """Verif d'un seul participant qui ferme sa page ; renvoie la session apres le delai d'abandon."""

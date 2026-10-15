@@ -747,7 +747,7 @@ def verifs(request):
                                     excluded_lots(request.data, lots))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team and step:
-        live.hub.step(team, report, iids)
+        live.hub.step(team, report, iids, final=bool(request.data.get('finish')))
     elif team:
         live.hub.finish(team, report)
     return Response(report)
