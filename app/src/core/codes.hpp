@@ -28,12 +28,19 @@ struct Date {
     bool                       valid() const;
     std::string                iso() const;     // AAAA-MM-JJ
     std::string                display() const; // JJ/MM/AAAA
+    std::string                weekday() const; // lundi, mardi...
     Date                       plus_days(int days) const;
 
     bool operator<(const Date &other) const;
     bool operator==(const Date &other) const;
     bool operator<=(const Date &other) const { return *this < other || *this == other; }
 };
+
+// Horodatage d'une action passee (verif, signalement...) : « aujourd'hui à HH:MM » / « hier à HH:MM », sinon
+// « JJ/MM/AAAA à HH:MM » ; long_form ajoute le jour de la semaine devant une date ecrite en entier, on ajoute
+// « le » devant (« scellé le 12/10/2026 à 09:00 » mais « scellé aujourd'hui à 09:00 »). Jamais pour les peremptions.
+std::string relative_datetime(const std::string &timestamp, const Date &today, bool long_form = false,
+                              bool on = false);
 
 // Date saisie librement au clavier (peremption...). Separateurs / - . espace, ou aucun :
 //   02/09/2026, 2/9/26, 02092026, 020926    -> 02/09/2026

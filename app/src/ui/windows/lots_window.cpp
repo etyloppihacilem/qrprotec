@@ -199,7 +199,7 @@ class LotsWindow final : public AppWindow {
           path += (path.empty() ? "" : " › ") + parent["name"].str();
         ImGui::Text("Dans : %s", path.c_str());
       }
-      ImGui::Text("Dernière vérif : %s par %s", display_datetime(details_["last_verif"]).c_str(),
+      ImGui::Text("Dernière vérif : %s par %s", display_datetime(details_["last_verif"], true).c_str(),
                   details_["last_verif_by"].str("-").c_str());
       const LotStatus status = lot_status(details_);
       // QR code de scelle scanne : resultat du controle
@@ -219,10 +219,10 @@ class LotsWindow final : public AppWindow {
         status_banner(lot_status_banner(details_), lot_status_color(status));
       }
       if (details_["is_sealed"].boolean()) {
-        ImGui::TextWrapped("Scellé le %s par %s. Tant que le scellé est intact, le lot n'a pas besoin de vérif.",
-                           display_datetime(details_["sealed"]).c_str(), details_["sealed_by"].str("-").c_str());
+        ImGui::TextWrapped("Scellé %s par %s. Tant que le scellé est intact, le lot n'a pas besoin de vérif.",
+                           display_on(details_["sealed"], true).c_str(), details_["sealed_by"].str("-").c_str());
       } else if (!details_["unsealed"].is_null()) {
-        ImGui::TextDisabled("Dernier scellé brisé le %s par %s", display_datetime(details_["unsealed"]).c_str(),
+        ImGui::TextDisabled("Dernier scellé brisé %s par %s", display_on(details_["unsealed"], true).c_str(),
                             details_["unsealed_by"].str("-").c_str());
       }
       const std::size_t sub_lots = details_["descendants"].size();
@@ -327,7 +327,7 @@ class LotsWindow final : public AppWindow {
       status_banner(global["label"].str(), kind_color(global["kind"].str()), 1.0f);
       ImGui::TextWrapped("Vérif la plus ancienne : %s", global["never_verified"].boolean()
                                                           ? "jamais (un lot n'a jamais été vérifié)"
-                                                          : display_datetime(global["last_verif"]).c_str());
+                                                          : display_datetime(global["last_verif"], true).c_str());
       std::string open_id;
       if (ImGui::BeginTable("global", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("Lot", ImGuiTableColumnFlags_WidthStretch, 1.2f);

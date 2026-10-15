@@ -604,8 +604,8 @@ class InventoryWindow final : public AppWindow {
         return;
       }
       const std::string iid = selected_item_["iid"].str();
-      ImGui::Text("%s - %s - vu le %s par %s", iid.c_str(), selected_item_["type_name"].str().c_str(),
-                  display_datetime(selected_item_["last_seen"]).c_str(), selected_item_["last_seen_by"].str().c_str());
+      ImGui::Text("%s - %s - vu %s par %s", iid.c_str(), selected_item_["type_name"].str().c_str(),
+                  display_on(selected_item_["last_seen"], true).c_str(), selected_item_["last_seen_by"].str().c_str());
       if (ImGui::CollapsingHeader("Actions avancées")) {
         ImGui::TextWrapped("Les items ne sont normalement pas supprimés : ils sont détectés comme disparus par les "
                            "vérifs. N'utilisez la suppression que pour un cas exceptionnel (casse, erreur de saisie).");
@@ -685,8 +685,8 @@ class InventoryWindow final : public AppWindow {
         });
       }
       if (!item_reception_.is_null()) {
-        ImGui::TextDisabled("Reçu le %s par %s, avec %d autre(s) item(s)%s.",
-                            display_datetime(item_reception_["added"]).c_str(),
+        ImGui::TextDisabled("Reçu %s par %s, avec %d autre(s) item(s)%s.",
+                            display_on(item_reception_["added"], true).c_str(),
                             item_reception_["added_by"].str("-").c_str(), item_reception_["count"].integer() - 1,
                             item_reception_["sealed_pack"].is_null()
                               ? ""
@@ -703,8 +703,8 @@ class InventoryWindow final : public AppWindow {
         return;
       }
       if (selected_item_["disabled"].boolean()) {
-        ImGui::TextColored(colors::red, "Désactivé le %s par %s : %s",
-                           display_datetime(selected_item_["disabled_at"]).c_str(),
+        ImGui::TextColored(colors::red, "Désactivé %s par %s : %s",
+                           display_on(selected_item_["disabled_at"], true).c_str(),
                            selected_item_["disabled_by"].str("-").c_str(),
                            selected_item_["disabled_reason"].str().c_str());
         if (button("Réactiver l'item")) {
@@ -824,7 +824,7 @@ class InventoryWindow final : public AppWindow {
       if (!selected)
         return;
       const Json row = *selected;
-      ImGui::SeparatorText((row["type_name"].str() + " reçus le " + display_datetime(row["added"])).c_str());
+      ImGui::SeparatorText((row["type_name"].str() + " reçus " + display_on(row["added"], true)).c_str());
       ImGui::SetNextItemWidth(300.0f);
       input_limited("##reception_reason", disable_reason_, 128, "Raison (obligatoire), ex : rappel produit");
       ImGui::SameLine();
@@ -891,7 +891,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(display_date(pack["peremption"]).c_str());
         ImGui::TableNextColumn();
-        std::string opened = display_datetime(pack["opened"]); // "JJ/MM/AAAA à HH:MM"
+        std::string opened = display_datetime(pack["opened"]); // "JJ/MM/AAAA à HH:MM", "aujourd'hui à HH:MM"...
         if (const std::size_t at = opened.find(" à "); at != std::string::npos)
           opened.replace(at, 4, " ");
         ImGui::TextUnformatted(opened.c_str());

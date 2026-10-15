@@ -488,7 +488,10 @@ class App {
 
 // Petites aides communes aux fenetres
 std::string display_date(const Json &value);
-std::string display_datetime(const Json &value);
+// Action passee : « aujourd'hui / hier à HH:MM », sinon la date ; long_form ajoute le jour de la semaine (fiches)
+std::string display_datetime(const Json &value, bool long_form = false);
+// Idem apres un verbe : « le 12/10/2026 à 09:00 » ou « aujourd'hui à 09:00 » (« scellé %s »)
+std::string display_on(const Json &value, bool long_form = false);
 // Explication de l'etiquette privee d'un lot (QR code dans le lot) et son emplacement s'il est renseigne
 std::string key_hint(const Json &lot);
 

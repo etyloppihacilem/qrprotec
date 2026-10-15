@@ -238,9 +238,9 @@ class UsersWindow final : public AppWindow {
       const bool        admin    = user_["role"].str() == "admin";
       if (user_["pin_blocked"].boolean()) {
         if (user_["pin_forgotten"].boolean())
-          ImGui::TextColored(colors::red, "Code PIN oublié, signalé le %s.", display_datetime(user_["pin_blocked_since"]).c_str());
+          ImGui::TextColored(colors::red, "Code PIN oublié, signalé %s.", display_on(user_["pin_blocked_since"], true).c_str());
         else
-          ImGui::TextColored(colors::red, "PIN bloqué le %s (%d essais faux).", display_datetime(user_["pin_blocked_since"]).c_str(),
+          ImGui::TextColored(colors::red, "PIN bloqué %s (%d essais faux).", display_on(user_["pin_blocked_since"], true).c_str(),
                              user_["pin_failures"].integer());
         if (confirm_button("Réinitialiser le PIN", "L'utilisateur choisira un nouveau PIN à sa prochaine connexion. "
                                                    "Si son badge a pu être volé, renouvelez plutôt le badge. Continuer ?",

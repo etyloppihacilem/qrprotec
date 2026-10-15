@@ -72,7 +72,7 @@ class PackWindow final : public AppWindow {
       const auto date   = Date::parse(pack_["peremption"].str());
       const bool expired = date && *date < app.today();
       if (opened)
-        status_banner("OUVERT le " + display_datetime(pack_["opened"]), colors::grey);
+        status_banner("OUVERT " + display_on(pack_["opened"], true), colors::grey);
       else
         status_banner("FERMÉ", colors::orange);
 
@@ -84,7 +84,7 @@ class PackWindow final : public AppWindow {
         ImGui::TextColored(colors::red, "PÉRIMÉ depuis le %s", display_date(pack_["peremption"]).c_str());
       else
         ImGui::Text("Péremption : %s", display_date(pack_["peremption"]).c_str());
-      ImGui::Text("Reçu le %s par %s", display_datetime(pack_["created"]).c_str(), pack_["created_by"].str().c_str());
+      ImGui::Text("Reçu %s par %s", display_on(pack_["created"], true).c_str(), pack_["created_by"].str().c_str());
       if (opened && !pack_["opened_by"].str().empty())
         ImGui::Text("Ouvert par %s", pack_["opened_by"].str().c_str());
       ImGui::Spacing();
