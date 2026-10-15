@@ -179,7 +179,7 @@ contient un sac de soin et un sac O2 »). Aujourd'hui l'arborescence se construi
 ## Les scellés
 
 Un lot complet peut être **scellé** (`services.seal_lot`) : un scellé physique numéroté est posé et
-une étiquette de scellé est imprimée (`seal?lot=…&s=CODE`). Tant que le scellé est intact, le lot est
+une étiquette de scellé est imprimée (`seal?lot=…&s=CODE`) ; scannée hors vérif, elle ouvre la fiche du lot sans bouton de vérif tant que le lot est scellé. Tant que le scellé est intact, le lot est
 **valide sans vérif** (vert « Scellé »), jusqu'à la première péremption de son contenu
 (`valid_until`). Un lot scellé contenant des périmés est rouge.
 

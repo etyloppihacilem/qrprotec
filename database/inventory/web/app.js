@@ -505,6 +505,13 @@
       scannedFiche = scan;
       return;
     }
+    // etiquette du scelle hors vérif (scanner ou petit lecteur de l'accueil) : fiche du lot scelle, sans bouton de
+    // vérif tant que le scelle est intact. Pendant une vérif, elle compte le lot comme verifie (scanSeal).
+    if (scan.kind === 'seal' && !taskPopup && !checkRunning() && !allScanned().length) {
+      if (readerOpen()) closeReader();
+      openFiche('lot', scan.id, { seal: scan.key });
+      return;
+    }
     // petit lecteur de l'accueil : un badge connecte et l'on reste sur l'accueil, tout autre code ouvre le scanner
     if (readerOpen() && scan.kind !== 'user' && scan.kind !== 'sealopen') enterScanner(false);
     switch (scan.kind) {
@@ -2110,7 +2117,7 @@
     const next = pendingAfterLogin;
     if (readerOpen()) closeReader();
     if (ficheOpen()) { // connexion depuis une fiche (signalement) : on y reste, avec les actions du role
-      openFiche(fiche.kind, fiche.id, { key: fiche.key, push: false });
+      openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false });
       return;
     }
     if (next === 'stock' && !canSeeStock()) toast("L'état des stocks est réservé aux rôles gestion et admin.", true);
@@ -2153,6 +2160,10 @@
     const route = location.pathname.replace(/\/+$/, '').split('/').pop();
     const params = new URLSearchParams(location.search);
     if (route === 'verif' && params.get('lot')) { openFiche('lot', params.get('lot'), { push: false }); return; }
+    if (route === 'seal' && params.get('lot') && params.get('s')) {
+      openFiche('lot', params.get('lot'), { seal: params.get('s'), push: false });
+      return;
+    }
     if ((route === 'item' || route === 'task') && IID_RE.test(params.get('id') || '')) { openFiche('item', params.get('id'), { push: false }); return; }
     closeFiche();
     const page = route === 'verif' ? 'scan' : pageFromHash(location.hash);
@@ -3245,14 +3256,15 @@
   // integre), ou d'un lot / item touche dans une fiche. Pas de camera : « Lancer une vérif » ouvre le lecteur sur le
   // bon lot (le lot de la fiche, ou le dernier emplacement connu de l'item).
 
-  const fiche = { kind: '', id: '', key: '', lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set() };
+  const fiche = { kind: '', id: '', key: '', seal: '', lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set() };
 
   function ficheOpen() { return !$('#fiche').hidden; }
 
   // Premiere lettre en majuscule (texte saisi au poste, ex : emplacement de l'etiquette privee)
   const cap = (text) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : '');
 
-  const ficheUrl = (kind, id) => (kind === 'lot' ? `verif?lot=${encodeURIComponent(id)}` : `item?id=${encodeURIComponent(id)}`);
+  const ficheUrl = (kind, id, seal = '') => (kind !== 'lot' ? `item?id=${encodeURIComponent(id)}`
+    : seal ? `seal?lot=${encodeURIComponent(id)}&s=${encodeURIComponent(seal)}` : `verif?lot=${encodeURIComponent(id)}`);
 
   // Lien vers la fiche d'un lot ou d'un item (vraie URL : appui long pour l'ouvrir dans un autre onglet)
   function ficheLink(kind, id, label) {
@@ -3277,13 +3289,14 @@
   }
 
   // push : nouvelle entree d'historique (le bouton retour du telephone revient a la page precedente)
-  async function openFiche(kind, id, { key = '', push = true } = {}) {
-    if (kind === 'lot') {
+  // seal : code de l'etiquette du scelle scannee (fiche du lot scelle, sans vérif tant que le scelle est intact)
+  async function openFiche(kind, id, { key = '', seal = '', push = true } = {}) {
+    if (kind === 'lot' && !seal) {
       if (key) storeFicheKey(id, key); else key = storedFicheKey(id);
     }
     const token = fiche.token + 1;
-    Object.assign(fiche, { kind, id, key, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set() });
-    if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id));
+    Object.assign(fiche, { kind, id, key, seal, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set() });
+    if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id, seal));
     $('#fiche').hidden = false;
     document.body.classList.add('fiche-open');
     document.body.classList.remove('home-mode', 'login-reader');
@@ -3294,10 +3307,15 @@
     $('#fiche-body').scrollTop = 0;
     try {
       if (kind === 'lot') {
-        const lot = await api(`lots/${encodeURIComponent(id)}/` + (key ? `?key=${encodeURIComponent(key)}` : ''));
+        const query = seal ? `?seal=${encodeURIComponent(seal)}` : key ? `?key=${encodeURIComponent(key)}` : '';
+        const lot = await api(`lots/${encodeURIComponent(id)}/` + query);
         if (fiche.token !== token) return;
         fiche.lot = lot;
         if (key) { fiche.keyCheck = lot.key_check; fiche.keyError = lot.key_error || ''; }
+        if (seal && push) {
+          if (lot.seal_check === 'valid' && !lot.expired_count) feedback.good();
+          else if (lot.seal_check === 'wrong') feedback.warn(); else feedback.bad();
+        }
       } else {
         const item = await api(`items/${encodeURIComponent(id)}/`);
         if (fiche.token !== token) return;
@@ -3388,6 +3406,8 @@
     const launch = $('#fiche-launch');
     const add = $('#fiche-add');
     add.hidden = true;
+    launch.hidden = false;
+    $('#fiche-actions').hidden = false;
     launch.disabled = false;
     if (fiche.error) {
       body.replaceChildren(el('div', { class: 'banner bad' }, fiche.error), el('p', { class: 'sub' }, fiche.id));
@@ -3402,11 +3422,40 @@
     }
   }
 
+  // Resultat de l'etiquette du scelle scannee, en tete de la fiche du lot
+  function sealBanner(lot) {
+    const sealed = lot.is_sealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
+      + (lot.sealed_by ? ' par ' + lot.sealed_by : '') : '';
+    if (lot.seal_check === 'valid' && !lot.expired_count) {
+      return el('div', { class: 'banner ok' }, el('b', {}, '🔒 Scellé intact'),
+        el('div', {}, 'Lot valide sans vérif' + (lot.valid_until ? ` jusqu'au ${fmtDate(lot.valid_until)}` : '')),
+        sealed ? el('div', { style: 'font-weight:400' }, sealed) : '');
+    }
+    if (lot.seal_check === 'valid') {
+      return el('div', { class: 'banner bad' }, el('b', {}, '✘ Scellé intact mais périmés'),
+        el('div', {}, `${lot.expired_count} item(s) périmé(s) : lot à ouvrir`), sealed ? el('div', { style: 'font-weight:400' }, sealed) : '');
+    }
+    if (lot.seal_check === 'wrong') {
+      return el('div', { class: 'banner warn' }, el('b', {}, "⚠ Étiquette d'un ancien scellé"),
+        el('div', {}, 'Un scellé plus récent a été posé depuis : cette étiquette n\'est plus valable.'));
+    }
+    return el('div', { class: 'banner bad' }, el('b', {}, '✘ Scellé brisé'),
+      el('div', {}, 'Le lot doit être vérifié.'),
+      lot.unsealed ? el('div', { style: 'font-weight:400' }, `Scellé brisé ${fmtOn(lot.unsealed, { long: true })}`
+        + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '')) : '');
+  }
+
   function renderLotFiche(body, lot) {
     const status = groupStatus(lot) || lotStatus(lot);
     const current = state.lotId === lot.id && verifInProgress();
     const launch = $('#fiche-launch');
     launch.textContent = current ? 'Reprendre la vérif' : 'Lancer une vérif';
+    // etiquette du scelle scannee : le lot reste ferme, pas de vérif a lancer tant qu'il est scelle (etiquette d'un
+    // ancien scelle comprise : un scelle plus recent a ete pose depuis)
+    const sealIntact = !!fiche.seal && lot.seal_check === 'valid';
+    const noVerif = !!fiche.seal && lot.is_sealed;
+    if (noVerif && !current) launch.hidden = true;
+    $('#fiche-actions').hidden = launch.hidden && $('#fiche-add').hidden;
     const parts = [
       el('div', { class: 'title-row' },
         el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`)),
@@ -3414,10 +3463,11 @@
           target: '_blank', rel: 'noopener', title: "Fiche d'inventaire papier (PDF)" }, '📄 Fiche PDF')),
       (lot.path || []).length ? el('p', { class: 'sub' }, 'Dans : ',
         ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
-      el('div', { class: 'banner ' + status.kind }, status.label),
+      fiche.seal ? sealBanner(lot) : '',
+      sealIntact ? '' : el('div', { class: 'banner ' + status.kind }, status.label),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${state.scanned.length} scan(s).`) : '',
-      lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
+      lot.is_sealed && !sealIntact ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
         + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif
         ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
@@ -3439,7 +3489,8 @@
     if (fiche.keyCheck !== 'valid') {
       keyBox.push(el('div', { class: 'sub' }, "QR code rangé à l'intérieur du lot, à scanner pendant la vérif pour pouvoir la valider."));
     }
-    parts.push(el('h3', {}, 'Étiquette clé'),
+    // lot scelle intact : on ne le verifie pas, l'etiquette cle n'a pas a etre cherchee
+    if (!noVerif) parts.push(el('h3', {}, 'Étiquette clé'),
       el('div', { class: 'key-box' + (fiche.keyCheck && fiche.keyCheck !== 'valid' ? ' bad' : '') }, ...keyBox));
 
     // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres)
@@ -3687,7 +3738,7 @@
       save();
       await loadLot(state.lotId); // etat a jour des items du lot (inutilisable : a remplacer)
     }
-    if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, push: false });
+    if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false });
   }
 
   // Page « Signalements » : lecture seule pour tous, gestion pour les admins
@@ -3812,8 +3863,14 @@
       showHome('menu', false);
       await login(params.get('m'), params.get('key') || '');
     } else if (route === 'seal' && params.get('lot') && params.get('s')) {
-      await scanSeal({ kind: 'seal', code: location.href, id: params.get('lot'), key: params.get('s') });
-      cleanUrl(params.get('lot'));
+      // etiquette du scelle : fiche du lot scelle (sans vérif), ou scan « scellé intact » de la vérif en cours
+      if (state.lotId) await loadLot(state.lotId);
+      if (checkRunning() || allScanned().length) {
+        await scanSeal({ kind: 'seal', code: location.href, id: params.get('lot'), key: params.get('s') });
+        cleanUrl(params.get('lot'));
+      } else {
+        await openFiche('lot', params.get('lot'), { seal: params.get('s'), push: false });
+      }
     } else if (route === 'unseal' && params.get('lot') && params.get('c')) {
       cleanUrl(params.get('lot'));
       await openSeal({ kind: 'sealopen', code: location.href, id: params.get('lot'), key: params.get('c') }, { fromUrl: true });
