@@ -14,7 +14,8 @@ Liste de controle pour verifier sur le terrain qu'un sac est complet, sans resea
 attendus, regroupes par emplacement, sur deux colonnes avec une case a cocher. La taille du texte diminue pour que la
 liste tienne en une page autant que possible ; au-dela, elle continue sur une page « suite ». Un lot global donne une
 page par sous-lot (en profondeur d'abord, comme partout ailleurs) ; un lot de regroupement sans item attendu n'a pas
-de page a lui.
+de page a lui. En haut de la premiere page de chaque lot : le QR code de son etiquette publique et un cadre de
+40 x 30 mm ou coller son etiquette cle.
 
 Le PDF est ecrit a la main (polices standard Helvetica, encodage WinAnsi) pour ne pas ajouter de dependance.
 """
@@ -25,6 +26,8 @@ import zlib
 from django.utils import timezone
 
 from .models import LotRequirements, name_key
+from .qr import qr_matrix
+from .serializers import public_url
 
 PAGE_WIDTH = 595.28   # A4 en points
 PAGE_HEIGHT = 841.89
@@ -43,6 +46,13 @@ SCALES = [(11, 19, 20), (10, 17, 18), (9, 15, 16), (8, 13, 14)]
 
 GREY_TEXT = 0.42
 GREY_BAND = 0.88
+
+MM = 72 / 25.4
+QR_SIZE = 25 * MM          # QR code de l'etiquette publique, en haut a droite de la premiere page du lot
+KEY_WIDTH = 40 * MM        # cadre ou coller l'etiquette cle (40 x 30 mm, comme le modele lot_prive.qr)
+KEY_HEIGHT = 30 * MM
+CORNER_GAP = 14
+CORNER_WIDTH = KEY_WIDTH + CORNER_GAP + QR_SIZE
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -146,15 +156,38 @@ class Page:
             _num(grey).encode(), font, _num(size).encode(), _num(x).encode(), _num(PAGE_HEIGHT - y).encode(),
             _pdf_string(text)))
 
-    def rect(self, x, y, width, height, fill=None, stroke=True, line_width=0.6):
-        """Rectangle de coin superieur gauche (x, y). fill : niveau de gris, ou None."""
+    def rect(self, x, y, width, height, fill=None, stroke=True, line_width=0.6, dash=None):
+        """Rectangle de coin superieur gauche (x, y). fill : niveau de gris, ou None. dash : (trait, espace)."""
         ops = [b'%s w' % _num(line_width).encode()]
+        if dash:
+            ops.append(b'[%s %s] 0 d' % (_num(dash[0]).encode(), _num(dash[1]).encode()))
         if fill is not None:
             ops.append(b'%s g' % _num(fill).encode())
         ops.append(b'%s %s %s %s re' % (_num(x).encode(), _num(PAGE_HEIGHT - y - height).encode(),
                                         _num(width).encode(), _num(height).encode()))
         ops.append(b'B' if fill is not None and stroke else b'f' if fill is not None else b'S')
+        if dash:
+            ops.append(b'[] 0 d')
         self.ops.append(b'0 G ' + b' '.join(ops))
+
+    def qr(self, x, y, size, text):
+        """QR code de text, carre de cote size depuis (x, y), modules noirs fusionnes par ligne."""
+        modules = qr_matrix(text)
+        unit = size / len(modules)
+        ops = [b'0 g']
+        for row, line in enumerate(modules):
+            column = 0
+            while column < len(line):
+                if not line[column]:
+                    column += 1
+                    continue
+                start = column
+                while column < len(line) and line[column]:
+                    column += 1
+                values = (x + start * unit, PAGE_HEIGHT - y - (row + 1) * unit, (column - start) * unit, unit)
+                ops.append(b'%s %s %s %s re' % tuple(_num(value).encode() for value in values))
+        ops.append(b'f')
+        self.ops.append(b' '.join(ops))
 
     def line(self, x1, y1, x2, y2, line_width=0.6, grey=0.0):
         self.ops.append(b'%s G %s w %s %s m %s %s l S' % (
@@ -246,29 +279,51 @@ class SheetWriter:
                 page.text(*args, **kwargs)
 
         y = MARGIN
-        text(MARGIN, y + 8, "FICHE D'INVENTAIRE", size=8, bold=True, grey=GREY_TEXT)
-        text(PAGE_WIDTH - MARGIN, y + 8, 'Éditée le ' + self.edited.strftime('%d/%m/%Y'), size=8, grey=GREY_TEXT,
-             align='right')
+        # premiere page du lot : QR code de l'etiquette publique dans le coin, cadre de l'etiquette cle a cote
+        corner = not continued
+        width = CONTENT_WIDTH - (CORNER_WIDTH + 12 if corner else 0)
+        edited = 'Éditée le ' + self.edited.strftime('%d/%m/%Y')
+        if corner:
+            text(MARGIN, y + 8, f"FICHE D'INVENTAIRE · {edited}", size=8, bold=True, grey=GREY_TEXT)
+            if page is not None:
+                self.corner(page, lot)
+        else:
+            text(MARGIN, y + 8, "FICHE D'INVENTAIRE", size=8, bold=True, grey=GREY_TEXT)
+            text(PAGE_WIDTH - MARGIN, y + 8, edited, size=8, grey=GREY_TEXT, align='right')
         y += 28
         count = sum(requirement.quantity for _, rows in self.groups(lot) for requirement in rows)
         title = lot.name + (' (suite)' if continued else '')
-        text(MARGIN, y, fit(title, CONTENT_WIDTH, 18, True), size=18, bold=True)
+        text(MARGIN, y, fit(title, width, 18, True), size=18, bold=True)
         y += 15
         ancestors = lot.ancestors()
         details = [lot.lot_type.name, lot.id, f'{count} item' + ('s' if count > 1 else '')]
         if ancestors:
             details.insert(0, 'dans ' + ' › '.join(parent.name for parent in reversed(ancestors)))
-        text(MARGIN, y, fit(' · '.join(details), CONTENT_WIDTH, 9.5), size=9.5, grey=GREY_TEXT)
+        text(MARGIN, y, fit(' · '.join(details), width, 9.5), size=9.5, grey=GREY_TEXT)
         y += 13
         children = [sub for sub in self.lots if sub.parent_id == lot.id]
         if children and not continued:
             names = ', '.join(sub.name for sub in children)
-            text(MARGIN, y, fit('Sous-lots (une page chacun) : ' + names, CONTENT_WIDTH, 9.5), size=9.5)
+            text(MARGIN, y, fit('Sous-lots (une page chacun) : ' + names, width, 9.5), size=9.5)
             y += 13
         y += 4
+        if corner:
+            y = max(y, MARGIN + KEY_HEIGHT + 10)
         if page is not None:
             page.line(MARGIN, y, PAGE_WIDTH - MARGIN, y, line_width=0.8)
         return y + 10
+
+    @staticmethod
+    def corner(page, lot):
+        right = PAGE_WIDTH - MARGIN
+        page.qr(right - QR_SIZE, MARGIN, QR_SIZE, public_url('verif', lot=lot.id))
+        page.text(right - QR_SIZE / 2, MARGIN + QR_SIZE + 9, 'Étiquette publique', size=7, grey=GREY_TEXT,
+                  align='center')
+        x = right - CORNER_WIDTH
+        page.rect(x, MARGIN, KEY_WIDTH, KEY_HEIGHT, line_width=0.6, dash=(3, 2))
+        page.text(x + KEY_WIDTH / 2, MARGIN + KEY_HEIGHT / 2 - 2, 'Étiquette clé', size=8, bold=True, grey=0.6,
+                  align='center')
+        page.text(x + KEY_WIDTH / 2, MARGIN + KEY_HEIGHT / 2 + 9, '40 × 30 mm', size=7, grey=0.6, align='center')
 
     # -- liste ----------------------------------------------------------------------------------------------------
 

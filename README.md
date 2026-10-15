@@ -389,7 +389,8 @@ Publiques et locales : `health/`, `auth/` (POST matricule + key), `items/<iid>/`
 vérif groupée de plusieurs lots d'un même lot global), `lots/<id>/add/` (POST items, key), `items/out/` (POST items :
 sortie du stock sans lot), `lots/<id>/unseal/` (POST
 key), `packs/<id>/`, `lots/<id>/sheet.pdf` (GET, fiche d'inventaire papier A4 : liste de contrôle
-des items attendus par emplacement sur deux colonnes, pour vérifier un sac sans réseau ; une page par sous-lot). `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
+des items attendus par emplacement, sur deux colonnes si la liste est longue, pour vérifier un sac sans réseau ; une page par
+sous-lot, avec en haut le QR code de l'étiquette publique et un cadre de 40 × 30 mm pour coller l'étiquette clé). `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
 `unsealed`. `lots/<id>/?key=CLE` renvoie `key_check` : `valid`, `expired` ou `wrong` (étiquette clé d'une ancienne
 clé), et `key_error` (message à afficher) si elle n'est pas valide. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
 `lots/summary/` (lots actifs et leur état, tout badge valide), `stock/summary/` (état des stocks,
