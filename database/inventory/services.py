@@ -281,7 +281,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 if sealed.id in by_id:
                     by_id[sealed.id].refresh_from_db(fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
         notify_seals_broken(broken, identity)
-        was_missing = {item.iid for item in not_seen if item.status == ItemStatus.MISSING}
+        # was_missing = {item.iid for item in not_seen if item.status == ItemStatus.MISSING}  # SMS plus maintenu
 
         verifs = {}
         if group is None:
@@ -368,7 +368,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                                                   item.location_id))
         ItemMovement.objects.bulk_create(moves)
         by_iid_location = {item.iid: item.location_id for item in not_seen}
-        newly_missing = [item for item in not_seen if item.status == ItemStatus.MISSING and item.iid not in was_missing]
+        # SMS plus maintenu :
+        # newly_missing = [item for item in not_seen if item.status == ItemStatus.MISSING and item.iid not in was_missing]
         VerifItem.objects.bulk_create(entries)
 
         lots_report = []
@@ -407,10 +408,11 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 _record_verif(sub_lot, identity, now, verif, requirements, partial,
                               [iid for iid in report['missing'] if by_iid_location.get(iid) == sub_lot.id],
                               lot_expired)
-                if not lot_complete:
-                    lot_missing = [item for item in newly_missing if item.location_id == sub_lot.id]
-                    notify_verif_problem(sub_lot, identity, requirements,
-                                         {'expired': lot_expired}, lot_missing)
+                # SMS « vérif incomplète » : API SMS plus maintenue, sans équivalent web (voir notifications.py)
+                # if not lot_complete:
+                #     lot_missing = [item for item in newly_missing if item.location_id == sub_lot.id]
+                #     notify_verif_problem(sub_lot, identity, requirements,
+                #                          {'expired': lot_expired}, lot_missing)
             else:
                 complete = False
                 row['complete'] = None
@@ -544,19 +546,20 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
     return complete
 
 
-def notify_verif_problem(lot, identity, requirements, report, newly_missing):
-    parts = []
-    lacking = [f"{row['required'] - row['present']} {row['type_name']}"
-               for row in requirements if row['present'] < row['required']]
-    if lacking:
-        parts.append('manque ' + ', '.join(lacking))
-    if report['expired']:
-        parts.append(f"{len(report['expired'])} périmé(s)")
-    if newly_missing:
-        parts.append(f'{len(newly_missing)} item(s) signalé(s) disparu(s)')
-    notifications.notify(
-        'verif_problem', f'vérif du lot {lot.name} incomplète ({display_name(identity)}) : ' + ' ; '.join(parts)
-    )
+# SMS « vérif incomplète » : API SMS plus maintenue (voir notifications.py), garde en commentaire.
+# def notify_verif_problem(lot, identity, requirements, report, newly_missing):
+#     parts = []
+#     lacking = [f"{row['required'] - row['present']} {row['type_name']}"
+#                for row in requirements if row['present'] < row['required']]
+#     if lacking:
+#         parts.append('manque ' + ', '.join(lacking))
+#     if report['expired']:
+#         parts.append(f"{len(report['expired'])} périmé(s)")
+#     if newly_missing:
+#         parts.append(f'{len(newly_missing)} item(s) signalé(s) disparu(s)')
+#     notifications.notify(
+#         'verif_problem', f'vérif du lot {lot.name} incomplète ({display_name(identity)}) : ' + ' ; '.join(parts)
+#     )
 
 
 def seal_lot(lot, identity, seal_number='', force=False):
@@ -613,7 +616,7 @@ def break_seal(lot, identity, reason, now=None, notify=True):
 
 def notify_seals_broken(opened, identity):
     """Scelles ouverts par une meme operation ([(lot, raison)], le lot le plus bas d'abord) : une notification aux
-    admins (SMS et web), qui ouvre la fiche du premier lot."""
+    admins (notification web), qui ouvre la fiche du premier lot."""
     if not opened:
         return 0
     who = display_name(identity)
@@ -670,7 +673,7 @@ def open_seal_with_label(lot, identity):
                     operation.by = identity
                     operation.details['signed_after_scan'] = True
                     operation.save(update_fields=['by', 'details'])
-        # la notification web de l'ouverture (meme tag) est remplacee par une version signee, sans nouveau SMS
+        # la notification web de l'ouverture (meme tag) est remplacee par une version signee
         webpush.notify_event('seal_broken', 'QRProtec : scellé ouvert',
                              f"scellé ouvert : {lot.name} ouvert (étiquette d'ouverture) par {display_name(identity)}",
                              url=f'../verif?lot={lot.id}', tag=f'seal-{lot.id}', tab='lot')

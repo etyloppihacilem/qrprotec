@@ -1385,149 +1385,96 @@ class SubLotTests(ApiTestCase):
         self.assertEqual(Items.objects.get(iid=first[1]).missed_verifs, 0)
 
 
-@override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
-class SmsTests(ApiTestCase):
+class AlertTests(ApiTestCase):
+    """Alertes des admins (notifications web, l'API SMS n'est plus maintenue) : une alerte par blocage, par etape
+    d'expiration et par commande. Les envois de webpush sont remplaces : self.sent garde (evenement, texte)."""
+
     def setUp(self):
         super().setUp()
-        from . import notifications
+        from . import webpush
         self.sent = []
-        self._original = notifications.send_free_sms
-        notifications.send_free_sms = lambda user, password, message: (self.sent.append((user, message)) or (True, 'Envoyé'))
-        self.addCleanup(setattr, notifications, 'send_free_sms', self._original)
-        self.call('POST', '/api/notifications/recipients/', {'name': 'A', 'user': 'u1', 'password': 'p1'})
-        self.call('POST', '/api/notifications/recipients/', {'name': 'B', 'user': 'u2', 'password': 'p2'})
+        self.reached = 1  # abonnements atteints par chaque envoi
+        for name, record in (
+                ('notify_event', lambda field, title, body, **web: self.record(field, body)),
+                ('notify_pin_blocked', lambda text, url: self.record('pin_blocked', f'{text} {url}'))):
+            self.addCleanup(setattr, webpush, name, getattr(webpush, name))
+            setattr(webpush, name, record)
 
-    def test_recipients_hide_password(self):
+    def record(self, event, text):
+        if self.reached:
+            self.sent.append((event, text))
+        return self.reached
+
+    def test_settings_only_expose_warning_days(self):
         code, body = self.call('GET', '/api/notifications/')
-        self.assertEqual(len(body['recipients']), 2)
-        self.assertNotIn('password', body['recipients'][0])
-        self.assertTrue(body['recipients'][0]['has_password'])
+        self.assertEqual(body, {'key_expiry_warning_days': 30})
         code, _ = self.call('GET', '/api/notifications/', local=False)
         self.assertEqual(code, 404)
-
-    def test_disabled_sends_nothing(self):
-        with self.captureOnCommitCallbacks(execute=True):
-            self.create(self.compresses, self.today + timedelta(days=60), 3)
-            self.call('GET', '/api/stock/')
-        self.assertEqual(self.sent, [])
-
-    def test_stock_low_once_per_crossing(self):
-        self.call('PATCH', '/api/notifications/', {'enabled': True})
-        with self.captureOnCommitCallbacks(execute=True):
-            self.call('GET', '/api/stock/')
-        # compresses 0/10 et garrot 0/2, un SMS par destinataire
-        self.assertEqual(len(self.sent), 2)
-        self.assertEqual({user for user, _ in self.sent}, {'u1', 'u2'})
-        self.assertIn('Compresses 0/10', self.sent[0][1])
-        self.sent.clear()
-        with self.captureOnCommitCallbacks(execute=True):
-            self.call('GET', '/api/stock/')
-        self.assertEqual(self.sent, [])
-        # retour au-dessus du minimum puis nouveau passage dessous
-        with self.captureOnCommitCallbacks(execute=True):
-            self.call('POST', '/api/items/batch/', {'type': 'garrot', 'count': 2, 'user': 'M001'})
-        garrots = [item.iid for item in Items.objects.filter(pack__item_type=self.garrot)]
-        with self.captureOnCommitCallbacks(execute=True):
-            self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': garrots[:1], 'user': 'M001'})
-        self.assertEqual(len(self.sent), 2)
-        self.assertIn('Garrot 1/2', self.sent[0][1])
-
-    def test_verif_problem_and_seal_broken(self):
-        self.call('PATCH', '/api/notifications/', {'enabled': True, 'events': {'stock_low': False}})
-        self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
-        with self.captureOnCommitCallbacks(execute=True):
-            self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'M001'})
-        messages = [message for user, message in self.sent if user == 'u1']
-        self.assertEqual(len(messages), 2)
-        self.assertTrue(any('scellé' in message for message in messages))
-        self.assertTrue(any('manque 2 Compresses' in message for message in messages))
-
-    def test_test_sms(self):
-        with self.captureOnCommitCallbacks(execute=True):
-            code, body = self.call('POST', '/api/notifications/test/', {'user': 'M001'})
-        self.assertEqual(body['sent'], 2)
-        code, settings_body = self.call('GET', '/api/notifications/')
-        self.assertEqual(settings_body['recipients'][0]['last_status'], 'Envoyé')
-
+        # API SMS plus maintenue : destinataires et SMS de test retires
+        self.assertEqual(self.call('POST', '/api/notifications/recipients/',
+                                   {'name': 'A', 'user': 'u1', 'password': 'p1'})[0], 404)
+        self.assertEqual(self.call('POST', '/api/notifications/test/', {'user': 'M001'})[0], 404)
 
     def test_pin_blocked_notified_once_per_block(self):
-        self.call('PATCH', '/api/notifications/', {'enabled': True})
         self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'P001'})
         self.user.refresh_from_db()
         badge = {'matricule': 'M001', 'key': self.user.new_key}
-        with self.captureOnCommitCallbacks(execute=True):
-            for _ in range(5):  # demandes repetees : une seule notification
-                code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
-                self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
-        self.assertTrue(body['pin_reset']['notified'])
-        self.assertEqual(len(self.sent), 2)  # un SMS par destinataire
-        self.assertIn('Jeanne Dupont (M001) a oublié son code PIN (contact : Admin Poste)', self.sent[0][1])
-        self.assertIn('/pinreset?m=M001&t=', self.sent[0][1])
-        # evenement desactivable
-        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})  # nouveau PIN : debloque
-        self.call('PATCH', '/api/notifications/', {'events': {'pin_blocked': False}})
-        self.sent.clear()
-        with self.captureOnCommitCallbacks(execute=True):
+        for _ in range(5):  # demandes repetees : une seule notification
             code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
+            self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
+        self.assertTrue(body['pin_reset']['notified'])
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('Jeanne Dupont (M001) a oublié son code PIN', self.sent[0][1])
+        self.assertIn('/pinreset?m=M001&t=', self.sent[0][1])
+        # personne a prevenir : la tentative suivante reessaiera
+        self.call('PATCH', '/api/users/M001/', {'pin': '123456'})  # nouveau PIN : debloque
+        self.reached = 0
+        self.sent.clear()
+        code, body = self.call('POST', '/api/pin-forgot/', badge, local=False)
         self.assertEqual(self.sent, [])
         self.assertFalse(body['pin_reset']['notified'])
-        # active ensuite : la tentative suivante previent les admins, une fois
-        self.call('PATCH', '/api/notifications/', {'events': {'pin_blocked': True}})
-        with self.captureOnCommitCallbacks(execute=True):
-            for _ in range(3):
-                self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
-        self.assertEqual(len(self.sent), 2)
+        self.reached = 1
+        for _ in range(3):
+            self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
+        self.assertEqual(len(self.sent), 1)
 
     def test_pin_blocked_after_failures_notifies(self):
-        self.call('PATCH', '/api/notifications/', {'enabled': True})
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
         Secouristes.objects.filter(pk=self.user.pk).update(pin_failures_total=49)
-        with self.captureOnCommitCallbacks(execute=True):
-            code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '0000'},
-                                   local=False)
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '0000'},
+                               local=False)
         self.assertTrue(body['pin_blocked'])
         self.assertFalse(body['pin_reset']['forgotten'])
-        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(len(self.sent), 1)
         self.assertIn("bloqué après trop d'essais", self.sent[0][1])
 
     def test_key_renewals(self):
-        self.call('PATCH', '/api/notifications/', {'enabled': True, 'events': {'stock_low': False}})
-        with self.captureOnCommitCallbacks(execute=True):
-            self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
-            self.call('POST', '/api/users/M001/renew-key/')
-        self.assertEqual(self.sent, [])  # desactives par defaut
-        self.call('PATCH', '/api/notifications/', {'events': {'lot_key_renewed': True, 'badge_renewed': True}})
-        with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')[0], 200)
-            self.assertEqual(self.call('POST', '/api/users/M001/renew-key/')[0], 200)
-        messages = [message for user, message in self.sent if user == 'u1']
-        self.assertEqual(messages, ['QRProtec : étiquette clé du lot Sac A renouvelée par Admin Poste',
-                                    'QRProtec : badge de Jeanne Dupont (M001) renouvelé par Admin Poste'])
+        self.assertEqual(self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')[0], 200)
+        self.assertEqual(self.call('POST', '/api/users/M001/renew-key/')[0], 200)
+        self.assertEqual(self.sent, [
+            ('lot_key_renewed', 'étiquette clé du lot Sac A renouvelée par Admin Poste'),
+            ('badge_renewed', 'badge de Jeanne Dupont (M001) renouvelé par Admin Poste')])
 
     def test_key_expirations_once_per_stage(self):
         from django.core.management import call_command
-        self.call('PATCH', '/api/notifications/', {
-            'enabled': True, 'events': {'stock_low': False, 'lot_key_expiring': True, 'badge_expiring': True}})
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
         Secouristes.objects.filter(pk=self.user.pk).update(key_expires=self.today - timedelta(days=1))
-        with self.captureOnCommitCallbacks(execute=True):
-            call_command('check_alerts', stdout=StringIO())
-        messages = [message for user, message in self.sent if user == 'u1']
+        call_command('check_alerts', stdout=StringIO())
+        messages = [text for event, text in self.sent if event.endswith('_expiring')]
         day = (self.today + timedelta(days=10)).strftime('%d/%m/%Y')
         self.assertEqual(len(messages), 2)
         self.assertIn(f'étiquettes clés de lot qui expirent bientôt : Sac A ({day})', messages[0])
         self.assertIn('badges expirés : Jeanne Dupont (M001)', messages[1])
         # deja annonce : rien de plus
         self.sent.clear()
-        with self.captureOnCommitCallbacks(execute=True):
-            call_command('check_alerts', stdout=StringIO())
-        self.assertEqual(self.sent, [])
+        call_command('check_alerts', stdout=StringIO())
+        self.assertEqual([event for event, _ in self.sent if event.endswith('_expiring')], [])
         # l'etiquette expire : nouvelle etape, une alerte
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today - timedelta(days=1))
-        with self.captureOnCommitCallbacks(execute=True):
-            call_command('check_alerts', stdout=StringIO())
-        self.assertEqual(len(self.sent), 2)
-        self.assertIn('étiquettes clés de lot expirées : Sac A', self.sent[0][1])
+        call_command('check_alerts', stdout=StringIO())
+        messages = [text for event, text in self.sent if event.endswith('_expiring')]
+        self.assertEqual(len(messages), 1)
+        self.assertIn('étiquettes clés de lot expirées : Sac A', messages[0])
         # renouvellement : l'alerte reviendra a la prochaine expiration
         self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
         self.lot.refresh_from_db()
@@ -1535,7 +1482,6 @@ class SmsTests(ApiTestCase):
 
     def test_order_due_once_per_order(self):
         from django.core.management import call_command
-        self.call('PATCH', '/api/notifications/', {'enabled': True, 'events': {'stock_low': False, 'order_due': True}})
         self.compresses.min_quantity = 5
         self.compresses.save()
         # 30 par mois consommes, 12 en stock : sous le minimum dans moins de 15 jours (delai de commande)
@@ -1549,9 +1495,8 @@ class SmsTests(ApiTestCase):
 
         def run():
             self.sent.clear()
-            with self.captureOnCommitCallbacks(execute=True):
-                call_command('check_alerts', stdout=StringIO())
-            return [message for user, message in self.sent if user == 'u1']
+            call_command('check_alerts', stdout=StringIO())
+            return [text for event, text in self.sent if event == 'order_due']
 
         messages = run()
         self.assertEqual(len(messages), 1)
@@ -1565,25 +1510,25 @@ class SmsTests(ApiTestCase):
 
     def test_key_expiry_warning_days_setting(self):
         from django.core.management import call_command
-        code, body = self.call('GET', '/api/notifications/')
-        self.assertEqual(body['key_expiry_warning_days'], 30)
         self.assertEqual(self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 0})[0], 400)
-        code, body = self.call('PATCH', '/api/notifications/', {
-            'enabled': True, 'key_expiry_warning_days': 5, 'events': {'stock_low': False, 'lot_key_expiring': True}})
+        code, body = self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 5})
         self.assertEqual(body['key_expiry_warning_days'], 5)
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
-        with self.captureOnCommitCallbacks(execute=True):
+
+        def lot_alerts():
+            self.sent.clear()
             call_command('check_alerts', stdout=StringIO())
-        self.assertEqual(self.sent, [])  # 10 jours > 5 : pas encore
+            return [text for event, text in self.sent if event == 'lot_key_expiring']
+
+        self.assertEqual(lot_alerts(), [])  # 10 jours > 5 : pas encore
         self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 15})
-        with self.captureOnCommitCallbacks(execute=True):
-            call_command('check_alerts', stdout=StringIO())
-        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(len(lot_alerts()), 1)
         # vide : retour a la valeur de qrprotec.conf
         code, body = self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': None})
         self.assertEqual(body['key_expiry_warning_days'], 30)
 
-@override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
+
+@override_settings(QRPROTEC={**settings.QRPROTEC, 'NOTIFY_SYNC': True})
 class WebPushTests(ApiTestCase):
     """Notifications web : chiffrement RFC 8291, VAPID, abonnement des admins et alertes de stock."""
 
@@ -3130,18 +3075,15 @@ class ItemOutTests(ApiTestCase):
         self.assertEqual(Items.objects.get(iid=item.iid).status, ItemStatus.MISSING)
 
 
-@override_settings(QRPROTEC={**settings.QRPROTEC, 'SMS_SYNC': True})
+@override_settings(QRPROTEC={**settings.QRPROTEC, 'NOTIFY_SYNC': True})
 class ProblemReportTests(ApiTestCase):
     def setUp(self):
         super().setUp()
-        from . import notifications
-        from .models import NotificationSettings, SmsRecipient
-        self.sent = []
-        original = notifications.send_free_sms
-        notifications.send_free_sms = lambda user, password, message: (self.sent.append(message) or (True, 'Envoyé'))
-        self.addCleanup(setattr, notifications, 'send_free_sms', original)
-        NotificationSettings.objects.update_or_create(pk=1, defaults={'enabled': True})
-        SmsRecipient.objects.create(name='A', user='u', password='p')
+        from . import webpush
+        self.sent = []  # textes des notifications web
+        original = webpush.notify_event
+        webpush.notify_event = lambda field, title, body, **web: (self.sent.append(body) or 1)
+        self.addCleanup(setattr, webpush, 'notify_event', original)
         self.badge = {'matricule': 'M001', 'key': self.user.new_key}
         self.items = self.create(self.compresses, self.today + timedelta(days=30), 2)
         Items.objects.filter(iid__in=[item.iid for item in self.items]).update(location=self.lot)

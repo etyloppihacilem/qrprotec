@@ -15,7 +15,7 @@ Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la
 | `inventory/serializers.py` | Modèles → `dict` JSON, états des lots | Fonctions simples, pas de `Serializer` DRF (plus lisible, et les sorties ne sont pas symétriques des entrées). |
 | `inventory/middleware.py` | `ApiRoleMiddleware`, `RoleWSGIHandler` | Sépare les trois API (publique, locale, distante). |
 | `inventory/idendity.py` | Identités `M:` / `D:` | (sic, le nom du fichier a une coquille historique ; le renommer casserait les imports pour rien) |
-| `inventory/notifications.py` | SMS Free Mobile, seuils de stock | |
+| `inventory/notifications.py` | alertes : seuils de stock, expirations, commandes (SMS en commentaire) | |
 | `inventory/webpush.py` | Notifications web (chiffrement RFC 8291, VAPID RFC 8292) | Sans `cryptography`, désactivé proprement. |
 | `inventory/remote_scanner.py` | Relais WebSocket téléphone → poste | Protocole décrit en tête de fichier. |
 | `inventory/live.py` | Suivi des vérifs en direct (WebSocket) | Protocole décrit en tête de fichier. |
@@ -57,7 +57,7 @@ l'utilisateur et son rôle (`views.front_user`, `views.require_front`) :
 | Personne de connecté | Lectures du kiosk (lots **sans** leurs clés, types), routes publiques (clé de lot exigée), téléphone-douchette, création du **premier** administrateur s'il n'y en a aucun |
 | Secouriste | + vérifs et réassorts sans clé de lot, sous son identité |
 | Gestion | + inventaire, réception, stock, paquets, lots et types, clés des lots |
-| Admin | + utilisateurs, notifications SMS |
+| Admin | + utilisateurs, réglages des notifications |
 
 L'identité des opérations vient de la session : le `"user": "M0042"` envoyé par le poste est ignoré.
 Un badge renouvelé ou désactivé, ou un PIN bloqué, invalide la session ; le front redemande alors le
@@ -125,9 +125,9 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
 - `perform_verif` verrouille les items scannés et ceux du périmètre (`select_for_update(of=('self',))`)
   puis fait des `bulk_update` / `bulk_create` : une vérif de 200 items reste à quelques requêtes.
 - Les notifications sont déclenchées **dans** la transaction mais envoyées **après** sa validation
-  (`transaction.on_commit` dans `notifications.send`), dans un thread (sauf `QRPROTEC_SMS_SYNC=1`,
-  utile pour les tests) : une API Free lente ne ralentit jamais une vérif, et un rollback n'envoie
-  rien.
+  (`transaction.on_commit` dans `webpush.queue`), dans un thread (sauf `QRPROTEC_NOTIFY_SYNC=1`,
+  utile pour les tests) : un service de notifications lent ne ralentit jamais une vérif, et un rollback
+  n'envoie rien.
 - Journal des opérations (`journal.py`, modèle `Operation`) : chaque opération qui écrit (vérif, réassort,
   retrait, scellage, ouverture de scellé, réception, suppression, gestion des lots, des types, des
   utilisateurs et des réglages) ajoute une ligne avec l'identité de l'opération (`operation_identity`, ou
@@ -140,32 +140,34 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
 
 ## Notifications
 
-### SMS (Free Mobile)
+### Alertes (`notifications.py`)
 
-`notifications.py`. L'API Free (`smsapi.free-mobile.fr/sendmsg?user=&pass=&msg=`) n'envoie qu'au
-titulaire de la ligne : un couple identifiant / clé par destinataire (`SmsRecipient`). Événements
-(`NotificationSettings`) : `stock_low`, `verif_problem`, `seal_broken`, `expired_daily`, `pin_blocked`
-(PIN bloqué ou oublié, une fois par blocage, voir `notify_pin_blocked`), `lot_key_renewed`,
-`badge_renewed`, `lot_key_expiring`, `badge_expiring`, `order_due`. Les cinq derniers, désactivés par défaut,
-existent aussi comme options des notifications web (`PUSH_OPTIONS`). Les expirations sont contrôlées par
+Toutes les alertes partent en notifications web (`webpush.py`, voir plus bas) :
+`notify_admins(event, ...)` envoie aux abonnements qui ont choisi l'évènement (`PUSH_TYPES`). PIN
+bloqué ou oublié : une fois par blocage (`notify_pin_blocked`). Les expirations sont contrôlées par
 `check_alerts` (`check_key_expirations`) : une alerte `NotificationSettings.expiry_warning_days` jours avant
-(Réglages, ou `KEY_EXPIRY_WARNING_DAYS`, 30 j), une à
-l'expiration, suivies par `key_expiry_stage` (`KeyExpiry`) sur le lot ou l'utilisateur, remis à zéro par le
-renouvellement. Le dernier
-statut d'envoi est gardé par destinataire et affiché dans les Réglages du poste.
+(Réglages, ou `KEY_EXPIRY_WARNING_DAYS`, 30 j), une à l'expiration, suivies par `key_expiry_stage`
+(`KeyExpiry`) sur le lot ou l'utilisateur, remis à zéro par le renouvellement.
 
-**Ouverture d'un scellé** (`seal_broken`, SMS et web, gestion et admin) : `services.notify_seals_broken`, une
+**SMS Free Mobile : plus maintenus.** L'API (`smsapi.free-mobile.fr/sendmsg`) n'était pas utilisée ;
+son code est en commentaire en tête de `notifications.py`, ses routes (`notifications/recipients/`,
+`notifications/test/`) dans `urls.py` et `views.py`. `NotificationSettings` (hors
+`key_expiry_warning_days`) et `SmsRecipient` restent en base, inutilisés. `GET/PATCH /api/notifications/`
+ne porte plus que `key_expiry_warning_days`. Les évènements SMS seuls (`verif_problem`,
+`expired_daily`) ne sont plus envoyés.
+
+**Ouverture d'un scellé** (`seal_broken`, web, gestion et admin) : `services.notify_seals_broken`, une
 notification par opération (étiquette d'ouverture, vérif, ajout, retrait, ouverture depuis le poste) même si les
 scellés des lots parents sont ouverts avec. La notification web ouvre la fiche du lot (`tab: 'lot'`, tag
-`seal-<id>`) ; une ouverture anonyme signée juste après remplace la notification web, sans nouveau SMS.
+`seal-<id>`) ; une ouverture anonyme signée juste après remplace la notification web (même tag).
 
 **Une alerte par passage sous le seuil** : `ItemType.low_notified` passe à `True` à l'envoi et ne
 revient à `False` que quand le stock remonte au minimum. Même principe pour `empty_notified`.
 `check_stock_levels(types)` est appelée après chaque mouvement ; la commande `check_alerts`
 (timer systemd quotidien à 7 h 45) la lance pour tous les types, parce que les péremptions font
-baisser le stock sans aucune action, et envoie le résumé des lots contenant des périmés.
+baisser le stock sans aucune action.
 
-**Commande à passer** (`order_due`, SMS et web) : `check_orders`, lancée par `check_alerts`, calcule
+**Commande à passer** (`order_due`, web) : `check_orders`, lancée par `check_alerts`, calcule
 `forecast.forecast()` et annonce les types dont `order.before` (passage sous le minimum moins
 `ORDER_LEAD_DAYS`) est atteint. `ItemType.order_notified` évite de répéter l'alerte ; il revient à
 `False` quand plus aucune commande n'est due pour ce type.
@@ -243,7 +245,7 @@ blanche** (`ASSETS`) : ajouter un fichier au front web demande de l'y déclarer.
 local=True)` appelle l'API locale (en simulant le rôle WSGI `local`) ou publique (`local=False`), et
 `setUp` crée un jeu minimal (deux types d'item, un type de lot « Sac PSE », un lot, un utilisateur). Couverture : format des iids, séparation
 public/local, clés, vérifs (remplacements, disparus), réception et paquets, PIN, rôles, réassort,
-scellés, sous-lots (arborescence, vérif groupée, partielle, rangements), SMS (via un faux transport),
+scellés, sous-lots (arborescence, vérif groupée, partielle, rangements), alertes (webpush remplacé),
 Web Push (vecteurs RFC), relais WebSocket (vrai serveur sur un port libre, client WebSocket brut).
 
 Ajouter un test pour toute règle de gestion modifiée. Les tests tournent pendant la construction du

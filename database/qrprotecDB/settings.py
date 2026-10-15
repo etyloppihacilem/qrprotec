@@ -84,8 +84,9 @@ QRPROTEC = {
     # Previsions de stock : mois d'historique pour mesurer la consommation, delai de livraison d'une commande
     'FORECAST_HISTORY_MONTHS': int(os.environ.get('QRPROTEC_FORECAST_HISTORY_MONTHS', '6')),
     'ORDER_LEAD_DAYS': int(os.environ.get('QRPROTEC_ORDER_LEAD_DAYS', '15')),
-    # Envoi des SMS dans la requete (1) ou dans un thread (0, defaut)
-    'SMS_SYNC': os.environ.get('QRPROTEC_SMS_SYNC', '0') == '1',
+    # Envoi des notifications web dans la requete (1) ou dans un thread (0, defaut) ; QRPROTEC_SMS_SYNC est l'ancien
+    # nom, du temps des SMS (plus maintenus), encore lu
+    'NOTIFY_SYNC': os.environ.get('QRPROTEC_NOTIFY_SYNC', os.environ.get('QRPROTEC_SMS_SYNC', '0')) == '1',
     # Contact annonce aux services de notifications web (VAPID) : mailto:... ou https://... (defaut : PUBLIC_BASE_URL)
     'WEB_PUSH_SUBJECT': os.environ.get('QRPROTEC_WEB_PUSH_SUBJECT', ''),
 }

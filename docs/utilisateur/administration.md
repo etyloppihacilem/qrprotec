@@ -31,9 +31,8 @@ Menu **Administration > Utilisateurs**.
   Si le badge a pu être volé, renouvelez plutôt le badge.
 - **Code oublié** : le lien **Code oublié ?** sous la saisie du PIN (téléphone et poste) bloque le
   PIN ; le téléphone affiche le même écran de déblocage, et la fiche indique « Code PIN oublié ».
-- **Notification** : les admins sont prévenus d'un PIN bloqué ou oublié par SMS (**Réglages >
-  Notifications**, case « PIN d'un utilisateur bloqué ») et par notification web (case de
-  l'abonnement, onglet Stock). Une seule notification par blocage, quel que soit le nombre de
+- **Notification** : les admins sont prévenus d'un PIN bloqué ou oublié par notification web (case
+  de l'abonnement, onglet Stock). Une seule notification par blocage, quel que soit le nombre de
   demandes ; toucher la notification web ouvre directement le déblocage.
 - **Admin à contacter** : l'administrateur dont le nom s'affiche sur le téléphone quand le PIN est
   bloqué. Sans choix, c'est l'**admin à contacter par défaut** : case à cocher dans la fiche d'un
@@ -91,7 +90,7 @@ lot et ouvre l'aperçu des mêmes étiquettes que depuis la fiche du lot.
 
 ## Signalements de problèmes
 
-Chaque signalement envoie une notification aux admins (SMS et notification web, événement « Problème
+Chaque signalement envoie une notification aux admins (notification web, événement « Problème
 signalé »). Ils se gèrent dans la page **Signalements**, au poste (compteur rouge dans la barre de
 menu) comme sur le téléphone (tuile de l'accueil). Au poste, quand un admin se connecte et qu'il reste
 des signalements non traités, la fenêtre s'ouvre d'elle-même à côté de la fenêtre Lots (sauf pendant
@@ -172,7 +171,7 @@ Menu **Administration > Réglages** (admin) :
 | Disposition par défaut | **Utiliser la disposition actuelle** : la position des fenêtres à laquelle le poste revient après inactivité |
 | Étiquettes et impression | Rouleau, titre, imprimante, modèle par usage |
 | Signal de mauvais scan | Bip, clignotement, LED et son de la douchette ; **Tester le signal d'erreur** |
-| Notifications SMS | Voir ci-dessous |
+| Notifications | **Alerte d'expiration** des étiquettes clés de lot et des badges (jours avant), voir ci-dessous |
 
 La douchette se règle dans le menu **Douchette > Ouvrir les paramètres**. Tout le monde peut
 appairer et connecter une douchette, même sans être connecté. Un utilisateur connecté règle le volume ;
@@ -210,34 +209,13 @@ s'applique à tous les postes et à tous les téléphones.
 
 ## Notifications
 
-### SMS (abonnés Free Mobile)
+Les alertes sont envoyées en notifications web (ci-dessous). Les notifications SMS (Free Mobile) ne
+sont plus maintenues et ont été retirées des Réglages.
 
-**Réglages > Notifications SMS** :
-
-1. Chaque destinataire active « Notifications par SMS » dans son espace abonné Free Mobile, qui lui
-   donne un **identifiant** et une **clé**. (L'API de Free n'envoie qu'au titulaire de la ligne.)
-2. **Ajouter un destinataire** avec ces deux valeurs, puis **SMS de test**.
-3. Cochez **Activer les notifications SMS** et les événements :
-   - **stock bas** : un SMS quand un type passe sous son minimum (un seul par passage) ;
-   - **vérif incomplète** : manquants, périmés, disparus ;
-   - **scellé ouvert** : étiquette d'ouverture scannée, vérif, ajout ou retrait d'items, avec le lot et qui l'a
-     ouvert (« Anonyme » si personne ne s'est connecté) ;
-   - **résumé quotidien des périmés** (chaque matin à 7 h 45) ;
-   - **PIN d'un utilisateur bloqué** (trop d'essais ou code oublié), une fois par blocage ;
-   - **étiquette clé d'un lot renouvelée** et **badge renouvelé** : qui l'a fait ;
-   - **étiquette clé de lot** (sauf les rangements du stock, qui n'expirent pas) et **badge qui
-     expirent bientôt ou ont expiré** : contrôlés chaque
-     matin à 7 h 45, une alerte avant l'expiration (30 jours par défaut, champ **Alerte
-     d'expiration**) puis une à l'expiration. Renouveler l'étiquette ou le badge remet l'alerte à
-     zéro ;
-   - **commande à passer** : contrôlée chaque matin à 7 h 45 d'après les prévisions de stock (voir
-     [Gérer le stock](gerer-le-stock.md)), un SMS quand la date limite de commande d'un type est
-     atteinte, avec la quantité conseillée. Une seule alerte par commande : elle revient quand le
-     stock a été réapprovisionné puis redescend.
-
-Les cinq derniers événements sont désactivés par défaut.
-
-Le dernier statut d'envoi de chaque destinataire est affiché.
+**Réglages > Notifications** du poste garde le champ **Alerte d'expiration** : nombre de jours
+(30 par défaut) avant l'expiration d'une étiquette clé de lot (sauf les rangements du stock, qui
+n'expirent pas) ou d'un badge pour l'alerte « expire bientôt », contrôlée chaque matin à 7 h 45 ; une
+seconde alerte part à l'expiration. Renouveler l'étiquette ou le badge remet l'alerte à zéro.
 
 ### Notifications web (tous opérateurs)
 

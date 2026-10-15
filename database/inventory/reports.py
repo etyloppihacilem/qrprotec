@@ -9,7 +9,7 @@
 # ######################################################################################################################
 
 """Signalements de problemes (ProblemReport) : un utilisateur connecte signale un item, un type d'item d'un lot ou
-un lot, pendant une verif ou depuis sa fiche. Les admins sont prevenus (SMS et notifications web) et suivent le
+un lot, pendant une verif ou depuis sa fiche. Les admins sont prevenus (notifications web) et suivent le
 signalement : nouveau (rouge), en cours de resolution (orange si l'objet est inutilisable, vert s'il l'est toujours),
 resolu (vert). Resolu, un signalement d'item indique son issue : item remis en service, desactive (non conforme :
 invalide comme un perime, remplace a la prochaine verif) ou retire de l'inventaire.

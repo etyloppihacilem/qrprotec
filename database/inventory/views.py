@@ -48,7 +48,7 @@ from .sessions import credentials_user, session_token, session_user, session_val
 from .models import (
     PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
-    SCANNER_VOLUMES, ServerSettings, SmsRecipient, Verifs, name_key, qrprotec_setting,
+    SCANNER_VOLUMES, ServerSettings, Verifs, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -1862,11 +1862,11 @@ def user_renew_key(request, matricule):
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# Notifications SMS (API Free Mobile)
+# Reglages des notifications (le delai d'alerte d'expiration ; l'API SMS n'est plus maintenue, voir notifications.py)
 # ----------------------------------------------------------------------------------------------------------------------
 
 def _notification_response():
-    return Response(ser.notification_settings_dict(NotificationSettings.get(), SmsRecipient.objects.order_by('name')))
+    return Response(ser.notification_settings_dict(NotificationSettings.get()))
 
 
 @api_view(['GET', 'PATCH'])
@@ -1875,18 +1875,10 @@ def notification_settings(request):
     require_front(request, ADMIN)
     if request.method == 'PATCH':
         settings_row = NotificationSettings.get()
-        if 'enabled' in request.data:
-            settings_row.enabled = bool(request.data['enabled'])
-        events = request.data.get('events', {})
-        if not isinstance(events, dict):
-            raise ApiError('events : objet attendu')
-        for event in notifications.EVENTS:
-            if event in events:
-                setattr(settings_row, event, bool(events[event]))
         if 'key_expiry_warning_days' in request.data:
             settings_row.key_expiry_warning_days = parse_warning_days(request.data['key_expiry_warning_days'])
         settings_row.save()
-        journal.record(OperationKind.SETTINGS, front_identity(request), 'notifications SMS modifiées',
+        journal.record(OperationKind.SETTINGS, front_identity(request), 'réglages des notifications modifiés',
                        fields=sorted(request.data.keys()))
     return _notification_response()
 
@@ -1953,60 +1945,61 @@ def parse_warning_days(value):
     return days
 
 
-def _recipient_fields(recipient, data, creating):
-    for field, length in (('name', 64), ('user', 32), ('password', 64)):
-        if field in data:
-            value = str(data[field] or '').strip()[:length]
-            if field == 'password' and not value and not creating:
-                continue  # champ vide : cle inchangee
-            setattr(recipient, field, value)
-    if 'active' in data:
-        recipient.active = bool(data['active'])
-    if not recipient.name or not recipient.user or not recipient.password:
-        raise ApiError('Nom, identifiant et clé API obligatoires')
-
-
-@api_view(['POST'])
-@handle_errors
-def sms_recipients(request):
-    require_front(request, ADMIN)
-    recipient = SmsRecipient()
-    _recipient_fields(recipient, request.data, True)
-    recipient.save()
-    journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS ajouté : {recipient.name}')
-    return _notification_response()
-
-
-@api_view(['PATCH', 'DELETE'])
-@handle_errors
-def sms_recipient_detail(request, recipient_id):
-    require_front(request, ADMIN)
-    recipient = get_object_or_404(SmsRecipient, id=recipient_id)
-    if request.method == 'DELETE':
-        recipient.delete()
-        journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS supprimé : {recipient.name}')
-    else:
-        _recipient_fields(recipient, request.data, False)
-        recipient.save()
-        journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS modifié : {recipient.name}')
-    return _notification_response()
-
-
-@api_view(['POST'])
-@handle_errors
-def sms_test(request):
-    """Envoie un SMS de test (a un destinataire, ou a tous les actifs), meme si les notifications sont coupees."""
-    require_front(request, ADMIN)
-    recipient_id = request.data.get('recipient')
-    if recipient_id:
-        recipients = [get_object_or_404(SmsRecipient, id=recipient_id)]
-    else:
-        recipients = list(SmsRecipient.objects.filter(active=True))
-    if not recipients:
-        raise ApiError('Aucun destinataire actif')
-    identity = operation_identity(request)
-    count = notifications.send(f'QRProtec : SMS de test envoyé par {services.display_name(identity)}.', recipients)
-    return Response({'sent': count})
+# Destinataires et SMS de test : API SMS plus maintenue (voir notifications.py), garde en commentaire.
+# def _recipient_fields(recipient, data, creating):
+#     for field, length in (('name', 64), ('user', 32), ('password', 64)):
+#         if field in data:
+#             value = str(data[field] or '').strip()[:length]
+#             if field == 'password' and not value and not creating:
+#                 continue  # champ vide : cle inchangee
+#             setattr(recipient, field, value)
+#     if 'active' in data:
+#         recipient.active = bool(data['active'])
+#     if not recipient.name or not recipient.user or not recipient.password:
+#         raise ApiError('Nom, identifiant et clé API obligatoires')
+#
+#
+# @api_view(['POST'])
+# @handle_errors
+# def sms_recipients(request):
+#     require_front(request, ADMIN)
+#     recipient = SmsRecipient()
+#     _recipient_fields(recipient, request.data, True)
+#     recipient.save()
+#     journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS ajouté : {recipient.name}')
+#     return _notification_response()
+#
+#
+# @api_view(['PATCH', 'DELETE'])
+# @handle_errors
+# def sms_recipient_detail(request, recipient_id):
+#     require_front(request, ADMIN)
+#     recipient = get_object_or_404(SmsRecipient, id=recipient_id)
+#     if request.method == 'DELETE':
+#         recipient.delete()
+#         journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS supprimé : {recipient.name}')
+#     else:
+#         _recipient_fields(recipient, request.data, False)
+#         recipient.save()
+#         journal.record(OperationKind.SETTINGS, front_identity(request), f'destinataire SMS modifié : {recipient.name}')
+#     return _notification_response()
+#
+#
+# @api_view(['POST'])
+# @handle_errors
+# def sms_test(request):
+#     """Envoie un SMS de test (a un destinataire, ou a tous les actifs), meme si les notifications sont coupees."""
+#     require_front(request, ADMIN)
+#     recipient_id = request.data.get('recipient')
+#     if recipient_id:
+#         recipients = [get_object_or_404(SmsRecipient, id=recipient_id)]
+#     else:
+#         recipients = list(SmsRecipient.objects.filter(active=True))
+#     if not recipients:
+#         raise ApiError('Aucun destinataire actif')
+#     identity = operation_identity(request)
+#     count = notifications.send(f'QRProtec : SMS de test envoyé par {services.display_name(identity)}.', recipients)
+#     return Response({'sent': count})
 
 
 # ----------------------------------------------------------------------------------------------------------------------
