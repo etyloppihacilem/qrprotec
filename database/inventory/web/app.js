@@ -647,10 +647,20 @@
       render();
       return;
     }
+    // item d'un autre lot que celui ou l'on est, alors que celui-ci est complet : il est valide automatiquement
+    let closed = [];
+    if (where && !isUnder(where.id, levelId())) {
+      const index = state.scanned.indexOf(entry);
+      if (index >= 0) state.scanned.splice(index, 1); // pas compte dans le lot valide
+      closed = await leaveCompleteLevels(where.id);
+      state.scanned.push(entry);
+      entry.place = currentPlace();
+    }
     if (where && where.id !== levelId() && isUnder(where.id, levelId())) {
       enterLevel(where.id, true);
       entry.place = where.id;
       showInfo('lot', `📦 Entrée dans ${where.name}`, `${info.type_name} est rangé dans ${where.name}.`,
+        closed.length ? `✔ ${closed.join(', ')} complet : validé automatiquement.` : '',
         `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(where)) || state.lot).name}.`);
       save();
       render();
@@ -836,12 +846,15 @@
       if (!lot) return false;
       if (scan.key && !(await keyAccepted(scan.id, scan.key))) return true;
       if (scan.key) setKey(scan.id, scan.key);
+      // etiquette d'un lot hors de celui ou l'on est, alors que celui-ci est complet : il est valide automatiquement
+      const closed = lot.id === levelId() || isUnder(lot.id, levelId()) ? [] : await leaveCompleteLevels(lot.id);
       const reopened = state.done[lot.id];
       enterLevel(lot.id);
       feedback.info();
       showInfo('lot', `📦 ${lot.name}`, reopened ? `Déjà validé ${fmtOn(reopened.at)} : vous le refaites.`
         : lot.id === state.lotId ? 'Lot global : scannez l\'étiquette d\'un sous-lot pour y entrer.'
           : `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(lot)) || state.lot).name}.`,
+      closed.length ? `✔ ${closed.join(', ')} complet : validé automatiquement.` : '',
       scan.key ? `🔑 Étiquette clé de ${lot.name} scannée` : '');
       save();
       render();
@@ -941,11 +954,14 @@
         : `✘ Scellé intact mais périmés – ${lot.name}`, 'Ouvrez le lot et scannez son contenu.');
       return true;
     }
+    // scelle d'un lot hors de celui ou l'on est, alors que celui-ci est complet : il est valide automatiquement
+    const closed = inCascade() && lotById(lot.id) && !isUnder(lot.id, levelId()) ? await leaveCompleteLevels(lot.id) : [];
     scannedAgain();
     state.scanned.push({ code: scan.code, kind: 'seal', iid: lot.id, key: scan.key, expired: false, error: '', items: [],
       place: inCascade() ? levelId() : '', info: { type_name: `🔒 Scellé intact – ${lot.name}` } });
     feedback.good();
-    showInfo('ok', `🔒 Scellé intact – ${lot.name}`, 'Compté comme vérifié, avec ses sous-lots, sans être ouvert.');
+    showInfo('ok', `🔒 Scellé intact – ${lot.name}`, 'Compté comme vérifié, avec ses sous-lots, sans être ouvert.',
+      closed.length ? `✔ ${closed.join(', ')} complet : validé automatiquement.` : '');
     save();
     render();
     flushSeals();
@@ -1824,6 +1840,32 @@
 
   // Valider le lot en cours de la vérif en cascade (partial : vérif partielle ou reassort de ce lot). Il est enregistre
   // tout de suite, avec ses sous-lots commences ; on revient au lot qui le contient. Au lot global, la vérif se termine.
+  // Vérif en cascade : le lot ou l'on est (pas le lot global) est complet, rien d'attendu n'y manque, et peut etre
+  // valide sans question
+  function levelComplete() {
+    if (!inCascade() || state.busy || levelId() === state.lotId) return false;
+    const top = levelLot();
+    const scope = scopeOf(top.id);
+    if (!scopeEntries(scope).length && ownContent(top)) return false; // rien scanne ici
+    if (blockers(false).length) return false;
+    const plan = planSession();
+    const lots = sessionLots().filter((lot) => scope.has(lot.id) && !plan.intact.has(lot.id));
+    return !lots.some((lot) => lot.is_sealed) && lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0) === 0;
+  }
+
+  // Scan d'un item ou d'une etiquette du lot `id`, hors du lot ou l'on est : les lots complets qu'on quitte ainsi
+  // sont valides automatiquement (on remonte tant que `id` n'est pas dedans). Renvoie les noms des lots valides.
+  async function leaveCompleteLevels(id) {
+    const names = [];
+    while (!isUnder(id, levelId()) && levelComplete()) {
+      const before = levelLot();
+      await validateStep(false);
+      if (levelId() === before.id) break; // refusee
+      names.push(before.name);
+    }
+    return names;
+  }
+
   async function validateStep(partial = false) {
     if (state.busy) return;
     if (!ensureIdentity()) return;

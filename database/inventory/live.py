@@ -240,9 +240,25 @@ class LiveSession:
     def lost(self):
         return max((p.lost for p in self.participants.values()), default=0)
 
+    def people(self, me=None):
+        """Participants tels qu'affiches : une personne une seule fois, meme connectee sur plusieurs telephones ou
+        onglets (meme identite). Connectee si l'un l'est, a valide si tous l'ont fait, niveau du plus recent."""
+        groups = {}
+        for p in self.participants.values():
+            groups.setdefault(p.identity or p.id, []).append(p)
+        rows = []
+        for group in groups.values():
+            latest = max(group, key=lambda p: (p.socket is not None, p.updated.timestamp() if p.updated else 0))
+            row = dict(latest.public(), connected=any(p.socket is not None for p in group),
+                       validated=all(p.validated for p in group))
+            if me is not None:
+                row['me'] = me in group
+            rows.append(row)
+        return rows
+
     @property
     def who(self):
-        return ', '.join(p.who or 'Non identifié' for p in self.participants.values())
+        return ', '.join(row['who'] or 'Non identifié' for row in self.people())
 
     def public(self):
         state = self.state or {}
@@ -251,7 +267,7 @@ class LiveSession:
             'id': self.id,
             'who': self.who,
             'verified': bool(participants) and all(p.verified for p in participants),
-            'participants': [p.public() for p in participants],
+            'participants': self.people(),
             'started': self.started.isoformat(timespec='seconds'),
             'updated': self.updated.isoformat(timespec='seconds'),
             'connected': self.connected,
@@ -297,7 +313,7 @@ class LiveHub:
         return {
             'type': 'team',
             'id': session.id,
-            'participants': [dict(p.public(), me=p is me) for p in session.participants.values()],
+            'participants': session.people(me),
             'lots': list(session.lots),
             'keyed': [lot for lot, key in session.lots.items() if key],
             'entries': [dict(entry, who=p.who) for p in session.participants.values() if p is not me
@@ -638,10 +654,14 @@ class LiveHub:
                     self._changed(session)
                 elif kind == 'validate':
                     with self.lock:
-                        participant.validated = True
-                        participant.partial = bool(message.get('partial'))
-                        waiting = [p.who or 'Non identifié' for p in session.participants.values()
-                                   if p is not participant and p.socket is not None and not p.validated]
+                        # meme personne sur plusieurs telephones : sa validation vaut pour tous
+                        mine = [p for p in session.participants.values() if p is participant
+                                or (participant.identity and p.identity == participant.identity)]
+                        for p in mine:
+                            p.validated = True
+                            p.partial = bool(message.get('partial'))
+                        waiting = list(dict.fromkeys(p.who or 'Non identifié' for p in session.participants.values()
+                                                     if p not in mine and p.socket is not None and not p.validated))
                         busy = session.submitting not in (None, participant.id) and session.submitting in session.participants
                         submit = not waiting and not busy and not session.done
                         if submit:

@@ -2306,6 +2306,37 @@ class LiveHubTests(ApiTestCase):
         for socket in (first, second, third):
             socket.push(None)
 
+    def test_same_person_on_two_pages_is_shown_once(self):
+        """Meme utilisateur sur deux pages (etiquette cle ouverte avec l'appareil photo dans un nouvel onglet) : les
+        vérifs du meme lot global sont fusionnees, mais il n'apparait qu'une fois ; sa validation vaut pour les deux."""
+        def start(level):
+            socket = FakeSocket({'type': 'hello', 'user': self.badge})
+            self.run_socket(self.hub.run_scanner, socket)
+            self.wait(lambda: socket.sent)
+            socket.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id,
+                         'cascade': True, 'level': {'id': self.lot.id, 'name': level}, 'entries': []})
+            return socket
+
+        first = start('Armoire 1')
+        self.wait(lambda: self.hub.visible())
+        second = start('Armoire 2')
+        self.wait(lambda: any(m.get('merged') for m in second.sent))
+        session = next(iter(self.hub.sessions.values()))
+        self.assertEqual(len(session.participants), 2)
+        self.wait(lambda: self.hub.visible() and len(self.hub.visible()[0]['participants']) == 1)
+        row = self.hub.visible()[0]
+        self.assertEqual((row['who'], row['participants'][0]['who']), ('Jeanne', 'Jeanne'))
+        self.wait(lambda: any(m['type'] == 'team' and len(m['participants']) == 1 for m in second.sent))
+        team = [m for m in second.sent if m['type'] == 'team'][-1]
+        self.assertEqual([(p['who'], p['me']) for p in team['participants']], [('Jeanne', True)])
+        second.push({'type': 'validate'})
+        self.wait(lambda: any(m['type'] == 'validate' for m in second.sent))
+        answer = next(m for m in second.sent if m['type'] == 'validate')
+        self.assertEqual((answer['submit'], answer['waiting']), (True, []))
+        self.assertTrue(all(p.validated for p in session.participants.values()))
+        for socket in (first, second):
+            socket.push(None)
+
     def test_cascade_step_keeps_the_team_check(self):
         """Vérif en cascade a deux : Jeanne valide son armoire, la vérif commune continue pour Paul."""
         from unittest import mock

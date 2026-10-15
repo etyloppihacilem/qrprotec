@@ -140,6 +140,11 @@ struct VerifSession {
     std::map< std::string, CascadeDone >  done;    // lots valides pendant la verif
     std::map< std::string, std::string >  keys;    // etiquettes cles de sous-lots scannees
     std::set< std::string >               entered; // lots ou l'on est entre : leurs sous-lots non faits restent tels quels
+    // scan d'un item, d'une etiquette ou d'un scelle d'un lot hors du lot en cours, alors que celui-ci est complet : il
+    // est valide automatiquement, puis on continue vers ce lot (on y entre si after_enter)
+    std::string                           after_step;
+    bool                                  after_enter = false;
+    std::vector< std::string >            auto_done; // lots valides automatiquement, pour le message
     bool                      loading    = false;
     bool                      submitting = false;
 };
@@ -335,6 +340,8 @@ class App {
     void                        leave_level(); // retour au lot qui contient le lot en cours, sans le valider
     // valide le lot en cours (partial : verif partielle ou reassort de ce lot) et revient au lot qui le contient
     void                        submit_step(bool partial = false);
+    bool                        verif_level_complete() const; // lot en cours complet, validable sans question
+    bool                        leave_complete_level(const std::string &id, bool enter); // validation auto, true si lancee
     void                        finish_cascade();
     void add_stack_to_lot();
     void verif_target_lot();
