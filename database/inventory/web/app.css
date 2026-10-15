@@ -140,9 +140,7 @@ body.cam-mini #start::after { content: '📷'; font-size: 1.6rem; }
 body.cam-mini #panel { height: 100dvh; padding-top: env(safe-area-inset-top); }
 body.cam-mini #toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
 
-/* ---- Previsions de stock : onglet Stock en plein ecran (camera masquee) ---- */
-body.stock-full #camera, body.stock-full #info, body.stock-full #team, body.stock-full #actions { display: none; }
-body.stock-full #panel { height: 100dvh; padding-top: env(safe-area-inset-top); }
+/* ---- Previsions de stock (page « État des stocks » de l'accueil) ---- */
 .segmented { display: flex; border: 1px solid var(--blue); border-radius: 10px; overflow: hidden; margin: 6px 0; }
 .segmented button { flex: 1; border-radius: 0; background: transparent; color: var(--blue); padding: 7px 0; }
 .segmented button.active { background: var(--blue); color: #fff; font-weight: 600; }

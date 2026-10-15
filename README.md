@@ -405,8 +405,8 @@ appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). R
 | Rôle | Front ordinateur | Téléphone |
 |---|---|---|
 | `normal` (Secouriste) | vérifs, pile de scans, ajout aux lots | vérifs, liste des lots |
-| `gestion` | mode privilégié : stocks, inventaire, paquets, lots ; **pas** les Réglages, les Utilisateurs ni l'éditeur d'étiquettes | + onglet **Stock** (lecture seule) |
-| `admin` | tout, dont Réglages (serveur, étiquettes, notifications…), Utilisateurs et éditeur d'étiquettes | + onglet **Stock** |
+| `gestion` | mode privilégié : stocks, inventaire, paquets, lots ; **pas** les Réglages, les Utilisateurs ni l'éditeur d'étiquettes | + **État des stocks** de l'accueil (lecture seule) |
+| `admin` | tout, dont Réglages (serveur, étiquettes, notifications…), Utilisateurs et éditeur d'étiquettes | + **État des stocks** de l'accueil |
 
 **Code PIN** (4 à 8 chiffres, haché) : demandé après le badge à chaque connexion, obligatoire pour les
 administrateurs, facultatif pour les autres rôles (défini dans **Administration > Utilisateurs**). Un
@@ -500,11 +500,11 @@ python manage.py check_alerts   # ex. crontab : 45 7 * * * cd .../database && py
 
 ### Notifications web (tous navigateurs)
 
-Seul canal des alertes. Un administrateur connecté sur le téléphone (badge + PIN) peut activer, dans l'onglet **Stock**, des notifications web sur son appareil : **stock bas**
+Seul canal des alertes. Un administrateur connecté sur le téléphone (badge + PIN) peut activer, depuis la page **État des stocks** de l'accueil, des notifications web sur son appareil : **stock bas**
 (un type passe sous son minimum) et/ou **stock vide** (un type arrive à 0). Le navigateur ne demande
 l'autorisation qu'au clic sur « Activer les notifications » ; un bouton envoie une notification de test.
 Les alertes arrivent même page fermée (une par passage sous le seuil) et ouvrent
-l'onglet Stock.
+l'état des stocks.
 
 - Il faut HTTPS avec un certificat reconnu par le téléphone (avec `tls internal`, installer l'autorité
   de Caddy sur le téléphone) et un accès Internet sortant du serveur vers le service de notifications

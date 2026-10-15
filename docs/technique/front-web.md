@@ -85,7 +85,7 @@ clé) et un badge.
 `sw.js` est enregistré **seulement** quand un admin active les notifications. Sa portée est `web/` :
 il ne contrôle aucune page et n'intercepte aucune requête (pas de cache hors ligne, pas de risque de
 servir une vieille version de l'application). Il affiche la notification et, au clic, ouvre ou
-ramène la page sur l'onglet Stock.
+ramène la page sur l'état des stocks de l'accueil.
 
 ## Page « douchette du poste »
 

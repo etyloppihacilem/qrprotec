@@ -1,6 +1,6 @@
 /* QRProtec - service worker des notifications web (stock bas, stock vide, PIN bloque).
  *
- * Enregistre seulement quand un admin active les notifications (onglet Stock). Portee web/ : il ne
+ * Enregistre seulement quand un admin active les notifications (page État des stocks). Portee web/ : il ne
  * controle aucune page et n'intercepte aucune requete, il ne fait qu'afficher les notifications.
  */
 'use strict';
@@ -35,7 +35,7 @@ self.addEventListener('notificationclick', (event) => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
     if (open) {
-      open.postMessage({ tab, url }); // la page affiche l'onglet Stock, ou le deblocage d'un PIN (app.js)
+      open.postMessage({ tab, url }); // la page affiche l'état des stocks, ou le deblocage d'un PIN (app.js)
       return open.focus();
     }
     return self.clients.openWindow(url || '../');

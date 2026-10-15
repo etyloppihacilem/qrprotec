@@ -202,7 +202,7 @@ malle, posez le scellé et collez l'étiquette du scellé à côté. La malle re
 
 ## Étape 9 — Les alertes
 
-Activez les notifications web sur le téléphone de chaque utilisateur gestion ou admin (onglet **Stock**).
+Activez les notifications web sur le téléphone de chaque utilisateur gestion ou admin (menu **⋯ > Notifications**).
 Voir [Administration](administration.md#notifications). Choisissez au moins « stock bas » et « ouverture
 d'un lot scellé ».
 

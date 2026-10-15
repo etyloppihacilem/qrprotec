@@ -55,7 +55,7 @@ les lots** (inclure ce qui est dans les sacs).
 Par défaut, le **stock** compte ce qui n'est dans aucun lot **et** ce qui est dans un rangement
 (armoire, tiroir). Les items périmés ne comptent pas.
 
-Sur le téléphone, l'onglet **Stock** (après avoir scanné son badge gestion ou admin) affiche le même
+Sur le téléphone, la page **État des stocks** de l'accueil (après avoir scanné son badge gestion ou admin) affiche le même
 état en lecture seule, les types les plus critiques en premier. Pratique pour préparer une commande.
 
 ## Anticiper les péremptions et les commandes
@@ -87,9 +87,9 @@ période choisie dans les **Réglages** (6 mois par défaut). Un item noté abse
 manqués à la dernière vérif ne comptent pas dans le stock projeté tant qu'ils ne sont pas retrouvés.
 Le délai de livraison des commandes (15 jours par défaut) est aussi dans les Réglages.
 
-Sur le téléphone, le bouton **⤢ Prévisions** de l'onglet Stock passe en plein écran (la caméra est
-masquée) : choix de l'horizon, graphe des péremptions des six prochains mois, types à surveiller avec
-la commande suggérée, et échanges à faire. **⤡ Scanner** revient au scan.
+Sur le téléphone, la page **État des stocks** de l'accueil, vue **Prévisions** : choix de l'horizon,
+graphe des péremptions des six prochains mois, types à surveiller avec la commande suggérée, et
+échanges à faire.
 
 ## Vérifier la réserve
 
