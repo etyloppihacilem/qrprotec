@@ -365,10 +365,10 @@ ul.tasks input { width: 22px; height: 22px; flex: none; }
 ul.tasks-facts { margin: 0; padding-left: 18px; }
 
 /* ---- Signalements de problemes ---- */
-/* bouton hachure noir et jaune (signaletique, sans faire croire a un probleme en cours) : (!) dans les listes de la
-   verif, « Signaler un problème » sur les fiches */
-.report-btn { background: repeating-linear-gradient(-45deg, #ffd400 0 9px, #111 9px 18px); color: #fff;
-  font-weight: 800; text-shadow: 0 0 3px #000, 0 0 2px #000, 0 1px 1px #000; }
+/* bouton noir plein, texte blanc (signalement reconnaissable sans faire croire a un probleme en cours, meme sur un lot
+   tout vert) : (!) dans les listes de la verif, « ⚠ Signaler un problème » sur les fiches */
+.report-btn { background: #111; color: #fff; font-weight: 800; }
+.report-btn:active { background: #3a3a3a; }
 .report-mark { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; line-height: 26px; text-align: center;
   font-size: .95rem; box-shadow: 0 0 0 2px #fff; }
 .list li.iid .report-mark { width: 20px; height: 20px; line-height: 20px; font-size: .75rem; font-family: system-ui, sans-serif; }

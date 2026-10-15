@@ -232,7 +232,7 @@ class LotsWindow final : public AppWindow {
           app.start_verif(details_["id"].str(), "");
       } else if (primary_button(("Lancer une vérif" + with).c_str(), ImVec2(-1, 0)))
         app.start_verif(details_["id"].str(), "");
-      if (hatched_button("⚠ Signaler un problème sur ce lot", ImVec2(-1, 0)))
+      if (report_button("⚠ Signaler un problème sur ce lot", ImVec2(-1, 0)))
         app.report_problem({ details_["id"].str(), details_["name"].str(), "", "", details_["name"].str() });
       if (button("Fermer", ImVec2(-1, 0)))
         selected_.clear();
