@@ -32,7 +32,7 @@ Menu **Administration > Utilisateurs**.
 - **Code oublié** : le lien **Code oublié ?** sous la saisie du PIN (téléphone et poste) bloque le
   PIN ; le téléphone affiche le même écran de déblocage, et la fiche indique « Code PIN oublié ».
 - **Notification** : les admins sont prévenus d'un PIN bloqué ou oublié par notification web (case
-  de l'abonnement, onglet Stock). Une seule notification par blocage, quel que soit le nombre de
+  de l'abonnement, menu ⋯ > Notifications). Une seule notification par blocage, quel que soit le nombre de
   demandes ; toucher la notification web ouvre directement le déblocage.
 - **Admin à contacter** : l'administrateur dont le nom s'affiche sur le téléphone quand le PIN est
   bloqué. Sans choix, c'est l'**admin à contacter par défaut** : case à cocher dans la fiche d'un
@@ -220,7 +220,7 @@ seconde alerte part à l'expiration. Renouveler l'étiquette ou le badge remet l
 ### Notifications web (tous opérateurs)
 
 Sur le téléphone d'un utilisateur gestion ou admin : scanner son badge, menu **⋯ > Notifications**
-(ou le lien de l'onglet Stock), choisir les alertes, **Activer les notifications** puis **Envoyer un
+(ou le lien de la page État des stocks de l'accueil), choisir les alertes, **Activer les notifications** puis **Envoyer un
 test**. Le même écran liste tous ses appareils abonnés : on y change les alertes de chacun, ou on le
 retire (un téléphone perdu, par exemple).
 

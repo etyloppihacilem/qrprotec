@@ -10,7 +10,7 @@
 
 """Notifications web (Web Push) : seul canal des alertes (l'API SMS n'est plus maintenue), quel que soit l'operateur.
 
-Un admin connecte sur le front web active les notifications depuis l'onglet Stock : le navigateur
+Un admin connecte sur le front web active les notifications depuis la page Etat des stocks de l'accueil : le navigateur
 fournit un abonnement (PushSubscription), que le serveur utilise pour envoyer les alertes de stock bas
 et de stock vide, meme page fermee.
 

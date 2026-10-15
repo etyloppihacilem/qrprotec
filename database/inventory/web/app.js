@@ -41,7 +41,6 @@
     stock: null,       // etat des stocks, roles gestion et admin uniquement
     forecast: null,    // previsions de stock (meme acces que l'etat des stocks)
     horizon: 1,        // index dans HORIZONS des previsions affichees
-    stockFull: false,  // onglet Stock en plein ecran (camera masquee)
     pinReset: null,    // {matricule, token} : deblocage du PIN d'un utilisateur, en attente d'un admin connecte
     loading: '',       // 'lots' ou 'stock' pendant un chargement
     homePage: 'menu',  // page affichee : 'menu', 'lots', 'live', 'stock' (accueil) ou 'scan' (scanner)
@@ -1345,7 +1344,7 @@
     state.pushDevices = null;
     feedback.info();
     showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
-      canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est dans l'onglet Stock.` : 'Vous êtes connecté.');
+      canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est sur l'accueil.` : 'Vous êtes connecté.');
     save();
     render();
     loadLots();
@@ -1811,8 +1810,6 @@
 
   function switchTab(tab) {
     state.tab = tab;
-    if (tab !== 'stock') setStockFull(false);
-    if (tab === 'stock' && !state.stock && state.loading !== 'stock') loadStock();
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === tab));
   }
@@ -2127,7 +2124,6 @@
     if (ficheOpen()) closeFiche();
     state.homePage = page;
     if (!readerOpen()) { cameraWanted = false; syncCamera(); }
-    setStockFull(false);
     document.body.classList.add('home-mode');
     if (page === 'lots' && !state.lots && state.loading !== 'lots') loadLots();
     if (page === 'stock' && canSeeStock() && !state.stock && state.loading !== 'stock') loadStock();
@@ -3094,14 +3090,6 @@
     body.replaceChildren(...parts);
   }
 
-  // Plein ecran de l'onglet Stock : la camera est masquee, le panneau prend toute la hauteur
-  function setStockFull(full) {
-    if (state.stockFull === full) return;
-    state.stockFull = full;
-    document.body.classList.toggle('stock-full', full);
-    renderStock();
-  }
-
   const HORIZONS = [{ label: 'Auj.', months: 0 }, { label: 'M+1', months: 1 }, { label: 'M+3', months: 3 },
     { label: 'M+6', months: 6 }];
   const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
@@ -3156,7 +3144,7 @@
           .map(([cls, label]) => el('span', {}, el('i', { class: cls }), label))));
   }
 
-  // Vue reduite des previsions (plein ecran) : horizon, graphe, types a surveiller, echanges
+  // Previsions de stock : horizon, graphe, types a surveiller, echanges
   function renderForecast(parts) {
     const forecast = state.forecast;
     if (!forecast) {
@@ -3206,20 +3194,16 @@
     }
   }
 
-  // Etat des stocks : onglet Stock du scanner (forecast : plein ecran, camera masquee) et page de l'accueil
-  function stockParts(forecastMode, home) {
+  // Etat des stocks : page « État des stocks » de l'accueil (forecast : previsions)
+  function stockParts(forecastMode) {
     if (!canSeeStock()) return [el('p', {}, 'Réservé aux rôles gestion et admin : scannez votre badge.')];
-    const toggle = home
-      ? el('div', { class: 'segmented', role: 'group', 'aria-label': 'Vue' },
-        el('button', { type: 'button', class: forecastMode ? '' : 'active', onclick: () => { state.homeForecast = false; renderStock(); } }, 'État actuel'),
-        el('button', { type: 'button', class: forecastMode ? 'active' : '', onclick: () => { state.homeForecast = true; renderStock(); } }, 'Prévisions'))
-      : null;
+    const toggle = el('div', { class: 'segmented', role: 'group', 'aria-label': 'Vue' },
+      el('button', { type: 'button', class: forecastMode ? '' : 'active', onclick: () => { state.homeForecast = false; renderStock(); } }, 'État actuel'),
+      el('button', { type: 'button', class: forecastMode ? 'active' : '', onclick: () => { state.homeForecast = true; renderStock(); } }, 'Prévisions'));
     const head = el('div', { class: 'row-head' },
       el('h3', {}, forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
       el('div', { class: 'buttons' },
-        el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser'),
-        home ? null : el('button', { type: 'button', onclick: () => setStockFull(!state.stockFull) },
-          state.stockFull ? '⤡ Scanner' : '⤢ Prévisions')));
+        el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser')));
     const parts = [toggle, head];
     if (forecastMode) {
       renderForecast(parts);
@@ -3251,8 +3235,7 @@
   }
 
   function renderStock() {
-    $('#stock-view').replaceChildren(...stockParts(state.stockFull, false).filter(Boolean));
-    $('#home-stock').replaceChildren(...stockParts(!!state.homeForecast, true).filter(Boolean));
+    $('#home-stock').replaceChildren(...stockParts(!!state.homeForecast));
   }
 
   // Items scannes sans etiquette de lot : le bouton de vérif devient « Sortir du stock »
@@ -3267,9 +3250,7 @@
     renderLot();
     if (!state.user) { state.stock = null; state.push = null; state.pushDevices = null; }
     renderHomePage();
-    $('#tab-stock').hidden = !canSeeStock();
     $('#menu-notifications').hidden = !hasNotifications();
-    if (state.tab === 'stock' && !canSeeStock()) switchTab('todo');
     renderStock();
     const chip = $('#user-chip');
     chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}`
