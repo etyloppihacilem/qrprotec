@@ -183,6 +183,10 @@ Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.
     `team.done`, les entrées envoyées sont retirées, les autres reçoivent `{type: 'step'}`. Chaque
     participant publie son niveau (`level`). `leave` sort de la session sans la terminer ; une
     session en cascade n'est jamais enregistrée seule à l'abandon (tout est déjà envoyé).
+    `LiveHub.leave_cascade` : quand le dernier participant **connecté** termine (`leave`, ou `finish: true` avec la
+    validation du lot global), la session est close (`done` avec `lots` et `incomplete`, affichée « Terminée »),
+    même si des participants déconnectés y restent ; sans lot validé elle est retirée. Abandonnée (`LOST_KEEP`)
+    avec des lots validés, elle est close de la même façon.
 - **État global** (`serializers.aggregate_tree`) : le lot global prend le **pire état** de ses lots
   (vert < orange < rouge) ; sa dernière vérif est la **plus ancienne** des dernières vérifs de ses
   lots (aucune si l'un n'a jamais été vérifié).

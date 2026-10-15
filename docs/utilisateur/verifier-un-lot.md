@@ -252,7 +252,9 @@ commune, voir « Vérifier à plusieurs ») :
   · Julien » ;
 - quand Julien valide l'armoire 1, elle passe « Validé par Julien » chez Camille aussi ;
 - Camille n'a pas besoin de scanner une clé si Julien en a déjà scanné une ;
-- **Terminer** fait sortir de la vérif commune ; les autres continuent.
+- **Terminer** (ou valider le VPS) fait sortir de la vérif commune ; les autres continuent. Quand le dernier
+  participant encore connecté termine, la vérif passe « Terminée » dans le **Suivi des vérifs**, avec le
+  nombre de lots validés.
 
 ### Vérif partielle
 
