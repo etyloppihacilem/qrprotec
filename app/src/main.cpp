@@ -165,6 +165,13 @@ int main(int argc, char** argv)
     }
     qrprotec::set_verbose_logging(verbose);
     glfwSetErrorCallback(glfw_error_callback);
+    const bool kiosk = std::getenv("QRPROTEC_KIOSK") != nullptr;
+#ifdef GLFW_WAYLAND_LIBDECOR
+    // Kiosk : pas de libdecor, qui reserve une barre de titre ou des ombres que Cage ne dessine pas
+    // (bandes noires autour de l'interface, ou la souris peut aller mais ou rien n'est affiche)
+    if (kiosk)
+        glfwInitHint(GLFW_WAYLAND_LIBDECOR, GLFW_WAYLAND_DISABLE_LIBDECOR);
+#endif
     if (!glfwInit())
         return 1;
 
@@ -184,25 +191,21 @@ int main(int argc, char** argv)
 #ifdef GLFW_WAYLAND_APP_ID
     glfwWindowHintString(GLFW_WAYLAND_APP_ID, "qrprotec");
 #endif
-    // Kiosk (qrprotec-kiosk-session, Cage) : plein ecran sans decorations. Avec des decorations,
-    // libdecor reserve une barre de titre ou des ombres que Cage ne dessine pas : des bandes noires
-    // autour de l'interface, ou la souris peut aller mais ou rien n'est affiche.
-    GLFWmonitor* monitor = nullptr;
+    // Kiosk (qrprotec-kiosk-session, Cage) : fenetre sans decorations a la taille de l'ecran, que
+    // Cage agrandit a toute la sortie. Pas de plein ecran GLFW : sous Wayland, GLFW pose alors un
+    // inhibiteur de veille (zwp_idle_inhibitor_v1) et swayidle n'eteint jamais l'ecran.
     int window_width = 1280;
     int window_height = 800;
-    if (std::getenv("QRPROTEC_KIOSK") != nullptr) {
+    if (kiosk) {
         glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
-        glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
-        monitor = glfwGetPrimaryMonitor();
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
         const GLFWvidmode* mode = monitor != nullptr ? glfwGetVideoMode(monitor) : nullptr;
         if (mode != nullptr) {
             window_width = mode->width;
             window_height = mode->height;
-        } else {
-            monitor = nullptr;
         }
     }
-    GLFWwindow* window = glfwCreateWindow(window_width, window_height, "QRProtec", monitor, nullptr);
+    GLFWwindow* window = glfwCreateWindow(window_width, window_height, "QRProtec", nullptr, nullptr);
     if (window == nullptr) {
         glfwTerminate();
         return 1;
