@@ -2889,6 +2889,26 @@ class LotSheetTests(ApiTestCase):
                 item_type = ItemType.objects.create(type=f'ar{index:04d}', name=f'Item {index}')
                 LotRequirements.objects.create(lot_type=lot_type, item_type=item_type)
 
+    def test_public_qr_and_key_frame(self):
+        """Premiere page du lot : QR code de l'etiquette publique et cadre de l'etiquette cle ; pas sur la suite."""
+        for index in range(200):
+            item_type = ItemType.objects.create(type=f'it{index:04d}', name=f'Item {index}')
+            LotRequirements.objects.create(lot_type=self.lot_type, item_type=item_type, location=f'Poche {index // 10}')
+        texts = self.page_texts(self.client.get(f'/api/lots/{self.lot.id}/sheet.pdf').content)
+        self.assertIn('(\xc9tiquette cl\xe9)', texts[0])
+        self.assertIn('[3 2] 0 d', texts[0])  # cadre en pointilles
+        self.assertNotIn('(\xc9tiquette cl\xe9)', texts[1])
+
+    def test_qr_matrix(self):
+        from .qr import qr_matrix
+        modules = qr_matrix('https://example.com/verif?lot=sacpse00000001')
+        self.assertEqual(len(modules), 33)  # version 4
+        finder = [[max(abs(x - 3), abs(y - 3)) not in (2, 4) for x in range(7)] for y in range(7)]
+        self.assertEqual([row[:7] for row in modules[:7]], finder)
+        self.assertEqual([row[-7:] for row in modules[:7]], finder)
+        self.assertEqual([row[:7] for row in modules[-7:]], finder)
+        self.assertEqual(len(qr_matrix('x' * 150)), 49)  # version 8, avec ses informations de version
+
     def test_archived_lot_hidden_from_public(self):
         self.lot.active = False
         self.lot.save()
