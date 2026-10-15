@@ -365,14 +365,18 @@ ul.tasks input { width: 22px; height: 22px; flex: none; }
 ul.tasks-facts { margin: 0; padding-left: 18px; }
 
 /* ---- Signalements de problemes ---- */
-/* bouton noir plein, texte blanc (signalement reconnaissable sans faire croire a un probleme en cours, meme sur un lot
-   tout vert) : (!) dans les listes de la verif, « ⚠ Signaler un problème » sur les fiches */
-.report-btn { background: #111; color: #fff; font-weight: 800; }
-.report-btn:active { background: #3a3a3a; }
-.report-mark { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; line-height: 26px; text-align: center;
-  font-size: .95rem; box-shadow: 0 0 0 2px #fff; }
-.list li.iid .report-mark { width: 20px; height: 20px; line-height: 20px; font-size: .75rem; font-family: system-ui, sans-serif; }
-.report-wide { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; }
+/* signalement reconnaissable sans faire croire a un probleme en cours (meme sur un lot tout vert) : « ⚠ Signaler un
+   problème » sur les fiches en noir plein a liseré hachure, texte blanc ; (!) dans les listes en contour noir sur blanc */
+.report-btn { font-weight: 800; }
+.report-wide { position: relative; overflow: hidden; background: #111; color: #fff; }
+.report-wide::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 16px;
+  background: repeating-linear-gradient(-45deg, #ffd400 0 6px, #111 6px 12px); }
+.report-wide:active { background: #3a3a3a; }
+.report-mark { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; line-height: 22px; text-align: center;
+  font-size: .95rem; background: #fff; color: #111; border: 2px solid #111; }
+.report-mark:active { background: #e6e6e6; }
+.list li.iid .report-mark { width: 20px; height: 20px; line-height: 17px; border-width: 1.5px; font-size: .75rem; font-family: system-ui, sans-serif; }
+.report-wide { display: block; width: 100%; margin: 8px 0; padding: 10px 14px 10px 32px; }
 .tiles .tile.wide { grid-column: span 2; min-height: 0; flex-direction: row; gap: 14px; padding: 12px 16px; }
 .tiles .tile.wide > span:last-child { display: flex; flex-direction: column; align-items: flex-start; }
 .tiles .tile.alert { box-shadow: 0 0 0 3px var(--red); }

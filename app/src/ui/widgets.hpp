@@ -34,7 +34,8 @@ bool tab_item(const char *label, ImGuiTabItemFlags flags = 0);
 bool danger_button(const char *label, const ImVec2 &size = ImVec2(0, 0), bool mnemonic = true);
 bool primary_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool warning_button(const char *label, const ImVec2 &size = ImVec2(0, 0)); // orange
-// Signalement d'un probleme : bouton noir plein a texte blanc, et petit (!) rond (meme style que le front web)
+// Signalement d'un probleme : gros bouton noir plein a liseré hachure et texte blanc, petit (!) rond a
+// contour noir sur fond blanc (meme style que le front web)
 bool report_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool report_mark(const char *id); // id unique dans la fenetre (ex : "##report")
 // Police grasse chargee au demarrage (texte des boutons de signalement), nullptr : gras synthetique

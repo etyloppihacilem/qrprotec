@@ -185,23 +185,41 @@ bool warning_button(const char *label, const ImVec2 &size) {
 namespace {
 ImFont *bold_font = nullptr;
 
-// Bouton de signalement : fond noir plein, texte blanc en gras (signalement
-// reconnaissable sans faire croire a un probleme en cours, meme sur un lot tout vert)
-bool report_shape(const char *id, const char *text, const ImVec2 &size, float rounding) {
+// Signalement, reconnaissable sans faire croire a un probleme en cours (meme sur un lot tout vert) :
+// - gros bouton (strip > 0) : noir plein, liseré hachure noir et jaune a gauche, texte blanc en gras
+// - petit (!) rond (strip == 0) : contour noir sur fond blanc, texte noir
+bool report_shape(const char *id, const char *text, const ImVec2 &size, float rounding, float strip) {
   const bool   clicked = ImGui::InvisibleButton(id, size);
   const ImVec2 min     = ImGui::GetItemRectMin();
   const ImVec2 max     = ImGui::GetItemRectMax();
   ImDrawList  *draw    = ImGui::GetWindowDrawList();
-  const float  shade   = ImGui::IsItemActive() ? 0.30f : ImGui::IsItemHovered() ? 0.22f : 0.07f;
-  draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(shade, shade, shade, 1.0f)), rounding);
+  const bool   held    = ImGui::IsItemActive();
+  const bool   hovered = ImGui::IsItemHovered();
+  ImU32        ink     = IM_COL32_WHITE;
+  if (strip > 0.0f) {
+    const float shade = held ? 0.30f : hovered ? 0.22f : 0.07f;
+    draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(shade, shade, shade, 1.0f)), rounding);
+    const float band   = strip * 0.45f;
+    const float height = max.y - min.y;
+    draw->PushClipRect(min, ImVec2(min.x + strip, max.y), true);
+    for (float x = min.x - height; x < min.x + strip; x += band * 2.0f)
+      draw->AddQuadFilled(ImVec2(x, max.y), ImVec2(x + band, max.y), ImVec2(x + band + height, min.y),
+                          ImVec2(x + height, min.y), IM_COL32(255, 212, 0, 255));
+    draw->PopClipRect();
+  } else {
+    const float shade = held ? 0.80f : hovered ? 0.90f : 1.0f;
+    draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(shade, shade, shade, 1.0f)), rounding);
+    draw->AddRect(min, max, IM_COL32(17, 17, 17, 255), rounding, 0, 1.5f);
+    ink = IM_COL32(17, 17, 17, 255);
+  }
   ImFont      *font      = bold_font ? bold_font : ImGui::GetFont();
   const float  font_size = ImGui::GetFontSize();
   const float  extra     = bold_font ? 0.0f : 1.0f; // gras synthetique : texte redessine decale d'un pixel
   const ImVec2 text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text);
-  const ImVec2 at((min.x + max.x - text_size.x - extra) * 0.5f, (min.y + max.y - text_size.y) * 0.5f);
-  draw->AddText(font, font_size, at, IM_COL32_WHITE, text);
+  const ImVec2 at((min.x + strip + max.x - text_size.x - extra) * 0.5f, (min.y + max.y - text_size.y) * 0.5f);
+  draw->AddText(font, font_size, at, ink, text);
   if (extra > 0.0f)
-    draw->AddText(font, font_size, ImVec2(at.x + extra, at.y), IM_COL32_WHITE, text);
+    draw->AddText(font, font_size, ImVec2(at.x + extra, at.y), ink, text);
   return clicked;
 }
 } // namespace
@@ -219,14 +237,15 @@ bool report_button(const char *label, const ImVec2 &size) {
   ImVec2       actual(size.x, size.y > 0 ? size.y : text_size.y + padding.y * 2 + ImGui::GetFontSize() * 0.6f);
   if (actual.x < 0)
     actual.x = std::max(1.0f, ImGui::GetContentRegionAvail().x + actual.x + 1.0f);
-  else if (actual.x == 0)
-    actual.x = text_size.x + padding.x * 4;
-  return report_shape(label, text.c_str(), actual, ImGui::GetStyle().FrameRounding);
+  const float strip = std::max(10.0f, actual.y * 0.35f); // liseré hachure a gauche
+  if (actual.x == 0)
+    actual.x = text_size.x + padding.x * 4 + strip;
+  return report_shape(label, text.c_str(), actual, ImGui::GetStyle().FrameRounding, strip);
 }
 
 bool report_mark(const char *id) {
   const float side = ImGui::GetFrameHeight() * 0.8f;
-  const bool  clicked = report_shape(id, "!", ImVec2(side, side), side * 0.5f);
+  const bool  clicked = report_shape(id, "!", ImVec2(side, side), side * 0.5f, 0.0f);
   ImGui::SetItemTooltip("Signaler un problème");
   return clicked;
 }
