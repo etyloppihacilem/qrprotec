@@ -573,6 +573,7 @@ PUSH_TYPES = {
     'badge_expiring': ('Badge qui expire bientôt ou a expiré', _ADMIN_ROLES, False),
     'order_due': ('Commande à passer (prévisions de stock)', _GESTION_ROLES, True),
     'problem_report': ("Signalement d'un problème sur un item ou un lot", _ADMIN_ROLES, True),
+    'seal_broken': ("Ouverture d'un lot scellé (étiquette d'ouverture, vérif, ajout ou retrait)", _GESTION_ROLES, True),
 }
 
 
@@ -824,7 +825,7 @@ class NotificationSettings(models.Model):
     enabled = models.BooleanField(default=False)
     stock_low = models.BooleanField(default=True)        # stock d'un type sous son minimum
     verif_problem = models.BooleanField(default=True)    # verif de lot incomplete, perimes, disparus
-    seal_broken = models.BooleanField(default=True)      # scelle d'un lot brise
+    seal_broken = models.BooleanField(default=True)      # scelle d'un lot ouvert ou brise
     expired_daily = models.BooleanField(default=False)   # resume des lots contenant des perimes (commande check_alerts)
     pin_blocked = models.BooleanField(default=True)      # PIN d'un utilisateur bloque (50 essais ou code oublie)
     lot_key_renewed = models.BooleanField(default=False)   # etiquette privee d'un lot renouvelee
@@ -904,6 +905,7 @@ class PushSubscription(models.Model):
     badge_renewed = models.BooleanField(default=False)
     badge_expiring = models.BooleanField(default=False)
     problem_report = models.BooleanField(default=True)  # probleme signale sur un item ou un lot (admins)
+    seal_broken = models.BooleanField(default=True)     # scelle d'un lot ouvert
     device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme, d'apres le User-Agent
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)

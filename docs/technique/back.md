@@ -154,6 +154,11 @@ l'expiration, suivies par `key_expiry_stage` (`KeyExpiry`) sur le lot ou l'utili
 renouvellement. Le dernier
 statut d'envoi est gardé par destinataire et affiché dans les Réglages du poste.
 
+**Ouverture d'un scellé** (`seal_broken`, SMS et web, gestion et admin) : `services.notify_seals_broken`, une
+notification par opération (étiquette d'ouverture, vérif, ajout, retrait, ouverture depuis le poste) même si les
+scellés des lots parents sont ouverts avec. La notification web ouvre la fiche du lot (`tab: 'lot'`, tag
+`seal-<id>`) ; une ouverture anonyme signée juste après remplace la notification web, sans nouveau SMS.
+
 **Une alerte par passage sous le seuil** : `ItemType.low_notified` passe à `True` à l'envoi et ne
 revient à `False` que quand le stock remonte au minimum. Même principe pour `empty_notified`.
 `check_stock_levels(types)` est appelée après chaque mouvement ; la commande `check_alerts`

@@ -1758,6 +1758,36 @@ class WebPushTests(ApiTestCase):
             self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
         self.assertEqual([message['title'] for message in self.messages()], ['QRProtec : étiquette de lot renouvelée'])
 
+    def test_seal_opening_notified(self):
+        self.subscribe()
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
+        open_code = body['seal_open_url'].split('c=')[1]
+        # etiquette d'ouverture scannee sans connexion : notification anonyme qui ouvre la fiche du lot
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code}, local=False)
+        [message] = self.messages()
+        self.assertEqual(message['title'], 'QRProtec : scellé ouvert')
+        self.assertIn(self.lot.name, message['body'])
+        self.assertIn('Anonyme', message['body'])
+        self.assertEqual((message['tag'], message['tab'], message['url']),
+                         (f'seal-{self.lot.id}', 'lot', f'../verif?lot={self.lot.id}'))
+        # connexion juste apres : la notification (meme tag) est remplacee par la version signee
+        self.sent.clear()
+        user = {'matricule': 'M001', 'key': self.user.new_key}
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/seal-open/', {'code': open_code, 'user': user}, local=False)
+        [message] = self.messages()
+        self.assertEqual(message['tag'], f'seal-{self.lot.id}')
+        self.assertIn('Jeanne', message['body'])
+        self.assertNotIn('Anonyme', message['body'])
+        # type coupe sur l'appareil : plus rien
+        self.webpush.PushSubscription.objects.update(seal_broken=False)
+        self.sent.clear()
+        self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.call('POST', f'/api/lots/{self.lot.id}/unseal/', {'user': 'M001'})
+        self.assertEqual(self.sent, [])
+
     def test_device_manager(self):
         self.subscribe()
         endpoint = self.subscription()['endpoint']
@@ -1767,7 +1797,7 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual([(row['device'], row['current']) for row in body['devices']],
                          [('Firefox · Linux', False), ('Navigateur', True)])
-        self.assertEqual(len(body['types']), 9)
+        self.assertEqual(len(body['types']), 10)
         # alertes d'un autre appareil, puis desabonnement a distance
         code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
                                local=False)
@@ -1784,7 +1814,7 @@ class WebPushTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/push/devices/{mine.id}/', {'user': badge, 'delete': True}, local=False)
         self.assertEqual(code, 404)
         code, body = self.call('POST', '/api/push/devices/', {'user': badge}, local=False)
-        self.assertEqual((body['devices'], len(body['types'])), ([], 5))
+        self.assertEqual((body['devices'], len(body['types'])), ([], 6))
 
     def test_admin_disables_types_per_user(self):
         self.subscribe()

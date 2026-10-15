@@ -220,7 +220,8 @@ s'applique à tous les postes et à tous les téléphones.
 3. Cochez **Activer les notifications SMS** et les événements :
    - **stock bas** : un SMS quand un type passe sous son minimum (un seul par passage) ;
    - **vérif incomplète** : manquants, périmés, disparus ;
-   - **scellé brisé** ;
+   - **scellé ouvert** : étiquette d'ouverture scannée, vérif, ajout ou retrait d'items, avec le lot et qui l'a
+     ouvert (« Anonyme » si personne ne s'est connecté) ;
    - **résumé quotidien des périmés** (chaque matin à 7 h 45) ;
    - **PIN d'un utilisateur bloqué** (trop d'essais ou code oublié), une fois par blocage ;
    - **étiquette clé d'un lot renouvelée** et **badge renouvelé** : qui l'a fait ;
@@ -245,8 +246,9 @@ Sur le téléphone d'un utilisateur gestion ou admin : scanner son badge, menu *
 test**. Le même écran liste tous ses appareils abonnés : on y change les alertes de chacun, ou on le
 retire (un téléphone perdu, par exemple).
 
-- Gestion : stock bas, stock vide, commande à passer, renouvellement et expiration des étiquettes clés de lot.
-- Admin : en plus, PIN bloqué, renouvellement et expiration des badges.
+- Gestion : stock bas, stock vide, commande à passer, ouverture d'un lot scellé (le clic ouvre la fiche du lot),
+  renouvellement et expiration des étiquettes clés de lot.
+- Admin : en plus, PIN bloqué, signalements, renouvellement et expiration des badges.
 - Sur le poste, **Utilisateurs > Notifications web** : décochez un type pour le couper à cet
   utilisateur sur tous ses appareils. La fiche indique aussi combien d'appareils sont abonnés. Les alertes arrivent même page fermée.
 

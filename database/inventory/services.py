@@ -17,7 +17,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from . import journal, movements, notifications
+from . import journal, movements, notifications, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity
 from .models import (
     ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, OperationKind, SeenWhile, VerifItem,
@@ -266,7 +266,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         opened_ids |= {target[item.iid] for item in scanned if target[item.iid] is not None}
         opened_ids |= {item.location_id for item in scanned if item.location_id and item.location_id != target[item.iid]}
         opened = list(Lots.objects.select_related('parent').filter(id__in=opened_ids))
-        unsealed = []
+        unsealed, broken = [], []
         for sealed in _with_ancestors(opened):
             if sealed.is_sealed:
                 if sealed.id in verified_ids:
@@ -275,10 +275,12 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                     reason = 'ajout'
                 else:
                     reason = 'retrait' if sealed.id in opened_ids else 'ouverture d\'un sous-lot'
-                break_seal(sealed, identity, reason, now)
+                break_seal(sealed, identity, reason, now, notify=False)
                 unsealed.append(sealed.name)
+                broken.append((sealed, reason))
                 if sealed.id in by_id:
                     by_id[sealed.id].refresh_from_db(fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
+        notify_seals_broken(broken, identity)
         was_missing = {item.iid for item in not_seen if item.status == ItemStatus.MISSING}
 
         verifs = {}
@@ -591,8 +593,9 @@ def seal_lot(lot, identity, seal_number='', force=False):
     return lot
 
 
-def break_seal(lot, identity, reason, now=None):
-    """Brise le scelle d'un lot (ouverture, vérif, ajout ou retrait d'items)."""
+def break_seal(lot, identity, reason, now=None, notify=True):
+    """Brise le scelle d'un lot (ouverture, vérif, ajout ou retrait d'items). notify=False : l'appelant envoie une
+    seule notification pour tous les scelles ouverts par la meme operation (notify_seals_broken)."""
     if not lot.is_sealed:
         return False
     lot.is_sealed = False
@@ -603,8 +606,24 @@ def break_seal(lot, identity, reason, now=None):
     number = f' n°{lot.seal_number}' if lot.seal_number else ''
     journal.record(OperationKind.UNSEAL, identity, f'scellé{number} ouvert ({reason})', lot=lot, at=lot.unsealed,
                    seal_number=lot.seal_number, reason=reason)
-    notifications.notify('seal_broken', f'scellé{number} du lot {lot.name} ouvert ({reason}) par {display_name(identity)}')
+    if notify:
+        notify_seals_broken([(lot, reason)], identity)
     return True
+
+
+def notify_seals_broken(opened, identity):
+    """Scelles ouverts par une meme operation ([(lot, raison)], le lot le plus bas d'abord) : une notification aux
+    admins (SMS et web), qui ouvre la fiche du premier lot."""
+    if not opened:
+        return 0
+    who = display_name(identity)
+    names = [f'{lot.name}' + (f' (scellé n°{lot.seal_number})' if lot.seal_number else '') for lot, _ in opened]
+    first, reason = opened[0]
+    text = f'{names[0]} ouvert ({reason}) par {who}'
+    if len(opened) > 1:
+        text += ', avec ' + ', '.join(names[1:])
+    return notifications.notify_admins('seal_broken', 'scellé ouvert', f'scellé ouvert : {text}',
+                                       url=f'../verif?lot={first.id}', tag=f'seal-{first.id}', tab='lot')
 
 
 # Scelle ouvert par l'etiquette d'ouverture sans utilisateur identifie
@@ -622,12 +641,14 @@ def open_seal_with_label(lot, identity):
     if lot.is_sealed:
         now = timezone.now()
         # un sous-lot est range dans son lot parent : l'ouvrir suppose d'ouvrir aussi le parent
-        opened = []
+        opened, broken = [], []
         for sealed in _with_ancestors([lot]):
             if sealed.is_sealed:
                 reason = "étiquette d'ouverture" if sealed.id == lot.id else "ouverture d'un sous-lot"
-                break_seal(sealed, identity or SEAL_OPENED_ANONYMOUSLY, reason, now)
+                break_seal(sealed, identity or SEAL_OPENED_ANONYMOUSLY, reason, now, notify=False)
                 opened.append(sealed)
+                broken.append((sealed, reason))
+        notify_seals_broken(broken, identity or SEAL_OPENED_ANONYMOUSLY)
         # le contenu a pu etre utilise : verif recommandee (orange) pour le lot, ses sous-lots (ils etaient sous
         # le scelle) et les lots parents ouverts avec lui
         recommended = {sub_lot.id: sub_lot for sub_lot in lot.descendants()}
@@ -649,6 +670,10 @@ def open_seal_with_label(lot, identity):
                     operation.by = identity
                     operation.details['signed_after_scan'] = True
                     operation.save(update_fields=['by', 'details'])
+        # la notification web de l'ouverture (meme tag) est remplacee par une version signee, sans nouveau SMS
+        webpush.notify_event('seal_broken', 'QRProtec : scellé ouvert',
+                             f"scellé ouvert : {lot.name} ouvert (étiquette d'ouverture) par {display_name(identity)}",
+                             url=f'../verif?lot={lot.id}', tag=f'seal-{lot.id}', tab='lot')
         return 'signed'
     return 'already'
 
@@ -666,6 +691,7 @@ def move_items(iids, lot, identity, context):
         if lot is not None and items:
             touched_lots.add(lot.id)
         # un sous-lot est range dans son lot parent : l'ouvrir brise aussi le scelle du parent
+        broken = []
         for sealed in _with_ancestors(Lots.objects.select_related('parent').filter(id__in=touched_lots)):
             if not sealed.is_sealed:
                 continue
@@ -673,7 +699,9 @@ def move_items(iids, lot, identity, context):
                 reason = 'ajout'
             else:
                 reason = 'retrait' if sealed.id in touched_lots else "ouverture d'un sous-lot"
-            break_seal(sealed, identity, reason, now)
+            break_seal(sealed, identity, reason, now, notify=False)
+            broken.append((sealed, reason))
+        notify_seals_broken(broken, identity)
         if lot is not None:
             lot.refresh_from_db(fields=['is_sealed', 'seal_code', 'unsealed', 'unsealed_by'])
         movements.found_again([item.iid for item in items if movements.may_be_absent(item)], now, identity)

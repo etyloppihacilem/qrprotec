@@ -3021,6 +3021,10 @@
       }
       if (event.data && event.data.tab === 'stock' && canSeeStock()) { showHome('stock'); loadStock(); }
       if (event.data && event.data.tab === 'reports' && state.user) showHome('reports');
+      if (event.data && event.data.tab === 'lot' && event.data.url) {
+        const id = new URL(event.data.url).searchParams.get('lot');
+        if (id) openFiche('lot', id); // scelle ouvert : fiche du lot
+      }
     });
     if (navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
   }

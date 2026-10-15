@@ -411,7 +411,7 @@ class SettingsWindow final : public AppWindow {
       static const std::pair< const char *, const char * > events[] = {
         { "stock_low", "Stock sous le minimum d'un type d'item" },
         { "verif_problem", "Vérif de lot incomplète (manquants, périmés, disparus)" },
-        { "seal_broken", "Scellé d'un lot brisé" },
+        { "seal_broken", "Scellé d'un lot ouvert (étiquette d'ouverture, vérif, ajout ou retrait)" },
         { "expired_daily", "Résumé quotidien des lots contenant des périmés (commande check_alerts)" },
         { "pin_blocked", "PIN d'un utilisateur bloqué (trop d'essais faux ou code oublié), une fois par blocage" },
         { "lot_key_renewed", "Étiquette clé d'un lot renouvelée" },
