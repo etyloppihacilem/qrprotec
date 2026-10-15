@@ -238,10 +238,17 @@ y sont ajoutés en réassort (il passe orange), sans que le reste de son contenu
 
 ## Lot scellé
 
-Scanner l'étiquette du **scellé** affiche la fiche du lot :
+Scanner l'étiquette du **scellé** (avec l'appareil photo ou le scanner, hors vérif) affiche la fiche
+du lot, sans bouton « Lancer une vérif » : un lot scellé ne se vérifie pas.
 
 - **Scellé intact** (vert) : rien à faire, le lot est bon jusqu'à la date indiquée ;
-- **Ancien scellé** : l'étiquette ne correspond plus au scellé en cours ; le lot a été ouvert depuis.
+- **Ancien scellé** (orange) : l'étiquette ne correspond plus au scellé en cours ; un nouveau scellé a
+  été posé depuis ;
+- **Scellé brisé** (rouge) : le lot a été ouvert, il doit être vérifié ; le bouton « Lancer une vérif »
+  est alors proposé.
+
+Pendant une vérif, l'étiquette du scellé d'un lot du même lot global le compte comme vérifié sans
+l'ouvrir (voir « Lot scellé dans le lot vérifié »).
 
 En ouvrant un lot scellé, **scannez l'étiquette d'ouverture** rangée à l'intérieur (« Scanner après
 l'ouverture ») : le scellé est marqué ouvert, que vous soyez connecté ou non. Il n'y a pas de bouton
