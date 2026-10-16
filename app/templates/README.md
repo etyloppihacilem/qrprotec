@@ -15,6 +15,9 @@ après chaque clone.
   public et de badge. L'icône de l'application n'est pas une image d'étiquette.
 - Le modèle utilisé pour chaque usage (item, paquet, lot public/clé, scellé, ouverture du scellé,
   rangement du stock, badge) se choisit dans les Réglages.
+- Le dossier peut aussi contenir des étiquettes libres (usage « Générique ») qui ne servent jamais de
+  modèle : indications, autocollants… L'onglet **Toutes les étiquettes** de l'éditeur les montre en
+  grille avec les modèles (pastille verte « Modèle ») et les imprime à la main.
 - `rangement.qr` est la seule étiquette d'un rangement du stock (armoire, tiroir) : elle contient sa
   clé, qui n'expire pas, et se colle à l'intérieur. Un rangement n'a pas d'étiquette publique.
 - `tache.qr` est l'étiquette de tâches : elle remplace `item.qr` pour les items dont le type a des

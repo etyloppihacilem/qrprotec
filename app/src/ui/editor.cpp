@@ -58,6 +58,61 @@ std::string qr_file_name(std::string name) {
     name += ".qr";
   return name;
 }
+
+// Donne une valeur d'apercu aux placeholders qui n'en ont pas (exemple de l'usage du modele, sinon d'un
+// autre usage), pour que l'apercu ne montre jamais "{{...}}". Renvoie true si une valeur a ete ajoutee.
+bool fill_example_parameters(TemplateDocument &document, const std::vector< std::string > &names, const std::string &title) {
+  Parameters examples = example_parameters(document.category);
+  for (const CategoryInfo &info : template_categories())
+    for (const PlaceholderInfo &placeholder : info.placeholders)
+      examples.emplace(placeholder.name, placeholder.example);
+  bool added = false;
+  for (const std::string &name : names) {
+    if (name == "titre") {
+      document.parameters[name] = title; // toujours le titre des Reglages
+      continue;
+    }
+    if (document.parameters.find(name) != document.parameters.end())
+      continue;
+    const auto example        = examples.find(name);
+    document.parameters[name] = example != examples.end() ? example->second : name;
+    added                     = true;
+  }
+  return added;
+}
+
+// Envoie l'image d'une etiquette dans une texture (creee si besoin)
+void upload_texture(const RasterImage &image, unsigned int &texture, bool smooth) {
+  if (texture == 0)
+    glGenTextures(1, &texture);
+  glBindTexture(GL_TEXTURE_2D, texture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, smooth ? GL_LINEAR : GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  std::vector< unsigned char > rgba(image.pixels.size() * 4);
+  for (std::size_t index = 0; index < image.pixels.size(); ++index) {
+    rgba[index * 4] = rgba[index * 4 + 1] = rgba[index * 4 + 2] = image.pixels[index];
+    rgba[index * 4 + 3]                                          = 255;
+  }
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+}
+
+// Texte sur une ligne, coupe avec "..." s'il depasse la largeur disponible (cartes du navigateur)
+std::string fit_text(const std::string &text, float width) {
+  if (ImGui::CalcTextSize(text.c_str()).x <= width)
+    return text;
+  std::string cut = text;
+  while (!cut.empty() && ImGui::CalcTextSize((cut + "...").c_str()).x > width) {
+    cut.pop_back();
+    while (!cut.empty() && (static_cast< unsigned char >(cut.back()) & 0xC0) == 0x80)
+      cut.pop_back(); // octets de suite UTF-8
+    if (!cut.empty() && (static_cast< unsigned char >(cut.back()) & 0xC0) == 0xC0)
+      cut.pop_back(); // debut du caractere coupe
+  }
+  return cut + "...";
+}
 } // namespace
 
 Editor::Editor() {
@@ -68,29 +123,16 @@ Editor::Editor() {
 Editor::~Editor() {
   if (print_task_.valid())
     print_task_.wait();
+  clear_thumbnails();
   if (texture_ != 0)
     glDeleteTextures(1, &texture_);
 }
 
-// Liste les placeholders du modele et donne une valeur d'apercu a ceux qui n'en ont pas (exemple de
-// l'usage du modele, sinon d'un autre usage), pour que l'apercu ne montre jamais "{{...}}".
+// Liste les placeholders du modele et donne une valeur d'apercu a ceux qui n'en ont pas
 void Editor::refresh_placeholders() {
   placeholder_names_ = find_placeholders(document_);
-  Parameters examples = example_parameters(document_.category);
-  for (const CategoryInfo &info : template_categories())
-    for (const PlaceholderInfo &placeholder : info.placeholders)
-      examples.emplace(placeholder.name, placeholder.example);
-  for (const std::string &name : placeholder_names_) {
-    if (name == "titre") {
-      document_.parameters[name] = label_title_; // toujours le titre des Reglages
-      continue;
-    }
-    if (document_.parameters.find(name) != document_.parameters.end())
-      continue;
-    const auto example         = examples.find(name);
-    document_.parameters[name] = example != examples.end() ? example->second : name;
-    preview_dirty_             = true;
-  }
+  if (fill_example_parameters(document_, placeholder_names_, label_title_))
+    preview_dirty_ = true;
 }
 
 void Editor::set_label_title(const std::string &title) {
@@ -99,6 +141,7 @@ void Editor::set_label_title(const std::string &title) {
   label_title_                  = title;
   document_.parameters["titre"] = title;
   preview_dirty_                = true;
+  thumbnails_dirty_             = true;
 }
 
 void Editor::set_default_media(double width_mm, double height_mm) {
@@ -141,27 +184,12 @@ void Editor::reload_templates() {
     } else
       ; // TODO: faire un truc avec l'erreur
   }
+  thumbnails_dirty_ = true;
 }
 
 void Editor::rebuild_preview() {
   preview_ = render_template(document_);
-  if (texture_ == 0)
-    glGenTextures(1, &texture_);
-  glBindTexture(GL_TEXTURE_2D, texture_);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-  std::vector< unsigned char > rgba(static_cast< std::size_t >(preview_.width * preview_.height * 4));
-  for (std::size_t index = 0; index < preview_.pixels.size(); ++index) {
-    const unsigned char value = preview_.pixels[index];
-    rgba[index * 4]           = value;
-    rgba[index * 4 + 1]       = value;
-    rgba[index * 4 + 2]       = value;
-    rgba[index * 4 + 3]       = 255;
-  }
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, preview_.width, preview_.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+  upload_texture(preview_, texture_, false);
   texture_width_  = preview_.width;
   texture_height_ = preview_.height;
   preview_dirty_  = false;
@@ -235,7 +263,8 @@ void Editor::load_document(const TemplateDocument &document) {
   fit_pending_      = true;
   refresh_placeholders();
   reset_history();
-  message_ = "Modèle « " + document_.name + " » ouvert.";
+  message_         = "Modèle « " + document_.name + " » ouvert.";
+  show_editor_tab_ = true;
 }
 
 void Editor::request(PendingAction action, int index) {
@@ -252,10 +281,16 @@ void Editor::run_pending() {
   pending_                   = PendingAction::None;
   if (action == PendingAction::New) {
     new_template();
-    message_ = "Nouveau modèle.";
-  } else if (action == PendingAction::Open && pending_index_ >= 0
-             && pending_index_ < static_cast< int >(document_list_.size()))
+    message_         = "Nouveau modèle.";
+    show_editor_tab_ = true;
+  } else if ((action == PendingAction::Open || action == PendingAction::Print) && pending_index_ >= 0
+             && pending_index_ < static_cast< int >(document_list_.size())) {
     load_document(document_list_[static_cast< std::size_t >(pending_index_)]);
+    if (action == PendingAction::Print) {
+      show_editor_tab_ = false; // impression a la main depuis le navigateur : on y reste
+      open_print_test();
+    }
+  }
 }
 
 bool Editor::save() {
@@ -1534,6 +1569,188 @@ void Editor::draw_print_test_popup() {
     print_test_open_ = false;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Navigateur d'etiquettes : toutes les etiquettes du dossier en grille, celles choisies comme modele
+// (Reglages) marquees. Les autres s'impriment a la main (indications, autocollants...).
+
+void Editor::clear_thumbnails() {
+  for (Thumbnail &thumbnail : thumbnails_)
+    if (thumbnail.texture != 0)
+      glDeleteTextures(1, &thumbnail.texture);
+  thumbnails_.clear();
+}
+
+void Editor::build_thumbnails() {
+  clear_thumbnails();
+  for (const TemplateDocument &candidate : document_list_) {
+    TemplateDocument document = candidate;
+    fill_example_parameters(document, find_placeholders(document), label_title_);
+    const RasterImage image = render_template(document);
+    Thumbnail         thumbnail;
+    if (image.width > 0 && image.height > 0) {
+      upload_texture(image, thumbnail.texture, true);
+      thumbnail.width  = image.width;
+      thumbnail.height = image.height;
+    }
+    thumbnails_.push_back(thumbnail);
+  }
+  thumbnails_dirty_ = false;
+}
+
+// Usages imprimes avec ce fichier : celui choisi dans les Reglages, sinon (aucun choix) le premier modele
+// du dossier fait pour cet usage, comme a l'impression.
+std::vector< std::string > Editor::usages_of(const std::string &file) const {
+  std::vector< std::string > usages;
+  for (const CategoryInfo &info : template_categories()) {
+    if (info.category == TemplateCategory::Generic)
+      continue;
+    std::string used;
+    if (const auto configured = selected_templates_.find(info.id); configured != selected_templates_.end())
+      used = configured->second;
+    for (const TemplateDocument &candidate : used.empty() ? document_list_ : std::vector< TemplateDocument >{})
+      if (candidate.category == info.category) {
+        used = candidate.path;
+        break;
+      }
+    if (used == file)
+      usages.push_back(info.label);
+  }
+  return usages;
+}
+
+void Editor::draw_browser() {
+  if (thumbnails_dirty_ || thumbnails_.size() != document_list_.size())
+    build_thumbnails();
+  const float font = ImGui::GetFontSize();
+  if (button("Nouvelle étiquette"))
+    request(PendingAction::New);
+  ImGui::SetItemTooltip("Étiquette vierge : indication, autocollant... (usage « Générique », imprimée à la main)");
+  ImGui::SameLine();
+  if (button("Actualiser"))
+    reload_templates();
+  ImGui::SetItemTooltip("Relire les modèles du dossier");
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(font * 16.0f);
+  ImGui::InputTextWithHint("##browser_filter", "Rechercher (nom ou fichier)", &browser_filter_);
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(font * 13.0f);
+  ImGui::Combo("##browser_show", &browser_show_, "Toutes les étiquettes\0Modèles utilisés\0Imprimées à la main\0");
+  ImGui::SameLine();
+  ImGui::TextDisabled("(?)");
+  ImGui::SetItemTooltip("Marquées « Modèle » : choisies dans Administration > Réglages pour imprimer les étiquettes\n"
+                        "de la base (item, lot, scellé...). Les autres ne servent qu'à être imprimées à la main\n"
+                        "(bouton « Imprimer... ») : indications, autocollants, consignes...");
+  if (!message_.empty()) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+    ImGui::TextUnformatted(message_.c_str());
+  }
+
+  ImGui::BeginChild("browser_grid", ImVec2(0, 0), ImGuiChildFlags_Borders);
+  const ImGuiStyle &style   = ImGui::GetStyle();
+  const float       card_w  = font * 12.0f;
+  const float       thumb_h = font * 8.5f;
+  const float       card_h  = thumb_h + ImGui::GetTextLineHeightWithSpacing() * 3.0f + ImGui::GetFrameHeight()
+                       + style.WindowPadding.y * 2.0f + style.ItemSpacing.y * 2.0f;
+  const int columns = std::max(1, static_cast< int >((ImGui::GetContentRegionAvail().x + style.ItemSpacing.x)
+                                                     / (card_w + style.ItemSpacing.x)));
+  const std::string filter = lowercase(browser_filter_);
+  const ImU32       green  = IM_COL32(40, 150, 70, 255);
+  int               shown  = 0;
+  for (int index = 0; index < static_cast< int >(document_list_.size()); ++index) {
+    const TemplateDocument &candidate = document_list_[static_cast< std::size_t >(index)];
+    if (!filter.empty() && lowercase(candidate.name).find(filter) == std::string::npos
+        && lowercase(candidate.path).find(filter) == std::string::npos)
+      continue;
+    const std::vector< std::string > usages = usages_of(candidate.path);
+    if ((browser_show_ == 1 && usages.empty()) || (browser_show_ == 2 && !usages.empty()))
+      continue;
+    if (shown % columns != 0)
+      ImGui::SameLine();
+    ++shown;
+    ImGui::PushID(index);
+    const bool current = !template_path_.empty() && candidate.path == template_path_;
+    if (current)
+      ImGui::PushStyleColor(ImGuiCol_Border, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+    ImGui::BeginChild("card", ImVec2(card_w, card_h), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
+    if (current)
+      ImGui::PopStyleColor();
+
+    // apercu, centre sur fond gris clair ; clic : ouvrir dans l'editeur
+    const float  inner_w = ImGui::GetContentRegionAvail().x;
+    const ImVec2 origin  = ImGui::GetCursorScreenPos();
+    if (ImGui::InvisibleButton("thumb", ImVec2(inner_w, thumb_h)))
+      request(PendingAction::Open, index);
+    const bool  hovered = ImGui::IsItemHovered();
+    ImDrawList *draw    = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(origin, ImVec2(origin.x + inner_w, origin.y + thumb_h),
+                        hovered ? IM_COL32(205, 215, 230, 255) : IM_COL32(225, 225, 225, 255), 4.0f);
+    const Thumbnail &thumbnail = thumbnails_[static_cast< std::size_t >(index)];
+    if (thumbnail.texture != 0) {
+      const float  margin = font * 0.5f;
+      const float  scale  = std::min((inner_w - margin * 2.0f) / static_cast< float >(thumbnail.width),
+                                     (thumb_h - margin * 2.0f) / static_cast< float >(thumbnail.height));
+      const ImVec2 size(static_cast< float >(thumbnail.width) * scale, static_cast< float >(thumbnail.height) * scale);
+      const ImVec2 min(origin.x + (inner_w - size.x) / 2.0f, origin.y + (thumb_h - size.y) / 2.0f);
+      const ImVec2 max(min.x + size.x, min.y + size.y);
+      draw->AddImage(static_cast< ImTextureID >(thumbnail.texture), min, max);
+      draw->AddRect(min, max, IM_COL32(150, 150, 150, 255));
+    }
+    // indicateur : coche verte « Modele » quand l'etiquette sert de modele
+    if (!usages.empty()) {
+      const char  *text  = "Modèle";
+      const ImVec2 text_size = ImGui::CalcTextSize(text);
+      const float  pad   = font * 0.25f;
+      const float  check = text_size.y;
+      const ImVec2 min(origin.x + pad, origin.y + pad);
+      const ImVec2 max(min.x + check + text_size.x + pad * 3.0f, min.y + text_size.y + pad * 2.0f);
+      draw->AddRectFilled(min, max, green, text_size.y);
+      const ImVec2 c(min.x + pad * 1.5f, min.y + pad);
+      const ImVec2 points[3] = { ImVec2(c.x + check * 0.15f, c.y + check * 0.55f), ImVec2(c.x + check * 0.4f, c.y + check * 0.8f),
+                                 ImVec2(c.x + check * 0.85f, c.y + check * 0.25f) };
+      draw->AddPolyline(points, 3, IM_COL32_WHITE, ImDrawFlags_None, std::max(1.5f, font * 0.12f));
+      draw->AddText(ImVec2(c.x + check + pad * 0.5f, min.y + pad), IM_COL32_WHITE, text);
+    }
+    if (hovered) {
+      std::string tip = "Cliquer pour modifier « " + candidate.name + " »";
+      if (!usages.empty()) {
+        tip += "\nModèle choisi pour : ";
+        for (std::size_t u = 0; u < usages.size(); ++u)
+          tip += (u ? ", " : "") + usages[u];
+      }
+      ImGui::SetTooltip("%s", tip.c_str());
+    }
+
+    ImGui::TextUnformatted(fit_text(candidate.name, inner_w).c_str());
+    ImGui::TextDisabled("%s", fit_text(candidate.path, inner_w).c_str());
+    if (!usages.empty()) {
+      std::string line = "Modèle : ";
+      for (std::size_t u = 0; u < usages.size(); ++u)
+        line += (u ? ", " : "") + usages[u];
+      ImGui::TextColored(ImVec4(0.16f, 0.59f, 0.27f, 1.0f), "%s", fit_text(line, inner_w).c_str());
+    } else if (candidate.category == TemplateCategory::Generic)
+      ImGui::TextDisabled("Imprimée à la main");
+    else
+      ImGui::TextDisabled("%s", fit_text(category_info(candidate.category).label + ", pas en modèle", inner_w).c_str());
+    if (button("Modifier"))
+      request(PendingAction::Open, index);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!print_callback_);
+    if (button("Imprimer..."))
+      request(PendingAction::Print, index);
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("Imprimer cette étiquette à la main (valeurs des champs à saisir)");
+    ImGui::EndChild();
+    ImGui::PopID();
+  }
+  if (document_list_.empty())
+    ImGui::TextDisabled("Aucune étiquette (*.qr) dans %s.", templates_dir().string().c_str());
+  else if (shown == 0)
+    ImGui::TextDisabled("Aucune étiquette ne correspond.");
+  ImGui::EndChild();
+}
+
 void Editor::draw() {
   ImGui::Begin("QRProtec - Éditeur d'étiquettes");
   draw_contents();
@@ -1543,26 +1760,37 @@ void Editor::draw() {
 void Editor::draw_contents() {
   if (loaded_templates_dir_ != templates_dir().string())
     reload_templates(); // dossier des modeles change dans les Reglages
-  draw_toolbar();
-  if (
-    ImGui::BeginTable(
-      "EditorColumns",
-      3,
-      ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp
-    )
-  ) {
-    ImGui::TableSetupColumn("Calques", ImGuiTableColumnFlags_WidthStretch, 0.85f);
-    ImGui::TableSetupColumn("Étiquette", ImGuiTableColumnFlags_WidthStretch, 2.4f);
-    ImGui::TableSetupColumn("Propriétés", ImGuiTableColumnFlags_WidthStretch, 1.35f);
-    ImGui::TableNextColumn();
-    draw_layers_panel();
-    ImGui::TableNextColumn();
-    draw_canvas_panel();
-    ImGui::TableNextColumn();
-    draw_side_panel();
-    ImGui::EndTable();
+  if (ImGui::BeginTabBar("editor_mode")) {
+    if (tab_item("Toutes les étiquettes")) {
+      draw_browser();
+      ImGui::EndTabItem();
+    }
+    if (tab_item("Édition", show_editor_tab_ ? ImGuiTabItemFlags_SetSelected : 0)) {
+      draw_toolbar();
+      if (
+        ImGui::BeginTable(
+          "EditorColumns",
+          3,
+          ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp
+        )
+      ) {
+        ImGui::TableSetupColumn("Calques", ImGuiTableColumnFlags_WidthStretch, 0.85f);
+        ImGui::TableSetupColumn("Étiquette", ImGuiTableColumnFlags_WidthStretch, 2.4f);
+        ImGui::TableSetupColumn("Propriétés", ImGuiTableColumnFlags_WidthStretch, 1.35f);
+        ImGui::TableNextColumn();
+        draw_layers_panel();
+        ImGui::TableNextColumn();
+        draw_canvas_panel();
+        ImGui::TableNextColumn();
+        draw_side_panel();
+        ImGui::EndTable();
+      }
+      handle_shortcuts();
+      ImGui::EndTabItem();
+    }
+    show_editor_tab_ = false;
+    ImGui::EndTabBar();
   }
-  handle_shortcuts();
   draw_open_popup();
   draw_save_as_popup();
   draw_unsaved_popup();
