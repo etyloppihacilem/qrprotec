@@ -125,7 +125,8 @@ chacun modifie les siennes, les rôles gestion et admin modifient celles de tous
 
 - **Préparer** : téléphone, accueil > **Listes de matériel** > **Nouvelle liste** ; poste, menu
   Fenêtres > **Listes de matériel** > **Nouvelle liste**. Donnez un nom, une remarque si besoin
-  (rendez-vous, consignes), ajoutez les lots et le matériel.
+  (rendez-vous, consignes), ajoutez les lots et le matériel : tapez quelques lettres de son nom
+  (« armo 2 », « compr ») ou son code, puis choisissez dans les résultats.
 - **Partager** : la liste a un lien et un QR code (bouton **Partager le lien** au téléphone,
   **Copier le lien** au poste). Ouvrir le lien ou scanner le QR code ouvre la liste, connecté.
 - **Vérifier en direct, à plusieurs** : **📷 Scanner** au téléphone, **Scanner vers cette liste** au

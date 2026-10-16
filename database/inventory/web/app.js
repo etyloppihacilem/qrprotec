@@ -5016,6 +5016,56 @@
     return parts;
   }
 
+  // Champ de recherche avec resultats en direct (sans accents ni casse, debut de mots ou code), comme la recherche des
+  // types d'items du poste : fleches pour choisir, Entree ou toucher un resultat pour l'ajouter.
+  const searchKey = (text) => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  function searchPicker(placeholder, items, onPick) {
+    const input = el('input', { type: 'search', class: 'picker-input', placeholder, autocomplete: 'off' });
+    const results = el('ul', { class: 'picker-results', hidden: '' });
+    let shown = [];
+    let highlighted = 0;
+    const score = (item, words) => {
+      const label = searchKey(item.label);
+      const key = searchKey(item.key + ' ' + (item.sub || ''));
+      const starts = label.split(/[^a-z0-9]+/);
+      let total = 0;
+      for (const word of words) {
+        if (starts.some((part) => part.startsWith(word))) total += label.startsWith(word) ? 3 : 2;
+        else if (label.includes(word) || key.includes(word)) total += 1;
+        else return -1;
+      }
+      return total;
+    };
+    const update = () => {
+      const words = searchKey(input.value).split(/\s+/).filter(Boolean);
+      shown = items.map((item) => ({ item, score: score(item, words) })).filter((row) => row.score >= 0)
+        .sort((a, b) => b.score - a.score || a.item.label.localeCompare(b.item.label, 'fr')).slice(0, 8).map((row) => row.item);
+      highlighted = Math.min(highlighted, Math.max(0, shown.length - 1));
+      results.replaceChildren(...(shown.length ? shown.map((item, index) => el('li', {
+        class: index === highlighted ? 'active' : '',
+        onpointerdown: (event) => { event.preventDefault(); onPick(item); },
+      }, el('span', {}, item.label), item.sub ? el('small', {}, item.sub) : '')) : [el('li', { class: 'empty' }, 'Aucun résultat')]));
+      results.hidden = document.activeElement !== input;
+    };
+    input.addEventListener('input', () => { highlighted = 0; update(); });
+    input.addEventListener('focus', update);
+    input.addEventListener('blur', () => { results.hidden = true; });
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        highlighted = Math.max(0, Math.min(shown.length - 1, highlighted + (event.key === 'ArrowDown' ? 1 : -1)));
+        update();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (shown[highlighted]) onPick(shown[highlighted]);
+      } else if (event.key === 'Escape') {
+        input.value = '';
+        input.blur();
+      }
+    });
+    return el('div', { class: 'picker' }, input, results);
+  }
+
   function listEditor(edit) {
     const redraw = () => renderListsPage(true);
     const options = lists.options;
@@ -5028,16 +5078,14 @@
       if (!taken.has('task:' + task)) edit.lines.push({ task, label: task });
       redraw();
     };
-    const lotSelect = el('select', { onchange: (event) => {
-      const lot = options.lots.find((row) => row.id === event.target.value);
-      if (lot) { edit.lines.push({ lot: lot.id, label: lot.name, sub: lot.lot_type_name }); redraw(); }
-    } }, el('option', { value: '' }, '＋ Ajouter un lot…'),
-    ...(options ? options.lots.filter((lot) => !taken.has(lot.id)).map((lot) => el('option', { value: lot.id }, `${lot.name} (${lot.lot_type_name})`)) : []));
-    const typeSelect = el('select', { onchange: (event) => {
-      const row = options.types.find((type) => type.type === event.target.value);
-      if (row) { edit.lines.push({ type: row.type, label: row.name, quantity: 1 }); redraw(); }
-    } }, el('option', { value: '' }, '＋ Ajouter du matériel…'),
-    ...(options ? options.types.filter((type) => !taken.has('type:' + type.type)).map((type) => el('option', { value: type.type }, type.name)) : []));
+    const lotSelect = searchPicker('＋ Ajouter un lot : rechercher…',
+      (options ? options.lots : []).filter((lot) => !taken.has(lot.id))
+        .map((lot) => ({ key: lot.id, label: lot.name, sub: lot.lot_type_name, row: lot })),
+      (pick) => { edit.lines.push({ lot: pick.row.id, label: pick.row.name, sub: pick.row.lot_type_name }); redraw(); });
+    const typeSelect = searchPicker('＋ Ajouter du matériel : rechercher…',
+      (options ? options.types : []).filter((type) => !taken.has('type:' + type.type))
+        .map((type) => ({ key: type.type, label: type.name, sub: type.type, row: type })),
+      (pick) => { edit.lines.push({ type: pick.row.type, label: pick.row.name, quantity: 1 }); redraw(); });
     return [
       el('h3', {}, edit.id ? 'Modifier la liste' : edit.template ? 'Nouveau modèle' : 'Nouvelle liste'),
       el('label', { class: 'field' }, 'Nom',
