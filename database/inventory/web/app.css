@@ -446,3 +446,28 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
 .list li.sub-lot.ok { background: var(--green); border-left-color: var(--green); }
 .list li.sub-lot.bad { background: var(--red); border-left-color: var(--red); }
 .list li.sub-lot.ok .sub, .list li.sub-lot.bad .sub { color: #fff; }
+
+/* Listes de materiel : page de l'accueil (index, liste, editeur), lecteur dans un coin pendant le scan */
+.banner.info { background: var(--blue); }
+.tag.gray { background: #8a8f94; color: #fff; }
+body.list-scan #reader-name { display: none !important; }
+#home-lists .list-new { width: 100%; margin: 6px 0; }
+#home-lists .list-gap { display: block; margin-top: 8px; }
+#home-lists .list-note { white-space: pre-wrap; background: var(--blue-bg); padding: 6px 10px; border-radius: 8px; }
+#home-lists .list-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; align-items: center; }
+#home-lists .list-buttons button:not(.text-link) { flex: 1 1 auto; }
+#home-lists .list-buttons .text-link { padding: 0; }
+#home-lists .list-count { font-size: .95rem; white-space: nowrap; color: var(--muted); }
+#home-lists .list-count.done { color: var(--green); }
+#home-lists .list-scan-row { padding: 2px 12px 2px 28px; background: var(--blue-bg); }
+#home-lists .list-scan-row .sub { white-space: normal; }
+#home-lists .list-remove { flex: none; width: 30px; height: 30px; padding: 0; border-radius: 8px; background: #eee; color: var(--red); }
+#home-lists .list-qty { width: 64px; padding: 6px; font: inherit; border: 1px solid var(--line); border-radius: 8px; }
+#home-lists .list-add { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+#home-lists select, #home-lists .field input, #home-lists .field textarea { width: 100%; box-sizing: border-box; font: inherit;
+  padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+#home-lists .field { display: block; margin: 8px 0; font-size: .85rem; color: var(--muted); }
+#home-lists .field input, #home-lists .field textarea { margin-top: 3px; color: var(--text); }
+#home-lists .check { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+#home-lists .check input { flex: none; width: 20px; height: 20px; }
+#home-lists .break { word-break: break-all; }

@@ -294,6 +294,12 @@ class App {
     ImVec4 background_color() const;
     void   note_activity();
     void   handle_scan(const std::string &code, ScanSource source);
+    // Liste de materiel ouverte dans la fenetre Listes, scans (lot, item) diriges vers elle : verif ou retour
+    struct ChecklistScanTarget {
+        std::string                                          id;
+        std::function< void(const ParsedScan &, ScanSource) > handle;
+    } checklist_scan;
+    std::string checklist_to_open; // QR code d'une liste scanne : la fenetre Listes l'ouvre
 
     // Session
     bool        logged_in() const { return user.has_value(); }

@@ -78,6 +78,7 @@ class SeenWhile(models.TextChoices):
     RESTORE = 'restore', 'Restauration'
     OPEN = 'open', 'Ouverture de paquet'
     OUT = 'out', 'Sortie du stock'
+    CHECKLIST = 'list', 'Liste de matériel'
 
 
 class ItemStatus(models.TextChoices):
@@ -428,6 +429,8 @@ class Lots(models.Model):
     restocked = models.DateTimeField(blank=True, null=True)
     restocked_by = models.CharField(max_length=64, blank=True, default='')
     restocked_count = models.PositiveIntegerField(default=0)  # items ajoutes depuis la derniere verif
+    # Rentre avec une liste de materiel (nom de la liste) : verif recommandee jusqu'a la prochaine verif
+    back_from_list = models.CharField(max_length=80, blank=True, default='')
     active = models.BooleanField(default=True)
     name = models.CharField(max_length=64)
     name_short = models.CharField(max_length=16)
@@ -575,6 +578,7 @@ class OperationKind(models.TextChoices):
     SETTINGS = 'settings', 'Réglages'
     REPORT = 'report', 'Signalement'
     REVISION = 'revision', 'Révision de matériel'
+    CHECKLIST = 'checklist', 'Liste de matériel'
 
 
 class Operation(models.Model):
@@ -1082,3 +1086,65 @@ class ProblemReport(models.Model):
         if self.status == ReportStatus.IN_PROGRESS and not self.usable:
             return 'orange'
         return 'green'
+
+
+class ChecklistStatus(models.TextChoices):
+    DRAFT = 'draft', 'À préparer'          # modifiable, verifiable (scans en direct)
+    VALIDATED = 'validated', 'Sortie'      # verifiee : items sortis du stock, retour a faire
+    RETURNED = 'returned', 'Rentrée'       # retour clos : la liste ne sert plus
+
+
+class Checklist(models.Model):
+    """Liste de materiel a prendre (ex : un chef demande du materiel a ses equipiers) : lots et types d'items avec
+    une quantite. Partagee par lien et QR code, verifiee en direct, validee une seule fois (items sortis du stock),
+    puis retour par la liste. Un modele (is_template) n'est jamais verifie : on en fait une copie."""
+    id = models.CharField(max_length=12, primary_key=True, editable=False)
+    name = models.CharField(max_length=80)
+    note = models.CharField(max_length=500, blank=True, default='')
+    owner = models.ForeignKey('Secouristes', on_delete=models.PROTECT, related_name='checklists')
+    is_template = models.BooleanField(default=False)
+    status = models.CharField(max_length=10, choices=ChecklistStatus.choices, default=ChecklistStatus.DRAFT)
+    created = models.DateTimeField(default=timezone.now)
+    updated = models.DateTimeField(default=timezone.now)
+    source = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)  # liste dupliquee
+    validated = models.DateTimeField(blank=True, null=True)
+    validated_by = models.CharField(max_length=64, blank=True, default='')
+    returned = models.DateTimeField(blank=True, null=True)
+    returned_by = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        ordering = ['-updated']
+
+    def save(self, *args, **kwargs):
+        if not self.id:
+            self.id = generate_key(12)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class ChecklistLine(models.Model):
+    """Ligne d'une liste : un lot, ou un type d'item avec une quantite."""
+    checklist = models.ForeignKey(Checklist, on_delete=models.CASCADE, related_name='lines')
+    position = models.PositiveIntegerField(default=0)
+    lot = models.ForeignKey('Lots', on_delete=models.CASCADE, null=True, blank=True)
+    item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT, null=True, blank=True)
+    quantity = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        ordering = ['position', 'id']
+
+
+class ChecklistScan(models.Model):
+    """Scan fait sur une liste : a la verif (phase out) ou au retour (phase back). Un item ou l'etiquette d'un lot."""
+    OUT, BACK = 'out', 'back'
+    checklist = models.ForeignKey(Checklist, on_delete=models.CASCADE, related_name='scans')
+    phase = models.CharField(max_length=4, default=OUT)
+    item = models.ForeignKey(Items, on_delete=models.CASCADE, null=True, blank=True, related_name='checklist_scans')
+    lot = models.ForeignKey('Lots', on_delete=models.CASCADE, null=True, blank=True)
+    at = models.DateTimeField(default=timezone.now)
+    by = models.CharField(max_length=64)
+
+    class Meta:
+        ordering = ['at', 'id']

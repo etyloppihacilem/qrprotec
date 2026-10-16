@@ -18,7 +18,8 @@ elle tient en un fichier JS lisible. Voir [decisions.md](decisions.md#front-web-
 ## Adresses
 
 La page répond aux adresses mêmes des QR codes : `/`, `/verif?lot=…[&key=…]`, `/badge?m=…&key=…`,
-`/item?id=…`, `/pack?id=…`, `/seal?lot=…&s=…`. Scanner une étiquette avec l'appareil photo natif du téléphone ouvre
+`/item?id=…`, `/pack?id=…`, `/seal?lot=…&s=…`, `/liste?id=…` (liste de matériel : page `lists` de l'accueil, objet `lists`
+de `app.js`, relue toutes les 3 s ; en mode scan, `handleCode` envoie les lots et items à la liste). Scanner une étiquette avec l'appareil photo natif du téléphone ouvre
 donc directement la bonne vue. `/verif?lot=…` et `/item?id=…` ouvrent une **fiche** sans caméra (`openFiche`,
 section `#fiche`) : « Lancer une vérif » ouvre le lecteur sur le lot (`launchVerif`). La navigation entre fiches
 passe par `history.pushState` (bouton retour du téléphone, `popstate`). La fiche d'un item affiche

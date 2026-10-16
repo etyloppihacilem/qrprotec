@@ -3560,3 +3560,86 @@ class RevisionTests(ApiTestCase):
         call_command('check_alerts', stdout=StringIO())
         self.assertIn(('revision_daily', 'révisions à faire, en retard : Aspirateur (Sac A) ; cette semaine : '
                                          'Aspirateur (stock)'), self.sent)
+
+
+class ChecklistTests(ApiTestCase):
+    """Listes de materiel : lignes, verif en direct, validation (sortie du stock), retour par la liste."""
+
+    def setUp(self):
+        super().setUp()
+        self.chief = self.user  # role normal
+        self.other = Secouristes(matricule='M002', nom='Martin', prenom='Paul')
+        self.other.renew_key()
+        self.other.save()
+        self.fresh = self.create(self.compresses, self.today + timedelta(days=200), 3)
+        self.garrot.consumable = False  # materiel : reste sorti s'il ne rentre pas
+        self.garrot.save()
+        self.garrots = self.create(self.garrot, None, 2)
+
+    def as_(self, user, path, data=None):
+        return self.call('POST', path, {**(data or {}), 'user': {'matricule': user.matricule, 'key': user.new_key}},
+                         local=False)
+
+    def new_list(self, user=None, **extra):
+        code, body = self.as_(user or self.chief, '/api/checklists/', {
+            'name': 'Poste de secours', 'lines': [{'lot': self.lot.id}, {'type': 'compre', 'quantity': 2},
+                                                  {'type': 'garrot', 'quantity': 1}], **extra})
+        self.assertEqual(code, 201, body)
+        return body
+
+    def test_rights_and_templates(self):
+        mine = self.new_list()
+        self.assertTrue(mine['can_edit'])
+        code, body = self.as_(self.other, f"/api/checklists/{mine['id']}/update/", {'name': 'Autre'})
+        self.assertEqual(code, 403)
+        code, body = self.as_(self.other, f"/api/checklists/{mine['id']}/")
+        self.assertEqual((code, body['can_edit']), (200, False))  # partagee par lien : lisible
+        code, body = self.call('POST', f"/api/checklists/{mine['id']}/update/", {'name': 'Par la gestion'})
+        self.assertEqual((code, body['name']), (200, 'Par la gestion'))  # admin du poste
+        template = self.new_list(template=True)
+        code, _ = self.as_(self.chief, f"/api/checklists/{template['id']}/scan/", {'lot': self.lot.id})
+        self.assertEqual(code, 400)  # un modele ne se verifie pas
+        code, copy = self.as_(self.other, f"/api/checklists/{template['id']}/duplicate/")
+        self.assertEqual((code, copy['owner'], copy['template'], copy['line_count']), (201, 'M002', False, 3))
+        code, body = self.as_(self.other, '/api/checklists/list/')
+        ids = {row['id'] for row in body['lists']}
+        self.assertIn(template['id'], ids)
+        self.assertNotIn(mine['id'], ids)
+
+    def test_check_validate_and_return(self):
+        checklist = self.new_list()
+        path = f"/api/checklists/{checklist['id']}/"
+        code, body = self.as_(self.other, path + 'scan/', {'item': self.fresh[0].iid})
+        self.assertEqual((code, body['message']), (200, 'Compresses : 1/2'))
+        code, body = self.as_(self.chief, path + 'scan/', {'item': self.fresh[1].iid})
+        code, body = self.as_(self.chief, path + 'scan/', {'item': self.fresh[2].iid})
+        self.assertEqual(code, 400)  # deja 2/2
+        code, body = self.as_(self.chief, path + 'scan/', {'lot': self.lot.id})
+        self.assertFalse(body['complete'])
+        code, body = self.as_(self.chief, path + 'validate/')
+        self.assertEqual(code, 400)  # incomplete
+        code, body = self.as_(self.chief, path + 'scan/', {'item': self.garrots[0].iid})
+        self.assertTrue(body['complete'])
+        # pris pour cette liste : refuse dans une autre
+        other = self.new_list(self.other)
+        code, body = self.as_(self.other, f"/api/checklists/{other['id']}/scan/", {'item': self.fresh[0].iid})
+        self.assertEqual(code, 400)
+        code, body = self.as_(self.chief, path + 'validate/')
+        self.assertEqual(body['status'], 'validated')
+        self.assertEqual(Items.objects.get(iid=self.fresh[0].iid).status, ItemStatus.OUT)
+        code, _ = self.as_(self.chief, path + 'scan/', {'item': self.fresh[2].iid})
+        self.assertEqual(code, 400)  # validee : plus de verif
+        # retour : une compresse et le garrot rentrent
+        code, body = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[0].iid})
+        self.assertEqual(body['message'], 'Compresses : remis en stock')
+        self.assertEqual(Items.objects.get(iid=self.fresh[0].iid).status, ItemStatus.ACTIVE)
+        code, _ = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[2].iid})
+        self.assertEqual(code, 400)  # pas sorti avec la liste
+        code, body = self.as_(self.chief, path + 'return-scan/', {'lot': self.lot.id})
+        self.assertEqual(body['message'], f'{self.lot.name} : rentré, vérif recommandée')
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual((body['verif_recommended'], body['back_from_list']), (True, 'Poste de secours'))
+        code, body = self.as_(self.chief, path + 'close-return/')
+        self.assertEqual((body['status'], body['used']), ('returned', [self.fresh[1].iid]))
+        self.assertEqual(body['still_out'], [self.garrots[0].iid])
+        self.assertEqual(Items.objects.get(iid=self.fresh[1].iid).status, ItemStatus.MISSING)

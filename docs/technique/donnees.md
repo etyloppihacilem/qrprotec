@@ -47,6 +47,16 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 | `ItemMovement` | Journal des mouvements d'un item (prévisions de stock) : déplacement (`move`, lot de départ et d'arrivée, `NULL` = stock), première absence à une vérif (`used`, ou `discarded` s'il était périmé), `replaced`, `deleted`, `restored`, `out` (sortie du stock sans lot ; un `used` suit si l'item ne revient pas). Une absence reçoit `cancelled` quand l'item est revu ensuite (vérif, déplacement, restauration). `reconstructed` : ligne reconstituée depuis `VerifItem` par la migration 0011. |
 | `Operation` | Journal des opérations (fenêtre **Journal des opérations**) : qui (`by`, identité stockée), quand, quoi (`kind` : `verif`, `stock_verif`, `restock`, `remove`, `seal`, `unseal`, `reception`, `item_delete`, `item_restore`, `pack_open`, `pack_close`, `lot`, `lot_key`, `catalog`, `user`, `settings`), lot concerné et son nom au moment de l'opération, résumé lisible et `details` (JSON : compteurs, iids, raison...). Écrit par `journal.record` dans les services et les vues de gestion. `reconstructed` : ligne reconstituée par la migration 0016 depuis les vérifs, les mouvements, les items reçus, les paquets ouverts et le dernier scellage / la dernière ouverture de chaque lot (les précédents n'étaient pas conservés). |
 
+### Listes de matériel
+
+| Modèle | Rôle |
+|---|---|
+| `Checklist` | Liste de matériel à prendre : identifiant de 12 caractères (lien `liste?id=`), `name`, `note`, `owner` (secouriste), `is_template`, `status` (`draft`, `validated`, `returned`), `source` (liste dupliquée), qui et quand pour la validation et le retour. |
+| `ChecklistLine` | Une ligne : `lot` ou `item_type` avec `quantity`, `position`. |
+| `ChecklistScan` | Un scan : `phase` `out` (vérif) ou `back` (retour), `item` ou `lot`, `at`, `by`. |
+
+`Lots.back_from_list` : nom de la liste avec laquelle le lot est rentré (vérif recommandée).
+
 ### Utilisateurs
 
 `Secouristes` : matricule (clé primaire, 1 à 16 caractères), nom, prénom, `role` (`normal`,
@@ -106,6 +116,7 @@ nom à afficher.
 | Badge | `<base>/badge?m=MATRICULE&key=CLÉ` | `…/badge?m=M0042&key=…` |
 | Paquet fermé | `<base>/pack?id=ID` | `…/pack?id=0000002B` |
 | Scellé | `<base>/seal?lot=ID&s=CODE` | `…/seal?lot=sacpse00000001&s=…` |
+| Liste de matériel | `<base>/liste?id=ID` | `…/liste?id=Ab12Cd34Ef56`, affiché ou partagé, jamais imprimé |
 | Téléphone-douchette | `<base>/scanner?s=SESSION&k=CLÉ` | affiché à l'écran, jamais imprimé |
 
 `<base>` est `QRPROTEC_PUBLIC_BASE_URL` (déduit de `QRPROTEC_DOMAIN` sur la borne). L'analyse côté

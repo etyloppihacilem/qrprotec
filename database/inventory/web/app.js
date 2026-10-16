@@ -226,6 +226,7 @@
     if (route === 'unseal' && p.get('lot') && p.get('c')) return { kind: 'sealopen', code, id: p.get('lot'), key: p.get('c') };
     if (route === 'scanner' && p.get('s') && p.get('k')) return { kind: 'remote', code, search: url.search };
     if (route === 'pinreset' && p.get('m') && p.get('t')) return { kind: 'pinreset', code, id: p.get('m'), key: p.get('t') };
+    if (route === 'liste' && p.get('id')) return { kind: 'liste', code, id: p.get('id') };
     return { kind: 'unknown', code };
   }
 
@@ -509,6 +510,9 @@
     if (leavePopup) { leavePopup('skip'); await new Promise((resolve) => setTimeout(resolve, 50)); }
     if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
     const scan = parseCode(raw);
+    // page d'une liste de materiel a verifier ou a rentrer : l'etiquette d'un lot ou d'un item y compte
+    if (listScanning() && (scan.kind === 'item' || scan.kind === 'lot')) { listScanCode(scan); return; }
+    if (scan.kind === 'liste') { feedback.info(); if (readerOpen()) closeReader(); openList(scan.id); return; }
     // fenetre des taches ouverte et autre code scanne : l'item reste non valide (le rescanner reprend ses taches)
     if (taskPopup && !(scan.kind === 'item' && scan.id === taskPopup.entry.iid)) finishTasks(false);
     // fiche de desactivation affichee : rescanner l'item passe a ses taches, un autre code le laisse non valide
@@ -1435,7 +1439,8 @@
     if (lot.seal_required) {
       return make('bad', lot.verif_recommended ? '✘ Scellé ouvert, vérif complète puis scellé requis' : '✘ Vérifié, doit être scellé');
     }
-    if (lot.verif_recommended) return make('warn', lot.restocked_count ? '⚠ Vérif recommandée, réassort' : '⚠ Vérif recommandée, scellé ouvert');
+    if (lot.verif_recommended) return make('warn', lot.restocked_count ? '⚠ Vérif recommandée, réassort'
+      : lot.back_from_list ? '⚠ Vérif recommandée, retour de liste' : '⚠ Vérif recommandée, scellé ouvert');
     return make('ok', '✔ Vérifié, complet');
   }
 
@@ -1475,6 +1480,7 @@
       'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
       !lot.verif_recommended ? '' : lot.restocked_count
         ? `Réassort de ${lot.restocked_count} item(s) ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
+        : lot.back_from_list ? `Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
         : `Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
       lot.seal_required && !lot.is_sealed ? 'Scellé obligatoire : posez un nouveau scellé après la vérif complète.' : '',
       keyOk() ? '🔑 Étiquette clé scannée' : 'Scannez l\'étiquette clé pour pouvoir valider. ' + keyHint(lot));
@@ -2646,9 +2652,9 @@
   // revient a l'accueil, et un rechargement rouvre la meme page.
 
   const badge = credentials;
-  const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock', reports: 'signalements' };
+  const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock', reports: 'signalements', lists: 'listes' };
   const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'État des stocks',
-    reports: 'Signalements' };
+    reports: 'Signalements', lists: 'Listes de matériel' };
   // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
   const hasNotifications = () => !!state.user && (state.user.notifications !== undefined ? !!state.user.notifications : canSeeStock());
 
@@ -2666,8 +2672,12 @@
 
   // Ouvre une page de l'accueil. push : nouvelle entree d'historique (le bouton retour y ramene)
   function showHome(page = 'menu', push = true) {
-    if (push) history.pushState(null, '', new URL(HOME_PAGES[page] ? '#' + HOME_PAGES[page] : './', document.baseURI).href);
+    if (push) {
+      history.pushState(null, '', page === 'lists' && lists.id ? listUrl(lists.id)
+        : new URL(HOME_PAGES[page] ? './#' + HOME_PAGES[page] : './', document.baseURI).href);
+    }
     if (ficheOpen()) closeFiche();
+    if (page !== 'lists') stopListScan();
     state.homePage = page;
     if (!readerOpen()) { cameraWanted = false; syncCamera(); }
     document.body.classList.add('home-mode');
@@ -2675,6 +2685,7 @@
     if (page === 'stock' && canSeeStock() && !state.stock && state.loading !== 'stock') loadStock();
     if (page === 'reports' && state.user) loadReports();
     if (page === 'live') watchStart(); else watchStop();
+    if (page === 'lists') listsShown(); else { clearInterval(lists.timer); lists.timer = 0; }
     renderHomePage();
     $('#home-pages').scrollTop = 0;
   }
@@ -2702,7 +2713,8 @@
   function closeReader() {
     pendingAfterLogin = '';
     loginAction = null;
-    document.body.classList.remove('login-reader');
+    lists.mode = false;
+    document.body.classList.remove('login-reader', 'list-scan');
     if (inHome() || ficheOpen()) { cameraWanted = false; syncCamera(); }
     renderHomePage();
   }
@@ -2732,7 +2744,9 @@
     save();
     live.identity();
     state.reports = null;
-    if (inHome() && ['live', 'stock', 'reports'].includes(state.homePage)) showHome('menu', false);
+    lists.index = null;
+    lists.list = null;
+    if (inHome() && ['live', 'stock', 'reports', 'lists'].includes(state.homePage)) showHome('menu', false);
     render();
   }
 
@@ -2751,6 +2765,8 @@
     if (page === 'live' && !state.user) { openReader('live'); toast('Scannez votre badge pour suivre les vérifs.'); return; }
     if (page === 'stock' && !state.user) { openReader('stock'); toast('Scannez votre badge pour voir les stocks.'); return; }
     if (page === 'reports' && !state.user) { openReader('reports'); toast('Scannez votre badge pour suivre les signalements.'); return; }
+    if (page === 'lists') { lists.id = ''; lists.list = null; }
+    if (page === 'lists' && !state.user) { openReader('lists'); toast('Scannez votre badge pour voir les listes de matériel.'); return; }
     if (page === 'stock' && !canSeeStock()) { toast("L'état des stocks est réservé aux rôles gestion et admin.", true); return; }
     showHome(page);
   }));
@@ -2764,7 +2780,9 @@
       return;
     }
     if ((route === 'item' || route === 'task') && IID_RE.test(params.get('id') || '')) { openFiche('item', params.get('id'), { push: false }); return; }
+    if (route === 'liste' && params.get('id')) { closeFiche(); openList(params.get('id'), false); return; }
     closeFiche();
+    lists.id = '';
     const page = route === 'verif' ? 'scan' : pageFromHash(location.hash);
     if (page === 'scan') enterScanner(true, false);
     else showHome(page, false);
@@ -2848,6 +2866,7 @@
     if (page === 'lots') renderLotsPage();
     if (page === 'live') renderLive();
     if (page === 'reports') renderReports();
+    if (page === 'lists') renderListsPage();
   }
 
   function renderLotsPage() {
@@ -4149,6 +4168,7 @@
       revisionLine(lot),
       !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
         ? `⚠ Réassort de ${lot.restocked_count} item(s) ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
+        : lot.back_from_list ? `⚠ Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : `⚠ Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
       lot.seal_required && !lot.is_sealed
         ? el('p', {}, '🔒 Scellé obligatoire pour ce type de lot : il reste à traiter tant qu\'un nouveau scellé n\'est pas posé.') : '',
@@ -4596,6 +4616,435 @@
   }
 
   // ------------------------------------------------------------------------------------------------
+  // Listes de materiel (checklists.py) : lots et materiel a prendre (ex : un chef demande du materiel a ses
+  // equipiers), partagees par lien et QR code (<base>/liste?id=ID). Elles se verifient en direct, a plusieurs :
+  // chaque scan va tout de suite au serveur et la page relit la liste. Validee, la liste sort son materiel du stock ;
+  // au retour on scanne ce qui rentre, puis « Clôturer le retour » compte le reste comme utilise.
+
+  const LIST_POLL_MS = 3000;
+  const LIST_TAGS = { draft: 'blue', validated: 'orange', returned: 'green' };
+  const lists = {
+    index: null,     // {lists, can_see_all}
+    show: 'mine',    // 'mine' (les miennes et les modeles), 'templates', 'all' (gestion, admin)
+    id: '',          // liste ouverte
+    list: null,      // detail de la liste ouverte
+    error: '',
+    mode: false,     // lecteur ouvert sur la liste (verif, ou retour pour une liste sortie)
+    message: null,   // dernier scan : {kind: 'ok' | 'bad', text}
+    edit: null,      // editeur : {key, id, name, note, template, lines: [{lot, label} | {type, label, quantity}]}
+    options: null,   // choix de l'editeur : {lots, types}
+    busy: false,
+    timer: 0,
+    qr: { url: '', src: '' },
+  };
+
+  const listUrl = (id) => new URL(`liste?id=${encodeURIComponent(id)}`, document.baseURI).href;
+  const onListsPage = () => inHome() && state.homePage === 'lists';
+  // un code scanne sur la page d'une liste a verifier ou a rentrer y compte (lecteur ou douchette)
+  const listScanning = () => onListsPage() && !!lists.list && !lists.edit && !lists.list.template
+    && (lists.list.status === 'draft' || lists.list.status === 'validated');
+
+  function openLists(push = true) {
+    Object.assign(lists, { id: '', list: null, error: '', edit: null, message: null });
+    stopListScan();
+    showHome('lists', push);
+  }
+
+  function openList(id, push = true) {
+    if (lists.id !== id) Object.assign(lists, { list: null, message: null });
+    Object.assign(lists, { id, error: '', edit: null });
+    stopListScan();
+    if (push) history.pushState(null, '', listUrl(id));
+    showHome('lists', false);
+  }
+
+  // showHome('lists') : charge l'index ou la liste ouverte, relit la liste ouverte toutes les LIST_POLL_MS
+  function listsShown() {
+    clearInterval(lists.timer);
+    lists.timer = 0;
+    if (!state.user) return;
+    if (lists.id) {
+      loadList();
+      lists.timer = setInterval(() => {
+        if (!onListsPage() || !lists.id) { clearInterval(lists.timer); lists.timer = 0; return; }
+        if (!lists.edit && !lists.busy && !document.hidden) loadList(true);
+      }, LIST_POLL_MS);
+    } else {
+      loadLists();
+    }
+  }
+
+  async function loadLists() {
+    lists.busy = true;
+    renderListsPage();
+    try {
+      lists.index = await api('checklists/list/', { user: badge(), show: lists.show });
+    } catch (e) {
+      toast('Listes : ' + e.message, true);
+    } finally {
+      lists.busy = false;
+      renderListsPage();
+    }
+  }
+
+  async function loadList(quiet = false) {
+    const id = lists.id;
+    try {
+      const list = await api(`checklists/${encodeURIComponent(id)}/`, { user: badge() });
+      if (lists.id !== id) return;
+      lists.list = list;
+      lists.error = '';
+    } catch (e) {
+      if (lists.id !== id) return;
+      if (!quiet || e.status === 404) lists.error = e.status === 404 ? 'Liste introuvable (supprimée ?)' : e.message;
+    }
+    renderListsPage();
+  }
+
+  // Action sur la liste ouverte : la reponse est la liste a jour
+  async function listCall(action, body = {}) {
+    const result = await api(`checklists/${encodeURIComponent(lists.id)}/${action}/`, { user: badge(), ...body });
+    if (result && result.id === lists.id) lists.list = result;
+    renderListsPage();
+    return result;
+  }
+
+  async function listAction(action, body = {}, done = null) {
+    if (lists.busy) return;
+    lists.busy = true;
+    try {
+      const result = await listCall(action, body);
+      if (done) done(result);
+    } catch (e) {
+      feedback.bad();
+      toast(e.message, true);
+    } finally {
+      lists.busy = false;
+      renderListsPage();
+    }
+  }
+
+  function startListScan() {
+    lists.mode = true;
+    document.body.classList.add('login-reader', 'list-scan');
+    $('#scan-hint').textContent = lists.list && lists.list.status === 'validated' ? 'Scannez ce qui rentre' : 'Scannez le matériel';
+    startCamera();
+    renderListsPage();
+  }
+
+  function stopListScan() {
+    if (!lists.mode) return;
+    lists.mode = false;
+    document.body.classList.remove('list-scan');
+    if (readerOpen()) closeReader();
+  }
+
+  async function listScanCode(scan) {
+    const list = lists.list;
+    const action = list.status === 'validated' ? 'return-scan' : 'scan';
+    const body = scan.kind === 'lot' ? { lot: scan.id } : { item: scan.id };
+    try {
+      const result = await listCall(action, body);
+      feedback.good();
+      lists.message = { kind: 'ok', text: result.message || 'Scanné' };
+    } catch (e) {
+      feedback.bad();
+      lists.message = { kind: 'bad', text: e.message };
+    }
+    renderListsPage();
+  }
+
+  function validateList() {
+    const list = lists.list;
+    const partial = !list.complete;
+    if (!confirm(partial
+      ? 'Liste incomplète : la valider quand même ? Ce qui manque ne sera pas pris. Le matériel scanné sort du stock.'
+      : 'Valider la liste ? Le matériel scanné sort du stock et la liste ne pourra plus être vérifiée.')) return;
+    listAction('validate', { partial }, () => {
+      stopListScan();
+      lists.message = null;
+      feedback.good();
+      toast('Liste validée : bonne sortie !');
+    });
+  }
+
+  function closeListReturn() {
+    if (!confirm('Clôturer le retour ? Les consommables pas rentrés seront comptés utilisés, le matériel non '
+      + 'consommable pas rentré reste sorti.')) return;
+    listAction('close-return', {}, (result) => {
+      stopListScan();
+      lists.message = null;
+      toast(`Retour clos : ${(result.used || []).length} consommable(s) utilisé(s)`
+        + ((result.still_out || []).length ? `, ${result.still_out.length} matériel(s) encore sorti(s)` : '') + '.');
+    });
+  }
+
+  function duplicateList(asTemplate = false) {
+    const list = lists.list;
+    const name = prompt(asTemplate ? 'Nom du modèle' : 'Nom de la nouvelle liste', list.name);
+    if (name === null) return;
+    listAction('duplicate', { name: name || list.name, template: asTemplate }, (copy) => {
+      toast(asTemplate ? 'Modèle créé.' : 'Liste créée : à vérifier.');
+      openList(copy.id);
+    });
+  }
+
+  function deleteList() {
+    if (!confirm(`Supprimer la liste « ${lists.list.name} » ?`)) return;
+    listAction('delete', {}, () => { toast('Liste supprimée.'); openLists(); });
+  }
+
+  function shareList(list) {
+    if (navigator.share) {
+      navigator.share({ title: `QRProtec : ${list.name}`, text: `Liste de matériel « ${list.name} »`, url: list.url })
+        .catch(() => { /* partage annule */ });
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(list.url).then(() => toast('Lien copié.'), () => toast(list.url));
+    } else toast(list.url);
+  }
+
+  function listQr(url) {
+    if (lists.qr.url !== url) {
+      lists.qr = { url, src: '' };
+      if (typeof qrcode === 'function') {
+        const qr = qrcode(0, 'M');
+        qr.addData(url);
+        qr.make();
+        lists.qr.src = qr.createDataURL(8, 4);
+      }
+    }
+    return lists.qr.src;
+  }
+
+  // Editeur : nouvelle liste (list absent) ou liste a preparer
+  async function editList(list = null) {
+    lists.edit = {
+      key: String(Date.now()),
+      id: list ? list.id : '',
+      name: list ? list.name : '',
+      note: list ? list.note : '',
+      template: list ? list.template : lists.show === 'templates',
+      started: !!(list && list.lines.some((line) => line.scanned)),
+      lines: list ? list.lines.map((line) => line.kind === 'lot'
+        ? { lot: line.lot, label: line.lot_name, sub: line.lot_type_name }
+        : { type: line.type, label: line.type_name, quantity: line.quantity }) : [],
+    };
+    renderListsPage(true);
+    if (!lists.options) {
+      try {
+        lists.options = await api('checklists/options/', { user: badge() });
+      } catch (e) {
+        toast('Lots et types : ' + e.message, true);
+      }
+      renderListsPage(true);
+    }
+  }
+
+  async function saveList() {
+    const edit = lists.edit;
+    if (!edit.name.trim()) { toast('Donnez un nom à la liste.', true); return; }
+    const body = { user: badge(), name: edit.name, note: edit.note, template: edit.template,
+      lines: edit.lines.map((line) => line.lot ? { lot: line.lot } : { type: line.type, quantity: line.quantity }) };
+    lists.busy = true;
+    try {
+      const result = await api(edit.id ? `checklists/${encodeURIComponent(edit.id)}/update/` : 'checklists/', body);
+      lists.edit = null;
+      lists.busy = false;
+      toast('Liste enregistrée.');
+      if (edit.id) { lists.list = result; renderListsPage(); } else openList(result.id);
+    } catch (e) {
+      lists.busy = false;
+      toast(e.message, true);
+    }
+  }
+
+  function renderListsPage(force = false) {
+    const view = $('#home-lists');
+    if (!view || !onListsPage()) return;
+    if (!state.user) {
+      delete view.dataset.editing;
+      view.replaceChildren(
+        el('h3', {}, lists.id ? 'Liste de matériel' : 'Listes de matériel'),
+        el('p', {}, lists.id ? 'Connectez-vous pour ouvrir cette liste et la vérifier.'
+          : 'Connectez-vous pour voir et préparer les listes de matériel.'),
+        el('button', { type: 'button', class: 'primary', onclick: () => openReader('lists') }, 'Scanner mon badge'),
+        el('button', { type: 'button', class: 'secondary list-gap', onclick: () => { pendingAfterLogin = 'lists'; openNameLogin(); } },
+          'Sans badge : nom et code PIN'));
+      return;
+    }
+    if (lists.edit) {
+      // pas de nouveau rendu pendant la saisie (le champ garderait son focus perdu)
+      if (!force && view.dataset.editing === lists.edit.key) return;
+      view.dataset.editing = lists.edit.key;
+      view.replaceChildren(...listEditor(lists.edit));
+      return;
+    }
+    delete view.dataset.editing;
+    view.replaceChildren(...(lists.id ? listDetail() : listIndex()));
+  }
+
+  function listIndex() {
+    const data = lists.index;
+    const choose = (show) => { lists.show = show; loadLists(); };
+    const parts = [
+      el('div', { class: 'row-head' }, el('h3', {}, 'Listes de matériel'),
+        el('button', { type: 'button', onclick: loadLists }, lists.busy ? 'Chargement…' : 'Actualiser')),
+      el('div', { class: 'segmented' },
+        el('button', { type: 'button', class: lists.show === 'mine' ? 'active' : '', onclick: () => choose('mine') }, 'Mes listes'),
+        el('button', { type: 'button', class: lists.show === 'templates' ? 'active' : '', onclick: () => choose('templates') }, 'Modèles'),
+        data && data.can_see_all
+          ? el('button', { type: 'button', class: lists.show === 'all' ? 'active' : '', onclick: () => choose('all') }, 'Toutes') : ''),
+      el('button', { type: 'button', class: 'primary list-new', onclick: () => editList() },
+        lists.show === 'templates' ? '＋ Nouveau modèle' : '＋ Nouvelle liste'),
+      el('p', { class: 'hint' }, 'Une liste se partage par lien ou QR code et se vérifie en direct, à plusieurs. '
+        + 'Validée, son matériel sort du stock. Un modèle se duplique pour les listes qui reviennent souvent.'),
+    ];
+    if (!data) {
+      parts.push(el('p', { class: 'hint' }, lists.busy ? 'Chargement…' : 'Listes non chargées.'));
+      return parts;
+    }
+    if (!data.lists.length) parts.push(el('p', { class: 'hint' }, lists.show === 'templates' ? 'Aucun modèle.' : 'Aucune liste.'));
+    parts.push(el('ul', { class: 'list' }, ...data.lists.map((row) => el('li', { onclick: () => openList(row.id) },
+      el('div', { class: 'main' },
+        el('div', { class: 'name' }, row.name),
+        el('div', { class: 'sub' }, [row.owner_name, row.template ? `${row.line_count} ligne(s)`
+          : `${row.done_count}/${row.line_count} ligne(s) prête(s)`, 'modifiée ' + fmtDateTime(row.updated)].join(' · '))),
+      el('span', { class: 'tag ' + (row.template ? 'gray' : LIST_TAGS[row.status] || 'blue') }, row.status_label)))));
+    return parts;
+  }
+
+  function listLineRows(list, line, backIids) {
+    const done = line.scanned >= line.quantity;
+    const title = line.kind === 'lot' ? line.lot_name : line.type_name;
+    const sub = line.kind === 'lot' ? `Lot · ${line.lot_type_name}` : `${line.quantity} demandé(s)`;
+    const out = list.status !== 'draft';
+    const count = line.kind === 'lot' ? (line.scanned ? '✓' : '–') : `${line.scanned}/${line.quantity}`;
+    const back = out && line.scanned ? (line.kind === 'lot' ? (line.back ? 'rentré' : 'pas rentré')
+      : `${line.back}/${line.scanned} rentré(s)`) : '';
+    const rows = [el('li', { class: 'static ' + (out ? (line.kind === 'lot' ? line.back : line.back >= line.scanned) && line.scanned ? 'ok' : ''
+      : done ? 'ok' : '') },
+      el('div', { class: 'main' }, el('div', { class: 'name' }, title), el('div', { class: 'sub' }, sub + (back ? ' · ' + back : ''))),
+      el('b', { class: 'list-count' + (done ? ' done' : '') }, count))];
+    if (line.kind === 'type') {
+      for (const scan of line.scans) {
+        const returned = backIids.has(scan.iid);
+        rows.push(el('li', { class: 'static list-scan-row' },
+          el('div', { class: 'main' }, el('div', { class: 'sub' }, `${scan.iid}${scan.peremption ? ' · périme le ' + fmtDate(scan.peremption) : ''}`
+            + ` · ${scan.by || '?'}` + (out ? (returned ? ' · ✓ rentré' : scan.status === 'missing' ? ' · utilisé' : '') : ''))),
+          list.status === 'draft' ? el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', title: 'Retirer de la liste',
+            onclick: () => listAction('unscan', { item: scan.iid }) }, '✕') : ''));
+      }
+    } else if (line.scanned && list.status === 'draft') {
+      rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Décocher', title: 'Décocher',
+        onclick: () => listAction('unscan', { lot: line.lot }) }, '✕'));
+    }
+    return rows;
+  }
+
+  function listDetail() {
+    const list = lists.list;
+    const back = [el('button', { type: 'button', class: 'text-link', onclick: () => openLists() }, '← Toutes les listes')];
+    if (lists.error) return [...back, el('div', { class: 'banner bad' }, lists.error)];
+    if (!list) return [...back, el('p', { class: 'hint' }, 'Chargement…')];
+    const parts = [...back,
+      el('div', { class: 'row-head' }, el('h3', {}, list.name),
+        el('span', { class: 'tag ' + (list.template ? 'gray' : LIST_TAGS[list.status] || 'blue') }, list.status_label)),
+      el('p', { class: 'hint' }, `Par ${list.owner_name} · modifiée ${fmtDateTime(list.updated)}`),
+      list.note ? el('p', { class: 'list-note' }, list.note) : ''];
+    const buttons = [];
+    const busy = lists.busy;
+    if (list.template) {
+      parts.push(el('div', { class: 'banner info' }, 'Modèle : dupliquez-le pour faire une liste à vérifier.'));
+      buttons.push(el('button', { type: 'button', class: 'primary', disabled: busy || null, onclick: () => duplicateList(false) }, 'Utiliser ce modèle'));
+    } else if (list.status === 'draft') {
+      parts.push(el('div', { class: 'banner ' + (list.complete ? 'ok' : 'info') }, list.complete
+        ? 'Tout est prêt : validez la liste.'
+        : `${list.done_count}/${list.line_count} ligne(s) prête(s). Scannez l'étiquette des lots et le matériel pris dans le stock.`));
+      buttons.push(lists.mode
+        ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
+        : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Scanner'));
+      buttons.push(el('button', { type: 'button', class: list.complete ? 'primary' : 'warning', disabled: busy || null, onclick: validateList },
+        list.complete ? 'Valider la liste' : 'Valider incomplète'));
+    } else if (list.status === 'validated') {
+      parts.push(el('div', { class: 'banner warn' }, `Sortie ${fmtOn(list.validated)}${list.validated_by ? ' par ' + list.validated_by : ''}. `
+        + 'Au retour, scannez ce qui rentre (remis en stock), puis clôturez le retour.'));
+      buttons.push(lists.mode
+        ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
+        : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Retour : scanner'));
+      buttons.push(el('button', { type: 'button', class: 'warning', disabled: busy || null, onclick: closeListReturn }, 'Clôturer le retour'));
+    } else {
+      parts.push(el('div', { class: 'banner ok' }, `Rentrée ${fmtOn(list.returned)}${list.returned_by ? ' par ' + list.returned_by : ''}. `
+        + 'La liste ne sert plus : dupliquez-la pour la refaire.'));
+    }
+    if (lists.message && listScanning()) parts.push(el('div', { class: 'banner ' + lists.message.kind }, lists.message.text));
+    if (listScanning()) {
+      buttons.push(el('button', { type: 'button', class: 'text-link', onclick: () => {
+        const code = prompt("Code de l'item ou URL d'une étiquette :");
+        if (code && code.trim()) handleCode(code.trim());
+      } }, 'Saisir un code'));
+    }
+    parts.push(el('div', { class: 'list-buttons' }, ...buttons));
+    const backIids = new Set((list.back || []).filter((scan) => scan.iid).map((scan) => scan.iid));
+    parts.push(el('h3', {}, 'À prendre'));
+    if (!list.lines.length) parts.push(el('p', { class: 'hint' }, 'Liste vide.' + (list.can_edit ? ' Modifiez-la pour ajouter des lots et du matériel.' : '')));
+    parts.push(el('ul', { class: 'list' }, ...list.lines.flatMap((line) => listLineRows(list, line, backIids))));
+    if (list.status === 'draft' || list.template) {
+      const src = listQr(list.url);
+      parts.push(el('h3', {}, 'Partager'),
+        el('p', { class: 'hint' }, list.template ? 'Le lien ouvre le modèle.' : 'Le lien ou le QR code ouvre la liste pour la vérifier en direct, à plusieurs.'),
+        src ? el('img', { class: 'qr', src, alt: 'QR code de la liste' }) : '',
+        el('p', { class: 'hint' }, el('a', { class: 'break', href: list.url }, list.url)),
+        el('button', { type: 'button', class: 'secondary', onclick: () => shareList(list) }, navigator.share ? 'Partager le lien' : 'Copier le lien'));
+    }
+    const more = [];
+    if (list.can_edit && list.status === 'draft') more.push(el('button', { type: 'button', onclick: () => editList(list) }, 'Modifier'));
+    if (!list.template) more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(false) }, 'Dupliquer'));
+    more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(true) }, list.template ? 'Dupliquer le modèle' : 'En faire un modèle'));
+    if (list.can_edit && list.status !== 'validated') more.push(el('button', { type: 'button', class: 'danger-text', disabled: busy || null, onclick: deleteList }, 'Supprimer'));
+    parts.push(el('h3', {}, 'Gérer'), el('div', { class: 'list-buttons' }, ...more));
+    return parts;
+  }
+
+  function listEditor(edit) {
+    const redraw = () => renderListsPage(true);
+    const options = lists.options;
+    const taken = new Set(edit.lines.map((line) => line.lot || 'type:' + line.type));
+    const lotSelect = el('select', { onchange: (event) => {
+      const lot = options.lots.find((row) => row.id === event.target.value);
+      if (lot) { edit.lines.push({ lot: lot.id, label: lot.name, sub: lot.lot_type_name }); redraw(); }
+    } }, el('option', { value: '' }, '＋ Ajouter un lot…'),
+    ...(options ? options.lots.filter((lot) => !taken.has(lot.id)).map((lot) => el('option', { value: lot.id }, `${lot.name} (${lot.lot_type_name})`)) : []));
+    const typeSelect = el('select', { onchange: (event) => {
+      const row = options.types.find((type) => type.type === event.target.value);
+      if (row) { edit.lines.push({ type: row.type, label: row.name, quantity: 1 }); redraw(); }
+    } }, el('option', { value: '' }, '＋ Ajouter du matériel…'),
+    ...(options ? options.types.filter((type) => !taken.has('type:' + type.type)).map((type) => el('option', { value: type.type }, type.name)) : []));
+    return [
+      el('h3', {}, edit.id ? 'Modifier la liste' : edit.template ? 'Nouveau modèle' : 'Nouvelle liste'),
+      el('label', { class: 'field' }, 'Nom',
+        el('input', { type: 'text', maxlength: '80', value: edit.name, placeholder: 'Ex : poste de secours du stade',
+          oninput: (event) => { edit.name = event.target.value; } })),
+      el('label', { class: 'field' }, 'Remarque',
+        el('textarea', { rows: '2', maxlength: '500', placeholder: 'Facultatif : rendez-vous, consignes…',
+          oninput: (event) => { edit.note = event.target.value; } }, edit.note)),
+      el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: edit.template ? '' : null, disabled: edit.started ? '' : null,
+        onchange: (event) => { edit.template = event.target.checked; } }),
+      edit.started ? 'Modèle (impossible : liste déjà commencée)' : 'Modèle (se duplique, ne se vérifie pas)'),
+      el('h3', {}, 'À prendre'),
+      edit.lines.length ? '' : el('p', { class: 'hint' }, 'Ajoutez des lots (sacs, armoires) et du matériel avec sa quantité.'),
+      el('ul', { class: 'list' }, ...edit.lines.map((line, index) => el('li', { class: 'static' },
+        el('div', { class: 'main' }, el('div', { class: 'name' }, line.label), el('div', { class: 'sub' }, line.lot ? `Lot · ${line.sub || ''}` : 'Matériel')),
+        line.lot ? '' : el('input', { type: 'number', class: 'list-qty', min: '1', max: '999', value: String(line.quantity), 'aria-label': 'Quantité',
+          oninput: (event) => { line.quantity = Math.max(1, Math.min(999, parseInt(event.target.value, 10) || 1)); } }),
+        el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', onclick: () => { edit.lines.splice(index, 1); redraw(); } }, '✕')))),
+      options ? el('div', { class: 'list-add' }, lotSelect, typeSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
+      el('div', { class: 'list-buttons' },
+        el('button', { type: 'button', class: 'secondary', onclick: () => { lists.edit = null; renderListsPage(); } }, 'Annuler'),
+        el('button', { type: 'button', class: 'primary', disabled: lists.busy ? '' : null, onclick: saveList }, 'Enregistrer')),
+    ];
+  }
+
+  // ------------------------------------------------------------------------------------------------
   // Demarrage : l'URL peut venir d'un QR code (verif?lot=..&key=.., badge?m=..&key=.., item?id=.., pack?id=..)
 
   async function boot() {
@@ -4648,6 +5097,9 @@
       cleanUrl(state.lotId);
       if (state.lotId) await loadLot(state.lotId);
       await scanPack({ kind: 'pack', code: location.href, id: params.get('id') });
+    } else if (route === 'liste' && params.get('id')) {
+      // lien ou QR code d'une liste de materiel : la liste, a verifier en direct (connexion demandee)
+      openList(params.get('id'), false);
     } else if (route === 'verif') {
       // lecteur (adresse du lecteur ouvert depuis une fiche), rechargement compris
       enterScanner(false, false);
@@ -4655,7 +5107,7 @@
       // page d'accueil, ou la page de son ancre (#stock : depuis une notification de stock, #scan : scanner)
       const page = pageFromHash(location.hash);
       if (page === 'scan') enterScanner(false, false);
-      else showHome((page === 'stock' && !canSeeStock()) || (page === 'reports' && !state.user) ? 'menu' : page, false);
+      else showHome((page === 'stock' && !canSeeStock()) || (['reports', 'lists'].includes(page) && !state.user) ? 'menu' : page, false);
     }
     if (state.expiredSession && !state.lot) toast('Vérif précédente oubliée : plus de 20 minutes sans activité.');
     render();

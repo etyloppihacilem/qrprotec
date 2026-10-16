@@ -357,6 +357,9 @@ ParsedScan parse_scan(const std::string &input) {
   } else if (route == "pack" && !params["id"].empty()) {
     scan.kind = ScanKind::SealedPack;
     scan.id   = params["id"];
+  } else if (route == "liste" && !params["id"].empty()) {
+    scan.kind = ScanKind::Checklist;
+    scan.id   = params["id"];
   }
   return scan;
 }
@@ -369,6 +372,7 @@ const char *scan_kind_name(ScanKind kind) {
     case ScanKind::SealedPack: return "Paquet";
     case ScanKind::LotSeal: return "Scellé";
     case ScanKind::LotSealOpen: return "Ouverture de scellé";
+    case ScanKind::Checklist: return "Liste de matériel";
     case ScanKind::Unknown: break;
   }
   return "Inconnu";
@@ -382,6 +386,7 @@ std::string describe_scan(const ParsedScan &scan) {
     case ScanKind::SealedPack: return "Paquet " + scan.id;
     case ScanKind::LotSeal: return "Scellé du lot " + scan.id;
     case ScanKind::LotSealOpen: return "Ouverture du scellé du lot " + scan.id;
+    case ScanKind::Checklist: return "Liste de matériel " + scan.id;
     case ScanKind::Unknown: break;
   }
   const std::string &code   = scan.raw;
