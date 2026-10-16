@@ -229,7 +229,8 @@ class ListsWindow final : public AppWindow {
         if (list["complete"].boolean())
           ImGui::TextColored(colors::green, "Tout est prêt : validez la liste.");
         else
-          ImGui::TextWrapped("%d/%d ligne(s) prête(s). Scannez l'étiquette des lots et le matériel pris dans le stock.",
+          ImGui::TextWrapped("%d/%d ligne(s) prête(s). Scannez l'étiquette des lots et le matériel pris dans le stock, "
+                             "cochez les tâches.",
                              list["done_count"].integer(), list["line_count"].integer());
         draw_scan_toggle(app, "Scanner vers cette liste");
         ImGui::SameLine();
@@ -253,8 +254,8 @@ class ListsWindow final : public AppWindow {
                            "confirm_return", true))
           close_return(app);
       } else {
-        ImGui::TextColored(colors::green, "Rentrée %s%s. La liste ne sert plus : dupliquez-la pour la refaire.",
-                           display_on(list["returned"]).c_str(),
+        ImGui::TextColored(colors::green, "%s %s%s. La liste ne sert plus : dupliquez-la pour la refaire.",
+                           list["went_out"].boolean() ? "Rentrée" : "Terminée", display_on(list["returned"]).c_str(),
                            list["returned_by"].str().empty() ? "" : (" par " + list["returned_by"].str()).c_str());
       }
       if (scanning_ && !message_.empty())
@@ -333,6 +334,34 @@ class ListsWindow final : public AppWindow {
       int index = 0;
       for (const Json &line : list["lines"].items()) {
         ImGui::PushID(index++);
+        if (line["kind"].str() == "task") {
+          // tache libre (ni lot ni item) : cochee a la verif de la liste
+          bool checked = line["scanned"].integer() > 0;
+          ImGui::TableNextRow();
+          if (checked)
+            row_color(colors::green, 0.20f);
+          ImGui::TableNextColumn();
+          ImGui::BeginDisabled(!draft || busy_);
+          if (ImGui::Checkbox(line["task"].str().c_str(), &checked)) {
+            Json body;
+            body["line"] = line["id"].integer();
+            body["done"] = checked;
+            call(app, "check", body, [&app](const ApiResult &result) {
+              if (!result.ok)
+                app.notify("Liste : " + result.error, true);
+            });
+          }
+          ImGui::EndDisabled();
+          ImGui::TableNextColumn();
+          ImGui::TextDisabled("tâche");
+          ImGui::TableNextColumn();
+          if (checked)
+            ImGui::TextDisabled("fait%s", line["done_by"].str().empty() ? "" : (" · " + line["done_by"].str()).c_str());
+          if (out)
+            ImGui::TableNextColumn();
+          ImGui::PopID();
+          continue;
+        }
         const bool lot  = line["kind"].str() == "lot";
         const int  took = line["scanned"].integer();
         const bool done = took >= line["quantity"].integer();
@@ -411,6 +440,12 @@ class ListsWindow final : public AppWindow {
       if (list)
         for (const Json &line : (*list)["lines"].items()) {
           Json row;
+          if (line["kind"].str() == "task") {
+            row["task"]  = line["task"].str();
+            row["label"] = line["task"].str();
+            edit_lines_.push_back(row);
+            continue;
+          }
           edit_started_ = edit_started_ || line["scanned"].integer() > 0;
           if (line["kind"].str() == "lot") {
             row["lot"]   = line["lot"].str();
@@ -461,9 +496,9 @@ class ListsWindow final : public AppWindow {
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(line["label"].str().c_str());
           ImGui::SameLine();
-          ImGui::TextDisabled("%s", line.contains("lot") ? "lot" : "matériel");
+          ImGui::TextDisabled("%s", line.contains("task") ? "tâche à cocher" : line.contains("lot") ? "lot" : "matériel");
           ImGui::TableNextColumn();
-          if (!line.contains("lot")) {
+          if (!line.contains("lot") && !line.contains("task")) {
             int quantity = line["quantity"].integer(1);
             ImGui::SetNextItemWidth(-1);
             if (ImGui::InputInt("##quantity", &quantity))
@@ -480,7 +515,7 @@ class ListsWindow final : public AppWindow {
       if (remove >= 0)
         edit_lines_.items().erase(edit_lines_.items().begin() + remove);
       if (edit_lines_.size() == 0)
-        ImGui::TextDisabled("Ajoutez des lots (sacs, armoires) et du matériel avec sa quantité.");
+        ImGui::TextDisabled("Ajoutez des lots (sacs, armoires), du matériel avec sa quantité et des tâches à cocher.");
 
       if (options_.is_null()) {
         ImGui::TextDisabled("Chargement des lots et du matériel...");
@@ -507,6 +542,28 @@ class ListsWindow final : public AppWindow {
           add_line(false, std::exchange(add_type_, {}), std::exchange(add_quantity_, 1));
         ImGui::EndDisabled();
       }
+      // tache libre : ni lot ni item, cochee a la verif (ex : verifier le niveau d'eau dans le sous-sol)
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted("Ajouter une tâche");
+      ImGui::SameLine(185.0f);
+      ImGui::SetNextItemWidth(360.0f);
+      const bool enter = input_limited("##add_task", add_task_, 200, "Ex : vérifier le niveau d'eau dans le sous-sol",
+                                       ImGuiInputTextFlags_EnterReturnsTrue);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(add_task_.empty());
+      if ((button("Ajouter la tâche") || enter) && !add_task_.empty()) {
+        const std::string task = std::exchange(add_task_, {});
+        bool              found = false;
+        for (const Json &line : edit_lines_.items())
+          found = found || line["task"].str() == task;
+        if (!found) {
+          Json row;
+          row["task"]  = task;
+          row["label"] = task;
+          edit_lines_.push_back(row);
+        }
+      }
+      ImGui::EndDisabled();
       ImGui::Spacing();
       if (button("Annuler"))
         editing_ = false;
@@ -546,7 +603,9 @@ class ListsWindow final : public AppWindow {
       Json lines       = Json::array();
       for (const Json &line : edit_lines_.items()) {
         Json row;
-        if (line.contains("lot")) {
+        if (line.contains("task")) {
+          row["task"] = line["task"].str();
+        } else if (line.contains("lot")) {
           row["lot"] = line["lot"].str();
         } else {
           row["type"]     = line["type"].str();
@@ -701,6 +760,7 @@ class ListsWindow final : public AppWindow {
     Json        options_;
     std::string add_lot_;
     std::string add_type_;
+    std::string add_task_;
     int         add_quantity_ = 1;
 };
 

@@ -52,7 +52,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 | Modèle | Rôle |
 |---|---|
 | `Checklist` | Liste de matériel à prendre : identifiant de 12 caractères (lien `liste?id=`), `name`, `note`, `owner` (secouriste), `is_template`, `status` (`draft`, `validated`, `returned`), `source` (liste dupliquée), qui et quand pour la validation et le retour. |
-| `ChecklistLine` | Une ligne : `lot` ou `item_type` avec `quantity`, `position`. |
+| `ChecklistLine` | Une ligne : `lot`, `item_type` avec `quantity`, ou tâche libre `task` (cochée : `done`, `done_by`), `position`. |
 | `ChecklistScan` | Un scan : `phase` `out` (vérif) ou `back` (retour), `item` ou `lot`, `at`, `by`. |
 
 `Lots.back_from_list` : nom de la liste avec laquelle le lot est rentré (vérif recommandée).

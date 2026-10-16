@@ -117,8 +117,9 @@ La colonne **Sortis** de l'état des stocks compte les items en attente de retou
 
 ## Listes de matériel
 
-Une **liste de matériel** dit ce qu'il faut prendre pour une mission : des lots (un sac, une armoire)
-et du matériel avec sa quantité (« 2 garrots, 10 compresses »). Exemple : un chef de poste prépare
+Une **liste de matériel** dit ce qu'il faut prendre pour une mission : des lots (un sac, une armoire),
+du matériel avec sa quantité (« 2 garrots, 10 compresses ») et des **tâches** libres à cocher, qui ne
+sont ni un lot ni un item (« vérifier le niveau d'eau dans le sous-sol »). Exemple : un chef de poste prépare
 la liste, ses équipiers la vérifient en sortant le matériel. Tout le monde peut créer ses listes ;
 chacun modifie les siennes, les rôles gestion et admin modifient celles de tous.
 
@@ -131,9 +132,11 @@ chacun modifie les siennes, les rôles gestion et admin modifient celles de tous
   poste (douchette ou téléphone-douchette). Scannez l'étiquette de chaque lot de la liste et le
   matériel pris dans le stock : chaque scan compte tout de suite pour tous ceux qui ont la liste
   ouverte. Un item doit venir du stock (pas d'un lot), être bon (ni périmé ni à remplacer) et ne
-  pas être déjà pris pour une autre liste. Un scan en trop se retire (✕ ou **Retirer**).
+  pas être déjà pris pour une autre liste. Un scan en trop se retire (✕ ou **Retirer**). Les tâches
+  se cochent à la main ; une tâche cochée le reste si l'on modifie la liste.
 - **Valider** : la liste validée (ou **validée incomplète** : ce qui manque n'est pas pris) sort son
-  matériel du stock, comme une sortie sans lot. Elle ne peut plus être vérifiée.
+  matériel du stock, comme une sortie sans lot. Elle ne peut plus être vérifiée. Une liste de
+  tâches seulement est **terminée** à la validation : rien n'est sorti, il n'y a pas de retour.
 - **Au retour** : rouvrez la liste, **Retour : scanner**, et scannez ce qui rentre. Le matériel est
   remis en stock tout de suite ; un lot rentré passe en **vérif recommandée** (orange, « retour de
   liste ») jusqu'à sa prochaine vérif. Puis **Clôturer le retour** : les consommables pas rentrés

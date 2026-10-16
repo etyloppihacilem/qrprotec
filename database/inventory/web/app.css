@@ -471,3 +471,7 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .check { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 #home-lists .check input { flex: none; width: 20px; height: 20px; }
 #home-lists .break { word-break: break-all; }
+#home-lists .list-task { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+#home-lists .list-task input { flex: none; width: 22px; height: 22px; }
+#home-lists .list-add-task { display: flex; gap: 8px; margin: 4px 0; }
+#home-lists .list-add-task input { flex: 1; min-width: 0; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
