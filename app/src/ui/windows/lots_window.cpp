@@ -186,6 +186,7 @@ class LotsWindow final : public AppWindow {
     void select(App &app, const std::string &id, const std::string &seal = {}) {
       selected_   = id;
       details_    = Json();
+      confirm_used_ = false;
       seal_check_.clear();
       const std::string query = seal.empty() ? "" : "?seal=" + url_encode(seal);
       app.api.get("/api/lots/" + url_encode(id) + "/" + query, [this, &app, id](const ApiResult &result) {
@@ -261,6 +262,22 @@ class LotsWindow final : public AppWindow {
         app.start_verif(details_["id"].str(), "");
       if (report_button("⚠ Signaler un problème sur ce lot", ImVec2(-1, 0)))
         app.report_problem({ details_["id"].str(), details_["name"].str(), "", "", details_["name"].str() });
+      // tout secouriste : vérif recommandee pour les suivants (pas pour un lot scelle : etiquette d'ouverture)
+      if (!details_["is_sealed"].boolean() && !details_["storage"].boolean()) {
+        if (!confirm_used_) {
+          if (button("Marquer ce lot comme utilisé (demander une vérif)", ImVec2(-1, 0)))
+            confirm_used_ = true;
+        } else {
+          ImGui::TextWrapped("Les suivants verront « vérif recommandée » jusqu'à la prochaine vérif complète.");
+          if (warning_button("Confirmer : lot utilisé", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
+            app.mark_lot_used(details_["id"].str(), details_["name"].str());
+            confirm_used_ = false;
+          }
+          ImGui::SameLine();
+          if (button("Annuler", ImVec2(-1, 0)))
+            confirm_used_ = false;
+        }
+      }
       if (button("Fermer", ImVec2(-1, 0)))
         selected_.clear();
       draw_global(app);
@@ -427,6 +444,7 @@ class LotsWindow final : public AppWindow {
     int         seen_privileged_ = -1;
     std::string selected_;
     int         seen_lots_version_ = -1;
+    bool        confirm_used_      = false; // « Marquer ce lot comme utilisé » : confirmation affichee
     Json        details_;
     std::string seal_check_; // resultat du QR de scelle scanne ("valid", "wrong", "unsealed")
 };

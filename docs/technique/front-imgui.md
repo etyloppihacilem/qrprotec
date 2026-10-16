@@ -120,7 +120,7 @@ Chaque fenêtre est une classe dérivée d'`AppWindow` (`draw`, `on_open`), cré
 | Lots | `lots_window.cpp` | normal |
 | Vérif | `verif_window.cpp` | normal |
 | Téléphone comme douchette | `phone_window.cpp` | normal |
-| État des stocks | `stock_window.cpp` | privilégié |
+| Gestion de la TECH (À faire, stock, prévisions) | `stock_window.cpp` | privilégié |
 | Inventaire (réception, types, recherche, paquets) | `inventory_window.cpp` | privilégié |
 | Paquet fermé | `pack_window.cpp` | privilégié |
 | Gestion des lots | `lot_admin_window.cpp` | privilégié |

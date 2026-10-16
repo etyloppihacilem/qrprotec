@@ -202,6 +202,7 @@ STATE_LABELS = {
     'recommended': '⚠ Vérif recommandée, réassort',
     'opened': '⚠ Vérif recommandée, scellé ouvert',
     'list_back': '⚠ Vérif recommandée, retour de liste',
+    'used': '⚠ Vérif recommandée, lot utilisé',
     'seal_opened': '✘ Scellé ouvert, vérif complète puis scellé requis',
     'must_seal': '✘ Vérifié, doit être scellé',
     'verified': '✔ Vérifié, complet',
@@ -223,10 +224,10 @@ def lot_state(data):
     elif data['verif_recommended']:
         # sans reassort depuis la derniere verif : recommandee par l'ouverture du scelle (etiquette d'ouverture)
         code = ('recommended' if data['restocked_count'] else 'list_back' if data.get('back_from_list')
-                else 'opened')
+                else 'used' if data.get('marked_used') else 'opened')
     else:
         code = 'verified'
-    kind = 'ok' if code in ('sealed', 'verified') else 'warn' if code in ('recommended', 'opened', 'list_back') else 'bad'
+    kind = 'ok' if code in ('sealed', 'verified') else 'warn' if code in ('recommended', 'opened', 'list_back', 'used') else 'bad'
     return {'kind': kind, 'code': code, 'label': STATE_LABELS[code]}
 
 
@@ -267,6 +268,9 @@ def _lot_core(lot, today, items=None):
         'restocked_by': _who(lot.restocked_by) if lot.verif_recommended else '',
         'restocked_count': lot.restocked_count if lot.verif_recommended else 0,
         'back_from_list': lot.back_from_list if lot.verif_recommended else '',
+        # marque « utilise » par un secouriste (bouton de la fiche)
+        'marked_used': _date(lot.marked_used) if lot.verif_recommended else None,
+        'marked_used_by': _who(lot.marked_used_by) if lot.verif_recommended and lot.marked_used else '',
         'item_count': len(items),
         'expired_count': len(expired),
         'expiring_soon_count': len(soon),

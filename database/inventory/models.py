@@ -431,6 +431,9 @@ class Lots(models.Model):
     restocked_count = models.PositiveIntegerField(default=0)  # items ajoutes depuis la derniere verif
     # Rentre avec une liste de materiel (nom de la liste) : verif recommandee jusqu'a la prochaine verif
     back_from_list = models.CharField(max_length=80, blank=True, default='')
+    # Marque « utilise » par un secouriste (bouton de la fiche) : verif recommandee jusqu'a la prochaine verif
+    marked_used = models.DateTimeField(blank=True, null=True)
+    marked_used_by = models.CharField(max_length=64, blank=True, default='')
     active = models.BooleanField(default=True)
     name = models.CharField(max_length=64)
     name_short = models.CharField(max_length=16)
@@ -579,6 +582,7 @@ class OperationKind(models.TextChoices):
     REPORT = 'report', 'Signalement'
     REVISION = 'revision', 'Révision de matériel'
     CHECKLIST = 'checklist', 'Liste de matériel'
+    LOT_USED = 'lot_used', 'Lot marqué utilisé'
 
 
 class Operation(models.Model):

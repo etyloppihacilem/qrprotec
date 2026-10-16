@@ -25,6 +25,7 @@ public_patterns = [
     path('lots/summary/', views.lots_summary),   # avant lots/<id>/
     path('stock/summary/', views.stock_summary),
     path('stock/forecast/summary/', views.stock_forecast_summary),
+    path('tasks/summary/', views.tasks_summary),
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/sheet.pdf', views.lot_sheet_pdf),
     path('lots/<str:lot_id>/verif/', views.lot_verif),
@@ -33,6 +34,7 @@ public_patterns = [
     path('lots/<str:lot_id>/add/', views.lot_add_items),
     path('lots/<str:lot_id>/unseal/', views.lot_unseal),
     path('lots/<str:lot_id>/seal-open/', views.lot_seal_open),
+    path('lots/<str:lot_id>/used/', views.lot_used),
     path('packs/<str:pack_id>/', views.sealed_pack_detail),
     path('remote-scanner/check/', views.remote_scanner_check),
     path('push/key/', views.push_key),
@@ -67,6 +69,7 @@ local_patterns = [
     path('stock/', views.stock),
     path('stock/forecast/', views.stock_forecast),
     path('stock/verif/', views.stock_verif),
+    path('tasks/', views.tasks_list),
     path('packs/', views.sealed_packs),
     path('packs/<str:pack_id>/open/', views.sealed_pack_open),
     path('packs/<str:pack_id>/close/', views.sealed_pack_close),

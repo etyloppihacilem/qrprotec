@@ -3692,3 +3692,83 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual((body['status'], body['used']), ('returned', [self.fresh[1].iid]))
         self.assertEqual(body['still_out'], [self.garrots[0].iid])
         self.assertEqual(Items.objects.get(iid=self.fresh[1].iid).status, ItemStatus.MISSING)
+
+
+class TasksTests(ApiTestCase):
+    """Liste de taches de la gestion (Gestion de la TECH) et bouton « Marquer ce lot comme utilisé »."""
+
+    def badge(self, user):
+        return {'matricule': user.matricule, 'key': user.new_key}
+
+    def fill_lot(self):
+        items = self.create(self.compresses, self.today + timedelta(days=200), 2)
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
+        return items
+
+    def categories(self, body):
+        # les types sous le minimum donnent aussi des commandes : hors de ces tests
+        return [row['category'] for row in body['tasks'] if row['category'] != 'orders']
+
+    def test_priorities(self):
+        # lot jamais verifie : invalide ; signalement : en tete
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertEqual(code, 200)
+        self.assertEqual(self.categories(body), ['invalid'])
+        self.assertEqual(body['tasks'][0]['lot'], self.lot.id)
+        self.assertIn('jamais vérifié', body['tasks'][0]['detail'])
+        code, _ = self.call('POST', '/api/reports/', {'lot': self.lot.id, 'comment': 'fermeture cassée', 'usable': True})
+        self.assertEqual(code, 201)
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertEqual(self.categories(body), ['reports', 'invalid'])
+        self.assertEqual([row['key'] for row in body['categories']][:4], ['reports', 'seal', 'invalid', 'recommended'])
+        self.assertEqual(body['categories'][0]['count'], 1)
+
+    def test_mark_used_and_stock_verif(self):
+        self.fill_lot()
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertNotIn('recommended', self.categories(body))
+        # tout secouriste, depuis le web, sans la cle du lot
+        code, lot = self.call('POST', f'/api/lots/{self.lot.id}/used/', {'user': self.badge(self.user)}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(lot['state']['code'], 'used')
+        self.assertEqual(lot['state']['kind'], 'warn')
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/used/', {}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('GET', '/api/tasks/')
+        recommended = [row for row in body['tasks'] if row['category'] == 'recommended']
+        self.assertEqual(len(recommended), 1)
+        self.assertIn('marqué utilisé', recommended[0]['detail'])
+        # une verif complete leve la recommandation
+        iids = list(Items.objects.filter(location=self.lot).values_list('iid', flat=True))
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': iids, 'user': 'M001'})
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(lot['state']['code'], 'verified')
+        self.assertIsNone(lot['marked_used'])
+        # sortie du stock : vérif du stock recommandée, jusqu'a la prochaine verif du stock
+        out = self.create(self.garrot, None, 3)
+        code, _ = self.call('POST', '/api/items/out/', {'items': [out[0].iid], 'user': 'M001'})
+        self.assertEqual(code, 200)
+        code, body = self.call('GET', '/api/tasks/')
+        stock = [row for row in body['tasks'] if row['category'] == 'stock_verif']
+        self.assertEqual(len(stock), 1)
+        self.assertIn('1 × Garrot', stock[0]['detail'])
+        self.call('POST', '/api/stock/verif/', {'items': [item.iid for item in out[1:]], 'user': 'M001'})
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertNotIn('stock_verif', self.categories(body))
+
+    def test_mark_used_sealed_refused(self):
+        self.fill_lot()
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
+        self.assertEqual(code, 200)
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/used/', {'user': self.badge(self.user)}, local=False)
+        self.assertEqual(code, 400)
+        self.assertIn("étiquette d'ouverture", body['error'])
+
+    def test_web_access(self):
+        code, _ = self.call('POST', '/api/tasks/summary/', {'user': self.badge(self.user)}, local=False)
+        self.assertEqual(code, 403)
+        self.user.role = 'gestion'
+        self.user.save()
+        code, body = self.call('POST', '/api/tasks/summary/', {'user': self.badge(self.user)}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(body['count'], len(body['tasks']))

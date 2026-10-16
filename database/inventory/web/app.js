@@ -39,15 +39,16 @@
     lots: null,        // liste des lots (page « État des lots »)
     showStorage: false, // rangements du stock dans la liste des lots (masques par defaut)
     stock: null,       // etat des stocks, roles gestion et admin uniquement
+    tasks: null,       // liste de taches de la gestion (meme acces que l'etat des stocks)
     forecast: null,    // previsions de stock (meme acces que l'etat des stocks)
     horizon: 1,        // index dans HORIZONS des previsions affichees
     pinReset: null,    // {matricule, token} : deblocage du PIN d'un utilisateur, en attente d'un admin connecte
     loading: '',       // 'lots' ou 'stock' pendant un chargement
     homePage: 'menu',  // page affichee : 'menu', 'lots', 'live', 'stock' (accueil) ou 'scan' (scanner)
-    homeForecast: false,
+    homeView: 'tasks', // page « Gestion de la TECH » : 'tasks' (à faire), 'stock' (etat actuel) ou 'forecast'
     reports: null,     // signalements : {counts, reports, can_manage}
     reportsShow: 'open', // 'open' (en cours) ou 'all'
-    reportsBusy: false, // page « État des stocks » de l'accueil : previsions plutot que l'etat actuel
+    reportsBusy: false,
     push: null,        // notifications web de ce navigateur (admins) : {subscribed, stock_low, stock_empty, ...}
     pushBusy: false,
     pushEndpoint: '', // abonnement de ce navigateur (pour le reperer dans la liste)
@@ -1414,7 +1415,8 @@
       return make('bad', lot.verif_recommended ? '✘ Scellé ouvert, vérif complète puis scellé requis' : '✘ Vérifié, doit être scellé');
     }
     if (lot.verif_recommended) return make('warn', lot.restocked_count ? '⚠ Vérif recommandée, réassort'
-      : lot.back_from_list ? '⚠ Vérif recommandée, retour de liste' : '⚠ Vérif recommandée, scellé ouvert');
+      : lot.back_from_list ? '⚠ Vérif recommandée, retour de liste' : lot.marked_used ? '⚠ Vérif recommandée, lot utilisé'
+        : '⚠ Vérif recommandée, scellé ouvert');
     return make('ok', '✔ Vérifié, complet');
   }
 
@@ -1549,7 +1551,7 @@
     state.pushDevices = null;
     feedback.info();
     showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
-      canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : l'état des stocks est sur l'accueil.` : 'Vous êtes connecté.');
+      canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : la gestion de la TECH est sur l'accueil.` : 'Vous êtes connecté.');
     save();
     render();
     loadLots();
@@ -2627,12 +2629,12 @@
 
   // ------------------------------------------------------------------------------------------------
   // Page d'accueil : connexion (petit lecteur de badge dans un coin), Scanner, Suivi des vérifs, État des lots,
-  // État des stocks. Chaque page a son ancre (#lots, #suivi, #stock, #scan) : le bouton retour du telephone
+  // Gestion de la TECH. Chaque page a son ancre (#lots, #suivi, #stock, #scan) : le bouton retour du telephone
   // revient a l'accueil, et un rechargement rouvre la meme page.
 
   const badge = credentials;
   const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock', reports: 'signalements', lists: 'listes' };
-  const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'État des stocks',
+  const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'Gestion de la TECH',
     reports: 'Signalements', lists: 'Listes de matériel' };
   // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
   const hasNotifications = () => !!state.user && (state.user.notifications !== undefined ? !!state.user.notifications : canSeeStock());
@@ -2710,7 +2712,7 @@
       openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false });
       return;
     }
-    if (next === 'stock' && !canSeeStock()) toast("L'état des stocks est réservé aux rôles gestion et admin.", true);
+    if (next === 'stock' && !canSeeStock()) toast("La gestion de la TECH est réservée aux rôles gestion et admin.", true);
     if (next) showHome(next === 'stock' && !canSeeStock() ? 'menu' : next);
     else if (!inHome() && !verifInProgress() && !state.lot && !state.scanned.length
       && !state.pinReset) showHome('menu');
@@ -2746,7 +2748,7 @@
     if (page === 'reports' && !state.user) { openReader('reports'); toast('Scannez votre badge pour suivre les signalements.'); return; }
     if (page === 'lists') { lists.id = ''; lists.list = null; }
     if (page === 'lists' && !state.user) { openReader('lists'); toast('Scannez votre badge pour voir les listes de matériel.'); return; }
-    if (page === 'stock' && !canSeeStock()) { toast("L'état des stocks est réservé aux rôles gestion et admin.", true); return; }
+    if (page === 'stock' && !canSeeStock()) { toast("La gestion de la TECH est réservée aux rôles gestion et admin.", true); return; }
     showHome(page);
   }));
   // bouton retour du telephone : l'adresse dit quoi afficher (fiche d'un lot ou d'un item, lecteur, page de l'accueil)
@@ -2792,14 +2794,16 @@
     state.loading = 'stock';
     render();
     try {
-      const [stock, forecast] = await Promise.all([
+      const [stock, forecast, tasks] = await Promise.all([
         api('stock/summary/', { user: badge() }),
         api('stock/forecast/summary/', { user: badge(), months: 6 }).catch(() => null),
+        api('tasks/summary/', { user: badge() }).catch(() => null),
       ]);
       state.stock = stock;
       state.forecast = forecast;
+      state.tasks = tasks;
     } catch (e) {
-      toast('Stocks : ' + e.message, true);
+      toast('Gestion : ' + e.message, true);
       if (e.data && e.data.pin_required) { state.user = null; save(); } // session expiree : rescanner le badge
     } finally {
       state.loading = '';
@@ -2835,13 +2839,15 @@
     const stockTile = $('#tile-stock');
     stockTile.classList.toggle('disabled', !!state.user && !canSeeStock());
     stockTile.setAttribute('aria-disabled', String(!!state.user && !canSeeStock()));
-    $('#tile-stock-sub').textContent = !state.user ? 'Connexion requise' : canSeeStock() ? 'Stock et prévisions'
+    $('#tile-stock-sub').textContent = !state.user ? 'Connexion requise' : canSeeStock() ? (state.tasks ? (state.tasks.count ? `${state.tasks.count} tâche(s) à faire` : 'Rien à faire')
+      : 'Tâches, stock et prévisions')
       : 'Réservé gestion et admin';
     const counts = state.reports && state.reports.counts;
     $('#tile-reports-sub').textContent = !state.user ? 'Connexion requise'
       : counts && isAdmin() && counts.new ? `${counts.new} nouveau(x) à traiter`
         : counts && counts.new + counts.progress ? `${counts.new + counts.progress} en cours` : 'En cours et résolus';
     $('#tile-reports').classList.toggle('alert', !!(counts && isAdmin() && counts.new));
+    stockTile.classList.toggle('alert', !!(canSeeStock() && state.tasks && state.tasks.categories.some((row) => row.level === 'bad')));
     if (page === 'lots') renderLotsPage();
     if (page === 'live') renderLive();
     if (page === 'reports') renderReports();
@@ -3788,17 +3794,72 @@
     }
   }
 
-  // Etat des stocks : page « État des stocks » de l'accueil (forecast : previsions)
-  function stockParts(forecastMode) {
+  // Liste de taches de la gestion, par priorite : signalements, lots a sceller, lots invalides, vérifs recommandees,
+  // revisions, vérifs du stock, commandes et deplacements, puis les taches de temps en temps. Toucher une tache ouvre
+  // ce qui permet de la traiter (fiche du lot ou de l'item, signalements, prévisions, listes).
+  const TASK_LINK_HINTS = { users: 'Au poste : Administration › Utilisateurs', inventory: 'Au poste : Gestion › Inventaire',
+    lot_admin: 'Au poste : Gestion › Gestion des lots' };
+
+  function openTask(row) {
+    if (row.link === 'lot' && row.lot) openFiche('lot', row.lot);
+    else if (row.link === 'item' && row.item) openFiche('item', row.item);
+    else if (row.link === 'reports') showHome('reports');
+    else if (row.link === 'lists') showHome('lists');
+    else if (row.link === 'forecast') { state.homeView = 'forecast'; renderStock(); $('#home-pages').scrollTop = 0; }
+    else if (row.link === 'stock') { state.homeView = 'stock'; renderStock(); $('#home-pages').scrollTop = 0; }
+  }
+
+  function renderTasks(parts) {
+    const data = state.tasks;
+    if (!data) {
+      parts.push(el('p', { class: 'hint' }, state.loading === 'stock' ? 'Chargement…' : 'Liste de tâches indisponible.'));
+      return;
+    }
+    parts.push(el('p', { class: 'hint' }, 'Ce qu\'il y a à faire pour tenir le stock, le plus important en premier. '
+      + 'Touchez une tâche pour l\'ouvrir.'));
+    if (!data.count) {
+      parts.push(el('div', { class: 'banner ok' }, '✔ Rien à faire pour l\'instant.'));
+      return;
+    }
+    data.categories.forEach((category, index) => {
+      if (!category.count) return;
+      const rows = data.tasks.filter((row) => row.category === category.key);
+      parts.push(el('h3', { class: 'task-head' }, el('span', { class: 'task-rank' }, String(index + 1)),
+        `${category.title} (${category.count})`));
+      parts.push(el('p', { class: 'hint' }, category.help));
+      for (const row of rows) {
+        const clickable = ['lot', 'item', 'reports', 'lists', 'forecast', 'stock'].includes(row.link);
+        parts.push(el(clickable ? 'button' : 'div', {
+          type: clickable ? 'button' : null,
+          class: 'task-row stock-row' + (row.level === 'info' ? '' : ' ' + row.level),
+          onclick: clickable ? () => openTask(row) : null,
+        },
+        el('div', { class: 'row-head' }, el('b', {}, row.title), clickable ? el('span', { class: 'hint' }, '›') : ''),
+        row.detail ? el('div', { class: 'sub' }, row.detail) : '',
+        TASK_LINK_HINTS[row.link] ? el('div', { class: 'sub hint' }, TASK_LINK_HINTS[row.link]) : ''));
+      }
+    });
+  }
+
+  // Gestion de la TECH : page de l'accueil (roles gestion et admin) : à faire, état des stocks, prévisions
+  function stockParts(view) {
     if (!canSeeStock()) return [el('p', {}, 'Réservé aux rôles gestion et admin : scannez votre badge.')];
+    const forecastMode = view === 'forecast';
+    const choose = (next) => () => { state.homeView = next; renderStock(); };
     const toggle = el('div', { class: 'segmented', role: 'group', 'aria-label': 'Vue' },
-      el('button', { type: 'button', class: forecastMode ? '' : 'active', onclick: () => { state.homeForecast = false; renderStock(); } }, 'État actuel'),
-      el('button', { type: 'button', class: forecastMode ? 'active' : '', onclick: () => { state.homeForecast = true; renderStock(); } }, 'Prévisions'));
+      el('button', { type: 'button', class: view === 'tasks' ? 'active' : '', onclick: choose('tasks') },
+        'À faire' + (state.tasks && state.tasks.count ? ` (${state.tasks.count})` : '')),
+      el('button', { type: 'button', class: view === 'stock' ? 'active' : '', onclick: choose('stock') }, 'État des stocks'),
+      el('button', { type: 'button', class: forecastMode ? 'active' : '', onclick: choose('forecast') }, 'Prévisions'));
     const head = el('div', { class: 'row-head' },
-      el('h3', {}, forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
+      el('h3', {}, view === 'tasks' ? 'À faire' : forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
       el('div', { class: 'buttons' },
         el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser')));
     const parts = [toggle, head];
+    if (view === 'tasks') {
+      renderTasks(parts);
+      return parts;
+    }
     if (forecastMode) {
       renderForecast(parts);
       return parts;
@@ -3830,7 +3891,7 @@
   }
 
   function renderStock() {
-    $('#home-stock').replaceChildren(...stockParts(!!state.homeForecast));
+    $('#home-stock').replaceChildren(...stockParts(state.homeView || 'tasks'));
   }
 
   // Items scannes sans etiquette de lot : le bouton de vérif devient « Sortir du stock »
@@ -3843,7 +3904,7 @@
     $('#count-todo').textContent = remaining;
     $('#count-done').textContent = renderDone();
     renderLot();
-    if (!state.user) { state.stock = null; state.push = null; state.pushDevices = null; }
+    if (!state.user) { state.stock = null; state.tasks = null; state.push = null; state.pushDevices = null; }
     renderHomePage();
     $('#menu-notifications').hidden = !hasNotifications();
     renderStock();
@@ -4139,6 +4200,7 @@
       fiche.seal ? sealBanner(lot) : '',
       sealIntact ? '' : el('div', { class: 'banner ' + status.kind }, status.label),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
+      lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot),
       current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${state.scanned.length} scan(s).`) : '',
       lot.is_sealed && !sealIntact ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
         + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
@@ -4149,6 +4211,7 @@
       !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
         ? `⚠ Réassort de ${lot.restocked_count} item(s) ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : lot.back_from_list ? `⚠ Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
+        : lot.marked_used ? `⚠ Marqué utilisé ${fmtOn(lot.marked_used, { long: true })}${lot.marked_used_by ? ' par ' + lot.marked_used_by : ''} : vérif complète recommandée.`
         : `⚠ Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
       lot.seal_required && !lot.is_sealed
         ? el('p', {}, '🔒 Scellé obligatoire pour ce type de lot : il reste à traiter tant qu\'un nouveau scellé n\'est pas posé.') : '',
@@ -4491,6 +4554,29 @@
   function reportButton(target) {
     return el('button', { type: 'button', class: 'report-btn report-wide', onclick: () => openReport(target) },
       '⚠ Signaler un problème');
+  }
+
+  // « Marquer ce lot comme utilisé » : tout secouriste identifie ; le lot (et ses sous-lots non scelles) passe en
+  // vérif recommandee pour les suivants, jusqu'a la prochaine vérif complete
+  function usedButton(lot) {
+    return el('button', { type: 'button', class: 'used-btn', onclick: () => markUsed(lot) },
+      'Marquer ce lot comme utilisé (demander une vérif)');
+  }
+
+  function markUsed(lot) {
+    const run = async () => {
+      if (!confirm(`Marquer ${lot.name} comme utilisé ?\nLes suivants verront « vérif recommandée » jusqu'à la prochaine vérif complète.`)) return;
+      try {
+        const result = await api(`lots/${encodeURIComponent(lot.id)}/used/`, identity());
+        toast(result.marked.length > 1 ? `Marqués utilisés : ${result.marked.join(', ')}.` : `${lot.name} marqué utilisé : vérif recommandée.`);
+        state.lots = null; // etat des lots a recharger
+        if (ficheOpen() && fiche.kind === 'lot' && fiche.id === lot.id) openFiche('lot', lot.id, { key: fiche.key, seal: fiche.seal, push: false });
+      } catch (e) {
+        toast(e.message, true);
+      }
+    };
+    if (hasIdentity()) run();
+    else requireLogin('marquer ce lot comme utilisé', run);
   }
 
   function openReport(target) {

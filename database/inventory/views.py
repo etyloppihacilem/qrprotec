@@ -41,6 +41,7 @@ from . import notifications
 from . import reports
 from . import serializers as ser
 from . import services
+from . import tasks
 from . import webpush
 from .idendity import SOURCE_VERIFIED, identity_from_request, identity_name
 from .remote_scanner import hub as scanner_hub
@@ -609,6 +610,26 @@ def lot_unseal(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
+def lot_used(request, lot_id):
+    """Bouton « Marquer ce lot comme utilisé (demander une vérif) » : tout secouriste identifie (badge, ou nom declare
+    si le serveur l'autorise), sans cle du lot. Le lot et ses sous-lots non scelles passent en verif recommandee."""
+    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
+    if not is_front(request) and not lot.active:
+        raise ApiError("Lot inconnu", status.HTTP_404_NOT_FOUND)
+    identity = operation_identity(request)
+    try:
+        with transaction.atomic():
+            marked = services.mark_used(lot, identity)
+    except ValueError as exc:
+        raise ApiError(str(exc))
+    lot.refresh_from_db()
+    data = ser.lot_dict(lot, local=is_privileged(request), with_items=True)
+    data['marked'] = [target.name for target in marked]
+    return Response(data)
+
+
+@api_view(['POST'])
+@handle_errors
 def lot_seal_open(request, lot_id):
     """Etiquette d'ouverture du scelle (rangee dans le lot) : son scan ouvre le scelle, sans cle ni connexion.
     L'ouverture est attribuee a l'utilisateur s'il est identifie ; sinon elle est anonyme et peut etre signee
@@ -878,6 +899,22 @@ def stock_forecast_summary(request):
     """Previsions de stock en lecture seule pour le front web, reservees aux roles gestion et admin (badge)."""
     badge_user(request, (Role.GESTION, Role.ADMIN))
     return Response(forecast.forecast(**forecast_params(request.data)))
+
+
+@api_view(['POST'])
+@handle_errors
+def tasks_summary(request):
+    """Liste de taches de la gestion (« Gestion de la TECH » du front web), roles gestion et admin (badge)."""
+    badge_user(request, GESTION)
+    return Response(tasks.todo())
+
+
+@api_view(['GET'])
+@handle_errors
+def tasks_list(request):
+    """Liste de taches de la gestion pour le poste (fenetre Gestion de la TECH), roles gestion et admin."""
+    require_front(request, GESTION)
+    return Response(tasks.todo())
 
 
 # Notifications web (roles gestion et admin, depuis le front web)
