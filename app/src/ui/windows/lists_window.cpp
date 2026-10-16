@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace qrprotec {
 
@@ -331,9 +332,24 @@ class ListsWindow final : public AppWindow {
       if (out)
         ImGui::TableSetupColumn("Rentré", ImGuiTableColumnFlags_WidthFixed, 110.0f);
       ImGui::TableHeadersRow();
-      int index = 0;
-      for (const Json &line : list["lines"].items()) {
-        ImGui::PushID(index++);
+      // lignes a traiter en haut (ordre de la liste a egalite) : a preparer, ce qui n'est pas encore pris ou coche ;
+      // sortie, ce qui est pris et pas encore rentre. Un modele ou une liste rentree garde son ordre.
+      const bool validated = list["status"].str() == "validated" && !list["template"].boolean();
+      const auto todo      = [&](const Json &line) {
+        const int took = line["scanned"].integer();
+        if (draft)
+          return line["kind"].str() == "task" ? took == 0 : took < line["quantity"].integer();
+        if (!validated || line["kind"].str() == "task" || took == 0)
+          return false;
+        return line["kind"].str() == "lot" ? !line["back"].boolean() : line["back"].integer() < took;
+      };
+      std::vector< const Json * > lines;
+      for (const Json &line : list["lines"].items())
+        lines.push_back(&line);
+      std::stable_sort(lines.begin(), lines.end(), [&](const Json *a, const Json *b) { return todo(*a) && !todo(*b); });
+      for (const Json *line_row : lines) {
+        const Json &line = *line_row;
+        ImGui::PushID(line["id"].integer());
         if (line["kind"].str() == "task") {
           // tache libre (ni lot ni item) : cochee a la verif de la liste
           bool checked = line["scanned"].integer() > 0;

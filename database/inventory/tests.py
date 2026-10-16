@@ -1135,6 +1135,23 @@ class SubLotTests(ApiTestCase):
         self.assertEqual([row['depth'] for row in lots if row['root'] == self.bplus['id']], [0, 1, 1])
         self.assertTrue(all(row['global']['kind'] == 'ok' for row in lots if row['root'] == self.bplus['id']))
 
+    def test_lots_to_handle_first(self):
+        # seul le sac de soin est verifie : le sac O2 (jamais verifie) passe devant lui dans l'arborescence du B+
+        self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        code, lot = self.call('GET', f"/api/lots/{self.soin['id']}/", local=False)
+        self.assertEqual([row['name'] for row in lot['global']['lots']], ['B+ 1', 'Sac O2', 'Sac de soin'])
+        code, lots = self.call('POST', '/api/lots/summary/', {}, local=False)
+        self.assertEqual([row['name'] for row in lots][:3], ['B+ 1', 'Sac O2', 'Sac de soin'])
+        # B+ entierement valide : le sac A (jamais verifie) remonte au-dessus, le B+ garde ses sous-lots dessous
+        self.call('POST', f"/api/lots/{self.sac_o2['id']}/verif/", {'items': [self.bottle()], 'user': 'M001'})
+        code, lots = self.call('POST', '/api/lots/summary/', {}, local=False)
+        names = [row['name'] for row in lots if not row['storage']]
+        self.assertEqual(names, ['Sac A', 'B+ 1', 'Sac de soin', 'Sac O2'])
+        # liste du poste : ordre de l'arborescence par nom, avec la place de chaque lot quand on trie par attention
+        code, lots = self.call('GET', '/api/lots/')
+        self.assertEqual([row['name'] for row in sorted(lots, key=lambda row: row['attention_order'])
+                          if not row['storage']], names)
+
     def test_global_verif_covers_sub_lots(self):
         bottle = self.bottle()
         code, report = self.call('POST', f"/api/lots/{self.bplus['id']}/verif/",
@@ -3343,6 +3360,19 @@ class ProblemReportTests(ApiTestCase):
         self.assertEqual(body['reports'], [])
         code, body = self.call('POST', '/api/reports/list/', {'show': 'all'})
         self.assertEqual(len(body['reports']), 1)
+
+    def test_list_puts_reports_to_handle_first(self):
+        _, first = self.report({'item': self.items[0].iid, 'usable': True})
+        self.call('POST', f"/api/reports/{first['report']['id']}/", {'status': 'resolved'})
+        _, usable = self.report({'item': self.items[0].iid, 'usable': True})
+        self.call('POST', f"/api/reports/{usable['report']['id']}/", {'status': 'progress'})
+        _, broken = self.report({'item': self.items[1].iid, 'usable': False})
+        self.call('POST', f"/api/reports/{broken['report']['id']}/", {'status': 'progress'})
+        _, new = self.report({'lot': self.lot.id, 'type': 'compre', 'usable': True}, local=True)
+        code, body = self.call('POST', '/api/reports/list/', {'show': 'all'})
+        # nouveau (rouge), en cours inutilisable (orange), en cours utilisable, puis resolu
+        self.assertEqual([row['id'] for row in body['reports']],
+                         [new['report']['id'], broken['report']['id'], usable['report']['id'], first['report']['id']])
 
     def test_unusable_item_must_be_replaced(self):
         broken, other = self.items

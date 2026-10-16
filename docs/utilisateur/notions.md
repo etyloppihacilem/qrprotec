@@ -124,6 +124,17 @@ Scanner l'étiquette de la boîte compte pour les 25 compresses.
 Dans l'état des stocks : barre **verte** au-dessus du minimum, **orange** en dessous, **rouge** à
 zéro.
 
+Partout, ce qui demande de l'attention est **en haut** des listes, sur le web comme sur le poste :
+
+- **État des lots** : les lots rouges, puis orange, puis ceux dont une péremption ou une révision
+  approche, et les lots en ordre en bas. Un lot global reste suivi de ses sous-lots, triés de la même
+  façon (un lot global remonte dès qu'un de ses sous-lots est à traiter).
+- **Fiche d'un lot** : les types incomplets, puis ceux qui ont un item périmé, disparu ou signalé,
+  puis les types complets ; sous chaque type, les items à remplacer d'abord.
+- **Signalements** : nouveaux, en cours (objet inutilisable), en cours (utilisable), puis résolus.
+- **Listes de matériel** : les listes sorties (retour à faire), puis à préparer, les modèles et les
+  listes rentrées ; dans une liste, ce qui n'est pas encore pris (ou pas rentré) avant le reste.
+
 ## Badge, PIN et rôles
 
 Chaque utilisateur a un **badge** : une étiquette avec un QR code personnel (valable un an). On le
