@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../widgets.hpp"
+#include "../../core/plural.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
 
@@ -296,7 +297,7 @@ class JournalWindow final : public AppWindow {
       else if (operations_.size() == 0)
         ImGui::TextDisabled("Aucune opération ne correspond à ces filtres.");
       else
-        ImGui::TextDisabled("%zu opération(s)%s", operations_.size(), more_ ? ", d'autres plus anciennes" : "");
+        ImGui::TextDisabled("%s%s", nb(operations_.size(), "opération").c_str(), more_ ? ", d'autres plus anciennes" : "");
       if (more_ && !loading_) {
         ImGui::SameLine();
         if (small_button("Afficher les plus anciennes"))

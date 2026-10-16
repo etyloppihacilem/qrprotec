@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../../app/labels.hpp"
+#include "../../core/plural.hpp"
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
@@ -74,14 +75,14 @@ class ScanWindow final : public AppWindow {
     void draw_entries(App &app) {
       const float footer = ImGui::GetFrameHeightWithSpacing() * (app.privileged() ? 5.5f : 3.5f);
       const auto &entries = app.stack.entries();
-      ImGui::Text("%zu scan(s), %zu item(s)", entries.size(), app.stack.iids().size());
+      ImGui::Text("%s, %s", nb(entries.size(), "scan").c_str(), nb(app.stack.iids().size(), "item").c_str());
       if (ImGui::GetTime() - app.last_duplicate_time_ < 3.0) {
         ImGui::SameLine();
         ImGui::TextDisabled("· déjà scanné : %s", app.last_duplicate_.c_str());
       }
       if (app.stack.expired_count() > 0) {
         ImGui::SameLine();
-        ImGui::TextColored(colors::red, "- %zu périmé(s) !", app.stack.expired_count());
+        ImGui::TextColored(colors::red, "- %s !", nb(app.stack.expired_count(), "périmé").c_str());
       }
       int           remove_id = 0;
       ProblemTarget report_target;
@@ -208,7 +209,7 @@ class ScanWindow final : public AppWindow {
         ImGui::SetItemTooltip("Les options (vérif partielle, réassort) sont dans la fenêtre Vérif.");
       } else if (!empty) {
         // pas de lot scanne : la pile est du materiel sorti du stock (pris pour une intervention, prete...)
-        const std::string out = "Sortir " + std::to_string(stack.iids().size()) + " item(s) du stock";
+        const std::string out = "Sortir " + nb(stack.iids().size(), "item") + " du stock";
         if (warning_button(out.c_str(), ImVec2(-1, 0)))
           app.stack_out();
         ImGui::SetItemTooltip("Pour une vérif ou un réassort, scannez d'abord l'étiquette clé d'un lot\n"

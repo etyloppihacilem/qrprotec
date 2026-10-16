@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../widgets.hpp"
+#include "../../core/plural.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
 
@@ -223,7 +224,7 @@ class LotsWindow final : public AppWindow {
         const int  late = details_["revision_late_count"].integer();
         const bool warn = late > 0 || details_["revision_soon_count"].integer() > 0;
         const std::string text = "Prochaine révision : " + display_date(details_["next_revision"])
-                               + (late > 0 ? " · " + std::to_string(late) + " révision(s) en retard" : "");
+                               + (late > 0 ? " · " + nb(late, "révision") + " en retard" : "");
         if (warn)
           ImGui::TextColored(colors::orange, "⚠ %s", text.c_str());
         else
@@ -254,7 +255,8 @@ class LotsWindow final : public AppWindow {
                             details_["unsealed_by"].str("-").c_str());
       }
       const std::size_t sub_lots = details_["descendants"].size();
-      const std::string with     = sub_lots > 0 ? " avec ses " + std::to_string(sub_lots) + " sous-lot(s)" : "";
+      const std::string with     = sub_lots == 1 ? " avec son sous-lot"
+                                 : sub_lots > 1 ? " avec ses " + nb(sub_lots, "sous-lot") : "";
       if (details_["is_sealed"].boolean()) {
         if (button(("Lancer une vérif" + with + " (brise le scellé)").c_str(), ImVec2(-1, 0)))
           app.start_verif(details_["id"].str(), "");

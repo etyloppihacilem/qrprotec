@@ -387,7 +387,8 @@ def close_return(checklist, user):
         checklist.updated = now
         checklist.save()
         journal.record(OperationKind.CHECKLIST, identity,
-                       f'retour de la liste « {checklist.name} » : {len(back)} rentré(s), {len(used)} utilisé(s)',
+                       f'retour de la liste « {checklist.name} » : {journal.plural(len(back), "rentré")}, '
+                       f'{journal.plural(len(used), "utilisé")}',
                        at=now, checklist=checklist.id, items=[item.iid for item in used])
     return {'used': [item.iid for item in used], 'still_out': [item.iid for item in missing if item not in used]}
 

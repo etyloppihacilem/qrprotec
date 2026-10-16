@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../../app/labels.hpp"
+#include "../../core/plural.hpp"
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
@@ -153,7 +154,8 @@ class InventoryWindow final : public AppWindow {
       help_marker("Pour un paquet que l'on n'ouvre pas tout de suite (ex: boîte de compresses). Les étiquettes "
                   "individuelles seront imprimées à l'ouverture : scannez l'étiquette du paquet puis « Ouvrir ».");
       if (sealed_)
-        ImGui::TextDisabled("Étiquettes des %d item(s) : à l'ouverture du paquet.", quantity_);
+        ImGui::TextDisabled("%s : à l'ouverture du paquet.",
+                            quantity_ > 1 ? ("Étiquettes des " + nb(quantity_, "item")).c_str() : "Étiquette de l'item");
       else
         ImGui::Checkbox("Imprimer les étiquettes des items (aperçu puis impression)", &print_items_);
 
@@ -169,9 +171,10 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextColored(colors::orange, "%s", problem.c_str());
 
       ImGui::BeginDisabled(!type || (perishable && !date) || creating_);
-      const std::string label = sealed_ ? "Créer le paquet de " + std::to_string(quantity_) + " item(s) et son étiquette"
-                              : print_items_ ? "Créer " + std::to_string(quantity_) + " item(s) et voir les étiquettes"
-                                             : "Créer " + std::to_string(quantity_) + " item(s)";
+      const std::string label = sealed_ ? "Créer le paquet de " + nb(quantity_, "item") + " et son étiquette"
+                              : print_items_ ? "Créer " + nb(quantity_, "item") + " et "
+                                                 + pl(quantity_, "voir l'étiquette", "voir les étiquettes")
+                                             : "Créer " + nb(quantity_, "item");
       if (primary_button(label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x * 0.7f, ImGui::GetFrameHeight() * 1.5f)))
         create_batch(app, perishable && date ? date->iso() : "");
       ImGui::SameLine();
@@ -196,7 +199,7 @@ class InventoryWindow final : public AppWindow {
         return;
       ImGui::SeparatorText("Dernière réception");
       const Json &items = last_batch_["items"];
-      ImGui::Text("%zu item(s) créés : %s", items.size(), items[0]["type_name"].str().c_str());
+      ImGui::Text("%s : %s", nb(items.size(), "item créé", "items créés").c_str(), items[0]["type_name"].str().c_str());
       if (!last_batch_["sealed_pack"].is_null()) {
         // paquet ferme : etiquette du paquet, et fiche du paquet pour l'ouvrir plus tard
         if (button("Étiquette du paquet"))
@@ -244,7 +247,7 @@ class InventoryWindow final : public AppWindow {
         last_batch_ = result.data;
         if (sealed)
           ++app.catalog.packs_version;
-        app.notify(std::to_string(result.data["items"].size()) + " item(s) créé(s).");
+        app.notify(nb(result.data["items"].size(), "item créé", "items créés") + ".");
         // apercu avant impression : etiquette du paquet puis etiquettes individuelles
         std::vector< PrintJob > jobs;
         if (sealed)
@@ -704,7 +707,7 @@ class InventoryWindow final : public AppWindow {
           app.notify(result.error, true);
           return;
         }
-        app.notify(done + " (" + result.data["count"].str() + " item(s) modifié(s)).");
+        app.notify(done + " (" + nb(result.data["count"].integer(), "item modifié", "items modifiés") + ").");
         disable_reason_.clear();
         disable_reception_ = false;
         search(app);
@@ -723,9 +726,10 @@ class InventoryWindow final : public AppWindow {
         });
       }
       if (!item_reception_.is_null()) {
-        ImGui::TextDisabled("Reçu %s par %s, avec %d autre(s) item(s)%s.",
+        ImGui::TextDisabled("Reçu %s par %s, avec %s%s.",
                             display_on(item_reception_["added"], true).c_str(),
-                            item_reception_["added_by"].str("-").c_str(), item_reception_["count"].integer() - 1,
+                            item_reception_["added_by"].str("-").c_str(),
+                            nb(item_reception_["count"].integer() - 1, "autre item", "autres items").c_str(),
                             item_reception_["sealed_pack"].is_null()
                               ? ""
                               : (" (paquet fermé " + item_reception_["sealed_pack"].str() + ")").c_str());

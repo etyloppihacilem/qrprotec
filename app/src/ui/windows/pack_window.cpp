@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../../app/labels.hpp"
+#include "../../core/plural.hpp"
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
@@ -112,15 +113,15 @@ class PackWindow final : public AppWindow {
       // signalement du paquet (vaut pour tous ses items) et desactivation (rappel produit, admins)
       ImGui::Spacing();
       if (pack_["reported"].integer() > 0)
-        ImGui::TextColored(colors::orange, "%d signalement(s) en cours sur ce paquet.", pack_["reported"].integer());
+        ImGui::TextColored(colors::orange, "%s en cours sur ce paquet.", nb(pack_["reported"].integer(), "signalement").c_str());
       if (report_button("⚠ Signaler un problème sur ce paquet", ImVec2(-1, 0)))
         app.report_problem({ "", "", "", pack_["type"].str(),
                              "Paquet de " + pack_["type_name"].str() + " (" + pack_["id"].str() + ")",
                              pack_["id"].str() });
       const int disabled = pack_["disabled"].integer();
       if (disabled > 0)
-        ImGui::TextColored(colors::red, "%d item(s) sur %d désactivé(s) : à remplacer comme des périmés.", disabled,
-                           count);
+        ImGui::TextColored(colors::red, "%s sur %d %s : à remplacer comme des périmés.", nb(disabled, "item").c_str(),
+                           count, pl(disabled, "désactivé").c_str());
       if (app.admin()) {
         ImGui::BeginDisabled(busy_);
         if (disabled > 0) {
@@ -196,8 +197,8 @@ class PackWindow final : public AppWindow {
           app.notify(result.error, true);
           return;
         }
-        app.notify(std::string(disabled ? "Paquet désactivé" : "Paquet réactivé") + " (" + result.data["count"].str()
-                   + " item(s)).");
+        app.notify(std::string(disabled ? "Paquet désactivé" : "Paquet réactivé") + " ("
+                   + nb(result.data["count"].integer(), "item") + ").");
         reason_.clear();
         if (id == pack_id_)
           load(app);

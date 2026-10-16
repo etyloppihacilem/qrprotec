@@ -1,4 +1,5 @@
 #include "inateck_worker.hpp"
+#include "../core/plural.hpp"
 
 #include "sdk_json.hpp"
 #include "../printer/logging.hpp"
@@ -146,9 +147,9 @@ void InateckWorker::expire_inventory_read() {
     if (*inventory_capture_ == InventoryCapture::Codes) {
         snapshot_.message = snapshot_.inventory_codes.empty()
             ? "Aucun code reçu de la mémoire de la douchette."
-            : std::to_string(snapshot_.inventory_codes.size()) + " code(s) récupéré(s) de la mémoire.";
+            : nb(snapshot_.inventory_codes.size(), "code récupéré", "codes récupérés") + " de la mémoire.";
         info_log("Douchette : lecture de la mémoire terminée, " +
-                 std::to_string(snapshot_.inventory_codes.size()) + " code(s) reçu(s)");
+                 nb(snapshot_.inventory_codes.size(), "code reçu", "codes reçus"));
     } else if (snapshot_.inventory_waiting) {
         snapshot_.message = "La douchette n'a pas renvoyé le nombre de codes en mémoire.";
     }

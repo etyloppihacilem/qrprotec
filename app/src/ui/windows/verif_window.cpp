@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../widgets.hpp"
+#include "../../core/plural.hpp"
 #include "windows.hpp"
 
 #include <algorithm>
@@ -77,7 +78,8 @@ class VerifWindow final : public AppWindow {
       ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
       ImGui::Text("Passer à %s ?", target.c_str());
       ImGui::PopFont();
-      ImGui::Text("%s est incomplet : %d item(s) attendu(s) pas encore scanné(s).", level.c_str(), prompt.missing);
+      ImGui::Text("%s est incomplet : %s pas encore %s.", level.c_str(),
+                  nb(prompt.missing, "item attendu", "items attendus").c_str(), pl(prompt.missing, "scanné").c_str());
       ImGui::Spacing();
       const ImVec2 size(ImGui::GetFontSize() * 30.0f, 0.0f);
       int          choice = -1;
@@ -401,8 +403,8 @@ class VerifWindow final : public AppWindow {
         status_banner(multi ? "✔ Tout est scanné : les lots seront complets" : "✔ Tout est scanné : le lot sera complet",
                       colors::green, 1.0f);
       else
-        status_banner(std::to_string(remaining) + " item(s) encore attendu(s) – " + std::to_string(added)
-                        + " nouvel(s) item(s) scanné(s)",
+        status_banner(nb(remaining, "item encore attendu", "items encore attendus") + " – "
+                        + nb(added, "nouvel item scanné", "nouveaux items scannés"),
                       colors::red, 1.0f);
 
       ImGui::BeginDisabled(!app.verif_key_ok() || verif.submitting);
@@ -418,7 +420,7 @@ class VerifWindow final : public AppWindow {
                               "recommandée » ;\nle reste de leur contenu n'est pas touché.",
                               names.c_str());
       } else if (restock) {
-        const std::string label = "Ajouter " + std::to_string(added) + " item(s) au lot – réassort, sans vérif";
+        const std::string label = "Ajouter " + nb(added, "item") + " au lot – réassort, sans vérif";
         if (warning_button(label.c_str(), ImVec2(-1, 0)))
           app.restock_verif();
         ImGui::SetItemTooltip("Aucun item déjà présent n'a été scanné : les items sont simplement ajoutés au lot.\n"
@@ -443,8 +445,8 @@ class VerifWindow final : public AppWindow {
         ImGui::SetItemTooltip("Enregistre la vérif : les items scannés sont présents, ceux de la liste « À scanner »\n"
                               "sont signalés manquants. %s",
                               remaining == 0 ? "Tout est scanné : le lot sera complet."
-                                             : (std::to_string(remaining) + " item(s) encore attendu(s) : le lot sera "
-                                                                            "incomplet.").c_str());
+                                             : (nb(remaining, "item encore attendu", "items encore attendus")
+                                                + " : le lot sera incomplet.").c_str());
       ImGui::EndDisabled();
       ImGui::SameLine();
       ImGui::BeginDisabled(app.stack.empty() || verif.submitting);
@@ -502,7 +504,7 @@ class VerifWindow final : public AppWindow {
         }
         const std::size_t subs = app.verif_children(id).size();
         if (subs)
-          text += " · " + std::to_string(subs) + " sous-lot(s)";
+          text += " · " + nb(subs, "sous-lot");
         ImGui::PushID(id.c_str());
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(color.x, color.y, color.z, 0.45f));
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(color.x, color.y, color.z, 0.65f));
@@ -610,7 +612,7 @@ class VerifWindow final : public AppWindow {
         ImGui::TextColored(colors::orange, "Scellé brisé (%s) : resceller depuis la Gestion des lots.",
                            names.empty() ? "lot" : names.c_str());
       }
-      ImGui::Text("%zu item(s) présent(s).", report["present"].size());
+      ImGui::Text("%s.", nb(report["present"].size(), "item présent", "items présents").c_str());
       if (report["sealed_lots"].size() > 0) {
         std::string names;
         for (const Json &name : report["sealed_lots"].items())
@@ -627,7 +629,7 @@ class VerifWindow final : public AppWindow {
           else if (!row["verified"].boolean())
             ImGui::TextColored(colors::orange, "↷ %s : non vérifié%s", row["name"].str().c_str(),
                                row["restocked"].integer() > 0
-                                 ? (", " + row["restocked"].str() + " item(s) ajouté(s) en réassort").c_str()
+                                 ? (", " + nb(row["restocked"].integer(), "item ajouté", "items ajoutés") + " en réassort").c_str()
                                  : "");
           else if (row["complete"].boolean())
             ImGui::TextColored(colors::green, "✔ %s : complet", row["name"].str().c_str());

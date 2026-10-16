@@ -16,6 +16,7 @@ from urllib.parse import urlencode
 from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
+from .journal import plural
 from .models import PUSH_TYPES, ItemStatus, qrprotec_setting
 from .reports import item_reports, pack_reports
 from .services import out_deadline, requirements_status
@@ -337,9 +338,9 @@ def aggregate_tree(rows):
     if kind == 'ok':
         label = '✔ Tous les lots sont valides'
     elif kind == 'warn':
-        label = f'⚠ Vérif recommandée ({problems} lot(s))'
+        label = f'⚠ Vérif recommandée ({plural(problems, "lot")})'
     else:
-        label = f'✘ {problems} lot(s) à traiter'
+        label = f'✘ {plural(problems, "lot")} à traiter'
     return {
         'kind': kind,
         'label': label,
