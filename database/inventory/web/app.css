@@ -484,3 +484,12 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .picker-results li small { color: var(--muted); }
 #home-lists .picker-results li.active { background: var(--blue-bg); }
 #home-lists .picker-results li.empty { color: var(--muted); cursor: default; }
+
+#home-lists .list-share { display: flex; gap: 8px; align-items: stretch; margin-top: 14px; }
+#home-lists .list-share button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+#home-lists .list-share button:first-child { flex: 1; }
+#home-lists .list-share .icon-only { padding-left: 14px; padding-right: 14px; }
+#home-lists .list-share .icon { display: inline-flex; }
+#home-lists .list-share .icon-only[aria-expanded="true"] { background: var(--blue-bg, #e8f0fe); }
+#home-lists .list-qr-panel { margin-top: 10px; text-align: center; }
+#home-lists .list-qr-panel[hidden] { display: none; }
