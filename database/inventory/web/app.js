@@ -2288,12 +2288,13 @@
 
   function requirementRow(label, present, required, after = null) {
     const ratio = required > 0 ? Math.min(1, present / required) : 1;
-    const color = present <= 0 ? 'var(--red)' : present < required ? 'var(--orange)' : 'var(--green)';
+    const empty = present <= 0 && required > 0; // x/0 : rien d'attendu, vert
+    const color = empty ? 'var(--red)' : present < required ? 'var(--orange)' : 'var(--green)';
     return el('div', { class: 'req' },
       el('span', { class: 'label' }, label),
       el('div', { class: 'bar' },
-        el('i', { style: `width:${present <= 0 ? 100 : ratio * 100}%;background:${color}` }),
-        el('span', { style: present <= 0 ? 'color:#fff' : '' }, `${present}/${required}`)), after);
+        el('i', { style: `width:${empty ? 100 : ratio * 100}%;background:${color}` }),
+        el('span', { style: empty ? 'color:#fff' : '' }, `${present}/${required}`)), after);
   }
 
   // Items frais scannes par type (un paquet compte pour son nombre d'items)
@@ -3832,7 +3833,8 @@
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
     } else {
       parts.push(el('p', { class: 'hint' }, 'Stock non périmé (hors lots, rangements compris) / minimum. Les plus critiques en premier.'));
-      const ratio = (row) => row.min_quantity > 0 ? row.stock_fresh / row.min_quantity : 1e6;
+      // les items sans minimum (x/0) tout en bas
+      const ratio = (row) => row.min_quantity > 0 ? row.stock_fresh / row.min_quantity : Infinity;
       const rows = [...state.stock].sort((a, b) => ratio(a) - ratio(b));
       for (const row of rows) {
         const details = [`${row.lots_fresh} dans les lots`];
