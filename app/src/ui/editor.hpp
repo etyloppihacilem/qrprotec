@@ -4,6 +4,7 @@
 #include "../render/raster.hpp"
 #include "../printer/printer.hpp"
 
+#include <map>
 #include <unordered_map>
 #include <vector>
 #include <filesystem>
@@ -32,6 +33,9 @@ public:
     void set_label_title(const std::string &title);
     void set_default_media(double width_mm, double height_mm);
     void set_print_callback(std::function< void(const TemplateDocument &) > callback) { print_callback_ = std::move(callback); }
+    // Modeles choisis dans les Reglages pour chaque usage (id de categorie -> fichier .qr), signales dans le
+    // navigateur d'etiquettes
+    void set_selected_templates(const std::map< std::string, std::string > &selected) { selected_templates_ = selected; }
 
 private:
     struct PrintResult {
@@ -45,7 +49,14 @@ private:
     };
 
     enum class DragMode { None, Move, Resize, Pan };
-    enum class PendingAction { None, New, Open };
+    enum class PendingAction { None, New, Open, Print };
+
+    // Vignette d'une etiquette du navigateur (texture de son apercu)
+    struct Thumbnail {
+        unsigned int texture = 0;
+        int width = 0;
+        int height = 0;
+    };
 
     void rebuild_preview();
     void draw_toolbar();
@@ -62,6 +73,12 @@ private:
     void draw_print_test_popup();
     void open_print_test();
     void poll_print_task();
+
+    // Navigateur d'etiquettes : grille de toutes les etiquettes du dossier avec leur apercu
+    void draw_browser();
+    void build_thumbnails();
+    void clear_thumbnails();
+    std::vector< std::string > usages_of(const std::string &file) const; // usages pour lesquels le fichier est choisi
 
     // Modeles : ouverture, enregistrement, modifications non enregistrees
     void draw_open_popup();
@@ -134,6 +151,12 @@ private:
     std::vector<std::filesystem::path> qr_files_;
     std::vector<std::string> image_files_; // relatifs au dossier des modeles (images/...)
     std::vector<TemplateDocument> document_list_;
+    std::vector<Thumbnail> thumbnails_; // une par modele de document_list_, creees a l'affichage
+    bool thumbnails_dirty_ = true;
+    std::map< std::string, std::string > selected_templates_;
+    std::string browser_filter_;
+    int browser_show_ = 0;     // 0 : toutes, 1 : utilisees comme modele, 2 : a la main seulement
+    bool show_editor_tab_ = false; // bascule sur l'onglet Edition (etiquette ouverte depuis le navigateur)
 
     // Historique
     std::vector<TemplateDocument> undo_;

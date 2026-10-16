@@ -549,6 +549,7 @@ class EditorWindow final : public AppWindow {
       }
       editor_.set_label_title(app.settings.label_title);
       editor_.set_default_media(app.settings.label_width_mm, app.settings.label_height_mm);
+      editor_.set_selected_templates(app.settings.label_templates);
       editor_.draw_contents();
     }
 

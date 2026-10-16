@@ -144,6 +144,12 @@ Menu **Administration > Éditeur d'étiquettes** (admin). Chaque modèle a un **
 public, lot clé, scellé, ouverture du scellé, badge, étiquette de tâches) qui détermine les informations disponibles,
 listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{lot_name}}`…).
 
+L'onglet **Toutes les étiquettes** montre en grille chaque étiquette du dossier des modèles avec son
+aperçu. Celles qui servent de modèle (choisies dans **Réglages > Étiquettes et impression**) portent une
+pastille verte **Modèle** et l'usage pour lequel elles sont choisies. Les autres, d'usage « Générique »,
+ne servent qu'à être imprimées à la main (**Imprimer...**) : indications, autocollants, consignes… Un
+clic sur l'aperçu ou **Modifier** l'ouvre dans l'onglet **Édition** ; **Nouvelle étiquette** en crée une.
+
 - **Ajouter texte / QR / image (logo)**, positions et tailles en millimètres, texte en gras et
   aligné. **Ajouter le titre** insère `{{titre}}` (le nom de votre structure, défini dans les
   Réglages).
