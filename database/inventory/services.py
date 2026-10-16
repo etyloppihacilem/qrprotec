@@ -563,9 +563,9 @@ def notify_verif_problem(lot, identity, requirements, report, newly_missing):
     if lacking:
         parts.append('manque ' + ', '.join(lacking))
     if report['expired']:
-        parts.append(f"{len(report['expired'])} périmé(s)")
+        parts.append(journal.plural(len(report['expired']), 'périmé'))
     if newly_missing:
-        parts.append(f'{len(newly_missing)} item(s) signalé(s) disparu(s)')
+        parts.append(journal.plural(len(newly_missing), 'item signalé disparu', 'items signalés disparus'))
     return notifications.notify_admins(
         'verif_problem', 'vérif incomplète',
         f'vérif du lot {lot.name} incomplète ({display_name(identity)}) : ' + ' ; '.join(parts),
@@ -883,7 +883,8 @@ def expire_out_items(now=None):
         ItemMovement.objects.bulk_create(moves)
         Items.objects.bulk_update(expired, ['status', 'missed_verifs'])
         journal.record(OperationKind.ITEM_OUT_USED, '',
-                       f"{journal.types_summary(expired)} : non revu(s) après la sortie, compté(s) utilisé(s)",
+                       f"{journal.types_summary(expired)} : {journal.pl(len(expired), 'non revu', 'non revus')} après la sortie, "
+                       f"{journal.pl(len(expired), 'compté utilisé', 'comptés utilisés')}",
                        at=now, count=len(expired), items=journal.item_ids(expired))
         notifications.check_stock_levels({item.pack.item_type_id for item in expired})
     return [item.iid for item in expired]

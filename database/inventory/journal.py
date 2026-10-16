@@ -38,8 +38,14 @@ def item_ids(items):
     return [item.iid for item in items][:MAX_LISTED_ITEMS]
 
 
-def plural(count, word):
-    return f"{count} {word}{'s' if count > 1 else ''}"
+def pl(count, word, plural_form=None):
+    """Accord en nombre : singulier pour 0 et 1, pluriel au-dela (par defaut le mot suivi d'un s)."""
+    return (plural_form or word + 's') if count > 1 else word
+
+
+def plural(count, word, plural_form=None):
+    """« 3 items », « 1 item », « 0 item »."""
+    return f'{count} {pl(count, word, plural_form)}'
 
 
 def names(identities):

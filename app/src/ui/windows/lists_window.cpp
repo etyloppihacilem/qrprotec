@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../widgets.hpp"
+#include "../../core/plural.hpp"
 #include "windows.hpp"
 
 #include "imgui_stdlib.h"
@@ -135,9 +136,10 @@ class ListsWindow final : public AppWindow {
           ImGui::TextUnformatted(row["owner_name"].str().c_str());
           ImGui::TableNextColumn();
           if (row["template"].boolean())
-            ImGui::Text("%d ligne(s)", row["line_count"].integer());
+            ImGui::Text("%s", nb(row["line_count"].integer(), "ligne").c_str());
           else
-            ImGui::Text("%d/%d prête(s)", row["done_count"].integer(), row["line_count"].integer());
+            ImGui::Text("%d/%d %s", row["done_count"].integer(), row["line_count"].integer(),
+                        pl(row["line_count"].integer(), "prête").c_str());
         }
         ImGui::EndTable();
       }
@@ -232,9 +234,9 @@ class ListsWindow final : public AppWindow {
         if (list["complete"].boolean())
           ImGui::TextColored(colors::green, "Tout est prêt : validez la liste.");
         else
-          ImGui::TextWrapped("%d/%d ligne(s) prête(s). Scannez l'étiquette des lots et le matériel pris dans le stock, "
-                             "cochez les tâches.",
-                             list["done_count"].integer(), list["line_count"].integer());
+          ImGui::TextWrapped("%d/%s. Scannez l'étiquette des lots et le matériel pris dans le stock, cochez les tâches.",
+                             list["done_count"].integer(),
+                             nb(list["line_count"].integer(), "ligne prête", "lignes prêtes").c_str());
         draw_scan_toggle(app, "Scanner vers cette liste");
         ImGui::SameLine();
         if (list["complete"].boolean()) {
@@ -693,8 +695,8 @@ class ListsWindow final : public AppWindow {
         stop_scan(app);
         message_.clear();
         const std::size_t still = result.data["still_out"].size();
-        app.notify("Retour clos : " + std::to_string(result.data["used"].size()) + " consommable(s) utilisé(s)"
-                   + (still ? ", " + std::to_string(still) + " matériel(s) encore sorti(s)" : std::string()) + ".");
+        app.notify("Retour clos : " + nb(result.data["used"].size(), "consommable utilisé", "consommables utilisés")
+                   + (still ? ", " + nb(still, "matériel encore sorti", "matériels encore sortis") : std::string()) + ".");
         load(app);
       });
     }

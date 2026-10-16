@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "inateck.hpp"
+#include "../core/plural.hpp"
 #include "widgets.hpp"
 #include "imgui.h"
 #include "core/codes.hpp"
@@ -544,7 +545,7 @@ void Inateck::draw_inventory(const InateckSnapshot& state) {
 void Inateck::draw_inventory_codes(const InateckSnapshot& state) {
   if (state.inventory_codes.empty())
     return;
-  ImGui::Text("%zu code(s) récupéré(s) :", state.inventory_codes.size());
+  ImGui::Text("%s :", nb(state.inventory_codes.size(), "code récupéré", "codes récupérés").c_str());
   if (ImGui::BeginChild("inventory_codes", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6),
                         ImGuiChildFlags_Borders)) {
     for (const std::string& code : state.inventory_codes)
@@ -610,7 +611,7 @@ void Inateck::draw_inventory_qr(const InateckSnapshot& state) {
       if (state.inventory_waiting)
         ImGui::TextDisabled("En attente de la douchette…");
       else if (state.inventory_reading)
-        ImGui::Text("Réception : %zu code(s)…", state.inventory_codes.size());
+        ImGui::Text("Réception : %s…", nb(state.inventory_codes.size(), "code").c_str());
       else if (!state.message.empty())
         ImGui::TextColored(colors::green, "%s", state.message.c_str());
       if (inventory_qr_ == InventoryQr::Upload)

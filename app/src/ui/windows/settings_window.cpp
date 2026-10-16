@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../../core/paths.hpp"
+#include "../../core/plural.hpp"
 #include "../../core/template_io.hpp"
 #include "../../inateck/scanner_settings.hpp"
 #include "../editor.hpp"
@@ -225,7 +226,7 @@ class SettingsWindow final : public AppWindow {
         ImGui::SetNextItemWidth(150.0f);
         ImGui::SliderInt("Type d'étiquette", &settings.print.label_type, 1, 3);
         const PrintQueueStatus status = app.printer.status();
-        ImGui::Text("File : %zu en attente, %zu imprimée(s)%s", status.pending, status.printed,
+        ImGui::Text("File : %zu en attente, %s%s", status.pending, nb(status.printed, "imprimée").c_str(),
                     status.busy ? " - en cours" : "");
         if (!status.current.empty())
           ImGui::Text("En cours : %s", status.current.c_str());

@@ -133,6 +133,11 @@
   // ------------------------------------------------------------------------------------------------
   // Outils
 
+  // Accord en nombre : singulier pour 0 et 1, pluriel au-dela. Le pluriel par defaut ajoute un s.
+  function pl(n, word, plural) { return n > 1 ? (plural || word + 's') : word; }
+  // « 3 items », « 1 item », « 0 item ».
+  function nb(n, word, plural) { return `${n} ${pl(n, word, plural)}`; }
+
   function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 
   function parseDate(value) {
@@ -749,7 +754,7 @@
     $('#tasks-list').replaceChildren(...tasks.map((task, index) => el('li', {}, el('label', {}, boxes[index], ' ', task))));
     $('#tasks-admin').hidden = !isAdmin();
     update();
-    showInfo('task', 'Tâches : ' + entry.info.type_name, `${tasks.length} tâche(s) à compléter pour valider cet item.`);
+    showInfo('task', 'Tâches : ' + entry.info.type_name, `${nb(tasks.length, 'tâche')} à compléter pour valider cet item.`);
     if (!dialog.open) dialog.showModal();
   }
 
@@ -940,7 +945,7 @@
         'Lot valide sans vérif' + (lot.valid_until ? ` jusqu'au ${fmtDate(lot.valid_until)}` : ''), sealInfo);
     } else if (lot.seal_check === 'valid') {
       feedback.bad();
-      showInfo('bad', `✘ Scellé intact mais périmés – ${lot.name}`, `${lot.expired_count} item(s) périmé(s) : lot à ouvrir`, sealInfo);
+      showInfo('bad', `✘ Scellé intact mais périmés – ${lot.name}`, `${nb(lot.expired_count, 'item périmé', 'items périmés')} : lot à ouvrir`, sealInfo);
     } else {
       feedback.bad();
       showInfo('bad', `✘ ${lot.seal_check === 'wrong' ? "Étiquette d'un ancien scellé" : 'Scellé brisé'} – ${lot.name}`,
@@ -1256,7 +1261,7 @@
     if (ownContent(lot) || lot.storage) return lotStatus(lot);
     const subs = sessionLots().filter((sub) => sub.id !== lot.id && isUnder(sub.id, lot.id) && (ownContent(sub) || sub.storage));
     const bad = subs.filter((sub) => !lotStatus(sub).ok).length;
-    return bad ? { ok: false, kind: 'bad', label: `✘ ${bad} sous-lot(s) à traiter sur ${subs.length}` }
+    return bad ? { ok: false, kind: 'bad', label: `✘ ${nb(bad, 'sous-lot')} à traiter sur ${subs.length}` }
       : { ok: true, kind: 'ok', label: subs.length ? `✔ Sous-lots tous valides (${subs.length})` : 'Vide' };
   }
 
@@ -1442,7 +1447,7 @@
       if (row.effective.kind === 'warn') warn += 1;
     }
     if (!problems) return { ok: true, kind: 'ok', label: `✔ Sous-lots tous valides (${counted})` };
-    return { ok: false, kind: warn === problems ? 'warn' : 'bad', label: `✘ ${problems} sous-lot(s) à traiter sur ${counted}` };
+    return { ok: false, kind: warn === problems ? 'warn' : 'bad', label: `✘ ${nb(problems, 'sous-lot')} à traiter sur ${counted}` };
   }
 
   function showLotInfo() {
@@ -1450,12 +1455,12 @@
     if (!lot) return;
     const status = groupStatus(lot) || lotStatus(lot);
     showInfo(status.kind, `${status.label} – ${lot.name}`,
-      `${lot.lot_type_name} · ${lot.item_count} item(s)` + (lot.expired_count ? ` · ${lot.expired_count} périmé(s)` : '')
-        + ((lot.descendants || []).length ? ` · ${lot.descendants.length} sous-lot(s), vérifiés chacun à part` : ''),
+      `${lot.lot_type_name} · ${nb(lot.item_count, 'item')}` + (lot.expired_count ? ` · ${nb(lot.expired_count, 'périmé')}` : '')
+        + ((lot.descendants || []).length ? ` · ${nb(lot.descendants.length, 'sous-lot')}, ${pl(lot.descendants.length, 'vérifié', 'vérifiés chacun')} à part` : ''),
       globalLine(lot),
       'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
       !lot.verif_recommended ? '' : lot.restocked_count
-        ? `Réassort de ${lot.restocked_count} item(s) ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
+        ? `Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
         : lot.back_from_list ? `Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
         : `Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
       lot.seal_required && !lot.is_sealed ? 'Scellé obligatoire : posez un nouveau scellé après la vérif complète.' : '',
@@ -1770,7 +1775,7 @@
       }
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const what = isMulti() ? 'les lots seront incomplets' : 'le lot sera incomplet';
-      return !expected || confirm(`${expected} item(s) attendu(s) manquent : ${what}. Valider quand même ?`);
+      return !expected || confirm(`${nb(expected, 'item attendu', 'items attendus')} ${pl(expected, 'manque', 'manquent')} : ${what}. Valider quand même ?`);
     };
     if (!confirmed()) { if (team || auto) live.unvalidate(); return; }
     state.busy = true;
@@ -1889,7 +1894,7 @@
       .reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
     const dialog = $('#leave-level');
     $('#leave-level-title').textContent = `Passer à ${target ? target.name : 'un autre lot'} ?`;
-    $('#leave-level-text').textContent = `${level.name} est incomplet : ${missing} item(s) attendu(s) pas encore scanné(s).`;
+    $('#leave-level-text').textContent = `${level.name} est incomplet : ${nb(missing, 'item attendu', 'items attendus')} pas encore ${pl(missing, 'scanné')}.`;
     $('#leave-level-validate').textContent = `Valider ${level.name} incomplet (les non scannés passent manquants)`;
     $('#leave-level-skip').textContent = `Passer sans valider (${level.name} reste à faire, scans gardés)`;
     $('#leave-level-stay').textContent = `Rester dans ${level.name}`;
@@ -1943,7 +1948,7 @@
     } else {
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const subs = lots.filter((lot) => lot.id !== top.id && ownContent(lot)).map((lot) => lot.name);
-      if (expected && !confirmed && !confirm(`${expected} item(s) attendu(s) manquent : ${top.name} sera incomplet`
+      if (expected && !confirmed && !confirm(`${nb(expected, 'item attendu', 'items attendus')} ${pl(expected, 'manque', 'manquent')} : ${top.name} sera incomplet`
         + (subs.length ? ` (avec ${subs.join(', ')})` : '') + '. Valider quand même ?')) return;
     }
     const payload = entriesPayload(entries);
@@ -1972,7 +1977,7 @@
         `${finished ? '✔' : '↷'} ${top.name} ${finished ? 'validé' : done.length ? ': vérif partielle enregistrée' : ': réassort enregistré'}`
           + (incomplete.length ? ', incomplet' : ''),
         done.length > 1 ? `Lots vérifiés : ${done.map((row) => row.name).join(', ')}` : '',
-        report.missing && report.missing.length ? `${report.missing.length} item(s) manquant(s)` : '',
+        report.missing && report.missing.length ? `${nb(report.missing.length, 'item manquant', 'items manquants')}` : '',
         atRoot && finished ? '' : finished ? `Retour à ${(lotById(parentIdOf(top)) || state.lot).name}.` : '');
       if (incomplete.length || (report.unknown || []).length) showReport(report);
       // kit a scelle obligatoire dont on a lance la vérif (scanne dans le VPS) : valide complet, la vérif s'arrete la,
@@ -2040,7 +2045,7 @@
     live.quit();
     state.scanned = [];
     resetCascade();
-    forgetLot(message || `Vérif de ${name} terminée : ${done} lot(s) validé(s)` + (left ? `, ${left} scan(s) non validé(s) oublié(s).` : '.'));
+    forgetLot(message || `Vérif de ${name} terminée : ${nb(done, 'lot validé', 'lots validés')}` + (left ? `, ${nb(left, 'scan non validé oublié', 'scans non validés oubliés')}.` : '.'));
     if (!report) feedback.good();
   }
 
@@ -2051,7 +2056,7 @@
     if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
     if (!iids.length) missing.push('scannez au moins un item');
     if (missing.length) { feedback.warn(); toast('Pour sortir : ' + missing.join(', ') + '.', true); return; }
-    if (!confirm(`Sortir ${iids.length} item(s) du stock, sans lot ?\n`
+    if (!confirm(`Sortir ${nb(iids.length, 'item')} du stock, sans lot ?\n`
       + "Ils redeviennent normaux s'ils sont scannés à une vérif ; sinon ils seront comptés comme utilisés "
       + 'au bout d\'un mois (ou à leur péremption).')) return;
     state.busy = true;
@@ -2060,7 +2065,7 @@
       const result = await api('items/out/', { ...identity(), items: iids });
       state.scanned = [];
       feedback.good();
-      showInfo('ok', `${result.out.length} item(s) sorti(s) du stock`,
+      showInfo('ok', `${nb(result.out.length, 'item sorti', 'items sortis')} du stock`,
         `Scannez-les à une vérif dans les ${result.days} jours, sinon ils seront comptés comme utilisés.`,
         ...(result.refused || []).map((row) => `Non sorti : ${row.iid} (${row.reason})`));
       if (canSeeStock()) loadStock();
@@ -2117,7 +2122,7 @@
       });
       state.scanned = [];
       feedback.good();
-      toast(`${result.moved.length} item(s) ajouté(s) au lot : vérif complète recommandée.`);
+      toast(`${nb(result.moved.length, 'item ajouté', 'items ajoutés')} au lot : vérif complète recommandée.`);
       await loadLot(state.lot.id);
       loadLots();
     } catch (e) {
@@ -2145,7 +2150,7 @@
       el('h2', { style: `color:var(--${report.complete ? 'green' : report.partial ? 'orange' : 'red'})` },
         report.complete ? ((report.lots || []).length > 1 ? '✅ Lots complets' : '✅ Lot complet')
           : report.partial ? '↷ Vérif partielle enregistrée' : '⚠️ Lot NON complet'),
-      el('p', {}, `${report.present.length} item(s) présent(s).`),
+      el('p', {}, `${nb(report.present.length, 'item présent', 'items présents')}.`),
       (report.participants || []).length > 1 ? el('p', {}, `👥 Vérif à plusieurs : ${report.participants.join(', ')}.`) : '',
       (report.sealed_lots || []).length ? el('p', {}, `🔒 Scellé intact, compté comme vérifié : ${report.sealed_lots.join(', ')}.`) : '',
       report.unsealed ? el('p', { style: 'color:var(--orange)' },
@@ -2154,7 +2159,7 @@
         el('ul', {}, report.lots.map((row) => el('li', {}, '  '.repeat(row.depth || 0)
           + (row.sealed ? `🔒 ${row.name} : scellé intact`
             : row.verified ? (row.complete ? '✔ ' : '✘ ') + row.name + (row.complete ? ' : complet' : ' : incomplet')
-            : `↷ ${row.name} : non vérifié` + (row.restocked ? `, ${row.restocked} item(s) ajouté(s) (réassort)` : '')))))] : []),
+            : `↷ ${row.name} : non vérifié` + (row.restocked ? `, ${nb(row.restocked, 'item ajouté', 'items ajoutés')} (réassort)` : '')))))] : []),
       ...(report.requirements || []).map((row) => requirementRow(
         (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row.required)),
       ...section('Périmés ou inutilisables encore dans le lot : à remplacer', report.expired),
@@ -2376,7 +2381,7 @@
           el('div', { class: 'name' }, group.row.type_name),
           el('div', { class: 'sub' }, [group.row.location ? '📍 ' + group.row.location : '',
             group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`,
-            expired ? `${expired} périmé(s)` : '',
+            expired ? nb(expired, 'périmé') : '',
             group.fromStock > 0 ? `${group.fromStock} à prendre dans le stock` : ''].filter(Boolean).join(' · '))),
         [reportMark({ lot: lot.id, lotName: lot.name, type: group.row.type, label: `${group.row.type_name} (${lot.name})` }),
           el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)]);
@@ -2411,13 +2416,13 @@
     const last = state.lastVerif;
     if (last && last.lotId === state.lot.id && !allScanned().length) {
       const at = new Date(last.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-      const what = last.partial ? `vérif partielle (${last.lots} lot(s) vérifié(s))`
+      const what = last.partial ? `vérif partielle (${nb(last.lots, 'lot vérifié', 'lots vérifiés')})`
         : `${last.lots > 1 ? 'lots' : 'lot'} ${last.complete ? 'complet' + (last.lots > 1 ? 's' : '') : 'incomplet'}`;
       list.replaceChildren(
         el('li', { class: 'group ' + (last.complete ? 'ok' : 'bad') },
           el('div', { class: 'main' },
             el('div', { class: 'name' }, `${last.complete ? '✔' : '✘'} Vérif enregistrée à ${at}`),
-            el('div', { class: 'sub' }, `${last.present} item(s) présent(s) · ${what}`))),
+            el('div', { class: 'sub' }, `${nb(last.present, 'item présent', 'items présents')} · ${what}`))),
         el('li', { class: 'empty' }, 'Scannez un item pour commencer une nouvelle vérif.'));
       return 0;
     }
@@ -2493,7 +2498,7 @@
       } else {
         left += 1;
         if (who.length) { cls = 'partial'; sub = `En cours · ${who.join(', ')}`; }
-        else if (touched(child.id)) { cls = 'partial'; sub = `Commencé · ${scanned} scanné(s), pas encore validé`; }
+        else if (touched(child.id)) { cls = 'partial'; sub = `Commencé · ${nb(scanned, 'scanné')}, pas encore validé`; }
         else { cls = 'todo'; sub = 'À faire · état actuel : ' + childStatus(child).label; }
       }
       rows.push(el('li', { class: 'lot-head sub-lot ' + cls, onclick: () => {
@@ -2504,7 +2509,7 @@
       } },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, (child.is_sealed ? '🔒 ' : '📦 ') + child.name),
-        el('div', { class: 'sub' }, sub + (subs ? ` · ${subs} sous-lot(s)` : ''))),
+        el('div', { class: 'sub' }, sub + (subs ? ` · ${nb(subs, 'sous-lot')}` : ''))),
       el('span', { class: 'chevron' }, '›')));
     }
     const { groups, others: loose, remaining } = level.storage || ownContent(level) ? expectedGroups(level, plan)
@@ -2839,12 +2844,12 @@
     const stockTile = $('#tile-stock');
     stockTile.classList.toggle('disabled', !!state.user && !canSeeStock());
     stockTile.setAttribute('aria-disabled', String(!!state.user && !canSeeStock()));
-    $('#tile-stock-sub').textContent = !state.user ? 'Connexion requise' : canSeeStock() ? (state.tasks ? (state.tasks.count ? `${state.tasks.count} tâche(s) à faire` : 'Rien à faire')
+    $('#tile-stock-sub').textContent = !state.user ? 'Connexion requise' : canSeeStock() ? (state.tasks ? (state.tasks.count ? `${nb(state.tasks.count, 'tâche')} à faire` : 'Rien à faire')
       : 'Tâches, stock et prévisions')
       : 'Réservé gestion et admin';
     const counts = state.reports && state.reports.counts;
     $('#tile-reports-sub').textContent = !state.user ? 'Connexion requise'
-      : counts && isAdmin() && counts.new ? `${counts.new} nouveau(x) à traiter`
+      : counts && isAdmin() && counts.new ? `${nb(counts.new, 'nouveau', 'nouveaux')} à traiter`
         : counts && counts.new + counts.progress ? `${counts.new + counts.progress} en cours` : 'En cours et résolus';
     $('#tile-reports').classList.toggle('alert', !!(counts && isAdmin() && counts.new));
     stockTile.classList.toggle('alert', !!(canSeeStock() && state.tasks && state.tasks.categories.some((row) => row.level === 'bad')));
@@ -3358,9 +3363,9 @@
     const kind = done ? (done.complete ? 'ok' : 'bad') : row.connected ? '' : 'lost';
     const lot = row.lot || { id: '', name: '?' };
     const status = done && done.lots != null
-      ? `${done.complete ? '✔' : '✘'} Terminée à ${timeOf(done.at)} : ${done.lots} lot(s) validé(s)` + (done.incomplete ? `, dont ${done.incomplete} incomplet(s)` : '')
+      ? `${done.complete ? '✔' : '✘'} Terminée à ${timeOf(done.at)} : ${nb(done.lots, 'lot validé', 'lots validés')}` + (done.incomplete ? `, dont ${nb(done.incomplete, 'incomplet')}` : '')
       : done
-      ? `${done.complete ? '✔' : done.partial ? '↷' : '✘'} Validée à ${timeOf(done.at)} : ${done.complete ? 'complet' : done.partial ? 'vérif partielle' : 'incomplet'}, ${done.present} présent(s)`
+      ? `${done.complete ? '✔' : done.partial ? '↷' : '✘'} Validée à ${timeOf(done.at)} : ${done.complete ? 'complet' : done.partial ? 'vérif partielle' : 'incomplet'}, ${nb(done.present, 'présent')}`
       : row.connected ? (row.scanned.length ? `En cours · dernier scan ${ago(row.updated)}` : 'En cours · aucun item scanné')
         : `Connexion perdue ${ago(row.updated)}`;
     const open = watch.open.has(row.id);
@@ -3417,8 +3422,8 @@
       parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad' },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, ...row.lots.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)])),
-          el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${row.present} présent(s)`
-            + (row.missing ? ` · ${row.missing} manquant(s)` : '') + (row.expired ? ` · ${row.expired} périmé(s)` : ''))),
+          el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${nb(row.present, 'présent')}`
+            + (row.missing ? ` · ${nb(row.missing, 'manquant')}` : '') + (row.expired ? ` · ${nb(row.expired, 'périmé')}` : ''))),
         el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
     }
     view.replaceChildren(...parts);
@@ -3771,9 +3776,9 @@
     for (const type of sorted) {
       const point = at(type);
       const details = [];
-      if (point.expiring) details.push(`${point.expiring} périme(nt)` + (point.lost ? ` dont ${point.lost} perdu(s)` : ''));
+      if (point.expiring) details.push(`${point.expiring} ${pl(point.expiring, 'périme', 'périment')}` + (point.lost ? ` dont ${nb(point.lost, 'perdu')}` : ''));
       if (type.order) details.push(`commander ${type.order.quantity} avant le ${fmtDate(type.order.before)}`);
-      else if (!details.length) details.push(type.per_month ? `${Math.round(type.per_month * 10) / 10} utilisé(s) par mois` : 'rien à signaler');
+      else if (!details.length) details.push(type.per_month ? `${nb(Math.round(type.per_month * 10) / 10, 'utilisé')} par mois` : 'rien à signaler');
       const kind = type.order && type.order.urgent ? 'bad' : type.below_min ? 'warn' : '';
       parts.push(el('div', { class: 'stock-row ' + kind },
         requirementRow(type.name, point.stock, type.min_quantity),
@@ -3877,10 +3882,10 @@
       const rows = [...state.stock].sort((a, b) => ratio(a) - ratio(b));
       for (const row of rows) {
         const details = [`${row.lots_fresh} dans les lots`];
-        if (row.stock_expired + row.lots_expired) details.push(`${row.stock_expired + row.lots_expired} périmé(s)`);
-        if (row.expiring_soon) details.push(`${row.expiring_soon} bientôt périmé(s)`);
-        if (row.missing) details.push(`${row.missing} disparu(s)`);
-        if (row.out) details.push(`${row.out} sorti(s) sans lot`);
+        if (row.stock_expired + row.lots_expired) details.push(nb(row.stock_expired + row.lots_expired, 'périmé'));
+        if (row.expiring_soon) details.push(`${row.expiring_soon} bientôt ${pl(row.expiring_soon, 'périmé')}`);
+        if (row.missing) details.push(nb(row.missing, 'disparu'));
+        if (row.out) details.push(`${nb(row.out, 'sorti')} sans lot`);
         if (row.loose) details.push(`${row.loose} hors lot`);
         parts.push(el('div', { class: 'stock-row' },
           requirementRow(row.name, row.stock_fresh, row.min_quantity),
@@ -3938,7 +3943,7 @@
     $('#validate-hint').textContent = waiting ? 'En attente des autres participants' : 'Valider ma partie de la vérif';
     if (waiting) validateButton.title = 'Votre partie est validée. Scannez un item pour la reprendre.';
     validateButton.textContent = waiting ? 'Partie validée ✔' : state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
-      : out ? `Sortir ${scannedIids().size} item(s) du stock` : restock ? 'Vérif complète…'
+      : out ? `Sortir ${nb(scannedIids().size, 'item')} du stock` : restock ? 'Vérif complète…'
         : missing.length ? 'Valider la vérif…' : 'Valider la vérif';
     if (inCascade() && !out) renderCascadeActions(validateButton);
     live.publish(liveSnapshot(remaining));
@@ -4167,7 +4172,7 @@
     }
     if (lot.seal_check === 'valid') {
       return el('div', { class: 'banner bad' }, el('b', {}, '✘ Scellé intact mais périmés'),
-        el('div', {}, `${lot.expired_count} item(s) périmé(s) : lot à ouvrir`), sealed ? el('div', { style: 'font-weight:400' }, sealed) : '');
+        el('div', {}, `${nb(lot.expired_count, 'item périmé', 'items périmés')} : lot à ouvrir`), sealed ? el('div', { style: 'font-weight:400' }, sealed) : '');
     }
     if (lot.seal_check === 'wrong') {
       return el('div', { class: 'banner warn' }, el('b', {}, "⚠ Étiquette d'un ancien scellé"),
@@ -4201,7 +4206,7 @@
       sealIntact ? '' : el('div', { class: 'banner ' + status.kind }, status.label),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot),
-      current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${state.scanned.length} scan(s).`) : '',
+      current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${nb(state.scanned.length, 'scan')}.`) : '',
       lot.is_sealed && !sealIntact ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
         + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif
@@ -4209,7 +4214,7 @@
       expiryLine(lot),
       revisionLine(lot),
       !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
-        ? `⚠ Réassort de ${lot.restocked_count} item(s) ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
+        ? `⚠ Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : lot.back_from_list ? `⚠ Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : lot.marked_used ? `⚠ Marqué utilisé ${fmtOn(lot.marked_used, { long: true })}${lot.marked_used_by ? ' par ' + lot.marked_used_by : ''} : vérif complète recommandée.`
         : `⚠ Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
@@ -4250,7 +4255,7 @@
         parts.push(el('ul', { class: 'list' }, el('li', { class: 'lot-head ' + subStatus.kind,
           style: `padding-left:${12 + Math.max(0, (sub.depth || 1) - 1) * 14}px`, onclick: () => openFiche('lot', sub.id) },
         el('div', { class: 'main' }, el('div', { class: 'name' }, '📦 ', ficheLink('lot', sub.id, sub.name)),
-          el('div', { class: 'sub' }, `${sub.lot_type_name} · ${sub.item_count} item(s)`)),
+          el('div', { class: 'sub' }, `${sub.lot_type_name} · ${nb(sub.item_count, 'item')}`)),
         el('span', { class: 'tag ' + tags[subStatus.kind] }, subStatus.label.replace(/^[✔✘⚠] /, '').split(',')[0]))));
       }
       // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption (a remplacer en haut)
@@ -4365,7 +4370,7 @@
     return el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Prochaine péremption : ',
       el('b', {}, next ? fmtDate(next.date) : 'aucune'),
       next ? ` (${[...next.names].join(', ')})` : ' (aucun item périssable)',
-      expired ? ` · ${expired} item(s) déjà périmé(s)` : '');
+      expired ? ` · ${nb(expired, 'item déjà périmé', 'items déjà périmés')}` : '');
   }
 
   // Prochaine revision du materiel d'un lot et de ses sous-lots (rien si le lot n'a pas de materiel a reviser)
@@ -4385,7 +4390,7 @@
     return el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Prochaine révision : ',
       el('b', {}, next ? fmtDate(next.date) : '–'),
       next ? ` (${[...next.names].join(', ')})` : '',
-      late ? ` · ${late} révision(s) en retard` : '');
+      late ? ` · ${nb(late, 'révision')} en retard` : '');
   }
 
   const ITEM_STATUS = { out: 'Sorti du stock', loose: 'Hors lot, pas encore en stock', missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Remplacé (périmé)' };
@@ -4895,8 +4900,8 @@
     listAction('close-return', {}, (result) => {
       stopListScan();
       lists.message = null;
-      toast(`Retour clos : ${(result.used || []).length} consommable(s) utilisé(s)`
-        + ((result.still_out || []).length ? `, ${result.still_out.length} matériel(s) encore sorti(s)` : '') + '.');
+      toast(`Retour clos : ${nb((result.used || []).length, 'consommable utilisé', 'consommables utilisés')}`
+        + ((result.still_out || []).length ? `, ${nb(result.still_out.length, 'matériel encore sorti', 'matériels encore sortis')}` : '') + '.');
     });
   }
 
@@ -5044,8 +5049,8 @@
     parts.push(el('ul', { class: 'list' }, ...data.lists.map((row) => el('li', { onclick: () => openList(row.id) },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, row.name),
-        el('div', { class: 'sub' }, [row.owner_name, row.template ? `${row.line_count} ligne(s)`
-          : `${row.done_count}/${row.line_count} ligne(s) prête(s)`, 'modifiée ' + fmtDateTime(row.updated)].join(' · '))),
+        el('div', { class: 'sub' }, [row.owner_name, row.template ? nb(row.line_count, 'ligne')
+          : `${row.done_count}/${nb(row.line_count, 'ligne prête', 'lignes prêtes')}`, 'modifiée ' + fmtDateTime(row.updated)].join(' · '))),
       el('span', { class: 'tag ' + (row.template ? 'gray' : LIST_TAGS[row.status] || 'blue') }, row.status_label)))));
     return parts;
   }
@@ -5090,11 +5095,11 @@
     }
     const done = line.scanned >= line.quantity;
     const title = line.kind === 'lot' ? line.lot_name : line.type_name;
-    const sub = line.kind === 'lot' ? `Lot · ${line.lot_type_name}` : `${line.quantity} demandé(s)`;
+    const sub = line.kind === 'lot' ? `Lot · ${line.lot_type_name}` : nb(line.quantity, 'demandé');
     const out = list.status !== 'draft';
     const count = line.kind === 'lot' ? (line.scanned ? '✓' : '–') : `${line.scanned}/${line.quantity}`;
     const back = out && line.scanned ? (line.kind === 'lot' ? (line.back ? 'rentré' : 'pas rentré')
-      : `${line.back}/${line.scanned} rentré(s)`) : '';
+      : `${line.back}/${nb(line.scanned, 'rentré')}`) : '';
     const rows = [el('li', { class: 'static ' + (out ? (line.kind === 'lot' ? line.back : line.back >= line.scanned) && line.scanned ? 'ok' : ''
       : done ? 'ok' : '') },
       // case visuelle comme pour les taches : cochee quand la ligne est prise, mais on coche en scannant
@@ -5135,7 +5140,7 @@
     } else if (list.status === 'draft') {
       parts.push(el('div', { class: 'banner ' + (list.complete ? 'ok' : 'info') }, list.complete
         ? 'Tout est prêt : validez la liste.'
-        : `${list.done_count}/${list.line_count} ligne(s) prête(s). Scannez l'étiquette des lots et le matériel pris dans le stock, cochez les tâches.`));
+        : `${list.done_count}/${nb(list.line_count, 'ligne prête', 'lignes prêtes')}. Scannez l'étiquette des lots et le matériel pris dans le stock, cochez les tâches.`));
       buttons.push(lists.mode
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Scanner'));

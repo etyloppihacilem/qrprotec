@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "app.hpp"
+#include "../core/plural.hpp"
 #include "../printer/logging.hpp"
 
 #include "../ui/inateck.hpp"
@@ -412,11 +413,11 @@ void App::draw_menu_bar() {
       ImGui::PopStyleColor();
       if (ImGui::BeginItemTooltip()) {
         if (lots.red > 0)
-          ImGui::Text("%d incomplet(s), jamais vérifié(s) ou à sceller", lots.red);
+          ImGui::Text("%d %s, %s ou à sceller", lots.red, pl(lots.red, "incomplet").c_str(), pl(lots.red, "jamais vérifié").c_str());
         if (lots.expired > 0)
           ImGui::Text("%d avec des périmés", lots.expired);
         if (lots.recommended > 0)
-          ImGui::Text("%d vérif(s) recommandée(s)", lots.recommended);
+          ImGui::Text("%s", nb(lots.recommended, "vérif recommandée", "vérifs recommandées").c_str());
         ImGui::TextDisabled("Cliquer : liste des lots à traiter.");
         ImGui::EndTooltip();
       }
@@ -1691,7 +1692,7 @@ void App::resolve_pack(int entry_id) {
     }
     if (result.data["disabled"].integer() > 0) {
       // items desactives (rappel produit) : a remplacer comme des perimes
-      entry->detail += " - " + result.data["disabled"].str() + " item(s) désactivé(s)";
+      entry->detail += " - " + nb(result.data["disabled"].integer(), "item désactivé", "items désactivés");
       if (!entry->expired) {
         entry->expired = true;
         feedback.error(source, settings);
@@ -2583,7 +2584,7 @@ void App::finish_cascade(const std::string &message) {
   const std::string name = verif.lot["name"].str(verif.lot_id);
   stack.clear();
   cancel_verif();
-  notify(!message.empty() ? message : "Vérif de " + name + " terminée : " + std::to_string(done) + " lot(s) validé(s).");
+  notify(!message.empty() ? message : "Vérif de " + name + " terminée : " + nb(done, "lot validé", "lots validés") + ".");
   refresh_lots();
 }
 
@@ -2725,7 +2726,7 @@ void App::submit_step(bool partial) {
       if (!finished)
         notify(name + (verified ? " : vérif partielle enregistrée." : " : réassort enregistré."));
       else if (verif.after_step.empty()) // validation automatique : message plus bas
-        notify(name + " validé" + (incomplete ? " : incomplet, " + std::to_string(missing) + " item(s) manquant(s)." : ".")
+        notify(name + " validé" + (incomplete ? " : incomplet, " + nb(missing, "item manquant", "items manquants") + "." : ".")
                  + " Retour au lot qui le contient.",
                incomplete > 0);
       if (finished)
@@ -3058,10 +3059,10 @@ void App::restock_verif() {
         notify("Ajout refusé : " + result.error, true);
         return;
       }
-      notify("Réassort : " + std::to_string(result.data["moved"].size()) + " item(s) ajouté(s) à " + name
+      notify("Réassort : " + nb(result.data["moved"].size(), "item ajouté", "items ajoutés") + " à " + name
              + ". Vérif complète recommandée.");
       if (result.data["unknown"].size() > 0)
-        notify(std::to_string(result.data["unknown"].size()) + " item(s) inconnu(s) ignoré(s).", true);
+        notify(nb(result.data["unknown"].size(), "item inconnu ignoré", "items inconnus ignorés") + ".", true);
       stack.clear();
       if (verif.active && verif.lot_id == lot) {
         cancel_verif();
@@ -3094,9 +3095,9 @@ void App::add_stack_to_lot() {
         notify("Ajout refusé : " + result.error, true);
         return;
       }
-      notify(std::to_string(result.data["moved"].size()) + " item(s) ajoute(s) au lot " + target.name + ".");
+      notify(nb(result.data["moved"].size(), "item ajouté", "items ajoutés") + " au lot " + target.name + ".");
       if (result.data["unknown"].size() > 0)
-        notify(std::to_string(result.data["unknown"].size()) + " item(s) inconnu(s) ignore(s).", true);
+        notify(nb(result.data["unknown"].size(), "item inconnu ignoré", "items inconnus ignorés") + ".", true);
       stack.clear();
       if (verif.active && verif_covers(target.id)) {
         cancel_verif();
@@ -3122,7 +3123,7 @@ void App::stack_to_stock() {
       notify("Retour en stock refusé : " + result.error, true);
       return;
     }
-    notify(std::to_string(result.data["moved"].size()) + " item(s) remis en stock.");
+    notify(nb(result.data["moved"].size(), "item remis", "items remis") + " en stock.");
     stack.clear();
     refresh_lots();
   });
@@ -3145,8 +3146,10 @@ void App::stack_out() {
         notify("Sortie refusée : " + result.error, true);
         return;
       }
-      notify(std::to_string(result.data["out"].size()) + " item(s) sorti(s) du stock : à scanner à une vérif dans les "
-             + std::to_string(result.data["days"].integer()) + " jours, sinon comptés utilisés.");
+      const std::size_t out = result.data["out"].size();
+      notify(nb(out, "item sorti", "items sortis") + " du stock : à scanner à une vérif dans les "
+             + std::to_string(result.data["days"].integer()) + " jours, sinon " + pl(out, "compté utilisé", "comptés utilisés")
+             + ".");
       for (const Json &row : result.data["refused"].items())
         notify("Non sorti : " + row["iid"].str() + " (" + row["reason"].str() + ")", true);
       stack.clear();
@@ -3409,7 +3412,7 @@ void App::preview_jobs(std::vector< PrintJob > jobs, const std::string &title) {
 void App::print_documents(std::vector< PrintJob > jobs) {
   const std::size_t count = jobs.size();
   printer.enqueue(std::move(jobs), settings.print, settings.physical_label());
-  notify(std::to_string(count) + " étiquette(s) envoyée(s) à l'imprimante.");
+  notify(nb(count, "étiquette envoyée", "étiquettes envoyées") + " à l'imprimante.");
 }
 
 } // namespace qrprotec

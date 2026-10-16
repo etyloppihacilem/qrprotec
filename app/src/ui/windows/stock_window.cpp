@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../widgets.hpp"
+#include "../../core/plural.hpp"
 #include "imgui_stdlib.h"
 #include "implot.h"
 #include "windows.hpp"
@@ -413,7 +414,7 @@ class StockWindow final : public AppWindow {
       ImGui::TextDisabled("· conso %s / mois", rate_text(row["per_month"].num()).c_str());
       if (row["unconfirmed"].integer() > 0) {
         ImGui::SameLine();
-        ImGui::TextDisabled("· %d non confirmé(s)", row["unconfirmed"].integer());
+        ImGui::TextDisabled("· %d non %s", row["unconfirmed"].integer(), pl(row["unconfirmed"].integer(), "confirmé").c_str());
         help_marker("Items manqués à la dernière vérif : ils ne comptent pas dans les prévisions. S'ils sont "
                     "retrouvés (vérif, ajout à un lot), ils reviennent et ne comptent plus comme utilisés.");
       }
@@ -424,7 +425,7 @@ class StockWindow final : public AppWindow {
                            date_text(order["before"]).c_str(), date_text(order["below_min"]).c_str());
       }
       if (row["expired_now"].integer() > 0)
-        ImGui::TextColored(colors::red, "%d périmé(s) aujourd'hui (stock et lots)", row["expired_now"].integer());
+        ImGui::TextColored(colors::red, "%s aujourd'hui (stock et lots)", nb(row["expired_now"].integer(), "périmé").c_str());
 
       draw_projection_plot(row);
       draw_expiry_plot(row);

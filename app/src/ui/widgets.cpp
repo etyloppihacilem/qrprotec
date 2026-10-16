@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "widgets.hpp"
+#include "../core/plural.hpp"
 
 #include "../core/codes.hpp"
 #include "../core/search.hpp"
@@ -683,7 +684,7 @@ std::string lot_status_banner(const Json &lot) {
       }
       banner = "! VÉRIF COMPLÈTE RECOMMANDÉE – réassort";
       if (lot["restocked_count"].integer() > 0)
-        banner += " de " + std::to_string(lot["restocked_count"].integer()) + " item(s)";
+        banner += " de " + nb(lot["restocked_count"].integer(), "item");
       if (const auto when = Date::parse(lot["restocked"].str()))
         banner += " le " + when->display();
       if (!lot["restocked_by"].str().empty())

@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../../app/labels.hpp"
+#include "../../core/plural.hpp"
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
@@ -471,7 +472,7 @@ class LotAdminWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
-      ImGui::Text("%d item(s), dont %d périmé(s).", lot_["item_count"].integer(), lot_["expired_count"].integer());
+      ImGui::Text("%s, dont %s.", nb(lot_["item_count"].integer(), "item").c_str(), nb(lot_["expired_count"].integer(), "périmé").c_str());
       if (ImGui::BeginTable("lot_items", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupColumn("Produit", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);

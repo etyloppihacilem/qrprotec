@@ -30,6 +30,7 @@ from . import forecast as stock_forecast
 from . import serializers as ser
 from . import services
 from .idendity import identity_name
+from .journal import pl, plural
 from .models import (
     Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, ProblemReport, ReportStatus,
     Secouristes, Verifs, qrprotec_setting,
@@ -97,13 +98,13 @@ def _missing_text(row):
     parts = [f"{needed - present} × {name}" for name, needed, present in
              ((req['type_name'], req['required'], req['present']) for req in row['requirements'])
              if present < needed]
-    text = ', '.join(parts[:4]) + (f' et {len(parts) - 4} autre(s)' if len(parts) > 4 else '')
+    text = ', '.join(parts[:4]) + (f" et {plural(len(parts) - 4, 'autre')}" if len(parts) > 4 else '')
     return f'manque {text}' if parts else ''
 
 
 def _recommended_reason(row):
     if row['restocked_count']:
-        return (f"réassort de {row['restocked_count']} item(s)"
+        return (f"réassort de {plural(row['restocked_count'], 'item')}"
                 + (f" par {row['restocked_by']}" if row['restocked_by'] else ''), row['restocked'])
     if row['back_from_list']:
         return f"rentré avec la liste « {row['back_from_list']} »", None
@@ -140,7 +141,7 @@ def _lot_tasks(rows, today):
             if missing:
                 parts.append(missing)
             if row['expired_count'] and code != 'sealed_expired':
-                parts.append(f"{row['expired_count']} item(s) à remplacer (périmé, inutilisable ou désactivé)")
+                parts.append(f"{plural(row['expired_count'], 'item')} à remplacer (périmé, inutilisable ou désactivé)")
             tasks.append(task('invalid', 'bad', where, ' · '.join(parts) or state['label'], row['last_verif'],
                               **common, sort=INVALID_ORDER.get(code, 3)))
         elif state['kind'] == 'warn':
@@ -154,8 +155,9 @@ def _lot_tasks(rows, today):
                                   sort=(3, last.toordinal())))
         if state['kind'] == 'ok' and not row['is_sealed'] and row['expiring_soon_count']:
             # perimes dans les 30 jours d'un lot valide (un lot invalide les a deja dans sa tache)
+            soon = row['expiring_soon_count']
             tasks.append(task('periodic', 'info', f'Péremptions proches : {where}',
-                              f"{row['expiring_soon_count']} item(s) périment dans les 30 jours : à remplacer "
+                              f"{plural(soon, 'item')} {pl(soon, 'périme', 'périment')} dans les 30 jours : à remplacer "
                               'au prochain passage', None, **common, sort=(2, 0)))
     return tasks
 
@@ -201,12 +203,12 @@ def _stock_verif_tasks():
         counts = Counter(move.item_type.name for move in moves)
         summary = ', '.join(f'{count} × {name}' for name, count in counts.most_common(4))
         if len(counts) > 4:
-            summary += f' et {len(counts) - 4} autre(s) type(s)'
+            summary += f" et {plural(len(counts) - 4, 'autre type', 'autres types')}"
         people = sorted({identity_name(move.by) for move in moves if move.by})
         last = (lot.last_verif if lot and lot.last_verif and (not last_stock or lot.last_verif > last_stock)
                 else last_stock)
         since = f'depuis la dernière vérif ({_day(last)})' if last else 'et jamais vérifié'
-        detail = f'{len(moves)} item(s) sorti(s) {since} : {summary}'
+        detail = f"{plural(len(moves), 'item sorti', 'items sortis')} {since} : {summary}"
         if people:
             detail += ' · par ' + ', '.join(people[:3]) + ('…' if len(people) > 3 else '')
         tasks.append(task('stock_verif', 'warn', f'Vérifier {lot.name}' if lot else 'Vérifier le stock', detail,
@@ -235,7 +237,7 @@ def _forecast_tasks(today):
         source = group['source']
         when = ('scellé, à ouvrir avant le ' if source['sealed'] else 'avant le ') + _day(group['before'])
         tasks.append(task('transfers', 'warn' if source['sealed'] else 'info', f"Échanges dans {source['path']}",
-                          f"{when} · " + ', '.join(moves[:3]) + (f' et {len(moves) - 3} autre(s)' if len(moves) > 3 else ''),
+                          f"{when} · " + ', '.join(moves[:3]) + (f" et {plural(len(moves) - 3, 'autre')}" if len(moves) > 3 else ''),
                           group['before'], 'forecast', lot=source['id'], sort=group['before'].toordinal()))
     return tasks
 
@@ -266,7 +268,8 @@ def _periodic_tasks(today):
         counts = Counter(item.pack.item_type.name for item in expired_items)
         summary = ', '.join(f'{count} × {name}' for name, count in counts.most_common(5))
         tasks.append(task('periodic', 'warn', 'Retirer les périmés du stock',
-                          f'{len(expired_items)} item(s) périmés, inutilisables ou désactivés : {summary}',
+                          f"{plural(len(expired_items), 'item périmé, inutilisable ou désactivé', 'items périmés, inutilisables ou désactivés')} : "
+                          f'{summary}',
                           None, 'inventory', sort=(1, 0)))
     # listes de materiel sorties et pas rentrees
     since = timezone.now() - timedelta(days=LIST_RETURN_DAYS)
@@ -282,7 +285,7 @@ def _periodic_tasks(today):
         counts = Counter(item.pack.item_type.name for item in loose)
         summary = ', '.join(f'{count} × {name}' for name, count in counts.most_common(5))
         tasks.append(task('periodic', 'info', 'Ranger le matériel hors lot',
-                          f'{len(loose)} item(s) retirés d\'un lot, ni en stock ni dans un lot : {summary}', None,
+                          f"{plural(len(loose), 'item retiré', 'items retirés')} d'un lot, ni en stock ni dans un lot : {summary}", None,
                           'inventory', sort=(1, 1)))
     return tasks
 

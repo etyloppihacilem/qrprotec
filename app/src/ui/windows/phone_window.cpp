@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../widgets.hpp"
+#include "../../core/plural.hpp"
 #include "windows.hpp"
 
 #include <algorithm>
@@ -52,7 +53,7 @@ class PhoneWindow final : public AppWindow {
       }
       if (remote.phone_connected && !remote.phone_agent.empty())
         ImGui::TextDisabled("%s", remote.phone_agent.c_str());
-      ImGui::Text("%d code(s) reçu(s) du téléphone.", remote.scans);
+      ImGui::Text("%s du téléphone.", nb(remote.scans, "code reçu", "codes reçus").c_str());
 
       const bool show_qr = !remote.phone_connected || show_qr_;
       if (remote.phone_connected && ImGui::Checkbox("Afficher le QR code (connecter un autre téléphone)", &show_qr_)) {
