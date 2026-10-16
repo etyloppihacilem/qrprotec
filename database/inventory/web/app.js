@@ -4636,6 +4636,7 @@
     busy: false,
     timer: 0,
     qr: { url: '', src: '' },
+    qrOpen: '',
   };
 
   const listUrl = (id) => new URL(`liste?id=${encodeURIComponent(id)}`, document.baseURI).href;
@@ -4801,6 +4802,19 @@
     } else if (navigator.clipboard) {
       navigator.clipboard.writeText(list.url).then(() => toast('Lien copié.'), () => toast(list.url));
     } else toast(list.url);
+  }
+
+  const ICONS = {
+    share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2"/>',
+    qr: '<rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/>'
+      + '<rect x="3.5" y="14.5" width="6" height="6" rx="1"/><path d="M14.5 14.5h2.5v2.5M20.5 14.5v0M14.5 20.5h2.5M20 17.5v3"/>',
+  };
+
+  function icon(name) {
+    const span = el('span', { class: 'icon', 'aria-hidden': 'true' });
+    span.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"`
+      + ` stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+    return span;
   }
 
   function listQr(url) {
@@ -5001,11 +5015,21 @@
     parts.push(el('ul', { class: 'list' }, ...list.lines.flatMap((line) => listLineRows(list, line, backIids))));
     if (list.status === 'draft' || list.template) {
       const src = listQr(list.url);
-      parts.push(el('h3', {}, 'Partager'),
-        el('p', { class: 'hint' }, list.template ? 'Le lien ouvre le modèle.' : 'Le lien ou le QR code ouvre la liste pour la vérifier en direct, à plusieurs.'),
+      // Partage replie : le bouton de partage, et le QR code qui deplie le reste (QR, explication, lien cliquable)
+      const panel = el('div', { class: 'list-qr-panel', hidden: lists.qrOpen !== list.id || null },
         src ? el('img', { class: 'qr', src, alt: 'QR code de la liste' }) : '',
-        el('p', { class: 'hint' }, el('a', { class: 'break', href: list.url }, list.url)),
-        el('button', { type: 'button', class: 'secondary', onclick: () => shareList(list) }, navigator.share ? 'Partager le lien' : 'Copier le lien'));
+        el('p', { class: 'hint' }, list.template ? 'Le lien ouvre le modèle.' : 'Le lien ou le QR code ouvre la liste pour la vérifier en direct, à plusieurs.'),
+        el('p', { class: 'hint' }, el('a', { class: 'break', href: list.url }, list.url)));
+      const qrButton = el('button', { type: 'button', class: 'secondary icon-only', title: 'QR code et lien',
+        'aria-label': 'QR code et lien', 'aria-expanded': String(lists.qrOpen === list.id), onclick: () => {
+          lists.qrOpen = lists.qrOpen === list.id ? '' : list.id;
+          panel.hidden = lists.qrOpen !== list.id;
+          qrButton.setAttribute('aria-expanded', String(!panel.hidden));
+        } }, icon('qr'));
+      parts.push(el('div', { class: 'list-share' },
+        el('button', { type: 'button', class: 'secondary', onclick: () => shareList(list) },
+          icon('share'), navigator.share ? 'Partager le lien' : 'Copier le lien'),
+        qrButton), panel);
     }
     const more = [];
     if (list.can_edit && list.status === 'draft') more.push(el('button', { type: 'button', onclick: () => editList(list) }, 'Modifier'));
