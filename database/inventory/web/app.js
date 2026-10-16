@@ -4906,6 +4906,7 @@
     if (name === null) return;
     listAction('duplicate', { name: name || list.name, template: asTemplate }, (copy) => {
       toast(asTemplate ? 'Modèle créé.' : 'Liste créée : à vérifier.');
+      lists.show = asTemplate ? 'templates' : lists.show === 'templates' ? 'mine' : lists.show;  // retour vers l'onglet ou elle est
       openList(copy.id);
     });
   }

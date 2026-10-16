@@ -159,7 +159,8 @@ quantité, ou une tâche libre `task` cochée avec `done` / `done_by`, 100 ligne
 
 - **Droits** : tout utilisateur connecté lit et vérifie une liste (lien `<base>/liste?id=ID`), crée
   les siennes ; seul l'auteur, la gestion et les admins la modifient ou la suppriment. `show` de la
-  liste : les siennes et les modèles, les modèles, ou toutes (gestion, admin).
+  liste : les siennes (« Mes listes »), les modèles (onglet Modèles, eux seuls), ou toutes
+  les listes hors modèles (gestion, admin).
 - **Statuts** : `draft` (à préparer, modifiable), `validated` (sortie), `returned` (rentrée). Un
   modèle (`is_template`) ne se vérifie pas : on le duplique (`duplicate`, nouvelle liste à
   l'utilisateur, `source` vers l'original). Une liste commencée ne devient pas un modèle.
