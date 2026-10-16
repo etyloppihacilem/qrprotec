@@ -665,6 +665,14 @@ std::string lot_status_banner(const Json &lot) {
           banner += " par " + lot["restocked_by"].str();
         return banner;
       }
+      if (lot["restocked_count"].integer() == 0 && !lot["marked_used"].is_null()) {
+        banner = "! VÉRIF COMPLÈTE RECOMMANDÉE – lot marqué utilisé";
+        if (const auto when = Date::parse(lot["marked_used"].str()))
+          banner += " le " + when->display();
+        if (!lot["marked_used_by"].str().empty())
+          banner += " par " + lot["marked_used_by"].str();
+        return banner;
+      }
       if (lot["restocked_count"].integer() == 0) {
         banner = "! VÉRIF COMPLÈTE RECOMMANDÉE – scellé ouvert";
         if (const auto when = Date::parse(lot["unsealed"].str()))

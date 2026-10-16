@@ -69,9 +69,10 @@ void colored_count(int value, const ImVec4 &color) {
 
 class StockWindow final : public AppWindow {
   public:
-    StockWindow() : AppWindow("stock", "État des stocks", true, true) {}
+    StockWindow() : AppWindow("stock", "Gestion de la TECH", true, true) {}
 
     void on_open(App &app) override {
+      app.refresh_tasks();
       app.refresh_stock();
       app.refresh_forecast();
     }
@@ -89,7 +90,7 @@ class StockWindow final : public AppWindow {
       help_marker("La barre compare les items non périmés au minimum du type. Par défaut seul le stock est compté : "
                   "items hors lots et items rangés dans un rangement du stock (armoire, tiroir : lots dont le type "
                   "est un rangement).");
-      if (app.catalog.loading_stock || app.catalog.loading_forecast) {
+      if (app.catalog.loading_stock || app.catalog.loading_forecast || app.catalog.loading_tasks) {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");
       }
@@ -101,9 +102,14 @@ class StockWindow final : public AppWindow {
       const std::string orders_tab    = "Commandes (" + std::to_string(orders) + ")###orders";
       const std::string transfers_tab = "Transferts (" + std::to_string(forecast["transfers"].size()) + ")###transfers";
 
+      const std::string tasks_tab = "À faire (" + std::to_string(app.catalog.tasks["count"].integer()) + ")###tasks";
       if (!ImGui::BeginTabBar("stock_tabs"))
         return;
-      if (tab_item("Actuel")) {
+      if (tab_item(tasks_tab.c_str())) {
+        draw_tasks(app);
+        ImGui::EndTabItem();
+      }
+      if (tab_item("Actuel", select_ == "stock" ? ImGuiTabItemFlags_SetSelected : 0)) {
         draw_current(app);
         ImGui::EndTabItem();
       }
@@ -111,18 +117,105 @@ class StockWindow final : public AppWindow {
         draw_projection(app);
         ImGui::EndTabItem();
       }
-      if (tab_item(orders_tab.c_str())) {
+      if (tab_item(orders_tab.c_str(), select_ == "orders" ? ImGuiTabItemFlags_SetSelected : 0)) {
         draw_orders(app);
         ImGui::EndTabItem();
       }
-      if (tab_item(transfers_tab.c_str())) {
+      if (tab_item(transfers_tab.c_str(), select_ == "transfers" ? ImGuiTabItemFlags_SetSelected : 0)) {
         draw_transfers(app);
         ImGui::EndTabItem();
       }
       ImGui::EndTabBar();
+      select_.clear();
     }
 
   private:
+    std::string select_; // onglet a ouvrir (tache des commandes, des deplacements ou du stock)
+
+    // ---- À faire : liste de taches de la gestion, par priorite ----
+    void draw_tasks(App &app) {
+      const Json &data = app.catalog.tasks;
+      if (!data.is_object() || data["categories"].size() == 0) {
+        ImGui::TextDisabled(app.catalog.loading_tasks ? "Chargement..." : "Liste de tâches indisponible.");
+        return;
+      }
+      ImGui::TextWrapped("Ce qu'il y a à faire pour tenir le stock, le plus important en premier.");
+      if (data["count"].integer() == 0) {
+        status_banner("✔ Rien à faire pour l'instant", colors::green);
+        return;
+      }
+      ImGui::BeginChild("tasks_list");
+      int rank = 0;
+      for (const Json &category : data["categories"].items()) {
+        ++rank;
+        if (category["count"].integer() == 0)
+          continue;
+        const std::string key   = category["key"].str();
+        const std::string title = std::to_string(rank) + ". " + category["title"].str() + " ("
+                                + std::to_string(category["count"].integer()) + ")";
+        ImGui::SeparatorText(title.c_str());
+        ImGui::TextDisabled("%s", category["help"].str().c_str());
+        int index = 0;
+        for (const Json &row : data["tasks"].items()) {
+          if (row["category"].str() != key)
+            continue;
+          ImGui::PushID((key + std::to_string(index++)).c_str());
+          draw_task(app, row);
+          ImGui::PopID();
+        }
+      }
+      ImGui::EndChild();
+    }
+
+    void draw_task(App &app, const Json &row) {
+      const std::string level = row["level"].str();
+      const ImVec4      color = level == "bad" ? colors::red : level == "warn" ? colors::orange : colors::grey;
+      ImGui::TextColored(color, "●");
+      ImGui::SameLine();
+      ImGui::BeginGroup();
+      ImGui::TextWrapped("%s", row["title"].str().c_str());
+      if (!row["detail"].str().empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", row["detail"].str().c_str());
+        ImGui::PopStyleColor();
+      }
+      // ou traiter la tache : fiche du lot, fenetre ou onglet du poste
+      const std::string link = row["link"].str();
+      const std::string lot  = row["lot"].str();
+      if (link == "lot" && !lot.empty()) {
+        if (small_button("Ouvrir le lot"))
+          app.show_lot(lot);
+      } else if (link == "item") {
+        if (!lot.empty() && small_button("Ouvrir le lot"))
+          app.show_lot(lot);
+        else if (lot.empty())
+          ImGui::TextDisabled("Item %s : scannez-le pour le réviser", row["item"].str().c_str());
+      } else if (link == "forecast") {
+        if (small_button(row["category"].str() == "orders" ? "Voir les commandes" : "Voir les transferts"))
+          select_ = row["category"].str() == "orders" ? "orders" : "transfers";
+      } else if (link == "stock") {
+        if (small_button("Voir l'état actuel"))
+          select_ = "stock";
+      } else {
+        static const std::pair< const char *, const char * > windows[] = {
+          { "reports", "Signalements" }, { "lists", "Listes de matériel" }, { "users", "Utilisateurs" },
+          { "inventory", "Inventaire" }, { "lot_admin", "Gestion des lots" },
+        };
+        for (const auto &[id, name] : windows) {
+          if (link != id)
+            continue;
+          const AppWindow *window = app.window(id);
+          if (window && app.can_open(*window)) {
+            if (small_button((std::string("Ouvrir ") + name).c_str()))
+              app.open_window(id);
+          } else
+            ImGui::TextDisabled("%s : réservé aux admins", name);
+        }
+      }
+      ImGui::EndGroup();
+      ImGui::Spacing();
+    }
+
     // filtre par nom, code ou description du type (ex: nom commercial d'un medicament generique)
     bool filter_matches(const App &app, const Json &row) const {
       const std::string type = row["type"].str();

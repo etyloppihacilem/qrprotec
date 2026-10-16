@@ -271,9 +271,11 @@ struct Catalog {
     Json users      = Json::array();
     Json stock      = Json::array();
     Json forecast   = Json::object(); // previsions de stock (/api/stock/forecast/)
+    Json tasks      = Json::object(); // liste de taches de la gestion (/api/tasks/), fenetre Gestion de la TECH
     bool loading_lots     = false;
     bool loading_stock    = false;
     bool loading_forecast = false;
+    bool loading_tasks    = false;
     // incrementes a chaque rechargement : les fenetres rechargent alors leur volet de detail
     int item_types_version = 0;
     int lot_types_version  = 0;
@@ -409,6 +411,9 @@ class App {
     void refresh_users();
     void refresh_stock();
     void refresh_forecast();
+    void refresh_tasks();
+    // « Marquer ce lot comme utilisé (demander une vérif) » : tout utilisateur identifie, lot en vérif recommandee
+    void mark_lot_used(const std::string &lot_id, const std::string &name);
 
     // Impression : un jeu de parametres par etiquette
     bool print_labels(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what);

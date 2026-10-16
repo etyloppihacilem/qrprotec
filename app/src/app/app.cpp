@@ -3235,6 +3235,34 @@ void App::refresh_stock() {
   });
 }
 
+void App::refresh_tasks() {
+  catalog.loading_tasks = true;
+  api.get("/api/tasks/", [this](const ApiResult &result) {
+    catalog.loading_tasks = false;
+    if (result.ok)
+      catalog.tasks = result.data;
+    else
+      notify("Tâches : " + result.error, true);
+  });
+}
+
+void App::mark_lot_used(const std::string &lot_id, const std::string &name) {
+  require_login("marquer ce lot comme utilisé", [this, lot_id, name]() {
+    Json body = Json::object();
+    add_identity(body);
+    api.post("/api/lots/" + lot_id + "/used/", body, [this, name](const ApiResult &result) {
+      if (identity_refused(result))
+        return;
+      if (!result.ok) {
+        notify("Marquer comme utilisé : " + result.error, true);
+        return;
+      }
+      notify(name + " marqué utilisé : vérif recommandée pour les suivants.");
+      refresh_lots();
+    });
+  });
+}
+
 void App::refresh_forecast() {
   catalog.loading_forecast = true;
   api.get("/api/stock/forecast/?months=6&lead_days=" + std::to_string(settings.order_lead_days)

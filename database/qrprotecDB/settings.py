@@ -81,6 +81,9 @@ QRPROTEC = {
     'MISSING_AFTER_VERIFS': int(os.environ.get('QRPROTEC_MISSING_AFTER_VERIFS', '3')),
     # Un item sorti du stock sans lot est compte comme utilise s'il n'est pas revu a une verif dans ce delai
     'OUT_DAYS': int(os.environ.get('QRPROTEC_OUT_DAYS', '30')),
+    # Liste de taches de la gestion : vérif de routine proposee pour un lot valide pas verifie depuis ce nombre de
+    # jours (0 : jamais)
+    'ROUTINE_VERIF_DAYS': int(os.environ.get('QRPROTEC_ROUTINE_VERIF_DAYS', '90')),
     # Previsions de stock : mois d'historique pour mesurer la consommation, delai de livraison d'une commande
     'FORECAST_HISTORY_MONTHS': int(os.environ.get('QRPROTEC_FORECAST_HISTORY_MONTHS', '6')),
     'ORDER_LEAD_DAYS': int(os.environ.get('QRPROTEC_ORDER_LEAD_DAYS', '15')),

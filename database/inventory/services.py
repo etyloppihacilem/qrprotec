@@ -399,9 +399,11 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 sub_lot.verif_recommended = False
                 sub_lot.restocked_count = 0
                 sub_lot.back_from_list = ''
+                sub_lot.marked_used = None
+                sub_lot.marked_used_by = ''
                 sub_lot.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'last_used',
                                             'last_used_by', 'verif_recommended', 'restocked_count',
-                                            'back_from_list'])
+                                            'back_from_list', 'marked_used', 'marked_used_by'])
                 requirements = requirements_status(sub_lot, today)
                 lot_expired = [iid for iid in report['expired'] if target.get(iid) == sub_lot.id]
                 lot_complete = all(r['present'] >= r['required'] for r in requirements) and not lot_expired
@@ -666,10 +668,12 @@ def open_seal_with_label(lot, identity):
         recommended = {sub_lot.id: sub_lot for sub_lot in lot.descendants()}
         recommended.update({sealed.id: sealed for sealed in opened})
         for target in recommended.values():
-            if not target.verif_recommended or target.back_from_list:
+            if not target.verif_recommended or target.back_from_list or target.marked_used:
                 target.verif_recommended = True
                 target.back_from_list = ''
-                target.save(update_fields=['verif_recommended', 'back_from_list'])
+                target.marked_used = None
+                target.marked_used_by = ''
+                target.save(update_fields=['verif_recommended', 'back_from_list', 'marked_used', 'marked_used_by'])
         return 'opened'
     if (identity and lot.unsealed_by == SEAL_OPENED_ANONYMOUSLY and lot.unsealed
             and timezone.now() - lot.unsealed <= SEAL_OPENING_SIGN_DELAY):
@@ -689,6 +693,35 @@ def open_seal_with_label(lot, identity):
                              url=f'../verif?lot={lot.id}', tag=f'seal-{lot.id}', tab='lot')
         return 'signed'
     return 'already'
+
+
+def mark_used(lot, identity):
+    """Bouton « Marquer ce lot comme utilisé » (tout secouriste) : le lot et ses sous-lots non scelles passent en
+    verif recommandee (orange) pour les suivants, jusqu'a la prochaine verif. Un lot scelle s'ouvre avec l'etiquette
+    d'ouverture (rangee a l'interieur), pas avec ce bouton. Renvoie les lots marques."""
+    if not lot.active:
+        raise ValueError('Lot inactif')
+    if lot.is_sealed:
+        raise ValueError("Lot scellé : scannez l'étiquette d'ouverture rangée à l'intérieur pour l'ouvrir")
+    now = timezone.now()
+    marked = []
+    for target in lot.descendants():
+        if target.is_sealed or target.lot_type.storage or not target.active:
+            continue
+        target.verif_recommended = True
+        target.marked_used = now
+        target.marked_used_by = identity
+        target.last_used = now
+        target.last_used_by = identity
+        target.save(update_fields=['verif_recommended', 'marked_used', 'marked_used_by', 'last_used', 'last_used_by'])
+        marked.append(target)
+    if not marked:
+        raise ValueError('Rien à marquer : rangement du stock ou sous-lots scellés')
+    others = [target.name for target in marked if target.id != lot.id]
+    journal.record(OperationKind.LOT_USED, identity,
+                   'vérif recommandée' + (f" (avec {', '.join(others)})" if others else ''), lot=lot, at=now,
+                   lots=[target.id for target in marked])
+    return marked
 
 
 def move_items(iids, lot, identity, context):

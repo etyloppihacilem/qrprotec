@@ -110,7 +110,7 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
   reste à scanner) et les **dernières vérifs** enregistrées. Pratique pour le chef de poste qui veut
   confirmer que ses équipiers ont fait leur vérif. Badge demandé.
 - **État des lots** : tous les lots et leur état ; toucher un lot l'ouvre.
-- **État des stocks** : rôles gestion et admin (badge demandé, grisé pour les autres).
+- **Gestion de la TECH** (tâches, état des stocks, prévisions) : rôles gestion et admin (badge demandé, grisé pour les autres).
 - ⚙ : réglages des notifications, seulement pour ceux qui peuvent en recevoir.
 
 Une vérif commencée au téléphone apparaît dans le **Suivi des vérifs** dès le premier scan, et y
@@ -298,6 +298,14 @@ Un lot global (un B+) donne **une page par sous-lot** : la première page liste 
 numéro de leur page. Depuis un sous-lot, **Fiche du lot global en PDF** imprime tout le lot global.
 Un lot trop long continue sur une page « suite ». La fiche ne contient aucune clé : elle peut être
 imprimée et laissée dans le lot.
+
+## Marquer un lot comme utilisé
+
+Vous avez pris du matériel dans un lot sans faire de vérif ? Sur la fiche du lot (téléphone, ou fenêtre
+**Lots** du poste), **Marquer ce lot comme utilisé (demander une vérif)**. Le lot (et ses sous-lots) passe
+en orange « Vérif recommandée, lot utilisé » pour les suivants, jusqu'à la prochaine vérif complète. Il faut
+être connecté (badge, ou nom si le serveur l'accepte). Un lot scellé s'ouvre avec son étiquette d'ouverture,
+pas avec ce bouton.
 
 ## Lot scellé
 

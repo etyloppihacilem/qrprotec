@@ -365,6 +365,15 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
 #revision .revision-next { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 2px; }
 #revision .revision-next input { font: inherit; padding: 6px 8px; }
 #revision textarea { display: block; width: 100%; font: inherit; padding: 8px; box-sizing: border-box; }
+.used-btn { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; background: var(--orange-bg); color: var(--text);
+  border: 2px solid var(--orange); font-weight: 600; }
+.task-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 2px; }
+.task-rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--dark); color: #fff; font-size: .8rem; }
+button.task-row { display: block; width: 100%; text-align: left; border-radius: 0; background: transparent; color: inherit;
+  font: inherit; border-width: 0 0 1px; border-bottom: 1px solid var(--line); }
+button.task-row.warn { border-left: 4px solid var(--orange); background: var(--orange-bg); }
+button.task-row.bad { border-left: 4px solid var(--red); background: var(--red-bg); }
 .revise-btn { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; }
 
 /* ---- Signalements de problemes ---- */

@@ -45,9 +45,29 @@ Une boîte fermée reçoit **une seule étiquette** de paquet ; ses items existe
   pour tous ses items.
 - L'onglet **Paquets fermés** de l'inventaire liste les boîtes en réserve.
 
+## Gestion de la TECH : la liste de tâches
+
+Menu **Gestion > Gestion de la TECH** au poste, tuile **Gestion de la TECH** de l'accueil sur le téléphone
+(badge gestion ou admin). Le premier onglet, **À faire**, liste tout ce qu'il y a à faire pour tenir le
+stock, du plus important au moins important :
+
+1. **Signalements** à prendre en charge ou en cours ;
+2. **Lots à sceller** (scellé obligatoire, ouverts ou vérifiés sans scellé) ;
+3. **Lots invalides** : incomplets (avec ce qui manque), avec des périmés, ou jamais vérifiés ;
+4. **Vérifs recommandées** : lots réassortis, ouverts, rentrés d'une liste ou marqués utilisés ;
+5. **Révisions du matériel** en retard ou dans les 30 jours ;
+6. **Vérifs du stock** : du matériel est sorti du stock (à la main ou par une liste) depuis sa dernière vérif ;
+7. **Commandes** et **déplacements** recommandés par les prévisions dans les 30 jours ;
+8. **De temps en temps** : étiquettes clés et badges qui expirent, périmés restés dans le stock, listes de
+   matériel sorties et pas rentrées, matériel hors lot à ranger, lots valides pas vérifiés depuis 90 jours
+   (`QRPROTEC_ROUTINE_VERIF_DAYS`), péremptions dans les 30 jours d'un lot valide.
+
+Chaque tâche dit quoi faire ; la toucher (téléphone) ou son bouton (poste) ouvre la fiche du lot, les
+signalements, les prévisions ou la fenêtre où la traiter. Une tâche disparaît d'elle-même quand elle est faite.
+
 ## Consulter l'état des stocks
 
-Menu **Gestion > État des stocks** : une barre par type d'item, verte au-dessus du minimum, orange en
+Menu **Gestion > Gestion de la TECH**, onglet **Actuel** : une barre par type d'item, verte au-dessus du minimum, orange en
 dessous, rouge à zéro, avec « quantité / minimum » (ex : `32/100`). Colonnes : dans les lots,
 périmés, bientôt périmés (30 jours), disparus. Options : **Sous le minimum uniquement**, **Compter
 les lots** (inclure ce qui est dans les sacs).
@@ -55,12 +75,12 @@ les lots** (inclure ce qui est dans les sacs).
 Par défaut, le **stock** compte ce qui n'est dans aucun lot **et** ce qui est dans un rangement
 (armoire, tiroir). Les items périmés ne comptent pas.
 
-Sur le téléphone, la page **État des stocks** de l'accueil (après avoir scanné son badge gestion ou admin) affiche le même
+Sur le téléphone, la vue **État des stocks** de la page **Gestion de la TECH** (après avoir scanné son badge gestion ou admin) affiche le même
 état en lecture seule, les types les plus critiques en premier. Pratique pour préparer une commande.
 
 ## Anticiper les péremptions et les commandes
 
-La fenêtre **État des stocks** a quatre onglets :
+La fenêtre **Gestion de la TECH** a, après **À faire**, quatre onglets :
 
 - **Actuel** : l'état d'aujourd'hui (ci-dessus).
 - **Projection** : le stock tel qu'il sera **aujourd'hui, à M+1, M+3 ou M+6**. Avec **Avec
@@ -87,7 +107,7 @@ période choisie dans les **Réglages** (6 mois par défaut). Un item noté abse
 manqués à la dernière vérif ne comptent pas dans le stock projeté tant qu'ils ne sont pas retrouvés.
 Le délai de livraison des commandes (15 jours par défaut) est aussi dans les Réglages.
 
-Sur le téléphone, la page **État des stocks** de l'accueil, vue **Prévisions** : choix de l'horizon,
+Sur le téléphone, la page **Gestion de la TECH** de l'accueil, vue **Prévisions** : choix de l'horizon,
 graphe des péremptions des six prochains mois, types à surveiller avec la commande suggérée, et
 échanges à faire.
 
