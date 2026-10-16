@@ -195,13 +195,14 @@ AppWindow *App::window(const std::string &id) {
   return nullptr;
 }
 
-// Raccourcis d'ouverture : touches de fonction, F1 a F4 pour les fenetres de tous puis F5 a F12 pour celles des
+// Raccourcis d'ouverture : touches de fonction, F1 a F4 pour les fenetres de tous (pile de scans, lots, listes de
+// materiel, telephone ; la verif s'ouvre d'elle-meme au scan d'un lot) puis F5 a F12 pour celles des
 // menus Gestion puis Administration (dans l'ordre de windows, sauf les paquets fermes, ouverts depuis le scan d'un
 // paquet) : Signalements en F11, Reglages toujours en F12. Elles ne tapent rien dans les champs. Ctrl+chiffre
 // choisit l'onglet d'une fenetre (tab_item dans widgets.hpp).
 void App::assign_shortcuts() {
   std::vector< AppWindow * > ordered;
-  for (const char *id : { "scan", "lots", "verif", "phone" })
+  for (const char *id : { "scan", "lots", "lists", "phone" })
     if (AppWindow *target = window(id))
       ordered.push_back(target);
   for (auto &target : windows)

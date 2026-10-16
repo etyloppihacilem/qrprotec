@@ -137,7 +137,8 @@ La colonne **Sortis** de l'état des stocks compte les items en attente de retou
 
 ## Listes de matériel
 
-Une **liste de matériel** dit ce qu'il faut prendre pour une mission : des lots (un sac, une armoire),
+Une **liste de matériel** sert à demander à des secouristes de prendre du matériel précis pour un
+poste en particulier. Elle dit ce qu'il faut emporter : des lots (un sac, une armoire),
 du matériel avec sa quantité (« 2 garrots, 10 compresses ») et des **tâches** libres à cocher, qui ne
 sont ni un lot ni un item (« vérifier le niveau d'eau dans le sous-sol »). Exemple : un chef de poste prépare
 la liste, ses équipiers la vérifient en sortant le matériel. Tout le monde peut créer ses listes ;

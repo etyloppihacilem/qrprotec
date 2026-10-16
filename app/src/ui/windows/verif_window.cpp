@@ -34,7 +34,17 @@ class VerifWindow final : public AppWindow {
 
     bool can_close(const App &app) const override { return !app.verif.active; }
 
+    void on_open(App &app) override { was_active_ = app.verif.active; }
+
     void draw(App &app) override {
+      // vérif terminée (« Terminer la vérif », annulée...) sans compte rendu à lire : la fenêtre se ferme. Le texte
+      // d'attente ne se voit qu'en l'ouvrant à la main.
+      const bool ended = was_active_ && !app.verif.active;
+      was_active_      = app.verif.active;
+      if (ended && app.last_report.is_null()) {
+        open = false;
+        return;
+      }
       if (app.verif.active) {
         draw_leave_prompt(app);
         draw_active(app);
@@ -47,6 +57,8 @@ class VerifWindow final : public AppWindow {
     }
 
   private:
+    bool was_active_ = false; // vérif en cours à l'image précédente
+
     // vérif en cascade : on quitte un sous-lot incomplet (scan d'un autre lot). Le scan suivant vaut « Passer ».
     void draw_leave_prompt(App &app) {
       const LeavePrompt &prompt = app.verif.leave_prompt;

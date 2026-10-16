@@ -140,7 +140,7 @@ décorations : sinon libdecor réserve une barre de titre que Cage n'affiche pas
 ### Clavier et plein écran
 
 - **Fenêtres** : `App::assign_shortcuts` donne `F1` à `F4` aux fenêtres de tous (Pile de scans, Lots,
-  Vérif, Téléphone) puis `F5` à `F12` à celles des menus Gestion puis Administration, dans l'ordre de `App::windows`
+  Listes de matériel, Téléphone ; la Vérif s'ouvre d'elle-même au scan d'un lot) puis `F5` à `F12` à celles des menus Gestion puis Administration, dans l'ordre de `App::windows`
   (`AppWindow::shortcut`, rappelé dans les menus). `App::handle_shortcuts` les traite hors fenêtre
   modale ; la touche d'une fenêtre déjà au premier plan la ferme. `Ctrl+W` ferme la fenêtre active, `Super+L` déconnecte (même pendant une fenêtre modale),
   `Ctrl+Tab` est celui d'ImGui (`NavEnableKeyboard`).
