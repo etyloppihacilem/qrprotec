@@ -55,7 +55,6 @@
     pushError: '',
     declaredAllowed: false, // reglage du serveur : verif et ajout possibles sans badge, sous un nom declare
     declaredName: '',       // nom declare sur ce navigateur (non verifie)
-    pendingOpening: null,   // {id, key, at} : scelle ouvert par son etiquette sans identite, a signer a la connexion
     expiredSession: false,  // vérif precedente oubliee au demarrage (SESSION_TIMEOUT_MS)
     waitingTeam: false,     // vérif à plusieurs : partie validee, en attente des autres participants
     launched: '',           // lot dont la vérif a ete lancee depuis sa fiche (etiquette publique)
@@ -88,7 +87,7 @@
     try {
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
         at: Date.now(), // derniere activite (SESSION_TIMEOUT_MS)
-        lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif, pendingOpening: state.pendingOpening,
+        lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
         launched: state.launched, current: state.current,
         path: state.path, done: state.done, keys: state.keys, entered: state.entered, startedIn: state.startedIn,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
@@ -109,7 +108,6 @@
       if (user && sessionOk && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
       state.declaredName = localStorage.getItem(STORAGE_NAME) || '';
       const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
-      if (session) state.pendingOpening = session.pendingOpening || null; // delai propre (OPENING_SIGN_DELAY)
       const fresh = session && session.at && Date.now() - session.at < SESSION_TIMEOUT_MS;
       if (session && !fresh && (session.lotId || (session.scanned || []).length)) state.expiredSession = true;
       if (fresh) {
@@ -523,7 +521,7 @@
     // scanner sans vérif en cours et pile vide : l'etiquette d'un item ou d'un lot ouvre sa fiche en grand, comme
     // le lien ouvert avec l'appareil photo du telephone (« Lancer une vérif » y ramene au scanner)
     if (!inHome() && !ficheOpen() && !taskPopup && ((scan.kind === 'item' && !scan.task) || scan.kind === 'lot')
-        && !checkRunning() && !allScanned().length && !state.pendingOpening) {
+        && !checkRunning() && !allScanned().length) {
       feedback.info();
       openFiche(scan.kind, scan.id, { key: scan.key || '' });
       scannedFiche = scan;
@@ -990,8 +988,7 @@
   }
 
   // Etiquette d'ouverture, rangee dans le lot scelle : la scanner ouvre le scelle, connecte ou non (pas de
-  // bouton « ouvrir »). Sans identite, l'ouverture est enregistree anonymement puis signee a la connexion.
-  const OPENING_SIGN_DELAY = 60 * 60 * 1000; // meme delai que le serveur
+  // bouton « ouvrir »). Sans identite, l'ouverture est enregistree anonymement : on ne demande pas de la signer.
 
   // fromUrl : etiquette ouverte avec l'appareil photo (adresse) : l'ecran fermé, on arrive sur l'accueil
   async function openSeal(scan, { fromUrl = false } = {}) {
@@ -1006,30 +1003,18 @@
     }
     const lot = result.lot;
     state.declaredAllowed = !!result.declared_identity;
-    state.pendingOpening = result.identified ? null : { id: scan.id, key: scan.key, at: Date.now() };
     const opened = lot.unsealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ouvert ${fmtOn(lot.unsealed)}`
       + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '') : '';
-    if (result.result === 'signed') {
-      // ouverture anonyme signee a la connexion : l'ecran d'ouverture, s'il est encore affiche, perd sa demande
-      feedback.good();
-      showInfo('ok', `🔓 Ouverture signée – ${lot.name}`, opened);
-      if (openingShown() && sealScreen.lot && sealScreen.lot.id === lot.id) showOpening(result, sealScreen.fromUrl);
-      save();
-      return;
-    }
     if (result.seal && result.seal.valid) feedback.good(); else feedback.warn();
     showInfo(result.result === 'opened' && result.seal && result.seal.valid ? 'ok' : 'warn',
       `🔓 ${result.result === 'opened' ? 'Scellé ouvert' : 'Scellé déjà ouvert'} – ${lot.name}`, opened);
     save();
     // ecran en grand, pas de vérif : l'ouverture est enregistree, les responsables le voient
     showOpening(result, fromUrl);
-    // on demande quand meme a l'utilisateur de s'identifier : le nom declare tout de suite (si le serveur
-    // l'autorise), sinon le badge, dont le scan signera l'ouverture
-    if (state.pendingOpening && !state.user && state.declaredAllowed && askDeclaredName()) await signOpening();
   }
 
   // Ecran d'ouverture d'un scelle : rassurer (le scelle etait valide, jusqu'a quand) et dire que l'ouverture est
-  // connue des responsables (TECH), pour eviter qu'on la signale. Contenu du scelle, aucun bouton de vérif.
+  // connue du TECH. Rien a signer ni a signaler. Contenu du scelle, aucun bouton de vérif.
   let sealScreen = { lot: null, fromUrl: false };
   const openingShown = () => !$('#opening').hidden;
 
@@ -1058,11 +1043,9 @@
           sealedLine ? el('p', { class: 'sub' }, sealedLine) : ''),
       el('div', { class: 'opening-box tech' },
         el('b', {}, '🛠 Le TECH est au courant'),
-        el('p', {}, 'L\'ouverture est enregistrée et le TECH en est informé : inutile de la signaler. '
+        el('p', {}, 'L\'ouverture est enregistrée et le TECH en est informé. '
           + (lot.seal_required ? 'Le lot sera vérifié puis scellé à nouveau plus tard.' : 'Le lot sera vérifié plus tard.')),
-        openedLine ? el('p', { class: 'sub' }, openedLine) : '',
-        state.pendingOpening && state.pendingOpening.id === lot.id && !state.user
-          ? el('p', {}, 'Pour signer l\'ouverture, scannez ensuite votre badge.') : ''),
+        openedLine ? el('p', { class: 'sub' }, openedLine) : ''),
       el('h3', {}, 'Contenu du scellé'),
     ];
     // items du lot puis de chacun de ses sous-lots (ils etaient sous le meme scelle), regroupes par type
@@ -1105,15 +1088,6 @@
     syncCamera();
     if (home) showHome('menu');
     else render();
-  }
-
-  async function signOpening() {
-    const pending = state.pendingOpening;
-    if (!pending) return;
-    state.pendingOpening = null;
-    save();
-    if (Date.now() - pending.at > OPENING_SIGN_DELAY || !hasIdentity()) return;
-    await openSeal({ kind: 'sealopen', id: pending.id, key: pending.key });
   }
 
   // Un sous-lot d'un lot global se verifie dans la vérif en cascade du lot global : c'est lui qui est charge, et l'on
@@ -1583,7 +1557,6 @@
     live.identity();
     afterLogin();
     if (state.pinReset) openPinReset();
-    if (state.pendingOpening) signOpening();
     state.reports = null;
     if (isAdmin()) loadReports(true);
     if (action) setTimeout(action, 0);
@@ -2734,7 +2707,7 @@
     }
     if (next === 'stock' && !canSeeStock()) toast("L'état des stocks est réservé aux rôles gestion et admin.", true);
     if (next) showHome(next === 'stock' && !canSeeStock() ? 'menu' : next);
-    else if (!inHome() && !verifInProgress() && !state.lot && !state.scanned.length && !state.pendingOpening
+    else if (!inHome() && !verifInProgress() && !state.lot && !state.scanned.length
       && !state.pinReset) showHome('menu');
     else if (inHome()) showHome(state.homePage || 'menu', false);
   }
