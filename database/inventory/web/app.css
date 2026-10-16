@@ -473,9 +473,16 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .break { word-break: break-all; }
 #home-lists .list-task { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 #home-lists .list-task input { flex: none; width: 22px; height: 22px; accent-color: var(--green); }
-#home-lists .list-box { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
-  margin-right: 10px; border: 2px solid #8a8f98; border-radius: 4px; background: #fff; color: #fff; font-size: 14px; font-weight: 700; }
-#home-lists .list-box.done { background: var(--green); border-color: var(--green); }
+#home-lists .list-box-wrap { position: relative; flex: none; margin-right: 10px; display: inline-flex; }
+#home-lists .list-box { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; min-height: 0;
+  padding: 0; border: 2px dashed #9aa0a8; border-radius: 4px; background: #eceae6; color: #fff; font-size: 14px; font-weight: 700;
+  box-shadow: none; cursor: help; }
+#home-lists .list-box.done { border-style: solid; background: var(--green); border-color: var(--green); }
+#home-lists .list-bubble { position: absolute; left: -4px; top: calc(100% + 8px); z-index: 20; width: max-content; max-width: 240px;
+  padding: 8px 10px; border-radius: 8px; background: #222831; color: #fff; font-size: 14px; line-height: 1.3; font-weight: 500;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .25); }
+#home-lists .list-bubble::before { content: ''; position: absolute; left: 10px; top: -6px; border: 6px solid transparent;
+  border-top: 0; border-bottom-color: #222831; }
 #home-lists ul.list { margin-bottom: 28px; }
 #home-lists .list-add-task { display: flex; gap: 8px; margin: 4px 0; }
 #home-lists .list-add-task input { flex: 1; min-width: 0; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }

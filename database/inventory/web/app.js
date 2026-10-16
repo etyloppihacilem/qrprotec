@@ -4928,6 +4928,23 @@
     return parts;
   }
 
+  // Case d'un lot ou d'un materiel : pas cochable a la main, la toucher explique qu'il faut scanner
+  function listBox(list, line, done, title) {
+    const text = done ? (line.kind === 'lot' ? 'Lot pris : son étiquette a été scannée.' : 'Quantité prise : les items ont été scannés.')
+      : list.template ? 'Modèle : dupliquez-le, puis scannez le matériel dans la nouvelle liste.'
+        : list.status !== 'draft' ? 'Pas pris à la sortie.'
+          : line.kind === 'lot' ? `Scannez l'étiquette du lot « ${title} » pour le cocher.`
+            : `Scannez ${line.quantity > 1 ? `${line.quantity} items` : 'un item'} « ${title} » pris dans le stock pour la cocher.`;
+    const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : ''), 'aria-label': text, onclick: (event) => {
+      event.stopPropagation();
+      document.querySelectorAll('#home-lists .list-bubble').forEach((node) => node.remove());
+      const bubble = el('span', { class: 'list-bubble', role: 'status' }, text);
+      box.parentNode.append(bubble);
+      setTimeout(() => bubble.remove(), 3500);
+    } }, done ? '✓' : '');
+    return el('span', { class: 'list-box-wrap' }, box);
+  }
+
   function listLineRows(list, line, backIids) {
     if (line.kind === 'task') {
       // tache libre : cochee a la verif de la liste (ni lot ni item)
@@ -4949,7 +4966,7 @@
     const rows = [el('li', { class: 'static ' + (out ? (line.kind === 'lot' ? line.back : line.back >= line.scanned) && line.scanned ? 'ok' : ''
       : done ? 'ok' : '') },
       // case visuelle comme pour les taches : cochee quand la ligne est prise, mais on coche en scannant
-      el('span', { class: 'list-box' + (done ? ' done' : ''), 'aria-hidden': 'true' }, done ? '✓' : ''),
+      listBox(list, line, done, title),
       el('div', { class: 'main' }, el('div', { class: 'name' }, title), el('div', { class: 'sub' }, sub + (back ? ' · ' + back : ''))),
       el('b', { class: 'list-count' + (done ? ' done' : '') }, count))];
     if (line.kind === 'type') {
