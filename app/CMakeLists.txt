@@ -177,6 +177,7 @@ add_executable(${PROJECT_NAME}
     src/ui/windows/pack_window.cpp
     src/ui/windows/phone_window.cpp
     src/ui/windows/reports_window.cpp
+    src/ui/windows/lists_window.cpp
     src/ui/windows/lot_admin_window.cpp
     src/ui/windows/lots_window.cpp
     src/ui/windows/scan_window.cpp

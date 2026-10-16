@@ -151,6 +151,30 @@ pile de scans du poste). `services.mark_out`, `POST /api/items/out/` (même iden
   non revenue ». Délai : `QRPROTEC_OUT_DAYS` jours (30) après la sortie, ou sa péremption si elle tombe
   avant. Retrouvé plus tard, l'utilisation est annulée comme pour toute absence.
 
+## Listes de matériel
+
+`checklists.py`, `POST /api/checklists/…` (public, utilisateur connecté : badge ou session). Une
+`Checklist` a des lignes (`ChecklistLine` : un lot actif, ou un type d'item non archivé et une
+quantité, 100 lignes au plus) et des scans (`ChecklistScan`, phase `out` à la vérif, `back` au retour).
+
+- **Droits** : tout utilisateur connecté lit et vérifie une liste (lien `<base>/liste?id=ID`), crée
+  les siennes ; seul l'auteur, la gestion et les admins la modifient ou la suppriment. `show` de la
+  liste : les siennes et les modèles, les modèles, ou toutes (gestion, admin).
+- **Statuts** : `draft` (à préparer, modifiable), `validated` (sortie), `returned` (rentrée). Un
+  modèle (`is_template`) ne se vérifie pas : on le duplique (`duplicate`, nouvelle liste à
+  l'utilisateur, `source` vers l'original). Une liste commencée ne devient pas un modèle.
+- **Scan à la vérif** : l'étiquette d'un lot de la liste coche sa ligne ; un item compte dans la
+  ligne de son type s'il est en stock (hors lot ou rangement), actif, pas à remplacer, pas déjà pris
+  par une autre liste à préparer, et dans la quantité demandée. Baisser une quantité retire les
+  scans en trop.
+- **Validation** : au moins un scan ; incomplète, il faut `partial`. Les items scannés passent
+  `out` (`services.mark_out`) ; opération `checklist` au journal.
+- **Retour** : un item sorti avec la liste revient en stock tout de suite (`services.move_items`,
+  `last_seen_while=list`). Un lot de la liste non scellé passe `verif_recommended` avec
+  `back_from_list` (nom de la liste), effacé à sa prochaine vérif ou à l'ouverture de son scellé.
+  `close-return` : les consommables non rentrés encore `out` passent `missing` avec un mouvement
+  `used` ; le matériel non consommable reste `out` jusqu'à ce qu'on le revoie (il ne s'use pas).
+
 ## Lots et sous-lots
 
 Un lot peut avoir un **lot parent** (`Lots.parent`). Exemples réels :
@@ -302,6 +326,8 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 | `never` | rouge | jamais vérifié |
 | `incomplete` | rouge | contenu attendu non atteint, ou périmés |
 | `recommended` | orange | complet mais réassorti depuis la dernière vérif |
+| `list_back` | orange | complet, rentré avec une liste de matériel depuis la dernière vérif |
+| `opened` | orange | complet, scellé ouvert par son étiquette d'ouverture depuis la dernière vérif |
 | `verified` | vert | vérifié et complet |
 
 ## Utilisateurs, rôles et PIN

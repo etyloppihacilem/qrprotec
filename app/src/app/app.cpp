@@ -92,6 +92,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_reports_window());
   windows.push_back(make_settings_window()); // derniere du menu Administration : toujours F12
   windows.push_back(make_phone_window());
+  windows.push_back(make_lists_window());
   assign_shortcuts();
   feedback.on_phone_error = [this]() {
     remote.feedback_pending = true;
@@ -984,6 +985,7 @@ void App::logout(const std::string &reason) {
   if (privileged_session)
     refresh_lots(); // la liste ne garde pas les cles des lots apres la deconnexion
   pending_action_ = nullptr;
+  checklist_scan  = {};
   apply_default_scanner_volume();
   if (was_logged && !reason.empty())
     notify(reason);
@@ -1377,6 +1379,17 @@ void App::handle_scan(const std::string &code, ScanSource source) {
   if (verif.leave_prompt.open)
     answer_leave(1);
   const ParsedScan scan = parse_scan(code);
+  // QR code d'une liste de materiel : la liste s'ouvre ; liste ouverte en mode scan : les lots et items y comptent
+  if (scan.kind == ScanKind::Checklist) {
+    checklist_to_open = scan.id;
+    open_window("lists");
+    return;
+  }
+  if (const AppWindow *lists = window("lists"); lists && lists->open && !checklist_scan.id.empty()
+      && checklist_scan.handle && (scan.kind == ScanKind::Item || scan.kind == ScanKind::Lot)) {
+    checklist_scan.handle(scan, source);
+    return;
+  }
   const bool       same_item = tasks_.entry_id && scan.kind == ScanKind::Item && stack.find(tasks_.entry_id)
                         && stack.find(tasks_.entry_id)->scan.id == scan.id;
   // fenetre des taches ouverte et autre code scanne : l'item reste a faire (le rescanner reprend ses taches)
@@ -1434,6 +1447,7 @@ void App::handle_scan(const std::string &code, ScanSource source) {
         show_pack(scan.id);
       return;
     }
+    case ScanKind::Checklist: return;
     case ScanKind::Unknown: {
       stack.add(scan, source);
       feedback.error(source, settings);

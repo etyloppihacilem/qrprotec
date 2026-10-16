@@ -398,8 +398,10 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 sub_lot.last_used_by = identity
                 sub_lot.verif_recommended = False
                 sub_lot.restocked_count = 0
+                sub_lot.back_from_list = ''
                 sub_lot.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'last_used',
-                                            'last_used_by', 'verif_recommended', 'restocked_count'])
+                                            'last_used_by', 'verif_recommended', 'restocked_count',
+                                            'back_from_list'])
                 requirements = requirements_status(sub_lot, today)
                 lot_expired = [iid for iid in report['expired'] if target.get(iid) == sub_lot.id]
                 lot_complete = all(r['present'] >= r['required'] for r in requirements) and not lot_expired
@@ -664,9 +666,10 @@ def open_seal_with_label(lot, identity):
         recommended = {sub_lot.id: sub_lot for sub_lot in lot.descendants()}
         recommended.update({sealed.id: sealed for sealed in opened})
         for target in recommended.values():
-            if not target.verif_recommended:
+            if not target.verif_recommended or target.back_from_list:
                 target.verif_recommended = True
-                target.save(update_fields=['verif_recommended'])
+                target.back_from_list = ''
+                target.save(update_fields=['verif_recommended', 'back_from_list'])
         return 'opened'
     if (identity and lot.unsealed_by == SEAL_OPENED_ANONYMOUSLY and lot.unsealed
             and timezone.now() - lot.unsealed <= SEAL_OPENING_SIGN_DELAY):

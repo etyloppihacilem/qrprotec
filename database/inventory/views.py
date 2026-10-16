@@ -2140,3 +2140,96 @@ def remote_scanner_check(request):
     if session is None:
         return error('Session fermée : scannez un nouveau QR code sur le poste', status.HTTP_404_NOT_FOUND)
     return Response({'open': True, 'front_connected': session.front is not None})
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Listes de materiel (checklists.py) : utilisateur connecte (badge ou session), droits de modification par liste
+# ----------------------------------------------------------------------------------------------------------------------
+
+def _checklist(checklist_id):
+    from .models import Checklist
+    return get_object_or_404(Checklist.objects.select_related('owner').prefetch_related(
+        'lines__lot__lot_type', 'lines__item_type', 'scans__item__pack__item_type', 'scans__lot'), id=checklist_id)
+
+
+def _checklist_call(action):
+    try:
+        return action()
+    except PermissionError as exc:
+        raise ApiError(str(exc), status.HTTP_403_FORBIDDEN)
+
+
+@api_view(['POST'])
+@handle_errors
+def checklists_list(request):
+    """Listes : {"user", "show": "mine" (les siennes et les modeles) | "templates" | "all" (gestion, admin)}."""
+    from . import checklists
+    user = connected_user(request)
+    show = str(request.data.get('show') or 'mine')
+    rows = [checklists.checklist_dict(row, user, full=False) for row in checklists.visible(user, show)[:300]]
+    return Response({'lists': rows, 'can_see_all': user.role in GESTION})
+
+
+@api_view(['POST'])
+@handle_errors
+def checklists_options(request):
+    """Choix de l'editeur de liste : lots actifs (hors rangements du stock) et types d'items non archives."""
+    from .models import ItemType
+    connected_user(request)
+    lots = (Lots.objects.select_related('lot_type').filter(active=True, lot_type__storage=False)
+            .order_by('name'))
+    types = ItemType.objects.filter(archived=False).order_by('name')
+    return Response({
+        'lots': [{'id': lot.id, 'name': lot.name, 'lot_type_name': lot.lot_type.name} for lot in lots],
+        'types': [{'type': row.type, 'name': row.name, 'consumable': row.consumable} for row in types],
+    })
+
+
+@api_view(['POST'])
+@handle_errors
+def checklists_create(request):
+    """Nouvelle liste : {"user", "name", "note", "template", "lines": [{"lot"} | {"type", "quantity"}]}."""
+    from . import checklists
+    user = connected_user(request)
+    data = request.data
+    checklist = checklists.create(user, data.get('name'), data.get('note', ''), data.get('template', False),
+                                  data.get('lines') or [])
+    return Response(checklists.checklist_dict(_checklist(checklist.id), user), status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@handle_errors
+def checklist_action(request, checklist_id, action=''):
+    """Une liste : {"user"} lit ; update {name, note, template, lines} ; duplicate {name, template} ; delete ;
+    scan / unscan {item | lot} ; validate {partial} ; return-scan {item | lot} ; close-return."""
+    from . import checklists
+    user = connected_user(request)
+    checklist = _checklist(checklist_id)
+    data = request.data
+    iid, lot = str(data.get('item') or ''), str(data.get('lot') or '')
+    message = ''
+    extra = {}
+    if action == 'update':
+        _checklist_call(lambda: checklists.update(checklist, user, data))
+    elif action == 'duplicate':
+        copy = checklists.duplicate(checklist, user, data.get('name'), data.get('template', False))
+        return Response(checklists.checklist_dict(_checklist(copy.id), user), status=status.HTTP_201_CREATED)
+    elif action == 'delete':
+        _checklist_call(lambda: checklists.delete(checklist, user))
+        return Response({'deleted': checklist_id})
+    elif action in ('scan', 'unscan', 'return-scan'):
+        if not iid and not lot:
+            raise ApiError('Item ou lot attendu')
+        if action == 'scan':
+            message = checklists.scan(checklist, user, iid, lot)
+        elif action == 'unscan':
+            checklists.unscan(checklist, user, iid, lot)
+        else:
+            message = checklists.return_scan(checklist, user, iid, lot)
+    elif action == 'validate':
+        checklists.validate(checklist, user, bool(data.get('partial')))
+    elif action == 'close-return':
+        extra = checklists.close_return(checklist, user)
+    elif action:
+        raise ApiError('Action inconnue', status.HTTP_404_NOT_FOUND)
+    return Response({**checklists.checklist_dict(_checklist(checklist_id), user), 'message': message, **extra})

@@ -115,6 +115,35 @@ items **sans** scanner d'étiquette de lot. Le bouton de vérif devient **Sortir
 
 La colonne **Sortis** de l'état des stocks compte les items en attente de retour.
 
+## Listes de matériel
+
+Une **liste de matériel** dit ce qu'il faut prendre pour une mission : des lots (un sac, une armoire)
+et du matériel avec sa quantité (« 2 garrots, 10 compresses »). Exemple : un chef de poste prépare
+la liste, ses équipiers la vérifient en sortant le matériel. Tout le monde peut créer ses listes ;
+chacun modifie les siennes, les rôles gestion et admin modifient celles de tous.
+
+- **Préparer** : téléphone, accueil > **Listes de matériel** > **Nouvelle liste** ; poste, menu
+  Fenêtres > **Listes de matériel** > **Nouvelle liste**. Donnez un nom, une remarque si besoin
+  (rendez-vous, consignes), ajoutez les lots et le matériel.
+- **Partager** : la liste a un lien et un QR code (bouton **Partager le lien** au téléphone,
+  **Copier le lien** au poste). Ouvrir le lien ou scanner le QR code ouvre la liste, connecté.
+- **Vérifier en direct, à plusieurs** : **📷 Scanner** au téléphone, **Scanner vers cette liste** au
+  poste (douchette ou téléphone-douchette). Scannez l'étiquette de chaque lot de la liste et le
+  matériel pris dans le stock : chaque scan compte tout de suite pour tous ceux qui ont la liste
+  ouverte. Un item doit venir du stock (pas d'un lot), être bon (ni périmé ni à remplacer) et ne
+  pas être déjà pris pour une autre liste. Un scan en trop se retire (✕ ou **Retirer**).
+- **Valider** : la liste validée (ou **validée incomplète** : ce qui manque n'est pas pris) sort son
+  matériel du stock, comme une sortie sans lot. Elle ne peut plus être vérifiée.
+- **Au retour** : rouvrez la liste, **Retour : scanner**, et scannez ce qui rentre. Le matériel est
+  remis en stock tout de suite ; un lot rentré passe en **vérif recommandée** (orange, « retour de
+  liste ») jusqu'à sa prochaine vérif. Puis **Clôturer le retour** : les consommables pas rentrés
+  sont comptés **utilisés**, le matériel non consommable pas rentré reste **sorti** (il rentrera
+  quand on le scannera). Sans retour clos, la règle des sorties s'applique (consommable compté utilisé au bout d'un mois).
+
+Pour une liste qui revient souvent (poste de secours du stade, match du dimanche), faites-en un
+**modèle** : il ne se vérifie pas, **Utiliser ce modèle** en fait une nouvelle liste à vérifier.
+**Dupliquer** refait une liste déjà sortie ou rentrée.
+
 ## Réviser le matériel
 
 Le matériel non consommable dont le type a une révision (voir les types d'items dans la mise en

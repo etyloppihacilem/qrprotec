@@ -21,6 +21,7 @@ std::unique_ptr< AppWindow > make_scan_window();  // pile de scans (toujours ouv
 std::unique_ptr< AppWindow > make_lots_window();  // etat des lots, lancement de verif
 std::unique_ptr< AppWindow > make_verif_window(); // verif en cours : items attendus
 std::unique_ptr< AppWindow > make_phone_window(); // telephone utilise comme douchette (QR de connexion)
+std::unique_ptr< AppWindow > make_lists_window(); // listes de materiel a prendre (verif, retour)
 
 // Mode privilegie
 std::unique_ptr< AppWindow > make_stock_window();
