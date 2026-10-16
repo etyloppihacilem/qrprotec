@@ -159,6 +159,17 @@
     </div>
   </dialog>
 
+  <!-- Vérif en cascade : on quitte un sous-lot incomplet (scan d'un autre lot). Un nouveau scan vaut « Passer » -->
+  <dialog id="leave-level">
+    <h2 id="leave-level-title"></h2>
+    <p id="leave-level-text"></p>
+    <div class="dialog-stack">
+      <button type="button" id="leave-level-validate" class="primary"></button>
+      <button type="button" id="leave-level-skip" class="secondary"></button>
+      <button type="button" id="leave-level-stay" class="secondary"></button>
+    </div>
+  </dialog>
+
   <!-- Signalement d'un probleme : connexion demandee avant de rediger -->
   <dialog id="login-needed">
     <h2>Connexion requise</h2>

@@ -240,8 +240,20 @@ cette vérif est refusé (« Déjà vérifié ») : rentrez dans le lot (touchez
 **Validation automatique** : quand le lot où vous êtes est complet (plus rien d'attendu à scanner) et
 que vous scannez un item, l'étiquette ou le scellé d'un autre lot (ex : un item de l'armoire 2 alors que
 l'armoire 1 est complète), le lot complet est validé tout seul (« ✔ Armoire 1 complet : validé
-automatiquement ») et vous entrez dans l'autre. Un lot incomplet n'est jamais validé tout seul : il faut
-le valider à la main.
+automatiquement ») et vous entrez dans l'autre. Un lot incomplet n'est jamais validé tout seul.
+
+**Quitter un lot incomplet** : si vous avez déjà scanné des items dans le lot où vous êtes et que vous
+scannez l'étiquette ou un item d'un autre lot, une fenêtre « Passer à Armoire 2 ? » donne trois choix :
+
+- **Valider Armoire 1 incomplet** : les items pas encore scannés passent manquants, puis vous entrez
+  dans l'armoire 2 ;
+- **Passer sans valider** : l'armoire 1 reste à faire, ses scans sont gardés pour quand vous y
+  reviendrez ;
+- **Rester dans Armoire 1** : l'item scanné compte dans l'armoire 1, où vous l'avez trouvé.
+
+Si vous ne voyez pas la fenêtre et scannez autre chose, cela vaut « Passer sans valider ». Sans scan
+dans le lot où vous êtes (ou si un autre secouriste y travaille, au téléphone), on passe à l'autre lot
+sans question.
 
 Lancer la vérif d'un sous-lot (l'armoire 1, ou un sac via son étiquette clé) ouvre la même vue,
 directement dans ce sous-lot : on voit où il est dans le VPS.
