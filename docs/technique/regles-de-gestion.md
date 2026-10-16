@@ -155,7 +155,7 @@ pile de scans du poste). `services.mark_out`, `POST /api/items/out/` (même iden
 
 `checklists.py`, `POST /api/checklists/…` (public, utilisateur connecté : badge ou session). Une
 `Checklist` a des lignes (`ChecklistLine` : un lot actif, ou un type d'item non archivé et une
-quantité, 100 lignes au plus) et des scans (`ChecklistScan`, phase `out` à la vérif, `back` au retour).
+quantité, ou une tâche libre `task` cochée avec `done` / `done_by`, 100 lignes au plus) et des scans (`ChecklistScan`, phase `out` à la vérif, `back` au retour).
 
 - **Droits** : tout utilisateur connecté lit et vérifie une liste (lien `<base>/liste?id=ID`), crée
   les siennes ; seul l'auteur, la gestion et les admins la modifient ou la suppriment. `show` de la
@@ -167,7 +167,10 @@ quantité, 100 lignes au plus) et des scans (`ChecklistScan`, phase `out` à la 
   ligne de son type s'il est en stock (hors lot ou rangement), actif, pas à remplacer, pas déjà pris
   par une autre liste à préparer, et dans la quantité demandée. Baisser une quantité retire les
   scans en trop.
-- **Validation** : au moins un scan ; incomplète, il faut `partial`. Les items scannés passent
+- **Tâches** : `check {line, done}` coche ou décoche une tâche tant que la liste est à préparer ; une
+  tâche cochée compte comme une ligne faite et reste cochée quand les lignes sont remplacées (même texte).
+- **Validation** : au moins un scan ou une tâche cochée ; incomplète, il faut `partial`. Sans aucun
+  scan (que des tâches), la liste passe directement `returned` (« Terminée »). Les items scannés passent
   `out` (`services.mark_out`) ; opération `checklist` au journal.
 - **Retour** : un item sorti avec la liste revient en stock tout de suite (`services.move_items`,
   `last_seen_while=list`). Un lot de la liste non scellé passe `verif_recommended` avec

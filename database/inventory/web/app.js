@@ -4764,7 +4764,7 @@
       stopListScan();
       lists.message = null;
       feedback.good();
-      toast('Liste validée : bonne sortie !');
+      toast(lists.list && !lists.list.went_out ? 'Liste validée.' : 'Liste validée : bonne sortie !');
     });
   }
 
@@ -4825,7 +4825,7 @@
       note: list ? list.note : '',
       template: list ? list.template : lists.show === 'templates',
       started: !!(list && list.lines.some((line) => line.scanned)),
-      lines: list ? list.lines.map((line) => line.kind === 'lot'
+      lines: list ? list.lines.map((line) => line.kind === 'task' ? { task: line.task, label: line.task } : line.kind === 'lot'
         ? { lot: line.lot, label: line.lot_name, sub: line.lot_type_name }
         : { type: line.type, label: line.type_name, quantity: line.quantity }) : [],
     };
@@ -4844,7 +4844,8 @@
     const edit = lists.edit;
     if (!edit.name.trim()) { toast('Donnez un nom à la liste.', true); return; }
     const body = { user: badge(), name: edit.name, note: edit.note, template: edit.template,
-      lines: edit.lines.map((line) => line.lot ? { lot: line.lot } : { type: line.type, quantity: line.quantity }) };
+      lines: edit.lines.map((line) => line.task ? { task: line.task } : line.lot ? { lot: line.lot }
+        : { type: line.type, quantity: line.quantity }) };
     lists.busy = true;
     try {
       const result = await api(edit.id ? `checklists/${encodeURIComponent(edit.id)}/update/` : 'checklists/', body);
@@ -4914,6 +4915,16 @@
   }
 
   function listLineRows(list, line, backIids) {
+    if (line.kind === 'task') {
+      // tache libre : cochee a la verif de la liste (ni lot ni item)
+      const editable = list.status === 'draft' && !list.template;
+      return [el('li', { class: 'static ' + (line.scanned ? 'ok' : '') },
+        el('label', { class: 'list-task' },
+          el('input', { type: 'checkbox', checked: line.scanned ? '' : null, disabled: editable && !lists.busy ? null : '',
+            onchange: (event) => listAction('check', { line: line.id, done: event.target.checked }) }),
+          el('div', { class: 'main' }, el('div', { class: 'name' }, line.task),
+            el('div', { class: 'sub' }, line.scanned ? `Fait ${fmtDateTime(line.done)}${line.done_by ? ' par ' + line.done_by : ''}` : 'Tâche à faire'))))];
+    }
     const done = line.scanned >= line.quantity;
     const title = line.kind === 'lot' ? line.lot_name : line.type_name;
     const sub = line.kind === 'lot' ? `Lot · ${line.lot_type_name}` : `${line.quantity} demandé(s)`;
@@ -4959,7 +4970,7 @@
     } else if (list.status === 'draft') {
       parts.push(el('div', { class: 'banner ' + (list.complete ? 'ok' : 'info') }, list.complete
         ? 'Tout est prêt : validez la liste.'
-        : `${list.done_count}/${list.line_count} ligne(s) prête(s). Scannez l'étiquette des lots et le matériel pris dans le stock.`));
+        : `${list.done_count}/${list.line_count} ligne(s) prête(s). Scannez l'étiquette des lots et le matériel pris dans le stock, cochez les tâches.`));
       buttons.push(lists.mode
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Scanner'));
@@ -4973,8 +4984,8 @@
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Retour : scanner'));
       buttons.push(el('button', { type: 'button', class: 'warning', disabled: busy || null, onclick: closeListReturn }, 'Clôturer le retour'));
     } else {
-      parts.push(el('div', { class: 'banner ok' }, `Rentrée ${fmtOn(list.returned)}${list.returned_by ? ' par ' + list.returned_by : ''}. `
-        + 'La liste ne sert plus : dupliquez-la pour la refaire.'));
+      parts.push(el('div', { class: 'banner ok' }, `${list.went_out ? 'Rentrée' : 'Terminée'} ${fmtOn(list.returned)}`
+        + `${list.returned_by ? ' par ' + list.returned_by : ''}. La liste ne sert plus : dupliquez-la pour la refaire.`));
     }
     if (lists.message && listScanning()) parts.push(el('div', { class: 'banner ' + lists.message.kind }, lists.message.text));
     if (listScanning()) {
@@ -5008,7 +5019,15 @@
   function listEditor(edit) {
     const redraw = () => renderListsPage(true);
     const options = lists.options;
-    const taken = new Set(edit.lines.map((line) => line.lot || 'type:' + line.type));
+    const taken = new Set(edit.lines.map((line) => line.task ? 'task:' + line.task : line.lot || 'type:' + line.type));
+    const taskInput = el('input', { type: 'text', maxlength: '200', placeholder: "Ex : vérifier le niveau d'eau dans le sous-sol",
+      onkeydown: (event) => { if (event.key === 'Enter') { event.preventDefault(); addTask(); } } });
+    const addTask = () => {
+      const task = taskInput.value.trim().replace(/\s+/g, ' ');
+      if (!task) return;
+      if (!taken.has('task:' + task)) edit.lines.push({ task, label: task });
+      redraw();
+    };
     const lotSelect = el('select', { onchange: (event) => {
       const lot = options.lots.find((row) => row.id === event.target.value);
       if (lot) { edit.lines.push({ lot: lot.id, label: lot.name, sub: lot.lot_type_name }); redraw(); }
@@ -5031,13 +5050,16 @@
         onchange: (event) => { edit.template = event.target.checked; } }),
       edit.started ? 'Modèle (impossible : liste déjà commencée)' : 'Modèle (se duplique, ne se vérifie pas)'),
       el('h3', {}, 'À prendre'),
-      edit.lines.length ? '' : el('p', { class: 'hint' }, 'Ajoutez des lots (sacs, armoires) et du matériel avec sa quantité.'),
+      edit.lines.length ? '' : el('p', { class: 'hint' }, 'Ajoutez des lots (sacs, armoires), du matériel avec sa quantité et des tâches à cocher.'),
       el('ul', { class: 'list' }, ...edit.lines.map((line, index) => el('li', { class: 'static' },
-        el('div', { class: 'main' }, el('div', { class: 'name' }, line.label), el('div', { class: 'sub' }, line.lot ? `Lot · ${line.sub || ''}` : 'Matériel')),
-        line.lot ? '' : el('input', { type: 'number', class: 'list-qty', min: '1', max: '999', value: String(line.quantity), 'aria-label': 'Quantité',
+        el('div', { class: 'main' }, el('div', { class: 'name' }, line.label),
+          el('div', { class: 'sub' }, line.task ? 'Tâche à cocher' : line.lot ? `Lot · ${line.sub || ''}` : 'Matériel')),
+        line.lot || line.task ? '' : el('input', { type: 'number', class: 'list-qty', min: '1', max: '999', value: String(line.quantity), 'aria-label': 'Quantité',
           oninput: (event) => { line.quantity = Math.max(1, Math.min(999, parseInt(event.target.value, 10) || 1)); } }),
         el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', onclick: () => { edit.lines.splice(index, 1); redraw(); } }, '✕')))),
       options ? el('div', { class: 'list-add' }, lotSelect, typeSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
+      el('div', { class: 'list-add-task' }, taskInput, el('button', { type: 'button', onclick: addTask }, '＋ Tâche')),
+      el('p', { class: 'hint' }, 'Une tâche se coche pendant la vérif de la liste (ni lot ni matériel).'),
       el('div', { class: 'list-buttons' },
         el('button', { type: 'button', class: 'secondary', onclick: () => { lists.edit = null; renderListsPage(); } }, 'Annuler'),
         el('button', { type: 'button', class: 'primary', disabled: lists.busy ? '' : null, onclick: saveList }, 'Enregistrer')),

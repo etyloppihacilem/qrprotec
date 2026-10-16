@@ -10,7 +10,8 @@
 
 """Listes de materiel a prendre (ex : un chef demande du materiel a ses equipiers).
 
-Une liste a des lignes : des lots, et des types d'items avec une quantite. Elle se partage par lien et QR code
+Une liste a des lignes : des lots, des types d'items avec une quantite, et des taches libres a cocher (ni lot ni item,
+ex : « vérifier le niveau d'eau dans le sous-sol »). Elle se partage par lien et QR code
 (`<base>/liste?id=ID`) et se verifie en direct, a plusieurs : chaque scan est enregistre tout de suite sur le serveur
 (ChecklistScan, phase out), les pages relisent la liste. Validee, ses items sont sortis du stock (statut « sorti », sans
 lot) et elle ne peut plus etre verifiee. Au retour, on scanne ce qui rentre (phase back) : l'item revient en stock tout
@@ -54,15 +55,25 @@ def _clean_text(value, length):
 
 
 def set_lines(checklist, lines):
-    """Remplace les lignes : [{"lot": id} | {"type": code, "quantity": n}], dans l'ordre. Un lot ou un type n'apparait
-    qu'une fois (les quantites d'un meme type s'ajoutent)."""
+    """Remplace les lignes : [{"lot": id} | {"type": code, "quantity": n} | {"task": texte}], dans l'ordre. Un lot, un
+    type ou une tache n'apparait qu'une fois (les quantites d'un meme type s'ajoutent). Une tache deja cochee le reste."""
     if not isinstance(lines, list):
         raise ValueError('lines : liste de lignes attendue')
-    rows, lots, types = [], set(), {}
+    checked = {line.task: line for line in checklist.lines.all() if line.task and line.done} if checklist.pk else {}
+    rows, lots, types, tasks = [], set(), {}, set()
     for line in lines:
         if not isinstance(line, dict):
-            raise ValueError('lines : chaque ligne est un lot ou un type avec une quantité')
-        if line.get('lot'):
+            raise ValueError('lines : chaque ligne est un lot, un type avec une quantité ou une tâche')
+        if 'task' in line:
+            task = _clean_text(line['task'], 200)
+            if not task:
+                raise ValueError('Tâche vide : écrivez ce qu\'il faut faire')
+            if task not in tasks:
+                tasks.add(task)
+                old = checked.get(task)
+                rows.append(ChecklistLine(checklist=checklist, task=task, quantity=1, done=old.done if old else None,
+                                          done_by=old.done_by if old else ''))
+        elif line.get('lot'):
             lot = Lots.objects.filter(id=str(line['lot']), active=True).first()
             if lot is None:
                 raise ValueError(f"Lot inconnu ou archivé : {line['lot']}")
@@ -85,7 +96,7 @@ def set_lines(checklist, lines):
                 types[item_type.type] = ChecklistLine(checklist=checklist, item_type=item_type, quantity=quantity)
                 rows.append(types[item_type.type])
         else:
-            raise ValueError('lines : chaque ligne est un lot ou un type avec une quantité')
+            raise ValueError('lines : chaque ligne est un lot, un type avec une quantité ou une tâche')
     if len(rows) > MAX_LINES:
         raise ValueError(f'Au plus {MAX_LINES} lignes par liste')
     for position, row in enumerate(rows):
@@ -134,7 +145,8 @@ def update(checklist, user, data):
 
 def duplicate(checklist, user, name=None, template=False):
     """Copie (nouvelle liste a preparer, a l'utilisateur) : modele -> liste a verifier, ou liste a refaire."""
-    lines = [{'lot': line.lot_id} if line.lot_id else {'type': line.item_type_id, 'quantity': line.quantity}
+    lines = [{'task': line.task} if line.task else {'lot': line.lot_id} if line.lot_id
+             else {'type': line.item_type_id, 'quantity': line.quantity}
              for line in checklist.lines.all() if (line.lot_id is None or line.lot.active)
              and (line.item_type_id is None or not line.item_type.archived)]
     copy = create(user, name or checklist.name, checklist.note, template, lines)
@@ -235,12 +247,28 @@ def unscan(checklist, user, iid='', lot_id=''):
     checklist.save(update_fields=['updated'])
 
 
+def check_task(checklist, user, line_id, done=True):
+    """Coche (ou decoche) une tache libre de la liste a sa verif."""
+    _require_open(checklist)
+    line = checklist.lines.filter(id=line_id).exclude(task='').first()
+    if line is None:
+        raise ValueError("Cette tâche n'est pas dans la liste")
+    line.done = timezone.now() if done else None
+    line.done_by = identity_of(user) if done else ''
+    line.save(update_fields=['done', 'done_by'])
+    checklist.updated = timezone.now()
+    checklist.save(update_fields=['updated'])
+    return f'{line.task} : ' + ('fait' if done else 'à faire')
+
+
 def progress(checklist):
-    """Avancement de chaque ligne a la verif : (ligne, scans) et complet."""
+    """Avancement de chaque ligne a la verif : (ligne, scans) et complet. Une tache cochee compte comme un scan."""
     scans = _out_scans(checklist)
     rows = []
     for line in checklist.lines.all():
-        if line.lot_id:
+        if line.task:
+            done = [line] if line.done else []
+        elif line.lot_id:
             done = [scan for scan in scans if scan.lot_id == line.lot_id]
         else:
             done = [scan for scan in scans if scan.item_id and scan.item.pack.item_type_id == line.item_type_id]
@@ -259,7 +287,7 @@ def validate(checklist, user, partial=False):
         _require_open(checklist)
         rows, complete = progress(checklist)
         if not any(done for _, done in rows):
-            raise ValueError('Rien de scanné : scannez le matériel de la liste avant de la valider')
+            raise ValueError('Rien de fait : scannez le matériel ou cochez les tâches de la liste avant de la valider')
         if not complete and not partial:
             raise ValueError('Liste incomplète : validez-la incomplète ou finissez de la scanner')
         iids = [scan.item_id for scan in _out_scans(checklist) if scan.item_id]
@@ -269,14 +297,20 @@ def validate(checklist, user, partial=False):
             for scan_row in refused:
                 scan_row.delete()  # plus en stock entre-temps : pas sorti avec la liste
         now = timezone.now()
+        went_out = bool(_out_scans(checklist))
         checklist.status = ChecklistStatus.VALIDATED
         checklist.validated = now
         checklist.validated_by = identity
+        if not went_out:
+            # que des taches : rien n'est sorti, pas de retour a faire
+            checklist.status = ChecklistStatus.RETURNED
+            checklist.returned = now
+            checklist.returned_by = identity
         checklist.updated = now
         checklist.save()
         journal.record(OperationKind.CHECKLIST, identity,
-                       f'liste « {checklist.name} » sortie' + ('' if complete else ' (incomplète)'), at=now,
-                       checklist=checklist.id, items=iids)
+                       f'liste « {checklist.name} » ' + ('sortie' if went_out else 'faite')
+                       + ('' if complete else ' (incomplète)'), at=now, checklist=checklist.id, items=iids)
     return checklist
 
 
@@ -380,7 +414,9 @@ def checklist_dict(checklist, user=None, full=True):
         'owner_name': f'{owner.prenom} {owner.nom}'.strip(),
         'template': checklist.is_template,
         'status': checklist.status,
-        'status_label': 'Modèle' if checklist.is_template else checklist.get_status_display(),
+        'status_label': 'Modèle' if checklist.is_template else 'Terminée' if (
+            checklist.status == ChecklistStatus.RETURNED and not _out_scans(checklist)) else checklist.get_status_display(),
+        'went_out': bool(_out_scans(checklist)),
         'created': _date(checklist.created),
         'updated': _date(checklist.updated),
         'validated': _date(checklist.validated),
@@ -400,7 +436,13 @@ def checklist_dict(checklist, user=None, full=True):
     back = [scan for scan in checklist.scans.all() if scan.phase == ChecklistScan.BACK]
     lines = []
     for line, done in rows:
-        row = {'quantity': line.quantity, 'scanned': len(done), 'scans': [_scan_dict(scan) for scan in done]}
+        row = {'id': line.id, 'quantity': line.quantity, 'scanned': len(done)}
+        if line.task:
+            row.update({'kind': 'task', 'task': line.task, 'scans': [], 'done': _date(line.done),
+                        'done_by': identity_name(line.done_by), 'back': 0})
+            lines.append(row)
+            continue
+        row['scans'] = [_scan_dict(scan) for scan in done]
         if line.lot_id:
             row.update({'kind': 'lot', 'lot': line.lot_id, 'lot_name': line.lot.name,
                         'lot_type_name': line.lot.lot_type.name,

@@ -2188,7 +2188,7 @@ def checklists_options(request):
 @api_view(['POST'])
 @handle_errors
 def checklists_create(request):
-    """Nouvelle liste : {"user", "name", "note", "template", "lines": [{"lot"} | {"type", "quantity"}]}."""
+    """Nouvelle liste : {"user", "name", "note", "template", "lines": [{"lot"} | {"type", "quantity"} | {"task"}]}."""
     from . import checklists
     user = connected_user(request)
     data = request.data
@@ -2201,7 +2201,8 @@ def checklists_create(request):
 @handle_errors
 def checklist_action(request, checklist_id, action=''):
     """Une liste : {"user"} lit ; update {name, note, template, lines} ; duplicate {name, template} ; delete ;
-    scan / unscan {item | lot} ; validate {partial} ; return-scan {item | lot} ; close-return."""
+    scan / unscan {item | lot} ; check {line, done} (tache libre) ; validate {partial} ; return-scan {item | lot} ;
+    close-return."""
     from . import checklists
     user = connected_user(request)
     checklist = _checklist(checklist_id)
@@ -2226,6 +2227,12 @@ def checklist_action(request, checklist_id, action=''):
             checklists.unscan(checklist, user, iid, lot)
         else:
             message = checklists.return_scan(checklist, user, iid, lot)
+    elif action == 'check':
+        try:
+            line = int(data.get('line'))
+        except (TypeError, ValueError):
+            raise ApiError('line : identifiant de la tâche attendu')
+        message = checklists.check_task(checklist, user, line, data.get('done', True) is not False)
     elif action == 'validate':
         checklists.validate(checklist, user, bool(data.get('partial')))
     elif action == 'close-return':

@@ -3606,6 +3606,25 @@ class ChecklistTests(ApiTestCase):
         self.assertIn(template['id'], ids)
         self.assertNotIn(mine['id'], ids)
 
+    def test_free_tasks(self):
+        code, checklist = self.as_(self.chief, '/api/checklists/', {
+            'name': 'Local', 'lines': [{'task': "Vérifier le niveau d'eau dans le sous-sol"}, {'type': 'compre', 'quantity': 1}]})
+        self.assertEqual(code, 201, checklist)
+        task = checklist['lines'][0]
+        self.assertEqual((task['kind'], task['scanned']), ('task', 0))
+        path = f"/api/checklists/{checklist['id']}/"
+        code, body = self.as_(self.other, path + 'check/', {'line': task['id']})
+        self.assertEqual((code, body['lines'][0]['scanned'], body['lines'][0]['done_by']), (200, 1, 'Paul'))
+        # modifier la liste garde la tache cochee
+        code, body = self.as_(self.chief, path + 'update/', {'lines': [
+            {'task': "Vérifier le niveau d'eau dans le sous-sol"}, {'type': 'compre', 'quantity': 1}, {'task': 'Fermer'}]})
+        self.assertEqual([line['scanned'] for line in body['lines']], [1, 0, 0])
+        code, body = self.as_(self.chief, path + 'validate/', {'partial': True})
+        # une tache cochee suffit a valider ; rien n'est sorti du stock : pas de retour a faire
+        self.assertEqual((body['status'], body['status_label']), ('returned', 'Terminée'))
+        code, copy = self.as_(self.chief, path + 'duplicate/')
+        self.assertEqual([line['scanned'] for line in copy['lines']], [0, 0, 0])
+
     def test_check_validate_and_return(self):
         checklist = self.new_list()
         path = f"/api/checklists/{checklist['id']}/"
