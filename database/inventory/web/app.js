@@ -5031,8 +5031,10 @@
           ? el('button', { type: 'button', class: lists.show === 'all' ? 'active' : '', onclick: () => choose('all') }, 'Toutes') : ''),
       el('button', { type: 'button', class: 'primary list-new', onclick: () => editList() },
         lists.show === 'templates' ? '＋ Nouveau modèle' : '＋ Nouvelle liste'),
-      el('p', { class: 'hint' }, 'Une liste se partage par lien ou QR code et se vérifie en direct, à plusieurs. '
-        + 'Validée, son matériel sort du stock. Un modèle se duplique pour les listes qui reviennent souvent.'),
+      el('p', { class: 'hint' }, 'Une liste sert à demander à des secouristes de prendre du matériel précis pour un '
+        + 'poste en particulier : les lots et le matériel à emporter, avec les quantités. Elle se partage par lien ou '
+        + 'QR code et se vérifie en direct, à plusieurs. Validée, son matériel sort du stock. Un modèle se duplique '
+        + 'pour les postes qui reviennent souvent.'),
     ];
     if (!data) {
       parts.push(el('p', { class: 'hint' }, lists.busy ? 'Chargement…' : 'Listes non chargées.'));

@@ -617,7 +617,7 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   temps restant avant la fermeture de la session (délai réglable). « Nouveau QR code » et « Fermer la
   session » sont dans la même fenêtre.
 - **Clavier** : tout se fait sans souris. Chaque fenêtre a sa touche de fonction : `F1` Pile de scans,
-  `F2` Lots, `F3` Vérif, `F4` Téléphone-douchette, puis `F5` à `F12` pour celles des menus Gestion (État
+  `F2` Lots, `F3` Listes de matériel, `F4` Téléphone-douchette (la Vérif s'ouvre d'elle-même au scan d'un lot), puis `F5` à `F12` pour celles des menus Gestion (État
   des stocks, Inventaire, Paquet fermé, Gestion des lots, Journal des opérations) puis Administration
   (Utilisateurs, Éditeur d'étiquettes, Réglages). La touche d'une fenêtre déjà au premier plan la ferme.
   Dans une fenêtre à onglets, `Ctrl+1`, `Ctrl+2`… choisissent l'onglet. `Ctrl+F11` met les fenêtres en

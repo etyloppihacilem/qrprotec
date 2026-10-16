@@ -45,7 +45,7 @@ Tout se fait sans souris :
 
 | Touche | Effet |
 |---|---|
-| `F1` à `F4` | Pile de scans, Lots, Vérif, Téléphone-douchette |
+| `F1` à `F4` | Pile de scans, Lots, Listes de matériel, Téléphone-douchette |
 | `F5` à `F12` | fenêtres des menus Gestion (rôle gestion ou admin) puis Administration (admin), dans l'ordre des menus, sauf Paquet fermé ; Signalements en `F11`, Réglages toujours en `F12` |
 | `Ctrl+1`, `Ctrl+2`… | choisir l'onglet d'une fenêtre à onglets |
 | `Alt` + lettre soulignée | actionner le bouton (ex. `Alt+V` pour **Valider la vérif** si le V est souligné) |
@@ -229,7 +229,7 @@ vérif suit donc l'arborescence des lots.
 4. **Valider Armoire 1** : retour au VPS, l'armoire est verte. Passez à l'armoire 2, etc.
 5. Les **lots scellés** : scannez l'étiquette de leur scellé, ils sont comptés vérifiés sans les ouvrir.
 6. À la fin, au niveau du VPS : **Valider VPS 1 et terminer** (ou **Terminer la vérif** si le VPS ne
-   contient que des lots).
+   contient que des lots). La fenêtre Vérif se ferme d'elle-même quand il n'y a pas de compte rendu à lire.
 
 Chaque lot validé est une vérif à part, enregistrée dès sa validation : si vous vous arrêtez au milieu,
 les armoires faites restent faites. Un lot où vous n'êtes pas entré n'est pas touché (pas de

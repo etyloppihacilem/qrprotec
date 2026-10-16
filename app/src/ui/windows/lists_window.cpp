@@ -96,8 +96,10 @@ class ListsWindow final : public AppWindow {
       if (primary_button(show_ == "templates" ? "Nouveau modèle" : "Nouvelle liste"))
         start_edit(app, nullptr);
       ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-      ImGui::TextWrapped("Une liste se partage par lien ou QR code et se vérifie en direct, à plusieurs. Validée, son "
-                         "matériel sort du stock. Un modèle se duplique pour les listes qui reviennent souvent.");
+      ImGui::TextWrapped("Une liste sert à demander à des secouristes de prendre du matériel précis pour un poste en "
+                         "particulier : les lots et le matériel à emporter, avec les quantités. Elle se partage par "
+                         "lien ou QR code et se vérifie en direct, à plusieurs. Validée, son matériel sort du stock. "
+                         "Un modèle se duplique pour les postes qui reviennent souvent.");
       ImGui::PopStyleColor();
 
       if (editing_) {
