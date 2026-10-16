@@ -361,6 +361,11 @@ ul.tasks input { width: 22px; height: 22px; flex: none; }
 #tasks-ok:disabled { opacity: .45; }
 #replace-item .replace-banner { background: var(--red); color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 8px 0; }
 ul.tasks-facts { margin: 0; padding-left: 18px; }
+#revision-ok:disabled { opacity: .45; }
+#revision .revision-next { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 2px; }
+#revision .revision-next input { font: inherit; padding: 6px 8px; }
+#revision textarea { display: block; width: 100%; font: inherit; padding: 8px; box-sizing: border-box; }
+.revise-btn { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; }
 
 /* ---- Signalements de problemes ---- */
 /* signalement reconnaissable sans faire croire a un probleme en cours (meme sur un lot tout vert) : « ⚠ Signaler un

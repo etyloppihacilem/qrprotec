@@ -200,6 +200,25 @@
     </form>
   </dialog>
 
+  <!-- Revision du materiel non consommable : taches toutes cochees, prochaine revision -->
+  <dialog id="revision">
+    <form id="revision-form">
+      <h2 id="revision-title">Révision</h2>
+      <p id="revision-sub" class="hint"></p>
+      <p id="revision-intro">Cochez toutes les tâches de la révision.</p>
+      <ul id="revision-list" class="tasks"></ul>
+      <label class="revision-next">Prochaine révision le
+        <input type="date" id="revision-next" required></label>
+      <p id="revision-next-hint" class="hint"></p>
+      <textarea id="revision-note" rows="2" maxlength="256" placeholder="Remarque (facultatif)"></textarea>
+      <p id="revision-error" class="pin-error"></p>
+      <div class="dialog-buttons">
+        <button type="button" id="revision-cancel" class="secondary">Annuler</button>
+        <button type="submit" id="revision-ok" class="primary">Enregistrer la révision</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Item ou paquet signale scanne : signalements ouverts et commentaires -->
   <dialog id="reported">
     <h2 id="reported-title">Objet signalé</h2>

@@ -1,14 +1,14 @@
 from django.contrib import admin
 
 from .models import (
-    FrontKey, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, ProblemReport, SealedPacks, Secouristes,
+    FrontKey, ItemRevision, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, ProblemReport, SealedPacks, Secouristes,
     VerifItem, Verifs,
 )
 
 
 @admin.register(ItemType)
 class ItemTypeAdmin(admin.ModelAdmin):
-    list_display = ('type', 'name', 'min_quantity', 'perissable', 'consumable')
+    list_display = ('type', 'name', 'min_quantity', 'perissable', 'consumable', 'revision_months')
     list_filter = ('consumable', 'perissable', 'archived')
     search_fields = ('type', 'name', 'description')
 
@@ -38,6 +38,12 @@ class LotsAdmin(admin.ModelAdmin):
 @admin.register(Secouristes)
 class SecouristesAdmin(admin.ModelAdmin):
     list_display = ('matricule', 'nom', 'prenom', 'role', 'active', 'key_expires')
+
+
+@admin.register(ItemRevision)
+class ItemRevisionAdmin(admin.ModelAdmin):
+    list_display = ('at', 'item', 'by', 'next_due')
+    search_fields = ('item__iid',)
 
 
 admin.site.register(ItemsPacks)

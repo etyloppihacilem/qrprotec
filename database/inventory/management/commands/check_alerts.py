@@ -45,6 +45,20 @@ class Command(BaseCommand):
                                         'lots contenant des périmés : ' + ', '.join(summary), tag='expired-daily')
         self.stdout.write(f'Stock bas : {", ".join(low) or "aucun"}')
         self.stdout.write(f'Lots avec périmés : {", ".join(summary) or "aucun"}')
+        # materiel a reviser : en retard, ou dans la semaine
+        due = services.revisions_due(today, days=7)
+        late = [item for item in due if item.revision_due < today]
+        week = [item for item in due if item.revision_due >= today]
+        where = lambda item: f'{item.pack.item_type.name} ({item.location.name if item.location_id else "stock"})'
+        parts = []
+        if late:
+            parts.append('en retard : ' + ', '.join(where(item) for item in late))
+        if week:
+            parts.append('cette semaine : ' + ', '.join(where(item) for item in week))
+        if parts:
+            notifications.notify_admins('revision_daily', 'révisions de matériel',
+                                        'révisions à faire, ' + ' ; '.join(parts), tag='revision-daily')
+        self.stdout.write(f'Révisions à faire : {" ; ".join(parts) or "aucune"}')
         expirations = notifications.check_key_expirations(today)
         self.stdout.write(f'Étiquettes de lot à renouveler : {", ".join(expirations["lot_key_expiring"]) or "aucune"}')
         self.stdout.write(f'Badges à renouveler : {", ".join(expirations["badge_expiring"]) or "aucun"}')

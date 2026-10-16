@@ -108,11 +108,26 @@ class ScanWindow final : public AppWindow {
           ImGui::TextDisabled("%s", describe_scan(entry->scan).c_str());
           if (!entry->detail.empty())
             ImGui::TextWrapped("%s", entry->detail.c_str());
+          // materiel a reviser : prochaine revision, et « Reviser » (taches puis prochaine date)
+          if (entry->scan.kind == ScanKind::Item && entry->state == EntryState::Ok && entry->data["revision"].boolean()) {
+            const bool late = entry->data["revision_late"].boolean();
+            ImGui::PushID(entry->id);
+            if (small_button("Réviser"))
+              app.open_revision(entry->data);
+            ImGui::PopID();
+            const std::string due = "Révision " + std::string(late ? "en retard, prévue le " : "le ")
+                                  + display_date(entry->data["revision_due"]);
+            ImGui::PushStyleColor(ImGuiCol_Text, late ? (entry->expired ? colors::red : colors::orange)
+                                                      : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("%s", due.c_str());
+            ImGui::PopStyleColor();
+          }
           ImGui::TableNextColumn();
           if (entry->expired)
             ImGui::TextColored(colors::red, entry->data["outdated"].boolean()   ? "PÉRIMÉ"
                                             : entry->data["disabled"].boolean() ? "DÉSACTIVÉ"
                                             : entry->data["unusable"].boolean() ? "INUTILISABLE"
+                                            : entry->data["revision_late"].boolean() ? "À RÉVISER"
                                                                                 : "PÉRIMÉ");
           else if (entry->state == EntryState::Error)
             ImGui::TextColored(colors::red, "Erreur");

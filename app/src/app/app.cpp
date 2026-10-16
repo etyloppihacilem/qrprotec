@@ -338,6 +338,7 @@ void App::draw() {
   draw_douchette_modal();
   draw_tasks_modal();
   draw_problem_modal();
+  draw_revision_modal();
   draw_reports_alert();
   draw_seal_opening_modal();
   draw_label_preview(*this);
@@ -3455,6 +3456,135 @@ void App::send_problem() {
     else
       handle_scan(iid, ScanSource::Manual);
     reload_verif_lots();
+  });
+}
+
+namespace {
+// meme jour `months` mois plus tard (dernier jour du mois s'il n'existe pas), comme models.add_months du serveur
+Date add_months(const Date &day, int months) {
+  static const int lengths[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+  const int index = day.month - 1 + months;
+  Date      result{ day.year + index / 12, index % 12 + 1, 1 };
+  const bool leap  = (result.year % 4 == 0 && result.year % 100 != 0) || result.year % 400 == 0;
+  const int  last  = lengths[result.month - 1] + (result.month == 2 && leap ? 1 : 0);
+  result.day       = std::min(day.day, last);
+  return result;
+}
+} // namespace
+
+void App::open_revision(const Json &item) {
+  require_login("faire la révision", [this, item]() {
+    revision_           = RevisionPrompt{};
+    revision_.iid       = item["iid"].str();
+    revision_.type_name = item["type_name"].str();
+    revision_.due       = item["revision_due"].str();
+    revision_.months    = std::max(1, item["revision_months"].integer(1));
+    for (const Json &task : item["revision_tasks"].items())
+      revision_.tasks.push_back(task.str());
+    revision_.checked.assign(revision_.tasks.size(), 0);
+    revision_.next_due     = add_months(today(), revision_.months).display();
+    revision_.open_pending = true;
+  }, false);
+}
+
+void App::draw_revision_modal() {
+  static const char *kTitle = "Révision###revision";
+  if (revision_.open_pending) {
+    revision_.open_pending = false;
+    if (!ImGui::IsPopupOpen(kTitle))
+      ImGui::OpenPopup(kTitle);
+  }
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  if (revision_.iid.empty()) { // enregistree ou annulee
+    ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return;
+  }
+  const float width = ImGui::GetFontSize() * 26.0f;
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
+  ImGui::Text("Révision : %s", revision_.type_name.c_str());
+  ImGui::PopFont();
+  ImGui::TextDisabled("%s%s", revision_.iid.c_str(),
+                      revision_.due.empty() ? "" : (" · prévue le " + display_date(Json(revision_.due))).c_str());
+  ImGui::PushTextWrapPos(width);
+  ImGui::TextUnformatted(revision_.tasks.empty() ? "Pas de tâche définie pour ce type."
+                                                 : "Cochez toutes les tâches de la révision.");
+  ImGui::Separator();
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f)); // cases visibles sur le fond blanc
+  bool all = true;
+  for (std::size_t index = 0; index < revision_.tasks.size(); ++index) {
+    bool checked = revision_.checked[index] != 0;
+    ImGui::PushID(static_cast< int >(index));
+    if (ImGui::Checkbox(revision_.tasks[index].c_str(), &checked))
+      revision_.checked[index] = checked ? 1 : 0;
+    ImGui::PopID();
+    all = all && checked;
+  }
+  ImGui::Separator();
+  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+  ImGui::InputText("Prochaine révision", &revision_.next_due);
+  const auto next = parse_user_date(revision_.next_due);
+  if (ImGui::IsItemDeactivatedAfterEdit() && next)
+    revision_.next_due = next->display();
+  const bool next_ok = next && today() < *next;
+  ImGui::SameLine();
+  if (!next)
+    ImGui::TextColored(colors::red, "date non reconnue");
+  else if (!next_ok)
+    ImGui::TextColored(colors::red, "doit être après aujourd'hui");
+  else
+    ImGui::TextColored(colors::green, "→ %s", next->display().c_str());
+  ImGui::TextDisabled("Par défaut dans %d mois (périodicité du type).", revision_.months);
+  ImGui::InputTextWithHint("##note", "Remarque (facultatif)", &revision_.note);
+  ImGui::PopStyleColor();
+  if (revision_.note.size() > 256)
+    revision_.note.resize(256);
+  if (!revision_.error.empty())
+    ImGui::TextColored(colors::red, "%s", revision_.error.c_str());
+  ImGui::PopTextWrapPos();
+  ImGui::Spacing();
+  ImGui::BeginDisabled(revision_.busy || !all || !next_ok);
+  if (primary_button(revision_.busy ? "Envoi..." : "Enregistrer la révision", ImVec2(width * 0.6f, 0)))
+    send_revision();
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (button("Annuler", ImVec2(-1, 0)) || (!revision_.busy && escape_pressed())) {
+    revision_ = RevisionPrompt{};
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::EndPopup();
+}
+
+void App::send_revision() {
+  const auto next = parse_user_date(revision_.next_due);
+  if (!next)
+    return;
+  Json body;
+  body["user"]     = user_ref();
+  body["tasks"]    = Json::array();
+  for (const std::string &task : revision_.tasks)
+    body["tasks"].push_back(Json(task));
+  body["next_due"] = next->iso();
+  body["note"]     = revision_.note;
+  revision_.busy   = true;
+  revision_.error.clear();
+  const std::string iid = revision_.iid;
+  api.post("/api/items/" + iid + "/revision/", body, [this, iid](const ApiResult &result) {
+    revision_.busy = false;
+    if (!result.ok) {
+      identity_refused(result);
+      revision_.error = result.error;
+      return;
+    }
+    revision_ = RevisionPrompt{}; // ferme la fenetre
+    notify(result.data["type_name"].str() + " : révision enregistrée, prochaine le "
+           + display_date(result.data["revision_due"]) + ".");
+    if (const ScanEntry *entry = stack.find_item(iid))
+      resolve_item(entry->id); // etat relu (plus en retard)
+    refresh_lots(true);
   });
 }
 

@@ -20,8 +20,9 @@ from django.utils import timezone
 from . import journal, movements, notifications, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity
 from .models import (
-    ItemMovement, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, OperationKind, SeenWhile, VerifItem,
-    Operation, VerifResult, Verifs, generate_key, qrprotec_setting,
+    ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, OperationKind,
+    SeenWhile, VerifItem, Operation, VerifResult, Verifs, add_months, generate_key, qrprotec_setting,
+    revision_blocked_q,
 )
 
 
@@ -576,7 +577,8 @@ def seal_lot(lot, identity, seal_number='', force=False):
         today = timezone.localdate()
         for sub_lot in lot.descendants():
             rows = requirements_status(sub_lot, today)
-            expired = Items.objects.filter(Q(pack__peremption__lt=today) | Q(unusable=True) | Q(disabled=True),
+            expired = Items.objects.filter(Q(pack__peremption__lt=today) | Q(unusable=True) | Q(disabled=True)
+                                           | revision_blocked_q(today),
                                            location=sub_lot,
                                            status=ItemStatus.ACTIVE).exists()
             if expired or any(row['present'] < row['required'] for row in rows):
@@ -895,6 +897,46 @@ def set_disabled(items, identity, disabled, reason=''):
     return items
 
 
+def revise_item(item, identity, tasks=None, next_due=None, note=''):
+    """Revision d'un item (materiel non consommable a reviser) : toutes ses taches de revision cochees. La prochaine
+    revision est `next_due` (date saisie) ou, par defaut, aujourd'hui + la periodicite du type."""
+    item_type = item.pack.item_type
+    if not item_type.has_revision:
+        raise ValueError("Ce type d'item n'a pas de révision")
+    if item.status in (ItemStatus.DELETED, ItemStatus.REPLACED):
+        raise ValueError("Item supprimé : pas de révision")
+    expected = list(item_type.revision_tasks or [])
+    done = [task for task in expected if task in (tasks or [])]
+    if len(done) != len(expected):
+        raise ValueError('Cochez toutes les tâches de la révision')
+    now = timezone.now()
+    today = timezone.localdate(now)
+    due = next_due or add_months(today, item_type.revision_months)
+    if due <= today:
+        raise ValueError('La prochaine révision doit être après aujourd\'hui')
+    note = str(note or '').strip()[:256]
+    with transaction.atomic():
+        ItemRevision.objects.create(item=item, at=now, by=identity[:64], tasks=done, next_due=due, note=note)
+        item.revision_due = due
+        item.revised_at = now
+        item.revised_by = identity[:64]
+        item.save(update_fields=['revision_due', 'revised_at', 'revised_by'])
+        journal.record(OperationKind.REVISION, identity, f'{item_type.name} {item.iid} : prochaine révision le '
+                       f'{due.strftime("%d/%m/%Y")}' + (f' ({note})' if note else ''), at=now, items=[item.iid],
+                       next_due=due.isoformat())
+    return item
+
+
+def revisions_due(today=None, days=30):
+    """Items actifs a reviser en retard ou dans les `days` jours, prochaine revision d'abord."""
+    today = today or timezone.localdate()
+    return list(Items.objects.select_related('pack__item_type', 'location')
+                .filter(status__in=(ItemStatus.ACTIVE, ItemStatus.OUT, ItemStatus.LOOSE), revision_due__isnull=False,
+                        revision_due__lte=today + timedelta(days=days), pack__item_type__revision_months__gt=0,
+                        pack__item_type__consumable=False)
+                .order_by('revision_due', 'iid'))
+
+
 def restore(item, identity):
     now = timezone.now()
     movements.found_again([item.iid], now, identity)
@@ -919,7 +961,8 @@ def stock_status(soon_days=30):
     items = 'itemspacks__items'
     active = Q(**{f'{items}__status': ItemStatus.ACTIVE})
     # un item desactive (rappel produit, non-conformite) compte avec les perimes
-    disabled = Q(**{f'{items}__disabled': True})
+    disabled = Q(**{f'{items}__disabled': True}) | Q(**{f'{items}__revision_due__lt': today, 'revision_months__gt': 0,
+                                                         'consumable': False, 'revision_usable': False})
     fresh = (Q(itemspacks__peremption__isnull=True) | Q(itemspacks__peremption__gte=today)) & ~disabled
     expired = Q(itemspacks__peremption__lt=today) | disabled
     # les rangements du stock (armoires, tiroirs) comptent dans le stock, pas dans les lots

@@ -1,7 +1,7 @@
 import importlib
 import json
 import math
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from io import StringIO
 
 from django.apps import apps as django_apps
@@ -13,7 +13,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from . import serializers as ser
-from . import views
+from . import models, views
 from .base62 import decode_base62
 from . import forecast
 from . import idendity
@@ -1792,7 +1792,7 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual([(row['device'], row['current']) for row in body['devices']],
                          [('Firefox · Linux', False), ('Navigateur', True)])
-        self.assertEqual(len(body['types']), 12)
+        self.assertEqual(len(body['types']), 13)
         # alertes d'un autre appareil, puis desabonnement a distance
         code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
                                local=False)
@@ -1809,7 +1809,7 @@ class WebPushTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/push/devices/{mine.id}/', {'user': badge, 'delete': True}, local=False)
         self.assertEqual(code, 404)
         code, body = self.call('POST', '/api/push/devices/', {'user': badge}, local=False)
-        self.assertEqual((body['devices'], len(body['types'])), ([], 8))
+        self.assertEqual((body['devices'], len(body['types'])), ([], 9))
 
     def test_admin_disables_types_per_user(self):
         self.subscribe()
@@ -3480,3 +3480,83 @@ class ItemDisableTests(ApiTestCase):
         # desactivation directe d'un paquet (reactivation ici)
         code, body = self.disable({'pack': pack_id, 'disabled': False})
         self.assertEqual(body['count'], 3)
+
+
+class RevisionTests(ApiTestCase):
+    """Revision periodique du materiel non consommable : date de prochaine revision, taches, retard bloquant ou non."""
+
+    def setUp(self):
+        super().setUp()
+        from . import webpush
+        self.sent = []
+        self.addCleanup(setattr, webpush, 'notify_event', webpush.notify_event)
+        webpush.notify_event = lambda field, title, body, **web: self.sent.append((field, body)) or 1
+        self.aspi = ItemType.objects.create(type='aspimu', name='Aspirateur', consumable=False, revision_months=3,
+                                            revision_tasks=['Batterie chargée', 'Tuyau propre'])
+        LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.aspi, quantity=1)
+
+    def test_new_item_due_after_interval(self):
+        item = self.create(self.aspi, None, 1)[0]
+        self.assertEqual(item.revision_due, models.add_months(self.today, 3))
+        code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertTrue(body['revision'])
+        self.assertEqual(body['revision_tasks'], ['Batterie chargée', 'Tuyau propre'])
+        self.assertFalse(body['revision_late'])
+        self.assertEqual(models.add_months(date(2026, 1, 31), 1), date(2026, 2, 28))
+
+    def test_revise_requires_all_tasks_and_sets_next_due(self):
+        item = self.create(self.aspi, None, 1)[0]
+        code, body = self.call('POST', f'/api/items/{item.iid}/revision/', {'tasks': ['Batterie chargée']})
+        self.assertEqual(code, 400)
+        code, body = self.call('POST', f'/api/items/{item.iid}/revision/',
+                               {'tasks': ['Batterie chargée', 'Tuyau propre']})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['revision_due'], models.add_months(self.today, 3).isoformat())
+        self.assertEqual(len(body['revisions']), 1)
+        later = (self.today + timedelta(days=200)).isoformat()
+        code, body = self.call('POST', f'/api/items/{item.iid}/revision/',
+                               {'tasks': ['Batterie chargée', 'Tuyau propre'], 'next_due': later})
+        self.assertEqual(body['revision_due'], later)
+        code, body = self.call('POST', f'/api/items/{item.iid}/revision/',
+                               {'tasks': ['Batterie chargée', 'Tuyau propre'], 'next_due': self.today.isoformat()})
+        self.assertEqual(code, 400)
+        code, _ = self.call('POST', f'/api/items/{item.iid}/revision/', {'tasks': []}, session=False)
+        self.assertEqual(code, 403)
+        garrot = self.create(self.garrot, None, 1)[0]
+        code, _ = self.call('POST', f'/api/items/{garrot.iid}/revision/', {'tasks': []})
+        self.assertEqual(code, 400)
+
+    def test_late_revision_blocks_only_when_not_usable(self):
+        item = self.create(self.aspi, None, 1)[0]
+        Items.objects.filter(iid=item.iid).update(location=self.lot, revision_due=self.today - timedelta(days=1))
+        item.refresh_from_db()
+        self.assertTrue(item.revision_late())
+        self.assertFalse(item.needs_replacement())
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(lot['revision_late_count'], 1)
+        self.assertEqual(lot['expired_count'], 0)
+        self.aspi.revision_usable = False
+        self.aspi.save()
+        item.refresh_from_db()
+        self.assertTrue(item.needs_replacement())
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(lot['expired_count'], 1)
+        self.assertEqual(lot['next_revision'], (self.today - timedelta(days=1)).isoformat())
+
+    def test_enabling_revision_dates_existing_items(self):
+        ItemType.objects.filter(type='aspimu').update(revision_months=0)
+        item = self.create(ItemType.objects.get(type='aspimu'), None, 1)[0]
+        self.assertIsNone(item.revision_due)
+        code, body = self.call('PATCH', '/api/item-types/aspimu/', {'revision_months': 6, 'revision_usable': False})
+        self.assertEqual((body['revision_months'], body['revision_usable']), (6, False))
+        item.refresh_from_db()
+        self.assertEqual(item.revision_due, models.add_months(self.today, 6))
+
+    def test_daily_revision_summary(self):
+        from django.core.management import call_command
+        late, soon, later = self.create(self.aspi, None, 3)
+        Items.objects.filter(iid=late.iid).update(location=self.lot, revision_due=self.today - timedelta(days=2))
+        Items.objects.filter(iid=soon.iid).update(revision_due=self.today + timedelta(days=3))
+        call_command('check_alerts', stdout=StringIO())
+        self.assertIn(('revision_daily', 'révisions à faire, en retard : Aspirateur (Sac A) ; cette semaine : '
+                                         'Aspirateur (stock)'), self.sent)

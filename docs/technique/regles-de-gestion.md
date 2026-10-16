@@ -68,6 +68,17 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    en stock à la main (`items/to-stock`, fenêtre Inventaire du poste). Il ne retient pas non plus son
    lot en vérif partielle. Dans un rangement du stock il manque comme les autres. Sorti du stock
    sans lot, il reste `out` jusqu'à son retour (`out_deadline` vaut `None`).
+   **Révision** (`ItemType.revision_months` > 0, non consommable seulement : `has_revision`) : chaque
+   item a `revision_due`, posée à la réception (`add_items`) et à l'activation sur le type, à
+   aujourd'hui + la périodicité (`add_months`, dernier jour du mois s'il n'existe pas). Une révision
+   (`POST items/<iid>/revision/`, utilisateur connecté, `services.revise_item`) exige toutes les
+   `revision_tasks` cochées, enregistre un `ItemRevision` et l'opération `revision`, et pose la
+   prochaine date (saisie, après aujourd'hui, ou par défaut aujourd'hui + la périodicité). En retard
+   (`revision_due` < aujourd'hui, `Items.revision_late`) : avertissement si `revision_usable`, sinon
+   l'item est à remplacer comme un périmé (`needs_replacement`, et `revision_blocked_q` dans les
+   filtres du scellage, du stock et du stock bas). `_lot_core` donne `next_revision`,
+   `revision_late_count` et `revision_soon_count` (30 jours) ; `check_alerts` envoie
+   `revision_daily` (en retard ou dans les 7 jours, `services.revisions_due`).
    **Items à tâches** (`ItemType.tasks`, étiquette de tâches `<base>/task?id=IID`) : les fronts
    n'envoient l'item dans les scans de la vérif qu'une fois toutes ses tâches cochées et validées
    (web `openTasks`/`addItem`, poste `ScanEntry.tasks_pending`, hors de `ScanStack::iids`). Le
