@@ -72,8 +72,8 @@ Dans la fiche d'un lot (rôle gestion) :
 Celui qui ouvre le lot scanne l'étiquette d'ouverture : le scellé est marqué ouvert, même s'il n'est
 pas connecté. Un écran en grand (téléphone ou poste) confirme que l'ouverture est enregistrée et que le
 TECH en est informé, indique si le scellé était valide et jusqu'à quand, et montre le contenu du scellé ;
-il ne propose pas de vérif. Le téléphone lui demande ensuite son badge (ou son nom, si le serveur l'autorise) pour
-signer l'ouverture ; sans cela, elle reste enregistrée comme anonyme.
+il ne propose pas de vérif et ne demande pas de signer l'ouverture. Si personne n'est connecté, elle est
+enregistrée comme anonyme.
 
 **Briser le scellé** depuis la fiche quand on ouvre le lot pour autre chose qu'une vérif. Le lot
 devra être vérifié avant utilisation.

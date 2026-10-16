@@ -1860,8 +1860,7 @@ void App::draw_seal_opening_modal() {
   ImGui::PushFont(nullptr, base * 1.4f);
   ImGui::TextUnformatted("Le TECH est au courant");
   ImGui::PopFont();
-  const std::string tech = std::string("L'ouverture est enregistrée et le TECH en est informé : inutile de la "
-                                       "signaler. ") +
+  const std::string tech = std::string("L'ouverture est enregistrée et le TECH en est informé. ") +
                            (lot["seal_required"].boolean() ? "Le lot sera vérifié puis scellé à nouveau plus tard."
                                                            : "Le lot sera vérifié plus tard.");
   ImGui::TextUnformatted(tech.c_str());
@@ -1870,8 +1869,6 @@ void App::draw_seal_opening_modal() {
                         result["identified"].boolean() && !lot["unsealed_by"].str().empty()
                           ? (" par " + lot["unsealed_by"].str()).c_str()
                           : "");
-  if (!result["identified"].boolean())
-    ImGui::TextUnformatted("Pour signer l'ouverture, connectez-vous puis rescannez l'étiquette.");
 
   // contenu du scelle : le lot puis ses sous-lots, items regroupes par type
   ImGui::Separator();

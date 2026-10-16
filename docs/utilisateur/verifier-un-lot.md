@@ -315,8 +315,7 @@ l'ouvrir (voir « Lot scellé dans le lot vérifié »).
 
 En ouvrant un lot scellé, **scannez l'étiquette d'ouverture** rangée à l'intérieur (« Scanner après
 l'ouverture ») : le scellé est marqué ouvert, que vous soyez connecté ou non. Il n'y a pas de bouton
-« ouvrir » : le scan suffit. Si vous n'êtes pas connecté, le téléphone vous demande ensuite votre badge
-pour signer l'ouverture. Le lot passe en **orange** « Vérif recommandée, scellé ouvert » jusqu'à la
+« ouvrir » : le scan suffit, rien à signer. Le lot passe en **orange** « Vérif recommandée, scellé ouvert » jusqu'à la
 prochaine vérif complète.
 
 Vérifier un lot scellé, y ajouter ou en retirer quelque chose, ou ouvrir un de ses sous-lots **brise
