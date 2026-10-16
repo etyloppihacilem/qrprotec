@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -157,7 +158,7 @@ class StockWindow final : public AppWindow {
         const int   minimum  = row["min_quantity"].integer();
         if (!filter_matches(app, row))
           continue;
-        if (only_low_ && quantity >= minimum && quantity > 0)
+        if (only_low_ && quantity >= minimum && (quantity > 0 || minimum == 0))
           continue;
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
@@ -189,9 +190,12 @@ class StockWindow final : public AppWindow {
       return row["stock_fresh"].integer() + (include_lots_ ? row["lots_fresh"].integer() : 0);
     }
 
+    // les items sans minimum (x/0) tout en bas
     float ratio(const Json &row) const {
       const int minimum = row["min_quantity"].integer();
-      return minimum > 0 ? static_cast< float >(count(row)) / static_cast< float >(minimum) : 1e6f;
+      if (minimum <= 0)
+        return std::numeric_limits< float >::infinity();
+      return static_cast< float >(count(row)) / static_cast< float >(minimum);
     }
 
     // ---- Projection : stock a M+k, graphes du type selectionne ----

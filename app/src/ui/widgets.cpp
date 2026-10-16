@@ -251,14 +251,15 @@ bool report_mark(const char *id) {
 }
 
 void stock_bar(int quantity, int minimum, const ImVec2 &size) {
-  const ImVec4 color = quantity <= 0 ? colors::red : quantity < minimum ? colors::orange : colors::green;
+  const bool   empty = quantity <= 0 && minimum > 0; // x/0 : rien d'attendu, vert
+  const ImVec4 color = empty ? colors::red : quantity < minimum ? colors::orange : colors::green;
   float        fraction = minimum > 0 ? static_cast< float >(quantity) / static_cast< float >(minimum) : 1.0f;
-  if (quantity <= 0)
+  if (empty)
     fraction = 1.0f; // barre entierement rouge : bien visible
   fraction = std::clamp(fraction, 0.0f, 1.0f);
   const std::string overlay = std::to_string(quantity) + "/" + std::to_string(minimum);
   ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
-  ImGui::PushStyleColor(ImGuiCol_Text, quantity <= 0 ? ImVec4(1, 1, 1, 1) : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+  ImGui::PushStyleColor(ImGuiCol_Text, empty ? ImVec4(1, 1, 1, 1) : ImGui::GetStyleColorVec4(ImGuiCol_Text));
   ImGui::ProgressBar(fraction, size, overlay.c_str());
   ImGui::PopStyleColor(2);
 }
