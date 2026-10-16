@@ -115,6 +115,25 @@ items **sans** scanner d'étiquette de lot. Le bouton de vérif devient **Sortir
 
 La colonne **Sortis** de l'état des stocks compte les items en attente de retour.
 
+## Réviser le matériel
+
+Le matériel non consommable dont le type a une révision (voir les types d'items dans la mise en
+place) a une date de **prochaine révision**. Pour le réviser :
+
+- **téléphone** : scannez l'étiquette de l'item, puis **🔧 Réviser** sur sa fiche ;
+- **poste** : scannez l'item, puis **Réviser** sous sa ligne dans la pile de scans.
+
+Connectez-vous si besoin, cochez toutes les tâches de la révision, vérifiez la date de prochaine
+révision (par défaut dans la périodicité du type, modifiable) et enregistrez. La fiche de l'item
+garde la dernière révision et qui l'a faite.
+
+Les révisions s'anticipent comme les péremptions : la fiche d'un lot affiche sa **prochaine
+révision** (en orange à moins de 30 jours ou en retard), la liste des lots du poste indique
+« N à réviser », et les comptes gestion et admin reçoivent chaque matin le résumé des révisions en
+retard ou de la semaine (notification « Résumé quotidien des révisions de matériel à faire »). En
+retard, l'item porte « révision en retard » : il reste utilisable avec un avertissement, ou compte
+comme à remplacer si son type ne permet pas de l'utiliser en retard.
+
 ## Remettre du matériel en stock
 
 Un objet sorti d'un sac et remis en réserve (sac réformé, surplus) : scannez-le, puis **En stock**

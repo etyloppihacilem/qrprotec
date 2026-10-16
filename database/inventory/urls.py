@@ -21,6 +21,7 @@ public_patterns = [
     path('pin-forgot/', views.pin_forgot),
     path('items/out/', views.items_out),         # avant items/<iid>/
     path('items/<str:iid>/', views.item_detail),
+    path('items/<str:iid>/revision/', views.item_revision),
     path('lots/summary/', views.lots_summary),   # avant lots/<id>/
     path('stock/summary/', views.stock_summary),
     path('stock/forecast/summary/', views.stock_forecast_summary),
@@ -51,6 +52,7 @@ local_patterns = [
     path('item-types/', views.item_types),
     path('item-types/<str:type_code>/', views.item_type_detail),
     path('items/', views.items),
+    path('revisions/', views.revisions_due),
     path('items/batch/', views.items_batch),
     path('items/disable/', views.items_disable),
     path('receptions/', views.receptions),

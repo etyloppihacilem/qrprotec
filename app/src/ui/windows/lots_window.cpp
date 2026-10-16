@@ -107,6 +107,7 @@ class LotsWindow final : public AppWindow {
         const std::string name = lot["name"].str();
         const int         expired = lot["expired_count"].integer();
         const int         soon    = lot["expiring_soon_count"].integer();
+        const int         revisions = lot["revision_late_count"].integer() + lot["revision_soon_count"].integer();
         const LotStatus   status   = lot_status(lot);
         const int         depth    = lot["depth"].integer();
         // lot global : son etat est celui de l'ensemble de ses lots (tous valides, verif la plus ancienne)
@@ -118,7 +119,7 @@ class LotsWindow final : public AppWindow {
         // rangements du stock masques par defaut (sauf le lot ouvert, ex : etiquette scannee)
         if (!show_storage_ && lot["storage"].boolean() && id != selected_)
           continue;
-        if (only_problems_ && ok && soon == 0)
+        if (only_problems_ && ok && soon == 0 && revisions == 0)
           continue;
         ImGui::TableNextRow();
         // vert = verifie et complet, rouge sinon (incomplet, perimes, jamais verifie)
@@ -134,6 +135,11 @@ class LotsWindow final : public AppWindow {
           ImGui::TextDisabled("%s%s", lot["lot_type_name"].str().c_str(),
                               top ? " · lot global" : lot["storage"].boolean() ? " · rangement" : "");
         }
+        if (revisions > 0) {
+          ImGui::SameLine();
+          ImGui::TextColored(colors::orange, "· %d à réviser", revisions);
+          ImGui::SetItemTooltip("Matériel dont la révision est en retard ou dans les 30 jours");
+        }
         if (!compact) {
           ImGui::TableNextColumn();
           ImGui::Text("%d", lot["item_count"].integer());
@@ -145,6 +151,7 @@ class LotsWindow final : public AppWindow {
           ImGui::TextColored(colors::orange, "%d bientôt", soon);
         else
           ImGui::TextUnformatted("0");
+
         ImGui::TableNextColumn();
         // cellule d'etat en couleur pleine
         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(color));
@@ -201,6 +208,16 @@ class LotsWindow final : public AppWindow {
       }
       ImGui::Text("Dernière vérif : %s par %s", display_datetime(details_["last_verif"], true).c_str(),
                   details_["last_verif_by"].str("-").c_str());
+      if (!details_["next_revision"].is_null()) {
+        const int  late = details_["revision_late_count"].integer();
+        const bool warn = late > 0 || details_["revision_soon_count"].integer() > 0;
+        const std::string text = "Prochaine révision : " + display_date(details_["next_revision"])
+                               + (late > 0 ? " · " + std::to_string(late) + " révision(s) en retard" : "");
+        if (warn)
+          ImGui::TextColored(colors::orange, "⚠ %s", text.c_str());
+        else
+          ImGui::TextUnformatted(text.c_str());
+      }
       const LotStatus status = lot_status(details_);
       // QR code de scelle scanne : resultat du controle
       if (!seal_check_.empty()) {
@@ -289,6 +306,9 @@ class LotsWindow final : public AppWindow {
           } else if (item["unusable"].boolean()) {
             ImGui::SameLine();
             ImGui::TextColored(colors::red, "(signalé inutilisable)");
+          } else if (item["revision_late"].boolean()) {
+            ImGui::SameLine();
+            ImGui::TextColored(item["expired"].boolean() ? colors::red : colors::orange, "(révision en retard)");
           } else if (item["reported"].boolean()) {
             ImGui::SameLine();
             ImGui::TextColored(colors::orange, "(problème signalé)");

@@ -84,6 +84,13 @@ Conseils :
   ni en stock) au lieu d'être compté comme utilisé ou perdu. Il rejoint le stock quand il est scanné
   à une vérif du stock, ou avec « Remettre en stock » dans l'Inventaire. Sorti du stock sans lot, il
   reste « sorti » jusqu'à son retour.
+- **Révision tous les (mois)** (matériel non consommable, ex : aspirateur de mucosités tous les
+  3 mois) : 0 pour pas de révision. Chaque item a une date de prochaine révision : à la réception,
+  puis à chaque révision, elle vaut la date du jour + ce nombre de mois (modifiable au moment de la
+  révision). Ajoutez les **tâches de la révision** (une par ligne) et choisissez si l'item reste
+  **utilisable même si la révision est en retard** : sinon, en retard, il compte comme à remplacer,
+  comme un périmé, jusqu'à sa révision. Activer la révision sur un type existant date ses items à
+  aujourd'hui + la périodicité.
 - **Tâches à la vérif** (une par ligne, ex : DAE « Voyant vert allumé », « Électrodes dans leur
   date ») : les items de ce type reçoivent une **étiquette de tâches** à la place de l'étiquette
   d'item (modèle `tache.qr`, avec la liste des tâches). À la vérif, la scanner ouvre la liste à

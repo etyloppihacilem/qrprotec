@@ -188,6 +188,10 @@ class VerifWindow final : public AppWindow {
         } else if (item["unusable"].boolean() && !item["outdated"].boolean()) {
           ImGui::SameLine();
           ImGui::TextColored(colors::red, "(signalé inutilisable : à remplacer)");
+        } else if (item["revision_late"].boolean() && !item["outdated"].boolean()) {
+          ImGui::SameLine();
+          ImGui::TextColored(item["expired"].boolean() ? colors::red : colors::orange,
+                             item["expired"].boolean() ? "(révision en retard : inutilisable)" : "(révision en retard)");
         } else if (item["expired"].boolean()) {
           ImGui::SameLine();
           ImGui::TextColored(colors::red, "(périmé : à remplacer)");

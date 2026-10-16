@@ -48,7 +48,7 @@ from .sessions import credentials_user, session_token, session_user, session_val
 from .models import (
     PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
-    SCANNER_VOLUMES, ServerSettings, Verifs, name_key, qrprotec_setting,
+    SCANNER_VOLUMES, ServerSettings, Verifs, add_months, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -163,6 +163,7 @@ def parse_int(value, field, minimum=0, maximum=None):
 
 
 MAX_TASKS = 20
+MAX_REVISION_MONTHS = 120
 TASK_LENGTH = 120
 
 
@@ -525,7 +526,37 @@ def pin_reset(request):
 def item_detail(request, iid):
     item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location__lot_type'), iid=iid)
     # fiche de l'item (front web) : dernier emplacement connu, pour ouvrir son lot ou lancer sa verif
-    return Response({**ser.item_dict(item), 'last_location': ser.item_last_location(item)})
+    return Response({**ser.item_dict(item), 'last_location': ser.item_last_location(item),
+                     'revisions': [ser.revision_dict(revision) for revision in item.revisions.all()[:5]]})
+
+
+@api_view(['POST'])
+@handle_errors
+def item_revision(request, iid):
+    """Revision d'un item (materiel a reviser) par un utilisateur connecte : {"user", "tasks": taches cochees (toutes),
+    "next_due": date de la prochaine revision (par defaut aujourd'hui + la periodicite du type), "note"}."""
+    user = connected_user(request)
+    item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location__lot_type'), iid=iid)
+    data = request.data
+    tasks = data.get('tasks') or []
+    if not isinstance(tasks, list):
+        raise ApiError('tasks : liste des tâches cochées attendue')
+    next_due = parse_date(data['next_due'], 'next_due') if data.get('next_due') else None
+    try:
+        services.revise_item(item, f'{SOURCE_VERIFIED}:{user.matricule}', [str(task) for task in tasks], next_due,
+                             data.get('note', ''))
+    except ValueError as exc:
+        raise ApiError(str(exc))
+    return Response({**ser.item_dict(item), 'last_location': ser.item_last_location(item),
+                     'revisions': [ser.revision_dict(revision) for revision in item.revisions.all()[:5]]})
+
+
+@api_view(['GET'])
+@handle_errors
+def revisions_due(request):
+    """Materiel a reviser (en retard ou dans les `days` jours, 30 par defaut), pour les postes."""
+    days = parse_int(request.query_params.get('days', 30), 'days', 0, 366)
+    return Response([ser.item_dict(item) for item in services.revisions_due(days=days)])
 
 
 @api_view(['GET'])
@@ -1090,6 +1121,9 @@ def item_types(request):
         tear_off=bool(data.get('tear_off', False)),
         consumable=bool(data.get('consumable', True)),
         tasks=parse_tasks(data.get('tasks')),
+        revision_months=parse_int(data.get('revision_months', 0), 'revision_months', 0, MAX_REVISION_MONTHS),
+        revision_tasks=parse_tasks(data.get('revision_tasks')),
+        revision_usable=bool(data.get('revision_usable', True)),
     )
     journal.record(OperationKind.CATALOG, front_identity(request), f"type d'item créé : {item_type}", type=code)
     return Response(ser.item_type_dict(item_type), status=status.HTTP_201_CREATED)
@@ -1126,6 +1160,13 @@ def item_type_detail(request, type_code):
             item_type.consumable = bool(data['consumable'])
         if 'tasks' in data:
             item_type.tasks = parse_tasks(data['tasks'])
+        had_revision = item_type.has_revision
+        if 'revision_months' in data:
+            item_type.revision_months = parse_int(data['revision_months'], 'revision_months', 0, MAX_REVISION_MONTHS)
+        if 'revision_tasks' in data:
+            item_type.revision_tasks = parse_tasks(data['revision_tasks'])
+        if 'revision_usable' in data:
+            item_type.revision_usable = bool(data['revision_usable'])
         if 'archived' in data:
             archived = bool(data['archived'])
             if archived:
@@ -1137,6 +1178,10 @@ def item_type_detail(request, type_code):
                                    + ". Retirez-le de ces types de lots d'abord.")
             item_type.archived = archived
         item_type.save()
+        if item_type.has_revision and not had_revision:
+            # revision activee : premiere revision des items deja la dans la periodicite, sauf date deja prevue
+            Items.objects.filter(pack__item_type=item_type, revision_due__isnull=True).update(
+                revision_due=add_months(timezone.localdate(), item_type.revision_months))
         journal.record(OperationKind.CATALOG, front_identity(request),
                        f"type d'item modifié : {item_type} ({changed_fields(data, ITEM_TYPE_FIELDS)})",
                        type=item_type.type, fields=sorted(data.keys()))
@@ -1146,7 +1191,9 @@ def item_type_detail(request, type_code):
 ITEM_TYPE_FIELDS = {
     'name': 'nom', 'description': 'description', 'min_quantity': 'stock minimum',
     'default_pack_size': 'taille de paquet', 'perissable': 'périssable', 'tear_off': 'étiquette à déchirer',
-    'consumable': 'consommable', 'tasks': 'tâches', 'archived': 'archivage',
+    'consumable': 'consommable', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
+    'revision_tasks': 'tâches de révision', 'revision_usable': 'utilisable en retard de révision',
+    'archived': 'archivage',
 }
 LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',
                    'seal_required': 'scellé obligatoire', 'archived': 'archivage'}

@@ -8,6 +8,7 @@
 #
 # ######################################################################################################################
 
+import calendar
 import hashlib
 import hmac
 import re
@@ -19,6 +20,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
+from django.db.models import Q
 from django.db import transaction
 from django.utils import timezone
 
@@ -92,6 +94,13 @@ class ItemStatus(models.TextChoices):
 
 
 # models.py
+def add_months(day, months):
+    """Meme jour `months` mois plus tard (dernier jour du mois s'il n'existe pas, ex : 31 janvier + 1 = 28 fevrier)."""
+    index = day.month - 1 + months
+    year, month = day.year + index // 12, index % 12 + 1
+    return day.replace(year=year, month=month, day=min(day.day, calendar.monthrange(year, month)[1]))
+
+
 class ItemsPacksManager(models.Manager):
     def add_items(self, item_type, peremption, count, user, location=None, context=SeenWhile.CREATE, sealed_pack=None):
         if count <= 0:
@@ -102,6 +111,8 @@ class ItemsPacksManager(models.Manager):
             peremption = None
         now = timezone.now()
         pack_id = f"{item_type.type}{peremption_code(peremption)}"
+        # materiel a reviser : premiere revision a la reception + la periodicite du type
+        revision_due = add_months(timezone.localdate(now), item_type.revision_months) if item_type.has_revision else None
 
         with transaction.atomic():
             pack, _ = self.select_for_update().get_or_create(
@@ -121,6 +132,7 @@ class ItemsPacksManager(models.Manager):
                     last_seen_while=context,
                     added=now,
                     added_by=user,
+                    revision_due=revision_due,
                 )
                 for i in range(count)
             ]
@@ -168,10 +180,28 @@ class ItemType(models.Model):
     # (son etiquette de taches ou d'item) ouvre la liste a cocher sur les fronts, et l'item n'est compte comme vu
     # qu'une fois toutes les taches cochees et validees. Liste de libelles, vide = item ordinaire.
     tasks = models.JSONField(default=list, blank=True)
+    # Revision periodique du materiel non consommable (ex : aspirateur de mucosites, tous les 3 mois) : 0 = pas de
+    # revision. La prochaine revision de chaque item (Items.revision_due) vaut par defaut la date de la revision + ce
+    # nombre de mois. Taches de revision a cocher (comme tasks). En retard, l'item reste utilisable (avertissement) si
+    # revision_usable, sinon il est a remplacer comme un perime.
+    revision_months = models.PositiveIntegerField(default=0)
+    revision_tasks = models.JSONField(default=list, blank=True)
+    revision_usable = models.BooleanField(default=True)
     archived = models.BooleanField(default=False) # plus propose (reception, contenu des lots), desarchivable
+
+    @property
+    def has_revision(self) -> bool:
+        return self.revision_months > 0 and not self.consumable
 
     def __str__(self):
         return f"{self.name} ({self.type})"
+
+
+def revision_blocked_q(today, prefix=''):
+    """Items dont la revision en retard les rend inutilisables (meme regle que Items.needs_replacement)."""
+    type_prefix = f'{prefix}pack__item_type__'
+    return Q(**{f'{prefix}revision_due__lt': today, f'{type_prefix}revision_months__gt': 0,
+                f'{type_prefix}consumable': False, f'{type_prefix}revision_usable': False})
 
 
 class ItemsPacks(models.Model):
@@ -243,6 +273,10 @@ class Items(models.Model):
     disabled_reason = models.CharField(max_length=128, blank=True, default='')
     disabled_at = models.DateTimeField(blank=True, null=True)
     disabled_by = models.CharField(max_length=64, blank=True, default='')
+    # revision (ItemType.revision_months) : date de la prochaine revision et derniere revision faite
+    revision_due = models.DateField(blank=True, null=True)
+    revised_at = models.DateTimeField(blank=True, null=True)
+    revised_by = models.CharField(max_length=64, blank=True, default='')
 
     @property
     def item_type(self):
@@ -258,14 +292,35 @@ class Items(models.Model):
             return False
         return peremption < (today or timezone.localdate())
 
+    def revision_late(self, today=None) -> bool:
+        """Revision en retard (date de prochaine revision passee)."""
+        return (self.item_type.has_revision and self.revision_due is not None
+                and self.revision_due < (today or timezone.localdate()))
+
     def needs_replacement(self, today=None) -> bool:
-        """Perime, signale inutilisable ou desactive : ne compte plus dans son lot et doit etre remplace."""
-        return self.unusable or self.disabled or self.is_expired(today)
+        """Perime, signale inutilisable, desactive ou revision en retard bloquante : ne compte plus dans son lot et
+        doit etre remplace."""
+        return (self.unusable or self.disabled or self.is_expired(today)
+                or (self.revision_late(today) and not self.item_type.revision_usable))
 
     def touch(self, user, context, now=None):
         self.last_seen = now or timezone.now()
         self.last_seen_by = user
         self.last_seen_while = context
+
+
+class ItemRevision(models.Model):
+    """Revision faite sur un item (materiel non consommable, ItemType.revision_months) : taches cochees, prochaine
+    revision prevue."""
+    item = models.ForeignKey(Items, on_delete=models.CASCADE, related_name='revisions')
+    at = models.DateTimeField(default=timezone.now)
+    by = models.CharField(max_length=64)
+    tasks = models.JSONField(default=list, blank=True)  # taches cochees
+    next_due = models.DateField()
+    note = models.CharField(max_length=256, blank=True, default='')
+
+    class Meta:
+        ordering = ['-at']
 
 
 class LotType(models.Model):
@@ -519,6 +574,7 @@ class OperationKind(models.TextChoices):
     USER = 'user', 'Utilisateurs'
     SETTINGS = 'settings', 'Réglages'
     REPORT = 'report', 'Signalement'
+    REVISION = 'revision', 'Révision de matériel'
 
 
 class Operation(models.Model):
@@ -575,6 +631,7 @@ PUSH_TYPES = {
     'problem_report': ("Signalement d'un problème sur un item ou un lot", _ADMIN_ROLES, True),
     'seal_broken': ("Ouverture d'un lot scellé (étiquette d'ouverture, vérif, ajout ou retrait)", _GESTION_ROLES, True),
     'expired_daily': ('Résumé quotidien des lots contenant des périmés (7 h 45)', _GESTION_ROLES, True),
+    'revision_daily': ('Résumé quotidien des révisions de matériel à faire (7 h 45)', _GESTION_ROLES, True),
     'verif_problem': ('Vérif de lot incomplète (manquants, périmés, disparus)', _GESTION_ROLES, False),
 }
 
@@ -914,6 +971,7 @@ class PushSubscription(models.Model):
     problem_report = models.BooleanField(default=True)  # probleme signale sur un item ou un lot (admins)
     seal_broken = models.BooleanField(default=True)     # scelle d'un lot ouvert
     expired_daily = models.BooleanField(default=True)   # resume quotidien des lots contenant des perimes (check_alerts)
+    revision_daily = models.BooleanField(default=True)  # resume quotidien des revisions de materiel a faire
     verif_problem = models.BooleanField(default=False)  # verif de lot incomplete (manquants, perimes, disparus)
     device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme, d'apres le User-Agent
     created = models.DateTimeField(default=timezone.now)

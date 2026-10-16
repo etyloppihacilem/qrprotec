@@ -198,6 +198,19 @@ struct TaskPopup {
     bool                       open_pending = false;
 };
 
+// Revision d'un item (materiel non consommable a reviser) : taches toutes cochees, prochaine revision (par defaut
+// aujourd'hui + la periodicite du type, modifiable)
+struct RevisionPrompt {
+    bool                       open_pending = false;
+    std::string                iid, type_name, due;
+    int                        months = 0;
+    std::vector< std::string > tasks;
+    std::vector< char >        checked;
+    std::string                next_due; // saisie libre (parse_user_date)
+    std::string                note, error;
+    bool                       busy = false;
+};
+
 // Signalement d'un probleme : un item, un type d'item d'un lot, ou un lot (fenetre « Signaler un problème »)
 struct ProblemTarget {
     std::string lot;      // lot concerne (vide pour un item : le serveur prend son lot)
@@ -369,6 +382,7 @@ class App {
     // Signalements de problemes : connexion demandee avant la fenetre (pas de nom declare), envoi independant de la
     // verif. Pendant la verif, un item signale compte comme vu (ajoute a la pile).
     void report_problem(const ProblemTarget &target);
+    void open_revision(const Json &item); // « Réviser » (connexion demandee d'abord)
     // popup et bip si l'objet scanne a des signalements ouverts (key : "item:IID" ou "pack:ID")
     void alert_reports(const std::string &key, const std::string &title, const Json &reports, ScanSource source);
     void refresh_report_counts(); // nouveaux signalements (admins) : rappel dans la barre de menu
@@ -476,6 +490,8 @@ class App {
     void finish_tasks(bool done); // done : toutes les taches validees, l'item compte comme vu
     void draw_tasks_modal();
     void draw_problem_modal();
+    void draw_revision_modal();
+    void send_revision();
     void draw_reports_alert();
     void draw_seal_opening_modal();
     void send_problem();
@@ -530,6 +546,7 @@ class App {
     std::size_t             douchette_index_     = 0;
     TaskPopup               tasks_;
     ProblemPrompt           problem_;
+    RevisionPrompt          revision_;
     ReportsAlert            reports_alert_;
     SealOpening             seal_opening_;
     double                  next_reports_poll_ = 0.0;

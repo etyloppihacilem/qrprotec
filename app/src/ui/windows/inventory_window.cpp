@@ -263,7 +263,7 @@ class InventoryWindow final : public AppWindow {
         app.refresh_item_types();
       ImGui::SameLine();
       ImGui::Checkbox("Afficher les types archivés", &show_archived_);
-      if (ImGui::BeginTable("types", 8,
+      if (ImGui::BeginTable("types", 9,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, ImGui::GetContentRegionAvail().y * 0.45f))) {
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -275,6 +275,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableSetupColumn("À déchirer", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Consommable", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("Tâches", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+        ImGui::TableSetupColumn("Révision", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableHeadersRow();
         for (const Json &item_type : app.catalog.item_types.items()) {
           const bool archived = item_type["archived"].boolean();
@@ -302,6 +303,11 @@ class InventoryWindow final : public AppWindow {
           ImGui::TableNextColumn();
           if (item_type["tasks"].size() > 0)
             ImGui::Text("%zu", item_type["tasks"].size());
+          else
+            ImGui::TextDisabled("-");
+          ImGui::TableNextColumn();
+          if (item_type["revision_months"].integer() > 0 && !item_type["consumable"].boolean(true))
+            ImGui::Text("%d mois", item_type["revision_months"].integer());
           else
             ImGui::TextDisabled("-");
         }
@@ -345,6 +351,23 @@ class InventoryWindow final : public AppWindow {
                   "compté qu'une fois toutes ses tâches cochées et validées. Un administrateur peut scanner deux "
                   "fois de suite l'étiquette pour toutes les valider. Vide : item ordinaire.");
       ImGui::InputTextMultiline("##tasks", &form_tasks_, ImVec2(-FLT_MIN, 70));
+      // revision periodique : materiel non consommable seulement
+      ImGui::BeginDisabled(!form_non_consumable_);
+      ImGui::SetNextItemWidth(150.0f);
+      ImGui::InputInt("Révision tous les (mois)", &form_revision_months_);
+      help_marker("Ex : aspirateur de mucosités révisé tous les 3 mois. 0 : pas de révision. À la révision (bouton "
+                  "« Réviser » de l'item scanné, ici ou sur sa fiche web), la prochaine date vaut par défaut la date "
+                  "de la révision + ce nombre de mois, et peut être changée. Les lots affichent leurs prochaines "
+                  "révisions comme les péremptions.");
+      if (form_revision_months_ > 0) {
+        ImGui::Checkbox("Utilisable même si la révision est en retard", &form_revision_usable_);
+        help_marker("Coché : en retard, l'item reste dans son lot avec un avertissement. Décoché : il compte comme "
+                    "à remplacer, comme un périmé, jusqu'à sa révision.");
+        ImGui::TextUnformatted("Tâches de la révision (une par ligne)");
+        ImGui::InputTextMultiline("##revision_tasks", &form_revision_tasks_, ImVec2(-FLT_MIN, 70));
+      }
+      ImGui::EndDisabled();
+      form_revision_months_ = std::clamp(form_revision_months_, 0, 120);
       form_min_       = std::max(0, form_min_);
       form_pack_size_ = std::max(1, form_pack_size_);
 
@@ -359,6 +382,11 @@ class InventoryWindow final : public AppWindow {
       body["tasks"]             = Json::array();
       for (const std::string &task : form_task_list())
         body["tasks"].push_back(task);
+      body["revision_months"] = form_non_consumable_ ? form_revision_months_ : 0;
+      body["revision_usable"] = form_revision_usable_;
+      body["revision_tasks"]  = Json::array();
+      for (const std::string &task : task_lines(form_revision_tasks_))
+        body["revision_tasks"].push_back(task);
       if (editing_type_.empty()) {
         ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty() || name_taken || code_taken);
         if (primary_button("Créer le type")) {
@@ -469,6 +497,11 @@ class InventoryWindow final : public AppWindow {
       form_tasks_.clear();
       for (const std::string &task : tasks_of(item_type))
         form_tasks_ += (form_tasks_.empty() ? "" : "\n") + task;
+      form_revision_months_ = item_type["revision_months"].integer();
+      form_revision_usable_ = item_type["revision_usable"].boolean(true);
+      form_revision_tasks_.clear();
+      for (const Json &task : item_type["revision_tasks"].items())
+        form_revision_tasks_ += (form_revision_tasks_.empty() ? "" : "\n") + task.str();
       editing_type_archived_ = item_type["archived"].boolean();
     }
 
@@ -483,18 +516,23 @@ class InventoryWindow final : public AppWindow {
       form_tear_off_   = false;
       form_non_consumable_ = false;
       form_tasks_.clear();
+      form_revision_months_ = 0;
+      form_revision_usable_ = true;
+      form_revision_tasks_.clear();
       editing_type_archived_ = false;
     }
 
     // Taches saisies, une par ligne (lignes vides ignorees)
-    std::vector< std::string > form_task_list() const {
+    std::vector< std::string > form_task_list() const { return task_lines(form_tasks_); }
+
+    static std::vector< std::string > task_lines(const std::string &text) {
       std::vector< std::string > tasks;
       std::size_t                start = 0;
-      while (start <= form_tasks_.size()) {
-        std::size_t end = form_tasks_.find('\n', start);
+      while (start <= text.size()) {
+        std::size_t end = text.find('\n', start);
         if (end == std::string::npos)
-          end = form_tasks_.size();
-        std::string line = form_tasks_.substr(start, end - start);
+          end = text.size();
+        std::string line = text.substr(start, end - start);
         while (!line.empty() && std::isspace(static_cast< unsigned char >(line.back())))
           line.pop_back();
         while (!line.empty() && std::isspace(static_cast< unsigned char >(line.front())))
@@ -927,6 +965,9 @@ class InventoryWindow final : public AppWindow {
     bool        form_tear_off_   = false;
     bool        form_non_consumable_ = false;
     std::string form_tasks_;
+    int         form_revision_months_ = 0;
+    bool        form_revision_usable_ = true;
+    std::string form_revision_tasks_;
     bool        editing_type_archived_ = false;
     bool        show_archived_   = false;
     // Items

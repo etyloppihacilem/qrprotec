@@ -53,6 +53,10 @@ def item_type_dict(item_type):
         'tear_off': item_type.tear_off,
         'consumable': item_type.consumable,
         'tasks': list(item_type.tasks or []),
+        # revision du materiel non consommable (0 mois : pas de revision)
+        'revision_months': item_type.revision_months,
+        'revision_tasks': list(item_type.revision_tasks or []),
+        'revision_usable': item_type.revision_usable,
         'archived': item_type.archived,
     }
 
@@ -73,6 +77,16 @@ def item_dict(item, today=None):
         'tasks': list(item.pack.item_type.tasks or []),
         'task_url': public_url('task', id=item.iid),
         'peremption': _date(item.pack.peremption),
+        # materiel a reviser : prochaine revision (en retard : a remplacer si le type ne le permet pas, sinon
+        # avertissement), taches de la revision, derniere revision
+        'revision': item.pack.item_type.has_revision,
+        'revision_due': _date(item.revision_due) if item.pack.item_type.has_revision else None,
+        'revision_late': item.revision_late(today),
+        'revision_usable': item.pack.item_type.revision_usable,
+        'revision_months': item.pack.item_type.revision_months,
+        'revision_tasks': list(item.pack.item_type.revision_tasks or []) if item.pack.item_type.has_revision else [],
+        'revised_at': _date(item.revised_at),
+        'revised_by': _who(item.revised_by),
         # a remplacer : perime, signale inutilisable ou desactive (ne compte plus dans son lot, voir reports.py)
         'expired': item.needs_replacement(today),
         'outdated': item.is_expired(today),  # perime seulement
@@ -101,6 +115,11 @@ def item_dict(item, today=None):
         'added_by': _who(item.added_by),
         'deleted_reason': item.deleted_reason,
     }
+
+
+def revision_dict(revision):
+    return {'at': _date(revision.at), 'by': _who(revision.by), 'tasks': list(revision.tasks or []),
+            'next_due': _date(revision.next_due), 'note': revision.note}
 
 
 def item_last_location(item):
@@ -217,6 +236,7 @@ def _lot_core(lot, today, items=None):
     expired = [item for item in items if item.needs_replacement(today)]
     soon_limit = today + timedelta(days=30)
     soon = [item for item in items if item.pack.peremption and today <= item.pack.peremption <= soon_limit]
+    revised = [item for item in items if item.pack.item_type.has_revision and item.revision_due]
     data = {
         'id': lot.id,
         'lot_type': lot.lot_type_id,
@@ -247,6 +267,10 @@ def _lot_core(lot, today, items=None):
         'item_count': len(items),
         'expired_count': len(expired),
         'expiring_soon_count': len(soon),
+        # materiel a reviser : prochaine revision, revisions en retard et dans les 30 jours
+        'next_revision': _date(min((item.revision_due for item in revised), default=None)),
+        'revision_late_count': sum(1 for item in revised if item.revision_due < today),
+        'revision_soon_count': sum(1 for item in revised if today <= item.revision_due <= soon_limit),
         'requirements': requirements,
         'complete': all(row['present'] >= row['required'] for row in requirements) and not expired,
         'public_url': public_url('verif', lot=lot.id),
@@ -334,7 +358,7 @@ def lot_global(lot, today):
     rows = [_tree_row(sub_lot, today, sub_lot.depth) for sub_lot in tree]
     summary = aggregate_tree(rows)
     keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed',
-            'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'complete', 'verif_recommended', 'state', 'effective',
+            'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
             'counted')
     summary.update({
         'id': root.id,

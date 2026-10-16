@@ -780,10 +780,12 @@
       ? `Sorti du stock, compté utilisé le ${fmtDate(info.out_until)} s'il ne revient pas` : 'Sorti du stock (non consommable)')
       : { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé',
         loose: 'Hors lot (retiré de son lot), pas encore en stock' }[info.status];
-    showInfo(entry.expired ? 'bad' : status ? 'warn' : 'ok',
+    const revision = info.revision_late ? `⚠ Révision en retard (prévue le ${fmtDate(info.revision_due)})`
+      + (entry.expired ? '' : ', toujours utilisable') : '';
+    showInfo(entry.expired ? 'bad' : status || revision ? 'warn' : 'ok',
       (entry.expired ? badLabel(info) + ' – ' : '') + info.type_name,
       info.peremption ? 'Péremption : ' + fmtDate(info.peremption) : 'Non périssable',
-      where + (status ? ' · ' + status : ''));
+      where + (status ? ' · ' + status : ''), revision);
   }
 
   async function scanPack(scan) {
@@ -2595,6 +2597,7 @@
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
         el('br'), keyOk() ? '🔑 Étiquette clé scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette clé pour valider. ' + keyHint(lot)),
       expiryLine(lot),
+      revisionLine(lot),
       el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
       lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
         + "Scannez l'étiquette clé d'un autre lot du même lot global pour l'ajouter.") : '',
@@ -4143,6 +4146,7 @@
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif
         ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
       expiryLine(lot),
+      revisionLine(lot),
       !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
         ? `⚠ Réassort de ${lot.restocked_count} item(s) ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : `⚠ Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
@@ -4224,6 +4228,7 @@
       el('span', { class: 'date' }, item.peremption ? fmtDate(item.peremption) : 'non périssable'),
       item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
       item.reported && !item.unusable ? el('span', { class: 'tag orange' }, 'signalé') : null,
+      item.revision_late && !item.expired ? el('span', { class: 'tag orange' }, 'révision en retard') : null,
       missingTag ? el('span', { class: 'tag orange' }, missingTag) : null);
   }
 
@@ -4246,6 +4251,26 @@
       expired ? ` · ${expired} item(s) déjà périmé(s)` : '');
   }
 
+  // Prochaine revision du materiel d'un lot et de ses sous-lots (rien si le lot n'a pas de materiel a reviser)
+  function revisionLine(lot) {
+    let next = null;
+    let late = 0;
+    for (const sub of [lot, ...(lot.descendants || [])]) {
+      for (const item of sub.items || []) {
+        if (!item.revision || !item.revision_due) continue;
+        if (item.revision_late) { late += 1; continue; }
+        if (!next || item.revision_due < next.date) next = { date: item.revision_due, names: new Set() };
+        if (item.revision_due === next.date) next.names.add(item.type_name);
+      }
+    }
+    if (!next && !late) return '';
+    const soon = late || (next && parseDate(next.date) - today() <= 30 * 86400000);
+    return el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Prochaine révision : ',
+      el('b', {}, next ? fmtDate(next.date) : '–'),
+      next ? ` (${[...next.names].join(', ')})` : '',
+      late ? ` · ${late} révision(s) en retard` : '');
+  }
+
   const ITEM_STATUS = { out: 'Sorti du stock', loose: 'Hors lot, pas encore en stock', missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Remplacé (périmé)' };
 
   function renderItemFiche(body, item) {
@@ -4259,7 +4284,10 @@
     const statusText = ITEM_STATUS[item.status];
     const banner = item.disabled ? { kind: 'bad', label: '✘ Désactivé : à remplacer' + (statusText ? ' · ' + statusText : '') }
       : item.unusable ? { kind: 'bad', label: '✘ Signalé inutilisable : à remplacer' + (statusText ? ' · ' + statusText : '') }
-      : item.expired ? { kind: 'bad', label: '✘ Périmé' + (statusText ? ' · ' + statusText : '') }
+      : item.outdated ? { kind: 'bad', label: '✘ Périmé' + (statusText ? ' · ' + statusText : '') }
+      : item.expired && item.revision_late ? { kind: 'bad', label: '✘ Révision en retard : inutilisable avant révision' + (statusText ? ' · ' + statusText : '') }
+      : item.expired ? { kind: 'bad', label: '✘ À remplacer' + (statusText ? ' · ' + statusText : '') }
+      : item.revision_late ? { kind: 'warn', label: '⚠ Révision en retard, toujours utilisable' + (statusText ? ' · ' + statusText : '') }
       : statusText ? { kind: 'warn', label: '⚠ ' + statusText } : { kind: 'ok', label: '✔ Valide' };
     const fact = (label, ...value) => [el('dt', {}, label), el('dd', {}, ...value)];
     const place = where
@@ -4271,6 +4299,8 @@
       el('div', { class: 'sub' }, item.iid),
       el('div', { class: 'banner ' + banner.kind }, banner.label),
       item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par le TECH.') : '',
+      item.revision && !['deleted', 'replaced'].includes(item.status)
+        ? el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(item) }, '🔧 Réviser') : '',
       reportButton({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
       el('dl', { class: 'facts' },
         item.disabled ? fact('Désactivé', item.disabled_reason || '–', el('div', { class: 'sub' },
@@ -4282,12 +4312,70 @@
         fact('Ajouté', item.added ? cap(fmtDateTime(item.added, { long: true })) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
         item.tear_off ? fact('Étiquette', 'à déchirer avant utilisation') : [],
         item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il passe hors lot (pas perdu)') : [],
+        item.revision ? fact('Révision', item.revision_due ? `prochaine le ${fmtDate(item.revision_due)}` : 'pas encore prévue',
+          el('div', { class: 'sub' }, `tous les ${item.revision_months} mois` + (item.revision_usable ? '' : ', inutilisable en retard'))) : [],
+        item.revision && item.revised_at ? fact('Dernière révision', cap(fmtOn(item.revised_at, { long: true })) + (item.revised_by ? ' par ' + item.revised_by : '')) : [],
+        (item.revision_tasks || []).length ? fact('Tâches de révision', el('ul', { class: 'tasks-facts' }, ...item.revision_tasks.map((task) => el('li', {}, task)))) : [],
         (item.tasks || []).length ? fact('Tâches à la vérif', el('ul', { class: 'tasks-facts' }, ...item.tasks.map((task) => el('li', {}, task)))) : [],
         item.deleted_reason ? fact('Raison', item.deleted_reason) : []),
       where ? '' : el('p', { class: 'sub' }, "Aucun lot connu pour cet item : il n'y a pas de vérif à lancer."),
     );
   }
 
+
+  // Revision du materiel (fiche de l'item, « Réviser ») : connexion, taches toutes cochees, prochaine revision
+  // (par defaut aujourd'hui + la periodicite du type, modifiable)
+  function isoDay(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+
+  function addMonths(d, months) {
+    const day = d.getDate();
+    const result = new Date(d.getFullYear(), d.getMonth() + months, 1);
+    result.setDate(Math.min(day, new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate()));
+    return result;
+  }
+
+  function openRevision(item) {
+    requireLogin('faire la révision', () => showRevision(item));
+  }
+
+  function showRevision(item) {
+    const dialog = $('#revision');
+    const tasks = item.revision_tasks || [];
+    $('#revision-title').textContent = 'Révision : ' + item.type_name;
+    $('#revision-sub').textContent = item.iid + (item.revision_due ? ` · prévue le ${fmtDate(item.revision_due)}` : '');
+    $('#revision-intro').textContent = tasks.length ? 'Cochez toutes les tâches de la révision.' : 'Pas de tâche définie pour ce type.';
+    const boxes = tasks.map(() => el('input', { type: 'checkbox' }));
+    const next = $('#revision-next');
+    const update = () => { $('#revision-ok').disabled = !boxes.every((box) => box.checked) || !next.value; };
+    for (const box of boxes) box.addEventListener('change', update);
+    $('#revision-list').replaceChildren(...tasks.map((task, index) => el('li', {}, el('label', {}, boxes[index], ' ', task))));
+    const tomorrow = new Date(today().getTime() + 86400000);
+    next.min = isoDay(tomorrow);
+    next.value = isoDay(addMonths(today(), item.revision_months || 1));
+    next.oninput = update;
+    $('#revision-next-hint').textContent = `Par défaut dans ${item.revision_months} mois (périodicité du type).`;
+    $('#revision-note').value = '';
+    $('#revision-error').textContent = '';
+    update();
+    $('#revision-form').onsubmit = async (event) => {
+      event.preventDefault();
+      $('#revision-ok').disabled = true;
+      try {
+        await api(`items/${encodeURIComponent(item.iid)}/revision/`, { user: credentials(), tasks, next_due: next.value,
+          note: $('#revision-note').value });
+        dialog.close();
+        feedback.info();
+        toast(`Révision enregistrée : prochaine le ${fmtDate(next.value)}.`);
+        if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false });
+      } catch (e) {
+        update();
+        $('#revision-error').textContent = e.message;
+        if (e.status === 403) { state.user = null; save(); render(); }
+      }
+    };
+    $('#revision-cancel').onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+  }
 
   // Item (ou paquet ferme) signale scanne, quel que soit le signalement : popup avec les signalements ouverts et
   // leurs commentaires, et bip. Une seule fois par objet sur une courte duree (fiche rouverte, rescan).
@@ -4314,7 +4402,8 @@
   // attendre la vérif. Un item signale pendant la vérif compte comme vu (jamais marque disparu) ; signale
   // inutilisable, il est a remplacer comme un perime.
 
-  const badLabel = (info) => (!info || info.outdated ? 'PÉRIMÉ' : info.disabled ? 'DÉSACTIVÉ' : info.unusable ? 'INUTILISABLE' : 'PÉRIMÉ');
+  const badLabel = (info) => (!info || info.outdated ? 'PÉRIMÉ' : info.disabled ? 'DÉSACTIVÉ' : info.unusable ? 'INUTILISABLE'
+    : info.revision_late ? 'RÉVISION EN RETARD' : 'PÉRIMÉ');
   let loginAction = null; // {action, at} : a lancer une fois connecte
 
   function takeLoginAction() {
