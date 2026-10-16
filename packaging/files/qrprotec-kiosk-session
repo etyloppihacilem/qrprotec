@@ -41,19 +41,20 @@ outputs() {
     fi
 }
 
-# Retroeclairage : SetBrightness de logind (session du kiosk), luminosite remise a l'allumage.
+# Retroeclairage : SetBrightness de logind (session du kiosk). Allume, il est remis a
+# QRPROTEC_SCREEN_BRIGHTNESS % du maximum (100 par defaut) : sans bureau, les touches de luminosite
+# ne font rien, et systemd-backlight restaure au demarrage la valeur enregistree a l'arret (0, ramene
+# a son minimum, si la borne s'est arretee ecran eteint).
 backlight() {
-    local state=$1 dev name level saved
+    local state=$1 dev name level percent=${QRPROTEC_SCREEN_BRIGHTNESS:-100}
+    [[ $percent =~ ^[0-9]+$ ]] && ((percent >= 1 && percent <= 100)) || percent=100
     for dev in /sys/class/backlight/*; do
-        [[ -r $dev/brightness ]] || continue
+        [[ -r $dev/max_brightness ]] || continue
         name=${dev##*/}
-        saved=$STATE_DIR/backlight-$name
-        if [[ $state == off ]]; then
-            level=$(<"$dev/brightness")
-            ((level > 0)) && echo "$level" >"$saved"
-            level=0
-        else
-            level=$(cat "$saved" 2>/dev/null || cat "$dev/max_brightness")
+        level=0
+        if [[ $state == on ]]; then
+            level=$(($(<"$dev/max_brightness") * percent / 100))
+            ((level > 0)) || level=1
         fi
         if busctl call org.freedesktop.login1 /org/freedesktop/login1/session/auto \
             org.freedesktop.login1.Session SetBrightness ssu backlight "$name" "$level"; then
@@ -107,6 +108,9 @@ templates=${QRPROTEC_TEMPLATES_DIR:-${HOME:-/var/lib/qrprotec-kiosk}/templates}
 export QRPROTEC_TEMPLATES_DIR=$templates
 # Borne : la connexion au serveur ne se modifie pas sans badge administrateur (voir qrprotec-setup)
 export QRPROTEC_KIOSK=1
+
+# Luminosite de l'ecran au demarrage du kiosk
+backlight on
 
 blank=${QRPROTEC_SCREEN_BLANK_SECONDS:-1800}
 if [[ $blank =~ ^[0-9]+$ ]] && ((blank > 0)); then
