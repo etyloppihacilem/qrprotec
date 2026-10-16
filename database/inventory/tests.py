@@ -3633,8 +3633,11 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual((code, copy['owner'], copy['template'], copy['line_count']), (201, 'M002', False, 3))
         code, body = self.as_(self.other, '/api/checklists/list/')
         ids = {row['id'] for row in body['lists']}
-        self.assertIn(template['id'], ids)
-        self.assertNotIn(mine['id'], ids)
+        self.assertEqual(ids, {copy['id']})  # ni la liste du chef, ni le modele : il est dans l'onglet Modeles
+        code, body = self.as_(self.other, '/api/checklists/list/', {'show': 'templates'})
+        self.assertEqual({row['id'] for row in body['lists']}, {template['id']})
+        code, body = self.call('POST', '/api/checklists/list/', {'show': 'all'})
+        self.assertEqual({row['id'] for row in body['lists']}, {mine['id'], copy['id']})
 
     def test_free_tasks(self):
         code, checklist = self.as_(self.chief, '/api/checklists/', {

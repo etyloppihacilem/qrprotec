@@ -2199,14 +2199,14 @@ def _checklist_call(action):
 @api_view(['POST'])
 @handle_errors
 def checklists_list(request):
-    """Listes : {"user", "show": "mine" (les siennes et les modeles) | "templates" | "all" (gestion, admin)}."""
+    """Listes : {"user", "show": "mine" (les siennes) | "templates" (les modeles) | "all" (gestion, admin, sans les modeles)}."""
     from . import checklists
     user = connected_user(request)
     show = str(request.data.get('show') or 'mine')
     rows = [checklists.checklist_dict(row, user, full=False) for row in checklists.visible(user, show)[:300]]
-    # a traiter en haut : listes sorties (retour a faire), puis a preparer, les modeles, et les listes rentrees
+    # a traiter en haut : listes sorties (retour a faire), puis a preparer, et les listes rentrees
     rank = {'validated': 0, 'draft': 1}
-    rows.sort(key=lambda row: 2 if row['template'] else rank.get(row['status'], 3))
+    rows.sort(key=lambda row: rank.get(row['status'], 2))
     return Response({'lists': rows, 'can_see_all': user.role in GESTION})
 
 

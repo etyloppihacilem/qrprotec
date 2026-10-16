@@ -458,12 +458,13 @@ def checklist_dict(checklist, user=None, full=True):
 
 
 def visible(user, show='mine'):
-    """Listes affichees : les siennes (et les modeles de tous), ou toutes pour la gestion et les admins."""
+    """Listes affichees : les siennes, les modeles (de tous, seulement dans l'onglet Modeles), ou toutes les listes
+    pour la gestion et les admins. Les modeles ne sont ni dans « Mes listes » ni dans « Toutes »."""
     queryset = Checklist.objects.select_related('owner').prefetch_related(
         'lines__lot', 'lines__item_type', 'scans__item__pack__item_type', 'scans__lot')
-    if show == 'all' and user.role in (Role.GESTION, Role.ADMIN):
-        return queryset
     if show == 'templates':
         return queryset.filter(is_template=True)
-    from django.db.models import Q
-    return queryset.filter(Q(owner=user) | Q(is_template=True))
+    queryset = queryset.filter(is_template=False)
+    if show == 'all' and user.role in (Role.GESTION, Role.ADMIN):
+        return queryset
+    return queryset.filter(owner=user)

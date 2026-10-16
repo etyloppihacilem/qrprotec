@@ -708,6 +708,12 @@ class ListsWindow final : public AppWindow {
           return;
         }
         app.notify(as_template ? "Modèle créé." : "Liste créée : à vérifier.");
+        // les modeles ne sont que dans l'onglet Modeles : on va dans l'onglet de la copie
+        if (as_template) {
+          show_ = "templates";
+        } else if (show_ == "templates") {
+          show_ = "mine";
+        }
         select(app, result.data["id"].str());
         list_ = result.data;
         load(app);
