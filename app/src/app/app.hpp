@@ -118,6 +118,16 @@ struct VerifSealed {
     std::string name;
 };
 
+// Vérif en cascade : popup « Passer a … ? » quand on quitte un sous-lot incomplet (scan d'une etiquette ou d'un item
+// d'un autre lot). Ignoree, le scan suivant vaut « Passer » (meme fonctionnement que le front web).
+struct LeavePrompt {
+    bool        open = false;
+    std::string level;          // lot incomplet que l'on quitte
+    std::string target;         // lot scanne
+    int         entry_id = -1;  // item scanne (-1 : etiquette du lot)
+    int         missing  = 0;   // items attendus pas encore scannes
+};
+
 // Vérif en cascade : lot valide pendant la verif (enregistre a sa validation)
 struct CascadeDone {
     std::string at; // heure (HH:MM)
@@ -146,6 +156,8 @@ struct VerifSession {
     std::string                           after_step;
     bool                                  after_enter = false;
     std::vector< std::string >            auto_done; // lots valides automatiquement, pour le message
+    LeavePrompt                           leave_prompt;
+    int                                   after_entry = -1; // item scanne qui a lance la validation (popup)
     bool                      loading    = false;
     bool                      submitting = false;
 };
@@ -343,6 +355,9 @@ class App {
     void                        submit_step(bool partial = false);
     bool                        verif_level_complete() const; // lot en cours complet, validable sans question
     bool                        leave_complete_level(const std::string &id, bool enter); // validation auto, true si lancee
+    // sous-lot en cours incomplet, deja commence : ouvre la popup « Passer a target ? » (true si ouverte)
+    bool                        ask_leave(const std::string &target, int entry_id);
+    void                        answer_leave(int choice); // 0 : valider incomplet, 1 : passer sans valider, 2 : rester
     void                        finish_cascade(const std::string &message = "");
     void add_stack_to_lot();
     void verif_target_lot();

@@ -505,6 +505,8 @@
   let scannedFiche = null; // item ou lot scanne dans le scanner qui a ouvert la fiche
   async function handleCode(raw) {
     unlockAudio();
+    // popup « Passer a … » ignoree : le scan suivant vaut « Passer sans valider », puis il est traite
+    if (leavePopup) { leavePopup('skip'); await new Promise((resolve) => setTimeout(resolve, 50)); }
     if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
     const scan = parseCode(raw);
     // fenetre des taches ouverte et autre code scanne : l'item reste non valide (le rescanner reprend ses taches)
@@ -654,15 +656,24 @@
     if (where && !isUnder(where.id, levelId())) {
       const index = state.scanned.indexOf(entry);
       if (index >= 0) state.scanned.splice(index, 1); // pas compte dans le lot valide
-      closed = await leaveCompleteLevels(where.id);
+      const left = await leaveCompleteLevels(where.id, true);
+      closed = left.names;
       state.scanned.push(entry);
       entry.place = currentPlace();
+      // « Rester » : l'item compte dans le lot ou l'on est (il y a ete trouve) ; sinon on passe au lot de l'item
+      if (left.stay) {
+        showInfo('ok', 'Item scanné', `${info.type_name} est compté dans ${levelLot().name}, où vous l'avez trouvé.`);
+        save();
+        render();
+        return;
+      }
+      if (!isUnder(where.id, levelId())) enterLevel(state.lotId);
     }
     if (where && where.id !== levelId() && isUnder(where.id, levelId())) {
       enterLevel(where.id, true);
       entry.place = where.id;
       showInfo('lot', `📦 Entrée dans ${where.name}`, `${info.type_name} est rangé dans ${where.name}.`,
-        closed.length ? `✔ ${closed.join(', ')} complet : validé automatiquement.` : '',
+        closed.length ? `✔ ${closed.join(', ')} : validé.` : '',
         `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(where)) || state.lot).name}.`);
       save();
       render();
@@ -849,14 +860,16 @@
       if (scan.key && !(await keyAccepted(scan.id, scan.key))) return true;
       if (scan.key) setKey(scan.id, scan.key);
       // etiquette d'un lot hors de celui ou l'on est, alors que celui-ci est complet : il est valide automatiquement
-      const closed = lot.id === levelId() || isUnder(lot.id, levelId()) ? [] : await leaveCompleteLevels(lot.id);
+      const left = lot.id === levelId() || isUnder(lot.id, levelId()) ? { names: [] } : await leaveCompleteLevels(lot.id, true);
+      if (left.stay) { showInfo('lot', `📦 ${levelLot().name}`, 'Vous restez dans ce lot.'); save(); render(); return true; }
+      const closed = left.names;
       const reopened = state.done[lot.id];
       enterLevel(lot.id);
       feedback.info();
       showInfo('lot', `📦 ${lot.name}`, reopened ? `Déjà validé ${fmtOn(reopened.at)} : vous le refaites.`
         : lot.id === state.lotId ? 'Lot global : scannez l\'étiquette d\'un sous-lot pour y entrer.'
           : `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(lot)) || state.lot).name}.`,
-      closed.length ? `✔ ${closed.join(', ')} complet : validé automatiquement.` : '',
+      closed.length ? `✔ ${closed.join(', ')} : validé.` : '',
       scan.key ? `🔑 Étiquette clé de ${lot.name} scannée` : '');
       save();
       render();
@@ -957,13 +970,13 @@
       return true;
     }
     // scelle d'un lot hors de celui ou l'on est, alors que celui-ci est complet : il est valide automatiquement
-    const closed = inCascade() && lotById(lot.id) && !isUnder(lot.id, levelId()) ? await leaveCompleteLevels(lot.id) : [];
+    const closed = inCascade() && lotById(lot.id) && !isUnder(lot.id, levelId()) ? (await leaveCompleteLevels(lot.id)).names : [];
     scannedAgain();
     state.scanned.push({ code: scan.code, kind: 'seal', iid: lot.id, key: scan.key, expired: false, error: '', items: [],
       place: inCascade() ? levelId() : '', info: { type_name: `🔒 Scellé intact – ${lot.name}` } });
     feedback.good();
     showInfo('ok', `🔒 Scellé intact – ${lot.name}`, 'Compté comme vérifié, avec ses sous-lots, sans être ouvert.',
-      closed.length ? `✔ ${closed.join(', ')} complet : validé automatiquement.` : '');
+      closed.length ? `✔ ${closed.join(', ')} : validé.` : '');
     save();
     render();
     flushSeals();
@@ -1861,18 +1874,63 @@
 
   // Scan d'un item ou d'une etiquette du lot `id`, hors du lot ou l'on est : les lots complets qu'on quitte ainsi
   // sont valides automatiquement (on remonte tant que `id` n'est pas dedans). Renvoie les noms des lots valides.
-  async function leaveCompleteLevels(id) {
+  // ask : un lot incomplet ou l'on a commence a scanner (et ou personne d'autre n'est) fait demander quoi faire
+  // (leaveLevelPopup). Renvoie {names, stay} : stay, on reste dans le lot (choix « Rester »).
+  async function leaveCompleteLevels(id, ask = false) {
     const names = [];
-    while (!isUnder(id, levelId()) && levelComplete()) {
+    while (!isUnder(id, levelId()) && levelId() !== state.lotId) {
       const before = levelLot();
-      await validateStep(false);
+      const complete = levelComplete();
+      if (!complete) {
+        const scope = scopeOf(before.id);
+        if (!ask || !scopeEntries(scope).length || othersLevels()[before.id]) break;
+        const choice = await leaveLevelPopup(before, lotById(id), scope);
+        if (choice === 'stay') return { names, stay: true };
+        if (choice !== 'validate') break;
+        await validateStep(false, true);
+      } else {
+        await validateStep(false);
+      }
       if (levelId() === before.id) break; // refusee
-      names.push(before.name);
+      names.push(`${before.name} ${complete ? 'complet' : 'incomplet'}`);
     }
-    return names;
+    return { names, stay: false };
   }
 
-  async function validateStep(partial = false) {
+  // Popup « Passer a … ? » : valider le lot incomplet, passer sans le valider, ou y rester. Ignoree, le scan suivant
+  // vaut « Passer » (handleCode).
+  let leavePopup = null; // resolve de la popup ouverte
+  function leaveLevelPopup(level, target, scope) {
+    const plan = planSession();
+    const missing = sessionLots().filter((lot) => scope.has(lot.id) && !plan.intact.has(lot.id))
+      .reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
+    const dialog = $('#leave-level');
+    $('#leave-level-title').textContent = `Passer à ${target ? target.name : 'un autre lot'} ?`;
+    $('#leave-level-text').textContent = `${level.name} est incomplet : ${missing} item(s) attendu(s) pas encore scanné(s).`;
+    $('#leave-level-validate').textContent = `Valider ${level.name} incomplet (les non scannés passent manquants)`;
+    $('#leave-level-skip').textContent = `Passer sans valider (${level.name} reste à faire, scans gardés)`;
+    $('#leave-level-stay').textContent = `Rester dans ${level.name}`;
+    feedback.warn();
+    return new Promise((resolve) => {
+      if (leavePopup) leavePopup('skip');
+      const close = (choice) => {
+        if (leavePopup !== close) return;
+        leavePopup = null;
+        dialog.onclose = null;
+        if (dialog.open) dialog.close();
+        resolve(choice);
+      };
+      leavePopup = close;
+      $('#leave-level-validate').onclick = () => close('validate');
+      $('#leave-level-skip').onclick = () => close('skip');
+      $('#leave-level-stay').onclick = () => close('stay');
+      dialog.onclose = () => close('stay'); // Echap
+      dialog.showModal();
+    });
+  }
+
+  // confirmed : lot incomplet deja confirme (popup « Passer a … »)
+  async function validateStep(partial = false, confirmed = false) {
     if (state.busy) return;
     if (!ensureIdentity()) return;
     const top = levelLot();
@@ -1902,7 +1960,7 @@
     } else {
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const subs = lots.filter((lot) => lot.id !== top.id && ownContent(lot)).map((lot) => lot.name);
-      if (expected && !confirm(`${expected} item(s) attendu(s) manquent : ${top.name} sera incomplet`
+      if (expected && !confirmed && !confirm(`${expected} item(s) attendu(s) manquent : ${top.name} sera incomplet`
         + (subs.length ? ` (avec ${subs.join(', ')})` : '') + '. Valider quand même ?')) return;
     }
     const payload = entriesPayload(entries);

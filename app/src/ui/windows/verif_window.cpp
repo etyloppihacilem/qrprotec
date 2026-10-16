@@ -35,8 +35,10 @@ class VerifWindow final : public AppWindow {
     bool can_close(const App &app) const override { return !app.verif.active; }
 
     void draw(App &app) override {
-      if (app.verif.active)
+      if (app.verif.active) {
+        draw_leave_prompt(app);
         draw_active(app);
+      }
       else if (!app.last_report.is_null())
         draw_report(app);
       else
@@ -45,6 +47,42 @@ class VerifWindow final : public AppWindow {
     }
 
   private:
+    // vérif en cascade : on quitte un sous-lot incomplet (scan d'un autre lot). Le scan suivant vaut « Passer ».
+    void draw_leave_prompt(App &app) {
+      const LeavePrompt &prompt = app.verif.leave_prompt;
+      const char        *title  = "Passer à un autre lot ?###leave-level";
+      if (prompt.open && !ImGui::IsPopupOpen(title))
+        ImGui::OpenPopup(title);
+      if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar))
+        return;
+      if (!prompt.open || !app.verif_lot(prompt.level) || !app.verif_lot(prompt.target)) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+      }
+      const std::string level  = (*app.verif_lot(prompt.level))["name"].str();
+      const std::string target = (*app.verif_lot(prompt.target))["name"].str();
+      ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
+      ImGui::Text("Passer à %s ?", target.c_str());
+      ImGui::PopFont();
+      ImGui::Text("%s est incomplet : %d item(s) attendu(s) pas encore scanné(s).", level.c_str(), prompt.missing);
+      ImGui::Spacing();
+      const ImVec2 size(ImGui::GetFontSize() * 30.0f, 0.0f);
+      int          choice = -1;
+      if (primary_button(("Valider " + level + " incomplet (les non scannés passent manquants)").c_str(), size))
+        choice = 0;
+      if (button(("Passer sans valider (" + level + " reste à faire, scans gardés)").c_str(), size))
+        choice = 1;
+      if (button(("Rester dans " + level).c_str(), size) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        choice = 2;
+      ImGui::TextDisabled("Scanner autre chose vaut « Passer sans valider ».");
+      if (choice >= 0) {
+        ImGui::CloseCurrentPopup();
+        app.answer_leave(choice);
+      }
+      ImGui::EndPopup();
+    }
+
     void draw_active(App &app) {
       VerifSession &verif = app.verif;
       const bool    cascade = app.verif_cascade();

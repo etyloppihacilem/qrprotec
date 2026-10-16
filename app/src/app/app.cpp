@@ -1372,6 +1372,9 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     douchette_pending_        = true;
     return;
   }
+  // popup « Passer a … ? » ignoree : le scan suivant vaut « Passer » (on passe au lot scanne, scans gardes)
+  if (verif.leave_prompt.open)
+    answer_leave(1);
   const ParsedScan scan = parse_scan(code);
   const bool       same_item = tasks_.entry_id && scan.kind == ScanKind::Item && stack.find(tasks_.entry_id)
                         && stack.find(tasks_.entry_id)->scan.id == scan.id;
@@ -1508,16 +1511,16 @@ void App::resolve_item(int entry_id) {
         return;
       }
       // item d'un autre lot alors que le lot en cours est complet : celui-ci est valide automatiquement, puis on entre
-      // dans le lot de l'item ; l'item compte dans son lot, pas dans celui qui est valide
-      const std::string place = entry->place;
-      entry->place            = where; // pas envoye avec le lot valide automatiquement
-      const bool closing = !verif_under(where, verif_level()) && leave_complete_level(where, true);
-      if (!closing && where != verif_level() && verif_under(where, verif_level())) {
+      // dans le lot de l'item ; l'item compte dans son lot, pas dans celui qui est valide. Lot en cours incomplet et
+      // deja commence : popup « Passer a … ? » ; sinon on passe au lot de l'item sans question.
+      entry->place       = where; // pas envoye avec le lot valide automatiquement
+      const bool closing = !verif_under(where, verif_level())
+                        && (leave_complete_level(where, true) || ask_leave(where, entry_id));
+      if (!closing && where != verif_level()) {
         enter_level(where);
-        notify("Entrée dans " + name + " : scannez son contenu, puis validez-le pour revenir à "
-               + (*verif_lot(verif_parent(where)))["name"].str() + ".");
-      } else if (!closing) {
-        entry->place = place;
+        const std::string parent = verif_parent(where);
+        notify("Entrée dans " + name + " : scannez son contenu, puis validez-le"
+               + (verif_lot(parent) ? " pour revenir à " + (*verif_lot(parent))["name"].str() : "") + ".");
       }
     }
     if (item["expired"].boolean() && !entry->expired) {
@@ -1958,7 +1961,8 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
         verif.keys[scan.id] = scan.key;
     }
     // etiquette d'un lot hors du lot en cours, alors que celui-ci est complet : il est valide automatiquement d'abord
-    if (scan.id != verif_level() && !verif_under(scan.id, verif_level()) && leave_complete_level(scan.id, true)) {
+    if (scan.id != verif_level() && !verif_under(scan.id, verif_level())
+        && (leave_complete_level(scan.id, true) || ask_leave(scan.id, -1))) {
       open_window("verif");
       return;
     }
@@ -2697,9 +2701,12 @@ void App::submit_step(bool partial) {
       if (finished && !verif.after_step.empty()) {
         const std::string target = verif.after_step;
         const bool        enter  = verif.after_enter;
+        const int         entry  = verif.after_entry;
         verif.after_step.clear();
-        verif.auto_done.push_back(name);
-        if (!verif_under(target, verif_level()) && leave_complete_level(target, enter)) {
+        verif.after_entry = -1;
+        verif.auto_done.push_back(name + (verif.done.count(top) && verif.done[top].complete ? " complet" : " incomplet"));
+        if (!verif_under(target, verif_level())
+            && (leave_complete_level(target, enter) || (enter && ask_leave(target, entry)))) {
           reload_verif_lots();
           return;
         }
@@ -2707,12 +2714,12 @@ void App::submit_step(bool partial) {
         for (const std::string &done_name : verif.auto_done)
           done_names += (done_names.empty() ? "" : ", ") + done_name;
         verif.auto_done.clear();
-        if (enter && target != verif_level() && verif_under(target, verif_level())) {
+        if (enter && target != verif_level() && verif_lot(target)) {
           enter_level(target);
-          notify(done_names + " complet : validé automatiquement. Entrée dans " + (*verif_lot(target))["name"].str()
+          notify(done_names + " : validé. Entrée dans " + (*verif_lot(target))["name"].str()
                  + " : scannez son contenu, puis validez-le.");
         } else {
-          notify(done_names + " complet : validé automatiquement.");
+          notify(done_names + " : validé.");
         }
       }
       flush_cascade_seals();
@@ -2762,6 +2769,80 @@ bool App::leave_complete_level(const std::string &id, bool enter) {
     return false;
   }
   return true;
+}
+
+// Scan d'un lot `target` hors du lot en cours, incomplet : popup « Passer a target ? » (valider incomplet, passer sans
+// valider, rester), seulement si des scans y ont ete faits (le poste n'a pas de vérif a plusieurs). true si ouverte.
+bool App::ask_leave(const std::string &target, int entry_id) {
+  if (!verif_cascade() || verif.loading || verif.submitting || verif.leave_prompt.open)
+    return false;
+  const std::string level = verif_level();
+  if (level == verif.lot_id || verif_under(target, level) || !verif_lot(target))
+    return false;
+  const std::set< std::string > scope = verif_scope(level);
+  std::set< std::string >       scanned;
+  bool                          started = false;
+  for (const ScanEntry &entry : stack.entries()) {
+    if (entry.state == EntryState::Error || entry.tasks_pending || entry.id == entry_id)
+      continue;
+    started = started || scope.count(entry.place.empty() ? verif.lot_id : entry.place) > 0;
+    if (entry.scan.kind == ScanKind::Item)
+      scanned.insert(entry.scan.id);
+  }
+  if (!started)
+    return false;
+  int missing = 0;
+  for (const VerifPlanLot &row : plan_verif()) {
+    const Json &lot = *row.lot;
+    if (!scope.count(lot["id"].str()) || lot["is_sealed"].boolean())
+      continue;
+    if (lot["storage"].boolean()) {
+      for (const Json &item : lot["items"].items())
+        missing += scanned.count(item["iid"].str()) ? 0 : 1;
+      continue;
+    }
+    for (const Json &requirement : lot["requirements"].items()) {
+      const auto found = row.fresh.find(requirement["type"].str());
+      missing += std::max< int >(0, static_cast< int >(requirement["required"].integer())
+                                       - (found == row.fresh.end() ? 0 : found->second));
+    }
+  }
+  verif.leave_prompt = { true, level, target, entry_id, missing };
+  feedback.notice(ScanSource::Manual, settings);
+  open_window("verif");
+  return true;
+}
+
+void App::answer_leave(int choice) {
+  const LeavePrompt prompt = verif.leave_prompt;
+  verif.leave_prompt       = {};
+  if (!prompt.open || !verif.active || verif_level() != prompt.level || !verif_lot(prompt.target))
+    return;
+  const std::string level  = (*verif_lot(prompt.level))["name"].str();
+  const std::string target = (*verif_lot(prompt.target))["name"].str();
+  if (choice == 0) { // valider incomplet : les items non scannes passent manquants, puis on entre dans le lot scanne
+    verif.after_step  = prompt.target;
+    verif.after_enter = true;
+    verif.after_entry = prompt.entry_id;
+    submit_step(false);
+    if (!verif.submitting) { // connexion demandee puis abandonnee, ou rien a envoyer
+      verif.after_step.clear();
+      verif.after_entry = -1;
+    }
+    return;
+  }
+  if (choice == 1) { // passer sans valider : le lot reste a faire, ses scans sont gardes
+    enter_level(prompt.target);
+    notify(level + " reste à faire (scans gardés). Entrée dans " + target + " : scannez son contenu, puis validez-le.");
+    return;
+  }
+  // rester : l'item scanne compte dans le lot ou l'on est (il y a ete trouve)
+  if (ScanEntry *entry = prompt.entry_id >= 0 ? stack.find(prompt.entry_id) : nullptr) {
+    entry->place = prompt.level;
+    notify(entry->title + " est compté dans " + level + ", où vous l'avez trouvé.");
+  } else {
+    notify("Vous restez dans " + level + ".");
+  }
 }
 
 // Scelles intacts constates (etiquette du scelle scannee) : enregistres tout de suite si l'on peut deja valider, sinon
