@@ -4948,6 +4948,8 @@
       : `${line.back}/${line.scanned} rentré(s)`) : '';
     const rows = [el('li', { class: 'static ' + (out ? (line.kind === 'lot' ? line.back : line.back >= line.scanned) && line.scanned ? 'ok' : ''
       : done ? 'ok' : '') },
+      // case visuelle comme pour les taches : cochee quand la ligne est prise, mais on coche en scannant
+      el('span', { class: 'list-box' + (done ? ' done' : ''), 'aria-hidden': 'true' }, done ? '✓' : ''),
       el('div', { class: 'main' }, el('div', { class: 'name' }, title), el('div', { class: 'sub' }, sub + (back ? ' · ' + back : ''))),
       el('b', { class: 'list-count' + (done ? ' done' : '') }, count))];
     if (line.kind === 'type') {
