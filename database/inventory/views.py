@@ -851,7 +851,7 @@ def lots_summary(request):
         badge_user(request)
     today = timezone.localdate()
     queryset = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
-    return Response(ser.lot_list(queryset, today=today))
+    return Response(ser.lot_list(queryset, today=today, attention=True))  # lots a traiter en haut
 
 
 @api_view(['POST'])
@@ -2167,6 +2167,9 @@ def checklists_list(request):
     user = connected_user(request)
     show = str(request.data.get('show') or 'mine')
     rows = [checklists.checklist_dict(row, user, full=False) for row in checklists.visible(user, show)[:300]]
+    # a traiter en haut : listes sorties (retour a faire), puis a preparer, les modeles, et les listes rentrees
+    rank = {'validated': 0, 'draft': 1}
+    rows.sort(key=lambda row: 2 if row['template'] else rank.get(row['status'], 3))
     return Response({'lists': rows, 'can_see_all': user.role in GESTION})
 
 

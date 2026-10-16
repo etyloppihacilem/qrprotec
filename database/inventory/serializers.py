@@ -346,6 +346,57 @@ def aggregate_tree(rows):
     }
 
 
+def attention_rank(row):
+    """Ce qu'un lot demande comme attention, pour le ranger : 3 rouge (a traiter), 2 orange (verif recommandee),
+    1 valide mais une peremption ou une revision approche, 0 rien a faire, -1 lot archive. Un simple regroupement
+    (rien d'attendu, rien dedans) ne compte que par ses sous-lots."""
+    if not row.get('active', True):
+        return -1
+    if row.get('counted') is False:
+        return 0
+    kind = (row.get('effective') or row['state'])['kind']
+    if kind != 'ok':
+        return 3 if kind == 'bad' else 2
+    soon = row.get('expiring_soon_count', 0) + row.get('revision_late_count', 0) + row.get('revision_soon_count', 0)
+    return 1 if soon else 0
+
+
+def attention_order(rows):
+    """Lignes de lots en profondeur d'abord ('id', 'parent') reordonnees pour que, a chaque niveau, les branches a
+    traiter passent devant les autres : l'arborescence reste intacte (chaque lot suivi de ses sous-lots) et l'ordre
+    d'origine departage les egalites. Une branche vaut le lot le plus a traiter qu'elle contient."""
+    ids = {row['id'] for row in rows}
+    children = {}
+    roots = []
+    for row in rows:
+        if row.get('parent') in ids and row['parent'] != row['id']:
+            children.setdefault(row['parent'], []).append(row)
+        else:
+            roots.append(row)
+    ranks = {}
+
+    def rank(row):
+        if row['id'] not in ranks:
+            ranks[row['id']] = attention_rank(row)  # garde-fou contre un cycle
+            ranks[row['id']] = max([ranks[row['id']]] + [rank(child) for child in children.get(row['id'], [])])
+        return ranks[row['id']]
+
+    ordered = []
+    done = set()
+
+    def walk(level):
+        for row in sorted(level, key=lambda row: -rank(row)):  # tri stable : ordre d'origine a egalite
+            if row['id'] in done:
+                continue
+            done.add(row['id'])
+            ordered.append(row)
+            walk(children.get(row['id'], []))
+
+    walk(roots)
+    walk(rows)  # cycle eventuel (ne devrait pas exister)
+    return ordered
+
+
 def _tree_row(lot, today, depth):
     row = _lot_core(lot, today)
     row['depth'] = depth
@@ -360,6 +411,7 @@ def lot_global(lot, today):
         return None
     rows = [_tree_row(sub_lot, today, sub_lot.depth) for sub_lot in tree]
     summary = aggregate_tree(rows)
+    rows = attention_order(rows)  # sous-lots a traiter en haut, sous leur parent
     keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed',
             'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
             'counted')
@@ -432,9 +484,10 @@ def _add_items(data, lot, items, today):
     ]
 
 
-def lot_list(lots, local=False, today=None):
+def lot_list(lots, local=False, today=None, attention=False):
     """Liste de lots dans l'ordre de l'arborescence (chaque lot global suivi de ses sous-lots), avec pour chaque
-    lot sa profondeur et l'etat de son lot global."""
+    lot sa profondeur et l'etat de son lot global. 'attention_order' donne la place du lot quand les lots a traiter
+    passent en haut (attention_order) ; attention=True renvoie directement la liste dans cet ordre."""
     today = today or timezone.localdate()
     lots = list(lots)
     ids = {lot.id for lot in lots}
@@ -475,7 +528,10 @@ def lot_list(lots, local=False, today=None):
         summary.update({'id': root_id, 'name': tree[0]['name']})
         for row in tree:
             row['global'] = summary
-    return rows
+    ordered = attention_order(rows)
+    for index, row in enumerate(ordered):
+        row['attention_order'] = index
+    return ordered if attention else rows
 
 
 def user_dict(user, local=False):

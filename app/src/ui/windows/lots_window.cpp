@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 namespace qrprotec {
 
@@ -102,7 +103,16 @@ class LotsWindow final : public AppWindow {
       if (!compact)
         ImGui::TableSetupColumn("Dernière vérif", ImGuiTableColumnFlags_WidthFixed, 180.0f);
       ImGui::TableHeadersRow();
-      for (const Json &lot : app.catalog.lots.items()) {
+      // lots a traiter en haut (rouges, orange, puis peremption ou revision proche), chacun suivi de ses sous-lots :
+      // ordre calcule par le serveur (serializers.attention_order)
+      std::vector< const Json * > lots;
+      for (const Json &lot : app.catalog.lots.items())
+        lots.push_back(&lot);
+      std::stable_sort(lots.begin(), lots.end(), [](const Json *a, const Json *b) {
+        return (*a)["attention_order"].integer() < (*b)["attention_order"].integer();
+      });
+      for (const Json *lot_row : lots) {
+        const Json       &lot  = *lot_row;
         const std::string id   = lot["id"].str();
         const std::string name = lot["name"].str();
         const int         expired = lot["expired_count"].integer();
@@ -261,7 +271,18 @@ class LotsWindow final : public AppWindow {
         ImGui::TableSetupColumn("Quantité", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableHeadersRow();
-        for (const Json &row : details_["requirements"].items()) {
+        // types incomplets en haut, puis ceux qui ont des perimes, puis les complets (ordre de la definition a egalite)
+        std::vector< const Json * > requirements;
+        for (const Json &row : details_["requirements"].items())
+          requirements.push_back(&row);
+        const auto requirement_rank = [](const Json &row) {
+          return row["present"].integer() < row["required"].integer() ? 0 : row["expired"].integer() > 0 ? 1 : 2;
+        };
+        std::stable_sort(requirements.begin(), requirements.end(), [&](const Json *a, const Json *b) {
+          return requirement_rank(*a) < requirement_rank(*b);
+        });
+        for (const Json *requirement : requirements) {
+          const Json &row = *requirement;
           ImGui::TableNextRow();
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(row["type_name"].str().c_str());
@@ -285,7 +306,38 @@ class LotsWindow final : public AppWindow {
         ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 220.0f);
         ImGui::TableHeadersRow();
         ProblemTarget report;
+        // items a traiter en haut : a remplacer (perime, desactive, inutilisable), disparus, signales ou revision en
+        // retard, bientot perimes, puis le reste
+        struct ItemRow {
+            const Json *item;
+            bool        missing;
+            int         rank;
+        };
+        std::vector< ItemRow > rows;
         for (const Json &item : details_["items"].items()) {
+          const auto date = Date::parse(item["peremption"].str());
+          const int  rank = item["expired"].boolean()                                     ? 0
+                          : item["reported"].boolean() || item["revision_late"].boolean() ? 2
+                          : date && *date <= soon                                         ? 3
+                                                                                          : 4;
+          rows.push_back({ &item, false, rank });
+        }
+        for (const Json &item : details_["missing_items"].items())
+          rows.push_back({ &item, true, 1 });
+        std::stable_sort(rows.begin(), rows.end(), [](const ItemRow &a, const ItemRow &b) { return a.rank < b.rank; });
+        for (const ItemRow &entry : rows) {
+          const Json &item = *entry.item;
+          if (entry.missing) {
+            ImGui::TableNextRow();
+            row_color(colors::grey, 0.3f);
+            ImGui::TableNextColumn();
+            ImGui::Text("%s (disparu)", item["type_name"].str().c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(display_date(item["peremption"]).c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", item["iid"].str().c_str());
+            continue;
+          }
           const auto date = Date::parse(item["peremption"].str());
           ImGui::TableNextRow();
           if (item["expired"].boolean())
@@ -319,16 +371,6 @@ class LotsWindow final : public AppWindow {
           }
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(date ? date->display().c_str() : "-");
-          ImGui::TableNextColumn();
-          ImGui::TextDisabled("%s", item["iid"].str().c_str());
-        }
-        for (const Json &item : details_["missing_items"].items()) {
-          ImGui::TableNextRow();
-          row_color(colors::grey, 0.3f);
-          ImGui::TableNextColumn();
-          ImGui::Text("%s (disparu)", item["type_name"].str().c_str());
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted(display_date(item["peremption"]).c_str());
           ImGui::TableNextColumn();
           ImGui::TextDisabled("%s", item["iid"].str().c_str());
         }

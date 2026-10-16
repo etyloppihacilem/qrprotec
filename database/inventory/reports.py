@@ -19,7 +19,7 @@ Un item signale inutilisable doit etre remplace comme un perime tant que son sig
 """
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
 
 from . import journal, notifications, services
@@ -250,8 +250,15 @@ def _summaries(queryset):
 
 
 def listing(show='open', limit=200):
-    """Signalements ouverts (show='open') ou tous, les plus recents d'abord ; compteurs par etat."""
-    queryset = ProblemReport.objects.select_related('item_type').order_by('-created', '-id')
+    """Signalements ouverts (show='open') ou tous ; compteurs par etat. Ceux a traiter en haut, comme leurs couleurs :
+    nouveaux (rouge), en cours avec l'objet inutilisable (orange), en cours encore utilisable, puis resolus ; les
+    plus recents d'abord a egalite."""
+    attention = Case(When(status=ReportStatus.NEW, then=Value(0)),
+                     When(status=ReportStatus.IN_PROGRESS, usable=False, then=Value(1)),
+                     When(status=ReportStatus.IN_PROGRESS, then=Value(2)),
+                     default=Value(3), output_field=IntegerField())
+    queryset = (ProblemReport.objects.select_related('item_type').annotate(attention=attention)
+                .order_by('attention', '-created', '-id'))
     if show == 'open':
         queryset = queryset.exclude(status=ReportStatus.RESOLVED)
     counts = {

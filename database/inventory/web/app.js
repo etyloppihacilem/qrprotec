@@ -2582,13 +2582,18 @@
       lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
         + "Scannez l'étiquette clé d'un autre lot du même lot global pour l'ajouter.") : '',
       ...renderGlobal(lot),
+      // types incomplets en haut
       el('h3', {}, 'Scannés / attendus'),
-      ...(lot.requirements || []).map((row) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''),
-        fresh[row.type] || 0, row.required)),
+      ...incompleteFirst(lot.requirements, (row) => fresh[row.type] || 0).map((row) => requirementRow(
+        row.type_name + (row.location ? ` (${row.location})` : ''), fresh[row.type] || 0, row.required)),
       el('h3', {}, 'État enregistré du lot'),
-      ...(lot.requirements || []).map((row) => requirementRow(row.type_name, row.present, row.required)),
+      ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => requirementRow(row.type_name, row.present, row.required)),
     );
   }
+
+  // Types attendus d'un lot, les incomplets d'abord (ordre de la definition a egalite)
+  const incompleteFirst = (requirements, present) => [...(requirements || [])]
+    .sort((a, b) => (present(a) >= a.required) - (present(b) >= b.required));
 
   // Fiche d'inventaire papier (PDF A4) : liste de controle par emplacement, une page par sous-lot
   function sheetLink(id, label) {
@@ -4163,9 +4168,9 @@
     if (!noVerif) parts.push(el('h3', {}, 'Étiquette clé'),
       el('div', { class: 'key-box' + (fiche.keyCheck && fiche.keyCheck !== 'valid' ? ' bad' : '') }, ...keyBox));
 
-    // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres)
+    // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres), ce qui est a traiter en haut
     parts.push(el('h3', {}, 'Contenu'));
-    const lots = [lot, ...(lot.descendants || [])];
+    const lots = [lot, ...attentionTree(lot.descendants || [])];
     const tags = { ok: 'green', warn: 'orange', bad: 'red' };
     for (const sub of lots) {
       const requirements = sub.requirements || [];
@@ -4185,12 +4190,16 @@
           el('div', { class: 'sub' }, `${sub.lot_type_name} · ${sub.item_count} item(s)`)),
         el('span', { class: 'tag ' + tags[subStatus.kind] }, subStatus.label.replace(/^[✔✘⚠] /, '').split(',')[0]))));
       }
-      // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption
+      // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption (a remplacer en haut)
       const pairs = [...items.map((item) => [item, '']), ...missing.map((item) => [item, 'disparu'])];
-      const ofType = (type) => pairs.filter(([item]) => item.type === type);
+      const ofType = (type) => pairs.filter(([item]) => item.type === type).sort((a, b) => iidAttention(a) - iidAttention(b));
+      const flagged = (rows) => rows.some((pair) => iidAttention(pair) < 3);
+      // types incomplets en haut, puis ceux qui ont un item a remplacer ou signale, puis les complets
+      const lines = [];
       for (const row of requirements) {
-        parts.push(...ficheFold(`${sub.id}:${row.type}`, ofType(row.type), (arrow) => requirementRow(
-          row.type_name + (row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)));
+        const rows = ofType(row.type);
+        lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : 2, rows: ficheFold(`${sub.id}:${row.type}`, rows,
+          (arrow) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)) });
       }
       // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
       const known = new Set(requirements.map((row) => row.type));
@@ -4198,13 +4207,63 @@
       for (const type of extra) {
         const rows = ofType(type);
         const label = rows[0][0].type_name + (requirements.length ? ' (hors définition)' : '');
-        parts.push(...ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
-          el('span', { class: 'label' }, label), el('span', { class: 'req-count' }, String(rows.filter(([, tag]) => !tag).length)), arrow)));
+        lines.push({ rank: flagged(rows) ? 1 : 2, rows: ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
+          el('span', { class: 'label' }, label), el('span', { class: 'req-count' }, String(rows.filter(([, tag]) => !tag).length)), arrow)) });
       }
+      lines.sort((a, b) => a.rank - b.rank);
+      for (const line of lines) parts.push(...line.rows);
       if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) parts.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
     }
     body.replaceChildren(...parts);
   }
+
+  // Ce qu'un lot demande comme attention (meme regle que serializers.attention_rank) : 3 rouge, 2 orange, 1 une
+  // peremption ou une revision approche, 0 rien a faire ; un simple regroupement ne compte que par ses sous-lots
+  function lotAttention(lot) {
+    if (!ownContent(lot)) return 0;
+    const kind = lotStatus(lot).kind;
+    if (kind !== 'ok') return kind === 'bad' ? 3 : 2;
+    return lot.expiring_soon_count || lot.revision_late_count || lot.revision_soon_count ? 1 : 0;
+  }
+
+  // Sous-lots (en profondeur d'abord, avec 'parent') reordonnes : a chaque niveau, les branches a traiter passent
+  // devant, chaque lot reste suivi de ses sous-lots et l'ordre d'origine departage les egalites
+  function attentionTree(rows) {
+    const ids = new Set(rows.map((row) => row.id));
+    const children = new Map();
+    const roots = [];
+    for (const row of rows) {
+      if (ids.has(row.parent) && row.parent !== row.id) {
+        if (!children.has(row.parent)) children.set(row.parent, []);
+        children.get(row.parent).push(row);
+      } else roots.push(row);
+    }
+    const ranks = new Map();
+    const rank = (row) => {
+      if (!ranks.has(row.id)) {
+        ranks.set(row.id, lotAttention(row)); // garde-fou contre un cycle
+        ranks.set(row.id, Math.max(ranks.get(row.id), ...(children.get(row.id) || []).map(rank)));
+      }
+      return ranks.get(row.id);
+    };
+    const ordered = [];
+    const seen = new Set();
+    const walk = (level) => {
+      for (const row of [...level].sort((a, b) => rank(b) - rank(a))) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        ordered.push(row);
+        walk(children.get(row.id) || []);
+      }
+    };
+    walk(roots);
+    walk(rows);
+    return ordered;
+  }
+
+  // Rang d'un item deplie sous sa jauge : perime ou inutilisable, disparu, signale ou revision en retard, puis le reste
+  const iidAttention = ([item, missingTag]) => (item.expired ? 0 : missingTag ? 1
+    : (item.reported && !item.unusable) || item.revision_late ? 2 : 3);
 
   // Ligne d'un type dans la fiche de lot, avec une fleche au bout pour deplier ses iids (replies par defaut,
   // remis a zero a chaque fiche ouverte)
@@ -4920,6 +4979,16 @@
     return el('span', { class: 'list-box-wrap' }, box);
   }
 
+  // Lignes a traiter en haut (ordre de la liste a egalite) : a preparer, ce qui n'est pas encore pris ou coche ;
+  // sortie, ce qui est pris et pas encore rentre. Un modele ou une liste rentree garde son ordre.
+  function listLinesByAttention(list) {
+    const todo = (line) => (list.template ? false
+      : list.status === 'draft' ? (line.kind === 'task' ? !line.scanned : line.scanned < line.quantity)
+        : list.status === 'validated' ? line.kind !== 'task' && !!line.scanned
+          && (line.kind === 'lot' ? !line.back : line.back < line.scanned) : false);
+    return [...list.lines].sort((a, b) => todo(b) - todo(a));
+  }
+
   function listLineRows(list, line, backIids) {
     if (line.kind === 'task') {
       // tache libre : cochee a la verif de la liste (ni lot ni item)
@@ -5006,7 +5075,7 @@
     const backIids = new Set((list.back || []).filter((scan) => scan.iid).map((scan) => scan.iid));
     parts.push(el('h3', {}, 'À prendre'));
     if (!list.lines.length) parts.push(el('p', { class: 'hint' }, 'Liste vide.' + (list.can_edit ? ' Modifiez-la pour ajouter des lots et du matériel.' : '')));
-    parts.push(el('ul', { class: 'list' }, ...list.lines.flatMap((line) => listLineRows(list, line, backIids))));
+    parts.push(el('ul', { class: 'list' }, ...listLinesByAttention(list).flatMap((line) => listLineRows(list, line, backIids))));
     if (list.status === 'draft' || list.template) {
       const src = listQr(list.url);
       // Partage replie : le bouton de partage, et le QR code qui deplie le reste (QR, explication, lien cliquable)
