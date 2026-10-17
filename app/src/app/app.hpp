@@ -151,6 +151,8 @@ struct VerifSession {
     std::vector< std::string >            path;    // sous-lots ou l'on est entre, du lot global au lot en cours
     std::map< std::string, CascadeDone >  done;    // lots valides pendant la verif
     std::map< std::string, std::string >  keys;    // etiquettes cles de sous-lots scannees
+    // lots dont l'etiquette (publique, cle ou du scelle) a ete scannee : la verif est bien celle de ces lots
+    std::set< std::string >               labels;
     std::set< std::string >               entered; // lots ou l'on est entre : leurs sous-lots non faits restent tels quels
     // scan d'un item, d'une etiquette ou d'un scelle d'un lot hors du lot en cours, alors que celui-ci est complet : il
     // est valide automatiquement, puis on continue vers ce lot (on y entre si after_enter)
@@ -330,7 +332,9 @@ class App {
     std::string user_name() const;
 
     // Verifs et mouvements
-    void start_verif(const std::string &lot_id, const std::string &key);
+    // label : l'etiquette du lot a ete scannee (la fiche ouverte par son scan compte, lot_label_scanned)
+    void start_verif(const std::string &lot_id, const std::string &key, bool label = false);
+    bool lot_label_scanned(const std::string &lot_id) const { return !lot_id.empty() && lot_id == label_shown_; }
     void show_lot(const std::string &lot_id, const std::string &seal_code = {}); // fiche du lot (fenetre Lots)
     std::string take_lot_to_show();            // lu par la fenetre Lots
     void show_lots_to_treat();                 // fenetre Lots filtree sur les lots a traiter (voyant de la barre)
@@ -353,6 +357,10 @@ class App {
     void submit_verif(bool partial = false);
     void restock_verif(); // reassort : ajoute les items scannes au lot sans verif complete
     bool verif_key_ok() const;
+    std::string verif_label_missing() const; // lot dont il faut scanner une etiquette pour valider (vide sinon)
+    bool verif_label_ok() const { return verif_label_missing().empty(); }
+    bool verif_ready() const { return verif_key_ok() && verif_label_ok(); }
+    Json verif_labels() const;
     std::string verif_place() const;
     std::vector< const Json * >   verif_lots() const; // lots couverts : lot scanne, sous-lots, lots ajoutes
     bool                          verif_covers(const std::string &lot_id) const;
@@ -528,6 +536,7 @@ class App {
     bool                    reports_beside_lots_ = false; // Lots retrecie : reprend sa place a la deconnexion
     double                  next_lots_poll_ = 0.0;
     std::string             seal_to_show_;
+    std::string             label_shown_; // lot dont la fiche a ete ouverte par le scan de son etiquette
     std::string             pack_to_show_;
     std::string             journal_lot_;
     // Premiere configuration : aucun responsable avec un badge valide

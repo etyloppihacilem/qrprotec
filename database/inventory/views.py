@@ -654,16 +654,23 @@ def lot_seal_open(request, lot_id):
     })
 
 
-def verif_targets(request, entries):
-    """Lots d'une verif ([{"id", "key"}, ...]) : tous du meme lot global. Sur l'API publique, une cle valide d'un
-    seul de ces lots suffit pour toute la verif : celle du lot global, d'un lot ajoute ou d'un de leurs sous-lots
-    (envoye dans la liste avec sa cle, il fait deja partie de la verif)."""
-    return verif_lots(entries, is_local(request))
+def verif_targets(request, entries, identity):
+    """Lots d'une verif ([{"id", "key"}, ...]) : tous du meme lot global. Sur l'API publique, sans badge (nom declare,
+    option du serveur), une cle valide d'un seul de ces lots suffit pour toute la verif : celle du lot global, d'un
+    lot ajoute ou d'un de leurs sous-lots (envoye dans la liste avec sa cle, il fait deja partie de la verif). Avec un
+    badge, pas de cle : l'etiquette d'un des lots suffit (require_label)."""
+    return verif_lots(entries, is_local(request), verified=is_verified(identity))
 
 
-def verif_lots(entries, local, holders=()):
+def is_verified(identity):
+    """Identite d'un secouriste reconnu (badge, ou nom et PIN), pas un nom declare."""
+    return identity.startswith(f'{SOURCE_VERIFIED}:')
+
+
+def verif_lots(entries, local, holders=(), verified=False):
     """verif_targets hors requete (vérif à plusieurs enregistree par le serveur, live.py). holders : [(lot, cle)]
-    autres lots du meme lot global dont l'etiquette cle a ete scannee pendant la vérif (key_holders)."""
+    autres lots du meme lot global dont l'etiquette cle a ete scannee pendant la vérif (key_holders). verified :
+    secouriste reconnu, l'etiquette cle n'est plus exigee (seulement pour une identite declaree)."""
     if not isinstance(entries, list) or not entries:
         raise ApiError("lots : liste de lots attendue")
     lots = []
@@ -685,14 +692,40 @@ def verif_lots(entries, local, holders=()):
     roots = {lot.root().id for lot in lots}
     if len(roots) > 1:
         raise ApiError("Les lots d'une même vérif doivent appartenir au même lot global")
-    if not local and not any(lot.check_key(keys[lot.id]) for lot in lots) \
+    if not local and not verified and not any(lot.check_key(keys[lot.id]) for lot in lots) \
             and not any(lot.root().id in roots and lot.check_key(key) for lot, key in holders):
         # une seule etiquette cle d'un des lots (un sous-lot suffit, ex : un rangement pour le stock) valide toute
         # la verif : les lots sont tous du meme lot global. Vérif en cascade : celle d'un autre lot du meme lot global
         # scannee plus tot dans la vérif (holders) aussi.
         lot = next((lot for lot in lots if keys[lot.id]), lots[0])
         raise ApiError(key_error(lot, keys[lot.id]), status.HTTP_403_FORBIDDEN)
+    for lot in lots:
+        lot.verif_key_sent = keys[lot.id]  # une cle valide compte aussi comme etiquette scannee (require_label)
     return lots
+
+
+def require_label(lots, data, holders=(), sealed=(), extra=()):
+    """API publique : l'etiquette (publique ou cle) d'au moins un des lots verifies, d'un de leurs sous-lots ou d'un
+    lot qui les contient a ete scannee pendant la verif, pour ne pas valider la verif d'un autre lot. "labels" : [id]
+    des lots dont l'etiquette a ete scannee ; une cle valide envoyee (lots, keys) ou le scelle intact d'un sous-lot
+    (sealed) comptent aussi. extra : etiquettes scannees par les autres participants de la vérif à plusieurs."""
+    labels = data.get('labels') or []
+    if not isinstance(labels, list):
+        raise ApiError("labels : liste d'ids de lots attendue")
+    scanned = {str(value) for value in labels[:200] if value} | set(extra) | {lot.id for lot in sealed}
+    scanned |= {lot.id for lot in lots if getattr(lot, 'verif_key_sent', '') and lot.check_key(lot.verif_key_sent)}
+    scanned |= {lot.id for lot, key in holders if lot.check_key(key)}
+    # vérif en cascade : l'etiquette d'un lot qui le contient compte (celle du VPS, puis on entre dans une armoire)
+    covered = {sub_lot.id for sub_lot in services.verif_lots(lots)} | {up.id for lot in lots for up in lot.ancestors()}
+    if scanned & covered:
+        return
+    raise ApiError(label_error(lots), status.HTTP_403_FORBIDDEN, label_required=True)
+
+
+def label_error(lots):
+    names = ', '.join(lot.name for lot in lots[:3]) + (' …' if len(lots) > 3 else '')
+    return (f"Scannez l'étiquette de {names} (ou d'un de ses sous-lots) pour valider : c'est elle qui montre que "
+            "la vérif est bien celle de ce lot.")
 
 
 def key_holders(data, extra=None):
@@ -758,10 +791,13 @@ def sealed_targets(data, lots):
 @handle_errors
 def lot_verif(request, lot_id):
     """Verif d'un lot et de ses sous-lots (cle du lot). 'partial' : voir verifs()."""
-    lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}])
     identity = operation_identity(request)
+    lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}], identity)
+    sealed = sealed_targets(request.data, lots)
+    if not is_local(request):
+        require_label(lots, request.data, sealed=sealed)
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
-                                    places=place_map(request.data), sealed=sealed_targets(request.data, lots))
+                                    places=place_map(request.data), sealed=sealed)
     return Response(report)
 
 
@@ -791,12 +827,15 @@ def verifs(request):
     if team and isinstance(entries, list):
         entries = [dict(entry, key=entry.get('key') or team['keys'].get(str(entry.get('id', '')), ''))
                    if isinstance(entry, dict) else entry for entry in entries]
-    lots = verif_lots(entries, is_local(request), key_holders(request.data, team['keys'] if team else None))
     identity = operation_identity(request)
+    holders = key_holders(request.data, team['keys'] if team else None)
+    lots = verif_lots(entries, is_local(request), holders, is_verified(identity))
+    sealed = sealed_targets(request.data, lots)
+    if not is_local(request):
+        require_label(lots, request.data, holders, sealed, team['labels'] if team else ())
     participants = [value for value in team['identities'] if value != identity] if team else []
     report = services.perform_verif(lots, iids, identity, bool(request.data.get('partial')),
-                                    participants, place_map(request.data), sealed_targets(request.data, lots),
-                                    excluded_lots(request.data, lots))
+                                    participants, place_map(request.data), sealed, excluded_lots(request.data, lots))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team and step:
         live.hub.step(team, report, iids, final=bool(request.data.get('finish')))
@@ -856,9 +895,13 @@ def items_out(request):
 @api_view(['POST'])
 @handle_errors
 def lot_add_items(request, lot_id):
+    """Reassort d'un lot. Sur l'API publique : sa cle sous un nom declare, l'etiquette du lot avec un badge (verif)."""
     lot = get_object_or_404(Lots, id=lot_id)
-    require_lot_key(request, lot)
     identity = operation_identity(request)
+    if not is_local(request) and is_verified(identity):
+        require_label([lot], request.data, extra=[lot.id] if lot.check_key(request.data.get('key')) else ())
+    else:
+        require_lot_key(request, lot)
     return Response(services.move_items(iid_list(request.data), lot, identity, SeenWhile.ADD))
 
 

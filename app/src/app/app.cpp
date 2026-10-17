@@ -1747,6 +1747,7 @@ void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
                 leave_complete_level(id, false);
               if (!known)
                 verif.sealed.push_back({ id, code, name });
+              verif.labels.insert(id); // l'etiquette du scelle montre aussi que la verif est bien celle de ce lot
               notify(name + " : scellé intact, compté comme vérifié sans être ouvert.");
               flush_cascade_seals();
               return;
@@ -1984,8 +1985,11 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
   // etiquette publique hors verif : fiche du lot d'abord, la verif se lance depuis la fiche
   if (scan.key.empty() && !verif.active) {
     show_lot(scan.id);
+    label_shown_ = scan.id; // « Lancer une vérif » depuis la fiche : l'etiquette du lot compte (verif_label_missing)
     return;
   }
+  if (verif.active)
+    verif.labels.insert(scan.id);
   // verif en cascade : l'etiquette d'un lot du meme lot global fait entrer dans ce lot
   if (verif.active && verif_cascade() && verif_covers(scan.id)) {
     if (!scan.key.empty()) {
@@ -2031,7 +2035,7 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
     join_verif(scan.id, scan.key, source);
     return;
   }
-  start_verif(scan.id, scan.key);
+  start_verif(scan.id, scan.key, true);
 }
 
 
@@ -2052,6 +2056,7 @@ void App::join_verif(const std::string &lot_id, const std::string &key, ScanSour
     if (root_of(result.data) != root_of(verif.lot)) {
       if (key.empty()) { // etiquette publique d'un autre lot global : sa fiche, la verif continue
         show_lot(lot_id);
+        label_shown_ = lot_id;
         return;
       }
       feedback.error(source, settings);
@@ -2077,6 +2082,7 @@ void App::join_verif(const std::string &lot_id, const std::string &key, ScanSour
 void App::show_lot(const std::string &lot_id, const std::string &seal_code) {
   lot_to_show_  = lot_id;
   seal_to_show_ = seal_code;
+  label_shown_.clear();
   open_window("lots");
 }
 
@@ -2122,7 +2128,7 @@ void App::pack_opened(const std::string &pack_id) {
 }
 
 // La connexion n'est demandee qu'a la validation de la verif (submit_verif).
-void App::start_verif(const std::string &lot_id, const std::string &key) {
+void App::start_verif(const std::string &lot_id, const std::string &key, bool label) {
   {
     verif         = {};
     verif.active  = true;
@@ -2130,6 +2136,9 @@ void App::start_verif(const std::string &lot_id, const std::string &key) {
     verif.key     = key;
     verif.current = lot_id;
     verif.loading = true;
+    if (label || !key.empty())
+      verif.labels.insert(lot_id);
+    label_shown_.clear();
     open_window("verif");
     api.get("/api/lots/" + url_encode(lot_id) + "/", [this, lot_id](const ApiResult &result) {
       if (!verif.active || verif.lot_id != lot_id)
@@ -2182,8 +2191,9 @@ std::string key_hint(const Json &lot) {
 // Une seule etiquette cle d'un lot de la verif suffit : celle du lot global couvre ses sous-lots, et celle d'un
 // sous-lot (ajoute a la verif en la scannant) valide la verif de tout le lot global.
 bool App::verif_key_ok() const {
-  // sans utilisateur connecte (nom declare), le serveur exige toujours l'etiquette privee
-  if (privileged() || (logged_in() && !settings.require_private_label))
+  // l'etiquette cle n'est exigee que sans utilisateur connecte (nom declare, option du serveur) ; connecte,
+  // l'etiquette d'un des lots suffit (verif_label_missing)
+  if (logged_in())
     return true;
   std::set< std::string > keyed;
   if (!verif.key.empty())
@@ -2196,6 +2206,47 @@ bool App::verif_key_ok() const {
       keyed.insert(id);
   // une seule etiquette cle d'un lot de la verif (un sous-lot suffit) valide toute la verif, comme cote serveur
   return !keyed.empty();
+}
+
+// Lot a valider dont aucune etiquette (publique, cle ou du scelle) n'a ete scannee : celle du lot, d'un de ses
+// sous-lots ou d'un lot qui le contient, pour ne pas valider la verif d'un autre lot. Vide si au moins une l'a ete.
+// Meme regle que le serveur (views.require_label) et le front web (labelMissing).
+std::string App::verif_label_missing() const {
+  if (!verif.active || verif.loading)
+    return "";
+  std::set< std::string > scanned = verif.labels;
+  if (!verif.key.empty())
+    scanned.insert(verif.lot_id);
+  for (const VerifExtra &extra : verif.extras)
+    if (!extra.key.empty())
+      scanned.insert(extra.id);
+  for (const auto &[id, key] : verif.keys)
+    if (!key.empty())
+      scanned.insert(id);
+  for (const VerifSealed &sealed : verif.sealed)
+    scanned.insert(sealed.id);
+  std::vector< std::string > tops;
+  if (verif_cascade())
+    tops.push_back(verif_level());
+  else {
+    tops.push_back(verif.lot_id);
+    for (const VerifExtra &extra : verif.extras)
+      tops.push_back(extra.id);
+  }
+  for (const std::string &top : tops)
+    for (const std::string &id : scanned)
+      if (id == top || verif_under(id, top) || verif_under(top, id))
+        return "";
+  const Json *lot = verif_lot(tops.front());
+  return lot ? (*lot)["name"].str(tops.front()) : verif.lot["name"].str(tops.front());
+}
+
+// Lots dont l'etiquette a ete scannee, envoyes avec la verif (views.require_label)
+Json App::verif_labels() const {
+  Json labels = Json::array();
+  for (const std::string &id : verif.labels)
+    labels.push_back(id);
+  return labels;
 }
 
 // Lot ou vont les items venus du stock scannes maintenant : derniere etiquette de lot scannee pendant la verif
@@ -2634,6 +2685,10 @@ void App::submit_step(bool partial) {
       notify("Scannez l'étiquette clé du lot pour valider. " + key_hint(*lot), true);
       return;
     }
+    if (!verif_label_ok()) {
+      notify("Scannez l'étiquette de " + verif_label_missing() + " (ou d'un de ses sous-lots) pour valider.", true);
+      return;
+    }
     Json body;
     body["items"]  = items;
     body["places"] = places;
@@ -2656,6 +2711,7 @@ void App::submit_step(bool partial) {
     add_key(verif.lot_id, verif.key);
     for (const auto &[id, key] : verif.keys)
       add_key(id, key);
+    body["labels"]  = verif_labels();
     body["exclude"] = Json::array();
     for (const std::string &id : exclude)
       body["exclude"].push_back(id);
@@ -2766,7 +2822,7 @@ void App::submit_step(bool partial) {
 // Lot en cours (pas le lot global) complet : rien d'attendu n'y manque, il peut etre valide sans question (meme regle
 // que levelComplete du front web)
 bool App::verif_level_complete() const {
-  if (!verif_cascade() || verif.loading || verif.submitting || !logged_in() || !verif_key_ok())
+  if (!verif_cascade() || verif.loading || verif.submitting || !logged_in() || !verif_ready())
     return false;
   const std::string top = verif_level();
   const Json       *lot = verif_lot(top);
@@ -2911,6 +2967,7 @@ void App::flush_cascade_seals() {
     entry["code"] = sealed.code;
     body["sealed"].push_back(entry);
   }
+  body["labels"]   = verif_labels();
   body["step"]     = true;
   verif.submitting = true;
   const std::string root = verif.lot_id;
@@ -2941,6 +2998,11 @@ void App::submit_verif(bool partial) {
       return;
     if (!verif_key_ok()) {
       notify("Scannez l'étiquette clé du lot pour valider la vérif. " + key_hint(verif.lot), true);
+      return;
+    }
+    if (!verif_label_ok()) {
+      notify("Scannez l'étiquette de " + verif_label_missing() + " (ou d'un de ses sous-lots) pour valider la vérif.",
+             true);
       return;
     }
     Json body;
@@ -2980,6 +3042,7 @@ void App::submit_verif(bool partial) {
       entry["code"] = sealed.code;
       body["sealed"].push_back(entry);
     }
+    body["labels"]   = verif_labels();
     body["partial"]  = partial;
     verif.submitting  = true;
     const std::string title = verif_title();
@@ -3022,6 +3085,7 @@ void App::verif_target_lot() {
     verif.lot["name"] = stack.target.name;
   }
   verif.key = stack.target.key;
+  verif.labels.insert(stack.target.id);
   submit_verif();
 }
 
@@ -3040,6 +3104,10 @@ void App::restock_verif() {
       notify("Scannez l'étiquette clé du lot pour ajouter des items. " + key_hint(verif.lot), true);
       return;
     }
+    if (!verif_label_ok()) {
+      notify("Scannez l'étiquette de " + verif_label_missing() + " pour ajouter des items.", true);
+      return;
+    }
     Json body;
     body["items"] = Json::array();
     for (const std::string &iid : stack.iids())
@@ -3048,6 +3116,7 @@ void App::restock_verif() {
       return;
     add_identity(body);
     body["key"]             = verif.key;
+    body["labels"]          = verif_labels();
     const std::string lot   = verif.lot_id;
     const std::string name  = verif.lot["name"].str(lot);
     verif.submitting        = true;

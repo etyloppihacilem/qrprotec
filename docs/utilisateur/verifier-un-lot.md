@@ -1,7 +1,7 @@
 # Vérifier un lot
 
-Une vérif, c'est : **scanner l'étiquette clé du lot, scanner tout son contenu, valider avec son
-badge.** Le reste de cette page détaille les cas particuliers.
+Une vérif, c'est : **scanner l'étiquette du lot (publique ou clé), scanner tout son contenu, valider
+avec son badge.** Le reste de cette page détaille les cas particuliers.
 
 > **La règle d'or : tout scanner.** Ce qui n'est pas scanné est considéré comme absent. Scannez aussi
 > les périmés que vous retirez **et** leurs remplaçants : le logiciel comprend tout seul que le neuf
@@ -9,13 +9,14 @@ badge.** Le reste de cette page détaille les cas particuliers.
 
 ## Au poste
 
-1. **Scannez l'étiquette clé** du sac avec la douchette. La fenêtre **Vérif** s'ouvre : en haut
+1. **Scannez l'étiquette** du sac avec la douchette (l'étiquette clé lance la vérif directement). La fenêtre **Vérif** s'ouvre : en haut
    l'état du lot (et de son lot global s'il en a un), puis la liste **À scanner** : chaque produit
    attendu, avec « scannés / attendus » et l'emplacement dans le sac. Les produits en cours de scan
    (orange) sont en haut, le dernier scanné en premier ; puis ceux dont rien n'a été scanné (rouge) ;
    les produits complets (vert) descendent en bas de la liste.
-   - Si vous scannez l'étiquette **publique**, la fiche du lot s'affiche avec **Lancer une vérif** ;
-     il faudra quand même scanner l'étiquette clé pour valider (sauf rôle gestion ou admin).
+   - Si vous scannez l'étiquette **publique**, la fiche du lot s'affiche avec **Lancer une vérif** :
+     cette étiquette compte pour valider. Une vérif lancée sans avoir scanné d'étiquette (depuis la
+     liste des lots, ou par le premier item scanné) demande d'en scanner une avant de valider.
 2. **Scannez chaque objet.** Il apparaît dans la **pile de scans** (colonne de droite) et disparaît de
    la liste « À scanner ».
    - Un **périmé** fait biper la douchette (LED orange) et s'affiche en rouge « PÉRIMÉ ». Si vous le
@@ -128,9 +129,12 @@ cascade » plus bas). Dans le lot où vous êtes :
 - Un item **d'un autre sous-lot** (ex : un item de l'armoire 2 pendant la vérif de l'armoire 1) est
   déplacé dans le lot vérifié. Si vous l'avez trouvé dans l'armoire 2, scannez l'étiquette
   (publique ou clé) de l'armoire 2 : elle s'ajoute à la vérif, et l'item y reste.
-- Pour valider, **une seule étiquette clé** suffit, celle de n'importe quel lot de la vérif : le lot
-  global, un lot ajouté ou un de leurs sous-lots (ex : l'étiquette d'un seul rangement pour une
-  vérif du Stock).
+- Pour valider, il faut avoir scanné **l'étiquette (publique ou clé) d'au moins un lot de la vérif**,
+  d'un de ses sous-lots ou du lot qui le contient : c'est ce qui montre que la vérif est bien celle
+  de ce lot et pas d'un autre. L'étiquette du scellé d'un sous-lot compte aussi. L'étiquette clé
+  n'est plus exigée quand on est identifié (badge, ou nom et PIN) ; elle ne l'est que sans badge,
+  sous un nom déclaré, si le serveur le permet (une seule suffit alors, celle de n'importe quel lot
+  de la vérif).
 - Sans vérif en cours et sans rien dans la liste des scans, scanner l'étiquette d'un item ou d'un lot
   dans le scanner ouvre sa **fiche** en grand, comme le lien ouvert avec l'appareil photo du
   téléphone. **Lancer une vérif** y commence la vérif du lot (pour un item, celle du lot où il est
@@ -151,8 +155,8 @@ Si vous rejoignez une vérif de plusieurs sous-lots sans avoir rien scanné, le 
 
 Les scans de chacun s'ajoutent à la vérif commune : tout le monde voit les mêmes items « À scanner »,
 et l'onglet **Scannés** indique qui a scanné quoi. Un petit bandeau 👥 sous les informations liste
-les participants (✔ : a validé sa partie). Pas besoin de rescanner l'étiquette clé : celle
-scannée par un autre participant suffit.
+les participants (✔ : a validé sa partie). Pas besoin de rescanner l'étiquette du lot :
+celle scannée par un autre participant suffit.
 
 Tant que d'autres participants sont connectés, **Valider** ne valide que **votre partie** (« Valider
 ma partie de la vérif » sous le bouton). Le dernier qui valide envoie la vérif : le compte rendu

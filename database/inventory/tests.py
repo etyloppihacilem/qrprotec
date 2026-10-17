@@ -89,6 +89,35 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual(len(body), 2)
 
+    def test_badge_verif_needs_a_label_not_the_key(self):
+        """Avec un badge, plus d'etiquette cle : l'etiquette (publique ou cle) d'un lot de la verif suffit."""
+        items = self.create(self.compresses, self.today + timedelta(days=10), 2)
+        payload = {'items': [item.iid for item in items], 'user': {'matricule': 'M001', 'key': self.user.new_key}}
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=False)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['label_required'])
+        self.assertIn("Scannez l'étiquette de", body['error'])
+        other = Lots.objects.create(lot_type=self.lot_type, name="Autre sac", created_by="test")
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', dict(payload, labels=[other.id]), local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', dict(payload, labels=[self.lot.id]),
+                               local=False)
+        self.assertEqual(code, 200, body)
+        self.assertTrue(body['complete'])
+        # l'etiquette cle scannee compte comme etiquette du lot
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', dict(payload, key=self.lot.verif_key),
+                            local=False)
+        self.assertEqual(code, 200)
+
+    def test_badge_restock_needs_a_label_not_the_key(self):
+        items = self.create(self.compresses, self.today + timedelta(days=10), 1)
+        payload = {'items': [items[0].iid], 'user': {'matricule': 'M001', 'key': self.user.new_key}}
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/', payload, local=False)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['label_required'])
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/', dict(payload, labels=[self.lot.id]), local=False)
+        self.assertEqual(code, 200, body)
+
     def test_public_verif_requires_lot_key(self):
         items = self.create(self.compresses, self.today + timedelta(days=10), 2)
         payload = {'items': [item.iid for item in items]}
@@ -129,8 +158,11 @@ class PublicApiTests(ApiTestCase):
         self.assertIn('a expiré', body['key_error'])
 
     def test_missing_key_message_explains_label(self):
+        # l'etiquette cle n'est plus exigee que sans badge, sous un nom declare (option du serveur)
+        models.ServerSettings.objects.update_or_create(pk=1, defaults={'declared_identity': True})
         Lots.objects.filter(pk=self.lot.pk).update(key_location='poche intérieure du couvercle')
-        code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': []}, local=False)
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'name': 'Jean',
+                                                                           'labels': [self.lot.id]}, local=False)
         self.assertEqual(code, 403)
         self.assertIn("QR code rangé à l'intérieur du lot (poche intérieure du couvercle)", body['error'])
         code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
@@ -1224,6 +1256,22 @@ class SubLotTests(ApiTestCase):
         code, body = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 400)
 
+    def test_badge_verif_with_a_sub_lot_label(self):
+        """Avec un badge, l'etiquette d'un seul sous-lot (ou du lot qui le contient) suffit, pas celle d'un autre lot
+        du meme lot global."""
+        payload = {'lots': [{'id': self.bplus['id']}], 'items': self.fresh() + [self.bottle()], 'user': self.badge}
+        code, body = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['label_required'])
+        code, body = self.call('POST', '/api/verifs/', dict(payload, labels=[self.sac_o2['id']]), local=False)
+        self.assertEqual(code, 200, body)
+        # sac O2 seul : l'etiquette du B+ (lot qui le contient) compte, celle du sac de soin non
+        payload = {'lots': [{'id': self.sac_o2['id']}], 'items': [self.bottle()], 'user': self.badge, 'step': True}
+        code, _ = self.call('POST', '/api/verifs/', dict(payload, labels=[self.soin['id']]), local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', '/api/verifs/', dict(payload, labels=[self.bplus['id']]), local=False)
+        self.assertEqual(code, 200, body)
+
     def test_cascade_steps(self):
         """Vérif en cascade du B+ : chaque sac est valide a part, avec la cle du B+ scannee au debut."""
         bplus_key = [{'id': self.bplus['id'], 'key': self.keys[self.bplus['id']]}]
@@ -2194,8 +2242,9 @@ class LiveHubTests(ApiTestCase):
             socket.push(None)
             running.join(5)
 
-    def join_team(self):
-        """Jeanne commence la verif du lot, Paul (badge) la rejoint depuis la page de suivi."""
+    def join_team(self, keyed=True):
+        """Jeanne commence la verif du lot, Paul (badge) la rejoint depuis la page de suivi. keyed : Jeanne a scanne
+        l'etiquette cle du lot (sinon son etiquette publique)."""
         from .models import Secouristes
         paul = Secouristes(matricule='M002', nom='Martin', prenom='Paul')
         paul.renew_key()
@@ -2210,7 +2259,8 @@ class LiveHubTests(ApiTestCase):
         entry = {'code': items[0].iid, 'kind': 'item', 'iid': items[0].iid, 'info': {'type_name': 'Compresses'}}
         first.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id,
                     'scanned': [{'name': 'Compresses'}], 'count': 1, 'remaining': 1, 'entries': [entry],
-                    'keys': [{'id': self.lot.id, 'key': self.lot.verif_key}]})
+                    'keys': [{'id': self.lot.id, 'key': self.lot.verif_key if keyed else ''}],
+                    'labels': [] if keyed else [self.lot.id]})
         self.wait(lambda: self.hub.sessions[hello['id']].state)
         # nom declare : on ne rejoint pas une verif
         stranger = FakeSocket({'type': 'hello', 'join': hello['id'], 'name': 'Inconnu'})
@@ -2223,7 +2273,8 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(joined['id'], hello['id'])
         team = next(m for m in second.sent if m['type'] == 'team')
         self.assertEqual(team['lots'], [self.lot.id])
-        self.assertEqual(team['keyed'], [self.lot.id])
+        self.assertEqual(team['keyed'], [self.lot.id] if keyed else [])
+        self.assertEqual(team['labeled'], [] if keyed else [self.lot.id])
         self.assertNotIn(self.lot.verif_key, json.dumps(second.sent))  # la cle reste sur le serveur
         self.assertEqual([e['iid'] for e in team['entries']], [items[0].iid])
         self.assertEqual(team['entries'][0]['who'], 'Jeanne')
@@ -2265,6 +2316,21 @@ class LiveHubTests(ApiTestCase):
         self.assertTrue(self.hub.sessions[hello['id']].done['complete'])
         code, rows = self.call('POST', '/api/verifs/recent/', {'user': self.badge}, local=False)
         self.assertEqual((rows[0]['by'], rows[0]['participants']), ('Paul', ['Jeanne']))
+        for socket in (first, second):
+            socket.push(None)
+
+    def test_team_label_counts_for_the_last_participant(self):
+        """Sans etiquette cle : l'etiquette publique scannee par Jeanne vaut pour la verif envoyee par Paul."""
+        from unittest import mock
+        first, second, hello, joined, items = self.join_team(keyed=False)
+        payload = {'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items], 'user': self.paul}
+        code, body = self.call('POST', '/api/verifs/', payload, local=False)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['label_required'])
+        with mock.patch.object(self.live, 'hub', self.hub):
+            code, report = self.call('POST', '/api/verifs/', dict(payload, live={
+                'id': joined['id'], 'pid': joined['pid'], 'token': joined['token']}), local=False)
+        self.assertEqual(code, 200, report)
         for socket in (first, second):
             socket.push(None)
 
