@@ -38,12 +38,14 @@ Messages (JSON, trames texte) :
                         "user": {...} | "name": "..."},
                        {"type": "state", "lot": {"id", "name"}, "root": id du lot global, "lots": [...],
                         "scanned": [...], "count": n, "remaining": n, "entries": [scans partages],
-                        "keys": [{"id", "key"}], "cascade": bool, "level": {"id", "name"} (lot ou l'on se trouve)},
+                        "keys": [{"id", "key"}], "labels": [ids des lots dont l'etiquette a ete scannee],
+                        "cascade": bool, "level": {"id", "name"} (lot ou l'on se trouve)},
                        {"type": "validate", "partial": bool}, {"type": "unvalidate"}, {"type": "leave"},
                        {"type": "done", "complete": bool, "partial": bool, "present": n},
                        {"type": "identity", ...}, {"type": "cancel"}, {"type": "ping"}
   serveur -> scanner : {"type": "hello", "id", "pid", "token", "merged": bool, "who"}, {"type": "error", "message"},
-                       {"type": "team", "participants": [...], "lots": [...], "keyed": [...], "entries": [...],
+                       {"type": "team", "participants": [...], "lots": [...], "keyed": [...], "labeled": [...],
+                        "entries": [...],
                         "nearby": [...], "done": {lot id: {"at", "by", "complete", "sealed"}}},
                        {"type": "validate", "submit": bool, "waiting": [noms]}, {"type": "submit", "partial": bool},
                        {"type": "report", "report": {...}},
@@ -183,6 +185,11 @@ def clean_entries(value):
     return entries
 
 
+def clean_labels(value):
+    """Lots dont l'etiquette (publique ou cle) a ete scannee pendant la verif : la verif est bien celle de ces lots."""
+    return [_text(lot_id, 16) for lot_id in (value if isinstance(value, list) else [])[:MAX_LOTS] if lot_id]
+
+
 def clean_keys(value):
     """Lots de la verif et leurs cles ([{"id", "key"}]) : gardes sur le serveur, jamais renvoyes."""
     result = []
@@ -217,6 +224,7 @@ class LiveSession:
         self.id = _token(12)
         self.participants = {}     # id -> Participant, dans l'ordre d'arrivee
         self.lots = {}             # id -> cle (vide si inconnue), dans l'ordre d'ajout
+        self.labels = set()        # lots dont l'etiquette (publique ou cle) a ete scannee par un participant
         self.started = timezone.now()
         self.updated = self.started
         self.done = None           # {"complete", "partial", "present", "at"} une fois validee
@@ -316,6 +324,7 @@ class LiveHub:
             'participants': session.people(me),
             'lots': list(session.lots),
             'keyed': [lot for lot, key in session.lots.items() if key],
+            'labeled': sorted(session.labels),
             'entries': [dict(entry, who=p.who) for p in session.participants.values() if p is not me
                         for entry in p.entries],
             'nearby': self._nearby(session),
@@ -438,11 +447,12 @@ class LiveHub:
         """Enregistre la verif commune comme si son dernier participant l'avait envoyee : scans de tous, cles des lots
         gardees par le serveur, au nom de celui qui a valide (sinon du premier participant). False si impossible."""
         from . import services
-        from .views import sealed_targets, verif_lots
+        from .views import is_verified, require_label, sealed_targets, verif_lots
         with self.lock:
             participants = list(session.participants.values())
             entries = [entry for p in participants for entry in p.entries if not entry['error']]
             lots = [{'id': lot_id, 'key': key} for lot_id, key in session.lots.items()]
+            labels = set(session.labels)
             validated = [p for p in participants if p.validated]
             partial = any(p.partial for p in validated)
             identities = [p.identity for p in validated + participants if p.identity and (p.validated or p.entries)]
@@ -455,10 +465,11 @@ class LiveHub:
         if not identities or not lots or not (iids or sealed):
             return False
         try:
-            targets = verif_lots(lots, False)
-            report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places,
-                                            sealed_targets({'sealed': sealed}, targets))
-        except Exception:  # cle expiree, lot archive... : la verif est abandonnee
+            targets = verif_lots(lots, False, verified=is_verified(identities[0]))
+            sealed_lots = sealed_targets({'sealed': sealed}, targets)
+            require_label(targets, {}, sealed=sealed_lots, extra=labels)
+            report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places, sealed_lots)
+        except Exception:  # cle expiree, etiquette d'aucun lot scannee, lot archive... : la verif est abandonnee
             with self.lock:
                 session.saving = False
             return False
@@ -585,6 +596,7 @@ class LiveHub:
                 for lot_id, key in other.lots.items():
                     if key or lot_id not in target.lots:
                         target.lots[lot_id] = key
+                target.labels |= other.labels
                 self.sessions.pop(other.id, None)
             if not moving:
                 return None
@@ -644,6 +656,7 @@ class LiveHub:
                         for lot_id, key in clean_keys(message.get('keys')):
                             if key or lot_id not in session.lots:
                                 session.lots[lot_id] = key
+                        session.labels.update(clean_labels(message.get('labels')))
                         participant.updated = session.updated = timezone.now()
                     merged = self._merge(session)
                     self._changed(merged or session)
@@ -721,7 +734,7 @@ class LiveHub:
             else:
                 identities = [p.identity for p in session.participants.values()
                               if p.identity and (p is participant or any(self._entry_in(entry, step) for entry in p.entries))]
-            return {'id': session.id, 'pid': participant.id, 'keys': dict(session.lots),
+            return {'id': session.id, 'pid': participant.id, 'keys': dict(session.lots), 'labels': set(session.labels),
                     'identities': list(dict.fromkeys(identities))}
 
     @staticmethod

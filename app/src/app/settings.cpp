@@ -146,8 +146,6 @@ void AppSettings::load() {
       order_lead_days = std::clamp(to_int(value, order_lead_days), 0, 365);
     else if (key == "forecast_history_months")
       forecast_history_months = std::clamp(to_int(value, forecast_history_months), 1, 36);
-    else if (key == "require_private_label")
-      require_private_label = to_int(value, 1) != 0;
     else if (key == "shared_machine")
       shared_machine = to_int(value, 1) != 0;
     else if (key == "printer_device")
@@ -239,7 +237,6 @@ bool AppSettings::save(std::string &error) const {
          << "expiring_soon_days=" << expiring_soon_days << '\n'
          << "order_lead_days=" << order_lead_days << '\n'
          << "forecast_history_months=" << forecast_history_months << '\n'
-         << "require_private_label=" << (require_private_label ? 1 : 0) << '\n'
          << "printer_device=" << print.serial.device << '\n'
          << "printer_baud=" << print.serial.baud_rate << '\n'
          << "printer_density=" << print.density << '\n'

@@ -201,7 +201,11 @@ Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.
   suffit** pour valider la vérif de tout le lot global (le sac O2 pour le B+, un rangement pour
   le Stock) : le sous-lot est envoyé dans `lots` avec sa clé, et `verif_targets` accepte la
   vérif dès qu'une des clés est valide. Même règle dans les fronts (`keyMissing`,
-  `App::verif_key_ok`).
+  `App::verif_key_ok`). Cette clé n'est exigée que sous un nom déclaré (option du serveur) : avec
+  un badge, `views.require_label` demande seulement l'étiquette (publique, clé ou du scellé) d'un
+  des lots vérifiés, d'un de leurs sous-lots ou d'un lot qui les contient, scannée pendant la vérif
+  (`labels`, ou celles des autres participants de la vérif à plusieurs). Même règle dans les fronts
+  (`labelMissing`, `App::verif_label_missing`). Le réassort (`/add/`) suit la même règle.
 - **Vérif groupée** (API) : `lots` peut contenir plusieurs lots du **même lot global** (`POST /api/verifs/` avec `lots: [{id, key}, …]`). Les attendus
   s'additionnent.
 - **Vérif en cascade** : toute vérif d'un lot qui a un lot global charge la **racine** et se
