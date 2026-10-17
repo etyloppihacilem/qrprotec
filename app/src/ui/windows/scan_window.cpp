@@ -202,7 +202,7 @@ class ScanWindow final : public AppWindow {
           app.verif_target_lot();
         ImGui::SetItemTooltip("Le contenu du lot devient exactement la pile : les items absents sont signalés.");
       } else if (app.verif.active) {
-        ImGui::BeginDisabled(!app.verif_key_ok() || app.verif.submitting);
+        ImGui::BeginDisabled(!app.verif_ready() || app.verif.submitting);
         if (primary_button("Terminer la vérif", ImVec2(-1, 0)))
           app.submit_verif();
         ImGui::EndDisabled();
@@ -212,8 +212,7 @@ class ScanWindow final : public AppWindow {
         const std::string out = "Sortir " + nb(stack.iids().size(), "item") + " du stock";
         if (warning_button(out.c_str(), ImVec2(-1, 0)))
           app.stack_out();
-        ImGui::SetItemTooltip("Pour une vérif ou un réassort, scannez d'abord l'étiquette clé d'un lot\n"
-                              "(QR code rangé à l'intérieur du lot).\n"
+        ImGui::SetItemTooltip("Pour une vérif ou un réassort, scannez d'abord l'étiquette d'un lot.\n"
                               "Les items sortis redeviennent normaux s'ils sont scannés à une vérif ;\n"
                               "sinon ils sont comptés comme utilisés au bout d'un mois (ou à leur péremption).");
       } else {

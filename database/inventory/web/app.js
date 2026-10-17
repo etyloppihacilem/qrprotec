@@ -68,6 +68,7 @@
     path: [],               // sous-lots ou l'on est entre, du lot global vers le lot en cours (vide : lot global)
     done: {},               // lots valides pendant cette vérif : {id: {at, by, complete, sealed}}
     keys: {},               // etiquettes cles de sous-lots scannees pendant la vérif : {id: cle}
+    labels: [],             // lots dont l'etiquette (publique ou cle) a ete scannee pendant la vérif (labelMissing)
     entered: [],            // lots ou l'on est entre : leurs sous-lots non faits sont laisses de cote, pas manquants
     startedIn: '',          // sous-lot dont on a lance la vérif (ex : un kit dans le VPS)
   };
@@ -91,6 +92,7 @@
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
         launched: state.launched, current: state.current,
         path: state.path, done: state.done, keys: state.keys, entered: state.entered, startedIn: state.startedIn,
+        labels: state.labels,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place }) => ({ code, kind, iid, key, info, expired, error, items, place })),
       }));
@@ -119,6 +121,7 @@
         state.path = Array.isArray(session.path) ? session.path : [];
         state.done = session.done && typeof session.done === 'object' ? session.done : {};
         state.keys = session.keys && typeof session.keys === 'object' ? session.keys : {};
+        state.labels = Array.isArray(session.labels) ? session.labels : [];
         state.entered = Array.isArray(session.entered) ? session.entered : [];
         state.startedIn = typeof session.startedIn === 'string' ? session.startedIn : '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
@@ -529,7 +532,7 @@
     if (!inHome() && !ficheOpen() && !taskPopup && ((scan.kind === 'item' && !scan.task) || scan.kind === 'lot')
         && !checkRunning() && !allScanned().length) {
       feedback.info();
-      openFiche(scan.kind, scan.id, { key: scan.key || '' });
+      openFiche(scan.kind, scan.id, { key: scan.key || '', label: scan.kind === 'lot' });
       scannedFiche = scan;
       return;
     }
@@ -832,6 +835,7 @@
     await loadLot(scan.id);
     if (!state.lot) return;
     if (scan.key) setKey(scan.id, scan.key);
+    if (scan.code) addLabel(scan.id);
     if (inCascade()) enterLevel(scan.id, true); else state.current = scan.id;
     state.askPlace = false;
     feedback.info();
@@ -843,6 +847,11 @@
   // Etiquette cle scannee : celle du lot de la vérif, ou d'un sous-lot du lot global (vérif en cascade)
   function setKey(id, key) {
     if (id === state.lotId) state.lotKey = key; else state.keys[id] = key;
+  }
+
+  // Etiquette (publique ou cle) d'un lot scannee pendant la vérif : la vérif est bien celle de ce lot (labelMissing)
+  function addLabel(id) {
+    if (id && !state.labels.includes(id)) state.labels.push(id);
   }
 
   // Une vérif est en cours : scans (les notres ou ceux des autres participants), etiquette cle, vérif lancee depuis
@@ -869,6 +878,7 @@
       if (!lot) return false;
       if (scan.key && !(await keyAccepted(scan.id, scan.key))) return true;
       if (scan.key) setKey(scan.id, scan.key);
+      if (scan.code) addLabel(scan.id);
       // etiquette d'un lot hors de celui ou l'on est, alors que celui-ci est complet : il est valide automatiquement
       const left = lot.id === levelId() || isUnder(lot.id, levelId()) ? { names: [] } : await leaveCompleteLevels(lot.id, true);
       if (left.stay) { showInfo('lot', `📦 ${levelLot().name}`, 'Vous restez dans ce lot.'); save(); render(); return true; }
@@ -889,6 +899,7 @@
     }
     const covered = sessionLots().find((lot) => lot.id === scan.id);
     if (covered && !scan.key) {
+      if (scan.code) addLabel(covered.id);
       state.current = covered.id;
       state.askPlace = false;
       feedback.info();
@@ -913,6 +924,7 @@
     if (rootOf(lot) !== rootOf(state.lot)) return false;
     const existing = state.extra.find((entry) => entry.id === scan.id);
     if (existing) { if (scan.key) existing.key = scan.key; existing.lot = lot; } else state.extra.push({ id: scan.id, key: scan.key || '', lot });
+    if (scan.code) addLabel(scan.id);
     state.current = scan.id;
     state.askPlace = false;
     feedback.info();
@@ -984,6 +996,7 @@
     scannedAgain();
     state.scanned.push({ code: scan.code, kind: 'seal', iid: lot.id, key: scan.key, expired: false, error: '', items: [],
       place: inCascade() ? levelId() : '', info: { type_name: `🔒 Scellé intact – ${lot.name}` } });
+    addLabel(lot.id); // l'etiquette du scelle montre aussi que la vérif est bien celle de ce lot
     feedback.good();
     showInfo('ok', `🔒 Scellé intact – ${lot.name}`, 'Compté comme vérifié, avec ses sous-lots, sans être ouvert.',
       closed.length ? `✔ ${closed.join(', ')} : validé.` : '');
@@ -1170,7 +1183,7 @@
     || Object.keys(state.done).length > 0 || Object.keys(state.keys).length > 0);
 
   function resetCascade() {
-    state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.startedIn = '';
+    state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.startedIn = ''; state.labels = [];
   }
 
   // lot id dans le lot top (ou top lui-meme)
@@ -1295,6 +1308,8 @@
   // un rangement pour le stock) valide toute la vérif, comme cote serveur. Vérif à plusieurs : la cle d'un lot
   // scannee par un autre participant est gardee par le serveur (keyed).
   function keyMissing() {
+    // avec un badge (ou sans nom declare possible), plus d'etiquette cle : labelMissing suffit (views.verif_lots)
+    if (state.user || !state.declaredAllowed) return [];
     const keyed = new Set([...live.keyed(), ...(state.lotKey ? [state.lotId] : []),
       ...state.extra.filter((entry) => entry.key).map((entry) => entry.id),
       ...Object.keys(state.keys).filter((id) => state.keys[id])]);
@@ -1303,6 +1318,34 @@
   }
 
   const keyOk = () => !keyMissing().length;
+
+  // Lots dont l'etiquette (publique ou cle) a ete scannee pendant la vérif, par nous ou un autre participant : une
+  // etiquette cle compte, comme l'etiquette du scelle d'un lot (scelle intact)
+  function labeledIds() {
+    return new Set([...state.labels, ...live.labeled(), ...live.keyed(), ...(state.lotKey ? [state.lotId] : []),
+      ...state.extra.filter((entry) => entry.key).map((entry) => entry.id),
+      ...Object.keys(state.keys).filter((id) => state.keys[id]),
+      ...allScanned().filter((entry) => entry.kind === 'seal' && !entry.error).map((entry) => entry.iid)]);
+  }
+
+  // Lot a valider dont aucune etiquette n'a ete scannee (null si au moins une l'a ete) : celle du lot, d'un de ses
+  // sous-lots ou d'un lot qui le contient, pour ne pas valider la vérif d'un autre lot. Meme regle que le serveur
+  // (views.require_label) et le poste (App::verif_label_ok).
+  function labelMissing() {
+    const scanned = [...labeledIds()];
+    const tops = inCascade() ? [levelLot()] : [state.lot, ...state.extra.map((entry) => entry.lot)].filter(Boolean);
+    const found = tops.some((top) => scanned.some((id) => id === top.id || isUnder(id, top.id) || isUnder(top.id, id)));
+    return found ? null : tops[0] || null;
+  }
+
+  const labelOk = () => !labelMissing();
+
+  // Ligne de la fiche et du lecteur : ce qu'il reste a scanner pour pouvoir valider
+  function labelLine(lot) {
+    if (!keyOk()) return '🔒 Scannez l\'étiquette clé pour pouvoir valider. ' + keyHint(lot);
+    if (!labelOk()) return '🏷️ Scannez l\'étiquette du lot (ou d\'un de ses sous-lots) pour pouvoir valider.';
+    return state.lotKey ? '🔑 Étiquette clé scannée' : '🏷️ Étiquette du lot scannée';
+  }
 
   // Lots de la vérif dont le scelle a ete constate intact (etiquette du scelle scannee), avec leurs sous-lots : ni
   // attendus ni ouverts (services.perform_verif). Un lot dont un item a ete scanne a ete ouvert.
@@ -1464,7 +1507,7 @@
         : lot.back_from_list ? `Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
         : `Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
       lot.seal_required && !lot.is_sealed ? 'Scellé obligatoire : posez un nouveau scellé après la vérif complète.' : '',
-      keyOk() ? '🔑 Étiquette clé scannée' : 'Scannez l\'étiquette clé pour pouvoir valider. ' + keyHint(lot));
+      labelLine(lot));
   }
 
   // Saisie du PIN (ou choix du PIN pour un admin qui n'en a pas encore)
@@ -1706,6 +1749,9 @@
       const lot = keyMissing()[0];
       missing.push(`scannez l'étiquette clé ${lot.id === state.lotId ? 'du lot' : 'de ' + lot.name}, un QR code rangé à l'intérieur du lot`
         + (lot.key_location ? ` (${lot.key_location})` : ''));
+    } else if (!labelOk()) {
+      const lot = labelMissing();
+      missing.push(`scannez l'étiquette ${lot.id === state.lotId ? 'du lot' : 'de ' + lot.name} ou d'un de ses sous-lots`);
     }
     if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
     if (needItems && !scannedIids().size) missing.push('scannez au moins un item');
@@ -1784,6 +1830,7 @@
       const credentials = live.credentials();
       const report = await api('verifs/', {
         lots: sessionEntries(),
+        labels: [...labeledIds()],
         ...identity(),
         items: [...scannedIids()],
         places: scanPlaces(),
@@ -1959,6 +2006,7 @@
       const report = await api('verifs/', {
         lots: [{ id: top.id, key: top.id === state.lotId ? state.lotKey : state.keys[top.id] || '' }],
         keys: sessionEntries().filter((entry) => entry.key && entry.id !== top.id),
+        labels: [...labeledIds()],
         exclude,
         ...identity(),
         ...payload,
@@ -2117,6 +2165,7 @@
     try {
       const result = await api(`lots/${encodeURIComponent(state.lot.id)}/add/`, {
         key: state.lotKey,
+        labels: [...labeledIds()],
         ...identity(),
         items: [...scannedIids()],
       });
@@ -2206,7 +2255,7 @@
       if (code && code.trim()) {
         const value = code.trim();
         // un identifiant de lot seul (sans URL) est accepte pour ouvrir un lot sans etiquette
-        if (!IID_RE.test(value) && !/^https?:/.test(value)) scanLot({ kind: 'lot', code: value, id: value, key: '' });
+        if (!IID_RE.test(value) && !/^https?:/.test(value)) scanLot({ kind: 'lot', code: '', id: value, key: '' });
         else handleCode(value);
       }
     }
@@ -2582,12 +2631,12 @@
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed)}` +
         (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
-        el('br'), keyOk() ? '🔑 Étiquette clé scannée : la vérif peut être validée.' : '🔒 Scannez l\'étiquette clé pour valider. ' + keyHint(lot)),
+        el('br'), labelLine(lot)),
       expiryLine(lot),
       revisionLine(lot),
       el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
       lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
-        + "Scannez l'étiquette clé d'un autre lot du même lot global pour l'ajouter.") : '',
+        + "Scannez l'étiquette d'un autre lot du même lot global pour l'ajouter.") : '',
       ...renderGlobal(lot),
       // types incomplets en haut
       el('h3', {}, 'Scannés / attendus'),
@@ -2714,7 +2763,7 @@
     const next = pendingAfterLogin;
     if (readerOpen()) closeReader();
     if (ficheOpen()) { // connexion depuis une fiche (signalement) : on y reste, avec les actions du role
-      openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false });
+      openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false, label: fiche.label });
       return;
     }
     if (next === 'stock' && !canSeeStock()) toast("La gestion de la TECH est réservée aux rôles gestion et admin.", true);
@@ -3084,6 +3133,7 @@
       joining: () => !!join,
       me: () => (team ? team.participants.find((row) => row.me) : null),
       keyed: () => (team ? team.keyed : []),
+      labeled: () => (team ? team.labeled || [] : []),
       entries: () => (team ? team.entries : []),
     };
   })();
@@ -3268,6 +3318,7 @@
         info: info ? { type: info.type, type_name: info.type_name, peremption: info.peremption, count: info.count } : null,
       })),
       keys: sessionEntries(),
+      labels: state.labels,
       // vérif en cascade : lot ou l'on se trouve (les autres participants le voient « en cours »)
       cascade: inCascade(),
       level: inCascade() ? { id: levelLot().id, name: levelLot().name } : null,
@@ -3991,7 +4042,7 @@
   // integre), ou d'un lot / item touche dans une fiche. Pas de camera : « Lancer une vérif » ouvre le lecteur sur le
   // bon lot (le lot de la fiche, ou le dernier emplacement connu de l'item).
 
-  const fiche = { kind: '', id: '', key: '', seal: '', lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set() };
+  const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set() };
 
   function ficheOpen() { return !$('#fiche').hidden; }
 
@@ -4025,12 +4076,13 @@
 
   // push : nouvelle entree d'historique (le bouton retour du telephone revient a la page precedente)
   // seal : code de l'etiquette du scelle scannee (fiche du lot scelle, sans vérif tant que le scelle est intact)
-  async function openFiche(kind, id, { key = '', seal = '', push = true } = {}) {
+  // label : fiche ouverte par l'etiquette du lot (« Lancer une vérif » la compte comme scannee)
+  async function openFiche(kind, id, { key = '', seal = '', push = true, label = false } = {}) {
     if (kind === 'lot' && !seal) {
       if (key) storeFicheKey(id, key); else key = storedFicheKey(id);
     }
     const token = fiche.token + 1;
-    Object.assign(fiche, { kind, id, key, seal, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set() });
+    Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set() });
     if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id, seal));
     $('#fiche').hidden = false;
     document.body.classList.add('fiche-open');
@@ -4077,14 +4129,16 @@
   // Une vérif est en cours sur ce telephone (items scannes, ou etiquette privee scannee et pas encore validee)
   const verifInProgress = () => !!state.lot && (state.scanned.length > 0 || (!!state.lotKey && !state.lastVerif));
 
-  // Ouvre le lecteur sur un lot. key : etiquette privee deja scannee (verifiee par le serveur).
-  async function launchVerif(id, key) {
+  // Ouvre le lecteur sur un lot. key : etiquette privee deja scannee (verifiee par le serveur). label : la fiche a ete
+  // ouverte par l'etiquette du lot (scanner, ou appareil photo du telephone), elle compte pour valider (labelMissing).
+  async function launchVerif(id, key, label = false) {
     startCamera(); // pendant le clic : le navigateur peut exiger un geste de l'utilisateur
     closeFiche();
     history.pushState({ inApp: true }, '', 'verif');
     // etiquette privee d'un autre lot du meme lot global pendant une vérif : elle rejoint la vérif en cours (vérif en
     // cascade : on entre dans ce lot)
-    if (state.lot && state.lotId !== id && (key || inCascade()) && await joinVerif({ kind: 'lot', code: '', id, key })) return;
+    if (state.lot && state.lotId !== id && (key || inCascade())
+      && await joinVerif({ kind: 'lot', code: label ? 'fiche' : '', id, key })) return;
     const same = !!state.lot && !!lotById(id);
     if (!same) {
       if (state.scanned.length && !confirm('Changer de lot ? Les items déjà scannés restent dans la liste.')) return;
@@ -4096,6 +4150,7 @@
     await loadLot(id);
     if (!state.lot) return;
     if (key) setKey(id, key);
+    if (label) addLabel(id);
     state.launched = state.lotId;
     if (inCascade()) enterLevel(id);
     feedback.info();
@@ -4112,7 +4167,7 @@
       // fiche ouverte par un scan dans le scanner : l'item scanne compte dans la vérif, sans le rescanner
       if (scanned && state.lot && lotById(where.id)) await scanItem(scanned);
     } else if (fiche.lot) {
-      launchVerif(fiche.id, fiche.keyCheck === 'valid' ? fiche.key : '');
+      launchVerif(fiche.id, fiche.keyCheck === 'valid' ? fiche.key : '', fiche.label);
     }
   }
 
@@ -4488,7 +4543,7 @@
         dialog.close();
         feedback.info();
         toast(`Révision enregistrée : prochaine le ${fmtDate(next.value)}.`);
-        if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false });
+        if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false, label: fiche.label });
       } catch (e) {
         update();
         $('#revision-error').textContent = e.message;
@@ -4575,7 +4630,7 @@
         const result = await api(`lots/${encodeURIComponent(lot.id)}/used/`, identity());
         toast(result.marked.length > 1 ? `Marqués utilisés : ${result.marked.join(', ')}.` : `${lot.name} marqué utilisé : vérif recommandée.`);
         state.lots = null; // etat des lots a recharger
-        if (ficheOpen() && fiche.kind === 'lot' && fiche.id === lot.id) openFiche('lot', lot.id, { key: fiche.key, seal: fiche.seal, push: false });
+        if (ficheOpen() && fiche.kind === 'lot' && fiche.id === lot.id) openFiche('lot', lot.id, { key: fiche.key, seal: fiche.seal, push: false, label: fiche.label });
       } catch (e) {
         toast(e.message, true);
       }
@@ -4643,7 +4698,7 @@
       save();
       await loadLot(state.lotId); // etat a jour des items du lot (inutilisable : a remplacer)
     }
-    if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false });
+    if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false, label: fiche.label });
   }
 
   // Page « Signalements » : lecture seule pour tous, gestion pour les admins
@@ -5316,7 +5371,7 @@
       const id = params.get('lot');
       cleanUrl(id);
       if (state.lotId) await loadLot(state.lotId); // vérif en cours (rejointe si c'est un lot du meme lot global)
-      await openFiche('lot', id, { key: params.get('key') || '', push: false });
+      await openFiche('lot', id, { key: params.get('key') || '', push: false, label: true });
     } else if (route === 'badge' && params.get('m')) {
       // carte scannee : page d'accueil
       history.replaceState(null, '', './');

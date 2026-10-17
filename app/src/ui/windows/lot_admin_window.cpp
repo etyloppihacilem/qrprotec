@@ -452,7 +452,7 @@ class LotAdminWindow final : public AppWindow {
       }
       ImGui::SameLine();
       if (button(lot_["is_sealed"].boolean() ? "Lancer une vérif (brise le scellé)" : "Lancer une vérif"))
-        app.start_verif(selected_lot_, lot_["verif_key"].str());
+        app.start_verif(selected_lot_, "", app.lot_label_scanned(selected_lot_)); // l'etiquette du lot reste a scanner
 
       ImGui::SeparatorText("Contenu");
       if (ImGui::BeginTable("lot_requirements", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {

@@ -139,15 +139,20 @@ class VerifWindow final : public AppWindow {
           kept += (kept.empty() ? "" : ", ") + lot.name;
       if (!kept.empty())
         status_banner("Scellé intact (" + kept + ") : compté comme vérifié, sans l'ouvrir", colors::green, 1.0f);
-      if (!verif.key.empty() || ((!verif.extras.empty() || !verif.keys.empty()) && app.verif_key_ok()))
-        ImGui::TextColored(colors::green, "Étiquette clé scannée : la vérif peut être validée.");
-      else if (app.verif_key_ok())
-        ImGui::TextColored(colors::green, "Mode gestion : validation autorisée sans étiquette clé.");
-      else {
+      if (!app.verif_key_ok()) {
         ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
         ImGui::TextWrapped("Scannez l'étiquette clé du lot pour pouvoir valider. %s", key_hint(verif.lot).c_str());
         ImGui::PopStyleColor();
-      }
+      } else if (!app.verif_label_ok()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
+        ImGui::TextWrapped("Scannez l'étiquette de %s (ou d'un de ses sous-lots) pour pouvoir valider : elle montre "
+                           "que la vérif est bien celle de ce lot.",
+                           app.verif_label_missing().c_str());
+        ImGui::PopStyleColor();
+      } else if (!verif.key.empty())
+        ImGui::TextColored(colors::green, "Étiquette clé scannée : la vérif peut être validée.");
+      else
+        ImGui::TextColored(colors::green, "Étiquette du lot scannée : la vérif peut être validée.");
       if (cascade) {
         if (draw_cascade(app, level, plan))
           return;
@@ -407,7 +412,7 @@ class VerifWindow final : public AppWindow {
                         + nb(added, "nouvel item scanné", "nouveaux items scannés"),
                       colors::red, 1.0f);
 
-      ImGui::BeginDisabled(!app.verif_key_ok() || verif.submitting);
+      ImGui::BeginDisabled(!app.verif_ready() || verif.submitting);
       if (!partial.empty()) {
         std::string names;
         for (const Json *lot : partial)
@@ -441,6 +446,8 @@ class VerifWindow final : public AppWindow {
         app.submit_verif();
       if (!app.verif_key_ok())
         ImGui::SetItemTooltip("Scannez d'abord l'étiquette clé du lot : c'est le QR code rangé à l'intérieur du lot.");
+      else if (!app.verif_label_ok())
+        ImGui::SetItemTooltip("Scannez d'abord l'étiquette du lot (ou d'un de ses sous-lots).");
       else
         ImGui::SetItemTooltip("Enregistre la vérif : les items scannés sont présents, ceux de la liste « À scanner »\n"
                               "sont signalés manquants. %s",

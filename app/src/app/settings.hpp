@@ -49,7 +49,6 @@ struct AppSettings {
     int   expiring_soon_days    = 30;
     int   order_lead_days       = 15; // previsions : delai de livraison d'une commande
     int   forecast_history_months = 6; // previsions : mois d'historique pour mesurer la consommation
-    bool  require_private_label = true; // hors mode privilegie, valider une verif exige l'etiquette privee
 
     // Impression
     PrintSettings                        print;

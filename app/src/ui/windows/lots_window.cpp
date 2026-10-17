@@ -259,9 +259,9 @@ class LotsWindow final : public AppWindow {
                                  : sub_lots > 1 ? " avec ses " + nb(sub_lots, "sous-lot") : "";
       if (details_["is_sealed"].boolean()) {
         if (button(("Lancer une vérif" + with + " (brise le scellé)").c_str(), ImVec2(-1, 0)))
-          app.start_verif(details_["id"].str(), "");
+          app.start_verif(details_["id"].str(), "", app.lot_label_scanned(details_["id"].str()));
       } else if (primary_button(("Lancer une vérif" + with).c_str(), ImVec2(-1, 0)))
-        app.start_verif(details_["id"].str(), "");
+        app.start_verif(details_["id"].str(), "", app.lot_label_scanned(details_["id"].str()));
       if (report_button("⚠ Signaler un problème sur ce lot", ImVec2(-1, 0)))
         app.report_problem({ details_["id"].str(), details_["name"].str(), "", "", details_["name"].str() });
       // tout secouriste : vérif recommandee pour les suivants (pas pour un lot scelle : etiquette d'ouverture)
