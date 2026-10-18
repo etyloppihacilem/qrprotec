@@ -2785,7 +2785,8 @@ class ForecastTests(ApiTestCase):
         row = self.row(data)
         self.assertAlmostEqual(row['lots_consumption'][0]['per_month'], 5, delta=0.5)
         self.assertEqual(row['lots_consumption'][0]['id'], self.lot.id)
-        self.assertEqual(row['calendar'][0]['expiring']['sealed'] + row['calendar'][1]['expiring']['sealed'], 2)
+        # J+45 tombe dans le 2e ou le 3e mois du calendrier selon le jour du mois courant
+        self.assertEqual(sum(month['expiring']['sealed'] for month in row['calendar']), 2)
         transfers = data['transfers']
         self.assertEqual(len(transfers), 1)
         group = transfers[0]
