@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
-from .models import PUSH_TYPES, ItemStatus, qrprotec_setting
+from .models import PUSH_TYPES, ItemStatus, compact_iid, qrprotec_setting
 from .reports import item_reports, pack_reports
 from .services import out_deadline, requirements_status
 
@@ -67,8 +67,10 @@ def item_dict(item, today=None):
     today = today or timezone.localdate()
     return {
         'iid': item.iid,
+        # forme courte imprimee sur les etiquettes (D sans date, N pour les zeros du compteur)
+        'iid_short': compact_iid(item.iid),
         # contenu du QR code de l'etiquette : ouvre le front web comme un scan de l'item
-        'url': public_url('item', id=item.iid),
+        'url': public_url('item', id=compact_iid(item.iid)),
         'type': item.pack.item_type_id,
         'type_name': item.pack.item_type.name,
         # etiquette a dechirer avant utilisation : un item non scanne a une verif est utilise
@@ -79,7 +81,7 @@ def item_dict(item, today=None):
         'consumable': item.pack.item_type.consumable,
         # taches a cocher a la verif (etiquette de taches) : l'item ne compte qu'une fois toutes validees
         'tasks': list(item.pack.item_type.tasks or []),
-        'task_url': public_url('task', id=item.iid),
+        'task_url': public_url('task', id=compact_iid(item.iid)),
         'peremption': _date(item.pack.peremption),
         # materiel a reviser : prochaine revision (en retard : a remplacer si le type ne le permet pas, sinon
         # avertissement), taches de la revision, derniere revision

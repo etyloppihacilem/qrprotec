@@ -20,7 +20,7 @@ from . import idendity
 from . import services
 from .models import (
     ABSENCE_KINDS, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
-    Operation, Secouristes, STOCK_LOT_TYPE, Verifs,
+    Operation, Secouristes, STOCK_LOT_TYPE, Verifs, compact_iid, expand_iid,
 )
 
 LOCAL = {'qrprotec.role': 'local'}
@@ -560,7 +560,7 @@ class ManagementTests(ApiTestCase):
         item = self.create(ItemType.objects.get(type='defibr'), None, 1)[0]
         code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
         self.assertEqual(body['tasks'], ['Voyant vert', 'Électrodes'])
-        self.assertTrue(body['task_url'].endswith(f'task?id={item.iid}'))
+        self.assertTrue(body['task_url'].endswith(f'task?id={compact_iid(item.iid)}'))
         code, body = self.call('PATCH', '/api/item-types/defibr/', {'tasks': []})
         self.assertEqual(body['tasks'], [])
         code, body = self.call('GET', f'/api/items/{self.create(self.garrot, None, 1)[0].iid}/', local=False)
@@ -1381,7 +1381,7 @@ class SubLotTests(ApiTestCase):
         self.assertEqual(row['lots_fresh'], 0)
         code, body = self.call('GET', f'/api/items/{stored[0]}/', local=False)
         self.assertTrue(body['in_stock'])
-        self.assertTrue(body['url'].endswith(f'item?id={stored[0]}'))
+        self.assertTrue(body['url'].endswith(f'item?id={compact_iid(stored[0])}'))
         code, items = self.call('GET', '/api/items/?location=stock')
         self.assertEqual(len(items), 4)
         # verif d'un seul tiroir : le reste du stock n'est pas touche
@@ -2952,6 +2952,22 @@ class BarcodeLabelTests(ApiTestCase):
         code, body = self.call('PATCH', '/api/server-settings/', {'web_barcodes': False})
         self.assertFalse(body['web_barcodes'])
         self.assertNotIn(b'web/code128.js', self.client.get('/').content)
+
+    def test_compact_iid(self):
+        """Forme courte des etiquettes : D sans date, N pour les zeros de tete du compteur (au moins deux)."""
+        self.assertEqual(compact_iid('serphy2026102900000007'), 'serphy20261029N7')
+        self.assertEqual(compact_iid('lecgly0000000000000006'), 'lecglyDN6')
+        self.assertEqual(compact_iid('abcdef202712310zzzzzzz'), 'abcdef202712310zzzzzzz')
+        for iid in ('serphy2026102900000007', 'lecgly0000000000000006', 'abcdef202712310zzzzzzz', 'abcdef00000000N1234567'):
+            self.assertEqual(expand_iid(compact_iid(iid)), iid)
+        self.assertEqual(expand_iid('lecglyDN6'), 'lecgly0000000000000006')
+        self.assertEqual(expand_iid('serphy2026N7'), '')
+        item = self.create(self.compresses, self.today + timedelta(days=90), 1)[0]
+        Items.objects.filter(iid=item.iid).update(location=self.lot)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        entry = next(entry for entry in body['items'] if entry['iid'] == item.iid)
+        self.assertEqual(entry['iid_short'], compact_iid(item.iid))
+        self.assertTrue(entry['url'].endswith('item?id=' + compact_iid(item.iid)))
 
     def test_decoder_served_with_encoder_table(self):
         """Le decodeur JS est servi aux deux pages et sa table est celle de l'encodeur du poste (code128.cpp)."""

@@ -10,6 +10,8 @@
 
 #include "placeholders.hpp"
 
+#include "codes.hpp"
+
 namespace qrprotec {
 
 namespace {
@@ -63,6 +65,9 @@ std::vector< CategoryInfo > build_categories() {
                                       TemplateCategory::ItemBarcodeTear };
   const auto item_common = [](CategoryInfo &info, const char *iid_example) {
     info.placeholders.push_back({ "iid", "Identifiant unique de l'item", iid_example });
+    info.placeholders.push_back({ "iid_short",
+                                  "Identifiant en forme courte (D : sans date, N : zéros du compteur), lu comme l'iid",
+                                  compact_iid(iid_example) });
     for (const PlaceholderInfo &placeholder : item_type_placeholders())
       info.placeholders.push_back(placeholder);
     info.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "3" });
@@ -75,7 +80,7 @@ std::vector< CategoryInfo > build_categories() {
                        std::string("Étiquette collée sur chaque item. ") + item_style.code, {} };
     if (style == 0)
       item.placeholders.push_back({ "item_url", "URL de l'item (contenu du QR code) : ouvre le front web comme un scan",
-                                    "https://example.com/item?id=compre20271231000000A1" });
+                                    "https://example.com/item?id=compre20271231NA1" });
     item_common(item, "compre20271231000000A1");
     categories.push_back(item);
 
@@ -89,7 +94,7 @@ std::vector< CategoryInfo > build_categories() {
                             {} };
     if (style == 0)
       task_item.placeholders.push_back({ "task_url", "URL des tâches de l'item (contenu du QR code)",
-                                         "https://example.com/task?id=defibr00000000000000A1" });
+                                         "https://example.com/task?id=defibrDNA1" });
     task_item.placeholders.push_back({ "tasks", "Liste des tâches, une par ligne",
                                        "□ Voyant vert allumé\n□ Électrodes dans leur date" });
     task_item.placeholders.push_back({ "task_count", "Nombre de tâches", "2" });
@@ -105,7 +110,7 @@ std::vector< CategoryInfo > build_categories() {
                             {} };
     if (style == 0)
       tear_item.placeholders.push_back({ "item_url", "URL de l'item (contenu du QR code)",
-                                         "https://example.com/item?id=serphy20271231000000A1" });
+                                         "https://example.com/item?id=serphy20271231NA1" });
     item_common(tear_item, "serphy20271231000000A1");
     categories.push_back(tear_item);
   }

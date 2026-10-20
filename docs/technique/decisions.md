@@ -214,6 +214,11 @@ mais décodeur JS lourd pour Firefox et Safari ; option possible plus tard). Le 
 une URL serait trop longue. Encodeur `app/src/core/code128.cpp`, décodeur `web/code128.js` sans dépendance
 (même table, vérifiée par les tests).
 
+Les étiquettes impriment l'iid en forme courte (`D` : sans date, `N` : zéros de tête du compteur, seulement
+s'il en retire au moins deux, sans quoi `N` + 7 caractères aurait la longueur d'un compteur complet). Plus
+court à coder et à taper ; un iid complet a 22 caractères et 8 chiffres de date, donc aucune ambiguïté.
+Même règle dans `codes.cpp`, `models.py`, `app.js` et `scanner.js`.
+
 ## Borne Fedora en RPM, Cage, Caddy
 
 **Raison.** Mises à jour par `dnf upgrade`, configuration préservée, services systemd durcis,

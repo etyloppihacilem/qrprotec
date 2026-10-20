@@ -33,6 +33,33 @@ COUNTER_LENGTH = 8
 IID_LENGTH = TYPE_LENGTH + DATE_LENGTH + COUNTER_LENGTH
 NO_DATE = '00000000'  # date utilisee dans l'iid pour les items non perissables
 
+
+
+def compact_iid(iid: str) -> str:
+    """Forme courte d'un iid, imprimee sur les etiquettes (plus courte a coder, plus facile a taper) : date
+    « 00000000 » ecrite D, zeros de tete du compteur remplaces par N quand cela en retire au moins deux.
+    serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006. La base garde l'iid complet,
+    les fronts deplient la forme courte (codes.cpp expand_iid, expandIid de app.js et scanner.js)."""
+    if len(iid) != IID_LENGTH:
+        return iid
+    date, counter = iid[TYPE_LENGTH:TYPE_LENGTH + DATE_LENGTH], iid[TYPE_LENGTH + DATE_LENGTH:]
+    stripped = counter.lstrip('0')
+    short = iid[:TYPE_LENGTH] + ('D' if date == NO_DATE else date)
+    return short + ('N' + stripped if stripped and len(counter) - len(stripped) >= 2 else counter)
+
+
+def expand_iid(code: str) -> str:
+    """iid complet d'un iid en forme courte (ou deja complet) ; '' si ce n'est pas un iid."""
+    match = re.fullmatch(r'([A-Za-z0-9]{%d})(\d{%d}|D)(N[A-Za-z0-9]{1,%d}|[A-Za-z0-9]{%d})'
+                         % (TYPE_LENGTH, DATE_LENGTH, COUNTER_LENGTH - 2, COUNTER_LENGTH), code or '')
+    if not match:
+        return ''
+    type_code, date, counter = match.groups()
+    if len(counter) < COUNTER_LENGTH:
+        counter = counter[1:].rjust(COUNTER_LENGTH, '0')
+    return type_code + (NO_DATE if date == 'D' else date) + counter
+
+
 KEY_ALPHABET = string.digits + string.ascii_letters
 KEY_LENGTH = 24
 
