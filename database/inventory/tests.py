@@ -2914,19 +2914,30 @@ class TypeRulesTests(ApiTestCase):
 class BarcodeLabelTests(ApiTestCase):
     """Etiquette a code-barres (Code 128, l'iid seul) choisie par type d'item, pour les objets ronds."""
 
-    def test_item_type_barcode_option(self):
-        code, body = self.call('POST', '/api/item-types/', {'type': 'flacon', 'name': 'Flacon', 'barcode': True})
+    def test_item_type_label_style(self):
+        code, body = self.call('POST', '/api/item-types/', {'type': 'flacon', 'name': 'Flacon', 'label_style': 'barcode'})
         self.assertEqual(code, 201)
-        self.assertTrue(body['barcode'])
+        self.assertEqual(body['label_style'], 'barcode')
         flacon = ItemType.objects.get(type='flacon')
         item = self.create(flacon, None, 1)[0]
         Items.objects.filter(iid=item.iid).update(location=self.lot)
         code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
-        self.assertEqual({entry['iid'] for entry in body['items'] if entry['barcode']}, {item.iid})
-        code, body = self.call('PATCH', '/api/item-types/flacon/', {'barcode': False})
-        self.assertFalse(body['barcode'])
+        styles = {entry['iid']: entry['label_style'] for entry in body['items']}
+        self.assertEqual(styles[item.iid], 'barcode')
+        code, body = self.call('PATCH', '/api/item-types/flacon/', {'label_style': 'small'})
+        self.assertEqual(body['label_style'], 'small')
+        self.assertEqual(self.call('PATCH', '/api/item-types/flacon/', {'label_style': 'dm'})[0], 400)
         types = {entry['type']: entry for entry in self.call('GET', '/api/item-types/')[1]}
-        self.assertFalse(types['flacon']['barcode'])
+        self.assertEqual(types['flacon']['label_style'], 'small')
+
+    def test_tear_off_and_tasks_exclusive(self):
+        """Une etiquette a dechirer disparait a l'ouverture : pas de liste de taches dessus."""
+        code, _ = self.call('POST', '/api/item-types/', {'type': 'sachet', 'name': 'Sachet', 'tear_off': True,
+                                                         'tasks': ['Vérifier']})
+        self.assertEqual(code, 400)
+        self.assertEqual(self.call('POST', '/api/item-types/', {'type': 'sachet', 'name': 'Sachet', 'tear_off': True})[0], 201)
+        self.assertEqual(self.call('PATCH', '/api/item-types/sachet/', {'tasks': ['Vérifier']})[0], 400)
+        self.assertEqual(self.call('PATCH', '/api/item-types/sachet/', {'tear_off': False, 'tasks': ['Vérifier']})[0], 200)
 
     def test_decoder_served_with_encoder_table(self):
         """Le decodeur JS est servi aux deux pages et sa table est celle de l'encodeur du poste (code128.cpp)."""

@@ -3362,7 +3362,13 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::LotStorage: return "{{lot_private_url}}";
     case TemplateCategory::User: return "{{badge_url}}";
     case TemplateCategory::TaskItem: return "{{task_url}}";
-    case TemplateCategory::ItemBarcode: return "{{iid}}";
+    case TemplateCategory::ItemTear: return "{{item_url}}";
+    case TemplateCategory::ItemSmall:
+    case TemplateCategory::ItemSmallTear:
+    case TemplateCategory::TaskItemSmall:
+    case TemplateCategory::ItemBarcode:
+    case TemplateCategory::ItemBarcodeTear:
+    case TemplateCategory::TaskItemBarcode: return "{{iid}}";
     case TemplateCategory::Generic: break;
   }
   return "{{iid}}";
@@ -3377,7 +3383,8 @@ TemplateDocument App::qr_only_template(TemplateCategory category) const {
   document.media.height_mm  = settings.label_height_mm;
   document.media.orientation = Orientation::Landscape;
   const float margin = 1.5f;
-  if (category == TemplateCategory::ItemBarcode) { // code-barres sur toute la largeur
+  if (category == TemplateCategory::ItemBarcode || category == TemplateCategory::ItemBarcodeTear
+      || category == TemplateCategory::TaskItemBarcode) { // code-barres sur toute la largeur
     document.name = "Code-barres seul";
     document.elements.push_back({ "code-barres", ElementKind::Barcode,
                                   BarcodeElement{ main_qr_payload(category), margin, margin,
@@ -3396,12 +3403,12 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
                            std::vector< PrintJob > &jobs) {
   if (labels.empty())
     return false;
-  const auto model_for = [this](TemplateCategory wanted, TemplateDocument &model) {
+  // modele configure pour cet usage, sinon premier modele du dossier fait pour lui (ex : scelle.qr) ; vide sinon
+  const auto model_path = [this](TemplateCategory wanted) {
     const CategoryInfo &info = category_info(wanted);
     std::string         path;
     if (const auto configured = settings.label_templates.find(info.id); configured != settings.label_templates.end())
       path = configured->second;
-    // pas de modele choisi : premier modele du dossier fait pour cet usage (ex : scelle.qr)
     for (const auto &candidate : path.empty() ? glob_templates("*.qr") : std::vector< std::filesystem::path >{}) {
       TemplateDocument document;
       std::string      ignored;
@@ -3410,38 +3417,72 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
         break;
       }
     }
-    std::string error;
-    if (path.empty()) {
-      // pas de modele : on imprime simplement le QR code centre sur l'etiquette
-      model = qr_only_template(wanted);
-      notify("Aucun modèle « " + info.label + " » : QR code seul (Administration > Réglages pour en choisir un).");
-    } else if (!build_label(path, {}, model, error)) {
-      notify("Modèle d'étiquette « " + info.label + " » : " + error + " (Administration > Réglages).", true);
-      return false;
-    }
-    return true;
+    return path;
   };
-  // etiquette d'item remplacee selon le type : etiquette de taches (TaskItem) si le type a des taches (son QR ouvre
-  // la liste a cocher), sinon etiquette a code-barres (ItemBarcode) si le type la demande
-  const auto label_category = [category](const Parameters &label) {
+  // etiquette d'item remplacee selon le type d'item : son style (QR de l'URL, QR reduit ou code-barres de l'iid
+  // seul), en version liste de taches (son code ouvre la liste a cocher) ou a dechirer. Sans modele pour cette
+  // version : celui du style (version normale), puis l'etiquette d'item de base.
+  const auto label_categories = [category](const Parameters &label) {
+    std::vector< TemplateCategory > chain;
     if (category != TemplateCategory::Item)
-      return category;
-    const auto count = label.find("task_count");
-    if (count != label.end() && !count->second.empty() && count->second != "0")
-      return TemplateCategory::TaskItem;
-    const auto barcode = label.find("barcode");
-    return barcode != label.end() && !barcode->second.empty() ? TemplateCategory::ItemBarcode : category;
+      return std::vector< TemplateCategory >{ category };
+    const auto value = [&label](const char *name) {
+      const auto found = label.find(name);
+      return found == label.end() ? std::string() : found->second;
+    };
+    const std::string style = value("label_style");
+    const int         index = style == "small" ? 1 : style == "barcode" ? 2 : 0;
+    static const TemplateCategory plain[] = { TemplateCategory::Item, TemplateCategory::ItemSmall,
+                                              TemplateCategory::ItemBarcode };
+    static const TemplateCategory tasks[] = { TemplateCategory::TaskItem, TemplateCategory::TaskItemSmall,
+                                              TemplateCategory::TaskItemBarcode };
+    static const TemplateCategory torn[]  = { TemplateCategory::ItemTear, TemplateCategory::ItemSmallTear,
+                                              TemplateCategory::ItemBarcodeTear };
+    const std::string task_count = value("task_count");
+    if (!task_count.empty() && task_count != "0")
+      chain.push_back(tasks[index]);
+    else if (!value("tear_notice").empty())
+      chain.push_back(torn[index]);
+    chain.push_back(plain[index]);
+    if (index != 0)
+      chain.push_back(TemplateCategory::Item);
+    return chain;
   };
   std::map< TemplateCategory, TemplateDocument > models;
+  const auto model_for = [&](const Parameters &label) -> TemplateDocument * {
+    const std::vector< TemplateCategory > chain = label_categories(label);
+    for (const TemplateCategory wanted : chain)
+      if (models.count(wanted))
+        return &models[wanted];
+    for (const TemplateCategory wanted : chain) {
+      const std::string path = model_path(wanted);
+      if (path.empty())
+        continue;
+      std::string error;
+      if (!build_label(path, {}, models[wanted], error)) {
+        models.erase(wanted);
+        notify("Modèle d'étiquette « " + category_info(wanted).label + " » : " + error + " (Administration > Réglages).",
+               true);
+        return nullptr;
+      }
+      return &(models[chain.front()] = models[wanted]);
+    }
+    // pas de modele : on imprime simplement le code principal centre sur l'etiquette
+    const CategoryInfo &info = category_info(chain.front());
+    notify("Aucun modèle « " + info.label + " » : code seul (Administration > Réglages pour en choisir un).");
+    return &(models[chain.front()] = qr_only_template(chain.front()));
+  };
+  std::vector< const TemplateDocument * > chosen;
   for (const Parameters &label : labels) {
-    const TemplateCategory wanted = label_category(label);
-    if (!models.count(wanted) && !model_for(wanted, models[wanted]))
+    const TemplateDocument *model = model_for(label);
+    if (!model)
       return false;
+    chosen.push_back(model);
   }
   for (std::size_t index = 0; index < labels.size(); ++index) {
     PrintJob job;
     job.description = what + (labels.size() > 1 ? " " + std::to_string(index + 1) + "/" + std::to_string(labels.size()) : "");
-    job.document    = models[label_category(labels[index])];
+    job.document    = *chosen[index];
     job.document.parameters["today"]      = today().display();
     job.document.parameters["printed_by"] = user_name();
     job.document.parameters["titre"]      = settings.label_title;

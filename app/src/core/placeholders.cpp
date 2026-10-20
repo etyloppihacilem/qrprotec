@@ -44,51 +44,71 @@ std::vector< CategoryInfo > build_categories() {
   std::vector< CategoryInfo > categories;
   categories.push_back({ TemplateCategory::Generic, "generic", "Générique", "Modèle libre, sans données de la base.", {} });
 
-  CategoryInfo item{ TemplateCategory::Item, "item", "Item",
-                     "Étiquette collée sur chaque item. Le QR code doit contenir {{item_url}} "
-                     "({{iid}} seul reste lu, mais n'ouvre pas le front web).", {} };
-  item.placeholders.push_back({ "item_url", "URL de l'item (contenu du QR code) : ouvre le front web comme un scan",
-                                "https://example.com/item?id=compre20271231000000A1" });
-  item.placeholders.push_back({ "iid", "Identifiant unique de l'item", "compre20271231000000A1" });
-  for (const PlaceholderInfo &info : item_type_placeholders())
-    item.placeholders.push_back(info);
-  item.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "3" });
-  item.placeholders.push_back({ "count", "Nombre d'étiquettes de la série", "10" });
-  item.placeholders.push_back({ "pack_id", "Paquet scellé d'origine (vide sinon)", "0000002B" });
-  categories.push_back(item);
+  // Etiquettes d'items : 3 styles (choisis par type d'item : QR de l'URL, petit QR ou code-barres de l'iid seul),
+  // chacun en version normale, liste de taches (types a taches) ou a dechirer (types a etiquette a dechirer)
+  struct ItemStyle {
+    const char *id, *label, *code;
+  };
+  const ItemStyle styles[] = {
+    { "", "", "Le QR code doit contenir {{item_url}} ({{iid}} seul reste lu, mais n'ouvre pas le front web)." },
+    { "_small", " - QR réduit",
+      "Petit QR code de {{iid}} seul, moins déformé sur un objet rond (il n'ouvre pas le front web)." },
+    { "_barcode", " - code-barres",
+      "Code-barres de {{iid}} seul (une URL serait trop longue), lisible sur un objet rond." },
+  };
+  const TemplateCategory plain[]  = { TemplateCategory::Item, TemplateCategory::ItemSmall, TemplateCategory::ItemBarcode };
+  const TemplateCategory tasks[]  = { TemplateCategory::TaskItem, TemplateCategory::TaskItemSmall,
+                                      TemplateCategory::TaskItemBarcode };
+  const TemplateCategory torn[]   = { TemplateCategory::ItemTear, TemplateCategory::ItemSmallTear,
+                                      TemplateCategory::ItemBarcodeTear };
+  const auto item_common = [](CategoryInfo &info, const char *iid_example) {
+    info.placeholders.push_back({ "iid", "Identifiant unique de l'item", iid_example });
+    for (const PlaceholderInfo &placeholder : item_type_placeholders())
+      info.placeholders.push_back(placeholder);
+    info.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "3" });
+    info.placeholders.push_back({ "count", "Nombre d'étiquettes de la série", "10" });
+    info.placeholders.push_back({ "pack_id", "Paquet scellé d'origine (vide sinon)", "0000002B" });
+  };
+  for (int style = 0; style < 3; ++style) {
+    const ItemStyle &item_style = styles[style];
+    CategoryInfo item{ plain[style], std::string("item") + item_style.id, std::string("Item") + item_style.label,
+                       std::string("Étiquette collée sur chaque item. ") + item_style.code, {} };
+    if (style == 0)
+      item.placeholders.push_back({ "item_url", "URL de l'item (contenu du QR code) : ouvre le front web comme un scan",
+                                    "https://example.com/item?id=compre20271231000000A1" });
+    item_common(item, "compre20271231000000A1");
+    categories.push_back(item);
 
-  // etiquette de taches (TaskItem) : remplace l'etiquette d'item des types qui ont des taches
-  CategoryInfo task_item{ TemplateCategory::TaskItem, "task_item", "Item - étiquette de tâches",
-                          "Étiquette des items dont le type a des tâches à faire à la vérif (ex : DAE), imprimée à "
-                          "la place de l'étiquette d'item. La scanner ouvre la liste des tâches à cocher. Le QR code "
-                          "doit contenir {{task_url}}.",
-                          {} };
-  task_item.placeholders.push_back({ "task_url", "URL des tâches de l'item (contenu du QR code)",
-                                     "https://example.com/task?id=defibr00000000000000A1" });
-  task_item.placeholders.push_back({ "tasks", "Liste des tâches, une par ligne",
-                                     "□ Voyant vert allumé\n□ Électrodes dans leur date" });
-  task_item.placeholders.push_back({ "task_count", "Nombre de tâches", "2" });
-  task_item.placeholders.push_back({ "iid", "Identifiant unique de l'item", "defibr00000000000000A1" });
-  for (const PlaceholderInfo &info : item_type_placeholders())
-    task_item.placeholders.push_back(info);
-  task_item.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "1" });
-  task_item.placeholders.push_back({ "count", "Nombre d'étiquettes de la série", "1" });
-  categories.push_back(task_item);
+    // etiquette de taches : remplace l'etiquette d'item des types qui ont des taches
+    CategoryInfo task_item{ tasks[style], std::string("task_item") + item_style.id,
+                            std::string("Item") + item_style.label + " - liste de tâches",
+                            std::string("Étiquette des items dont le type a des tâches à faire à la vérif (ex : DAE), "
+                                        "imprimée à la place de l'étiquette d'item, avec la liste des tâches. La "
+                                        "scanner ouvre la liste à cocher. ")
+                              + (style == 0 ? "Le QR code doit contenir {{task_url}}." : item_style.code),
+                            {} };
+    if (style == 0)
+      task_item.placeholders.push_back({ "task_url", "URL des tâches de l'item (contenu du QR code)",
+                                         "https://example.com/task?id=defibr00000000000000A1" });
+    task_item.placeholders.push_back({ "tasks", "Liste des tâches, une par ligne",
+                                       "□ Voyant vert allumé\n□ Électrodes dans leur date" });
+    task_item.placeholders.push_back({ "task_count", "Nombre de tâches", "2" });
+    item_common(task_item, "defibr00000000000000A1");
+    categories.push_back(task_item);
 
-  // etiquette a code-barres (ItemBarcode) : remplace l'etiquette d'item des types « étiquette code-barres »
-  CategoryInfo item_barcode{ TemplateCategory::ItemBarcode, "item_barcode", "Item - code-barres",
-                             "Étiquette des items dont le type demande un code-barres (objets ronds, où un QR code "
-                             "déformé se lit mal), imprimée à la place de l'étiquette d'item. Le code-barres doit "
-                             "contenir {{iid}} seul : une URL serait trop longue.",
-                             {} };
-  item_barcode.placeholders.push_back({ "iid", "Identifiant unique de l'item (contenu du code-barres)",
-                                        "compre20271231000000A1" });
-  for (const PlaceholderInfo &info : item_type_placeholders())
-    item_barcode.placeholders.push_back(info);
-  item_barcode.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "3" });
-  item_barcode.placeholders.push_back({ "count", "Nombre d'étiquettes de la série", "10" });
-  item_barcode.placeholders.push_back({ "pack_id", "Paquet scellé d'origine (vide sinon)", "0000002B" });
-  categories.push_back(item_barcode);
+    // etiquette a dechirer : remplace l'etiquette d'item des types a etiquette a dechirer
+    CategoryInfo tear_item{ torn[style], std::string("item") + item_style.id + "_tear",
+                            std::string("Item") + item_style.label + " - à déchirer",
+                            std::string("Étiquette des items dont le type a une étiquette à déchirer avant utilisation "
+                                        "(ex : sachet de sérums phy), imprimée à la place de l'étiquette d'item. ")
+                              + item_style.code,
+                            {} };
+    if (style == 0)
+      tear_item.placeholders.push_back({ "item_url", "URL de l'item (contenu du QR code)",
+                                         "https://example.com/item?id=serphy20271231000000A1" });
+    item_common(tear_item, "serphy20271231000000A1");
+    categories.push_back(tear_item);
+  }
 
   CategoryInfo pack{ TemplateCategory::ItemPack, "itempack", "Paquet fermé (ItemPack)",
                      "Étiquette d'un paquet fermé : les étiquettes individuelles seront imprimées à l'ouverture. "

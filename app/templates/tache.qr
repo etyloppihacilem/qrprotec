@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "Item - tâches",
+  "name": "Item - liste de tâches",
   "category": "task_item",
   "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
   "parameters": {"iid": "defibr00000000000000A1", "task_url": "https://example.com/task?id=defibr00000000000000A1", "peremption": "", "tasks": "□ Voyant vert allumé\n□ Électrodes dans leur date", "task_count": "2", "type_name": "DAE"},

@@ -4501,7 +4501,8 @@
         item.status === 'out' && item.out_until ? fact('Compté utilisé', `le ${fmtDate(item.out_until)} s'il ne revient pas`) : [],
         fact('Dernier passage', item.last_seen ? cap(fmtDateTime(item.last_seen, { long: true })) + (item.last_seen_by ? ' par ' + item.last_seen_by : '') : '–'),
         fact('Ajouté', item.added ? cap(fmtDateTime(item.added, { long: true })) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
-        item.tear_off || item.barcode ? fact('Étiquette', [item.barcode ? 'code-barres' : '', item.tear_off ? 'à déchirer avant utilisation' : ''].filter(Boolean).join(', ')) : [],
+        item.tear_off || (item.label_style && item.label_style !== 'qr')
+          ? fact('Étiquette', [{ small: 'QR code réduit', barcode: 'code-barres' }[item.label_style] || '', item.tear_off ? 'à déchirer avant utilisation' : ''].filter(Boolean).join(', ')) : [],
         item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il passe hors lot (pas perdu)') : [],
         item.revision ? fact('Révision', item.revision_due ? `prochaine le ${fmtDate(item.revision_due)}` : 'pas encore prévue',
           el('div', { class: 'sub' }, `tous les ${item.revision_months} mois` + (item.revision_usable ? '' : ', inutilisable en retard'))) : [],

@@ -29,7 +29,8 @@ const Json *find_type(const App &app, const std::string &type) {
 
 // Item fictif pour l'apercu d'un type d'item (avant toute reception)
 Json sample_item(const std::string &type, const std::string &name, bool perishable, const std::string &peremption_iso,
-                 bool tear_off = false, const std::vector< std::string > &tasks = {}, bool barcode = false) {
+                 bool tear_off = false, const std::vector< std::string > &tasks = {},
+                 const std::string &label_style = "qr") {
   const auto  date = Date::parse(peremption_iso);
   const Date  when = date ? *date : Date::today().plus_days(365);
   std::string code = type;
@@ -41,12 +42,20 @@ Json sample_item(const std::string &type, const std::string &name, bool perishab
   item["type_name"]  = name;
   item["peremption"] = perishable ? Json(when.iso()) : Json();
   item["tear_off"]   = tear_off;
-  item["barcode"]    = barcode;
+  item["label_style"] = label_style;
   item["task_url"]   = "https://example.com/task?id=" + item["iid"].str();
   item["tasks"]      = Json::array();
   for (const std::string &task : tasks)
     item["tasks"].push_back(task);
   return item;
+}
+
+// Styles d'etiquette d'un type d'item (ItemType.label_style) : chacun a sa version liste de taches et a dechirer
+const char *const kLabelStyles[]     = { "qr", "small", "barcode" };
+const char *const kLabelStyleNames[] = { "QR code", "QR code réduit", "Code-barres" };
+
+int label_style_index(const std::string &style) {
+  return style == "small" ? 1 : style == "barcode" ? 2 : 0;
 }
 
 std::vector< std::string > tasks_of(const Json &item_type) {
@@ -191,7 +200,7 @@ class InventoryWindow final : public AppWindow {
         app.preview_labels(TemplateCategory::Item,
                            { item_parameters(sample_item(reception_type_, (*type)["name"].str(), perishable,
                                                          date ? date->iso() : "", (*type)["tear_off"].boolean(),
-                                                         tasks_of(*type), (*type)["barcode"].boolean())) },
+                                                         tasks_of(*type), (*type)["label_style"].str("qr"))) },
                            "Exemple d'étiquette (avant création)");
       }
       ImGui::EndDisabled();
@@ -304,7 +313,7 @@ class InventoryWindow final : public AppWindow {
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item_type["tear_off"].boolean() ? "oui" : "non");
           ImGui::TableNextColumn();
-          ImGui::TextUnformatted(item_type["barcode"].boolean() ? "code-barres" : "QR code");
+          ImGui::TextUnformatted(kLabelStyleNames[label_style_index(item_type["label_style"].str())]);
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item_type["consumable"].boolean(true) ? "oui" : "non");
           ImGui::TableNextColumn();
@@ -342,16 +351,18 @@ class InventoryWindow final : public AppWindow {
       ImGui::SetNextItemWidth(150.0f);
       ImGui::InputInt("Items par paquet (réception)", &form_pack_size_);
       ImGui::Checkbox("Périssable (date de péremption obligatoire)", &form_perishable_);
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::Combo("Étiquette", &form_label_style_, kLabelStyleNames, IM_ARRAYSIZE(kLabelStyleNames));
+      help_marker("QR code : contient l'URL de l'item, l'appareil photo d'un téléphone ouvre sa fiche web.\n"
+                  "QR code réduit : petit QR de l'identifiant seul, moins déformé sur un objet rond.\n"
+                  "Code-barres : identifiant seul, pour les objets ronds (flacon, tube) : collez-le avec les barres "
+                  "qui font le tour de l'objet.\n\n"
+                  "Chaque style a sa version liste de tâches et à déchirer (modèles « Item - ... » des Réglages).");
       ImGui::Checkbox("Étiquette à déchirer avant utilisation", &form_tear_off_);
       help_marker("Pour un ensemble étiqueté une seule fois (ex : sachet de plusieurs sérums phy). L'étiquette porte "
                   "« Déchirer avant utilisation » : on l'arrache dès qu'on entame l'ensemble. À la vérif suivante, "
                   "l'étiquette manquante compte l'ensemble comme utilisé tout de suite : il faut remettre un "
                   "ensemble complet, les restes de l'ancien sont considérés comme perdus.");
-      ImGui::Checkbox("Étiquette à code-barres au lieu du QR code", &form_barcode_);
-      help_marker("Pour les objets ronds (flacon, tube, bouteille) où un QR code déformé par la courbure se lit mal. "
-                  "Les items de ce type sont imprimés avec le modèle « Item - code-barres » (Réglages), un code-barres "
-                  "qui contient l'identifiant de l'item. Collez-le avec les barres qui font le tour de l'objet. "
-                  "Un type qui a des tâches à la vérif garde son étiquette de tâches.");
       ImGui::Checkbox("Non consommable (matériel réutilisable)", &form_non_consumable_);
       help_marker("Ex : lecteur de glycémie, oxymètre. Un item non consommable ne s'use pas : s'il manque à la vérif "
                   "d'un lot, il a été retiré du lot : il passe « hors lot » au lieu d'être compté comme utilisé ou "
@@ -363,6 +374,11 @@ class InventoryWindow final : public AppWindow {
                   "compté qu'une fois toutes ses tâches cochées et validées. Un administrateur peut scanner deux "
                   "fois de suite l'étiquette pour toutes les valider. Vide : item ordinaire.");
       ImGui::InputTextMultiline("##tasks", &form_tasks_, ImVec2(-FLT_MIN, 70));
+      // l'etiquette a dechirer disparait a l'ouverture : elle ne peut pas porter la liste des taches
+      const bool tear_and_tasks = form_tear_off_ && !form_task_list().empty();
+      if (tear_and_tasks)
+        ImGui::TextColored(colors::red, "Une étiquette à déchirer ne peut pas avoir de tâches : décochez-la ou videz "
+                                        "les tâches.");
       // revision periodique : materiel non consommable seulement
       ImGui::BeginDisabled(!form_non_consumable_);
       ImGui::SetNextItemWidth(150.0f);
@@ -390,7 +406,7 @@ class InventoryWindow final : public AppWindow {
       body["perissable"]        = form_perishable_;
       body["default_pack_size"] = form_pack_size_;
       body["tear_off"]          = form_tear_off_;
-      body["barcode"]           = form_barcode_;
+      body["label_style"]       = kLabelStyles[form_label_style_];
       body["consumable"]        = !form_non_consumable_;
       body["tasks"]             = Json::array();
       for (const std::string &task : form_task_list())
@@ -401,7 +417,7 @@ class InventoryWindow final : public AppWindow {
       for (const std::string &task : task_lines(form_revision_tasks_))
         body["revision_tasks"].push_back(task);
       if (editing_type_.empty()) {
-        ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty() || name_taken || code_taken);
+        ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty() || name_taken || code_taken || tear_and_tasks);
         if (primary_button("Créer le type")) {
           body["type"] = form_code_;
           app.api.post("/api/item-types/", body, [this, &app](const ApiResult &result) {
@@ -414,7 +430,7 @@ class InventoryWindow final : public AppWindow {
                                { item_parameters(sample_item(result.data["type"].str(), result.data["name"].str(),
                                                              result.data["perissable"].boolean(), "",
                                                              result.data["tear_off"].boolean(), form_task_list(),
-                                                             result.data["barcode"].boolean())) },
+                                                             result.data["label_style"].str("qr"))) },
                                "Étiquette d'un item " + result.data["name"].str() + " (exemple)");
             clear_type_form();
             app.refresh_item_types();
@@ -422,7 +438,7 @@ class InventoryWindow final : public AppWindow {
         }
         ImGui::EndDisabled();
       } else {
-        ImGui::BeginDisabled(form_name_.empty() || name_taken);
+        ImGui::BeginDisabled(form_name_.empty() || name_taken || tear_and_tasks);
         if (primary_button("Enregistrer")) {
           app.api.patch("/api/item-types/" + url_encode(editing_type_) + "/", body, [&app](const ApiResult &result) {
             app.notify(result.ok ? "Type enregistré." : result.error, !result.ok);
@@ -439,7 +455,7 @@ class InventoryWindow final : public AppWindow {
       if (button("Aperçu de l'étiquette"))
         app.preview_labels(TemplateCategory::Item,
                            { item_parameters(sample_item(form_code_, form_name_, form_perishable_, "", form_tear_off_,
-                                                         form_task_list(), form_barcode_)) },
+                                                         form_task_list(), kLabelStyles[form_label_style_])) },
                            "Étiquette d'un item " + form_name_ + " (exemple)");
       ImGui::EndDisabled();
       if (!editing_type_.empty())
@@ -507,7 +523,7 @@ class InventoryWindow final : public AppWindow {
       form_pack_size_   = item_type["default_pack_size"].integer(1);
       form_perishable_  = item_type["perissable"].boolean();
       form_tear_off_    = item_type["tear_off"].boolean();
-      form_barcode_     = item_type["barcode"].boolean();
+      form_label_style_ = label_style_index(item_type["label_style"].str());
       form_non_consumable_ = !item_type["consumable"].boolean(true);
       form_tasks_.clear();
       for (const std::string &task : tasks_of(item_type))
@@ -529,7 +545,7 @@ class InventoryWindow final : public AppWindow {
       form_pack_size_  = 1;
       form_perishable_ = true;
       form_tear_off_   = false;
-      form_barcode_    = false;
+      form_label_style_ = 0;
       form_non_consumable_ = false;
       form_tasks_.clear();
       form_revision_months_ = 0;
@@ -980,7 +996,7 @@ class InventoryWindow final : public AppWindow {
     int         form_pack_size_  = 1;
     bool        form_perishable_ = true;
     bool        form_tear_off_   = false;
-    bool        form_barcode_    = false;
+    int         form_label_style_ = 0; // index dans kLabelStyles
     bool        form_non_consumable_ = false;
     std::string form_tasks_;
     int         form_revision_months_ = 0;
