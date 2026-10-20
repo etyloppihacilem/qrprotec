@@ -29,7 +29,7 @@ const Json *find_type(const App &app, const std::string &type) {
 
 // Item fictif pour l'apercu d'un type d'item (avant toute reception)
 Json sample_item(const std::string &type, const std::string &name, bool perishable, const std::string &peremption_iso,
-                 bool tear_off = false, const std::vector< std::string > &tasks = {}) {
+                 bool tear_off = false, const std::vector< std::string > &tasks = {}, bool barcode = false) {
   const auto  date = Date::parse(peremption_iso);
   const Date  when = date ? *date : Date::today().plus_days(365);
   std::string code = type;
@@ -41,6 +41,7 @@ Json sample_item(const std::string &type, const std::string &name, bool perishab
   item["type_name"]  = name;
   item["peremption"] = perishable ? Json(when.iso()) : Json();
   item["tear_off"]   = tear_off;
+  item["barcode"]    = barcode;
   item["task_url"]   = "https://example.com/task?id=" + item["iid"].str();
   item["tasks"]      = Json::array();
   for (const std::string &task : tasks)
@@ -190,7 +191,7 @@ class InventoryWindow final : public AppWindow {
         app.preview_labels(TemplateCategory::Item,
                            { item_parameters(sample_item(reception_type_, (*type)["name"].str(), perishable,
                                                          date ? date->iso() : "", (*type)["tear_off"].boolean(),
-                                                         tasks_of(*type))) },
+                                                         tasks_of(*type), (*type)["barcode"].boolean())) },
                            "Exemple d'étiquette (avant création)");
       }
       ImGui::EndDisabled();
@@ -266,7 +267,7 @@ class InventoryWindow final : public AppWindow {
         app.refresh_item_types();
       ImGui::SameLine();
       ImGui::Checkbox("Afficher les types archivés", &show_archived_);
-      if (ImGui::BeginTable("types", 9,
+      if (ImGui::BeginTable("types", 10,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, ImGui::GetContentRegionAvail().y * 0.45f))) {
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -276,6 +277,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableSetupColumn("Périssable", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Par paquet", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("À déchirer", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("Étiquette", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Consommable", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("Tâches", ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableSetupColumn("Révision", ImGuiTableColumnFlags_WidthFixed, 80.0f);
@@ -301,6 +303,8 @@ class InventoryWindow final : public AppWindow {
           ImGui::Text("%d", item_type["default_pack_size"].integer(1));
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item_type["tear_off"].boolean() ? "oui" : "non");
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(item_type["barcode"].boolean() ? "code-barres" : "QR code");
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item_type["consumable"].boolean(true) ? "oui" : "non");
           ImGui::TableNextColumn();
@@ -343,6 +347,11 @@ class InventoryWindow final : public AppWindow {
                   "« Déchirer avant utilisation » : on l'arrache dès qu'on entame l'ensemble. À la vérif suivante, "
                   "l'étiquette manquante compte l'ensemble comme utilisé tout de suite : il faut remettre un "
                   "ensemble complet, les restes de l'ancien sont considérés comme perdus.");
+      ImGui::Checkbox("Étiquette à code-barres au lieu du QR code", &form_barcode_);
+      help_marker("Pour les objets ronds (flacon, tube, bouteille) où un QR code déformé par la courbure se lit mal. "
+                  "Les items de ce type sont imprimés avec le modèle « Item - code-barres » (Réglages), un code-barres "
+                  "qui contient l'identifiant de l'item. Collez-le avec les barres qui font le tour de l'objet. "
+                  "Un type qui a des tâches à la vérif garde son étiquette de tâches.");
       ImGui::Checkbox("Non consommable (matériel réutilisable)", &form_non_consumable_);
       help_marker("Ex : lecteur de glycémie, oxymètre. Un item non consommable ne s'use pas : s'il manque à la vérif "
                   "d'un lot, il a été retiré du lot : il passe « hors lot » au lieu d'être compté comme utilisé ou "
@@ -381,6 +390,7 @@ class InventoryWindow final : public AppWindow {
       body["perissable"]        = form_perishable_;
       body["default_pack_size"] = form_pack_size_;
       body["tear_off"]          = form_tear_off_;
+      body["barcode"]           = form_barcode_;
       body["consumable"]        = !form_non_consumable_;
       body["tasks"]             = Json::array();
       for (const std::string &task : form_task_list())
@@ -403,7 +413,8 @@ class InventoryWindow final : public AppWindow {
             app.preview_labels(TemplateCategory::Item,
                                { item_parameters(sample_item(result.data["type"].str(), result.data["name"].str(),
                                                              result.data["perissable"].boolean(), "",
-                                                             result.data["tear_off"].boolean(), form_task_list())) },
+                                                             result.data["tear_off"].boolean(), form_task_list(),
+                                                             result.data["barcode"].boolean())) },
                                "Étiquette d'un item " + result.data["name"].str() + " (exemple)");
             clear_type_form();
             app.refresh_item_types();
@@ -428,7 +439,7 @@ class InventoryWindow final : public AppWindow {
       if (button("Aperçu de l'étiquette"))
         app.preview_labels(TemplateCategory::Item,
                            { item_parameters(sample_item(form_code_, form_name_, form_perishable_, "", form_tear_off_,
-                                                         form_task_list())) },
+                                                         form_task_list(), form_barcode_)) },
                            "Étiquette d'un item " + form_name_ + " (exemple)");
       ImGui::EndDisabled();
       if (!editing_type_.empty())
@@ -496,6 +507,7 @@ class InventoryWindow final : public AppWindow {
       form_pack_size_   = item_type["default_pack_size"].integer(1);
       form_perishable_  = item_type["perissable"].boolean();
       form_tear_off_    = item_type["tear_off"].boolean();
+      form_barcode_     = item_type["barcode"].boolean();
       form_non_consumable_ = !item_type["consumable"].boolean(true);
       form_tasks_.clear();
       for (const std::string &task : tasks_of(item_type))
@@ -517,6 +529,7 @@ class InventoryWindow final : public AppWindow {
       form_pack_size_  = 1;
       form_perishable_ = true;
       form_tear_off_   = false;
+      form_barcode_    = false;
       form_non_consumable_ = false;
       form_tasks_.clear();
       form_revision_months_ = 0;
@@ -967,6 +980,7 @@ class InventoryWindow final : public AppWindow {
     int         form_pack_size_  = 1;
     bool        form_perishable_ = true;
     bool        form_tear_off_   = false;
+    bool        form_barcode_    = false;
     bool        form_non_consumable_ = false;
     std::string form_tasks_;
     int         form_revision_months_ = 0;

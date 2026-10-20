@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include "qrcodegen.hpp"
+#include "../core/code128.hpp"
 
 #include <png.h>
 #include <ft2build.h>
@@ -173,6 +174,27 @@ void draw_qr(RasterImage& image, const QrElement& qr, const std::string& payload
                           left + offset + (x + 1) * module_size, top + offset + (y + 1) * module_size, 0);
 }
 
+void draw_barcode(RasterImage& image, const BarcodeElement& barcode, const std::string& payload, double scale)
+{
+    const std::vector<bool> modules = code128_modules(payload);
+    if (modules.empty()) return; // vide ou caractere non encodable
+    const int left = static_cast<int>(barcode.x_mm * scale);
+    const int top = static_cast<int>(barcode.y_mm * scale);
+    const int width = std::max(1, static_cast<int>(barcode.width_mm * scale));
+    const int height = std::max(1, static_cast<int>(barcode.height_mm * scale));
+    // modules entiers de pixels (barres irregulieres sinon) ; trop etroit : 1 px, le code deborde (signale a la
+    // validation)
+    const int module_size = std::max(1, barcode_module_pixels(barcode, payload, scale));
+    const int bars = module_size * static_cast<int>(modules.size());
+    const int offset = (width - bars) / 2;
+    fill_rect(image, left, top, left + width, top + height, 255); // efface ce qui chevaucherait le code
+    for (std::size_t index = 0; index < modules.size(); ++index)
+        if (modules[index]) {
+            const int x = left + offset + static_cast<int>(index) * module_size;
+            fill_rect(image, x, top, x + module_size, top + height, 0);
+        }
+}
+
 void draw_image(RasterImage& image, const ImageElement& element, double scale)
 {
     std::string error;
@@ -262,6 +284,9 @@ RasterImage render_template(const TemplateDocument& document)
         } else if (element.kind == ElementKind::QrCode) {
             const QrElement& qr = std::get<QrElement>(element.content);
             draw_qr(image, qr, resolve_parameters(qr.payload, document.parameters), scale);
+        } else if (element.kind == ElementKind::Barcode) {
+            const BarcodeElement& barcode = std::get<BarcodeElement>(element.content);
+            draw_barcode(image, barcode, resolve_parameters(barcode.payload, document.parameters), scale);
         } else {
             draw_image(image, std::get<ImageElement>(element.content), scale);
         }

@@ -25,6 +25,7 @@ ASSETS = {
     'app.js': 'text/javascript; charset=utf-8',
     'app.css': 'text/css; charset=utf-8',
     'vendor/jsQR.js': 'text/javascript; charset=utf-8',
+    'code128.js': 'text/javascript; charset=utf-8',  # codes-barres des etiquettes d'items (app.js et scanner.js)
     'vendor/qrcode.js': 'text/javascript; charset=utf-8',  # QR code du lien de deblocage du PIN
     'scanner.js': 'text/javascript; charset=utf-8',
     'douchette.js': 'text/javascript; charset=utf-8',  # easter egg (app.js et scanner.js)

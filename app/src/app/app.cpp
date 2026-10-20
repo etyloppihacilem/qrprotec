@@ -3362,6 +3362,7 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::LotStorage: return "{{lot_private_url}}";
     case TemplateCategory::User: return "{{badge_url}}";
     case TemplateCategory::TaskItem: return "{{task_url}}";
+    case TemplateCategory::ItemBarcode: return "{{iid}}";
     case TemplateCategory::Generic: break;
   }
   return "{{iid}}";
@@ -3376,6 +3377,14 @@ TemplateDocument App::qr_only_template(TemplateCategory category) const {
   document.media.height_mm  = settings.label_height_mm;
   document.media.orientation = Orientation::Landscape;
   const float margin = 1.5f;
+  if (category == TemplateCategory::ItemBarcode) { // code-barres sur toute la largeur
+    document.name = "Code-barres seul";
+    document.elements.push_back({ "code-barres", ElementKind::Barcode,
+                                  BarcodeElement{ main_qr_payload(category), margin, margin,
+                                                  settings.label_width_mm - 2.0f * margin,
+                                                  settings.label_height_mm - 2.0f * margin } });
+    return document;
+  }
   const float size   = std::max(5.0f, std::min(settings.label_width_mm, settings.label_height_mm) - 2.0f * margin);
   QrElement   qr{ main_qr_payload(category), (settings.label_width_mm - size) / 2.0f,
                 (settings.label_height_mm - size) / 2.0f, size };
@@ -3412,23 +3421,27 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
     }
     return true;
   };
-  // items dont le type a des taches : etiquette de taches (TaskItem) a la place de l'etiquette d'item
-  const auto has_tasks = [category](const Parameters &label) {
+  // etiquette d'item remplacee selon le type : etiquette de taches (TaskItem) si le type a des taches (son QR ouvre
+  // la liste a cocher), sinon etiquette a code-barres (ItemBarcode) si le type la demande
+  const auto label_category = [category](const Parameters &label) {
+    if (category != TemplateCategory::Item)
+      return category;
     const auto count = label.find("task_count");
-    return category == TemplateCategory::Item && count != label.end() && !count->second.empty() && count->second != "0";
+    if (count != label.end() && !count->second.empty() && count->second != "0")
+      return TemplateCategory::TaskItem;
+    const auto barcode = label.find("barcode");
+    return barcode != label.end() && !barcode->second.empty() ? TemplateCategory::ItemBarcode : category;
   };
-  TemplateDocument model, task_model;
-  bool             need_plain = false, need_tasks = false;
-  for (const Parameters &label : labels)
-    (has_tasks(label) ? need_tasks : need_plain) = true;
-  if (need_plain && !model_for(category, model))
-    return false;
-  if (need_tasks && !model_for(TemplateCategory::TaskItem, task_model))
-    return false;
+  std::map< TemplateCategory, TemplateDocument > models;
+  for (const Parameters &label : labels) {
+    const TemplateCategory wanted = label_category(label);
+    if (!models.count(wanted) && !model_for(wanted, models[wanted]))
+      return false;
+  }
   for (std::size_t index = 0; index < labels.size(); ++index) {
     PrintJob job;
     job.description = what + (labels.size() > 1 ? " " + std::to_string(index + 1) + "/" + std::to_string(labels.size()) : "");
-    job.document    = has_tasks(labels[index]) ? task_model : model;
+    job.document    = models[label_category(labels[index])];
     job.document.parameters["today"]      = today().display();
     job.document.parameters["printed_by"] = user_name();
     job.document.parameters["titre"]      = settings.label_title;

@@ -2911,6 +2911,42 @@ class TypeRulesTests(ApiTestCase):
         self.assertEqual(code, 400)
 
 
+class BarcodeLabelTests(ApiTestCase):
+    """Etiquette a code-barres (Code 128, l'iid seul) choisie par type d'item, pour les objets ronds."""
+
+    def test_item_type_barcode_option(self):
+        code, body = self.call('POST', '/api/item-types/', {'type': 'flacon', 'name': 'Flacon', 'barcode': True})
+        self.assertEqual(code, 201)
+        self.assertTrue(body['barcode'])
+        flacon = ItemType.objects.get(type='flacon')
+        item = self.create(flacon, None, 1)[0]
+        Items.objects.filter(iid=item.iid).update(location=self.lot)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertEqual({entry['iid'] for entry in body['items'] if entry['barcode']}, {item.iid})
+        code, body = self.call('PATCH', '/api/item-types/flacon/', {'barcode': False})
+        self.assertFalse(body['barcode'])
+        types = {entry['type']: entry for entry in self.call('GET', '/api/item-types/')[1]}
+        self.assertFalse(types['flacon']['barcode'])
+
+    def test_decoder_served_with_encoder_table(self):
+        """Le decodeur JS est servi aux deux pages et sa table est celle de l'encodeur du poste (code128.cpp)."""
+        import re
+        from pathlib import Path
+        self.assertEqual(self.client.get('/web/code128.js').status_code, 200)
+        web = Path(__file__).resolve().parent / 'web'
+        for page in ('index.html', 'scanner.html'):
+            self.assertIn('web/code128.js', (web / page).read_text(encoding='utf-8'))
+        js = (web / 'code128.js').read_text(encoding='utf-8')
+        js_patterns = re.findall(r"'([1-4]{6,7})'", js[js.index('const PATTERNS'):js.index('];')])
+        self.assertEqual(len(js_patterns), 107)
+        source = Path(__file__).resolve().parents[2] / 'app' / 'src' / 'core' / 'code128.cpp'
+        if not source.exists():
+            self.skipTest("sources de l'app absentes")
+        cpp = source.read_text(encoding='utf-8')
+        cpp_patterns = re.findall(r'"([1-4]{6,7})"', cpp[cpp.index('kCode128Patterns'):cpp.index('};')])
+        self.assertEqual(js_patterns, cpp_patterns)
+
+
 class TearOffTests(ApiTestCase):
     """Sachet de serums phy etiquete une fois : l'etiquette est dechiree a l'ouverture."""
 

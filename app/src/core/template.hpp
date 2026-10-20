@@ -10,10 +10,10 @@ namespace qrprotec {
 
 enum class Orientation { Portrait, Landscape };
 
-enum class ElementKind { Text, QrCode, Image };
+enum class ElementKind { Text, QrCode, Image, Barcode };
 
 // Usage d'un modele : determine les placeholders disponibles (voir placeholders.hpp).
-enum class TemplateCategory { Generic, Item, ItemPack, LotPublic, LotPrivate, LotSeal, LotSealOpen, LotStorage, User, TaskItem };
+enum class TemplateCategory { Generic, Item, ItemPack, LotPublic, LotPrivate, LotSeal, LotSealOpen, LotStorage, User, TaskItem, ItemBarcode };
 
 struct MediaSettings {
     double width_mm = 40.0;
@@ -52,6 +52,21 @@ struct QrElement {
 // Nombre de pixels par module du QR une fois rendu (0 si le contenu ne tient pas dans un QR).
 int qr_module_pixels(const QrElement& qr, const std::string& payload, double pixels_per_mm);
 
+// Code-barres Code 128 (voir code128.hpp) : lisible sur un objet rond ou un QR code se deforme. Les barres ont
+// toutes la meme largeur entiere de pixels (sinon illisibles) : le code est centre dans sa zone, au plus large.
+struct BarcodeElement {
+    std::string payload;
+    float x_mm = 2.0f;
+    float y_mm = 2.0f;
+    float width_mm = 36.0f;
+    float height_mm = 10.0f;
+    int quiet_zone = 10; // marge blanche de chaque cote, en modules (la norme en demande 10)
+};
+
+// Nombre de pixels par module (barre la plus fine) une fois rendu, 0 si le contenu ne tient pas dans la zone
+// (marges comprises) ou n'est pas encodable.
+int barcode_module_pixels(const BarcodeElement& barcode, const std::string& payload, double pixels_per_mm);
+
 // Image (logo PNG ou JPEG), convertie en noir et blanc a l'impression.
 struct ImageElement {
     std::string path;
@@ -66,7 +81,7 @@ struct ImageElement {
 struct TemplateElement {
     std::string id;
     ElementKind kind = ElementKind::Text;
-    std::variant<TextElement, QrElement, ImageElement> content;
+    std::variant<TextElement, QrElement, ImageElement, BarcodeElement> content;
 };
 
 struct TemplateDocument {

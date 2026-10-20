@@ -1,3 +1,4 @@
+#include "core/code128.hpp"
 #include "core/codes.hpp"
 #include "core/json.hpp"
 #include "core/paths.hpp"
@@ -186,6 +187,79 @@ static void test_qr_and_categories() {
   assert(category_from_id("lot_storage") == TemplateCategory::LotStorage);
 }
 
+static void test_barcode() {
+  // jeu C pour les suites de chiffres : depart C pour 4 chiffres, depart B puis C au milieu d'un iid
+  assert((code128_symbols("1234") == std::vector< int >{ 105, 12, 34, 82, 106 }));
+  const std::vector< int > iid = code128_symbols("compre20271231000000A1");
+  assert(iid.front() == 104 && iid[7] == 99 && iid.back() == 106);
+  assert(code128_modules("compre20271231000000A1").size() == 222);
+  assert(code128_modules("abcdef20271231zzzzzzzz").size() == 255); // iid le plus long
+  assert(code128_modules("").empty() && code128_modules("café").empty());
+  for (const char *pattern : kCode128Patterns) {
+    int sum = 0;
+    for (const char *width = pattern; *width; ++width)
+      sum += *width - '0';
+    assert(sum == (pattern[6] ? 13 : 11));
+  }
+
+  // modele fourni : valide, le code tient sur 40 mm a 1 px par module, avec ses marges blanches
+  TemplateDocument document;
+  std::string      error;
+  assert(load_template(document, std::string(QRPROTEC_TEMPLATES_SOURCE) + "/item_codebarre.qr", error));
+  assert(document.category == TemplateCategory::ItemBarcode);
+  assert(category_from_id("item_barcode") == TemplateCategory::ItemBarcode);
+  document.parameters["iid"] = "abcdef20271231zzzzzzzz";
+  assert(validate(document).empty());
+  const BarcodeElement &barcode = std::get< BarcodeElement >(document.elements[0].content);
+  assert(barcode_module_pixels(barcode, "abcdef20271231zzzzzzzz", document.media.pixels_per_mm) == 1);
+
+  // relecture du rendu sur une ligne : memes symboles que l'encodeur
+  document.parameters["iid"] = "compre20271231000000A1";
+  const RasterImage image = render_template(document);
+  const int         row   = static_cast< int >((barcode.y_mm + barcode.height_mm / 2.0f) * document.media.pixels_per_mm);
+  std::vector< int > runs;
+  int                first = -1, last = -1;
+  for (int x = 0; x < image.width; ++x)
+    if (image.at(x, row) == 0) {
+      first = first < 0 ? x : first;
+      last  = x;
+    }
+  assert(first >= static_cast< int >(barcode.x_mm * document.media.pixels_per_mm) + 10); // marge de 10 modules
+  for (int x = first; x <= last;) {
+    const std::uint8_t value = image.at(x, row);
+    int                width = 0;
+    for (; x <= last && image.at(x, row) == value; ++x)
+      ++width;
+    runs.push_back(width);
+  }
+  std::vector< int > decoded;
+  for (std::size_t start = 0; start + 6 <= runs.size(); start += 6) {
+    std::string widths;
+    for (std::size_t index = start; index < std::min(runs.size(), start + (runs.size() - start == 7 ? 7 : 6)); ++index)
+      widths += static_cast< char >('0' + runs[index]);
+    const auto found = std::find_if(std::begin(kCode128Patterns), std::end(kCode128Patterns),
+                                    [&widths](const char *pattern) { return widths == pattern; });
+    assert(found != std::end(kCode128Patterns));
+    decoded.push_back(static_cast< int >(found - std::begin(kCode128Patterns)));
+    if (decoded.back() == 106)
+      break;
+  }
+  assert(decoded == code128_symbols("compre20271231000000A1"));
+
+  // persistance de l'element
+  assert(save_template(document, "/tmp/qrprotec-barcode.qr", error));
+  TemplateDocument loaded;
+  assert(load_template(loaded, "/tmp/qrprotec-barcode.qr", error));
+  assert(loaded.elements[0].kind == ElementKind::Barcode);
+  const BarcodeElement &reloaded = std::get< BarcodeElement >(loaded.elements[0].content);
+  assert(reloaded.payload == "{{iid}}" && reloaded.width_mm == 38.0f && reloaded.quiet_zone == 10);
+  std::remove("/tmp/qrprotec-barcode.qr");
+
+  // trop etroit ou contenu non encodable : signale
+  document.parameters["iid"] = "https://example.com/item?id=compre20271231000000A1";
+  assert(!validate(document).empty());
+}
+
 static void test_text_and_label_fit() {
   // gras + centre : persistance et rendu
   TemplateDocument document;
@@ -319,6 +393,7 @@ int main() {
   test_scans();
   test_douchette();
   test_http();
+  test_barcode();
   test_qr_and_categories();
   test_text_and_label_fit();
   test_templates_dir();

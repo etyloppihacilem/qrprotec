@@ -1,4 +1,5 @@
 #include "editor.hpp"
+#include "../core/code128.hpp"
 #include "../core/glob_utils.hpp"
 #include "../core/template_io.hpp"
 #include "../core/paths.hpp"
@@ -482,6 +483,10 @@ Editor::Box Editor::element_box(const TemplateElement &element) {
     const QrElement &qr = std::get< QrElement >(element.content);
     return { qr.x_mm, qr.y_mm, qr.size_mm, qr.size_mm };
   }
+  if (element.kind == ElementKind::Barcode) {
+    const BarcodeElement &barcode = std::get< BarcodeElement >(element.content);
+    return { barcode.x_mm, barcode.y_mm, barcode.width_mm, barcode.height_mm };
+  }
   const ImageElement &image = std::get< ImageElement >(element.content);
   return { image.x_mm, image.y_mm, image.width_mm, image.height_mm };
 }
@@ -498,6 +503,12 @@ void Editor::set_element_box(TemplateElement &element, const Box &box) {
     qr.x_mm       = box.x;
     qr.y_mm       = box.y;
     qr.size_mm    = std::max(kMinQrMm, std::max(box.w, box.h));
+  } else if (element.kind == ElementKind::Barcode) {
+    BarcodeElement &barcode = std::get< BarcodeElement >(element.content);
+    barcode.x_mm            = box.x;
+    barcode.y_mm            = box.y;
+    barcode.width_mm        = std::max(0.1f, box.w);
+    barcode.height_mm       = std::max(0.1f, box.h);
   } else {
     ImageElement &image = std::get< ImageElement >(element.content);
     image.x_mm          = box.x;
@@ -775,7 +786,16 @@ void Editor::draw_layers_panel() {
     const float size = std::max(kMinQrMm, std::min(16.0f, std::min(width, height) - 4.0f));
     add_element({ "qr", ElementKind::QrCode, QrElement{ "{{code}}", (width - size) / 2.0f, (height - size) / 2.0f, size } });
   }
-  if (button("Image", ImVec2(-FLT_MIN, 0))) {
+  if (button("Code-barres", ImVec2(half, 0))) {
+    const float bar_width  = std::max(1.0f, width - 4.0f);
+    const float bar_height = std::max(1.0f, std::min(12.0f, height - 4.0f));
+    add_element({ "code-barres", ElementKind::Barcode,
+                  BarcodeElement{ "{{iid}}", (width - bar_width) / 2.0f, (height - bar_height) / 2.0f, bar_width, bar_height } });
+  }
+  ImGui::SetItemTooltip("Code-barres Code 128 (lettres et chiffres), lisible sur un objet rond.\n"
+                        "Pour un item : {{iid}} seul, une URL serait trop longue.");
+  ImGui::SameLine();
+  if (button("Image", ImVec2(half, 0))) {
     const std::string path = image_files_.empty() ? std::string(LABEL_IMAGES_DIR) + "/protection-civile.png" : image_files_.front();
     add_element({ "image", ElementKind::Image, ImageElement{ path, (width - 10.0f) / 2.0f, (height - 10.0f) / 2.0f, 10.0f, 10.0f, true, 128 } });
   }
@@ -798,7 +818,10 @@ void Editor::draw_layers_panel() {
   ImGui::BeginChild("LayerList", ImVec2(0, -buttons_height));
   for (int index = static_cast< int >(document_.elements.size()) - 1; index >= 0; --index) {
     const TemplateElement &element = document_.elements[static_cast< std::size_t >(index)];
-    const char            *kind    = element.kind == ElementKind::Text ? "T" : element.kind == ElementKind::QrCode ? "QR" : "IMG";
+    const char            *kind    = element.kind == ElementKind::Text     ? "T"
+                                   : element.kind == ElementKind::QrCode  ? "QR"
+                                   : element.kind == ElementKind::Barcode ? "|||"
+                                                                          : "IMG";
     const std::string      label   = std::string(kind) + "\t" + element.id;
     ImGui::PushID(index); // deux elements peuvent avoir le meme identifiant
     if (ImGui::Selectable(label.c_str(), selected_element_ == index))
@@ -1294,6 +1317,13 @@ void Editor::draw_properties(TemplateElement &element) {
       preview_dirty_ = true;
       refresh_placeholders();
     }
+  } else if (element.kind == ElementKind::Barcode) {
+    BarcodeElement &barcode = std::get< BarcodeElement >(element.content);
+    ImGui::TextUnformatted("Contenu du code-barres");
+    if (ImGui::InputText("##payload", &barcode.payload)) {
+      preview_dirty_ = true;
+      refresh_placeholders();
+    }
   } else {
     ImageElement &image = std::get< ImageElement >(element.content);
     if (!image_files_.empty() && ImGui::BeginCombo("Image", image.path.c_str())) {
@@ -1391,6 +1421,26 @@ void Editor::draw_properties(TemplateElement &element) {
     else
       ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "QR trop petit pour son contenu");
     ImGui::TextWrapped("Le masque est choisi automatiquement (le meilleur des 8 de la norme).");
+  } else if (element.kind == ElementKind::Barcode) {
+    BarcodeElement   &barcode = std::get< BarcodeElement >(element.content);
+    const std::string payload = resolve_parameters(barcode.payload, document_.parameters);
+    ImGui::SeparatorText("Code-barres (Code 128)");
+    if (ImGui::SliderInt("Marge (modules)", &barcode.quiet_zone, 0, 20))
+      preview_dirty_ = true;
+    ImGui::SetItemTooltip("Zone blanche de chaque côté, comprise dans la largeur. La norme en demande 10 ; "
+                          "une douchette se contente souvent de 5.");
+    const int module = barcode_module_pixels(barcode, payload, document_.media.pixels_per_mm);
+    if (code128_modules(payload).empty())
+      ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "Contenu vide ou non encodable (accents ?)");
+    else if (module >= 2)
+      ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.1f, 1.0f), "%d px par barre fine : bonne lisibilité", module);
+    else if (module == 1)
+      ImGui::TextColored(ImVec4(0.8f, 0.45f, 0.0f, 1.0f), "1 px par barre fine : lisible à la douchette, "
+                                                         "téléphone à tenir près");
+    else
+      ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "Code-barres trop étroit pour son contenu");
+    ImGui::TextWrapped("%zu modules pour ce contenu. Sur un objet rond, faites courir le code dans la longueur : "
+                       "les barres font le tour de l'objet.", code128_modules(payload).size());
   } else {
     ImageElement &image = std::get< ImageElement >(element.content);
     ImGui::SeparatorText("Rendu noir et blanc");
@@ -1421,6 +1471,8 @@ void Editor::insert_placeholder(const std::string &name) {
     std::get< TextElement >(element.content).text += token;
   else if (element.kind == ElementKind::QrCode)
     std::get< QrElement >(element.content).payload = token;
+  else if (element.kind == ElementKind::Barcode)
+    std::get< BarcodeElement >(element.content).payload = token;
   else {
     ImGui::SetClipboardText(token.c_str());
     message_ = token + " copie dans le presse-papier.";
