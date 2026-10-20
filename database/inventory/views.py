@@ -392,6 +392,9 @@ def auth(request):
     (etat des stocks) au lieu de redemander le PIN.
     """
     matricule = str(request.data.get('matricule', ''))
+    if not request.data.get('key'):
+        # matricule seul (code sans l'URL du badge, ou tape) : rien ne prouve le badge, le PIN est obligatoire
+        return Response(login_response(matricule_login(request, matricule)))
     user = Secouristes.objects.filter(matricule=matricule).first()
     if user is None or not user.check_key(request.data.get('key')):
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
@@ -414,6 +417,7 @@ def login_response(user):
 
 
 NAME_LOGIN_ERROR = "Nom, prénom ou code PIN incorrect"
+MATRICULE_LOGIN_ERROR = "Matricule ou code PIN incorrect"
 NAME_LOGIN_LOCK_EVERY = 5                    # essais faux consecutifs avant une pause
 NAME_LOGIN_LOCK_DURATION = timedelta(minutes=15)
 NAME_LOGIN_MAX_FAILURES = 20                 # puis connexion par nom coupee jusqu'a une connexion avec le badge
@@ -437,14 +441,18 @@ def client_address(request):
 
 
 def name_login_candidates(nom, prenom):
-    """Secouristes de ce nom (sans accents ni casse) qui peuvent se connecter par nom et PIN : PIN defini et
-    utilisable, badge valide, connexion par nom pas en pause."""
-    now = timezone.now()
+    """Secouristes de ce nom (sans accents ni casse) qui peuvent se connecter par nom et PIN."""
     key = (name_key(nom), name_key(prenom))
+    return [user for user in name_login_candidates_queryset() if (name_key(user.nom), name_key(user.prenom)) == key]
+
+
+def name_login_candidates_queryset():
+    """Secouristes qui peuvent se connecter sans badge (nom ou matricule seul, puis PIN) : PIN defini et utilisable,
+    badge valide, connexion sans badge pas en pause."""
+    now = timezone.now()
     queryset = Secouristes.objects.filter(active=True, key_expires__gte=timezone.localdate()).exclude(pin_hash='')
     return [user for user in queryset
-            if (name_key(user.nom), name_key(user.prenom)) == key
-            and user.pin_blocked is None and not user.pin_locked()
+            if user.pin_blocked is None and not user.pin_locked()
             and user.pin_mode != PinMode.DISABLED
             and user.name_login_failures < NAME_LOGIN_MAX_FAILURES
             and (user.name_login_locked_until is None or user.name_login_locked_until <= now)]
@@ -461,13 +469,39 @@ def auth_name(request):
     connexion avec le badge la retablit), et 10 essais faux au plus par adresse et par quart d'heure.
     """
     data = request.data
-    address_key = 'qrprotec.name-login.' + client_address(request)
-    if cache.get(address_key, 0) >= NAME_LOGIN_ADDRESS_LIMIT:
-        raise ApiError("Trop d'essais : réessayez dans quelques minutes", status.HTTP_429_TOO_MANY_REQUESTS)
+    check_login_address(request)
     nom, prenom, pin = (str(data.get(field, '') or '').strip() for field in ('nom', 'prenom', 'pin'))
     if not nom or not prenom or not PIN_RE.match(pin):
         raise ApiError("Saisissez votre nom, votre prénom et votre code PIN (4 à 8 chiffres)")
-    candidates = name_login_candidates(nom, prenom)
+    return Response(login_response(pin_login(request, name_login_candidates(nom, prenom), pin, NAME_LOGIN_ERROR)))
+
+
+def check_login_address(request):
+    if cache.get(login_address_key(request), 0) >= NAME_LOGIN_ADDRESS_LIMIT:
+        raise ApiError("Trop d'essais : réessayez dans quelques minutes", status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+def login_address_key(request):
+    return 'qrprotec.name-login.' + client_address(request)
+
+
+def matricule_login(request, matricule):
+    """Connexion par matricule seul et PIN (sans la cle du badge) : memes regles que la connexion par nom (compteurs
+    d'essais a part du PIN du badge, limite par adresse, refus qui ne dit pas si le matricule existe). Sans PIN
+    envoye, toujours « PIN requis », que le matricule existe ou non."""
+    check_login_address(request)
+    pin = str(request.data.get('pin', '') or '').strip()
+    if not pin:
+        raise ApiError("Code PIN requis", status.HTTP_403_FORBIDDEN, pin_required=True)
+    if not PIN_RE.match(pin):
+        raise ApiError(MATRICULE_LOGIN_ERROR, status.HTTP_403_FORBIDDEN, pin_required=True)
+    candidates = [user for user in name_login_candidates_queryset() if user.matricule == matricule]
+    return pin_login(request, candidates, pin, MATRICULE_LOGIN_ERROR, pin_required=True)
+
+
+def pin_login(request, candidates, pin, error, **extra):
+    """Connexion sans badge parmi des candidats (nom ou matricule) : PIN verifie, essais faux comptes."""
+    address_key = login_address_key(request)
     if not candidates:
         check_password(pin, dummy_pin_hash())
     user = next((candidate for candidate in candidates if check_password(pin, candidate.pin_hash)), None)
@@ -482,11 +516,11 @@ def auth_name(request):
             if candidate.name_login_failures % NAME_LOGIN_LOCK_EVERY == 0:
                 candidate.name_login_locked_until = timezone.now() + NAME_LOGIN_LOCK_DURATION
             candidate.save(update_fields=['name_login_failures', 'name_login_locked_until'])
-        raise ApiError(NAME_LOGIN_ERROR, status.HTTP_403_FORBIDDEN)
+        raise ApiError(error, status.HTTP_403_FORBIDDEN, **extra)
     user.name_login_failures = 0
     user.name_login_locked_until = None
     user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
-    return Response(login_response(user))
+    return user
 
 
 @api_view(['POST'])

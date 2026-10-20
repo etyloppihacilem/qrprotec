@@ -212,6 +212,21 @@ static void test_compact_iid() {
   assert(undated.kind == ScanKind::Item && undated.id == "lecgly0000000000000006" && !undated.peremption);
 }
 
+static void test_bare_matricule() {
+  // matricule seul (sans l'URL du badge) : badge sans cle, le serveur demandera le PIN
+  const ParsedScan scan = parse_scan("M001");
+  assert(scan.kind == ScanKind::User && scan.id == "M001" && scan.key.empty());
+  assert(parse_scan("A-12_b").kind == ScanKind::User);
+  assert(parse_scan("matricule trop long 1234").kind == ScanKind::Unknown);
+  assert(parse_scan("bad code!").kind == ScanKind::Unknown);
+  // un iid (meme en forme courte) reste un item
+  assert(parse_scan("lecglyDN6").kind == ScanKind::Item);
+  // URL d'item en forme courte
+  const ParsedScan url = parse_scan("https://example.com/item?id=serphy20261029N7");
+  assert(url.kind == ScanKind::Item && url.id == "serphy2026102900000007");
+  assert(parse_scan("https://example.com/task?id=lecglyDN6").task);
+}
+
 static void test_barcode() {
   // jeu C pour les suites de chiffres : depart C pour 4 chiffres, depart B puis C au milieu d'un iid
   assert((code128_symbols("1234") == std::vector< int >{ 105, 12, 34, 82, 106 }));
@@ -437,6 +452,7 @@ int main() {
   test_douchette();
   test_http();
   test_compact_iid();
+  test_bare_matricule();
   test_barcode();
   test_qr_and_categories();
   test_text_and_label_fit();

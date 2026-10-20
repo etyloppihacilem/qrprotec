@@ -345,6 +345,16 @@ const std::vector< std::string > &douchette_phrases() {
 
 namespace {
 
+// Meme format que MATRICULE_RE (database/inventory/views.py) et MATRICULE_RE de app.js
+bool is_matricule(const std::string &code) {
+  if (code.empty() || code.size() > 16)
+    return false;
+  for (const char character : code)
+    if (!std::isalnum(static_cast< unsigned char >(character)) && character != '_' && character != '-')
+      return false;
+  return true;
+}
+
 void set_item(ParsedScan &scan, const std::string &iid) {
   scan.kind      = ScanKind::Item;
   scan.id        = iid;
@@ -367,17 +377,23 @@ ParsedScan parse_scan(const std::string &input) {
     return scan;
   }
   const std::size_t question = code.find('?');
-  if (code.find("://") == std::string::npos || question == std::string::npos)
+  if (code.find("://") == std::string::npos || question == std::string::npos) {
+    // matricule seul (code d'une carte sans l'URL du badge) : badge sans cle, le serveur exige alors le PIN
+    if (is_matricule(code)) {
+      scan.kind = ScanKind::User;
+      scan.id   = code;
+    }
     return scan;
+  }
   std::string path = code.substr(0, question);
   while (!path.empty() && path.back() == '/')
     path.pop_back();
   const std::string route  = path.substr(path.find_last_of('/') + 1);
   auto              params = parse_query(code.substr(question + 1));
-  if (route == "item" && is_iid(params["id"])) {
-    set_item(scan, params["id"]);
-  } else if (route == "task" && is_iid(params["id"])) {
-    set_item(scan, params["id"]);
+  if (route == "item" && !expand_iid(params["id"]).empty()) {
+    set_item(scan, expand_iid(params["id"]));
+  } else if (route == "task" && !expand_iid(params["id"]).empty()) {
+    set_item(scan, expand_iid(params["id"]));
     scan.task = true;
   } else if (route == "verif" && !params["lot"].empty()) {
     scan.kind = ScanKind::Lot;
