@@ -16,7 +16,9 @@ une etiquette avec l'appareil photo du telephone ouvre directement la bonne vue.
 
 from pathlib import Path
 
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
+
+from .models import ServerSettings
 
 WEB_DIR = Path(__file__).resolve().parent / 'web'
 
@@ -44,8 +46,23 @@ def _file(path, content_type, cache):
     return response
 
 
+BARCODE_SCRIPT = '  <script src="web/code128.js" defer></script>\n'
+
+
+def _page(name):
+    """Page HTML ; sans le decodeur de codes-barres (web/code128.js) tant que le reglage du serveur le coupe :
+    aucune etiquette a code-barres en circulation, la page reste plus legere."""
+    html = (WEB_DIR / name).read_text(encoding='utf-8')
+    if not ServerSettings.get().web_barcodes:
+        html = html.replace(BARCODE_SCRIPT, '')
+    response = HttpResponse(html, content_type='text/html; charset=utf-8')
+    response['Cache-Control'] = 'no-cache'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 def page(request):
-    response = _file(WEB_DIR / 'index.html', 'text/html; charset=utf-8', 'no-cache')
+    response = _page('index.html')
     response['Permissions-Policy'] = 'camera=(self)'
     response['Referrer-Policy'] = 'no-referrer'  # l'URL peut contenir la cle du lot ou du badge
     return response
@@ -53,7 +70,7 @@ def page(request):
 
 def scanner_page(request):
     """Page du telephone-douchette (QR code affiche par le front : scanner?s=SESSION&k=CLE)."""
-    response = _file(WEB_DIR / 'scanner.html', 'text/html; charset=utf-8', 'no-cache')
+    response = _page('scanner.html')
     response['Permissions-Policy'] = 'camera=(self)'
     response['Referrer-Policy'] = 'no-referrer'
     return response

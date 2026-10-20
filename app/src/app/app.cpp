@@ -781,6 +781,7 @@ void App::refresh_server_rules() {
     if (!result.ok)
       return;
     declared_identity = result.data["declared_identity"].boolean();
+    web_barcodes      = result.data["web_barcodes"].boolean();
     const Json &volume = result.data["scanner_volume_default"];
     scanner_volume_default = volume.is_number() ? volume.integer() : -1;
     if (!logged_in())
@@ -3534,6 +3535,16 @@ void App::preview_jobs(std::vector< PrintJob > jobs, const std::string &title) {
 
 void App::print_documents(std::vector< PrintJob > jobs) {
   const std::size_t count = jobs.size();
+  // premiere etiquette a code-barres : des codes-barres circulent, le front web charge desormais leur decodeur
+  const bool barcode = std::any_of(jobs.begin(), jobs.end(), [](const PrintJob &job) {
+    return std::any_of(job.document.elements.begin(), job.document.elements.end(),
+                       [](const TemplateElement &element) { return element.kind == ElementKind::Barcode; });
+  });
+  if (barcode && !web_barcodes)
+    api.post("/api/barcodes-printed/", Json::object(), [this](const ApiResult &result) {
+      if (result.ok)
+        web_barcodes = true;
+    });
   printer.enqueue(std::move(jobs), settings.print, settings.physical_label());
   notify(nb(count, "étiquette envoyée", "étiquettes envoyées") + " à l'imprimante.");
 }

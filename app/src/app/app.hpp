@@ -464,6 +464,8 @@ class App {
     std::optional< SessionUser > user;
     // reglage du serveur (/api/health/) : verif et ajout possibles sans badge, sous un nom declare non verifie
     bool                         declared_identity = false;
+    // lecture des codes-barres par le front web : activee par la premiere impression d'un code-barres
+    bool                         web_barcodes = false;
     // reglage du serveur (/api/health/) : volume de la douchette des utilisateurs qui n'en ont pas choisi (-1 : inconnu)
     int                          scanner_volume_default = -1;
     VerifSession                 verif;

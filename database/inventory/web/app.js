@@ -396,8 +396,9 @@
     if (!detector && 'BarcodeDetector' in window) {
       try {
         const formats = await window.BarcodeDetector.getSupportedFormats();
-        // QR codes et codes-barres Code 128 (etiquettes d'items des objets ronds, l'iid seul)
-        const wanted = ['qr_code', 'code_128'].filter((format) => formats.includes(format));
+        // QR codes et codes-barres Code 128 (etiquettes d'items des objets ronds, l'iid seul) ; codes-barres
+        // seulement si le serveur les active (la page charge alors code128.js)
+        const wanted = ['qr_code', ...(window.Code128 ? ['code_128'] : [])].filter((format) => formats.includes(format));
         if (wanted.includes('qr_code')) {
           detector = new window.BarcodeDetector({ formats: wanted });
           nativeCode128 = wanted.includes('code_128');

@@ -945,6 +945,10 @@ class ServerSettings(models.Model):
     pin_required_default = models.BooleanField(default=False)
     # Volume de la douchette des utilisateurs qui n'en ont pas choisi, et quand personne n'est connecte
     scanner_volume_default = models.PositiveSmallIntegerField(default=4)
+    # Lecture des codes-barres Code 128 a la camera du front web et du telephone-douchette (web/code128.js) : inutile
+    # tant qu'aucune etiquette a code-barres n'est en circulation, la page ne charge alors pas le decodeur. Active
+    # d'office quand un type d'item passe au style code-barres ; a desactiver a la main quand il n'y en a plus.
+    web_barcodes = models.BooleanField(default=False)
 
     @classmethod
     def get(cls):

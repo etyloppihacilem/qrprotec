@@ -334,6 +334,25 @@ class SettingsWindow final : public AppWindow {
                   "secouristes pour qui il a été rendu obligatoire (fenêtre Utilisateurs).\nActivé : tous les "
                   "secouristes doivent avoir un PIN, sauf ceux dont le PIN est désactivé ; ceux qui n'en ont pas le "
                   "choisissent à leur prochaine connexion.");
+      bool web_barcodes = server_rules_["web_barcodes"].boolean();
+      if (ImGui::Checkbox("Lire les codes-barres sur le web (téléphones)", &web_barcodes)) {
+        Json body;
+        body["web_barcodes"] = web_barcodes;
+        app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify("Règles du serveur : " + result.error, true);
+            return;
+          }
+          server_rules_    = result.data;
+          app.web_barcodes = server_rules_["web_barcodes"].boolean();
+          app.notify(app.web_barcodes ? "Le front web lit les codes-barres des étiquettes d'items."
+                                      : "Le front web ne charge plus le lecteur de codes-barres.");
+        });
+      }
+      help_marker("Activé d'office à la première impression d'une étiquette à code-barres. Désactivé : le front "
+                  "web et le téléphone-douchette ne chargent pas le lecteur de codes-barres (page plus légère) et "
+                  "ne lisent que les QR codes. À désactiver quand plus aucune étiquette à code-barres ne circule ; "
+                  "la douchette du poste lit les codes-barres dans tous les cas.");
       const int volume = server_rules_["scanner_volume_default"].integer(4);
       const ScannerSettingInfo volume_info = scanner_setting_info(1001, "volume");
       std::string preview = "Valeur " + std::to_string(volume);

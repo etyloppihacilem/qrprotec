@@ -48,7 +48,9 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   disponible, sinon jsQR sur une image du `<canvas>`. Codes-barres Code 128 (l'iid seul, étiquettes des
   types « code-barres ») : `BarcodeDetector` s'il les lit (Chrome Android), sinon `code128.js` sur quelques
   lignes horizontales et verticales de l'image en pleine résolution (Firefox, Safari iOS), code rendu s'il
-  est lu deux fois avec sa somme de contrôle. Caméra demandée en 1080p pour les barres fines. Un même code vu en continu n'est traité qu'une
+  est lu deux fois avec sa somme de contrôle. Les pages n'incluent `code128.js` (et ne demandent `code_128` à
+  `BarcodeDetector`) que si le réglage serveur `web_barcodes` est actif : le poste l'active à la première
+  impression d'un code-barres (`POST /api/barcodes-printed/`), un admin le coupe dans les Réglages. Caméra demandée en 1080p pour les barres fines. Un même code vu en continu n'est traité qu'une
   fois par 2,5 s. Lampe et écran maintenu allumé (`wakeLock`) si possible.
   La caméra n'est jamais laissée ouverte page cachée (`syncCamera`) : fermée à `visibilitychange`,
   `pagehide` et `freeze`, rouverte au retour si l'utilisateur l'avait démarrée, une seule ouverture à

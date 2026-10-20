@@ -291,6 +291,8 @@ def health(request):
         'declared_identity': ServerSettings.get().declared_identity,
         # volume de la douchette quand personne n'est connecte (et des utilisateurs sans volume choisi)
         'scanner_volume_default': ServerSettings.get().scanner_volume_default,
+        # lecture des codes-barres par le front web : le poste l'active a la premiere impression d'un code-barres
+        'web_barcodes': ServerSettings.get().web_barcodes,
     })
 
 
@@ -2097,12 +2099,34 @@ def server_settings(request):
         if 'scanner_volume_default' in request.data:
             settings_row.scanner_volume_default = parse_scanner_volume(request.data['scanner_volume_default'])
             changes.append(f'volume de la douchette par défaut : {settings_row.scanner_volume_default}')
+        if 'web_barcodes' in request.data:
+            settings_row.web_barcodes = bool(request.data['web_barcodes'])
+            changes.append('lecture des codes-barres sur le web ' + ('activée' if settings_row.web_barcodes else 'désactivée'))
         settings_row.save()
         journal.record(OperationKind.SETTINGS, front_identity(request), ', '.join(changes) or 'aucun changement',
                        declared_identity=settings_row.declared_identity,
                        pin_required_default=settings_row.pin_required_default,
-                       scanner_volume_default=settings_row.scanner_volume_default)
+                       scanner_volume_default=settings_row.scanner_volume_default,
+                       web_barcodes=settings_row.web_barcodes)
     return Response(ser.server_settings_dict(settings_row))
+
+
+@api_view(['POST'])
+@handle_errors
+def barcodes_printed(request):
+    """Le poste imprime une etiquette a code-barres : des codes-barres circulent, le front web charge desormais leur
+    decodeur (reglage web_barcodes, desactivable par un admin quand il n'y en a plus). Tout poste, meme sans
+    utilisateur connecte."""
+    if not is_front(request):
+        raise ApiError("Réservé aux postes", status.HTTP_403_FORBIDDEN)
+    settings_row = ServerSettings.get()
+    if not settings_row.web_barcodes:
+        settings_row.web_barcodes = True
+        settings_row.save(update_fields=['web_barcodes'])
+        journal.record(OperationKind.SETTINGS, front_identity(request),
+                       'lecture des codes-barres sur le web activée (première étiquette à code-barres imprimée)',
+                       web_barcodes=True)
+    return Response({'web_barcodes': True})
 
 
 def parse_scanner_volume(value):
