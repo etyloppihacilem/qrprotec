@@ -12,6 +12,9 @@
   // iid complet d'un iid eventuellement en forme courte (D : sans date, N : zeros de tete du compteur), '' sinon.
   // serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006 (meme regle que expand_iid de
   // app/src/core/codes.cpp et de models.py)
+  // matricule seul accepte comme badge (meme format que MATRICULE_RE de views.py et is_matricule de codes.cpp)
+  const MATRICULE_RE = /^[A-Za-z0-9_-]{1,16}$/;
+
   function expandIid(code) {
     const match = /^([A-Za-z0-9]{6})(\d{8}|D)(N[A-Za-z0-9]{1,6}|[A-Za-z0-9]{8})$/.exec(code || '');
     if (!match) return '';
@@ -229,7 +232,10 @@
     };
     if (expandIid(code)) return itemScan(expandIid(code));
     let url;
-    try { url = new URL(code); } catch (e) { return { kind: 'unknown', code }; }
+    try { url = new URL(code); } catch (e) {
+      // matricule seul (code d'une carte sans l'URL du badge) : badge sans cle, le serveur exige alors le PIN
+      return MATRICULE_RE.test(code) ? { kind: 'user', code, id: code, key: '' } : { kind: 'unknown', code };
+    }
     const route = url.pathname.replace(/\/+$/, '').split('/').pop();
     const p = url.searchParams;
     if (route === 'item' && expandIid(p.get('id'))) return itemScan(expandIid(p.get('id')));

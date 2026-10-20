@@ -52,10 +52,10 @@ std::optional< Date > parse_user_date(const std::string &text);
 enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Checklist, Unknown };
 
 // Contenu d'un QR code interprete localement (sans appel reseau).
-//   item      : iid seul (TYPE 6 + AAAAMMJJ + compteur base62 8)
+//   item      : iid seul (TYPE 6 + AAAAMMJJ + compteur base62 8), complet ou en forme courte (compact_iid)
 //   taches    : <base>/task?id=IID (etiquette de taches : item dont les taches sont a cocher a la verif)
 //   lot       : <base>/verif?lot=ID[&key=CLE]
-//   user      : <base>/badge?m=MATRICULE&key=CLE
+//   user      : <base>/badge?m=MATRICULE&key=CLE, ou le matricule seul (sans cle : PIN obligatoire)
 //   sealed    : <base>/pack?id=ID
 //   lot seal  : <base>/seal?lot=ID&s=CODE (lot scelle : valide sans verif)
 //   seal open : <base>/unseal?lot=ID&c=CODE (etiquette d'ouverture, dans le lot : son scan ouvre le scelle)

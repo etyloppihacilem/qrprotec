@@ -25,6 +25,9 @@ Menu **Administration > Utilisateurs**.
   et son PIN (téléphone : bouton « Nom + PIN » du petit lecteur ou puce « Non connecté » ; poste :
   lien « Sans badge » de la fenêtre de connexion). Après 5 essais faux, pause de 15 minutes ; après
   20, il doit se reconnecter une fois avec son badge.
+- **Matricule seul** : un code qui ne contient que le matricule (carte d'un autre système, code tapé à
+  la douchette) est lu comme un badge sans sa clé : le PIN est alors toujours demandé, avec les mêmes
+  limites que la connexion par nom. Sans PIN défini, il faut le vrai badge.
 - **PIN bloqué** (50 PIN faux) : la fiche l'indique en rouge. **Réinitialiser le PIN** le débloque ;
   l'utilisateur en choisit un nouveau à sa prochaine connexion. L'utilisateur peut aussi envoyer le
   lien affiché sur son téléphone : l'admin le scanne avec le front web, se connecte et confirme.

@@ -844,6 +844,33 @@ class NameLoginTests(ApiTestCase):
                                     content_type='application/json', REMOTE_ADDR=address)
         return response.status_code, response.json()
 
+    def matricule_login(self, matricule='M001', pin=None, address='10.0.0.1'):
+        data = {'matricule': matricule, **({'pin': pin} if pin is not None else {})}
+        response = self.client.post('/api/auth/', json.dumps(data), content_type='application/json', REMOTE_ADDR=address)
+        return response.status_code, response.json()
+
+    def test_matricule_without_badge_key_needs_pin(self):
+        """Matricule seul (code sans l'URL du badge) : PIN toujours demande, refus qui ne dit pas si le matricule
+        existe, essais comptes comme la connexion par nom."""
+        for matricule in ('M001', 'X999'):
+            code, body = self.matricule_login(matricule)
+            self.assertEqual(code, 403)
+            self.assertTrue(body['pin_required'])
+        code, body = self.matricule_login(pin='2468')
+        self.assertEqual((code, body['matricule']), (200, 'M001'))
+        self.assertTrue(body['session'])
+        code, wrong = self.matricule_login(pin='1111')
+        code_unknown, unknown = self.matricule_login('X999', pin='1111')
+        self.assertEqual((code, wrong['error']), (code_unknown, unknown['error']))
+        self.assertTrue(wrong['pin_required'])
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.name_login_failures, 1)
+        self.assertEqual(self.user.pin_failures, 0)  # le PIN du badge n'est pas touche
+        # sans PIN defini : impossible sans badge (il se choisit seulement avec la cle du badge)
+        self.user.reset_pin()
+        self.user.save()
+        self.assertEqual(self.matricule_login(pin='2468')[0], 403)
+
     def test_login_and_session_as_badge(self):
         code, body = self.login(nom='DUPONT', prenom='jeanne')
         self.assertEqual((code, body['matricule']), (200, 'M001'))
