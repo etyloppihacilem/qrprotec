@@ -56,8 +56,8 @@ Parameters item_parameters(const Json &item, int index, int count) {
   parameters["tasks"]      = tasks;
   parameters["task_count"] = std::to_string(item["tasks"].size());
   parameters["task_url"]   = item["task_url"].str().empty() ? item["iid"].str() : item["task_url"].str();
-  // type a etiquette code-barres (objets ronds) : modele ItemBarcode a la place de l'etiquette d'item
-  parameters["barcode"]    = item["barcode"].boolean() ? "1" : "";
+  // style d'etiquette du type (qr, small, barcode) : choisit le modele a l'impression (App::build_label_jobs)
+  parameters["label_style"] = item["label_style"].str("qr");
   add_peremption(parameters, item["peremption"]);
   return parameters;
 }

@@ -47,7 +47,7 @@ from .idendity import SOURCE_VERIFIED, identity_from_request, identity_name
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
-    PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LotRequirements, Lots, LotType,
+    PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     SCANNER_VOLUMES, ServerSettings, Verifs, add_months, name_key, qrprotec_setting,
 )
@@ -166,6 +166,18 @@ def parse_int(value, field, minimum=0, maximum=None):
 MAX_TASKS = 20
 MAX_REVISION_MONTHS = 120
 TASK_LENGTH = 120
+
+
+def parse_label_style(value):
+    if value not in LabelStyle.values:
+        raise ApiError("label_style : " + ', '.join(LabelStyle.values) + " attendu")
+    return value
+
+
+def check_tear_off_tasks(tear_off, tasks):
+    """Une etiquette a dechirer disparait a l'ouverture : elle ne peut pas porter de taches a cocher."""
+    if tear_off and tasks:
+        raise ApiError("Un type à étiquette à déchirer ne peut pas avoir de tâches à la vérif")
 
 
 def parse_tasks(value):
@@ -1191,6 +1203,7 @@ def item_types(request):
     if not name:
         raise ApiError("Nom obligatoire")
     ensure_name_free(ItemType.objects.all(), name, "Le type d'item")
+    check_tear_off_tasks(bool(data.get('tear_off', False)), parse_tasks(data.get('tasks')))
     item_type = ItemType.objects.create(
         type=code,
         name=name,
@@ -1199,7 +1212,7 @@ def item_types(request):
         perissable=bool(data.get('perissable', False)),
         default_pack_size=parse_int(data.get('default_pack_size', 1), 'default_pack_size', 1),
         tear_off=bool(data.get('tear_off', False)),
-        barcode=bool(data.get('barcode', False)),
+        label_style=parse_label_style(data.get('label_style', LabelStyle.QR)),
         consumable=bool(data.get('consumable', True)),
         tasks=parse_tasks(data.get('tasks')),
         revision_months=parse_int(data.get('revision_months', 0), 'revision_months', 0, MAX_REVISION_MONTHS),
@@ -1237,12 +1250,13 @@ def item_type_detail(request, type_code):
             item_type.perissable = perissable
         if 'tear_off' in data:
             item_type.tear_off = bool(data['tear_off'])
-        if 'barcode' in data:
-            item_type.barcode = bool(data['barcode'])
+        if 'label_style' in data:
+            item_type.label_style = parse_label_style(data['label_style'])
         if 'consumable' in data:
             item_type.consumable = bool(data['consumable'])
         if 'tasks' in data:
             item_type.tasks = parse_tasks(data['tasks'])
+        check_tear_off_tasks(item_type.tear_off, item_type.tasks)
         had_revision = item_type.has_revision
         if 'revision_months' in data:
             item_type.revision_months = parse_int(data['revision_months'], 'revision_months', 0, MAX_REVISION_MONTHS)
@@ -1274,7 +1288,7 @@ def item_type_detail(request, type_code):
 ITEM_TYPE_FIELDS = {
     'name': 'nom', 'description': 'description', 'min_quantity': 'stock minimum',
     'default_pack_size': 'taille de paquet', 'perissable': 'périssable', 'tear_off': 'étiquette à déchirer',
-    'barcode': 'étiquette à code-barres',
+    'label_style': "style d'étiquette",
     'consumable': 'consommable', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
     'revision_tasks': 'tâches de révision', 'revision_usable': 'utilisable en retard de révision',
     'archived': 'archivage',

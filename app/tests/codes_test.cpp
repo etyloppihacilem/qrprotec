@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <string>
 
 using namespace qrprotec;
@@ -254,6 +255,24 @@ static void test_barcode() {
   const BarcodeElement &reloaded = std::get< BarcodeElement >(loaded.elements[0].content);
   assert(reloaded.payload == "{{iid}}" && reloaded.width_mm == 38.0f && reloaded.quiet_zone == 10);
   std::remove("/tmp/qrprotec-barcode.qr");
+
+  // modeles fournis : valides avec leurs valeurs d'exemple, un pour chacun des 9 usages d'etiquette d'item
+  std::set< std::string > item_categories;
+  for (const auto &entry : std::filesystem::directory_iterator(QRPROTEC_TEMPLATES_SOURCE)) {
+    if (entry.path().extension() != ".qr")
+      continue;
+    TemplateDocument bundled;
+    assert(load_template(bundled, entry.path().string(), error));
+    if (!validate(bundled).empty())
+      std::fprintf(stderr, "%s : %s\n", entry.path().filename().c_str(), validate(bundled)[0].message.c_str());
+    assert(validate(bundled).empty());
+    const std::string id = category_id(bundled.category);
+    if (id.find("item") != std::string::npos && id != "itempack")
+      item_categories.insert(id);
+  }
+  assert((item_categories == std::set< std::string >{ "item", "item_small", "item_barcode", "task_item", "task_item_small",
+                                                      "task_item_barcode", "item_tear", "item_small_tear",
+                                                      "item_barcode_tear" }));
 
   // trop etroit ou contenu non encodable : signale
   document.parameters["iid"] = "https://example.com/item?id=compre20271231000000A1";

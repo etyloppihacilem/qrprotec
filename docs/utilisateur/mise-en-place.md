@@ -96,12 +96,18 @@ Conseils :
   d'item (modèle `tache.qr`, avec la liste des tâches). À la vérif, la scanner ouvre la liste à
   cocher : l'item n'est compté qu'une fois toutes ses tâches cochées et validées. Laissez vide pour
   un item ordinaire.
-- **Étiquette à code-barres au lieu du QR code** : pour les objets ronds (flacon, tube, bouteille), où
-  un QR code déformé par la courbure se lit mal. Les items de ce type sont imprimés avec le modèle
-  « Item - code-barres » (`item_codebarre.qr`) : un code-barres Code 128 qui contient l'identifiant
-  de l'item. Collez l'étiquette avec les barres qui font le tour de l'objet (le code se lit dans la
-  longueur). La douchette le lit comme un QR code ; au téléphone, tenez-le à plat ou debout dans le
-  viseur, assez près. Un type qui a des tâches garde son étiquette de tâches.
+- **Étiquette** : le style des étiquettes des items de ce type.
+  - **QR code** (par défaut) : le QR contient l'adresse de l'item, l'appareil photo d'un téléphone
+    ouvre sa fiche web.
+  - **QR code réduit** : petit QR de l'identifiant seul, moins déformé sur un objet rond.
+  - **Code-barres** : code-barres Code 128 de l'identifiant seul, pour les objets ronds (flacon, tube,
+    bouteille) où un QR code déformé par la courbure se lit mal. Collez l'étiquette avec les barres qui
+    font le tour de l'objet (le code se lit dans la longueur). Au téléphone, tenez-le à plat ou debout
+    dans le viseur, assez près.
+
+  Chaque style existe en trois versions, chacune avec son modèle dans les Réglages : normale, **liste
+  de tâches** (types qui ont des tâches à la vérif, la liste reste imprimée en clair) et **à déchirer**.
+  Un type ne peut pas être à la fois à déchirer et à tâches.
 - Le nom d'un type doit être unique (sans tenir compte des accents ni des majuscules) : le formulaire
   le signale pendant la saisie.
 - Un type qui ne sert plus s'**archive** (bouton **Archiver le type…**) : il n'est plus proposé à la

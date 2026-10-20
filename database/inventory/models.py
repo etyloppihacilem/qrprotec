@@ -81,6 +81,14 @@ class SeenWhile(models.TextChoices):
     CHECKLIST = 'list', 'Liste de matériel'
 
 
+class LabelStyle(models.TextChoices):
+    """Etiquette d'un type d'item, choisie par le poste a l'impression (chacune en version normale, liste de taches
+    et a dechirer)."""
+    QR = 'qr', 'QR code'                   # QR de l'URL de l'item : ouvre le front web a l'appareil photo
+    SMALL = 'small', 'QR code réduit'      # petit QR de l'iid seul (moins deforme sur un objet rond)
+    BARCODE = 'barcode', 'Code-barres'     # Code 128 de l'iid seul (objets ronds)
+
+
 class ItemStatus(models.TextChoices):
     ACTIVE = 'active', 'Present'
     MISSING = 'missing', 'Disparu'
@@ -174,9 +182,10 @@ class ItemType(models.Model):
     # Etiquette a dechirer avant utilisation (ex : sachet de plusieurs serums phy etiquete une seule fois) : un
     # item non scanne a une verif est considere comme utilise tout de suite, et les restes du sachet sont perdus.
     tear_off = models.BooleanField(default=False)
-    # Etiquette a code-barres (Code 128, l'iid seul) au lieu du QR code : objets ronds (flacon, tube) ou un QR deforme
-    # par la courbure se lit mal. Seul le poste imprime les etiquettes : il choisit le modele « Item - code-barres ».
-    barcode = models.BooleanField(default=False)
+    # Etiquette : QR de l'URL, petit QR de l'iid seul ou code-barres de l'iid seul (objets ronds, ou un grand QR
+    # deforme par la courbure se lit mal). Le poste choisit le modele de ce style (normal, liste de taches ou a
+    # dechirer). Un type ne peut pas etre a la fois a dechirer et a taches.
+    label_style = models.CharField(max_length=8, choices=LabelStyle.choices, default=LabelStyle.QR)
     # Consommable (par defaut). Un item non consommable (ex : lecteur de glycemie) ne s'use pas : absent a la verif
     # d'un lot ordinaire, il a ete retire du lot et passe « hors lot » au lieu d'etre compte comme utilise ou disparu.
     consumable = models.BooleanField(default=True)
