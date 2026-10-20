@@ -9,7 +9,15 @@
 
 (() => {
   const API = new URL('api/', document.baseURI);
-  const IID_RE = /^[A-Za-z0-9]{6}\d{8}[A-Za-z0-9]{8}$/;
+  // iid complet d'un iid eventuellement en forme courte (D : sans date, N : zeros de tete du compteur), '' sinon.
+  // serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006 (meme regle que expand_iid de
+  // app/src/core/codes.cpp et de models.py)
+  function expandIid(code) {
+    const match = /^([A-Za-z0-9]{6})(\d{8}|D)(N[A-Za-z0-9]{1,6}|[A-Za-z0-9]{8})$/.exec(code || '');
+    if (!match) return '';
+    const counter = match[3].length < 8 ? match[3].slice(1).padStart(8, '0') : match[3];
+    return match[1] + (match[2] === 'D' ? '00000000' : match[2]) + counter;
+  }
   const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
   const STORAGE_USER = 'qrprotec.user';
   const NAME_SESSION_MS = 11.5 * 3600 * 1000;  // connexion par nom et PIN : jeton de session valable 12 h
@@ -219,13 +227,13 @@
       const date = iid.slice(6, 14);
       return { kind: 'item', code, id: iid, type: iid.slice(0, 6), peremption: date === '00000000' ? null : parseDate(date), task };
     };
-    if (IID_RE.test(code)) return itemScan(code);
+    if (expandIid(code)) return itemScan(expandIid(code));
     let url;
     try { url = new URL(code); } catch (e) { return { kind: 'unknown', code }; }
     const route = url.pathname.replace(/\/+$/, '').split('/').pop();
     const p = url.searchParams;
-    if (route === 'item' && IID_RE.test(p.get('id') || '')) return itemScan(p.get('id'));
-    if (route === 'task' && IID_RE.test(p.get('id') || '')) return itemScan(p.get('id'), true);
+    if (route === 'item' && expandIid(p.get('id'))) return itemScan(expandIid(p.get('id')));
+    if (route === 'task' && expandIid(p.get('id'))) return itemScan(expandIid(p.get('id')), true);
     if (route === 'verif' && p.get('lot')) return { kind: 'lot', code, id: p.get('lot'), key: p.get('key') || '' };
     if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '' };
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
@@ -2270,7 +2278,7 @@
       if (code && code.trim()) {
         const value = code.trim();
         // un identifiant de lot seul (sans URL) est accepte pour ouvrir un lot sans etiquette
-        if (!IID_RE.test(value) && !/^https?:/.test(value)) scanLot({ kind: 'lot', code: '', id: value, key: '' });
+        if (!expandIid(value) && !/^https?:/.test(value)) scanLot({ kind: 'lot', code: '', id: value, key: '' });
         else handleCode(value);
       }
     }
@@ -2829,7 +2837,7 @@
       openFiche('lot', params.get('lot'), { seal: params.get('s'), push: false });
       return;
     }
-    if ((route === 'item' || route === 'task') && IID_RE.test(params.get('id') || '')) { openFiche('item', params.get('id'), { push: false }); return; }
+    if ((route === 'item' || route === 'task') && expandIid(params.get('id'))) { openFiche('item', expandIid(params.get('id')), { push: false }); return; }
     if (route === 'liste' && params.get('id')) { closeFiche(); openList(params.get('id'), false); return; }
     closeFiche();
     lists.id = '';

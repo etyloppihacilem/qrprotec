@@ -3,10 +3,10 @@
   "name": "Item - code-barres - liste de tâches",
   "category": "task_item_barcode",
   "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
-  "parameters": {"iid": "defibr00000000000000A1", "peremption": "", "task_count": "2", "tasks": "□ Voyant vert allumé\n□ Électrodes dans leur date", "type_name": "DAE"},
+  "parameters": {"iid": "defibr00000000000000A1", "iid_short": "defibrDNA1", "peremption": "", "task_count": "2", "tasks": "□ Voyant vert allumé\n□ Électrodes dans leur date", "type_name": "DAE"},
   "elements": [
-    {"id": "code-barres", "kind": "barcode", "payload": "{{iid}}", "x_mm": 1, "y_mm": 1, "width_mm": 38, "height_mm": 7, "quiet_zone": 10},
-    {"id": "iid", "kind": "text", "text": "{{iid}}", "x_mm": 1, "y_mm": 8.3, "width_mm": 38, "height_mm": 2.2, "font_size_mm": 1.7, "bold": 0, "align": "center"},
+    {"id": "code-barres", "kind": "barcode", "payload": "{{iid_short}}", "x_mm": 1, "y_mm": 1, "width_mm": 38, "height_mm": 7, "quiet_zone": 10},
+    {"id": "iid", "kind": "text", "text": "{{iid_short}}", "x_mm": 1, "y_mm": 8.3, "width_mm": 38, "height_mm": 2.2, "font_size_mm": 1.7, "bold": 0, "align": "center"},
     {"id": "type", "kind": "text", "text": "{{type_name}}", "x_mm": 1, "y_mm": 11, "width_mm": 24, "height_mm": 3.5, "font_size_mm": 2.4, "bold": 1, "align": "left"},
     {"id": "exp", "kind": "text", "text": "Exp. {{peremption}}", "x_mm": 25, "y_mm": 11, "width_mm": 14, "height_mm": 3.5, "font_size_mm": 2.2, "bold": 0, "align": "right"},
     {"id": "tasks", "kind": "text", "text": "{{tasks}}", "x_mm": 1, "y_mm": 15, "width_mm": 38, "height_mm": 14.5, "font_size_mm": 2.0, "bold": 0, "align": "left"}

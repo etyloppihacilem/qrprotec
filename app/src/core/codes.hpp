@@ -78,6 +78,13 @@ constexpr std::size_t kCounterLength = 8;
 constexpr std::size_t kIidLength     = kTypeLength + kDateLength + kCounterLength;
 
 bool        is_iid(const std::string &code);
+// Forme courte d'un iid, plus courte a imprimer (code-barres, petit QR) et a taper : date « 00000000 » (sans
+// peremption) ecrite D, zeros de tete du compteur remplaces par N quand cela en retire au moins deux.
+//   serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006
+// La base garde l'iid complet ; chaque front deplie la forme courte (meme regle que expandIid de app.js et
+// scanner.js). Sans ambiguite : un iid complet a 22 caracteres et 8 chiffres de date.
+std::string compact_iid(const std::string &iid);
+std::string expand_iid(const std::string &code); // iid complet, vide si ce n'est un iid sous aucune forme
 ParsedScan  parse_scan(const std::string &raw);
 const char *scan_kind_name(ScanKind kind);
 // Libelle court d'un code scanne, pour l'affichage : jamais de cle (badge, etiquette privee, scelle, session),

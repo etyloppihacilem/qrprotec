@@ -241,6 +241,46 @@ bool is_iid(const std::string &code) {
   return all_digits(code.substr(kTypeLength, kDateLength));
 }
 
+std::string compact_iid(const std::string &iid) {
+  if (!is_iid(iid))
+    return iid;
+  const std::string date    = iid.substr(kTypeLength, kDateLength);
+  const std::string counter = iid.substr(kTypeLength + kDateLength);
+  const std::size_t zeros   = counter.find_first_not_of('0');
+  std::string       compact = iid.substr(0, kTypeLength) + (date == "00000000" ? "D" : date);
+  // N seulement s'il retire au moins deux zeros : « N » + 7 caracteres aurait la longueur d'un compteur complet
+  if (zeros != std::string::npos && zeros >= 2)
+    return compact + "N" + counter.substr(zeros);
+  return compact + counter;
+}
+
+std::string expand_iid(const std::string &code) {
+  if (is_iid(code))
+    return code;
+  if (code.size() < kTypeLength + 2)
+    return {};
+  for (const char character : code)
+    if (!std::isalnum(static_cast< unsigned char >(character)))
+      return {};
+  std::size_t position = kTypeLength;
+  std::string date;
+  if (code[position] == 'D') {
+    date = "00000000";
+    ++position;
+  } else if (code.size() >= position + kDateLength && all_digits(code.substr(position, kDateLength))) {
+    date = code.substr(position, kDateLength);
+    position += kDateLength;
+  } else {
+    return {};
+  }
+  std::string counter = code.substr(position);
+  if (counter.size() >= 2 && counter.size() <= kCounterLength - 1 && counter[0] == 'N')
+    counter = std::string(kCounterLength - (counter.size() - 1), '0') + counter.substr(1);
+  else if (counter.size() != kCounterLength)
+    return {};
+  return code.substr(0, kTypeLength) + date + counter;
+}
+
 std::string url_decode(const std::string &value) {
   std::string output;
   for (std::size_t index = 0; index < value.size(); ++index) {
@@ -320,9 +360,10 @@ ParsedScan parse_scan(const std::string &input) {
   ParsedScan scan;
   scan.raw               = trim(input);
   const std::string code = scan.raw;
-  // etiquette d'item : l'iid seul (ancien format) ou l'URL <base>/item?id=IID
-  if (is_iid(code)) {
-    set_item(scan, code);
+  // etiquette d'item : l'iid seul (ancien format, code-barres et petit QR, eventuellement en forme courte) ou
+  // l'URL <base>/item?id=IID
+  if (const std::string iid = expand_iid(code); !iid.empty()) {
+    set_item(scan, iid);
     return scan;
   }
   const std::size_t question = code.find('?');

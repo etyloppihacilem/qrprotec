@@ -31,6 +31,11 @@ après chaque clone.
   | QR code réduit (iid seul) | `item_reduite.qr` | `tache_reduite.qr` | `item_reduite_dechirer.qr` |
   | Code-barres Code 128 (iid seul) | `item_codebarre.qr` | `tache_codebarre.qr` | `item_codebarre_dechirer.qr` |
 
+  Les étiquettes portent l'iid en **forme courte** (`{{iid_short}}`, aussi dans l'URL des QR) : `D` pour
+  une date « 00000000 » (sans péremption), `N` à la place des zéros de tête du compteur, par exemple
+  `serphy20261029N7` pour `serphy2026102900000007` et `lecglyDN6` pour `lecgly0000000000000006`. La base
+  garde l'iid complet ; les fronts lisent les deux formes, et les étiquettes déjà imprimées restent valables.
+
   Sans modèle pour une version, l'impression prend la version normale du style, puis `item.qr`. Dans
   l'éditeur, l'élément **Code-barres** garde des barres de largeur entière de pixels : sur 40 mm à
   8 points/mm, un iid tient à 1 point par barre fine, d'où le code sur toute la largeur.

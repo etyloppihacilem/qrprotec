@@ -188,6 +188,30 @@ static void test_qr_and_categories() {
   assert(category_from_id("lot_storage") == TemplateCategory::LotStorage);
 }
 
+static void test_compact_iid() {
+  // forme courte : D sans date, N a la place des zeros de tete du compteur (au moins deux)
+  assert(compact_iid("serphy2026102900000007") == "serphy20261029N7");
+  assert(compact_iid("lecgly0000000000000006") == "lecglyDN6");
+  assert(compact_iid("compre20271231000000A1") == "compre20271231NA1");
+  assert(compact_iid("abcdef202712310zzzzzzz") == "abcdef202712310zzzzzzz"); // un seul zero : rien a gagner
+  assert(compact_iid("abcdef00000000zzzzzzzz") == "abcdefDzzzzzzzz");
+  for (const char *iid : { "serphy2026102900000007", "lecgly0000000000000006", "abcdef202712310zzzzzzz",
+                           "abcdef00000000zzzzzzzz", "compre20271231000000A1" })
+    assert(expand_iid(compact_iid(iid)) == iid);
+  assert(expand_iid("lecglyDN6") == "lecgly0000000000000006");
+  assert(expand_iid("serphy20261029N7") == "serphy2026102900000007");
+  // un compteur de 8 caracteres est toujours litteral (N est aussi un chiffre base62)
+  assert(expand_iid("serphyDN1234567") == "serphy00000000N1234567");
+  // pas un iid : date incomplete, compteur incomplet
+  assert(expand_iid("serphy2026N7").empty());
+  assert(expand_iid("serphyD1234").empty() && expand_iid("serphyDN").empty() && expand_iid("PSE1-1").empty());
+  const ParsedScan scan = parse_scan("serphy20261029N7");
+  assert(scan.kind == ScanKind::Item && scan.id == "serphy2026102900000007" && scan.item_type == "serphy");
+  assert(scan.peremption && scan.peremption->iso() == "2026-10-29");
+  const ParsedScan undated = parse_scan("lecglyDN6");
+  assert(undated.kind == ScanKind::Item && undated.id == "lecgly0000000000000006" && !undated.peremption);
+}
+
 static void test_barcode() {
   // jeu C pour les suites de chiffres : depart C pour 4 chiffres, depart B puis C au milieu d'un iid
   assert((code128_symbols("1234") == std::vector< int >{ 105, 12, 34, 82, 106 }));
@@ -209,13 +233,13 @@ static void test_barcode() {
   assert(load_template(document, std::string(QRPROTEC_TEMPLATES_SOURCE) + "/item_codebarre.qr", error));
   assert(document.category == TemplateCategory::ItemBarcode);
   assert(category_from_id("item_barcode") == TemplateCategory::ItemBarcode);
-  document.parameters["iid"] = "abcdef20271231zzzzzzzz";
+  document.parameters["iid_short"] = "abcdef20271231zzzzzzzz"; // compteur sans zero : forme courte = iid
   assert(validate(document).empty());
   const BarcodeElement &barcode = std::get< BarcodeElement >(document.elements[0].content);
   assert(barcode_module_pixels(barcode, "abcdef20271231zzzzzzzz", document.media.pixels_per_mm) == 1);
 
   // relecture du rendu sur une ligne : memes symboles que l'encodeur
-  document.parameters["iid"] = "compre20271231000000A1";
+  document.parameters["iid_short"] = "compre20271231000000A1";
   const RasterImage image = render_template(document);
   const int         row   = static_cast< int >((barcode.y_mm + barcode.height_mm / 2.0f) * document.media.pixels_per_mm);
   std::vector< int > runs;
@@ -253,7 +277,7 @@ static void test_barcode() {
   assert(load_template(loaded, "/tmp/qrprotec-barcode.qr", error));
   assert(loaded.elements[0].kind == ElementKind::Barcode);
   const BarcodeElement &reloaded = std::get< BarcodeElement >(loaded.elements[0].content);
-  assert(reloaded.payload == "{{iid}}" && reloaded.width_mm == 38.0f && reloaded.quiet_zone == 10);
+  assert(reloaded.payload == "{{iid_short}}" && reloaded.width_mm == 38.0f && reloaded.quiet_zone == 10);
   std::remove("/tmp/qrprotec-barcode.qr");
 
   // modeles fournis : valides avec leurs valeurs d'exemple, un pour chacun des 9 usages d'etiquette d'item
@@ -275,7 +299,7 @@ static void test_barcode() {
                                                       "item_barcode_tear" }));
 
   // trop etroit ou contenu non encodable : signale
-  document.parameters["iid"] = "https://example.com/item?id=compre20271231000000A1";
+  document.parameters["iid_short"] = "https://example.com/item?id=compre20271231000000A1";
   assert(!validate(document).empty());
 }
 
@@ -412,6 +436,7 @@ int main() {
   test_scans();
   test_douchette();
   test_http();
+  test_compact_iid();
   test_barcode();
   test_qr_and_categories();
   test_text_and_label_fit();
