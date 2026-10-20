@@ -174,6 +174,9 @@ class ItemType(models.Model):
     # Etiquette a dechirer avant utilisation (ex : sachet de plusieurs serums phy etiquete une seule fois) : un
     # item non scanne a une verif est considere comme utilise tout de suite, et les restes du sachet sont perdus.
     tear_off = models.BooleanField(default=False)
+    # Etiquette a code-barres (Code 128, l'iid seul) au lieu du QR code : objets ronds (flacon, tube) ou un QR deforme
+    # par la courbure se lit mal. Seul le poste imprime les etiquettes : il choisit le modele « Item - code-barres ».
+    barcode = models.BooleanField(default=False)
     # Consommable (par defaut). Un item non consommable (ex : lecteur de glycemie) ne s'use pas : absent a la verif
     # d'un lot ordinaire, il a ete retire du lot et passe « hors lot » au lieu d'etre compte comme utilise ou disparu.
     consumable = models.BooleanField(default=True)

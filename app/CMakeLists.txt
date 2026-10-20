@@ -93,6 +93,7 @@ set(IMPLOT_SOURCES
 
 # Coeur sans interface (teste unitairement) : modeles d'etiquettes, rendu, QR codes, JSON, API
 add_library(QRProtecCore STATIC
+    src/core/code128.cpp
     src/core/codes.cpp
     src/core/fonts.cpp
     src/core/glob_utils.cpp
@@ -236,6 +237,8 @@ if(BUILD_TESTING)
 
     add_executable(QRProtecCodesTest tests/codes_test.cpp)
     target_link_libraries(QRProtecCodesTest PRIVATE QRProtecCore)
+    # modeles fournis (ex : item_codebarre.qr) : valides et lisibles
+    target_compile_definitions(QRProtecCodesTest PRIVATE QRPROTEC_TEMPLATES_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/templates")
     add_test(NAME QRProtecCodesTest COMMAND QRProtecCodesTest)
 
     add_executable(QRProtecPrinterTest

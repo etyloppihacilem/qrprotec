@@ -128,7 +128,8 @@ std::string serialize_template(const TemplateDocument& document)
     output << "},\n  \"elements\": [\n";
     for (std::size_t index = 0; index < document.elements.size(); ++index) {
         const TemplateElement& element = document.elements[index];
-        const char* kind = element.kind == ElementKind::Text ? "text" : element.kind == ElementKind::QrCode ? "qr" : "image";
+        const char* kind = element.kind == ElementKind::Text ? "text" : element.kind == ElementKind::QrCode ? "qr"
+                         : element.kind == ElementKind::Barcode ? "barcode" : "image";
         output << "    {\"id\": \"" << escape_json(element.id) << "\", \"kind\": \"" << kind << "\", ";
         if (element.kind == ElementKind::Text) {
             const TextElement& text = std::get<TextElement>(element.content);
@@ -142,6 +143,11 @@ std::string serialize_template(const TemplateDocument& document)
             output << "\"payload\": \"" << escape_json(qr.payload) << "\", \"x_mm\": " << qr.x_mm
                     << ", \"y_mm\": " << qr.y_mm << ", \"size_mm\": " << qr.size_mm
                     << ", \"ecc\": " << qr.ecc << ", \"quiet_zone\": " << qr.quiet_zone;
+        } else if (element.kind == ElementKind::Barcode) {
+            const BarcodeElement& barcode = std::get<BarcodeElement>(element.content);
+            output << "\"payload\": \"" << escape_json(barcode.payload) << "\", \"x_mm\": " << barcode.x_mm
+                    << ", \"y_mm\": " << barcode.y_mm << ", \"width_mm\": " << barcode.width_mm
+                    << ", \"height_mm\": " << barcode.height_mm << ", \"quiet_zone\": " << barcode.quiet_zone;
         } else {
             const ImageElement& image = std::get<ImageElement>(element.content);
             output << "\"path\": \"" << escape_json(image.path) << "\", \"x_mm\": " << image.x_mm
@@ -220,6 +226,16 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
                 if (find_number(object, "ecc", x)) qr.ecc = std::clamp(static_cast<int>(x), 0, 3);
                 if (find_number(object, "quiet_zone", x)) qr.quiet_zone = std::clamp(static_cast<int>(x), 0, 8);
                 loaded.elements.push_back({id, ElementKind::QrCode, qr});
+            } else if (kind == "barcode") {
+                BarcodeElement barcode;
+                double x = 0.0;
+                find_value(object, "payload", barcode.payload);
+                find_number(object, "x_mm", x); barcode.x_mm = static_cast<float>(x);
+                find_number(object, "y_mm", x); barcode.y_mm = static_cast<float>(x);
+                find_number(object, "width_mm", x); barcode.width_mm = static_cast<float>(x);
+                find_number(object, "height_mm", x); barcode.height_mm = static_cast<float>(x);
+                if (find_number(object, "quiet_zone", x)) barcode.quiet_zone = std::clamp(static_cast<int>(x), 0, 20);
+                loaded.elements.push_back({id, ElementKind::Barcode, barcode});
             } else if (kind == "image") {
                 ImageElement image;
                 double x = 0.0;

@@ -1,4 +1,5 @@
 #include "template.hpp"
+#include "core/code128.hpp"
 #include "core/template_io.hpp"
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,14 @@ bool inside(double x, double y, double width, double height, const MediaSettings
       && y + height <= media.oriented_height_mm();
 }
 } // namespace
+
+int barcode_module_pixels(const BarcodeElement &barcode, const std::string &payload, double pixels_per_mm) {
+  const std::size_t modules = code128_modules(payload).size();
+  if (modules == 0)
+    return 0;
+  const int width = std::max(1, static_cast< int >(barcode.width_mm * pixels_per_mm));
+  return width / static_cast< int >(modules + 2 * static_cast< std::size_t >(std::max(0, barcode.quiet_zone)));
+}
 
 int MediaSettings::width_pixels() const {
   return pixels(oriented_width_mm(), pixels_per_mm);
@@ -63,6 +72,22 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
         issues.push_back({ "QR code trop petit pour son contenu (" + std::to_string(module)
                              + " px par module, 2 minimum) : agrandissez-le, réduisez la marge ou la correction.",
                            element.id });
+    } else if (element.kind == ElementKind::Barcode) {
+      const BarcodeElement &barcode = std::get< BarcodeElement >(element.content);
+      const std::string     payload = resolve_parameters(barcode.payload, document.parameters);
+      if (barcode.payload.empty())
+        issues.push_back({ "Le contenu du code-barres ne peut pas être vide.", element.id });
+      if (!inside(barcode.x_mm, barcode.y_mm, barcode.width_mm, barcode.height_mm, document.media))
+        issues.push_back({ "Le code-barres dépasse les limites du media.", element.id });
+      if (!payload.empty() && code128_modules(payload).empty())
+        issues.push_back({ "Code-barres : seuls les caractères ASCII imprimables passent (pas d'accents).",
+                           element.id });
+      else if (!payload.empty() && barcode_module_pixels(barcode, payload, document.media.pixels_per_mm) < 1)
+        issues.push_back({ "Code-barres trop étroit pour son contenu (" + std::to_string(code128_modules(payload).size())
+                             + " modules + marges, 1 px minimum chacun) : élargissez-le ou réduisez la marge.",
+                           element.id });
+      if (barcode.height_mm < 4.0f)
+        issues.push_back({ "Code-barres trop bas (4 mm minimum pour être lu).", element.id });
     } else {
       const ImageElement &image = std::get< ImageElement >(element.content);
       if (image.path.empty())
@@ -107,6 +132,8 @@ std::vector< std::string > find_placeholders(const TemplateDocument &document) {
       collect(std::get< TextElement >(element.content).text);
     else if (element.kind == ElementKind::QrCode)
       collect(std::get< QrElement >(element.content).payload);
+    else if (element.kind == ElementKind::Barcode)
+      collect(std::get< BarcodeElement >(element.content).payload);
   std::vector< std::string > result(names.begin(), names.end());
 
   // Tri standard (ordre lexicographique ASCII)

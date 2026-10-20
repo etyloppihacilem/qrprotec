@@ -10,6 +10,7 @@ JavaScript **sans framework ni étape de construction** : on modifie le fichier,
 | `sw.js` | Service worker, uniquement pour afficher les notifications web |
 | `manifest.webmanifest`, `icon-*.png`, `favicon.png` | Ajout à l'écran d'accueil, icônes (`make icon`) |
 | `vendor/jsQR.js` | Décodeur QR de secours (Apache 2.0), quand `BarcodeDetector` manque |
+| `code128.js` | Décodeur Code 128 (étiquettes d'items à code-barres), quand `BarcodeDetector` ne le lit pas |
 
 Pourquoi pas de framework : la page doit fonctionner hors de tout réseau Internet (réseau local de
 la borne, pas de CDN), rester modifiable dans cinq ans sans chaîne d'outils npm qui aura vieilli, et
@@ -44,7 +45,10 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   activité, où le lot, sa clé et les scans sont oubliés au démarrage. La clé présente dans l'URL est retirée de la
   barre d'adresse (`history.replaceState`).
 - **Caméra** (`startCamera`, `scanLoop`, `detect`) : caméra arrière, `BarcodeDetector` natif si
-  disponible, sinon jsQR sur une image du `<canvas>`. Un même code vu en continu n'est traité qu'une
+  disponible, sinon jsQR sur une image du `<canvas>`. Codes-barres Code 128 (l'iid seul, étiquettes des
+  types « code-barres ») : `BarcodeDetector` s'il les lit (Chrome Android), sinon `code128.js` sur quelques
+  lignes horizontales et verticales de l'image en pleine résolution (Firefox, Safari iOS), code rendu s'il
+  est lu deux fois avec sa somme de contrôle. Caméra demandée en 1080p pour les barres fines. Un même code vu en continu n'est traité qu'une
   fois par 2,5 s. Lampe et écran maintenu allumé (`wakeLock`) si possible.
   La caméra n'est jamais laissée ouverte page cachée (`syncCamera`) : fermée à `visibilitychange`,
   `pagehide` et `freeze`, rouverte au retour si l'utilisateur l'avait démarrée, une seule ouverture à

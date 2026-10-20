@@ -202,6 +202,18 @@ compositeur kiosk minimal (Cage), état de l'interface entièrement dans le code
 **Raison.** Pas de CDN (la borne peut être sans Internet), pas de chaîne de construction npm qui
 vieillit, un fichier lisible. `BarcodeDetector` natif quand il existe, jsQR fourni sinon.
 
+## Code 128 pour les étiquettes à code-barres
+
+**Raison.** Sur un objet rond (flacon, tube), un QR code déformé par la courbure se lit mal : un code
+linéaire dont les barres font le tour de l'objet ne se déforme pas. Le Code 128 code les minuscules et
+range les chiffres par paires : un iid (22 caractères) tient en 220 à 255 modules, soit environ 32 mm à
+1 point par module sur une étiquette de 40 mm à 8 points/mm (2 points ne tiennent pas, 1,5 rendrait les
+barres irrégulières). Écartés : Code 39 et EAN (pas de minuscules), Code 93 (une minuscule = 2 symboles,
+environ 350 modules), PDF417 (aussi large et sensible à la courbure), Data Matrix (petit et lisible,
+mais décodeur JS lourd pour Firefox et Safari ; option possible plus tard). Le contenu est l'iid seul,
+une URL serait trop longue. Encodeur `app/src/core/code128.cpp`, décodeur `web/code128.js` sans dépendance
+(même table, vérifiée par les tests).
+
 ## Borne Fedora en RPM, Cage, Caddy
 
 **Raison.** Mises à jour par `dnf upgrade`, configuration préservée, services systemd durcis,

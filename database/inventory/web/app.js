@@ -328,6 +328,7 @@
   const context = canvas.getContext('2d', { willReadFrequently: true });
   let stream = null;
   let detector = null;
+  let nativeCode128 = false; // BarcodeDetector lit aussi le Code 128 (Chrome Android) : pas de decodeur JS
   let wakeLock = null;
   let cameraWanted = false; // camera demarree par l'utilisateur : rouverte au retour sur la page
   let opening = null;       // ouverture en cours (getUserMedia peut prendre plusieurs secondes)
@@ -370,7 +371,8 @@
       try {
         media = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          // 1080p : les barres fines d'un code-barres restent lisibles de plus loin (jsQR reduit l'image de toute facon)
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         });
       } catch (e) {
         const busy = e.name === 'NotReadableError' || e.name === 'AbortError';
@@ -394,8 +396,13 @@
     if (!detector && 'BarcodeDetector' in window) {
       try {
         const formats = await window.BarcodeDetector.getSupportedFormats();
-        if (formats.includes('qr_code')) detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-      } catch (e) { detector = null; }
+        // QR codes et codes-barres Code 128 (etiquettes d'items des objets ronds, l'iid seul)
+        const wanted = ['qr_code', 'code_128'].filter((format) => formats.includes(format));
+        if (wanted.includes('qr_code')) {
+          detector = new window.BarcodeDetector({ formats: wanted });
+          nativeCode128 = wanted.includes('code_128');
+        }
+      } catch (e) { detector = null; nativeCode128 = false; }
     }
     if (stream !== media) return; // arretee entre-temps
     const track = stream.getVideoTracks()[0];
@@ -427,8 +434,15 @@
     if (video.readyState < 2) return null;
     if (detector) {
       const codes = await detector.detect(video);
-      return codes.length ? codes[0].rawValue : null;
+      if (codes.length) return codes[0].rawValue;
     }
+    const qr = detector ? null : detectQr();
+    if (qr) return qr;
+    // Code 128 sans lecteur natif (Firefox, Safari iOS) : decodeur JS, image en pleine resolution
+    return !nativeCode128 && window.Code128 ? window.Code128.scan(video) : null;
+  }
+
+  function detectQr() {
     if (!window.jsQR) return null;
     // jsQR : on ne decode que le carre central (la zone du viseur), reduit pour rester fluide
     const side = Math.min(video.videoWidth, video.videoHeight);
@@ -4487,7 +4501,7 @@
         item.status === 'out' && item.out_until ? fact('Compté utilisé', `le ${fmtDate(item.out_until)} s'il ne revient pas`) : [],
         fact('Dernier passage', item.last_seen ? cap(fmtDateTime(item.last_seen, { long: true })) + (item.last_seen_by ? ' par ' + item.last_seen_by : '') : '–'),
         fact('Ajouté', item.added ? cap(fmtDateTime(item.added, { long: true })) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
-        item.tear_off ? fact('Étiquette', 'à déchirer avant utilisation') : [],
+        item.tear_off || item.barcode ? fact('Étiquette', [item.barcode ? 'code-barres' : '', item.tear_off ? 'à déchirer avant utilisation' : ''].filter(Boolean).join(', ')) : [],
         item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il passe hors lot (pas perdu)') : [],
         item.revision ? fact('Révision', item.revision_due ? `prochaine le ${fmtDate(item.revision_due)}` : 'pas encore prévue',
           el('div', { class: 'sub' }, `tous les ${item.revision_months} mois` + (item.revision_usable ? '' : ', inutilisable en retard'))) : [],

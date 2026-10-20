@@ -75,6 +75,21 @@ std::vector< CategoryInfo > build_categories() {
   task_item.placeholders.push_back({ "count", "Nombre d'étiquettes de la série", "1" });
   categories.push_back(task_item);
 
+  // etiquette a code-barres (ItemBarcode) : remplace l'etiquette d'item des types « étiquette code-barres »
+  CategoryInfo item_barcode{ TemplateCategory::ItemBarcode, "item_barcode", "Item - code-barres",
+                             "Étiquette des items dont le type demande un code-barres (objets ronds, où un QR code "
+                             "déformé se lit mal), imprimée à la place de l'étiquette d'item. Le code-barres doit "
+                             "contenir {{iid}} seul : une URL serait trop longue.",
+                             {} };
+  item_barcode.placeholders.push_back({ "iid", "Identifiant unique de l'item (contenu du code-barres)",
+                                        "compre20271231000000A1" });
+  for (const PlaceholderInfo &info : item_type_placeholders())
+    item_barcode.placeholders.push_back(info);
+  item_barcode.placeholders.push_back({ "index", "Numéro de l'étiquette dans la série imprimée", "3" });
+  item_barcode.placeholders.push_back({ "count", "Nombre d'étiquettes de la série", "10" });
+  item_barcode.placeholders.push_back({ "pack_id", "Paquet scellé d'origine (vide sinon)", "0000002B" });
+  categories.push_back(item_barcode);
+
   CategoryInfo pack{ TemplateCategory::ItemPack, "itempack", "Paquet fermé (ItemPack)",
                      "Étiquette d'un paquet fermé : les étiquettes individuelles seront imprimées à l'ouverture. "
                      "Le QR code doit contenir {{pack_url}}.",

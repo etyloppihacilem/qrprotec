@@ -22,8 +22,12 @@ après chaque clone.
   clé, qui n'expire pas, et se colle à l'intérieur. Un rangement n'a pas d'étiquette publique.
 - `tache.qr` est l'étiquette de tâches : elle remplace `item.qr` pour les items dont le type a des
   tâches à faire à la vérif (ex : DAE), avec la liste des tâches à cocher.
+- `item_codebarre.qr` est l'étiquette à code-barres (Code 128, l'iid seul) : elle remplace `item.qr`
+  pour les items dont le type a la case « Étiquette à code-barres » (objets ronds). Dans l'éditeur,
+  l'élément **Code-barres** garde des barres de largeur entière de pixels : sur 40 mm à 8 points/mm,
+  un iid tient à 1 point par barre fine, d'où le code sur toute la largeur.
 - `scelle_ouverture.qr` est l'étiquette d'ouverture, imprimée avec celle du scellé et rangée **à
   l'intérieur** du lot : la scanner ouvre le scellé, même sans être connecté.
 
-Modèles fournis (40 × 30 mm) : `item.qr`, `tache.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
+Modèles fournis (40 × 30 mm) : `item.qr`, `item_codebarre.qr`, `tache.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
 `scelle_ouverture.qr`, `rangement.qr`, `badge.qr`.

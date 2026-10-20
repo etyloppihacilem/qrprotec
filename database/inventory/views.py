@@ -1199,6 +1199,7 @@ def item_types(request):
         perissable=bool(data.get('perissable', False)),
         default_pack_size=parse_int(data.get('default_pack_size', 1), 'default_pack_size', 1),
         tear_off=bool(data.get('tear_off', False)),
+        barcode=bool(data.get('barcode', False)),
         consumable=bool(data.get('consumable', True)),
         tasks=parse_tasks(data.get('tasks')),
         revision_months=parse_int(data.get('revision_months', 0), 'revision_months', 0, MAX_REVISION_MONTHS),
@@ -1236,6 +1237,8 @@ def item_type_detail(request, type_code):
             item_type.perissable = perissable
         if 'tear_off' in data:
             item_type.tear_off = bool(data['tear_off'])
+        if 'barcode' in data:
+            item_type.barcode = bool(data['barcode'])
         if 'consumable' in data:
             item_type.consumable = bool(data['consumable'])
         if 'tasks' in data:
@@ -1271,6 +1274,7 @@ def item_type_detail(request, type_code):
 ITEM_TYPE_FIELDS = {
     'name': 'nom', 'description': 'description', 'min_quantity': 'stock minimum',
     'default_pack_size': 'taille de paquet', 'perissable': 'périssable', 'tear_off': 'étiquette à déchirer',
+    'barcode': 'étiquette à code-barres',
     'consumable': 'consommable', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
     'revision_tasks': 'tâches de révision', 'revision_usable': 'utilisable en retard de révision',
     'archived': 'archivage',

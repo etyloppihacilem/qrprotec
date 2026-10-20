@@ -52,6 +52,7 @@ def item_type_dict(item_type):
         'perissable': item_type.perissable,
         'default_pack_size': item_type.default_pack_size,
         'tear_off': item_type.tear_off,
+        'barcode': item_type.barcode,
         'consumable': item_type.consumable,
         'tasks': list(item_type.tasks or []),
         # revision du materiel non consommable (0 mois : pas de revision)
@@ -72,6 +73,8 @@ def item_dict(item, today=None):
         'type_name': item.pack.item_type.name,
         # etiquette a dechirer avant utilisation : un item non scanne a une verif est utilise
         'tear_off': item.pack.item_type.tear_off,
+        # etiquette a code-barres (l'iid seul) au lieu du QR code
+        'barcode': item.pack.item_type.barcode,
         # non consommable : absent a la verif d'un lot, il passe hors lot (ni utilise, ni disparu)
         'consumable': item.pack.item_type.consumable,
         # taches a cocher a la verif (etiquette de taches) : l'item ne compte qu'une fois toutes validees
