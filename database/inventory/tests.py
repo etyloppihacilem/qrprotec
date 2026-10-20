@@ -582,7 +582,7 @@ class WebFrontTests(ApiTestCase):
                     '/item?id=compre20271231000000A1', '/task?id=compre20271231000000A1'):
             response = self.client.get(url)
             self.assertEqual(response.status_code, 200, url)
-            self.assertIn(b'web/app.js', b''.join(response.streaming_content))
+            self.assertIn(b'web/app.js', response.content)
             self.assertEqual(response['Referrer-Policy'], 'no-referrer')
 
     def test_assets_whitelist(self):
@@ -2938,6 +2938,20 @@ class BarcodeLabelTests(ApiTestCase):
         self.assertEqual(self.call('POST', '/api/item-types/', {'type': 'sachet', 'name': 'Sachet', 'tear_off': True})[0], 201)
         self.assertEqual(self.call('PATCH', '/api/item-types/sachet/', {'tasks': ['Vérifier']})[0], 400)
         self.assertEqual(self.call('PATCH', '/api/item-types/sachet/', {'tear_off': False, 'tasks': ['Vérifier']})[0], 200)
+
+    def test_web_barcodes_enabled_by_first_print(self):
+        """Le decodeur n'est charge par les pages qu'une fois un code-barres imprime, desactivable par un admin."""
+        for url in ('/', '/scanner?s=x&k=y'):
+            self.assertNotIn(b'web/code128.js', self.client.get(url).content, url)
+        self.assertFalse(self.call('GET', '/api/health/')[1]['web_barcodes'])
+        self.assertEqual(self.call('POST', '/api/barcodes-printed/', {}, local=False)[0], 404)  # pas sur l'API publique
+        self.assertEqual(self.call('POST', '/api/barcodes-printed/', {}, session=False)[0], 200)  # poste sans connecte
+        self.assertTrue(self.call('GET', '/api/health/')[1]['web_barcodes'])
+        for url in ('/', '/scanner?s=x&k=y'):
+            self.assertIn(b'web/code128.js', self.client.get(url).content, url)
+        code, body = self.call('PATCH', '/api/server-settings/', {'web_barcodes': False})
+        self.assertFalse(body['web_barcodes'])
+        self.assertNotIn(b'web/code128.js', self.client.get('/').content)
 
     def test_decoder_served_with_encoder_table(self):
         """Le decodeur JS est servi aux deux pages et sa table est celle de l'encodeur du poste (code128.cpp)."""

@@ -108,6 +108,10 @@ Conseils :
   Chaque style existe en trois versions, chacune avec son modèle dans les Réglages : normale, **liste
   de tâches** (types qui ont des tâches à la vérif, la liste reste imprimée en clair) et **à déchirer**.
   Un type ne peut pas être à la fois à déchirer et à tâches.
+
+  Le front web ne lit les codes-barres qu'à partir de la première étiquette à code-barres imprimée
+  (réglage « Lire les codes-barres sur le web » des Réglages, activé d'office) : tant qu'aucun ne circule,
+  la page ne charge pas ce lecteur. Décochez-le quand plus aucune étiquette à code-barres n'est en service.
 - Le nom d'un type doit être unique (sans tenir compte des accents ni des majuscules) : le formulaire
   le signale pendant la saisie.
 - Un type qui ne sert plus s'**archive** (bouton **Archiver le type…**) : il n'est plus proposé à la

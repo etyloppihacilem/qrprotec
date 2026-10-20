@@ -87,6 +87,7 @@ local_patterns = [
     path('users/<str:matricule>/', views.user_detail),
     path('users/<str:matricule>/renew-key/', views.user_renew_key),
     path('server-settings/', views.server_settings),
+    path('barcodes-printed/', views.barcodes_printed),
     path('me/scanner-volume/', views.my_scanner_volume),
     path('notifications/', views.notification_settings),
     # API SMS plus maintenue (voir notifications.py)
