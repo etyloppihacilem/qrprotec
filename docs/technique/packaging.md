@@ -20,6 +20,7 @@ actif par défaut. Voir [decisions.md](decisions.md#borne-fedora-en-rpm-cage-cad
 | `qrprotec.spec` | Spec RPM, produit plusieurs paquets (voir ci-dessous). `%bcond kiosk` (activé par défaut) : `--without kiosk` ne produit que `qrprotec-server` et `qrprotec-common`, sans compiler le front. |
 | `make-sources.sh` | Prépare `Source0` (code + sous-modules `imgui`, `scanner_lib`) et `Source1` (dépendances Python figées). |
 | `lock2requirements.py` | Convertit `poetry.lock` en `requirements.txt` avec empreintes (`--require-hashes`). |
+| `vendor-macros.py` | Écrit les macros rpm (`%vendor_provides`, `%vendor_dist_infos`) des dépendances Python embarquées. |
 | `build-rpm.sh` | `rpmbuild` complet (appelé par `make rpm` dans un conteneur, ou `make rpm-local`). |
 | `Containerfile` | Image Fedora de construction, avec les dépendances de build en cache. |
 | `version.sh` | Version depuis le tag git : `v1.2.0` → `1.2.0`, entre deux tags `1.2.0^3.gabc1234`. |
@@ -45,8 +46,10 @@ ces parties. Une borne installée avec l'ancien paquet unique passe aux nouveaux
 
 - **Back** : `database/` copié dans `/usr/share/qrprotec/backend` (sans `tests.py`), dépendances
   Python (Django, DRF, asgiref, sqlparse) dans `/usr/share/qrprotec/vendor`, compilées en `.pyc`. Les
-  versions sont celles de `poetry.lock` ; `%prep` vérifie que les `Provides: bundled(...)` du spec
-  correspondent (mettre à jour les `%global *_version` du spec après un `poetry update`).
+  versions sont celles de `poetry.lock`. `vendor-macros.py` en tire `qrprotec-vendor.macros`
+  (Source4), que le spec charge pour ses `Provides: bundled(...)` : rien à changer dans le spec après
+  un `poetry update`, même pour une nouvelle dépendance. `%prep` vérifie que ces macros décrivent
+  exactement `vendor/`.
   `python3-cryptography` vient de Fedora (bibliothèque compilée, mises à jour de sécurité du
   système).
 - **Front** : compilé en Release, installé en `/usr/libexec/qrprotec/qrprotec-front` ; SDK Inateck

@@ -2,6 +2,7 @@
 # Prepare les sources du RPM dans dist/sources :
 #   qrprotec-VERSION.tar.gz         code (front + back + packaging) avec les sous-modules utiles
 #   qrprotec-vendor-VERSION.tar.gz  dependances Python figees par poetry.lock (Django, DRF...)
+#   qrprotec-vendor.macros          versions des dependances embarquees (Provides bundled() du spec)
 #   qrprotec*.sysusers              utilisateurs (pour le %pre du spec)
 # Le spec se construit ensuite sans reseau (rpmbuild, mock, COPR).
 set -euo pipefail
@@ -52,6 +53,9 @@ rm -rf "$work/vendor/bin"
 find "$work/vendor" -name __pycache__ -type d -prune -exec rm -rf {} +
 tar --create --gzip --owner=0 --group=0 --numeric-owner -C "$work" \
     --file "$out/qrprotec-vendor-$tar_version.tar.gz" vendor
+
+# Provides bundled() tires de vendor/ : le spec suit poetry.lock sans retouche a chaque mise a jour
+python3 packaging/vendor-macros.py "$work/vendor" >"$out/qrprotec-vendor.macros"
 
 cp packaging/files/qrprotec.sysusers packaging/files/qrprotec-kiosk.sysusers "$out/"
 

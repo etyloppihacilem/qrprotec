@@ -21,7 +21,7 @@ echo "== QRProtec $version"
 
 if [[ $(id -u) -eq 0 ]] && command -v dnf >/dev/null; then
     dnf -y --setopt=install_weak_deps=False builddep \
-        --define "qrprotec_version $version" "${extra_args[@]}" "$spec"
+        --define "_topdir $topdir" --define "qrprotec_version $version" "${extra_args[@]}" "$spec"
 fi
 
 rpmbuild -ba "$spec" \
