@@ -113,8 +113,8 @@ adapter `pixels_per_mm` des modèles si l'imprimante a une autre résolution.
 
 ## Mettre à jour les dépendances
 
-- Python : `poetry update` à la racine, puis mettre à jour les `%global *_version` de
-  `packaging/qrprotec.spec` (le `%prep` échoue sinon, volontairement), lancer les tests.
+- Python : `poetry update` à la racine, lancer les tests, commiter `poetry.lock`. Le spec n'est pas
+  à retoucher : ses `Provides: bundled(...)` sont générés depuis les paquets embarqués.
 - ImGui : `cd app/imgui && git checkout <tag>` puis commiter le sous-module ; mettre à jour
   `Provides: bundled(imgui)` dans le spec.
 - SDK Inateck : sous-module `app/scanner_lib`.

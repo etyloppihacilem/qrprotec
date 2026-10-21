@@ -38,12 +38,6 @@
 %global __provides_exclude_from ^%{_libdir}/%{name}/.*$
 %global __requires_exclude ^libinateck_scanner_ble\\.so.*$
 
-# Dependances Python embarquees : versions de poetry.lock (verifiees dans %%prep)
-%global django_version 6.1.1
-%global drf_version 3.18.1
-%global asgiref_version 3.12.1
-%global sqlparse_version 0.6.0
-
 Name:           qrprotec
 Version:        %{qrprotec_version}
 Release:        1%{?dist}
@@ -59,6 +53,12 @@ Source1:        %{name}-vendor-%{tar_version}.tar.gz
 # Copies de packaging/files/*.sysusers, pour %%pre
 Source2:        %{name}.sysusers
 Source3:        %{name}-kiosk.sysusers
+# Dependances Python embarquees (Source1) : %%vendor_provides et %%vendor_dist_infos, ecrits par
+# packaging/vendor-macros.py depuis poetry.lock. Rien a changer ici quand les paquets sont mis a jour.
+Source4:        %{name}-vendor.macros
+%{lua: local f = rpm.expand("%{SOURCE4}"); if posix.access(f) then rpm.expand("%{load:" .. f .. "}") end}
+# Sans les sources (ex : `dnf builddep` seul), de quoi lire le spec ; %%prep exige le vrai fichier
+%{!?vendor_provides:%global vendor_provides bundled(python3dist(django))}
 
 BuildRequires:  python3-devel
 # notifications web (chiffrement Web Push, VAPID) : tests du %check
@@ -124,10 +124,7 @@ Requires(post): systemd
 Requires(preun): systemd
 Requires(postun): systemd
 
-Provides:       bundled(python3dist(django)) = %{django_version}
-Provides:       bundled(python3dist(djangorestframework)) = %{drf_version}
-Provides:       bundled(python3dist(asgiref)) = %{asgiref_version}
-Provides:       bundled(python3dist(sqlparse)) = %{sqlparse_version}
+Provides:       %{vendor_provides}
 Provides:       bundled(js-jsqr) = 1.4.0
 
 %description server
@@ -193,11 +190,15 @@ to use a server on another machine:
 
 %prep
 %autosetup -n %{name}-%{tar_version} -a 1
-# Les Provides bundled() doivent suivre poetry.lock
-for dist in django-%{django_version} djangorestframework-%{drf_version} \
-            asgiref-%{asgiref_version} sqlparse-%{sqlparse_version}; do
-    test -d "vendor/$dist.dist-info" || { echo "$dist absent de vendor/ : mettre a jour le spec"; exit 1; }
-done
+# Les Provides bundled() doivent decrire exactement vendor/ (Source4 et Source1 du meme make-sources.sh)
+test -n "%{?vendor_dist_infos}" || { echo "%{SOURCE4} absent : lancer packaging/make-sources.sh" >&2; exit 1; }
+expected=$(printf '%%s\n' %{?vendor_dist_infos} | sort)
+found=$(find vendor -mindepth 1 -maxdepth 1 -name '*.dist-info' -printf '%%f\n' | sort)
+if [ "$expected" != "$found" ]; then
+    printf 'vendor/ ne correspond pas a %%s : relancer packaging/make-sources.sh\nattendu :\n%%s\ntrouve :\n%%s\n' \
+        "%{SOURCE4}" "$expected" "$found" >&2
+    exit 1
+fi
 
 %build
 %if %{with kiosk}
