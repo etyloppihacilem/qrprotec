@@ -476,6 +476,7 @@
   $('#cam-mini').addEventListener('click', () => setCameraMini(true));
   $('#camera').addEventListener('click', (event) => {
     if (!document.body.classList.contains('cam-mini') || document.body.classList.contains('home-mode')) return;
+    if (event.target.closest('#start-button')) return; // demarrer la camera sans quitter la vignette
     event.preventDefault();
     event.stopPropagation();
     setCameraMini(false);

@@ -128,17 +128,20 @@ dl.facts dd { margin: 0; }
 .stock-row.bad { border-left: 4px solid var(--red); padding-left: 8px; background: var(--red-bg); }
 .row-head .buttons { display: flex; gap: 6px; }
 
-/* ---- Camera reduite : vignette flottante dans un coin (comme en appel video), touchee elle reprend sa place ---- */
-body.cam-mini #camera { position: fixed; z-index: 40; right: 10px; bottom: calc(68px + env(safe-area-inset-bottom));
-  width: min(30vw, 140px); height: auto; aspect-ratio: 3 / 4; border-radius: 12px; cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .35); outline: 3px solid transparent; transition: outline-color .15s; }
+/* ---- Camera reduite : meme fenetre que le lecteur de badge de l'accueil, avec son viseur ; touchee elle reprend sa place ---- */
+body.cam-mini #camera { position: fixed; z-index: 40; right: 12px; bottom: calc(68px + env(safe-area-inset-bottom));
+  width: min(42vw, 180px); height: auto; aspect-ratio: 3 / 4; border-radius: 14px; cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .4); outline: 3px solid var(--orange); }
 body.cam-mini #camera.hit { outline-color: #4ade80; }
-body.cam-mini #topbar, body.cam-mini #scan-hint, body.cam-mini #viewfinder { display: none; }
-body.cam-mini #start { padding: 4px; }
-body.cam-mini #start > * { display: none; }
-body.cam-mini #start::after { content: '📷'; font-size: 1.6rem; }
+body.cam-mini #topbar { display: none; }
+body.cam-mini #viewfinder span { width: 60%; box-shadow: none; border-width: 2px; }
+body.cam-mini #scan-hint { font-size: .78rem; bottom: 6px; }
+body.cam-mini #start { padding: 6px; }
+body.cam-mini #start > p:first-child { display: none; }
+body.cam-mini #start .big { font-size: .85rem; padding: 8px 10px; }
+body.cam-mini #camera-error { font-size: .72rem; }
 body.cam-mini #panel { height: 100dvh; padding-top: env(safe-area-inset-top); }
-body.cam-mini #toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
+body.cam-mini #toast { bottom: calc(80px + min(56vw, 240px) + env(safe-area-inset-bottom)); }
 
 /* ---- Previsions de stock (page « État des stocks » de l'accueil) ---- */
 .segmented { display: flex; border: 1px solid var(--blue); border-radius: 10px; overflow: hidden; margin: 6px 0; }
