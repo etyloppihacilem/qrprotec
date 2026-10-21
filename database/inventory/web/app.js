@@ -23,7 +23,6 @@
     return match[1] + (match[2] === 'D' ? '00000000' : match[2]) + counter;
   }
   const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
-  const TASKS_RESCAN_MS = 3000; // fenetre des taches : 2e scan d'un admin (tout valider) ignore avant ce delai
   const STORAGE_USER = 'qrprotec.user';
   const NAME_SESSION_MS = 11.5 * 3600 * 1000;  // connexion par nom et PIN : jeton de session valable 12 h
   const STORAGE_SESSION = 'qrprotec.session';
@@ -561,11 +560,9 @@
   }
 
   async function scanItem(scan) {
-    // taches de cet item deja affichees : un administrateur les valide toutes en scannant l'etiquette une 2e fois
+    // taches de cet item deja affichees : elles se cochent une a une (tout valider d'un 2e scan : au poste seulement,
+    // la camera du telephone relit l'etiquette avant qu'on ait lu les taches)
     if (taskPopup && taskPopup.entry.iid === scan.id) {
-      // pas avant TASKS_RESCAN_MS : le temps de lire les taches, meme si la camera relit l'etiquette tout de suite
-      if (isAdmin() && Date.now() - taskPopup.openedAt >= TASKS_RESCAN_MS) { finishTasks(true); return; }
-      if (isAdmin()) return;
       feedback.task();
       toast('Cochez toutes les tâches pour valider cet item.');
       return;
@@ -745,14 +742,13 @@
   function showTasks(entry) {
     const dialog = $('#tasks');
     const tasks = entry.info.tasks;
-    taskPopup = { entry, scan: parseCode(entry.code), openedAt: Date.now() };
+    taskPopup = { entry, scan: parseCode(entry.code) };
     $('#tasks-title').textContent = entry.info.type_name;
     $('#tasks-sub').textContent = entry.iid + (entry.expired ? ' · ' + badLabel(entry.info) : '');
     const boxes = tasks.map((task) => el('input', { type: 'checkbox' }));
     const update = () => { $('#tasks-ok').disabled = !boxes.every((box) => box.checked); };
     for (const box of boxes) box.addEventListener('change', update);
     $('#tasks-list').replaceChildren(...tasks.map((task, index) => el('li', {}, el('label', {}, boxes[index], ' ', task))));
-    $('#tasks-admin').hidden = !isAdmin();
     update();
     showInfo('task', 'Tâches : ' + entry.info.type_name, `${nb(tasks.length, 'tâche')} à compléter pour valider cet item.`);
     if (!dialog.open) dialog.showModal();
