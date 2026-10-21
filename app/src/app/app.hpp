@@ -321,6 +321,8 @@ class App {
     void        reset_session(); // retour a l'etat initial (inactivite)
     // allow_declared : le nom declare sans badge (reglage du serveur) suffit pour cette action
     void        require_login(const std::string &what, std::function< void() > action, bool allow_declared = true);
+    // « Non connecte » de la pile de scans : fenetre de connexion, saisie nom, prenom et PIN deja ouverte
+    void        open_login();
     Json        user_ref() const; // valeur du champ "user" des requetes
     // identite d'une operation sur un lot (verif, ajout) : "user" connecte, sinon "name" declare sans badge
     void        add_identity(Json &body) const;

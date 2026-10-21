@@ -235,6 +235,8 @@ void App::handle_shortcuts() {
     }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F11))
     toggle_fullscreen();
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Space))
+    request_layout_reset();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W))
     if (AppWindow *target = window(focused_window_); target && target->open && target->can_close(*this))
       target->open = false;
@@ -387,7 +389,7 @@ void App::draw_menu_bar() {
       const AppWindow *focused = window(focused_window_);
       if (ImGui::MenuItem("Fermer la fenêtre", "Ctrl+W", false, focused && focused->open && focused->can_close(*this)))
         window(focused_window_)->open = false;
-      if (ImGui::MenuItem("Remettre les fenêtres en place"))
+      if (ImGui::MenuItem("Remettre les fenêtres en place", "Ctrl+Espace"))
         request_layout_reset();
       ImGui::EndMenu();
     }
@@ -1068,6 +1070,22 @@ void App::restore_login() {
     name_login_        = NameLogin{};
     name_login_.open   = true;
     name_login_.focus  = true;
+    name_login_.nom    = last_login_.nom;
+    name_login_.prenom = last_login_.prenom;
+  }
+}
+
+void App::open_login() {
+  if (logged_in() || login_prompt_)
+    return;
+  login_declared_   = false; // le nom declare ne vaut que pour une action
+  pending_action_   = nullptr;
+  login_reason_     = "vous connecter";
+  login_prompt_     = true;
+  name_login_       = NameLogin{};
+  name_login_.open  = true;
+  name_login_.focus = true;
+  if (last_login_.by_name()) {
     name_login_.nom    = last_login_.nom;
     name_login_.prenom = last_login_.prenom;
   }

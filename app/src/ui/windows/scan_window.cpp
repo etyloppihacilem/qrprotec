@@ -43,6 +43,9 @@ class ScanWindow final : public AppWindow {
           app.manual_logout();
       } else {
         ImGui::TextColored(colors::orange, "Non connecté : scannez votre badge.");
+        // sans badge : nom, prenom et code PIN
+        if (button("Se connecter avec nom, prénom et PIN", ImVec2(-1, ImGui::GetFrameHeight() * 1.3f)))
+          app.open_login();
       }
     }
 
