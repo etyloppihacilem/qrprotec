@@ -285,7 +285,8 @@ def _lot_core(lot, today, items=None):
         'revision_late_count': sum(1 for item in revised if item.revision_due < today),
         'revision_soon_count': sum(1 for item in revised if today <= item.revision_due <= soon_limit),
         'requirements': requirements,
-        'complete': all(row['present'] >= row['required'] for row in requirements) and not expired,
+        # complet des que le minimum d'items frais est la : un perime en trop ne le rend pas incomplet
+        'complete': all(row['present'] >= row['required'] for row in requirements),
         'public_url': public_url('verif', lot=lot.id),
     }
     data['state'] = lot_state(data)

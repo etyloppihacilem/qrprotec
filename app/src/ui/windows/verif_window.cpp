@@ -655,7 +655,7 @@ class VerifWindow final : public AppWindow {
       ImGui::BeginChild("report", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
       draw_list(app, "Périmés ou signalés inutilisables, toujours dans le lot : à remplacer", report["expired"],
                 colors::red);
-      draw_list(app, "Périmés considérés comme remplacés", report["replaced"], colors::green);
+      draw_list(app, "Périmés retirés du lot : à jeter", report["replaced"], colors::green);
       // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
       Json missing = Json::array();
       for (const Json &iid : report["missing"].items()) {

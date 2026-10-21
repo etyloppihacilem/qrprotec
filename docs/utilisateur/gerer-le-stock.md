@@ -201,7 +201,8 @@ dans la pile de scans.
 - Chaque matin à 7 h 45, les utilisateurs gestion et admin abonnés reçoivent la liste des lots
   contenant des périmés (notification web « résumé quotidien des périmés »).
 - Dans un sac, on remplace un périmé **pendant une vérif** : scanner le périmé et le neuf, le
-  logiciel sort le périmé du sac.
+  logiciel sort le périmé du sac. Si le sac a déjà assez de non périmés, le périmé scanné est sorti
+  du sac lui aussi (à jeter) et la vérif reste complète.
 
 ## Rechercher un item, réimprimer une étiquette
 

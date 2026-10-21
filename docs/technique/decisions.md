@@ -101,7 +101,9 @@ grâce à un item que personne n'a vu. L'historique complet (`VerifItem`) reste 
 ## Remplacement implicite des périmés
 
 **Choix.** Pendant une vérif, scanner un périmé **et** un neuf du même type qui arrive dans le lot
-sort automatiquement le périmé (« remplacé »).
+sort automatiquement le périmé (« remplacé »). Depuis le 21/10/2026 (choix d'Hippolyte), le
+remplaçant peut aussi être déjà dans le lot : tant que le lot a son minimum d'items non périmés, la
+vérif est verte et le périmé scanné est retiré du lot, à jeter (suggéré au scan).
 **Raison.** C'est le geste réel du secouriste. Lui demander une opération « remplacer » séparée
 aurait été oublié une fois sur deux.
 

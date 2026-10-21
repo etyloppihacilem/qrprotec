@@ -173,6 +173,8 @@ struct VerifPlanLot {
     const Json                   *lot = nullptr;
     int                           depth = 0;
     std::map< std::string, int >  fresh;      // items frais scannes par type
+    std::map< std::string, int >  required;   // minimum par type (exigences du type de lot)
+    std::set< std::string >       iids;       // items scannes ranges dans ce lot
     int                           touched = 0; // items scannes ranges dans ce lot
     bool                          complete = false; // complet avec ces scans (verif partielle possible)
 };
@@ -368,6 +370,7 @@ class App {
     bool                          verif_covers(const std::string &lot_id) const;
     std::string                   verif_title() const; // ex : "Sac de soin + Sac O2"
     std::vector< VerifPlanLot >   plan_verif() const;
+    std::string                   discard_advice(const Json &item) const; // perime scanne : a jeter ou a remplacer
     std::set< std::string >       verif_intact() const; // lots scelles intacts de la verif et leurs sous-lots
     std::vector< const Json * >   partial_verif_lots() const; // lots complets d'une verif groupee incomplete
     // Vérif en cascade

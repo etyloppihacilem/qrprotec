@@ -1583,6 +1583,11 @@ void App::resolve_item(int entry_id) {
       entry->expired = true;
       feedback.error(source, settings);
     }
+    if (entry->expired && verif.active) {
+      const std::string advice = discard_advice(item);
+      if (!advice.empty())
+        notify(advice, true);
+    }
     if (item["reported"].boolean())
       alert_reports("item:" + item["iid"].str(), "Item signalé : " + item["type_name"].str(), item["reports"], source);
     // item a taches perime ou desactive : a remplacer, ses taches n'ont plus de sens. L'ecran clignote en rouge
@@ -2476,32 +2481,47 @@ std::vector< VerifPlanLot > App::plan_verif() const {
       choice = candidates.empty() ? scope.front() : candidates.front();
     target[item.iid] = choice;
   }
-  std::map< std::string, std::map< std::string, int > > expired, new_fresh;
   for (const Scanned &item : all) {
     const std::string id  = target[item.iid];
     VerifPlanLot     &row = plan[index[id]];
     ++row.touched;
-    if (item.expired) {
-      ++expired[id][item.type];
-    } else {
+    row.iids.insert(item.iid);
+    if (!item.expired)
       ++row.fresh[item.type];
-      if (location_of[item.iid] != id)
-        ++new_fresh[id][item.type];
-    }
   }
   for (VerifPlanLot &row : plan) {
-    const std::string id   = (*row.lot)["id"].str();
-    int               left = 0; // perimes non remplaces par un item frais arrive dans le meme lot
-    for (const auto &[type, count] : expired[id])
-      left += std::max(0, count - new_fresh[id][type]);
+    const std::string id = (*row.lot)["id"].str();
+    row.required         = required[id];
+    // seul compte le minimum d'items frais : un perime en trop ne retient pas le lot (il est retire, a jeter)
     bool filled = true;
     for (const auto &[type, quantity] : required[id])
       filled = filled && row.fresh[type] >= quantity;
     // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
     const bool storage = (*row.lot)["storage"].boolean();
-    row.complete = filled && left == 0 && (storage ? !holding.count(id) : (row.touched > 0 || !holding.count(id)));
+    row.complete = filled && (storage ? !holding.count(id) : (row.touched > 0 || !holding.count(id)));
   }
   return plan;
+}
+
+// Perime, inutilisable ou desactive (pas une revision en retard) : la verif le retire du lot, a jeter, des que le lot
+// a son minimum d'items frais de ce type, meme deja presents (services.perform_verif) ; sinon il est a remplacer
+std::string App::discard_advice(const Json &item) const {
+  if (!item["outdated"].boolean() && !item["unusable"].boolean() && !item["disabled"].boolean())
+    return {};
+  const std::string iid  = item["iid"].str();
+  const std::string type = parse_scan(iid).item_type;
+  int               need = 0, have = 0;
+  for (const VerifPlanLot &row : plan_verif())
+    if (row.iids.count(iid)) {
+      const auto required = row.required.find(type);
+      const auto fresh    = row.fresh.find(type);
+      need                = required == row.required.end() ? 0 : required->second;
+      have                = fresh == row.fresh.end() ? 0 : fresh->second;
+    }
+  if (have >= need)
+    return item["type_name"].str() + " : retirez-le du lot et jetez-le, le lot a son compte sans lui.";
+  return item["type_name"].str() + " : à remplacer, jetez-le dès qu'un item non périmé le remplace (non "
+         + pl(need, "périmé") + " : " + std::to_string(have) + "/" + std::to_string(need) + ").";
 }
 
 std::vector< const Json * > App::partial_verif_lots() const {

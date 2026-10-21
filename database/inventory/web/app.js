@@ -641,7 +641,7 @@
         save();
         render();
         showInfo('lot', `Vérif de ${levelLot().name}`, `Commencée par le scan d'un de ses items (${info.type_name}).`,
-          'Scannez les autres items du lot.');
+          'Scannez les autres items du lot.', discardAdvice(entry));
         return;
       }
     }
@@ -682,7 +682,8 @@
       entry.place = where.id;
       showInfo('lot', `📦 Entrée dans ${where.name}`, `${info.type_name} est rangé dans ${where.name}.`,
         closed.length ? `✔ ${closed.join(', ')} : validé.` : '',
-        `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(where)) || state.lot).name}.`);
+        `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(where)) || state.lot).name}.`,
+        discardAdvice(entry));
       save();
       render();
       return;
@@ -793,7 +794,21 @@
     showInfo(entry.expired ? 'bad' : status || revision ? 'warn' : 'ok',
       (entry.expired ? badLabel(info) + ' – ' : '') + info.type_name,
       info.peremption ? 'Péremption : ' + fmtDate(info.peremption) : 'Non périssable',
-      where + (status ? ' · ' + status : ''), revision);
+      where + (status ? ' · ' + status : ''), revision, discardAdvice(entry));
+  }
+
+  // Perime, inutilisable ou desactive (pas une revision en retard) : la vérif le retire du lot, a jeter, des que le
+  // lot a son minimum d'items frais de ce type, meme deja presents (services.perform_verif) ; sinon a remplacer
+  function discardAdvice(entry) {
+    const info = entry.info;
+    if (!entry.expired || (info && !info.outdated && !info.unusable && !info.disabled)) return '';
+    const plan = planSession();
+    const row = plan.lots.find((candidate) => candidate.lot.id === plan.target[entry.iid]);
+    const type = entry.iid.slice(0, 6);
+    const need = row ? row.required[type] || 0 : 0;
+    const have = row ? row.fresh[type] || 0 : 0;
+    if (have >= need) return '🗑 Retirez-le du lot et jetez-le : le lot a son compte sans lui.';
+    return `🗑 À remplacer : jetez-le dès qu'un item non périmé le remplace (non ${pl(need, 'périmé')} : ${have}/${need}).`;
   }
 
   async function scanPack(scan) {
@@ -1425,24 +1440,18 @@
       }
       target[item.iid] = choice || candidates[0] || scope[0];
     }
-    const plan = Object.fromEntries(lots.map((lot) => [lot.id, { lot, fresh: {}, expired: {}, newFresh: {}, touched: 0 }]));
+    const plan = Object.fromEntries(lots.map((lot) => [lot.id, { lot, required: required[lot.id], fresh: {}, touched: 0 }]));
     for (const item of scanned) {
       const row = plan[target[item.iid]];
       if (!row) continue;
       row.touched += 1;
-      if (item.expired) row.expired[item.type] = (row.expired[item.type] || 0) + 1;
-      else {
-        row.fresh[item.type] = (row.fresh[item.type] || 0) + 1;
-        if (locationOf[item.iid] !== row.lot.id) row.newFresh[item.type] = (row.newFresh[item.type] || 0) + 1;
-      }
+      if (!item.expired) row.fresh[item.type] = (row.fresh[item.type] || 0) + 1;
     }
     for (const row of Object.values(plan)) {
-      // perimes remplaces par des items frais arrives dans le meme lot
-      const expiredLeft = Object.entries(row.expired)
-        .reduce((sum, [type, count]) => sum + Math.max(0, count - (row.newFresh[type] || 0)), 0);
+      // seul compte le minimum d'items frais : un perime en trop ne retient pas le lot (il est retire, a jeter)
       const filled = Object.entries(required[row.lot.id]).every(([type, quantity]) => (row.fresh[type] || 0) >= quantity);
       // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
-      row.complete = filled && !expiredLeft && (row.lot.storage ? !holding[row.lot.id] : (row.touched > 0 || !holding[row.lot.id]));
+      row.complete = filled && (row.lot.storage ? !holding[row.lot.id] : (row.touched > 0 || !holding[row.lot.id]));
     }
     return { lots: lots.map((lot) => plan[lot.id]), target, intact };
   }
@@ -2209,7 +2218,7 @@
       ...(report.requirements || []).map((row) => requirementRow(
         (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row.required)),
       ...section('Périmés ou inutilisables encore dans le lot : à remplacer', report.expired),
-      ...section('Périmés remplacés', report.replaced),
+      ...section('Périmés retirés du lot : à jeter', report.replaced),
       // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
       ...section('Étiquette déchirée : utilisés', report.torn),
       ...section('Attendus mais non scannés', report.missing.filter((iid) => !(report.torn || []).includes(iid))),

@@ -491,6 +491,40 @@ class VerifTests(ApiTestCase):
         self.assertEqual(report['expired'], [old.iid])
         self.assertFalse(report['complete'])
 
+    def test_expired_extra_with_fresh_already_in_lot(self):
+        # le lot a deja son minimum de compresses fraiches : le perime retrouve est retire (a jeter), vérif verte
+        old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
+        fresh = self.create(self.compresses, self.today + timedelta(days=30), 2)
+        Items.objects.filter(iid__in=[old.iid] + [item.iid for item in fresh]).update(location=self.lot)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertTrue(body['complete'])  # un perime en trop ne rend pas le lot incomplet
+        self.assertEqual(body['expired_count'], 1)
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/',
+                                 {'items': [old.iid] + [item.iid for item in fresh]})
+        self.assertEqual(code, 200)
+        self.assertTrue(report['complete'])
+        self.assertEqual((report['replaced'], report['expired']), ([old.iid], []))
+        old.refresh_from_db()
+        self.assertEqual((old.status, old.location_id), (ItemStatus.REPLACED, None))
+        # verif partielle : le lot est valide lui aussi
+        other = self.create(self.compresses, self.today - timedelta(days=2), 1)[0]
+        Items.objects.filter(iid=other.iid).update(location=self.lot)
+        code, report = self.call('POST', '/api/verifs/', {'lots': [self.lot.id], 'partial': True,
+                                                          'items': [other.iid] + [item.iid for item in fresh]})
+        self.assertEqual(code, 200)
+        self.assertTrue(report['complete'])
+        self.assertEqual(report['replaced'], [other.iid])
+
+    def test_expired_short_lot_stays_to_replace(self):
+        # une seule compresse fraiche sur deux : le perime reste dans le lot, a remplacer, vérif incomplete
+        old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
+        fresh = self.create(self.compresses, self.today + timedelta(days=30), 1)[0]
+        Items.objects.filter(iid__in=[old.iid, fresh.iid]).update(location=self.lot)
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [old.iid, fresh.iid]})
+        self.assertFalse(report['complete'])
+        self.assertEqual((report['replaced'], report['expired']), ([], [old.iid]))
+        self.assertEqual(Items.objects.get(iid=old.iid).location_id, self.lot.id)
+
     def test_add_items_and_back_to_stock(self):
         items = self.create(self.garrot, None, 2)
         iids = [item.iid for item in items]
