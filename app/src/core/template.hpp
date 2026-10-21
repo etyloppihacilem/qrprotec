@@ -75,7 +75,7 @@ struct ImageElement {
     float y_mm = 2.0f;
     float width_mm = 10.0f;
     float height_mm = 10.0f;
-    bool dither = true;      // tramage Floyd-Steinberg (sinon seuil simple)
+    bool dither = false;     // tramage Floyd-Steinberg (sinon seuil simple), desactive par defaut
     int threshold = 128;     // seuil noir/blanc 0-255
 };
 
