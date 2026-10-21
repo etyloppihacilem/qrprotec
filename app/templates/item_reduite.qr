@@ -10,6 +10,6 @@
     {"id": "exp", "kind": "text", "text": "{[Exp. ]{peremption}}", "x_mm": 1, "y_mm": 23.5, "width_mm": 26, "height_mm": 3.5, "font_size_mm": 2.8, "bold": 0, "align": "left"},
     {"id": "iid", "kind": "text", "text": "{{iid_short}}", "x_mm": 1, "y_mm": 27, "width_mm": 38, "height_mm": 2, "font_size_mm": 1.7, "bold": 0, "align": "left"},
     {"id": "nom-antenne", "kind": "text", "text": "{{titre}}", "x_mm": 20, "y_mm": 8, "width_mm": 19, "height_mm": 4, "font_size_mm": 1.7, "bold": 1, "align": "center"},
-    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 20, "y_mm": 1, "width_mm": 19, "height_mm": 6.5, "dither": 1, "threshold": 128}
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 20, "y_mm": 1, "width_mm": 19, "height_mm": 6.5, "dither": 0, "threshold": 128}
   ]
 }

@@ -12,6 +12,6 @@
     {"id": "tasks", "kind": "text", "text": "{{tasks}}", "x_mm": 0.5, "y_mm": 14, "width_mm": 37, "height_mm": 14, "font_size_mm": 2, "bold": 0, "align": "left"},
     {"id": "iid", "kind": "text", "text": "{{iid_short}}", "x_mm": 0.5, "y_mm": 27.5, "width_mm": 37, "height_mm": 2, "font_size_mm": 1.6, "bold": 0, "align": "left"},
     {"id": "nom-antenne", "kind": "text", "text": "{{titre}}", "x_mm": 36, "y_mm": -0, "width_mm": 14, "height_mm": 3, "font_size_mm": 1.2, "bold": 1, "align": "center", "rotation": 270},
-    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 32, "y_mm": 0, "width_mm": 14, "height_mm": 3.5, "dither": 1, "threshold": 128, "rotation": 270}
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 31.5, "y_mm": 0, "width_mm": 14, "height_mm": 4, "dither": 0, "threshold": 128, "rotation": 270}
   ]
 }

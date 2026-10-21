@@ -12,6 +12,6 @@
     {"id": "verif", "kind": "text", "text": "Scanner pour lancer une vérif", "x_mm": 1, "y_mm": 20, "width_mm": 31, "height_mm": 7.5, "font_size_mm": 3.1, "bold": 0, "align": "left"},
     {"id": "type_lot", "kind": "text", "text": "{{lot_type_name}}", "x_mm": 20.5, "y_mm": 18, "width_mm": 18.5, "height_mm": 2, "font_size_mm": 1.7, "bold": 0, "align": "left"},
     {"id": "type_lot-2", "kind": "text", "text": "{{lot_parent_name}}", "x_mm": 20, "y_mm": 15.5, "width_mm": 19, "height_mm": 2.5, "font_size_mm": 2.1, "bold": 0, "align": "left"},
-    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 32.5, "y_mm": 20, "width_mm": 6.5, "height_mm": 7.5, "dither": 1, "threshold": 128}
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 32.5, "y_mm": 20, "width_mm": 6.5, "height_mm": 7.5, "dither": 0, "threshold": 128}
   ]
 }

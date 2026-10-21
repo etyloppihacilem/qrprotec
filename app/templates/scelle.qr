@@ -10,7 +10,7 @@
     {"id": "numero", "kind": "text", "text": "{{seal_number}}", "x_mm": 37.5, "y_mm": 11.5, "width_mm": 10.5, "height_mm": 2, "font_size_mm": 1.4, "bold": 0, "align": "right", "rotation": 270},
     {"id": "nom", "kind": "text", "text": "{{lot_short}}", "x_mm": 1, "y_mm": 22, "width_mm": 38, "height_mm": 4, "font_size_mm": 2.7, "bold": 1, "align": "left"},
     {"id": "exp", "kind": "text", "text": "Valide jusqu'au {{valid_until}}", "x_mm": 1, "y_mm": 26, "width_mm": 38, "height_mm": 4, "font_size_mm": 2.6, "bold": 0, "align": "left"},
-    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 22, "y_mm": 0.5, "width_mm": 17, "height_mm": 7, "dither": 1, "threshold": 128},
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 22, "y_mm": 0.5, "width_mm": 17, "height_mm": 7, "dither": 0, "threshold": 128},
     {"id": "nom-antenne", "kind": "text", "text": "{{titre}}", "x_mm": 22, "y_mm": 7.5, "width_mm": 17, "height_mm": 4, "font_size_mm": 1.5, "bold": 1, "align": "center"},
     {"id": "parent", "kind": "text", "text": "{{lot_parent_name}}", "x_mm": 22, "y_mm": 16, "width_mm": 15.5, "height_mm": 3, "font_size_mm": 1.7, "bold": 0, "align": "left"},
     {"id": "parent-2", "kind": "text", "text": "{{lot_type_name}}", "x_mm": 22, "y_mm": 19, "width_mm": 15.5, "height_mm": 3, "font_size_mm": 1.7, "bold": 0, "align": "right"}

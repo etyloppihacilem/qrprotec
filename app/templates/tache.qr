@@ -12,6 +12,6 @@
     {"id": "iid", "kind": "text", "text": "{{iid}}", "x_mm": 16.5, "y_mm": 14.5, "width_mm": 23, "height_mm": 2, "font_size_mm": 1.5, "bold": 0, "align": "left"},
     {"id": "label", "kind": "text", "text": "FAIRE À LA VÉRIF", "x_mm": 1, "y_mm": 17, "width_mm": 18, "height_mm": 2, "font_size_mm": 1.8, "bold": 1, "align": "left"},
     {"id": "nom-antenne", "kind": "text", "text": "{{titre}}", "x_mm": 16.5, "y_mm": 1, "width_mm": 15.5, "height_mm": 3, "font_size_mm": 1.3, "bold": 1, "align": "center"},
-    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 31, "y_mm": 0.5, "width_mm": 8, "height_mm": 4.5, "dither": 1, "threshold": 128}
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 31, "y_mm": 0.5, "width_mm": 8, "height_mm": 4.5, "dither": 0, "threshold": 128}
   ]
 }

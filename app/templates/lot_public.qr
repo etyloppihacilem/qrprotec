@@ -5,7 +5,7 @@
   "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
   "parameters": {"lot_name": "Sac O2 ALPHA", "lot_parent_name": "Lot B+ Alpha", "lot_type_name": "Sac O2", "lot_url": "https://example.com/verif?lot=sacpse00000001", "titre": "PROTECTION CIVILE\nPARIS CENTRE"},
   "elements": [
-    {"id": "logo", "kind": "image", "path": "images/protection-civile.png", "x_mm": 4, "y_mm": 0.5, "width_mm": 10, "height_mm": 7.5, "dither": 1, "threshold": 128},
+    {"id": "logo", "kind": "image", "path": "images/protection-civile.png", "x_mm": 4, "y_mm": 0.5, "width_mm": 10, "height_mm": 7.5, "dither": 0, "threshold": 128},
     {"id": "qr", "kind": "qr", "payload": "{{lot_url}}", "x_mm": 18, "y_mm": 2, "size_mm": 21, "ecc": 1, "quiet_zone": 0},
     {"id": "nom", "kind": "text", "text": "{{lot_name}}", "x_mm": 1, "y_mm": 13, "width_mm": 17, "height_mm": 10.5, "font_size_mm": 3, "bold": 1, "align": "left"},
     {"id": "parent", "kind": "text", "text": "{{lot_parent_name}}", "x_mm": 1, "y_mm": 23.5, "width_mm": 24, "height_mm": 3.5, "font_size_mm": 1.6, "bold": 0, "align": "left"},

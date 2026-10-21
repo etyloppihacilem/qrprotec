@@ -9,7 +9,7 @@
     {"id": "titre", "kind": "text", "text": "SCANNER APRÈS OUVERTURE", "x_mm": 20.5, "y_mm": 0.5, "width_mm": 18.5, "height_mm": 9, "font_size_mm": 2.7, "bold": 1, "align": "center"},
     {"id": "nom", "kind": "text", "text": "{{lot_short}}", "x_mm": 1, "y_mm": 20.5, "width_mm": 38, "height_mm": 6.5, "font_size_mm": 2.4, "bold": 0, "align": "left"},
     {"id": "info", "kind": "text", "text": "Scanner cette étiquette ouvre le scellé", "x_mm": 1, "y_mm": 27, "width_mm": 38, "height_mm": 3, "font_size_mm": 1.9, "bold": 0, "align": "left"},
-    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 20.5, "y_mm": 10, "width_mm": 18.5, "height_mm": 6, "dither": 1, "threshold": 128},
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 20.5, "y_mm": 10, "width_mm": 18.5, "height_mm": 6, "dither": 0, "threshold": 128},
     {"id": "nom-antenne", "kind": "text", "text": "{{titre}}", "x_mm": 20.5, "y_mm": 16, "width_mm": 18.5, "height_mm": 4, "font_size_mm": 1.7, "bold": 1, "align": "center"}
   ]
 }
