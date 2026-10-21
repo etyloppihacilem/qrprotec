@@ -1220,8 +1220,13 @@ void Editor::draw_side_panel() {
   ImGui::PushItemWidth(-ImGui::GetFontSize() * 8.0f);
   if (ImGui::BeginTabBar("side_tabs")) {
     if (tab_item("Élément", focus_element_tab_ ? ImGuiTabItemFlags_SetSelected : 0)) {
-      if (TemplateElement *element = selected())
+      if (TemplateElement *element = selected()) {
+        // Un ID par element : sinon un champ encore actif quand on clique sur un autre element
+        // recopie son texte dans le nouvel element au moment ou il se desactive.
+        ImGui::PushID(selected_element_);
         draw_properties(*element);
+        ImGui::PopID();
+      }
       else
         ImGui::TextWrapped("Cliquez sur un élément de l'étiquette (ou dans les calques) pour le modifier.");
       ImGui::EndTabItem();
