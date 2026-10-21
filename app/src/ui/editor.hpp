@@ -43,7 +43,7 @@ private:
         std::string error;
     };
 
-    // Zone d'un element en mm (QR : carre)
+    // Zone d'un element sur l'etiquette en mm (QR : carre)
     struct Box {
         float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
     };
@@ -110,11 +110,12 @@ private:
     void move_selected(int delta); // +1 : vers l'avant (au-dessus), -1 : vers l'arriere
     void move_element(int from, int to);
     void align_selected(int horizontal, int vertical); // -1 / 0 / 1, 2 = inchange
+    void rotate_selected(int quarters); // +1 : quart de tour horaire, -1 : anti-horaire
     void nudge_selected(float dx, float dy);
     void handle_shortcuts();
 
     static Box element_box(const TemplateElement &element);
-    static void set_element_box(TemplateElement &element, const Box &box);
+    static void set_element_box(TemplateElement &element, Box box);
     std::string unique_id(const std::string &base) const;
 
     // Vue de l'etiquette : zoom (pixels ecran par pixel d'etiquette) et decalage dans le canevas

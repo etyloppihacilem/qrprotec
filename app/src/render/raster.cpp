@@ -18,6 +18,8 @@
 #include <optional>
 #include <cmath>
 #include <string>
+#include <type_traits>
+#include <variant>
 
 namespace qrprotec {
 
@@ -272,24 +274,83 @@ int qr_module_pixels(const QrElement& qr, const std::string& payload, double pix
     return size / (code->getSize() + 2 * std::max(0, qr.quiet_zone));
 }
 
+namespace {
+void draw_element(RasterImage& image, const TemplateElement& element, const TemplateDocument& document, double scale)
+{
+    if (element.kind == ElementKind::Text) {
+        const TextElement& text = std::get<TextElement>(element.content);
+        draw_text(image, text, resolve_parameters(text.text, document.parameters), scale);
+    } else if (element.kind == ElementKind::QrCode) {
+        const QrElement& qr = std::get<QrElement>(element.content);
+        draw_qr(image, qr, resolve_parameters(qr.payload, document.parameters), scale);
+    } else if (element.kind == ElementKind::Barcode) {
+        const BarcodeElement& barcode = std::get<BarcodeElement>(element.content);
+        draw_barcode(image, barcode, resolve_parameters(barcode.payload, document.parameters), scale);
+    } else {
+        draw_image(image, std::get<ImageElement>(element.content), scale);
+    }
+}
+
+// Valeur des pixels que l'element n'a pas dessines (ni noir ni blanc) : ils laissent voir ce qui est dessous
+constexpr std::uint8_t kUntouched = 1;
+
+// Element tourne : dessine a plat a l'origine d'un calque transparent, puis tourne et pose sur l'etiquette au
+// coin haut-gauche de sa zone (x_mm, y_mm)
+void draw_rotated_element(RasterImage& image, const TemplateElement& element, const TemplateDocument& document,
+                          double scale, int rotation)
+{
+    TemplateElement flat = element;
+    float left_mm = 0.0f;
+    float top_mm = 0.0f;
+    float width_mm = 0.0f;
+    float height_mm = 0.0f;
+    std::visit([&](auto& content) {
+        left_mm = content.x_mm;
+        top_mm = content.y_mm;
+        content.x_mm = 0.0f;
+        content.y_mm = 0.0f;
+        if constexpr (std::is_same_v<std::decay_t<decltype(content)>, QrElement>)
+            width_mm = height_mm = content.size_mm;
+        else {
+            width_mm = content.width_mm;
+            height_mm = content.height_mm;
+        }
+    }, flat.content);
+    // ce qui deborderait de la zone (mot trop long) est coupe : il tomberait sinon a cote apres rotation
+    const int content_width = std::max(1, static_cast<int>(width_mm * scale));
+    const int content_height = std::max(1, static_cast<int>(height_mm * scale));
+    RasterImage layer{content_width, content_height,
+                      std::vector<std::uint8_t>(static_cast<std::size_t>(content_width * content_height), kUntouched)};
+    draw_element(layer, flat, document, scale);
+    const int left = static_cast<int>(left_mm * scale);
+    const int top = static_cast<int>(top_mm * scale);
+    for (int y = 0; y < content_height; ++y)
+        for (int x = 0; x < content_width; ++x) {
+            const std::uint8_t value = layer.at(x, y);
+            if (value == kUntouched) continue;
+            // sens horaire : 90 (x, y) -> (H-1-y, x) ; 180 -> (W-1-x, H-1-y) ; 270 -> (y, W-1-x)
+            int tx = x;
+            int ty = y;
+            if (rotation == 90) { tx = content_height - 1 - y; ty = x; }
+            else if (rotation == 180) { tx = content_width - 1 - x; ty = content_height - 1 - y; }
+            else if (rotation == 270) { tx = y; ty = content_width - 1 - x; }
+            tx += left;
+            ty += top;
+            if (tx >= 0 && ty >= 0 && tx < image.width && ty < image.height)
+                image.at(tx, ty) = value;
+        }
+}
+}
+
 RasterImage render_template(const TemplateDocument& document)
 {
     RasterImage image{document.media.width_pixels(), document.media.height_pixels(), {}};
     image.pixels.assign(static_cast<std::size_t>(image.width * image.height), 255);
     const double scale = document.media.pixels_per_mm;
     for (const TemplateElement& element : document.elements) {
-        if (element.kind == ElementKind::Text) {
-            const TextElement& text = std::get<TextElement>(element.content);
-            draw_text(image, text, resolve_parameters(text.text, document.parameters), scale);
-        } else if (element.kind == ElementKind::QrCode) {
-            const QrElement& qr = std::get<QrElement>(element.content);
-            draw_qr(image, qr, resolve_parameters(qr.payload, document.parameters), scale);
-        } else if (element.kind == ElementKind::Barcode) {
-            const BarcodeElement& barcode = std::get<BarcodeElement>(element.content);
-            draw_barcode(image, barcode, resolve_parameters(barcode.payload, document.parameters), scale);
-        } else {
-            draw_image(image, std::get<ImageElement>(element.content), scale);
-        }
+        const int rotation = normalize_rotation(element.rotation);
+        if (rotation == 0) draw_element(image, element, document, scale);
+        else draw_rotated_element(image, element, document, scale, rotation);
     }
     return image;
 }

@@ -651,8 +651,9 @@ Fond orange. Menu **Gestion** (Réglages, Utilisateurs et Éditeur d'étiquettes
   Enregistrer, Enregistrer sous, Annuler, Rétablir), calques à gauche (glisser pour changer l'ordre),
   étiquette au centre où l'on sélectionne, déplace et redimensionne les éléments à la souris
   (magnétisme sur une grille de 0,5 mm et sur le centre, Alt pour s'en passer), zoom à Ctrl+molette,
-  propriétés à droite. Raccourcis : Ctrl+S, Ctrl+O, Ctrl+N, Ctrl+Z / Ctrl+Y, Ctrl+C / Ctrl+V / Ctrl+D,
-  Suppr, flèches (0,1 mm, Maj : 1 mm). Les modifications non enregistrées sont signalées avant
+  propriétés à droite. Chaque élément se tourne par quart de tour (propriétés, clic droit ou Ctrl+R,
+  Ctrl+Maj+R dans l'autre sens), à l'aperçu comme à l'impression. Raccourcis : Ctrl+S, Ctrl+O, Ctrl+N,
+  Ctrl+Z / Ctrl+Y, Ctrl+C / Ctrl+V / Ctrl+D, Ctrl+R, Suppr, flèches (0,1 mm, Maj : 1 mm). Les modifications non enregistrées sont signalées avant
   d'ouvrir un autre modèle.
 - **Réglages** : dont le délai d'alerte d'expiration des notifications. Sans modèle choisi pour un usage, le premier modèle du
   dossier fait pour cet usage est utilisé (ex : `scelle.qr`), sinon le QR code seul.

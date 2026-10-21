@@ -486,24 +486,30 @@ void Editor::draw_export_popup() {
 // ---------------------------------------------------------------------------------------------------------------------
 // Elements
 
+// Zone occupee sur l'etiquette : largeur et hauteur echangees quand l'element est couche
 Editor::Box Editor::element_box(const TemplateElement &element) {
+  Box box;
   if (element.kind == ElementKind::Text) {
     const TextElement &text = std::get< TextElement >(element.content);
-    return { text.x_mm, text.y_mm, text.width_mm, text.height_mm };
-  }
-  if (element.kind == ElementKind::QrCode) {
+    box                     = { text.x_mm, text.y_mm, text.width_mm, text.height_mm };
+  } else if (element.kind == ElementKind::QrCode) {
     const QrElement &qr = std::get< QrElement >(element.content);
-    return { qr.x_mm, qr.y_mm, qr.size_mm, qr.size_mm };
-  }
-  if (element.kind == ElementKind::Barcode) {
+    box                 = { qr.x_mm, qr.y_mm, qr.size_mm, qr.size_mm };
+  } else if (element.kind == ElementKind::Barcode) {
     const BarcodeElement &barcode = std::get< BarcodeElement >(element.content);
-    return { barcode.x_mm, barcode.y_mm, barcode.width_mm, barcode.height_mm };
+    box                           = { barcode.x_mm, barcode.y_mm, barcode.width_mm, barcode.height_mm };
+  } else {
+    const ImageElement &image = std::get< ImageElement >(element.content);
+    box                       = { image.x_mm, image.y_mm, image.width_mm, image.height_mm };
   }
-  const ImageElement &image = std::get< ImageElement >(element.content);
-  return { image.x_mm, image.y_mm, image.width_mm, image.height_mm };
+  if (quarter_turned(element))
+    std::swap(box.w, box.h);
+  return box;
 }
 
-void Editor::set_element_box(TemplateElement &element, const Box &box) {
+void Editor::set_element_box(TemplateElement &element, Box box) {
+  if (quarter_turned(element))
+    std::swap(box.w, box.h);
   if (element.kind == ElementKind::Text) {
     TextElement &text = std::get< TextElement >(element.content);
     text.x_mm         = box.x;
@@ -636,6 +642,20 @@ void Editor::align_selected(int horizontal, int vertical) {
   preview_dirty_ = true;
 }
 
+void Editor::rotate_selected(int quarters) {
+  TemplateElement *element = selected();
+  if (!element)
+    return;
+  // tourne autour du centre de sa zone
+  const Box before  = element_box(*element);
+  element->rotation = normalize_rotation(element->rotation + quarters * 90);
+  Box after         = element_box(*element);
+  after.x           = std::round((before.x + (before.w - after.w) / 2.0f) * 100.0f) / 100.0f;
+  after.y           = std::round((before.y + (before.h - after.h) / 2.0f) * 100.0f) / 100.0f;
+  set_element_box(*element, after);
+  preview_dirty_ = true;
+}
+
 void Editor::nudge_selected(float dx, float dy) {
   TemplateElement *element = selected();
   if (!element)
@@ -669,6 +689,10 @@ void Editor::handle_shortcuts() {
     redo();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D))
     duplicate_selected();
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_R))
+    rotate_selected(1);
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_R))
+    rotate_selected(-1);
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C))
     copy_selected();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_X)) {
@@ -1216,6 +1240,11 @@ void Editor::draw_canvas_menu() {
   if (ImGui::MenuItem("Arrière-plan", nullptr, false, selection && selected_element_ > 0))
     move_element(selected_element_, 0);
   ImGui::Separator();
+  if (ImGui::MenuItem("Tourner à droite (90°)", "Ctrl+R", false, selection))
+    rotate_selected(1);
+  if (ImGui::MenuItem("Tourner à gauche (90°)", "Ctrl+Maj+R", false, selection))
+    rotate_selected(-1);
+  ImGui::Separator();
   if (ImGui::MenuItem("Centrer horizontalement", nullptr, false, selection))
     align_selected(0, 2);
   if (ImGui::MenuItem("Centrer verticalement", nullptr, false, selection))
@@ -1377,6 +1406,16 @@ void Editor::draw_properties(TemplateElement &element) {
     set_element_box(element, box);
     preview_dirty_ = true;
   }
+  ImGui::AlignTextToFramePadding();
+  ImGui::Text("Rotation : %d°", normalize_rotation(element.rotation));
+  ImGui::SameLine();
+  if (button("Gauche##rotation"))
+    rotate_selected(-1);
+  ImGui::SetItemTooltip("Tourner d'un quart de tour vers la gauche (Ctrl+Maj+R)");
+  ImGui::SameLine();
+  if (button("Droite##rotation"))
+    rotate_selected(1);
+  ImGui::SetItemTooltip("Tourner d'un quart de tour vers la droite (Ctrl+R)");
   ImGui::TextUnformatted("Aligner sur l'étiquette");
   ImGui::PushID("aligner"); // memes libelles que l'alignement du texte (Gauche, Droite)
   const float third = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
