@@ -683,6 +683,9 @@ PUSH_TYPES = {
 }
 
 
+DEFAULT_FONCTION = 'Secouriste'
+
+
 class Secouristes(models.Model):
     matricule = models.CharField(max_length=16, primary_key=True, editable=False)
     nom = models.CharField(max_length=32)
@@ -692,6 +695,8 @@ class Secouristes(models.Model):
     key_expires = models.DateField(blank=True, null=True)
     key_expiry_stage = models.PositiveSmallIntegerField(default=0)  # alerte d'expiration envoyee (voir KeyExpiry)
     role = models.CharField(max_length=8, choices=Role.choices, default=Role.NORMAL)
+    # Role dans l'equipe (l'autorite, l'OPE, le TECH...) : texte libre, purement descriptif, sans lien avec les droits
+    fonction = models.CharField(max_length=32, default=DEFAULT_FONCTION)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(default=timezone.now)
     # PIN de connexion (4 a 8 chiffres, hache) : obligatoire pour les admins, facultatif sinon

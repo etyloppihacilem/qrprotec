@@ -37,7 +37,7 @@ class LotsAdmin(admin.ModelAdmin):
 
 @admin.register(Secouristes)
 class SecouristesAdmin(admin.ModelAdmin):
-    list_display = ('matricule', 'nom', 'prenom', 'role', 'active', 'key_expires')
+    list_display = ('matricule', 'nom', 'prenom', 'fonction', 'role', 'active', 'key_expires')
 
 
 @admin.register(ItemRevision)

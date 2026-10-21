@@ -37,6 +37,8 @@ class ScanWindow final : public AppWindow {
       if (app.logged_in()) {
         ImGui::TextColored(app.privileged() ? colors::orange : colors::green, "Connecté : %s%s",
                            app.user_name().c_str(), app.user ? app.user->role_suffix().c_str() : "");
+        if (app.user && !app.user->fonction.empty())
+          ImGui::TextDisabled("%s", app.user->fonction.c_str());
         const bool logout = danger_button("Se déconnecter", ImVec2(-1, ImGui::GetFrameHeight() * 1.3f), false);
         ImGui::SetItemTooltip("Super+L");
         if (logout)

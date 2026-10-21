@@ -581,6 +581,20 @@ class ManagementTests(ApiTestCase):
         self.assertTrue(body['id'].startswith('sacpse'))
         self.assertEqual(len(body['id']), 14)
 
+    def test_user_fonction(self):
+        """Role dans l'equipe : texte libre, Secouriste par defaut, sans effet sur les droits."""
+        code, body = self.call('POST', '/api/users/', {'matricule': 'M002', 'nom': 'Martin', 'prenom': 'Paul'})
+        self.assertEqual((code, body['fonction'], body['role']), (201, 'Secouriste', 'normal'))
+        code, body = self.call('POST', '/api/users/', {'matricule': 'M003', 'nom': 'Durand', 'prenom': 'Léa',
+                                                       'fonction': "  l'OPÉ  "})
+        self.assertEqual((code, body['fonction'], body['role']), (201, "l'OPÉ", 'normal'))
+        code, body = self.call('PATCH', '/api/users/M002/', {'fonction': 'le   TECH'})
+        self.assertEqual((code, body['fonction'], body['privileged']), (200, 'le TECH', False))
+        code, body = self.call('PATCH', '/api/users/M002/', {'fonction': '  '})
+        self.assertEqual(body['fonction'], 'Secouriste')  # vide : role par defaut
+        code, body = self.call('PATCH', '/api/users/M002/', {'fonction': 'x' * 40})
+        self.assertEqual(len(body['fonction']), 32)
+
     def test_item_type_tasks(self):
         """Taches d'un type d'item (etiquette de taches) : nettoyees, exposees sur l'item avec l'URL de l'etiquette."""
         code, body = self.call('POST', '/api/item-types/', {'type': 'defibr', 'name': 'DAE',
