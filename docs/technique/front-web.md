@@ -84,9 +84,10 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   démarrée), **Suivi des vérifs** (`renderLive`), **État des lots** (`renderLotsPage`, liste publique
   `POST api/lots/summary/`), **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
   Chaque page a son ancre (`#lots`, `#suivi`, `#stock`, `#scan`) : le bouton retour du téléphone
-  ramène à l'accueil. Le bouton ⚙ (**gestionnaire des notifications**, `renderNotifications`)
-  n'apparaît que pour les utilisateurs qui peuvent recevoir des notifications (`notifications` dans
-  la réponse de `api/auth/`).
+  ramène à l'accueil. Le bouton ⚙ (**réglages**, dès qu'un utilisateur est connecté)
+  ouvre son **code PIN** (`renderPinSettings`, `POST api/me/pin/`) puis le **gestionnaire des
+  notifications** (`renderNotifications`), affiché seulement pour les utilisateurs qui peuvent en
+  recevoir (`notifications` dans la réponse de `api/auth/`).
 - **Suivi des vérifs en direct** : `live` publie la vérif en cours de la page de scan (lot, scans,
   reste à scanner) sur `/ws/live/scanner`, avec une session conservée dans `sessionStorage` pour
   survivre à un rechargement ; la page de suivi ouvre `/ws/live/watch` (badge exigé) et reçoit les

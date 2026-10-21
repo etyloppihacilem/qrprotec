@@ -13,13 +13,13 @@
   <link rel="stylesheet" href="web/app.css">
 </head>
 <body class="home-mode">
-  <!-- Page d'accueil : connexion (petit lecteur dans un coin), quatre entrees, reglages des notifications -->
+  <!-- Page d'accueil : connexion (petit lecteur dans un coin), quatre entrees, reglages de l'utilisateur -->
   <section id="home">
     <header id="home-bar">
       <button id="home-back" class="bar-button" type="button" aria-label="Retour à l'accueil" hidden>‹</button>
       <h1 id="home-title">QRProtec</h1>
       <div class="bar-buttons">
-        <button id="home-settings" class="bar-button" type="button" aria-label="Réglages des notifications" title="Réglages des notifications" hidden>⚙</button>
+        <button id="home-settings" class="bar-button" type="button" aria-label="Réglages" title="Réglages (code PIN, notifications)" hidden>⚙</button>
         <button id="home-user" class="login-button" type="button">Se connecter</button>
       </div>
     </header>
@@ -126,7 +126,7 @@
     <button type="button" data-action="add">Ajouter les items scannés au lot</button>
     <button type="button" data-action="manual">Saisir un code à la main</button>
     <button type="button" data-action="forget-lot">Changer de lot</button>
-    <button type="button" data-action="notifications" id="menu-notifications" hidden>Notifications</button>
+    <button type="button" data-action="notifications" id="menu-notifications" hidden>Réglages</button>
     <button type="button" data-action="logout">Se déconnecter</button>
     <button type="button" data-action="close" class="secondary">Fermer</button>
   </dialog>
@@ -285,9 +285,12 @@
     </div>
   </dialog>
 
-  <!-- Gestionnaire des notifications web (roles gestion et admin) : cet appareil et tous les appareils abonnes -->
+  <!-- Reglages de l'utilisateur connecte : son code PIN (tous les roles), puis les notifications web (roles gestion et
+       admin) de cet appareil et de tous ses appareils abonnes -->
   <dialog id="notifications">
-    <h2>Notifications</h2>
+    <h2>Réglages</h2>
+    <div id="settings-pin" class="push-box"></div>
+    <h3 id="notifications-title" hidden>Notifications</h3>
     <div id="notifications-body"></div>
     <div class="dialog-buttons">
       <button type="button" id="notifications-close" class="secondary">Fermer</button>

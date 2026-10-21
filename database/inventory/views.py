@@ -2195,6 +2195,49 @@ def my_scanner_volume(request):
     return Response({'scanner_volume': user.effective_scanner_volume, 'custom': user.scanner_volume is not None})
 
 
+PIN_SAVE_FIELDS = ['pin_hash', 'pin_mode', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',
+                   'pin_reset_required', 'pin_forgotten', 'pin_reset_notified']
+
+
+@api_view(['POST'])
+@handle_errors
+def my_pin(request):
+    """Code PIN de l'utilisateur connecte, depuis ses reglages (web) : {"user", "current_pin", "pin"} le choisit ou le
+    change, {"user", "current_pin", "disable": true} le supprime (refuse pour un admin, ou si un admin l'a rendu
+    obligatoire). Le PIN actuel est redemande (essais faux comptes comme a la connexion). La session reste ouverte."""
+    user = badge_user(request, ALL_ROLES)  # badge ou jeton de session, PIN deja verifie s'il est demande
+    data = request.data
+    if user.pin_blocked:
+        raise pin_blocked_error(user)
+    if user.pin_locked():
+        raise ApiError("Trop d'essais : PIN bloqué quelques minutes", status.HTTP_403_FORBIDDEN, pin_locked=True)
+    disable = bool(data.get('disable'))
+    if disable and not user.pin_can_disable:
+        raise ApiError("Le PIN est obligatoire pour un administrateur" if user.role == Role.ADMIN
+                       else "Le TECH a rendu le code PIN obligatoire pour vous", status.HTTP_403_FORBIDDEN)
+    if user.has_pin and not user.check_pin(str(data.get('current_pin', '') or '')):
+        if user.pin_blocked:
+            raise pin_blocked_error(user)
+        raise ApiError("PIN bloqué 5 min après trop d'essais" if user.pin_locked() else "Code PIN actuel incorrect",
+                       status.HTTP_403_FORBIDDEN, pin_locked=user.pin_locked())
+    if disable:
+        if not user.has_pin:
+            raise ApiError("Vous n'avez pas de code PIN")
+        user.pin_hash = ''  # mode du PIN inchange : il redevient facultatif, comme avant d'en choisir un
+        user._clear_pin_failures()
+        summary = 'code PIN supprimé'
+    else:
+        pin = str(data.get('pin', '') or '').strip()
+        if not PIN_RE.match(pin):
+            raise ApiError('Le PIN doit comporter 4 à 8 chiffres')
+        summary = 'code PIN modifié' if user.has_pin else 'code PIN choisi'
+        user.set_pin(pin)
+    user.save(update_fields=PIN_SAVE_FIELDS)
+    journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
+                   f'{summary} par {user} ({user.matricule}) dans ses réglages', matricule=user.matricule, fields=['pin'])
+    return Response(ser.user_dict(user))
+
+
 def parse_warning_days(value):
     """Delai de l'alerte « expire bientot » (1 a 365 jours), None : valeur de qrprotec.conf."""
     if value in (None, ''):

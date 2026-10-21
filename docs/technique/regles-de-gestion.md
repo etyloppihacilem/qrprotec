@@ -387,6 +387,12 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 - **Code oublié** (lien discret sous la saisie du PIN, front web et poste) : `POST /api/pin-forgot/`
   (`matricule`, `key` du badge) bloque le PIN de la même façon (`pin_forgotten`) et renvoie la même
   réponse `pin_blocked`, pour le même parcours de déblocage. Refusé si l'utilisateur n'a pas de PIN.
+- **PIN choisi par l'utilisateur** (réglages ⚙ du front web, tous les rôles) : `POST /api/me/pin/`
+  (`user` : badge ou jeton de session, `current_pin` s'il a déjà un PIN, essais faux comptés comme
+  à la connexion) : `pin` le choisit ou le change, `disable: true` le supprime. La suppression est
+  refusée pour un admin et quand le TECH a rendu le PIN obligatoire (`pin_mode` `required`, ou PIN
+  obligatoire par défaut sans exemption) : `pin_can_disable` dans la réponse de `api/auth/`. Le mode
+  du PIN n'est pas modifié (le PIN redevient facultatif) ; la session reste ouverte.
 - **Notification des admins** au blocage (50 erreurs ou code oublié) : notifications web (option
   `pin_blocked` de l'abonnement), avec le lien de déblocage. **Une seule par
   blocage** : `pin_reset_notified` est pris avant l'envoi et ne revient à `False` qu'à la

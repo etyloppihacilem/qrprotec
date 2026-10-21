@@ -557,6 +557,7 @@ def user_dict(user, local=False):
         'has_pin': user.has_pin,
         'pin_required': user.pin_required,
         'pin_mode': user.pin_mode,  # '' : reglage par defaut du serveur, 'required' ou 'disabled'
+        'pin_can_disable': user.pin_can_disable,  # PIN facultatif : l'utilisateur peut le supprimer (reglages web)
         'active': user.active,
         'key_expires': _date(user.key_expires),
         'pin_blocked': user.pin_blocked is not None,

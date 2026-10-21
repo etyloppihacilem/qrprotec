@@ -117,7 +117,9 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
   confirmer que ses équipiers ont fait leur vérif. Badge demandé.
 - **État des lots** : tous les lots et leur état ; toucher un lot l'ouvre.
 - **Gestion de la TECH** (tâches, état des stocks, prévisions) : rôles gestion et admin (badge demandé, grisé pour les autres).
-- ⚙ : réglages des notifications, seulement pour ceux qui peuvent en recevoir.
+- ⚙ : vos réglages, une fois connecté : **code PIN** (le choisir, le changer avec l'ancien, ou le
+  supprimer s'il n'est pas obligatoire : jamais pour un admin, ni quand le TECH l'a imposé), puis
+  les notifications pour ceux qui peuvent en recevoir.
 
 Une vérif commencée au téléphone apparaît dans le **Suivi des vérifs** dès le premier scan, et y
 reste affichée quelques minutes une fois validée.
