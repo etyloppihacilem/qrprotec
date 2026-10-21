@@ -99,16 +99,70 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
   return issues;
 }
 
+namespace {
+// Un placeholder : {{nom}}, ou {[prefixe]{nom}[suffixe]} dont le prefixe et le suffixe (chacun facultatif)
+// ne s'impriment que si la valeur n'est pas vide, ex. {[Exp. ]{peremption}} ou {{peremption}[ inclus]}.
+struct Placeholder {
+    std::size_t end = 0; // juste apres l'accolade fermante
+    std::string prefix;
+    std::string name;
+    std::string suffix;
+};
+
+// Lit un texte entre crochets a partir de position (qui pointe sur '[') ; avance position apres ']'
+bool read_bracket(const std::string &value, std::size_t &position, std::string &text) {
+  const std::size_t end = value.find(']', position + 1);
+  if (std::string::npos == end)
+    return false;
+  text     = value.substr(position + 1, end - position - 1);
+  position = end + 1;
+  return true;
+}
+
+// Reconnait un placeholder commencant a position (qui pointe sur '{')
+bool read_placeholder(const std::string &value, std::size_t position, Placeholder &placeholder) {
+  std::size_t cursor = position + 1;
+  if (cursor < value.size() && value[cursor] == '[' && !read_bracket(value, cursor, placeholder.prefix))
+    return false;
+  if (cursor >= value.size() || value[cursor] != '{')
+    return false;
+  const std::size_t name_end = value.find_first_of("{}[]", cursor + 1);
+  if (std::string::npos == name_end || value[name_end] != '}' || name_end == cursor + 1)
+    return false;
+  placeholder.name = value.substr(cursor + 1, name_end - cursor - 1);
+  cursor           = name_end + 1;
+  if (cursor < value.size() && value[cursor] == '[' && !read_bracket(value, cursor, placeholder.suffix))
+    return false;
+  if (cursor >= value.size() || value[cursor] != '}')
+    return false;
+  placeholder.end = cursor + 1;
+  return true;
+}
+} // namespace
+
 std::string
 resolve_parameters(const std::string &input, const std::unordered_map< std::string, std::string > &parameters) {
-  std::string result = input;
-  for (const auto &[key, value] : parameters) {
-    const std::string token    = "{{" + key + "}}";
-    std::size_t       position = 0;
-    while ((position = result.find(token, position)) != std::string::npos) {
-      result.replace(position, token.size(), value);
-      position += value.size();
+  std::string result;
+  std::size_t position = 0;
+  while (position < input.size()) {
+    const std::size_t open = input.find('{', position);
+    if (std::string::npos == open) {
+      result.append(input, position, std::string::npos);
+      break;
     }
+    result.append(input, position, open - position);
+    Placeholder       placeholder;
+    const auto        found = read_placeholder(input, open, placeholder) ? parameters.find(placeholder.name)
+                                                                         : parameters.end();
+    if (found == parameters.end()) {
+      // pas un placeholder, ou sans valeur connue : laisse tel quel
+      result += '{';
+      position = open + 1;
+      continue;
+    }
+    if (!found->second.empty())
+      result += placeholder.prefix + found->second + placeholder.suffix;
+    position = placeholder.end;
   }
   return result;
 }
@@ -117,14 +171,13 @@ std::vector< std::string > find_placeholders(const TemplateDocument &document) {
   std::set< std::string > names;
   const auto              collect = [&names](const std::string &value) {
     std::size_t position = 0;
-    while ((position = value.find("{{", position)) != std::string::npos) {
-      const std::size_t end = value.find("}}", position + 2);
-      if (std::string::npos == end)
-        break;
-      const std::string name = value.substr(position + 2, end - position - 2);
-      if (!name.empty())
-        names.insert(name);
-      position = end + 2;
+    while ((position = value.find('{', position)) != std::string::npos) {
+      Placeholder placeholder;
+      if (read_placeholder(value, position, placeholder)) {
+        names.insert(placeholder.name);
+        position = placeholder.end;
+      } else
+        ++position;
     }
   };
   for (const TemplateElement &element : document.elements)

@@ -780,7 +780,9 @@ void Editor::draw_layers_panel() {
     add_element({ "texte", ElementKind::Text,
                   TextElement{ "Texte", 2.0f, (height - box_height) / 2.0f, std::max(1.0f, width - 4.0f), box_height, 3.0f } });
   }
-  ImGui::SetItemTooltip("Zone de texte libre. Les {{placeholders}} sont remplacés à l'impression.");
+  ImGui::SetItemTooltip("Zone de texte libre. Les {{placeholders}} sont remplacés à l'impression.\n"
+                        "{[Exp. ]{peremption}} : « Exp. » imprimé seulement si la valeur n'est pas vide "
+                        "(aussi derrière : {{peremption}[ inclus]}).");
   ImGui::SameLine();
   if (button("QR code", ImVec2(half, 0))) {
     const float size = std::max(kMinQrMm, std::min(16.0f, std::min(width, height) - 4.0f));
