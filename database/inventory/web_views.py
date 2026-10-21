@@ -22,11 +22,18 @@ from .models import ServerSettings
 
 WEB_DIR = Path(__file__).resolve().parent / 'web'
 
+# Module WebAssembly de zxing-cpp (~1 Mo, lu par decoder.js) : nom versionne, garde en cache par le navigateur
+WASM = 'vendor/zxing-reader-3.1.6.wasm'
+
 # Fichiers servis (liste blanche) et leur type
 ASSETS = {
     'app.js': 'text/javascript; charset=utf-8',
     'app.css': 'text/css; charset=utf-8',
     'vendor/jsQR.js': 'text/javascript; charset=utf-8',
+    'camera-scan.js': 'text/javascript; charset=utf-8',  # lecture limitee au viseur (app.js et scanner.js)
+    'decoder.js': 'text/javascript; charset=utf-8',  # worker zxing-cpp quand BarcodeDetector manque (Firefox, Safari iOS)
+    'vendor/zxing-reader.js': 'text/javascript; charset=utf-8',
+    WASM: 'application/wasm',
     'code128.js': 'text/javascript; charset=utf-8',  # codes-barres des etiquettes d'items (app.js et scanner.js)
     'vendor/qrcode.js': 'text/javascript; charset=utf-8',  # QR code du lien de deblocage du PIN
     'scanner.js': 'text/javascript; charset=utf-8',
@@ -84,4 +91,4 @@ def favicon(request):
 def asset(request, name):
     if name not in ASSETS:
         raise Http404()
-    return _file(WEB_DIR / name, ASSETS[name], 'no-cache')
+    return _file(WEB_DIR / name, ASSETS[name], 'max-age=31536000, immutable' if name == WASM else 'no-cache')

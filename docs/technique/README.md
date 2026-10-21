@@ -41,7 +41,7 @@ qrprotec/
 │       ├── notifications.py  alertes (seuils, expirations, commandes) ; SMS en commentaire
 │       ├── webpush.py        notifications web (RFC 8291 / VAPID)
 │       ├── remote_scanner.py relais WebSocket téléphone -> poste
-│       ├── web/              front web (HTML/JS/CSS sans framework, jsQR fourni)
+│       ├── web/              front web (HTML/JS/CSS sans framework, zxing-wasm et jsQR fournis)
 │       ├── management/commands/  serve, createadmin, check_alerts
 │       ├── migrations/
 │       └── tests.py

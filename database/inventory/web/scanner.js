@@ -295,19 +295,17 @@
   }
 
   // ------------------------------------------------------------------------------------------------
-  // Camera et detection (meme principe que le front web : BarcodeDetector, sinon jsQR)
+  // Camera et detection (meme lecteur que le front web, camera-scan.js)
 
   const video = $('#video');
-  const canvas = $('#frame');
-  const context = canvas.getContext('2d', { willReadFrequently: true });
+  const reader = window.CameraScan.create(video, $('#viewfinder span'));
   let stream = null;
-  let detector = null;
-  let nativeCode128 = false; // BarcodeDetector lit aussi le Code 128 (Chrome Android) : pas de decodeur JS
   let wakeLock = null;
   let cameraWanted = false; // camera demarree par l'utilisateur : rouverte au retour sur la page
   let opening = null;       // ouverture en cours (getUserMedia peut prendre plusieurs secondes)
-  let lastCode = '';
-  let lastCodeTime = 0;
+  // derniere fois que chaque code a ete vu : un code reste a l'ecran n'est traite qu'une fois, meme si une autre
+  // etiquette passe entre-temps devant la camera (un seul « dernier code » le laissait repartir)
+  const seenCodes = new Map();
 
   // Jamais de camera ouverte quand la page est cachee, et une seule ouverture a la fois : sur Firefox
   // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
@@ -342,7 +340,7 @@
       try {
         media = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          // 1080p : les barres fines d'un code-barres restent lisibles de plus loin (jsQR reduit l'image de toute facon)
+          // 1080p : les barres fines d'un code-barres et les petits QR codes restent lisibles de plus loin
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         });
       } catch (e) {
@@ -364,18 +362,7 @@
     stream = media;
     video.srcObject = stream;
     await video.play().catch(() => {});
-    if (!detector && 'BarcodeDetector' in window) {
-      try {
-        const formats = await window.BarcodeDetector.getSupportedFormats();
-        // QR codes et codes-barres Code 128 (etiquettes d'items des objets ronds, l'iid seul) ; codes-barres
-        // seulement si le serveur les active (la page charge alors code128.js)
-        const wanted = ['qr_code', ...(window.Code128 ? ['code_128'] : [])].filter((format) => formats.includes(format));
-        if (wanted.includes('qr_code')) {
-          detector = new window.BarcodeDetector({ formats: wanted });
-          nativeCode128 = wanted.includes('code_128');
-        }
-      } catch (e) { detector = null; nativeCode128 = false; }
-    }
+    await reader.prepare();
     if (stream !== media) return; // arretee entre-temps
     const track = stream.getVideoTracks()[0];
     const capabilities = track.getCapabilities ? track.getCapabilities() : {};
@@ -398,45 +385,22 @@
     try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
   }
 
-  async function detect() {
-    if (video.readyState < 2) return null;
-    if (detector) {
-      const codes = await detector.detect(video);
-      if (codes.length) return codes[0].rawValue;
-    }
-    const qr = detector ? null : detectQr();
-    if (qr) return qr;
-    // Code 128 sans lecteur natif (Firefox, Safari iOS) : decodeur JS, image en pleine resolution
-    return !nativeCode128 && window.Code128 ? window.Code128.scan(video) : null;
-  }
-
-  function detectQr() {
-    if (!window.jsQR) return null;
-    const side = Math.min(video.videoWidth, video.videoHeight);
-    const size = Math.min(side, 640);
-    canvas.width = size;
-    canvas.height = size;
-    context.drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, size, size);
-    const image = context.getImageData(0, 0, size, size);
-    const result = window.jsQR(image.data, size, size, { inversionAttempts: 'attemptBoth' });
-    return result ? result.data : null;
-  }
-
   async function scanLoop(media) {
     while (stream === media) {
       try {
-        const code = await detect();
+        const code = await reader.detect();
         if (code) onDetected(code);
       } catch (e) { /* image illisible */ }
-      await new Promise((resolve) => setTimeout(resolve, detector ? 120 : 180));
+      await new Promise((resolve) => setTimeout(resolve, reader.delay()));
     }
   }
 
   function onDetected(code) {
     const now = Date.now();
-    if (code === lastCode && now - lastCodeTime < REPEAT_DELAY_MS) { lastCodeTime = now; return; }
-    lastCode = code;
-    lastCodeTime = now;
+    const seen = seenCodes.get(code);
+    seenCodes.set(code, now);
+    if (seen !== undefined && now - seen < REPEAT_DELAY_MS) return;
+    for (const [other, time] of seenCodes) if (now - time >= REPEAT_DELAY_MS) seenCodes.delete(other);
     const camera = $('#camera');
     camera.classList.add('hit');
     setTimeout(() => camera.classList.remove('hit'), 300);
