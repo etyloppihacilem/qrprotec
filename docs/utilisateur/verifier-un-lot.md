@@ -198,8 +198,8 @@ fenêtre s'ouvre avec le nom de l'item et ses tâches à cocher :
 - **Annuler** (ou scanner autre chose) : l'item n'est **pas** compté. Rescannez-le pour reprendre
   ses tâches.
 
-Le **TECH** peut scanner deux fois de suite l'étiquette de tâches pour valider toutes les
-tâches d'un coup.
+Au poste, le **TECH** peut scanner deux fois de suite l'étiquette de tâches pour valider toutes
+les tâches d'un coup. Sur le téléphone, les tâches se cochent toujours une à une.
 
 Item à tâches **périmé ou désactivé** (à remplacer) : sur le téléphone, sa fiche (péremption, ou
 motif, date et auteur de la désactivation) s'affiche d'abord, puis **Voir les tâches** ouvre ses

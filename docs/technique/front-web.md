@@ -62,8 +62,8 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   `BarcodeDetector`) que si le réglage serveur `web_barcodes` est actif : le poste l'active à la première
   impression d'un code-barres (`POST /api/barcodes-printed/`), un admin le coupe dans les Réglages. Caméra demandée en 1080p pour les barres fines. Un même code vu en continu n'est traité qu'une
   fois, tant qu'il ne quitte pas la caméra 2,5 s (mémorisé par code : une autre étiquette vue entre-temps ne
-  le fait pas relire). Fenêtre des tâches : le second scan d'un admin (tout valider) n'est pris qu'après
-  3 s (`TASKS_RESCAN_MS`), le temps de lire les tâches. Lampe et écran maintenu allumé (`wakeLock`) si possible.
+  le fait pas relire). Fenêtre des tâches : rescanner l'item ne valide rien (le second scan
+  d'un admin ne valide toutes les tâches qu'au poste), les tâches se cochent une à une. Lampe et écran maintenu allumé (`wakeLock`) si possible.
   La caméra n'est jamais laissée ouverte page cachée (`syncCamera`) : fermée à `visibilitychange`,
   `pagehide` et `freeze`, rouverte au retour si l'utilisateur l'avait démarrée, une seule ouverture à
   la fois, et un flux obtenu alors que la page vient d'être cachée est rendu aussitôt. Sur Firefox
