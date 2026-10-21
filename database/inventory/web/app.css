@@ -29,6 +29,9 @@ button:disabled { opacity: .45; }
 #pin input { display: block; width: 100%; font-size: 1.4rem; letter-spacing: .3em; text-align: center; padding: 10px;
   margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; }
 #pin input[hidden] { display: none; }
+#settings-pin input { display: block; width: 100%; box-sizing: border-box; font-size: 1.1rem; text-align: center; padding: 8px;
+  margin: 6px 0; border: 1px solid var(--line); border-radius: 8px; }
+#settings-pin input::placeholder { letter-spacing: normal; }
 .pin-error { color: var(--red); min-height: 1.2em; margin: 4px 0; font-size: .9rem; }
 button.text-link { background: none; padding: 0 0 10px; color: var(--muted); font-size: .8rem; text-decoration: underline; }
 button.text-link[hidden] { display: none; }

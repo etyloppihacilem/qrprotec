@@ -897,6 +897,61 @@ class PinModeTests(ApiTestCase):
                                    session=views.session_token(self.user))[0], 403)
 
 
+class MyPinTests(ApiTestCase):
+    """Code PIN choisi, change ou supprime par l'utilisateur dans ses reglages web."""
+
+    def auth(self, user, **extra):
+        return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key, **extra}, local=False)
+
+    def my_pin(self, user, **data):
+        credentials = {'matricule': user.matricule, 'key': user.new_key, 'session': views.session_token(user)}
+        return self.call('POST', '/api/me/pin/', {'user': credentials, **data}, local=False)
+
+    def test_set_change_then_disable(self):
+        code, body = self.my_pin(self.user, pin='12')
+        self.assertEqual(code, 400)
+        code, body = self.my_pin(self.user, pin='2468')
+        self.assertEqual((code, body['has_pin'], body['pin_required'], body['pin_can_disable']), (200, True, True, True))
+        self.assertEqual(self.auth(self.user)[0], 403)
+        self.assertEqual(self.auth(self.user, pin='2468')[0], 200)
+        # changer ou supprimer : PIN actuel exige, essais faux comptes
+        self.assertEqual(self.my_pin(self.user, pin='1357')[0], 403)
+        self.assertEqual(self.my_pin(self.user, current_pin='0000', pin='1357')[0], 403)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pin_failures, 2)
+        self.assertEqual(self.my_pin(self.user, current_pin='2468', pin='1357')[0], 200)
+        self.assertEqual(self.auth(self.user, pin='1357')[0], 200)
+        code, body = self.my_pin(self.user, current_pin='1357', disable=True)
+        self.assertEqual((code, body['has_pin'], body['pin_required'], body['pin_mode']), (200, False, False, ''))
+        self.assertEqual(self.auth(self.user)[0], 200)
+        self.assertEqual(self.my_pin(self.user, disable=True)[0], 400)
+        self.assertTrue(Operation.objects.filter(summary__contains='code PIN supprimé').exists())
+        self.assertEqual(self.call('POST', '/api/me/pin/', {'pin': '2468'}, local=False)[0], 403)
+
+    def test_disable_refused_when_mandatory(self):
+        # admin : PIN obligatoire
+        self.operator.set_pin('4821')
+        self.operator.save()
+        code, body = self.my_pin(self.operator, current_pin='4821', disable=True)
+        self.assertEqual(code, 403)
+        self.assertEqual(self.my_pin(self.operator, current_pin='4821', pin='9753')[0], 200)
+        # PIN rendu obligatoire par un admin, pour ce secouriste ou pour tous
+        self.my_pin(self.user, pin='2468')
+        self.call('PATCH', '/api/users/M001/', {'pin_mode': 'required'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.my_pin(self.user, current_pin='2468', disable=True)[0], 403)
+        self.call('PATCH', '/api/users/M001/', {'pin_mode': ''})
+        self.call('PATCH', '/api/server-settings/', {'pin_required_default': True})
+        code, body = self.auth(self.user, pin='2468')
+        self.assertFalse(body['pin_can_disable'])
+        self.assertEqual(self.my_pin(self.user, current_pin='2468', disable=True)[0], 403)
+        # desactive par un admin : l'utilisateur peut en choisir un, puis le retirer
+        self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
+        self.user.refresh_from_db()
+        code, body = self.my_pin(self.user, pin='1357')
+        self.assertEqual((code, body['pin_mode'], body['pin_can_disable']), (200, '', False))
+
+
 class NameLoginTests(ApiTestCase):
     """Connexion sans badge par nom, prenom et PIN : ne dit jamais si le nom existe, essais limites."""
 

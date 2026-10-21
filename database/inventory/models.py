@@ -758,6 +758,14 @@ class Secouristes(models.Model):
             return True
         return ServerSettings.get().pin_required_default
 
+    @property
+    def pin_can_disable(self) -> bool:
+        """L'utilisateur peut supprimer lui-meme son PIN : jamais un admin, ni un PIN rendu obligatoire par un admin
+        (pour lui, ou pour tous par le reglage du serveur, sauf s'il l'a desactive pour lui)."""
+        if self.role == Role.ADMIN or self.pin_mode == PinMode.REQUIRED:
+            return False
+        return self.pin_mode == PinMode.DISABLED or not ServerSettings.get().pin_required_default
+
     def set_pin_mode(self, mode):
         """PIN obligatoire, desactive (le PIN existant est supprime) ou reglage par defaut."""
         if mode not in PinMode.values:

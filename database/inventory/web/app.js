@@ -2890,7 +2890,7 @@
     document.querySelectorAll('.home-page').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
     $('#home-title').textContent = HOME_TITLES[page] || 'QRProtec';
     $('#home-back').hidden = page === 'menu';
-    $('#home-settings').hidden = !hasNotifications();
+    $('#home-settings').hidden = !state.user;
     const userButton = $('#home-user');
     userButton.textContent = state.user ? `👤 ${state.user.prenom}` : readerOpen() ? 'Annuler' : 'Se connecter';
     userButton.classList.toggle('ok', !!state.user);
@@ -3661,10 +3661,85 @@
 
   const currentEndpoint = () => state.pushEndpoint || '';
 
+  // Reglages de l'utilisateur : code PIN (tous), notifications web (s'il peut en recevoir)
   function openNotifications() {
-    renderNotifications();
+    if (!state.user) return;
+    renderPinSettings();
+    const notifications = hasNotifications();
+    $('#notifications-title').hidden = !notifications;
+    $('#notifications-body').hidden = !notifications;
+    if (notifications) renderNotifications();
     $('#notifications').showModal();
-    loadPush();
+    if (notifications) loadPush();
+  }
+
+  // PIN facultatif : supprimable sauf pour un admin ou si le TECH l'a rendu obligatoire (verifie par le serveur)
+  const pinCanDisable = (user) => (user.pin_can_disable !== undefined ? !!user.pin_can_disable
+    : user.role !== 'admin' && user.pin_mode !== 'required');
+
+  function renderPinSettings() {
+    const box = $('#settings-pin');
+    const user = state.user;
+    if (!box || !user) return;
+    const pinInput = (id, placeholder) => el('input', { id, class: 'pin', type: 'text', inputmode: 'numeric',
+      pattern: '[0-9]*', maxlength: 8, autocomplete: 'off', placeholder });
+    const hasPin = !!user.has_pin;
+    const parts = [el('h3', {}, 'Code PIN')];
+    parts.push(el('p', { class: 'hint' }, hasPin
+      ? 'Votre code PIN est demandé après le badge, et permet de vous connecter sans badge (Nom + PIN).'
+      : 'Pas de code PIN : le badge suffit pour vous connecter. Avec un PIN, il est demandé après le badge et vous '
+        + 'pouvez vous connecter sans badge (Nom + PIN).'));
+    if (hasPin) parts.push(pinInput('settings-pin-current', 'PIN actuel'));
+    parts.push(pinInput('settings-pin-new', hasPin ? 'Nouveau PIN (4 à 8 chiffres)' : 'PIN (4 à 8 chiffres)'));
+    parts.push(pinInput('settings-pin-confirm', 'Confirmez le PIN'));
+    parts.push(el('p', { id: 'settings-pin-error', class: 'pin-error' }));
+    const buttons = [el('button', { type: 'button', class: 'primary', onclick: () => savePin(false) },
+      hasPin ? 'Changer le PIN' : 'Définir le PIN')];
+    if (hasPin && pinCanDisable(user)) {
+      buttons.push(el('button', { type: 'button', onclick: () => savePin(true) }, 'Supprimer le PIN'));
+    }
+    parts.push(el('div', { class: 'push-buttons' }, ...buttons));
+    if (hasPin && !pinCanDisable(user)) {
+      parts.push(el('p', { class: 'hint' }, user.role === 'admin'
+        ? 'Le code PIN est obligatoire pour les administrateurs.' : 'Le TECH a rendu le code PIN obligatoire.'));
+    }
+    box.replaceChildren(...parts);
+  }
+
+  async function savePin(disable) {
+    const user = state.user;
+    const value = (id) => ($(id) ? $(id).value.trim() : '');
+    const error = (message) => { $('#settings-pin-error').textContent = message; };
+    const hadPin = !!user.has_pin;
+    const current = value('#settings-pin-current');
+    const pin = value('#settings-pin-new');
+    if (user.has_pin && !current) { error('Saisissez votre PIN actuel.'); return; }
+    if (disable) {
+      const warning = user.key ? '' : '\nSans PIN, vous ne pourrez plus vous connecter sans badge.';
+      if (!confirm('Supprimer votre code PIN ? Le badge suffira pour vous connecter.' + warning)) return;
+    } else {
+      if (!/^\d{4,8}$/.test(pin)) { error('Le PIN doit comporter 4 à 8 chiffres.'); return; }
+      if (pin !== value('#settings-pin-confirm')) { error('Les deux PIN sont différents.'); return; }
+    }
+    try {
+      const body = await api('me/pin/', { user: badge(), current_pin: current, ...(disable ? { disable: true } : { pin }) });
+      for (const field of ['has_pin', 'pin_required', 'pin_mode', 'pin_can_disable']) state.user[field] = body[field];
+      save();
+      toast(disable ? 'Code PIN supprimé.' : hadPin ? 'Code PIN changé.' : 'Code PIN enregistré.');
+      renderPinSettings();
+    } catch (e) {
+      if (e.data && e.data.pin_blocked) {
+        $('#notifications').close();
+        state.user = null; // un PIN bloque coupe la session
+        save();
+        render();
+        showPinBlocked(e.data.pin_reset || {});
+        return;
+      }
+      feedback.bad();
+      if ($('#settings-pin-current')) $('#settings-pin-current').value = '';
+      error(e.message);
+    }
   }
 
   // clic sur une notification alors que la page est deja ouverte
@@ -3966,7 +4041,7 @@
     renderLot();
     if (!state.user) { state.stock = null; state.tasks = null; state.push = null; state.pushDevices = null; }
     renderHomePage();
-    $('#menu-notifications').hidden = !hasNotifications();
+    $('#menu-notifications').hidden = !state.user;
     renderStock();
     const chip = $('#user-chip');
     chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}`
