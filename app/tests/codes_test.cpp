@@ -242,21 +242,31 @@ static void test_barcode() {
     assert(sum == (pattern[6] ? 13 : 11));
   }
 
-  // modele fourni : valide, le code tient sur 40 mm a 1 px par module, avec ses marges blanches
+  // modele fourni : valide, le code tient sur sa largeur a 1 px par module au moins, avec ses marges blanches
+  // (valeurs relues dans item_codebarre.qr : le modele peut changer sans casser le test)
   TemplateDocument document;
   std::string      error;
   assert(load_template(document, std::string(QRPROTEC_TEMPLATES_SOURCE) + "/item_codebarre.qr", error));
   assert(document.category == TemplateCategory::ItemBarcode);
   assert(category_from_id("item_barcode") == TemplateCategory::ItemBarcode);
+  const auto barcode_element = std::find_if(document.elements.begin(), document.elements.end(),
+                                            [](const TemplateElement &element) { return element.kind == ElementKind::Barcode; });
+  assert(barcode_element != document.elements.end());
+  const std::size_t     barcode_index = static_cast< std::size_t >(barcode_element - document.elements.begin());
+  const BarcodeElement  barcode       = std::get< BarcodeElement >(barcode_element->content);
   document.parameters["iid_short"] = "abcdef20271231zzzzzzzz"; // compteur sans zero : forme courte = iid
   assert(validate(document).empty());
-  const BarcodeElement &barcode = std::get< BarcodeElement >(document.elements[0].content);
-  assert(barcode_module_pixels(barcode, "abcdef20271231zzzzzzzz", document.media.pixels_per_mm) == 1);
+  assert(barcode_module_pixels(barcode, "abcdef20271231zzzzzzzz", document.media.pixels_per_mm) >= 1);
 
-  // relecture du rendu sur une ligne : memes symboles que l'encodeur
-  document.parameters["iid_short"] = "compre20271231000000A1";
-  const RasterImage image = render_template(document);
-  const int         row   = static_cast< int >((barcode.y_mm + barcode.height_mm / 2.0f) * document.media.pixels_per_mm);
+  // relecture du rendu sur une ligne : memes symboles que l'encodeur (le code seul, sans les autres elements)
+  TemplateDocument alone = document;
+  alone.elements         = { document.elements[barcode_index] };
+  alone.elements[0].rotation = 0;
+  alone.parameters["iid_short"] = "compre20271231000000A1";
+  const RasterImage image  = render_template(alone);
+  const int         module = barcode_module_pixels(barcode, "compre20271231000000A1", alone.media.pixels_per_mm);
+  assert(module >= 1);
+  const int row = static_cast< int >((barcode.y_mm + barcode.height_mm / 2.0f) * alone.media.pixels_per_mm);
   std::vector< int > runs;
   int                first = -1, last = -1;
   for (int x = 0; x < image.width; ++x)
@@ -264,13 +274,15 @@ static void test_barcode() {
       first = first < 0 ? x : first;
       last  = x;
     }
-  assert(first >= static_cast< int >(barcode.x_mm * document.media.pixels_per_mm) + 10); // marge de 10 modules
+  // marge blanche de quiet_zone modules a gauche
+  assert(first >= static_cast< int >(barcode.x_mm * alone.media.pixels_per_mm) + barcode.quiet_zone * module);
   for (int x = first; x <= last;) {
     const std::uint8_t value = image.at(x, row);
     int                width = 0;
     for (; x <= last && image.at(x, row) == value; ++x)
       ++width;
-    runs.push_back(width);
+    assert(width % module == 0);
+    runs.push_back(width / module);
   }
   std::vector< int > decoded;
   for (std::size_t start = 0; start + 6 <= runs.size(); start += 6) {
@@ -286,13 +298,16 @@ static void test_barcode() {
   }
   assert(decoded == code128_symbols("compre20271231000000A1"));
 
-  // persistance de l'element
+  // persistance de l'element : relu tel qu'il est dans le modele
   assert(save_template(document, "/tmp/qrprotec-barcode.qr", error));
   TemplateDocument loaded;
   assert(load_template(loaded, "/tmp/qrprotec-barcode.qr", error));
-  assert(loaded.elements[0].kind == ElementKind::Barcode);
-  const BarcodeElement &reloaded = std::get< BarcodeElement >(loaded.elements[0].content);
-  assert(reloaded.payload == "{{iid_short}}" && reloaded.width_mm == 38.0f && reloaded.quiet_zone == 10);
+  assert(loaded.elements.size() == document.elements.size());
+  assert(loaded.elements[barcode_index].kind == ElementKind::Barcode);
+  const BarcodeElement &reloaded = std::get< BarcodeElement >(loaded.elements[barcode_index].content);
+  assert(reloaded.payload == barcode.payload && reloaded.x_mm == barcode.x_mm && reloaded.y_mm == barcode.y_mm);
+  assert(reloaded.width_mm == barcode.width_mm && reloaded.height_mm == barcode.height_mm);
+  assert(reloaded.quiet_zone == barcode.quiet_zone);
   std::remove("/tmp/qrprotec-barcode.qr");
 
   // modeles fournis : valides avec leurs valeurs d'exemple, un pour chacun des 9 usages d'etiquette d'item
