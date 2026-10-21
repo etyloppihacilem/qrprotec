@@ -99,11 +99,13 @@ def short_names(people) -> dict:
             if not others or not nom:
                 names[key] = prenom
                 continue
-            length = next((n for n in range(1, len(nom) + 1)
-                           if not any(other.startswith(_fold(nom[:n])) for other in others)), len(nom))
-            prefix = nom[:length].rstrip(' -')
-            # homonyme complet, ou nom qui commence un autre nom (Dubois / Duboisier) : nom entier
-            names[key] = f"{prenom} {nom}" if len(prefix) >= len(nom) else f"{prenom} {prefix}."
+            # jamais le nom entier : homonyme complet, ou nom qui commence un autre nom (Dubois / Duboisier),
+            # s'arretent a l'avant-derniere lettre (Julien Duboi.)
+            longest = max(1, len(nom) - 1)
+            length = next((n for n in range(1, longest + 1)
+                           if not any(other.startswith(_fold(nom[:n])) for other in others)), longest)
+            prefix = nom[:length].rstrip(' -') or nom[:1]
+            names[key] = f"{prenom} {prefix}."
     return names
 
 
@@ -152,3 +154,15 @@ def identity_name(value: str) -> str:
     if source == SOURCE_VERIFIED:
         return _names().get(payload, 'Inconnu')
     return declared_short_name(payload)
+
+
+def short_identity_name(value: str) -> str:
+    """Nom court d'une identite stockee, meme hors de l'API publique : notifications web et autres textes
+    affiches sur le front web (jamais de nom de famille)."""
+    with anonymized():
+        return identity_name(value)
+
+
+def short_name(matricule: str) -> str:
+    """Nom court d'un secouriste (prenom, debut du nom en cas d'homonyme), meme hors de l'API publique."""
+    return short_identity_name(format_identity_verified(matricule))

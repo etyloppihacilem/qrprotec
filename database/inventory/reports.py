@@ -23,7 +23,7 @@ from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
 
 from . import journal, notifications, services
-from .idendity import identity_name
+from .idendity import identity_name, short_identity_name
 from .models import (
     Items, ItemStatus, ItemType, Lots, OperationKind, ProblemReport, ReportResolution, ReportStatus, SealedPacks,
 )
@@ -151,7 +151,7 @@ def create(identity, lot_id='', iid='', type_code='', comment='', usable=True, p
                        lot=lot, report=report.id, item=item.iid if item else '', pack=pack_id or '',
                        usable=report.usable,
                        comment=comment[:200])
-        who = identity_name(identity)
+        who = short_identity_name(identity)
         text = f'{who} signale un problème sur {target_name(report)} ({state})' + (f' : {comment}' if comment else '')
         notifications.notify_admins('problem_report', 'problème signalé', text, url='../#signalements',
                                     tag=f'report-{report.id}', tab='reports')

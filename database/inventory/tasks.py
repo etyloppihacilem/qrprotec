@@ -29,7 +29,7 @@ from django.utils import timezone
 from . import forecast as stock_forecast
 from . import serializers as ser
 from . import services
-from .idendity import identity_name
+from .idendity import format_identity_verified, identity_name
 from .journal import pl, plural
 from .models import (
     Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, ProblemReport, ReportStatus,
@@ -257,7 +257,7 @@ def _periodic_tasks(today):
     for user in Secouristes.objects.filter(active=True, key_expires__isnull=False,
                                            key_expires__lte=today + warning).order_by('key_expires'):
         expired = user.key_expires < today
-        tasks.append(task('periodic', 'warn' if expired else 'info', f'Badge : {user.prenom} {user.nom}',
+        tasks.append(task('periodic', 'warn' if expired else 'info', f'Badge : {identity_name(format_identity_verified(user.matricule))}',
                           ('expiré depuis le ' if expired else 'expire le ') + _day(user.key_expires)
                           + ' : renouveler la clé et réimprimer le badge (Utilisateurs, admin)', user.key_expires,
                           'users', sort=(0, user.key_expires.toordinal())))

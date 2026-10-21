@@ -39,7 +39,7 @@
   // Etat
 
   const state = {
-    user: null,        // {matricule, key, nom, prenom, privileged}
+    user: null,        // {matricule, key, prenom, privileged}
     lot: null,         // detail public du lot (items attendus, exigences, sous-lots)
     lotId: '',
     lotKey: '',
@@ -1601,7 +1601,7 @@
     state.push = null;
     state.pushDevices = null;
     feedback.info();
-    showInfo('ok', `Bonjour ${user.prenom} ${user.nom}`,
+    showInfo('ok', `Bonjour ${user.prenom}`,
       canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : la gestion de la TECH est sur l'accueil.` : 'Vous êtes connecté.');
     save();
     render();
@@ -1642,7 +1642,7 @@
   function showPinBlocked(reset) {
     const dialog = $('#pin-blocked');
     $('#pin-blocked-title').textContent = reset.forgotten ? 'Code PIN oublié' : 'Code PIN bloqué';
-    $('#pin-blocked-text').textContent = `${reset.name || ''} (${reset.matricule || ''}) : `
+    $('#pin-blocked-text').textContent = `${reset.name || ''} : `
       + (reset.forgotten ? 'code PIN oublié. ' : 'trop de codes PIN faux. ')
       + 'Le TECH doit réinitialiser votre PIN, vous en choisirez un nouveau à la prochaine connexion.';
     $('#pin-blocked-notified').hidden = !reset.notified;
@@ -1712,7 +1712,7 @@
     const fact = (label, value) => [el('dt', {}, label), el('dd', {}, value)];
     $('#pin-reset-body').replaceChildren(
       el('dl', { class: 'facts' },
-        fact('Utilisateur', `${info.prenom} ${info.nom}`),
+        fact('Utilisateur', info.name),
         fact('Matricule', info.matricule),
         fact('Rôle', info.fonction || 'Secouriste'),
         fact('Droits', info.role_label),
@@ -1737,7 +1737,7 @@
       }
       endPinReset();
       feedback.good();
-      showInfo('ok', 'Code PIN réinitialisé', `${info.prenom} ${info.nom} choisira un nouveau PIN à sa prochaine connexion.`);
+      showInfo('ok', 'Code PIN réinitialisé', `${info.name} choisira un nouveau PIN à sa prochaine connexion.`);
     };
     $('#pin-reset-cancel').onclick = endPinReset;
     if (!dialog.open) dialog.showModal();
@@ -2269,7 +2269,7 @@
   });
 
   $('#user-chip').addEventListener('click', () => {
-    if (state.user && confirm(`Déconnecter ${state.user.prenom} ${state.user.nom} ?`)) {
+    if (state.user && confirm(`Déconnecter ${state.user.prenom} ?`)) {
       logout();
     } else if (declared()) {
       if (confirm(`Oublier le nom « ${state.declaredName} » ? Scannez votre badge pour vous identifier.`)) {
@@ -2791,7 +2791,7 @@
 
   $('#home-user').addEventListener('click', () => {
     if (state.user) {
-      if (confirm(`Déconnecter ${state.user.prenom} ${state.user.nom} ?`)) logout();
+      if (confirm(`Déconnecter ${state.user.prenom} ?`)) logout();
     } else if (readerOpen()) closeReader();
     else openReader();
   });
@@ -3969,7 +3969,7 @@
     $('#menu-notifications').hidden = !hasNotifications();
     renderStock();
     const chip = $('#user-chip');
-    chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}`
+    chip.textContent = state.user ? `👤 ${state.user.prenom}`
       : declared() ? `👤 ${state.declaredName} (sans badge)` : '👤 Non connecté';
     chip.classList.toggle('ok', !!state.user);
     chip.title = state.user && state.user.fonction ? state.user.fonction : '';
