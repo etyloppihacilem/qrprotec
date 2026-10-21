@@ -39,7 +39,7 @@ const std::pair< const char *, const char * > kDetailLabels[] = {
   { "sealed_pack", "Paquet fermé" },
   { "pack", "Paquet" },
   { "matricule", "Matricule" },
-  { "role", "Rôle" },
+  { "role", "Droits" },
   { "fields", "Champs modifiés" },
   { "items", "Items" },
   { "missing_items", "Items manquants" },

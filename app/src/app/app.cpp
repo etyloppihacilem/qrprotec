@@ -819,6 +819,7 @@ void App::create_first_admin() {
     session.key_expires = result.data["key_expires"].str();
     session.privileged  = true;
     session.role        = "admin";
+    session.fonction    = result.data["fonction"].str();
     user                = session;
     api.set_session(result.data["session"].str());
     refresh_item_types();
@@ -1172,6 +1173,7 @@ void App::complete_login(const Json &data) {
   session.key_expires = data["key_expires"].str();
   session.privileged  = data["privileged"].boolean();
   session.role        = data["role"].str(session.privileged ? "admin" : "normal");
+  session.fonction    = data["fonction"].str();
   user                = session;
   api.set_session(data["session"].str());
   // volume de la douchette propre a l'utilisateur (sinon celui par defaut du serveur)

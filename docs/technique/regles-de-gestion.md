@@ -350,6 +350,10 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 | `gestion` | + mode privilégié : stocks, inventaire, paquets, gestion des lots | + État des stocks de l'accueil (lecture), notifications web (stock, étiquettes de lot) |
 | `admin` | + Réglages, Utilisateurs, éditeur d'étiquettes | + notifications web (aussi PIN bloqué, badges) |
 
+- Le **rôle dans l'équipe** (`fonction` : l'autorité, l'OPÉ, le TECH...) est un texte libre de
+  32 caractères, `Secouriste` par défaut (aussi quand on le vide). Purement indicatif, il ne donne
+  aucun droit : il s'affiche dans la liste des utilisateurs, sous « Connecté » sur le poste et sur le
+  badge avec `{{fonction}}`.
 - Le **badge** (QR avec matricule et clé) identifie. Il expire au bout d'un an ; le renouveler
   invalide l'ancien.
 - Le **PIN** (4 à 8 chiffres) authentifie : obligatoire pour les admins. Pour les autres, selon

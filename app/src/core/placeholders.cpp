@@ -186,7 +186,8 @@ std::vector< CategoryInfo > build_categories() {
     { "nom", "Nom", "Dupont" },
     { "prenom", "Prénom", "Jeanne" },
     { "full_name", "Prénom et nom", "Jeanne Dupont" },
-    { "role", "Rôle (Secouriste / Gestion / Administrateur)", "Secouriste" },
+    { "role", "Droits (Secouriste / Gestion / Administrateur)", "Secouriste" },
+    { "fonction", "Rôle dans l'équipe (l'OPÉ, le TECH...)", "Secouriste" },
     { "badge_url", "URL du badge (contenu du QR code)", "https://example.com/badge?m=M0042&key=a1B2c3D4e5F6g7H8" },
     { "key_expires", "Date d'expiration du badge JJ/MM/AAAA", "29/09/2027" },
   };

@@ -47,7 +47,7 @@ from .idendity import SOURCE_VERIFIED, identity_from_request, identity_name
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
-    PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotRequirements, Lots, LotType,
+    DEFAULT_FONCTION, PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     SCANNER_VOLUMES, ServerSettings, Verifs, add_months, name_key, qrprotec_setting,
 )
@@ -558,6 +558,7 @@ def pin_reset(request):
         'nom': target.nom,
         'prenom': target.prenom,
         'role_label': target.get_role_display(),
+        'fonction': target.fonction,
         'active': target.active,
         'blocked_since': ser.user_dict(target, local=True)['pin_blocked_since'],
         'failures': target.pin_failures_total,
@@ -1989,6 +1990,8 @@ def users(request):
         raise ApiError("Nom et prenom obligatoires")
     role = Role.ADMIN if first_admin else parse_role(data) or Role.NORMAL
     user = Secouristes(matricule=matricule, nom=nom[:32], prenom=prenom[:32], role=role)
+    if 'fonction' in data:
+        user.fonction = parse_fonction(data['fonction'])
     if data.get('pin_mode'):
         user.set_pin_mode(str(data['pin_mode']))
     if data.get('pin'):
@@ -2018,6 +2021,8 @@ def user_detail(request, matricule):
         for field in ('nom', 'prenom'):
             if field in data:
                 setattr(user, field, str(data[field]).strip()[:32])
+        if 'fonction' in data:
+            user.fonction = parse_fonction(data['fonction'])
         role = parse_role(data)
         if role:
             user.role = role
@@ -2044,7 +2049,12 @@ def user_detail(request, matricule):
     return Response(ser.user_dict(user, local=True))
 
 
-USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé', 'pin_mode': 'mode du PIN',
+def parse_fonction(value):
+    """Role dans l'equipe (texte libre, 32 caracteres) : vide, c'est le role par defaut (Secouriste)."""
+    return ' '.join(str(value or '').split())[:32] or DEFAULT_FONCTION
+
+
+USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'fonction': 'rôle', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé', 'pin_mode': 'mode du PIN',
                'pin_contact': 'admin à contacter', 'push_disabled': 'notifications', 'default_contact': 'contact par défaut'}
 
 

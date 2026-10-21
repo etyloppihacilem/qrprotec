@@ -552,6 +552,7 @@ def user_dict(user, local=False):
         'prenom': user.prenom,
         'role': user.role,
         'role_label': user.get_role_display(),
+        'fonction': user.fonction,  # role dans l'equipe, texte libre (sans effet sur les droits)
         'privileged': user.privileged,  # gestion ou admin (mode privilegie du front)
         'has_pin': user.has_pin,
         'pin_required': user.pin_required,

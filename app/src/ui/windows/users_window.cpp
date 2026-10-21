@@ -48,11 +48,12 @@ class UsersWindow final : public AppWindow {
       if (button("Nouvel utilisateur"))
         select(Json());
       const Date today = app.today();
-      if (ImGui::BeginTable("users", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
+      if (ImGui::BeginTable("users", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Matricule", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Rôle", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Rôle", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Droits", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("Badge", ImGuiTableColumnFlags_WidthFixed, 95.0f);
         ImGui::TableHeadersRow();
         for (const Json &user : app.catalog.users.items()) {
@@ -70,6 +71,8 @@ class UsersWindow final : public AppWindow {
             select(user);
           ImGui::TableNextColumn();
           ImGui::Text("%s %s", user["prenom"].str().c_str(), user["nom"].str().c_str());
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(user["fonction"].str().c_str());
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(role_label(user["role"].str(user["privileged"].boolean() ? "admin" : "normal")));
           ImGui::TableNextColumn();
@@ -92,6 +95,7 @@ class UsersWindow final : public AppWindow {
       matricule_  = selected_;
       nom_        = user["nom"].str();
       prenom_     = user["prenom"].str();
+      fonction_   = user["fonction"].str(selected_.empty() ? "Secouriste" : "");
       role_       = role_index(user["role"].str(user["privileged"].boolean() ? "admin" : "normal"));
       active_     = user["active"].boolean(true);
       contact_    = user["pin_contact"].str();
@@ -179,8 +183,11 @@ class UsersWindow final : public AppWindow {
       ImGui::EndDisabled();
       input_limited("Prénom", prenom_, 32);
       input_limited("Nom", nom_, 32);
+      input_limited("Rôle", fonction_, 32, "Secouriste");
+      help_marker("Rôle dans l'équipe, par exemple l'autorité, l'OPÉ, le TECH. Purement indicatif : les droits "
+                  "se choisissent juste en dessous. Laissé vide, c'est « Secouriste ».");
       ImGui::SetNextItemWidth(220.0f);
-      ImGui::Combo("Rôle", &role_, "Secouriste\0Gestion\0Administrateur\0");
+      ImGui::Combo("Droits", &role_, "Secouriste\0Gestion\0Administrateur\0");
       help_marker("Secouriste : vérifs et scans. Gestion : mode privilégié (stocks, inventaire, lots, étiquettes) et "
                   "état des stocks sur le téléphone, sans les Réglages ni les Utilisateurs. Administrateur : tout.");
       if (!creating)
@@ -199,6 +206,7 @@ class UsersWindow final : public AppWindow {
       Json body;
       body["nom"]         = nom_;
       body["prenom"]      = prenom_;
+      body["fonction"]    = fonction_;
       body["role"]        = kRoles[role_];
       body["pin_contact"] = contact_;
       body["default_contact"] = default_contact_ && kRoles[role_] == std::string("admin");
@@ -358,6 +366,7 @@ class UsersWindow final : public AppWindow {
     std::string matricule_;
     std::string nom_;
     std::string prenom_;
+    std::string fonction_ = "Secouriste";
     int         role_       = 0; // index dans kRoles
     bool        active_     = true;
 };

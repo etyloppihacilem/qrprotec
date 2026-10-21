@@ -59,7 +59,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 
 ### Utilisateurs
 
-`Secouristes` : matricule (clé primaire, 1 à 16 caractères), nom, prénom, `role` (`normal`,
+`Secouristes` : matricule (clé primaire, 1 à 16 caractères), nom, prénom, `fonction` (rôle dans l'équipe, texte libre, `Secouriste` par défaut, sans effet sur les droits), `role` (`normal`,
 `gestion`, `admin`), empreinte SHA-256 de la clé du badge (`key_hash` : la clé de 24 caractères,
 valable 365 jours, n'est connue qu'à sa création ; `renew_key()` en crée une nouvelle, la renvoie une
 seule fois et invalide l'ancien badge), PIN haché avec les hacheurs de mots de passe de Django

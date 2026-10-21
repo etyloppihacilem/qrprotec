@@ -72,6 +72,7 @@ struct SessionUser {
     std::string key_expires;
     bool        privileged = false; // role gestion ou admin : mode privilegie
     std::string role       = "normal"; // normal, gestion, admin
+    std::string fonction;              // role dans l'equipe (l'OPE, le TECH...), texte libre sans effet sur les droits
 
     std::string display() const { return prenom + " " + nom; }
     bool        admin() const { return role == "admin"; }

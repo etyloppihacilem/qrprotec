@@ -1714,7 +1714,8 @@
       el('dl', { class: 'facts' },
         fact('Utilisateur', `${info.prenom} ${info.nom}`),
         fact('Matricule', info.matricule),
-        fact('Rôle', info.role_label),
+        fact('Rôle', info.fonction || 'Secouriste'),
+        fact('Droits', info.role_label),
         fact('Bloqué', info.blocked_since ? cap(fmtDateTime(info.blocked_since, { long: true })) : '-'),
         fact('Essais faux', String(info.failures)),
         info.contact ? fact('Admin à contacter', info.contact) : [],
@@ -3971,6 +3972,7 @@
     chip.textContent = state.user ? `👤 ${state.user.prenom} ${state.user.nom}`
       : declared() ? `👤 ${state.declaredName} (sans badge)` : '👤 Non connecté';
     chip.classList.toggle('ok', !!state.user);
+    chip.title = state.user && state.user.fonction ? state.user.fonction : '';
     // reassort, ou verif partielle (verif groupee dont certains lots sont complets) : bouton orange a cote de la validation
     const partial = state.busy ? [] : partialLots();
     const restock = !state.busy && (partial.length > 0 || onlyNewItems());
