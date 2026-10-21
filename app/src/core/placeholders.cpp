@@ -237,4 +237,38 @@ Parameters example_parameters(TemplateCategory category) {
   return parameters;
 }
 
+namespace {
+const std::string task_box = "\xE2\x96\xA1"; // □
+
+template < typename Function > std::string map_lines(const std::string &text, Function line_function) {
+  std::string result;
+  std::size_t start = 0;
+  while (true) {
+    const std::size_t end = text.find('\n', start);
+    result += line_function(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+    if (end == std::string::npos)
+      return result;
+    result += '\n';
+    start = end + 1;
+  }
+}
+} // namespace
+
+std::string task_lines(const std::string &tasks) {
+  return map_lines(tasks, [](const std::string &line) {
+    if (line.rfind(task_box, 0) != 0)
+      return line;
+    return line.substr(line.compare(task_box.size(), 1, " ") == 0 ? task_box.size() + 1 : task_box.size());
+  });
+}
+
+std::string tasks_value(const std::string &lines) {
+  // les lignes vides restent vides : Entree en fin de saisie ne doit pas afficher un carre seul
+  return map_lines(lines, [](const std::string &line) {
+    if (line.find_first_not_of(" \t\r") == std::string::npos || line.rfind(task_box, 0) == 0)
+      return line;
+    return task_box + " " + line;
+  });
+}
+
 } // namespace qrprotec

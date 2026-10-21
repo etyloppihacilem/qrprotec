@@ -114,6 +114,18 @@ std::string fit_text(const std::string &text, float width) {
   }
   return cut + "...";
 }
+// Champ de valeur d'un placeholder. {{tasks}} : plusieurs lignes, le carre "□ " est rajoute
+// tout seul devant chaque ligne (meme format que les vraies etiquettes, App labels.cpp).
+bool input_parameter(const std::string &name, std::string &value) {
+  if (name != "tasks")
+    return ImGui::InputText(name.c_str(), &value);
+  std::string lines = task_lines(value);
+  if (!ImGui::InputTextMultiline(name.c_str(), &lines, ImVec2(0.0f, ImGui::GetTextLineHeight() * 4.0f)))
+    return false;
+  value = tasks_value(lines);
+  return true;
+}
+
 } // namespace
 
 Editor::Editor() {
@@ -1296,7 +1308,7 @@ void Editor::draw_document_properties() {
   ImGui::PushID("parameters"); // un parametre peut porter le meme nom qu'un element
   for (const std::string &placeholder : placeholder_names_) {
     ImGui::BeginDisabled(placeholder == "titre");
-    if (ImGui::InputText(placeholder.c_str(), &document_.parameters[placeholder]))
+    if (input_parameter(placeholder, document_.parameters[placeholder]))
       preview_dirty_ = true;
     ImGui::EndDisabled();
     if (placeholder == "titre")
@@ -1564,7 +1576,7 @@ void Editor::draw_print_test_popup() {
   if (ImGui::BeginPopupModal("Valeurs d'impression", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::TextUnformatted("Renseignez les valeurs du test avant impression.");
     for (const std::string &name : placeholder_names_) {
-      ImGui::InputText(name.c_str(), &print_values_[name]);
+      input_parameter(name, print_values_[name]);
     }
     if (print_callback_) {
       // impression par la file de l'application (reglages d'imprimante et d'etiquette communs)
