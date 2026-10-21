@@ -44,11 +44,15 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    être demandés ensemble s'ils ont le même lot global (sinon erreur, contrôlé par
    `views.verif_targets`).
 2. **Destination de chaque item scanné** (`assign_items`), voir plus bas.
-3. **Remplacements** : pour chaque (lot, type), si des items frais **nouvellement arrivés** dans le
-   lot et des items périmés du même type sont scannés, autant de périmés que de nouveaux frais sont
-   marqués `replaced` et sortent du lot. C'est le geste « je remplace le sérum périmé par un neuf » :
-   on scanne les deux, le logiciel comprend. Un périmé scanné sans remplaçant **reste** dans le lot
-   (et le lot est incomplet).
+3. **Remplacements** : pour chaque (lot, type), un périmé scanné (ou signalé inutilisable, ou
+   désactivé) est marqué `replaced` et sort du lot, à jeter, dès que le lot a **son minimum d'items
+   frais** de ce type parmi les scans, que ces frais viennent d'arriver ou y soient déjà
+   (`services.discardable`). C'est le geste « je remplace le sérum périmé par un neuf », ou « il y a
+   déjà un neuf, je jette le périmé » : les fronts le suggèrent au scan (« retirez-le du lot et
+   jetez-le »). Sans assez de frais, le périmé **reste** dans le lot, à remplacer, et le lot est
+   incomplet faute du minimum. Un item dont seule la révision est en retard n'est pas jeté : il n'est
+   remplacé que par un frais nouvellement arrivé. Un lot est **complet** dès qu'il a le minimum
+   d'items frais par type : un périmé en trop ne le rend pas incomplet (vérif et état du lot).
 4. **Présents** : `status=active`, `missed_verifs=0`, `last_seen*` mis à jour, rangés dans leur lot.
    Un item `missing` scanné est réactivé.
 5. **Non vus** : les items actifs ou disparus du périmètre qui n'ont pas été scannés voient

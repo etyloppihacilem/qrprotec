@@ -19,8 +19,10 @@ avec son badge.** Le reste de cette page détaille les cas particuliers.
      liste des lots, ou par le premier item scanné) demande d'en scanner une avant de valider.
 2. **Scannez chaque objet.** Il apparaît dans la **pile de scans** (colonne de droite) et disparaît de
    la liste « À scanner ».
-   - Un **périmé** fait biper la douchette (LED orange) et s'affiche en rouge « PÉRIMÉ ». Si vous le
-     retirez, scannez son remplaçant : le périmé sera compté comme remplacé.
+   - Un **périmé** fait biper la douchette (LED orange) et s'affiche en rouge « PÉRIMÉ ». Si le lot a
+     déjà son compte de ce produit non périmé, le poste vous dit de le **retirer du lot et le jeter** :
+     la vérif reste complète. Sinon il est à remplacer : jetez-le dès que son remplaçant (scanné lui
+     aussi) est dans le lot.
    - Un **code inconnu** s'affiche en rouge.
    - Un objet scanné deux fois est ignoré (simple mention « déjà scanné »).
    - **Annuler le dernier scan** retire le dernier objet de la pile ; la croix ✕ retire une ligne.

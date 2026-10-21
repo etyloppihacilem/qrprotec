@@ -240,25 +240,39 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         else:
             target = assign_items(group, scanned, today, places)
 
-        # Detection des remplacements : par lot et par type, nombre d'items frais nouvellement arrives
+        # Detection des remplacements, par lot et par type. Un perime (inutilisable, desactive) scanne est retire du
+        # lot, a jeter, des que le lot a son minimum d'items frais de ce type (meme deja presents avant la verif) ;
+        # sinon il reste a remplacer. Un item a la revision en retard n'est pas jete : seulement remplace par un
+        # item frais nouvellement arrive. Meme regle dans les fronts (planSession, App::plan_verif).
+        required = _required_by_lot(group) if group is not None else {}
+        fresh = defaultdict(int)
         new_fresh = defaultdict(int)
         expired_by_key = defaultdict(list)
         for item in scanned:
             key = (target[item.iid], item.pack.item_type_id)
             if item.needs_replacement(today):
                 expired_by_key[key].append(item)
-            elif item.location_id != target[item.iid] or item.status != ItemStatus.ACTIVE:
-                new_fresh[key] += 1
+            else:
+                fresh[key] += 1
+                if item.location_id != target[item.iid] or item.status != ItemStatus.ACTIVE:
+                    new_fresh[key] += 1
         replaced = set()
         for key, expired_items in expired_by_key.items():
-            for item in expired_items[:new_fresh.get(key, 0)]:
-                replaced.add(item.iid)
+            lot_id, type_id = key
+            covered = fresh[key] >= required.get(lot_id, {}).get(type_id, 0)
+            slots = new_fresh.get(key, 0)
+            for item in expired_items:
+                if covered and discardable(item, today):
+                    replaced.add(item.iid)
+                elif slots > 0:
+                    replaced.add(item.iid)
+                    slots -= 1
 
         # Lots verifies : tous, ou seulement ceux que la verif partielle rend complets
         if group is None:
             verified_ids = set()
         elif partial:
-            verified_ids = _complete_lots(group, scanned, not_seen, target, replaced, today)
+            verified_ids = _complete_lots(group, scanned, not_seen, target, today)
         else:
             verified_ids = set(by_id)
         if group is not None and partial and not verified_ids and not scanned and not intact:
@@ -406,7 +420,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                                             'back_from_list', 'marked_used', 'marked_used_by'])
                 requirements = requirements_status(sub_lot, today)
                 lot_expired = [iid for iid in report['expired'] if target.get(iid) == sub_lot.id]
-                lot_complete = all(r['present'] >= r['required'] for r in requirements) and not lot_expired
+                # complet des que le minimum d'items frais est la, meme s'il reste un perime en trop
+                lot_complete = all(r['present'] >= r['required'] for r in requirements)
                 verif = verifs[sub_lot.id]
                 verif.complete = lot_complete
                 verif.present_count = counts[sub_lot.id]['present']
@@ -473,6 +488,12 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
     return report
 
 
+def discardable(item, today=None) -> bool:
+    """Perime, signale inutilisable ou desactive : a retirer du lot et a jeter. Un item dont seule la revision est
+    en retard n'est pas jete (il part en revision)."""
+    return item.is_expired(today) or item.unusable or item.disabled
+
+
 def leaves_lot(item) -> bool:
     """Item non consommable range dans un lot ordinaire : absent a la verif du lot, il en a ete retire et passe hors
     lot (un lecteur de glycemie ne s'use pas). Dans un rangement du stock (ou hors lot), il manque normalement."""
@@ -523,7 +544,7 @@ def _record_verif(lot, identity, now, verif, requirements, partial, missing, exp
                    expired_items=expired[:journal.MAX_LISTED_ITEMS])
 
 
-def _complete_lots(group, scanned, not_seen, target, replaced, today):
+def _complete_lots(group, scanned, not_seen, target, today):
     """Lots que les items scannes rendent complets (verif partielle). Un lot sans aucun item scanne n'est retenu
     que s'il ne contient rien : sinon tout son contenu serait signale manquant. Un rangement du stock n'a pas de
     contenu attendu : ses items sont ses attendus, il n'est complet que si tous ont ete scannes. Un item a
@@ -531,16 +552,11 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
     les fronts (planSession, App::plan_verif)."""
     required = _required_by_lot(group)
     fresh = defaultdict(lambda: defaultdict(int))
-    expired = defaultdict(int)
     touched = set()
     for item in scanned:
         destination = target[item.iid]
         touched.add(destination)
-        if item.iid in replaced:
-            continue
-        if item.needs_replacement(today):
-            expired[destination] += 1
-        else:
+        if not item.needs_replacement(today):
             fresh[destination][item.pack.item_type_id] += 1
     # un item a dechirer ou non consommable (passe hors lot) non scanne ne retient pas son lot
     holding = {item.location_id for item in not_seen if not item.pack.item_type.tear_off and not leaves_lot(item)}
@@ -548,8 +564,7 @@ def _complete_lots(group, scanned, not_seen, target, replaced, today):
     for lot in group:
         if lot.id in holding and (lot.id not in touched or lot.lot_type.storage):
             continue
-        if expired[lot.id]:
-            continue
+        # un perime en trop ne retient pas le lot : seul compte le minimum d'items frais
         if all(fresh[lot.id][type_id] >= quantity for type_id, quantity in required[lot.id].items()):
             complete.add(lot.id)
     return complete
