@@ -818,7 +818,8 @@ void Editor::draw_layers_panel() {
   }
   ImGui::SetItemTooltip("Zone de texte libre. Les {{placeholders}} sont remplacés à l'impression.\n"
                         "{[Exp. ]{peremption}} : « Exp. » imprimé seulement si la valeur n'est pas vide "
-                        "(aussi derrière : {{peremption}[ inclus]}).");
+                        "(aussi derrière : {{peremption}[ inclus]}).\n"
+                        "{{peremption}![Non périssable]} : « Non périssable » imprimé à la place d'une valeur vide.");
   ImGui::SameLine();
   if (button("QR code", ImVec2(half, 0))) {
     const float size = std::max(kMinQrMm, std::min(16.0f, std::min(width, height) - 4.0f));

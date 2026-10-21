@@ -115,11 +115,16 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
 namespace {
 // Un placeholder : {{nom}}, ou {[prefixe]{nom}[suffixe]} dont le prefixe et le suffixe (chacun facultatif)
 // ne s'impriment que si la valeur n'est pas vide, ex. {[Exp. ]{peremption}} ou {{peremption}[ inclus]}.
+// ![remplacement] apres le suffixe s'imprime seul quand la valeur est vide : {{peremption}![Non périssable]}.
+// Suffixe et remplacement s'ecrivent aussi dans les accolades du nom : {{peremption[ inclus]![-]}}.
 struct Placeholder {
     std::size_t end = 0; // juste apres l'accolade fermante
     std::string prefix;
     std::string name;
     std::string suffix;
+    std::string replacement;
+    bool        has_suffix      = false;
+    bool        has_replacement = false;
 };
 
 // Lit un texte entre crochets a partir de position (qui pointe sur '[') ; avance position apres ']'
@@ -132,6 +137,22 @@ bool read_bracket(const std::string &value, std::size_t &position, std::string &
   return true;
 }
 
+// Lit un [suffixe] puis un ![remplacement] facultatifs a cursor, chacun une seule fois par placeholder
+bool read_suffix_and_replacement(const std::string &value, std::size_t &cursor, Placeholder &placeholder) {
+  if (cursor < value.size() && value[cursor] == '[') {
+    if (placeholder.has_suffix || !read_bracket(value, cursor, placeholder.suffix))
+      return false;
+    placeholder.has_suffix = true;
+  }
+  if (cursor + 1 < value.size() && value[cursor] == '!' && value[cursor + 1] == '[') {
+    ++cursor;
+    if (placeholder.has_replacement || !read_bracket(value, cursor, placeholder.replacement))
+      return false;
+    placeholder.has_replacement = true;
+  }
+  return true;
+}
+
 // Reconnait un placeholder commencant a position (qui pointe sur '{')
 bool read_placeholder(const std::string &value, std::size_t position, Placeholder &placeholder) {
   std::size_t cursor = position + 1;
@@ -139,12 +160,15 @@ bool read_placeholder(const std::string &value, std::size_t position, Placeholde
     return false;
   if (cursor >= value.size() || value[cursor] != '{')
     return false;
-  const std::size_t name_end = value.find_first_of("{}[]", cursor + 1);
-  if (std::string::npos == name_end || value[name_end] != '}' || name_end == cursor + 1)
+  const std::size_t name_end = value.find_first_of("{}[]!", cursor + 1);
+  if (std::string::npos == name_end || name_end == cursor + 1)
     return false;
   placeholder.name = value.substr(cursor + 1, name_end - cursor - 1);
-  cursor           = name_end + 1;
-  if (cursor < value.size() && value[cursor] == '[' && !read_bracket(value, cursor, placeholder.suffix))
+  cursor           = name_end;
+  if (!read_suffix_and_replacement(value, cursor, placeholder) || cursor >= value.size() || value[cursor] != '}')
+    return false;
+  ++cursor;
+  if (!read_suffix_and_replacement(value, cursor, placeholder))
     return false;
   if (cursor >= value.size() || value[cursor] != '}')
     return false;
@@ -175,6 +199,8 @@ resolve_parameters(const std::string &input, const std::unordered_map< std::stri
     }
     if (!found->second.empty())
       result += placeholder.prefix + found->second + placeholder.suffix;
+    else
+      result += placeholder.replacement;
     position = placeholder.end;
   }
   return result;

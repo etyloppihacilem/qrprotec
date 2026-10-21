@@ -149,6 +149,9 @@ listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{l
 Un texte entre crochets autour du nom ne s'imprime que si la valeur n'est pas vide, devant
 (`{[Exp. ]{peremption}}` donne « Exp. 31/12/2027 », ou rien pour un item non périssable), derrière
 (`{{peremption}[ inclus]}`) ou des deux côtés (`{[(]{lot_name}[)]}`).
+Un `![texte]` après le suffixe s'imprime seul à la place d'une valeur vide :
+`{{peremption}![Non périssable]}`, `{[Exp. ]{peremption}[ inclus]![Non périssable]}`. Le suffixe et le
+remplacement peuvent aussi s'écrire dans les accolades du nom : `{{peremption[ inclus]![Non périssable]}}`.
 
 L'onglet **Toutes les étiquettes** montre en grille chaque étiquette du dossier des modèles avec son
 aperçu. Celles qui servent de modèle (choisies dans **Réglages > Étiquettes et impression**) portent une
