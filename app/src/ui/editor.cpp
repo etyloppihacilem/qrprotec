@@ -836,7 +836,7 @@ void Editor::draw_layers_panel() {
   ImGui::SameLine();
   if (button("Image", ImVec2(half, 0))) {
     const std::string path = image_files_.empty() ? std::string(LABEL_IMAGES_DIR) + "/protection-civile.png" : image_files_.front();
-    add_element({ "image", ElementKind::Image, ImageElement{ path, (width - 10.0f) / 2.0f, (height - 10.0f) / 2.0f, 10.0f, 10.0f, true, 128 } });
+    add_element({ "image", ElementKind::Image, ImageElement{ path, (width - 10.0f) / 2.0f, (height - 10.0f) / 2.0f, 10.0f, 10.0f, false, 128 } });
   }
   ImGui::SetItemTooltip("Logo ou image PNG / JPEG du dossier images/ des modèles.");
   if (button("Nom de l'antenne", ImVec2(-FLT_MIN, 0))) {
