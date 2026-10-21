@@ -27,7 +27,9 @@ avec son badge.** Le reste de cette page détaille les cas particuliers.
 3. **Valider la vérif.** Survoler le bouton vert rappelle ce qu'il fait ou ce qui manque pour valider.
    Si vous n'êtes pas connecté, le poste demande votre **badge** (et votre PIN
    si vous en avez un). Si le TECH l'a autorisé, vous pouvez aussi saisir votre nom et
-   **Continuer sans badge** (il faut alors avoir scanné l'étiquette clé du lot). Le compte rendu s'affiche :
+   **Continuer sans badge** (il faut alors avoir scanné l'étiquette clé du lot). Sans badge, le bouton
+   **Se connecter avec nom, prénom et PIN** de la pile de scans connecte aussi, si vous avez un code PIN.
+   Le compte rendu s'affiche :
    - **✔ VÉRIF ENREGISTRÉE : LOT COMPLET** : tout va bien ;
    - **✘ INCOMPLET** : la liste de ce qui manque, des périmés restés dans le lot, des items attendus
      mais non scannés. Complétez depuis le stock et refaites une vérif, ou signalez-le à la
@@ -53,6 +55,7 @@ Tout se fait sans souris :
 | `Ctrl+F11` | plein écran : une seule fenêtre visible, sur tout l'écran |
 | `Ctrl+Tab` | passer à la fenêtre suivante |
 | `Ctrl+W` | fermer la fenêtre active |
+| `Ctrl+Espace` | remettre les fenêtres en place (disposition par défaut, sort du plein écran) |
 | `Super+L` | se déconnecter (touche Windows + L) |
 | flèches, `Entrée`, `Espace` | se déplacer dans la fenêtre et valider l'élément choisi |
 
