@@ -340,10 +340,10 @@ class PublicNamesTests(ApiTestCase):
         people.append((4, 'julien', 'Deraine'))
         self.assertEqual(idendity.short_names(people),
                          {1: 'Michel', 2: 'Julien Du.', 3: 'Julien S.', 4: 'julien De.'})
-        # accents et casse ignores ; homonymes complets et noms contenus dans un autre : nom entier
+        # accents et casse ignores ; homonymes complets et noms contenus dans un autre : jamais le nom entier
         self.assertEqual(idendity.short_names([(1, 'Émile', 'Roux'), (2, 'Emile', 'rousseau'),
                                                (3, 'Ana', 'Lima'), (4, 'Ana', 'Lima')]),
-                         {1: 'Émile Roux', 2: 'Emile rous.', 3: 'Ana Lima', 4: 'Ana Lima'})
+                         {1: 'Émile Rou.', 2: 'Emile rous.', 3: 'Ana Lim.', 4: 'Ana Lim.'})
         self.assertEqual(idendity.short_names([(1, 'Yann', 'Le Gall'), (2, 'Yann', 'Le Roux')]),
                          {1: 'Yann Le G.', 2: 'Yann Le R.'})
 
@@ -727,6 +727,7 @@ class PinTests(ApiTestCase):
         self.assertEqual((code, body.get('pin_required')), (403, True))
         code, body = self.auth(admin, pin='4821')
         self.assertEqual(code, 200)
+        self.assertNotIn('nom', body)  # front web : jamais de nom de famille, le poste l'a
         # le jeton de session ouvre l'etat des stocks sans redemander le PIN
         badge = {'matricule': 'A001', 'key': admin.new_key}
         code, _ = self.call('POST', '/api/stock/summary/', {'user': badge}, local=False)
@@ -782,7 +783,8 @@ class PinTests(ApiTestCase):
         self.assertTrue(body['pin_blocked'])
         reset = body['pin_reset']
         self.assertIn('pinreset?m=M001&t=', reset['url'])
-        self.assertEqual(reset['contact'], 'Min Ad')
+        self.assertEqual(reset['contact'], 'Min')  # front web : jamais de nom de famille
+        self.assertNotIn('Dupont', reset['name'])
         # bloque : meme le bon PIN est refuse, et la session deja ouverte ne vaut plus rien
         code, body = self.auth(self.user, pin='123456')
         self.assertEqual(code, 403)
@@ -806,7 +808,8 @@ class PinTests(ApiTestCase):
                             local=False)
         self.assertEqual(code, 404)
         code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge}, local=False)
-        self.assertEqual((code, body['reset'], body['failures'], body['prenom']), (200, False, 50, 'Jeanne'))
+        self.assertEqual((code, body['reset'], body['failures'], body['name']), (200, False, 50, 'Jeanne'))
+        self.assertNotIn('nom', body)
         code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge, 'confirm': True}, local=False)
         self.assertEqual((code, body['reset']), (200, True))
         # lien a usage unique
@@ -1674,7 +1677,7 @@ class AlertTests(ApiTestCase):
             self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
         self.assertTrue(body['pin_reset']['notified'])
         self.assertEqual(len(self.sent), 1)
-        self.assertIn('Jeanne Dupont (M001) a oublié son code PIN', self.sent[0][1])
+        self.assertIn('Jeanne a oublié son code PIN', self.sent[0][1])
         self.assertIn('/pinreset?m=M001&t=', self.sent[0][1])
         # personne a prevenir : la tentative suivante reessaiera
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})  # nouveau PIN : debloque
@@ -1689,6 +1692,7 @@ class AlertTests(ApiTestCase):
         self.assertEqual(len(self.sent), 1)
 
     def test_pin_blocked_after_failures_notifies(self):
+        Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')  # homonyme : debut du nom
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
         Secouristes.objects.filter(pk=self.user.pk).update(pin_failures_total=49)
         code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '0000'},
@@ -1696,14 +1700,15 @@ class AlertTests(ApiTestCase):
         self.assertTrue(body['pin_blocked'])
         self.assertFalse(body['pin_reset']['forgotten'])
         self.assertEqual(len(self.sent), 1)
-        self.assertIn("bloqué après trop d'essais", self.sent[0][1])
+        self.assertIn("Jeanne Dup. a son code PIN bloqué après trop d'essais", self.sent[0][1])
+        self.assertNotIn('M001)', self.sent[0][1])
 
     def test_key_renewals(self):
         self.assertEqual(self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')[0], 200)
         self.assertEqual(self.call('POST', '/api/users/M001/renew-key/')[0], 200)
         self.assertEqual(self.sent, [
-            ('lot_key_renewed', 'étiquette clé du lot Sac A renouvelée par Admin Poste'),
-            ('badge_renewed', 'badge de Jeanne Dupont (M001) renouvelé par Admin Poste')])
+            ('lot_key_renewed', 'étiquette clé du lot Sac A renouvelée par Admin'),
+            ('badge_renewed', 'badge de Jeanne renouvelé par Admin')])
 
     def test_key_expirations_once_per_stage(self):
         from django.core.management import call_command
@@ -1714,7 +1719,7 @@ class AlertTests(ApiTestCase):
         day = (self.today + timedelta(days=10)).strftime('%d/%m/%Y')
         self.assertEqual(len(messages), 2)
         self.assertIn(f'étiquettes clés de lot qui expirent bientôt : Sac A ({day})', messages[0])
-        self.assertIn('badges expirés : Jeanne Dupont (M001)', messages[1])
+        self.assertIn('badges expirés : Jeanne (', messages[1])
         # deja annonce : rien de plus
         self.sent.clear()
         call_command('check_alerts', stdout=StringIO())
@@ -2067,7 +2072,7 @@ class WebPushTests(ApiTestCase):
         [message] = self.messages()
         self.assertEqual(message['title'], 'QRProtec : PIN bloqué')
         self.assertEqual((message['url'], message['tab']), (body['pin_reset']['url'], 'pinreset'))
-        self.assertIn('Jeanne Dupont (M001) a oublié son code PIN', message['body'])
+        self.assertIn('Jeanne a oublié son code PIN', message['body'])
         # desactive pour ce navigateur
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})  # nouveau PIN : debloque
         self.subscribe(stock_low=True, pin_blocked=False)
@@ -3917,6 +3922,9 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 403)
         code, body = self.as_(self.other, f"/api/checklists/{mine['id']}/")
         self.assertEqual((code, body['can_edit']), (200, False))  # partagee par lien : lisible
+        self.assertEqual(body['owner_name'], 'Jeanne')  # front web : prenom seul
+        code, body = self.call('POST', f"/api/checklists/{mine['id']}/")
+        self.assertEqual(body['owner_name'], 'Jeanne Dupont')  # poste : nom complet
         code, body = self.call('POST', f"/api/checklists/{mine['id']}/update/", {'name': 'Par la gestion'})
         self.assertEqual((code, body['name']), (200, 'Par la gestion'))  # admin du poste
         template = self.new_list(template=True)

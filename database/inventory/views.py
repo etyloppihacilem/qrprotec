@@ -43,7 +43,7 @@ from . import serializers as ser
 from . import services
 from . import tasks
 from . import webpush
-from .idendity import SOURCE_VERIFIED, identity_from_request, identity_name
+from .idendity import SOURCE_VERIFIED, identity_from_request, identity_name, short_name
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
@@ -314,7 +314,7 @@ def pin_reset_token_valid(user, token):
 def pin_contact_name(user):
     """Admin a contacter : celui choisi pour l'utilisateur, sinon l'admin par defaut (vide : un administrateur)."""
     contact = user.contact_admin()
-    return str(contact) if contact else ''
+    return short_name(contact.matricule) if contact else ''
 
 
 def apply_default_contact(user, data):
@@ -333,7 +333,7 @@ def pin_reset_info(user):
         'url': ser.public_url('pinreset', m=user.matricule, t=pin_reset_token(user)),
         'contact': pin_contact_name(user),
         'matricule': user.matricule,
-        'name': str(user),
+        'name': short_name(user.matricule),
         'forgotten': user.pin_forgotten,
     }
 
@@ -394,7 +394,7 @@ def auth(request):
     matricule = str(request.data.get('matricule', ''))
     if not request.data.get('key'):
         # matricule seul (code sans l'URL du badge, ou tape) : rien ne prouve le badge, le PIN est obligatoire
-        return Response(login_response(matricule_login(request, matricule)))
+        return Response(login_response(request, matricule_login(request, matricule)))
     user = Secouristes.objects.filter(matricule=matricule).first()
     if user is None or not user.check_key(request.data.get('key')):
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
@@ -404,11 +404,13 @@ def auth(request):
         user.name_login_failures = 0
         user.name_login_locked_until = None
         user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
-    return Response(login_response(user))
+    return Response(login_response(request, user))
 
 
-def login_response(user):
+def login_response(request, user):
     data = ser.user_dict(user)
+    if is_front(request):
+        data['nom'] = user.nom  # le poste l'affiche ; jamais sur le front web
     data['session'] = session_token(user)
     # reglages des notifications web affiches seulement si l'utilisateur peut en recevoir
     data['notifications'] = bool(user.push_types()) and webpush.available()
@@ -473,7 +475,8 @@ def auth_name(request):
     nom, prenom, pin = (str(data.get(field, '') or '').strip() for field in ('nom', 'prenom', 'pin'))
     if not nom or not prenom or not PIN_RE.match(pin):
         raise ApiError("Saisissez votre nom, votre prénom et votre code PIN (4 à 8 chiffres)")
-    return Response(login_response(pin_login(request, name_login_candidates(nom, prenom), pin, NAME_LOGIN_ERROR)))
+    user = pin_login(request, name_login_candidates(nom, prenom), pin, NAME_LOGIN_ERROR)
+    return Response(login_response(request, user))
 
 
 def check_login_address(request):
@@ -555,8 +558,7 @@ def pin_reset(request):
         raise ApiError("Lien de déblocage invalide ou déjà utilisé (le PIN n'est plus bloqué)", status.HTTP_404_NOT_FOUND)
     info = {
         'matricule': target.matricule,
-        'nom': target.nom,
-        'prenom': target.prenom,
+        'name': short_name(target.matricule),  # front web : jamais de nom de famille
         'role_label': target.get_role_display(),
         'fonction': target.fonction,
         'active': target.active,
@@ -1864,7 +1866,7 @@ def lot_rotate_key(request, lot_id):
     journal.record(OperationKind.LOT_KEY, front_identity(request), 'étiquette clé renouvelée (ancienne invalidée)',
                    lot=lot)
     notifications.notify_admins('lot_key_renewed', 'étiquette de lot renouvelée',
-                                f'étiquette clé du lot {lot.name} renouvelée par {front_user(request)}')
+                                f'étiquette clé du lot {lot.name} renouvelée par {short_name(front_user(request).matricule)}')
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 
@@ -2098,7 +2100,7 @@ def user_renew_key(request, matricule):
     journal.record(OperationKind.USER, front_identity(request), f'badge renouvelé : {user} ({user.matricule})',
                    matricule=user.matricule)
     notifications.notify_admins('badge_renewed', 'badge renouvelé',
-                                f'badge de {user} ({user.matricule}) renouvelé par {front_user(request)}')
+                                f'badge de {short_name(user.matricule)} renouvelé par {short_name(front_user(request).matricule)}')
     return Response(ser.user_dict(user, local=True))
 
 

@@ -548,7 +548,6 @@ def lot_list(lots, local=False, today=None, attention=False):
 def user_dict(user, local=False):
     data = {
         'matricule': user.matricule,
-        'nom': user.nom,
         'prenom': user.prenom,
         'role': user.role,
         'role_label': user.get_role_display(),
@@ -565,6 +564,7 @@ def user_dict(user, local=False):
         'default_contact': user.default_contact,
     }
     if local:
+        data['nom'] = user.nom  # pas de nom de famille sur l'API publique (front web)
         contact = user.pin_contact
         data['pin_blocked_since'] = _date(user.pin_blocked)
         data['pin_failures'] = user.pin_failures_total

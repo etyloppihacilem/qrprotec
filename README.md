@@ -432,9 +432,12 @@ Sur l'API publique, l'utilisateur est transmis sous la forme `"user": {"matricul
 Les noms renvoyés par l'API publique (`last_verif_by`, `last_seen_by`, `sealed_by`, `by`…) sont anonymisés :
 prénom seul, suivi du plus court début de nom qui le distingue quand plusieurs secouristes partagent ce prénom
 (Michel, Julien D., Julien S. ; Julien De. et Julien Du. s'il y a un Julien Deraine et un Julien Dubois).
+Le nom de famille n'apparaît jamais en entier, même entre homonymes complets (Ana Lim.).
 Un nom déclaré est réduit à son premier mot et l'initiale du suivant. Les postes (API locale et distante)
 reçoivent les noms complets. Hors requête (WebSocket, tâche), envelopper la sérialisation dans
-`idendity.anonymized()` pour obtenir les mêmes noms.
+`idendity.anonymized()` pour obtenir les mêmes noms. Les textes lus sur le front web quel que soit leur auteur
+(notifications web, écran du PIN bloqué, auteur d'une liste) passent par `idendity.short_name` /
+`short_identity_name`, et la connexion (`/api/auth/`) ne renvoie `nom` qu'aux postes.
 
 ### Règles de gestion
 

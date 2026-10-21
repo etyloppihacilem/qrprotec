@@ -26,7 +26,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import journal, movements, notifications, services
-from .idendity import SOURCE_VERIFIED, identity_name
+from .idendity import SOURCE_VERIFIED, format_identity_verified, identity_name
 from .models import (
     Checklist, ChecklistLine, ChecklistScan, ChecklistStatus, ItemMovement, ItemStatus, Items, ItemType, Lots,
     MovementKind, OperationKind, Role, SeenWhile,
@@ -412,7 +412,7 @@ def checklist_dict(checklist, user=None, full=True):
         'name': checklist.name,
         'note': checklist.note,
         'owner': owner.matricule,
-        'owner_name': f'{owner.prenom} {owner.nom}'.strip(),
+        'owner_name': identity_name(format_identity_verified(owner.matricule)),
         'template': checklist.is_template,
         'status': checklist.status,
         'status_label': 'Modèle' if checklist.is_template else 'Terminée' if (

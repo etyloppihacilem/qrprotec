@@ -21,6 +21,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import forecast, webpush
+from .idendity import short_name
 from .models import ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, revision_blocked_q
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -162,7 +163,7 @@ def notify_pin_blocked(user, url):
         user.pin_reset_notified = True
         return True
     reason = 'a oublié son code PIN' if user.pin_forgotten else 'a son code PIN bloqué après trop d\'essais'
-    sent = webpush.notify_pin_blocked(f'{user} ({user.matricule}) {reason}', url)
+    sent = webpush.notify_pin_blocked(f'{short_name(user.matricule)} {reason}', url)
     if not sent:  # aucun destinataire : la prochaine tentative reessaiera (ex. notifications activees entre-temps)
         Secouristes.objects.filter(pk=user.pk).update(pin_reset_notified=False)
         return False
@@ -198,7 +199,7 @@ def check_key_expirations(today=None):
         ('badge_expiring', 'badge', 'badges', 'expirés',
          Secouristes.objects.filter(active=True, key_expires__isnull=False, key_expires__lte=limit)
          .order_by('key_expires', 'nom', 'prenom'),
-         'key_expires', lambda user: f'{user} ({user.matricule})'),
+         'key_expires', lambda user: short_name(user.matricule)),
     )
     report = {}
     for event, singular, plural, expired_word, queryset, field, label in sources:

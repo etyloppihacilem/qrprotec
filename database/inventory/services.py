@@ -18,7 +18,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from . import journal, movements, notifications, webpush
-from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity
+from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_identity_name
 from .models import (
     ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, OperationKind,
     SeenWhile, VerifItem, Operation, VerifResult, Verifs, add_months, generate_key, qrprotec_setting,
@@ -583,7 +583,7 @@ def notify_verif_problem(lot, identity, requirements, report, newly_missing):
         parts.append(journal.plural(len(newly_missing), 'item signalé disparu', 'items signalés disparus'))
     return notifications.notify_admins(
         'verif_problem', 'vérif incomplète',
-        f'vérif du lot {lot.name} incomplète ({display_name(identity)}) : ' + ' ; '.join(parts),
+        f'vérif du lot {lot.name} incomplète ({short_identity_name(identity)}) : ' + ' ; '.join(parts),
         url=f'../verif?lot={lot.id}', tag=f'verif-{lot.id}', tab='lot')
 
 
@@ -645,7 +645,7 @@ def notify_seals_broken(opened, identity):
     admins (notification web), qui ouvre la fiche du premier lot."""
     if not opened:
         return 0
-    who = display_name(identity)
+    who = short_identity_name(identity)
     names = [f'{lot.name}' + (f' (scellé n°{lot.seal_number})' if lot.seal_number else '') for lot, _ in opened]
     first, reason = opened[0]
     text = f'{names[0]} ouvert ({reason}) par {who}'
@@ -704,7 +704,7 @@ def open_seal_with_label(lot, identity):
                     operation.save(update_fields=['by', 'details'])
         # la notification web de l'ouverture (meme tag) est remplacee par une version signee
         webpush.notify_event('seal_broken', 'QRProtec : scellé ouvert',
-                             f"scellé ouvert : {lot.name} ouvert (étiquette d'ouverture) par {display_name(identity)}",
+                             f"scellé ouvert : {lot.name} ouvert (étiquette d'ouverture) par {short_identity_name(identity)}",
                              url=f'../verif?lot={lot.id}', tag=f'seal-{lot.id}', tab='lot')
         return 'signed'
     return 'already'
