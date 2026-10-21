@@ -63,6 +63,34 @@ int main()
     assert(qrprotec::find_placeholders(document).size() == 1);
     std::remove("/tmp/qrprotec-template.json");
 
+    // Rotation par quart de tour : le meme code-barres couche est la transposee tournee du code a plat, pose au
+    // coin haut-gauche de sa zone ; la rotation survit a l'enregistrement
+    {
+        qrprotec::TemplateDocument flat;
+        flat.media.width_mm = 40.0;
+        flat.media.height_mm = 40.0;
+        flat.elements.push_back({"code", qrprotec::ElementKind::Barcode,
+                                 qrprotec::BarcodeElement{"ABC123", 5.0f, 10.0f, 30.0f, 10.0f, 2}});
+        qrprotec::TemplateDocument turned = flat;
+        turned.elements[0].rotation = 90;
+        const qrprotec::RasterImage a = qrprotec::render_template(flat);
+        const qrprotec::RasterImage b = qrprotec::render_template(turned);
+        const int w = 30 * 8, h = 10 * 8, left = 5 * 8, top = 10 * 8;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x)
+                assert(a.at(left + x, top + y) == b.at(left + h - 1 - y, top + x));
+        assert(qrprotec::validate(turned).empty()); // couche : 10 x 30 mm, tient dans l'etiquette
+        turned.elements[0].rotation = -90;
+        assert(qrprotec::normalize_rotation(turned.elements[0].rotation) == 270);
+        assert(qrprotec::save_template(turned, "/tmp/qrprotec-rotation.json", error));
+        qrprotec::TemplateDocument reloaded;
+        assert(qrprotec::load_template(reloaded, "/tmp/qrprotec-rotation.json", error));
+        assert(reloaded.elements.size() == 1 && reloaded.elements[0].rotation == 270);
+        std::remove("/tmp/qrprotec-rotation.json");
+        // sans rotation, rien n'est ecrit : les modeles existants restent identiques
+        assert(qrprotec::serialize_template(flat).find("rotation") == std::string::npos);
+    }
+
     // WebSocket : base64 (cle de la poignee de main) et trames masquees / non masquees
     assert(qrprotec::base64_encode("") == "");
     assert(qrprotec::base64_encode("f") == "Zg==");

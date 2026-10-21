@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace qrprotec {
@@ -15,7 +16,9 @@ int pixels(double millimetres, double pixels_per_mm) {
   return std::max(1, static_cast< int >(std::lround(millimetres * pixels_per_mm)));
 }
 
-bool inside(double x, double y, double width, double height, const MediaSettings &media) {
+bool inside(double x, double y, double width, double height, const MediaSettings &media, bool turned = false) {
+  if (turned)
+    std::swap(width, height);
   return x >= 0.0 && y >= 0.0 && width > 0.0 && height > 0.0 && x + width <= media.oriented_width_mm()
       && y + height <= media.oriented_height_mm();
 }
@@ -27,6 +30,16 @@ int barcode_module_pixels(const BarcodeElement &barcode, const std::string &payl
     return 0;
   const int width = std::max(1, static_cast< int >(barcode.width_mm * pixels_per_mm));
   return width / static_cast< int >(modules + 2 * static_cast< std::size_t >(std::max(0, barcode.quiet_zone)));
+}
+
+int normalize_rotation(int degrees) {
+  const int turns = static_cast< int >(std::lround(degrees / 90.0));
+  return ((turns % 4) + 4) % 4 * 90;
+}
+
+bool quarter_turned(const TemplateElement &element) {
+  const int rotation = normalize_rotation(element.rotation);
+  return rotation == 90 || rotation == 270;
 }
 
 int MediaSettings::width_pixels() const {
@@ -56,7 +69,7 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
 
     if (element.kind == ElementKind::Text) {
       const TextElement &text = std::get< TextElement >(element.content);
-      if (!inside(text.x_mm, text.y_mm, text.width_mm, text.height_mm, document.media))
+      if (!inside(text.x_mm, text.y_mm, text.width_mm, text.height_mm, document.media, quarter_turned(element)))
         issues.push_back({ "Le texte dépasse les limites du media.", element.id });
       if (text.font_size_mm <= 0.0f)
         issues.push_back({ "La taille du texte doit être positive.", element.id });
@@ -64,7 +77,7 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
       const QrElement &qr = std::get< QrElement >(element.content);
       if (qr.payload.empty())
         issues.push_back({ "Le payload QR ne peut pas être vide.", element.id });
-      if (!inside(qr.x_mm, qr.y_mm, qr.size_mm, qr.size_mm, document.media))
+      if (!inside(qr.x_mm, qr.y_mm, qr.size_mm, qr.size_mm, document.media, quarter_turned(element)))
         issues.push_back({ "Le QR code dépasse les limites du media.", element.id });
       const int module = qr_module_pixels(qr, resolve_parameters(qr.payload, document.parameters),
                                           document.media.pixels_per_mm);
@@ -77,7 +90,7 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
       const std::string     payload = resolve_parameters(barcode.payload, document.parameters);
       if (barcode.payload.empty())
         issues.push_back({ "Le contenu du code-barres ne peut pas être vide.", element.id });
-      if (!inside(barcode.x_mm, barcode.y_mm, barcode.width_mm, barcode.height_mm, document.media))
+      if (!inside(barcode.x_mm, barcode.y_mm, barcode.width_mm, barcode.height_mm, document.media, quarter_turned(element)))
         issues.push_back({ "Le code-barres dépasse les limites du media.", element.id });
       if (!payload.empty() && code128_modules(payload).empty())
         issues.push_back({ "Code-barres : seuls les caractères ASCII imprimables passent (pas d'accents).",
@@ -92,7 +105,7 @@ std::vector< ValidationIssue > validate(const TemplateDocument &document) {
       const ImageElement &image = std::get< ImageElement >(element.content);
       if (image.path.empty())
         issues.push_back({ "Choisissez un fichier image.", element.id });
-      if (!inside(image.x_mm, image.y_mm, image.width_mm, image.height_mm, document.media))
+      if (!inside(image.x_mm, image.y_mm, image.width_mm, image.height_mm, document.media, quarter_turned(element)))
         issues.push_back({ "L'image dépasse les limites du media.", element.id });
     }
   }

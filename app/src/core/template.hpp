@@ -83,7 +83,16 @@ struct TemplateElement {
     std::string id;
     ElementKind kind = ElementKind::Text;
     std::variant<TextElement, QrElement, ImageElement, BarcodeElement> content;
+    // Quart de tour en degres, sens horaire : 0, 90, 180 ou 270. x_mm et y_mm restent le coin haut-gauche de la
+    // zone occupee sur l'etiquette ; largeur et hauteur sont celles de l'element avant rotation (echangees sur
+    // l'etiquette a 90 et 270 degres).
+    int rotation = 0;
 };
+
+// Rotation ramenee a 0, 90, 180 ou 270 (arrondie au quart de tour le plus proche)
+int normalize_rotation(int degrees);
+// Vrai si l'element est couche (90 ou 270 degres) : sa largeur et sa hauteur s'echangent sur l'etiquette
+bool quarter_turned(const TemplateElement& element);
 
 struct TemplateDocument {
     std::string name = "Nouveau template";

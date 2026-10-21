@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -155,6 +156,9 @@ std::string serialize_template(const TemplateDocument& document)
                     << ", \"height_mm\": " << image.height_mm << ", \"dither\": " << (image.dither ? 1 : 0)
                     << ", \"threshold\": " << image.threshold;
         }
+        // rotation ecrite seulement si l'element est tourne : les modeles existants restent identiques
+        if (normalize_rotation(element.rotation) != 0)
+            output << ", \"rotation\": " << normalize_rotation(element.rotation);
         output << "}" << (index + 1 == document.elements.size() ? "" : ",") << "\n";
     }
     output << "  ]\n}\n";
@@ -202,6 +206,9 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
             std::string id;
             std::string kind;
             if (!find_value(object, "id", id) || !find_value(object, "kind", kind)) continue;
+            double rotation = 0.0;
+            find_number(object, "rotation", rotation);
+            const std::size_t loaded_count = loaded.elements.size();
             if (kind == "text") {
                 TextElement text;
                 double x = 0.0;
@@ -248,6 +255,8 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
                 if (find_number(object, "threshold", x)) image.threshold = static_cast<int>(x);
                 loaded.elements.push_back({id, ElementKind::Image, image});
             }
+            if (loaded.elements.size() > loaded_count)
+                loaded.elements.back().rotation = normalize_rotation(static_cast<int>(std::lround(rotation)));
         }
     }
     document = std::move(loaded);
