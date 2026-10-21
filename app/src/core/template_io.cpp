@@ -86,22 +86,28 @@ std::string object_for_key(const std::string& json, const std::string& key)
     return {};
 }
 
-std::vector<std::string> array_objects(const std::string& array)
+// objets du tableau qui commence a array_start ; les crochets et accolades dans les
+// chaines ("{[Exp. ]{peremption}}") ne comptent pas
+std::vector<std::string> array_objects(const std::string& json, std::size_t array_start)
 {
     std::vector<std::string> objects;
+    if (array_start >= json.size() || json[array_start] != '[') return objects;
     std::size_t start = std::string::npos;
     int depth = 0;
     bool quoted = false;
     bool escaped = false;
-    for (std::size_t position = 0; position < array.size(); ++position) {
-        const char character = array[position];
+    for (std::size_t position = array_start; position < json.size(); ++position) {
+        const char character = json[position];
         if (escaped) { escaped = false; continue; }
         if (character == '\\' && quoted) { escaped = true; continue; }
         if (character == '"') { quoted = !quoted; continue; }
         if (quoted) continue;
-        if (character == '{') { if (depth++ == 0) start = position; }
-        else if (character == '}' && --depth == 0 && start != std::string::npos)
-            objects.push_back(array.substr(start, position - start + 1));
+        if (character == '{' || character == '[') { if (depth++ == 1 && character == '{') start = position; }
+        else if (character == '}' || character == ']') {
+            if (--depth == 0) break;
+            if (depth == 1 && character == '}' && start != std::string::npos)
+                objects.push_back(json.substr(start, position - start + 1));
+        }
     }
     return objects;
 }
@@ -197,8 +203,7 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
     const std::size_t elements_start = json.find("\"elements\"");
     if (elements_start != std::string::npos) {
         const std::size_t array_start = json.find('[', elements_start);
-        const std::size_t array_end = json.find(']', array_start);
-        for (const std::string& object : array_objects(json.substr(array_start, array_end - array_start + 1))) {
+        for (const std::string& object : array_objects(json, array_start)) {
             std::string id;
             std::string kind;
             if (!find_value(object, "id", id) || !find_value(object, "kind", kind)) continue;

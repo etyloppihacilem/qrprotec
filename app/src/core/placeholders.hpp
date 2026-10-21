@@ -45,4 +45,9 @@ const std::vector< PlaceholderInfo > &common_placeholders();
 // Valeurs d'exemple pour l'apercu de l'editeur.
 Parameters example_parameters(TemplateCategory category);
 
+// {{tasks}} : une tache par ligne, precedee de "□ ". L'editeur fait saisir les lignes
+// sans le carre (task_lines) et le rajoute a chaque ligne non vide (tasks_value).
+std::string task_lines(const std::string &tasks);
+std::string tasks_value(const std::string &lines);
+
 } // namespace qrprotec
