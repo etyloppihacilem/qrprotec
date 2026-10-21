@@ -146,6 +146,9 @@ ouverture de chaque lot.
 Menu **Administration > Éditeur d'étiquettes** (admin). Chaque modèle a un **usage** (item, paquet, lot
 public, lot clé, scellé, ouverture du scellé, badge, étiquette de tâches) qui détermine les informations disponibles,
 listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{lot_name}}`…).
+Un texte entre crochets autour du nom ne s'imprime que si la valeur n'est pas vide, devant
+(`{[Exp. ]{peremption}}` donne « Exp. 31/12/2027 », ou rien pour un item non périssable), derrière
+(`{{peremption}[ inclus]}`) ou des deux côtés (`{[(]{lot_name}[)]}`).
 
 L'onglet **Toutes les étiquettes** montre en grille chaque étiquette du dossier des modèles avec son
 aperçu. Celles qui servent de modèle (choisies dans **Réglages > Étiquettes et impression**) portent une

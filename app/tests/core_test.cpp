@@ -6,6 +6,8 @@
 #include <cassert>
 #include <cstdio>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 int main()
 {
@@ -18,6 +20,26 @@ int main()
 
     document.parameters["name"] = "test";
     assert(qrprotec::resolve_parameters("Hello {{name}}", document.parameters) == "Hello test");
+    // Prefixe / suffixe imprimes seulement si la valeur n'est pas vide
+    {
+        std::unordered_map<std::string, std::string> values{{"peremption", "31/12/2027"}, {"vide", ""}};
+        assert(qrprotec::resolve_parameters("{[Exp. ]{peremption}}", values) == "Exp. 31/12/2027");
+        assert(qrprotec::resolve_parameters("{[Exp. ]{vide}}", values) == "");
+        assert(qrprotec::resolve_parameters("A{{peremption}[ inclus]}B", values) == "A31/12/2027 inclusB");
+        assert(qrprotec::resolve_parameters("A{{vide}[ inclus]}B", values) == "AB");
+        assert(qrprotec::resolve_parameters("{[(]{peremption}[)]}", values) == "(31/12/2027)");
+        assert(qrprotec::resolve_parameters("{[(]{vide}[)]}", values) == "");
+        assert(qrprotec::resolve_parameters("{{vide}}x", values) == "x");
+        assert(qrprotec::resolve_parameters("{[Exp. ]{inconnu}}", values) == "{[Exp. ]{inconnu}}");
+        assert(qrprotec::resolve_parameters("{{{peremption}}}", values) == "{31/12/2027}");
+        assert(qrprotec::resolve_parameters("{a} [b] {[c]", values) == "{a} [b] {[c]");
+        values["peremption"] = "{{vide}}"; // une valeur n'est jamais re-substituee
+        assert(qrprotec::resolve_parameters("{{peremption}}", values) == "{{vide}}");
+        qrprotec::TemplateDocument conditional;
+        conditional.elements.push_back({"t", qrprotec::ElementKind::Text,
+                                        qrprotec::TextElement{"{[Exp. ]{peremption}} {{lot}[ :]}", 2.0f, 2.0f, 36.0f, 8.0f, 3.0f}});
+        assert((qrprotec::find_placeholders(conditional) == std::vector<std::string>{"lot", "peremption"}));
+    }
     document.media.orientation = qrprotec::Orientation::Portrait;
     assert(document.media.width_pixels() == 240);
     assert(document.media.height_pixels() == 320);
