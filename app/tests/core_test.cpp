@@ -34,12 +34,23 @@ int main()
         assert(qrprotec::resolve_parameters("{[Exp. ]{inconnu}}", values) == "{[Exp. ]{inconnu}}");
         assert(qrprotec::resolve_parameters("{{{peremption}}}", values) == "{31/12/2027}");
         assert(qrprotec::resolve_parameters("{a} [b] {[c]", values) == "{a} [b] {[c]");
+        // ![remplacement] imprime seul quand la valeur est vide, apres le suffixe ou dans les accolades du nom
+        assert(qrprotec::resolve_parameters("{{vide}![Non périssable]}", values) == "Non périssable");
+        assert(qrprotec::resolve_parameters("{{peremption}![Non périssable]}", values) == "31/12/2027");
+        assert(qrprotec::resolve_parameters("{[Exp. ]{vide}[ !]![-]}", values) == "-");
+        assert(qrprotec::resolve_parameters("{[Exp. ]{peremption}[ !]![-]}", values) == "Exp. 31/12/2027 !");
+        assert(qrprotec::resolve_parameters("{{vide[ inclus]![aucune]}}", values) == "aucune");
+        assert(qrprotec::resolve_parameters("{{peremption[ inclus]![aucune]}}", values) == "31/12/2027 inclus");
+        assert(qrprotec::resolve_parameters("{{vide![]}}x", values) == "x");
+        assert(qrprotec::resolve_parameters("{{vide}!}", values) == "{{vide}!}");
+        assert(qrprotec::resolve_parameters("{{vide[a]}[b]}", values) == "{{vide[a]}[b]}");
+        assert(qrprotec::resolve_parameters("Attention ! {{peremption}}!", values) == "Attention ! 31/12/2027!");
         values["peremption"] = "{{vide}}"; // une valeur n'est jamais re-substituee
         assert(qrprotec::resolve_parameters("{{peremption}}", values) == "{{vide}}");
         qrprotec::TemplateDocument conditional;
         conditional.elements.push_back({"t", qrprotec::ElementKind::Text,
-                                        qrprotec::TextElement{"{[Exp. ]{peremption}} {{lot}[ :]}", 2.0f, 2.0f, 36.0f, 8.0f, 3.0f}});
-        assert((qrprotec::find_placeholders(conditional) == std::vector<std::string>{"lot", "peremption"}));
+                                        qrprotec::TextElement{"{[Exp. ]{peremption}} {{lot}[ :]} {{autre![-]}}", 2.0f, 2.0f, 36.0f, 8.0f, 3.0f}});
+        assert((qrprotec::find_placeholders(conditional) == std::vector<std::string>{"autre", "lot", "peremption"}));
     }
     document.media.orientation = qrprotec::Orientation::Portrait;
     assert(document.media.width_pixels() == 240);
