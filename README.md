@@ -520,8 +520,10 @@ Page unique servie par le back aux adresses mêmes des QR codes : `/verif?lot=�
 ouvre donc directement la bonne vue. Les fichiers sont dans `database/inventory/web/`.
 
 - **Moitié haute** : caméra arrière et viseur. Décodage natif (`BarcodeDetector`) quand le navigateur
-  le propose, sinon [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0, fourni dans `web/vendor/`,
-  aucun CDN). Lampe si le téléphone le permet, écran maintenu allumé pendant le scan.
+  le propose, sinon [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) en WebAssembly
+  ([zxing-wasm](https://github.com/Sec-ant/zxing-wasm), MIT / Apache 2.0) dans un worker, avec
+  [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0) en secours ; tout est fourni dans `web/vendor/`,
+  aucun CDN. Seuls les codes dans le viseur sont lus. Lampe si le téléphone le permet, écran maintenu allumé pendant le scan.
 - **Moitié basse** : informations du dernier scan (item : type, péremption, emplacement ; lot : état,
   dernière vérif) et les onglets :
   - **Accueil** (affiché quand aucun lot n'est en cours) : utilisateur connecté, **liste des lots**

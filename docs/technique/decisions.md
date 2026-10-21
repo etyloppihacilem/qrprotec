@@ -200,7 +200,9 @@ compositeur kiosk minimal (Cage), état de l'interface entièrement dans le code
 ## Front web sans framework
 
 **Raison.** Pas de CDN (la borne peut être sans Internet), pas de chaîne de construction npm qui
-vieillit, un fichier lisible. `BarcodeDetector` natif quand il existe, jsQR fourni sinon.
+vieillit, un fichier lisible. `BarcodeDetector` natif quand il existe, sinon zxing-cpp en
+WebAssembly fourni (un binaire tiers figé, pas de chaîne de construction : ~1 Mo, chargé seulement sans
+lecteur natif), nettement plus fiable et rapide que jsQR (gardé en secours) sur Firefox.
 
 ## Code 128 pour les étiquettes à code-barres
 

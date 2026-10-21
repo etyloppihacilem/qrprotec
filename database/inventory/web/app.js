@@ -1,6 +1,7 @@
 /* QRProtec - front web mobile.
  *
- * Tiers haut : camera (reductible en vignette flottante) et detection des QR codes (BarcodeDetector natif si disponible, sinon jsQR).
+ * Tiers haut : camera (reductible en vignette flottante) et lecture des codes dans le viseur (camera-scan.js : BarcodeDetector
+ * natif si disponible, sinon zxing-cpp en WebAssembly).
  * Reste de l'ecran : derniere information scannee et onglets "A scanner" / "Scannes" / "Lot".
  * Toutes les ecritures passent par l'API publique : la verif exige la cle du lot (etiquette privee)
  * et un badge utilisateur.
@@ -22,6 +23,7 @@
     return match[1] + (match[2] === 'D' ? '00000000' : match[2]) + counter;
   }
   const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
+  const TASKS_RESCAN_MS = 3000; // fenetre des taches : 2e scan d'un admin (tout valider) ignore avant ce delai
   const STORAGE_USER = 'qrprotec.user';
   const NAME_SESSION_MS = 11.5 * 3600 * 1000;  // connexion par nom et PIN : jeton de session valable 12 h
   const STORAGE_SESSION = 'qrprotec.session';
@@ -338,16 +340,15 @@
   // Camera et detection
 
   const video = $('#video');
-  const canvas = $('#frame');
-  const context = canvas.getContext('2d', { willReadFrequently: true });
+  // lecture limitee au viseur : BarcodeDetector natif, sinon zxing-cpp en WebAssembly (camera-scan.js)
+  const reader = window.CameraScan.create(video, $('#viewfinder span'));
   let stream = null;
-  let detector = null;
-  let nativeCode128 = false; // BarcodeDetector lit aussi le Code 128 (Chrome Android) : pas de decodeur JS
   let wakeLock = null;
   let cameraWanted = false; // camera demarree par l'utilisateur : rouverte au retour sur la page
   let opening = null;       // ouverture en cours (getUserMedia peut prendre plusieurs secondes)
-  let lastCode = '';
-  let lastCodeTime = 0;
+  // derniere fois que chaque code a ete vu : un code reste a l'ecran n'est traite qu'une fois, meme si une autre
+  // etiquette passe entre-temps devant la camera (un seul « dernier code » le laissait repartir)
+  const seenCodes = new Map();
   let torchWanted = false;  // lampe torche (Chrome Android ; Safari iOS et Firefox ne la proposent pas aux pages web)
 
   // Jamais de camera ouverte quand la page est cachee, et une seule ouverture a la fois : sur Firefox
@@ -385,7 +386,7 @@
       try {
         media = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          // 1080p : les barres fines d'un code-barres restent lisibles de plus loin (jsQR reduit l'image de toute facon)
+          // 1080p : les barres fines d'un code-barres et les petits QR codes restent lisibles de plus loin
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         });
       } catch (e) {
@@ -407,18 +408,7 @@
     stream = media;
     video.srcObject = stream;
     await video.play().catch(() => {});
-    if (!detector && 'BarcodeDetector' in window) {
-      try {
-        const formats = await window.BarcodeDetector.getSupportedFormats();
-        // QR codes et codes-barres Code 128 (etiquettes d'items des objets ronds, l'iid seul) ; codes-barres
-        // seulement si le serveur les active (la page charge alors code128.js)
-        const wanted = ['qr_code', ...(window.Code128 ? ['code_128'] : [])].filter((format) => formats.includes(format));
-        if (wanted.includes('qr_code')) {
-          detector = new window.BarcodeDetector({ formats: wanted });
-          nativeCode128 = wanted.includes('code_128');
-        }
-      } catch (e) { detector = null; nativeCode128 = false; }
-    }
+    await reader.prepare();
     if (stream !== media) return; // arretee entre-temps
     const track = stream.getVideoTracks()[0];
     const capabilities = track.getCapabilities ? track.getCapabilities() : {};
@@ -445,46 +435,22 @@
     try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
   }
 
-  async function detect() {
-    if (video.readyState < 2) return null;
-    if (detector) {
-      const codes = await detector.detect(video);
-      if (codes.length) return codes[0].rawValue;
-    }
-    const qr = detector ? null : detectQr();
-    if (qr) return qr;
-    // Code 128 sans lecteur natif (Firefox, Safari iOS) : decodeur JS, image en pleine resolution
-    return !nativeCode128 && window.Code128 ? window.Code128.scan(video) : null;
-  }
-
-  function detectQr() {
-    if (!window.jsQR) return null;
-    // jsQR : on ne decode que le carre central (la zone du viseur), reduit pour rester fluide
-    const side = Math.min(video.videoWidth, video.videoHeight);
-    const size = Math.min(side, 640);
-    canvas.width = size;
-    canvas.height = size;
-    context.drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, size, size);
-    const image = context.getImageData(0, 0, size, size);
-    const result = window.jsQR(image.data, size, size, { inversionAttempts: 'attemptBoth' });
-    return result ? result.data : null;
-  }
-
   async function scanLoop(media) {
     while (stream === media) {
       try {
-        const code = await detect();
+        const code = await reader.detect();
         if (code) onDetected(code);
       } catch (e) { /* image illisible, on continue */ }
-      await new Promise((resolve) => setTimeout(resolve, detector ? 120 : 180));
+      await new Promise((resolve) => setTimeout(resolve, reader.delay()));
     }
   }
 
   function onDetected(code) {
     const now = Date.now();
-    if (code === lastCode && now - lastCodeTime < REPEAT_DELAY_MS) { lastCodeTime = now; return; }
-    lastCode = code;
-    lastCodeTime = now;
+    const seen = seenCodes.get(code);
+    seenCodes.set(code, now);
+    if (seen !== undefined && now - seen < REPEAT_DELAY_MS) return;
+    for (const [other, time] of seenCodes) if (now - time >= REPEAT_DELAY_MS) seenCodes.delete(other);
     const camera = $('#camera');
     camera.classList.add('hit');
     setTimeout(() => camera.classList.remove('hit'), 300);
@@ -597,7 +563,9 @@
   async function scanItem(scan) {
     // taches de cet item deja affichees : un administrateur les valide toutes en scannant l'etiquette une 2e fois
     if (taskPopup && taskPopup.entry.iid === scan.id) {
-      if (isAdmin()) { finishTasks(true); return; }
+      // pas avant TASKS_RESCAN_MS : le temps de lire les taches, meme si la camera relit l'etiquette tout de suite
+      if (isAdmin() && Date.now() - taskPopup.openedAt >= TASKS_RESCAN_MS) { finishTasks(true); return; }
+      if (isAdmin()) return;
       feedback.task();
       toast('Cochez toutes les tâches pour valider cet item.');
       return;
@@ -777,7 +745,7 @@
   function showTasks(entry) {
     const dialog = $('#tasks');
     const tasks = entry.info.tasks;
-    taskPopup = { entry, scan: parseCode(entry.code) };
+    taskPopup = { entry, scan: parseCode(entry.code), openedAt: Date.now() };
     $('#tasks-title').textContent = entry.info.type_name;
     $('#tasks-sub').textContent = entry.iid + (entry.expired ? ' · ' + badLabel(entry.info) : '');
     const boxes = tasks.map((task) => el('input', { type: 'checkbox' }));

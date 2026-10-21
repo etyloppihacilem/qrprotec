@@ -591,6 +591,25 @@ class WebFrontTests(ApiTestCase):
         self.assertEqual(self.client.get('/web/../views.py').status_code, 404)
         self.assertEqual(self.client.get('/web/index.html').status_code, 404)
 
+    def test_camera_reader_served(self):
+        """Lecteur limite au viseur dans les deux pages ; zxing-cpp (worker) et son module WebAssembly servis, le
+        module versionne garde en cache, le nom attendu par decoder.js."""
+        from pathlib import Path
+        from .web_views import WASM
+        web = Path(__file__).resolve().parent / 'web'
+        for page in ('index.html', 'scanner.html'):
+            self.assertIn('web/camera-scan.js', (web / page).read_text(encoding='utf-8'))
+        for name in ('camera-scan.js', 'decoder.js', 'vendor/zxing-reader.js'):
+            response = self.client.get('/web/' + name)
+            self.assertEqual(response.status_code, 200, name)
+            self.assertEqual(response['Cache-Control'], 'no-cache', name)
+        response = self.client.get('/web/' + WASM)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/wasm')
+        self.assertIn('immutable', response['Cache-Control'])
+        self.assertEqual(b''.join(response.streaming_content)[:4], b'\0asm')
+        self.assertIn(f"'{WASM}'", (web / 'decoder.js').read_text(encoding='utf-8'))
+
     def test_douchette_easter_egg(self):
         """Le script est servi aux deux pages et ses phrases sont celles de l'app (codes.cpp)."""
         import re

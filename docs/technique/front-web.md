@@ -9,7 +9,9 @@ JavaScript **sans framework ni étape de construction** : on modifie le fichier,
 | `scanner.html`, `scanner.js` | Page « téléphone comme douchette du poste » |
 | `sw.js` | Service worker, uniquement pour afficher les notifications web |
 | `manifest.webmanifest`, `icon-*.png`, `favicon.png` | Ajout à l'écran d'accueil, icônes (`make icon`) |
-| `vendor/jsQR.js` | Décodeur QR de secours (Apache 2.0), quand `BarcodeDetector` manque |
+| `camera-scan.js` | Lecture à la caméra limitée au viseur, partagée par `app.js` et `scanner.js` |
+| `decoder.js`, `vendor/zxing-reader.js`, `vendor/zxing-reader-*.wasm` | Worker zxing-cpp en WebAssembly (zxing-wasm, MIT ; zxing-cpp, Apache 2.0), quand `BarcodeDetector` manque |
+| `vendor/jsQR.js` | Décodeur QR de secours (Apache 2.0), le temps que le worker se charge ou sans WebAssembly |
 | `code128.js` | Décodeur Code 128 (étiquettes d'items à code-barres), quand `BarcodeDetector` ne le lit pas |
 
 Pourquoi pas de framework : la page doit fonctionner hors de tout réseau Internet (réseau local de
@@ -44,14 +46,24 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   rechargement de page ne perd pas une vérif en cours, sauf après `SESSION_TIMEOUT_MS` (20 min) sans
   activité, où le lot, sa clé et les scans sont oubliés au démarrage. La clé présente dans l'URL est retirée de la
   barre d'adresse (`history.replaceState`).
-- **Caméra** (`startCamera`, `scanLoop`, `detect`) : caméra arrière, `BarcodeDetector` natif si
-  disponible, sinon jsQR sur une image du `<canvas>`. Codes-barres Code 128 (l'iid seul, étiquettes des
-  types « code-barres ») : `BarcodeDetector` s'il les lit (Chrome Android), sinon `code128.js` sur quelques
-  lignes horizontales et verticales de l'image en pleine résolution (Firefox, Safari iOS), code rendu s'il
-  est lu deux fois avec sa somme de contrôle. Les pages n'incluent `code128.js` (et ne demandent `code_128` à
+- **Caméra** (`startCamera`, `scanLoop`, `CameraScan` de `camera-scan.js`) : caméra arrière,
+  `BarcodeDetector` natif si disponible (Chrome Android), sinon zxing-cpp compilé en WebAssembly dans un
+  worker (`decoder.js` : Firefox, Safari iOS), le même moteur que les lecteurs natifs (code penché, flou,
+  peu contrasté, petit), qui ne bloque pas la page. Le module (~1 Mo) a un nom versionné et est gardé en
+  cache par le navigateur ; le temps qu'il se charge, ou sans WebAssembly, jsQR et `code128.js` prennent le
+  relais. Seul un code dont le centre est dans le viseur (à 10 % de son côté près) est rendu, le plus
+  proche du centre s'il y en a plusieurs : les décodeurs JS ne reçoivent que l'image du viseur élargie de
+  20 %, et les codes de `BarcodeDetector` (qui lit toute l'image) sont filtrés sur leur cadre. La zone suit
+  le viseur affiché (`object-fit: cover`, viseur réduit du lecteur de l'accueil) ; caméra en vignette,
+  toute l'image visible compte. Codes-barres Code 128 (l'iid seul, étiquettes des types « code-barres ») :
+  `BarcodeDetector` s'il les lit, sinon zxing-cpp, sinon `code128.js` sur quelques lignes horizontales et
+  verticales de l'image du viseur en pleine résolution, code rendu s'il est lu deux fois avec sa somme de
+  contrôle. Les pages n'incluent `code128.js` (et ne demandent `code_128` à
   `BarcodeDetector`) que si le réglage serveur `web_barcodes` est actif : le poste l'active à la première
   impression d'un code-barres (`POST /api/barcodes-printed/`), un admin le coupe dans les Réglages. Caméra demandée en 1080p pour les barres fines. Un même code vu en continu n'est traité qu'une
-  fois par 2,5 s. Lampe et écran maintenu allumé (`wakeLock`) si possible.
+  fois, tant qu'il ne quitte pas la caméra 2,5 s (mémorisé par code : une autre étiquette vue entre-temps ne
+  le fait pas relire). Fenêtre des tâches : le second scan d'un admin (tout valider) n'est pris qu'après
+  3 s (`TASKS_RESCAN_MS`), le temps de lire les tâches. Lampe et écran maintenu allumé (`wakeLock`) si possible.
   La caméra n'est jamais laissée ouverte page cachée (`syncCamera`) : fermée à `visibilitychange`,
   `pagehide` et `freeze`, rouverte au retour si l'utilisateur l'avait démarrée, une seule ouverture à
   la fois, et un flux obtenu alors que la page vient d'être cachée est rendu aussitôt. Sur Firefox
