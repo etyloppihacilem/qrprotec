@@ -3,12 +3,15 @@
   "name": "Lot privé",
   "category": "lot_private",
   "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
-  "parameters": {"key_expires": "29/09/2036", "lot_private_url": "https://example.com/verif?lot=sacpse00000001&key=a1B2c3D4e5F6g7H8i9J0k1L2", "lot_short": "SAC DE SOIN A"},
+  "parameters": {"key_expires": "29/09/2036", "lot_parent_name": "Lot B+ Alpha", "lot_private_url": "https://example.com/verif?lot=sacpse00000001&key=a1B2c3D4e5F6g7H8i9J0k1L2", "lot_short": "SAC DE SOIN A", "lot_type_name": "Sac de soin"},
   "elements": [
-    {"id": "qr", "kind": "qr", "payload": "{{lot_private_url}}", "x_mm": 1, "y_mm": 2, "size_mm": 24, "ecc": 1, "quiet_zone": 2},
-    {"id": "titre", "kind": "text", "text": "CLÉ PRIVÉE - \nNE PAS AFFICHER", "x_mm": 26, "y_mm": 2, "width_mm": 13, "height_mm": 3.5, "font_size_mm": 1.4, "bold": 0, "align": "left"},
-    {"id": "nom", "kind": "text", "text": "{{lot_short}}", "x_mm": 26, "y_mm": 6, "width_mm": 13, "height_mm": 10, "font_size_mm": 2.6, "bold": 0, "align": "left"},
-    {"id": "exp", "kind": "text", "text": "Clé jusqu'au {{key_expires}}", "x_mm": 1, "y_mm": 26, "width_mm": 38, "height_mm": 4, "font_size_mm": 1.8, "bold": 0, "align": "left"},
-    {"id": "verif", "kind": "text", "text": "Scanner pour lancer une vérif", "x_mm": 26, "y_mm": 17, "width_mm": 13, "height_mm": 8, "font_size_mm": 2.3, "bold": 0, "align": "left"}
+    {"id": "qr", "kind": "qr", "payload": "{{lot_private_url}}", "x_mm": 1, "y_mm": 1, "size_mm": 19, "ecc": 1, "quiet_zone": 0},
+    {"id": "titre", "kind": "text", "text": "CLÉ PRIVÉE - \nNE PAS AFFICHER", "x_mm": 20.5, "y_mm": 1, "width_mm": 18.5, "height_mm": 4, "font_size_mm": 1.8, "bold": 1, "align": "center"},
+    {"id": "nom", "kind": "text", "text": "{{lot_short}}", "x_mm": 20.5, "y_mm": 5, "width_mm": 18.5, "height_mm": 10.5, "font_size_mm": 2.4, "bold": 0, "align": "left"},
+    {"id": "exp", "kind": "text", "text": "Clé jusqu'au {{key_expires}}", "x_mm": 1, "y_mm": 27.5, "width_mm": 38, "height_mm": 2.5, "font_size_mm": 1.8, "bold": 0, "align": "left"},
+    {"id": "verif", "kind": "text", "text": "Scanner pour lancer une vérif", "x_mm": 1, "y_mm": 20, "width_mm": 31, "height_mm": 7.5, "font_size_mm": 3.1, "bold": 0, "align": "left"},
+    {"id": "type_lot", "kind": "text", "text": "{{lot_type_name}}", "x_mm": 20.5, "y_mm": 18, "width_mm": 18.5, "height_mm": 2, "font_size_mm": 1.7, "bold": 0, "align": "left"},
+    {"id": "type_lot-2", "kind": "text", "text": "{{lot_parent_name}}", "x_mm": 20, "y_mm": 15.5, "width_mm": 19, "height_mm": 2.5, "font_size_mm": 2.1, "bold": 0, "align": "left"},
+    {"id": "image", "kind": "image", "path": "images/protection-civile.png", "x_mm": 32.5, "y_mm": 20, "width_mm": 6.5, "height_mm": 7.5, "dither": 1, "threshold": 128}
   ]
 }
