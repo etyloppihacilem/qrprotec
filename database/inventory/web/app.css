@@ -220,6 +220,14 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .list li.group .chevron { width: 1em; flex: none; text-align: center; }
 .list li.group.foldable { cursor: pointer; user-select: none; }
 .list li.stock { font-style: italic; }
+/* Emplacement dans le lot (pochette) : titre des types qu'il contient, touche pour le replier */
+.list li.place-head { background: var(--navy-bg); color: var(--navy); border-left: 6px solid #8a8f94; padding: 6px 12px; cursor: pointer; user-select: none; }
+.list li.place-head .name { font-weight: 700; }
+.list li.place-head .count { font-weight: 700; }
+.list li.place-head .chevron { width: 1em; flex: none; text-align: center; }
+.list li.place-head.ok { border-left-color: var(--green); }
+.list li.place-head.bad { border-left-color: var(--red); }
+.list li.place-head.partial { border-left-color: var(--orange); }
 /* Bandeau d'etat du lot */
 .banner { color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 6px 0; }
 .banner.ok { background: var(--green); }
@@ -347,6 +355,10 @@ body.fiche-open #toast { bottom: calc(90px + env(safe-area-inset-bottom)); }
 #fiche-body .req .fold { flex: none; width: 28px; height: 28px; padding: 0; border-radius: 6px; background: #eee; color: var(--text); font-size: .9rem; line-height: 28px; }
 #fiche-body .req .fold:disabled { visibility: hidden; }
 #fiche-body .req .req-count { font-weight: 600; font-size: .85rem; }
+/* emplacement dans le lot (pochette) : titre des jauges de ses types */
+#fiche-body .place-title { display: flex; justify-content: space-between; gap: 8px; margin: 10px 0 2px; padding: 3px 8px;
+  border-left: 4px solid var(--green); background: var(--navy-bg); color: var(--navy); font-weight: 700; font-size: .9rem; border-radius: 0 6px 6px 0; }
+#fiche-body .place-title.incomplete { border-left-color: var(--orange); }
 #fiche-body ul.iids { list-style: none; margin: -2px 0 6px; padding: 0 0 0 10px; border-left: 2px solid var(--line); }
 #fiche-body ul.iids li { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: .85rem; cursor: pointer; }
 #fiche-body ul.iids .iid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }
