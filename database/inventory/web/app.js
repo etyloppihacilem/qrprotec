@@ -3761,6 +3761,7 @@
   // Reglages : installer l'appli (tout le monde, connecte ou non), code PIN (connectes), notifications web (s'il peut
   // en recevoir)
   function openNotifications() {
+    installGuideShown = false;
     renderInstallSettings();
     $('#settings-pin').hidden = !state.user;
     renderPinSettings();
@@ -3839,38 +3840,51 @@
     ];
   }
 
+  // tuto replie derriere le bouton « Installer l'application » ; replie a chaque ouverture des reglages
+  let installGuideShown = false;
+
+  async function startInstall() {
+    const prompt = installPrompt;
+    if (prompt) {
+      installPrompt = null; // la fenetre ne s'affiche qu'une fois par evenement
+      try {
+        await prompt.prompt();
+        if ((await prompt.userChoice).outcome === 'accepted') return; // appinstalled previent
+      } catch (e) { /* fenetre refusee par le navigateur : tuto a la place */ }
+    }
+    installGuideShown = true;
+    renderInstallSettings();
+  }
+
   function renderInstallSettings() {
     const box = $('#settings-install');
     if (!box) return;
     const kind = deviceKind();
+    const installed = installedApp();
     const parts = [el('h3', {}, '📲 Installer l\'appli')];
-    if (installedApp()) {
-      parts.push(el('p', { class: 'hint' }, '✓ Vous utilisez l\'appli QRprotec installée.'));
-    } else {
-      parts.push(el('p', { class: 'hint' }, 'Ajoutez QRprotec à l\'écran d\'accueil : elle s\'ouvre en plein écran, '
-        + 'comme une vraie appli, sans passer par le navigateur.'));
+    parts.push(el('p', { class: 'hint' }, installed ? '✓ Vous utilisez l\'appli QRprotec installée.'
+      : 'Ajoutez QRprotec à l\'écran d\'accueil : elle s\'ouvre en plein écran, comme une vraie appli, sans passer '
+        + 'par le navigateur.'));
+    if (!installGuideShown) {
+      // Chrome et Edge : le bouton ouvre directement leur fenetre d'installation, le tuto seulement si elle manque
+      parts.push(el('div', { class: 'push-buttons' }, el('button', { type: 'button', class: installed ? '' : 'primary',
+        onclick: installed ? () => { installGuideShown = true; renderInstallSettings(); } : startInstall },
+      installed ? 'Installer sur un autre appareil' : 'Installer l\'application')));
+      box.replaceChildren(...parts);
+      return;
+    }
+    if (!installed) {
       if (!window.isSecureContext) {
         parts.push(el('p', { class: 'error' }, 'L\'installation exige une connexion HTTPS (adresse en https://).'));
       }
-      if (installPrompt) {
-        parts.push(el('div', { class: 'push-buttons' }, el('button', { type: 'button', class: 'primary', onclick: async () => {
-          const prompt = installPrompt;
-          installPrompt = null; // la fenetre ne s'affiche qu'une fois par evenement
-          try {
-            await prompt.prompt();
-            await prompt.userChoice;
-          } catch (e) { /* fenetre refusee par le navigateur : le tuto reste affiche */ }
-          renderInstallSettings();
-        } }, 'Installer QRprotec')));
-        parts.push(el('p', { class: 'hint' }, 'Ou, à la main :'));
-      }
       parts.push(el('p', { class: 'install-device' }, INSTALL_STEPS[kind].title), ...installGuide(kind));
     }
-    // les autres appareils, repliés : pour aider quelqu'un d'autre ou installer sur un autre poste
-    const others = Object.keys(INSTALL_STEPS).filter((other) => installedApp() || other !== kind);
-    parts.push(el('details', { class: 'install-others' }, el('summary', {}, installedApp() ? 'Installer sur un autre appareil'
-      : 'Autres appareils'),
-    ...others.map((other) => [el('p', { class: 'install-device' }, INSTALL_STEPS[other].title), ...installGuide(other)])));
+    // les autres appareils, replies : pour aider quelqu'un d'autre ou installer sur un autre poste
+    const others = Object.keys(INSTALL_STEPS).filter((other) => installed || other !== kind);
+    const guides = others.map((other) => [el('p', { class: 'install-device' }, INSTALL_STEPS[other].title),
+      ...installGuide(other)]);
+    if (installed) parts.push(...guides.flat());
+    else parts.push(el('details', { class: 'install-others' }, el('summary', {}, 'Autres appareils'), ...guides));
     box.replaceChildren(...parts);
   }
 
