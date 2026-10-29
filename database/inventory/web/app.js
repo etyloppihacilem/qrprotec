@@ -5277,9 +5277,9 @@
     share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2"/>',
     qr: '<rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/>'
       + '<rect x="3.5" y="14.5" width="6" height="6" rx="1"/><path d="M14.5 14.5h2.5v2.5M20.5 14.5v0M14.5 20.5h2.5M20 17.5v3"/>',
-    // presse-papiers coche : lot utilise, vérif a faire
-    used: '<path d="M9 4.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 21.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 17 4.5h-2"/>'
-      + '<rect x="9" y="3" width="6" height="3" rx="1"/><path d="m9 13.5 2 2 4-4"/>',
+    // trousse ouverte dont on sort du materiel : lot utilise
+    used: '<path d="M4 12h16v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5z"/><path d="M4 12 6 8.5h12l2 3.5"/>'
+      + '<path d="M12 7V1.5M9.8 3.7 12 1.5l2.2 2.2"/><path d="M12 14.5v4M10 16.5h4"/>',
   };
 
   function icon(name) {
