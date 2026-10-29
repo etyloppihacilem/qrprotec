@@ -411,40 +411,52 @@ class VerifWindow final : public AppWindow {
                 type_row(entry);
             continue;
           }
-          // un titre par emplacement, pour faire une pochette a la fois : le meme tri dedans, et l'emplacement
-          // complet replie sur son titre (touche pour le deplier) ; les autres items du lot a la fin
+          // un titre par emplacement, pour faire une pochette a la fois. Emplacements tries comme les types : en cours
+          // (le dernier scanne en haut), puis rien de scanne, puis complets en bas (le scan qui complete un
+          // emplacement le fait descendre), l'ordre de la TECH a egalite ; un emplacement complet est replie sur son
+          // titre (touche pour le deplier). Les autres items du lot a la fin.
+          struct PlaceRow {
+              std::string place;
+              int         done = 0, required = 0, missing = 0, last_scan = -1, rank = 0;
+          };
+          std::vector< PlaceRow > place_rows;
           for (const std::string &place : places) {
-            int done = 0, required = 0, missing = 0;
+            PlaceRow row{ place };
             for (const TypeRow &entry : type_rows)
               if (entry.location == place) {
-                done += std::min(entry.done, entry.required);
-                required += entry.required;
-                missing += entry.missing;
+                row.done += std::min(entry.done, entry.required);
+                row.required += entry.required;
+                row.missing += entry.missing;
+                row.last_scan = std::max(row.last_scan, entry.last_scan);
               }
-            const std::string key  = lot["id"].str() + "@" + place;
+            row.rank = row.missing == 0 ? 2 : row.done == 0 ? 1 : 0;
+            place_rows.push_back(row);
+          }
+          std::stable_sort(place_rows.begin(), place_rows.end(), [](const PlaceRow &a, const PlaceRow &b) {
+            return a.rank != b.rank ? a.rank < b.rank : a.rank == 0 && a.last_scan > b.last_scan;
+          });
+          for (const PlaceRow &row : place_rows) {
+            const std::string key  = lot["id"].str() + "@" + row.place;
             const auto        fold = place_folds_.find(key);
-            const bool open = fold != place_folds_.end() && fold->second.second == (missing == 0) ? fold->second.first
-                                                                                                  : missing > 0;
+            const bool open = fold != place_folds_.end() && fold->second.second == (row.missing == 0)
+                              ? fold->second.first
+                              : row.missing > 0;
             ImGui::TableNextRow();
-            row_color(missing == 0 ? colors::green : done == 0 ? colors::red : colors::orange, 0.12f);
+            row_color(row.rank == 2 ? colors::green : row.rank == 1 ? colors::red : colors::orange, 0.12f);
             ImGui::TableNextColumn();
             ImGui::SetNextItemOpen(open, ImGuiCond_Always);
             const bool now = ImGui::TreeNodeEx(key.c_str(), ImGuiTreeNodeFlags_SpanAllColumns
                                                               | ImGuiTreeNodeFlags_NoTreePushOnOpen,
-                                               "%s", place.empty() ? "Sans emplacement" : place.c_str());
+                                               "%s", row.place.empty() ? "Sans emplacement" : row.place.c_str());
             if (now != open)
-              place_folds_[key] = { now, missing == 0 };
+              place_folds_[key] = { now, row.missing == 0 };
             ImGui::TableNextColumn();
-            if (missing == 0)
-              ImGui::TextColored(colors::green, "complet");
-            else
-              ImGui::TextColored(done == 0 ? colors::red : colors::orange, "encore %d", missing);
             ImGui::TableNextColumn();
-            ImGui::Text("%d / %d", done, required);
+            ImGui::Text("%d / %d", row.done, row.required);
             if (!open)
               continue;
             for (const TypeRow &entry : type_rows)
-              if (entry.location == place)
+              if (entry.location == row.place)
                 type_row(entry);
           }
           other_rows();

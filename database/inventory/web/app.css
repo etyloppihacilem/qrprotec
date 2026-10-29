@@ -221,7 +221,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .list li.group.foldable { cursor: pointer; user-select: none; }
 .list li.stock { font-style: italic; }
 /* Emplacement dans le lot (pochette) : titre des types qu'il contient, touche pour le replier */
-.list li.place-head { background: var(--navy-bg); color: var(--navy); border-left: 6px solid #8a8f94; padding: 6px 12px; cursor: pointer; user-select: none; }
+.list li.place-head { background: var(--navy-bg); color: var(--navy); border-left: 6px solid #8a8f94; padding: 3px 12px; font-size: .9rem; cursor: pointer; user-select: none; }
 .list li.place-head .name { font-weight: 700; }
 .list li.place-head .count { font-weight: 700; }
 .list li.place-head .chevron { width: 1em; flex: none; text-align: center; }
