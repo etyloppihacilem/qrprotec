@@ -496,6 +496,10 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .field input, #home-lists .field textarea { margin-top: 3px; color: var(--text); }
 #home-lists .check { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 #home-lists .check input { flex: none; width: 20px; height: 20px; }
+/* case des rangements sous le tableau des lots, detachee de la liste ; le tableau des rangements suit */
+#home-lots .check { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; }
+#home-lots .check input { flex: none; width: 20px; height: 20px; }
+#home-lots .storage-head { margin-top: 10px; }
 #home-lists .break { word-break: break-all; }
 #home-lists .list-task { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 #home-lists .list-task input { flex: none; width: 22px; height: 22px; accent-color: var(--green); }

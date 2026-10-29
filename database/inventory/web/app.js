@@ -2939,14 +2939,8 @@
       return;
     }
     parts.push(el('p', { class: 'hint' }, "Touchez un lot pour l'ouvrir. Un lot global affiche l'état de l'ensemble de ses sous-lots."));
-    parts.push(el('label', { class: 'check' },
-      el('input', { type: 'checkbox', checked: state.showStorage ? '' : null,
-        onchange: (event) => { state.showStorage = event.target.checked; renderLotsPage(); } }),
-      'Afficher les rangements du stock'));
     const tags = { ok: 'green', warn: 'orange', bad: 'red' };
-    // rangements du stock masques par defaut (sauf le lot en cours)
-    const lots = state.lots.filter((lot) => state.showStorage || !lot.storage || lot.id === state.lotId);
-    parts.push(el('ul', { class: 'list' }, ...lots.map((lot) => {
+    const lotRow = (lot) => {
       // lot global : son etat est celui de l'ensemble de ses lots
       const top = !lot.depth && lot.global;
       const status = top ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot);
@@ -2958,7 +2952,21 @@
           el('div', { class: 'sub' }, `${lot.lot_type_name}${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : `
             + (verif ? fmtDateTime(verif) : 'jamais'))),
         el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]));
-    })));
+    };
+    // rangements du stock dans leur propre tableau, sous celui des lots, seulement si la case est cochee (sinon
+    // seul le rangement en cours reste dans le tableau des lots)
+    const lots = state.lots.filter((lot) => !lot.storage || (!state.showStorage && lot.id === state.lotId));
+    parts.push(el('ul', { class: 'list' }, ...lots.map(lotRow)));
+    parts.push(el('label', { class: 'check' },
+      el('input', { type: 'checkbox', checked: state.showStorage ? '' : null,
+        onchange: (event) => { state.showStorage = event.target.checked; renderLotsPage(); } }),
+      'Afficher les rangements du stock'));
+    if (state.showStorage) {
+      const storage = state.lots.filter((lot) => lot.storage);
+      parts.push(el('div', { class: 'row-head storage-head' }, el('h3', {}, 'Rangements du stock')));
+      parts.push(storage.length ? el('ul', { class: 'list' }, ...storage.map(lotRow))
+        : el('p', { class: 'hint' }, 'Aucun rangement du stock.'));
+    }
     view.replaceChildren(...parts);
   }
 
