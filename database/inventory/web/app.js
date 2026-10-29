@@ -3840,43 +3840,6 @@
     ];
   }
 
-  // Certificat de l'autorite locale de Caddy (QRPROTEC_TLS=internal, adresse IP) servi par Caddy : tant que le
-  // telephone ne lui fait pas confiance (cadenas barre), Chrome refuse d'installer l'appli (raccourci seulement)
-  // et Safari aussi. Absent (Let's Encrypt, serveur de dev) : 404, rien a afficher.
-  const CA_URL = 'qrprotec-ca.crt';
-  let caAvailable = null; // null : pas encore demande
-  const CA_STEPS = {
-    android: [
-      ['Téléchargez le ', el('a', { href: CA_URL, download: 'qrprotec-ca.crt' }, 'certificat du serveur'), '.'],
-      ['Ouvrez les ', el('b', {}, 'Paramètres'), ' d\'Android et cherchez ', el('b', {}, 'certificat CA'),
-        ' (Sécurité > Chiffrement et identifiants > Installer un certificat > Certificat CA).'],
-      ['Touchez ', el('b', {}, 'Installer quand même'), ', puis choisissez qrprotec-ca.crt dans les téléchargements.'],
-      'Fermez Chrome complètement et rouvrez cette page : le cadenas n\'est plus barré, l\'appli s\'installe.',
-    ],
-    ios: [
-      ['Dans Safari, touchez ', el('a', { href: CA_URL }, 'le certificat du serveur'), ' puis ', el('b', {}, 'Autoriser'), '.'],
-      ['Réglages > ', el('b', {}, 'Profil téléchargé'), ' > ', el('b', {}, 'Installer'), '.'],
-      ['Réglages > Général > Informations > ', el('b', {}, 'Réglages des certificats'),
-        ' : activez la confiance totale pour ce certificat.'],
-      'Rechargez cette page : le cadenas n\'est plus barré.',
-    ],
-    desktop: [
-      ['Téléchargez le ', el('a', { href: CA_URL, download: 'qrprotec-ca.crt' }, 'certificat du serveur'), '.'],
-      ['Windows : ouvrez-le, ', el('b', {}, 'Installer le certificat'), ' > Ordinateur local > ',
-        el('b', {}, 'Autorités de certification racines de confiance'), '. Mac : ouvrez-le dans Trousseaux d\'accès, '
-        + 'puis « Toujours approuver ».'],
-      'Redémarrez le navigateur et rouvrez cette page.',
-    ],
-  };
-
-  function caGuide(kind) {
-    return el('details', { class: 'install-others install-ca' },
-      el('summary', {}, '🔒 Cadenas barré, ou « Cette appli ne peut pas être installée » ?'),
-      el('p', { class: 'hint' }, 'Le téléphone ne connaît pas encore le certificat du serveur QRprotec : il faut '
-        + 'l\'installer une fois, avant l\'appli. Ouvrez bien le site à la même adresse qu\'ici.'),
-      el('ol', { class: 'install-steps' }, CA_STEPS[kind].map((step) => el('li', {}, step))));
-  }
-
   // tuto replie derriere le bouton « Installer l'application » ; replie a chaque ouverture des reglages
   let installGuideShown = false;
 
@@ -3891,14 +3854,6 @@
     }
     installGuideShown = true;
     renderInstallSettings();
-    if (caAvailable === null) {
-      try {
-        caAvailable = (await fetch(CA_URL, { method: 'HEAD', cache: 'no-store' })).ok;
-      } catch (e) {
-        caAvailable = false;
-      }
-      if (caAvailable && $('#notifications').open) renderInstallSettings();
-    }
   }
 
   function renderInstallSettings() {
@@ -3922,7 +3877,6 @@
       if (!window.isSecureContext) {
         parts.push(el('p', { class: 'error' }, 'L\'installation exige une connexion HTTPS (adresse en https://).'));
       }
-      if (caAvailable) parts.push(caGuide(kind));
       parts.push(el('p', { class: 'install-device' }, INSTALL_STEPS[kind].title), ...installGuide(kind));
     }
     // les autres appareils, replies : pour aider quelqu'un d'autre ou installer sur un autre poste
