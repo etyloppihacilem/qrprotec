@@ -77,7 +77,14 @@ class LotsWindow final : public AppWindow {
 
       const float details_width = selected_.empty() ? 0.0f : ImGui::GetContentRegionAvail().x * 0.45f;
       ImGui::BeginChild("list", ImVec2(selected_.empty() ? 0.0f : -details_width, 0));
-      draw_table(app);
+      // rangements du stock dans leur propre tableau, sous celui des lots, seulement si la case est cochee
+      if (show_storage_) {
+        draw_table(app, false, ImGui::GetContentRegionAvail().y * 0.6f);
+        ImGui::SeparatorText("Rangements du stock");
+        draw_table(app, true, 0.0f);
+      }
+      else
+        draw_table(app, false, 0.0f);
       ImGui::EndChild();
       if (!selected_.empty()) {
         ImGui::SameLine();
@@ -88,15 +95,17 @@ class LotsWindow final : public AppWindow {
     }
 
   private:
-    void draw_table(App &app) {
+    // storage : tableau des rangements du stock, sinon celui des lots ; height 0 = toute la place restante
+    void draw_table(App &app, bool storage, float height) {
       const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
                                   | ImGuiTableFlags_Resizable;
       // fiche ouverte ou fenetre etroite (a cote des Signalements) : on masque les colonnes secondaires
       const bool compact = !selected_.empty() || ImGui::GetContentRegionAvail().x < 700.0f;
-      if (!ImGui::BeginTable(compact ? "lots_compact" : "lots", compact ? 3 : 5, flags))
+      const std::string table_id = std::string(storage ? "storage" : "lots") + (compact ? "_compact" : "");
+      if (!ImGui::BeginTable(table_id.c_str(), compact ? 3 : 5, flags, ImVec2(0.0f, height)))
         return;
       ImGui::TableSetupScrollFreeze(0, 1);
-      ImGui::TableSetupColumn("Lot", ImGuiTableColumnFlags_WidthStretch);
+      ImGui::TableSetupColumn(storage ? "Rangement" : "Lot", ImGuiTableColumnFlags_WidthStretch);
       if (!compact)
         ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthFixed, 60.0f);
       ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, compact ? 70.0f : 80.0f);
@@ -127,8 +136,9 @@ class LotsWindow final : public AppWindow {
         const bool        ok       = top ? lot["global"]["kind"].str() == "ok" : lot_ok(status);
         if (!search_matches(filter_, name + " " + id + " " + lot["lot_type_name"].str()))
           continue;
-        // rangements du stock masques par defaut (sauf le lot ouvert, ex : etiquette scannee)
-        if (!show_storage_ && lot["storage"].boolean() && id != selected_)
+        // rangements dans leur tableau ; case decochee : le rangement ouvert (ex : etiquette scannee) reste ici
+        if (storage ? !lot["storage"].boolean()
+                    : lot["storage"].boolean() && (show_storage_ || id != selected_))
           continue;
         if (only_problems_ && ok && soon == 0 && revisions == 0)
           continue;
