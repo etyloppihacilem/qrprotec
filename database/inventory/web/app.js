@@ -4899,7 +4899,9 @@
   // vérif recommandee pour les suivants, jusqu'a la prochaine vérif complete
   function usedButton(lot) {
     return el('button', { type: 'button', class: 'used-btn', onclick: () => markUsed(lot) },
-      'Marquer ce lot comme utilisé (demander une vérif)');
+      icon('used'),
+      el('span', { class: 'used-text' }, el('span', {}, 'Marquer ce lot comme utilisé'),
+        el('span', { class: 'used-sub' }, '(demander une vérif)')));
   }
 
   function markUsed(lot) {
@@ -5275,6 +5277,9 @@
     share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2"/>',
     qr: '<rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/>'
       + '<rect x="3.5" y="14.5" width="6" height="6" rx="1"/><path d="M14.5 14.5h2.5v2.5M20.5 14.5v0M14.5 20.5h2.5M20 17.5v3"/>',
+    // presse-papiers coche : lot utilise, vérif a faire
+    used: '<path d="M9 4.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 21.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 17 4.5h-2"/>'
+      + '<rect x="9" y="3" width="6" height="3" rx="1"/><path d="m9 13.5 2 2 4-4"/>',
   };
 
   function icon(name) {
