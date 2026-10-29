@@ -525,6 +525,17 @@ class VerifTests(ApiTestCase):
         self.assertEqual((report['replaced'], report['expired']), ([], [old.iid]))
         self.assertEqual(Items.objects.get(iid=old.iid).location_id, self.lot.id)
 
+    def test_stock_expiring_soon_split(self):
+        self.create(self.compresses, self.today + timedelta(days=10), 2)
+        self.create(self.compresses, self.today + timedelta(days=200), 1)
+        in_lot = self.create(self.compresses, self.today + timedelta(days=10), 1)[0]
+        Items.objects.filter(iid=in_lot.iid).update(location=self.lot)
+        self.create(self.compresses, self.today - timedelta(days=1), 1)
+        code, stock = self.call('GET', '/api/stock/')
+        row = next(row for row in stock if row['type'] == 'compre')
+        self.assertEqual((row['stock_fresh'], row['stock_expiring_soon']), (3, 2))
+        self.assertEqual((row['lots_fresh'], row['lots_expiring_soon']), (1, 1))
+
     def test_add_items_and_back_to_stock(self):
         items = self.create(self.garrot, None, 2)
         iids = [item.iid for item in items]

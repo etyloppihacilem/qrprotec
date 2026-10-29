@@ -2331,11 +2331,14 @@
         el('span', { style: empty ? 'color:#fff' : '' }, `${present}/${required}`)), after);
   }
 
-  // Cle de tri des barres, attention d'abord : manques (par ratio), puis 0/0, puis complets, puis x/0 tout en bas
-  function stockOrder(present, required) {
-    if (required <= 0) return present <= 0 ? 1 : Infinity;
-    const ratio = present / required;
-    return ratio < 1 ? ratio : 1 + ratio;
+  // Cle de tri des barres, attention d'abord : sous le minimum (par ratio), puis bientot sous le minimum ou vide
+  // (soon : combien periment bientot), puis 0/0, puis complets, puis x/0 tout en bas
+  function stockOrder(present, required, soon = 0) {
+    if (required > 0 && present < required) return present / required;
+    const left = present - soon;
+    if (required > 0 ? left < required : present > 0 && left <= 0) return 1 + (required > 0 ? left / required : 0);
+    if (required <= 0) return present <= 0 ? 2 : Infinity;
+    return 2 + present / required;
   }
 
   // Items frais scannes par type (un paquet compte pour son nombre d'items)
@@ -4020,8 +4023,8 @@
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
     } else {
       parts.push(el('p', { class: 'hint' }, 'Stock non périmé (hors lots, rangements compris) / minimum. Les plus critiques en premier.'));
-      // manques, puis 0/0, puis complets, puis sans minimum (x/0) tout en bas
-      const order = (row) => stockOrder(row.stock_fresh, row.min_quantity);
+      // sous le minimum, puis bientot sous le minimum ou vide, puis 0/0, puis complets, puis x/0 tout en bas
+      const order = (row) => stockOrder(row.stock_fresh, row.min_quantity, row.stock_expiring_soon || 0);
       const rows = [...state.stock].sort((a, b) => order(a) - order(b));
       for (const row of rows) {
         const details = [`${row.lots_fresh} dans les lots`];
