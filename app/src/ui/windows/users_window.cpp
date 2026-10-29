@@ -17,14 +17,14 @@ namespace qrprotec {
 
 namespace {
 
-const char *const kRoles[] = { "normal", "gestion", "admin" };
+const char *const kRoles[] = { "normal", "chef", "gestion", "admin" };
 
 int role_index(const std::string &role) {
-  return role == "admin" ? 2 : role == "gestion" ? 1 : 0;
+  return role == "admin" ? 3 : role == "gestion" ? 2 : role == "chef" ? 1 : 0;
 }
 
 const char *role_label(const std::string &role) {
-  return role == "admin" ? "Administrateur" : role == "gestion" ? "Gestion" : "Secouriste";
+  return role == "admin" ? "Administrateur" : role == "gestion" ? "Gestion" : role == "chef" ? "Chef" : "Secouriste";
 }
 
 // Gestion des secouristes : creation, droits, renouvellement des badges (valables un an).
@@ -187,8 +187,9 @@ class UsersWindow final : public AppWindow {
       help_marker("Rôle dans l'équipe, par exemple l'autorité, l'OPÉ, le TECH. Purement indicatif : les droits "
                   "se choisissent juste en dessous. Laissé vide, c'est « Secouriste ».");
       ImGui::SetNextItemWidth(220.0f);
-      ImGui::Combo("Droits", &role_, "Secouriste\0Gestion\0Administrateur\0");
-      help_marker("Secouriste : vérifs et scans. Gestion : mode privilégié (stocks, inventaire, lots, étiquettes) et "
+      ImGui::Combo("Droits", &role_, "Secouriste\0Chef\0Gestion\0Administrateur\0");
+      help_marker("Secouriste : vérifs et scans, listes de matériel qui lui sont attribuées. Chef : crée les listes "
+                  "de matériel, voit toutes les listes et les modèles, sans rien gérer dans la TECH. Gestion : mode privilégié (stocks, inventaire, lots, étiquettes) et "
                   "état des stocks sur le téléphone, sans les Réglages ni les Utilisateurs. Administrateur : tout.");
       if (!creating)
         ImGui::Checkbox("Compte actif", &active_);

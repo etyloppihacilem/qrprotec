@@ -227,7 +227,7 @@ def parse_role(data):
     if 'role' in data:
         role = str(data['role'])
         if role not in Role.values:
-            raise ApiError(f"Role inconnu : {role} (normal, gestion ou admin)")
+            raise ApiError(f"Role inconnu : {role} (normal, chef, gestion ou admin)")
         return role
     if 'privileged' in data:
         return Role.ADMIN if data['privileged'] else Role.NORMAL
@@ -2360,7 +2360,8 @@ def remote_scanner_check(request):
 def _checklist(checklist_id):
     from .models import Checklist
     return get_object_or_404(Checklist.objects.select_related('owner').prefetch_related(
-        'lines__lot__lot_type', 'lines__item_type', 'scans__item__pack__item_type', 'scans__lot'), id=checklist_id)
+        'members', 'lines__lot__lot_type', 'lines__item_type', 'scans__item__pack__item_type', 'scans__lot'),
+        id=checklist_id)
 
 
 def _checklist_call(action):
@@ -2373,7 +2374,8 @@ def _checklist_call(action):
 @api_view(['POST'])
 @handle_errors
 def checklists_list(request):
-    """Listes : {"user", "show": "mine" (les siennes) | "templates" (les modeles) | "all" (gestion, admin, sans les modeles)}."""
+    """Listes : {"user", "show": "mine" (les siennes et celles qui lui sont attribuees) | "templates" (les modeles) |
+    "all" (sans les modeles)} ; modeles et toutes les listes pour les chefs, la gestion et les admins."""
     from . import checklists
     user = connected_user(request)
     show = str(request.data.get('show') or 'mine')
@@ -2381,15 +2383,28 @@ def checklists_list(request):
     # a traiter en haut : listes sorties (retour a faire), puis a preparer, et les listes rentrees
     rank = {'validated': 0, 'draft': 1}
     rows.sort(key=lambda row: rank.get(row['status'], 2))
-    return Response({'lists': rows, 'can_see_all': user.role in GESTION})
+    can_make = checklists.can_make_lists(user)
+    return Response({'lists': rows, 'can_see_all': can_make, 'can_create': can_make})
+
+
+@api_view(['POST'])
+@handle_errors
+def checklists_users(request):
+    """Recherche de secouristes par prenom pour les attribuer a une liste : {"user", "q"} (chefs, gestion, admins)."""
+    from . import checklists
+    user = connected_user(request)
+    return Response({'users': _checklist_call(lambda: checklists.search_users(user, request.data.get('q')))})
 
 
 @api_view(['POST'])
 @handle_errors
 def checklists_options(request):
     """Choix de l'editeur de liste : lots actifs (hors rangements du stock) et types d'items non archives."""
+    from . import checklists
     from .models import ItemType
-    connected_user(request)
+    user = connected_user(request)
+    if not checklists.can_make_lists(user):
+        raise ApiError('Réservé aux chefs, à la gestion et aux admins', status.HTTP_403_FORBIDDEN)
     lots = (Lots.objects.select_related('lot_type').filter(active=True, lot_type__storage=False)
             .order_by('name'))
     types = ItemType.objects.filter(archived=False).order_by('name')
@@ -2406,8 +2421,8 @@ def checklists_create(request):
     from . import checklists
     user = connected_user(request)
     data = request.data
-    checklist = checklists.create(user, data.get('name'), data.get('note', ''), data.get('template', False),
-                                  data.get('lines') or [])
+    checklist = _checklist_call(lambda: checklists.create(user, data.get('name'), data.get('note', ''),
+                                                          data.get('template', False), data.get('lines') or []))
     return Response(checklists.checklist_dict(_checklist(checklist.id), user), status=status.HTTP_201_CREATED)
 
 
@@ -2416,18 +2431,26 @@ def checklists_create(request):
 def checklist_action(request, checklist_id, action=''):
     """Une liste : {"user"} lit ; update {name, note, template, lines} ; duplicate {name, template} ; delete ;
     scan / unscan {item | lot} ; check {line, done} (tache libre) ; validate {partial} ; return-scan {item | lot} ;
-    close-return."""
+    close-return ; members {add: [matricules], remove: [matricules]}. A la lecture, {"open": true} (liste ouverte par
+    son lien ou son QR code) l'ajoute aux listes d'un secouriste."""
     from . import checklists
     user = connected_user(request)
     checklist = _checklist(checklist_id)
     data = request.data
+    _checklist_call(lambda: checklists.access(checklist, user, join=not action and bool(data.get('open'))))
     iid, lot = str(data.get('item') or ''), str(data.get('lot') or '')
     message = ''
     extra = {}
     if action == 'update':
         _checklist_call(lambda: checklists.update(checklist, user, data))
+    elif action == 'members':
+        add, remove = data.get('add') or [], data.get('remove') or []
+        if not isinstance(add, list) or not isinstance(remove, list):
+            raise ApiError('add, remove : listes de matricules attendues')
+        _checklist_call(lambda: checklists.set_members(checklist, user, add, remove))
     elif action == 'duplicate':
-        copy = checklists.duplicate(checklist, user, data.get('name'), data.get('template', False))
+        copy = _checklist_call(lambda: checklists.duplicate(checklist, user, data.get('name'),
+                                                            data.get('template', False)))
         return Response(checklists.checklist_dict(_checklist(copy.id), user), status=status.HTTP_201_CREATED)
     elif action == 'delete':
         _checklist_call(lambda: checklists.delete(checklist, user))

@@ -1088,7 +1088,7 @@ class RoleTests(ApiTestCase):
         self.assertEqual(body['role'], 'gestion')
         self.assertTrue(body['privileged'])
         gestion_key = body['key']  # cle du badge : seulement dans la reponse de creation
-        code, _ = self.call('POST', '/api/users/', {'matricule': 'X001', 'nom': 'a', 'prenom': 'b', 'role': 'chef'})
+        code, _ = self.call('POST', '/api/users/', {'matricule': 'X001', 'nom': 'a', 'prenom': 'b', 'role': 'chief'})
         self.assertEqual(code, 400)
         gestion = Secouristes.objects.get(matricule='G001')
         gestion.new_key = gestion_key
@@ -3895,8 +3895,10 @@ class ChecklistTests(ApiTestCase):
 
     def setUp(self):
         super().setUp()
-        self.chief = self.user  # role normal
-        self.other = Secouristes(matricule='M002', nom='Martin', prenom='Paul')
+        self.chief = self.user
+        self.chief.role = 'chef'
+        self.chief.save(update_fields=['role'])
+        self.other = Secouristes(matricule='M002', nom='Martin', prenom='Paul')  # secouriste
         self.other.renew_key()
         self.other.save()
         self.fresh = self.create(self.compresses, self.today + timedelta(days=200), 3)
@@ -3921,7 +3923,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, f"/api/checklists/{mine['id']}/update/", {'name': 'Autre'})
         self.assertEqual(code, 403)
         code, body = self.as_(self.other, f"/api/checklists/{mine['id']}/")
-        self.assertEqual((code, body['can_edit']), (200, False))  # partagee par lien : lisible
+        self.assertEqual((code, body['can_edit'], body['can_duplicate']), (200, False, False))  # lien : lisible
         self.assertEqual(body['owner_name'], 'Jeanne')  # front web : prenom seul
         code, body = self.call('POST', f"/api/checklists/{mine['id']}/")
         self.assertEqual(body['owner_name'], 'Jeanne Dupont')  # poste : nom complet
@@ -3930,15 +3932,83 @@ class ChecklistTests(ApiTestCase):
         template = self.new_list(template=True)
         code, _ = self.as_(self.chief, f"/api/checklists/{template['id']}/scan/", {'lot': self.lot.id})
         self.assertEqual(code, 400)  # un modele ne se verifie pas
-        code, copy = self.as_(self.other, f"/api/checklists/{template['id']}/duplicate/")
-        self.assertEqual((code, copy['owner'], copy['template'], copy['line_count']), (201, 'M002', False, 3))
-        code, body = self.as_(self.other, '/api/checklists/list/')
-        ids = {row['id'] for row in body['lists']}
-        self.assertEqual(ids, {copy['id']})  # ni la liste du chef, ni le modele : il est dans l'onglet Modeles
+        # un secouriste ne cree pas de liste, ne duplique pas, ne voit pas les modeles
+        code, _ = self.as_(self.other, '/api/checklists/', {'name': 'Interdit'})
+        self.assertEqual(code, 403)
+        code, _ = self.as_(self.other, f"/api/checklists/{template['id']}/duplicate/")
+        self.assertEqual(code, 403)
+        code, _ = self.as_(self.other, f"/api/checklists/{template['id']}/")
+        self.assertEqual(code, 403)
+        code, _ = self.as_(self.other, '/api/checklists/options/')
+        self.assertEqual(code, 403)
         code, body = self.as_(self.other, '/api/checklists/list/', {'show': 'templates'})
+        self.assertEqual((body['lists'], body['can_create'], body['can_see_all']), ([], False, False))
+        code, body = self.as_(self.other, '/api/checklists/list/', {'show': 'all'})
+        self.assertEqual(body['lists'], [])  # pas « Toutes » : seulement les siennes
+        # un autre chef : toutes les listes, tous les modeles (et il les modifie), pas les listes des autres
+        chef = Secouristes(matricule='C002', nom='Leroy', prenom='Chloé', role='chef')
+        chef.renew_key()
+        chef.save()
+        code, body = self.as_(chef, '/api/checklists/list/', {'show': 'all'})
+        self.assertEqual(({row['id'] for row in body['lists']}, body['can_create']), ({mine['id']}, True))
+        code, body = self.as_(chef, '/api/checklists/list/', {'show': 'templates'})
         self.assertEqual({row['id'] for row in body['lists']}, {template['id']})
+        code, body = self.as_(chef, f"/api/checklists/{template['id']}/update/", {'name': 'Modèle partagé'})
+        self.assertEqual(code, 200)
+        code, body = self.as_(chef, f"/api/checklists/{mine['id']}/update/", {'name': 'Pas à lui'})
+        self.assertEqual(code, 403)
+        code, copy = self.as_(chef, f"/api/checklists/{template['id']}/duplicate/")
+        self.assertEqual((code, copy['owner'], copy['template'], copy['line_count']), (201, 'C002', False, 3))
+        code, body = self.as_(chef, '/api/checklists/list/')
+        self.assertEqual({row['id'] for row in body['lists']}, {copy['id']})  # pas le modele : onglet Modeles
         code, body = self.call('POST', '/api/checklists/list/', {'show': 'all'})
         self.assertEqual({row['id'] for row in body['lists']}, {mine['id'], copy['id']})
+
+    def test_members(self):
+        mine = self.new_list()
+        path = f"/api/checklists/{mine['id']}/"
+        code, body = self.as_(self.other, '/api/checklists/list/')
+        self.assertEqual(body['lists'], [])  # pas attribuee : invisible
+        code, body = self.as_(self.chief, path + 'members/', {'add': ['M002']})
+        self.assertEqual((code, body['members']), (200, [{'matricule': 'M002', 'name': 'Paul'}]))
+        code, body = self.as_(self.other, '/api/checklists/list/')
+        self.assertEqual([row['id'] for row in body['lists']], [mine['id']])
+        code, _ = self.as_(self.other, path + 'members/', {'remove': ['M002']})
+        self.assertEqual(code, 403)  # seul qui modifie la liste choisit ses secouristes
+        code, body = self.as_(self.chief, path + 'members/', {'remove': ['M002']})
+        self.assertEqual(body['members'], [])
+        # participer sans etre attribue : scan possible, la liste ne s'ajoute pas tant qu'il ne l'ouvre pas par le lien
+        code, body = self.as_(self.other, path + 'scan/', {'lot': self.lot.id})
+        self.assertEqual(code, 200, body)
+        code, body = self.as_(self.other, '/api/checklists/list/')
+        self.assertEqual(body['lists'], [])
+        code, body = self.as_(self.other, path, {'open': True})  # lien ou QR code
+        self.assertEqual([row['matricule'] for row in body['members']], ['M002'])
+        code, body = self.as_(self.other, '/api/checklists/list/')
+        self.assertEqual([row['id'] for row in body['lists']], [mine['id']])
+        # pas de secouristes sur un modele, utilisateur inconnu refuse
+        template = self.new_list(template=True)
+        code, _ = self.as_(self.chief, f"/api/checklists/{template['id']}/members/", {'add': ['M002']})
+        self.assertEqual(code, 400)
+        code, _ = self.as_(self.chief, path + 'members/', {'add': ['X999']})
+        self.assertEqual(code, 400)
+
+    def test_user_search(self):
+        for matricule, prenom, nom in (('M003', 'Paul', 'Muller'), ('M004', 'Émilie', 'Roux'),
+                                       ('M005', 'Jean-Paul', 'Petit')):
+            Secouristes.objects.create(matricule=matricule, nom=nom, prenom=prenom)
+        Secouristes.objects.create(matricule='M006', nom='Paulin', prenom='Marc')  # nom, pas prenom
+        Secouristes.objects.create(matricule='M007', nom='Vieux', prenom='Pauline', active=False)
+        code, body = self.as_(self.chief, '/api/checklists/users/', {'q': 'pau'})
+        self.assertEqual(code, 200, body)
+        # prenoms seulement, noms courts sur le web (jamais le nom entier)
+        self.assertEqual([row['name'] for row in body['users']], ['Jean-Paul', 'Paul Ma.', 'Paul Mu.'])
+        code, body = self.as_(self.chief, '/api/checklists/users/', {'q': 'emi'})
+        self.assertEqual([row['matricule'] for row in body['users']], ['M004'])
+        code, body = self.call('POST', '/api/checklists/users/', {'q': 'emi'})
+        self.assertEqual([row['name'] for row in body['users']], ['Émilie Roux'])  # poste : nom complet
+        code, _ = self.as_(self.other, '/api/checklists/users/', {'q': 'pau'})
+        self.assertEqual(code, 403)  # secouriste : pas de recherche
 
     def test_free_tasks(self):
         code, checklist = self.as_(self.chief, '/api/checklists/', {
@@ -3974,7 +4044,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.chief, path + 'scan/', {'item': self.garrots[0].iid})
         self.assertTrue(body['complete'])
         # pris pour cette liste : refuse dans une autre
-        other = self.new_list(self.other)
+        other = self.new_list()  # une autre liste, verifiee par un secouriste
         code, body = self.as_(self.other, f"/api/checklists/{other['id']}/scan/", {'item': self.fresh[0].iid})
         self.assertEqual(code, 400)
         code, body = self.as_(self.chief, path + 'validate/')

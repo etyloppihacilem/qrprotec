@@ -88,7 +88,7 @@
   // roles gestion et admin : acces en lecture a l'etat des stocks
   const canSeeStock = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin' || state.user.privileged));
   const isAdmin = () => !!(state.user && state.user.role === 'admin');
-  const ROLE_LABELS = { normal: 'Secouriste', gestion: 'Gestion', admin: 'Administrateur' };
+  const ROLE_LABELS = { normal: 'Secouriste', chef: 'Chef', gestion: 'Gestion', admin: 'Administrateur' };
   // identite des operations sur un lot : le badge, sinon le nom declare (si le serveur l'autorise)
   const declared = () => !state.user && state.declaredAllowed && !!state.declaredName;
   const hasIdentity = () => !!state.user || declared();
@@ -4889,8 +4889,8 @@
   const LIST_POLL_MS = 3000;
   const LIST_TAGS = { draft: 'blue', validated: 'orange', returned: 'green' };
   const lists = {
-    index: null,     // {lists, can_see_all}
-    show: 'mine',    // 'mine' (les miennes et les modeles), 'templates', 'all' (gestion, admin)
+    index: null,     // {lists, can_see_all, can_create}
+    show: 'mine',    // 'mine' (les miennes et celles attribuees), 'templates', 'all' (chef, gestion, admin)
     id: '',          // liste ouverte
     list: null,      // detail de la liste ouverte
     error: '',
@@ -4945,6 +4945,10 @@
     renderListsPage();
     try {
       lists.index = await api('checklists/list/', { user: badge(), show: lists.show });
+      if (!lists.index.can_create && lists.show !== 'mine') {
+        lists.show = 'mine';  // secouriste : ni modeles ni « Toutes »
+        lists.index = await api('checklists/list/', { user: badge(), show: lists.show });
+      }
     } catch (e) {
       toast('Listes : ' + e.message, true);
     } finally {
@@ -4953,10 +4957,11 @@
     }
   }
 
+  // Premiere lecture d'une liste ouverte (lien, QR code, ecran des listes) : open l'ajoute aux listes d'un secouriste
   async function loadList(quiet = false) {
     const id = lists.id;
     try {
-      const list = await api(`checklists/${encodeURIComponent(id)}/`, { user: badge() });
+      const list = await api(`checklists/${encodeURIComponent(id)}/`, { user: badge(), open: !quiet });
       if (lists.id !== id) return;
       lists.list = list;
       lists.error = '';
@@ -5161,32 +5166,41 @@
       return;
     }
     delete view.dataset.editing;
+    // recherche d'un secouriste en cours : la relecture de la liste ne doit pas lui voler le focus
+    if (!force && document.activeElement && document.activeElement.closest('#home-lists .member-picker')) return;
     view.replaceChildren(...(lists.id ? listDetail() : listIndex()));
   }
 
   function listIndex() {
     const data = lists.index;
     const choose = (show) => { lists.show = show; loadLists(); };
+    // chefs, gestion et admins : creent des listes, voient toutes les listes et les modeles ; un secouriste ne voit
+    // que les listes qui lui sont attribuees ou qu'il a ouvertes par leur lien ou leur QR code
+    const canCreate = !!(data && data.can_create);
     const parts = [
       el('div', { class: 'row-head' }, el('h3', {}, 'Listes de matériel'),
         el('button', { type: 'button', onclick: loadLists }, lists.busy ? 'Chargement…' : 'Actualiser')),
-      el('div', { class: 'segmented' },
+      canCreate || (data && data.can_see_all) ? el('div', { class: 'segmented' },
         el('button', { type: 'button', class: lists.show === 'mine' ? 'active' : '', onclick: () => choose('mine') }, 'Mes listes'),
-        el('button', { type: 'button', class: lists.show === 'templates' ? 'active' : '', onclick: () => choose('templates') }, 'Modèles'),
-        data && data.can_see_all
-          ? el('button', { type: 'button', class: lists.show === 'all' ? 'active' : '', onclick: () => choose('all') }, 'Toutes') : ''),
-      el('button', { type: 'button', class: 'primary list-new', onclick: () => editList() },
-        lists.show === 'templates' ? '＋ Nouveau modèle' : '＋ Nouvelle liste'),
-      el('p', { class: 'hint' }, 'Une liste sert à demander à des secouristes de prendre du matériel précis pour un '
-        + 'poste en particulier : les lots et le matériel à emporter, avec les quantités. Elle se partage par lien ou '
-        + 'QR code et se vérifie en direct, à plusieurs. Validée, son matériel sort du stock. Un modèle se duplique '
-        + 'pour les postes qui reviennent souvent.'),
+        canCreate ? el('button', { type: 'button', class: lists.show === 'templates' ? 'active' : '', onclick: () => choose('templates') }, 'Modèles') : '',
+        data.can_see_all
+          ? el('button', { type: 'button', class: lists.show === 'all' ? 'active' : '', onclick: () => choose('all') }, 'Toutes') : '') : '',
+      canCreate ? el('button', { type: 'button', class: 'primary list-new', onclick: () => editList() },
+        lists.show === 'templates' ? '＋ Nouveau modèle' : '＋ Nouvelle liste') : '',
+      el('p', { class: 'hint' }, canCreate || !data
+        ? 'Une liste sert à demander à des secouristes de prendre du matériel précis pour un '
+          + 'poste en particulier : les lots et le matériel à emporter, avec les quantités. Elle se partage par lien ou '
+          + 'QR code et se vérifie en direct, à plusieurs. Validée, son matériel sort du stock. Un modèle se duplique '
+          + 'pour les postes qui reviennent souvent. Ajoutez des secouristes à une liste pour qu\'elle apparaisse ici chez eux.'
+        : 'Les listes de matériel qui vous sont attribuées par un chef, ou que vous avez ouvertes par leur lien ou leur '
+          + 'QR code. Scannez le matériel demandé pour la vérifier, à plusieurs ; partagez-la par lien ou QR code.'),
     ];
     if (!data) {
       parts.push(el('p', { class: 'hint' }, lists.busy ? 'Chargement…' : 'Listes non chargées.'));
       return parts;
     }
-    if (!data.lists.length) parts.push(el('p', { class: 'hint' }, lists.show === 'templates' ? 'Aucun modèle.' : 'Aucune liste.'));
+    if (!data.lists.length) parts.push(el('p', { class: 'hint' }, lists.show === 'templates' ? 'Aucun modèle.'
+      : canCreate ? 'Aucune liste.' : 'Aucune liste pour vous pour l\'instant.'));
     parts.push(el('ul', { class: 'list' }, ...data.lists.map((row) => el('li', { onclick: () => openList(row.id) },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, row.name),
@@ -5328,13 +5342,86 @@
           icon('share'), navigator.share ? 'Partager le lien' : 'Copier le lien'),
         qrButton), panel);
     }
+    if (!list.template) parts.push(...listMembers(list));
     const more = [];
     if (list.can_edit && list.status === 'draft') more.push(el('button', { type: 'button', onclick: () => editList(list) }, 'Modifier'));
-    if (!list.template) more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(false) }, 'Dupliquer'));
-    more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(true) }, list.template ? 'Dupliquer le modèle' : 'En faire un modèle'));
+    if (list.can_duplicate) {
+      if (!list.template) more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(false) }, 'Dupliquer'));
+      more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(true) }, list.template ? 'Dupliquer le modèle' : 'En faire un modèle'));
+    }
     if (list.can_edit && list.status !== 'validated') more.push(el('button', { type: 'button', class: 'danger-text', disabled: busy || null, onclick: deleteList }, 'Supprimer'));
-    parts.push(el('h3', {}, 'Gérer'), el('div', { class: 'list-buttons' }, ...more));
+    if (more.length) parts.push(el('h3', {}, 'Gérer'), el('div', { class: 'list-buttons' }, ...more));
     return parts;
+  }
+
+  // Secouristes attribues a la liste : elle apparait dans leurs listes. Qui modifie la liste les ajoute (recherche par
+  // prenom, noms courts sur le web) ou les retire ; un secouriste qui ouvre le lien ou le QR code s'y ajoute.
+  function listMembers(list) {
+    const members = list.members || [];
+    if (!list.can_edit && !members.length) return [];
+    const parts = [el('h3', {}, 'Secouristes')];
+    if (members.length) {
+      parts.push(el('ul', { class: 'list' }, ...members.map((member) => el('li', { class: 'static' },
+        el('div', { class: 'main' }, el('div', { class: 'name' }, member.name)),
+        list.can_edit ? el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', title: 'Retirer de la liste',
+          disabled: lists.busy || null, onclick: () => listAction('members', { remove: [member.matricule] }) }, '✕') : ''))));
+    } else {
+      parts.push(el('p', { class: 'hint' }, 'Aucun secouriste : ajoutez-en pour que la liste apparaisse dans leurs listes.'));
+    }
+    if (list.can_edit) {
+      const taken = new Set(members.map((member) => member.matricule));
+      parts.push(memberPicker(taken, (user) => listAction('members', { add: [user.matricule] }, () => toast(`Liste attribuée à ${user.name}.`))));
+    }
+    parts.push(el('p', { class: 'hint' }, 'Un secouriste qui ouvre le lien ou le QR code de la liste l\'ajoute aussi à ses listes.'));
+    return parts;
+  }
+
+  // Recherche d'un secouriste par prenom sur le serveur (chefs, gestion, admins), resultats en direct
+  function memberPicker(taken, onPick) {
+    const input = el('input', { type: 'search', class: 'picker-input', placeholder: '＋ Ajouter un secouriste : prénom…', autocomplete: 'off' });
+    const results = el('ul', { class: 'picker-results', hidden: '' });
+    let shown = [];
+    let highlighted = 0;
+    let timer = 0;
+    let request = 0;
+    const draw = (rows, empty) => {
+      shown = rows;
+      highlighted = Math.min(highlighted, Math.max(0, shown.length - 1));
+      results.replaceChildren(...(shown.length ? shown.map((user, index) => el('li', {
+        class: index === highlighted ? 'active' : '',
+        onpointerdown: (event) => { event.preventDefault(); pick(user); },
+      }, el('span', {}, user.name))) : empty ? [el('li', { class: 'empty' }, empty)] : []));
+      results.hidden = document.activeElement !== input || (!shown.length && !empty);
+    };
+    const pick = (user) => { input.value = ''; draw([], ''); input.blur(); onPick(user); };
+    const search = async () => {
+      const q = input.value.trim();
+      const mine = ++request;
+      if (!q) { draw([], ''); return; }
+      try {
+        const data = await api('checklists/users/', { user: badge(), q });
+        if (mine !== request) return;
+        draw(data.users.filter((user) => !taken.has(user.matricule)), 'Aucun secouriste');
+      } catch (e) {
+        if (mine === request) draw([], e.message);
+      }
+    };
+    input.addEventListener('input', () => { highlighted = 0; clearTimeout(timer); timer = setTimeout(search, 200); });
+    input.addEventListener('blur', () => { results.hidden = true; });
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        highlighted = Math.max(0, Math.min(shown.length - 1, highlighted + (event.key === 'ArrowDown' ? 1 : -1)));
+        draw(shown, '');
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (shown[highlighted]) pick(shown[highlighted]);
+      } else if (event.key === 'Escape') {
+        input.value = '';
+        input.blur();
+      }
+    });
+    return el('div', { class: 'picker member-picker' }, input, results);
   }
 
   // Champ de recherche avec resultats en direct (sans accents ni casse, debut de mots ou code), comme la recherche des

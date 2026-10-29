@@ -161,10 +161,17 @@ pile de scans du poste). `services.mark_out`, `POST /api/items/out/` (même iden
 `Checklist` a des lignes (`ChecklistLine` : un lot actif, ou un type d'item non archivé et une
 quantité, ou une tâche libre `task` cochée avec `done` / `done_by`, 100 lignes au plus) et des scans (`ChecklistScan`, phase `out` à la vérif, `back` au retour).
 
-- **Droits** : tout utilisateur connecté lit et vérifie une liste (lien `<base>/liste?id=ID`), crée
-  les siennes ; seul l'auteur, la gestion et les admins la modifient ou la suppriment. `show` de la
-  liste : les siennes (« Mes listes »), les modèles (onglet Modèles, eux seuls), ou toutes
-  les listes hors modèles (gestion, admin).
+- **Droits** : les rôles `chef`, `gestion` et `admin` (`LIST_ROLES`) créent et dupliquent des listes,
+  voient toutes les listes et tous les modèles (partagés). L'auteur et un chef modifient la liste
+  (un chef : aussi tous les modèles), la gestion et les admins tout. Un secouriste (`normal`) ne crée
+  rien, ne voit pas les modèles (403) ; par le lien `<base>/liste?id=ID` il lit, vérifie et partage
+  toute liste. `show` : les siennes et celles qui lui sont attribuées (« Mes listes »), les modèles
+  (onglet Modèles, eux seuls), ou toutes les listes hors modèles (`chef`, `gestion`, `admin`).
+- **Secouristes attribués** (`members`, pas sur un modèle) : `members {add, remove}` (matricules,
+  qui modifie la liste) ; lire la liste avec `open: true` (premier chargement du lien ou du QR
+  code) y ajoute le secouriste. `POST /api/checklists/users/ {q}` cherche les secouristes actifs
+  par début de prénom, sans casse ni accents (`LIST_ROLES` seulement) ; noms courts sur le front web
+  (`identity_name` anonymisé), complets sur le poste.
 - **Statuts** : `draft` (à préparer, modifiable), `validated` (sortie), `returned` (rentrée). Un
   modèle (`is_template`) ne se vérifie pas : on le duplique (`duplicate`, nouvelle liste à
   l'utilisateur, `source` vers l'original). Une liste commencée ne devient pas un modèle.
@@ -346,7 +353,8 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 
 | Rôle | Poste | Téléphone |
 |---|---|---|
-| `normal` (Secouriste) | vérifs, pile de scans, réassort | vérifs, liste des lots |
+| `normal` (Secouriste) | vérifs, pile de scans, réassort | vérifs, liste des lots, listes de matériel attribuées |
+| `chef` | + listes de matériel : créer, toutes les voir, modèles | idem |
 | `gestion` | + mode privilégié : stocks, inventaire, paquets, gestion des lots | + État des stocks de l'accueil (lecture), notifications web (stock, étiquettes de lot) |
 | `admin` | + Réglages, Utilisateurs, éditeur d'étiquettes | + notifications web (aussi PIN bloqué, badges) |
 

@@ -74,33 +74,46 @@ class ListsWindow final : public AppWindow {
         ImGui::TextWrapped("Connectez-vous (badge) pour voir, préparer et vérifier les listes de matériel.");
         return;
       }
-      if (ImGui::RadioButton("Mes listes", show_ == "mine")) {
-        show_ = "mine";
-        load(app);
-      }
-      ImGui::SameLine();
-      if (ImGui::RadioButton("Modèles", show_ == "templates")) {
-        show_ = "templates";
-        load(app);
-      }
-      if (app.privileged()) {
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Toutes", show_ == "all")) {
-          show_ = "all";
+      // chefs, gestion et admins : creent des listes, voient toutes les listes et les modeles ; un secouriste ne voit
+      // que les listes qui lui sont attribuees ou qu'il a ouvertes par leur lien ou leur QR code
+      if (can_create_ || can_see_all_) {
+        if (ImGui::RadioButton("Mes listes", show_ == "mine")) {
+          show_ = "mine";
           load(app);
         }
+        if (can_create_) {
+          ImGui::SameLine();
+          if (ImGui::RadioButton("Modèles", show_ == "templates")) {
+            show_ = "templates";
+            load(app);
+          }
+        }
+        if (can_see_all_) {
+          ImGui::SameLine();
+          if (ImGui::RadioButton("Toutes", show_ == "all")) {
+            show_ = "all";
+            load(app);
+          }
+        }
+        ImGui::SameLine();
       }
-      ImGui::SameLine();
       if (button(loading_ ? "Chargement..." : "Actualiser"))
         load(app);
-      ImGui::SameLine();
-      if (primary_button(show_ == "templates" ? "Nouveau modèle" : "Nouvelle liste"))
-        start_edit(app, nullptr);
+      if (can_create_) {
+        ImGui::SameLine();
+        if (primary_button(show_ == "templates" ? "Nouveau modèle" : "Nouvelle liste"))
+          start_edit(app, nullptr);
+      }
       ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-      ImGui::TextWrapped("Une liste sert à demander à des secouristes de prendre du matériel précis pour un poste en "
-                         "particulier : les lots et le matériel à emporter, avec les quantités. Elle se partage par "
-                         "lien ou QR code et se vérifie en direct, à plusieurs. Validée, son matériel sort du stock. "
-                         "Un modèle se duplique pour les postes qui reviennent souvent.");
+      if (can_create_)
+        ImGui::TextWrapped("Une liste sert à demander à des secouristes de prendre du matériel précis pour un poste en "
+                           "particulier : les lots et le matériel à emporter, avec les quantités. Elle se partage par "
+                           "lien ou QR code et se vérifie en direct, à plusieurs. Validée, son matériel sort du stock. "
+                           "Un modèle se duplique pour les postes qui reviennent souvent. Ajoutez des secouristes à "
+                           "une liste pour qu'elle apparaisse dans leurs listes.");
+      else
+        ImGui::TextWrapped("Les listes de matériel qui vous sont attribuées par un chef, ou que vous avez ouvertes par "
+                           "leur lien ou leur QR code. Scannez le matériel demandé pour la vérifier, à plusieurs.");
       ImGui::PopStyleColor();
 
       if (editing_) {
@@ -228,7 +241,7 @@ class ListsWindow final : public AppWindow {
       ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - qr_side - 16.0f);
       if (list["template"].boolean()) {
         ImGui::TextWrapped("Modèle : dupliquez-le pour faire une liste à vérifier.");
-        if (primary_button("Utiliser ce modèle"))
+        if (list["can_duplicate"].boolean() && primary_button("Utiliser ce modèle"))
           duplicate(app, false);
       } else if (draft) {
         if (list["complete"].boolean())
@@ -266,20 +279,28 @@ class ListsWindow final : public AppWindow {
       if (scanning_ && !message_.empty())
         ImGui::TextColored(message_bad_ ? colors::red : colors::green, "%s", message_.c_str());
       // gestion
+      bool same_line = false;
       if (list["can_edit"].boolean() && draft) {
         if (button("Modifier"))
           start_edit(app, &list);
-        ImGui::SameLine();
+        same_line = true;
       }
-      if (!list["template"].boolean()) {
-        if (button("Dupliquer"))
-          duplicate(app, false);
-        ImGui::SameLine();
+      if (list["can_duplicate"].boolean()) {
+        if (!list["template"].boolean()) {
+          if (same_line)
+            ImGui::SameLine();
+          if (button("Dupliquer"))
+            duplicate(app, false);
+        }
+        if (same_line || !list["template"].boolean())
+          ImGui::SameLine();
+        if (button(list["template"].boolean() ? "Dupliquer le modèle" : "En faire un modèle"))
+          duplicate(app, true);
+        same_line = true;
       }
-      if (button(list["template"].boolean() ? "Dupliquer le modèle" : "En faire un modèle"))
-        duplicate(app, true);
       if (list["can_edit"].boolean() && status != "validated") {
-        ImGui::SameLine();
+        if (same_line)
+          ImGui::SameLine();
         if (confirm_button("Supprimer", "Supprimer cette liste ?", "confirm_delete"))
           call(app, "delete", Json::object(), [this, &app](const ApiResult &result) {
             if (!result.ok) {
@@ -293,6 +314,8 @@ class ListsWindow final : public AppWindow {
             load(app);
           });
       }
+      if (!list["template"].boolean())
+        draw_members(app, list);
       ImGui::PopTextWrapPos();
       ImGui::EndGroup();
       if (share) {
@@ -306,6 +329,96 @@ class ListsWindow final : public AppWindow {
         ImGui::EndGroup();
       }
       draw_lines(app, list);
+    }
+
+    // Secouristes attribues a la liste : elle apparait dans leurs listes. Qui modifie la liste les ajoute (recherche
+    // par prenom) ou les retire ; un secouriste qui ouvre le lien ou le QR code de la liste s'y ajoute.
+    void draw_members(App &app, const Json &list) {
+      const bool can_edit = list["can_edit"].boolean();
+      if (!can_edit && list["members"].size() == 0)
+        return;
+      ImGui::SeparatorText("Secouristes");
+      if (list["members"].size() == 0)
+        ImGui::TextDisabled("Aucun secouriste : ajoutez-en pour que la liste apparaisse dans leurs listes.");
+      bool first = true;
+      for (const Json &member : list["members"].items()) {
+        if (!first)
+          ImGui::SameLine();
+        first = false;
+        ImGui::PushID(member["matricule"].str().c_str());
+        ImGui::TextUnformatted(member["name"].str().c_str());
+        if (can_edit) {
+          ImGui::SameLine(0.0f, 4.0f);
+          if (small_button("x"))
+            change_members(app, "remove", member["matricule"].str(), member["name"].str());
+          ImGui::SetItemTooltip("Retirer de la liste");
+        }
+        ImGui::PopID();
+        ImGui::SameLine(0.0f, 16.0f);
+        ImGui::Dummy(ImVec2(0.0f, 0.0f));
+      }
+      if (!can_edit)
+        return;
+      ImGui::SetNextItemWidth(260.0f);
+      if (ImGui::InputTextWithHint("##member", "Ajouter un secouriste : prénom", &member_query_))
+        member_search_at_ = ImGui::GetTime() + 0.25;
+      if (member_search_at_ > 0.0 && ImGui::GetTime() >= member_search_at_) {
+        member_search_at_ = 0.0;
+        search_members(app);
+      }
+      if (member_query_.empty())
+        return;
+      int shown = 0;
+      for (const Json &user : member_results_.items()) {
+        const std::string matricule = user["matricule"].str();
+        bool              taken     = false;
+        for (const Json &member : list["members"].items())
+          taken = taken || member["matricule"].str() == matricule;
+        if (taken)
+          continue;
+        ++shown;
+        ImGui::PushID(matricule.c_str());
+        if (ImGui::Selectable(user["name"].str().c_str(), false, 0, ImVec2(260.0f, 0.0f))) {
+          change_members(app, "add", matricule, user["name"].str());
+          member_query_.clear();
+          member_results_ = Json::array();
+        }
+        ImGui::PopID();
+      }
+      if (shown == 0 && !member_searching_)
+        ImGui::TextDisabled("Aucun secouriste");
+    }
+
+    void search_members(App &app) {
+      Json body;
+      body["user"]      = app.user_ref();
+      body["q"]         = member_query_;
+      member_searching_ = true;
+      const int request = ++member_request_;
+      app.api.post("/api/checklists/users/", body, [this, &app, request](const ApiResult &result) {
+        if (request != member_request_)
+          return;
+        member_searching_ = false;
+        if (!result.ok) {
+          app.notify("Secouristes : " + result.error, true);
+          return;
+        }
+        member_results_ = result.data["users"];
+      });
+    }
+
+    void change_members(App &app, const char *action, const std::string &matricule, const std::string &name) {
+      Json body;
+      Json users = Json::array();
+      users.push_back(matricule);
+      body[action]         = users;
+      const bool adding    = std::string(action) == "add";
+      call(app, "members", body, [&app, adding, name](const ApiResult &result) {
+        if (!result.ok)
+          app.notify("Liste : " + result.error, true);
+        else
+          app.notify(adding ? "Liste attribuée à " + name + "." : name + " retiré de la liste.");
+      });
     }
 
     void draw_scan_toggle(App &app, const char *label) {
@@ -736,7 +849,13 @@ class ListsWindow final : public AppWindow {
           app.notify("Listes : " + result.error, true);
           return;
         }
-        lists_ = result.data["lists"];
+        lists_        = result.data["lists"];
+        can_create_   = result.data["can_create"].boolean();
+        can_see_all_  = result.data["can_see_all"].boolean();
+        if (!can_create_ && show_ != "mine") {
+          show_ = "mine"; // secouriste : ni modeles ni « Toutes »
+          load(app);
+        }
       });
       next_poll_ = 0.0;
     }
@@ -746,11 +865,14 @@ class ListsWindow final : public AppWindow {
       Json body;
       body["user"]          = app.user_ref();
       const std::string id  = list_id_;
+      // premiere lecture de la liste ouverte (QR code scanne, tableau) : l'ajoute aux listes d'un secouriste
+      body["open"]          = opened_ != id;
       const int request     = ++detail_request_;
       app.api.post("/api/checklists/" + url_encode(id) + "/", body, [this, id, request](const ApiResult &result) {
         if (request != detail_request_ || id != list_id_)
           return;
         if (result.ok) {
+          opened_ = id;
           set_list(result.data);
           error_.clear();
         } else if (result.status == 404) {
@@ -764,6 +886,15 @@ class ListsWindow final : public AppWindow {
 
     Json        lists_ = Json::array();
     std::string show_  = "mine";
+    bool        can_create_  = false; // chef, gestion, admin (reponse de /api/checklists/list/)
+    bool        can_see_all_ = false;
+    std::string opened_;              // derniere liste ouverte (lue une premiere fois avec "open")
+    // secouristes attribues : recherche par prenom
+    std::string member_query_;
+    Json        member_results_   = Json::array();
+    double      member_search_at_ = 0.0;
+    bool        member_searching_ = false;
+    int         member_request_   = 0;
     std::string list_id_;
     Json        list_;
     std::string error_;

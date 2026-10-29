@@ -658,6 +658,7 @@ class PinMode(models.TextChoices):
 
 class Role(models.TextChoices):
     NORMAL = 'normal', 'Secouriste'
+    CHEF = 'chef', 'Chef'            # listes de materiel (creer, voir toutes, modeles), rien dans la gestion de la TECH
     GESTION = 'gestion', 'Gestion'   # consultation et gestion de l'inventaire, sans les reglages du front
     ADMIN = 'admin', 'Administrateur'
 
@@ -1162,6 +1163,8 @@ class Checklist(models.Model):
     name = models.CharField(max_length=80)
     note = models.CharField(max_length=500, blank=True, default='')
     owner = models.ForeignKey('Secouristes', on_delete=models.PROTECT, related_name='checklists')
+    # secouristes a qui la liste est attribuee (ajoutes par un chef, ou en ouvrant son lien ou son QR code)
+    members = models.ManyToManyField('Secouristes', blank=True, related_name='assigned_checklists')
     is_template = models.BooleanField(default=False)
     status = models.CharField(max_length=10, choices=ChecklistStatus.choices, default=ChecklistStatus.DRAFT)
     created = models.DateTimeField(default=timezone.now)
