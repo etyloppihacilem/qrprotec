@@ -204,6 +204,60 @@
     return node;
   }
 
+  // Icones des boutons : SVG au trait, couleur du texte du bouton
+  const ICONS = {
+    share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2"/>',
+    qr: '<rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/>'
+      + '<rect x="3.5" y="14.5" width="6" height="6" rx="1"/><path d="M14.5 14.5h2.5v2.5M20.5 14.5v0M14.5 20.5h2.5M20 17.5v3"/>',
+    // trousse ouverte dont on sort du materiel : lot utilise
+    used: '<path d="M4 12h16v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5z"/><path d="M4 12 6 8.5h12l2 3.5"/>'
+      + '<path d="M12 7V1.5M9.8 3.7 12 1.5l2.2 2.2"/><path d="M12 14.5v4M10 16.5h4"/>',
+    verif: '<path d="M9 4.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 21.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 17 4.5h-2"/>'
+      + '<rect x="9" y="3" width="6" height="3" rx="1"/><path d="m9 13.5 2 2 4-4"/>',
+    check: '<path d="m4.5 12.5 5 5 10-11"/>',
+    restock: '<path d="M4 8v11.5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8"/><path d="M3 4.5h18V8H3z"/><path d="M12 11v6M9 14h6"/>',
+    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    trash: '<path d="M4 6.5h16M9.5 6.5V4h5v2.5"/><path d="M6 6.5l1 13.5a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5l1-13.5"/>'
+      + '<path d="M10 11v6M14 11v6"/>',
+    // arc qui rejoint la pointe de la fleche
+    refresh: '<path d="M20 12a8 8 0 1 1-2.34-5.66L20 8.5"/><path d="M20 3.5v5h-5"/>',
+    camera: '<path d="M4 7.5h3.5L9 5h6l1.5 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5a1 1 0 0 1 1-1z"/>'
+      + '<circle cx="12" cy="13.5" r="3.5"/>',
+    badge: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="8.5" cy="11" r="2"/>'
+      + '<path d="M5.5 16c.6-1.6 1.6-2.3 3-2.3s2.4.7 3 2.3M14 10h4M14 13.5h3"/>',
+    keypad: '<circle cx="7" cy="6" r="1.3"/><circle cx="12" cy="6" r="1.3"/><circle cx="17" cy="6" r="1.3"/>'
+      + '<circle cx="7" cy="11" r="1.3"/><circle cx="12" cy="11" r="1.3"/><circle cx="17" cy="11" r="1.3"/>'
+      + '<circle cx="7" cy="16" r="1.3"/><circle cx="12" cy="16" r="1.3"/><circle cx="17" cy="16" r="1.3"/><circle cx="12" cy="21" r="1.3"/>',
+    logout: '<path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10"/><path d="M9 12h12M17 8l4 4-4 4"/>',
+    send: '<path d="M21 3 10 14"/><path d="M21 3 14.5 21 10 14 3 9.5z"/>',
+    wrench: '<path d="M14.5 3.5a5 5 0 0 0-4.3 7.2l-6.5 6.5a2.1 2.1 0 0 0 3 3l6.5-6.5a5 5 0 0 0 7.2-4.3l-3.2 3.2-3-.9-.9-3z"/>',
+    key: '<circle cx="8" cy="15" r="4.5"/><path d="m11.2 11.8 8.8-8.8M16.5 6.5l2.5 2.5M14 9l2 2"/>',
+    bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    // cloche barree : la cloche est coupee de part et d'autre du trait
+    bellOff: '<mask id="icon-bell-off"><rect width="24" height="24" fill="#fff"/><path d="M3 3l18 18" stroke="#000" stroke-width="5"/></mask>'
+      + '<g mask="url(#icon-bell-off)"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></g>'
+      + '<path d="M3 3l18 18"/>',
+    pencil: '<path d="M15.5 4.5l4 4L8 20H4v-4z"/><path d="m13 7 4 4"/>',
+    copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="1.5"/>'
+      + '<path d="M15.5 8.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5"/>',
+    save: '<rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M8 3.5v5h8v-5M7 20.5v-6.5h10v6.5"/>',
+    home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>',
+    template: '<rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    lock: '<rect x="4.5" y="11" width="15" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>',
+  };
+
+  function icon(name) {
+    const span = el('span', { class: 'icon', 'aria-hidden': 'true' });
+    span.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"`
+      + ` stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+    return span;
+  }
+
+  // Texte d'un bouton precede de son icone (name vide : texte seul)
+  function setLabel(button, name, text) {
+    button.replaceChildren(...(name ? [icon(name)] : []), text);
+  }
+
   async function api(path, body) {
     const options = { headers: { Accept: 'application/json' } };
     if (body !== undefined) {
@@ -467,6 +521,14 @@
   document.addEventListener('freeze', stopCamera);
   document.addEventListener('resume', syncCamera);
 
+  // icones des boutons fixes de la page
+  for (const [id, name] of [['start-button', 'camera'], ['undo', 'undo'], ['clear', 'trash'], ['fiche-home', 'home'],
+    ['login-needed-badge', 'badge'], ['login-needed-name', 'keypad'], ['problem-send', 'send'], ['revision-ok', 'check']]) {
+    const button = document.getElementById(id);
+    if (button) button.prepend(icon(name));
+  }
+  const logoutAction = document.querySelector('#menu [data-action="logout"]');
+  if (logoutAction) logoutAction.prepend(icon('logout'));
   $('#start-button').addEventListener('click', startCamera);
 
   // Camera reduite en vignette flottante (comme en appel video) : la liste prend tout l'ecran, le scan continue.
@@ -2982,7 +3044,7 @@
   function renderLotsPage() {
     const view = $('#home-lots');
     const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'Lots'),
-      el('button', { type: 'button', onclick: loadLots }, state.loading === 'lots' ? 'Chargement…' : 'Actualiser'))];
+      el('button', { type: 'button', onclick: loadLots }, icon('refresh'), state.loading === 'lots' ? 'Chargement…' : 'Actualiser'))];
     if (!state.lots) {
       parts.push(el('p', { class: 'hint' }, state.loading === 'lots' ? 'Chargement des lots…' : 'Liste non chargée.'));
       view.replaceChildren(...parts);
@@ -3544,7 +3606,7 @@
     if (!rows.length) parts.push(el('p', { class: 'hint' }, 'Aucune vérif en cours. Les scans apparaissent ici en direct.'));
     parts.push(...rows.map(liveCard));
     parts.push(el('div', { class: 'row-head' }, el('h3', {}, 'Vérifs récentes'),
-      el('button', { type: 'button', onclick: loadRecent }, watch.recentLoading ? 'Chargement…' : 'Actualiser')));
+      el('button', { type: 'button', onclick: loadRecent }, icon('refresh'), watch.recentLoading ? 'Chargement…' : 'Actualiser')));
     if (!watch.recent) {
       parts.push(el('p', { class: 'hint' }, watch.recentLoading ? 'Chargement…' : 'Liste non chargée.'));
     } else if (!watch.recent.length) {
@@ -3873,7 +3935,7 @@
     parts.push(pinInput('settings-pin-new', hasPin ? 'Nouveau PIN (4 à 8 chiffres)' : 'PIN (4 à 8 chiffres)'));
     parts.push(pinInput('settings-pin-confirm', 'Confirmez le PIN'));
     parts.push(el('p', { id: 'settings-pin-error', class: 'pin-error' }));
-    const buttons = [el('button', { type: 'button', class: 'primary', onclick: () => savePin(false) },
+    const buttons = [el('button', { type: 'button', class: 'primary', onclick: () => savePin(false) }, icon('key'),
       hasPin ? 'Changer le PIN' : 'Définir le PIN')];
     if (hasPin && pinCanDisable(user)) {
       buttons.push(el('button', { type: 'button', onclick: () => savePin(true) }, 'Supprimer le PIN'));
@@ -3962,7 +4024,7 @@
       here.push(el('p', { class: 'hint' }, 'Activées : vous serez prévenu même page fermée. Choisissez les alertes dans la liste ci-dessous.'));
       here.push(el('div', { class: 'push-buttons' },
         el('button', { type: 'button', onclick: testPush, disabled: busy }, 'Envoyer un test'),
-        el('button', { type: 'button', onclick: disablePush, disabled: busy }, 'Désactiver')));
+        el('button', { type: 'button', onclick: disablePush, disabled: busy }, icon('bellOff'), 'Désactiver')));
     } else if (!push.types.length) {
       here.push(el('p', { class: 'hint' }, "Un administrateur a désactivé toutes vos notifications."));
     } else {
@@ -3976,7 +4038,7 @@
           + BLOCKED_HELP.slice(1)));
       }
       here.push(el('div', { class: 'push-buttons' },
-        el('button', { type: 'button', class: 'primary', onclick: enablePush, disabled: busy },
+        el('button', { type: 'button', class: 'primary', onclick: enablePush, disabled: busy }, icon('bell'),
           state.pushBusy ? 'Activation…' : 'Activer les notifications')));
     }
     parts.push(el('div', { class: 'push-box' }, ...here));
@@ -4168,7 +4230,7 @@
     const head = el('div', { class: 'row-head' },
       el('h3', {}, view === 'tasks' ? 'À faire' : forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
       el('div', { class: 'buttons' },
-        el('button', { type: 'button', onclick: loadStock }, state.loading === 'stock' ? 'Chargement…' : 'Actualiser')));
+        el('button', { type: 'button', onclick: loadStock }, icon('refresh'), state.loading === 'stock' ? 'Chargement…' : 'Actualiser')));
     const parts = [toggle, head];
     if (view === 'tasks') {
       renderTasks(parts);
@@ -4231,9 +4293,8 @@
     const restock = !state.busy && (partial.length > 0 || onlyNewItems());
     $('#restock').hidden = !restock;
     $('#undo-last').hidden = !state.scanned.length || state.busy;
-    $('#restock').textContent = partial.length
-      ? `Vérif partielle (${partial.map((lot) => lot.name_short || lot.name).join(', ')})`
-      : `Ajouter ${scannedIids().size} au lot (réassort)`;
+    if (partial.length) $('#restock').textContent = `Vérif partielle (${partial.map((lot) => lot.name_short || lot.name).join(', ')})`;
+    else setLabel($('#restock'), 'restock', `Ajouter ${scannedIids().size} au lot (réassort)`);
     const validateButton = $('#validate');
     const recorded = state.lastVerif && state.lot && state.lastVerif.lotId === state.lot.id && !allScanned().length;
     const out = takingOut();
@@ -4251,9 +4312,10 @@
     $('#validate-hint').hidden = !shared && !waiting;
     $('#validate-hint').textContent = waiting ? 'En attente des autres participants' : 'Valider ma partie de la vérif';
     if (waiting) validateButton.title = 'Votre partie est validée. Scannez un item pour la reprendre.';
-    validateButton.textContent = waiting ? 'Partie validée ✔' : state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
+    const validateText = waiting ? 'Partie validée ✔' : state.busy ? 'Envoi…' : recorded ? 'Vérif enregistrée ✔'
       : out ? `Sortir ${nb(scannedIids().size, 'item')} du stock` : restock ? 'Vérif complète…'
         : missing.length ? 'Valider la vérif…' : 'Valider la vérif';
+    setLabel(validateButton, validateText.startsWith('Valider') ? 'check' : '', validateText);
     if (inCascade() && !out) renderCascadeActions(validateButton);
     live.publish(liveSnapshot(remaining));
     renderTeam();
@@ -4275,8 +4337,9 @@
     const something = ownContent(level) || level.storage || entries.length > 0 || [...scope].some((id) => id !== level.id);
     const name = level.name.length > 22 ? level.name_short || level.name : level.name;
     validateButton.disabled = state.busy;
-    validateButton.textContent = state.busy ? 'Envoi…' : !something ? (atRoot ? 'Terminer la vérif' : `Revenir (rien à valider)`)
+    const validateText = state.busy ? 'Envoi…' : !something ? (atRoot ? 'Terminer la vérif' : `Revenir (rien à valider)`)
       : atRoot ? `Valider ${name} et terminer` : `Valider ${name}`;
+    setLabel(validateButton, validateText.startsWith('Valider') ? 'check' : '', validateText);
     validateButton.title = atRoot ? 'Enregistre la vérif du lot global et de ses sous-lots commencés ; les sous-lots non faits restent tels quels.'
       : `Enregistre la vérif de ${level.name} (et de ses sous-lots commencés), puis revient au lot qui le contient.`;
     $('#validate-hint').hidden = true;
@@ -4290,8 +4353,8 @@
     const iids = entriesPayload(entries).items;
     const restock = iids.length > 0 && !iids.some((iid) => known.has(iid));
     $('#restock').hidden = !(partial.length || restock);
-    $('#restock').textContent = partial.length ? `Vérif partielle (${partial.map((lot) => lot.name_short || lot.name).join(', ')})`
-      : `Ajouter ${iids.length} à ${name} (réassort)`;
+    if (partial.length) $('#restock').textContent = `Vérif partielle (${partial.map((lot) => lot.name_short || lot.name).join(', ')})`;
+    else setLabel($('#restock'), 'restock', `Ajouter ${iids.length} à ${name} (réassort)`);
     if (partial.length || restock) validateButton.textContent = `Vérif complète de ${name}…`;
   }
 
@@ -4501,7 +4564,7 @@
     const status = groupStatus(lot) || lotStatus(lot);
     const current = state.lotId === lot.id && verifInProgress();
     const launch = $('#fiche-launch');
-    launch.textContent = current ? 'Reprendre la vérif' : 'Lancer une vérif';
+    setLabel(launch, 'verif', current ? 'Reprendre la vérif' : 'Lancer une vérif');
     // etiquette du scelle scannee : le lot reste ferme, pas de vérif a lancer tant qu'il est scelle (etiquette d'un
     // ancien scelle comprise : un scelle plus recent a ete pose depuis)
     const sealIntact = !!fiche.seal && lot.seal_check === 'valid';
@@ -4731,7 +4794,7 @@
   function renderItemFiche(body, item) {
     const where = item.last_location;
     const launch = $('#fiche-launch');
-    launch.textContent = where ? `Lancer une vérif de ${where.name}` : 'Lancer une vérif';
+    setLabel(launch, 'verif', where ? `Lancer une vérif de ${where.name}` : 'Lancer une vérif');
     launch.disabled = !where;
     const add = $('#fiche-add');
     add.hidden = !verifInProgress();
@@ -4755,7 +4818,7 @@
       el('div', { class: 'banner ' + banner.kind }, banner.label),
       item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par le TECH.') : '',
       item.revision && !['deleted', 'replaced'].includes(item.status)
-        ? el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(item) }, '🔧 Réviser') : '',
+        ? el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(item) }, icon('wrench'), 'Réviser') : '',
       reportButton({ item: item.iid, label: withId(item.type_name, item.iid), lot: item.location, lotName: item.location_name }),
       el('dl', { class: 'facts' },
         item.disabled ? fact('Désactivé', item.disabled_reason || '–', el('div', { class: 'sub' },
@@ -5029,7 +5092,7 @@
       const note = el('textarea', { rows: 2, maxlength: 1000, placeholder: 'Réponse visible de tous (facultatif)' });
       note.value = row.note || '';
       const buttons = row.status === 'resolved'
-        ? [el('button', { type: 'button', onclick: () => updateReport(row, { status: 'progress' }) }, 'Rouvrir')]
+        ? [el('button', { type: 'button', onclick: () => updateReport(row, { status: 'progress' }) }, icon('undo'), 'Rouvrir')]
         : [
           el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'progress', usable: true }) },
             row.status === 'progress' && row.usable ? '✔ En cours · utilisable' : 'En cours · utilisable'),
@@ -5038,14 +5101,14 @@
           ...(row.item ? [
             // item non conforme : desactive (remplace a la prochaine verif comme un perime) ou deja retire
             el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved', resolution: 'ok' }) },
-              'Résolu · remis en service'),
+              icon('check'), 'Résolu · remis en service'),
             el('button', { type: 'button', class: 'warning', onclick: () => {
               if (confirm(`Désactiver ${row.item} ? Il devra être remplacé comme un périmé.`)) updateReport(row, { status: 'resolved', resolution: 'disabled' });
             } }, 'Résolu · item désactivé'),
             el('button', { type: 'button', class: 'danger', onclick: () => {
               if (confirm(`Retirer ${row.item} de l'inventaire (déjà jeté) ?`)) updateReport(row, { status: 'resolved', resolution: 'removed' });
             } }, 'Résolu · item retiré'),
-          ] : [el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved' }) }, 'Résolu')]),
+          ] : [el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved' }) }, icon('check'), 'Résolu')]),
         ];
       parts.push(el('div', { class: 'report-manage' }, note,
         el('button', { type: 'button', onclick: () => updateReport(row, { note: note.value }) }, 'Enregistrer la réponse'),
@@ -5060,7 +5123,7 @@
     const choose = (show) => { state.reportsShow = show; loadReports(); };
     const parts = [
       el('div', { class: 'row-head' }, el('h3', {}, 'Signalements'),
-        el('button', { type: 'button', onclick: () => loadReports() }, state.reportsBusy ? 'Chargement…' : 'Actualiser')),
+        el('button', { type: 'button', onclick: () => loadReports() }, icon('refresh'), state.reportsBusy ? 'Chargement…' : 'Actualiser')),
       el('div', { class: 'segmented' },
         el('button', { type: 'button', class: state.reportsShow === 'open' ? 'active' : '', onclick: () => choose('open') }, 'En cours'),
         el('button', { type: 'button', class: state.reportsShow === 'all' ? 'active' : '', onclick: () => choose('all') }, 'Tous')),
@@ -5273,21 +5336,6 @@
     } else toast(list.url);
   }
 
-  const ICONS = {
-    share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2"/>',
-    qr: '<rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/>'
-      + '<rect x="3.5" y="14.5" width="6" height="6" rx="1"/><path d="M14.5 14.5h2.5v2.5M20.5 14.5v0M14.5 20.5h2.5M20 17.5v3"/>',
-    // trousse ouverte dont on sort du materiel : lot utilise
-    used: '<path d="M4 12h16v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5z"/><path d="M4 12 6 8.5h12l2 3.5"/>'
-      + '<path d="M12 7V1.5M9.8 3.7 12 1.5l2.2 2.2"/><path d="M12 14.5v4M10 16.5h4"/>',
-  };
-
-  function icon(name) {
-    const span = el('span', { class: 'icon', 'aria-hidden': 'true' });
-    span.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"`
-      + ` stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
-    return span;
-  }
 
   function listQr(url) {
     if (lists.qr.url !== url) {
@@ -5380,7 +5428,7 @@
     const canCreate = !!(data && data.can_create);
     const parts = [
       el('div', { class: 'row-head' }, el('h3', {}, 'Listes de matériel'),
-        el('button', { type: 'button', onclick: loadLists }, lists.busy ? 'Chargement…' : 'Actualiser')),
+        el('button', { type: 'button', onclick: loadLists }, icon('refresh'), lists.busy ? 'Chargement…' : 'Actualiser')),
       canCreate || (data && data.can_see_all) ? el('div', { class: 'segmented' },
         el('button', { type: 'button', class: lists.show === 'mine' ? 'active' : '', onclick: () => choose('mine') }, 'Mes listes'),
         canCreate ? el('button', { type: 'button', class: lists.show === 'templates' ? 'active' : '', onclick: () => choose('templates') }, 'Modèles') : '',
@@ -5492,7 +5540,7 @@
     const busy = lists.busy;
     if (list.template) {
       parts.push(el('div', { class: 'banner info' }, 'Modèle : dupliquez-le pour faire une liste à vérifier.'));
-      buttons.push(el('button', { type: 'button', class: 'primary', disabled: busy || null, onclick: () => duplicateList(false) }, 'Utiliser ce modèle'));
+      buttons.push(el('button', { type: 'button', class: 'primary', disabled: busy || null, onclick: () => duplicateList(false) }, icon('template'), 'Utiliser ce modèle'));
     } else if (list.status === 'draft') {
       parts.push(el('div', { class: 'banner ' + (list.complete ? 'ok' : 'info') }, list.complete
         ? 'Tout est prêt : validez la liste.'
@@ -5501,14 +5549,14 @@
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Scanner'));
       buttons.push(el('button', { type: 'button', class: list.complete ? 'primary' : 'warning', disabled: busy || null, onclick: validateList },
-        list.complete ? 'Valider la liste' : 'Valider incomplète'));
+        icon('check'), list.complete ? 'Valider la liste' : 'Valider incomplète'));
     } else if (list.status === 'validated') {
       parts.push(el('div', { class: 'banner warn' }, `Sortie ${fmtOn(list.validated)}${list.validated_by ? ' par ' + list.validated_by : ''}. `
         + 'Au retour, scannez ce qui rentre (remis en stock), puis clôturez le retour.'));
       buttons.push(lists.mode
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Retour : scanner'));
-      buttons.push(el('button', { type: 'button', class: 'warning', disabled: busy || null, onclick: closeListReturn }, 'Clôturer le retour'));
+      buttons.push(el('button', { type: 'button', class: 'warning', disabled: busy || null, onclick: closeListReturn }, icon('lock'), 'Clôturer le retour'));
     } else {
       parts.push(el('div', { class: 'banner ok' }, `${list.went_out ? 'Rentrée' : 'Terminée'} ${fmtOn(list.returned)}`
         + `${list.returned_by ? ' par ' + list.returned_by : ''}. La liste ne sert plus : dupliquez-la pour la refaire.`));
@@ -5545,12 +5593,12 @@
     }
     if (!list.template) parts.push(...listMembers(list));
     const more = [];
-    if (list.can_edit && list.status === 'draft') more.push(el('button', { type: 'button', onclick: () => editList(list) }, 'Modifier'));
+    if (list.can_edit && list.status === 'draft') more.push(el('button', { type: 'button', onclick: () => editList(list) }, icon('pencil'), 'Modifier'));
     if (list.can_duplicate) {
-      if (!list.template) more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(false) }, 'Dupliquer'));
+      if (!list.template) more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(false) }, icon('copy'), 'Dupliquer'));
       more.push(el('button', { type: 'button', disabled: busy || null, onclick: () => duplicateList(true) }, list.template ? 'Dupliquer le modèle' : 'En faire un modèle'));
     }
-    if (list.can_edit && list.status !== 'validated') more.push(el('button', { type: 'button', class: 'danger-text', disabled: busy || null, onclick: deleteList }, 'Supprimer'));
+    if (list.can_edit && list.status !== 'validated') more.push(el('button', { type: 'button', class: 'danger-text', disabled: busy || null, onclick: deleteList }, icon('trash'), 'Supprimer'));
     if (more.length) parts.push(el('h3', {}, 'Gérer'), el('div', { class: 'list-buttons' }, ...more));
     return parts;
   }
@@ -5719,7 +5767,7 @@
       el('p', { class: 'hint' }, 'Une tâche se coche pendant la vérif de la liste (ni lot ni matériel).'),
       el('div', { class: 'list-buttons' },
         el('button', { type: 'button', class: 'secondary', onclick: () => { lists.edit = null; renderListsPage(); } }, 'Annuler'),
-        el('button', { type: 'button', class: 'primary', disabled: lists.busy ? '' : null, onclick: saveList }, 'Enregistrer')),
+        el('button', { type: 'button', class: 'primary', disabled: lists.busy ? '' : null, onclick: saveList }, icon('save'), 'Enregistrer')),
     ];
   }
 
