@@ -100,10 +100,13 @@ de Caddy. Récupérer son certificat :
 sudo find /var/lib/caddy -name root.crt
 ```
 
-et l'installer sur chaque téléphone (Android : Paramètres > Sécurité > Installer un certificat ;
+Caddy le sert aussi à l'adresse `https://<nom de la borne>/qrprotec-ca.crt` : le tuto du web
+(⚙ Réglages > Installer l'application) y renvoie avec les étapes de chaque appareil. Il faut
+l'installer sur chaque téléphone (Android : Paramètres > Sécurité > Installer un certificat ;
 iPhone : l'envoyer par mail, l'installer, puis l'activer dans Réglages > Général > Informations >
-Réglages des certificats). Sans cela, il faut accepter un avertissement à chaque fois, et les
-notifications web ne fonctionnent pas.
+Réglages des certificats). Sans cela, il faut accepter un avertissement à chaque fois, les
+notifications web ne fonctionnent pas, et l'appli ne s'installe pas (Chrome : « Cette appli ne peut
+pas être installée », seulement un raccourci).
 
 ## Ce qui est installé
 
