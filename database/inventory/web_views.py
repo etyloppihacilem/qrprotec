@@ -47,6 +47,8 @@ ASSETS = {
     'icon-maskable-512.png': 'image/png',
     'apple-touch-icon.png': 'image/png',  # iPhone : sans transparence, iOS arrondit lui-meme les coins
 }
+# Icones des boutons (app.js) : un fichier SVG par icone, web/icons/<nom>.svg
+ASSETS.update({f'icons/{path.name}': 'image/svg+xml' for path in (WEB_DIR / 'icons').glob('*.svg')})
 
 
 def _file(path, content_type, cache):
