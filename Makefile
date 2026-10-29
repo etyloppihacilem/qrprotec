@@ -71,7 +71,7 @@ icon:
 	$(MAGICK) $(WEB_DIR)/icon-512.png -resize 32x32 -depth 8 -strip $(WEB_DIR)/favicon.png
 
 # Documentation imprimable (A4) : un PDF complet et un PDF par partie, dans dist/doc.
-# Dependances : sudo dnf install pandoc weasyprint
+# Dependances : sudo dnf install pandoc weasyprint google-noto-color-emoji-fonts
 # L'ordre des pages suit les sommaires de docs/*/README.md.
 PANDOC ?= pandoc
 DOC_DIR := dist/doc
@@ -99,6 +99,7 @@ $(DOC_DIR)/qrprotec-technique.pdf: DOC_SUBTITLE = Documentation technique
 $(DOC_PDFS): $(DOC_DEPS)
 	@command -v $(PANDOC) >/dev/null || { echo "pandoc requis (sudo dnf install pandoc)"; exit 1; }
 	@command -v weasyprint >/dev/null || { echo "weasyprint requis (sudo dnf install weasyprint)"; exit 1; }
+	@fc-list 2>/dev/null | grep -q "Noto Color Emoji" || echo "attention : police Noto Color Emoji absente, emojis vides dans le PDF (sudo dnf install google-noto-color-emoji-fonts)"
 	@mkdir -p $(DOC_DIR)
 	$(PANDOC) -f markdown -t html5 /dev/null -o $@ \
 		--lua-filter docs/pdf/assemble.lua \

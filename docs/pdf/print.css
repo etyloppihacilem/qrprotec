@@ -1,16 +1,25 @@
 /* Mise en page A4 de la documentation imprimée (make doc). Rendu par WeasyPrint. */
 
+/* Émojis de la doc (👥, 📍, 🟢…, plage U+1Fxxx) : absents des polices DejaVu, pris dans Noto Color Emoji
+   (sudo dnf install google-noto-color-emoji-fonts). Limitée à ces émojis par unicode-range : sans
+   elle, la police servirait aussi pour des caractères ordinaires et casserait la mise en page. */
+@font-face {
+  font-family: "QRProtec Emoji";
+  src: local("Noto Color Emoji"), local("NotoColorEmoji");
+  unicode-range: U+1F000-1FAFF;
+}
+
 @page {
   size: A4;
   margin: 20mm 18mm 22mm 18mm;
   @bottom-center {
     content: counter(page);
-    font: 9pt "DejaVu Sans", sans-serif;
+    font: 9pt "DejaVu Sans", "QRProtec Emoji", sans-serif;
     color: #666;
   }
   @top-right {
     content: string(chapter);
-    font: 8.5pt "DejaVu Sans", sans-serif;
+    font: 8.5pt "DejaVu Sans", "QRProtec Emoji", sans-serif;
     color: #888;
   }
 }
@@ -23,13 +32,13 @@
 }
 
 html {
-  font: 10pt/1.45 "DejaVu Serif", "Liberation Serif", serif;
+  font: 10pt/1.45 "DejaVu Serif", "Liberation Serif", "QRProtec Emoji", serif;
   color: #111;
   hyphens: auto;
 }
 
 h1, h2, h3, h4, nav, table, .cover {
-  font-family: "DejaVu Sans", "Liberation Sans", sans-serif;
+  font-family: "DejaVu Sans", "Liberation Sans", "QRProtec Emoji", sans-serif;
 }
 h1, h2, h3, h4 {
   line-height: 1.2;
@@ -71,7 +80,7 @@ a[href^="http"]::after {
 }
 
 code {
-  font: .88em "DejaVu Sans Mono", "Liberation Mono", monospace;
+  font: .88em "DejaVu Sans Mono", "Liberation Mono", "QRProtec Emoji", monospace;
   background: #f2f2f2;
   padding: 0 .2em;
   border-radius: 2px;
