@@ -141,8 +141,16 @@ Une **liste de matériel** sert à demander à des secouristes de prendre du mat
 poste en particulier. Elle dit ce qu'il faut emporter : des lots (un sac, une armoire),
 du matériel avec sa quantité (« 2 garrots, 10 compresses ») et des **tâches** libres à cocher, qui ne
 sont ni un lot ni un item (« vérifier le niveau d'eau dans le sous-sol »). Exemple : un chef de poste prépare
-la liste, ses équipiers la vérifient en sortant le matériel. Tout le monde peut créer ses listes ;
-chacun modifie les siennes, les rôles gestion et admin modifient celles de tous.
+la liste, ses équipiers la vérifient en sortant le matériel.
+
+- **Qui fait quoi** : les rôles **chef**, gestion et admin créent des listes, voient toutes les listes
+  et tous les modèles (partagés entre eux). Un chef modifie ses listes et tous les modèles ; la
+  gestion et les admins modifient tout. Un **secouriste** ne crée pas de liste et ne voit que celles
+  qui lui sont attribuées ; il peut quand même vérifier une liste dont il a le lien, et la partager.
+- **Attribuer** : sur la liste (pas sur un modèle), partie **Secouristes**, tapez le début d'un
+  prénom et choisissez dans les résultats (prénom seul sur le téléphone, avec le début du nom en cas
+  d'homonyme). La liste apparaît dans **Listes de matériel** chez ces secouristes. Un secouriste qui
+  ouvre le lien ou scanne le QR code de la liste se l'ajoute aussi.
 
 - **Préparer** : téléphone, accueil > **Listes de matériel** > **Nouvelle liste** ; poste, menu
   Fenêtres > **Listes de matériel** > **Nouvelle liste**. Donnez un nom, une remarque si besoin

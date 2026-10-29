@@ -8,7 +8,7 @@ Menu **Administration > Utilisateurs**.
 
 - **Nouvel utilisateur** : matricule (1 à 16 lettres, chiffres, `-` ou `_`, définitif), prénom, nom,
   rôle, PIN éventuel. **Créer et voir le badge** affiche l'aperçu ; imprimez-le.
-- **Rôle** : Secouriste, Gestion ou Administrateur (voir [les notions](notions.md#badge-pin-et-rôles)).
+- **Rôle** : Secouriste, Chef, Gestion ou Administrateur (voir [les notions](notions.md#badge-pin-et-rôles)).
   Gardez au moins **deux administrateurs**.
 - **Badge perdu, abîmé ou expiré** (validité un an) : **Renouveler (1 an)** puis imprimer le nouveau
   badge. L'ancien badge ne fonctionne plus immédiatement. Le serveur ne garde pas la clé du badge :

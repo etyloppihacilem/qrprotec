@@ -76,8 +76,10 @@ struct SessionUser {
 
     std::string display() const { return prenom + " " + nom; }
     bool        admin() const { return role == "admin"; }
-    // " (gestion)", " (admin)" ou vide
-    std::string role_suffix() const { return role == "admin" ? " (admin)" : privileged ? " (gestion)" : ""; }
+    // " (chef)", " (gestion)", " (admin)" ou vide
+    std::string role_suffix() const {
+      return role == "admin" ? " (admin)" : privileged ? " (gestion)" : role == "chef" ? " (chef)" : "";
+    }
 };
 
 // Saisie du PIN apres le scan d'un badge (admins, ou utilisateurs ayant un PIN)

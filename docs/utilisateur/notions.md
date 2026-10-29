@@ -143,7 +143,8 @@ autres peuvent en avoir un.
 
 | Rôle | Ce qu'il peut faire |
 |---|---|
-| **Secouriste** | Vérifier des lots, faire des réassorts, voir la liste des lots |
+| **Secouriste** | Vérifier des lots, faire des réassorts, voir la liste des lots, vérifier les listes de matériel qui lui sont attribuées |
+| **Chef** | + créer des listes de matériel, voir toutes les listes et les modèles ; rien dans la gestion de la TECH |
 | **Gestion** | + gérer le stock (réception, paquets), les lots et leurs étiquettes ; voir l'état des stocks sur le téléphone |
 | **Admin** | + gérer les utilisateurs, les réglages du poste, les modèles d'étiquettes, les notifications |
 

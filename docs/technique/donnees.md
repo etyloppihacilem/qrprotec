@@ -51,7 +51,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 
 | Modèle | Rôle |
 |---|---|
-| `Checklist` | Liste de matériel à prendre : identifiant de 12 caractères (lien `liste?id=`), `name`, `note`, `owner` (secouriste), `is_template`, `status` (`draft`, `validated`, `returned`), `source` (liste dupliquée), qui et quand pour la validation et le retour. |
+| `Checklist` | Liste de matériel à prendre : identifiant de 12 caractères (lien `liste?id=`), `name`, `note`, `owner` (secouriste), `members` (secouristes attribués, la liste apparaît dans leurs listes), `is_template`, `status` (`draft`, `validated`, `returned`), `source` (liste dupliquée), qui et quand pour la validation et le retour. |
 | `ChecklistLine` | Une ligne : `lot`, `item_type` avec `quantity`, ou tâche libre `task` (cochée : `done`, `done_by`), `position`. |
 | `ChecklistScan` | Un scan : `phase` `out` (vérif) ou `back` (retour), `item` ou `lot`, `at`, `by`. |
 
@@ -60,7 +60,7 @@ PushKeys (1 ligne)   Sequence / LotSequence (compteurs)
 ### Utilisateurs
 
 `Secouristes` : matricule (clé primaire, 1 à 16 caractères), nom, prénom, `fonction` (rôle dans l'équipe, texte libre, `Secouriste` par défaut, sans effet sur les droits), `role` (`normal`,
-`gestion`, `admin`), empreinte SHA-256 de la clé du badge (`key_hash` : la clé de 24 caractères,
+`chef`, `gestion`, `admin`), empreinte SHA-256 de la clé du badge (`key_hash` : la clé de 24 caractères,
 valable 365 jours, n'est connue qu'à sa création ; `renew_key()` en crée une nouvelle, la renvoie une
 seule fois et invalide l'ancien badge), PIN haché avec les hacheurs de mots de passe de Django
 (`pin_hash`), compteurs d'échecs, blocage temporaire (`pin_locked_until`), blocage jusqu'à

@@ -513,6 +513,7 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-add-task { display: flex; gap: 8px; margin: 4px 0; }
 #home-lists .list-add-task input { flex: 1; min-width: 0; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
 #home-lists .picker { position: relative; }
+#home-lists .member-picker { margin-top: 8px; }
 #home-lists .picker-input { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 #home-lists .picker-results { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 0; list-style: none;
   background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .15); max-height: 50vh; overflow-y: auto; }

@@ -18,36 +18,104 @@ lot) et elle ne peut plus etre verifiee. Au retour, on scanne ce qui rentre (pha
 de suite. « Clôturer le retour » compte les consommables non rentres comme utilises ; un non consommable reste sorti
 jusqu'a ce qu'on le revoie. Sans retour clos, la regle des sorties s'applique (utilise apres OUT_DAYS jours).
 
-Droits : tout utilisateur connecte voit et verifie les listes, cree les siennes et modifie les siennes ; les roles
-gestion et admin modifient celles de tout le monde. Un modele (is_template) ne se verifie pas : on le duplique.
+Droits : les chefs, la gestion et les admins (LIST_ROLES) creent des listes, voient toutes les listes et tous les
+modeles (partages entre eux). Un chef modifie ses listes et tous les modeles, la gestion et les admins modifient tout.
+Un secouriste ne cree pas de liste et ne voit que celles qui lui sont attribuees (members) : un chef l'y ajoute, ou il
+ouvre son lien ou son QR code (il peut toujours participer a une liste dont il a le lien, et la partager). Il ne voit
+pas les modeles. Un modele (is_template) ne se verifie pas : on le duplique, et il n'a pas de secouristes attribues.
 """
 
 from django.db import transaction
 from django.utils import timezone
 
 from . import journal, movements, notifications, services
-from .idendity import SOURCE_VERIFIED, format_identity_verified, identity_name
+from django.db.models import Q
+
+from .idendity import SOURCE_VERIFIED, _fold, format_identity_verified, identity_name
 from .models import (
     Checklist, ChecklistLine, ChecklistScan, ChecklistStatus, ItemMovement, ItemStatus, Items, ItemType, Lots,
-    MovementKind, OperationKind, Role, SeenWhile,
+    MovementKind, OperationKind, Role, Secouristes, SeenWhile,
 )
 from .serializers import _date, public_url
 
 MAX_LINES = 100
 MAX_QUANTITY = 999
+MAX_MEMBERS = 100
+LIST_ROLES = (Role.CHEF, Role.GESTION, Role.ADMIN)  # creent des listes, voient toutes les listes et les modeles
 
 
 def identity_of(user):
     return f'{SOURCE_VERIFIED}:{user.matricule}'
 
 
+def can_make_lists(user):
+    return user.role in LIST_ROLES
+
+
 def can_edit(checklist, user):
-    return user.role in (Role.GESTION, Role.ADMIN) or checklist.owner_id == user.matricule
+    """Gestion et admin : tout ; chef : ses listes et tous les modeles (partages) ; l'auteur garde la main sur les
+    siennes meme s'il n'est plus chef."""
+    if user.role in (Role.GESTION, Role.ADMIN) or checklist.owner_id == user.matricule:
+        return True
+    return user.role == Role.CHEF and checklist.is_template
 
 
 def _require_edit(checklist, user):
     if not can_edit(checklist, user):
         raise PermissionError("Seul l'auteur de la liste, la gestion ou un admin peut la modifier")
+
+
+def _require_make(user):
+    if not can_make_lists(user):
+        raise PermissionError('Seuls les chefs, la gestion et les admins créent des listes')
+
+
+def is_member(checklist, user):
+    return checklist.owner_id == user.matricule or any(
+        member.matricule == user.matricule for member in checklist.members.all())
+
+
+def access(checklist, user, join=False):
+    """Ouverture d'une liste par son identifiant (lien, QR code, ecran des listes). Un secouriste n'ouvre pas les
+    modeles ; une autre liste, il peut y participer : ouverte par son lien (`join`), elle s'ajoute a ses listes."""
+    if can_make_lists(user):
+        return
+    if checklist.is_template:
+        raise PermissionError('Modèle réservé aux chefs, à la gestion et aux admins')
+    if join and not is_member(checklist, user):
+        checklist.members.add(user)
+
+
+def set_members(checklist, user, add=(), remove=()):
+    """Secouristes attribues a la liste (pas a un modele) : elle apparait dans leurs listes."""
+    _require_edit(checklist, user)
+    if checklist.is_template:
+        raise ValueError("Un modèle n'a pas de secouristes : dupliquez-le pour en faire une liste")
+    add = [str(matricule) for matricule in (add or [])]
+    found = list(Secouristes.objects.filter(matricule__in=add, active=True))
+    if len(found) != len(set(add)):
+        raise ValueError('Utilisateur inconnu ou inactif')
+    if checklist.members.count() + len(found) > MAX_MEMBERS:
+        raise ValueError(f'Au plus {MAX_MEMBERS} secouristes par liste')
+    checklist.members.add(*found)
+    checklist.members.remove(*Secouristes.objects.filter(matricule__in=[str(m) for m in (remove or [])]))
+
+
+def search_users(user, query, limit=10):
+    """Secouristes actifs dont un prenom commence par la recherche (sans casse ni accents), pour les attribuer a une
+    liste. Noms courts sur le web (identity_name dans le contexte anonymise), jamais de recherche par nom."""
+    _require_make(user)
+    words = _fold(str(query or '')).split()
+    if not words:
+        return []
+    rows = []
+    for matricule, prenom in Secouristes.objects.filter(active=True).values_list('matricule', 'prenom'):
+        parts = _fold(prenom).replace('-', ' ').split()
+        if all(any(part.startswith(word) for part in parts) for word in words):
+            rows.append(matricule)
+    users = [{'matricule': matricule, 'name': identity_name(format_identity_verified(matricule))} for matricule in rows]
+    users.sort(key=lambda row: _fold(row['name']))
+    return users[:limit]
 
 
 def _clean_text(value, length):
@@ -106,6 +174,7 @@ def set_lines(checklist, lines):
 
 
 def create(user, name, note='', template=False, lines=None):
+    _require_make(user)
     name = _clean_text(name, 80)
     if not name:
         raise ValueError('Nom de la liste obligatoire')
@@ -149,6 +218,7 @@ def duplicate(checklist, user, name=None, template=False):
              else {'type': line.item_type_id, 'quantity': line.quantity}
              for line in checklist.lines.all() if (line.lot_id is None or line.lot.active)
              and (line.item_type_id is None or not line.item_type.archived)]
+    _require_make(user)
     copy = create(user, name or checklist.name, checklist.note, template, lines)
     copy.source = checklist
     copy.save(update_fields=['source'])
@@ -426,6 +496,7 @@ def checklist_dict(checklist, user=None, full=True):
         'returned_by': identity_name(checklist.returned_by),
         'url': public_url('liste', id=checklist.id),
         'can_edit': bool(user and can_edit(checklist, user)),
+        'can_duplicate': bool(user and can_make_lists(user)),
         'source': checklist.source_id,
     }
     rows, complete = progress(checklist)
@@ -454,18 +525,22 @@ def checklist_dict(checklist, user=None, full=True):
                                     and scan.item.pack.item_type_id == line.item_type_id)})
         lines.append(row)
     data['lines'] = lines
+    data['members'] = sorted(({'matricule': member.matricule,
+                               'name': identity_name(format_identity_verified(member.matricule))}
+                              for member in checklist.members.all()), key=lambda row: _fold(row['name']))
     data['back'] = [_scan_dict(scan) for scan in back]
     return data
 
 
 def visible(user, show='mine'):
-    """Listes affichees : les siennes, les modeles (de tous, seulement dans l'onglet Modeles), ou toutes les listes
-    pour la gestion et les admins. Les modeles ne sont ni dans « Mes listes » ni dans « Toutes »."""
+    """Listes affichees : les siennes et celles qui lui sont attribuees, les modeles (de tous, seulement dans l'onglet
+    Modeles), ou toutes les listes ; modeles et toutes les listes pour les chefs, la gestion et les admins. Les
+    modeles ne sont ni dans « Mes listes » ni dans « Toutes »."""
     queryset = Checklist.objects.select_related('owner').prefetch_related(
         'lines__lot', 'lines__item_type', 'scans__item__pack__item_type', 'scans__lot')
     if show == 'templates':
-        return queryset.filter(is_template=True)
+        return queryset.filter(is_template=True) if can_make_lists(user) else queryset.none()
     queryset = queryset.filter(is_template=False)
-    if show == 'all' and user.role in (Role.GESTION, Role.ADMIN):
+    if show == 'all' and can_make_lists(user):
         return queryset
-    return queryset.filter(owner=user)
+    return queryset.filter(Q(owner=user) | Q(members=user)).distinct()
