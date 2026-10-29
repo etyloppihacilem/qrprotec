@@ -21,7 +21,7 @@ from . import journal, movements, notifications, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_identity_name
 from .models import (
     ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, OperationKind,
-    SeenWhile, VerifItem, Operation, VerifResult, Verifs, add_months, generate_key, qrprotec_setting,
+    SeenWhile, VerifItem, Operation, VerifResult, Verifs, add_months, generate_key, name_key, qrprotec_setting,
     revision_blocked_q,
 )
 
@@ -43,6 +43,42 @@ def in_stock_q(prefix=''):
     return Q(**{f'{prefix}location__isnull': True}) | Q(**{f'{prefix}location__lot_type__storage': True})
 
 
+def clean_location(location):
+    return ' '.join(str(location or '').split())[:64]
+
+
+def ordered_requirements(lot_type, requirements=None):
+    """Exigences d'un type de lot regroupees par emplacement, dans l'ordre choisi par la TECH (LotType.locations),
+    « sans emplacement » en dernier, et les types d'items par nom dans chaque emplacement."""
+    if requirements is None:
+        requirements = LotRequirements.objects.select_related('item_type').filter(lot_type=lot_type)
+    order = {}
+    for name in lot_type.locations or []:
+        order.setdefault(name_key(name), len(order))
+
+    def key(requirement):
+        place = name_key(requirement.location)
+        return (place == '', order.get(place, len(order)), place, name_key(requirement.item_type.name),
+                requirement.item_type_id)
+    return sorted(requirements, key=key)
+
+
+def location_order(rows, order=(), known=()):
+    """{cle: emplacement} des emplacements utilises par des exigences [{location}], dans l'ordre demande puis dans
+    l'ordre d'apparition des nouveaux. Deux emplacements qui ne different que par la casse ou les accents sont le meme
+    (l'orthographe deja connue, celle de known, est gardee)."""
+    locations = [clean_location(row.get('location')) for row in rows]
+    used = {name_key(location) for location in locations if location}
+    spelling = {}
+    for location in [*map(clean_location, known), *map(clean_location, order), *locations]:
+        spelling.setdefault(name_key(location), location)
+    result = {}
+    for location in [*map(clean_location, order), *locations]:
+        if name_key(location) in used:
+            result.setdefault(name_key(location), spelling[name_key(location)])
+    return result
+
+
 def requirements_status(lot, today=None):
     """Compare le contenu d'un lot aux exigences de son type.
 
@@ -61,8 +97,7 @@ def requirements_status(lot, today=None):
         else:
             fresh[item.pack.item_type_id] += 1
     rows = []
-    requirements = LotRequirements.objects.select_related('item_type').filter(lot_type=lot.lot_type)
-    for requirement in requirements.order_by('location', 'item_type__name'):
+    for requirement in ordered_requirements(lot.lot_type):
         type_id = requirement.item_type_id
         rows.append({
             'type': type_id,

@@ -25,9 +25,10 @@ import zlib
 
 from django.utils import timezone
 
-from .models import LotRequirements, name_key
+from .models import name_key
 from .qr import qr_matrix
 from .serializers import public_url
+from .services import ordered_requirements
 
 PAGE_WIDTH = 595.28   # A4 en points
 PAGE_HEIGHT = 841.89
@@ -240,21 +241,15 @@ def build_pdf(pages, title=''):
 # Contenu de la fiche
 
 def requirement_groups(lot):
-    """[(emplacement, [exigences])] tries par emplacement (sans accents ni casse), « sans emplacement » en dernier,
-    et les types d'items par nom dans chaque emplacement."""
+    """[(emplacement, [exigences])] dans l'ordre des emplacements du type de lot (LotType.locations), « sans
+    emplacement » en dernier, et les types d'items par nom dans chaque emplacement."""
     groups = {}
     labels = {}
-    requirements = LotRequirements.objects.select_related('item_type').filter(lot_type_id=lot.lot_type_id)
-    for requirement in requirements:
-        location = ' '.join(requirement.location.split())
-        key = name_key(location)
-        labels.setdefault(key, location)
+    for requirement in ordered_requirements(lot.lot_type):
+        key = name_key(requirement.location)
+        labels.setdefault(key, ' '.join(requirement.location.split()))
         groups.setdefault(key, []).append(requirement)
-    ordered = sorted(groups, key=lambda key: (key == '', key))
-    return [
-        (labels[key] or NO_LOCATION, sorted(groups[key], key=lambda row: (name_key(row.item_type.name), row.item_type_id)))
-        for key in ordered
-    ]
+    return [(labels[key] or NO_LOCATION, rows) for key, rows in groups.items()]
 
 
 class SheetWriter:
