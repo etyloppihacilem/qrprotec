@@ -1662,6 +1662,7 @@ def lot_type_detail(request, type_code):
             # rangement : jamais de contenu attendu, etiquette privee sans expiration
             if storage and lot_type.requirements.exists():
                 lot_type.requirements.all().delete()
+                lot_type.locations = []
                 lot_type.version += 1
                 lot_type.valid_version = lot_type.version
             for lot in lots:
@@ -1704,7 +1705,8 @@ def lot_type_detail(request, type_code):
 @api_view(['PUT'])
 @handle_errors
 def lot_type_requirements(request, type_code):
-    """Remplace la liste des exigences : [{"type": "serphy", "quantity": 4}, ...]."""
+    """Remplace la liste des exigences : [{"type": "serphy", "quantity": 4, "location": "pochette bleue"}, ...], et
+    l'ordre des emplacements (locations, facultatif : ordre actuel, les nouveaux a la suite)."""
     require_front(request, GESTION)
     lot_type = get_object_or_404(LotType, type=type_code)
     rows = request.data.get('requirements', [])
@@ -1712,21 +1714,27 @@ def lot_type_requirements(request, type_code):
         raise ApiError("requirements : liste attendue")
     if rows and lot_type.storage:
         raise ApiError(f"{lot_type.name} est un rangement du stock : il n'a pas de contenu attendu")
+    order = request.data.get('locations', lot_type.locations)
+    if not isinstance(order, list):
+        raise ApiError("locations : liste attendue")
+    locations = services.location_order([row for row in rows if isinstance(row, dict)], [str(name) for name in order],
+                                        lot_type.locations or [])
     with transaction.atomic():
         LotRequirements.objects.filter(lot_type=lot_type).delete()
         for row in rows:
             item_type = get_object_or_404(ItemType, type=str(row.get('type', '')))
             quantity = parse_int(row.get('quantity', 1), 'quantity', 1)
-            location = str(row.get('location', '') or '').strip()[:64]
+            location = locations.get(name_key(services.clean_location(row.get('location'))), '')
             try:
                 LotRequirements.objects.create(
                     lot_type=lot_type, item_type=item_type, quantity=quantity, location=location
                 )
             except IntegrityError:
                 raise ApiError(f"Le type {item_type.type} apparait plusieurs fois")
+        lot_type.locations = list(locations.values())
         lot_type.version += 1
         lot_type.valid_version = lot_type.version
-        lot_type.save(update_fields=['version', 'valid_version'])
+        lot_type.save(update_fields=['version', 'valid_version', 'locations'])
         journal.record(OperationKind.CATALOG, front_identity(request), f'contenu attendu modifié : {lot_type}',
                        type=lot_type.type, requirements=[
                            {'type': str(row.get('type', '')), 'quantity': row.get('quantity', 1)} for row in rows

@@ -380,6 +380,9 @@ class LotType(models.Model):
     # scelle ») apres une verif complete, jusqu'a un nouveau scelle.
     seal_required = models.BooleanField(default=False)
     archived = models.BooleanField(default=False) # plus propose a la creation de lots, desarchivable
+    # Emplacements du contenu attendu (ex : pochette bleue, poche avant), dans l'ordre de la vérif : les attendus sont
+    # regroupes par emplacement dans cet ordre (fiche, verif, fiche PDF). Tenu a jour avec les exigences.
+    locations = models.JSONField(default=list, blank=True)
 
     def __str__(self):
         return f"{self.name} ({self.type})"

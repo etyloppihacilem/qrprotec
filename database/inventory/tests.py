@@ -17,6 +17,7 @@ from . import models, views
 from .base62 import decode_base62
 from . import forecast
 from . import idendity
+from . import lot_sheet
 from . import services
 from .models import (
     ABSENCE_KINDS, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
@@ -591,6 +592,31 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(code, 201)
         self.assertTrue(body['id'].startswith('sacpse'))
         self.assertEqual(len(body['id']), 14)
+
+    def test_requirement_locations_order(self):
+        """Emplacements du contenu attendu : ordre choisi par la TECH, nouveaux a la suite, meme emplacement malgre la
+        casse ou les accents, inutilises oublies ; exigences rendues dans cet ordre, sans emplacement en dernier."""
+        ItemType.objects.create(type='serphy', name='Sérum phy')
+        ItemType.objects.create(type='ciseau', name='Ciseaux')
+        url = '/api/lot-types/sacpse/requirements/'
+        code, body = self.call('PUT', url, {'requirements': [
+            {'type': 'compre', 'location': ' Pochette  rouge '}, {'type': 'garrot'},
+            {'type': 'serphy', 'location': 'Pochette bleue'}, {'type': 'ciseau', 'location': 'pochette ROUGE'}]})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['locations'], ['Pochette rouge', 'Pochette bleue'])
+        self.assertEqual([(row['type'], row['location']) for row in body['requirements']], [
+            ('ciseau', 'Pochette rouge'), ('compre', 'Pochette rouge'), ('serphy', 'Pochette bleue'), ('garrot', '')])
+        rows = [{'type': row['type'], 'location': row['location']} for row in body['requirements']]
+        code, body = self.call('PUT', url, {'requirements': rows, 'locations': ['pochette bleue', 'Inutilisée', 'Pochette rouge']})
+        self.assertEqual(body['locations'], ['Pochette bleue', 'Pochette rouge'])
+        self.assertEqual([row['type'] for row in body['requirements']], ['serphy', 'ciseau', 'compre', 'garrot'])
+        # sans locations : l'ordre enregistre est garde
+        code, body = self.call('PUT', url, {'requirements': rows})
+        self.assertEqual(body['locations'], ['Pochette bleue', 'Pochette rouge'])
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertEqual([row['type'] for row in body['requirements']], ['serphy', 'ciseau', 'compre', 'garrot'])
+        self.assertEqual([location for location, _ in lot_sheet.requirement_groups(self.lot)],
+                         ['Pochette bleue', 'Pochette rouge', lot_sheet.NO_LOCATION])
 
     def test_user_fonction(self):
         """Role dans l'equipe : texte libre, Secouriste par defaut, sans effet sur les droits."""

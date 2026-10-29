@@ -19,7 +19,7 @@ from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
 from .models import PUSH_TYPES, ItemStatus, compact_iid, qrprotec_setting
 from .reports import item_reports, pack_reports
-from .services import out_deadline, requirements_status
+from .services import ordered_requirements, out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -188,6 +188,7 @@ def lot_type_dict(lot_type):
         'archived': lot_type.archived,
         'lot': lot.id if lot else '',
         'lot_count': lot_type.lots_set.count(),
+        'locations': list(lot_type.locations or []),
         'requirements': [
             {
                 'type': requirement.item_type_id,
@@ -195,7 +196,7 @@ def lot_type_dict(lot_type):
                 'quantity': requirement.quantity,
                 'location': requirement.location,
             }
-            for requirement in lot_type.requirements.select_related('item_type').order_by('location', 'item_type__name')
+            for requirement in ordered_requirements(lot_type)
         ],
     }
 
