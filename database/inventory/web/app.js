@@ -1611,7 +1611,7 @@
     afterLogin();
     if (state.pinReset) openPinReset();
     state.reports = null;
-    if (isAdmin()) loadReports(true);
+    if (state.user) loadReports(true);
     if (action) setTimeout(action, 0);
   }
 
@@ -2905,6 +2905,10 @@
       : counts && isAdmin() && counts.new ? `${nb(counts.new, 'nouveau', 'nouveaux')} à traiter`
         : counts && counts.new + counts.progress ? `${counts.new + counts.progress} en cours` : 'En cours et résolus';
     $('#tile-reports').classList.toggle('alert', !!(counts && isAdmin() && counts.new));
+    // boite aux lettres : fermee sans connexion, ouverte et vide sans signalement, drapeau leve pour de nouveaux
+    // signalements a traiter (admin), lettre dedans pour des signalements en cours
+    $('#tile-reports-icon').textContent = !state.user ? '📪' : counts && isAdmin() && counts.new ? '📫'
+      : counts && counts.new + counts.progress ? '📬' : '📭';
     stockTile.classList.toggle('alert', !!(canSeeStock() && state.tasks && state.tasks.categories.some((row) => row.level === 'bad')));
     if (page === 'lots') renderLotsPage();
     if (page === 'live') renderLive();
@@ -5499,7 +5503,7 @@
     if (state.expiredSession && !state.lot) toast('Vérif précédente oubliée : plus de 20 minutes sans activité.');
     render();
     if (state.user && canSeeStock()) loadStock();
-    if (isAdmin()) loadReports(true);
+    if (state.user) loadReports(true);
   }
 
   boot();
