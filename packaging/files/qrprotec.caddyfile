@@ -24,8 +24,8 @@ https://{$QRPROTEC_DOMAIN:localhost} {
 	# Le back gere aussi les WebSockets du telephone-douchette (/ws/scanner/...) :
 	# reverse_proxy transmet l'upgrade et ajoute X-Forwarded-Proto / X-Forwarded-For.
 	# Certificat racine de l'autorite locale (tls internal) : les telephones l'installent pour faire
-	# confiance au site, sans quoi Chrome et Safari refusent d'installer l'appli (tuto « Installer
-	# l'appli » du web). Seul root.crt est servi, jamais la cle ; absent avec Let's Encrypt (404).
+	# confiance au site, sans quoi Chrome et Safari refusent d'installer l'appli (voir la doc
+	# d'installation). Seul root.crt est servi, jamais la cle ; absent avec Let's Encrypt (404).
 	handle /qrprotec-ca.crt {
 		root * /var/lib/caddy/.local/share/caddy/pki/authorities/local
 		rewrite * /root.crt
