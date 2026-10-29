@@ -551,15 +551,14 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-share button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 #home-lists .list-share button:first-child { flex: 1; }
 #home-lists .list-share .icon-only { padding-left: 14px; padding-right: 14px; }
-#home-lists .list-share .icon { display: inline-flex; }
 #home-lists .list-share .icon-only[aria-expanded="true"] { background: var(--blue-bg, #e8f0fe); }
 #home-lists .list-qr-panel { margin-top: 10px; text-align: center; }
 #home-lists .list-qr-panel[hidden] { display: none; }
 
-/* Icones des boutons (SVG au trait) : avant le texte, a la hauteur du texte */
-button > .icon { display: inline-flex; vertical-align: -0.2em; margin-right: 6px; }
-button > .icon svg { width: 1.15em; height: 1.15em; }
-.used-btn > .icon { margin-right: 0; }
-.used-btn > .icon svg { width: 24px; height: 24px; display: block; }
-#home-lists .list-share button > .icon { margin-right: 0; }
-#home-lists .list-share button > .icon svg { width: 20px; height: 20px; }
+/* Icones des boutons (web/icons/*.svg) : le SVG sert de masque, peint dans la couleur du texte ; avant le texte, a sa
+   hauteur */
+span.icon { display: inline-block; flex: none; width: 1.15em; height: 1.15em; background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+button > .icon { vertical-align: -0.2em; margin-right: 6px; }
+.used-btn > .icon { width: 24px; height: 24px; margin-right: 0; }
+#home-lists .list-share button > .icon { width: 20px; height: 20px; margin-right: 0; }

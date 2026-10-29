@@ -204,52 +204,11 @@
     return node;
   }
 
-  // Icones des boutons : SVG au trait, couleur du texte du bouton
-  const ICONS = {
-    share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2"/>',
-    qr: '<rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/>'
-      + '<rect x="3.5" y="14.5" width="6" height="6" rx="1"/><path d="M14.5 14.5h2.5v2.5M20.5 14.5v0M14.5 20.5h2.5M20 17.5v3"/>',
-    // trousse ouverte dont on sort du materiel : lot utilise
-    used: '<path d="M4 12h16v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5z"/><path d="M4 12 6 8.5h12l2 3.5"/>'
-      + '<path d="M12 7V1.5M9.8 3.7 12 1.5l2.2 2.2"/><path d="M12 14.5v4M10 16.5h4"/>',
-    verif: '<path d="M9 4.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 21.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 17 4.5h-2"/>'
-      + '<rect x="9" y="3" width="6" height="3" rx="1"/><path d="m9 13.5 2 2 4-4"/>',
-    check: '<path d="m4.5 12.5 5 5 10-11"/>',
-    restock: '<path d="M4 8v11.5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8"/><path d="M3 4.5h18V8H3z"/><path d="M12 11v6M9 14h6"/>',
-    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
-    trash: '<path d="M4 6.5h16M9.5 6.5V4h5v2.5"/><path d="M6 6.5l1 13.5a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5l1-13.5"/>'
-      + '<path d="M10 11v6M14 11v6"/>',
-    // arc qui rejoint la pointe de la fleche
-    refresh: '<path d="M20 12a8 8 0 1 1-2.34-5.66L20 8.5"/><path d="M20 3.5v5h-5"/>',
-    camera: '<path d="M4 7.5h3.5L9 5h6l1.5 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5a1 1 0 0 1 1-1z"/>'
-      + '<circle cx="12" cy="13.5" r="3.5"/>',
-    badge: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="8.5" cy="11" r="2"/>'
-      + '<path d="M5.5 16c.6-1.6 1.6-2.3 3-2.3s2.4.7 3 2.3M14 10h4M14 13.5h3"/>',
-    keypad: '<circle cx="7" cy="6" r="1.3"/><circle cx="12" cy="6" r="1.3"/><circle cx="17" cy="6" r="1.3"/>'
-      + '<circle cx="7" cy="11" r="1.3"/><circle cx="12" cy="11" r="1.3"/><circle cx="17" cy="11" r="1.3"/>'
-      + '<circle cx="7" cy="16" r="1.3"/><circle cx="12" cy="16" r="1.3"/><circle cx="17" cy="16" r="1.3"/><circle cx="12" cy="21" r="1.3"/>',
-    logout: '<path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10"/><path d="M9 12h12M17 8l4 4-4 4"/>',
-    send: '<path d="M21 3 10 14"/><path d="M21 3 14.5 21 10 14 3 9.5z"/>',
-    wrench: '<path d="M14.5 3.5a5 5 0 0 0-4.3 7.2l-6.5 6.5a2.1 2.1 0 0 0 3 3l6.5-6.5a5 5 0 0 0 7.2-4.3l-3.2 3.2-3-.9-.9-3z"/>',
-    key: '<circle cx="8" cy="15" r="4.5"/><path d="m11.2 11.8 8.8-8.8M16.5 6.5l2.5 2.5M14 9l2 2"/>',
-    bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
-    // cloche barree : la cloche est coupee de part et d'autre du trait
-    bellOff: '<mask id="icon-bell-off"><rect width="24" height="24" fill="#fff"/><path d="M3 3l18 18" stroke="#000" stroke-width="5"/></mask>'
-      + '<g mask="url(#icon-bell-off)"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></g>'
-      + '<path d="M3 3l18 18"/>',
-    pencil: '<path d="M15.5 4.5l4 4L8 20H4v-4z"/><path d="m13 7 4 4"/>',
-    copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="1.5"/>'
-      + '<path d="M15.5 8.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5"/>',
-    save: '<rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M8 3.5v5h8v-5M7 20.5v-6.5h10v6.5"/>',
-    home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>',
-    template: '<rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/>',
-    lock: '<rect x="4.5" y="11" width="15" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>',
-  };
-
+  // Icones des boutons : fichiers web/icons/<name>.svg (SVG au trait), peints dans la couleur du texte du bouton
+  // (masque CSS, voir .icon dans app.css)
   function icon(name) {
     const span = el('span', { class: 'icon', 'aria-hidden': 'true' });
-    span.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"`
-      + ` stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+    span.style.setProperty('--icon', `url("${new URL(`web/icons/${name}.svg`, document.baseURI).href}")`);
     return span;
   }
 
@@ -4024,7 +3983,7 @@
       here.push(el('p', { class: 'hint' }, 'Activées : vous serez prévenu même page fermée. Choisissez les alertes dans la liste ci-dessous.'));
       here.push(el('div', { class: 'push-buttons' },
         el('button', { type: 'button', onclick: testPush, disabled: busy }, 'Envoyer un test'),
-        el('button', { type: 'button', onclick: disablePush, disabled: busy }, icon('bellOff'), 'Désactiver')));
+        el('button', { type: 'button', onclick: disablePush, disabled: busy }, icon('bell-off'), 'Désactiver')));
     } else if (!push.types.length) {
       here.push(el('p', { class: 'hint' }, "Un administrateur a désactivé toutes vos notifications."));
     } else {
