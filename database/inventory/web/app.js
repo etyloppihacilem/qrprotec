@@ -2454,7 +2454,7 @@
 
   // Attendus d'un lot par type : en cours (orange, dernier type scanne en haut), puis rien de scanne (rouge), puis
   // les autres items du lot, et les types complets (vert) en bas. Avec des emplacements (pochettes), un titre par
-  // emplacement dans l'ordre choisi par la TECH, pour faire une pochette a la fois : le meme tri dans chacun,
+  // emplacement, pour faire une pochette a la fois : emplacements et types dans chacun tries de la meme facon,
   // l'emplacement complet replie sur son titre, et les autres items du lot a la fin.
   function lotGroupRows(lot, groups, others, lastScan) {
     const rows = [];
@@ -2486,19 +2486,24 @@
       for (const group of groups) if (rank(group) === 2) rows.push(...groupRows(group));
       return rows;
     }
-    for (const { place, rows: list } of places) {
+    // emplacements tries comme les types : en cours (le dernier scanne en haut), puis rien de scanne, puis complets
+    // en bas (le scan qui complete un emplacement le fait descendre) ; l'ordre de la TECH a egalite
+    const placeRows = places.map(({ place, rows: list }) => {
       const scanned = list.reduce((sum, group) => sum + Math.min(group.scanned, group.row.required), 0);
-      const required = list.reduce((sum, group) => sum + group.row.required, 0);
       const missing = list.reduce((sum, group) => sum + group.missing, 0);
+      return { place, list, scanned, missing,
+        required: list.reduce((sum, group) => sum + group.row.required, 0),
+        rank: !missing ? 2 : scanned ? 0 : 1, last: Math.max(...list.map(lastScanOf)) };
+    });
+    placeRows.sort((a, b) => a.rank - b.rank || (a.rank === 0 ? b.last - a.last : 0));
+    for (const { place, list, scanned, missing, required, rank: placeRank } of placeRows) {
       const key = `${lot.id}@${place}`;
       const fold = placeFolds.get(key);
       const open = fold && fold.complete === !missing ? fold.open : missing > 0;
-      rows.push(el('li', { class: 'place-head foldable ' + (!missing ? 'ok' : scanned ? 'partial' : 'bad'),
+      rows.push(el('li', { class: 'place-head ' + ['partial', 'bad', 'ok'][placeRank],
         'aria-expanded': String(open), onclick: () => { placeFolds.set(key, { open: !open, complete: !missing }); renderTodo(); } },
       el('span', { class: 'chevron' }, open ? '▾' : '▸'),
-      el('div', { class: 'main' },
-        el('div', { class: 'name' }, '📍 ' + (place || 'Sans emplacement')),
-        el('div', { class: 'sub' }, missing ? `encore ${missing} à scanner` : 'complet')),
+      el('div', { class: 'main name' }, '📍 ' + (place || 'Sans emplacement')),
       el('span', { class: 'count' }, `${scanned}/${required}`)));
       if (open) for (const group of sorted(list)) rows.push(...groupRows(group));
     }
@@ -4490,7 +4495,11 @@
       }
       const byRank = (list) => list.sort((a, b) => a.rank - b.rank);
       if (placed) {
-        for (const { place, rows: list } of byPlace(lines, (line) => line.row.location)) {
+        // emplacements a traiter en haut (meme rang que leurs types), l'ordre de la TECH a egalite
+        const placeGroups = byPlace(lines, (line) => line.row.location)
+          .map((entry) => ({ ...entry, rank: Math.min(...entry.rows.map((line) => line.rank)) }))
+          .sort((a, b) => a.rank - b.rank);
+        for (const { place, rows: list } of placeGroups) {
           const present = list.reduce((sum, line) => sum + Math.min(line.row.present, line.row.required), 0);
           const required = list.reduce((sum, line) => sum + line.row.required, 0);
           parts.push(el('div', { class: 'place-title' + (present < required ? ' incomplete' : '') },

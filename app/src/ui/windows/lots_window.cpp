@@ -309,8 +309,7 @@ class LotsWindow final : public AppWindow {
           const int present = row["present"].integer(), required = row["required"].integer();
           return present < required ? 0 : row["expired"].integer() > 0 ? 1 : (present <= 0 && required <= 0) ? 2 : 3;
         };
-        // emplacements (pochettes) dans l'ordre du type de lot, « sans emplacement » en dernier : un titre chacun, le
-        // meme tri dedans
+        // emplacements (pochettes) dans l'ordre du type de lot, « sans emplacement » en dernier : un titre chacun
         std::vector< std::string > places;
         for (const Json *requirement : requirements)
           if (std::find(places.begin(), places.end(), (*requirement)["location"].str()) == places.end())
@@ -322,6 +321,15 @@ class LotsWindow final : public AppWindow {
         std::stable_sort(requirements.begin(), requirements.end(), [&](const Json *a, const Json *b) {
           return requirement_rank(*a) < requirement_rank(*b);
         });
+        // emplacements a traiter en haut (rang de leur type le plus a traiter), l'ordre de la TECH a egalite
+        const auto place_rank = [&](const std::string &place) {
+          for (const Json *requirement : requirements) // deja tries : le premier de l'emplacement donne son rang
+            if ((*requirement)["location"].str() == place)
+              return requirement_rank(*requirement);
+          return 3;
+        };
+        std::stable_sort(places.begin(), places.end(),
+                         [&](const std::string &a, const std::string &b) { return place_rank(a) < place_rank(b); });
         for (const std::string &place : places) {
           if (grouped) {
             int present = 0, required = 0;

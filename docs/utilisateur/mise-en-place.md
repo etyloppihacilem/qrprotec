@@ -134,8 +134,9 @@ et son **contenu attendu**, avec si vous le souhaitez l'emplacement :
 
 L'emplacement se tape librement ; ceux déjà donnés dans ce type de lot sont proposés à la saisie
 (flèches puis Tab), pour écrire toujours le même. Dès qu'il y en a deux, **Ordre des emplacements**
-permet de les ranger (flèches ↑ ↓) dans l'ordre où les secouristes vérifient le sac : la vérif, la
-fiche du lot et la fiche PDF les présentent dans cet ordre.
+permet de les ranger (flèches ↑ ↓) dans l'ordre où les secouristes vérifient le sac : c'est l'ordre par
+défaut de la vérif et de la fiche du lot (ce qui demande l'attention passe devant), et celui de la
+fiche PDF.
 
 **Sac O2** (`saco2x`) : masques O2 adulte et enfant, lunettes, etc.
 

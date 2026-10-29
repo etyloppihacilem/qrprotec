@@ -15,10 +15,11 @@ avec son badge.** Le reste de cette page détaille les cas particuliers.
    (orange) sont en haut, le dernier scanné en premier ; puis ceux dont rien n'a été scanné (rouge) ;
    les produits complets (vert) descendent en bas de la liste.
    - Si le type de lot a des **emplacements** (pochette rouge, poche avant…), les produits sont
-     regroupés sous un titre par emplacement, dans l'ordre choisi par le TECH : on vérifie une
-     pochette après l'autre. Le même tri s'applique dans chaque emplacement, et un emplacement
-     complet se replie sur son titre (cliquez dessus pour le déplier). Même chose au téléphone et
-     sur la fiche du lot.
+     regroupés sous un titre par emplacement : on vérifie une pochette après l'autre. Les
+     emplacements suivent le même tri que les produits (celui où l'on vient de scanner en haut, puis
+     ceux où rien n'est scanné, les complets en bas), l'ordre choisi par le TECH départageant les
+     autres. Un emplacement complet se replie sur son titre (cliquez dessus pour le déplier). Même
+     chose au téléphone et sur la fiche du lot (emplacements à traiter en haut).
    - Si vous scannez l'étiquette **publique**, la fiche du lot s'affiche avec **Lancer une vérif** :
      cette étiquette compte pour valider. Une vérif lancée sans avoir scanné d'étiquette (depuis la
      liste des lots, ou par le premier item scanné) demande d'en scanner une avant de valider.
