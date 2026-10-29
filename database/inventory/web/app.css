@@ -239,6 +239,12 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .push-buttons { display: flex; gap: 8px; margin-top: 8px; }
 .push-buttons button { flex: 1; }
 .push-box .error { color: var(--red); font-size: .85rem; }
+/* tuto d'installation de l'appli (reglages) : etapes numerotees de l'appareil, les autres replies */
+.install-device { margin: 10px 0 2px; font-weight: 700; }
+.install-steps { margin: 4px 0 6px; padding-left: 1.4em; }
+.install-steps li { margin: 3px 0; }
+.install-others { margin-top: 8px; }
+.install-others summary { cursor: pointer; color: var(--navy); font-weight: 600; font-size: .9rem; }
 .push-box h3 { margin: 8px 0 4px; font-size: 1rem; }
 .device { margin: 8px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg, #fff); }
 .device .row-head { margin: 0; }

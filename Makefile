@@ -59,16 +59,31 @@ lint:
 # Icone du site (onglet, ecran d'accueil, notifications) et de l'application, a partir d'une seule
 # image (PNG ou JPEG, carree de preference). Le logo des etiquettes est a part :
 # app/templates/images/protection-civile.png.
+# Fond blanc autour du logo (coins arrondis) : transparent pour l'icone « any », remplace par ICON_BG pour les
+# icones plein cadre (maskable d'Android, que le lanceur decoupe en rond, et apple-touch-icon, arrondie par iOS).
+# Le maskable reduit le logo a ICON_SAFE pour qu'il tienne dans la zone sure (cercle de 80 %).
 WEB_DIR := database/inventory/web
 MAGICK ?= $(shell command -v magick 2>/dev/null || command -v convert 2>/dev/null)
+ICON_BG ?= \#1f2a33
+ICON_SAFE ?= 82%
+ICON_CORNERS := -draw "color 0,0 floodfill" -draw "color 511,0 floodfill" -draw "color 0,511 floodfill" \
+	-draw "color 511,511 floodfill"
 
 icon:
 	@test -n "$(ICON)" || { echo "usage : make icon ICON=chemin/vers/image.png"; exit 1; }
 	@test -n "$(MAGICK)" || { echo "ImageMagick (magick ou convert) requis"; exit 1; }
 	$(MAGICK) "$(ICON)" -background white -alpha remove -alpha off -resize 512x512 -gravity center -extent 512x512 \
+		-depth 8 -strip $(WEB_DIR)/icon-source.png
+	$(MAGICK) $(WEB_DIR)/icon-source.png -fuzz 45% -fill "$(ICON_BG)" $(ICON_CORNERS) $(WEB_DIR)/icon-full.png
+	$(MAGICK) $(WEB_DIR)/icon-source.png -alpha set -fuzz 45% -fill none $(ICON_CORNERS) \
 		-depth 8 -strip $(WEB_DIR)/icon-512.png
 	$(MAGICK) $(WEB_DIR)/icon-512.png -resize 192x192 -depth 8 -strip $(WEB_DIR)/icon-192.png
 	$(MAGICK) $(WEB_DIR)/icon-512.png -resize 32x32 -depth 8 -strip $(WEB_DIR)/favicon.png
+	$(MAGICK) $(WEB_DIR)/icon-full.png -resize $(ICON_SAFE) -background "$(ICON_BG)" -gravity center -extent 512x512 \
+		-alpha off -depth 8 -strip $(WEB_DIR)/icon-maskable-512.png
+	$(MAGICK) $(WEB_DIR)/icon-maskable-512.png -resize 192x192 -depth 8 -strip $(WEB_DIR)/icon-maskable-192.png
+	$(MAGICK) $(WEB_DIR)/icon-full.png -resize 180x180 -alpha off -depth 8 -strip $(WEB_DIR)/apple-touch-icon.png
+	rm -f $(WEB_DIR)/icon-source.png $(WEB_DIR)/icon-full.png
 
 # Documentation imprimable (A4) : un PDF complet et un PDF par partie, dans dist/doc.
 # Dependances : sudo dnf install pandoc weasyprint google-noto-color-emoji-fonts

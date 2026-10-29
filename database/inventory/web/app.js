@@ -2954,7 +2954,6 @@
     document.querySelectorAll('.home-page').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
     $('#home-title').textContent = HOME_TITLES[page] || 'QRProtec';
     $('#home-back').hidden = page === 'menu';
-    $('#home-settings').hidden = !state.user;
     const userButton = $('#home-user');
     userButton.textContent = state.user ? `👤 ${state.user.prenom}` : readerOpen() ? 'Annuler' : 'Se connecter';
     userButton.classList.toggle('ok', !!state.user);
@@ -3738,9 +3737,11 @@
 
   const currentEndpoint = () => state.pushEndpoint || '';
 
-  // Reglages de l'utilisateur : code PIN (tous), notifications web (s'il peut en recevoir)
+  // Reglages : installer l'appli (tout le monde, connecte ou non), code PIN (connectes), notifications web (s'il peut
+  // en recevoir)
   function openNotifications() {
-    if (!state.user) return;
+    renderInstallSettings();
+    $('#settings-pin').hidden = !state.user;
     renderPinSettings();
     const notifications = hasNotifications();
     $('#notifications-title').hidden = !notifications;
@@ -3748,6 +3749,108 @@
     if (notifications) renderNotifications();
     $('#notifications').showModal();
     if (notifications) loadPush();
+  }
+
+  // Installer l'appli sur l'ecran d'accueil. Chrome et Edge (Android, ordinateur) proposent leur fenetre
+  // d'installation (beforeinstallprompt, gardee pour le bouton) ; Safari n'en a pas : tuto par appareil.
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', (event) => {
+    installPrompt = event; // sans preventDefault : le navigateur garde aussi sa propre proposition
+    if ($('#notifications').open) renderInstallSettings();
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    toast('QRprotec est installée.');
+    if ($('#notifications').open) renderInstallSettings();
+  });
+
+  const installedApp = () => window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: fullscreen)').matches || navigator.standalone === true;
+
+  function deviceKind() {
+    const ua = navigator.userAgent;
+    // iPad recent : se presente comme un Mac, mais tactile
+    if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'ios';
+    if (/Android/.test(ua)) return 'android';
+    return 'desktop';
+  }
+
+  const INSTALL_STEPS = {
+    android: {
+      title: '🤖 Android',
+      steps: [
+        'Ouvrez cette page dans Chrome.',
+        ['Touchez le menu ', el('b', {}, '⋮'), ' en haut à droite.'],
+        ['Choisissez ', el('b', {}, 'Installer l\'appli'), ' (ou ', el('b', {}, 'Ajouter à l\'écran d\'accueil'), ').'],
+        ['Confirmez avec ', el('b', {}, 'Installer'), ' : l\'icône QRprotec apparaît avec vos autres applis.'],
+      ],
+      note: 'Samsung Internet : menu ≡ > Ajouter la page à > Écran d\'accueil. Firefox : menu ⋮ > Installer.',
+    },
+    ios: {
+      title: '📱 iPhone et iPad',
+      steps: [
+        'Ouvrez cette page dans Safari.',
+        ['Touchez le bouton ', el('b', {}, 'Partager'), ' (carré avec une flèche vers le haut), en bas de l\'écran.'],
+        ['Faites défiler et choisissez ', el('b', {}, 'Sur l\'écran d\'accueil'), '.'],
+        ['Laissez le nom QRprotec et touchez ', el('b', {}, 'Ajouter'), '.'],
+      ],
+      note: 'L\'appli installée a sa propre session : connectez-vous une fois dedans. '
+        + 'Elle permet aussi de recevoir les notifications sur iPhone.',
+    },
+    desktop: {
+      title: '💻 Ordinateur',
+      steps: [
+        'Ouvrez cette page dans Chrome ou Edge.',
+        ['Cliquez sur l\'icône d\'installation ', el('b', {}, '⊕'), ' à droite de la barre d\'adresse, ou menu ',
+          el('b', {}, '⋮'), ' > ', el('b', {}, 'Enregistrer et partager'), ' > ', el('b', {}, 'Installer QRprotec'),
+          ' (Edge : menu ', el('b', {}, '…'), ' > ', el('b', {}, 'Applications'), ').'],
+        ['Confirmez avec ', el('b', {}, 'Installer'), ' : QRprotec s\'ouvre dans sa propre fenêtre.'],
+      ],
+      note: 'Mac avec Safari : menu Fichier > Ajouter au Dock. Firefox ne sait pas installer d\'applis web.',
+    },
+  };
+
+  function installGuide(kind) {
+    const guide = INSTALL_STEPS[kind];
+    return [
+      el('ol', { class: 'install-steps' }, guide.steps.map((step) => el('li', {}, step))),
+      el('p', { class: 'hint' }, guide.note),
+    ];
+  }
+
+  function renderInstallSettings() {
+    const box = $('#settings-install');
+    if (!box) return;
+    const kind = deviceKind();
+    const parts = [el('h3', {}, '📲 Installer l\'appli')];
+    if (installedApp()) {
+      parts.push(el('p', { class: 'hint' }, '✓ Vous utilisez l\'appli QRprotec installée.'));
+    } else {
+      parts.push(el('p', { class: 'hint' }, 'Ajoutez QRprotec à l\'écran d\'accueil : elle s\'ouvre en plein écran, '
+        + 'comme une vraie appli, sans passer par le navigateur.'));
+      if (!window.isSecureContext) {
+        parts.push(el('p', { class: 'error' }, 'L\'installation exige une connexion HTTPS (adresse en https://).'));
+      }
+      if (installPrompt) {
+        parts.push(el('div', { class: 'push-buttons' }, el('button', { type: 'button', class: 'primary', onclick: async () => {
+          const prompt = installPrompt;
+          installPrompt = null; // la fenetre ne s'affiche qu'une fois par evenement
+          try {
+            await prompt.prompt();
+            await prompt.userChoice;
+          } catch (e) { /* fenetre refusee par le navigateur : le tuto reste affiche */ }
+          renderInstallSettings();
+        } }, 'Installer QRprotec')));
+        parts.push(el('p', { class: 'hint' }, 'Ou, à la main :'));
+      }
+      parts.push(el('p', { class: 'install-device' }, INSTALL_STEPS[kind].title), ...installGuide(kind));
+    }
+    // les autres appareils, repliés : pour aider quelqu'un d'autre ou installer sur un autre poste
+    const others = Object.keys(INSTALL_STEPS).filter((other) => installedApp() || other !== kind);
+    parts.push(el('details', { class: 'install-others' }, el('summary', {}, installedApp() ? 'Installer sur un autre appareil'
+      : 'Autres appareils'),
+    ...others.map((other) => [el('p', { class: 'install-device' }, INSTALL_STEPS[other].title), ...installGuide(other)])));
+    box.replaceChildren(...parts);
   }
 
   // PIN facultatif : supprimable sauf pour un admin ou si le TECH l'a rendu obligatoire (verifie par le serveur)
@@ -4117,7 +4220,6 @@
     renderLot();
     if (!state.user) { state.stock = null; state.tasks = null; state.push = null; state.pushDevices = null; }
     renderHomePage();
-    $('#menu-notifications').hidden = !state.user;
     renderStock();
     const chip = $('#user-chip');
     chip.textContent = state.user ? `👤 ${state.user.prenom}`
