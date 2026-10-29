@@ -88,6 +88,10 @@
   // roles gestion et admin : acces en lecture a l'etat des stocks
   const canSeeStock = () => !!(state.user && (state.user.role === 'gestion' || state.user.role === 'admin' || state.user.privileged));
   const isAdmin = () => !!(state.user && state.user.role === 'admin');
+  // iids et identifiants de lots : affiches au TECH (admin) seulement, les autres n'en ont pas besoin
+  const showIds = isAdmin;
+  const idText = (id) => (showIds() && id ? id : '');
+  const withId = (name, id) => (showIds() && id ? `${name} (${id})` : name);
   const ROLE_LABELS = { normal: 'Secouriste', chef: 'Chef', gestion: 'Gestion', admin: 'Administrateur' };
   // identite des operations sur un lot : le badge, sinon le nom declare (si le serveur l'autorise)
   const declared = () => !state.user && state.declaredAllowed && !!state.declaredName;
@@ -571,12 +575,12 @@
     const existing = state.scanned.find((entry) => entry.kind === 'item' && entry.iid === scan.id);
     if (existing) {
       // doublon : ignore, sans son ni vibration
-      showInfo('ok', '✓ Déjà scanné', (existing.info && existing.info.type_name) || scan.id);
+      showInfo('ok', '✓ Déjà scanné', (existing.info && existing.info.type_name) || idText(scan.id));
       return;
     }
     const shared = live.entries().find((entry) => entry.kind === 'item' && entry.iid === scan.id);
     if (shared) {
-      showInfo('ok', `✓ Déjà scanné par ${shared.who || 'un autre participant'}`, (shared.info && shared.info.type_name) || scan.id);
+      showInfo('ok', `✓ Déjà scanné par ${shared.who || 'un autre participant'}`, (shared.info && shared.info.type_name) || idText(scan.id));
       return;
     }
     scannedAgain();
@@ -705,7 +709,7 @@
     const info = entry.info;
     replacePopup = entry;
     $('#replace-item-title').textContent = info.type_name;
-    $('#replace-item-sub').textContent = entry.iid;
+    $('#replace-item-sub').textContent = idText(entry.iid);
     const label = badLabel(info);
     $('#replace-item-banner').textContent = '✘ ' + cap(label.toLowerCase()) + ' : à remplacer';
     const facts = [];
@@ -746,7 +750,7 @@
     const tasks = entry.info.tasks;
     taskPopup = { entry, scan: parseCode(entry.code) };
     $('#tasks-title').textContent = entry.info.type_name;
-    $('#tasks-sub').textContent = entry.iid + (entry.expired ? ' · ' + badLabel(entry.info) : '');
+    $('#tasks-sub').textContent = [idText(entry.iid), entry.expired ? badLabel(entry.info) : ''].filter(Boolean).join(' · ');
     const boxes = tasks.map((task) => el('input', { type: 'checkbox' }));
     const update = () => { $('#tasks-ok').disabled = !boxes.every((box) => box.checked); };
     for (const box of boxes) box.addEventListener('change', update);
@@ -776,7 +780,7 @@
 
   function showItemInfo(entry) {
     const info = entry.info;
-    if (entry.error) { showInfo('bad', entry.error, entry.iid); return; }
+    if (entry.error) { showInfo('bad', entry.error, idText(entry.iid)); return; }
     if (!info) return;
     const inLot = info.location && sessionLots().some((lot) => lot.id === info.location);
     const where = inLot ? 'Dans ' + (isMulti() ? 'le lot ' + info.location_name : 'ce lot')
@@ -2119,7 +2123,7 @@
       feedback.good();
       showInfo('ok', `${nb(result.out.length, 'item sorti', 'items sortis')} du stock`,
         `Scannez-les à une vérif dans les ${result.days} jours, sinon ils seront comptés comme utilisés.`,
-        ...(result.refused || []).map((row) => `Non sorti : ${row.iid} (${row.reason})`));
+        ...(result.refused || []).map((row) => showIds() ? `Non sorti : ${row.iid} (${row.reason})` : `Non sorti : ${row.reason}`));
       if (canSeeStock()) loadStock();
     } catch (e) {
       identityRefused(e);
@@ -2191,7 +2195,7 @@
     const known = sessionLots().flatMap((lot) => lot.items || []).find((item) => item.iid === iid);
     const entry = allScanned().find((e) => e.iid === iid && e.info);
     const info = (known) || (entry && entry.info);
-    return info ? `${info.type_name} – ${info.peremption ? fmtDate(info.peremption) : 'non périssable'}` : iid;
+    return info ? `${info.type_name} – ${info.peremption ? fmtDate(info.peremption) : 'non périssable'}` : idText(iid) || 'Code non reconnu';
   }
 
   function showReport(report) {
@@ -2255,7 +2259,7 @@
     $('#menu').close();
     if (action === 'add') addToLot();
     if (action === 'manual') {
-      const code = prompt("Code de l'item, id du lot ou URL d'une étiquette :");
+      const code = prompt(showIds() ? "Code de l'item, id du lot ou URL d'une étiquette :" : "Code imprimé sur l'étiquette :");
       if (code && code.trim()) {
         const value = code.trim();
         // un identifiant de lot seul (sans URL) est accepte pour ouvrir un lot sans etiquette
@@ -2294,7 +2298,7 @@
     const last = state.scanned.pop();
     if (last) {
       const name = last.kind === 'pack' && last.info ? `paquet ${last.info.count} × ${last.info.type_name}`
-        : last.info && last.info.type_name ? `${last.info.type_name} (${last.iid})` : last.iid || 'code inconnu';
+        : last.info && last.info.type_name ? withId(last.info.type_name, last.iid) : idText(last.iid) || 'code inconnu';
       toast('Dernier scan annulé : ' + name);
     }
     save(); render();
@@ -2406,7 +2410,7 @@
   // Item attendu, dans la liste depliable de son type : seulement son iid, en petit (le type est dans le titre)
   function todoItem(item) {
     return el('li', { class: 'iid' + (item.expired ? ' expired' : '') },
-      reportMark({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
+      reportMark({ item: item.iid, label: withId(item.type_name, item.iid), lot: item.location, lotName: item.location_name }),
       el('span', { class: 'main' }, item.iid),
       item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
       item.reported && !item.unusable ? el('span', { class: 'tag orange', title: 'Problème signalé, toujours utilisable' }, 'signalé') : null,
@@ -2422,11 +2426,11 @@
   // Titre d'un type attendu : touche pour deplier ses iids
   function groupHead(key, cls, items, main, count) {
     const open = openGroups.has(key);
-    const toggle = items.length ? () => { if (open) openGroups.delete(key); else openGroups.add(key); renderTodo(); } : null;
+    const toggle = items.length && showIds() ? () => { if (open) openGroups.delete(key); else openGroups.add(key); renderTodo(); } : null;
     return [
       el('li', { class: 'group ' + cls + (toggle ? ' foldable' : ''), onclick: toggle, 'aria-expanded': toggle ? String(open) : null },
         el('span', { class: 'chevron' }, toggle ? (open ? '▾' : '▸') : ''), main, count),
-      ...(open ? items.map(todoItem) : []),
+      ...(open && toggle ? items.map(todoItem) : []),
     ];
   }
 
@@ -2598,7 +2602,7 @@
     const rows = all.map((entry, index) => {
       const mine = index < state.scanned.length;
       const info = entry.info;
-      let name = entry.kind === 'pack' && info ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : entry.iid;
+      let name = entry.kind === 'pack' && info ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : idText(entry.iid) || 'Code non reconnu';
       let cls = 'ok';
       const tags = [];
       if (entry.error) { cls = 'error'; tags.push(el('span', { class: 'tag red' }, 'INCONNU')); }
@@ -2610,12 +2614,12 @@
       return el('li', { class: cls },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, name),
-          el('div', { class: 'sub' }, [peremption ? fmtDate(peremption) : info && entry.kind === 'item' ? 'Non périssable' : '', entry.iid,
+          el('div', { class: 'sub' }, [peremption ? fmtDate(peremption) : info && entry.kind === 'item' ? 'Non périssable' : '', idText(entry.iid),
             mine ? '' : `par ${entry.who || 'un autre participant'}`].filter(Boolean).join(' · '))),
         ...tags,
-        entry.kind === 'item' && !entry.error ? reportMark({ item: entry.iid, label: `${name} (${entry.iid})`,
+        entry.kind === 'item' && !entry.error ? reportMark({ item: entry.iid, label: withId(name, entry.iid),
           lot: info && info.location, lotName: info && info.location_name })
-          : entry.kind === 'pack' && info ? reportMark({ pack: info.id, label: `Paquet de ${info.type_name} (${info.id})` }) : null,
+          : entry.kind === 'pack' && info ? reportMark({ pack: info.id, label: withId(`Paquet de ${info.type_name}`, info.id) }) : null,
         mine && el('button', {
           class: 'remove', type: 'button', 'aria-label': 'Retirer',
           onclick: () => { scannedAgain(); state.scanned.splice(index, 1); save(); render(); },
@@ -2629,7 +2633,7 @@
     const view = $('#lot-view');
     const lot = state.lot;
     if (!lot) {
-      view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette publique ou clé d'un lot, ou saisissez son identifiant (menu ⋯)."));
+      view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette publique ou clé d'un lot" + (showIds() ? ', ou saisissez son identifiant (menu ⋯).' : '.')));
       return;
     }
     const plan = planSession();
@@ -2637,7 +2641,7 @@
     const lots = sessionLots();
     view.replaceChildren(
       el('h2', {}, lot.name),
-      el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`),
+      el('div', { class: 'sub' }, withId(lot.lot_type_name, lot.id)),
       (lot.path || []).length ? el('div', { class: 'sub' }, 'Dans : ',
         ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       el('div', { class: 'banner ' + (groupStatus(lot) || lotStatus(lot)).kind }, (groupStatus(lot) || lotStatus(lot)).label),
@@ -3335,7 +3339,8 @@
         .map((lot) => lot.name),
       scanned: scanned.map((entry) => ({
         name: entry.kind === 'pack' && entry.info ? `Paquet : ${entry.info.count} × ${entry.info.type_name}`
-          : (entry.info && entry.info.type_name) || entry.iid || 'code inconnu',
+          // pas d'iid : le suivi en direct est vu par tous, pas seulement le TECH
+          : (entry.info && entry.info.type_name) || (entry.kind === 'item' && !entry.error ? 'Item' : 'code inconnu'),
         expired: !!entry.expired,
         error: !!entry.error,
         extra: entry.kind === 'item' && !expected.has(entry.iid),
@@ -4308,7 +4313,7 @@
     $('#fiche-actions').hidden = false;
     launch.disabled = false;
     if (fiche.error) {
-      body.replaceChildren(el('div', { class: 'banner bad' }, fiche.error), el('p', { class: 'sub' }, fiche.id));
+      body.replaceChildren(el('div', { class: 'banner bad' }, fiche.error), showIds() ? el('p', { class: 'sub' }, fiche.id) : '');
       launch.disabled = true;
       return;
     }
@@ -4356,7 +4361,7 @@
     $('#fiche-actions').hidden = launch.hidden && $('#fiche-add').hidden;
     const parts = [
       el('div', { class: 'title-row' },
-        el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, `${lot.lot_type_name} · ${lot.id}`)),
+        el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, withId(lot.lot_type_name, lot.id))),
         el('a', { class: 'pdf-link', href: new URL(`lots/${encodeURIComponent(lot.id)}/sheet.pdf`, API).href,
           target: '_blank', rel: 'noopener', title: "Fiche d'inventaire papier (PDF)" }, '📄 Fiche PDF')),
       (lot.path || []).length ? el('p', { class: 'sub' }, 'Dans : ',
@@ -4496,6 +4501,7 @@
   // Ligne d'un type dans la fiche de lot, avec une fleche au bout pour deplier ses iids (replies par defaut,
   // remis a zero a chaque fiche ouverte)
   function ficheFold(key, rows, line) {
+    if (!showIds()) return [line(null)];
     const open = fiche.folds.has(key);
     const arrow = el('button', { type: 'button', class: 'fold', disabled: !rows.length, 'aria-expanded': String(open),
       'aria-label': open ? 'Replier les items' : 'Afficher les items',
@@ -4578,12 +4584,12 @@
       : [item.status === 'active' ? 'En stock' : 'Inconnu'];
     body.replaceChildren(
       el('h2', {}, item.type_name),
-      el('div', { class: 'sub' }, item.iid),
+      showIds() ? el('div', { class: 'sub' }, item.iid) : '',
       el('div', { class: 'banner ' + banner.kind }, banner.label),
       item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par le TECH.') : '',
       item.revision && !['deleted', 'replaced'].includes(item.status)
         ? el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(item) }, '🔧 Réviser') : '',
-      reportButton({ item: item.iid, label: `${item.type_name} (${item.iid})`, lot: item.location, lotName: item.location_name }),
+      reportButton({ item: item.iid, label: withId(item.type_name, item.iid), lot: item.location, lotName: item.location_name }),
       el('dl', { class: 'facts' },
         item.disabled ? fact('Désactivé', item.disabled_reason || '–', el('div', { class: 'sub' },
           [item.disabled_at ? cap(fmtOn(item.disabled_at, { long: true })) : '', item.disabled_by ? 'par ' + item.disabled_by : ''].filter(Boolean).join(' '))) : [],
@@ -4625,7 +4631,7 @@
     const dialog = $('#revision');
     const tasks = item.revision_tasks || [];
     $('#revision-title').textContent = 'Révision : ' + item.type_name;
-    $('#revision-sub').textContent = item.iid + (item.revision_due ? ` · prévue le ${fmtDate(item.revision_due)}` : '');
+    $('#revision-sub').textContent = [idText(item.iid), item.revision_due ? `prévue le ${fmtDate(item.revision_due)}` : ''].filter(Boolean).join(' · ');
     $('#revision-intro').textContent = tasks.length ? 'Cochez toutes les tâches de la révision.' : 'Pas de tâche définie pour ce type.';
     const boxes = tasks.map(() => el('input', { type: 'checkbox' }));
     const next = $('#revision-next');
@@ -4839,10 +4845,12 @@
   }
 
   function reportCard(row, manage) {
-    const target = row.item ? ficheLink('item', row.item, row.target) : row.lot ? ficheLink('lot', row.lot, row.target) : row.target;
+    // paquet : son numero (dans target) reserve au TECH
+    const name = row.pack && !showIds() ? `Paquet de ${row.type_name || 'items'}` : row.target;
+    const target = row.item ? ficheLink('item', row.item, name) : row.lot ? ficheLink('lot', row.lot, name) : name;
     const parts = [
       el('div', { class: 'row-head' }, el('div', { class: 'name' }, target), el('span', { class: 'tag ' + row.color }, reportLabel(row))),
-      el('div', { class: 'sub' }, `Signalé par ${row.by} ${fmtOn(row.created, { long: true })}` + (row.item ? ` · ${row.item}` : '')),
+      el('div', { class: 'sub' }, `Signalé par ${row.by} ${fmtOn(row.created, { long: true })}` + (row.item && showIds() ? ` · ${row.item}` : '')),
       el('div', {}, row.usable ? '✔ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
       row.comment ? el('p', { class: 'comment' }, row.comment) : '',
       row.note ? el('p', { class: 'note' }, '💬 ' + row.note) : '',
@@ -5286,7 +5294,7 @@
       for (const scan of line.scans) {
         const returned = backIids.has(scan.iid);
         rows.push(el('li', { class: 'static list-scan-row' },
-          el('div', { class: 'main' }, el('div', { class: 'sub' }, `${scan.iid}${scan.peremption ? ' · périme le ' + fmtDate(scan.peremption) : ''}`
+          el('div', { class: 'main' }, el('div', { class: 'sub' }, [idText(scan.iid), scan.peremption ? 'périme le ' + fmtDate(scan.peremption) : 'non périssable'].filter(Boolean).join(' · ')
             + ` · ${scan.by || '?'}` + (out ? (returned ? ' · ✓ rentré' : scan.status === 'missing' ? ' · utilisé' : '') : ''))),
           list.status === 'draft' ? el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', title: 'Retirer de la liste',
             onclick: () => listAction('unscan', { item: scan.iid }) }, '✕') : ''));

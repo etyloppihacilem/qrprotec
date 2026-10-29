@@ -74,8 +74,8 @@ tape toujours `@`, `#` ou `{`.
    si demandé. Si le TECH l'a autorisé, vous pouvez à la place toucher **Non connecté** et
    indiquer votre nom.
 3. **Scannez chaque objet.** Onglets en bas : **À scanner** (ce qui reste, par produit : en cours en
-   haut, rien de scanné ensuite, complets en bas ; touchez un produit pour déplier les codes de ses
-   items, les périmés en rouge),
+   haut, rien de scanné ensuite, complets en bas ; connecté en administrateur, touchez un produit
+   pour déplier les codes de ses items, les périmés en rouge),
    **Scannés** (avec « Annuler le dernier » et « Vider la liste »), **Lot** (exigences scannées /
    attendues). Un périmé ou un code inconnu fait clignoter l'écran en rouge, biper et vibrer.
 4. **Valider la vérif.** Le compte rendu s'affiche, et le lot est désélectionné (comme avec
