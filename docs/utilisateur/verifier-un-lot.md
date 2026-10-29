@@ -11,9 +11,14 @@ avec son badge.** Le reste de cette page détaille les cas particuliers.
 
 1. **Scannez l'étiquette** du sac avec la douchette (l'étiquette clé lance la vérif directement). La fenêtre **Vérif** s'ouvre : en haut
    l'état du lot (et de son lot global s'il en a un), puis la liste **À scanner** : chaque produit
-   attendu, avec « scannés / attendus » et l'emplacement dans le sac. Les produits en cours de scan
+   attendu, avec « scannés / attendus ». Les produits en cours de scan
    (orange) sont en haut, le dernier scanné en premier ; puis ceux dont rien n'a été scanné (rouge) ;
    les produits complets (vert) descendent en bas de la liste.
+   - Si le type de lot a des **emplacements** (pochette rouge, poche avant…), les produits sont
+     regroupés sous un titre par emplacement, dans l'ordre choisi par le TECH : on vérifie une
+     pochette après l'autre. Le même tri s'applique dans chaque emplacement, et un emplacement
+     complet se replie sur son titre (cliquez dessus pour le déplier). Même chose au téléphone et
+     sur la fiche du lot.
    - Si vous scannez l'étiquette **publique**, la fiche du lot s'affiche avec **Lancer une vérif** :
      cette étiquette compte pour valider. Une vérif lancée sans avoir scanné d'étiquette (depuis la
      liste des lots, ou par le premier item scanné) demande d'en scanner une avant de valider.
@@ -301,7 +306,7 @@ scannés en réassort (il passe orange), sans déclarer manquant le reste de son
 Pour vérifier un lot sur papier, ouvrez sa fiche au téléphone (scan d'une de ses étiquettes ou liste
 **État des lots** de la page d'accueil) et touchez **📄 Fiche PDF** (aussi dans l'onglet **Lot** du
 lecteur). La fiche, au
-format A4, liste les types d'items attendus **triés par emplacement**, avec la quantité attendue et
+format A4, liste les types d'items attendus **par emplacement** (dans l'ordre choisi par le TECH), avec la quantité attendue et
 des cases à remplir (quantité trouvée, péremption la plus proche, OK), puis « Vérifié le / Par /
 Signature » et une zone de remarques. Les items non périssables ont la case péremption grisée.
 

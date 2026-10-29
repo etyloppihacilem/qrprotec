@@ -132,6 +132,11 @@ et son **contenu attendu**, avec si vous le souhaitez l'emplacement :
 | Garrot tourniquet | 2 | poche avant |
 | Couverture de survie | 4 | fond |
 
+L'emplacement se tape librement ; ceux déjà donnés dans ce type de lot sont proposés à la saisie
+(flèches puis Tab), pour écrire toujours le même. Dès qu'il y en a deux, **Ordre des emplacements**
+permet de les ranger (flèches ↑ ↓) dans l'ordre où les secouristes vérifient le sac : la vérif, la
+fiche du lot et la fiche PDF les présentent dans cet ordre.
+
 **Sac O2** (`saco2x`) : masques O2 adulte et enfant, lunettes, etc.
 
 Créez aussi :
