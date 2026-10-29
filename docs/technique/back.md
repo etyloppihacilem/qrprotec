@@ -224,6 +224,9 @@ abandonnée, sauf si un participant a validé ou si le dernier état publié n'a
 (`views.verif_lots`, contrôle des clés de l'API publique). Le front publie la vérif dès son début
 (premier scan, étiquette clé, ou « Lancer une vérif » depuis la fiche).
 
+Tout le détail (protocole, structures en mémoire, concurrence, fusion, cascade, faucheur,
+anonymisation) est dans [WebSockets des vérifs](websockets.md).
+
 ## Front web servi par le back
 
 `web_views.page` sert `web/index.html` pour `/`, `/verif`, `/badge`, `/pack`, `/seal` ;

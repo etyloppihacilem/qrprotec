@@ -15,15 +15,17 @@ Lire dans l'ordre :
    l'état d'un lot. C'est le cœur métier, implémenté en trois endroits qui doivent rester cohérents.
 4. [Back (Django)](back.md) : organisation de `database/`, les trois API, l'authentification, les
    notifications, le relais WebSocket, les tests.
-5. [Front poste (ImGui, C++)](front-imgui.md) : organisation de `app/`, threads, fenêtres, pile de
+5. [WebSockets des vérifs](websockets.md) : le suivi en direct et les vérifs à plusieurs (protocole,
+   sessions en mémoire, fusion, envoi de la vérif commune, cascade, anonymisation des noms).
+6. [Front poste (ImGui, C++)](front-imgui.md) : organisation de `app/`, threads, fenêtres, pile de
    scans, impression des étiquettes, douchette.
-6. [Front web (téléphone)](front-web.md) : la page unique servie aux adresses des QR codes.
-7. [Packaging et déploiement](packaging.md) : RPM Fedora, systemd, Caddy, kiosk, sauvegardes, CI.
-8. [Choix de conception](decisions.md) : le journal des décisions, avec pour chacune le contexte,
+7. [Front web (téléphone)](front-web.md) : la page unique servie aux adresses des QR codes.
+8. [Packaging et déploiement](packaging.md) : RPM Fedora, systemd, Caddy, kiosk, sauvegardes, CI.
+9. [Choix de conception](decisions.md) : le journal des décisions, avec pour chacune le contexte,
    l'alternative écartée et la raison. À relire avant de « simplifier » quelque chose.
-9. [Recettes de maintenance](maintenance.md) : comment faire les modifications courantes sans rien
-   casser (ajouter un champ, une route, un placeholder, une règle de vérif…), et le mode d'emploi du
-   développement local.
+10. [Recettes de maintenance](maintenance.md) : comment faire les modifications courantes sans rien
+    casser (ajouter un champ, une route, un placeholder, une règle de vérif…), et le mode d'emploi du
+    développement local.
 
 ## Carte du dépôt
 
