@@ -89,6 +89,7 @@ icon:
 # Dependances : sudo dnf install pandoc weasyprint google-noto-color-emoji-fonts
 # L'ordre des pages suit les sommaires de docs/*/README.md.
 PANDOC ?= pandoc
+WEASYPRINT_FLAGS ?=           # make doc WEASYPRINT_FLAGS=--debug pour le detail d'une erreur
 DOC_DIR := dist/doc
 DOC_DEPS := $(wildcard docs/*.md docs/*/*.md) docs/pdf/assemble.lua docs/pdf/template.html docs/pdf/print.css
 DOC_UTILISATEUR := $(addprefix docs/utilisateur/,README.md notions.md mise-en-place.md verifier-un-lot.md \
@@ -116,13 +117,15 @@ $(DOC_PDFS): $(DOC_DEPS)
 	@command -v weasyprint >/dev/null || { echo "weasyprint requis (sudo dnf install weasyprint)"; exit 1; }
 	@fc-list 2>/dev/null | grep -q "Noto Color Emoji" || echo "attention : police Noto Color Emoji absente, emojis vides dans le PDF (sudo dnf install google-noto-color-emoji-fonts)"
 	@mkdir -p $(DOC_DIR)
-	$(PANDOC) -f markdown -t html5 /dev/null -o $@ \
+	$(PANDOC) -f markdown -t html5 -s /dev/null -o $(@:.pdf=.html) \
 		--lua-filter docs/pdf/assemble.lua \
 		$(foreach page,$(DOC_PAGES),-M pages=$(page)) \
 		-M title=QRProtec -M "subtitle=$(DOC_SUBTITLE)" -M lang=fr \
 		-M "version=$$(packaging/version.sh)" -M "date=$$(date +%d/%m/%Y)" \
 		--template docs/pdf/template.html --css "$(CURDIR)/docs/pdf/print.css" \
-		--toc --toc-depth=2 --pdf-engine=weasyprint
+		--toc --toc-depth=2
+	@# weasyprint lance a part (pas --pdf-engine) : pandoc cache son erreur derriere « Error producing PDF. »
+	weasyprint $(WEASYPRINT_FLAGS) $(@:.pdf=.html) $@
 
 clean:
 	rm -rf dist
