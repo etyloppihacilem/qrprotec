@@ -10,11 +10,13 @@
 
 #include "../../app/labels.hpp"
 #include "../../core/plural.hpp"
+#include "../../core/search.hpp"
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
 
 #include <algorithm>
+#include <set>
 
 namespace qrprotec {
 
@@ -638,9 +640,18 @@ class LotAdminWindow final : public AppWindow {
         ImGui::EndChild();
         return;
       }
-      ImGui::TextDisabled("Type d'item, emplacement dans le lot (facultatif, affiché pendant la vérif), quantité.");
+      ImGui::TextDisabled("Type d'item, emplacement dans le lot (facultatif : pendant la vérif, les attendus sont "
+                          "regroupés par emplacement), quantité.");
       int        remove     = -1;
       const Json item_types = without_archived(app.catalog.item_types);
+      // emplacements deja donnes dans ce type de lot, dans l'ordre de la verif : suggeres a la saisie (un nouveau
+      // l'est aussitot tape), les inutilises seulement en suggestion jusqu'a l'enregistrement
+      std::vector< std::string > places      = used_locations();
+      std::vector< std::string > suggestions = places;
+      for (const std::string &location : locations_)
+        if (std::none_of(places.begin(), places.end(),
+                         [&](const std::string &place) { return name_key(place) == name_key(location); }))
+          suggestions.push_back(location);
       for (std::size_t index = 0; index < requirements_.size(); ++index) {
         RequirementRow &row = requirements_[index];
         ImGui::PushID(static_cast< int >(index));
@@ -648,8 +659,7 @@ class LotAdminWindow final : public AppWindow {
         search_select("type", item_types, "type", "name", row.type, "Tapez le nom du type d'item…",
                       nullptr, width * 0.42f);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(width * 0.28f);
-        input_limited("##location", row.location, 64, "Emplacement (ex : pochette bleue)");
+        input_suggest("location", row.location, suggestions, 64, "Emplacement (ex : pochette bleue)", width * 0.28f);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
         ImGui::InputInt("##qty", &row.quantity);
@@ -666,6 +676,9 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SameLine();
       if (primary_button("Enregistrer le contenu")) {
         Json body;
+        body["locations"] = Json::array();
+        for (const std::string &place : places)
+          body["locations"].push_back(place);
         body["requirements"] = Json::array();
         for (const RequirementRow &row : requirements_) {
           if (row.type.empty())
@@ -687,7 +700,59 @@ class LotAdminWindow final : public AppWindow {
                       app.refresh_lot_types();
                     });
       }
+      // ordre des emplacements : celui de la verif (une pochette apres l'autre) et de la fiche du lot
+      if (places.size() > 1) {
+        ImGui::SeparatorText("Ordre des emplacements");
+        ImGui::TextDisabled("Ordre dans lequel les secouristes les vérifient, une pochette après l'autre.");
+        int move = -1, to = -1;
+        for (std::size_t index = 0; index < places.size(); ++index) {
+          ImGui::PushID(static_cast< int >(index));
+          ImGui::BeginDisabled(index == 0);
+          if (ImGui::ArrowButton("up", ImGuiDir_Up)) {
+            move = static_cast< int >(index);
+            to   = move - 1;
+          }
+          ImGui::EndDisabled();
+          ImGui::SameLine();
+          ImGui::BeginDisabled(index + 1 == places.size());
+          if (ImGui::ArrowButton("down", ImGuiDir_Down)) {
+            move = static_cast< int >(index);
+            to   = move + 1;
+          }
+          ImGui::EndDisabled();
+          ImGui::SameLine();
+          ImGui::Text("%zu. %s", index + 1, places[index].c_str());
+          ImGui::PopID();
+        }
+        if (move >= 0) {
+          std::swap(places[static_cast< std::size_t >(move)], places[static_cast< std::size_t >(to)]);
+          locations_ = suggestions; // les inutilises gardes a la suite, toujours suggeres
+          std::copy(places.begin(), places.end(), locations_.begin());
+        }
+        ImGui::TextDisabled("Enregistrez le contenu pour garder l'ordre.");
+      }
       ImGui::EndChild();
+    }
+
+    // Emplacements des lignes du contenu attendu, dans l'ordre enregistre (locations_) puis les nouveaux dans
+    // l'ordre des lignes ; deux orthographes du meme nom (casse, accents) n'en font qu'un
+    std::vector< std::string > used_locations() const {
+      std::set< std::string >    used;
+      std::set< std::string >    seen;
+      std::vector< std::string > result;
+      for (const RequirementRow &row : requirements_)
+        if (!name_key(row.location).empty())
+          used.insert(name_key(row.location));
+      const auto add = [&](const std::string &location) {
+        const std::string key = name_key(location);
+        if (used.count(key) && seen.insert(key).second)
+          result.push_back(location);
+      };
+      for (const std::string &location : locations_)
+        add(location);
+      for (const RequirementRow &row : requirements_)
+        add(row.location);
+      return result;
     }
 
     // Archivage : le type n'est plus propose a la creation de lots. Un lot unique est archive avec son type.
@@ -752,6 +817,9 @@ class LotAdminWindow final : public AppWindow {
       type_lot_           = lot_type["lot"].str();
       type_lot_parent_.clear();
       requirements_.clear();
+      locations_.clear();
+      for (const Json &location : lot_type["locations"].items())
+        locations_.push_back(location.str());
       for (const Json &row : lot_type["requirements"].items())
         requirements_.push_back({ row["type"].str(), row["quantity"].integer(1), row["location"].str() });
     }
@@ -789,6 +857,7 @@ class LotAdminWindow final : public AppWindow {
     std::string                   type_lot_parent_; // creation d'un type unique : parent de son lot
     bool                          show_archived_types_ = false;
     std::vector< RequirementRow > requirements_;
+    std::vector< std::string >    locations_; // emplacements du type de lot, dans l'ordre de la verif
 };
 
 } // namespace

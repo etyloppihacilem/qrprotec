@@ -17,6 +17,9 @@ namespace qrprotec {
 // Minuscules sans accents (é -> e, ç -> c, œ -> oe...) pour comparer des textes saisis au clavier.
 std::string normalize_search(const std::string &text);
 
+// Forme d'un nom pour detecter les doublons (models.name_key cote serveur) : sans accents ni casse, espaces reduits
+std::string name_key(const std::string &name);
+
 // Score de correspondance d'une recherche (plusieurs mots possibles) avec un texte, -1 si aucun :
 // chaque mot recherche doit commencer un mot du texte (meilleur score) ou y apparaitre. Bonus si le
 // texte commence par la recherche ou lui est egal. "ser ph" trouve "Sérum physiologique".

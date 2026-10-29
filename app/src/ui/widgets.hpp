@@ -14,6 +14,7 @@
 #include "imgui.h"
 
 #include <string>
+#include <vector>
 
 namespace qrprotec {
 
@@ -69,6 +70,12 @@ bool json_combo(
 bool search_select(const char *id, const Json &list, const char *key_field, const char *name_field,
                    std::string &selected, const char *hint = "Rechercher…", const char *empty_label = nullptr,
                    float width = -FLT_MIN);
+
+// Champ texte libre avec suggestions (ex : emplacements deja donnes dans le lot) : la liste sous le champ filtre
+// les suggestions comme search_select, fleches pour en choisir une, Tab pour completer, Entree pour garder le
+// texte tape (ou la suggestion choisie). Limite a `max_chars` caracteres. Retourne true si modifie.
+bool input_suggest(const char *id, std::string &value, const std::vector< std::string > &suggestions, int max_chars,
+                   const char *hint = nullptr, float width = -FLT_MIN);
 
 // Filtre de liste : meme correspondance que search_select (accents, debut de mots)
 bool search_matches(const std::string &query, const std::string &text);

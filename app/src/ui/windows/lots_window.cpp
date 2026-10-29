@@ -309,22 +309,55 @@ class LotsWindow final : public AppWindow {
           const int present = row["present"].integer(), required = row["required"].integer();
           return present < required ? 0 : row["expired"].integer() > 0 ? 1 : (present <= 0 && required <= 0) ? 2 : 3;
         };
+        // emplacements (pochettes) dans l'ordre du type de lot, « sans emplacement » en dernier : un titre chacun, le
+        // meme tri dedans
+        std::vector< std::string > places;
+        for (const Json *requirement : requirements)
+          if (std::find(places.begin(), places.end(), (*requirement)["location"].str()) == places.end())
+            places.push_back((*requirement)["location"].str());
+        std::stable_partition(places.begin(), places.end(), [](const std::string &place) { return !place.empty(); });
+        const bool grouped = !places.empty() && !places.front().empty();
+        if (!grouped)
+          places = { "" };
         std::stable_sort(requirements.begin(), requirements.end(), [&](const Json *a, const Json *b) {
           return requirement_rank(*a) < requirement_rank(*b);
         });
-        for (const Json *requirement : requirements) {
-          const Json &row = *requirement;
-          ImGui::TableNextRow();
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted(row["type_name"].str().c_str());
-          ImGui::TableNextColumn();
-          stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(-1, 0));
-          ImGui::TableNextColumn();
-          const int expired = row["expired"].integer();
-          if (expired > 0)
-            ImGui::TextColored(colors::red, "%d", expired);
-          else
-            ImGui::TextUnformatted("-");
+        for (const std::string &place : places) {
+          if (grouped) {
+            int present = 0, required = 0;
+            for (const Json *requirement : requirements)
+              if ((*requirement)["location"].str() == place) {
+                present += std::min((*requirement)["present"].integer(), (*requirement)["required"].integer());
+                required += (*requirement)["required"].integer();
+              }
+            ImGui::TableNextRow();
+            row_color(present < required ? colors::orange : colors::green, 0.15f);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(place.empty() ? "Sans emplacement" : place.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%d / %d", present, required);
+            ImGui::TableNextColumn();
+          }
+          for (const Json *requirement : requirements) {
+            const Json &row = *requirement;
+            if (grouped && row["location"].str() != place)
+              continue;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (grouped)
+              ImGui::Indent(12.0f);
+            ImGui::TextUnformatted(row["type_name"].str().c_str());
+            if (grouped)
+              ImGui::Unindent(12.0f);
+            ImGui::TableNextColumn();
+            stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(-1, 0));
+            ImGui::TableNextColumn();
+            const int expired = row["expired"].integer();
+            if (expired > 0)
+              ImGui::TextColored(colors::red, "%d", expired);
+            else
+              ImGui::TextUnformatted("-");
+          }
         }
         ImGui::EndTable();
       }

@@ -332,6 +332,13 @@ class VerifWindow final : public AppWindow {
                        found == plan_row.fresh.end() ? 0 : found->second, false);
             }
           }
+          // emplacements (pochettes) dans l'ordre du type de lot (celui des attendus), « sans emplacement » en dernier
+          std::vector< std::string > places;
+          for (const TypeRow &entry : type_rows)
+            if (std::find(places.begin(), places.end(), entry.location) == places.end())
+              places.push_back(entry.location);
+          std::stable_partition(places.begin(), places.end(), [](const std::string &place) { return !place.empty(); });
+          const bool placed = !places.empty() && !places.front().empty();
           std::stable_sort(type_rows.begin(), type_rows.end(), [](const TypeRow &a, const TypeRow &b) {
             return a.rank != b.rank ? a.rank < b.rank : a.rank == 0 && a.last_scan > b.last_scan;
           });
@@ -346,8 +353,12 @@ class VerifWindow final : public AppWindow {
               report = { lot["id"].str(), lot["name"].str(), "", type, entry.type_name + " (" + lot["name"].str() + ")" };
             ImGui::PopID();
             ImGui::SameLine();
+            if (placed)
+              ImGui::Indent(12.0f);
             ImGui::Text("%s", entry.type_name.c_str());
-            if (!entry.location.empty()) {
+            if (placed)
+              ImGui::Unindent(12.0f);
+            if (!placed && !entry.location.empty()) {
               ImGui::SameLine();
               ImGui::TextColored(colors::grey, "– %s", entry.location.c_str());
             }
@@ -372,28 +383,71 @@ class VerifWindow final : public AppWindow {
               ImGui::Unindent();
             }
           };
-          for (const TypeRow &entry : type_rows)
-            if (entry.rank < 2)
-              type_row(entry);
           // items du lot dont le type n'est pas (ou plus) dans la definition
-          bool header = false;
-          for (const auto &[type, items] : known_by_type) {
-            if (required_types.count(type))
-              continue;
-            if (!header) {
-              ImGui::TableNextRow();
-              ImGui::TableNextColumn();
-              ImGui::TextDisabled("Autres items du lot (hors définition du type de lot)");
-              header = true;
+          const auto other_rows = [&] {
+            bool header = false;
+            for (const auto &[type, items] : known_by_type) {
+              if (required_types.count(type))
+                continue;
+              if (!header) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextDisabled("Autres items du lot (hors définition du type de lot)");
+                header = true;
+              }
+              for (const Json *item : items) {
+                item_row(*item);
+                ++remaining;
+              }
             }
-            for (const Json *item : items) {
-              item_row(*item);
-              ++remaining;
-            }
+          };
+          if (!placed) {
+            for (const TypeRow &entry : type_rows)
+              if (entry.rank < 2)
+                type_row(entry);
+            other_rows();
+            for (const TypeRow &entry : type_rows)
+              if (entry.rank == 2)
+                type_row(entry);
+            continue;
           }
-          for (const TypeRow &entry : type_rows)
-            if (entry.rank == 2)
-              type_row(entry);
+          // un titre par emplacement, pour faire une pochette a la fois : le meme tri dedans, et l'emplacement
+          // complet replie sur son titre (touche pour le deplier) ; les autres items du lot a la fin
+          for (const std::string &place : places) {
+            int done = 0, required = 0, missing = 0;
+            for (const TypeRow &entry : type_rows)
+              if (entry.location == place) {
+                done += std::min(entry.done, entry.required);
+                required += entry.required;
+                missing += entry.missing;
+              }
+            const std::string key  = lot["id"].str() + "@" + place;
+            const auto        fold = place_folds_.find(key);
+            const bool open = fold != place_folds_.end() && fold->second.second == (missing == 0) ? fold->second.first
+                                                                                                  : missing > 0;
+            ImGui::TableNextRow();
+            row_color(missing == 0 ? colors::green : done == 0 ? colors::red : colors::orange, 0.12f);
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemOpen(open, ImGuiCond_Always);
+            const bool now = ImGui::TreeNodeEx(key.c_str(), ImGuiTreeNodeFlags_SpanAllColumns
+                                                              | ImGuiTreeNodeFlags_NoTreePushOnOpen,
+                                               "%s", place.empty() ? "Sans emplacement" : place.c_str());
+            if (now != open)
+              place_folds_[key] = { now, missing == 0 };
+            ImGui::TableNextColumn();
+            if (missing == 0)
+              ImGui::TextColored(colors::green, "complet");
+            else
+              ImGui::TextColored(done == 0 ? colors::red : colors::orange, "encore %d", missing);
+            ImGui::TableNextColumn();
+            ImGui::Text("%d / %d", done, required);
+            if (!open)
+              continue;
+            for (const TypeRow &entry : type_rows)
+              if (entry.location == place)
+                type_row(entry);
+          }
+          other_rows();
         }
         ImGui::EndTable();
       }
@@ -595,6 +649,8 @@ class VerifWindow final : public AppWindow {
       });
     }
 
+    // emplacements (pochettes) deplies ou replies a la main, tant qu'ils ne changent pas d'etat : {ouvert, complet}
+    std::map< std::string, std::pair< bool, bool > > place_folds_;
     std::string             seal_report_; // verif du compte rendu affiche (remise a zero du raccourci)
     std::string             seal_number_;
     std::set< std::string > sealed_;

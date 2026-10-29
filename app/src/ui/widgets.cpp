@@ -361,21 +361,6 @@ int limit_callback(ImGuiInputTextCallbackData *data) {
   return 0;
 }
 
-// Forme d'un nom pour detecter les doublons (models.name_key cote serveur)
-std::string name_key(const std::string &name) {
-  std::string key;
-  for (const char character : normalize_search(name)) {
-    if (std::isspace(static_cast< unsigned char >(character))) {
-      if (!key.empty() && key.back() != ' ')
-        key += ' ';
-    } else {
-      key += character;
-    }
-  }
-  while (!key.empty() && key.back() == ' ')
-    key.pop_back();
-  return key;
-}
 } // namespace
 
 bool input_limited(const char *label, std::string &value, int max_chars, const char *hint, ImGuiInputTextFlags flags,
@@ -559,6 +544,101 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
   } else {
     state.popup_hovered = false;
   }
+  ImGui::PopID();
+  return changed;
+}
+
+namespace {
+// Saisie avec suggestions : limite de longueur (input_limited) et Tab pour completer
+struct SuggestInput {
+    LimitState   limit;
+    SearchState *state;
+};
+
+int suggest_callback(ImGuiInputTextCallbackData *data) {
+  SuggestInput &input = *static_cast< SuggestInput * >(data->UserData);
+  if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
+    input.state->accept = true;
+    return 0;
+  }
+  data->UserData   = &input.limit;
+  const int result = limit_callback(data);
+  data->UserData   = &input;
+  return result;
+}
+} // namespace
+
+bool input_suggest(const char *id, std::string &value, const std::vector< std::string > &suggestions, int max_chars,
+                   const char *hint, float width) {
+  ImGui::PushID(id);
+  SearchState &state = search_states[ImGui::GetID("state")];
+  SuggestInput input{ { max_chars, false }, &state };
+  ImGui::SetNextItemWidth(width);
+  const bool entered = ImGui::InputTextWithHint(
+    "##input", hint ? hint : "", &value,
+    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackEdit,
+    suggest_callback, &input
+  );
+  bool         changed = ImGui::IsItemEdited();
+  const bool   active  = ImGui::IsItemActive();
+  const ImVec2 min     = ImGui::GetItemRectMin();
+  const ImVec2 max     = ImGui::GetItemRectMax();
+  if (ImGui::IsItemActivated())
+    state.highlighted = -1; // rien de choisi : Entree garde le texte tape
+
+  // suggestions qui correspondent au texte tape (toutes si le champ est vide), sauf celle deja tapee
+  const std::string    key = name_key(value);
+  std::vector< std::string > matches;
+  for (const std::string &suggestion : suggestions)
+    if (name_key(suggestion) != key && (key.empty() || search_matches(value, suggestion)))
+      matches.push_back(suggestion);
+  if (active) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+      ++state.highlighted;
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+      --state.highlighted;
+  }
+  state.highlighted = std::clamp(state.highlighted, -1, static_cast< int >(matches.size()) - 1);
+
+  bool       accepted = false;
+  const auto accept   = [&](const std::string &suggestion) {
+    value    = suggestion;
+    changed  = true;
+    accepted = true;
+    ImGui::ClearActiveID();
+  };
+  // Tab : la suggestion choisie, sinon la premiere ; Entree : la suggestion choisie s'il y en a une
+  if (state.accept && !matches.empty())
+    accept(matches[static_cast< std::size_t >(std::max(0, state.highlighted))]);
+  else if (entered && state.highlighted >= 0)
+    accept(matches[static_cast< std::size_t >(state.highlighted)]);
+  state.accept = false;
+
+  if (!accepted && !matches.empty() && (active || state.popup_hovered)) {
+    ImGui::SetNextWindowPos(ImVec2(min.x, max.y + 2.0f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(std::max(max.x - min.x, 200.0f), 0.0f),
+                                        ImVec2(std::max(max.x - min.x, 360.0f), ImGui::GetTextLineHeightWithSpacing() * 12.0f));
+    const std::string popup = std::string("##suggestions_") + std::to_string(ImGui::GetID("##input"));
+    ImGui::Begin(popup.c_str(), nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+                   | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+                   | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+    for (std::size_t index = 0; index < matches.size(); ++index) {
+      const bool highlighted = static_cast< int >(index) == state.highlighted;
+      if (ImGui::Selectable(matches[index].c_str(), highlighted, ImGuiSelectableFlags_SelectOnClick))
+        accept(matches[index]);
+      if (highlighted && active)
+        ImGui::SetScrollHereY();
+    }
+    ImGui::TextDisabled(key.empty() ? "↑↓ choisir · Tab compléter" : "↑↓ choisir · Tab compléter · Entrée : garder le texte tapé");
+    state.popup_hovered = ImGui::IsWindowHovered() && !accepted;
+    ImGui::End();
+  } else {
+    state.popup_hovered = false;
+  }
+  if (active && utf8_length(value.data(), static_cast< int >(value.size())) >= max_chars)
+    ImGui::SetTooltip("%d caractères maximum", max_chars);
   ImGui::PopID();
   return changed;
 }

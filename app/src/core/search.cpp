@@ -95,4 +95,20 @@ int search_score(const std::string &query, const std::string &text) {
   return score;
 }
 
+// Forme d'un nom pour detecter les doublons (models.name_key cote serveur)
+std::string name_key(const std::string &name) {
+  std::string key;
+  for (const char character : normalize_search(name)) {
+    if (std::isspace(static_cast< unsigned char >(character))) {
+      if (!key.empty() && key.back() != ' ')
+        key += ' ';
+    } else {
+      key += character;
+    }
+  }
+  while (!key.empty() && key.back() == ' ')
+    key.pop_back();
+  return key;
+}
+
 } // namespace qrprotec

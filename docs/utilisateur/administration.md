@@ -49,7 +49,8 @@ badge et le rôle admin à un compte existant).
 
 Menu **Gestion > Gestion des lots** (rôle gestion).
 
-- **Types de lots** : contenu attendu (type d'item, quantité, emplacement), case **Rangement du
+- **Types de lots** : contenu attendu (type d'item, quantité, emplacement proposé parmi ceux déjà
+  donnés, ordre des emplacements pour la vérif), case **Rangement du
   stock** pour les armoires et tiroirs.
 - **Nouveau lot** : type, nom, nom court (16 caractères, pour les petites étiquettes), lot parent
   (« Aucun : lot indépendant » ou le lot global). Aperçu et impression des étiquettes publique et
