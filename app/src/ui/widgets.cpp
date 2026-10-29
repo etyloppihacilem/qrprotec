@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -253,7 +254,8 @@ bool report_mark(const char *id) {
 
 void stock_bar(int quantity, int minimum, const ImVec2 &size) {
   const bool   empty = quantity <= 0 && minimum > 0; // x/0 : rien d'attendu, vert
-  const ImVec4 color = empty ? colors::red : quantity < minimum ? colors::orange : colors::green;
+  const bool   none  = quantity <= 0 && minimum <= 0; // 0/0 : orange, a remarquer mais rien a faire
+  const ImVec4 color = empty ? colors::red : (none || quantity < minimum) ? colors::orange : colors::green;
   float        fraction = minimum > 0 ? static_cast< float >(quantity) / static_cast< float >(minimum) : 1.0f;
   if (empty)
     fraction = 1.0f; // barre entierement rouge : bien visible
@@ -263,6 +265,13 @@ void stock_bar(int quantity, int minimum, const ImVec2 &size) {
   ImGui::PushStyleColor(ImGuiCol_Text, empty ? ImVec4(1, 1, 1, 1) : ImGui::GetStyleColorVec4(ImGuiCol_Text));
   ImGui::ProgressBar(fraction, size, overlay.c_str());
   ImGui::PopStyleColor(2);
+}
+
+float stock_order(int quantity, int minimum) {
+  if (minimum <= 0)
+    return quantity <= 0 ? 1.0f : std::numeric_limits< float >::infinity();
+  const float ratio = static_cast< float >(quantity) / static_cast< float >(minimum);
+  return ratio < 1.0f ? ratio : 1.0f + ratio;
 }
 
 void row_color(const ImVec4 &color, float alpha) {

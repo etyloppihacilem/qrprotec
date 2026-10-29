@@ -45,8 +45,12 @@ void set_bold_font(ImFont *font);
 void draw_qr(const std::string &payload, float size);
 
 // Barre de stock : verte si quantite >= minimum, orange si en dessous, rouge si vide.
+// 0/0 en orange (a remarquer, rien a faire), x/0 en vert.
 // Le texte "quantite/minimum" est affiche dans la barre.
 void stock_bar(int quantity, int minimum, const ImVec2 &size = ImVec2(-1.0f, 0.0f));
+
+// Cle de tri des barres de stock, attention d'abord : manques (par ratio), puis 0/0, puis complets, puis x/0.
+float stock_order(int quantity, int minimum);
 
 // Colore la ligne courante d'une table
 void row_color(const ImVec4 &color, float alpha = 0.35f);
