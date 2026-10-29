@@ -2322,12 +2322,20 @@
   function requirementRow(label, present, required, after = null) {
     const ratio = required > 0 ? Math.min(1, present / required) : 1;
     const empty = present <= 0 && required > 0; // x/0 : rien d'attendu, vert
-    const color = empty ? 'var(--red)' : present < required ? 'var(--orange)' : 'var(--green)';
+    const none = present <= 0 && required <= 0; // 0/0 : orange, a remarquer mais rien a faire
+    const color = empty ? 'var(--red)' : (none || present < required) ? 'var(--orange)' : 'var(--green)';
     return el('div', { class: 'req' },
       el('span', { class: 'label' }, label),
       el('div', { class: 'bar' },
         el('i', { style: `width:${empty ? 100 : ratio * 100}%;background:${color}` }),
         el('span', { style: empty ? 'color:#fff' : '' }, `${present}/${required}`)), after);
+  }
+
+  // Cle de tri des barres, attention d'abord : manques (par ratio), puis 0/0, puis complets, puis x/0 tout en bas
+  function stockOrder(present, required) {
+    if (required <= 0) return present <= 0 ? 1 : Infinity;
+    const ratio = present / required;
+    return ratio < 1 ? ratio : 1 + ratio;
   }
 
   // Items frais scannes par type (un paquet compte pour son nombre d'items)
@@ -2652,8 +2660,10 @@
   }
 
   // Types attendus d'un lot, les incomplets d'abord (ordre de la definition a egalite)
+  // incomplets, puis 0/0 (orange, rien a faire), puis complets
+  const requirementRank = (present, required) => present < required ? 0 : present <= 0 && required <= 0 ? 1 : 2;
   const incompleteFirst = (requirements, present) => [...(requirements || [])]
-    .sort((a, b) => (present(a) >= a.required) - (present(b) >= b.required));
+    .sort((a, b) => requirementRank(present(a), a.required) - requirementRank(present(b), b.required));
 
   // Fiche d'inventaire papier (PDF A4) : liste de controle par emplacement, une page par sous-lot
   function sheetLink(id, label) {
@@ -3904,8 +3914,7 @@
     const sorted = [...types].sort((a, b) => {
       if (!!a.below_min !== !!b.below_min) return a.below_min ? -1 : 1;
       if (a.below_min) return a.below_min < b.below_min ? -1 : 1;
-      const ratio = (t) => t.min_quantity > 0 ? at(t).stock / t.min_quantity : 1e6;
-      return ratio(a) - ratio(b);
+      return stockOrder(at(a).stock, a.min_quantity) - stockOrder(at(b).stock, b.min_quantity);
     });
     for (const type of sorted) {
       const point = at(type);
@@ -4011,9 +4020,9 @@
       parts.push(el('p', { class: 'hint' }, 'Chargement…'));
     } else {
       parts.push(el('p', { class: 'hint' }, 'Stock non périmé (hors lots, rangements compris) / minimum. Les plus critiques en premier.'));
-      // les items sans minimum (x/0) tout en bas
-      const ratio = (row) => row.min_quantity > 0 ? row.stock_fresh / row.min_quantity : Infinity;
-      const rows = [...state.stock].sort((a, b) => ratio(a) - ratio(b));
+      // manques, puis 0/0, puis complets, puis sans minimum (x/0) tout en bas
+      const order = (row) => stockOrder(row.stock_fresh, row.min_quantity);
+      const rows = [...state.stock].sort((a, b) => order(a) - order(b));
       for (const row of rows) {
         const details = [`${row.lots_fresh} dans les lots`];
         if (row.stock_expired + row.lots_expired) details.push(nb(row.stock_expired + row.lots_expired, 'périmé'));
@@ -4401,11 +4410,12 @@
       const pairs = [...items.map((item) => [item, '']), ...missing.map((item) => [item, 'disparu'])];
       const ofType = (type) => pairs.filter(([item]) => item.type === type).sort((a, b) => iidAttention(a) - iidAttention(b));
       const flagged = (rows) => rows.some((pair) => iidAttention(pair) < 3);
-      // types incomplets en haut, puis ceux qui ont un item a remplacer ou signale, puis les complets
+      // types incomplets en haut, puis ceux qui ont un item a remplacer ou signale, puis 0/0, puis les complets
       const lines = [];
       for (const row of requirements) {
         const rows = ofType(row.type);
-        lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : 2, rows: ficheFold(`${sub.id}:${row.type}`, rows,
+        const none = row.present <= 0 && row.required <= 0;
+        lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : 3, rows: ficheFold(`${sub.id}:${row.type}`, rows,
           (arrow) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)) });
       }
       // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
@@ -4414,7 +4424,7 @@
       for (const type of extra) {
         const rows = ofType(type);
         const label = rows[0][0].type_name + (requirements.length ? ' (hors définition)' : '');
-        lines.push({ rank: flagged(rows) ? 1 : 2, rows: ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
+        lines.push({ rank: flagged(rows) ? 1 : 3, rows: ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
           el('span', { class: 'label' }, label), el('span', { class: 'req-count' }, String(rows.filter(([, tag]) => !tag).length)), arrow)) });
       }
       lines.sort((a, b) => a.rank - b.rank);

@@ -290,12 +290,14 @@ class LotsWindow final : public AppWindow {
         ImGui::TableSetupColumn("Quantité", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableHeadersRow();
-        // types incomplets en haut, puis ceux qui ont des perimes, puis les complets (ordre de la definition a egalite)
+        // types incomplets en haut, puis ceux qui ont des perimes, puis 0/0, puis les complets (ordre de la definition a
+        // egalite)
         std::vector< const Json * > requirements;
         for (const Json &row : details_["requirements"].items())
           requirements.push_back(&row);
         const auto requirement_rank = [](const Json &row) {
-          return row["present"].integer() < row["required"].integer() ? 0 : row["expired"].integer() > 0 ? 1 : 2;
+          const int present = row["present"].integer(), required = row["required"].integer();
+          return present < required ? 0 : row["expired"].integer() > 0 ? 1 : (present <= 0 && required <= 0) ? 2 : 3;
         };
         std::stable_sort(requirements.begin(), requirements.end(), [&](const Json *a, const Json *b) {
           return requirement_rank(*a) < requirement_rank(*b);
