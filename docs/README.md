@@ -35,6 +35,6 @@ C'est le point de départ pour reprendre le code, même des années plus tard.
 
 `make doc` produit la documentation en PDF A4 dans `dist/doc/` : un PDF complet
 (`qrprotec-documentation.pdf`) et un PDF par partie (utilisateur, installation, technique), avec
-sommaire, numéros de page et renvois de page à la place des liens. Il faut `pandoc` et `weasyprint`
-(`sudo dnf install pandoc weasyprint`). La mise en page est dans `docs/pdf/` ; une nouvelle page
+sommaire, numéros de page et renvois de page à la place des liens. Il faut `pandoc`, `weasyprint` et la
+police des émojis (`sudo dnf install pandoc weasyprint google-noto-color-emoji-fonts`). La mise en page est dans `docs/pdf/` ; une nouvelle page
 de documentation doit être ajoutée à sa liste dans le `Makefile` pour figurer dans le PDF.
