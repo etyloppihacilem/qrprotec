@@ -43,6 +43,9 @@ ASSETS = {
     'favicon.png': 'image/png',
     'icon-192.png': 'image/png',
     'icon-512.png': 'image/png',
+    'icon-maskable-192.png': 'image/png',  # plein cadre : Android le decoupe en rond (ou autre forme du lanceur)
+    'icon-maskable-512.png': 'image/png',
+    'apple-touch-icon.png': 'image/png',  # iPhone : sans transparence, iOS arrondit lui-meme les coins
 }
 
 

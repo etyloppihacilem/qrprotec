@@ -716,9 +716,22 @@ class WebFrontTests(ApiTestCase):
         self.assertEqual(js_phrases, cpp_phrases)
 
     def test_icons_and_service_worker(self):
-        for url in ('/web/sw.js', '/web/icon-192.png', '/web/icon-512.png', '/web/favicon.png', '/favicon.ico'):
+        for url in ('/web/sw.js', '/web/icon-192.png', '/web/icon-512.png', '/web/favicon.png', '/favicon.ico',
+                    '/web/icon-maskable-192.png', '/web/icon-maskable-512.png', '/web/apple-touch-icon.png'):
             self.assertEqual(self.client.get(url).status_code, 200, url)
         self.assertEqual(self.client.get('/favicon.ico')['Content-Type'], 'image/png')
+
+    def test_manifest_installable(self):
+        import json
+        response = self.client.get('/web/manifest.webmanifest')
+        self.assertEqual(response['Content-Type'], 'application/manifest+json')
+        manifest = json.loads(b''.join(response.streaming_content))
+        self.assertEqual(manifest['name'], 'QRprotec')
+        self.assertEqual(manifest['short_name'], 'QRprotec')
+        # chaque icone du manifeste est servie ; une maskable pour les icones rondes d'Android
+        for icon in manifest['icons']:
+            self.assertEqual(self.client.get('/web/' + icon['src']).status_code, 200, icon['src'])
+        self.assertIn('maskable', {icon['purpose'] for icon in manifest['icons']})
 
 
 class SetupTests(ApiTestCase):

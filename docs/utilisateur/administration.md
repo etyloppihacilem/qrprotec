@@ -251,7 +251,7 @@ retire (un téléphone perdu, par exemple).
   le navigateur refuse sans rien afficher, les notifications sont bloquées pour ce site (réglages du
   site, icône à gauche de l'adresse) ou, sur Android, pour l'application du navigateur elle-même
   (réglages du téléphone).
-- Sur iPhone (iOS 16.4 ou plus), ajouter d'abord la page à l'écran d'accueil.
+- Sur iPhone (iOS 16.4 ou plus), installer d'abord l'appli sur l'écran d'accueil (Réglages ⚙ > Installer l'appli).
 - La borne doit avoir un certificat HTTPS reconnu par le téléphone, et un accès Internet sortant.
 
 ## Sauvegardes

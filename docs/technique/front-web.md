@@ -8,7 +8,7 @@ JavaScript **sans framework ni étape de construction** : on modifie le fichier,
 | `index.html`, `app.js`, `app.css` | Page unique de vérif et de consultation |
 | `scanner.html`, `scanner.js` | Page « téléphone comme douchette du poste » |
 | `sw.js` | Service worker, uniquement pour afficher les notifications web |
-| `manifest.webmanifest`, `icon-*.png`, `favicon.png` | Ajout à l'écran d'accueil, icônes (`make icon`) |
+| `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`, `favicon.png` | Installation de l'appli « QRprotec » sur l'écran d'accueil (tuto dans Réglages ⚙ > Installer l'appli) ; icônes `any` à coins transparents, `maskable` plein cadre pour les icônes rondes d'Android, `apple-touch-icon` plein cadre pour iOS (`make icon`) |
 | `camera-scan.js` | Lecture à la caméra limitée au viseur, partagée par `app.js` et `scanner.js` |
 | `decoder.js`, `vendor/zxing-reader.js`, `vendor/zxing-reader-*.wasm` | Worker zxing-cpp en WebAssembly (zxing-wasm, MIT ; zxing-cpp, Apache 2.0), quand `BarcodeDetector` manque |
 | `vendor/jsQR.js` | Décodeur QR de secours (Apache 2.0), le temps que le worker se charge ou sans WebAssembly |
