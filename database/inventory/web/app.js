@@ -2434,33 +2434,75 @@
     ];
   }
 
+  // Regroupe par emplacement dans le lot (ex. « pochette bleue ») : [{ place, rows }] dans l'ordre d'arrivee (celui des
+  // emplacements choisi par la TECH, le serveur rend les attendus dans cet ordre), « sans emplacement » en dernier
+  function byPlace(rows, placeOf) {
+    const places = new Map();
+    for (const row of rows) {
+      const place = placeOf(row) || '';
+      if (!places.has(place)) places.set(place, []);
+      places.get(place).push(row);
+    }
+    const result = [...places].filter(([place]) => place).map(([place, list]) => ({ place, rows: list }));
+    if (places.has('')) result.push({ place: '', rows: places.get('') });
+    return result;
+  }
+
+  // Emplacements deplies ou replies a la main en verif, tant qu'ils ne changent pas d'etat (sinon : un emplacement
+  // complet est replie, les autres deplies)
+  const placeFolds = new Map();
+
   // Attendus d'un lot par type : en cours (orange, dernier type scanne en haut), puis rien de scanne (rouge), puis
-  // les autres items du lot, et les types complets (vert) en bas
+  // les autres items du lot, et les types complets (vert) en bas. Avec des emplacements (pochettes), un titre par
+  // emplacement dans l'ordre choisi par la TECH, pour faire une pochette a la fois : le meme tri dans chacun,
+  // l'emplacement complet replie sur son titre, et les autres items du lot a la fin.
   function lotGroupRows(lot, groups, others, lastScan) {
     const rows = [];
     const lastScanOf = (group) => (group.row.type in lastScan ? lastScan[group.row.type] : -1);
     const rank = (group) => (group.missing === 0 ? 2 : group.scanned === 0 ? 1 : 0);
-    groups.sort((a, b) => rank(a) - rank(b)
-      || (rank(a) === 0 ? lastScanOf(b) - lastScanOf(a) : 0));
+    const places = byPlace(groups, (group) => group.row.location);
+    const placed = places.some((entry) => entry.place);
     const groupRows = (group) => {
       const expired = group.items.filter((item) => item.expired).length;
       return groupHead(`${lot.id}:${group.row.type}`, rank(group) === 2 ? 'ok' : rank(group) === 1 ? 'bad' : 'partial', group.items,
         el('div', { class: 'main' },
           el('div', { class: 'name' }, group.row.type_name),
-          el('div', { class: 'sub' }, [group.row.location ? '📍 ' + group.row.location : '',
+          el('div', { class: 'sub' }, [!placed && group.row.location ? '📍 ' + group.row.location : '',
             group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`,
             expired ? nb(expired, 'périmé') : '',
             group.fromStock > 0 ? `${group.fromStock} à prendre dans le stock` : ''].filter(Boolean).join(' · '))),
         [reportMark({ lot: lot.id, lotName: lot.name, type: group.row.type, label: `${group.row.type_name} (${lot.name})` }),
           el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)]);
     };
-    for (const group of groups) if (rank(group) < 2) rows.push(...groupRows(group));
-    if (others.length) {
-      rows.push(...groupHead(`${lot.id}:others`, 'other', others,
-        el('div', { class: 'main' }, 'Autres items du lot (hors définition)'),
-        el('span', { class: 'count' }, String(others.length))));
+    const sorted = (list) => list.sort((a, b) => rank(a) - rank(b)
+      || (rank(a) === 0 ? lastScanOf(b) - lastScanOf(a) : 0));
+    const othersRows = () => (others.length ? groupHead(`${lot.id}:others`, 'other', others,
+      el('div', { class: 'main' }, 'Autres items du lot (hors définition)'),
+      el('span', { class: 'count' }, String(others.length))) : []);
+    if (!placed) {
+      sorted(groups);
+      for (const group of groups) if (rank(group) < 2) rows.push(...groupRows(group));
+      rows.push(...othersRows());
+      for (const group of groups) if (rank(group) === 2) rows.push(...groupRows(group));
+      return rows;
     }
-    for (const group of groups) if (rank(group) === 2) rows.push(...groupRows(group));
+    for (const { place, rows: list } of places) {
+      const scanned = list.reduce((sum, group) => sum + Math.min(group.scanned, group.row.required), 0);
+      const required = list.reduce((sum, group) => sum + group.row.required, 0);
+      const missing = list.reduce((sum, group) => sum + group.missing, 0);
+      const key = `${lot.id}@${place}`;
+      const fold = placeFolds.get(key);
+      const open = fold && fold.complete === !missing ? fold.open : missing > 0;
+      rows.push(el('li', { class: 'place-head foldable ' + (!missing ? 'ok' : scanned ? 'partial' : 'bad'),
+        'aria-expanded': String(open), onclick: () => { placeFolds.set(key, { open: !open, complete: !missing }); renderTodo(); } },
+      el('span', { class: 'chevron' }, open ? '▾' : '▸'),
+      el('div', { class: 'main' },
+        el('div', { class: 'name' }, '📍 ' + (place || 'Sans emplacement')),
+        el('div', { class: 'sub' }, missing ? `encore ${missing} à scanner` : 'complet')),
+      el('span', { class: 'count' }, `${scanned}/${required}`)));
+      if (open) for (const group of sorted(list)) rows.push(...groupRows(group));
+    }
+    rows.push(...othersRows());
     return rows;
   }
 
@@ -4427,24 +4469,38 @@
       const ofType = (type) => pairs.filter(([item]) => item.type === type).sort((a, b) => iidAttention(a) - iidAttention(b));
       const flagged = (rows) => rows.some((pair) => iidAttention(pair) < 3);
       // types incomplets en haut, puis ceux qui ont un item a remplacer ou signale, puis 0/0, puis les complets
+      // avec des emplacements (pochettes) : un titre par emplacement, dans l'ordre choisi par la TECH, le meme tri dedans
+      const placed = requirements.some((row) => row.location);
       const lines = [];
       for (const row of requirements) {
         const rows = ofType(row.type);
         const none = row.present <= 0 && row.required <= 0;
-        lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : 3, rows: ficheFold(`${sub.id}:${row.type}`, rows,
-          (arrow) => requirementRow(row.type_name + (row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)) });
+        lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : 3, row, rows: ficheFold(`${sub.id}:${row.type}`, rows,
+          (arrow) => requirementRow(row.type_name + (!placed && row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)) });
       }
       // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
       const known = new Set(requirements.map((row) => row.type));
       const extra = [...new Set(pairs.filter(([item]) => !known.has(item.type)).map(([item]) => item.type))];
+      const extraLines = [];
       for (const type of extra) {
         const rows = ofType(type);
         const label = rows[0][0].type_name + (requirements.length ? ' (hors définition)' : '');
-        lines.push({ rank: flagged(rows) ? 1 : 3, rows: ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
+        extraLines.push({ rank: flagged(rows) ? 1 : 3, rows: ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
           el('span', { class: 'label' }, label), el('span', { class: 'req-count' }, String(rows.filter(([, tag]) => !tag).length)), arrow)) });
       }
-      lines.sort((a, b) => a.rank - b.rank);
-      for (const line of lines) parts.push(...line.rows);
+      const byRank = (list) => list.sort((a, b) => a.rank - b.rank);
+      if (placed) {
+        for (const { place, rows: list } of byPlace(lines, (line) => line.row.location)) {
+          const present = list.reduce((sum, line) => sum + Math.min(line.row.present, line.row.required), 0);
+          const required = list.reduce((sum, line) => sum + line.row.required, 0);
+          parts.push(el('div', { class: 'place-title' + (present < required ? ' incomplete' : '') },
+            el('span', {}, '📍 ' + (place || 'Sans emplacement')), el('span', { class: 'count' }, `${present}/${required}`)));
+          for (const line of byRank(list)) parts.push(...line.rows);
+        }
+        for (const line of byRank(extraLines)) parts.push(...line.rows);
+      } else {
+        for (const line of byRank([...lines, ...extraLines])) parts.push(...line.rows);
+      }
       if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) parts.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
     }
     body.replaceChildren(...parts);
