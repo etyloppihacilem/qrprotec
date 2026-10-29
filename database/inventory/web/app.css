@@ -1,6 +1,6 @@
 :root {
   /* identite Protection Civile, discrete : marine pour les barres et l'action principale, orange de la marque
-     seulement en filet sous les barres et dans l'embleme ; tout orange du contenu reste un statut (--orange) */
+     seulement en filet sous les barres ; tout orange du contenu reste un statut (--orange) */
   --bg: #f2f4f7;
   --panel: #ffffff;
   --text: #1c2228;
@@ -256,9 +256,6 @@ body.home-mode #camera, body.home-mode #panel { display: none; }
 body.home-mode #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 #home-bar { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
   background: var(--dark); color: #fff; box-shadow: inset 0 -3px 0 var(--pc-orange); }
-/* embleme de la protection civile (triangle bleu sur rond orange) devant le titre */
-#home-bar h1::before { content: ""; display: inline-block; width: 22px; height: 22px; margin-right: 9px; vertical-align: -4px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='12' fill='%23f39200'/%3E%3Cpath d='M12 4.2 20 18H4z' fill='%231f4fa3'/%3E%3C/svg%3E") center/contain no-repeat; }
 #home-bar h1 { flex: 1; margin: 0; font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar-buttons { display: flex; gap: 8px; align-items: center; }
 .bar-button { background: rgba(255, 255, 255, .12); color: #fff; padding: 6px 12px; font-size: 1.1rem; line-height: 1.2; }
