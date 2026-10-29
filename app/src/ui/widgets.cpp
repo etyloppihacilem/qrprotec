@@ -267,11 +267,15 @@ void stock_bar(int quantity, int minimum, const ImVec2 &size) {
   ImGui::PopStyleColor(2);
 }
 
-float stock_order(int quantity, int minimum) {
+float stock_order(int quantity, int minimum, int soon) {
+  if (minimum > 0 && quantity < minimum)
+    return static_cast< float >(quantity) / static_cast< float >(minimum);
+  const int left = quantity - soon;
+  if (minimum > 0 ? left < minimum : quantity > 0 && left <= 0)
+    return 1.0f + (minimum > 0 ? static_cast< float >(left) / static_cast< float >(minimum) : 0.0f);
   if (minimum <= 0)
-    return quantity <= 0 ? 1.0f : std::numeric_limits< float >::infinity();
-  const float ratio = static_cast< float >(quantity) / static_cast< float >(minimum);
-  return ratio < 1.0f ? ratio : 1.0f + ratio;
+    return quantity <= 0 ? 2.0f : std::numeric_limits< float >::infinity();
+  return 2.0f + static_cast< float >(quantity) / static_cast< float >(minimum);
 }
 
 void row_color(const ImVec4 &color, float alpha) {

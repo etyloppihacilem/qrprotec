@@ -283,8 +283,11 @@ class StockWindow final : public AppWindow {
       return row["stock_fresh"].integer() + (include_lots_ ? row["lots_fresh"].integer() : 0);
     }
 
-    // manques, puis 0/0, puis complets, puis sans minimum (x/0) tout en bas
-    float ratio(const Json &row) const { return stock_order(count(row), row["min_quantity"].integer()); }
+    // sous le minimum, puis bientot sous le minimum ou vide, puis 0/0, puis complets, puis x/0 tout en bas
+    float ratio(const Json &row) const {
+      const int soon = row["stock_expiring_soon"].integer() + (include_lots_ ? row["lots_expiring_soon"].integer() : 0);
+      return stock_order(count(row), row["min_quantity"].integer(), soon);
+    }
 
     // ---- Projection : stock a M+k, graphes du type selectionne ----
     const Json &point(const Json &row) const {

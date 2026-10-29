@@ -1027,6 +1027,9 @@ def stock_status(soon_days=30):
         lots_fresh=Count(items, filter=active & fresh & in_lot),
         lots_expired=Count(items, filter=active & expired & in_lot),
         expiring_soon=Count(items, filter=active & soon_filter),
+        # parts du stock / des lots non perimes qui periment bientot (tri « bientot vide »)
+        stock_expiring_soon=Count(items, filter=active & fresh & soon_filter & in_stock),
+        lots_expiring_soon=Count(items, filter=active & fresh & soon_filter & in_lot),
         missing=Count(items, filter=Q(**{f'{items}__status': ItemStatus.MISSING})),
         out=Count(items, filter=Q(**{f'{items}__status': ItemStatus.OUT})),
         loose=Count(items, filter=Q(**{f'{items}__status': ItemStatus.LOOSE})),
@@ -1042,6 +1045,8 @@ def stock_status(soon_days=30):
             'lots_fresh': row.lots_fresh,
             'lots_expired': row.lots_expired,
             'expiring_soon': row.expiring_soon,
+            'stock_expiring_soon': row.stock_expiring_soon,
+            'lots_expiring_soon': row.lots_expiring_soon,
             'missing': row.missing,
             'out': row.out,
             'loose': row.loose,

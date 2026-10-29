@@ -49,8 +49,9 @@ void draw_qr(const std::string &payload, float size);
 // Le texte "quantite/minimum" est affiche dans la barre.
 void stock_bar(int quantity, int minimum, const ImVec2 &size = ImVec2(-1.0f, 0.0f));
 
-// Cle de tri des barres de stock, attention d'abord : manques (par ratio), puis 0/0, puis complets, puis x/0.
-float stock_order(int quantity, int minimum);
+// Cle de tri des barres de stock, attention d'abord : sous le minimum (par ratio), puis bientot sous le minimum ou
+// vide (soon : combien periment bientot), puis 0/0, puis complets, puis x/0.
+float stock_order(int quantity, int minimum, int soon = 0);
 
 // Colore la ligne courante d'une table
 void row_color(const ImVec4 &color, float alpha = 0.35f);
