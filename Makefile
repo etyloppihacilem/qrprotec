@@ -80,7 +80,7 @@ DOC_UTILISATEUR := $(addprefix docs/utilisateur/,README.md notions.md mise-en-pl
                    gerer-le-stock.md administration.md depannage.md)
 DOC_INSTALLATION := $(addprefix docs/installation/,README.md borne-complete.md back-seul.md front-seul.md \
                     exploitation.md)
-DOC_TECHNIQUE := $(addprefix docs/technique/,README.md architecture.md donnees.md regles-de-gestion.md back.md \
+DOC_TECHNIQUE := $(addprefix docs/technique/,README.md architecture.md donnees.md regles-de-gestion.md back.md websockets.md \
                  front-imgui.md front-web.md packaging.md decisions.md maintenance.md)
 DOC_PDFS := $(addprefix $(DOC_DIR)/,qrprotec-documentation.pdf qrprotec-utilisateur.pdf \
             qrprotec-installation.pdf qrprotec-technique.pdf)

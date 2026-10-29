@@ -96,7 +96,8 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
 - **Suivi des vérifs en direct** : `live` publie la vérif en cours de la page de scan (lot, scans,
   reste à scanner) sur `/ws/live/scanner`, avec une session conservée dans `sessionStorage` pour
   survivre à un rechargement ; la page de suivi ouvre `/ws/live/watch` (badge exigé) et reçoit les
-  mises à jour, puis l'historique par `POST api/verifs/recent/`. Voir `inventory/live.py`.
+  mises à jour, puis l'historique par `POST api/verifs/recent/`. Voir `inventory/live.py` et
+  [WebSockets des vérifs](websockets.md).
 - **Lampe et vibreur** : la lampe (🔦) n'est proposée que si la caméra l'expose (Chrome Android ;
   ni Safari iOS ni Firefox ne la donnent aux pages web) et se rallume quand la caméra redémarre.
   Le vibreur utilise `navigator.vibrate` (Android) ; sur iPhone, à défaut, le retour haptique d'un
