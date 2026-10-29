@@ -89,7 +89,8 @@ icon:
 # Dependances : sudo dnf install pandoc weasyprint google-noto-color-emoji-fonts
 # L'ordre des pages suit les sommaires de docs/*/README.md.
 PANDOC ?= pandoc
-WEASYPRINT_FLAGS ?=           # make doc WEASYPRINT_FLAGS=--debug pour le detail d'une erreur
+# make doc WEASYPRINT_FLAGS=--debug : detail d'une erreur de weasyprint
+WEASYPRINT_FLAGS ?=
 DOC_DIR := dist/doc
 DOC_DEPS := $(wildcard docs/*.md docs/*/*.md) docs/pdf/assemble.lua docs/pdf/template.html docs/pdf/print.css
 DOC_UTILISATEUR := $(addprefix docs/utilisateur/,README.md notions.md mise-en-place.md verifier-un-lot.md \
