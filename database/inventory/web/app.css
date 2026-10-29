@@ -402,7 +402,6 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
 #revision textarea { display: block; width: 100%; font: inherit; padding: 8px; box-sizing: border-box; }
 .used-btn { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; background: #fff; color: var(--navy);
   border: 2px solid var(--navy); font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; }
-.used-btn .icon svg { width: 24px; height: 24px; display: block; }
 .used-text { display: flex; flex-direction: column; align-items: center; line-height: 1.25; }
 .used-sub { font-weight: 400; font-size: .9em; }
 .task-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 2px; }
@@ -556,3 +555,11 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-share .icon-only[aria-expanded="true"] { background: var(--blue-bg, #e8f0fe); }
 #home-lists .list-qr-panel { margin-top: 10px; text-align: center; }
 #home-lists .list-qr-panel[hidden] { display: none; }
+
+/* Icones des boutons (SVG au trait) : avant le texte, a la hauteur du texte */
+button > .icon { display: inline-flex; vertical-align: -0.2em; margin-right: 6px; }
+button > .icon svg { width: 1.15em; height: 1.15em; }
+.used-btn > .icon { margin-right: 0; }
+.used-btn > .icon svg { width: 24px; height: 24px; display: block; }
+#home-lists .list-share button > .icon { margin-right: 0; }
+#home-lists .list-share button > .icon svg { width: 20px; height: 20px; }
