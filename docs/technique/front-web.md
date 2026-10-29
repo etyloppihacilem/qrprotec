@@ -29,6 +29,11 @@ passe par `history.pushState` (bouton retour du téléphone, `popstate`). La fic
 `last_location`, renvoyé par `GET /api/items/<iid>/` seulement (`serializers.item_last_location`). Les fichiers sont référencés en relatif (`web/app.js`) et l'API par
 `new URL('api/', document.baseURI)` : la page fonctionne aussi sous un sous-chemin.
 
+Les iids et identifiants de lots (et numéros de paquets) ne s'affichent qu'à un administrateur
+(`showIds`, `idText`, `withId`) : pour les autres, ni sous-titre `type · id`, ni listes dépliables
+d'iids (flèches de la fiche de lot `ficheFold`, groupes de l'onglet À scanner `groupHead`). Le poste
+n'est pas concerné. Les URL et appels d'API gardent évidemment les ids.
+
 Le back ne sert que les fichiers déclarés dans `web_views.ASSETS` (liste blanche). **Ajouter un
 fichier au front web = l'ajouter à cette liste**, sinon 404.
 
