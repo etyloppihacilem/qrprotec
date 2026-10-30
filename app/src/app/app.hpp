@@ -178,6 +178,7 @@ struct VerifPlanLot {
     int                           depth = 0;
     std::map< std::string, int >  fresh;      // items frais scannes par type
     std::map< std::string, int >  required;   // minimum par type (exigences du type de lot)
+    std::map< std::string, int >  added;      // items frais venus d'ailleurs (aucun lot de la verif), par type : « + x »
     std::set< std::string >       iids;       // items scannes ranges dans ce lot
     int                           touched = 0; // items scannes ranges dans ce lot
     bool                          complete = false; // complet avec ces scans (verif partielle possible)

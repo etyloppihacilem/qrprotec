@@ -175,6 +175,9 @@ body.cam-mini #toast { bottom: calc(80px + min(56vw, 240px) + env(safe-area-inse
 .bar { position: relative; width: 45%; height: 22px; border-radius: 6px; background: #eee; overflow: hidden; }
 .bar i { position: absolute; inset: 0 auto 0 0; }
 .bar span { position: relative; display: block; text-align: right; padding-right: 6px; font-size: .8rem; line-height: 22px; font-weight: 600; }
+/* Items en trop (ajoutes sans etre attendus) : « + x » en bleu apres le compte */
+.plus { color: var(--blue); white-space: nowrap; margin-left: .35em; }
+.list li.group .plus { background: #fff; border-radius: 10px; padding: 0 6px; }
 #actions { display: flex; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
 #actions .primary, #actions .warning { flex: 1; }
 #actions .validate-box { flex: 1; display: flex; flex-direction: column; min-width: 0; }
