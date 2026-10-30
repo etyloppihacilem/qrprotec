@@ -195,9 +195,15 @@ body.cam-mini #toast { bottom: calc(80px + min(56vw, 240px) + env(safe-area-inse
 dialog { border: 0; border-radius: 16px; padding: 14px; width: min(92vw, 420px); max-height: 80dvh; overflow-y: auto; }
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
 #menu button { display: block; width: 100%; margin: 6px 0; text-align: left; }
-#report h3 { margin: 12px 0 4px; font-size: 1rem; }
-#report ul { margin: 0; padding-left: 20px; font-size: .9rem; }
-#report .primary { width: 100%; margin-top: 12px; }
+#report h3, #verif-report h3 { margin: 12px 0 4px; font-size: 1rem; }
+#report ul, #verif-report ul { margin: 0; padding-left: 20px; font-size: .9rem; }
+#report .primary, #verif-report .primary { width: 100%; margin-top: 12px; }
+#verif-report .lot-head { margin: 14px 0 2px; font-weight: 600; }
+#verif-report .lot-head.ok { color: var(--green); }
+#verif-report .lot-head.bad { color: var(--red); }
+#verif-report .lot-head.partial { color: var(--orange); }
+#verif-report .lot-head .link { font-weight: 600; }
+#verif-report summary { margin: 8px 0 4px; font-weight: 600; cursor: pointer; }
 .pin { -webkit-text-security: disc; }
 
 /* ---- Retours visuels ---- */

@@ -33,6 +33,7 @@ public_patterns = [
     path('lots/<str:lot_id>/verif/', views.lot_verif),
     path('verifs/', views.verifs),
     path('verifs/recent/', views.verifs_recent),
+    path('verifs/<int:verif_id>/report/', views.verif_report),
     path('lots/<str:lot_id>/add/', views.lot_add_items),
     path('lots/<str:lot_id>/unseal/', views.lot_unseal),
     path('lots/<str:lot_id>/seal-open/', views.lot_seal_open),

@@ -209,7 +209,10 @@ l'affichage) ; les pages de suivi ouvrent `/ws/live/watch`, s'authentifient par 
 message (badge) et reçoivent un instantané puis chaque mise à jour. Les noms passent par
 l'anonymisation de l'API publique. Une vérif validée reste affichée 10 min, une page de scan
 déconnectée 15 min (le temps d'un rechargement, qui reprend la même session). Les vérifs passées
-viennent de `POST /api/verifs/recent/` (badge, une ligne par vérif groupée).
+viennent de `POST /api/verifs/recent/` (badge, une ligne par vérif groupée) ; le compte rendu d'une
+vérif passée, de `POST /api/verifs/<id>/report/` (badge : chaque lot de la vérif groupée dans l'ordre de
+l'arbre, items vus, périmés, remplacés et manquants par type et péremption, exigences non remplies du
+journal, réassorts et retraits du même instant).
 
 **Vérif à plusieurs.** Une session `LiveSession` a un ou plusieurs `Participant` (identité
 stockée, scans partagés `entries`, `validated`). On la rejoint par `hello` avec `join` (badge
