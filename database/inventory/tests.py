@@ -154,9 +154,25 @@ class PublicApiTests(ApiTestCase):
         code, body = self.call('GET', path + 'ancienne', session=False)
         self.assertEqual(body['key_check'], 'wrong')
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today - timedelta(days=1))
+        # badge obligatoire (defaut) : l'etiquette cle n'autorise rien de plus que la publique, elle n'expire plus
+        code, body = self.call('GET', path + self.lot.verif_key, local=False)
+        self.assertEqual(body['key_check'], 'valid')
+        self.assertNotIn('key_error', body)
+        # nom declare autorise : la cle est de nouveau une autorisation, sa date s'applique
+        models.ServerSettings.objects.update_or_create(pk=1, defaults={'declared_identity': True})
         code, body = self.call('GET', path + self.lot.verif_key, local=False)
         self.assertEqual(body['key_check'], 'expired')
         self.assertIn('a expiré', body['key_error'])
+
+    def test_lot_key_expiry_ignored_while_badge_required(self):
+        from . import notifications, tasks
+        Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today - timedelta(days=1))
+        titles = lambda: [task['title'] for task in tasks._periodic_tasks(self.today)]
+        self.assertEqual(notifications.check_key_expirations(self.today).get('lot_key_expiring', []), [])
+        self.assertNotIn(f'Étiquette clé : {self.lot.name}', titles())
+        models.ServerSettings.objects.update_or_create(pk=1, defaults={'declared_identity': True})
+        self.assertEqual(len(notifications.check_key_expirations(self.today)['lot_key_expiring']), 1)
+        self.assertIn(f'Étiquette clé : {self.lot.name}', titles())
 
     def test_missing_key_message_explains_label(self):
         # l'etiquette cle n'est plus exigee que sans badge, sous un nom declare (option du serveur)
@@ -1801,6 +1817,7 @@ class AlertTests(ApiTestCase):
 
     def test_key_expirations_once_per_stage(self):
         from django.core.management import call_command
+        models.ServerSettings.objects.update_or_create(pk=1, defaults={'declared_identity': True})  # cles qui expirent
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
         Secouristes.objects.filter(pk=self.user.pk).update(key_expires=self.today - timedelta(days=1))
         call_command('check_alerts', stdout=StringIO())
@@ -1871,6 +1888,7 @@ class AlertTests(ApiTestCase):
         self.assertEqual(self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 0})[0], 400)
         code, body = self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 5})
         self.assertEqual(body['key_expiry_warning_days'], 5)
+        models.ServerSettings.objects.update_or_create(pk=1, defaults={'declared_identity': True})  # cles qui expirent
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
 
         def lot_alerts():

@@ -452,6 +452,9 @@ class LotAdminWindow final : public AppWindow {
       }
       if (lot_["verif_key_expires"].is_null())
         ImGui::TextDisabled("Clé sans expiration (rangement du stock)");
+      else if (!app.declared_identity)  // badge obligatoire : la date n'est plus appliquee (models.lot_keys_expire)
+        ImGui::TextDisabled("Clé sans expiration tant que le badge est obligatoire (date : %s)",
+                            display_date(lot_["verif_key_expires"]).c_str());
       else
         ImGui::TextDisabled("Clé valable jusqu'au %s", display_date(lot_["verif_key_expires"]).c_str());
       if (confirm_button("Régénérer la clé",

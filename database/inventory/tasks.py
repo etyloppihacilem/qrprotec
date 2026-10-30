@@ -33,7 +33,7 @@ from .idendity import format_identity_verified, identity_name
 from .journal import pl, plural
 from .models import (
     Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, ProblemReport, ReportStatus,
-    Secouristes, Verifs, qrprotec_setting,
+    Secouristes, Verifs, lot_keys_expire, qrprotec_setting,
 )
 from .reports import target_name
 
@@ -245,9 +245,10 @@ def _forecast_tasks(today):
 def _periodic_tasks(today):
     tasks = []
     warning = timedelta(days=qrprotec_setting('KEY_EXPIRY_WARNING_DAYS'))
-    # etiquettes privees des lots (cle) qui expirent : a renouveler et reimprimer
-    for lot in Lots.objects.filter(active=True, verif_key_expires__isnull=False,
-                                   verif_key_expires__lte=today + warning).order_by('verif_key_expires'):
+    # etiquettes privees des lots (cle) qui expirent : a renouveler et reimprimer (seulement si le nom declare est
+    # autorise, sinon elles n'expirent plus)
+    lots = Lots.objects.filter(active=True, verif_key_expires__isnull=False, verif_key_expires__lte=today + warning)
+    for lot in lots.order_by('verif_key_expires') if lot_keys_expire() else ():
         expired = lot.verif_key_expires < today
         tasks.append(task('periodic', 'warn' if expired else 'info', f'Étiquette clé : {lot.name}',
                           ('expirée depuis le ' if expired else 'expire le ') + _day(lot.verif_key_expires)

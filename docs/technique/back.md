@@ -116,7 +116,9 @@ Les lectures réservées sur l'API publique (`lots/summary/`, `stock/summary/`, 
 
 `views.require_lot_key` (écritures sur un lot) et `views.verif_targets` (vérifs) : la clé envoyée
 doit être celle du lot **ou d'un de ses ancêtres** (l'étiquette clé d'un lot global couvre ses
-sous-lots), non expirée. Sur l'API locale, aucune clé n'est demandée.
+sous-lots), non expirée. Sur l'API locale, aucune clé n'est demandée. L'expiration ne s'applique que
+si le nom déclaré est autorisé (`models.lot_keys_expire`) : sinon la clé n'autorise rien de plus
+qu'une étiquette publique et `key_status` ne répond jamais `expired`.
 
 ## Services
 

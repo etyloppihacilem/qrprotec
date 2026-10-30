@@ -71,6 +71,13 @@ gardée par les responsables. La clé se régénère (« Régénérer la clé »
 perdue ; l'ancienne devient invalide.
 **Raison.** Sans compte utilisateur sur le téléphone, la possession physique de l'étiquette clé
 est l'autorisation. C'est simple à expliquer et robuste.
+**Depuis le badge obligatoire.** Avec un badge, vérif et réassort se valident avec n'importe quelle
+étiquette du lot (publique, clé ou scellé) : la clé n'autorise plus rien de plus. Elle ne sert
+d'autorisation que sous un nom déclaré (réglage `declared_identity`). Tant que ce réglage est
+désactivé, sa date d'expiration n'est pas appliquée (`models.lot_keys_expire`) : pas de refus au
+scan, pas d'alerte `lot_key_expiring`, pas de tâche « Étiquette clé » ; elle reprend effet si le nom
+déclaré est autorisé. L'étiquette d'ouverture du scellé n'est pas concernée : elle ouvre toujours le
+scellé sans connexion.
 
 ## Les QR codes sont des URLs, le domaine est ignoré
 

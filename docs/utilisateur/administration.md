@@ -232,6 +232,8 @@ sont plus maintenues et ont été retirées des Réglages.
 (30 par défaut) avant l'expiration d'une étiquette clé de lot (sauf les rangements du stock, qui
 n'expirent pas) ou d'un badge pour l'alerte « expire bientôt », contrôlée chaque matin à 7 h 45 ; une
 seconde alerte part à l'expiration. Renouveler l'étiquette ou le badge remet l'alerte à zéro.
+Tant que le nom déclaré sans badge n'est pas autorisé (Réglages > Règles du serveur), les étiquettes
+clés de lot n'expirent pas : le badge suffit, elles ne donnent aucune alerte ni tâche.
 
 ### Notifications web (tous opérateurs)
 
