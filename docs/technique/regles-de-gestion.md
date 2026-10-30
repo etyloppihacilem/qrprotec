@@ -230,15 +230,18 @@ Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.
     pas ouverts, ou en cours chez un autre participant) ; `perform_verif(exclude=…)` les retire avec
     leurs descendants, rien n'y est déclaré manquant. Un id hors de l'arbre ou le lot validé lui-même
     : 400 ;
-  - un scan appartient au niveau où il a été fait ; un item d'un sous-lot du niveau y fait entrer ;
-    un item d'un lot déjà validé dans la cascade est refusé ; l'étiquette d'un scellé est envoyée
-    tout de suite. Item, étiquette ou scellé d'un lot hors du niveau alors que le niveau est complet
+  - un scan appartient au niveau où il a été fait : un item rangé dans un lot hors du niveau y a été
+    trouvé, il y compte et y est déplacé (`assign_items(cascade=True)` le traite en nouvel arrivant
+    quand son lot n'est pas sous `places[iid]`, même règle dans `planSession` / `App::plan_verif`) ;
+    on ne change de lot qu'en scannant son étiquette. Seul un item d'un sous-lot du niveau y fait
+    entrer ; un item d'un sous-lot déjà validé dans la cascade est refusé ; l'étiquette d'un scellé est
+    envoyée tout de suite. Étiquette ou scellé d'un lot hors du niveau alors que le niveau est complet
     (rien d'attendu ne manque, clé connue, pas de lot scellé) : le niveau est validé automatiquement
     (`leaveCompleteLevels` / `App::leave_complete_level`), en remontant tant que le lot scanné n'est
     pas dedans, puis on y entre. Niveau incomplet où des scans ont été faits (et où personne d'autre
     n'est, au web) : popup « Passer à … ? » (`leaveLevelPopup` / `App::ask_leave`) : valider incomplet
     (`validateStep(false, true)` / `submit_step`), passer sans valider (le niveau reste à faire, ses
-    scans gardés) ou rester (l'item compte dans le niveau). Popup ignorée : le scan suivant vaut
+    scans gardés) ou rester. Popup ignorée : le scan suivant vaut
     « passer ». Niveau incomplet sans scan : on passe au lot scanné sans question.
   - Vérif lancée sur un sous-lot à scellé obligatoire (`started_in` / `state.startedIn`) : validé
     complet, la cascade se termine sur son compte rendu (raccourci « Sceller » au poste) au lieu de

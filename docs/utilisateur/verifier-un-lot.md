@@ -258,19 +258,26 @@ les armoires faites restent faites. Un lot où vous n'êtes pas entré n'est pas
 cette vérif est refusé (« Déjà vérifié ») : rentrez dans le lot (touchez sa ligne) pour le refaire.
 **← Retour** remonte d'un niveau sans valider.
 
+**Changer de lot** : on passe à un autre lot en scannant son **étiquette** (ou son scellé). Un item
+scanné compte toujours dans le lot où vous êtes, là où vous l'avez trouvé, même si la base le croyait
+rangé ailleurs dans le VPS : il y sera déplacé à la validation (« rangé dans Armoire 2, compté dans
+Armoire 1 »). C'est ainsi qu'on corrige un item rangé dans la mauvaise armoire, ou qu'on remet dans un
+sac une compresse prise dans la réserve. Seule exception : un item d'un lot contenu dans celui où vous
+êtes (un sac de l'armoire, un sac quand vous êtes au niveau du VPS) vous fait entrer dans ce lot.
+
 **Validation automatique** : quand le lot où vous êtes est complet (plus rien d'attendu à scanner) et
-que vous scannez un item, l'étiquette ou le scellé d'un autre lot (ex : un item de l'armoire 2 alors que
+que vous scannez l'étiquette ou le scellé d'un autre lot (ex : l'étiquette de l'armoire 2 alors que
 l'armoire 1 est complète), le lot complet est validé tout seul (« ✔ Armoire 1 complet : validé
 automatiquement ») et vous entrez dans l'autre. Un lot incomplet n'est jamais validé tout seul.
 
 **Quitter un lot incomplet** : si vous avez déjà scanné des items dans le lot où vous êtes et que vous
-scannez l'étiquette ou un item d'un autre lot, une fenêtre « Passer à Armoire 2 ? » donne trois choix :
+scannez l'étiquette d'un autre lot, une fenêtre « Passer à Armoire 2 ? » donne trois choix :
 
 - **Valider Armoire 1 incomplet** : les items pas encore scannés passent manquants, puis vous entrez
   dans l'armoire 2 ;
 - **Passer sans valider** : l'armoire 1 reste à faire, ses scans sont gardés pour quand vous y
   reviendrez ;
-- **Rester dans Armoire 1** : l'item scanné compte dans l'armoire 1, où vous l'avez trouvé.
+- **Rester dans Armoire 1** : vous continuez l'armoire 1.
 
 Si vous ne voyez pas la fenêtre et scannez autre chose, cela vaut « Passer sans valider ». Sans scan
 dans le lot où vous êtes (ou si un autre secouriste y travaille, au téléphone), on passe à l'autre lot
