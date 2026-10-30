@@ -28,6 +28,40 @@ const Json *find_type(const App &app, const std::string &type) {
   return nullptr;
 }
 
+// Rangements du stock actifs ou ranger une reception, nommes par leur chemin sous le Stock (« Armoire › Tiroir 2 »).
+// Le Stock lui-meme n'en est pas un : sans rangement, les items restent dans le stock en vrac.
+Json storage_places(const App &app) {
+  const Json &lots = app.catalog.lots;
+  auto        find = [&lots](const std::string &id) -> const Json * {
+    for (const Json &lot : lots.items())
+      if (lot["id"].str() == id)
+        return &lot;
+    return nullptr;
+  };
+  Json places = Json::array();
+  for (const Json &lot : lots.items()) {
+    if (!lot["storage"].boolean() || !lot["active"].boolean(true) || lot["lot_type"].str() == "stock0")
+      continue;
+    std::string label  = lot["name"].str();
+    const Json *parent = find(lot["parent"].str());
+    for (int depth = 0; parent && (*parent)["lot_type"].str() != "stock0" && depth < 16; ++depth) {
+      label  = (*parent)["name"].str() + " › " + label;
+      parent = find((*parent)["parent"].str());
+    }
+    Json place     = lot;
+    place["label"] = label;
+    places.push_back(std::move(place));
+  }
+  return places;
+}
+
+std::string place_label(const App &app, const std::string &id) {
+  for (const Json &place : storage_places(app).items())
+    if (place["id"].str() == id)
+      return place["label"].str();
+  return id;
+}
+
 // Item fictif pour l'apercu d'un type d'item (avant toute reception)
 Json sample_item(const std::string &type, const std::string &name, bool perishable, const std::string &peremption_iso,
                  bool tear_off = false, const std::vector< std::string > &tasks = {},
@@ -173,6 +207,11 @@ class InventoryWindow final : public AppWindow {
       ImGui::SetNextItemWidth(200.0f);
       ImGui::InputInt("Quantité", &quantity_);
       quantity_ = std::clamp(quantity_, 1, 10000);
+      ImGui::TextUnformatted("Rangement du stock");
+      search_select("reception_place", storage_places(app), "id", "label", reception_place_,
+                    "Tapez le nom du rangement…", "Stock (sans rangement)");
+      help_marker("Toute la réception est rangée d'un coup dans ce rangement du stock (ex : 50 compresses dans "
+                  "l'armoire), sans scanner les items un par un. Sans rangement, les items restent dans le stock.");
       ImGui::Checkbox("Paquet fermé : seulement une étiquette de paquet", &sealed_);
       help_marker("Pour un paquet que l'on n'ouvre pas tout de suite (ex: boîte de compresses). Les étiquettes "
                   "individuelles seront imprimées à l'ouverture : scannez l'étiquette du paquet puis « Ouvrir ».");
@@ -223,6 +262,10 @@ class InventoryWindow final : public AppWindow {
       ImGui::SeparatorText("Dernière réception");
       const Json &items = last_batch_["items"];
       ImGui::Text("%s : %s", nb(items.size(), "item créé", "items créés").c_str(), items[0]["type_name"].str().c_str());
+      if (!items[0]["location"].is_null() && !items[0]["location"].str().empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored(colors::green, "rangés dans %s", place_label(app, items[0]["location"].str()).c_str());
+      }
       if (!last_batch_["sealed_pack"].is_null()) {
         // paquet ferme : etiquette du paquet, et fiche du paquet pour l'ouvrir plus tard
         if (button("Étiquette du paquet"))
@@ -257,6 +300,7 @@ class InventoryWindow final : public AppWindow {
       body["peremption"]  = peremption.empty() ? Json() : Json(peremption);
       body["count"]       = quantity_;
       body["sealed_pack"] = sealed_;
+      body["location"]    = reception_place_.empty() ? Json() : Json(reception_place_);
       body["user"]        = app.user_ref();
       creating_           = true;
       // paquet ferme : seule l'etiquette du paquet, les items seront etiquetes a l'ouverture
@@ -831,8 +875,8 @@ class InventoryWindow final : public AppWindow {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Receptions passees : items recus ensemble (meme type, meme date, meme instant), pour desactiver d'un coup ce
-    // qui a ete recu ensemble (paquet ouvert des la reception, rappel produit).
+    // Receptions passees : items recus ensemble (meme type, meme date, meme instant), pour ranger d'un coup ce qui a
+    // ete recu ensemble dans un rangement du stock, ou le desactiver (paquet ouvert des la reception, rappel produit).
     void load_receptions(App &app) {
       std::string query = "/api/receptions/?limit=200";
       if (!receptions_type_.empty())
@@ -853,7 +897,8 @@ class InventoryWindow final : public AppWindow {
       ImGui::SameLine();
       if (button("Rafraîchir"))
         load_receptions(app);
-      const float detail = app.admin() && !selected_reception_.empty() ? ImGui::GetFrameHeightWithSpacing() * 4 : 0;
+      const float detail =
+        selected_reception_.empty() ? 0 : ImGui::GetFrameHeightWithSpacing() * (app.admin() ? 6.0f : 3.5f);
       if (ImGui::BeginTable("receptions", 7,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
                               | ImGuiTableFlags_Resizable,
@@ -899,7 +944,7 @@ class InventoryWindow final : public AppWindow {
       }
       if (receptions_.size() == 0)
         ImGui::TextDisabled("Aucune réception.");
-      if (selected_reception_.empty() || !app.admin())
+      if (selected_reception_.empty())
         return;
       const Json *selected = nullptr;
       for (const Json &row : receptions_.items())
@@ -909,6 +954,38 @@ class InventoryWindow final : public AppWindow {
         return;
       const Json row = *selected;
       ImGui::SeparatorText((row["type_name"].str() + " reçus " + display_on(row["added"], true)).c_str());
+      // toute la reception rangee d'un coup dans un rangement du stock (ceux deja mis dans un lot restent)
+      const int in_stock = row["in_stock"].integer();
+      search_select("store_place", storage_places(app), "id", "label", store_place_, "Tapez le nom du rangement…",
+                    "Stock (sans rangement)", 300.0f);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(in_stock == 0 || storing_);
+      const std::string store_label = "Ranger " + pl(in_stock, "l'item", "les " + std::to_string(in_stock) + " items")
+                                    + (store_place_.empty() ? " en vrac dans le stock" : " dans " + place_label(app, store_place_));
+      if (button(store_label.c_str())) {
+        Json body;
+        body["reception"] = selected_reception_;
+        body["location"]  = store_place_.empty() ? Json() : Json(store_place_);
+        body["user"]      = app.user_ref();
+        storing_          = true;
+        app.api.post("/api/receptions/store/", body, [this, &app](const ApiResult &result) {
+          storing_ = false;
+          if (!result.ok) {
+            app.notify("Rangement refusé : " + result.error, true);
+            return;
+          }
+          app.notify(nb(result.data["count"].integer(), "item rangé", "items rangés") + ".");
+          load_receptions(app);
+          app.refresh_lots(true);
+        });
+      }
+      ImGui::EndDisabled();
+      help_marker("Range d'un coup tous les items de cette réception encore dans le stock. Ceux déjà mis dans un lot, "
+                  "utilisés ou supprimés ne bougent pas.");
+      if (in_stock < row["count"].integer())
+        ImGui::TextDisabled("%s sur %d encore dans le stock.", nb(in_stock, "item").c_str(), row["count"].integer());
+      if (!app.admin())
+        return;
       ImGui::SetNextItemWidth(300.0f);
       input_limited("##reception_reason", disable_reason_, 128, "Raison (obligatoire), ex : rappel produit");
       ImGui::SameLine();
@@ -993,6 +1070,7 @@ class InventoryWindow final : public AppWindow {
 
     // Reception
     std::string reception_type_;
+    std::string reception_place_; // rangement du stock de la reception (vide : le stock en vrac)
     std::string peremption_;
     int         quantity_    = 1;
     bool        sealed_      = false;
@@ -1032,6 +1110,8 @@ class InventoryWindow final : public AppWindow {
     Json        receptions_ = Json::array();
     std::string receptions_type_;
     std::string selected_reception_;
+    std::string store_place_; // rangement ou ranger une reception passee
+    bool        storing_ = false;
     bool        show_receptions_ = false; // onglet Receptions a selectionner (bouton d'un item)
     bool        first_tab_       = false; // onglet Reception a selectionner (vue par defaut)
     // Paquets

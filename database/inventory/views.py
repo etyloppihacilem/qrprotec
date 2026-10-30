@@ -1380,6 +1380,21 @@ def items(request):
     return Response([ser.item_dict(item, today) for item in queryset[:limit]])
 
 
+def storage_target(lot_id):
+    """Rangement du stock ou ranger des items recus (None : le stock, sans rangement). Le lot du stock lui-meme
+    vaut le stock ; un lot qui n'est pas un rangement du stock est refuse (un lot se remplit par reassort)."""
+    if not lot_id:
+        return None
+    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=str(lot_id))
+    if lot.is_stock:
+        return None
+    if not lot.lot_type.storage:
+        raise ApiError(f"{lot.name} n'est pas un rangement du stock")
+    if not lot.active:
+        raise ApiError(f"{lot.name} est archivé")
+    return lot
+
+
 @api_view(['POST'])
 @handle_errors
 def items_batch(request):
@@ -1390,9 +1405,7 @@ def items_batch(request):
     peremption = parse_date(data.get('peremption'), 'peremption')
     count = parse_int(data.get('count', 1), 'count', 1, 10000)
     identity = operation_identity(request, data)
-    location = None
-    if data.get('location'):
-        location = get_object_or_404(Lots, id=data['location'])
+    location = storage_target(data.get('location'))
     with transaction.atomic():
         sealed_pack = None
         if data.get('sealed_pack'):
@@ -1410,6 +1423,8 @@ def items_batch(request):
             summary += f", péremption {peremption.strftime('%d/%m/%Y')}"
         if sealed_pack is not None:
             summary += f' (paquet fermé {sealed_pack.id})'
+        if location is not None:
+            summary += f', rangés dans {location.name}'
         journal.record(OperationKind.RECEPTION, identity, summary, lot=location, type=item_type.type, count=count,
                        peremption=peremption.isoformat() if peremption else None,
                        sealed_pack=sealed_pack.id if sealed_pack else None, items=journal.item_ids(created))
@@ -1476,6 +1491,7 @@ def receptions(request):
                             'added_by')
             .annotate(count=Count('iid'), first=Min('iid'), last=Max('iid'), sealed_pack=Max('sealed_pack_id'),
                       active=Count('iid', filter=Q(status=ItemStatus.ACTIVE)),
+                      in_stock=Count('iid', filter=services.in_stock_q() & Q(status=ItemStatus.ACTIVE)),
                       disabled=Count('iid', filter=Q(disabled=True)))
             .order_by('-added')[:limit])
     return Response([{
@@ -1488,9 +1504,34 @@ def receptions(request):
         'added_by': identity_name(row['added_by']),
         'count': row['count'],
         'active': row['active'],
+        'in_stock': row['in_stock'],
         'disabled': row['disabled'],
         'sealed_pack': row['sealed_pack'],
     } for row in rows])
+
+
+@api_view(['POST'])
+@handle_errors
+def reception_store(request):
+    """Range d'un coup toute une reception dans un rangement du stock (ou en vrac dans le stock si "location" est
+    vide) : {"user", "reception": un iid de la reception, "location"}. Seuls les items encore en stock bougent : ceux
+    deja mis dans un lot, utilises ou supprimes restent ou ils sont."""
+    require_front(request, GESTION)
+    data = request.data
+    first = get_object_or_404(Items, iid=str(data.get('reception', '')))
+    location = storage_target(data.get('location'))
+    identity = operation_identity(request, data)
+    received = Items.objects.filter(pack_id=first.pack_id, added=first.added)
+    iids = list(received.filter(services.in_stock_q(), status=ItemStatus.ACTIVE).order_by('iid')
+                .values_list('iid', flat=True))
+    if not iids:
+        raise ApiError('Aucun item de cette réception en stock')
+    if location is None:
+        result = services.move_items(iids, None, identity, SeenWhile.REMOVE)
+    else:
+        result = services.move_items(iids, location, identity, SeenWhile.ADD)
+    return Response({'moved': result['moved'], 'count': len(result['moved']), 'total': received.count(),
+                     'location': location.id if location else None})
 
 
 @api_view(['POST'])
