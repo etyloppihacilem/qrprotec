@@ -19,7 +19,7 @@ SHELL_SCRIPTS := bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
                  packaging/files/qrprotec-setup packaging/files/qrprotec-backup \
                  packaging/files/qrprotec-kiosk-session packaging/files/qrprotec-front
 
-.PHONY: rpm rpm-local image sources lint clean version icon doc flatpak
+.PHONY: rpm rpm-local image sources lint clean version icon doc flatpak flatpak-umount
 
 # Proprietaire de dist/ a la fin de la construction, vu depuis le conteneur. En podman rootless
 # (defaut sur Fedora), root du conteneur est deja l'utilisateur courant : chown vers son uid le
@@ -137,7 +137,15 @@ FLATPAK_ID := io.github.etyloppihacilem.QRProtec
 FLATPAK_MANIFEST := packaging/flatpak/$(FLATPAK_ID).yml
 FLATHUB := https://dl.flathub.org/repo/flathub.flatpakrepo
 
-flatpak:
+# Montages rofiles-fuse laisses par un flatpak-builder interrompu (sinon rm : « Device or resource busy »)
+flatpak-umount:
+	@for mount in dist/flatpak/state/rofiles/rofiles-*; do \
+		[ -d "$$mount" ] || continue; \
+		fusermount3 -u "$$mount" 2>/dev/null || fusermount3 -uz "$$mount" 2>/dev/null \
+			|| fusermount -uz "$$mount" 2>/dev/null || :; \
+	done
+
+flatpak: flatpak-umount
 	@command -v flatpak-builder >/dev/null || { echo "flatpak-builder requis (sudo dnf install flatpak-builder)"; exit 1; }
 	git submodule update --init app/imgui app/implot app/scanner_lib
 	flatpak remote-add --user --if-not-exists flathub $(FLATHUB)
@@ -145,5 +153,5 @@ flatpak:
 		--state-dir=dist/flatpak/state --repo=dist/flatpak/repo dist/flatpak/build $(FLATPAK_MANIFEST)
 	flatpak build-bundle --runtime-repo=$(FLATHUB) dist/flatpak/repo dist/QRProtec-front.flatpak $(FLATPAK_ID)
 
-clean:
+clean: flatpak-umount
 	rm -rf dist
