@@ -638,6 +638,27 @@ class ManagementTests(ApiTestCase):
         code, _ = self.call('POST', '/api/receptions/store/', {'reception': iids[2], 'location': self.lot.id})
         self.assertEqual(code, 400)
 
+    def test_reception_storage_suggestion(self):
+        storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
+        armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test', parent=Lots.stock())
+        armoire.save()
+        tiroir_type = LotType.objects.create(type='tiroir', name='Tiroir', storage=True)
+        tiroir = Lots(lot_type=tiroir_type, name='Tiroir', name_short='T', created_by='test', parent=armoire)
+        tiroir.save()
+        date = (self.today + timedelta(days=200)).isoformat()
+        code, body = self.call('GET', '/api/receptions/storage/?type=compre')
+        self.assertEqual((code, body['location']), (200, None))
+        self.call('POST', '/api/items/batch/', {'type': 'compre', 'peremption': date, 'count': 3, 'location': armoire.id})
+        code, body = self.call('GET', '/api/receptions/storage/?type=compre')
+        self.assertEqual(body['location'], armoire.id)
+        # une reception en vrac rangee ensuite dans le tiroir : le tiroir devient la proposition
+        code, body = self.call('POST', '/api/items/batch/', {'type': 'compre', 'peremption': date, 'count': 2})
+        self.call('POST', '/api/receptions/store/', {'reception': body['items'][0]['iid'], 'location': tiroir.id})
+        code, body = self.call('GET', '/api/receptions/storage/?type=compre')
+        self.assertEqual(body['location'], tiroir.id)
+        code, body = self.call('GET', '/api/receptions/storage/?type=garrot')
+        self.assertIsNone(body['location'])
+
     def test_create_entities(self):
         code, body = self.call('POST', '/api/item-types/', {'type': 'serphy', 'name': 'Serum phy', 'perissable': True})
         self.assertEqual(code, 201)
