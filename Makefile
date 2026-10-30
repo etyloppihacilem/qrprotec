@@ -8,6 +8,7 @@
 #   make lint                    shellcheck + rpmlint sur le spec
 #   make icon ICON=image.png     icone du site web et de l'application (ImageMagick)
 #   make doc                     documentation en PDF A4 a imprimer dans dist/doc (pandoc + weasyprint)
+#   make flatpak                 front seul (application de bureau) en Flatpak : dist/QRProtec-front.flatpak
 #   make clean
 
 FEDORA_VERSION ?= 43
@@ -18,7 +19,7 @@ SHELL_SCRIPTS := bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
                  packaging/files/qrprotec-setup packaging/files/qrprotec-backup \
                  packaging/files/qrprotec-kiosk-session packaging/files/qrprotec-front
 
-.PHONY: rpm rpm-local image sources lint clean version icon doc
+.PHONY: rpm rpm-local image sources lint clean version icon doc flatpak
 
 # Proprietaire de dist/ a la fin de la construction, vu depuis le conteneur. En podman rootless
 # (defaut sur Fedora), root du conteneur est deja l'utilisateur courant : chown vers son uid le
@@ -127,6 +128,20 @@ $(DOC_PDFS): $(DOC_DEPS)
 		--toc --toc-depth=2
 	@# weasyprint lance a part (pas --pdf-engine) : pandoc cache son erreur derriere « Error producing PDF. »
 	weasyprint $(WEASYPRINT_FLAGS) $(@:.pdf=.html) $@
+
+# Flatpak du front (pas de kiosk), avec le runtime Flathub installe pour l'utilisateur au besoin.
+# Dependances : sudo dnf install flatpak flatpak-builder
+FLATPAK_ID := io.github.etyloppihacilem.QRProtec
+FLATPAK_MANIFEST := packaging/flatpak/$(FLATPAK_ID).yml
+FLATHUB := https://dl.flathub.org/repo/flathub.flatpakrepo
+
+flatpak:
+	@command -v flatpak-builder >/dev/null || { echo "flatpak-builder requis (sudo dnf install flatpak-builder)"; exit 1; }
+	git submodule update --init app/imgui app/implot app/scanner_lib
+	flatpak remote-add --user --if-not-exists flathub $(FLATHUB)
+	flatpak-builder --user --install-deps-from=flathub --force-clean --ccache \
+		--state-dir=dist/flatpak/state --repo=dist/flatpak/repo dist/flatpak/build $(FLATPAK_MANIFEST)
+	flatpak build-bundle --runtime-repo=$(FLATHUB) dist/flatpak/repo dist/QRProtec-front.flatpak $(FLATPAK_ID)
 
 clean:
 	rm -rf dist

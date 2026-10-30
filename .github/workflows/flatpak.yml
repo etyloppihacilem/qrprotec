@@ -1,0 +1,62 @@
+# Construit le front (application de bureau, sans kiosk) en Flatpak x86_64 :
+# packaging/flatpak/io.github.etyloppihacilem.QRProtec.yml, runtime org.freedesktop.Platform de Flathub.
+#
+# Artefact : QRProtec-front.flatpak, a installer avec `flatpak install --user QRProtec-front.flatpak`
+# (le runtime vient de Flathub). Sur un tag vX.Y.Z, il est aussi joint a la release GitHub.
+name: flatpak
+
+on:
+  push:
+    tags: ['v*']
+    branches: [main]
+    paths: ['app/**', 'packaging/flatpak/**', 'packaging/files/qrprotec-front', 'packaging/files/qrprotec.desktop',
+            '.github/workflows/flatpak.yml']
+  pull_request:
+    paths: ['app/**', 'packaging/flatpak/**', 'packaging/files/qrprotec-front', 'packaging/files/qrprotec.desktop',
+            '.github/workflows/flatpak.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
+        with:
+          manifest-path: packaging/flatpak/io.github.etyloppihacilem.QRProtec.yml
+          bundle: QRProtec-front.flatpak
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/*.yml') }}
+          upload-artifact: false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qrprotec-front-flatpak-x86_64
+          path: QRProtec-front.flatpak
+          if-no-files-found: error
+
+  # Sur un tag vX.Y.Z : .flatpak joint a la release GitHub (creee ici ou par les workflows rpm / macos)
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: qrprotec-front-flatpak-x86_64
+      - name: Release GitHub
+        run: |
+          gh release upload "$GITHUB_REF_NAME" QRProtec-front.flatpak --repo "$GITHUB_REPOSITORY" --clobber \
+            || gh release create "$GITHUB_REF_NAME" QRProtec-front.flatpak \
+                 --repo "$GITHUB_REPOSITORY" --title "QRProtec $GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" QRProtec-front.flatpak --repo "$GITHUB_REPOSITORY" --clobber

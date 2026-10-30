@@ -12,6 +12,7 @@ des machines différentes.
 | **Back seul** | `qrprotec-server` | Un serveur (VM, serveur de l'association) qui héberge la base et le site des téléphones, sans écran. Les postes s'y connectent à distance. | [back-seul.md](back-seul.md) |
 | **Front seul, mode kiosk** | `qrprotec-kiosk` | Une borne dédiée (plein écran) qui se connecte à un back installé ailleurs. | [front-seul.md](front-seul.md#borne-kiosk-reliée-à-un-back-distant) |
 | **Front seul, poste de bureau** | `qrprotec-front` | Le logiciel du poste installé comme une application ordinaire sur un ordinateur qui sert aussi à autre chose. | [front-seul.md](front-seul.md#poste-de-bureau-sans-kiosk) |
+| **Front seul, poste de bureau en Flatpak** | `QRProtec-front.flatpak` | Le même poste de bureau sur une autre distribution que Fedora (Ubuntu, Debian…). Pas de kiosk. | [front-seul.md](front-seul.md#poste-de-bureau-en-flatpak-toute-distribution) |
 
 Le paquet `qrprotec-common` (assistant `qrprotec-setup`, sauvegardes) est installé automatiquement
 avec `qrprotec-server` ou `qrprotec-kiosk`. `qrprotec` n'est qu'un regroupement de
@@ -36,7 +37,8 @@ Pour développer ou tester depuis les sources (sans paquet) : voir
 - **Fedora 42 ou plus récent**, x86_64. Pour une borne : **Fedora Server**, installation minimale
   (« Minimal Install », sans bureau). Pour un poste de bureau : Fedora Workstation convient.
   aarch64 est possible en construisant le paquet soi-même, sans le SDK Bluetooth de la douchette
-  (mode clavier seulement).
+  (mode clavier seulement). Seule exception : le poste de bureau en Flatpak, qui fonctionne sur
+  toute distribution Linux x86_64 avec Flatpak.
 - Un accès réseau pour `dnf` pendant l'installation et les mises à jour.
 
 ## Matériel

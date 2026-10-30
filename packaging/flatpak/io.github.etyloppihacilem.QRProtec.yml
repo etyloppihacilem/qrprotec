@@ -1,0 +1,116 @@
+# Flatpak du front QRProtec (application de bureau, comme le paquet qrprotec-front ; pas de kiosk).
+#
+#   make flatpak       -> dist/QRProtec-front.flatpak (flatpak-builder, runtime Flathub)
+#
+# Construit aussi en CI (.github/workflows/flatpak.yml), joint aux releases vX.Y.Z.
+# Sous-modules git requis (imgui, implot, scanner_lib) : git submodule update --init
+app-id: io.github.etyloppihacilem.QRProtec
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: qrprotec-front
+finish-args:
+  # X11 (XWayland sous un bureau Wayland) : decorations de fenetre dessinees par le bureau (pas de
+  # libdecor dans le runtime) et libxdo, dont le SDK Inateck a besoin
+  - --socket=x11
+  - --share=ipc
+  # OpenGL (/dev/dri) et imprimante Niimbot (/dev/ttyACM0) : pas de permission plus fine pour un
+  # port serie. L'utilisateur doit toujours etre dans le groupe dialout de la machine.
+  - --device=all
+  # Back distant (HTTPS) ou local (http://127.0.0.1:8001)
+  - --share=network
+  # Bips d'erreur (aplay)
+  - --socket=pulseaudio
+  # Douchette Inateck en Bluetooth (BlueZ par le bus systeme)
+  - --system-talk-name=org.bluez
+  - --allow=bluetooth
+  # Reglages partages avec le paquet qrprotec-front (~/.config/qrprotec/app.conf, inateck-hid.conf)
+  - --filesystem=xdg-config/qrprotec:create
+  # Images ajoutees aux etiquettes dans l'editeur
+  - --filesystem=xdg-pictures:ro
+cleanup:
+  - /include
+  - /lib/cmake
+  - /lib/pkgconfig
+  - /share/man
+modules:
+  # GLFW n'est pas dans le runtime. X11 seulement (voir finish-args)
+  - name: glfw
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_SHARED_LIBS=ON
+      - -DGLFW_BUILD_WAYLAND=OFF
+      - -DGLFW_BUILD_X11=ON
+      - -DGLFW_BUILD_EXAMPLES=OFF
+      - -DGLFW_BUILD_TESTS=OFF
+      - -DGLFW_BUILD_DOCS=OFF
+    sources:
+      - type: archive
+        url: https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip
+        sha256: b5ec004b2712fd08e8861dc271428f048775200a2df719ccf575143ba749a3e9
+
+  # libxdo.so.3, requise par le SDK Inateck (bibliotheque seulement, pas la commande xdotool)
+  - name: libxdo
+    buildsystem: simple
+    build-commands:
+      - make PREFIX=/app WITHOUT_RPATH_FIX=1 installlib installheader
+    sources:
+      - type: archive
+        url: https://github.com/jordansissel/xdotool/releases/download/v3.20211022.1/xdotool-3.20211022.1.tar.gz
+        sha256: 96f0facfde6d78eacad35b91b0f46fecd0b35e474c03e00e30da3fdd345f9ada
+
+  # aplay : le front joue ses bips (erreur, taches, signalement) avec aplay, absent du runtime.
+  # L'ALSA du runtime passe par PulseAudio/PipeWire.
+  - name: aplay
+    buildsystem: simple
+    build-commands:
+      - autoreconf -fi
+      - ./configure --prefix=/app --disable-nls --disable-alsamixer --disable-alsaconf --disable-alsaloop
+        --disable-bat --disable-xmlto --disable-rst2man
+      - make -C aplay
+      - install -Dm755 aplay/aplay /app/bin/aplay
+    sources:
+      - type: git
+        url: https://github.com/alsa-project/alsa-utils.git
+        tag: v1.2.14
+        commit: 8cbe7b8cd281118ac1a0819a6eda3fe62368a22d
+
+  - name: qrprotec-front
+    buildsystem: simple
+    build-commands:
+      - cmake -S app -B _build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/app
+        -DCMAKE_SKIP_BUILD_RPATH=ON
+      - cmake --build _build
+      - ctest --test-dir _build --output-on-failure
+      # Memes emplacements que le RPM, sous /app, pour reprendre le lanceur packaging/files/qrprotec-front
+      - install -Dm755 _build/QRProtecApp /app/libexec/qrprotec/qrprotec-front
+      # polices a cote de l'executable (fonts.cpp les cherche la)
+      - install -Dm644 -t /app/libexec/qrprotec/fonts app/third_party/fonts/*.ttf
+      - install -Dm755 packaging/files/qrprotec-front /app/bin/qrprotec-front
+      - sed -i -e 's|@LIBEXECDIR@|/app/libexec|g' -e 's|@LIBDIR@|/app/lib|g' -e 's|@DATADIR@|/app/share|g'
+        /app/bin/qrprotec-front
+      # SDK de la douchette : x86_64 seulement (sinon, front en mode clavier seul, comme le RPM)
+      - if [ "$FLATPAK_ARCH" = x86_64 ]; then install -Dm755
+        app/scanner_lib/ble/linux/x86_64-unknown-linux-gnu/libinateck_scanner_ble.so
+        /app/lib/qrprotec/libinateck_scanner_ble.so; fi
+      # Modeles d'etiquettes fournis, copies au premier lancement dans ~/.var/app/<id>/data/qrprotec/templates
+      - install -Dm644 -t /app/share/qrprotec/templates app/templates/*.qr
+      - install -Dm644 -t /app/share/qrprotec/templates/images app/templates/images/*
+      # Menu et icone (celle du site web). StartupWMClass=qrprotec relie la fenetre X11 a l'entree.
+      - install -Dm644 packaging/files/qrprotec.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      - sed -i "s|^Icon=qrprotec$|Icon=${FLATPAK_ID}|" /app/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 database/inventory/web/icon-512.png /app/share/icons/hicolor/512x512/apps/${FLATPAK_ID}.png
+      - install -Dm644 database/inventory/web/icon-192.png /app/share/icons/hicolor/192x192/apps/${FLATPAK_ID}.png
+      - install -Dm644 database/inventory/web/favicon.png /app/share/icons/hicolor/32x32/apps/${FLATPAK_ID}.png
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .flatpak-builder
+          - flatpak_app
+          - repo
+          - dist
+          - build
+          - _build
