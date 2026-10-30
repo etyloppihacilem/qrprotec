@@ -22,7 +22,9 @@ from django.utils import timezone
 
 from . import forecast, webpush
 from .idendity import short_name
-from .models import ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, revision_blocked_q
+from .models import (
+    ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, lot_keys_expire, revision_blocked_q,
+)
 
 # ----------------------------------------------------------------------------------------------------------------------
 # API SMS de Free Mobile : PLUS MAINTENUE, gardee en commentaire pour memoire.
@@ -194,7 +196,9 @@ def check_key_expirations(today=None):
     limit = today + timedelta(days=warning_days)
     sources = (
         ('lot_key_expiring', 'étiquette clé de lot', 'étiquettes clés de lot', 'expirées',
-         Lots.objects.filter(active=True, verif_key_expires__lte=limit).order_by('verif_key_expires', 'name'),
+         # badge obligatoire : les etiquettes cles n'expirent plus (lot_keys_expire)
+         Lots.objects.filter(active=True, verif_key_expires__lte=limit).order_by('verif_key_expires', 'name')
+         if lot_keys_expire() else Lots.objects.none(),
          'verif_key_expires', lambda lot: lot.name),
         ('badge_expiring', 'badge', 'badges', 'expirés',
          Secouristes.objects.filter(active=True, key_expires__isnull=False, key_expires__lte=limit)

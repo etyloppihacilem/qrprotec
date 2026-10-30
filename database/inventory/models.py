@@ -434,6 +434,13 @@ def stock_lot_name(taken):
     return f'Stock {generate_key(4)}'
 
 
+def lot_keys_expire() -> bool:
+    """Les etiquettes cles n'autorisent plus rien quand le badge est obligatoire (nom declare desactive) : avec un
+    badge, l'etiquette publique suffit. Leur date d'expiration n'est alors plus appliquee (ni refus, ni alerte, ni
+    tache) ; elle reprend effet si le nom declare est autorise."""
+    return ServerSettings.get().declared_identity
+
+
 def default_lot_key_expiration():
     return timezone.localdate() + timedelta(days=qrprotec_setting('LOT_KEY_VALIDITY_DAYS'))
 
@@ -514,7 +521,7 @@ class Lots(models.Model):
         """Cle d'une etiquette privee scannee : 'valid', 'expired' (bonne cle, date depassee) ou 'wrong'."""
         if not keys_match(self.verif_key, key):
             return 'wrong'
-        if self.verif_key_expires is not None and self.verif_key_expires < timezone.localdate():
+        if self.verif_key_expires is not None and self.verif_key_expires < timezone.localdate() and lot_keys_expire():
             return 'expired'
         return 'valid'
 
