@@ -154,6 +154,15 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.environ.get('QRPROTEC_DB_PATH', BASE_DIR / 'db.sqlite3'),
+        # Le back sert chaque requete dans un thread : sans ces options, deux ecritures simultanees (verif a plusieurs,
+        # poste et telephones) echouent en « database is locked ». IMMEDIATE prend le verrou d'ecriture au debut de la
+        # transaction (select_for_update n'existe pas sous SQLite), timeout fait attendre jusqu'a 20 s au lieu
+        # d'echouer, WAL laisse lire pendant une ecriture. La sauvegarde (API de sauvegarde de SQLite) reste coherente.
+        'OPTIONS': {
+            'transaction_mode': 'IMMEDIATE',
+            'timeout': 20,
+            'init_command': 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
+        },
     }
 }
 

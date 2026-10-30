@@ -71,9 +71,23 @@ load_settings() {
     has_server=no has_kiosk=no
     [[ -f $CONF_DIR/qrprotec.conf ]] && id qrprotec >/dev/null 2>&1 && has_server=yes
     [[ -f $CONF_DIR/kiosk.conf ]] && id qrprotec-kiosk >/dev/null 2>&1 && has_kiosk=yes
-    templates_dir=${QRPROTEC_TEMPLATES_DIR:-$KIOSK_HOME/templates}
+    templates_dir=$(kiosk_templates_dir)
     [[ $keep =~ ^[0-9]+$ ]] || die "QRPROTEC_BACKUP_KEEP invalide : $keep"
     [[ $backup_dir == /* ]] || die "QRPROTEC_BACKUP_DIR doit etre un chemin absolu : $backup_dir"
+}
+
+# Dossier des modeles d'etiquettes du kiosk : celui choisi dans les reglages de l'app (templates_dir= de app.conf)
+# l'emporte, sinon QRPROTEC_TEMPLATES_DIR (kiosk.conf), sinon celui par defaut de qrprotec-kiosk-session
+kiosk_templates_dir() {
+    local chosen=""
+    if [[ -r $KIOSK_HOME/.config/qrprotec/app.conf ]]; then
+        chosen=$(sed -n 's/^templates_dir=//p' "$KIOSK_HOME/.config/qrprotec/app.conf" | tail -n 1)
+    fi
+    if [[ $chosen == /* ]]; then
+        echo "$chosen"
+    else
+        echo "${QRPROTEC_TEMPLATES_DIR:-$KIOSK_HOME/templates}"
+    fi
 }
 
 # Copie coherente d'une base SQLite, meme ouverte par le back
@@ -123,10 +137,16 @@ create_backup() {
         chmod 0700 "$backup_dir"
     fi
 
-    stamp=$(date +%Y-%m-%d_%H%M%S)
-    name=${PREFIX}${stamp}
-    archive=$backup_dir/$name.tar.xz
-    [[ -e $archive ]] && die "$archive existe deja"
+    # Deux archives dans la meme seconde (restauration juste apres une sauvegarde) : attendre la suivante
+    local tries=0
+    while :; do
+        stamp=$(date +%Y-%m-%d_%H%M%S)
+        name=${PREFIX}${stamp}
+        archive=$backup_dir/$name.tar.xz
+        [[ -e $archive ]] || break
+        ((++tries < 3)) || die "$archive existe deja"
+        sleep 1
+    done
     work=$(mktemp -d)
     # shellcheck disable=SC2064
     trap "rm -rf '$work'" EXIT
@@ -295,7 +315,7 @@ restore_backup() {
             log "configuration restauree : $CONF_DIR"
         fi
         if [[ -d $src/kiosk && $has_kiosk == yes ]]; then
-            load_settings  # QRPROTEC_TEMPLATES_DIR peut venir du kiosk.conf restaure
+            load_settings  # dossier des modeles d'apres le kiosk.conf et l'app.conf restaures
             if [[ -d $src/kiosk/config ]]; then
                 mkdir -p "$KIOSK_HOME/.config"
                 cp -a "$src/kiosk/config/." "$KIOSK_HOME/.config/qrprotec/"

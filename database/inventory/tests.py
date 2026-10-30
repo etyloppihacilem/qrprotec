@@ -9,7 +9,7 @@ from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from . import serializers as ser
@@ -2298,8 +2298,10 @@ class WebPushTests(ApiTestCase):
         self.assertIn('Sac A', message['body'])
 
 
-class RemoteScannerTests(TestCase):
+class RemoteScannerTests(TransactionTestCase):
     """Telephone-douchette : vrai serveur `serve` (deux ports) et clients WebSocket bruts."""
+    # TransactionTestCase : le serveur tourne dans d'autres threads, avec leurs propres connexions a la base. Sous la
+    # transaction d'un TestCase (BEGIN IMMEDIATE, voir DATABASES), leurs ecritures seraient refusees.
 
     @classmethod
     def setUpClass(cls):

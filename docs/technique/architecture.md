@@ -100,7 +100,11 @@ Détails des formats : [donnees.md](donnees.md#contenu-des-qr-codes).
 
 - **Une seule base SQLite**, un seul processus back (`manage.py serve`, multi-thread). Les
   opérations qui modifient plusieurs lignes (vérif, réception, déplacement) sont dans
-  `transaction.atomic()` avec `select_for_update()` sur les items concernés.
+  `transaction.atomic()` avec `select_for_update()` sur les items concernés. Sous SQLite,
+  `select_for_update()` ne fait rien : c'est `transaction_mode: IMMEDIATE` (dans `DATABASES`) qui
+  prend le verrou d'écriture dès le début de chaque transaction, avec une attente de 20 s
+  (`timeout`) au lieu d'un échec « database is locked », et le journal WAL qui laisse lire pendant
+  une écriture.
 - Les compteurs d'identifiants (`ItemsPacks.last_sequence`, `LotSequence`, `Sequence`) sont
   incrémentés sous verrou : deux réceptions simultanées ne produisent jamais le même iid.
 - Les sessions du téléphone-douchette vivent **en mémoire** dans le processus `serve` (d'où un seul
