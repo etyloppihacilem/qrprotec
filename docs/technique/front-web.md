@@ -103,9 +103,16 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
 - **Suivi des vérifs en direct** : `live` publie la vérif en cours de la page de scan (lot, scans,
   reste à scanner) sur `/ws/live/scanner`, avec une session conservée dans `sessionStorage` pour
   survivre à un rechargement ; la page de suivi ouvre `/ws/live/watch` (badge exigé) et reçoit les
-  mises à jour, puis l'historique par `POST api/verifs/recent/`. Un clic sur une ligne de l'historique
-  ouvre le compte rendu de la vérif (`POST api/verifs/<id>/report/`, `#verif-report`), dont les noms de
-  lots ouvrent la fiche du lot. Voir `inventory/live.py` et [WebSockets des vérifs](websockets.md).
+  mises à jour, puis l'historique par `POST api/verifs/recent/`. Un clic n'importe où sur une ligne de
+  l'historique (ou sur une carte « En direct » terminée) ouvre le compte rendu de la vérif
+  (`POST api/verifs/<id>/report/`, `#verif-report`) : leurs titres n'ont pas de lien, ce sont les noms
+  de lots du compte rendu qui ouvrent la fiche du lot.
+- **Fiche de lot selon le rôle** : `detailed()` (gestion, admin) garde l'état détaillé, la ligne
+  « Dernière vérif … par », la prochaine révision, le lot global et la raison d'une vérif recommandée.
+  Secouristes et chefs n'ont que `shortBanner` (état en un mot, date de la dernière vérif en non gras ;
+  pour un regroupement la plus ancienne de ses sous-lots), la prochaine péremption et le contenu dans
+  un `<details>` replié quand le lot est valide. Le bandeau du lecteur à l'étiquette d'un lot
+  (`showLotInfo`, tous rôles) reprend le même état court, plus ce qu'il manque pour valider. Voir `inventory/live.py` et [WebSockets des vérifs](websockets.md).
 - **Lampe et vibreur** : la lampe (🔦) n'est proposée que si la caméra l'expose (Chrome Android ;
   ni Safari iOS ni Firefox ne la donnent aux pages web) et se rallume quand la caméra redémarre.
   Le vibreur utilise `navigator.vibrate` (Android) ; sur iPhone, à défaut, le retour haptique d'un

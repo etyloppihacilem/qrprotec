@@ -91,6 +91,9 @@
   const isAdmin = () => !!(state.user && state.user.role === 'admin');
   // iids et identifiants de lots : affiches au TECH (admin) seulement, les autres n'en ont pas besoin
   const showIds = isAdmin;
+  // fiches de lots detaillees (comptes, revisions, lot global, raisons d'une vérif recommandee) : gestion et admin ;
+  // secouristes et chefs n'ont que l'etat, sa date et la prochaine peremption, le contenu replie quand tout est valide
+  const detailed = canSeeStock;
   const idText = (id) => (showIds() && id ? id : '');
   const withId = (name, id) => (showIds() && id ? `${name} (${id})` : name);
   const ROLE_LABELS = { normal: 'Secouriste', chef: 'Chef', gestion: 'Gestion', admin: 'Administrateur' };
@@ -1495,13 +1498,6 @@
     return make('ok', '✔ Vérifié, complet');
   }
 
-  function globalLine(lot) {
-    const global = lot.global;
-    if (!global) return '';
-    return `Lot global ${global.name} : ${global.label} · vérif la plus ancienne : `
-      + (global.last_verif ? fmtDateTime(global.last_verif) : 'jamais');
-  }
-
   // Lot qui ne fait que regrouper des sous-lots (rien d'attendu, rien dedans, ex : un B+) : son etat est
   // celui de ses sous-lots (lignes qui le suivent dans l'arborescence du lot global)
   function groupStatus(lot) {
@@ -1509,32 +1505,41 @@
     const index = rows.findIndex((row) => row.id === lot.id);
     if (index < 0 || rows[index].counted) return null;
     let problems = 0; let warn = 0; let counted = 0;
+    // vérif la plus ancienne des sous-lots (date du scelle pour un lot scelle jamais verifie), null si l'un ne l'a jamais ete
+    let at; let never = false;
     for (const row of rows.slice(index + 1)) {
       if (row.depth <= rows[index].depth) break;
       if (!row.counted) continue;
       counted += 1;
       if (row.effective.kind !== 'ok') problems += 1;
       if (row.effective.kind === 'warn') warn += 1;
+      if (row.effective.code === 'covered') continue;
+      const stamp = row.last_verif || (row.is_sealed ? row.sealed : null);
+      if (!stamp) never = true; else if (!at || stamp < at) at = stamp;
     }
-    if (!problems) return { ok: true, kind: 'ok', label: `✔ Sous-lots tous valides (${counted})` };
-    return { ok: false, kind: warn === problems ? 'warn' : 'bad', label: `✘ ${nb(problems, 'sous-lot')} à traiter sur ${counted}` };
+    at = never ? null : at || null;
+    if (!problems) return { ok: true, kind: 'ok', label: `✔ Sous-lots tous valides (${counted})`, short: '✔ Vérifié', at };
+    return { ok: false, kind: warn === problems ? 'warn' : 'bad', label: `✘ ${nb(problems, 'sous-lot')} à traiter sur ${counted}`,
+      short: `${warn === problems ? '⚠' : '✘'} ${pl(problems, 'Un sous-lot', 'Des sous-lots')} à traiter`, at };
   }
 
+  // Etat d'un lot en un mot (« Vérifié », « Incomplet »…) et date de sa derniere vérif (la plus ancienne de ses
+  // sous-lots pour un regroupement ; aucune pour un lot scelle, son etat dit jusqu'a quand il est valide)
+  function shortStatus(lot, status) {
+    const group = groupStatus(lot);
+    if (group) return { word: group.short, at: group.at };
+    return { word: status.kind === 'ok' && !lot.is_sealed ? status.label.split(',')[0] : status.label, at: lot.is_sealed ? null : lot.last_verif };
+  }
+
+  // Bandeau du lecteur a l'etiquette d'un lot : son nom, son etat en un mot avec la date, et ce qu'il manque pour
+  // valider ; le detail est sur la fiche du lot
   function showLotInfo() {
     const lot = state.lot;
     if (!lot) return;
     const status = groupStatus(lot) || lotStatus(lot);
-    showInfo(status.kind, `${status.label} – ${lot.name}`,
-      `${lot.lot_type_name} · ${nb(lot.item_count, 'item')}` + (lot.expired_count ? ` · ${nb(lot.expired_count, 'périmé')}` : '')
-        + ((lot.descendants || []).length ? ` · ${nb(lot.descendants.length, 'sous-lot')}, ${pl(lot.descendants.length, 'vérifié', 'vérifiés chacun')} à part` : ''),
-      globalLine(lot),
-      'Dernière vérif : ' + (lot.last_verif ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais'),
-      !lot.verif_recommended ? '' : lot.restocked_count
-        ? `Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
-        : lot.back_from_list ? `Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : faites une vérif complète.`
-        : `Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : faites une vérif complète.`,
-      lot.seal_required && !lot.is_sealed ? 'Scellé obligatoire : posez un nouveau scellé après la vérif complète.' : '',
-      labelLine(lot));
+    const { word, at } = shortStatus(lot, status);
+    showInfo(status.kind, lot.name, el('span', {}, word, at ? el('span', { class: 'when' }, ` (${fmtDateTime(at)})`) : ''),
+      keyOk() && labelOk() ? '' : labelLine(lot));
   }
 
   // Saisie du PIN (ou choix du PIN pour un admin qui n'en a pas encore)
@@ -3567,13 +3572,14 @@
     const shown = open ? [...row.scanned].reverse() : row.scanned.slice(-4).reverse();
     const people = row.participants || [{ who: row.who, verified: row.verified, connected: row.connected }];
     const mine = (live.credentials() || {}).id === row.id;
-    // vérif terminée : clic sur la carte → son compte rendu (le nom du lot ouvre toujours sa fiche)
+    // vérif terminée : clic n'importe ou sur la carte → son compte rendu, d'ou l'on ouvre les fiches des lots (titre
+    // sans lien) ; vérif en cours : le nom du lot ouvre sa fiche
     const verifs = (done && done.verifs) || [];
     return el('div', { class: 'live-card ' + kind + (verifs.length ? ' clickable' : ''),
       title: verifs.length ? 'Voir le compte rendu' : null, onclick: verifs.length ? (event) => {
         if (!event.target.closest('a, button')) openVerifReport(verifs);
       } : null },
-      el('div', { class: 'name' }, '📦 ', lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
+      el('div', { class: 'name' }, '📦 ', verifs.length ? lot.name : lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
       el('div', { class: 'sub' }, (people.length > 1 ? '👥 ' : '') + people.map((person) => (person.who || 'Non identifié')
         + (person.who && !person.verified ? ' (nom déclaré)' : '') + (people.length > 1 && !done && person.validated ? ' ✔' : '')
         + (people.length > 1 && !done && !person.connected ? ' (déconnecté)' : '')
@@ -3619,11 +3625,11 @@
     } else if (!watch.recent.length) {
       parts.push(el('p', { class: 'hint' }, 'Aucune vérif enregistrée.'));
     } else {
-      // clic sur la ligne : compte rendu de la vérif ; clic sur le nom d'un lot : sa fiche
+      // clic n'importe ou sur la ligne : compte rendu de la vérif, qui mene aux fiches des lots (pas de lien ici)
       parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad',
         title: 'Voir le compte rendu', onclick: () => openVerifReport(row.id) },
         el('div', { class: 'main' },
-          el('div', { class: 'name' }, ...row.lots.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)])),
+          el('div', { class: 'name' }, row.lots.map((lot) => lot.name).join(', ')),
           el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${nb(row.present, 'présent')}`
             + (row.missing ? ` · ${nb(row.missing, 'manquant')}` : '') + (row.expired ? ` · ${nb(row.expired, 'périmé')}` : ''))),
         el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
@@ -4448,7 +4454,7 @@
   // integre), ou d'un lot / item touche dans une fiche. Pas de camera : « Lancer une vérif » ouvre le lecteur sur le
   // bon lot (le lot de la fiche, ou le dernier emplacement connu de l'item).
 
-  const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set() };
+  const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set(), contentOpen: null };
 
   function ficheOpen() { return !$('#fiche').hidden; }
 
@@ -4488,7 +4494,7 @@
       if (key) storeFicheKey(id, key); else key = storedFicheKey(id);
     }
     const token = fiche.token + 1;
-    Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set() });
+    Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set(), contentOpen: null });
     if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id, seal));
     $('#fiche').hidden = false;
     document.body.classList.add('fiche-open');
@@ -4645,8 +4651,17 @@
         + (lot.unsealed_by ? ' par ' + lot.unsealed_by : '')) : '');
   }
 
+  // Etat d'un lot en une ligne pour les secouristes et chefs : la couleur, un mot (« Vérifié ») et, en non gras, la
+  // date de la derniere vérif ; ni comptes ni raisons (gestion et admin gardent l'etat detaille)
+  function shortBanner(lot, status) {
+    const { word, at } = shortStatus(lot, status);
+    return el('div', { class: 'banner ' + status.kind }, word,
+      at ? el('span', { class: 'when' }, ` (${fmtDateTime(at, { long: true })})`) : '');
+  }
+
   function renderLotFiche(body, lot) {
     const status = groupStatus(lot) || lotStatus(lot);
+    const full = detailed();
     const current = state.lotId === lot.id && verifInProgress();
     const launch = $('#fiche-launch');
     setLabel(launch, 'verif', current ? 'Reprendre la vérif' : 'Lancer une vérif');
@@ -4664,24 +4679,24 @@
       (lot.path || []).length ? el('p', { class: 'sub' }, 'Dans : ',
         ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       fiche.seal ? sealBanner(lot) : '',
-      sealIntact ? '' : el('div', { class: 'banner ' + status.kind }, status.label),
+      sealIntact ? '' : full ? el('div', { class: 'banner ' + status.kind }, status.label) : shortBanner(lot, status),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot),
       current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${nb(state.scanned.length, 'scan')}.`) : '',
-      lot.is_sealed && !sealIntact ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
+      lot.is_sealed && !sealIntact && full ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
         + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
-      el('p', {}, 'Dernière vérif : ' + (lot.last_verif
+      !full ? '' : el('p', {}, 'Dernière vérif : ' + (lot.last_verif
         ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
       expiryLine(lot),
-      revisionLine(lot),
-      !lot.verif_recommended ? '' : el('p', {}, lot.restocked_count
+      full ? revisionLine(lot) : '',
+      !lot.verif_recommended || !full ? '' : el('p', {}, lot.restocked_count
         ? `⚠ Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : lot.back_from_list ? `⚠ Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : lot.marked_used ? `⚠ Marqué utilisé ${fmtOn(lot.marked_used, { long: true })}${lot.marked_used_by ? ' par ' + lot.marked_used_by : ''} : vérif complète recommandée.`
         : `⚠ Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
-      lot.seal_required && !lot.is_sealed
+      lot.seal_required && !lot.is_sealed && full
         ? el('p', {}, '🔒 Scellé obligatoire pour ce type de lot : il reste à traiter tant qu\'un nouveau scellé n\'est pas posé.') : '',
-      lot.global && lot.global.id !== lot.id
+      lot.global && lot.global.id !== lot.id && full
         ? el('p', {}, 'Lot global : ', ficheLink('lot', lot.global.id, lot.global.name), ` · ${lot.global.label}`) : '',
     ];
 
@@ -4699,7 +4714,8 @@
       el('div', { class: 'key-box' + (fiche.keyCheck && fiche.keyCheck !== 'valid' ? ' bad' : '') }, ...keyBox));
 
     // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres), ce qui est a traiter en haut
-    parts.push(el('h3', {}, 'Contenu'));
+    // secouristes et chefs : contenu dans une liste deroulante, repliee par defaut quand tout est valide
+    const content = [];
     const lots = [lot, ...attentionTree(lot.descendants || [])];
     const tags = { ok: 'green', warn: 'orange', bad: 'red' };
     for (const sub of lots) {
@@ -4714,10 +4730,10 @@
       if (sub !== lot) {
         if (!requirements.length && !items.length && !missing.length && !(sub.descendants || []).length) continue;
         const subStatus = lotStatus(sub);
-        parts.push(el('ul', { class: 'list' }, el('li', { class: 'lot-head ' + subStatus.kind,
+        content.push(el('ul', { class: 'list' }, el('li', { class: 'lot-head ' + subStatus.kind,
           style: `padding-left:${12 + Math.max(0, (sub.depth || 1) - 1) * 14}px`, onclick: () => openFiche('lot', sub.id) },
         el('div', { class: 'main' }, el('div', { class: 'name' }, '📦 ', ficheLink('lot', sub.id, sub.name)),
-          el('div', { class: 'sub' }, `${sub.lot_type_name} · ${nb(sub.item_count, 'item')}`)),
+          el('div', { class: 'sub' }, full ? `${sub.lot_type_name} · ${nb(sub.item_count, 'item')}` : sub.lot_type_name)),
         el('span', { class: 'tag ' + tags[subStatus.kind] }, subStatus.label.replace(/^[✔✘⚠] /, '').split(',')[0]))));
       }
       // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption (a remplacer en haut)
@@ -4753,15 +4769,21 @@
         for (const { place, rows: list } of placeGroups) {
           const present = list.reduce((sum, line) => sum + Math.min(line.row.present, line.row.required), 0);
           const required = list.reduce((sum, line) => sum + line.row.required, 0);
-          parts.push(el('div', { class: 'place-title' + (present < required ? ' incomplete' : '') },
+          content.push(el('div', { class: 'place-title' + (present < required ? ' incomplete' : '') },
             el('span', {}, '📍 ' + (place || 'Sans emplacement')), el('span', { class: 'count' }, `${present}/${required}`)));
-          for (const line of byRank(list)) parts.push(...line.rows);
+          for (const line of byRank(list)) content.push(...line.rows);
         }
-        for (const line of byRank(extraLines)) parts.push(...line.rows);
+        for (const line of byRank(extraLines)) content.push(...line.rows);
       } else {
-        for (const line of byRank([...lines, ...extraLines])) parts.push(...line.rows);
+        for (const line of byRank([...lines, ...extraLines])) content.push(...line.rows);
       }
-      if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) parts.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
+      if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) content.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
+    }
+    if (full) parts.push(el('h3', {}, 'Contenu'), ...content);
+    else {
+      if (fiche.contentOpen === null) fiche.contentOpen = status.kind !== 'ok' || !!lot.expired_count;
+      parts.push(el('details', { class: 'fiche-content', open: fiche.contentOpen ? '' : null,
+        ontoggle: (event) => { fiche.contentOpen = event.target.open; } }, el('summary', {}, 'Contenu'), ...content));
     }
     body.replaceChildren(...parts);
   }

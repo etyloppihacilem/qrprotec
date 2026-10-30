@@ -424,7 +424,7 @@ def lot_global(lot, today):
     rows = [_tree_row(sub_lot, today, sub_lot.depth) for sub_lot in tree]
     summary = aggregate_tree(rows)
     rows = attention_order(rows)  # sous-lots a traiter en haut, sous leur parent
-    keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed',
+    keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed', 'sealed',
             'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
             'counted')
     summary.update({
