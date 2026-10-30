@@ -492,6 +492,7 @@ class App {
   private:
     void poll_remote();
     void resolve_item(int entry_id);
+    void adopt_prescans();
     void resolve_pack(int entry_id);
     void login_with_badge(const ParsedScan &scan, ScanSource source);
     void send_auth(const std::string &matricule, const std::string &key, const std::string &pin,
@@ -549,6 +550,7 @@ class App {
     double                  next_lots_poll_ = 0.0;
     std::string             seal_to_show_;
     std::string             label_shown_; // lot dont la fiche a ete ouverte par le scan de son etiquette
+    std::string             public_label_scanned_; // etiquette publique du dernier scan (fiche ouverte), sinon vide
     std::string             pack_to_show_;
     std::string             journal_lot_;
     // Premiere configuration : aucun responsable avec un badge valide

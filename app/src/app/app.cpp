@@ -1429,6 +1429,10 @@ void App::handle_scan(const std::string &code, ScanSource source) {
   if (verif.leave_prompt.open)
     answer_leave(1);
   const ParsedScan scan = parse_scan(code);
+  // etiquette publique scannee deux fois de suite hors verif : la 1re ouvre la fiche du lot, la 2e lance sa verif
+  const bool label_again = scan.kind == ScanKind::Lot && scan.key.empty() && !scan.id.empty()
+                        && scan.id == public_label_scanned_;
+  public_label_scanned_.clear();
   // QR code d'une liste de materiel : la liste s'ouvre ; liste ouverte en mode scan : les lots et items y comptent
   if (scan.kind == ScanKind::Checklist) {
     checklist_to_open = scan.id;
@@ -1471,7 +1475,12 @@ void App::handle_scan(const std::string &code, ScanSource source) {
   }
   switch (scan.kind) {
     case ScanKind::User: login_with_badge(scan, source); return;
-    case ScanKind::Lot: scan_lot(scan, source); return;
+    case ScanKind::Lot:
+      if (label_again && !verif.active)
+        start_verif(scan.id, "", true);
+      else
+        scan_lot(scan, source);
+      return;
     case ScanKind::LotSeal: scan_lot_seal(scan, source); return;
     case ScanKind::LotSealOpen: scan_lot_seal_open(scan, source); return;
     case ScanKind::Item: {
@@ -2018,7 +2027,8 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
   // etiquette publique hors verif : fiche du lot d'abord, la verif se lance depuis la fiche
   if (scan.key.empty() && !verif.active) {
     show_lot(scan.id);
-    label_shown_ = scan.id; // « Lancer une vérif » depuis la fiche : l'etiquette du lot compte (verif_label_missing)
+    label_shown_          = scan.id; // « Lancer une vérif » depuis la fiche : l'etiquette du lot compte (verif_label_missing)
+    public_label_scanned_ = scan.id; // la rescanner tout de suite lance la verif
     return;
   }
   if (verif.active)
@@ -2201,12 +2211,38 @@ void App::start_verif(const std::string &lot_id, const std::string &key, bool la
           }
           verif.lot = result.data;
           enter_level(lot_id);
+          adopt_prescans();
         });
         return;
       }
       verif.loading = false;
       verif.lot     = result.data;
+      adopt_prescans();
     });
+  }
+}
+
+// Scans faits avant de lancer la verif (pile non videe) : ils en font partie. Vérif en cascade : chaque item va dans
+// son lot s'il est de la verif (compte en entrant dans ce lot), sinon dans le lot ou la verif commence. Un item a
+// taches dont les taches n'ont pas ete faites ne compte pas encore : sa fenetre des taches se rouvre.
+void App::adopt_prescans() {
+  int tasks = 0;
+  for (ScanEntry &entry : stack.entries()) {
+    if (entry.state != EntryState::Ok)
+      continue;
+    if (entry.place.empty() && verif_cascade()) { // sinon : lieu vide = lot de la verif, repartition par manque
+      const std::string where = entry.data["location"].str();
+      if (entry.scan.kind == ScanKind::Item && !where.empty() && verif_lot(where))
+        entry.place = where;
+      else if (entry.scan.kind == ScanKind::Item || entry.scan.kind == ScanKind::SealedPack)
+        entry.place = verif_place();
+    }
+    if (entry.tasks_pending && !entry.expired && !tasks)
+      tasks = entry.id;
+  }
+  if (tasks) {
+    notify(stack.find(tasks)->title + " : scanné avant la vérif, faites ses tâches pour qu'il compte.");
+    open_tasks(tasks);
   }
 }
 

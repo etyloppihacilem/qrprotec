@@ -348,13 +348,14 @@ class VerifWindow final : public AppWindow {
             ImGui::TableNextRow();
             row_color(entry.missing == 0 ? colors::green : entry.done == 0 ? colors::red : colors::orange, 0.25f);
             ImGui::TableNextColumn();
+            // retrait avant le (!) : Indent apres SameLine ramenait le texte a gauche, par-dessus le (!)
+            if (placed)
+              ImGui::Indent(12.0f);
             ImGui::PushID((lot["id"].str() + ":" + type).c_str());
             if (report_mark("##report"))
               report = { lot["id"].str(), lot["name"].str(), "", type, entry.type_name + " (" + lot["name"].str() + ")" };
             ImGui::PopID();
             ImGui::SameLine();
-            if (placed)
-              ImGui::Indent(12.0f);
             ImGui::Text("%s", entry.type_name.c_str());
             if (placed)
               ImGui::Unindent(12.0f);

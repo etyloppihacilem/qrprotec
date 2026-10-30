@@ -80,7 +80,8 @@ Tous les scans (SDK, clavier HID, saisie manuelle, téléphone) arrivent dans
 2. un item ou paquet déjà dans la pile est ignoré (mis en surbrillance) ;
 3. selon le type :
    - **badge** → connexion (`login_with_badge`, puis PIN si nécessaire) ;
-   - **lot** → étiquette publique : fiche du lot ; étiquette clé : lance la vérif, ou l'ajoute à la
+   - **lot** → étiquette publique : fiche du lot, et la même étiquette rescannée aussitôt (scan
+     suivant) lance sa vérif (`public_label_scanned_`) ; étiquette clé : lance la vérif, ou l'ajoute à la
      vérif en cours si c'est un lot du même lot global (`join_verif`) ;
    - **scellé** → fiche du lot avec le résultat du contrôle du scellé ;
    - **ouverture de scellé** → le scellé est ouvert (signé par l'utilisateur connecté, sinon anonyme) ;

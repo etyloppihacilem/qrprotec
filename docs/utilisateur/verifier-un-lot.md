@@ -21,7 +21,8 @@ avec son badge.** Le reste de cette page détaille les cas particuliers.
      autres. Un emplacement complet se replie sur son titre (cliquez dessus pour le déplier). Même
      chose au téléphone et sur la fiche du lot (emplacements à traiter en haut).
    - Si vous scannez l'étiquette **publique**, la fiche du lot s'affiche avec **Lancer une vérif** :
-     cette étiquette compte pour valider. Une vérif lancée sans avoir scanné d'étiquette (depuis la
+     cette étiquette compte pour valider. Au poste, la scanner **deux fois de suite** lance
+     directement la vérif. Une vérif lancée sans avoir scanné d'étiquette (depuis la
      liste des lots, ou par le premier item scanné) demande d'en scanner une avant de valider.
 2. **Scannez chaque objet.** Il apparaît dans la **pile de scans** (colonne de droite) et disparaît de
    la liste « À scanner ».
@@ -207,6 +208,9 @@ fenêtre s'ouvre avec le nom de l'item et ses tâches à cocher :
 - cochez **toutes** les tâches puis **Valider** : l'item est compté comme vu ;
 - **Annuler** (ou scanner autre chose) : l'item n'est **pas** compté. Rescannez-le pour reprendre
   ses tâches.
+
+Au poste, un item à tâches scanné **avant** de lancer la vérif en fait partie : s'il est validé, il
+compte dans son lot ; sinon sa fenêtre de tâches se rouvre au lancement de la vérif.
 
 Au poste, le **TECH** peut scanner deux fois de suite l'étiquette de tâches pour valider toutes
 les tâches d'un coup. Sur le téléphone, les tâches se cochent toujours une à une.
