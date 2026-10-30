@@ -82,6 +82,16 @@ def _text(value, size):
     return str(value or '')[:size]
 
 
+def _verif_ids(values):
+    """Verifs enregistrees d'une session terminee (compte rendu ouvert depuis le suivi) : ids distincts, dans
+    l'ordre, une par etape d'une vérif en cascade."""
+    ids = []
+    for value in values:
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0 and value not in ids:
+            ids.append(value)
+    return ids[:100]
+
+
 def _number(value):
     try:
         return max(0, min(100000, int(value)))
@@ -378,7 +388,7 @@ class LiveHub:
         steps = list(session.steps.values())
         incomplete = sum(1 for step in steps if not step['complete'] and not step['sealed'])
         session.done = {'complete': not incomplete, 'partial': False, 'present': 0, 'lots': len(steps),
-                        'incomplete': incomplete, 'at': timezone.now().isoformat(timespec='seconds')}
+                        'incomplete': incomplete, 'verifs': _verif_ids(step.get('verif') for step in steps), 'at': timezone.now().isoformat(timespec='seconds')}
         session.updated = timezone.now()
         session.submitting = None
         session.finished = time.monotonic()
@@ -691,6 +701,7 @@ class LiveHub:
                     with self.lock:
                         session.done = {'complete': bool(message.get('complete')), 'partial': bool(message.get('partial')),
                                         'present': _number(message.get('present')),
+                                        'verifs': _verif_ids([message.get('verif')]),
                                         'at': timezone.now().isoformat(timespec='seconds')}
                         session.updated = timezone.now()
                         session.finished = time.monotonic()
@@ -760,7 +771,7 @@ class LiveHub:
             for row in rows:
                 if len(session.steps) < 500 or row['id'] in session.steps:
                     session.steps[row['id']] = {'at': at, 'by': who, 'complete': bool(row.get('complete')),
-                                                'sealed': bool(row.get('sealed'))}
+                                                'sealed': bool(row.get('sealed')), 'verif': report.get('verif_id')}
             for participant in session.participants.values():
                 participant.entries = [entry for entry in participant.entries if not self._entry_in(entry, sent)]
             session.updated = timezone.now()
@@ -783,6 +794,7 @@ class LiveHub:
                 return
             session.done = {'complete': bool(report.get('complete')), 'partial': bool(report.get('partial')),
                             'present': len(report.get('present') or []),
+                            'verifs': _verif_ids([report.get('verif_id')]),
                             'at': timezone.now().isoformat(timespec='seconds')}
             session.updated = timezone.now()
             session.submitting = None
