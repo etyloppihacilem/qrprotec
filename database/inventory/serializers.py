@@ -468,7 +468,20 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True):
         # etiquette d'ouverture, a ranger dans le lot scelle : la scanner ouvre le scelle
         data['seal_open_url'] = (public_url('unseal', lot=lot.id, c=lot.seal_open_code)
                                  if lot.is_sealed and lot.seal_open_code else '')
+        data['own_content'] = lot_own_content(lot)
     return data
+
+
+def lot_own_content(lot):
+    """Contenu propre d'un lot, tel que la TECH l'edite (Gestion des lots) : items en plus du type (extra) et
+    emplacements de ce lot (location None : celui du type), ordre de ses emplacements (vide : celui du type)."""
+    return {
+        'locations': list(lot.locations or []),
+        'rows': [
+            {'type': row.item_type_id, 'type_name': row.item_type.name, 'extra': row.extra, 'location': row.location}
+            for row in lot.content.select_related('item_type').order_by('item_type__name', 'item_type_id')
+        ],
+    }
 
 
 def seal_opening_dict(lot):

@@ -28,6 +28,76 @@ struct RequirementRow {
     std::string location; // emplacement dans le lot (ex: pochette bleue)
 };
 
+// Ligne du contenu propre d'un lot : un attendu de son type (base > 0) avec ce que le lot a en plus et son
+// emplacement dans ce lot, ou un item que seul ce lot contient (base 0).
+struct LotContentRow {
+    std::string type;
+    int         base  = 0; // quantite attendue par le type de lot
+    int         extra = 0; // en plus dans ce lot
+    std::string location;
+    std::string base_location; // emplacement du type de lot
+};
+
+// Emplacements donnes a des lignes, dans l'ordre enregistre (order) puis les nouveaux dans l'ordre des lignes ; deux
+// orthographes du meme nom (casse, accents) n'en font qu'un.
+std::vector< std::string > used_locations(const std::vector< std::string > &rows, const std::vector< std::string > &order) {
+  std::set< std::string >    used;
+  std::set< std::string >    seen;
+  std::vector< std::string > result;
+  for (const std::string &location : rows)
+    if (!name_key(location).empty())
+      used.insert(name_key(location));
+  const auto add = [&](const std::string &location) {
+    const std::string key = name_key(location);
+    if (used.count(key) && seen.insert(key).second)
+      result.push_back(location);
+  };
+  for (const std::string &location : order)
+    add(location);
+  for (const std::string &location : rows)
+    add(location);
+  return result;
+}
+
+// Emplacements a suggerer : ceux des lignes, puis les autres connus (inutilises gardes jusqu'a l'enregistrement)
+std::vector< std::string > location_suggestions(std::vector< std::string > places, const std::vector< std::string > &known) {
+  for (const std::string &location : known)
+    if (!name_key(location).empty() && std::none_of(places.begin(), places.end(), [&](const std::string &place) {
+          return name_key(place) == name_key(location);
+        }))
+      places.push_back(location);
+  return places;
+}
+
+// Fleches ↑ ↓ de l'ordre des emplacements (celui de la verif, une pochette apres l'autre, et de la fiche du lot).
+// Retourne true si `places` a change.
+bool location_order_editor(std::vector< std::string > &places) {
+  int move = -1, to = -1;
+  for (std::size_t index = 0; index < places.size(); ++index) {
+    ImGui::PushID(static_cast< int >(index));
+    ImGui::BeginDisabled(index == 0);
+    if (ImGui::ArrowButton("up", ImGuiDir_Up)) {
+      move = static_cast< int >(index);
+      to   = move - 1;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(index + 1 == places.size());
+    if (ImGui::ArrowButton("down", ImGuiDir_Down)) {
+      move = static_cast< int >(index);
+      to   = move + 1;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::Text("%zu. %s", index + 1, places[index].c_str());
+    ImGui::PopID();
+  }
+  if (move < 0)
+    return false;
+  std::swap(places[static_cast< std::size_t >(move)], places[static_cast< std::size_t >(to)]);
+  return true;
+}
+
 // Creation et agrement des lots, types de lots et edition des etiquettes publique / privee.
 class LotAdminWindow final : public AppWindow {
   public:
@@ -466,6 +536,10 @@ class LotAdminWindow final : public AppWindow {
           ImGui::TableNextRow();
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(row["type_name"].str().c_str());
+          if (row["extra"].integer() > 0) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(dont %d propre à ce lot)", static_cast< int >(row["extra"].integer()));
+          }
           ImGui::TableNextColumn();
           const std::string location = row["location"].str();
           ImGui::TextDisabled("%s", location.empty() ? "-" : location.c_str());
@@ -474,6 +548,8 @@ class LotAdminWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
+      if (!lot_["storage"].boolean())
+        draw_lot_content(app);
       ImGui::Text("%s, dont %s.", nb(lot_["item_count"].integer(), "item").c_str(), nb(lot_["expired_count"].integer(), "périmé").c_str());
       if (ImGui::BeginTable("lot_items", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupColumn("Produit", ImGuiTableColumnFlags_WidthStretch);
@@ -492,6 +568,148 @@ class LotAdminWindow final : public AppWindow {
           ImGui::TextDisabled("%s", item["iid"].str().c_str());
         }
         ImGui::EndTable();
+      }
+    }
+
+    // Contenu propre au lot, par-dessus celui de son type : items en plus, emplacements et leur ordre dans ce lot
+    // (ex : le sac de soin du VPS n'a pas les memes pochettes que celui du lot A).
+    void draw_lot_content(App &app) {
+      const Json       *lot_type = find_lot_type(app, lot_["lot_type"].str());
+      const std::string source   = lot_["id"].str() + lot_["own_content"].dump() + (lot_type ? lot_type->dump() : "");
+      if (content_source_ != source) {
+        content_source_ = source;
+        load_lot_content(lot_type);
+      }
+      if (!ImGui::TreeNode("Personnaliser le contenu de ce lot"))
+        return;
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled("Le contenu attendu du type « %s » vaut pour tous ses lots. Ajoutez ici ce que ce lot "
+                          "contient en plus, et ses propres emplacements s'il n'est pas rangé comme les autres.",
+                          lot_["lot_type_name"].str().c_str());
+      ImGui::PopTextWrapPos();
+      std::vector< std::string > row_locations;
+      for (const LotContentRow &row : content_)
+        row_locations.push_back(row.location);
+      std::vector< std::string > places = used_locations(row_locations, content_locations_);
+      std::vector< std::string > known  = content_locations_;
+      if (lot_type)
+        for (const Json &location : (*lot_type)["locations"].items())
+          known.push_back(location.str());
+      const std::vector< std::string > suggestions = location_suggestions(places, known);
+      const Json item_types = without_archived(app.catalog.item_types);
+      int        remove     = -1;
+      for (std::size_t index = 0; index < content_.size(); ++index) {
+        LotContentRow &row = content_[index];
+        ImGui::PushID(static_cast< int >(index));
+        const float width = ImGui::GetContentRegionAvail().x;
+        ImGui::BeginDisabled(row.base > 0); // un attendu du type ne se retire pas d'un lot
+        search_select("type", row.base > 0 ? app.catalog.item_types : item_types, "type", "name", row.type,
+                      "Tapez le nom du type d'item…", nullptr, width * 0.38f);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        input_suggest("location", row.location, suggestions, 64,
+                      row.base > 0 && row.base_location.empty() ? "Sans emplacement" : "Emplacement", width * 0.26f);
+        ImGui::SameLine();
+        if (row.base > 0) {
+          ImGui::AlignTextToFramePadding();
+          ImGui::TextDisabled("%d du type +", row.base);
+          ImGui::SameLine();
+        }
+        ImGui::SetNextItemWidth(90.0f);
+        ImGui::InputInt("##extra", &row.extra);
+        row.extra = std::max(row.base > 0 ? 0 : 1, row.extra);
+        if (row.base == 0) {
+          ImGui::SameLine();
+          if (small_button("Retirer"))
+            remove = static_cast< int >(index);
+        } else if (name_key(row.location) != name_key(row.base_location)) {
+          ImGui::SameLine();
+          if (small_button("Emplacement du type"))
+            row.location = row.base_location;
+        }
+        ImGui::PopID();
+      }
+      if (remove >= 0)
+        content_.erase(content_.begin() + remove);
+      if (button("+ Ajouter un item à ce lot"))
+        content_.push_back({ "", 0, 1, "", "" });
+      ImGui::SameLine();
+      if (primary_button("Enregistrer le contenu du lot")) {
+        Json body;
+        body["locations"] = Json::array();
+        for (const std::string &place : places)
+          body["locations"].push_back(place);
+        body["content"] = Json::array();
+        for (const LotContentRow &row : content_) {
+          if (row.type.empty() || (row.base > 0 && row.extra == 0 && name_key(row.location) == name_key(row.base_location)))
+            continue; // rien de propre a ce lot
+          Json entry;
+          entry["type"]     = row.type;
+          entry["extra"]    = row.extra;
+          entry["location"] = row.location;
+          body["content"].push_back(entry);
+        }
+        app.api.put("/api/lots/" + url_encode(selected_lot_) + "/content/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          lot_ = result.data;
+          app.notify("Contenu du lot enregistré.");
+          app.refresh_lots();
+        });
+      }
+      if (places.size() > 1) {
+        ImGui::SeparatorText("Ordre des emplacements de ce lot");
+        ImGui::TextDisabled("Ordre dans lequel les secouristes vérifient ce lot, une pochette après l'autre.");
+        if (location_order_editor(places)) {
+          content_locations_ = location_suggestions(places, content_locations_);
+          std::copy(places.begin(), places.end(), content_locations_.begin());
+        }
+        if (lot_type && small_button("Reprendre l'ordre du type")) {
+          content_locations_.clear();
+          for (const Json &location : (*lot_type)["locations"].items())
+            content_locations_.push_back(location.str());
+        }
+        ImGui::TextDisabled("Enregistrez le contenu du lot pour garder l'ordre.");
+      }
+      ImGui::TreePop();
+    }
+
+    static const Json *find_lot_type(const App &app, const std::string &type) {
+      for (const Json &lot_type : app.catalog.lot_types.items())
+        if (lot_type["type"].str() == type)
+          return &lot_type;
+      return nullptr;
+    }
+
+    // Lignes de l'editeur : les attendus du type (avec ce que le lot y change) puis les items propres au lot
+    void load_lot_content(const Json *lot_type) {
+      content_.clear();
+      content_locations_.clear();
+      const Json &own = lot_["own_content"];
+      for (const Json &location : own["locations"].items())
+        content_locations_.push_back(location.str());
+      if (lot_type) {
+        if (content_locations_.empty())
+          for (const Json &location : (*lot_type)["locations"].items())
+            content_locations_.push_back(location.str());
+        for (const Json &row : (*lot_type)["requirements"].items())
+          content_.push_back({ row["type"].str(), static_cast< int >(row["quantity"].integer(1)), 0,
+                               row["location"].str(), row["location"].str() });
+      }
+      for (const Json &row : own["rows"].items()) {
+        const auto found = std::find_if(content_.begin(), content_.end(),
+                                        [&](const LotContentRow &line) { return line.type == row["type"].str(); });
+        const int extra = static_cast< int >(row["extra"].integer());
+        if (found == content_.end()) {
+          if (extra > 0)
+            content_.push_back({ row["type"].str(), 0, extra, row["location"].str(), "" });
+          continue;
+        }
+        found->extra = extra;
+        if (!row["location"].is_null())
+          found->location = row["location"].str();
       }
     }
 
@@ -646,12 +864,11 @@ class LotAdminWindow final : public AppWindow {
       const Json item_types = without_archived(app.catalog.item_types);
       // emplacements deja donnes dans ce type de lot, dans l'ordre de la verif : suggeres a la saisie (un nouveau
       // l'est aussitot tape), les inutilises seulement en suggestion jusqu'a l'enregistrement
-      std::vector< std::string > places      = used_locations();
-      std::vector< std::string > suggestions = places;
-      for (const std::string &location : locations_)
-        if (std::none_of(places.begin(), places.end(),
-                         [&](const std::string &place) { return name_key(place) == name_key(location); }))
-          suggestions.push_back(location);
+      std::vector< std::string > row_locations;
+      for (const RequirementRow &row : requirements_)
+        row_locations.push_back(row.location);
+      std::vector< std::string > places      = used_locations(row_locations, locations_);
+      const std::vector< std::string > suggestions = location_suggestions(places, locations_);
       for (std::size_t index = 0; index < requirements_.size(); ++index) {
         RequirementRow &row = requirements_[index];
         ImGui::PushID(static_cast< int >(index));
@@ -704,55 +921,13 @@ class LotAdminWindow final : public AppWindow {
       if (places.size() > 1) {
         ImGui::SeparatorText("Ordre des emplacements");
         ImGui::TextDisabled("Ordre dans lequel les secouristes les vérifient, une pochette après l'autre.");
-        int move = -1, to = -1;
-        for (std::size_t index = 0; index < places.size(); ++index) {
-          ImGui::PushID(static_cast< int >(index));
-          ImGui::BeginDisabled(index == 0);
-          if (ImGui::ArrowButton("up", ImGuiDir_Up)) {
-            move = static_cast< int >(index);
-            to   = move - 1;
-          }
-          ImGui::EndDisabled();
-          ImGui::SameLine();
-          ImGui::BeginDisabled(index + 1 == places.size());
-          if (ImGui::ArrowButton("down", ImGuiDir_Down)) {
-            move = static_cast< int >(index);
-            to   = move + 1;
-          }
-          ImGui::EndDisabled();
-          ImGui::SameLine();
-          ImGui::Text("%zu. %s", index + 1, places[index].c_str());
-          ImGui::PopID();
-        }
-        if (move >= 0) {
-          std::swap(places[static_cast< std::size_t >(move)], places[static_cast< std::size_t >(to)]);
+        if (location_order_editor(places)) {
           locations_ = suggestions; // les inutilises gardes a la suite, toujours suggeres
           std::copy(places.begin(), places.end(), locations_.begin());
         }
         ImGui::TextDisabled("Enregistrez le contenu pour garder l'ordre.");
       }
       ImGui::EndChild();
-    }
-
-    // Emplacements des lignes du contenu attendu, dans l'ordre enregistre (locations_) puis les nouveaux dans
-    // l'ordre des lignes ; deux orthographes du meme nom (casse, accents) n'en font qu'un
-    std::vector< std::string > used_locations() const {
-      std::set< std::string >    used;
-      std::set< std::string >    seen;
-      std::vector< std::string > result;
-      for (const RequirementRow &row : requirements_)
-        if (!name_key(row.location).empty())
-          used.insert(name_key(row.location));
-      const auto add = [&](const std::string &location) {
-        const std::string key = name_key(location);
-        if (used.count(key) && seen.insert(key).second)
-          result.push_back(location);
-      };
-      for (const std::string &location : locations_)
-        add(location);
-      for (const RequirementRow &row : requirements_)
-        add(row.location);
-      return result;
     }
 
     // Archivage : le type n'est plus propose a la creation de lots. Un lot unique est archive avec son type.
@@ -858,6 +1033,10 @@ class LotAdminWindow final : public AppWindow {
     bool                          show_archived_types_ = false;
     std::vector< RequirementRow > requirements_;
     std::vector< std::string >    locations_; // emplacements du type de lot, dans l'ordre de la verif
+    // Contenu propre au lot affiche
+    std::string                  content_source_; // lot et type d'ou viennent les lignes (rechargees s'ils changent)
+    std::vector< LotContentRow > content_;
+    std::vector< std::string >   content_locations_; // ordre des emplacements du lot
 };
 
 } // namespace

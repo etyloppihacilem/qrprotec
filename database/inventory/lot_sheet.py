@@ -28,7 +28,7 @@ from django.utils import timezone
 from .models import name_key
 from .qr import qr_matrix
 from .serializers import public_url
-from .services import ordered_requirements
+from .services import lot_requirements
 
 PAGE_WIDTH = 595.28   # A4 en points
 PAGE_HEIGHT = 841.89
@@ -241,11 +241,11 @@ def build_pdf(pages, title=''):
 # Contenu de la fiche
 
 def requirement_groups(lot):
-    """[(emplacement, [exigences])] dans l'ordre des emplacements du type de lot (LotType.locations), « sans
+    """[(emplacement, [exigences])] dans l'ordre des emplacements du lot (les siens, sinon ceux de son type), « sans
     emplacement » en dernier, et les types d'items par nom dans chaque emplacement."""
     groups = {}
     labels = {}
-    for requirement in ordered_requirements(lot.lot_type):
+    for requirement in lot_requirements(lot):
         key = name_key(requirement.location)
         labels.setdefault(key, ' '.join(requirement.location.split()))
         groups.setdefault(key, []).append(requirement)

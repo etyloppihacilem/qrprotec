@@ -11,6 +11,7 @@
 """Logique metier de l'inventaire : verifs, mouvements d'items, etat des stocks."""
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import timedelta
 
 from django.db import transaction
@@ -20,7 +21,7 @@ from django.utils import timezone
 from . import journal, movements, notifications, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_identity_name
 from .models import (
-    ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotRequirements, Lots, MovementKind, OperationKind,
+    ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotContent, LotRequirements, Lots, MovementKind, OperationKind,
     SeenWhile, VerifItem, Operation, VerifResult, Verifs, add_months, generate_key, name_key, qrprotec_setting,
     revision_blocked_q,
 )
@@ -47,13 +48,24 @@ def clean_location(location):
     return ' '.join(str(location or '').split())[:64]
 
 
-def ordered_requirements(lot_type, requirements=None):
-    """Exigences d'un type de lot regroupees par emplacement, dans l'ordre choisi par la TECH (LotType.locations),
-    « sans emplacement » en dernier, et les types d'items par nom dans chaque emplacement."""
-    if requirements is None:
-        requirements = LotRequirements.objects.select_related('item_type').filter(lot_type=lot_type)
+@dataclass
+class Requirement:
+    """Exigence d'un lot : celle de son type, avec les items en plus du lot (extra) et son emplacement dans ce lot."""
+    item_type: ItemType
+    quantity: int
+    location: str
+    extra: int = 0
+
+    @property
+    def item_type_id(self):
+        return self.item_type.pk
+
+
+def sort_requirements(requirements, locations=()):
+    """Exigences regroupees par emplacement, dans l'ordre choisi par la TECH (locations), « sans emplacement » en
+    dernier, et les types d'items par nom dans chaque emplacement."""
     order = {}
-    for name in lot_type.locations or []:
+    for name in locations or []:
         order.setdefault(name_key(name), len(order))
 
     def key(requirement):
@@ -61,6 +73,36 @@ def ordered_requirements(lot_type, requirements=None):
         return (place == '', order.get(place, len(order)), place, name_key(requirement.item_type.name),
                 requirement.item_type_id)
     return sorted(requirements, key=key)
+
+
+def ordered_requirements(lot_type, requirements=None):
+    """Exigences d'un type de lot, dans l'ordre de ses emplacements (LotType.locations)."""
+    if requirements is None:
+        requirements = LotRequirements.objects.select_related('item_type').filter(lot_type=lot_type)
+    return sort_requirements(requirements, lot_type.locations)
+
+
+def lot_requirements(lot):
+    """Contenu attendu d'un lot (Requirement) : celui de son type, plus son contenu propre (LotContent : items en
+    plus, emplacements de ce lot), dans l'ordre des emplacements du lot (Lots.locations, sinon ceux du type)."""
+    if lot.lot_type.storage:
+        return []  # un rangement du stock n'attend rien
+    own = {row.item_type_id: row for row in LotContent.objects.select_related('item_type').filter(lot=lot)}
+    rows = []
+    for requirement in LotRequirements.objects.select_related('item_type').filter(lot_type_id=lot.lot_type_id):
+        custom = own.pop(requirement.item_type_id, None)
+        location = requirement.location if custom is None or custom.location is None else custom.location
+        extra = custom.extra if custom else 0
+        rows.append(Requirement(requirement.item_type, requirement.quantity + extra, location, extra))
+    for custom in own.values():
+        if custom.extra > 0:
+            rows.append(Requirement(custom.item_type, custom.extra, custom.location or '', custom.extra))
+    return sort_requirements(rows, lot_locations(lot))
+
+
+def lot_locations(lot):
+    """Ordre des emplacements d'un lot : le sien s'il en a un, sinon celui de son type."""
+    return list(lot.locations or lot.lot_type.locations or [])
 
 
 def location_order(rows, order=(), known=()):
@@ -97,13 +139,14 @@ def requirements_status(lot, today=None):
         else:
             fresh[item.pack.item_type_id] += 1
     rows = []
-    for requirement in ordered_requirements(lot.lot_type):
+    for requirement in lot_requirements(lot):
         type_id = requirement.item_type_id
         rows.append({
             'type': type_id,
             'type_name': requirement.item_type.name,
             'location': requirement.location,
             'required': requirement.quantity,
+            'extra': requirement.extra,  # dont en plus du type de lot (contenu propre du lot)
             'present': fresh.get(type_id, 0),
             'expired': expired.get(type_id, 0),
             'unconfirmed': unconfirmed.get(type_id, 0),
@@ -124,11 +167,8 @@ def verif_lots(lots):
 
 
 def _required_by_lot(group):
-    """{lot id: {type d'item: quantite}} d'apres les exigences du type de chaque lot."""
-    by_type = defaultdict(dict)
-    for row in LotRequirements.objects.filter(lot_type_id__in={lot.lot_type_id for lot in group}):
-        by_type[row.lot_type_id][row.item_type_id] = row.quantity
-    return {lot.id: dict(by_type.get(lot.lot_type_id, {})) for lot in group}
+    """{lot id: {type d'item: quantite}} d'apres le contenu attendu de chaque lot (son type et son contenu propre)."""
+    return {lot.id: {row.item_type_id: row.quantity for row in lot_requirements(lot)} for lot in group}
 
 
 def assign_items(group, scanned, today, places=None):
