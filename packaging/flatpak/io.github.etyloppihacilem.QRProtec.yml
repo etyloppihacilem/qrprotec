@@ -68,6 +68,7 @@ modules:
       - autoreconf -fi
       - ./configure --prefix=/app --disable-nls --disable-alsamixer --disable-alsaconf --disable-alsaloop
         --disable-bat --disable-xmlto --disable-rst2man
+      - make -C include version.h
       - make -C aplay
       - install -Dm755 aplay/aplay /app/bin/aplay
     sources:
