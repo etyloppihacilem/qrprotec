@@ -418,6 +418,7 @@ struct SearchState {
     int         highlighted   = 0;
     bool        popup_hovered = false;
     bool        accept        = false; // Tab presse (callback de completion)
+    int         move          = 0;     // fleches haut / bas (callback d'historique)
 };
 std::unordered_map< ImGuiID, SearchState > search_states;
 
@@ -433,9 +434,17 @@ std::string description_excerpt(const std::string &description) {
   return end < line.size() ? line.substr(0, end) + "…" : line;
 }
 
+// Fleches haut / bas : sans le drapeau d'historique, la navigation clavier d'ImGui les prend et sort du champ
+void search_history(SearchState &state, const ImGuiInputTextCallbackData *data) {
+  state.move += data->EventKey == ImGuiKey_DownArrow ? 1 : -1;
+}
+
 int search_callback(ImGuiInputTextCallbackData *data) {
+  SearchState &state = *static_cast< SearchState * >(data->UserData);
   if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion)
-    static_cast< SearchState * >(data->UserData)->accept = true;
+    state.accept = true;
+  if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory)
+    search_history(state, data);
   return 0;
 }
 } // namespace
@@ -459,7 +468,8 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
   ImGui::SetNextItemWidth(width);
   const bool entered = ImGui::InputTextWithHint(
     "##input", hint, &state.query,
-    ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion,
+    ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion
+      | ImGuiInputTextFlags_CallbackHistory,
     search_callback, &state
   );
   const bool   now_active = ImGui::IsItemActive();
@@ -505,15 +515,13 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
     ImGui::ClearActiveID(); // referme la saisie : le champ affiche la selection
   };
   if (now_active) {
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
-      ++state.highlighted;
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
-      --state.highlighted;
+    state.highlighted += state.move;
     state.highlighted = matches.empty() ? 0 : std::clamp(state.highlighted, 0, static_cast< int >(matches.size()) - 1);
   }
   if ((entered || state.accept) && !matches.empty())
     accept(matches[static_cast< std::size_t >(state.highlighted)]);
   state.accept = false;
+  state.move   = 0;
 
   // liste deroulante des resultats, au premier plan sous le champ
   if (!changed && (now_active || state.popup_hovered)) {
@@ -561,6 +569,10 @@ int suggest_callback(ImGuiInputTextCallbackData *data) {
     input.state->accept = true;
     return 0;
   }
+  if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory) {
+    search_history(*input.state, data);
+    return 0;
+  }
   data->UserData   = &input.limit;
   const int result = limit_callback(data);
   data->UserData   = &input;
@@ -576,7 +588,8 @@ bool input_suggest(const char *id, std::string &value, const std::vector< std::s
   ImGui::SetNextItemWidth(width);
   const bool entered = ImGui::InputTextWithHint(
     "##input", hint ? hint : "", &value,
-    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackEdit,
+    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackEdit
+      | ImGuiInputTextFlags_CallbackHistory,
     suggest_callback, &input
   );
   bool         changed = ImGui::IsItemEdited();
@@ -592,12 +605,9 @@ bool input_suggest(const char *id, std::string &value, const std::vector< std::s
   for (const std::string &suggestion : suggestions)
     if (name_key(suggestion) != key && (key.empty() || search_matches(value, suggestion)))
       matches.push_back(suggestion);
-  if (active) {
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
-      ++state.highlighted;
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
-      --state.highlighted;
-  }
+  if (active)
+    state.highlighted += state.move;
+  state.move        = 0;
   state.highlighted = std::clamp(state.highlighted, -1, static_cast< int >(matches.size()) - 1);
 
   bool       accepted = false;
