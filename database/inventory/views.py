@@ -443,10 +443,18 @@ def client_address(request):
     return address[:64]
 
 
+def login_name_key(name):
+    """Forme d'un nom pour la connexion : name_key sans aucun separateur (espaces, tirets, apostrophes de toutes
+    sortes). « Jean-Pierre », « jean pierre », « Jean–Pierre » et « jeanpierre » sont le meme prenom ; le PIN
+    reste exige, donc pas de risque de confondre deux secouristes."""
+    return ''.join(character for character in name_key(name) if character.isalnum())
+
+
 def name_login_candidates(nom, prenom):
-    """Secouristes de ce nom (sans accents ni casse) qui peuvent se connecter par nom et PIN."""
-    key = (name_key(nom), name_key(prenom))
-    return [user for user in name_login_candidates_queryset() if (name_key(user.nom), name_key(user.prenom)) == key]
+    """Secouristes de ce nom (sans accents, casse ni separateurs) qui peuvent se connecter par nom et PIN."""
+    key = (login_name_key(nom), login_name_key(prenom))
+    return [user for user in name_login_candidates_queryset()
+            if (login_name_key(user.nom), login_name_key(user.prenom)) == key]
 
 
 def name_login_candidates_queryset():

@@ -1110,6 +1110,15 @@ class NameLoginTests(ApiTestCase):
         self.assertEqual(idendity.identity_from_request({'user': credentials}), 'M:M001')
         self.assertIsNone(idendity.identity_from_request({'user': {'matricule': 'M001', 'session': 'faux'}}))
 
+    def test_compound_names_ignore_separators(self):
+        """Tirets, espaces et apostrophes ne comptent pas : « Jean-Pierre Le Gall » se tape comme on veut."""
+        self.user.prenom, self.user.nom = 'Jean-Pierre', "Le Gall-N'Diaye"
+        self.user.save()
+        for prenom, nom in (('jean pierre', 'le gall ndiaye'), ('Jean–Pierre', 'LE-GALL N’DIAYE'),
+                            ('jeanpierre', 'legallndiaye'), ('Jéan - Pierre', "le gall-n'diaye")):
+            self.assertEqual(self.login(nom=nom, prenom=prenom)[0], 200, (prenom, nom))
+        self.assertEqual(self.login(nom='le gall', prenom='jean pierre')[0], 403)  # le nom reste complet
+
     def test_refusals_look_the_same(self):
         unknown = self.login(nom='Personne')
         wrong = self.login(pin='1111')
