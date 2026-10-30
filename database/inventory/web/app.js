@@ -3620,7 +3620,9 @@
     } else if (!watch.recent.length) {
       parts.push(el('p', { class: 'hint' }, 'Aucune vérif enregistrée.'));
     } else {
-      parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad' },
+      // clic sur la ligne : compte rendu de la vérif ; clic sur le nom d'un lot : sa fiche
+      parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad',
+        title: 'Voir le compte rendu', onclick: () => openVerifReport(row.id) },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, ...row.lots.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)])),
           el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${nb(row.present, 'présent')}`
@@ -3629,6 +3631,61 @@
     }
     view.replaceChildren(...parts);
   }
+
+  // Compte rendu d'une vérif passée : résumé, puis lot par lot ce qui a été vu, manquait ou était périmé
+  async function openVerifReport(id) {
+    let report;
+    try {
+      report = await api(`verifs/${id}/report/`, { user: badge() });
+    } catch (e) {
+      toast('Compte rendu : ' + e.message, true);
+      return;
+    }
+    const people = [report.by || '?', ...(report.participants || [])];
+    const total = (key) => report.lots.reduce((sum, lot) => sum + lot[key + '_count'], 0);
+    const counts = [[total('present'), 'présent'], [total('missing'), 'manquant'], [total('expired'), 'périmé'],
+      [total('replaced'), 'remplacé']].filter(([count], index) => count || !index)
+      .map(([count, word]) => nb(count, word)).join(' · ');
+    const partial = report.lots.some((lot) => lot.partial);
+    const rows = (list) => list.map((row) => el('li', {}, `${row.count} × ${row.type_name}`
+      + (row.peremption ? ` – ${fmtDate(row.peremption)}` : '')));
+    const section = (title, list) => list.length
+      ? [el('h3', {}, `${title} (${list.reduce((sum, row) => sum + row.count, 0)})`), el('ul', {}, rows(list))] : [];
+    const lotBlock = (lot) => [
+      el('div', { class: 'lot-head ' + (lot.complete ? 'ok' : lot.partial ? 'partial' : 'bad'),
+        style: lot.depth ? `margin-left:${lot.depth * 14}px` : '' },
+        lot.complete ? '✔ ' : '✘ ', lotLink(lot), lot.complete ? ' : complet' : ' : incomplet'),
+      ...(lot.lacking || []).map((row) => lotRequirementRow(row.type_name, row.present, row.required)),
+      ...section('Périmés ou inutilisables restés dans le lot', lot.expired),
+      ...section('Périmés retirés du lot : à jeter', lot.replaced),
+      ...section('Attendus mais non scannés', lot.missing),
+      // presents replies : ce qui demande l'attention passe avant
+      lot.present.length ? el('details', {}, el('summary', {},
+        `Présents (${lot.present.reduce((sum, row) => sum + row.count, 0)})`), el('ul', {}, rows(lot.present))) : '',
+    ];
+    const body = $('#verif-report-body');
+    body.replaceChildren(
+      el('h2', { style: `color:var(--${report.complete ? 'green' : partial ? 'orange' : 'red'})` },
+        report.complete ? (report.lots.length > 1 ? '✅ Lots complets' : '✅ Lot complet')
+          : partial ? '↷ Vérif partielle' : report.lots.length > 1
+          ? `⚠️ ${nb(report.lots.filter((lot) => !lot.complete).length, 'lot NON complet', 'lots NON complets')} sur ${report.lots.length}`
+          : '⚠️ Lot NON complet'),
+      el('p', {}, `${cap(fmtDateTime(report.at))} · ${people.length > 1 ? '👥 ' : ''}${people.join(', ')}`),
+      el('p', {}, counts + '.'),
+      report.sealed.length ? el('p', {}, '🔒 Scellé intact, compté comme vérifié : ',
+        ...report.sealed.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)]), '.') : '',
+      ...report.lots.flatMap(lotBlock),
+      ...(report.operations.length ? [el('h3', {}, 'Pendant cette vérif'), el('ul', {}, report.operations.map((op) =>
+        el('li', {}, `${op.kind_label}`, op.lot ? [' · ', lotLink({ id: op.lot, name: op.lot_name })] : '',
+          op.summary ? ` : ${op.summary}` : '')))] : []),
+    );
+    $('#verif-report').showModal();
+  }
+  $('#verif-report-close').addEventListener('click', () => $('#verif-report').close());
+  // nom d'un lot : sa fiche s'ouvre a la place du compte rendu (retour : page de suivi)
+  $('#verif-report-body').addEventListener('click', (event) => {
+    if (event.target.closest('a.link')) $('#verif-report').close();
+  }, true); // capture : le lien arrete la propagation
 
   // ------------------------------------------------------------------------------------------------
   // Notifications web (admins) : alertes de stock bas et de stock vide, meme page fermee.

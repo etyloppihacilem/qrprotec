@@ -17,6 +17,7 @@ Deux familles de vues :
 """
 
 import functools
+from collections import Counter, defaultdict
 import hmac
 import re
 from datetime import date, timedelta
@@ -50,7 +51,7 @@ from .sessions import credentials_user, session_token, session_user, session_val
 from .models import (
     DEFAULT_FONCTION, PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
-    SCANNER_VOLUMES, ServerSettings, Verifs, add_months, name_key, qrprotec_setting,
+    SCANNER_VOLUMES, ServerSettings, VerifItem, VerifResult, Verifs, add_months, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -941,6 +942,75 @@ def verifs_recent(request):
     for row in rows:
         del row['_key']
     return Response(rows)
+
+
+# Operations du journal enregistrees au meme instant qu'une verif, citees dans son compte rendu
+REPORT_OPERATION_KINDS = (OperationKind.RESTOCK, OperationKind.REMOVE, OperationKind.UNSEAL)
+
+
+@api_view(['POST'])
+@handle_errors
+def verif_report(request, verif_id):
+    """Compte rendu d'une verif passee (clic sur une ligne de « Vérifs récentes ») : tout badge valide, comme la
+    liste. Une verif groupee (meme instant, meme personne) est rendue en entier, un lot par sous-lot verifie."""
+    badge_user(request)
+    first = get_object_or_404(Verifs.objects.select_related('lot'), id=verif_id, lot__isnull=False)
+    verifs = list(Verifs.objects.select_related('lot').filter(datetime=first.datetime, by=first.by, lot__isnull=False)
+                  .order_by('id'))
+    by_lot = {verif.lot_id: verif for verif in verifs}
+    operations = list(Operation.objects.filter(at=first.datetime, by=first.by).order_by('id'))
+    details = {op.details.get('verif'): op.details for op in operations if op.kind == OperationKind.VERIF}
+    entries = defaultdict(lambda: defaultdict(Counter))
+    for entry in VerifItem.objects.filter(verif__in=verifs).select_related('item__pack__item_type'):
+        pack = entry.item.pack
+        section = 'expired' if entry.result == VerifResult.PRESENT and entry.expired else entry.result
+        entries[entry.verif_id][section][(pack.item_type.name, pack.peremption)] += 1
+
+    def depth(lot):
+        level, parent = 0, lot.parent_id
+        while parent in by_lot and level < len(by_lot):
+            level += 1
+            parent = by_lot[parent].lot.parent_id
+        return level
+
+    # ordre de l'arbre : chaque lot avant ses sous-lots
+    children = defaultdict(list)
+    for verif in verifs:
+        children[verif.lot.parent_id if verif.lot.parent_id in by_lot else None].append(verif)
+    ordered = []
+    pending = list(reversed(children[None]))
+    while pending:
+        verif = pending.pop()
+        ordered.append(verif)
+        pending.extend(reversed(children[verif.lot_id]))
+
+    lots = []
+    for verif in ordered:
+        info = details.get(verif.id, {})
+        lots.append({
+            'id': verif.lot_id, 'name': verif.lot.name, 'depth': depth(verif.lot), 'complete': verif.complete,
+            'partial': bool(info.get('partial')), 'present_count': verif.present_count,
+            'missing_count': verif.missing_count, 'expired_count': verif.expired_count,
+            'replaced_count': verif.replaced_count, 'lacking': info.get('lacking', []),
+            **{section: [{'type_name': name, 'peremption': ser._date(peremption), 'count': count}
+                         for (name, peremption), count in sorted(entries[verif.id][section].items(),
+                                                                 key=lambda row: (row[0][0], str(row[0][1])))]
+               for section in ('present', 'expired', 'replaced', 'missing')},
+        })
+    return Response({
+        'id': first.id,
+        'at': ser._date(first.datetime),
+        'by': ser._who(first.by),
+        'participants': [ser._who(value) for value in first.participants],
+        'complete': all(verif.complete for verif in verifs),
+        'lots': lots,
+        # scelles intacts constates (comptes comme verifies, sans ligne Verifs) et reassorts, retraits, ouvertures
+        'sealed': [{'id': op.lot_id, 'name': op.lot_name} for op in operations
+                   if op.kind == OperationKind.VERIF and op.details.get('sealed_intact')],
+        'operations': [{'kind': op.kind, 'kind_label': op.get_kind_display(), 'lot': op.lot_id,
+                        'lot_name': op.lot_name, 'summary': op.summary}
+                       for op in operations if op.kind in REPORT_OPERATION_KINDS],
+    })
 
 
 @api_view(['POST'])

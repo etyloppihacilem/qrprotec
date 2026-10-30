@@ -2442,6 +2442,31 @@ class RecentVerifsTests(ApiTestCase):
         self.assertEqual(grouped['present'], 4)
         self.assertEqual(grouped['by'], 'Admin')  # nom court de l'API publique (prenom seul, pas d'homonyme)
 
+    def test_verif_report_lists_each_lot_of_a_grouped_verif(self):
+        sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
+        sub.save()
+        items = self.create(self.compresses, self.today + timedelta(days=200), 4)
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in items[:2]]})
+        self.call('POST', f'/api/lots/{sub.id}/add/', {'items': [item.iid for item in items[2:]]})
+        self.call('POST', '/api/verifs/', {'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items[:3]]})
+        badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
+        _, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
+        code, _ = self.call('POST', f'/api/verifs/{rows[0]["id"]}/report/', {}, local=False)
+        self.assertEqual(code, 403)
+        code, report = self.call('POST', f'/api/verifs/{rows[0]["id"]}/report/', {'user': badge}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(report['by'], 'Admin')
+        lots = {lot['id']: lot for lot in report['lots']}
+        self.assertEqual(set(lots), {self.lot.id, sub.id})
+        self.assertEqual((lots[self.lot.id]['depth'], lots[sub.id]['depth']), (0, 1))
+        self.assertEqual(lots[sub.id]['present_count'], 1)
+        self.assertEqual(lots[sub.id]['missing_count'], 1)
+        self.assertEqual([(row['type_name'], row['count']) for row in lots[sub.id]['missing']],
+                         [(self.compresses.name, 1)])
+        self.assertEqual(sum(row['count'] for row in lots[self.lot.id]['present']), 2)
+        code, _ = self.call('POST', '/api/verifs/999999/report/', {'user': badge}, local=False)
+        self.assertEqual(code, 404)
+
     def test_live_names_are_anonymized(self):
         from .live import public_name
         Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')
