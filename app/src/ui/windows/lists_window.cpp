@@ -63,6 +63,13 @@ class ListsWindow final : public AppWindow {
         load(app);
     }
 
+    void reset_view(App &app) override {
+      select(app, ""); // plus de liste ouverte ni de scan dirige vers elle
+      show_ = "mine";
+      member_query_.clear();
+      member_results_ = Json::array();
+    }
+
     void draw(App &app) override {
       if (!app.checklist_to_open.empty() && app.logged_in()) {
         // QR code d'une liste scanne : elle s'ouvre (verif en direct)

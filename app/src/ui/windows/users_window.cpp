@@ -34,6 +34,8 @@ class UsersWindow final : public AppWindow {
 
     void on_open(App &app) override { app.refresh_users(); }
 
+    void reset_view(App &) override { select(Json()); }
+
     void draw(App &app) override {
       if (seen_users_version_ != app.catalog.users_version) {
         seen_users_version_ = app.catalog.users_version;

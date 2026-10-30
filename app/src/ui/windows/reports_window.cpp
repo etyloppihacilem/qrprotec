@@ -44,6 +44,12 @@ class ReportsWindow final : public AppWindow {
 
     void on_open(App &app) override { load(app); }
 
+    void reset_view(App &) override {
+      selected_ = 0;
+      all_      = false;
+      note_.clear();
+    }
+
     void draw(App &app) override {
       if (ImGui::RadioButton("En cours", !all_)) {
         all_ = false;

@@ -43,6 +43,7 @@ class AppWindow {
 
     virtual void             draw(App &app) = 0;     // contenu, entre Begin et End
     virtual void             on_open(App &) {}       // (re)chargement des donnees
+    virtual void             reset_view(App &) {}    // vue par defaut : selection, filtres, cases, onglet (inactivite, deconnexion)
     virtual ImGuiWindowFlags flags() const { return 0; }
     virtual bool             can_close(const App &) const { return closable; }
 
@@ -324,6 +325,7 @@ class App {
     // reglage « Machine partagee » enregistre : garde ou efface la session de cette machine
     void        apply_shared_machine();
     void        reset_session(); // retour a l'etat initial (inactivite)
+    void        reset_windows_view(); // chaque fenetre revient a sa vue par defaut (personne suivante)
     // allow_declared : le nom declare sans badge (reglage du serveur) suffit pour cette action
     void        require_login(const std::string &what, std::function< void() > action, bool allow_declared = true);
     // « Non connecte » de la pile de scans : fenetre de connexion, saisie nom, prenom et PIN deja ouverte

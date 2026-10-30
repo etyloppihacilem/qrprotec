@@ -15,6 +15,7 @@
 #include "windows.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace qrprotec {
 
@@ -85,6 +86,18 @@ class InventoryWindow final : public AppWindow {
       load_receptions(app);
     }
 
+    void reset_view(App &) override {
+      clear_type_form();
+      show_archived_ = false;
+      search_text_.clear();
+      search_type_.clear();
+      search_status_     = 0;
+      search_stock_only_ = false;
+      selected_item_     = Json();
+      first_tab_         = true;
+      reload_pending     = true; // recherche refaite sans filtre au prochain affichage
+    }
+
     void draw(App &app) override {
       if (seen_packs_version_ != app.catalog.packs_version) {
         seen_packs_version_ = app.catalog.packs_version;
@@ -98,7 +111,7 @@ class InventoryWindow final : public AppWindow {
       }
       if (!ImGui::BeginTabBar("inventory_tabs"))
         return;
-      if (tab_item("Réception")) {
+      if (tab_item("Réception", std::exchange(first_tab_, false) ? ImGuiTabItemFlags_SetSelected : 0)) {
         draw_reception(app);
         ImGui::EndTabItem();
       }
@@ -1020,6 +1033,7 @@ class InventoryWindow final : public AppWindow {
     std::string receptions_type_;
     std::string selected_reception_;
     bool        show_receptions_ = false; // onglet Receptions a selectionner (bouton d'un item)
+    bool        first_tab_       = false; // onglet Reception a selectionner (vue par defaut)
     // Paquets
     Json packs_       = Json::array();
     bool show_opened_        = false;

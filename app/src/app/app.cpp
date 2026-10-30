@@ -332,6 +332,7 @@ void App::reset_session() {
   declared_name_.clear();
   fullscreen_ = false;
   apply_default_open_state();
+  reset_windows_view();
   refresh_lots();
   notify("Session réinitialisée après inactivité.");
 }
@@ -1020,6 +1021,12 @@ void App::logout(const std::string &reason) {
 void App::manual_logout() {
   forget_login();
   logout("Déconnecté.");
+  reset_windows_view();
+}
+
+void App::reset_windows_view() {
+  for (auto &window : windows)
+    window->reset_view(*this);
 }
 
 void App::session_expired() {

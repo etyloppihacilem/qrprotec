@@ -74,6 +74,12 @@ class JournalWindow final : public AppWindow {
       load(app, true);
     }
 
+    void reset_view(App &) override {
+      reset_filters();
+      selected_      = -1;
+      reload_pending = true; // journal recharge sans filtre au prochain affichage
+    }
+
     void draw(App &app) override {
       // « Journal du lot » depuis la gestion des lots : filtre sur ce lot
       const std::string lot = app.take_journal_lot();
