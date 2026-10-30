@@ -1571,26 +1571,25 @@ void App::resolve_item(int entry_id) {
     else if (item["reported"].boolean())
       detail += " - problème signalé";
     entry->detail = detail;
-    // verif en cascade : un item d'un lot deja valide pendant la verif n'est pas recompte ; un item d'un sous-lot du
-    // lot en cours fait entrer dans ce sous-lot
+    // verif en cascade : un item est compte dans le lot ou l'on est (on l'y a trouve), meme range ailleurs dans la verif ;
+    // on ne change de lot qu'en scannant son etiquette. Seul un item d'un sous-lot du lot en cours fait entrer dans ce
+    // sous-lot (on n'est encore dans aucun d'eux), sauf s'il a deja ete valide.
     if (verif_cascade() && !item["location"].str().empty() && verif_lot(item["location"].str())) {
       const std::string where = item["location"].str();
+      const std::string level = verif_level();
       const std::string name  = (*verif_lot(where))["name"].str();
-      if (verif.done.count(where)) {
+      if (!verif_under(where, level)) {
+        notify(item["type_name"].str() + " : rangé dans " + name + ", compté dans " + (*verif_lot(level))["name"].str()
+               + " où vous l'avez trouvé (il y sera déplacé).");
+      } else if (verif.done.count(where)) {
         stack.remove(entry_id);
         feedback.notice(source, settings);
         notify(item["type_name"].str() + " : " + name + " a déjà été validé, item non recompté (scannez l'étiquette de "
                  + name + " pour le refaire).",
                true);
         return;
-      }
-      // item d'un autre lot alors que le lot en cours est complet : celui-ci est valide automatiquement, puis on entre
-      // dans le lot de l'item ; l'item compte dans son lot, pas dans celui qui est valide. Lot en cours incomplet et
-      // deja commence : popup « Passer a … ? » ; sinon on passe au lot de l'item sans question.
-      entry->place       = where; // pas envoye avec le lot valide automatiquement
-      const bool closing = !verif_under(where, verif_level())
-                        && (leave_complete_level(where, true) || ask_leave(where, entry_id));
-      if (!closing && where != verif_level()) {
+      } else if (where != level) {
+        entry->place = where;
         enter_level(where);
         const std::string parent = verif_parent(where);
         notify("Entrée dans " + name + " : scannez son contenu, puis validez-le"
@@ -2486,13 +2485,16 @@ std::vector< VerifPlanLot > App::plan_verif() const {
   std::vector< Scanned >  newcomers;
   std::map< std::string, std::string > target;
   std::vector< Scanned >  all;
+  // vérif en cascade : un item scanne hors de son lot (dans un lot qui ne le contient pas) y a ete trouve, il y va
+  const bool cascade = verif_cascade();
   for (const std::string &iid : scanned) {
     const ParsedScan parsed = parse_scan(iid);
     const auto       place = place_of.find(iid);
     Scanned item{ iid, parsed.item_type, place == place_of.end() ? std::string() : place->second,
                   is_expired(parsed, today) || unusable.count(iid) > 0 };
     all.push_back(item);
-    if (const auto found = location_of.find(iid); found != location_of.end()) {
+    if (const auto found = location_of.find(iid);
+        found != location_of.end() && (!cascade || item.place.empty() || under(found->second, item.place))) {
       target[iid] = found->second;
       if (!item.expired && deficit[found->second][item.type] > 0)
         --deficit[found->second][item.type];
@@ -2534,7 +2536,7 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     if (item.expired)
       continue;
     ++row.fresh[item.type];
-    if (!location_of.count(item.iid))
+    if (const auto found = location_of.find(item.iid); found == location_of.end() || found->second != id)
       ++row.added[item.type];
   }
   for (VerifPlanLot &row : plan) {

@@ -183,11 +183,12 @@ def _required_by_lot(group):
     return {lot.id: {row.item_type_id: row.quantity for row in lot_requirements(lot)} for lot in group}
 
 
-def assign_items(group, scanned, today, places=None):
+def assign_items(group, scanned, today, places=None, cascade=False):
     """Lot de destination de chaque item scanne pendant une verif de plusieurs lots.
 
     Un item deja range dans un des lots y reste (on l'a trouve la, meme scanne pendant qu'on verifiait un autre
-    lot). Un item venu d'ailleurs (stock, autre lot hors de la verif) va dans le lot dont l'etiquette (publique ou
+    lot). Vérif en cascade (`cascade`) : `places` est le lot ou l'on etait entre au scan, un item range dans un lot
+    qui n'est pas celui-ci ni un de ses sous-lots y a ete trouve, il y va comme un item venu d'ailleurs. Un item venu d'ailleurs (stock, autre lot hors de la verif) va dans le lot dont l'etiquette (publique ou
     cle) a ete scannee en dernier avant lui (`places` : {iid: id du lot}) : ce lot ou un de ses sous-lots, celui qui
     en attend encore, sinon le premier qui en contient dans sa definition, sinon ce lot lui-meme. Sans lot connu :
     le premier lot de la verif qui en attend encore, sinon le premier qui en contient, sinon le premier lot.
@@ -210,7 +211,8 @@ def assign_items(group, scanned, today, places=None):
     target = {}
     newcomers = []
     for item in scanned:
-        if item.location_id in ids:
+        place = places.get(item.iid)
+        if item.location_id in ids and (not cascade or place not in ids or under(item.location_id, place)):
             target[item.iid] = item.location_id
             type_id = item.pack.item_type_id
             if not item.needs_replacement(today) and deficit[item.location_id].get(type_id, 0) > 0:
@@ -325,7 +327,9 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 for item in scanned
             }
         else:
-            target = assign_items(group, scanned, today, places)
+            # un seul lot verifie avec ses sous-lots : vérif en cascade des fronts (plusieurs lots : vérif groupee)
+            cascade = not isinstance(lot, (list, tuple)) or len(lot) == 1
+            target = assign_items(group, scanned, today, places, cascade)
 
         # Detection des remplacements, par lot et par type. Un perime (inutilisable, desactive) scanne est retire du
         # lot, a jeter, des que le lot a son minimum d'items frais de ce type (meme deja presents avant la verif) ;

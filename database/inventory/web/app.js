@@ -669,9 +669,19 @@
         return;
       }
     }
-    // vérif en cascade : un item d'un lot deja valide pendant la vérif n'y compte plus ; un item d'un sous-lot du lot
-    // en cours fait entrer dans ce sous-lot
+    // vérif en cascade : un item est compte dans le lot ou l'on est (on l'y a trouve), meme range ailleurs dans la
+    // vérif ; on ne change de lot qu'en scannant son etiquette. Seul un item d'un sous-lot du lot en cours fait entrer
+    // dans ce sous-lot (on n'est encore dans aucun d'eux), sauf s'il a deja ete valide.
     const where = inCascade() && info && !entry.error && info.location ? lotById(info.location) : null;
+    if (where && !isUnder(where.id, levelId())) {
+      entry.place = currentPlace();
+      showInfo(entry.expired ? 'bad' : 'ok', entry.expired ? badLabel(info) : 'Item scanné',
+        `${info.type_name} est rangé dans ${where.name} : il est compté dans ${levelLot().name}, où vous l'avez trouvé, et y sera déplacé.`,
+        discardAdvice(entry));
+      save();
+      render();
+      return;
+    }
     if (where && state.done[where.id]) {
       const index = state.scanned.indexOf(entry);
       if (index >= 0) state.scanned.splice(index, 1);
@@ -683,29 +693,10 @@
       render();
       return;
     }
-    // item d'un autre lot que celui ou l'on est, alors que celui-ci est complet : il est valide automatiquement
-    let closed = [];
-    if (where && !isUnder(where.id, levelId())) {
-      const index = state.scanned.indexOf(entry);
-      if (index >= 0) state.scanned.splice(index, 1); // pas compte dans le lot valide
-      const left = await leaveCompleteLevels(where.id, true);
-      closed = left.names;
-      state.scanned.push(entry);
-      entry.place = currentPlace();
-      // « Rester » : l'item compte dans le lot ou l'on est (il y a ete trouve) ; sinon on passe au lot de l'item
-      if (left.stay) {
-        showInfo('ok', 'Item scanné', `${info.type_name} est compté dans ${levelLot().name}, où vous l'avez trouvé.`);
-        save();
-        render();
-        return;
-      }
-      if (!isUnder(where.id, levelId())) enterLevel(state.lotId);
-    }
     if (where && where.id !== levelId() && isUnder(where.id, levelId())) {
       enterLevel(where.id, true);
       entry.place = where.id;
       showInfo('lot', `📦 Entrée dans ${where.name}`, `${info.type_name} est rangé dans ${where.name}.`,
-        closed.length ? `✔ ${closed.join(', ')} : validé.` : '',
         `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(where)) || state.lot).name}.`,
         discardAdvice(entry));
       save();
@@ -1445,11 +1436,13 @@
       for (let current = id; current; current = parentOf[current]) if (current === place) return true;
       return false;
     };
+    const cascade = inCascade();
     const target = {};
     const newcomers = [];
     for (const item of scanned) {
       const where = locationOf[item.iid];
-      if (where) {
+      // vérif en cascade : un item scanne dans un lot qui ne le contient pas y a ete trouve, il y va
+      if (where && (!cascade || !(item.place in parentOf) || under(where, item.place))) {
         target[item.iid] = where;
         if (!item.expired && deficit[where][item.type] > 0) deficit[where][item.type] -= 1;
       } else newcomers.push(item);
@@ -1473,7 +1466,7 @@
       row.touched += 1;
       if (item.expired) continue;
       row.fresh[item.type] = (row.fresh[item.type] || 0) + 1;
-      if (!locationOf[item.iid]) row.added[item.type] = (row.added[item.type] || 0) + 1;
+      if (locationOf[item.iid] !== row.lot.id) row.added[item.type] = (row.added[item.type] || 0) + 1;
     }
     for (const row of Object.values(plan)) {
       // seul compte le minimum d'items frais : un perime en trop ne retient pas le lot (il est retire, a jeter)

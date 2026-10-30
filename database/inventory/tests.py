@@ -1641,6 +1641,25 @@ class SubLotTests(ApiTestCase):
                                                          'exclude': [self.sac_o2['id']]}, local=False)
         self.assertEqual(code, 400)
 
+    def test_cascade_item_counted_where_found(self):
+        """Vérif en cascade : un item range dans un sous-lot, scanne pendant qu'on etait dans un autre, y est deplace."""
+        content = self.fresh()
+        self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': content, 'user': 'M001'})
+        bplus_key = [{'id': self.bplus['id'], 'key': self.keys[self.bplus['id']]}]
+        bottle = self.bottle()
+        places = {bottle: self.sac_o2['id'], content[0]: self.sac_o2['id']}
+        code, report = self.call('POST', '/api/verifs/', {
+            'lots': bplus_key, 'items': content + [bottle], 'places': places, 'user': self.badge}, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertEqual(Items.objects.get(iid=content[0]).location_id, self.sac_o2['id'])
+        self.assertEqual(Items.objects.get(iid=content[1]).location_id, self.soin['id'])
+        # scanne au niveau du B+ (lot qui contient son sac) : il reste dans son sac
+        code, report = self.call('POST', '/api/verifs/', {
+            'lots': bplus_key, 'items': content + [bottle], 'places': {content[0]: self.bplus['id']},
+            'user': self.badge}, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertEqual(Items.objects.get(iid=content[0]).location_id, self.sac_o2['id'])
+
     def test_lots_must_share_global_lot(self):
         payload = {'lots': [{'id': self.soin['id']}, {'id': self.lot.id}], 'items': [], 'user': 'M001'}
         code, body = self.call('POST', '/api/verifs/', payload)
