@@ -42,6 +42,16 @@ class LotsWindow final : public AppWindow {
 
     void on_open(App &app) override { app.refresh_lots(); }
 
+    void reset_view(App &) override {
+      selected_.clear();
+      details_      = Json();
+      confirm_used_ = false;
+      seal_check_.clear();
+      filter_.clear();
+      only_problems_   = false;
+      seen_privileged_ = -1; // rangements du stock : de nouveau selon le role, au prochain affichage
+    }
+
     void draw(App &app) override {
       // liste rechargee (Rafraichir, fin de verif...) : la fiche affichee est rechargee aussi
       if (seen_lots_version_ != app.catalog.lots_version) {
@@ -57,8 +67,7 @@ class LotsWindow final : public AppWindow {
         show_storage_    = privileged == 1;
       }
       if (app.take_lots_to_treat()) { // voyant de la barre de menu
-        only_problems_ = true;
-        show_storage_  = false; // comme le voyant, qui ne compte pas les rangements du stock
+        only_problems_ = true; // la case des rangements du stock reste comme elle est
         filter_.clear();
       }
       if (button("Rafraîchir"))

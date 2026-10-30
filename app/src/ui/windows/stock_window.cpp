@@ -77,6 +77,16 @@ class StockWindow final : public AppWindow {
       app.refresh_forecast();
     }
 
+    void reset_view(App &) override {
+      filter_.clear();
+      selected_.clear();
+      only_low_         = false;
+      include_lots_     = false;
+      with_consumption_ = true;
+      horizon_          = 1;
+      select_           = "tasks";
+    }
+
     void draw(App &app) override {
       if (button("Rafraîchir"))
         on_open(app);
@@ -105,7 +115,7 @@ class StockWindow final : public AppWindow {
       const std::string tasks_tab = "À faire (" + std::to_string(app.catalog.tasks["count"].integer()) + ")###tasks";
       if (!ImGui::BeginTabBar("stock_tabs"))
         return;
-      if (tab_item(tasks_tab.c_str())) {
+      if (tab_item(tasks_tab.c_str(), select_ == "tasks" ? ImGuiTabItemFlags_SetSelected : 0)) {
         draw_tasks(app);
         ImGui::EndTabItem();
       }
@@ -130,7 +140,7 @@ class StockWindow final : public AppWindow {
     }
 
   private:
-    std::string select_; // onglet a ouvrir (tache des commandes, des deplacements ou du stock)
+    std::string select_; // onglet a ouvrir (tache des commandes, des deplacements ou du stock ; tasks : vue par defaut)
 
     // ---- À faire : liste de taches de la gestion, par priorite ----
     void draw_tasks(App &app) {

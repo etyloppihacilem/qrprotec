@@ -109,6 +109,17 @@ class LotAdminWindow final : public AppWindow {
       app.refresh_item_types();
     }
 
+    void reset_view(App &) override {
+      selected_lot_.clear();
+      lot_ = Json();
+      seal_number_.clear();
+      show_archived_lots_  = false;
+      show_storage_        = false;
+      show_archived_types_ = false;
+      focus_lots_tab_      = true;
+      edit_lot_type(Json()); // formulaire de type de lot vide (nouveau type)
+    }
+
     void draw(App &app) override {
       // listes rechargees : on recharge aussi le lot et le type de lot affiches
       if (seen_lots_version_ != app.catalog.lots_version) {
