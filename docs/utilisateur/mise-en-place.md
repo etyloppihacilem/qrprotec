@@ -185,7 +185,9 @@ accueil du front web) : cochez **Afficher les rangements du stock** pour les voi
 
 À chaque création, l'aperçu propose les étiquettes **publique** et **clé** : imprimez les deux.
 Collez la publique à l'extérieur, rangez l'étiquette clé à l'intérieur (ou dans le classeur des
-responsables pour les lots sensibles). Le **nom court** apparaît sur les petites étiquettes. Un
+responsables pour les lots sensibles). Tant que le nom déclaré sans badge n'est pas autorisé
+(Réglages > Règles du serveur), l'étiquette clé ne sert à rien de plus que la publique : l'aperçu ne
+propose alors que la publique (le bouton d'impression directe « clé » reste disponible). Le **nom court** apparaît sur les petites étiquettes. Un
 rangement du stock n'a que son **étiquette de rangement**, à coller à l'intérieur.
 
 ## Étape 7 — Étiqueter le matériel existant (la transition)
