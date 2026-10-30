@@ -190,7 +190,8 @@ Le nom d'un lot doit être unique parmi les lots actifs : le formulaire le signa
 Un lot archivé se retrouve avec la case **Afficher les lots archivés** (bouton **Désarchiver le lot**).
 Les rangements du stock sont masqués des listes de lots (fenêtres **Lots** et **Gestion des lots**,
 accueil du front web) : cochez **Afficher les rangements du stock** pour les voir. Dans la fenêtre
-**Lots**, la case est cochée par défaut pour les rôles gestion et admin.
+**Lots** et sur la page **État des lots** du front web, la case est cochée par défaut pour les rôles
+gestion et admin.
 
 À chaque création, l'aperçu propose les étiquettes **publique** et **clé** : imprimez les deux.
 Collez la publique à l'extérieur, rangez l'étiquette clé à l'intérieur (ou dans le classeur des

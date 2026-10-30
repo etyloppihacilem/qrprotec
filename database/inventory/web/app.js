@@ -49,7 +49,8 @@
     busy: false,
     lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
     lots: null,        // liste des lots (page « État des lots »)
-    showStorage: false, // rangements du stock dans la liste des lots (masques par defaut)
+    showStorage: false, // rangements du stock dans la liste des lots (affiches par defaut en gestion et admin)
+    storageRole: null, // role pour lequel showStorage a pris sa valeur par defaut (comme au poste)
     stock: null,       // etat des stocks, roles gestion et admin uniquement
     tasks: null,       // liste de taches de la gestion (meme acces que l'etat des stocks)
     forecast: null,    // previsions de stock (meme acces que l'etat des stocks)
@@ -3029,6 +3030,11 @@
     };
     // rangements du stock dans leur propre tableau, sous celui des lots, seulement si la case est cochee (sinon
     // seul le rangement en cours reste dans le tableau des lots)
+    // case cochee par defaut en gestion et admin, decochee sinon (de nouveau a chaque changement de role)
+    if (canSeeStock() !== state.storageRole) {
+      state.storageRole = canSeeStock();
+      state.showStorage = state.storageRole;
+    }
     const lots = state.lots.filter((lot) => !lot.storage || (!state.showStorage && lot.id === state.lotId));
     parts.push(el('ul', { class: 'list' }, ...lots.map(lotRow)));
     parts.push(el('label', { class: 'check' },
