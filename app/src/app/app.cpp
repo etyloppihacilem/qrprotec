@@ -2862,8 +2862,21 @@ void App::submit_step(bool partial) {
         open_window("verif");
         return;
       }
+      // rangement du stock : y ranger des items est l'usage normal, « Ajouter au lot » clot la verif comme une verif
+      // complete du rangement (celui dont on a lance la verif ; dans une tournee du stock, retour au lot parent)
+      const bool stored = partial && !finished && top_lot && (*top_lot)["storage"].boolean();
+      if (stored && (at_root || top == verif.started_in)) {
+        verif.after_step.clear();
+        finish_cascade(name + " : " + nb(result.data["restocked"].size(), "item rangé", "items rangés")
+                       + ", vérif terminée.");
+        return;
+      }
       const std::size_t missing = result.data["missing"].size();
-      if (!finished)
+      if (stored) {
+        notify(name + " : " + nb(result.data["restocked"].size(), "item rangé", "items rangés")
+               + ". Retour au lot qui le contient.");
+        finished = true;
+      } else if (!finished)
         notify(name + (verified ? " : vérif partielle enregistrée." : " : réassort enregistré."));
       else if (verif.after_step.empty()) // validation automatique : message plus bas
         notify(name + " validé" + (incomplete ? " : incomplet, " + nb(missing, "item manquant", "items manquants") + "." : ".")

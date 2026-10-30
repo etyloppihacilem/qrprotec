@@ -2019,6 +2019,7 @@
       const names = verified.filter(ownContent).map((lot) => lot.name);
       if (!confirm(names.length ? `Vérif partielle : seuls ${names.join(', ')} seront vérifiés.\n`
         + 'Les autres items scannés sont ajoutés à leur lot (réassort, vérif recommandée). Continuer ?'
+        : top.storage ? `Ranger les items scannés dans ${top.name} et terminer la vérif ?`
         : `Ajouter les items scannés à ${top.name} sans faire de vérif complète (réassort) ?\n`
           + 'Le lot sera signalé « vérif recommandée » pour la personne suivante.')) return;
     } else {
@@ -2048,10 +2049,14 @@
       state.scanned = state.scanned.filter((entry) => !(entry.kind === 'seal' && payload.sealed.some((row) => row.id === entry.iid)));
       const done = (report.lots || []).filter((row) => row.verified);
       const incomplete = done.filter((row) => !row.complete);
-      const finished = !partial || done.some((row) => row.id === top.id);
+      // rangement du stock : y ranger des items est l'usage normal, « Ajouter » clot la vérif comme une vérif complete
+      // du rangement (celui dont on a lance la vérif ; dans une tournee du stock, retour au lot qui le contient)
+      const stored = partial && top.storage && !done.some((row) => row.id === top.id);
+      const finished = !partial || stored || done.some((row) => row.id === top.id);
       (incomplete.length ? feedback.warn : feedback.good)();
       showInfo(incomplete.length ? 'warn' : 'ok',
-        `${finished ? '✔' : '↷'} ${top.name} ${finished ? 'validé' : done.length ? ': vérif partielle enregistrée' : ': réassort enregistré'}`
+        stored ? `✔ ${nb((report.restocked || []).length, 'item rangé', 'items rangés')} dans ${top.name}`
+          : `${finished ? '✔' : '↷'} ${top.name} ${finished ? 'validé' : done.length ? ': vérif partielle enregistrée' : ': réassort enregistré'}`
           + (incomplete.length ? ', incomplet' : ''),
         done.length > 1 ? `Lots vérifiés : ${done.map((row) => row.name).join(', ')}` : '',
         report.missing && report.missing.length ? `${nb(report.missing.length, 'item manquant', 'items manquants')}` : '',
@@ -2063,6 +2068,8 @@
       if (sealNext) {
         showReport(report);
         finishCascade(report, `${top.name} validé complet : à resceller (le TECH le scelle depuis le poste).`);
+      } else if (stored && (atRoot || top.id === state.startedIn)) {
+        finishCascade(report, `${nb((report.restocked || []).length, 'item rangé', 'items rangés')} dans ${top.name} : vérif terminée.`);
       } else if (atRoot && finished) {
         finishCascade(report);
       } else {
@@ -4331,7 +4338,7 @@
     const restock = iids.length > 0 && !iids.some((iid) => known.has(iid));
     $('#restock').hidden = !(partial.length || restock);
     if (partial.length) $('#restock').textContent = `Vérif partielle (${partial.map((lot) => lot.name_short || lot.name).join(', ')})`;
-    else setLabel($('#restock'), 'restock', `Ajouter ${iids.length} à ${name} (réassort)`);
+    else setLabel($('#restock'), 'restock', level.storage ? `Ajouter ${iids.length} à ${name}` : `Ajouter ${iids.length} à ${name} (réassort)`);
     if (partial.length || restock) validateButton.textContent = `Vérif complète de ${name}…`;
   }
 
