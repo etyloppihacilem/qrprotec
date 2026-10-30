@@ -203,6 +203,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 #verif-report .lot-head.bad { color: var(--red); }
 #verif-report .lot-head.partial { color: var(--orange); }
 #verif-report .lot-head .link { font-weight: 600; }
+.live-card.clickable { cursor: pointer; }
 #verif-report summary { margin: 8px 0 4px; font-weight: 600; cursor: pointer; }
 .pin { -webkit-text-security: disc; }
 

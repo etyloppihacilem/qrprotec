@@ -3220,7 +3220,8 @@
       // vérif validee : affichee comme terminee chez ceux qui suivent, la suivante sera une nouvelle session
       done(report) {
         if (ready && report) {
-          send({ type: 'done', complete: !!report.complete, partial: !!report.partial, present: (report.present || []).length });
+          send({ type: 'done', complete: !!report.complete, partial: !!report.partial, present: (report.present || []).length,
+            verif: report.verif_id });
         }
         pending = null;
         session = null;
@@ -3566,7 +3567,12 @@
     const shown = open ? [...row.scanned].reverse() : row.scanned.slice(-4).reverse();
     const people = row.participants || [{ who: row.who, verified: row.verified, connected: row.connected }];
     const mine = (live.credentials() || {}).id === row.id;
-    return el('div', { class: 'live-card ' + kind },
+    // vérif terminée : clic sur la carte → son compte rendu (le nom du lot ouvre toujours sa fiche)
+    const verifs = (done && done.verifs) || [];
+    return el('div', { class: 'live-card ' + kind + (verifs.length ? ' clickable' : ''),
+      title: verifs.length ? 'Voir le compte rendu' : null, onclick: verifs.length ? (event) => {
+        if (!event.target.closest('a, button')) openVerifReport(verifs);
+      } : null },
       el('div', { class: 'name' }, '📦 ', lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
       el('div', { class: 'sub' }, (people.length > 1 ? '👥 ' : '') + people.map((person) => (person.who || 'Non identifié')
         + (person.who && !person.verified ? ' (nom déclaré)' : '') + (people.length > 1 && !done && person.validated ? ' ✔' : '')
@@ -3626,14 +3632,20 @@
   }
 
   // Compte rendu d'une vérif passée : résumé, puis lot par lot ce qui a été vu, manquait ou était périmé
-  async function openVerifReport(id) {
-    let report;
+  // ids : une vérif, ou les étapes d'une vérif en cascade terminée (suivi en direct), réunies en un compte rendu
+  async function openVerifReport(ids) {
+    let reports;
     try {
-      report = await api(`verifs/${id}/report/`, { user: badge() });
+      reports = await Promise.all([].concat(ids).map((id) => api(`verifs/${id}/report/`, { user: badge() })));
     } catch (e) {
       toast('Compte rendu : ' + e.message, true);
       return;
     }
+    const last = reports[reports.length - 1];
+    const report = { ...last, complete: reports.every((one) => one.complete),
+      participants: [...new Set(reports.flatMap((one) => [one.by, ...(one.participants || [])]))].filter((who) => who !== last.by),
+      lots: reports.flatMap((one) => one.lots), sealed: reports.flatMap((one) => one.sealed),
+      operations: reports.flatMap((one) => one.operations) };
     const people = [report.by || '?', ...(report.participants || [])];
     const total = (key) => report.lots.reduce((sum, lot) => sum + lot[key + '_count'], 0);
     const counts = [[total('present'), 'présent'], [total('missing'), 'manquant'], [total('expired'), 'périmé'],

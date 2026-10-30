@@ -2585,9 +2585,11 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(update['lot'], {'id': self.lot.id, 'name': 'Sac A'})
         self.assertEqual(update['scanned'], [{'name': 'Compresses', 'expired': True, 'error': False, 'extra': False}])
         self.assertNotIn('token', update)
-        scanner.push({'type': 'done', 'complete': True, 'present': 2})
+        scanner.push({'type': 'done', 'complete': True, 'present': 2, 'verif': 42})
         self.wait(lambda: watcher.sent[-1]['type'] == 'update' and watcher.sent[-1]['session']['done'])
         self.assertEqual(watcher.sent[-1]['session']['done']['present'], 2)
+        # vérif enregistree : son compte rendu s'ouvre depuis la carte du suivi
+        self.assertEqual(watcher.sent[-1]['session']['done']['verifs'], [42])
         # page de scan fermee : la verif terminee reste affichee DONE_KEEP, puis disparait
         scanner.push(None)
         scanning.join(5)
@@ -2900,6 +2902,10 @@ class LiveHubTests(ApiTestCase):
                 'live': {'id': hello['id'], 'pid': hello['pid'], 'token': hello['token']}}, local=False)
         self.assertEqual(code, 200, report)
         self.assertEqual(session.done['lots'], 2)
+        # une verif par etape : le compte rendu du suivi les reunit
+        self.assertEqual(session.done['verifs'], list(Verifs.objects.filter(lot__in=[sub_a, self.lot])
+                                                      .order_by('id').values_list('id', flat=True)))
+        self.assertEqual(len(session.done['verifs']), 2)
         self.wait(lambda: self.hub.visible() and self.hub.visible()[0]['done'])
         scanner.push({'type': 'leave'})  # le message de la page arrive ensuite : sans effet
         scanner.push(None)
