@@ -47,7 +47,7 @@ from .idendity import SOURCE_VERIFIED, identity_from_request, identity_name, sho
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
-    DEFAULT_FONCTION, PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotRequirements, Lots, LotType,
+    DEFAULT_FONCTION, PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     SCANNER_VOLUMES, ServerSettings, Verifs, add_months, name_key, qrprotec_setting,
 )
@@ -1312,6 +1312,11 @@ def item_type_detail(request, type_code):
                 if users:
                     raise ApiError("Ce type est encore dans le contenu attendu de : " + ', '.join(users)
                                    + ". Retirez-le de ces types de lots d'abord.")
+                lots = list(Lots.objects.filter(active=True, content__item_type=item_type, content__extra__gt=0)
+                            .order_by('name').values_list('name', flat=True).distinct())
+                if lots:
+                    raise ApiError("Ce type est encore en plus dans le contenu des lots : " + ', '.join(lots)
+                                   + ". Retirez-le de ces lots d'abord.")
             item_type.archived = archived
         item_type.save()
         if item_type.has_revision and not had_revision:
@@ -1660,6 +1665,9 @@ def lot_type_detail(request, type_code):
                     raise ApiError(f"Le lot {lot.name} contient des sous-lots : retirez-les d'abord")
             lot_type.storage = storage
             # rangement : jamais de contenu attendu, etiquette privee sans expiration
+            if storage:
+                LotContent.objects.filter(lot__lot_type=lot_type).delete()
+                Lots.objects.filter(lot_type=lot_type).update(locations=[])
             if storage and lot_type.requirements.exists():
                 lot_type.requirements.all().delete()
                 lot_type.locations = []
@@ -1740,6 +1748,64 @@ def lot_type_requirements(request, type_code):
                            {'type': str(row.get('type', '')), 'quantity': row.get('quantity', 1)} for row in rows
                        ])
     return Response(ser.lot_type_dict(lot_type))
+
+
+@api_view(['PUT'])
+@handle_errors
+def lot_content(request, lot_id):
+    """Remplace le contenu propre d'un lot, par-dessus celui de son type : [{"type": "serphy", "extra": 2,
+    "location": "poche avant"}, ...] (extra : en plus de la quantite du type ; location absent ou null : l'emplacement
+    du type), et l'ordre des emplacements du lot (locations, facultatif ; celui du type s'il revient au meme)."""
+    require_front(request, GESTION)
+    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
+    lot_type = lot.lot_type
+    rows = request.data.get('content', [])
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise ApiError("content : liste attendue")
+    if rows and lot_type.storage:
+        raise ApiError(f"{lot.name} est un rangement du stock : il n'a pas de contenu attendu")
+    order = request.data.get('locations', lot.locations)
+    if not isinstance(order, list):
+        raise ApiError("locations : liste attendue")
+    type_rows = {row.item_type_id: row for row in LotRequirements.objects.filter(lot_type=lot_type)}
+    wanted = {}
+    for row in rows:
+        item_type = get_object_or_404(ItemType, type=str(row.get('type', '')))
+        if item_type.type in wanted:
+            raise ApiError(f"Le type {item_type.type} apparait plusieurs fois")
+        extra = parse_int(row.get('extra', 0), 'extra', 0)
+        location = row.get('location')
+        location = None if location is None else services.clean_location(location)
+        requirement = type_rows.get(item_type.type)
+        if requirement is not None and location is not None and name_key(location) == name_key(requirement.location):
+            location = None  # meme emplacement que le type : le suit s'il change
+        if requirement is None and not extra:
+            continue  # ni attendu par le type ni en plus : rien a retenir
+        if requirement is not None and not extra and location is None:
+            continue
+        wanted[item_type.type] = (item_type, extra, location)
+    # emplacements du lot (ceux du type que le lot garde et les siens), une seule orthographe par emplacement
+    effective = [{'location': type_rows[code].location} for code in type_rows if code not in wanted]
+    effective += [{'location': (type_rows[code].location if location is None else location)}
+                  for code, (_, _, location) in wanted.items()]
+    known = [*(lot.locations or []), *(lot_type.locations or [])]
+    locations = services.location_order(effective, [str(name) for name in order], known)
+    inherited = services.location_order(effective, lot_type.locations or [], known)
+    with transaction.atomic():
+        LotContent.objects.filter(lot=lot).delete()
+        for item_type, extra, location in wanted.values():
+            if location is not None:
+                location = locations.get(name_key(location), '')
+            LotContent.objects.create(lot=lot, item_type=item_type, extra=extra, location=location)
+        # meme ordre que le type : le lot suit celui du type (nouveaux emplacements, ordre change par la TECH)
+        lot.locations = [] if list(locations) == list(inherited) else list(locations.values())
+        lot.save(update_fields=['locations'])
+        journal.record(OperationKind.LOT, front_identity(request), f'contenu propre du lot modifié : {lot.name}',
+                       lot=lot, content=[
+                           {'type': code, 'extra': extra, 'location': location}
+                           for code, (_, extra, location) in wanted.items()
+                       ])
+    return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 
 @api_view(['GET', 'POST'])

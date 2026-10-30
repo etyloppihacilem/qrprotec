@@ -618,6 +618,45 @@ class ManagementTests(ApiTestCase):
         self.assertEqual([location for location, _ in lot_sheet.requirement_groups(self.lot)],
                          ['Pochette bleue', 'Pochette rouge', lot_sheet.NO_LOCATION])
 
+    def test_lot_own_content(self):
+        """Contenu propre d'un lot : items en plus du type (ajoutes a sa quantite ou seuls), emplacements et ordre de
+        ce lot ; le type reste la base des autres lots, et un lot qui reprend l'ordre du type le suit."""
+        ItemType.objects.create(type='serphy', name='Sérum phy')
+        self.call('PUT', '/api/lot-types/sacpse/requirements/', {'requirements': [
+            {'type': 'compre', 'quantity': 2, 'location': 'Pochette rouge'},
+            {'type': 'serphy', 'quantity': 1, 'location': 'Pochette bleue'}]})
+        other = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test')
+        other.save()
+        url = f'/api/lots/{self.lot.id}/content/'
+        code, body = self.call('PUT', url, {'content': [
+            {'type': 'compre', 'extra': 3}, {'type': 'garrot', 'extra': 1, 'location': 'poche AVANT'},
+            {'type': 'serphy', 'location': 'Poche avant'}], 'locations': ['Poche avant', 'Pochette rouge']})
+        self.assertEqual(code, 200)
+        self.assertEqual([(row['type'], row['required'], row['extra'], row['location']) for row in body['requirements']], [
+            ('garrot', 1, 1, 'Poche avant'), ('serphy', 1, 0, 'Poche avant'), ('compre', 5, 3, 'Pochette rouge')])
+        self.assertEqual(body['own_content']['locations'], ['Poche avant', 'Pochette rouge'])
+        self.assertFalse(body['complete'])
+        # les autres lots du type ne changent pas
+        code, body = self.call('GET', f'/api/lots/{other.id}/')
+        self.assertEqual([(row['type'], row['required']) for row in body['requirements']], [('compre', 2), ('serphy', 1)])
+        self.assertEqual(services._required_by_lot([self.lot])[self.lot.id], {'garrot': 1, 'serphy': 1, 'compre': 5})
+        self.assertEqual([location for location, _ in lot_sheet.requirement_groups(self.lot)], ['Poche avant', 'Pochette rouge'])
+        # meme emplacement que le type : le suit ; meme ordre que le type : le lot n'a pas d'ordre a lui
+        code, body = self.call('PUT', url, {'content': [{'type': 'compre', 'extra': 0, 'location': 'pochette rouge'},
+                                                        {'type': 'garrot', 'extra': 1, 'location': 'Pochette bleue'}],
+                                            'locations': ['pochette rouge', 'Pochette bleue']})
+        self.assertEqual(body['own_content'], {'locations': [], 'rows': [
+            {'type': 'garrot', 'type_name': 'Garrot', 'extra': 1, 'location': 'Pochette bleue'}]})
+        self.assertEqual([row['type'] for row in body['requirements']], ['compre', 'garrot', 'serphy'])
+        # seulement ajouter, un type en double refuse, un item en plus empeche d'archiver son type
+        code, _ = self.call('PUT', url, {'content': [{'type': 'garrot', 'extra': -1}]})
+        self.assertEqual(code, 400)
+        code, _ = self.call('PUT', url, {'content': [{'type': 'garrot', 'extra': 1}, {'type': 'garrot', 'extra': 2}]})
+        self.assertEqual(code, 400)
+        code, body = self.call('PATCH', '/api/item-types/garrot/', {'archived': True})
+        self.assertEqual(code, 400)
+        self.assertIn('Sac A', body['error'])
+
     def test_user_fonction(self):
         """Role dans l'equipe : texte libre, Secouriste par defaut, sans effet sur les droits."""
         code, body = self.call('POST', '/api/users/', {'matricule': 'M002', 'nom': 'Martin', 'prenom': 'Paul'})

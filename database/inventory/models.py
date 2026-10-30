@@ -484,6 +484,9 @@ class Lots(models.Model):
     parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='children')
     # Ou trouver l'etiquette privee dans le lot (ex : « poche intérieure du couvercle »), affiche quand elle manque
     key_location = models.CharField(max_length=128, blank=True, default='')
+    # Ordre des emplacements propre a ce lot (ex : le sac du VPS n'est pas range comme celui du lot A). Vide : celui
+    # du type de lot (LotType.locations). Tenu a jour avec le contenu propre du lot (LotContent).
+    locations = models.JSONField(default=list, blank=True)
 
     def save(self, *args, **kwargs):
         if not self.version:
@@ -598,6 +601,20 @@ class Lots(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.id})"
+
+
+class LotContent(models.Model):
+    """Contenu propre a un lot, par-dessus celui de son type (LotRequirements) : items en plus (extra, ajoutes a la
+    quantite du type, ou seuls si le type n'en attend pas) et emplacement dans ce lot. Un rangement du stock n'en a
+    jamais."""
+    lot = models.ForeignKey(Lots, on_delete=models.CASCADE, related_name='content')
+    item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT)
+    extra = models.PositiveIntegerField(default=0)
+    # None : l'emplacement du type de lot ; '' : sans emplacement dans ce lot
+    location = models.CharField(max_length=64, null=True, blank=True)
+
+    class Meta:
+        unique_together = [('lot', 'item_type')]
 
 
 class OperationKind(models.TextChoices):

@@ -138,6 +138,15 @@ permet de les ranger (flèches ↑ ↓) dans l'ordre où les secouristes vérifi
 défaut de la vérif et de la fiche du lot (ce qui demande l'attention passe devant), et celui de la
 fiche PDF.
 
+Deux sacs du même type ne sont pas forcément identiques (le sac de soin du VPS et celui du lot A, par
+exemple). Le contenu du type est ce que tous ses lots doivent avoir ; chaque lot peut avoir en plus le
+sien : dans **Gestion des lots > Lots**, sélectionnez le lot puis ouvrez **Personnaliser le contenu de
+ce lot**. On y ajoute des items en plus de ceux du type (une quantité en plus d'un attendu du type, ou
+un item que seul ce lot contient), on change l'emplacement d'un attendu dans ce lot, et on range ses
+emplacements dans son propre ordre. Un lot ne peut pas retirer ce que son type exige. Ce contenu vaut
+partout : vérif (web et poste), fiche du lot, fiche PDF, liste des tâches. Un emplacement laissé
+comme celui du type le suit si le type change.
+
 **Sac O2** (`saco2x`) : masques O2 adulte et enfant, lunettes, etc.
 
 Créez aussi :
