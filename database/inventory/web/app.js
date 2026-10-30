@@ -4681,8 +4681,9 @@
     if (fiche.keyCheck !== 'valid') {
       keyBox.push(el('div', { class: 'sub' }, "QR code rangé à l'intérieur du lot, à scanner pendant la vérif pour pouvoir la valider."));
     }
-    // lot scelle intact : on ne le verifie pas, l'etiquette cle n'a pas a etre cherchee
-    if (!noVerif) parts.push(el('h3', {}, 'Étiquette clé'),
+    // lot scelle intact : on ne le verifie pas, l'etiquette cle n'a pas a etre cherchee. Badge obligatoire (nom declare
+    // desactive) : elle n'autorise rien de plus que l'etiquette publique, on n'en parle pas
+    if (!noVerif && state.declaredAllowed) parts.push(el('h3', {}, 'Étiquette clé'),
       el('div', { class: 'key-box' + (fiche.keyCheck && fiche.keyCheck !== 'valid' ? ' bad' : '') }, ...keyBox));
 
     // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres), ce qui est a traiter en haut
@@ -5851,7 +5852,11 @@
     restore();
     render();
     // reglage du serveur : identite declaree (nom sans badge) acceptee ou non
-    api('health/').then((health) => { state.declaredAllowed = !!health.declared_identity; render(); }).catch(() => {});
+    api('health/').then((health) => {
+      state.declaredAllowed = !!health.declared_identity;
+      render();
+      if (fiche.lot) renderFiche(); // encadre de l'etiquette cle
+    }).catch(() => {});
     const route = location.pathname.replace(/\/+$/, '').split('/').pop();
     const params = new URLSearchParams(location.search);
     // on retire la cle de la barre d'adresse (historique, partage d'ecran)
