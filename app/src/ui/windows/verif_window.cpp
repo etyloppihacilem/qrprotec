@@ -491,6 +491,13 @@ class VerifWindow final : public AppWindow {
                               "Les autres items scannés sont ajoutés à leur lot, qui sera signalé « vérif "
                               "recommandée » ;\nle reste de leur contenu n'est pas touché.",
                               names.c_str());
+      } else if (restock && level_lot["storage"].boolean()) {
+        // rangement du stock : pas de contenu attendu, ranger les items termine la verif
+        const std::string label = "Ajouter " + nb(added, "item") + " à " + level_lot["name"].str();
+        if (warning_button(label.c_str(), ImVec2(-1, 0)))
+          app.restock_verif();
+        ImGui::SetItemTooltip("Range les items scannés dans ce rangement du stock et clôt la vérif\n"
+                              "comme une vérif complète du rangement (le reste de son contenu n'est pas touché).");
       } else if (restock) {
         const std::string label = "Ajouter " + nb(added, "item") + " au lot – réassort, sans vérif";
         if (warning_button(label.c_str(), ImVec2(-1, 0)))
