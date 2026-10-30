@@ -61,6 +61,7 @@ class ScanStack {
     void       clear();
 
     const std::vector< ScanEntry > &entries() const { return entries_; }
+    std::vector< ScanEntry >       &entries() { return entries_; }
     bool                            empty() const { return entries_.empty(); }
 
     // iids a envoyer a l'API : items scannes + contenu des paquets, sans doublons ni erreurs ni items dont les
