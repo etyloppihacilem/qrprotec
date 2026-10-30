@@ -1510,6 +1510,15 @@ def receptions(request):
     } for row in rows])
 
 
+@api_view(['GET'])
+@handle_errors
+def reception_storage(request):
+    """Rangement du stock propose a la reception d'un type (?type=CODE) : le dernier ou ce type a ete range."""
+    require_front(request, GESTION)
+    item_type = get_object_or_404(ItemType, type=str(request.query_params.get('type', '')))
+    return Response({'type': item_type.type, 'location': services.last_storage(item_type)})
+
+
 @api_view(['POST'])
 @handle_errors
 def reception_store(request):

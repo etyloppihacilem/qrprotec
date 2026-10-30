@@ -22,8 +22,8 @@ from . import journal, movements, notifications, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_identity_name
 from .models import (
     ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotContent, LotRequirements, Lots, MovementKind, OperationKind,
-    SeenWhile, VerifItem, Operation, VerifResult, Verifs, add_months, generate_key, name_key, qrprotec_setting,
-    revision_blocked_q,
+    STOCK_LOT_TYPE, SeenWhile, VerifItem, Operation, VerifResult, Verifs, add_months, generate_key, name_key,
+    qrprotec_setting, revision_blocked_q,
 )
 
 
@@ -42,6 +42,18 @@ def _location_filter(lot):
 def in_stock_q(prefix=''):
     """Items en stock : hors de tout lot, ou ranges dans un rangement du stock (armoire, tiroir...)."""
     return Q(**{f'{prefix}location__isnull': True}) | Q(**{f'{prefix}location__lot_type__storage': True})
+
+
+def last_storage(item_type):
+    """Dernier rangement du stock (actif) ou des items de ce type ont ete ranges : reception directement dans le
+    rangement, ou items deplaces dedans ensuite. None si ce type n'a jamais ete range nulle part."""
+    places = Lots.objects.filter(lot_type__storage=True, active=True).exclude(lot_type_id=STOCK_LOT_TYPE)
+    received = (Items.objects.filter(pack__item_type=item_type, location__in=places)
+                .order_by('-added').values_list('added', 'location_id').first())
+    moved = (ItemMovement.objects.filter(item_type=item_type, kind=MovementKind.MOVE, to_lot__in=places)
+             .order_by('-at').values_list('at', 'to_lot_id').first())
+    latest = max((row for row in (received, moved) if row), default=None, key=lambda row: row[0])
+    return latest[1] if latest else None
 
 
 def clean_location(location):

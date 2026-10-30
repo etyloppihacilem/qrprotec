@@ -20,8 +20,9 @@ Menu **Gestion > Inventaire**, onglet **Réception**, une ligne de commande à l
    côté. Pas de date pour un produit non périssable.
 3. **Quantité**.
 4. **Rangement du stock** (facultatif) : choisissez l'armoire ou le tiroir où va toute la réception
-   (« Armoire › Tiroir 2 »). Les 50 compresses y sont rangées d'un coup, sans les scanner. Laissé
-   sur **Stock (sans rangement)**, les items restent dans le stock en vrac.
+   (« Armoire › Tiroir 2 »). Les 50 compresses y sont rangées d'un coup, sans les scanner. Le
+   rangement proposé est le dernier où ce type a été rangé. Laissé sur **Stock (sans rangement)**,
+   les items restent dans le stock en vrac.
 5. Pour les compresses en boîtes fermées : cochez **Paquet fermé** et faites **une réception par
    boîte** (quantité 25). Voir ci-dessous.
 6. **Créer N item(s) et voir les étiquettes** : l'aperçu montre les étiquettes, **Imprimer** les

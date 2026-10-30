@@ -181,6 +181,7 @@ class InventoryWindow final : public AppWindow {
                         "Tapez le nom ou le code du type…")) {
         if (const Json *type = find_type(app, reception_type_))
           quantity_ = std::max(1, (*type)["default_pack_size"].integer(1));
+        suggest_place(app);
       }
       const Json *type       = find_type(app, reception_type_);
       const bool  perishable = type && (*type)["perissable"].boolean();
@@ -210,6 +211,10 @@ class InventoryWindow final : public AppWindow {
       ImGui::TextUnformatted("Rangement du stock");
       search_select("reception_place", storage_places(app), "id", "label", reception_place_,
                     "Tapez le nom du rangement…", "Stock (sans rangement)");
+      if (!reception_place_.empty() && reception_place_ == suggested_place_) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(dernier rangement de ce type)");
+      }
       help_marker("Toute la réception est rangée d'un coup dans ce rangement du stock (ex : 50 compresses dans "
                   "l'armoire), sans scanner les items un par un. Sans rangement, les items restent dans le stock.");
       ImGui::Checkbox("Paquet fermé : seulement une étiquette de paquet", &sealed_);
@@ -292,6 +297,21 @@ class InventoryWindow final : public AppWindow {
         ImGui::PopID();
       }
       ImGui::EndChild();
+    }
+
+    // Rangement propose : le dernier ou ce type a ete range (vide s'il n'a jamais ete range)
+    void suggest_place(App &app) {
+      reception_place_.clear();
+      suggested_place_.clear();
+      if (reception_type_.empty())
+        return;
+      const std::string type = reception_type_;
+      app.api.get("/api/receptions/storage/?type=" + url_encode(type), [this, type](const ApiResult &result) {
+        if (!result.ok || reception_type_ != type || result.data["location"].is_null())
+          return;
+        suggested_place_ = result.data["location"].str();
+        reception_place_ = suggested_place_;
+      });
     }
 
     void create_batch(App &app, const std::string &peremption) {
@@ -1071,6 +1091,7 @@ class InventoryWindow final : public AppWindow {
     // Reception
     std::string reception_type_;
     std::string reception_place_; // rangement du stock de la reception (vide : le stock en vrac)
+    std::string suggested_place_; // dernier rangement du type choisi, propose par defaut
     std::string peremption_;
     int         quantity_    = 1;
     bool        sealed_      = false;
