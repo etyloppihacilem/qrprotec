@@ -363,6 +363,9 @@ body.fiche-open #toast { bottom: calc(90px + env(safe-area-inset-bottom)); }
 #fiche-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 12px 20px; }
 #fiche-body h2 { margin: 0; font-size: 1.25rem; }
 #fiche-body h3 { margin: 16px 0 6px; font-size: 1rem; }
+/* secouristes et chefs : contenu du lot dans une liste deroulante, date de l'etat en non gras */
+#fiche-body .fiche-content > summary { margin: 16px 0 6px; font-size: 1rem; font-weight: 700; cursor: pointer; }
+.banner .when, .info .when { font-weight: 400; }
 #fiche-body p { margin: 4px 0; }
 #fiche-body .sub { color: var(--muted); font-size: .85rem; }
 #fiche-body .list { margin: 0 -12px; }

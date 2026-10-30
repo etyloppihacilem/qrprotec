@@ -102,9 +102,13 @@ Le menu **⋯** permet de saisir un code à la main, de changer de lot ou de se 
 Une étiquette scannée avec l'appareil photo du téléphone (hors du lecteur QRProtec) ouvre une fiche,
 sans caméra :
 
-- **étiquette publique d'un sac** : fiche du lot, avec son état, la date de la dernière vérif, son
-  contenu (sous-lot par sous-lot) et l'emplacement de son étiquette clé. Le petit bouton
-  **📄 Fiche PDF** en haut imprime la fiche d'inventaire. **Lancer une vérif** ouvre le lecteur.
+- **étiquette publique d'un sac** : fiche du lot, avec son état et la date de la dernière vérif
+  dans la case de couleur (« ✔ Vérifié (hier à 19:42) »), la prochaine péremption, son contenu
+  (sous-lot par sous-lot) et l'emplacement de son étiquette clé. Pour les secouristes et les chefs,
+  le contenu est replié sous **Contenu** quand tout est valide (touchez-le pour le déplier) ; les
+  rôles gestion et admin voient en plus le détail (qui a vérifié, prochaine révision, lot global,
+  raison d'une vérif recommandée). Le petit bouton **📄 Fiche PDF** en haut imprime la fiche
+  d'inventaire. **Lancer une vérif** ouvre le lecteur.
 - **étiquette clé** : la même fiche, étiquette clé déjà scannée.
 - **étiquette d'un item** : produit, péremption, état et **dernier emplacement connu** (le lot où il
   est, ou celui qu'il a quitté s'il a été utilisé, sorti ou signalé disparu). **Lancer une vérif**
@@ -120,7 +124,8 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
 - **Se connecter** (en haut à droite) ouvre un petit lecteur dans un coin : scannez votre badge.
 - **Scanner** : l'écran de vérif, caméra prête à scanner. Le bouton 🏠 y ramène à l'accueil.
 - **Suivi des vérifs** : les vérifs **en cours, en direct** (lot, qui vérifie, items scannés,
-  reste à scanner) et les **dernières vérifs** enregistrées. Pratique pour le chef de poste qui veut
+  reste à scanner) et les **dernières vérifs** enregistrées. Touchez une vérif terminée pour son
+  compte rendu, d'où les noms de lots ouvrent leur fiche. Pratique pour le chef de poste qui veut
   confirmer que ses équipiers ont fait leur vérif. Badge demandé.
 - **État des lots** : tous les lots et leur état ; toucher un lot l'ouvre.
 - **Gestion de la TECH** (tâches, état des stocks, prévisions) : rôles gestion et admin (badge demandé, grisé pour les autres).
