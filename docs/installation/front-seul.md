@@ -93,6 +93,38 @@ déploiement scripté.
 Le poste de bureau peut aussi utiliser un back **sur la même machine** (paquet `qrprotec-server`
 installé à côté) : laissez l'URL par défaut `http://127.0.0.1:8001`, sans clé.
 
+## Poste de bureau en Flatpak (toute distribution)
+
+Le même front de bureau existe en **Flatpak**, pour un ordinateur qui n'est pas sous Fedora
+(Ubuntu, Debian, Mint…) ou pour ne rien installer dans le système. Il n'y a **pas de kiosk** en
+Flatpak : pour une borne dédiée, utilisez `qrprotec-kiosk`.
+
+1. Téléchargez `QRProtec-front.flatpak` dans les fichiers de la
+   [dernière release](https://github.com/etyloppihacilem/qrprotec/releases/latest) (x86_64).
+2. Installez-le (le runtime `org.freedesktop.Platform` est téléchargé depuis Flathub au passage) :
+
+   ```sh
+   flatpak install --user QRProtec-front.flatpak
+   ```
+
+3. Lancez **QRProtec** depuis le menu (ou `flatpak run io.github.etyloppihacilem.QRProtec`), puis
+   configurez le serveur comme pour le [poste de bureau](#poste-de-bureau-sans-kiosk) (étapes 2 à 4).
+
+Ce qui change par rapport au paquet `qrprotec-front` :
+
+| | Flatpak |
+|---|---|
+| Réglages | Les mêmes : `~/.config/qrprotec/app.conf` (partagés si le RPM est aussi installé) |
+| Modèles d'étiquettes | `~/.var/app/io.github.etyloppihacilem.QRProtec/data/qrprotec/templates` |
+| Certificat de l'autorité | À placer dans `~/.config/qrprotec/` (par exemple `server-ca.crt`) : le Flatpak ne voit pas `/etc` |
+| Images des étiquettes | Dans le dossier des modèles (`images/`) ou dans `~/Images` |
+| Imprimante Niimbot | Toujours le groupe `dialout` (`sudo usermod -aG dialout $USER`) |
+| Douchette Inateck (Bluetooth) | Fonctionne (accès à BlueZ). Une douchette en mode clavier fonctionne toujours |
+| Mises à jour | À la main : installer le `.flatpak` de la nouvelle release par-dessus |
+
+La fenêtre s'ouvre en X11 (XWayland sous un bureau Wayland), pour avoir la barre de titre du bureau
+et le SDK de la douchette.
+
 ## Dépannage de la connexion
 
 | Message | Cause |

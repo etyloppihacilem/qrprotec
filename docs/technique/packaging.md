@@ -111,6 +111,37 @@ make lint                     # shellcheck + rpmlint
 
 `%check` lance `ctest` et les tests Django : un test rouge empêche le paquet d'exister.
 
+## Flatpak du front
+
+`packaging/flatpak/io.github.etyloppihacilem.QRProtec.yml` : le front de bureau seul (équivalent de
+`qrprotec-front`, **sans kiosk**) pour les autres distributions. Runtime `org.freedesktop.Platform`
+25.08 de Flathub ; GLFW (X11), `libxdo` (SDK Inateck) et `aplay` (bips) sont construits dans le
+manifeste car absents du runtime. Les fichiers sont installés comme dans le RPM, sous `/app`, pour
+reprendre tels quels le lanceur `files/qrprotec-front` et `files/qrprotec.desktop`.
+
+Permissions (`finish-args`) et pourquoi :
+
+| Permission | Pour |
+|---|---|
+| `--socket=x11`, `--share=ipc` | Fenêtre en X11 (XWayland) : décorations du bureau (pas de libdecor dans le runtime) et `libxdo` du SDK Inateck |
+| `--device=all` | OpenGL (`/dev/dri`) et imprimante Niimbot (`/dev/ttyACM0`) : Flatpak n'a pas de permission propre aux ports série |
+| `--share=network` | API du back |
+| `--socket=pulseaudio` | Bips (`aplay` passe par l'ALSA du runtime) |
+| `--system-talk-name=org.bluez`, `--allow=bluetooth` | Douchette Inateck en Bluetooth |
+| `--filesystem=xdg-config/qrprotec:create` | `~/.config/qrprotec` (le front y écrit d'après `$HOME`), partagé avec le RPM |
+| `--filesystem=xdg-pictures:ro` | Images ajoutées aux étiquettes |
+
+Les modèles d'étiquettes vont dans `~/.var/app/<id>/data/qrprotec/templates` (`XDG_DATA_HOME` du
+bac à sable). `ctest` tourne pendant la construction. x86_64 seulement (SDK Inateck).
+
+```sh
+make flatpak      # flatpak-builder -> dist/QRProtec-front.flatpak
+flatpak install --user dist/QRProtec-front.flatpak
+```
+
+`.github/workflows/flatpak.yml` construit le `.flatpak` (image `flatpak-github-actions` de Flathub)
+et le joint à la release sur un tag `vX.Y.Z`.
+
 ## Publication (CI)
 
 `.github/workflows/rpm.yml` : à chaque push sur `main` touchant le code ou le packaging, construit les
