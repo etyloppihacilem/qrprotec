@@ -161,6 +161,10 @@ body.cam-mini #toast { bottom: calc(80px + min(56vw, 240px) + env(safe-area-inse
 .chart { width: 100%; height: auto; display: block; }
 .chart text { fill: var(--muted); font-size: 9px; }
 .chart .grid { stroke: var(--line); }
+.chart .hit { fill: transparent; cursor: pointer; }
+.chart rect:not(.hit), .chart text { pointer-events: none; }
+.chart .hit.active { fill: var(--line); fill-opacity: .35; }
+.chart-detail { margin: 2px 0 0; min-height: 1.3em; }
 .s-stock { fill: var(--blue); background: var(--blue); }
 .s-lots { fill: #7ea6dc; background: #7ea6dc; }
 .s-sealed { fill: var(--orange); background: var(--orange); }

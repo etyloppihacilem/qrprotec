@@ -4198,11 +4198,38 @@
       const date = parseDate(sum.start);
       const label = date ? MONTHS[date.getMonth()] : '';
       svg.append(svgEl('text', { x: x + w / 2, y: H - 3, 'text-anchor': 'middle' }, label));
+      // zone de survol / appui sur toute la colonne du mois : detail sous le graphe
+      const text = monthDetail(date, sum);
+      const hit = svgEl('rect', { x: left + index * step, y: 0, width: step, height: H, class: 'hit' });
+      hit.append(svgEl('title', {}, text));
+      const show = () => {
+        detail.textContent = text;
+        svg.querySelectorAll('.hit.active').forEach((node) => node.classList.remove('active'));
+        hit.classList.add('active');
+      };
+      hit.addEventListener('pointerenter', show);
+      hit.addEventListener('click', show);
+      svg.insertBefore(hit, svg.firstChild);
     });
+    const detail = el('p', { class: 'hint chart-detail' }, 'Survolez ou touchez un mois pour le détail.');
     return el('figure', { class: 'chart-box' }, svg,
       el('figcaption', { class: 'legend' },
-        ...[['s-stock', 'stock'], ['s-lots', 'lots'], ['s-sealed', 'scellés'], ['s-lost', 'perdus']]
-          .map(([cls, label]) => el('span', {}, el('i', { class: cls }), label))));
+        ...[['s-stock', 'stock'], ['s-lots', 'lots'], ['s-sealed', 'scellés'], ['s-lost', 'périmés (à jeter)']]
+          .map(([cls, label]) => el('span', {}, el('i', { class: cls }), label))),
+      detail);
+  }
+
+  // Detail d'un mois du graphe des peremptions : combien perimment, ou, et combien seront a jeter
+  function monthDetail(date, sum) {
+    const month = date ? `${MONTHS[date.getMonth()]} ${date.getFullYear()}` : '';
+    const total = sum.stock + sum.lots + sum.sealed;
+    if (!total) return `${month} : rien ne périme.`;
+    const where = [[sum.stock, 'en stock'], [sum.lots, 'en lots'], [sum.sealed, 'en lots scellés']]
+      .filter(([count]) => count).map(([count, label]) => `${count} ${label}`).join(', ');
+    const lost = sum.lost
+      ? `dont ${sum.lost} ${pl(sum.lost, 'ne sera pas utilisé', 'ne seront pas utilisés')} à temps (à jeter)`
+      : 'tout sera utilisé avant sa date';
+    return `${month} : ${total} ${pl(total, 'périme', 'périment')} (${where}), ${lost}.`;
   }
 
   // Previsions de stock : horizon, graphe, types a surveiller, echanges
@@ -4231,7 +4258,7 @@
     for (const type of sorted) {
       const point = at(type);
       const details = [];
-      if (point.expiring) details.push(`${point.expiring} ${pl(point.expiring, 'périme', 'périment')}` + (point.lost ? ` dont ${nb(point.lost, 'perdu')}` : ''));
+      if (point.expiring) details.push(`${point.expiring} ${pl(point.expiring, 'périme', 'périment')}` + (point.lost ? ` dont ${point.lost} à jeter` : ''));
       if (type.order) details.push(`commander ${type.order.quantity} avant le ${fmtDate(type.order.before)}`);
       else if (!details.length) details.push(type.per_month ? `${nb(Math.round(type.per_month * 10) / 10, 'utilisé')} par mois` : 'rien à signaler');
       const kind = type.order && type.order.urgent ? 'bad' : type.below_min ? 'warn' : '';

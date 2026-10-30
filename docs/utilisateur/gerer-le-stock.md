@@ -120,7 +120,9 @@ Le délai de livraison des commandes (15 jours par défaut) est aussi dans les R
 
 Sur le téléphone, la page **Gestion de la TECH** de l'accueil, vue **Prévisions** : choix de l'horizon,
 graphe des péremptions des six prochains mois, types à surveiller avec la commande suggérée, et
-échanges à faire.
+échanges à faire. Dans le graphe, chaque barre compte les items qui périment ce mois-là (stock, lots,
+scellés) ; la barre rouge **périmés (à jeter)** en montre la part qui ne sera pas utilisée à temps au
+rythme actuel. L'objectif est de ne plus voir de rouge. Survolez ou touchez un mois pour le détail.
 
 ## Vérifier la réserve
 
