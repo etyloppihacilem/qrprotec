@@ -131,6 +131,8 @@ $(DOC_PDFS): $(DOC_DEPS)
 
 # Flatpak du front (pas de kiosk), avec le runtime Flathub installe pour l'utilisateur au besoin.
 # Dependances : sudo dnf install flatpak flatpak-builder
+# --disable-rofiles-fuse : fusermount3 refuse de monter dans dist/ sur certaines machines (Fedora Atomic,
+# SELinux), « Failure spawning rofiles-fuse ». Ce montage ne sert qu a proteger le cache.
 FLATPAK_ID := io.github.etyloppihacilem.QRProtec
 FLATPAK_MANIFEST := packaging/flatpak/$(FLATPAK_ID).yml
 FLATHUB := https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -139,7 +141,7 @@ flatpak:
 	@command -v flatpak-builder >/dev/null || { echo "flatpak-builder requis (sudo dnf install flatpak-builder)"; exit 1; }
 	git submodule update --init app/imgui app/implot app/scanner_lib
 	flatpak remote-add --user --if-not-exists flathub $(FLATHUB)
-	flatpak-builder --user --install-deps-from=flathub --force-clean --ccache \
+	flatpak-builder --user --install-deps-from=flathub --force-clean --ccache --disable-rofiles-fuse \
 		--state-dir=dist/flatpak/state --repo=dist/flatpak/repo dist/flatpak/build $(FLATPAK_MANIFEST)
 	flatpak build-bundle --runtime-repo=$(FLATHUB) dist/flatpak/repo dist/QRProtec-front.flatpak $(FLATPAK_ID)
 
