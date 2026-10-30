@@ -66,6 +66,7 @@ local_patterns = [
     path('items/batch/', views.items_batch),
     path('items/disable/', views.items_disable),
     path('receptions/', views.receptions),
+    path('receptions/store/', views.reception_store),
     path('items/to-stock/', views.items_to_stock),
     path('items/<str:iid>/delete/', views.item_delete),
     path('items/<str:iid>/restore/', views.item_restore),

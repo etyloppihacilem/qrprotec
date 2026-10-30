@@ -19,15 +19,20 @@ Menu **Gestion > Inventaire**, onglet **Réception**, une ligne de commande à l
    ou seulement le mois `03/2029` / `0329` (= dernier jour du mois). La date comprise s'affiche à
    côté. Pas de date pour un produit non périssable.
 3. **Quantité**.
-4. Pour les compresses en boîtes fermées : cochez **Paquet fermé** et faites **une réception par
+4. **Rangement du stock** (facultatif) : choisissez l'armoire ou le tiroir où va toute la réception
+   (« Armoire › Tiroir 2 »). Les 50 compresses y sont rangées d'un coup, sans les scanner. Laissé
+   sur **Stock (sans rangement)**, les items restent dans le stock en vrac.
+5. Pour les compresses en boîtes fermées : cochez **Paquet fermé** et faites **une réception par
    boîte** (quantité 25). Voir ci-dessous.
-5. **Créer N item(s) et voir les étiquettes** : l'aperçu montre les étiquettes, **Imprimer** les
+6. **Créer N item(s) et voir les étiquettes** : l'aperçu montre les étiquettes, **Imprimer** les
    imprime en série.
-6. Collez les étiquettes, rangez le matériel.
+7. Collez les étiquettes, rangez le matériel.
 
-Les items reçus sont **en stock**. Pour les ranger dans une armoire ou un tiroir étiqueté : scannez
-les items, puis l'étiquette clé du rangement, puis **Ajouter au lot** dans la pile (ou faites une
-vérif du rangement).
+Les items reçus sont **en stock**. Pour ranger après coup toute une réception dans une armoire ou un
+tiroir : onglet **Réceptions passées**, cliquez la réception, choisissez le rangement puis **Ranger
+les N items dans …** (seuls les items encore dans le stock bougent, pas ceux déjà mis dans un lot).
+Pour ranger quelques items : scannez-les, puis l'étiquette clé du rangement, puis **Ajouter au lot**
+dans la pile (ou faites une vérif du rangement).
 
 La section **Dernière réception** permet de réimprimer une étiquette ratée ou toute la série.
 

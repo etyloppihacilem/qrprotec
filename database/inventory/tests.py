@@ -592,6 +592,52 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(row['stock_fresh'], 5)
         self.assertEqual(row['min_quantity'], 10)
 
+    def test_batch_into_storage(self):
+        storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
+        armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test', parent=Lots.stock())
+        armoire.save()
+        date = (self.today + timedelta(days=200)).isoformat()
+        code, body = self.call('POST', '/api/items/batch/',
+                               {'type': 'compre', 'peremption': date, 'count': 50, 'location': armoire.id, 'user': 'M001'})
+        self.assertEqual(code, 201)
+        self.assertEqual(Items.objects.filter(location=armoire).count(), 50)
+        code, stock = self.call('GET', '/api/stock/')
+        self.assertEqual(next(row for row in stock if row['type'] == 'compre')['stock_fresh'], 50)
+        # le lot du stock vaut le stock en vrac, un lot normal est refuse
+        code, body = self.call('POST', '/api/items/batch/',
+                               {'type': 'compre', 'peremption': date, 'count': 2, 'location': Lots.stock().id})
+        self.assertEqual(code, 201)
+        self.assertIsNone(Items.objects.get(iid=body['items'][0]['iid']).location_id)
+        code, _ = self.call('POST', '/api/items/batch/',
+                            {'type': 'compre', 'peremption': date, 'count': 2, 'location': self.lot.id})
+        self.assertEqual(code, 400)
+        self.assertEqual(Items.objects.filter(location=self.lot).count(), 0)
+
+    def test_store_reception(self):
+        storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
+        armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test', parent=Lots.stock())
+        armoire.save()
+        date = (self.today + timedelta(days=200)).isoformat()
+        code, body = self.call('POST', '/api/items/batch/', {'type': 'compre', 'peremption': date, 'count': 5})
+        iids = [item['iid'] for item in body['items']]
+        Items.objects.filter(iid=iids[0]).update(location=self.lot)  # deja mis dans un lot : il y reste
+        code, receptions = self.call('GET', f'/api/receptions/?item={iids[1]}')
+        self.assertEqual((receptions[0]['count'], receptions[0]['in_stock']), (5, 4))
+        code, body = self.call('POST', '/api/receptions/store/',
+                               {'reception': iids[2], 'location': armoire.id, 'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertEqual((body['count'], body['total']), (4, 5))
+        self.assertEqual(sorted(Items.objects.filter(location=armoire).values_list('iid', flat=True)), iids[1:])
+        self.assertEqual(Items.objects.get(iid=iids[0]).location_id, self.lot.id)
+        armoire.refresh_from_db()
+        self.assertFalse(armoire.verif_recommended)
+        # retour en vrac dans le stock
+        code, body = self.call('POST', '/api/receptions/store/', {'reception': iids[2], 'location': ''})
+        self.assertEqual(body['count'], 4)
+        self.assertEqual(Items.objects.filter(location__isnull=True).count(), 4)
+        code, _ = self.call('POST', '/api/receptions/store/', {'reception': iids[2], 'location': self.lot.id})
+        self.assertEqual(code, 400)
+
     def test_create_entities(self):
         code, body = self.call('POST', '/api/item-types/', {'type': 'serphy', 'name': 'Serum phy', 'perissable': True})
         self.assertEqual(code, 201)
