@@ -4253,3 +4253,41 @@ class TasksTests(ApiTestCase):
         code, body = self.call('POST', '/api/tasks/summary/', {'user': self.badge(self.user)}, local=False)
         self.assertEqual(code, 200)
         self.assertEqual(body['count'], len(body['tasks']))
+
+
+class DebugCodesTests(ApiTestCase):
+    """Outil de debug des codes du front web : administrateurs seulement, jamais de badge."""
+
+    def test_admin_only_and_no_badges(self):
+        items = self.create(self.compresses, self.today + timedelta(days=60), 2)
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
+        self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
+        self.garrot.label_style = 'barcode'
+        self.garrot.save()
+        garrot = self.create(self.garrot, None, 1)[0]
+        # refuse sans connexion et aux non-admins (badge d'un secouriste), sur l'API publique comme au poste
+        code, _ = self.call('POST', '/api/debug/codes/', {}, local=False)
+        self.assertEqual(code, 403)
+        code, _ = self.call('POST', '/api/debug/codes/', {'user': {'matricule': 'M001', 'key': self.user.new_key}},
+                            local=False)
+        self.assertEqual(code, 403)
+        self.user.role = 'gestion'
+        self.user.save()
+        code, _ = self.call('POST', '/api/debug/codes/', {}, session=views.session_token(self.user))
+        self.assertEqual(code, 403)
+        # admin : badge + session sur l'API publique
+        admin = {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
+        code, body = self.call('POST', '/api/debug/codes/', {'user': admin}, local=False)
+        self.assertEqual(code, 200)
+        lot = next(row for row in body['lots'] if row['id'] == self.lot.id)
+        self.assertEqual([row['kind'] for row in lot['codes']], ['public', 'key', 'seal', 'sealopen'])
+        self.lot.refresh_from_db()
+        self.assertIn(self.lot.verif_key, lot['codes'][1]['code'])
+        by_iid = {row['iid']: row for row in body['items']}
+        self.assertEqual(by_iid[items[0].iid]['lot'], self.lot.id)
+        self.assertTrue(by_iid[items[0].iid]['code'].endswith('/item?id=' + compact_iid(items[0].iid)))
+        self.assertEqual(by_iid[garrot.iid]['code'], compact_iid(garrot.iid))  # code-barres : iid court seul
+        text = json.dumps(body)
+        for user in (self.user, self.operator):
+            self.assertNotIn('badge?', text)
+            self.assertNotIn(user.matricule, text)
