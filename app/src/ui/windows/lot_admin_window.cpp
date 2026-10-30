@@ -282,7 +282,9 @@ class LotAdminWindow final : public AppWindow {
 
     // apercu des deux etiquettes du lot (publique puis privee), impression depuis la fenetre d'apercu. Un rangement
     // du stock n'a qu'une etiquette, celle de rangement (privee, sans expiration). Sans with_public (creation d'un
-    // lot a scelle obligatoire), seulement l'etiquette cle : celle du scelle tient lieu d'etiquette publique.
+    // lot a scelle obligatoire), seulement l'etiquette cle : celle du scelle tient lieu d'etiquette publique. Badge
+    // obligatoire (nom declare desactive) : pas d'etiquette cle, elle n'autorise rien de plus que la publique
+    // (impression directe « clé » toujours possible).
     void preview_lot(App &app, const Json &lot, bool with_public = true) {
       const Parameters        parameters = lot_parameters(lot);
       std::vector< PrintJob > jobs;
@@ -292,7 +294,9 @@ class LotAdminWindow final : public AppWindow {
         if (with_public)
           app.build_label_jobs(TemplateCategory::LotPublic, { parameters }, "Lot " + lot["name"].str() + " (publique)",
                                jobs);
-        app.build_label_jobs(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (clé)", jobs);
+        if (app.declared_identity)
+          app.build_label_jobs(TemplateCategory::LotPrivate, { parameters }, "Lot " + lot["name"].str() + " (clé)",
+                               jobs);
       }
       app.preview_jobs(std::move(jobs), "Lot " + lot["name"].str());
     }
@@ -437,7 +441,8 @@ class LotAdminWindow final : public AppWindow {
         if (small_button("Impression directe"))
           print_lot(app, lot_, false, true);
       } else {
-        if (primary_button("Aperçu des étiquettes publique et clé", ImVec2(-FLT_MIN, 0)))
+        if (primary_button(app.declared_identity ? "Aperçu des étiquettes publique et clé" : "Aperçu de l'étiquette publique",
+                           ImVec2(-FLT_MIN, 0)))
           preview_lot(app, lot_);
         ImGui::TextDisabled("Impression directe :");
         ImGui::SameLine();
