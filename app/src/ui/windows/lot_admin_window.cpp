@@ -563,7 +563,7 @@ class LotAdminWindow final : public AppWindow {
           const std::string location = row["location"].str();
           ImGui::TextDisabled("%s", location.empty() ? "-" : location.c_str());
           ImGui::TableNextColumn();
-          stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(-FLT_MIN, 0));
+          lot_bar(row["present"].integer(), row["required"].integer(), ImVec2(-FLT_MIN, 0));
         }
         ImGui::EndTable();
       }

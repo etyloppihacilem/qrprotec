@@ -2531,8 +2531,11 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     VerifPlanLot     &row = plan[index[id]];
     ++row.touched;
     row.iids.insert(item.iid);
-    if (!item.expired)
-      ++row.fresh[item.type];
+    if (item.expired)
+      continue;
+    ++row.fresh[item.type];
+    if (!location_of.count(item.iid))
+      ++row.added[item.type];
   }
   for (VerifPlanLot &row : plan) {
     const std::string id = (*row.lot)["id"].str();

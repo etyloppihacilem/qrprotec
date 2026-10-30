@@ -252,19 +252,26 @@ bool report_mark(const char *id) {
   return clicked;
 }
 
-void stock_bar(int quantity, int minimum, const ImVec2 &size) {
+void stock_bar(int quantity, int minimum, const ImVec2 &size, int extra) {
   const bool   empty = quantity <= 0 && minimum > 0; // x/0 : rien d'attendu, vert
-  const bool   none  = quantity <= 0 && minimum <= 0; // 0/0 : orange, a remarquer mais rien a faire
+  const bool   none  = quantity <= 0 && minimum <= 0 && extra <= 0; // 0/0 : orange, a remarquer mais rien a faire
   const ImVec4 color = empty ? colors::red : (none || quantity < minimum) ? colors::orange : colors::green;
   float        fraction = minimum > 0 ? static_cast< float >(quantity) / static_cast< float >(minimum) : 1.0f;
   if (empty)
     fraction = 1.0f; // barre entierement rouge : bien visible
   fraction = std::clamp(fraction, 0.0f, 1.0f);
-  const std::string overlay = std::to_string(quantity) + "/" + std::to_string(minimum);
+  std::string overlay = quantity > 0 || minimum > 0 || extra <= 0
+                          ? std::to_string(quantity) + "/" + std::to_string(minimum) : std::string();
+  if (extra > 0)
+    overlay += (overlay.empty() ? "+ " : " + ") + std::to_string(extra);
   ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
   ImGui::PushStyleColor(ImGuiCol_Text, empty ? ImVec4(1, 1, 1, 1) : ImGui::GetStyleColorVec4(ImGuiCol_Text));
   ImGui::ProgressBar(fraction, size, overlay.c_str());
   ImGui::PopStyleColor(2);
+}
+
+void lot_bar(int present, int required, const ImVec2 &size) {
+  stock_bar(std::min(present, required), required, size, std::max(0, present - required));
 }
 
 float stock_order(int quantity, int minimum, int soon) {

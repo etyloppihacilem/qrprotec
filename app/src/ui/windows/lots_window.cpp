@@ -367,7 +367,7 @@ class LotsWindow final : public AppWindow {
             if (grouped)
               ImGui::Unindent(12.0f);
             ImGui::TableNextColumn();
-            stock_bar(row["present"].integer(), row["required"].integer(), ImVec2(-1, 0));
+            lot_bar(row["present"].integer(), row["required"].integer(), ImVec2(-1, 0));
             ImGui::TableNextColumn();
             const int expired = row["expired"].integer();
             if (expired > 0)

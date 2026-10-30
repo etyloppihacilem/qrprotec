@@ -24,6 +24,7 @@ const ImVec4 orange(0.93f, 0.55f, 0.10f, 1.0f);
 const ImVec4 red(0.82f, 0.12f, 0.12f, 1.0f);
 const ImVec4 grey(0.5f, 0.5f, 0.5f, 1.0f);
 const ImVec4 yellow(0.95f, 0.80f, 0.20f, 1.0f);
+const ImVec4 blue(0.14f, 0.39f, 0.70f, 1.0f); // items en trop (« + x »), comme le front web
 } // namespace colors
 
 // Boutons a utiliser a la place d'ImGui::Button : raccourci Alt+lettre, lettre soulignee (voir widgets.cpp)
@@ -47,8 +48,11 @@ void draw_qr(const std::string &payload, float size);
 
 // Barre de stock : verte si quantite >= minimum, orange si en dessous, rouge si vide.
 // 0/0 en orange (a remarquer, rien a faire), x/0 en vert.
-// Le texte "quantite/minimum" est affiche dans la barre.
-void stock_bar(int quantity, int minimum, const ImVec2 &size = ImVec2(-1.0f, 0.0f));
+// Le texte "quantite/minimum" est affiche dans la barre, suivi de "+ extra" pour des items en trop (ajoutes sans
+// etre attendus ; "+ extra" seul si rien n'etait attendu, barre verte).
+void stock_bar(int quantity, int minimum, const ImVec2 &size = ImVec2(-1.0f, 0.0f), int extra = 0);
+// Barre d'un type attendu dans un lot : les items au-dela du minimum en "+ x" (5 pour 3 attendus : 3/3 + 2)
+void lot_bar(int present, int required, const ImVec2 &size = ImVec2(-1.0f, 0.0f));
 
 // Cle de tri des barres de stock, attention d'abord : sous le minimum (par ratio), puis bientot sous le minimum ou
 // vide (soon : combien periment bientot), puis 0/0, puis complets, puis x/0.

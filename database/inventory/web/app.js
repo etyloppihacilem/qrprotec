@@ -1428,11 +1428,13 @@
     }
     const deficit = Object.fromEntries(lots.map((lot) => [lot.id, { ...required[lot.id] }]));
     const scanned = [];
+    const typeNames = {};
     for (const entry of allScanned()) {
       if (entry.error) continue;
       const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
       const iids = entry.kind === 'item' ? [entry.iid] : entry.items || [];
       for (const iid of iids) scanned.push({ iid, type, expired: !!entry.expired, place: entry.place || '' });
+      if (type && entry.info && entry.info.type_name) typeNames[type] = entry.info.type_name;
     }
     // lot parent de chaque lot de la vérif : un item venu du stock va dans le lot de la derniere etiquette scannee
     // avant lui ou un de ses sous-lots
@@ -1462,12 +1464,15 @@
       }
       target[item.iid] = choice || candidates[0] || scope[0];
     }
-    const plan = Object.fromEntries(lots.map((lot) => [lot.id, { lot, required: required[lot.id], fresh: {}, touched: 0 }]));
+    // added : items frais qui n'etaient dans aucun lot de la verif (stock, autre lot), par type, pour les « + x »
+    const plan = Object.fromEntries(lots.map((lot) => [lot.id, { lot, required: required[lot.id], fresh: {}, added: {}, touched: 0 }]));
     for (const item of scanned) {
       const row = plan[target[item.iid]];
       if (!row) continue;
       row.touched += 1;
-      if (!item.expired) row.fresh[item.type] = (row.fresh[item.type] || 0) + 1;
+      if (item.expired) continue;
+      row.fresh[item.type] = (row.fresh[item.type] || 0) + 1;
+      if (!locationOf[item.iid]) row.added[item.type] = (row.added[item.type] || 0) + 1;
     }
     for (const row of Object.values(plan)) {
       // seul compte le minimum d'items frais : un perime en trop ne retient pas le lot (il est retire, a jeter)
@@ -1475,7 +1480,7 @@
       // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
       row.complete = filled && (row.lot.storage ? !holding[row.lot.id] : (row.touched > 0 || !holding[row.lot.id]));
     }
-    return { lots: lots.map((lot) => plan[lot.id]), target, intact };
+    return { lots: lots.map((lot) => plan[lot.id]), target, intact, typeNames };
   }
 
   // Etat d'un lot : verifie et complet (vert), reassort depuis la derniere verif (orange : verif complete
@@ -2238,7 +2243,7 @@
           + (row.sealed ? `🔒 ${row.name} : scellé intact`
             : row.verified ? (row.complete ? '✔ ' : '✘ ') + row.name + (row.complete ? ' : complet' : ' : incomplet')
             : `↷ ${row.name} : non vérifié` + (row.restocked ? `, ${nb(row.restocked, 'item ajouté', 'items ajoutés')} (réassort)` : '')))))] : []),
-      ...(report.requirements || []).map((row) => requirementRow(
+      ...(report.requirements || []).map((row) => lotRequirementRow(
         (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row.required)),
       ...section('Périmés ou inutilisables encore dans le lot : à remplacer', report.expired),
       ...section('Périmés retirés du lot : à jeter', report.replaced),
@@ -2344,16 +2349,27 @@
   // ------------------------------------------------------------------------------------------------
   // Affichage
 
-  function requirementRow(label, present, required, after = null) {
+  // Compte « fait/attendu », avec « + x » en bleu pour les items en trop (ajoutes sans etre attendus) ; « + x » seul
+  // si rien n'etait attendu
+  function countText(done, required, extra = 0) {
+    const plus = extra > 0 ? el('b', { class: 'plus' }, '+ ' + extra) : null;
+    return done || required || !plus ? [`${done}/${required}`, plus] : [plus];
+  }
+
+  // Lot : les items au-dela du minimum sont affiches en « + x » (5 pour 3 attendus : 3/3 + 2)
+  const lotRequirementRow = (label, present, required, after = null) =>
+    requirementRow(label, Math.min(present, required), required, after, Math.max(0, present - required));
+
+  function requirementRow(label, present, required, after = null, extra = 0) {
     const ratio = required > 0 ? Math.min(1, present / required) : 1;
     const empty = present <= 0 && required > 0; // x/0 : rien d'attendu, vert
-    const none = present <= 0 && required <= 0; // 0/0 : orange, a remarquer mais rien a faire
+    const none = present <= 0 && required <= 0 && !extra; // 0/0 : orange, a remarquer mais rien a faire
     const color = empty ? 'var(--red)' : (none || present < required) ? 'var(--orange)' : 'var(--green)';
     return el('div', { class: 'req' },
       el('span', { class: 'label' }, label),
       el('div', { class: 'bar' },
         el('i', { style: `width:${empty ? 100 : ratio * 100}%;background:${color}` }),
-        el('span', { style: empty ? 'color:#fff' : '' }, `${present}/${required}`)), after);
+        el('span', { style: empty ? 'color:#fff' : '' }, ...countText(present, required, extra))), after);
   }
 
   // Cle de tri des barres, attention d'abord : sous le minimum (par ratio), puis bientot sous le minimum ou vide
@@ -2384,7 +2400,7 @@
     if (plan.intact.has(lot.id)) return { groups: [], others: [], remaining: 0, complete: true, sealed: true };
     const done = scannedIids();
     const row = plan.lots.find((entry) => entry.lot.id === lot.id);
-    if (lot.storage) return storageGroups(lot, done, row);
+    if (lot.storage) return storageGroups(lot, done, row, plan);
     const fresh = row ? row.fresh : {};
     const known = {};
     for (const item of lot.items || []) {
@@ -2399,8 +2415,10 @@
       const missing = Math.max(0, requirement.required - scanned);
       const knownFresh = items.filter((item) => !item.expired).length;
       remaining += missing;
-      return { row: requirement, items, scanned, missing, fromStock: Math.max(0, missing - knownFresh) };
+      return { row: requirement, items, scanned: Math.min(scanned, requirement.required), missing,
+        extra: Math.max(0, scanned - requirement.required), fromStock: Math.max(0, missing - knownFresh) };
     });
+    groups.push(...addedGroups(row, plan, groups));
     const others = Object.values(known).flat();
     remaining += others.length;
     return { groups, others, remaining, complete: row ? row.complete : false };
@@ -2408,7 +2426,7 @@
 
   // Rangement du stock : pas de contenu attendu par type, chaque item qui y est range est attendu (on verifie qu'il
   // est toujours la). Un type par groupe, compte sur les items connus du rangement.
-  function storageGroups(lot, done, row) {
+  function storageGroups(lot, done, row, plan) {
     const byType = {};
     for (const item of lot.items || []) {
       const group = byType[item.type] = byType[item.type]
@@ -2417,7 +2435,10 @@
       if (done.has(item.iid)) group.scanned += 1;
       else group.items.push(item);
     }
-    const groups = Object.values(byType).sort((a, b) => a.row.type_name.localeCompare(b.row.type_name, 'fr'));
+    // items ajoutes au rangement (venus d'ailleurs) : « + x » sur la ligne de leur type
+    for (const group of Object.values(byType)) group.extra = row ? row.added[group.row.type] || 0 : 0;
+    const groups = [...Object.values(byType), ...addedGroups(row, plan, Object.values(byType))]
+      .sort((a, b) => a.row.type_name.localeCompare(b.row.type_name, 'fr'));
     let remaining = 0;
     for (const group of groups) {
       group.items.sort((a, b) => b.expired - a.expired);
@@ -2426,6 +2447,16 @@
       remaining += group.missing;
     }
     return { groups, others: [], remaining, complete: row ? row.complete : false };
+  }
+
+  // Types ajoutes a un lot pendant la verif sans y etre attendus (ni dans sa definition, ni deja dans le lot) : une
+  // ligne « + x » chacun
+  function addedGroups(row, plan, groups) {
+    if (!row) return [];
+    const listed = new Set(groups.map((group) => group.row.type));
+    return Object.entries(row.added).filter(([type]) => !listed.has(type)).map(([type, count]) => ({
+      row: { type, type_name: plan.typeNames[type] || type, location: '', required: 0 },
+      items: [], scanned: 0, missing: 0, extra: count, fromStock: 0 }));
   }
 
   // Item attendu, dans la liste depliable de son type : seulement son iid, en petit (le type est dans le titre)
@@ -2489,11 +2520,12 @@
         el('div', { class: 'main' },
           el('div', { class: 'name' }, group.row.type_name),
           el('div', { class: 'sub' }, [!placed && group.row.location ? '📍 ' + group.row.location : '',
-            group.missing === 0 ? 'complet' : `encore ${group.missing} à scanner`,
+            group.missing > 0 ? `encore ${group.missing} à scanner` : group.row.required ? 'complet' : '',
+            group.extra ? `${group.extra} en plus` : '',
             expired ? nb(expired, 'périmé') : '',
             group.fromStock > 0 ? `${group.fromStock} à prendre dans le stock` : ''].filter(Boolean).join(' · '))),
         [reportMark({ lot: lot.id, lotName: lot.name, type: group.row.type, label: `${group.row.type_name} (${lot.name})` }),
-          el('span', { class: 'count' }, `${group.scanned}/${group.row.required}`)]);
+          el('span', { class: 'count' }, ...countText(group.scanned, group.row.required, group.extra))]);
     };
     const sorted = (list) => list.sort((a, b) => rank(a) - rank(b)
       || (rank(a) === 0 ? lastScanOf(b) - lastScanOf(a) : 0));
@@ -2512,12 +2544,13 @@
     const placeRows = places.map(({ place, rows: list }) => {
       const scanned = list.reduce((sum, group) => sum + Math.min(group.scanned, group.row.required), 0);
       const missing = list.reduce((sum, group) => sum + group.missing, 0);
-      return { place, list, scanned, missing,
+      const extra = list.reduce((sum, group) => sum + (group.extra || 0), 0);
+      return { place, list, scanned, missing, extra,
         required: list.reduce((sum, group) => sum + group.row.required, 0),
         rank: !missing ? 2 : scanned ? 0 : 1, last: Math.max(...list.map(lastScanOf)) };
     });
     placeRows.sort((a, b) => a.rank - b.rank || (a.rank === 0 ? b.last - a.last : 0));
-    for (const { place, list, scanned, missing, required, rank: placeRank } of placeRows) {
+    for (const { place, list, scanned, missing, extra, required, rank: placeRank } of placeRows) {
       const key = `${lot.id}@${place}`;
       const fold = placeFolds.get(key);
       const open = fold && fold.complete === !missing ? fold.open : missing > 0;
@@ -2525,7 +2558,7 @@
         'aria-expanded': String(open), onclick: () => { placeFolds.set(key, { open: !open, complete: !missing }); renderTodo(); } },
       el('span', { class: 'chevron' }, open ? '▾' : '▸'),
       el('div', { class: 'main name' }, '📍 ' + (place || 'Sans emplacement')),
-      el('span', { class: 'count' }, `${scanned}/${required}`)));
+      el('span', { class: 'count' }, ...countText(scanned, required, extra))));
       if (open) for (const group of sorted(list)) rows.push(...groupRows(group));
     }
     rows.push(...othersRows());
@@ -2727,10 +2760,10 @@
       ...renderGlobal(lot),
       // types incomplets en haut
       el('h3', {}, 'Scannés / attendus'),
-      ...incompleteFirst(lot.requirements, (row) => fresh[row.type] || 0).map((row) => requirementRow(
+      ...incompleteFirst(lot.requirements, (row) => fresh[row.type] || 0).map((row) => lotRequirementRow(
         row.type_name + (row.location ? ` (${row.location})` : ''), fresh[row.type] || 0, row.required)),
       el('h3', {}, 'État enregistré du lot'),
-      ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => requirementRow(row.type_name, row.present, row.required)),
+      ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => lotRequirementRow(row.type_name, row.present, row.required)),
     );
   }
 
@@ -4623,7 +4656,7 @@
         const rows = ofType(row.type);
         const none = row.present <= 0 && row.required <= 0;
         lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : 3, row, rows: ficheFold(`${sub.id}:${row.type}`, rows,
-          (arrow) => requirementRow(row.type_name + (!placed && row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)) });
+          (arrow) => lotRequirementRow(row.type_name + (!placed && row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)) });
       }
       // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
       const known = new Set(requirements.map((row) => row.type));
