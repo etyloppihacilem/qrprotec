@@ -6049,8 +6049,14 @@
         class: index === player.index ? 'active' : '',
         onclick: () => { player.index = index; renderDebugPlayer(); },
       }, el('span', {}, row.title), el('span', { class: 'hint' }, ` ${row.kind.split(' · ')[0]} · ${row.lines[0] || ''}`)))) : '');
-    const active = $('#debug-player .debug-seq li.active');
-    if (active) active.scrollIntoView({ block: 'nearest' });
+    // seule la liste du bas defile jusqu'au code en cours : le code affiche en haut reste en place
+    const list = $('#debug-player .debug-seq');
+    const active = list && list.querySelector('li.active');
+    if (active) {
+      const box = list.getBoundingClientRect();
+      const row = active.getBoundingClientRect();
+      list.scrollTop += row.top - box.top - (box.height - row.height) / 2;
+    }
   }
 
   // ---- Page de choix
