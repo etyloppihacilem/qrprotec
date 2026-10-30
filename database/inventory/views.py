@@ -33,6 +33,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from . import debug_codes
 from . import forecast
 from . import journal
 from . import lot_sheet
@@ -1001,6 +1002,15 @@ def tasks_summary(request):
     """Liste de taches de la gestion (« Gestion de la TECH » du front web), roles gestion et admin (badge)."""
     badge_user(request, GESTION)
     return Response(tasks.todo())
+
+
+@api_view(['POST'])
+@handle_errors
+def debug_codes_list(request):
+    """Outil de debug des codes du front web (cache derriere 5 appuis sur « État des stocks ») : contenu de toutes
+    les etiquettes imprimables, sauf les badges. Administrateurs seulement, verifie ici et pas seulement par le front."""
+    connected_user(request, ADMIN)
+    return Response(debug_codes.catalog())
 
 
 @api_view(['GET'])

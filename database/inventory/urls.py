@@ -27,6 +27,7 @@ public_patterns = [
     path('stock/summary/', views.stock_summary),
     path('stock/forecast/summary/', views.stock_forecast_summary),
     path('tasks/summary/', views.tasks_summary),
+    path('debug/codes/', views.debug_codes_list),  # admins seulement
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/sheet.pdf', views.lot_sheet_pdf),
     path('lots/<str:lot_id>/verif/', views.lot_verif),

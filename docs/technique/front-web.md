@@ -93,6 +93,13 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   ouvre son **code PIN** (`renderPinSettings`, `POST api/me/pin/`) puis le **gestionnaire des
   notifications** (`renderNotifications`), affiché seulement pour les utilisateurs qui peuvent en
   recevoir (`notifications` dans la réponse de `api/auth/`).
+- **Outil de debug des codes** (admins) : page cachée `#debug`, ouverte par 5 appuis rapides sur
+  « État des stocks » (`debugTap`). `POST api/debug/codes/` (`debug_codes.py`, refusé à tout autre rôle
+  par le serveur) rend le contenu de toutes les étiquettes imprimables : items (QR de l'URL, ou iid court
+  des QR réduits et codes-barres), lots (publique, clé, scellé, ouverture), paquets scellés, listes.
+  Jamais les badges ni les liens de déblocage de PIN. Un code s'affiche en grand (`#debug-player`), seul
+  ou en suite (contenu d'un lot, avec ses sous-lots dans l'ordre d'une vérif en cascade) passée au code
+  suivant d'un appui, par Suivant, les flèches du clavier ou en automatique.
 - **Suivi des vérifs en direct** : `live` publie la vérif en cours de la page de scan (lot, scans,
   reste à scanner) sur `/ws/live/scanner`, avec une session conservée dans `sessionStorage` pour
   survivre à un rechargement ; la page de suivi ouvre `/ws/live/watch` (badge exigé) et reçoit les

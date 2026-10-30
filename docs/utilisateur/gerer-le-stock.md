@@ -78,6 +78,11 @@ Par défaut, le **stock** compte ce qui n'est dans aucun lot **et** ce qui est d
 Sur le téléphone, la vue **État des stocks** de la page **Gestion de la TECH** (après avoir scanné son badge gestion ou admin) affiche le même
 état en lecture seule, les types les plus critiques en premier. Pratique pour préparer une commande.
 
+Pour les administrateurs, 5 appuis rapides sur **État des stocks** ouvrent l'**outil de debug des
+codes** : le code de toutes les étiquettes (items, lots, scellés, paquets, listes ; jamais les badges),
+à afficher en grand et à scanner à la douchette, un par un ou à la suite (tout le contenu d'un lot ou
+d'un sous-lot). Le champ de recherche accepte un nom, un iid ou un code scanné.
+
 ## Anticiper les péremptions et les commandes
 
 La fenêtre **Gestion de la TECH** a, après **À faire**, quatre onglets :

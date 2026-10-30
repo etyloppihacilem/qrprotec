@@ -564,3 +564,32 @@ span.icon { display: inline-block; flex: none; width: 1.15em; height: 1.15em; ba
 button > .icon { vertical-align: -0.2em; margin-right: 6px; }
 .used-btn > .icon { width: 24px; height: 24px; margin-right: 0; }
 #home-lists .list-share button > .icon { width: 20px; height: 20px; margin-right: 0; }
+
+/* Outil de debug des codes (admins, 5 appuis sur « État des stocks ») */
+.debug-search { display: block; width: 100%; font: inherit; padding: 9px 12px; margin: 8px 0; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel); }
+.debug-lot { padding: 6px 0 6px calc(var(--depth, 0) * 14px); border-bottom: 1px solid var(--line); }
+.debug-lot.off { opacity: .7; }
+button.debug-name { display: block; width: 100%; text-align: left; background: none; padding: 2px 0; color: inherit; }
+.page h3 button.debug-name { font-weight: 700; }
+.debug-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.debug-chips button, .page .row-head button.play { padding: 6px 10px; font-size: .85rem; display: inline-flex; align-items: center; gap: 6px; }
+.debug-chips button.play, .page .row-head button.play { background: var(--navy); color: #fff; font-weight: 600; }
+.debug-items { display: flex; flex-direction: column; margin: 2px 0 4px; }
+button.debug-item { text-align: left; background: var(--panel); border-radius: 0; border-bottom: 1px solid var(--line); padding: 7px 10px; }
+#debug-player { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 10px 14px; border: 0;
+  background: var(--panel); display: none; flex-direction: column; gap: 8px; overflow: auto; }
+#debug-player[open] { display: flex; }
+.debug-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.debug-code { background: #fff; display: flex; justify-content: center; cursor: pointer; }
+.debug-qr { width: min(92vw, 52dvh, 520px); image-rendering: pixelated; display: block; }
+.debug-barcode { width: min(92vw, 640px); padding: 6vh 0; }
+.debug-barcode svg { display: block; width: 100%; height: 18dvh; fill: #000; }
+.debug-info { text-align: center; }
+.debug-info code { display: block; font-size: .78rem; color: var(--muted); margin-top: 4px; }
+.debug-nav { display: flex; gap: 8px; }
+.debug-nav button { flex: 1; }
+.debug-nav button.active { background: var(--blue); color: #fff; }
+.debug-seq { margin: 0; padding: 0 0 0 2.2em; font-size: .85rem; }
+.debug-seq li { padding: 4px 0; cursor: pointer; }
+.debug-seq li.active { font-weight: 700; color: var(--navy); background: var(--navy-bg); }
