@@ -461,13 +461,8 @@ def name_login_candidates(nom, prenom):
 def name_login_candidates_queryset():
     """Secouristes qui peuvent se connecter sans badge (nom ou matricule seul, puis PIN) : PIN defini et utilisable,
     badge valide, connexion sans badge pas en pause."""
-    now = timezone.now()
     queryset = Secouristes.objects.filter(active=True, key_expires__gte=timezone.localdate()).exclude(pin_hash='')
-    return [user for user in queryset
-            if user.pin_blocked is None and not user.pin_locked()
-            and user.pin_mode != PinMode.DISABLED
-            and user.name_login_failures < NAME_LOGIN_MAX_FAILURES
-            and (user.name_login_locked_until is None or user.name_login_locked_until <= now)]
+    return [user for user in queryset if name_login_allowed(user)]
 
 
 @api_view(['POST'])
@@ -498,6 +493,26 @@ def login_address_key(request):
     return 'qrprotec.name-login.' + client_address(request)
 
 
+def reserve_login_attempt(address_key):
+    """Compte l'essai pour l'adresse avant de verifier le PIN (et non apres un echec) : des essais envoyes en meme
+    temps ne passent pas tous le controle. L'essai est rendu s'il reussit. cache.incr est atomique."""
+    cache.add(address_key, 0, NAME_LOGIN_ADDRESS_PERIOD)
+    try:
+        attempts = cache.incr(address_key)
+    except ValueError:  # entree expiree entre add et incr
+        cache.set(address_key, 1, NAME_LOGIN_ADDRESS_PERIOD)
+        attempts = 1
+    if attempts > NAME_LOGIN_ADDRESS_LIMIT:
+        raise ApiError("Trop d'essais : réessayez dans quelques minutes", status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+def release_login_attempt(address_key):
+    try:
+        cache.decr(address_key)
+    except ValueError:
+        pass
+
+
 def matricule_login(request, matricule):
     """Connexion par matricule seul et PIN (sans la cle du badge) : memes regles que la connexion par nom (compteurs
     d'essais a part du PIN du badge, limite par adresse, refus qui ne dit pas si le matricule existe). Sans PIN
@@ -512,28 +527,50 @@ def matricule_login(request, matricule):
     return pin_login(request, candidates, pin, MATRICULE_LOGIN_ERROR, pin_required=True)
 
 
+def name_login_allowed(user):
+    """Le candidat peut-il encore se connecter sans badge (meme filtre que name_login_candidates_queryset) ?"""
+    now = timezone.now()
+    return (user.active and bool(user.pin_hash) and user.pin_blocked is None and not user.pin_locked()
+            and user.pin_mode != PinMode.DISABLED
+            and user.name_login_failures < NAME_LOGIN_MAX_FAILURES
+            and (user.name_login_locked_until is None or user.name_login_locked_until <= now))
+
+
+NAME_LOGIN_STATE_FIELDS = ['active', 'pin_hash', 'pin_blocked', 'pin_locked_until', 'pin_mode',
+                           'name_login_failures', 'name_login_locked_until']
+
+
 def pin_login(request, candidates, pin, error, **extra):
-    """Connexion sans badge parmi des candidats (nom ou matricule) : PIN verifie, essais faux comptes."""
+    """Connexion sans badge parmi des candidats (nom ou matricule) : PIN verifie, essais faux comptes.
+
+    Essais simultanes : l'adresse est comptee avant le controle, et chaque candidat est relu sous verrou
+    (transaction IMMEDIATE) pour compter les echecs un par un et refuser un essai arrive apres une pause posee
+    par un essai voisin."""
     address_key = login_address_key(request)
+    reserve_login_attempt(address_key)
     if not candidates:
         check_password(pin, dummy_pin_hash())
+    hashes = {candidate.pk: candidate.pin_hash for candidate in candidates}
     user = next((candidate for candidate in candidates if check_password(pin, candidate.pin_hash)), None)
-    if user is None:
-        try:
-            cache.add(address_key, 0, NAME_LOGIN_ADDRESS_PERIOD)
-            cache.incr(address_key)
-        except ValueError:
-            cache.set(address_key, 1, NAME_LOGIN_ADDRESS_PERIOD)
-        for candidate in candidates:
+    if user is not None:
+        with transaction.atomic():
+            user.refresh_from_db(fields=NAME_LOGIN_STATE_FIELDS, from_queryset=Secouristes.objects.select_for_update())
+            if name_login_allowed(user) and user.pin_hash == hashes[user.pk]:
+                user.name_login_failures = 0
+                user.name_login_locked_until = None
+                user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
+                release_login_attempt(address_key)
+                return user
+        raise ApiError(error, status.HTTP_403_FORBIDDEN, **extra)  # pause ou blocage pose entre-temps : non compte
+    for candidate in candidates:
+        with transaction.atomic():
+            candidate.refresh_from_db(fields=['name_login_failures', 'name_login_locked_until'],
+                                      from_queryset=Secouristes.objects.select_for_update())
             candidate.name_login_failures += 1
             if candidate.name_login_failures % NAME_LOGIN_LOCK_EVERY == 0:
                 candidate.name_login_locked_until = timezone.now() + NAME_LOGIN_LOCK_DURATION
             candidate.save(update_fields=['name_login_failures', 'name_login_locked_until'])
-        raise ApiError(error, status.HTTP_403_FORBIDDEN, **extra)
-    user.name_login_failures = 0
-    user.name_login_locked_until = None
-    user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
-    return user
+    raise ApiError(error, status.HTTP_403_FORBIDDEN, **extra)
 
 
 @api_view(['POST'])
