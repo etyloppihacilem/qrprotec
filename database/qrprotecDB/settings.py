@@ -80,6 +80,9 @@ SILENCED_SYSTEM_CHECKS = [
     # cookie (badge, PIN et sessions du poste passent par des en-tetes).
     'security.W012',
     'security.W016',
+    # HSTS sans includeSubDomains ni preload : le domaine de la borne peut porter d'autres services en http
+    'security.W005',
+    'security.W021',
 ]
 
 

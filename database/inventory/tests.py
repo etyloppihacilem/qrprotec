@@ -894,6 +894,11 @@ class SetupTests(ApiTestCase):
         old_hash = admin.key_hash
         call_command('createadmin', 'R001', stdout=StringIO())
         self.assertNotEqual(Secouristes.objects.get(matricule='R001').key_hash, old_hash)
+        # PIN lu sur l'entree standard (qrprotec-setup) : jamais dans la ligne de commande
+        from unittest import mock
+        with mock.patch('sys.stdin', StringIO('4821\n')):
+            call_command('createadmin', 'R001', '--pin-stdin', stdout=StringIO())
+        self.assertTrue(Secouristes.objects.get(matricule='R001').check_pin('4821'))
 
 
 # PIN haches avec un algorithme rapide : les tests de blocage font une cinquantaine d'essais

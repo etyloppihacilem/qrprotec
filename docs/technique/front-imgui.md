@@ -236,6 +236,9 @@ Un seul réglage choisit l'API : **URL du serveur** (`api_url`).
 - `https://<domaine>` : back d'une autre machine via Caddy. Le front envoie sa **clé**
   (`api_key`) dans l'en-tête `X-QRProtec-Key` ; Caddy l'oriente vers l'API distante. Le certificat
   est vérifié avec le magasin du système, plus `api_ca_file` (autorité interne de Caddy).
+- `http://` vers une autre machine est refusé (`ApiEndpoint::parse`) : la clé, le jeton et la session de
+  l'utilisateur y passeraient en clair. Pour un essai sur le réseau local seulement :
+  `QRPROTEC_ALLOW_INSECURE_HTTP=1`.
 
 Les variables `QRPROTEC_API_URL`, `QRPROTEC_API_KEY`, `QRPROTEC_API_CA_FILE`, `QRPROTEC_API_TOKEN`
 priment sur le fichier de réglages (sur un kiosk, elles viennent de `/etc/qrprotec/front-api.conf`).

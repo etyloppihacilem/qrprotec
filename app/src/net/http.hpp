@@ -28,6 +28,9 @@ struct HttpUrl {
 
 // Accepte "http://hote[:port][/chemin]" (API locale) et "https://hote[:port][/chemin]" (back distant).
 bool parse_http_url(const std::string &url, HttpUrl &out, std::string &error);
+// localhost, 127.x.x.x, ::1 : seuls hotes joignables en http:// par ApiEndpoint (cle et session en clair sinon)
+bool is_loopback_host(const std::string &host);
+
 // Valeur de l'en-tete Host (port omis s'il est celui par defaut du schema)
 std::string host_header(const HttpUrl &url);
 

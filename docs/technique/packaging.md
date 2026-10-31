@@ -71,7 +71,7 @@ casser la borne. Les versions embarquées sont exactement celles testées.
 | `qrprotec-backup.timer` | Sauvegarde (quotidienne par défaut, réglable). |
 | `80-qrprotec.preset` | Active les unités à l'installation. |
 | `logind-qrprotec.conf`, `sleep-qrprotec.conf` | Pas de mise en veille de la borne. |
-| `qrprotec.sysusers`, `qrprotec.tmpfiles` | Utilisateurs système et dossiers. `qrprotec-kiosk` est dans `dialout` (imprimante série), `video`, `render`, `input`, `audio`. |
+| `qrprotec.sysusers`, `qrprotec.tmpfiles` | Utilisateurs système et dossiers. `qrprotec-kiosk` est dans `dialout` (imprimante série), `video`, `render`, `audio` ; pas dans `input` : Cage reçoit clavier, souris et douchette par sa session logind (tty1), le `%post` l'en retire sur une borne déjà installée. |
 
 ### Réseau
 
@@ -80,7 +80,13 @@ qui portent l'en-tête `X-QRProtec-Key` vont à l'API distante (8002), toutes le
 publique (8000). L'API locale (8001) n'est jamais exposée. `qrprotec.conf` est lu par le back **et** par
 Caddy : le nom d'hôte (`QRPROTEC_DOMAIN`) n'est défini qu'à un endroit et donne le site Caddy,
 `ALLOWED_HOSTS` et la base des QR codes (`qrprotec-manage` en déduit les variables Django). SELinux :
-le `%post` active `httpd_can_network_connect` pour que Caddy joigne le back.
+le `%post` classe les ports 8000 et 8002 (ou ceux de `qrprotec.conf`) en `http_port_t` (`semanage port`) pour
+que Caddy joigne le back, sans ouvrir toutes les connexions sortantes de Caddy. Après un changement de port :
+`sudo semanage port -a -t http_port_t -p tcp PORT` (ou `-m`). Une borne installée avant ce changement garde
+l'ancien réglage `httpd_can_network_connect` ; à couper à la main : `sudo setsebool -P httpd_can_network_connect 0`.
+
+En-têtes : le back envoie `Strict-Transport-Security` (un an, sur les requêtes HTTPS seulement) et une
+`Content-Security-Policy` sur les pages du front web (scripts, styles, images et WebSockets du site seulement).
 
 ### Kiosk
 
@@ -148,6 +154,9 @@ et le joint à la release sur un tag `vX.Y.Z`.
 RPM (Fedora 42, 43 et 44) ; sur un tag `vX.Y.Z`, crée la release GitHub et met à jour le dépôt dnf
 statique sur la branche `gh-pages` (`fedora/<version>/<arch>/`, 5 dernières versions), servi par
 GitHub Pages. Variables optionnelles : `RPM_PAGES_REPO` / `RPM_PAGES_URL` / `RPM_PAGES_TOKEN` pour
-publier dans un dépôt public dédié si celui-ci reste privé, `RPM_GPG_PRIVATE_KEY` /
-`RPM_GPG_PASSPHRASE` pour signer.
+publier dans un dépôt public dédié si celui-ci reste privé. **Obligatoires pour publier** :
+`RPM_GPG_PRIVATE_KEY` / `RPM_GPG_PASSPHRASE`. Sans clé, le job de publication échoue au lieu de publier un dépôt
+non signé : les RPM sont signés, les métadonnées aussi (`repomd.xml.asc`), et `qrprotec.repo` active `gpgcheck`
+et `repo_gpgcheck`. Une borne installée avec l'ancien `qrprotec.repo` (`gpgcheck=0`) le garde : relancer
+`bootstrap.sh` ou retélécharger `qrprotec.repo` dans `/etc/yum.repos.d/`.
 

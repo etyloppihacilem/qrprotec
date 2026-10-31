@@ -121,6 +121,8 @@ Requires:       python3-cryptography
 Requires:       util-linux
 Requires(post): coreutils
 Requires(post): systemd
+# ports du back en http_port_t pour Caddy (semanage), seulement sur un systeme avec SELinux
+Requires(post): (policycoreutils-python-utils if selinux-policy-targeted)
 Requires(preun): systemd
 Requires(postun): systemd
 
@@ -172,6 +174,7 @@ Requires:       libxkbcommon
 Requires:       mesa-libEGL
 Requires:       mesa-dri-drivers
 Requires(post): systemd
+Requires(post): shadow-utils
 Requires(preun): systemd
 Requires(postun): systemd
 # Extinction de l'ecran, bip de mauvais scan, douchette Bluetooth
@@ -353,9 +356,18 @@ if [ ! -s %{_sysconfdir}/%{name}/secret_key ]; then
     chmod 0640 %{_sysconfdir}/%{name}/secret_key 2>/dev/null || :
 fi
 chgrp qrprotec %{_sysconfdir}/%{name}/qrprotec.conf 2>/dev/null || :
-# SELinux : Caddy (domaine httpd_t) doit pouvoir joindre le back sur 127.0.0.1:8000 et 8002
+# SELinux : Caddy (domaine httpd_t) doit pouvoir joindre le back sur 127.0.0.1:8000 et 8002. Ces deux ports
+# seulement passent en http_port_t, au lieu d'ouvrir toutes les connexions de httpd_t (httpd_can_network_connect,
+# ancienne methode, laissee telle quelle sur une borne deja installee : sudo setsebool -P httpd_can_network_connect 0).
 if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
-    if getsebool httpd_can_network_connect 2>/dev/null | grep -q -- '--> off'; then
+    ports=$(if [ -r %{_sysconfdir}/%{name}/qrprotec.conf ]; then . %{_sysconfdir}/%{name}/qrprotec.conf; fi; \
+            echo "${QRPROTEC_PUBLIC_API_PORT:-8000} ${QRPROTEC_REMOTE_API_PORT:-8002}")
+    if command -v semanage >/dev/null 2>&1; then
+        for port in $ports; do
+            semanage port -a -t http_port_t -p tcp "$port" >/dev/null 2>&1 \
+                || semanage port -m -t http_port_t -p tcp "$port" >/dev/null 2>&1 || :
+        done
+    elif getsebool httpd_can_network_connect 2>/dev/null | grep -q -- '--> off'; then
         setsebool -P httpd_can_network_connect 1 || :
     fi
 fi
@@ -405,6 +417,8 @@ if [ ! -e %{rpmstate}/kiosk-existing ]; then
 %systemd_post qrprotec-kiosk.service
 fi
 systemd-sysusers %{_sysusersdir}/%{name}-kiosk.conf >/dev/null 2>&1 || :
+# Ancien groupe input (lecture de tous les peripheriques d'entree) retire : logind suffit a Cage
+gpasswd -d qrprotec-kiosk input >/dev/null 2>&1 || :
 %tmpfiles_create %{_tmpfilesdir}/%{name}-kiosk.conf
 if [ $1 -eq 1 ] && [ ! -e %{rpmstate}/kiosk-existing ]; then
     # Premiere installation : demarrage sur la cible graphique (kiosk)

@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 
 namespace qrprotec {
@@ -106,9 +107,25 @@ std::string host_header(const HttpUrl &url) {
   return host + ":" + std::to_string(url.port);
 }
 
+bool is_loopback_host(const std::string &host) {
+  const std::string name = lower(host);
+  if (name == "localhost" || name == "::1")
+    return true;
+  // 127.0.0.0/8 en adresse IPv4 (pas un nom DNS qui commencerait par « 127. »)
+  return name.rfind("127.", 0) == 0 && std::count(name.begin(), name.end(), '.') == 3
+      && std::all_of(name.begin(), name.end(), [](unsigned char c) { return std::isdigit(c) || c == '.'; });
+}
+
 bool ApiEndpoint::parse(HttpUrl &out, std::string &error) const {
   if (!parse_http_url(url, out, error))
     return false;
+  // La cle du poste (X-QRProtec-Key), le jeton et la session de l'utilisateur ne passent jamais en clair sur le
+  // reseau : http:// seulement vers cette machine (API locale), sauf QRPROTEC_ALLOW_INSECURE_HTTP=1 (essais).
+  const char *insecure = std::getenv("QRPROTEC_ALLOW_INSECURE_HTTP");
+  if (!out.tls && !is_loopback_host(out.host) && !(insecure && std::string(insecure) == "1")) {
+    error = "Serveur distant en http:// refusé (clé et session en clair) : utilisez https://";
+    return false;
+  }
   out.ca_file = ca_file;
   return true;
 }
