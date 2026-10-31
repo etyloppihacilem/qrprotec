@@ -294,7 +294,7 @@ class Items(models.Model):
     sealed_pack = models.ForeignKey(
         SealedPacks, on_delete=models.SET_NULL, null=True, blank=True, related_name='items'
     )
-    status = models.CharField(max_length=8, choices=ItemStatus.choices, default=ItemStatus.ACTIVE)
+    status = models.CharField(max_length=8, choices=ItemStatus.choices, default=ItemStatus.ACTIVE, db_index=True)
     missed_verifs = models.PositiveIntegerField(default=0) # nombre de verifs consecutives sans le voir
     last_seen = models.DateTimeField()
     last_seen_by = models.CharField(max_length=64) # should be user id but could be something else
@@ -787,7 +787,13 @@ class Secouristes(models.Model):
             return False
         if self.has_pin or self.pin_mode == PinMode.REQUIRED:
             return True
-        return ServerSettings.get().pin_required_default
+        return self._pin_required_default()
+
+    def _pin_required_default(self) -> bool:
+        """Reglage du serveur « PIN obligatoire par defaut ». Une liste d'utilisateurs le pose une fois pour tous
+        dans `server_pin_required_default` (sans quoi chaque utilisateur relirait les reglages, deux fois)."""
+        value = getattr(self, 'server_pin_required_default', None)
+        return ServerSettings.get().pin_required_default if value is None else value
 
     @property
     def pin_can_disable(self) -> bool:
@@ -795,7 +801,7 @@ class Secouristes(models.Model):
         (pour lui, ou pour tous par le reglage du serveur, sauf s'il l'a desactive pour lui)."""
         if self.role == Role.ADMIN or self.pin_mode == PinMode.REQUIRED:
             return False
-        return self.pin_mode == PinMode.DISABLED or not ServerSettings.get().pin_required_default
+        return self.pin_mode == PinMode.DISABLED or not self._pin_required_default()
 
     def set_pin_mode(self, mode):
         """PIN obligatoire, desactive (le PIN existant est supprime) ou reglage par defaut."""

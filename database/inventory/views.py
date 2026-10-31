@@ -1484,7 +1484,7 @@ LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rang
 @handle_errors
 def items(request):
     require_front(request, GESTION)
-    queryset = Items.objects.select_related('pack__item_type', 'location').order_by('-added', 'iid')
+    queryset = Items.objects.select_related('pack__item_type', 'location__lot_type').order_by('-added', 'iid')
     params = request.query_params
     if params.get('type'):
         queryset = queryset.filter(pack__item_type_id=params['type'])
@@ -2243,6 +2243,9 @@ def users(request):
     if request.method == 'GET':
         users_list = (Secouristes.objects.select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions'))
                       .order_by('nom', 'prenom'))
+        pin_default = ServerSettings.get().pin_required_default  # lu une fois pour toute la liste
+        for user in users_list:
+            user.server_pin_required_default = pin_default
         return Response([ser.user_dict(user, local=True) for user in users_list])
     data = request.data
     matricule = str(data.get('matricule', '')).strip()

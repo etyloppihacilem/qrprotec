@@ -798,6 +798,25 @@ class WebFrontTests(ApiTestCase):
         self.assertEqual(self.client.get('/web/../views.py').status_code, 404)
         self.assertEqual(self.client.get('/web/index.html').status_code, 404)
 
+    def test_assets_revalidated_with_etag(self):
+        """Ressources en cache revalidees (304 sans corps) au lieu d'etre retelechargees a chaque ouverture."""
+        response = self.client.get('/web/app.js')
+        etag, modified = response['ETag'], response['Last-Modified']
+        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_NONE_MATCH=etag).status_code, 304)
+        # ETag suffixe par la compression de Caddy
+        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_NONE_MATCH=etag[:-1] + '-zstd"').status_code, 304)
+        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_MODIFIED_SINCE=modified).status_code, 304)
+        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_NONE_MATCH='"autre"').status_code, 200)
+        # une autre date (nouvelle version, meme plus ancienne) : fichier renvoye
+        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_MODIFIED_SINCE='Mon, 01 Jan 2035 00:00:00 GMT').status_code, 200)
+
+    def test_pages_have_content_security_policy(self):
+        for url in ('/', '/scanner?s=x&k=y'):
+            policy = self.client.get(url)['Content-Security-Policy']
+            self.assertIn("script-src 'self'", policy)
+            self.assertIn("frame-ancestors 'none'", policy)
+            self.assertIn('ws://testserver', policy)  # WebSockets du suivi en direct et de la douchette
+
     def test_camera_reader_served(self):
         """Lecteur limite au viseur dans les deux pages ; zxing-cpp (worker) et son module WebAssembly servis, le
         module versionne garde en cache, le nom attendu par decoder.js."""
@@ -4630,3 +4649,80 @@ class ServeLogTests(TestCase):
         self.assertEqual(redact_secrets('GET /api/receptions/storage/?type=compre'),
                          'GET /api/receptions/storage/?type=compre')
         self.assertEqual(redact_secrets(404), 404)
+
+class QueryCountTests(ApiTestCase):
+    """Listes de lots et d'utilisateurs : un nombre de requetes SQL qui ne grandit pas avec le nombre de lots."""
+
+    def add_lots(self, count):
+        for index in range(count):
+            parent = Lots(lot_type=self.lot_type, name=f'Global {index}', name_short='G', created_by='test')
+            parent.save()
+            child = Lots(lot_type=self.lot_type, name=f'Sous-lot {index}', name_short='S', created_by='test', parent=parent)
+            child.save()
+            items = self.create(self.compresses, self.today + timedelta(days=100), 2)
+            services.perform_verif(child, [item.iid for item in items], 'M:P001')
+
+    def setUp(self):
+        super().setUp()
+        models.ServerSettings.get()  # cree une fois pour toutes, hors des comptes
+
+    def count(self, method, path, data=None, local=True):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connection) as queries:
+            code, body = self.call(method, path, data, local=local)
+        self.assertEqual(code, 200, body)
+
+        return len(queries)
+
+    def test_lot_lists_do_not_grow_with_lots(self):
+        manager = Secouristes(matricule='G001', nom='Gest', prenom='Ion', role='gestion')
+        manager.renew_key()
+        manager.save()
+        badge = {'user': {'matricule': manager.matricule, 'key': manager.new_key}}
+        self.add_lots(2)
+        before = [self.count('POST', '/api/lots/summary/', {}, local=False), self.count('GET', '/api/lots/'),
+                  self.count('POST', '/api/tasks/summary/', badge, local=False)]
+        self.add_lots(6)
+        after = [self.count('POST', '/api/lots/summary/', {}, local=False), self.count('GET', '/api/lots/'),
+                 self.count('POST', '/api/tasks/summary/', badge, local=False)]
+        self.assertEqual(before, after)
+
+    def test_users_list_reads_settings_once(self):
+        for index in range(5):
+            Secouristes(matricule=f'U{index}', nom='Nom', prenom='Prenom').save()
+        before = self.count('GET', '/api/users/')
+        for index in range(5, 15):
+            Secouristes(matricule=f'U{index}', nom='Nom', prenom='Prenom').save()
+        self.assertEqual(self.count('GET', '/api/users/'), before)
+
+
+class ProductionDefaultsTests(TestCase):
+    """Hors RPM, le back ne demarre pas en DEBUG ni avec la cle secrete publique du depot."""
+
+    def settings_error(self, **env):
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+        environment = {key: value for key, value in os.environ.items() if not key.startswith('QRPROTEC_')}
+        environment.update(env, DJANGO_SETTINGS_MODULE='qrprotecDB.settings')
+        result = subprocess.run(
+            [sys.executable, '-c', 'from django.conf import settings; print(settings.DEBUG, settings.ALLOWED_HOSTS)'],
+            cwd=Path(__file__).resolve().parent.parent, env=environment, capture_output=True, text=True)
+        return result.returncode, result.stdout + result.stderr
+
+    def test_secret_key_required_without_debug(self):
+        code, output = self.settings_error()
+        self.assertNotEqual(code, 0)
+        self.assertIn('QRPROTEC_SECRET_KEY manquante', output)
+        code, output = self.settings_error(QRPROTEC_SECRET_KEY=settings.SECRET_KEY)  # cle publique des tests
+        self.assertNotEqual(code, 0)
+        code, output = self.settings_error(QRPROTEC_SECRET_KEY='une-cle-aleatoire')
+        self.assertEqual(code, 0, output)
+        self.assertIn("False ['localhost', '127.0.0.1', '[::1]']", output)  # DEBUG coupe, aucune IP en plus
+
+    def test_debug_is_explicit(self):
+        code, output = self.settings_error(QRPROTEC_DEBUG='1')
+        self.assertEqual(code, 0, output)
+        self.assertIn("True ['localhost', '127.0.0.1', '[::1]']", output)

@@ -16,7 +16,8 @@ une etiquette avec l'appareil photo du telephone ouvre directement la bonne vue.
 
 from pathlib import Path
 
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseNotModified
+from django.utils.http import http_date, parse_http_date_safe
 
 from .models import ServerSettings
 
@@ -51,17 +52,54 @@ ASSETS = {
 ASSETS.update({f'icons/{path.name}': 'image/svg+xml' for path in (WEB_DIR / 'icons').glob('*.svg')})
 
 
-def _file(path, content_type, cache):
-    response = FileResponse(open(path, 'rb'), content_type=content_type)
+def _file(request, path, content_type, cache):
+    """Fichier statique avec ETag et Last-Modified : le navigateur garde sa copie et la revalide (304, sans corps)
+    au lieu de retelecharger app.js et les autres (~600 Ko) a chaque ouverture. Comparaison a l'egalite (date et
+    taille du fichier) : une mise a jour du paquet est toujours reprise, meme si la date du nouveau fichier est
+    plus ancienne."""
+    stat = path.stat()
+    mtime = int(stat.st_mtime)
+    etag = f'"{mtime:x}-{stat.st_size:x}"'
+    if_none_match = request.headers.get('If-None-Match')
+    if if_none_match is not None:
+        # Caddy (encode gzip/zstd) peut renvoyer l'ETag avec un suffixe : "...-zstd"
+        tags = [tag.strip().removeprefix('W/') for tag in if_none_match.split(',')]
+        fresh = any(tag == etag or tag.startswith(etag[:-1] + '-') for tag in tags)
+    else:
+        fresh = parse_http_date_safe(request.headers.get('If-Modified-Since', '')) == mtime
+    response = HttpResponseNotModified() if fresh else FileResponse(open(path, 'rb'), content_type=content_type)
+    response['ETag'] = etag
+    response['Last-Modified'] = http_date(mtime)
     response['Cache-Control'] = cache
     response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 
+def _csp(request):
+    """Content-Security-Policy des pages : scripts, styles, images et connexions du site seulement. Les styles
+    en ligne restent permis (attributs style poses par app.js, <style> de scanner.html), les images data: aussi
+    (QR codes generes par qrcode.js). WebSocket du suivi en direct et de la douchette : meme hote en ws(s)://."""
+    host = request.get_host()
+    sockets = f'wss://{host}' if request.is_secure() else f'ws://{host} wss://{host}'
+    return '; '.join((
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        f"connect-src 'self' {sockets}",
+        "worker-src 'self'",
+        "manifest-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ))
+
+
 BARCODE_SCRIPT = '  <script src="web/code128.js" defer></script>\n'
 
 
-def _page(name):
+def _page(request, name):
     """Page HTML ; sans le decodeur de codes-barres (web/code128.js) tant que le reglage du serveur le coupe :
     aucune etiquette a code-barres en circulation, la page reste plus legere."""
     html = (WEB_DIR / name).read_text(encoding='utf-8')
@@ -70,11 +108,12 @@ def _page(name):
     response = HttpResponse(html, content_type='text/html; charset=utf-8')
     response['Cache-Control'] = 'no-cache'
     response['X-Content-Type-Options'] = 'nosniff'
+    response['Content-Security-Policy'] = _csp(request)
     return response
 
 
 def page(request):
-    response = _page('index.html')
+    response = _page(request, 'index.html')
     response['Permissions-Policy'] = 'camera=(self)'
     response['Referrer-Policy'] = 'no-referrer'  # l'URL peut contenir la cle du lot ou du badge
     return response
@@ -82,7 +121,7 @@ def page(request):
 
 def scanner_page(request):
     """Page du telephone-douchette (QR code affiche par le front : scanner?s=SESSION&k=CLE)."""
-    response = _page('scanner.html')
+    response = _page(request, 'scanner.html')
     response['Permissions-Policy'] = 'camera=(self)'
     response['Referrer-Policy'] = 'no-referrer'
     return response
@@ -90,10 +129,10 @@ def scanner_page(request):
 
 def favicon(request):
     # demande d'office par les navigateurs a la racine du site
-    return _file(WEB_DIR / 'favicon.png', 'image/png', 'max-age=86400')
+    return _file(request, WEB_DIR / 'favicon.png', 'image/png', 'max-age=86400')
 
 
 def asset(request, name):
     if name not in ASSETS:
         raise Http404()
-    return _file(WEB_DIR / name, ASSETS[name], 'max-age=31536000, immutable' if name == WASM else 'no-cache')
+    return _file(request, WEB_DIR / name, ASSETS[name], 'max-age=31536000, immutable' if name == WASM else 'no-cache')
