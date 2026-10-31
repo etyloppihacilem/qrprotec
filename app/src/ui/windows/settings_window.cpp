@@ -141,6 +141,16 @@ class SettingsWindow final : public AppWindow {
         ImGui::GetStyle().FontSizeBase = settings.font_size;
       }
 
+      if (ImGui::CollapsingHeader("Débug")) {
+        ImGui::Checkbox("Activer les options de débug", &settings.debug_options);
+        help_marker("Pour les administrateurs seulement (le serveur le vérifie) : autorise à construire des lots "
+                    "inacceptables en vrai, pour tester. Items périmés, signalés inutilisables, désactivés, "
+                    "supprimés ou remplacés ajoutés à un lot, retirés d'un autre lot... sont acceptés au lieu "
+                    "d'être refusés.\nÀ laisser décoché en service.");
+        if (settings.debug_options)
+          ImGui::TextColored(colors::orange, "Options de débug actives sur ce poste.");
+      }
+
       if (ImGui::CollapsingHeader("Disposition par défaut")) {
         ImGui::TextWrapped("Fenêtres ouvertes au démarrage et après une réinitialisation. La pile de scans est "
                            "toujours ouverte.");

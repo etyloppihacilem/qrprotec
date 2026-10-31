@@ -830,14 +830,54 @@ def mark_used(lot, identity):
     return marked
 
 
-def move_items(iids, lot, identity, context):
-    """Deplace des items dans un lot (ou en stock si lot est None) sans toucher aux autres."""
+def move_refusal(item, lot, today, declared=False, tree=()):
+    """Raison pour laquelle un item ne peut pas etre range dans `lot` (None : en stock), ou '' s'il peut l'etre.
+
+    - un item supprime ou remplace (jete) ne revient jamais par un reassort : la gestion le restaure d'abord ;
+    - un item perime, signale inutilisable ou desactive n'entre pas dans un lot ordinaire (il est a jeter). Un
+      rangement du stock ou le stock l'acceptent : il y attend d'etre jete ;
+    - sous un nom declare (cle du lot, sans badge), seuls les items en stock ou deja dans le lot (ou ses sous-lots)
+      peuvent y etre ranges : la cle d'un lot ne permet pas de vider un autre lot, ni d'en briser le scelle.
+    Les options de debug du poste (admins seulement) levent ces refus, voir views.debug_options."""
+    if item.status == ItemStatus.DELETED:
+        return 'supprimé : à restaurer depuis la gestion'
+    if item.status == ItemStatus.REPLACED:
+        return 'remplacé (jeté)'
+    if lot is not None and not lot.lot_type.storage and discardable(item, today):
+        if item.disabled:
+            return 'désactivé : à jeter, pas dans un lot'
+        if item.unusable:
+            return 'signalé inutilisable : à jeter, pas dans un lot'
+        return 'périmé : à jeter, pas dans un lot'
+    if declared and item.location_id and item.location_id not in tree and not item.location.lot_type.storage:
+        return f'dans le lot {item.location.name} : scannez votre badge pour le déplacer'
+    return ''
+
+
+def move_items(iids, lot, identity, context, declared=False, debug=False):
+    """Deplace des items dans un lot (ou en stock si lot est None) sans toucher aux autres.
+
+    Les items qui ne peuvent pas y aller (voir move_refusal) restent ou ils sont et sont rendus dans "refused" ;
+    si aucun item ne bouge a cause d'eux, l'operation est refusee en entier. declared : identite declaree (nom, sans
+    badge). debug : options de debug d'un admin au poste, aucun refus (lots inacceptables en vrai, pour tester)."""
     now = timezone.now()
+    today = timezone.localdate(now)
     requested = list(dict.fromkeys(iids))
     with transaction.atomic():
-        items = list(Items.objects.select_for_update(of=('self',)).select_related('pack__item_type', 'location')
-                     .filter(iid__in=requested))
-        found = {item.iid for item in items}
+        candidates = list(Items.objects.select_for_update(of=('self',))
+                          .select_related('pack__item_type', 'location__lot_type').filter(iid__in=requested))
+        found = {item.iid for item in candidates}
+        tree = {sub_lot.id for sub_lot in lot.descendants()} if lot is not None and declared else set()
+        items, refused = [], []
+        for item in candidates:
+            reason = '' if debug else move_refusal(item, lot, today, declared, tree)
+            if reason:
+                refused.append({'iid': item.iid, 'reason': reason})
+            else:
+                items.append(item)
+        if refused and not items:
+            reasons = ', '.join(f"{row['iid']} ({row['reason']})" for row in refused)
+            raise ValueError(('Aucun item ajouté : ' if lot is not None else 'Aucun item remis en stock : ') + reasons)
         # ajouter ou retirer des items d'un lot scelle brise son scelle
         touched_lots = {item.location_id for item in items if item.location_id and item.location_id != (lot.id if lot else None)}
         if lot is not None and items:
@@ -883,7 +923,9 @@ def move_items(iids, lot, identity, context):
                 fields += ['verif_recommended', 'restocked', 'restocked_by', 'restocked_count']
             lot.save(update_fields=fields)
         notifications.check_stock_levels({item.pack.item_type_id for item in items})
-    return {'moved': [iid for iid in requested if iid in found], 'unknown': [iid for iid in requested if iid not in found]}
+    moved = {item.iid for item in items}
+    return {'moved': [iid for iid in requested if iid in moved], 'refused': refused,
+            'unknown': [iid for iid in requested if iid not in found]}
 
 
 def _record_moves(items, lot, identity, context, now):

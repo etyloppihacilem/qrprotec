@@ -34,12 +34,35 @@ https://{$QRPROTEC_DOMAIN:localhost} {
 		file_server
 	}
 
+	# Le back (manage.py serve) cree un thread par connexion : Caddy, qui tient sans peine des milliers de
+	# connexions, le protege des clients lents ou trop nombreux. Requetes de 5 Mo au plus (le back n'en
+	# accepte de toute facon pas plus de 2,5 Mo), 100 connexions au plus vers chaque API (les suivantes
+	# attendent dans Caddy, sans erreur), reponse attendue en 60 s au plus. Caddy coupe deja une requete
+	# dont les en-tetes n'arrivent pas en 1 minute (read_header par defaut) ; pour serrer ce delai, ajouter
+	# au bloc d'options globales de /etc/caddy/Caddyfile (impossible dans ce fichier importe) :
+	#     servers { timeouts { read_header 10s read_body 30s } }
+	request_body {
+		max_size 5MB
+	}
+
 	@front header X-QRProtec-Key *
 	handle @front {
-		reverse_proxy 127.0.0.1:{$QRPROTEC_REMOTE_API_PORT:8002}
+		reverse_proxy 127.0.0.1:{$QRPROTEC_REMOTE_API_PORT:8002} {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+				max_conns_per_host 100
+			}
+		}
 	}
 	handle {
-		reverse_proxy 127.0.0.1:{$QRPROTEC_PUBLIC_API_PORT:8000}
+		reverse_proxy 127.0.0.1:{$QRPROTEC_PUBLIC_API_PORT:8000} {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+				max_conns_per_host 100
+			}
+		}
 	}
 
 	header -Server

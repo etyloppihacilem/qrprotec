@@ -46,6 +46,9 @@ struct AppSettings {
     // Machine partagee (kiosk, poste commun) : reinitialisation apres inactivite et session perdue au redemarrage.
     // Decochee (poste personnel) : l'utilisateur reste connecte jusqu'a « Se deconnecter » (voir StoredLogin).
     bool  shared_machine        = true;
+    // Options de debug (admins seulement, verifie aussi par le serveur) : lots inacceptables en vrai autorises
+    // (items perimes, supprimes, remplaces, desactives... ranges dans un lot), pour tester l'affichage.
+    bool  debug_options         = false;
     int   expiring_soon_days    = 30;
     int   order_lead_days       = 15; // previsions : delai de livraison d'une commande
     int   forecast_history_months = 6; // previsions : mois d'historique pour mesurer la consommation

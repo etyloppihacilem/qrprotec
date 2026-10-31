@@ -138,6 +138,23 @@ d'une armoire.
 
 Remettre des items en stock (`POST /api/items/to-stock/`) utilise la même fonction avec `lot=None`.
 
+Certains items sont **refusés** (`services.move_refusal`) : ils restent où ils sont et reviennent dans
+`refused` (iid et raison), affichés par le poste et le web. Si aucun item ne bouge à cause d'eux, toute
+l'opération est refusée.
+
+- un item **supprimé** ou **remplacé** (jeté) ne revient jamais par un réassort ni un retour en stock :
+  la gestion le restaure d'abord (`items/<iid>/restore/`) ;
+- un item **périmé**, signalé inutilisable ou désactivé n'entre pas dans un lot ordinaire (il est à
+  jeter). Le stock et ses rangements l'acceptent : il y attend d'être jeté ;
+- sous un **nom déclaré** (clé du lot, sans badge), seuls les items en stock ou déjà dans le lot (ou
+  ses sous-lots) peuvent y être rangés : la clé d'un lot ne permet pas de vider un autre lot, ni d'en
+  briser le scellé.
+
+Les **options de débug** du poste (réglage « Activer les options de débug », section Débug) lèvent ces
+refus pour construire des lots inacceptables en vrai et tester l'affichage. Le poste envoie
+`"debug": true` ; le serveur ne l'accepte que d'un administrateur connecté sur un poste
+(`views.debug_options`) et répond 403 à tout autre, sans ignorer la demande.
+
 ## Sortie du stock sans lot
 
 Du matériel pris dans la réserve sans passer par un lot (intervention, prêt) : on scanne les items

@@ -29,6 +29,7 @@ reverse proxy doit transmettre les en-tetes Upgrade/Connection.
 """
 
 import ipaddress
+import re
 import shutil
 import socketserver
 import ssl
@@ -47,6 +48,21 @@ from inventory.live import hub as live_hub
 from inventory.remote_scanner import RECEIVE_TIMEOUT, WebSocket, accept_key, hub
 
 CERT_DIR = Path(settings.BASE_DIR) / '.dev-certs'
+
+# Connexions simultanees par API au plus (un thread chacune) : au-dela, les nouvelles connexions attendent dans la file
+# du noyau au lieu de creer des threads sans limite. Les WebSockets (douchette, suivi en direct) en occupent une chacun.
+MAX_CONNECTIONS = 128
+# Delai maximal d'une lecture ou d'une ecriture sur une connexion HTTP (requete qui n'arrive pas, client muet) : la
+# connexion est fermee et son thread libere. Les WebSockets ont leur propre delai (RECEIVE_TIMEOUT).
+CONNECTION_TIMEOUT = 30
+# Parametres secrets des URLs : cle d'un lot ou d'un badge (key), cle et session du telephone-douchette (k, s), jeton
+# de deblocage du PIN (t). Masques dans le journal (journalctl), qui n'a pas a contenir de quoi ouvrir un lot.
+SECRET_PARAMS_RE = re.compile(r'([?&](?:key|k|s|t)=)[^&\s#"]*')
+
+
+def redact_secrets(text):
+    """Ligne de journal sans les valeurs des parametres secrets (?key=..., &k=..., ...)."""
+    return SECRET_PARAMS_RE.sub(r'\1***', text) if isinstance(text, str) else text
 
 
 def parse_address(value, default_address):
@@ -121,8 +137,18 @@ class QRProtecRequestHandler(WSGIRequestHandler):
     """Requetes HTTP ordinaires, plus les WebSockets du telephone-douchette (/ws/scanner/phone et /front) et du
     suivi des verifs en direct (/ws/live/scanner et /watch, authentifies par leur premier message)."""
 
+    timeout = CONNECTION_TIMEOUT  # StreamRequestHandler.setup : delai sur chaque lecture et ecriture du socket
+
+    def log_message(self, format, *args):
+        super().log_message(format, *(redact_secrets(arg) for arg in args))
+
     def handle_one_request(self):
-        self.raw_requestline = self.rfile.readline(65537)
+        try:
+            self.raw_requestline = self.rfile.readline(65537)
+        except TimeoutError:
+            # connexion gardee ouverte sans requete (keep-alive inactif, client lent ou malveillant) : on la ferme
+            self.close_connection = True
+            return
         if len(self.raw_requestline) > 65536:
             self.requestline = self.request_version = self.command = ''
             self.send_error(414)
@@ -199,9 +225,28 @@ class QRProtecRequestHandler(WSGIRequestHandler):
             websocket.close()
 
 
+class BoundedThreadingMixIn(socketserver.ThreadingMixIn):
+    """Un thread par connexion, comme ThreadingMixIn, mais au plus MAX_CONNECTIONS a la fois."""
+
+    def process_request(self, request, client_address):
+        self.connection_slots.acquire()
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.connection_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.connection_slots.release()
+
+
 def run_server(address, port, handler, server_cls, role):
-    httpd_cls = type('QRProtecServer', (socketserver.ThreadingMixIn, server_cls), {})
+    httpd_cls = type('QRProtecServer', (BoundedThreadingMixIn, server_cls), {})
     httpd = httpd_cls((address, port), QRProtecRequestHandler, ipv6=':' in address)
+    httpd.connection_slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
     httpd.daemon_threads = True
     httpd.qrprotec_role = role
     httpd.set_app(handler)

@@ -185,6 +185,7 @@ Menu **Administration > Réglages** (admin) :
 | Serveur | Adresse de l'API (`http://127.0.0.1:8001` sur la borne), **Tester la connexion** |
 | Règles du serveur (tous les fronts) | **Autoriser les vérifs et les ajouts sans badge (nom déclaré)**, désactivé par défaut : voir ci-dessous |
 | Session et affichage | **Machine partagée** (cochée par défaut ; décochée sur un poste personnel, l'utilisateur reste connecté jusqu'à « Se déconnecter », même après un redémarrage, et seul son PIN est redemandé à l'ouverture), taille du texte, réinitialisation après inactivité (15 min, machine partagée seulement), alerte péremption proche (30 jours), **Exiger l'étiquette clé pour valider une vérif** |
+| Débug | **Activer les options de débug** (décoché par défaut, à laisser décoché en service) : un administrateur peut alors ajouter à un lot des items périmés, désactivés, supprimés, remplacés ou pris dans un autre lot, pour construire des lots de test. Le serveur refuse ces options à tout autre qu'un administrateur |
 | Disposition par défaut | **Utiliser la disposition actuelle** : la position des fenêtres à laquelle le poste revient après inactivité |
 | Étiquettes et impression | Rouleau, titre, imprimante, modèle par usage |
 | Signal de mauvais scan | Bip, clignotement, LED et son de la douchette ; **Tester le signal d'erreur** |

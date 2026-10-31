@@ -318,6 +318,9 @@ class App {
     bool        logged_in() const { return user.has_value(); }
     bool        privileged() const { return user && user->privileged; }
     bool        admin() const { return user && user->admin(); } // reglages du front, utilisateurs
+    // options de debug du poste (reglage), pour un admin seulement : le serveur verifie aussi le role
+    bool        debug_options() const { return settings.debug_options && admin(); }
+    void        notify_refused(const Json &refused, const std::string &prefix);
     bool        can_open(const AppWindow &window) const {
       return (!window.privileged || privileged()) && (!window.admin_only || admin());
     }
