@@ -2211,7 +2211,11 @@
       });
       state.scanned = [];
       feedback.good();
-      toast(`${nb(result.moved.length, 'item ajouté', 'items ajoutés')} au lot : vérif complète recommandée.`);
+      // items laisses de cote par le serveur (perime, supprime, dans un autre lot sans badge...)
+      const refused = (result.refused || []).map((row) => `${iidLabel(row.iid)} (${row.reason})`);
+      toast(`${nb(result.moved.length, 'item ajouté', 'items ajoutés')} au lot : vérif complète recommandée.`
+        + (refused.length ? ` Non ${pl(refused.length, 'ajouté', 'ajoutés')} : ${refused.join(', ')}.` : ''),
+        refused.length > 0);
       await loadLot(state.lot.id);
       loadLots();
     } catch (e) {

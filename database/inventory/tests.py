@@ -1258,6 +1258,74 @@ class RestockTests(ApiTestCase):
         self.assertEqual(lot['restocked_count'], 0)
 
 
+class MoveItemsRulesTests(ApiTestCase):
+    """Reassort (move_items) : items supprimes, remplaces, perimes ou d'un autre lot refuses (audit, point 7), sauf
+    options de debug d'un admin au poste."""
+
+    def add(self, items, lot=None, local=True, **payload):
+        lot = lot or self.lot
+        return self.call('POST', f'/api/lots/{lot.id}/add/', {'items': [item.iid for item in items], **payload},
+                         local=local)
+
+    def test_deleted_replaced_and_expired_refused(self):
+        fresh, deleted, replaced = self.create(self.compresses, self.today + timedelta(days=90), 3)
+        Items.objects.filter(iid=deleted.iid).update(status=ItemStatus.DELETED)
+        Items.objects.filter(iid=replaced.iid).update(status=ItemStatus.REPLACED)
+        old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
+        code, body = self.add([fresh, deleted, replaced, old])
+        self.assertEqual(code, 200)
+        self.assertEqual(body['moved'], [fresh.iid])
+        self.assertEqual({row['iid'] for row in body['refused']}, {deleted.iid, replaced.iid, old.iid})
+        self.assertEqual(Items.objects.get(iid=deleted.iid).status, ItemStatus.DELETED)
+        self.assertIsNone(Items.objects.get(iid=old.iid).location_id)
+        # rien a deplacer : refus en entier, avec les raisons
+        code, body = self.add([deleted])
+        self.assertEqual(code, 400)
+        self.assertIn('supprimé', body['error'])
+        # un perime retourne en stock sans probleme (il y attend d'etre jete), pas un supprime
+        Items.objects.filter(iid=old.iid).update(location=self.lot)
+        code, body = self.call('POST', '/api/items/to-stock/', {'items': [old.iid, deleted.iid]})
+        self.assertEqual((code, body['moved']), (200, [old.iid]))
+
+    def test_declared_name_only_from_stock_or_own_lot(self):
+        self.call('PATCH', '/api/server-settings/', {'declared_identity': True})
+        other = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test')
+        other.save()
+        in_stock, elsewhere, here = self.create(self.compresses, self.today + timedelta(days=90), 3)
+        Items.objects.filter(iid=elsewhere.iid).update(location=other)
+        Items.objects.filter(iid=here.iid).update(location=self.lot)
+        code, body = self.add([in_stock, elsewhere, here], local=False, key=self.lot.verif_key, name='Jean')
+        self.assertEqual(code, 200)
+        self.assertEqual(sorted(body['moved']), sorted([in_stock.iid, here.iid]))
+        self.assertEqual([row['iid'] for row in body['refused']], [elsewhere.iid])
+        self.assertEqual(Items.objects.get(iid=elsewhere.iid).location_id, other.id)
+        # avec un badge, l'item d'un autre lot peut etre deplace
+        code, body = self.add([elsewhere], local=False, key=self.lot.verif_key,
+                              user={'matricule': 'M001', 'key': self.user.new_key})
+        self.assertEqual((code, body['moved']), (200, [elsewhere.iid]))
+
+    def test_debug_options_for_admins_on_front(self):
+        old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
+        deleted = self.create(self.compresses, self.today + timedelta(days=90), 1)[0]
+        Items.objects.filter(iid=deleted.iid).update(status=ItemStatus.DELETED)
+        # pas un admin (gestion), ou pas au poste : refuse, pas ignore
+        manager = Secouristes(matricule='G001', nom='Gest', prenom='Ion', role='gestion')
+        manager.renew_key()
+        manager.save()
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [old.iid], 'debug': True},
+                            session=views.session_token(manager))
+        self.assertEqual(code, 403)
+        code, _ = self.add([old], local=False, debug=True, key=self.lot.verif_key,
+                           user={'matricule': 'M001', 'key': self.user.new_key})
+        self.assertEqual(code, 403)
+        # admin au poste : lot inacceptable en vrai, construit pour tester
+        code, body = self.add([old, deleted], debug=True)
+        self.assertEqual(code, 200)
+        self.assertEqual(sorted(body['moved']), sorted([old.iid, deleted.iid]))
+        self.assertEqual(body['refused'], [])
+        self.assertEqual(Items.objects.get(iid=old.iid).location_id, self.lot.id)
+
+
 class RoleTests(ApiTestCase):
     def badge(self, user):
         return {'matricule': user.matricule, 'key': user.new_key}
@@ -3082,7 +3150,8 @@ class MovementTests(ApiTestCase):
 
     def test_expired_absence_is_discarded_and_restore_cancels(self):
         old = self.create(self.compresses, self.today - timedelta(days=2), 1)[0]
-        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [old.iid]})
+        # perime dans le lot (il l'est devenu sur place : un reassort refuse un item perime)
+        Items.objects.filter(iid=old.iid).update(location=self.lot)
         self.verif(self.items)
         self.assertEqual(self.absences(old).get().kind, MovementKind.DISCARDED)
         code, _ = self.call('POST', f'/api/items/{old.iid}/delete/', {'reason': 'jeté'})
@@ -4547,3 +4616,17 @@ class LoggingTests(TestCase):
         handlers = logging.getLogger('django').handlers
         self.assertTrue(any(type(handler) is logging.StreamHandler for handler in handlers))
         self.assertTrue(logging.getLogger('inventory.live').isEnabledFor(logging.WARNING))
+
+
+class ServeLogTests(TestCase):
+    def test_secrets_redacted_from_access_log(self):
+        from inventory.management.commands.serve import redact_secrets
+        self.assertEqual(redact_secrets('GET /ws/scanner/phone?s=XpBL&k=QveV HTTP/1.1'),
+                         'GET /ws/scanner/phone?s=***&k=*** HTTP/1.1')
+        self.assertEqual(redact_secrets('GET /verif?lot=AB12&key=secret HTTP/1.1'),
+                         'GET /verif?lot=AB12&key=*** HTTP/1.1')
+        self.assertEqual(redact_secrets('GET /pinreset?m=M001&t=jeton HTTP/1.1'), 'GET /pinreset?m=M001&t=*** HTTP/1.1')
+        # autres parametres (ex : ?type=, ?lot=) intacts, valeurs non textuelles laissees telles quelles
+        self.assertEqual(redact_secrets('GET /api/receptions/storage/?type=compre'),
+                         'GET /api/receptions/storage/?type=compre')
+        self.assertEqual(redact_secrets(404), 404)

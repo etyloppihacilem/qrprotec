@@ -108,6 +108,19 @@ def require_front(request, roles):
     return user
 
 
+def debug_options(request) -> bool:
+    """Options de debug du poste (reglage « Activer les options de débug ») : {"debug": true} n'est pris en compte
+    que pour un admin connecte sur un poste. Elles levent les refus des deplacements d'items (items perimes,
+    supprimes, remplaces... ranges dans un lot), pour construire des lots inacceptables en vrai et tester l'affichage.
+    Demandees par quelqu'un d'autre qu'un admin au poste : refusees, pas ignorees."""
+    if not request.data.get('debug'):
+        return False
+    user = front_user(request)
+    if user is None or user.role != Role.ADMIN:
+        raise ApiError("Options de débug réservées aux administrateurs, au poste", status.HTTP_403_FORBIDDEN)
+    return True
+
+
 def operation_identity(request, data=None):
     """Identite d'une operation : utilisateur verifie, ou nom declare si le reglage du serveur l'autorise."""
     allowed = ServerSettings.get().declared_identity
@@ -1069,7 +1082,8 @@ def lot_add_items(request, lot_id):
         require_label([lot], request.data, extra=[lot.id] if lot.check_key(request.data.get('key')) else ())
     else:
         require_lot_key(request, lot)
-    return Response(services.move_items(iid_list(request.data), lot, identity, SeenWhile.ADD))
+    return Response(services.move_items(iid_list(request.data), lot, identity, SeenWhile.ADD,
+                                        declared=not is_verified(identity), debug=debug_options(request)))
 
 
 @api_view(['POST'])
@@ -1664,7 +1678,8 @@ def item_restore(request, iid):
 def items_to_stock(request):
     require_front(request, GESTION)
     identity = operation_identity(request)
-    return Response(services.move_items(iid_list(request.data), None, identity, SeenWhile.REMOVE))
+    return Response(services.move_items(iid_list(request.data), None, identity, SeenWhile.REMOVE,
+                                        debug=debug_options(request)))
 
 
 @api_view(['GET'])

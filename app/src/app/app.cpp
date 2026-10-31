@@ -3219,6 +3219,8 @@ void App::restock_verif() {
     add_identity(body);
     body["key"]             = verif.key;
     body["labels"]          = verif_labels();
+    if (debug_options())
+      body["debug"] = true;
     const std::string lot   = verif.lot_id;
     const std::string name  = verif.lot["name"].str(lot);
     verif.submitting        = true;
@@ -3234,6 +3236,7 @@ void App::restock_verif() {
              + ". Vérif complète recommandée.");
       if (result.data["unknown"].size() > 0)
         notify(nb(result.data["unknown"].size(), "item inconnu ignoré", "items inconnus ignorés") + ".", true);
+      notify_refused(result.data["refused"], "Non ajouté");
       stack.clear();
       if (verif.active && verif.lot_id == lot) {
         cancel_verif();
@@ -3259,6 +3262,8 @@ void App::add_stack_to_lot() {
     }
     add_identity(body);
     body["key"]  = stack.target.key;
+    if (debug_options())
+      body["debug"] = true;
     const TargetLot target = stack.target;
     api.post("/api/lots/" + url_encode(target.id) + "/add/", body, [this, target](const ApiResult &result) {
       if (!result.ok) {
@@ -3269,6 +3274,7 @@ void App::add_stack_to_lot() {
       notify(nb(result.data["moved"].size(), "item ajouté", "items ajoutés") + " au lot " + target.name + ".");
       if (result.data["unknown"].size() > 0)
         notify(nb(result.data["unknown"].size(), "item inconnu ignoré", "items inconnus ignorés") + ".", true);
+      notify_refused(result.data["refused"], "Non ajouté");
       stack.clear();
       if (verif.active && verif_covers(target.id)) {
         cancel_verif();
@@ -3289,15 +3295,24 @@ void App::stack_to_stock() {
   for (const std::string &iid : stack.iids())
     body["items"].push_back(iid);
   body["user"] = user_ref();
+  if (debug_options())
+    body["debug"] = true;
   api.post("/api/items/to-stock/", body, [this](const ApiResult &result) {
     if (!result.ok) {
       notify("Retour en stock refusé : " + result.error, true);
       return;
     }
     notify(nb(result.data["moved"].size(), "item remis", "items remis") + " en stock.");
+    notify_refused(result.data["refused"], "Non remis en stock");
     stack.clear();
     refresh_lots();
   });
+}
+
+// Items laisses de cote par le serveur (supprime, perime pour un lot, dans un autre lot sous nom declare...)
+void App::notify_refused(const Json &refused, const std::string &prefix) {
+  for (const Json &row : refused.items())
+    notify(prefix + " : " + row["iid"].str() + " (" + row["reason"].str() + ")", true);
 }
 
 void App::stack_out() {
