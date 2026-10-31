@@ -30,22 +30,57 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    'QRPROTEC_SECRET_KEY', 'django-insecure-3rq#5ry)%ta2t^##wfge$#(j%@3nicnz1vh5vwffphe1z7o*(8'
-)
+import sys
 
+from django.core.exceptions import ImproperlyConfigured
+
+# Valeurs sures par defaut : production (DEBUG coupe). En developpement, lancer avec QRPROTEC_DEBUG=1.
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('QRPROTEC_DEBUG', '1') == '1'
+DEBUG = os.environ.get('QRPROTEC_DEBUG', '0') == '1'
+
+# La cle signe les sessions du poste et les liens de deblocage du PIN : jamais de valeur connue en production.
+# Le RPM la genere dans /etc/qrprotec/secret_key (qrprotec-manage la passe dans QRPROTEC_SECRET_KEY).
+_INSECURE_SECRET_KEY = 'django-insecure-3rq#5ry)%ta2t^##wfge$#(j%@3nicnz1vh5vwffphe1z7o*(8'
+SECRET_KEY = os.environ.get('QRPROTEC_SECRET_KEY', '')
+if not SECRET_KEY:
+    # Tests (`manage.py test`) et developpement seulement
+    if DEBUG or sys.argv[1:2] == ['test']:
+        SECRET_KEY = _INSECURE_SECRET_KEY
+    else:
+        raise ImproperlyConfigured(
+            'QRPROTEC_SECRET_KEY manquante. En production : une cle aleatoire, par exemple '
+            '`export QRPROTEC_SECRET_KEY=$(head -c 48 /dev/urandom | base64)` (le RPM s\'en charge). '
+            'En developpement : QRPROTEC_DEBUG=1.'
+        )
+elif SECRET_KEY == _INSECURE_SECRET_KEY and not DEBUG:
+    raise ImproperlyConfigured('QRPROTEC_SECRET_KEY vaut la cle publique du depot : en choisir une aleatoire.')
 
 # Liste separee par des virgules, ex: QRPROTEC_ALLOWED_HOSTS=inventaire.example.com,192.168.1.10
 ALLOWED_HOSTS = [host for host in os.environ.get('QRPROTEC_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1]').split(',') if host]
-# Hotes acceptes en plus en mode DEBUG uniquement (tests depuis un telephone sur le reseau local)
+# Hotes acceptes en plus en mode DEBUG uniquement (tests depuis un telephone sur le reseau local),
+# ex: QRPROTEC_DEBUG_HOSTS=192.168.1.42
 if DEBUG:
-    ALLOWED_HOSTS += [host for host in os.environ.get('QRPROTEC_DEBUG_HOSTS', '192.168.1.201,10.80.79.134').split(',') if host]
+    ALLOWED_HOSTS += [host for host in os.environ.get('QRPROTEC_DEBUG_HOSTS', '').split(',') if host]
 
 # Derriere un reverse proxy HTTPS (nginx, caddy...) pour l'API publique
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# HSTS : le navigateur ne repasse plus jamais en http:// sur ce domaine. SecurityMiddleware ne l'envoie que sur
+# les requetes HTTPS (via le proxy), jamais sur l'API locale en http://127.0.0.1. Pas de includeSubDomains : le
+# domaine de la borne peut etre partage avec d'autres services.
+SECURE_HSTS_SECONDS = 0 if DEBUG else int(os.environ.get('QRPROTEC_HSTS_SECONDS', '31536000'))
+
+# `check --deploy` : avertissements volontairement ignores, a revoir si l'architecture change.
+SILENCED_SYSTEM_CHECKS = [
+    # SECURE_SSL_REDIRECT : la redirection http -> https est faite par Caddy ; dans Django elle casserait l'API
+    # locale du poste (http://127.0.0.1:8001, jamais exposee).
+    'security.W008',
+    # Cookies Secure : seuls l'admin Django et ses cookies de session/CSRF en posent, et l'admin n'existe que sur
+    # l'API locale en http://127.0.0.1 (depannage par tunnel SSH). L'API publique et l'API distante n'ont aucun
+    # cookie (badge, PIN et sessions du poste passent par des en-tetes).
+    'security.W012',
+    'security.W016',
+]
 
 
 def _env_list(name, default):
@@ -57,7 +92,8 @@ QRPROTEC = {
     # Base des URLs encodees dans les QR codes (lots, badges, paquets). Changer ici (ou via la variable
     # d'environnement) suffit : le front reconnait les QR codes quel que soit le domaine.
     'PUBLIC_BASE_URL': os.environ.get('QRPROTEC_PUBLIC_BASE_URL', 'https://example.com/'),
-    'PUBLIC_API_ADDRESS': os.environ.get('QRPROTEC_PUBLIC_API_ADDRESS', '0.0.0.0'),
+    # Production : 127.0.0.1, derriere le reverse proxy HTTPS (Caddy). En DEBUG : tout le reseau (telephones)
+    'PUBLIC_API_ADDRESS': os.environ.get('QRPROTEC_PUBLIC_API_ADDRESS', '0.0.0.0' if DEBUG else '127.0.0.1'),
     'PUBLIC_API_PORT': int(os.environ.get('QRPROTEC_PUBLIC_API_PORT', '8000')),
     'LOCAL_API_ADDRESS': os.environ.get('QRPROTEC_LOCAL_API_ADDRESS', '127.0.0.1'),
     'LOCAL_API_PORT': int(os.environ.get('QRPROTEC_LOCAL_API_PORT', '8001')),

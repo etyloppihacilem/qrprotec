@@ -19,7 +19,7 @@ from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
 from .models import PUSH_TYPES, ItemStatus, compact_iid, qrprotec_setting
 from .reports import item_reports, pack_reports
-from .services import ordered_requirements, out_deadline, requirements_status
+from .services import LotPreload, ordered_requirements, out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -238,11 +238,11 @@ def lot_state(data):
     return {'kind': kind, 'code': code, 'label': STATE_LABELS[code]}
 
 
-def _lot_core(lot, today, items=None):
+def _lot_core(lot, today, items=None, preload=None):
     """Champs communs a toutes les vues d'un lot (sans cles ni contenu detaille)."""
     if items is None:
         items = list(lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE).order_by('iid'))
-    requirements = requirements_status(lot, today)
+    requirements = requirements_status(lot, today, items, preload)
     expired = [item for item in items if item.needs_replacement(today)]
     soon_limit = today + timedelta(days=30)
     soon = [item for item in items if item.pack.peremption and today <= item.pack.peremption <= soon_limit]
@@ -435,16 +435,23 @@ def lot_global(lot, today):
     return summary
 
 
-def lot_dict(lot, local=False, with_items=False, today=None, with_global=True):
+def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, preload=None):
+    """`preload` (services.LotPreload) : donnees de toute une liste de lots deja lues (lot_list)."""
     today = today or timezone.localdate()
-    items = list(lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE).order_by('iid'))
-    data = _lot_core(lot, today, items)
-    ancestors = lot.ancestors()
+    if preload is not None:
+        items = preload.items[lot.id]
+        ancestors = preload.ancestors(lot)
+        children = preload.children[lot.id]
+    else:
+        items = list(lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE).order_by('iid'))
+        ancestors = lot.ancestors()
+        children = lot.children.filter(active=True)
+    data = _lot_core(lot, today, items, preload)
     data['parent_name'] = ancestors[0].name if ancestors else ''
     data['path'] = [{'id': parent.id, 'name': parent.name} for parent in reversed(ancestors)]
     data['children'] = [
         {'id': child.id, 'name': child.name}
-        for child in sorted(lot.children.filter(active=True), key=lambda child: (child.name.lower(), child.id))
+        for child in sorted(children, key=lambda child: (child.name.lower(), child.id))
     ]
     if with_global:
         data['global'] = lot_global(lot, today)
@@ -468,18 +475,22 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True):
         # etiquette d'ouverture, a ranger dans le lot scelle : la scanner ouvre le scelle
         data['seal_open_url'] = (public_url('unseal', lot=lot.id, c=lot.seal_open_code)
                                  if lot.is_sealed and lot.seal_open_code else '')
-        data['own_content'] = lot_own_content(lot)
+        data['own_content'] = lot_own_content(lot, preload)
     return data
 
 
-def lot_own_content(lot):
+def lot_own_content(lot, preload=None):
     """Contenu propre d'un lot, tel que la TECH l'edite (Gestion des lots) : items en plus du type (extra) et
     emplacements de ce lot (location None : celui du type), ordre de ses emplacements (vide : celui du type)."""
+    if preload is not None:
+        content = sorted(preload.content[lot.id], key=lambda row: (row.item_type.name, row.item_type_id))
+    else:
+        content = lot.content.select_related('item_type').order_by('item_type__name', 'item_type_id')
     return {
         'locations': list(lot.locations or []),
         'rows': [
             {'type': row.item_type_id, 'type_name': row.item_type.name, 'extra': row.extra, 'location': row.location}
-            for row in lot.content.select_related('item_type').order_by('item_type__name', 'item_type_id')
+            for row in content
         ],
     }
 
@@ -540,8 +551,9 @@ def lot_list(lots, local=False, today=None, attention=False):
         walk(lot, 0, lot)
     rows = []
     trees = {}
+    preload = LotPreload(lots)  # quelques requetes pour toute la liste, au lieu de cinq par lot
     for lot, depth, root in ordered:
-        row = lot_dict(lot, local=local, today=today, with_global=False)
+        row = lot_dict(lot, local=local, today=today, with_global=False, preload=preload)
         row['depth'] = depth
         row['root'] = root.id
         rows.append(row)

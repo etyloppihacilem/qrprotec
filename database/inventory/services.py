@@ -94,14 +94,20 @@ def ordered_requirements(lot_type, requirements=None):
     return sort_requirements(requirements, lot_type.locations)
 
 
-def lot_requirements(lot):
+def lot_requirements(lot, preload=None):
     """Contenu attendu d'un lot (Requirement) : celui de son type, plus son contenu propre (LotContent : items en
-    plus, emplacements de ce lot), dans l'ordre des emplacements du lot (Lots.locations, sinon ceux du type)."""
+    plus, emplacements de ce lot), dans l'ordre des emplacements du lot (Lots.locations, sinon ceux du type).
+    `preload` (LotPreload) : exigences et contenus deja lus pour une liste de lots."""
     if lot.lot_type.storage:
         return []  # un rangement du stock n'attend rien
-    own = {row.item_type_id: row for row in LotContent.objects.select_related('item_type').filter(lot=lot)}
+    if preload is not None:
+        own_rows, type_rows = preload.content[lot.id], preload.requirements[lot.lot_type_id]
+    else:
+        own_rows = LotContent.objects.select_related('item_type').filter(lot=lot).order_by('pk')
+        type_rows = LotRequirements.objects.select_related('item_type').filter(lot_type_id=lot.lot_type_id).order_by('pk')
+    own = {row.item_type_id: row for row in own_rows}
     rows = []
-    for requirement in LotRequirements.objects.select_related('item_type').filter(lot_type_id=lot.lot_type_id):
+    for requirement in type_rows:
         custom = own.pop(requirement.item_type_id, None)
         location = requirement.location if custom is None or custom.location is None else custom.location
         extra = custom.extra if custom else 0
@@ -110,6 +116,43 @@ def lot_requirements(lot):
         if custom.extra > 0:
             rows.append(Requirement(custom.item_type, custom.extra, custom.location or '', custom.extra))
     return sort_requirements(rows, lot_locations(lot))
+
+
+class LotPreload:
+    """Ce que l'etat d'une liste de lots demande, lu en quelques requetes pour tous les lots a la fois (pages
+    « État des lots », Gestion de la TECH, liste des lots du poste) au lieu de cinq requetes par lot : items actifs
+    par lot, exigences par type de lot, contenu propre par lot, et l'arborescence (parents, sous-lots actifs)."""
+
+    def __init__(self, lots):
+        ids = [lot.id for lot in lots]
+        self.items = defaultdict(list)
+        for item in (Items.objects.select_related('pack__item_type')
+                     .filter(location_id__in=ids, status=ItemStatus.ACTIVE).order_by('iid')):
+            self.items[item.location_id].append(item)
+        self.requirements = defaultdict(list)
+        for row in (LotRequirements.objects.select_related('item_type')
+                    .filter(lot_type_id__in={lot.lot_type_id for lot in lots}).order_by('pk')):
+            self.requirements[row.lot_type_id].append(row)
+        self.content = defaultdict(list)
+        for row in LotContent.objects.select_related('item_type').filter(lot_id__in=ids).order_by('pk'):
+            self.content[row.lot_id].append(row)
+        # arborescence : tous les lots (un parent peut etre hors de la liste), quelques champs seulement
+        self.tree = {lot.id: lot for lot in Lots.objects.only('id', 'name', 'parent_id', 'active')}
+        self.children = defaultdict(list)
+        for lot in self.tree.values():
+            if lot.active and lot.parent_id is not None:
+                self.children[lot.parent_id].append(lot)
+
+    def ancestors(self, lot):
+        """Comme Lots.ancestors : du parent direct au lot global."""
+        chain = []
+        seen = {lot.id}
+        parent = self.tree.get(lot.parent_id)
+        while parent is not None and parent.id not in seen:
+            chain.append(parent)
+            seen.add(parent.id)
+            parent = self.tree.get(parent.parent_id)
+        return chain
 
 
 def lot_locations(lot):
@@ -133,17 +176,20 @@ def location_order(rows, order=(), known=()):
     return result
 
 
-def requirements_status(lot, today=None):
+def requirements_status(lot, today=None, items=None, preload=None):
     """Compare le contenu d'un lot aux exigences de son type.
 
     Seuls les items vus lors de la derniere verif (ou ajoutes depuis) comptent comme presents : un item
-    manque a la derniere verif est encore attendu mais n'est plus considere comme fiable.
+    manque a la derniere verif est encore attendu mais n'est plus considere comme fiable. `items` : items actifs
+    du lot deja lus (evite une requete), `preload` : voir LotPreload.
     """
     today = today or timezone.localdate()
     fresh = defaultdict(int)
     expired = defaultdict(int)
     unconfirmed = defaultdict(int)
-    for item in _items_queryset().filter(location=lot, status=ItemStatus.ACTIVE):
+    if items is None:
+        items = _items_queryset().filter(location=lot, status=ItemStatus.ACTIVE)
+    for item in items:
         if item.missed_verifs > 0:
             unconfirmed[item.pack.item_type_id] += 1
         elif item.needs_replacement(today):
@@ -151,7 +197,7 @@ def requirements_status(lot, today=None):
         else:
             fresh[item.pack.item_type_id] += 1
     rows = []
-    for requirement in lot_requirements(lot):
+    for requirement in lot_requirements(lot, preload):
         type_id = requirement.item_type_id
         rows.append({
             'type': type_id,

@@ -41,7 +41,13 @@ def parse_identity(value: str) -> dict:
     source, _, payload = value.partition(':')
     if source == SOURCE_VERIFIED:
         from .models import Secouristes
-        secouriste = Secouristes.objects.filter(matricule=payload).first()
+        cache = _secouristes.get()
+        if cache is None:
+            secouriste = Secouristes.objects.filter(matricule=payload).first()
+        else:
+            if payload not in cache:
+                cache[payload] = Secouristes.objects.filter(matricule=payload).first()
+            secouriste = cache[payload]
         return {
             'verified': True,
             'matricule': payload,
@@ -79,6 +85,8 @@ def identity_from_request(data, front_user=None, allow_declared=False):
 # Actif pendant une requete de l'API publique (voir ApiRoleMiddleware) : None hors de ce contexte, sinon le
 # dictionnaire matricule -> nom court, calcule a la premiere utilisation.
 _public_names = ContextVar('qrprotec_public_names', default=None)
+# Secouristes deja lus pendant la requete (names_cache) : une liste de 200 items ne relit pas 400 fois les memes
+_secouristes = ContextVar('qrprotec_secouristes', default=None)
 
 
 def _fold(text: str) -> str:
@@ -123,6 +131,17 @@ def anonymized():
         yield
     finally:
         _public_names.reset(token)
+
+
+@contextmanager
+def names_cache():
+    """Dans ce bloc (une requete de l'API locale ou distante), chaque secouriste n'est lu qu'une fois pour afficher
+    les noms complets de l'historique (vu par, ajoute par...)."""
+    token = _secouristes.set({})
+    try:
+        yield
+    finally:
+        _secouristes.reset(token)
 
 
 def is_anonymized() -> bool:
