@@ -4711,7 +4711,9 @@ class ProductionDefaultsTests(TestCase):
         import sys
         from pathlib import Path
         environment = {key: value for key, value in os.environ.items() if not key.startswith('QRPROTEC_')}
-        environment.update(env, DJANGO_SETTINGS_MODULE='qrprotecDB.settings')
+        # memes modules que ce processus (RPM : PYTHONPATH relatif database:vendor, faux depuis un autre dossier)
+        environment.update(env, DJANGO_SETTINGS_MODULE='qrprotecDB.settings',
+                           PYTHONPATH=os.pathsep.join(path for path in map(os.path.abspath, sys.path) if path))
         result = subprocess.run(
             [sys.executable, '-c', 'from django.conf import settings; print(settings.DEBUG, settings.ALLOWED_HOSTS)'],
             cwd=Path(__file__).resolve().parent.parent, env=environment, capture_output=True, text=True)
@@ -4721,7 +4723,8 @@ class ProductionDefaultsTests(TestCase):
         code, output = self.settings_error()
         self.assertNotEqual(code, 0)
         self.assertIn('QRPROTEC_SECRET_KEY manquante', output)
-        code, output = self.settings_error(QRPROTEC_SECRET_KEY=settings.SECRET_KEY)  # cle publique des tests
+        from qrprotecDB.settings import _INSECURE_SECRET_KEY
+        code, output = self.settings_error(QRPROTEC_SECRET_KEY=_INSECURE_SECRET_KEY)  # cle publique du depot
         self.assertNotEqual(code, 0)
         code, output = self.settings_error(QRPROTEC_SECRET_KEY='une-cle-aleatoire')
         self.assertEqual(code, 0, output)
