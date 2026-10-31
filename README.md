@@ -377,6 +377,7 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 | `QRPROTEC_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` |
 | `QRPROTEC_DEBUG_HOSTS` | vide (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement, ex : `192.168.1.42`) |
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
+| `QRPROTEC_HISTORY_YEARS` | `5` (historique et items hors circulation plus anciens purgés chaque lundi par `purge_history --weekly`, puis VACUUM ; `0` garde tout) |
 | `QRPROTEC_OUT_DAYS` | `30` (jours avant qu'un item sorti sans lot compte comme utilisé) |
 | `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `365` |
 | `QRPROTEC_NOTIFY_SYNC` | `0` (notifications web envoyées dans un thread ; `1` = dans la requête). Ancien nom `QRPROTEC_SMS_SYNC` encore lu |

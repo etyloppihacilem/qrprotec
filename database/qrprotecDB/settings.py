@@ -120,6 +120,10 @@ QRPROTEC = {
     'MISSING_AFTER_VERIFS': int(os.environ.get('QRPROTEC_MISSING_AFTER_VERIFS', '3')),
     # Un item sorti du stock sans lot est compte comme utilise s'il n'est pas revu a une verif dans ce delai
     'OUT_DAYS': int(os.environ.get('QRPROTEC_OUT_DAYS', '30')),
+    # Historique (verifs, mouvements, journal, items sortis de la circulation...) garde ce nombre d'annees (duree de vie
+    # d'un materiel perime), purge chaque lundi
+    # par `purge_history --weekly` (qrprotec-alerts) ; 0 : tout garder
+    'HISTORY_YEARS': int(os.environ.get('QRPROTEC_HISTORY_YEARS', '5')),
     # Liste de taches de la gestion : vérif de routine proposee pour un lot valide pas verifie depuis ce nombre de
     # jours (0 : jamais)
     'ROUTINE_VERIF_DAYS': int(os.environ.get('QRPROTEC_ROUTINE_VERIF_DAYS', '90')),

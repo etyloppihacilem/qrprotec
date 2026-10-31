@@ -143,3 +143,13 @@ sudo qrprotec-manage dbshell         # SQL brut (sqlite3 doit être installé)
 ```
 
 Une console est disponible sur la borne avec `Ctrl+Alt+F2`.
+
+## Purge de l'historique
+
+`manage.py purge_history` (lancée chaque lundi par `qrprotec-alerts`) supprime ce qui a plus de
+`QRPROTEC_HISTORY_YEARS` ans (5 par défaut, la durée de vie d'un matériel périmé) : vérifs, mouvements
+d'items, journal des opérations, signalements résolus, listes rentrées ou brouillons abandonnés, items sortis
+de la circulation (disparus, remplacés, supprimés) que plus rien ne référence, et paquets fermés vides. Puis un
+`VACUUM` rend la place au disque. Elle garde toujours la dernière vérif de chaque lot, le dernier mouvement de
+chaque item restant, l'ouverture du scellé actuel, et les `ItemsPacks` (leur compteur évite de redonner un iid
+déjà imprimé). `--dry-run` compte sans supprimer ; `QRPROTEC_HISTORY_YEARS=0` désactive la purge.
