@@ -206,11 +206,43 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# Email
-# https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+# Email : rien n'envoie de mail (les notifications passent par le web). Pas de bloc MAILERS : le backend de
+# console, reserve au developpement, faisait echouer `manage.py check --deploy` (mail.E001).
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+
+# Journal
+# https://docs.djangoproject.com/en/6.1/topics/logging/
+# Sans ce bloc, en production (DEBUG=0), Django n'envoie les erreurs 500 que par mail aux ADMINS (il n'y en a
+# pas) : aucune trace nulle part. Ici, les erreurs 500 avec leur pile d'appels et les avertissements de l'appli
+# vont sur stderr, donc dans `journalctl -u qrprotec`. Les refus 4xx (PIN faux, droits) n'y sont pas repris : la
+# ligne d'acces de django.server suffit.
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'qrprotec': {
+            'format': '{levelname} {name} : {message}',  # journald ajoute deja la date
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'stderr': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'qrprotec',
+        },
+    },
+    'loggers': {
+        # django.request (erreurs 500), django.security (hote refuse...), erreurs de la base
+        'django': {
+            'handlers': ['stderr'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'inventory': {
+            'handlers': ['stderr'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
     },
 }

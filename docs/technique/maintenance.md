@@ -131,7 +131,7 @@ La CI construit, teste, publie la release et le dépôt dnf ; les bornes la reç
 ## Diagnostiquer sur une borne
 
 ```sh
-journalctl -u qrprotec -f            # back (requêtes, migrations, erreurs)
+journalctl -u qrprotec -f            # back (requêtes, migrations, erreurs 500 avec leur pile)
 journalctl -u qrprotec-kiosk -b      # Cage et front ; ajouter QRPROTEC_FRONT_ARGS=--verbose dans kiosk.conf
 journalctl -t qrprotec-front -p err -b   # erreurs affichées par le front (API, douchette, imprimante…), via syslog
 journalctl -t qrprotec-front -b          # idem, avec les échanges de la lecture de la mémoire de la douchette

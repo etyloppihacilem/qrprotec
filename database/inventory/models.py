@@ -673,6 +673,9 @@ class Operation(models.Model):
 PIN_RE = re.compile(r'^\d{4,8}$')
 PIN_MAX_FAILURES = 5              # essais faux consecutifs avant blocage
 PIN_LOCK_DURATION = timedelta(minutes=5)
+# Etat du PIN relu sous verrou avant de compter un essai (essais simultanes, voir Secouristes.check_pin)
+PIN_STATE_FIELDS = ['pin_hash', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',
+                    'pin_forgotten', 'pin_reset_notified']
 # Au-dela de QRPROTEC['PIN_BLOCK_AFTER_FAILURES'] echecs depuis le dernier PIN correct (50 par defaut), le PIN
 # est bloque jusqu'a sa reinitialisation par un administrateur (lien envoye depuis le front web).
 
@@ -849,24 +852,36 @@ class Secouristes(models.Model):
 
     def check_pin(self, pin) -> bool:
         """Verifie le PIN et compte les echecs : blocage temporaire apres PIN_MAX_FAILURES, puis blocage jusqu'a
-        intervention d'un admin apres PIN_BLOCK_AFTER_FAILURES echecs depuis le dernier PIN correct."""
+        intervention d'un admin apres PIN_BLOCK_AFTER_FAILURES echecs depuis le dernier PIN correct.
+
+        Des essais envoyes en meme temps sont comptes un par un : les compteurs sont relus et ecrits dans une
+        transaction qui prend le verrou d'ecriture des le debut (SQLite en mode IMMEDIATE, select_for_update
+        ailleurs). Un essai juste arrive apres un blocage pose par un essai voisin est refuse, meme si le PIN est bon.
+        """
         if self.pin_blocked or self.pin_locked() or not self.pin_hash:
             return False
-        if check_password(str(pin or ''), self.pin_hash):
-            if self.pin_failures or self.pin_failures_total:
+        checked_hash = self.pin_hash
+        correct = check_password(str(pin or ''), checked_hash)  # hors transaction : le hachage est lent
+        with transaction.atomic():
+            self.refresh_from_db(fields=PIN_STATE_FIELDS,
+                                 from_queryset=Secouristes.objects.select_for_update())
+            if self.pin_blocked or self.pin_locked() or self.pin_hash != checked_hash:
+                return False
+            if correct:
+                if self.pin_failures or self.pin_failures_total:
+                    self.pin_failures = 0
+                    self.pin_failures_total = 0
+                    self.save(update_fields=['pin_failures', 'pin_failures_total'])
+                return True
+            self.pin_failures += 1
+            self.pin_failures_total += 1
+            if self.pin_failures_total >= qrprotec_setting('PIN_BLOCK_AFTER_FAILURES'):
                 self.pin_failures = 0
-                self.pin_failures_total = 0
-                self.save(update_fields=['pin_failures', 'pin_failures_total'])
-            return True
-        self.pin_failures += 1
-        self.pin_failures_total += 1
-        if self.pin_failures_total >= qrprotec_setting('PIN_BLOCK_AFTER_FAILURES'):
-            self.pin_failures = 0
-            self.pin_blocked = timezone.now()
-        elif self.pin_failures >= PIN_MAX_FAILURES:
-            self.pin_failures = 0
-            self.pin_locked_until = timezone.now() + PIN_LOCK_DURATION
-        self.save(update_fields=['pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked'])
+                self.pin_blocked = timezone.now()
+            elif self.pin_failures >= PIN_MAX_FAILURES:
+                self.pin_failures = 0
+                self.pin_locked_until = timezone.now() + PIN_LOCK_DURATION
+            self.save(update_fields=['pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked'])
         return False
 
     @property

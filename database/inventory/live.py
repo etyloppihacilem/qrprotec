@@ -57,6 +57,7 @@ Messages (JSON, trames texte) :
 
 import hmac
 import json
+import logging
 import secrets
 import threading
 import time
@@ -65,6 +66,8 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from .remote_scanner import ALPHABET, WebSocketClosed
+
+logger = logging.getLogger(__name__)
 
 MAX_SESSIONS = 200          # verifs suivies en meme temps (au-dela, les nouvelles ne sont pas publiees)
 MAX_PARTICIPANTS = 8        # personnes sur une meme verif
@@ -457,7 +460,7 @@ class LiveHub:
         """Enregistre la verif commune comme si son dernier participant l'avait envoyee : scans de tous, cles des lots
         gardees par le serveur, au nom de celui qui a valide (sinon du premier participant). False si impossible."""
         from . import services
-        from .views import is_verified, require_label, sealed_targets, verif_lots
+        from .views import ApiError, is_verified, require_label, sealed_targets, verif_lots
         with self.lock:
             participants = list(session.participants.values())
             entries = [entry for p in participants for entry in p.entries if not entry['error']]
@@ -479,7 +482,11 @@ class LiveHub:
             sealed_lots = sealed_targets({'sealed': sealed}, targets)
             require_label(targets, {}, sealed=sealed_lots, extra=labels)
             report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places, sealed_lots)
-        except Exception:  # cle expiree, etiquette d'aucun lot scannee, lot archive... : la verif est abandonnee
+        except Exception as exc:  # cle expiree, etiquette d'aucun lot scannee, lot archive... : la verif est abandonnee
+            if isinstance(exc, (ApiError, ValueError)):
+                logger.warning('Verif commune %s abandonnee : %s', session.id, getattr(exc, 'message', exc))
+            else:
+                logger.exception('Verif commune %s : erreur a l\'enregistrement', session.id)
             with self.lock:
                 session.saving = False
             return False
@@ -513,7 +520,7 @@ class LiveHub:
             try:
                 self.reap()
             except Exception:  # le ramasseur ne doit jamais mourir
-                pass
+                logger.exception('Erreur du ramasseur des verifs en direct')
             with self.lock:
                 if not self.sessions:
                     self._reaper = None

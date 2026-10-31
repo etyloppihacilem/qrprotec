@@ -4419,3 +4419,131 @@ class DebugCodesTests(ApiTestCase):
         for user in (self.user, self.operator):
             self.assertNotIn('badge?', text)
             self.assertNotIn(user.matricule, text)
+
+
+class ConcurrencyTests(TransactionTestCase):
+    """Requetes envoyees en meme temps, chacune dans son thread avec sa connexion a la base (audit de production :
+    « database is locked » a deux verifs simultanees, essais de PIN en parallele comptes une seule fois)."""
+    # TransactionTestCase : sous la transaction d'un TestCase, les autres threads ne pourraient pas ecrire. Et une
+    # copie de la base de test dans un fichier, comme en production : la base en memoire partagee entre threads
+    # repond « database table is locked » sans jamais attendre, le test ne voudrait rien dire.
+
+    @classmethod
+    def setUpClass(cls):
+        import sqlite3
+        import tempfile
+        from django.db import connections
+        cls.memory_settings = connections.settings['default']
+        cls.memory_connection = connections['default']
+        cls.memory_connection.ensure_connection()
+        cls.directory = tempfile.TemporaryDirectory()
+        path = f'{cls.directory.name}/test.sqlite3'
+        with sqlite3.connect(path) as target:
+            cls.memory_connection.connection.backup(target)  # schema deja migre
+        target.close()
+        # connections est propre a chaque thread : les threads des requetes liront ces reglages
+        connections.settings['default'] = {**cls.memory_settings, 'NAME': path}
+        connections['default'] = connections.create_connection('default')
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        from django.db import connections
+        super().tearDownClass()
+        connections['default'].close()
+        connections.settings['default'] = cls.memory_settings
+        connections['default'] = cls.memory_connection
+        cls.directory.cleanup()
+
+    setUp = ApiTestCase.setUp
+    create = ApiTestCase.create
+
+    def parallel(self, requests):
+        """Lance les requetes (method, path, data, extra) ensemble ; renvoie les (code, corps) dans l'ordre."""
+        import threading
+        from django.db import connection
+        from django.test import Client
+        barrier = threading.Barrier(len(requests))
+        results = [None] * len(requests)
+
+        def run(index, method, path, data, extra):
+            try:
+                client = Client()
+                barrier.wait()
+                response = client.generic(method, path, json.dumps(data), content_type='application/json', **extra)
+                is_json = response.get('Content-Type', '').startswith('application/json')
+                results[index] = (response.status_code, response.json() if is_json else None)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=run, args=(index, *request)) for index, request in enumerate(requests)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        return results
+
+    def test_simultaneous_verifs_all_saved(self):
+        lots, requests = [], []
+        for number in range(6):
+            lot = Lots(lot_type=self.lot_type, name=f'Sac {number}', name_short=f'S{number}', created_by='test')
+            lot.save()
+            items = self.create(self.compresses, self.today + timedelta(days=100), 2)
+            lots.append(lot)
+            requests.append(('POST', f'/api/lots/{lot.id}/verif/', {'items': [item.iid for item in items]},
+                             {**LOCAL, 'HTTP_X_QRPROTEC_SESSION': self.operator_session}))
+        results = self.parallel(requests)
+        self.assertEqual([code for code, _ in results], [200] * len(lots))
+        for lot in lots:
+            self.assertEqual(Items.objects.filter(location=lot.id, status=ItemStatus.ACTIVE).count(), 2)
+
+    def test_parallel_wrong_pins_are_all_counted(self):
+        admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
+        admin.renew_key()
+        admin.set_pin('4821')
+        admin.save()
+        attempts = 12
+        data = {'matricule': 'A001', 'key': admin.new_key}
+        requests = [('POST', '/api/auth/', {**data, 'pin': f'{1000 + number}'}, {}) for number in range(attempts)]
+        results = self.parallel(requests)
+        self.assertTrue(all(code == 403 for code, _ in results))
+        admin.refresh_from_db()
+        # avant : chaque essai relisait 0 et ecrivait 1. Maintenant les 5 premiers comptent et posent le blocage
+        # temporaire, les suivants sont refuses sans etre comptes.
+        self.assertEqual(admin.pin_failures_total, models.PIN_MAX_FAILURES)
+        self.assertTrue(admin.pin_locked())
+        # le bon PIN est refuse pendant le blocage
+        code, _ = self.parallel([('POST', '/api/auth/', {**data, 'pin': '4821'}, {})])[0]
+        self.assertEqual(code, 403)
+
+    def test_parallel_name_logins_are_all_counted(self):
+        cache.clear()
+        self.user.set_pin('2468')
+        self.user.save()
+        attempts = 8
+        requests = [('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': f'{1000 + number}'},
+                     {'REMOTE_ADDR': f'10.0.0.{number}'}) for number in range(attempts)]
+        results = self.parallel(requests)
+        self.assertTrue(all(code == 403 for code, _ in results))
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.name_login_failures, attempts)
+        self.assertIsNotNone(self.user.name_login_locked_until)  # pause posee au 5e essai faux
+
+    def test_parallel_name_logins_respect_address_limit(self):
+        cache.clear()
+        attempts = views.NAME_LOGIN_ADDRESS_LIMIT + 4
+        requests = [('POST', '/api/auth/name/', {'nom': 'Inconnu', 'prenom': 'Personne', 'pin': '1234'},
+                     {'REMOTE_ADDR': '10.0.0.1'}) for _ in range(attempts)]
+        codes = sorted(code for code, _ in self.parallel(requests))
+        self.assertEqual(codes, [403] * views.NAME_LOGIN_ADDRESS_LIMIT + [429] * 4)
+
+
+class LoggingTests(TestCase):
+    def test_server_errors_reach_stderr(self):
+        """En production (DEBUG=0), les erreurs 500 doivent aller dans le journal, pas seulement par mail."""
+        import logging
+        logger = logging.getLogger('django.request')
+        self.assertTrue(logger.isEnabledFor(logging.ERROR))
+        handlers = logging.getLogger('django').handlers
+        self.assertTrue(any(type(handler) is logging.StreamHandler for handler in handlers))
+        self.assertTrue(logging.getLogger('inventory.live').isEnabledFor(logging.WARNING))

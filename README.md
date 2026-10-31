@@ -239,7 +239,7 @@ retire avec `sudo rm /etc/yum.repos.d/qrprotec.repo`.
 ### Journaux
 
 ```sh
-journalctl -u qrprotec -f            # back (requêtes, migrations)
+journalctl -u qrprotec -f            # back (requêtes, migrations, erreurs 500 avec leur pile)
 journalctl -u qrprotec-kiosk -b      # Cage et front
 journalctl -u caddy -f               # reverse proxy, certificats
 journalctl -u qrprotec-alerts        # alertes quotidiennes
