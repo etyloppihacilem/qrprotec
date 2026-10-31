@@ -4,12 +4,13 @@
 #   - dans un depot dnf statique (branche gh-pages servie par GitHub Pages), pour que
 #     `sudo dnf upgrade` fonctionne sur la borne.
 #
-# Variables du depot (Settings > Secrets and variables > Actions), toutes optionnelles :
+# Variables du depot (Settings > Secrets and variables > Actions) :
 #   vars.RPM_PAGES_REPO      depot qui heberge gh-pages (defaut : ce depot). Un depot PUBLIC dedie
 #                            (ex : etyloppihacilem/qrprotec-rpm) si celui-ci reste prive.
 #   vars.RPM_PAGES_URL       URL publique du depot dnf (defaut : https://<owner>.github.io/<repo>)
 #   secrets.RPM_PAGES_TOKEN  jeton avec droit d'ecriture sur RPM_PAGES_REPO (si autre depot)
-#   secrets.RPM_GPG_PRIVATE_KEY / secrets.RPM_GPG_PASSPHRASE : signature des RPM (gpgcheck=1)
+#   secrets.RPM_GPG_PRIVATE_KEY / secrets.RPM_GPG_PASSPHRASE : signature des RPM et du depot, OBLIGATOIRE pour
+#                            publier (gpgcheck=1, repo_gpgcheck=1)
 name: rpm
 
 on:
@@ -84,8 +85,13 @@ jobs:
           path: rpms
           merge-multiple: true
 
-      - name: Signature des RPM (si une cle est configuree)
-        if: env.GPG_PRIVATE_KEY != ''
+      - name: Cle de signature requise
+        if: env.GPG_PRIVATE_KEY == ''
+        run: |
+          echo "::error::Secret RPM_GPG_PRIVATE_KEY absent : le depot dnf doit etre signe (gpgcheck et repo_gpgcheck)"
+          exit 1
+
+      - name: Signature des RPM
         run: |
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           key_id=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
@@ -96,7 +102,9 @@ jobs:
           (umask 077; printf '%s' "$GPG_PASSPHRASE" > "$passfile")
           printf 'batch\npinentry-mode loopback\npassphrase-file %s\n' "$passfile" >> ~/.gnupg/gpg.conf
           rpmsign --addsign --define "_gpg_name $key_id" --define "_openpgp_sign_id $key_id" rpms/*.rpm
-          rm -f "$passfile" ~/.gnupg/gpg.conf
+          rm -f ~/.gnupg/gpg.conf
+          # garde pour signer les metadonnees du depot (publish-repo.sh), supprime a la fin du job
+          echo "GPG_PASSPHRASE_FILE=$passfile" >> "$GITHUB_ENV"
           # Echoue si un paquet n'est pas signe par cette cle
           gpg --armor --export "$key_id" > "$RUNNER_TEMP/RPM-GPG-KEY-qrprotec"
           rpm --import "$RUNNER_TEMP/RPM-GPG-KEY-qrprotec"
@@ -129,3 +137,7 @@ jobs:
           git add -A
           git commit -m "QRProtec $GITHUB_REF_NAME"
           git push origin gh-pages
+
+      - name: Nettoyage de la phrase de passe
+        if: always()
+        run: rm -f "$RUNNER_TEMP/gpg-passphrase"

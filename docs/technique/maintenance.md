@@ -12,6 +12,7 @@ cd qrprotec
 # Back
 poetry install --no-root          # ou : python3 -m venv .venv && pip install django djangorestframework cryptography
 cd database
+export QRPROTEC_DEBUG=1           # développement : sans lui, le back exige QRPROTEC_SECRET_KEY et refuse de démarrer
 python manage.py migrate
 python manage.py createadmin M001 Nom Prénom --pin 1234
 python manage.py serve            # API publique :8000, API locale :8001
@@ -27,8 +28,9 @@ Sans douchette : la fenêtre Pile de scans permet de saisir un code à la main ;
 code très vite (mode HID). Sans imprimante : l'aperçu montre l'étiquette et « Exporter PNG » dans
 l'éditeur produit l'image. Avec un téléphone : `serve --https` (voir [front-web.md](front-web.md)).
 
-En DEBUG (défaut hors borne), la clé secrète Django est une valeur de développement : ne jamais
-déployer sans `QRPROTEC_SECRET_KEY` et `QRPROTEC_DEBUG=0` (le paquet s'en charge).
+Le DEBUG est coupé par défaut : sans `QRPROTEC_DEBUG=1`, le back exige une vraie `QRPROTEC_SECRET_KEY` et
+refuse aussi la clé de développement du dépôt (le paquet génère la sienne dans `/etc/qrprotec/secret_key`).
+`manage.py test` reste possible sans rien régler.
 
 ## Ajouter un champ à un modèle
 

@@ -139,9 +139,9 @@ reconnecte seule. « Annuler le dernier » retire du poste le dernier scan venu 
 
 ```sh
 cd database
-QRPROTEC_DEBUG_HOSTS=192.168.1.42 python manage.py serve --https
+QRPROTEC_DEBUG=1 QRPROTEC_DEBUG_HOSTS=192.168.1.42 python manage.py serve --https
 ```
 
 Ouvrir `https://192.168.1.42:8000/verif` sur le téléphone (même réseau) et accepter l'avertissement
-du certificat auto-signé. `QRPROTEC_DEBUG_HOSTS` n'est pris en compte qu'en mode DEBUG (défaut en
-développement).
+du certificat auto-signé. `QRPROTEC_DEBUG_HOSTS` (vide par défaut) n'est pris en compte qu'en mode DEBUG,
+qui écoute aussi sur tout le réseau (`0.0.0.0`) ; hors DEBUG, l'API publique reste sur `127.0.0.1`.

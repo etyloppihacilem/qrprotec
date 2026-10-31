@@ -143,6 +143,15 @@ static void test_http() {
   assert(!parse_http_url("serveur:8001", url, error));
   ApiEndpoint endpoint{ "https://serveur", "", "qrpf_cle", "/etc/ca.pem" };
   assert(endpoint.parse(url, error) && url.ca_file == "/etc/ca.pem");
+  // http:// : API locale de cette machine seulement (cle, jeton et session jamais en clair sur le reseau)
+  for (const char *local : { "http://127.0.0.1:8001", "http://localhost:8001", "http://[::1]:8001" }) {
+    ApiEndpoint loopback{ local, "", "", "" };
+    assert(loopback.parse(url, error));
+  }
+  ApiEndpoint remote_http{ "http://serveur.example.org", "", "qrpf_cle", "" };
+  assert(!remote_http.parse(url, error) && error.find("https://") != std::string::npos);
+  assert(is_loopback_host("LOCALHOST") && is_loopback_host("127.0.1.1"));
+  assert(!is_loopback_host("127.example.org") && !is_loopback_host("127.0.0.1.nip.io") && !is_loopback_host("10.0.0.1"));
   const HttpHeaders headers = endpoint.headers();
   assert(headers.size() == 1 && headers[0].first == "X-QRProtec-Key" && headers[0].second == "qrpf_cle");
   HttpResponse response;

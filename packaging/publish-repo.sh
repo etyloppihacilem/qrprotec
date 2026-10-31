@@ -7,13 +7,20 @@
 # BASE_URL  : URL publique de ce depot (ex : https://etyloppihacilem.github.io/qrprotec)
 # Les RPM vont dans PAGES_DIR/fedora/<version Fedora>/<arch>/ (version lue dans la release, ex
 # 1.fc43). Les KEEP_VERSIONS (5) dernieres versions de chaque paquet sont gardees (dnf downgrade possible).
-# Si GPG_KEY_ID est defini, la cle publique est publiee et gpgcheck active dans qrprotec.repo.
+# Depot signe obligatoire : GPG_KEY_ID (cle secrete deja importee dans gpg, celle qui a signe les RPM) signe
+# aussi les metadonnees (repomd.xml.asc), et qrprotec.repo active gpgcheck et repo_gpgcheck. Phrase de passe
+# eventuelle dans le fichier GPG_PASSPHRASE_FILE. ALLOW_UNSIGNED=1 publie sans signature (essais seulement : les
+# bornes accepteraient alors n'importe quel paquet servi a cette adresse).
 set -euo pipefail
 
 pages=${1:?PAGES_DIR}
 base_url=${2:?BASE_URL}
 shift 2
 keep=${KEEP_VERSIONS:-5}
+if [[ -z ${GPG_KEY_ID:-} && ${ALLOW_UNSIGNED:-0} != 1 ]]; then
+    echo "publish-repo : GPG_KEY_ID manquant, depot non signe refuse (secrets RPM_GPG_PRIVATE_KEY / RPM_GPG_PASSPHRASE)" >&2
+    exit 1
+fi
 root=$(cd "$(dirname "$0")/.." && pwd)
 
 declare -A touched=()
@@ -46,6 +53,15 @@ gpgcheck=0
 if [[ -n ${GPG_KEY_ID:-} ]]; then
     gpg --armor --export "$GPG_KEY_ID" >"$pages/RPM-GPG-KEY-qrprotec"
     gpgcheck=1
+    # Metadonnees signees (repo_gpgcheck) : toutes les versions de Fedora, y compris celles non touchees ici
+    sign_args=(--batch --yes --pinentry-mode loopback --local-user "$GPG_KEY_ID" --armor --detach-sign)
+    if [[ -n ${GPG_PASSPHRASE_FILE:-} ]]; then
+        sign_args+=(--passphrase-file "$GPG_PASSPHRASE_FILE")
+    fi
+    for repomd in "$pages"/fedora/*/*/repodata/repomd.xml; do
+        [[ -e $repomd ]] || continue
+        gpg "${sign_args[@]}" --output "$repomd.asc" "$repomd"
+    done
 fi
 
 cat >"$pages/qrprotec.repo" <<REPO
@@ -54,6 +70,7 @@ name=QRProtec - Fedora \$releasever - \$basearch
 baseurl=$base_url/fedora/\$releasever/\$basearch/
 enabled=1
 gpgcheck=$gpgcheck
+repo_gpgcheck=$gpgcheck
 gpgkey=$base_url/RPM-GPG-KEY-qrprotec
 metadata_expire=1h
 skip_if_unavailable=False

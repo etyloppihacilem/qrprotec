@@ -61,7 +61,8 @@ Kiosk :
   --keyboard DISPO      disposition du clavier du kiosk (fr, us, ch...)
   --screen-blank SEC    extinction de l'ecran apres SEC secondes d'inactivite (0 = jamais)
   --api-url URL         back sur une autre machine : https://nom-du-serveur
-  --api-key CLE         cle API de ce front (creee sur le serveur par --front-key)
+  --api-key CLE         cle API de ce front (creee sur le serveur par --front-key). Sans cette option,
+                        elle est demandee sans s'afficher (et sans apparaitre dans la liste des processus)
   --api-ca-file PEM     certificat de l'autorite du serveur (QRPROTEC_TLS=internal sur le serveur :
                         $CADDY_CA)
   --local-api           revient au back de cette machine (API locale, defaut)
@@ -292,9 +293,10 @@ configure_front_api() {
     fi
     echo "Configuration ecrite dans $FRONT_API_CONF"
     if command -v curl >/dev/null; then
-        local curl_args=(-fsS --max-time 10 -H "X-QRProtec-Key: $api_key")
+        # cle passee a curl par l'entree standard (-H @-), pas dans sa ligne de commande (visible dans `ps`)
+        local curl_args=(-fsS --max-time 10 -H @-)
         [[ -n $api_ca_file ]] && curl_args+=(--cacert "$api_ca_file")
-        if curl "${curl_args[@]}" "${api_url%/}/api/health/" >/dev/null; then
+        if printf 'X-QRProtec-Key: %s\n' "$api_key" | curl "${curl_args[@]}" "${api_url%/}/api/health/" >/dev/null; then
             echo "Connexion au serveur verifiee : ${api_url%/}"
         else
             echo "ATTENTION : le serveur ne repond pas ou refuse la cle (voir ci-dessus)" >&2
@@ -414,8 +416,12 @@ if [[ $admin == yes ]]; then
     args=(createadmin "$matricule")
     [[ -n $nom ]] && args+=("$nom")
     [[ -n $nom && -n $prenom ]] && args+=("$prenom")
-    [[ -n $pin ]] && args+=(--pin "$pin")
-    qrprotec-manage "${args[@]}"
+    if [[ -n $pin ]]; then
+        # PIN sur l'entree standard : jamais dans la ligne de commande (visible de tous dans `ps`)
+        printf '%s\n' "$pin" | qrprotec-manage "${args[@]}" --pin-stdin
+    else
+        qrprotec-manage "${args[@]}"
+    fi
 fi
 
 if [[ $backup_now == yes ]]; then

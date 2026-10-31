@@ -30,7 +30,7 @@ Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la
 `manage.py serve` (voir `management/commands/serve.py`) démarre **trois serveurs WSGI** (le serveur de
 développement de Django, multi-thread, durci) dans le même processus :
 
-- public : `--public 0.0.0.0:8000` par défaut (`127.0.0.1:8000` sur la borne, derrière Caddy) ;
+- public : `--public 127.0.0.1:8000` par défaut, derrière Caddy (`0.0.0.0:8000` en DEBUG, pour les téléphones) ;
 - local : `--local 127.0.0.1:8001` ;
 - distant : `--remote 127.0.0.1:8002` (`--no-remote` pour ne pas le lancer), derrière Caddy.
 

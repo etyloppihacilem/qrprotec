@@ -308,8 +308,9 @@ la base n'invalide pas les étiquettes déjà imprimées.
 ```sh
 cd database
 poetry install --no-root          # ou : pip install django djangorestframework
+export QRPROTEC_DEBUG=1           # développement ; sinon QRPROTEC_SECRET_KEY obligatoire (production)
 python manage.py migrate
-python manage.py serve            # API publique 0.0.0.0:8000 + API locale 127.0.0.1:8001 + API distante 127.0.0.1:8002
+python manage.py serve            # API publique 0.0.0.0:8000 (127.0.0.1 hors DEBUG) + API locale 127.0.0.1:8001 + API distante 127.0.0.1:8002
 python manage.py frontkey add accueil   # clé API d'un front d'une autre machine (affichée une fois)
 python manage.py createadmin M001 Nom Prenom --pin 4821   # premier administrateur (ou badge admin perdu)
 python manage.py serve --https    # API publique en HTTPS (certificat de développement, tests sur téléphone)
@@ -368,19 +369,22 @@ téléphone dans `inventory/web/scanner.html` et `scanner.js`.
 | Variable | Défaut |
 |---|---|
 | `QRPROTEC_PUBLIC_BASE_URL` | `https://example.com/` |
-| `QRPROTEC_PUBLIC_API_ADDRESS` / `_PORT` | `0.0.0.0` / `8000` |
+| `QRPROTEC_PUBLIC_API_ADDRESS` / `_PORT` | `127.0.0.1` (`0.0.0.0` en DEBUG) / `8000` |
 | `QRPROTEC_LOCAL_API_ADDRESS` / `_PORT` | `127.0.0.1` / `8001` |
 | `QRPROTEC_LOCAL_API_ALLOWED_ADDRESSES` | `127.0.0.1,::1` |
 | `QRPROTEC_LOCAL_API_TOKEN` | vide (pas de jeton) |
 | `QRPROTEC_REMOTE_API_ADDRESS` / `_PORT` | `127.0.0.1` / `8002` (API distante, `--no-remote` pour ne pas la lancer) |
 | `QRPROTEC_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` |
-| `QRPROTEC_DEBUG_HOSTS` | `192.168.1.201` (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement) |
+| `QRPROTEC_DEBUG_HOSTS` | vide (ajoutés à `ALLOWED_HOSTS` en mode DEBUG seulement, ex : `192.168.1.42`) |
 | `QRPROTEC_MISSING_AFTER_VERIFS` | `3` |
 | `QRPROTEC_OUT_DAYS` | `30` (jours avant qu'un item sorti sans lot compte comme utilisé) |
 | `QRPROTEC_LOT_KEY_VALIDITY_DAYS` | `365` |
 | `QRPROTEC_NOTIFY_SYNC` | `0` (notifications web envoyées dans un thread ; `1` = dans la requête). Ancien nom `QRPROTEC_SMS_SYNC` encore lu |
 | `QRPROTEC_WEB_PUSH_SUBJECT` | `QRPROTEC_PUBLIC_BASE_URL` (contact VAPID des notifications web : `mailto:...` ou `https://...`) |
-| `QRPROTEC_SECRET_KEY`, `QRPROTEC_DEBUG`, `QRPROTEC_DB_PATH` | réglages Django |
+| `QRPROTEC_DEBUG` | `0` (`1` en développement seulement) |
+| `QRPROTEC_SECRET_KEY` | aucune : obligatoire hors DEBUG, la clé de développement du dépôt est refusée |
+| `QRPROTEC_HSTS_SECONDS` | `31536000` (en-tête HSTS des réponses HTTPS, hors DEBUG ; `0` le coupe) |
+| `QRPROTEC_DB_PATH` | `database/db.sqlite3` |
 
 ### Routes (`/api/...`)
 

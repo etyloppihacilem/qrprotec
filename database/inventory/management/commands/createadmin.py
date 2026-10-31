@@ -13,10 +13,13 @@
     python manage.py createadmin M001 Dupont Jeanne
     python manage.py createadmin M001            # compte existant : repasse administrateur, nouvelle cle
     python manage.py createadmin M001 --pin 4821 # fixe aussi le PIN (sinon demande a la connexion)
+    echo 4821 | python manage.py createadmin M001 --pin-stdin   # PIN lu sur l'entree standard, absent de `ps`
 
 Utile a la premiere installation ou si tous les badges administrateur sont perdus ou expires. Le front
 propose aussi de creer le premier administrateur quand il n'y en a aucun.
 """
+
+import sys
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -33,8 +36,15 @@ class Command(BaseCommand):
         parser.add_argument('nom', nargs='?')
         parser.add_argument('prenom', nargs='?')
         parser.add_argument('--pin', help="Code PIN (4 a 8 chiffres) ; sinon demande a la premiere connexion")
+        parser.add_argument('--pin-stdin', action='store_true',
+                            help="Lit le PIN sur l'entree standard (une ligne) : il n'apparait pas dans la liste des "
+                                 "processus, contrairement a --pin")
 
     def handle(self, matricule, nom=None, prenom=None, pin=None, **options):
+        if options.get('pin_stdin'):
+            if pin:
+                raise CommandError("--pin et --pin-stdin ne vont pas ensemble")
+            pin = sys.stdin.readline().strip()
         if not MATRICULE_RE.match(matricule):
             raise CommandError("Matricule invalide (1 a 16 caracteres alphanumeriques)")
         user = Secouristes.objects.filter(matricule=matricule).first()
