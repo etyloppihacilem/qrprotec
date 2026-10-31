@@ -67,7 +67,7 @@ casser la borne. Les versions embarquées sont exactement celles testées.
 | `qrprotec.service` | Back : `qrprotec-manage migrate` puis `serve --public 127.0.0.1:8000 --local 127.0.0.1:8001`, utilisateur `qrprotec`, fortement durci (`ProtectSystem=strict`, `PrivateDevices`, filtre d'appels système…), redémarrage sans limite. |
 | `caddy.service` + `caddy.service.d/qrprotec.conf` | Caddy de Fedora, avec `/etc/qrprotec/qrprotec.conf` en `EnvironmentFile` ; le fragment `Caddyfile.d/qrprotec.caddyfile` est importé par le Caddyfile de Fedora, non modifié. |
 | `qrprotec-kiosk.service` | Cage sur `tty1` (à la place de getty), utilisateur `qrprotec-kiosk`, session PAM, `Restart=always`. Lance `qrprotec-kiosk-session`. |
-| `qrprotec-alerts.timer` | `check_alerts` chaque jour à 7 h 45. |
+| `qrprotec-alerts.timer` | `check_alerts` chaque jour à 7 h 45, et le lundi `purge_history` (rétention de `QRPROTEC_HISTORY_YEARS` ans, 5 par défaut, puis VACUUM). |
 | `qrprotec-backup.timer` | Sauvegarde (quotidienne par défaut, réglable). |
 | `80-qrprotec.preset` | Active les unités à l'installation. |
 | `logind-qrprotec.conf`, `sleep-qrprotec.conf` | Pas de mise en veille de la borne. |

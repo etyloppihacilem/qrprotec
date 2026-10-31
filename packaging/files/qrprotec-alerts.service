@@ -1,5 +1,5 @@
 [Unit]
-Description=QRProtec : alertes quotidiennes (stock bas, lots perimes, expirations, commandes)
+Description=QRProtec : alertes quotidiennes (stock bas, lots perimes, expirations, commandes) et purge de l'historique
 Documentation=file:///usr/share/doc/qrprotec/README.md
 After=qrprotec.service
 
@@ -12,6 +12,8 @@ StateDirectory=qrprotec
 WorkingDirectory=/var/lib/qrprotec
 UMask=0027
 ExecStart=/usr/bin/qrprotec-manage check_alerts
+# le lundi : historique de plus de QRPROTEC_HISTORY_YEARS ans (5) supprime, puis VACUUM
+ExecStart=/usr/bin/qrprotec-manage purge_history --weekly
 
 NoNewPrivileges=yes
 ProtectSystem=strict

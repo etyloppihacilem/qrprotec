@@ -4734,3 +4734,54 @@ class ProductionDefaultsTests(TestCase):
         code, output = self.settings_error(QRPROTEC_DEBUG='1')
         self.assertEqual(code, 0, output)
         self.assertIn("True ['localhost', '127.0.0.1', '[::1]']", output)
+
+
+class PurgeHistoryTests(ApiTestCase):
+    """Retention de l'historique : au-dela de 3 ans tout part, sauf ce dont l'etat actuel depend."""
+
+    def test_purge_keeps_current_state(self):
+        from inventory.management.commands.purge_history import purge
+        from inventory.models import ItemMovement, Operation, Verifs
+        items = self.create(self.compresses, self.today + timedelta(days=100), 2)
+        services.perform_verif(self.lot, [item.iid for item in items], 'M:P001')  # vieille verif
+        services.perform_verif(self.lot, [items[0].iid], 'M:P001')  # derniere verif, vieille aussi
+        old = timezone.now() - timedelta(days=4 * 365)
+        Verifs.objects.update(datetime=old)
+        ItemMovement.objects.update(at=old)
+        Operation.objects.update(at=old)
+        last = Verifs.objects.filter(lot=self.lot).latest('id')
+        moves_before = ItemMovement.objects.count()
+        dry = purge(3, dry_run=True)
+        self.assertEqual(Verifs.objects.count(), 2)  # --dry-run ne supprime rien
+        counts = purge(3)
+        self.assertEqual(counts['verifs'], dry['verifs'])
+        self.assertEqual(counts['items'], 0)  # items encore dans le lot
+        self.assertEqual(list(Verifs.objects.values_list('id', flat=True)), [last.id])  # derniere verif gardee
+        # dernier mouvement de chaque item garde
+        self.assertEqual(ItemMovement.objects.count(), min(moves_before, len({m.item_id for m in ItemMovement.objects.all()})))
+        for item in items:
+            self.assertTrue(ItemMovement.objects.filter(item=item).exists() or moves_before == 0)
+        self.assertEqual(Operation.objects.count(), 0)
+        # rien d'ancien : rien a supprimer, et une retention plus longue garde tout
+        self.assertFalse(any(purge(5).values()))
+
+    def test_purge_gone_items_without_references(self):
+        from inventory.management.commands.purge_history import purge
+        from inventory.models import Items, ItemsPacks, ItemStatus, ProblemReport, VerifItem
+        gone, recent, reported = self.create(self.compresses, self.today + timedelta(days=100), 3)
+        old = timezone.now() - timedelta(days=6 * 365)
+        Items.objects.filter(iid__in=[gone.iid, reported.iid]).update(status=ItemStatus.REPLACED, last_seen=old)
+        Items.objects.filter(iid=recent.iid).update(status=ItemStatus.MISSING, last_seen=timezone.now())
+        ProblemReport.objects.create(by='M:P001', item=reported, comment='x')  # signalement ouvert : garde
+        counts = purge(5)
+        self.assertEqual(counts['items'], 1)
+        self.assertEqual(set(Items.objects.values_list('iid', flat=True)), {recent.iid, reported.iid})
+        # le compteur du paquet reste : un iid deja imprime n'est jamais redonne
+        self.assertTrue(ItemsPacks.objects.filter(id=gone.pack_id).exists())
+        again = self.create(self.compresses, self.today + timedelta(days=100), 1)[0]
+        self.assertNotIn(again.iid, (gone.iid, recent.iid, reported.iid))
+
+    def test_weekly_and_disabled(self):
+        out = StringIO()
+        call_command('purge_history', '--years', '0', stdout=out)
+        self.assertIn('desactivee', out.getvalue())
