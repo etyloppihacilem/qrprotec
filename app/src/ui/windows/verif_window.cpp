@@ -145,7 +145,7 @@ class VerifWindow final : public AppWindow {
         ImGui::PopStyleColor();
       } else if (!app.verif_label_ok()) {
         ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
-        ImGui::TextWrapped("Scannez l'étiquette de %s (ou d'un de ses sous-lots) pour pouvoir valider : elle montre "
+        ImGui::TextWrapped("Scannez l'étiquette %s pour pouvoir valider : elle montre "
                            "que la vérif est bien celle de ce lot.",
                            app.verif_label_missing().c_str());
         ImGui::PopStyleColor();
@@ -559,7 +559,7 @@ class VerifWindow final : public AppWindow {
       if (!app.verif_key_ok())
         ImGui::SetItemTooltip("Scannez d'abord l'étiquette clé du lot : c'est le QR code rangé à l'intérieur du lot.");
       else if (!app.verif_label_ok())
-        ImGui::SetItemTooltip("Scannez d'abord l'étiquette du lot (ou d'un de ses sous-lots).");
+        ImGui::SetItemTooltip("Scannez d'abord l'étiquette %s.", app.verif_label_missing().c_str());
       else
         ImGui::SetItemTooltip("Enregistre la vérif : les items scannés sont présents, ceux de la liste « À scanner »\n"
                               "sont signalés manquants. %s",
@@ -599,7 +599,8 @@ class VerifWindow final : public AppWindow {
       const std::vector< const Json * > children = app.verif_children(level);
       if (children.empty())
         return false;
-      ImGui::SeparatorText("Sous-lots : scannez l'étiquette d'un sous-lot (ou cliquez-le) pour y entrer");
+      ImGui::SeparatorText(children.size() > 1 ? "Ce qu'il contient : scannez l'étiquette de l'un d'eux (ou cliquez-le) pour y entrer"
+                                                  : "Ce qu'il contient : scannez son étiquette (ou cliquez-le) pour y entrer");
       const std::set< std::string > intact = app.verif_intact();
       bool                          moved  = false;
       for (const Json *child : children) {

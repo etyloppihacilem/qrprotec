@@ -1,3 +1,4 @@
+#include "../src/core/french.hpp"
 #include "../src/core/placeholders.hpp"
 #include "../src/core/template.hpp"
 #include "../src/core/template_io.hpp"
@@ -12,6 +13,14 @@
 
 int main()
 {
+    // messages des verifs : le nom des lots, avec « de » accorde
+    assert(de_name("Trousse de secours") == "de Trousse de secours");
+    assert(de_name("Armoire 1") == "d'Armoire 1");
+    assert(de_name("Étagère") == "d'Étagère");
+    assert(de_name("Le sac O2") == "du sac O2");
+    assert(de_names({"Sac de soin", "Sac O2"}) == "de Sac de soin ou de Sac O2");
+    assert(de_names({"A1", "B", "C"}) == "d'A1, de B ou de C");
+
     qrprotec::TemplateDocument document;
     assert(document.media.width_pixels() == 320);
     assert(document.media.height_pixels() == 240);

@@ -38,9 +38,10 @@ Il n'a pas été scanné (étiquette cachée, objet resté dans une poche). Refa
 scannant : il est retrouvé. Il ne devient « disparu » qu'après trois vérifs sans être vu (ou tout de
 suite s'il est périmé).
 
-**« Scannez l'étiquette du lot (ou d'un de ses sous-lots) pour pouvoir valider ».**
-La vérif a été lancée sans scanner d'étiquette (depuis la liste des lots, ou par un item). Scannez
-l'étiquette publique ou clé du lot, ou d'un de ses sous-lots : elle montre que c'est bien ce lot.
+**« Scannez l'étiquette de B+ (ou celle de Sac de soin ou de Sac O2) pour pouvoir valider ».**
+La vérif a été lancée sans scanner d'étiquette (depuis la liste des lots, ou par un item). Le message
+donne le nom du lot et de ceux qu'il contient : scannez l'étiquette publique ou clé de l'un d'eux, elle
+montre que c'est bien ce lot.
 
 **« Scannez l'étiquette clé du lot pour pouvoir valider ».**
 Sans badge (nom déclaré), l'étiquette publique ne suffit pas. Scannez votre badge, ou l'étiquette

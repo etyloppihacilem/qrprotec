@@ -97,7 +97,9 @@ class PublicApiTests(ApiTestCase):
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=False)
         self.assertEqual(code, 403)
         self.assertTrue(body['label_required'])
-        self.assertIn("Scannez l'étiquette de", body['error'])
+        self.assertIn("Scannez l'étiquette", body['error'])
+        self.assertIn(views.de_name(self.lot.name), body['error'])  # le nom du lot, pas « lot ou sous-lot »
+        self.assertNotIn('sous-lot', body['error'])
         other = Lots.objects.create(lot_type=self.lot_type, name="Autre sac", created_by="test")
         code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', dict(payload, labels=[other.id]), local=False)
         self.assertEqual(code, 403)
@@ -4785,3 +4787,18 @@ class PurgeHistoryTests(ApiTestCase):
         out = StringIO()
         call_command('purge_history', '--years', '0', stdout=out)
         self.assertIn('desactivee', out.getvalue())
+
+
+class LabelErrorTests(TestCase):
+    """Message « Scannez l'étiquette … » : le nom du lot et de ses sous-lots, jamais « lot ou sous-lot »."""
+
+    def test_names(self):
+        self.assertEqual(views.de_name('Armoire 1'), "d'Armoire 1")
+        self.assertEqual(views.de_name('Le sac O2'), 'du sac O2')
+        self.assertEqual(views.de_names(['Sac de soin', 'Sac O2', 'B']), 'de Sac de soin, de Sac O2 ou de B')
+        lot_type = models.LotType.objects.create(type='SACT', name='Sac', created_by='test')
+        bplus = Lots.objects.create(lot_type=lot_type, name='B+', created_by='test')
+        Lots.objects.create(lot_type=lot_type, name='Sac O2', parent=bplus, created_by='test')
+        Lots.objects.create(lot_type=lot_type, name='Sac de soin', parent=bplus, created_by='test')
+        self.assertTrue(views.label_error([bplus]).startswith(
+            "Scannez l'étiquette de B+ (ou celle de Sac de soin ou de Sac O2) pour valider"))

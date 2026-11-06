@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "app.hpp"
+#include "../core/french.hpp"
 #include "../core/plural.hpp"
 #include "../printer/logging.hpp"
 
@@ -2050,7 +2051,7 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
     enter_level(scan.id);
     const std::string name = (*verif_lot(scan.id))["name"].str();
     notify(reopened ? name + " : déjà validé pendant cette vérif, vous le refaites."
-           : scan.id == verif.lot_id ? name + " : scannez l'étiquette d'un sous-lot pour y entrer."
+           : scan.id == verif.lot_id ? name + " : scannez l'étiquette " + verif_children_de(scan.id) + " pour y entrer."
                                      : "Entrée dans " + name + " : scannez son contenu, puis validez-le.");
     open_window("verif");
     flush_cascade_seals();
@@ -2306,7 +2307,20 @@ std::string App::verif_label_missing() const {
       if (id == top || verif_under(id, top) || verif_under(top, id))
         return "";
   const Json *lot = verif_lot(tops.front());
-  return lot ? (*lot)["name"].str(tops.front()) : verif.lot["name"].str(tops.front());
+  const std::string name = lot ? (*lot)["name"].str(tops.front()) : verif.lot["name"].str(tops.front());
+  const std::string subs = verif_children_de(tops.front());
+  return de_name(name) + (subs.empty() ? "" : " (ou celle " + subs + ")");
+}
+
+// Sous-lots de la verif d'un lot, nommes : « de Sac de soin ou de Sac O2 » (jusqu'a 3), sinon « d'un des lots qu'il
+// contient » ; vide sans sous-lot. Les messages disent le nom des lots, pas « lot ou sous-lot ».
+std::string App::verif_children_de(const std::string &id) const {
+  std::vector< std::string > names;
+  for (const Json *child : verif_children(id))
+    names.push_back((*child)["name"].str((*child)["id"].str()));
+  if (names.size() > 3)
+    return "d'un des lots qu'il contient";
+  return de_names(names);
 }
 
 // Lots dont l'etiquette a ete scannee, envoyes avec la verif (views.require_label)
@@ -2775,7 +2789,7 @@ void App::submit_step(bool partial) {
       return;
     }
     if (!verif_label_ok()) {
-      notify("Scannez l'étiquette de " + verif_label_missing() + " (ou d'un de ses sous-lots) pour valider.", true);
+      notify("Scannez l'étiquette " + verif_label_missing() + " pour valider.", true);
       return;
     }
     Json body;
@@ -3103,8 +3117,7 @@ void App::submit_verif(bool partial) {
       return;
     }
     if (!verif_label_ok()) {
-      notify("Scannez l'étiquette de " + verif_label_missing() + " (ou d'un de ses sous-lots) pour valider la vérif.",
-             true);
+      notify("Scannez l'étiquette " + verif_label_missing() + " pour valider la vérif.", true);
       return;
     }
     Json body;
@@ -3207,7 +3220,7 @@ void App::restock_verif() {
       return;
     }
     if (!verif_label_ok()) {
-      notify("Scannez l'étiquette de " + verif_label_missing() + " pour ajouter des items.", true);
+      notify("Scannez l'étiquette " + verif_label_missing() + " pour ajouter des items.", true);
       return;
     }
     Json body;
