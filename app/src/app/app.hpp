@@ -370,7 +370,9 @@ class App {
     void submit_verif(bool partial = false);
     void restock_verif(); // reassort : ajoute les items scannes au lot sans verif complete
     bool verif_key_ok() const;
-    std::string verif_label_missing() const; // lot dont il faut scanner une etiquette pour valider (vide sinon)
+    // « de B+ (ou celle de Sac de soin ou de Sac O2) » : etiquette a scanner pour valider (vide sinon)
+    std::string verif_label_missing() const;
+    std::string verif_children_de(const std::string &id) const; // « de A ou de B » : sous-lots nommes
     bool verif_label_ok() const { return verif_label_missing().empty(); }
     bool verif_ready() const { return verif_key_ok() && verif_label_ok(); }
     Json verif_labels() const;

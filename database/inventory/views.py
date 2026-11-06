@@ -833,10 +833,35 @@ def require_label(lots, data, holders=(), sealed=(), extra=()):
     raise ApiError(label_error(lots), status.HTTP_403_FORBIDDEN, label_required=True)
 
 
+def de_name(name):
+    """« de » devant un nom de lot : « de Sac de soin », « d'Armoire 1 », « du Sac O2 » (pour « Le Sac O2 »), « des … »,
+    « de la … », « de l'… ». Meme regle que deName (app.js) et de_name (french.hpp)."""
+    lower = name.lower()
+    for article, replacement in (('les ', 'des '), ('le ', 'du '), ('la ', 'de la '), ("l'", "de l'")):
+        if lower.startswith(article):
+            return replacement + name[len(article):]
+    return ("d'" if name[:1].lower() in 'aeiouyàâéèêëîïôöùûü' and name else 'de ') + name
+
+
+def de_names(names):
+    """« de A », « de A ou de B », « de A, de B ou de C »."""
+    names = [de_name(name) for name in names]
+    if not names:
+        return ''
+    return names[0] if len(names) == 1 else ', '.join(names[:-1]) + ' ou ' + names[-1]
+
+
 def label_error(lots):
-    names = ', '.join(lot.name for lot in lots[:3]) + (' …' if len(lots) > 3 else '')
-    return (f"Scannez l'étiquette de {names} (ou d'un de ses sous-lots) pour valider : c'est elle qui montre que "
-            "la vérif est bien celle de ce lot.")
+    """Le nom des lots a scanner, pas « lot ou sous-lot » : « de B+ (ou celle de Sac de soin ou de Sac O2) »."""
+    if len(lots) > 3:
+        target = de_name(lots[0].name) + " ou d'un des autres lots de la vérif"
+    elif len(lots) > 1:
+        target = de_names([lot.name for lot in lots])
+    else:
+        subs = sorted((lot.name for lot in lots[0].children.filter(active=True)), key=str.casefold)
+        subs = '' if not subs else de_names(subs) if len(subs) <= 3 else "d'un des lots qu'il contient"
+        target = de_name(lots[0].name) + (f' (ou celle {subs})' if subs else '')
+    return f"Scannez l'étiquette {target} pour valider : c'est elle qui montre que la vérif est bien celle de ce lot."
 
 
 def key_holders(data, extra=None):

@@ -160,6 +160,20 @@
   function pl(n, word, plural) { return n > 1 ? (plural || word + 's') : word; }
   // « 3 items », « 1 item », « 0 item ».
   function nb(n, word, plural) { return `${n} ${pl(n, word, plural)}`; }
+  // « de » devant un nom de lot : « de Sac de soin », « d'Armoire 1 », « du Sac O2 » (pour « Le Sac O2 »), « des … »,
+  // « de la … », « de l'… ». Meme regle que de_name (french.hpp, views.py).
+  function deName(name) {
+    const lower = name.toLowerCase();
+    if (lower.startsWith('les ')) return 'des ' + name.slice(4);
+    if (lower.startsWith('le ')) return 'du ' + name.slice(3);
+    if (lower.startsWith('la ')) return 'de la ' + name.slice(3);
+    if (lower.startsWith("l'")) return "de l'" + name.slice(2);
+    return /^[aeiouyàâéèêëîïôöùûü]/i.test(name) ? "d'" + name : 'de ' + name;
+  }
+  // « de A », « de A ou de B », « de A, de B ou de C »
+  function deNames(names) {
+    return names.map((name, i) => (i === 0 ? '' : i === names.length - 1 ? ' ou ' : ', ') + deName(name)).join('');
+  }
 
   function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 
@@ -916,7 +930,7 @@
       enterLevel(lot.id);
       feedback.info();
       showInfo('lot', `📦 ${lot.name}`, reopened ? `Déjà validé ${fmtOn(reopened.at)} : vous le refaites.`
-        : lot.id === state.lotId ? 'Lot global : scannez l\'étiquette d\'un sous-lot pour y entrer.'
+        : lot.id === state.lotId ? `Scannez l'étiquette ${childrenDe(lot.id)} pour y entrer.`
           : `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(lot)) || state.lot).name}.`,
       closed.length ? `✔ ${closed.join(', ')} : validé.` : '',
       scan.key ? `🔑 Étiquette clé de ${lot.name} scannée` : '');
@@ -1207,6 +1221,17 @@
   const levelId = () => (state.path.length ? state.path[state.path.length - 1] : state.lotId);
   const levelLot = () => lotById(levelId()) || state.lot;
   const childrenOf = (id) => sessionLots().filter((lot) => parentIdOf(lot) === id);
+  // Sous-lots d'un lot nommes : « de Sac de soin ou de Sac O2 » (jusqu'a 3), sinon « d'un des lots qu'il contient ».
+  // Les messages disent le nom des lots, pas « lot ou sous-lot » (meme regle que le poste, App::verif_children_de).
+  function childrenDe(id) {
+    const subs = childrenOf(id);
+    return subs.length > 3 ? "d'un des lots qu'il contient" : deNames(subs.map((lot) => lot.name));
+  }
+  // Etiquette a scanner pour valider : « de B+ (ou celle de Sac de soin ou de Sac O2) »
+  function labelTarget(lot) {
+    const subs = childrenDe(lot.id);
+    return deName(lot.name) + (subs ? ` (ou celle ${subs})` : '');
+  }
   // vérif en cours dans la cascade : un lot ouvert, un lot valide ou une etiquette cle scannee
   const cascadeActive = () => inCascade() && (state.path.length > 0 || state.entered.length > 0
     || Object.keys(state.done).length > 0 || Object.keys(state.keys).length > 0);
@@ -1372,7 +1397,7 @@
   // Ligne de la fiche et du lecteur : ce qu'il reste a scanner pour pouvoir valider
   function labelLine(lot) {
     if (!keyOk()) return '🔒 Scannez l\'étiquette clé pour pouvoir valider. ' + keyHint(lot);
-    if (!labelOk()) return '🏷️ Scannez l\'étiquette du lot (ou d\'un de ses sous-lots) pour pouvoir valider.';
+    if (!labelOk()) return `🏷️ Scannez l'étiquette ${labelTarget(labelMissing())} pour pouvoir valider.`;
     return state.lotKey ? '🔑 Étiquette clé scannée' : '🏷️ Étiquette du lot scannée';
   }
 
@@ -1784,7 +1809,7 @@
         + (lot.key_location ? ` (${lot.key_location})` : ''));
     } else if (!labelOk()) {
       const lot = labelMissing();
-      missing.push(`scannez l'étiquette ${lot.id === state.lotId ? 'du lot' : 'de ' + lot.name} ou d'un de ses sous-lots`);
+      missing.push(`scannez l'étiquette ${labelTarget(lot)}`);
     }
     if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
     if (needItems && !scannedIids().size) missing.push('scannez au moins un item');
@@ -2654,7 +2679,7 @@
       el('div', { class: 'main' }, el('div', { class: 'crumbs' }, ...crumbs),
         el('div', { class: 'sub' }, sealNextLevel() ? `Validez ${level.name} : la vérif s'arrête là, le lot est ensuite à resceller.`
           : parent ? `Validez ${level.name} pour revenir à ${parent.name}.`
-          : childrenOf(level.id).length ? 'Scannez l\'étiquette d\'un sous-lot pour y entrer.' : '')),
+          : childrenOf(level.id).length ? `Scannez l'étiquette ${childrenDe(level.id)} pour y entrer.` : '')),
       parent ? el('button', { type: 'button', class: 'secondary', title: `Revenir à ${parent.name} sans valider ${level.name} (ses scans sont gardés)`,
         onclick: goUp }, '← ' + (parent.name_short || parent.name)) : null));
     const others = othersLevels();
@@ -3425,7 +3450,7 @@
       // vérif en cascade : le fil du lot en cours est dans la liste « À scanner »
     } else if (state.askPlace && places.length > 1) {
       parts.push(el('div', { class: 'place' }, el('b', {}, '📍 Où êtes-vous ? '),
-        "Scannez l'étiquette du sous-lot en cours, ou choisissez : ",
+        "Scannez l'étiquette de celui où vous êtes, ou choisissez : ",
         ...places.map((lot) => el('button', { type: 'button', onclick: () => {
           state.current = lot.id;
           state.askPlace = false;
