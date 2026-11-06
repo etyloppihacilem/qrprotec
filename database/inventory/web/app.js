@@ -4916,6 +4916,9 @@
     // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres), ce qui est a traiter en haut
     // secouristes et chefs : contenu dans une liste deroulante, repliee par defaut quand tout est valide
     const content = [];
+    // contenu deplie d'office si un item manque ou est en rouge (perime, inutilisable, disparu), dans le lot ou un
+    // sous-lot ; pas pour une simple vérif recommandee
+    let shortage = false;
     const lots = [lot, ...attentionTree(lot.descendants || [])];
     const tags = { ok: 'green', warn: 'orange', bad: 'red' };
     for (const sub of lots) {
@@ -4940,6 +4943,7 @@
       const pairs = [...items.map((item) => [item, '']), ...missing.map((item) => [item, 'disparu'])];
       const ofType = (type) => pairs.filter(([item]) => item.type === type).sort((a, b) => iidAttention(a) - iidAttention(b));
       const flagged = (rows) => rows.some((pair) => iidAttention(pair) < 3);
+      if (pairs.some((pair) => iidAttention(pair) < 2) || requirements.some((row) => row.present < row.required)) shortage = true;
       // types incomplets en haut, puis ceux qui ont un item a remplacer ou signale, puis 0/0, puis les complets
       // avec des emplacements (pochettes) : un titre par emplacement, dans l'ordre choisi par la TECH, le meme tri dedans
       const placed = requirements.some((row) => row.location);
@@ -4980,7 +4984,8 @@
       if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) content.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
     }
     // contenu replie par defaut pour tout le monde, titre discret avec un petit carre [+] : la liste ne doit pas
-    // servir a une verif « a la main » ; la verif passe par « Lancer une vérif »
+    // servir a une verif « a la main » ; la verif passe par « Lancer une vérif ». Deplie s'il manque quelque chose
+    if (fiche.contentOpen === null) fiche.contentOpen = shortage;
     parts.push(el('details', { class: 'fiche-content', open: fiche.contentOpen ? '' : null,
       ontoggle: (event) => { fiche.contentOpen = event.target.open; } }, el('summary', {}, 'Contenu'), ...content));
     body.replaceChildren(...parts);
