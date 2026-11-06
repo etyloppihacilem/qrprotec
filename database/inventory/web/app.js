@@ -4810,12 +4810,10 @@
       }
       if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) content.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
     }
-    if (full) parts.push(el('h3', {}, 'Contenu'), ...content);
-    else {
-      if (fiche.contentOpen === null) fiche.contentOpen = status.kind !== 'ok' || !!lot.expired_count;
-      parts.push(el('details', { class: 'fiche-content', open: fiche.contentOpen ? '' : null,
-        ontoggle: (event) => { fiche.contentOpen = event.target.open; } }, el('summary', {}, 'Contenu'), ...content));
-    }
+    // contenu replie par defaut pour tout le monde, titre discret avec un petit carre [+] : la liste ne doit pas
+    // servir a une verif « a la main » ; la verif passe par « Lancer une vérif »
+    parts.push(el('details', { class: 'fiche-content', open: fiche.contentOpen ? '' : null,
+      ontoggle: (event) => { fiche.contentOpen = event.target.open; } }, el('summary', {}, 'Contenu'), ...content));
     body.replaceChildren(...parts);
   }
 
