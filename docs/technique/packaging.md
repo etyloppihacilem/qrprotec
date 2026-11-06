@@ -151,7 +151,7 @@ et le joint à la release sur un tag `vX.Y.Z`.
 ## Publication (CI)
 
 `.github/workflows/rpm.yml` : à chaque push sur `main` touchant le code ou le packaging, construit les
-RPM (Fedora 42, 43 et 44) ; sur un tag `vX.Y.Z`, crée la release GitHub et met à jour le dépôt dnf
+RPM (Fedora 42, 43, 44 et 45) ; sur un tag `vX.Y.Z`, crée la release GitHub et met à jour le dépôt dnf
 statique sur la branche `gh-pages` (`fedora/<version>/<arch>/`, 5 dernières versions), servi par
 GitHub Pages. Variables optionnelles : `RPM_PAGES_REPO` / `RPM_PAGES_URL` / `RPM_PAGES_TOKEN` pour
 publier dans un dépôt public dédié si celui-ci reste privé. **Obligatoires pour publier** :
