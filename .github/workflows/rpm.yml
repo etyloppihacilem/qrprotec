@@ -35,12 +35,32 @@ jobs:
             packaging/files/qrprotec-setup packaging/files/qrprotec-backup packaging/files/qrprotec-kiosk-session \
             packaging/files/qrprotec-front
 
+  # Versions de Fedora a construire : la derniere stable et les deux precedentes, lues dans Bodhi a
+  # chaque lancement. Une nouvelle Fedora est prise d'office des sa sortie, la plus ancienne sort de la
+  # liste en meme temps. Si Bodhi ne repond pas, le job echoue (pas de liste perimee en silence).
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      fedora: ${{ steps.bodhi.outputs.fedora }}
+    steps:
+      - id: bodhi
+        run: |
+          latest=$(curl -fsSL --retry 4 --retry-all-errors \
+              'https://bodhi.fedoraproject.org/releases/?state=current&rows_per_page=100' \
+            | jq -r '[.releases[] | select(.id_prefix == "FEDORA" and (.name | test("^F[0-9]+$")))
+                      | .version | tonumber] | max')
+          [[ $latest =~ ^[0-9]+$ ]] || { echo "::error::Version de Fedora introuvable dans Bodhi ($latest)"; exit 1; }
+          fedora=$(jq -cn --argjson n "$latest" '[$n - 2, $n - 1, $n] | map(tostring)')
+          echo "Fedora construites : $fedora"
+          echo "fedora=$fedora" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: versions
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        fedora: ['42', '43', '44', '45']
+        fedora: ${{ fromJSON(needs.versions.outputs.fedora) }}
     container: registry.fedoraproject.org/fedora:${{ matrix.fedora }}
     steps:
       - name: Outils
