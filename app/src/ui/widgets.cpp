@@ -735,6 +735,9 @@ void status_banner(const std::string &text, const ImVec4 &color, float scale) {
 }
 
 LotStatus lot_status(const Json &lot) {
+  // signalement ouvert « inutilisable » sur le lot : rouge, meme scelle ou verifie, jusqu'a sa resolution
+  if (lot["unusable"].boolean())
+    return LotStatus::Unusable;
   if (lot["is_sealed"].boolean())
     return lot["expired_count"].integer() > 0 ? LotStatus::SealedExpired : LotStatus::Sealed;
   if (lot["last_verif"].is_null()) // sous-lot facultatif : son lot parent se valide sans lui
@@ -770,6 +773,7 @@ const char *lot_status_label(LotStatus status) {
     case LotStatus::SealOpened: return "✘ Scellé ouvert";
     case LotStatus::MustSeal: return "✘ Doit être scellé";
     case LotStatus::Optional: return "○ Facultatif";
+    case LotStatus::Unusable: return "✘ Non utilisable (signalé)";
   }
   return "";
 }
@@ -831,6 +835,7 @@ std::string lot_status_banner(const Json &lot) {
       return banner;
     }
     case LotStatus::MustSeal: return "✘ LOT VÉRIFIÉ, DOIT ÊTRE SCELLÉ – posez un nouveau scellé";
+    case LotStatus::Unusable: return "✘ LOT NON UTILISABLE – signalé, voir les signalements";
     case LotStatus::Never: banner = "✘ LOT JAMAIS VÉRIFIÉ"; break;
     case LotStatus::Optional: banner = "○ SOUS-LOT FACULTATIF – jamais vérifié, son lot se valide sans lui"; break;
     case LotStatus::Incomplete:

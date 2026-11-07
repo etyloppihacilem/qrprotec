@@ -234,19 +234,36 @@ def pack_reports(sealed_pack):
     return _summaries(ProblemReport.objects.filter(sealed_pack=sealed_pack).exclude(status=ReportStatus.RESOLVED))
 
 
-def _summaries(queryset):
-    reports = queryset.select_related('item_type').order_by('created')
-    return [{
+def lot_reports_q():
+    """Signalements ouverts qui portent sur un lot lui-meme ou sur un type d'item d'un lot (pas sur un item ni sur un
+    paquet ferme : ceux-la suivent l'item, voir open_reports_q)."""
+    return Q(item__isnull=True, sealed_pack__isnull=True, lot__isnull=False) & ~Q(status=ReportStatus.RESOLVED)
+
+
+def lot_reports(lot):
+    """Signalements ouverts d'un lot (le lot ou un type d'item du lot) : affiches sur sa fiche, sur le web et le
+    poste. Un seul signale inutilisable rend le lot non utilisable (rouge) jusqu'a sa resolution."""
+    return [summary(report) for report in ProblemReport.objects.filter(lot_reports_q(), lot=lot)
+            .select_related('item_type').order_by('usable', 'created', 'id')]
+
+
+def summary(report):
+    return {
         'id': report.id,
         'created': _local(report.created),
         'by': identity_name(report.by),
         'target': target_name(report),
+        'type_name': report.item_type.name if report.item_type_id else '',
         'comment': report.comment,
         'usable': report.usable,
         'status': report.status,
         'status_label': ReportStatus(report.status).label,
         'note': report.note,
-    } for report in reports]
+    }
+
+
+def _summaries(queryset):
+    return [summary(report) for report in queryset.select_related('item_type').order_by('created')]
 
 
 def listing(show='open', limit=200):

@@ -1556,6 +1556,8 @@
   // rouge tant qu'il n'est pas scelle. kind : 'ok', 'warn' ou 'bad'.
   function lotStatus(lot) {
     const make = (kind, label) => ({ ok: kind === 'ok', kind, label });
+    // signalement ouvert « inutilisable » sur le lot : rouge, meme scelle ou verifie, jusqu'a sa resolution
+    if (lot.unusable) return make('bad', '✘ Non utilisable (signalé)');
     if (lot.is_sealed && lot.expired_count) return make('bad', '✘ Scellé, contient des périmés');
     if (lot.is_sealed) return make('ok', '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : ''));
     // sous-lot facultatif : son lot parent se valide sans lui (meme regle que serializers.lot_state)
@@ -4829,7 +4831,7 @@
         fiche.lot = lot;
         if (key) { fiche.keyCheck = lot.key_check; fiche.keyError = lot.key_error || ''; }
         if (seal && push) {
-          if (lot.seal_check === 'valid' && !lot.expired_count) feedback.good();
+          if (lot.seal_check === 'valid' && !lot.expired_count && !lot.unusable) feedback.good();
           else if (lot.seal_check === 'wrong') feedback.warn(); else feedback.bad();
         }
       } else {
@@ -4949,6 +4951,10 @@
   function sealBanner(lot) {
     const sealed = lot.is_sealed ? `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
       + (lot.sealed_by ? ' par ' + lot.sealed_by : '') : '';
+    if (lot.seal_check === 'valid' && lot.unusable) {
+      return el('div', { class: 'banner bad' }, el('b', {}, '✘ Scellé intact mais lot signalé non utilisable'),
+        el('div', {}, 'Voir les signalements ci-dessous.'), sealed ? el('div', { style: 'font-weight:400' }, sealed) : '');
+    }
     if (lot.seal_check === 'valid' && !lot.expired_count) {
       return el('div', { class: 'banner ok' }, el('b', {}, '🔒 Scellé intact'),
         el('div', {}, 'Lot valide sans vérif' + (lot.valid_until ? ` jusqu'au ${fmtDate(lot.valid_until)}` : '')),
@@ -5001,6 +5007,7 @@
         ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       fiche.seal ? sealBanner(lot) : '',
       sealIntact ? '' : full ? el('div', { class: 'banner ' + status.kind }, status.label) : shortBanner(lot, status),
+      lotReportsBlock(lot),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot),
       current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${nb(state.scanned.length, 'scan')}.`) : '',
@@ -5252,6 +5259,7 @@
       showIds() ? el('div', { class: 'sub' }, item.iid) : '',
       el('div', { class: 'banner ' + banner.kind }, banner.label),
       item.reported && !item.unusable ? el('p', { class: 'warn-text' }, '⚠ Problème signalé : toujours utilisable, suivi par le TECH.') : '',
+      reportsBlock((item.reports || []).map((report) => ({ report }))),
       item.revision && !['deleted', 'replaced'].includes(item.status)
         ? el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(item) }, icon('wrench'), 'Réviser') : '',
       reportButton({ item: item.iid, label: withId(item.type_name, item.iid), lot: item.location, lotName: item.location_name }),
@@ -5387,6 +5395,45 @@
     };
     $('#state-report-cancel').onclick = () => dialog.close();
     if (!dialog.open) dialog.showModal();
+  }
+
+  // Signalements en cours sur une fiche (lot, sous-lot, item) : toujours visibles, pour tous, sous l'etat ; les
+  // inutilisables en haut. entries : [{report, where}] (where : lot ou item concerne, s'il n'est pas evident)
+  function reportsBlock(entries) {
+    if (!entries.length) return '';
+    const sorted = [...entries].sort((a, b) => Number(a.report.usable) - Number(b.report.usable));
+    return el('div', { class: 'fiche-reports' }, el('h3', {}, entries.length > 1 ? 'Signalements en cours' : 'Signalement en cours'),
+      ...sorted.map(({ report, where }) => el('div', { class: 'reported-item' + (report.usable ? '' : ' bad') },
+        el('b', {}, report.usable ? '⚠ Problème signalé, toujours utilisable' : '✘ Non utilisable : signalé'),
+        where ? el('div', {}, where) : '',
+        el('div', { class: 'sub' }, `${report.status_label} · signalé par ${report.by} ${fmtOn(report.created, { long: true })}`),
+        report.comment ? el('p', { class: 'comment' }, '« ' + report.comment + ' »') : el('p', { class: 'sub' }, 'Sans commentaire.'),
+        report.note ? el('p', { class: 'note' }, '💬 ' + report.note) : '')));
+  }
+
+  // Signalements en cours d'un lot et de ses sous-lots : sur le lot lui-meme, sur un type d'item, ou sur un item
+  // qu'il contient (avec ce qui est concerne, quand ce n'est pas le lot de la fiche)
+  function lotReportsBlock(lot) {
+    const entries = [];
+    const seen = new Set();
+    for (const sub of [lot, ...(lot.descendants || [])]) {
+      for (const report of sub.reports || []) {
+        if (seen.has(report.id)) continue;
+        seen.add(report.id);
+        const what = report.type_name ? `${report.type_name} (${sub.name})` : sub.id === lot.id ? '' : sub.name;
+        entries.push({ report, where: what ? el('span', {}, 'Concerne : ', sub.id === lot.id ? what : ficheLink('lot', sub.id, what)) : '' });
+      }
+      for (const item of sub.items || []) {
+        for (const report of item.reports || []) {
+          if (seen.has(report.id)) continue;
+          seen.add(report.id);
+          const what = withId(item.type_name, item.iid);
+          entries.push({ report, where: el('span', {}, 'Concerne : ', ficheLink('item', item.iid, what),
+            sub.id === lot.id ? '' : ` (${sub.name})`) });
+        }
+      }
+    }
+    return reportsBlock(entries);
   }
 
   // Item (ou paquet ferme) signale scanne, quel que soit le signalement : popup avec les signalements ouverts et

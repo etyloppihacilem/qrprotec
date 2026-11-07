@@ -266,6 +266,7 @@ class LotsWindow final : public AppWindow {
       } else {
         status_banner(lot_status_banner(details_), lot_status_color(status));
       }
+      draw_reports();
       if (details_["is_sealed"].boolean()) {
         ImGui::TextWrapped("Scellé %s par %s. Tant que le scellé est intact, le lot n'a pas besoin de vérif.",
                            display_on(details_["sealed"], true).c_str(), details_["sealed_by"].str("-").c_str());
@@ -464,6 +465,62 @@ class LotsWindow final : public AppWindow {
     }
 
     // Lot global (depuis n'importe lequel de ses lots) : etat de l'ensemble et de chaque lot
+    // Signalements en cours du lot et de ses sous-lots (sur le lot, un type d'item ou un item qu'il contient) :
+    // toujours visibles sur la fiche, les inutilisables en haut
+    void draw_reports() {
+      struct Entry {
+        const Json *report;
+        std::string where;
+      };
+      std::vector< Entry > entries;
+      std::vector< int > seen;
+      const auto add = [&](const Json &report, const std::string &where) {
+        const int id = report["id"].integer();
+        if (std::find(seen.begin(), seen.end(), id) != seen.end())
+          return;
+        seen.push_back(id);
+        entries.push_back({ &report, where });
+      };
+      std::vector< const Json * > lots = { &details_ };
+      for (const Json &sub : details_["descendants"].items())
+        lots.push_back(&sub);
+      for (const Json *sub : lots) {
+        const bool        self = sub == &details_;
+        const std::string name = (*sub)["name"].str();
+        for (const Json &report : (*sub)["reports"].items()) {
+          const std::string type = report["type_name"].str();
+          add(report, !type.empty() ? type + " (" + name + ")" : self ? "" : name);
+        }
+        for (const Json &item : (*sub)["items"].items())
+          for (const Json &report : item["reports"].items())
+            add(report, item["type_name"].str() + " " + item["iid"].str() + (self ? "" : " (" + name + ")"));
+      }
+      if (entries.empty())
+        return;
+      std::stable_sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) {
+        return !(*a.report)["usable"].boolean() && (*b.report)["usable"].boolean();
+      });
+      ImGui::SeparatorText(entries.size() > 1 ? "Signalements en cours" : "Signalement en cours");
+      for (const Entry &entry : entries) {
+        const Json &report = *entry.report;
+        const bool  usable = report["usable"].boolean();
+        ImGui::TextColored(usable ? colors::orange : colors::red, "%s",
+                           usable ? "⚠ Problème signalé, toujours utilisable" : "✘ Non utilisable : signalé");
+        if (!entry.where.empty())
+          ImGui::TextWrapped("Concerne : %s", entry.where.c_str());
+        ImGui::TextDisabled("%s - signalé par %s %s", report["status_label"].str().c_str(), report["by"].str().c_str(),
+                            display_on(report["created"], true).c_str());
+        if (report["comment"].str().empty())
+          ImGui::TextDisabled("Sans commentaire.");
+        else
+          ImGui::TextWrapped("« %s »", report["comment"].str().c_str());
+        if (!report["note"].str().empty())
+          ImGui::TextWrapped("Réponse : %s", report["note"].str().c_str());
+        ImGui::Spacing();
+      }
+      ImGui::Separator();
+    }
+
     void draw_global(App &app) {
       const Json &global = details_["global"];
       if (global.is_null())
