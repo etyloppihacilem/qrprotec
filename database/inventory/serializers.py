@@ -624,6 +624,7 @@ def user_dict(user, local=False):
         data['pin_forgotten'] = user.pin_forgotten
         data['pin_contact'] = contact.matricule if contact else ''
         data['pin_contact_name'] = str(contact) if contact else ''
+        data['scanner_volume'] = user.scanner_volume  # choisi par l'utilisateur, null : defaut du serveur
         # notifications web : types permis par le role, et ceux qu'un admin a coupes
         disabled = set(user.push_disabled or [])
         data['push_types'] = [{'type': name, 'label': PUSH_TYPES[name][0], 'enabled': name not in disabled}
