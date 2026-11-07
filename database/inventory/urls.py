@@ -70,6 +70,7 @@ local_patterns = [
     path('label-prints/send/', views.label_prints_send),  # front d'un autre ordinateur -> poste
     path('label-prints/<int:print_id>/detail/', views.label_print_detail),
     path('front-configs/', views.front_configs),
+    path('front-configs/<str:name>/', views.front_config_detail),
     path('item-types/', views.item_types),
     path('item-types/<str:type_code>/', views.item_type_detail),
     path('items/', views.items),

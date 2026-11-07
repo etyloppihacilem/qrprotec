@@ -19,7 +19,6 @@
 #include "windows.hpp"
 
 #include <algorithm>
-#include <chrono>
 
 namespace qrprotec {
 
@@ -78,111 +77,6 @@ static void draw_front_config_import(App &app) {
   }
   ImGui::EndDisabled();
   ImGui::SeparatorText("Saisie manuelle");
-}
-
-// Poste du serveur (API locale) : un admin cree la cle d'un autre ordinateur et son fichier de configuration
-// chiffre, telechargeable pendant 5 minutes par le lien du QR code (POST /api/front-configs/)
-static void draw_connect_computer(App &app) {
-  struct State {
-      std::string name;
-      std::string password;
-      bool        busy    = false;
-      bool        exists  = false; // nom deja pris : proposer de remplacer sa cle
-      std::string url;
-      std::string shown_password; // genere par le serveur, ou celui saisi
-      bool        ca      = false;
-      std::string created_name;
-      std::chrono::steady_clock::time_point expires;
-  };
-  static State state;
-  if (!app.settings.api_endpoint().key.empty()) {
-    ImGui::TextWrapped("Seulement depuis le poste du serveur : cet ordinateur est lui-même un front distant.");
-    return;
-  }
-  ImGui::TextWrapped("Pour utiliser QRProtec sur un autre ordinateur (bureau, ordinateur portable) relié au même "
-                     "serveur : donnez-lui un nom, puis récupérez le fichier de configuration sur cet ordinateur "
-                     "grâce au QR code ou au lien affiché, valable 5 minutes.");
-  ImGui::SetNextItemWidth(260.0f);
-  if (ImGui::InputTextWithHint("Nom de l'ordinateur", "ex. accueil, portable-chef", &state.name))
-    state.exists = false;
-  help_marker("Lettres sans accents, chiffres, point, tiret ou souligné, sans espace. Il apparaît dans le journal "
-              "et dans la liste des ordinateurs (sudo qrprotec-manage frontkey list).");
-  ImGui::SetNextItemWidth(260.0f);
-  ImGui::InputTextWithHint("Mot de passe du fichier", "vide = choisi automatiquement", &state.password,
-                           ImGuiInputTextFlags_Password);
-  help_marker("Demandé sur l'autre ordinateur à l'import du fichier. Laissé vide, un mot de passe facile à "
-              "recopier est choisi et affiché à côté du QR code. 8 caractères au moins.");
-  if (state.exists)
-    ImGui::TextColored(ImVec4(0.85f, 0.45f, 0.0f, 1.0f),
-                       "Ce nom existe déjà : « Remplacer » lui donne une nouvelle clé, l'ancien fichier ne marchera plus.");
-  ImGui::BeginDisabled(state.busy || state.name.empty());
-  const bool replace = state.exists && warning_button("Remplacer sa clé");
-  if (state.exists)
-    ImGui::SameLine();
-  if (primary_button("Créer le fichier de configuration") || replace) {
-    Json body;
-    body["name"]     = state.name;
-    body["password"] = state.password;
-    body["replace"]  = replace;
-    state.busy       = true;
-    const std::string typed_password = state.password;
-    app.api.post("/api/front-configs/", body, [&app, typed_password](const ApiResult &result) {
-      state.busy = false;
-      if (!result.ok) {
-        state.exists = result.status == 409;
-        if (!state.exists)
-          app.notify("Création impossible : " + result.error, true);
-        return;
-      }
-      state.exists         = false;
-      state.url            = result.data["url"].str();
-      state.shown_password = result.data["password"].str().empty() ? typed_password : result.data["password"].str();
-      state.ca             = result.data["ca"].boolean();
-      state.created_name   = result.data["name"].str();
-      state.expires        = std::chrono::steady_clock::now() + std::chrono::seconds(result.data["seconds"].integer(300));
-      state.password.clear();
-      state.name.clear();
-      app.notify("Ordinateur « " + state.created_name + " » ajouté : fichier téléchargeable pendant 5 minutes.");
-    });
-  }
-  ImGui::EndDisabled();
-
-  if (state.url.empty())
-    return;
-  const auto left = std::chrono::duration_cast< std::chrono::seconds >(state.expires - std::chrono::steady_clock::now());
-  ImGui::Separator();
-  if (left.count() <= 0) {
-    ImGui::TextDisabled("Le lien du fichier de « %s » a expiré. L'ordinateur reste autorisé ; pour un nouveau fichier, "
-                        "recréez-le avec le même nom (Remplacer sa clé).", state.created_name.c_str());
-    if (button("Masquer"))
-      state.url.clear();
-    return;
-  }
-  ImGui::BeginGroup();
-  draw_qr(state.url, 220.0f);
-  ImGui::EndGroup();
-  ImGui::SameLine();
-  ImGui::BeginGroup();
-  ImGui::Text("Fichier de « %s » : encore %d:%02d", state.created_name.c_str(), static_cast< int >(left.count() / 60),
-              static_cast< int >(left.count() % 60));
-  ImGui::Text("Mot de passe :");
-  ImGui::SetWindowFontScale(1.6f);
-  ImGui::TextUnformatted(state.shown_password.c_str());
-  ImGui::SetWindowFontScale(1.0f);
-  ImGui::TextWrapped("Sur l'autre ordinateur :\n"
-                     "1. Téléchargez le fichier : tapez l'adresse ci-dessous dans son navigateur (ou scannez le QR "
-                     "code, s'il a une caméra).\n"
-                     "2. Ouvrez QRProtec, cliquez sur « API hors ligne » en haut à droite, puis « Choisir le fichier… » "
-                     "(il est dans Téléchargements).\n"
-                     "3. Tapez le mot de passe ci-dessus, puis « Importer ».");
-  std::string link = state.url;
-  ImGui::SetNextItemWidth(-1.0f);
-  ImGui::InputText("##front_config_url", &link, ImGuiInputTextFlags_ReadOnly);
-  if (state.ca)
-    ImGui::TextDisabled("Le certificat du serveur est inclus dans le fichier.");
-  if (button("Masquer le QR code"))
-    state.url.clear();
-  ImGui::EndGroup();
 }
 
 void draw_server_settings(App &app, bool save_on_success) {
@@ -251,9 +145,6 @@ class SettingsWindow final : public AppWindow {
       if (ImGui::CollapsingHeader("Serveur", ImGuiTreeNodeFlags_DefaultOpen)) {
         draw_server_settings(app);
       }
-
-      if (ImGui::CollapsingHeader("Connecter un autre ordinateur"))
-        draw_connect_computer(app);
 
       if (ImGui::CollapsingHeader("Règles du serveur (tous les fronts)", ImGuiTreeNodeFlags_DefaultOpen))
         draw_server_rules(app);

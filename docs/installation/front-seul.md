@@ -18,7 +18,7 @@ Deux paquets :
 
 Un administrateur, sur le **poste** (le front de la machine du serveur) :
 
-1. **Administration > Réglages** (F12), section **Connecter un autre ordinateur**.
+1. **Administration > Utilisateurs** (F9), onglet **Ordinateurs connectés**.
 2. Donnez un **nom** à l'ordinateur (`accueil`, `portable-chef`... sans espace ni accent). Laissez
    le mot de passe vide : un mot de passe facile à recopier est choisi (`tf3t-bhr3-4spt`).
 3. **Créer le fichier de configuration** : un **QR code**, une **adresse** et le **mot de passe**
@@ -38,6 +38,10 @@ Passé les 5 minutes, le lien ne marche plus mais l'ordinateur reste autorisé ;
 fichier, recréez-le avec le même nom (**Remplacer sa clé** : l'ancien fichier ne marchera plus).
 Seul le poste (API locale) peut créer ces fichiers, jamais un front distant. Chaque création est
 notée dans le journal (Réglages).
+
+Le même onglet liste les ordinateurs connectés (état, dernière connexion, adresse au survol) :
+**Révoquer** coupe l'accès d'un ordinateur tout de suite (perdu, volé, prêté...) ; un ordinateur
+révoqué peut être **Réactivé** (même fichier) ou **Supprimé** (il faudra lui refaire un fichier).
 
 ### En ligne de commande : un fichier de configuration chiffré
 

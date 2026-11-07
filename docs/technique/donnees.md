@@ -84,13 +84,15 @@ simple suffit (pas de hachage lent comme pour le PIN) : la clé est aléatoire e
 devine pas par dictionnaire.
 
 `FrontConfigDownload` : fichier de configuration chiffré d'un front créé **au poste** par un admin
-(`POST /api/front-configs/`, Réglages > Connecter un autre ordinateur ; refusé depuis un front
+(`POST /api/front-configs/`, Utilisateurs > Ordinateurs connectés ; refusé depuis un front
 distant). `content` est le fichier déjà chiffré (AES-256-GCM, mot de passe jamais stocké, voir
 `inventory/front_config.py`), servi en pièce jointe par `GET /front-config/<token>` (lien du QR code,
 sans connexion) jusqu'à `expires` (5 minutes), puis supprimé. Supprimer ou remplacer la clé du
 front supprime ses liens. Avec `QRPROTEC_TLS=internal`, le back ne lit pas les fichiers de Caddy :
 il met dans le fichier le certificat que Caddy sert lui-même à `/qrprotec-ca.crt`, lu sur
-`127.0.0.1:443` (ou `QRPROTEC_FRONT_CA_FILE`).
+`127.0.0.1:443` (ou `QRPROTEC_FRONT_CA_FILE`). Le même onglet révoque, réactive ou supprime une clé
+(`POST /api/front-configs/<nom>/`, `{"action": "revoke" | "restore" | "delete"}`, noté au journal) ;
+révoquer coupe aussi un lien de téléchargement encore valable.
 
 ### Notifications
 

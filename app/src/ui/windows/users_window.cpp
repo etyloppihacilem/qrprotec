@@ -12,6 +12,11 @@
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
+#include "../../core/codes.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <functional>
 
 namespace qrprotec {
 
@@ -27,16 +32,243 @@ const char *role_label(const std::string &role) {
   return role == "admin" ? "Administrateur" : role == "gestion" ? "Gestion" : role == "chef" ? "Chef" : "Secouriste";
 }
 
-// Gestion des secouristes : creation, droits, renouvellement des badges (valables un an).
+// Onglet « Ordinateurs connectes » (poste du serveur, API locale) : un admin cree la cle d'un autre ordinateur et
+// son fichier de configuration chiffre, telechargeable pendant 5 minutes par le lien du QR code
+// (POST /api/front-configs/), puis revoque, reactive ou supprime les ordinateurs (POST /api/front-configs/NOM/).
+void draw_new_computer(App &app, const std::function< void() > &on_created) {
+  struct State {
+      std::string name;
+      std::string password;
+      bool        busy    = false;
+      bool        exists  = false; // nom deja pris : proposer de remplacer sa cle
+      std::string url;
+      std::string shown_password; // genere par le serveur, ou celui saisi
+      bool        ca      = false;
+      std::string created_name;
+      std::chrono::steady_clock::time_point expires;
+  };
+  static State state;
+  if (!app.settings.api_endpoint().key.empty()) {
+    ImGui::TextWrapped("Seulement depuis le poste du serveur : cet ordinateur est lui-même un front distant.");
+    return;
+  }
+  ImGui::TextWrapped("Pour utiliser QRProtec sur un autre ordinateur (bureau, ordinateur portable) relié au même "
+                     "serveur : donnez-lui un nom, puis récupérez le fichier de configuration sur cet ordinateur "
+                     "grâce au QR code ou au lien affiché, valable 5 minutes.");
+  ImGui::SetNextItemWidth(260.0f);
+  if (ImGui::InputTextWithHint("Nom de l'ordinateur", "ex. accueil, portable-chef", &state.name))
+    state.exists = false;
+  help_marker("Lettres sans accents, chiffres, point, tiret ou souligné, sans espace. Il apparaît dans le journal "
+              "et dans la liste des ordinateurs (sudo qrprotec-manage frontkey list).");
+  ImGui::SetNextItemWidth(260.0f);
+  ImGui::InputTextWithHint("Mot de passe du fichier", "vide = choisi automatiquement", &state.password,
+                           ImGuiInputTextFlags_Password);
+  help_marker("Demandé sur l'autre ordinateur à l'import du fichier. Laissé vide, un mot de passe facile à "
+              "recopier est choisi et affiché à côté du QR code. 8 caractères au moins.");
+  if (state.exists)
+    ImGui::TextColored(ImVec4(0.85f, 0.45f, 0.0f, 1.0f),
+                       "Ce nom existe déjà : « Remplacer » lui donne une nouvelle clé, l'ancien fichier ne marchera plus.");
+  ImGui::BeginDisabled(state.busy || state.name.empty());
+  const bool replace = state.exists && warning_button("Remplacer sa clé");
+  if (state.exists)
+    ImGui::SameLine();
+  if (primary_button("Créer le fichier de configuration") || replace) {
+    Json body;
+    body["name"]     = state.name;
+    body["password"] = state.password;
+    body["replace"]  = replace;
+    state.busy       = true;
+    const std::string typed_password = state.password;
+    app.api.post("/api/front-configs/", body, [&app, typed_password, on_created](const ApiResult &result) {
+      state.busy = false;
+      if (!result.ok) {
+        state.exists = result.status == 409;
+        if (!state.exists)
+          app.notify("Création impossible : " + result.error, true);
+        return;
+      }
+      state.exists         = false;
+      state.url            = result.data["url"].str();
+      state.shown_password = result.data["password"].str().empty() ? typed_password : result.data["password"].str();
+      state.ca             = result.data["ca"].boolean();
+      state.created_name   = result.data["name"].str();
+      state.expires        = std::chrono::steady_clock::now() + std::chrono::seconds(result.data["seconds"].integer(300));
+      state.password.clear();
+      state.name.clear();
+      app.notify("Ordinateur « " + state.created_name + " » ajouté : fichier téléchargeable pendant 5 minutes.");
+      on_created();
+    });
+  }
+  ImGui::EndDisabled();
+
+  if (state.url.empty())
+    return;
+  const auto left = std::chrono::duration_cast< std::chrono::seconds >(state.expires - std::chrono::steady_clock::now());
+  ImGui::Separator();
+  if (left.count() <= 0) {
+    ImGui::TextDisabled("Le lien du fichier de « %s » a expiré. L'ordinateur reste autorisé ; pour un nouveau fichier, "
+                        "recréez-le avec le même nom (Remplacer sa clé).", state.created_name.c_str());
+    if (button("Masquer"))
+      state.url.clear();
+    return;
+  }
+  const bool side_by_side = ImGui::GetContentRegionAvail().x > 560.0f;
+  ImGui::BeginGroup();
+  draw_qr(state.url, 220.0f);
+  ImGui::EndGroup();
+  if (side_by_side)
+    ImGui::SameLine();
+  ImGui::BeginGroup();
+  ImGui::Text("Fichier de « %s » : encore %d:%02d", state.created_name.c_str(), static_cast< int >(left.count() / 60),
+              static_cast< int >(left.count() % 60));
+  ImGui::Text("Mot de passe :");
+  ImGui::SetWindowFontScale(1.6f);
+  ImGui::TextUnformatted(state.shown_password.c_str());
+  ImGui::SetWindowFontScale(1.0f);
+  ImGui::TextWrapped("Sur l'autre ordinateur :\n"
+                     "1. Téléchargez le fichier : tapez l'adresse ci-dessous dans son navigateur (ou scannez le QR "
+                     "code, s'il a une caméra).\n"
+                     "2. Ouvrez QRProtec, cliquez sur « API hors ligne » en haut à droite, puis « Choisir le fichier… » "
+                     "(il est dans Téléchargements).\n"
+                     "3. Tapez le mot de passe ci-dessus, puis « Importer ».");
+  std::string link = state.url;
+  ImGui::SetNextItemWidth(-1.0f);
+  ImGui::InputText("##front_config_url", &link, ImGuiInputTextFlags_ReadOnly);
+  if (state.ca)
+    ImGui::TextDisabled("Le certificat du serveur est inclus dans le fichier.");
+  if (button("Masquer le QR code"))
+    state.url.clear();
+  ImGui::EndGroup();
+}
+
+// Gestion des secouristes : creation, droits, renouvellement des badges (valables un an), et onglet des ordinateurs
+// connectes au serveur (fronts distants).
 class UsersWindow final : public AppWindow {
   public:
     UsersWindow() : AppWindow("users", "Utilisateurs", true, true) { admin_only = true; }
 
-    void on_open(App &app) override { app.refresh_users(); }
+    void on_open(App &app) override {
+      app.refresh_users();
+      load_computers(app);
+    }
 
     void reset_view(App &) override { select(Json()); }
 
     void draw(App &app) override {
+      if (ImGui::BeginTabBar("users_tabs")) {
+        if (tab_item("Secouristes")) {
+          draw_users(app);
+          ImGui::EndTabItem();
+        }
+        if (tab_item("Ordinateurs connectés")) {
+          draw_computers(app);
+          ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+      }
+    }
+
+  private:
+    Json computers_;
+    bool computers_loading_ = false;
+
+    void load_computers(App &app) {
+      if (!app.settings.api_endpoint().key.empty())
+        return; // front distant : l'API refuse, rien a lister
+      computers_loading_ = true;
+      app.api.get("/api/front-configs/", [this, &app](const ApiResult &result) {
+        computers_loading_ = false;
+        if (!result.ok) {
+          app.notify("Ordinateurs connectés : " + result.error, true);
+          return;
+        }
+        computers_ = result.data["fronts"];
+      });
+    }
+
+    void computer_action(App &app, const std::string &name, const char *action) {
+      Json body;
+      body["action"] = action;
+      app.api.post("/api/front-configs/" + name + "/", body, [this, &app](const ApiResult &result) {
+        if (!result.ok)
+          app.notify("Impossible : " + result.error, true);
+        load_computers(app);
+      });
+    }
+
+    void draw_computers(App &app) {
+      if (!app.settings.api_endpoint().key.empty()) {
+        ImGui::TextWrapped("Les ordinateurs se gèrent depuis le poste du serveur : cet ordinateur est lui-même "
+                           "connecté au serveur à distance.");
+        return;
+      }
+      // liste en haut, creation en dessous : toute la largeur pour le QR code et ses explications
+      ImGui::BeginChild("computers_list", ImVec2(0, std::max(160.0f, ImGui::GetContentRegionAvail().y * 0.35f)),
+                        ImGuiChildFlags_Borders);
+      ImGui::BeginDisabled(computers_loading_);
+      if (button("Rafraîchir"))
+        load_computers(app);
+      ImGui::EndDisabled();
+      const Date today = app.today();
+      if (computers_.size() == 0)
+        ImGui::TextDisabled("Aucun autre ordinateur connecté au serveur.");
+      else if (ImGui::BeginTable("computers", 4,
+                                 ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Ordinateur", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Dernière connexion", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+        ImGui::TableHeadersRow();
+        for (const Json &front : computers_.items()) {
+          const std::string name    = front["name"].str();
+          const bool        revoked = front["revoked"].boolean();
+          ImGui::PushID(name.c_str());
+          ImGui::TableNextRow();
+          if (revoked)
+            row_color(colors::grey, 0.35f);
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(name.c_str());
+          ImGui::TableNextColumn();
+          if (revoked)
+            ImGui::TextDisabled("Révoqué");
+          else if (front["download_pending"].boolean())
+            ImGui::TextUnformatted("Fichier à télécharger");
+          else
+            ImGui::TextUnformatted("Autorisé");
+          ImGui::TableNextColumn();
+          if (front["last_used"].is_null()) {
+            ImGui::TextDisabled("jamais");
+          } else {
+            ImGui::TextUnformatted(relative_datetime(front["last_used"].str(), today).c_str());
+            if (!front["last_address"].str().empty() && ImGui::IsItemHovered())
+              ImGui::SetTooltip("Depuis %s", front["last_address"].str().c_str());
+          }
+          ImGui::TableNextColumn();
+          if (revoked) {
+            if (small_button("Réactiver"))
+              computer_action(app, name, "restore");
+            ImGui::SameLine();
+            if (confirm_button("Supprimer", ("Supprimer « " + name + " » ? Il faudra lui refaire un fichier.").c_str(),
+                               "delete_computer"))
+              computer_action(app, name, "delete");
+          } else if (confirm_button("Révoquer",
+                                    ("Révoquer « " + name + " » ? Il n'aura plus accès au serveur, tout de suite.").c_str(),
+                                    "revoke_computer")) {
+            computer_action(app, name, "revoke");
+          }
+          ImGui::PopID();
+        }
+        ImGui::EndTable();
+      }
+      ImGui::EndChild();
+      ImGui::BeginChild("computer_new", ImVec2(0, 0), ImGuiChildFlags_Borders);
+      ImGui::SeparatorText("Connecter un nouvel ordinateur");
+      draw_new_computer(app, [this, &app]() { load_computers(app); });
+      ImGui::EndChild();
+    }
+
+    void draw_users(App &app) {
       if (seen_users_version_ != app.catalog.users_version) {
         seen_users_version_ = app.catalog.users_version;
         for (const Json &user : app.catalog.users.items())

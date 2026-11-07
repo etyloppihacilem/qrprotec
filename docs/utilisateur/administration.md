@@ -45,6 +45,20 @@ Plus aucun administrateur ne peut se connecter ? Sur le serveur :
 `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821` (crée le compte ou donne un nouveau
 badge et le rôle admin à un compte existant).
 
+### Ordinateurs connectés
+
+Onglet **Ordinateurs connectés** de la même fenêtre, au poste du serveur : les autres ordinateurs
+qui utilisent QRProtec sur ce serveur (bureau, portable), avec leur état et leur dernière connexion.
+
+- **Connecter un nouvel ordinateur** : donnez-lui un nom, puis **Créer le fichier de
+  configuration**. Un QR code, une adresse et un mot de passe s'affichent pendant 5 minutes : sur
+  l'autre ordinateur, téléchargez le fichier, puis dans QRProtec **API hors ligne > Choisir le
+  fichier…** et le mot de passe (détail dans [front seul](../installation/front-seul.md)).
+- **Révoquer** : l'ordinateur n'a plus accès au serveur, tout de suite (perdu, volé, plus utilisé).
+- **Réactiver** un ordinateur révoqué, ou le **Supprimer** (il faudra lui refaire un fichier).
+
+Chaque action est notée dans le journal.
+
 ## Lots
 
 Menu **Gestion > Gestion des lots** (rôle gestion).
@@ -200,7 +214,6 @@ Menu **Administration > Réglages** (admin) :
 
 | Section | Contenu |
 |---|---|
-| Connecter un autre ordinateur | Au poste du serveur : nom de l'ordinateur, puis QR code, adresse et mot de passe du fichier de configuration à télécharger sur l'autre ordinateur (5 minutes), voir [front seul](../installation/front-seul.md) |
 | Serveur | **Importer un fichier de configuration** (`.qrprotec` créé sur le serveur par `qrprotec-setup --front-key NOM --front-config FICHIER`, mot de passe demandé), adresse de l'API (`http://127.0.0.1:8001` sur la borne), **Tester la connexion** |
 | Règles du serveur (tous les fronts) | **Autoriser les vérifs et les ajouts sans badge (nom déclaré)**, désactivé par défaut : voir ci-dessous |
 | Session et affichage | **Machine partagée** (cochée par défaut ; décochée sur un poste personnel, l'utilisateur reste connecté jusqu'à « Se déconnecter », même après un redémarrage, et seul son PIN est redemandé à l'ouverture), taille du texte, réinitialisation après inactivité (15 min, machine partagée seulement), alerte péremption proche (30 jours), **Exiger l'étiquette clé pour valider une vérif** |

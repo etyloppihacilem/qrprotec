@@ -1671,7 +1671,7 @@ FRONT_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 @api_view(['GET', 'POST'])
 @handle_errors
 def front_configs(request):
-    """Connecter un autre ordinateur, depuis le poste (Reglages > Serveur), par un admin : cree la cle d'un front
+    """Connecter un autre ordinateur, depuis le poste (Utilisateurs > Ordinateurs connectes), par un admin : cree la cle d'un front
     distant et son fichier de configuration chiffre, telechargeable pendant 5 minutes par un lien (QR code).
     POST {"name", "password" (vide = genere et renvoye), "replace": bool}. GET : fronts existants.
     Seulement sur l'API locale du poste : jamais depuis un front distant (une cle ne cree pas d'autres cles)."""
@@ -1681,10 +1681,12 @@ def front_configs(request):
     now = timezone.now()
     FrontConfigDownload.objects.filter(expires__lte=now).delete()
     if request.method == 'GET':
+        pending = set(FrontConfigDownload.objects.values_list('front_id', flat=True))
         return Response({'fronts': [
             {'name': front.name, 'revoked': front.revoked, 'created': front.created.isoformat(),
-             'last_used': front.last_used.isoformat() if front.last_used else None}
-            for front in FrontKey.objects.order_by('name')]})
+             'last_used': front.last_used.isoformat() if front.last_used else None,
+             'last_address': front.last_address, 'download_pending': front.pk in pending}
+            for front in FrontKey.objects.order_by('revoked', 'name')]})
     data = request.data
     name = str(data.get('name', '')).strip()
     if not FRONT_NAME_RE.match(name):
@@ -1726,6 +1728,31 @@ def front_configs(request):
     }, status=status.HTTP_201_CREATED)
 
 
+@api_view(['POST'])
+@handle_errors
+def front_config_detail(request, name):
+    """Ordinateurs connectes (fenetre Utilisateurs du poste), admin : {"action": "revoke" | "restore" | "delete"}.
+    Revoquer coupe l'acces tout de suite (la cle reste, reactivable) ; supprimer efface la cle et ses liens."""
+    require_front(request, ADMIN)
+    if getattr(request, 'qrprotec_front', ''):
+        raise ApiError("Seulement depuis le poste du serveur (API locale)", status.HTTP_403_FORBIDDEN)
+    front = get_object_or_404(FrontKey, name=name)
+    action = request.data.get('action')
+    if action in ('revoke', 'restore'):
+        front.revoked = action == 'revoke'
+        front.save(update_fields=['revoked'])
+        if front.revoked:
+            FrontConfigDownload.objects.filter(front=front).delete()  # lien encore valable : coupe aussi
+        summary = f"ordinateur « {name} » " + ("révoqué" if front.revoked else "réactivé")
+    elif action == 'delete':
+        front.delete()
+        summary = f"ordinateur « {name} » supprimé"
+    else:
+        raise ApiError("Action inconnue (revoke, restore ou delete)")
+    journal.record(OperationKind.SETTINGS, front_identity(request), summary, front=name)
+    return Response({'name': name, 'action': action})
+
+
 def front_config_download(request, token):
     """Lien du QR code affiche au poste : le fichier chiffre, en piece jointe, tant que le lien est valable."""
     if request.method != 'GET':
@@ -1735,7 +1762,7 @@ def front_config_download(request, token):
         token=token, expires__gt=timezone.now(), front__revoked=False).first()
     if download is None:
         response = HttpResponse("Lien expiré ou inconnu : demandez un nouveau QR code au poste "
-                                "(Réglages > Serveur > Connecter un autre ordinateur).\n",
+                                "(Utilisateurs > Ordinateurs connectés).\n",
                                 content_type='text/plain; charset=utf-8', status=404)
         response['Cache-Control'] = 'no-store'
         return response
