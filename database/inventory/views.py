@@ -48,7 +48,7 @@ from . import serializers as ser
 from . import services
 from . import tasks
 from . import webpush
-from .idendity import SOURCE_VERIFIED, format_identity_verified, identity_from_request, identity_name, short_name
+from .idendity import SOURCE_VERIFIED, format_identity_verified, guest_identity, identity_from_request, identity_name, short_name
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
@@ -132,6 +132,27 @@ def operation_identity(request, data=None):
         raise ApiError("Scannez votre badge ou indiquez votre nom" if allowed else "Scannez votre badge pour continuer",
                        status.HTTP_403_FORBIDDEN, login_required=True, declared_identity=allowed)
     return identity
+
+
+def team_identity(request, team):
+    """Vérif à plusieurs : il faut au moins un secouriste connecte et authentifie parmi les participants. Un invite
+    (sans compte, {"guest": true, "name": prenom facultatif}) peut l'envoyer, meme sans le reglage du nom declare :
+    elle est enregistree au nom d'un secouriste connecte, l'invite parmi les participants."""
+    own = identity_from_request(request.data, front_user(request), ServerSettings.get().declared_identity)
+    if own is None and request.data.get('guest'):
+        own = guest_identity(request.data.get('name'))
+    verified = [value for value in ([own] if own else []) + team['identities'] if is_verified(value)]
+    if not verified:
+        raise ApiError("Il faut au moins un secouriste connecté pour valider une vérif à plusieurs : scannez votre "
+                       "badge, ou attendez qu'un secouriste connecté vous rejoigne.", status.HTTP_403_FORBIDDEN,
+                       login_required=True, declared_identity=ServerSettings.get().declared_identity)
+    if own is None:
+        raise ApiError("Scannez votre badge ou indiquez votre prénom", status.HTTP_403_FORBIDDEN, login_required=True,
+                       declared_identity=ServerSettings.get().declared_identity)
+    if not is_verified(own):  # enregistree au nom d'un secouriste connecte, l'invite parmi les participants
+        team['identities'] = [own, *team['identities']]
+        return verified[0]
+    return own
 
 
 def front_identity(request):
@@ -1009,7 +1030,7 @@ def verifs(request):
     if team and isinstance(entries, list):
         entries = [dict(entry, key=entry.get('key') or team['keys'].get(str(entry.get('id', '')), ''))
                    if isinstance(entry, dict) else entry for entry in entries]
-    identity = operation_identity(request)
+    identity = team_identity(request, team) if team and team['shared'] else operation_identity(request)
     holders = key_holders(request.data, team['keys'] if team else None)
     lots = verif_lots(entries, is_local(request), holders, is_verified(identity))
     sealed = sealed_targets(request.data, lots)

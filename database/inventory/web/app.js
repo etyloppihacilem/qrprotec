@@ -69,6 +69,7 @@
     pushError: '',
     declaredAllowed: false, // reglage du serveur : verif et ajout possibles sans badge, sous un nom declare
     declaredName: '',       // nom declare sur ce navigateur (non verifie)
+    guest: null,            // vérif à plusieurs sans compte : prenom de l'invite ('' : « Invité »), null sinon
     expiredSession: false,  // vérif precedente oubliee au demarrage (SESSION_TIMEOUT_MS)
     waitingTeam: false,     // vérif à plusieurs : partie validee, en attente des autres participants
     launched: '',           // lot dont la vérif a ete lancee depuis sa fiche (etiquette publique)
@@ -100,11 +101,14 @@
   const ROLE_LABELS = { normal: 'Secouriste', chef: 'Chef', gestion: 'Gestion', admin: 'Administrateur' };
   // identite des operations sur un lot : le badge, sinon le nom declare (si le serveur l'autorise)
   const declared = () => !state.user && state.declaredAllowed && !!state.declaredName;
-  const hasIdentity = () => !!state.user || declared();
+  // invite d'une vérif à plusieurs (secouriste d'une autre antenne, sans compte), supervise par un secouriste connecte
+  const guestInTeam = () => !state.user && state.guest !== null && live.inTeam();
+  const hasIdentity = () => !!state.user || declared() || guestInTeam();
   // identifiants de l'utilisateur connecte : la cle du badge, ou seulement le jeton de session apres une connexion
   // par nom et PIN (le serveur accepte l'un ou l'autre)
   const credentials = () => ({ matricule: state.user.matricule, key: state.user.key, session: state.user.session });
-  const identity = () => (state.user ? { user: credentials() } : { name: state.declaredName });
+  const identity = () => (state.user ? { user: credentials() }
+    : guestInTeam() ? { guest: true, name: state.guest } : { name: state.declaredName });
 
   function save() {
     try {
@@ -1720,6 +1724,7 @@
   function loggedIn(user) {
     const action = takeLoginAction(); // action qui attendait la connexion (signalement)
     state.user = user;
+    state.guest = null; // connecte : plus invite
     state.lots = null;
     state.stock = null;
     state.push = null;
@@ -1933,6 +1938,24 @@
     return true;
   }
 
+  // Valider une vérif : à plusieurs, sans compte, on est invite (prenom facultatif, « Invité » sinon), a condition
+  // qu'un secouriste connecte participe (exige par le serveur, views.team_identity)
+  function ensureVerifIdentity() {
+    if (state.user || !live.inTeam()) return ensureIdentity();
+    if (!live.others().some((row) => row.verified)) {
+      feedback.warn();
+      toast('Il faut au moins un secouriste connecté pour valider une vérif à plusieurs : scannez votre badge.', true);
+      return false;
+    }
+    if (declared() || state.guest !== null) return true;
+    const name = prompt("Vous n'êtes pas connecté.\nVotre prénom (facultatif) : il sera noté sur la vérif comme invité.", '');
+    if (name === null) return false;
+    state.guest = name.trim().slice(0, 20);
+    live.identity();
+    render();
+    return true;
+  }
+
   function ensureIdentity() {
     return hasIdentity() || !state.declaredAllowed || askDeclaredName();
   }
@@ -1947,7 +1970,7 @@
   // auto : le serveur demande l'envoi (les autres participants sont partis), sans redemander de confirmation.
   async function validate(partial = false, auto = false) {
     if (state.busy) return;
-    if (!auto && !ensureIdentity()) return;
+    if (!auto && !ensureVerifIdentity()) return;
     const missing = blockers(false);
     if (missing.length) {
       if (auto) live.unvalidate();
@@ -2133,7 +2156,7 @@
   // confirmed : lot incomplet deja confirme (popup « Passer a … »)
   async function validateStep(partial = false, confirmed = false) {
     if (state.busy) return;
-    if (!ensureIdentity()) return;
+    if (!ensureVerifIdentity()) return;
     const top = levelLot();
     const atRoot = top.id === state.lotId;
     const exclude = excludedFor(top.id);
@@ -3317,7 +3340,7 @@
     }
 
     const who = () => (state.user ? { user: credentials() }
-      : declared() ? { name: state.declaredName } : {});
+      : declared() ? { name: state.declaredName } : state.guest !== null ? { guest: true, name: state.guest } : {});
 
     function send(message) {
       if (socket && socket.readyState === WebSocket.OPEN) socket.send(typeof message === 'string' ? message : JSON.stringify(message));
@@ -3595,7 +3618,7 @@
       parts.push(el('span', {}, `👥 Vérif à ${team.participants.length} :`),
         ...team.participants.map((row) => el('span', { class: (row.me ? 'who' : '') + (row.connected ? '' : ' off'),
           title: row.connected ? (row.validated ? 'A validé sa partie' : 'Connecté') : 'Déconnecté' },
-        (row.me ? 'vous' : row.who || 'Non identifié') + (row.validated ? ' ✔' : ''))),
+        (row.me ? 'vous' : row.who || 'Invité') + (row.validated ? ' ✔' : ''))),
         el('button', { type: 'button', class: 'text-link', onclick: () => {
           if (!confirm('Quitter la vérif commune ? Vous continuez seul, avec vos propres scans.')) return;
           state.waitingTeam = false;
@@ -3787,8 +3810,8 @@
         if (!event.target.closest('a, button')) openVerifReport(verifs);
       } : null },
       el('div', { class: 'name' }, '📦 ', verifs.length ? lot.name : lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
-      el('div', { class: 'sub' }, (people.length > 1 ? '👥 ' : '') + people.map((person) => (person.who || 'Non identifié')
-        + (person.who && !person.verified ? ' (nom déclaré)' : '') + (people.length > 1 && !done && person.validated ? ' ✔' : '')
+      el('div', { class: 'sub' }, (people.length > 1 ? '👥 ' : '') + people.map((person) => (person.who || 'Invité')
+        + (person.who && !person.verified && !/invité/i.test(person.who) ? ' (nom déclaré)' : '') + (people.length > 1 && !done && person.validated ? ' ✔' : '')
         + (people.length > 1 && !done && !person.connected ? ' (déconnecté)' : '')
         + (!done && person.level && person.level.id !== lot.id ? ` 📍 ${person.level.name}` : '')).join(', ')
         + ` · commencée à ${timeOf(row.started)}`),
@@ -4798,7 +4821,8 @@
     renderStock();
     const chip = $('#user-chip');
     chip.textContent = state.user ? `👤 ${state.user.prenom}`
-      : declared() ? `👤 ${state.declaredName} (sans badge)` : '👤 Non connecté';
+      : declared() ? `👤 ${state.declaredName} (sans badge)` : guestInTeam() ? `👤 ${state.guest || 'Invité'}${state.guest ? ' (invité)' : ''}`
+        : '👤 Non connecté';
     chip.classList.toggle('ok', !!state.user);
     chip.title = state.user && state.user.fonction ? state.user.fonction : '';
     // reassort, ou verif partielle (verif groupee dont certains lots sont complets) : bouton orange a cote de la validation

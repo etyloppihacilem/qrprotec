@@ -71,6 +71,7 @@ logger = logging.getLogger(__name__)
 
 MAX_SESSIONS = 200          # verifs suivies en meme temps (au-dela, les nouvelles ne sont pas publiees)
 MAX_PARTICIPANTS = 8        # personnes sur une meme verif
+GUEST_IDENTITY = 'D:Invité'  # idendity.guest_identity() : participant sans compte ni prenom
 MAX_SCANNED = 150           # derniers scans gardes par verif (affichage du suivi)
 MAX_ENTRIES = 300           # scans partages par participant
 MAX_LOTS = 20               # lots d'une verif groupee
@@ -153,6 +154,10 @@ def scanner_identity(message):
     if identity:
         return identity, public_name(identity), True
     name = _text(message.get('name'), 30).strip()
+    if message.get('guest'):  # invite d'une vérif à plusieurs, sans compte : prenom facultatif
+        from .idendity import guest_identity
+        identity = guest_identity(name)
+        return identity, public_name(identity), False
     if name:
         identity = f'{SOURCE_DECLARED}:{name}'
         return identity, public_name(identity), False
@@ -287,7 +292,8 @@ class LiveSession:
         onglets (meme identite). Connectee si l'un l'est, a valide si tous l'ont fait, niveau du plus recent."""
         groups = {}
         for p in self.participants.values():
-            groups.setdefault(p.identity or p.id, []).append(p)
+            # deux invites sans prenom sont deux personnes
+            groups.setdefault(p.identity if p.identity and p.identity != GUEST_IDENTITY else p.id, []).append(p)
         rows = []
         for group in groups.values():
             latest = max(group, key=lambda p: (p.socket is not None, p.updated.timestamp() if p.updated else 0))
@@ -300,7 +306,7 @@ class LiveSession:
 
     @property
     def who(self):
-        return ', '.join(row['who'] or 'Non identifié' for row in self.people())
+        return ', '.join(row['who'] or 'Invité' for row in self.people())
 
     def public(self):
         state = self.state or {}
@@ -495,8 +501,13 @@ class LiveHub:
             labels = set(session.labels)
             validated = [p for p in participants if p.validated]
             partial = any(p.partial for p in validated)
-            identities = [p.identity for p in validated + participants if p.identity and (p.validated or p.entries)]
-        identities = list(dict.fromkeys(identities))
+            guest = GUEST_IDENTITY if len(participants) > 1 else ''  # seul et sans compte : rien a enregistrer
+            identities = [p.identity or guest for p in validated + participants if p.validated or p.entries]
+            identities = [value for value in identities if value]
+        # vérif à plusieurs : enregistree au nom d'un secouriste connecte (au moins un est exige), invites ensuite
+        identities = sorted(dict.fromkeys(identities), key=lambda value: not value.startswith('M:'))
+        if len(participants) > 1 and not any(value.startswith('M:') for value in identities):
+            identities = []
         iids = [entry['iid'] for entry in entries if entry['kind'] == 'item']
         iids += [iid for entry in entries if entry['kind'] == 'pack' for iid in entry['items']]
         places = {iid: entry['place'] for entry in entries if entry['place']
@@ -648,7 +659,7 @@ class LiveHub:
             removed = [other.id for other in group[1:] if other.id not in self.sessions]
             target.updated = timezone.now()
             hellos = [(p.socket, {'type': 'hello', 'id': target.id, 'pid': p.id, 'token': p.token, 'merged': True,
-                                  'who': ', '.join(o.who or 'Non identifié' for o in target.participants.values()
+                                  'who': ', '.join(o.who or 'Invité' for o in target.participants.values()
                                                    if o not in moving)})
                       for p in moving if p.socket is not None]
         for websocket, message in hellos:
@@ -718,7 +729,7 @@ class LiveHub:
                         for p in mine:
                             p.validated = True
                             p.partial = bool(message.get('partial'))
-                        waiting = list(dict.fromkeys(p.who or 'Non identifié' for p in session.participants.values()
+                        waiting = list(dict.fromkeys(p.who or 'Invité' for p in session.participants.values()
                                                      if p not in mine and p.socket is not None and not p.validated))
                         busy = session.submitting not in (None, participant.id) and session.submitting in session.participants
                         submit = not waiting and not busy and not session.done
@@ -770,20 +781,23 @@ class LiveHub:
 
     def verif_team(self, credentials, step=None):
         """Verif a plusieurs envoyee par un de ses participants ({"id", "pid", "token"}) : cles des lots connues du
-        serveur et identites des participants (celui qui envoie, ceux qui ont valide ou scanne). None si inconnue.
+        serveur et identites des autres participants (ceux qui ont valide ou scanne, « Invité » sans compte ni prenom ;
+        celui qui envoie donne la sienne dans la requete). None si inconnue.
         step : vérif en cascade, iids (et lots scelles) envoyes : seuls ceux qui en ont scanne y participent."""
         with self.lock:
             session, participant = self._find(credentials)
             if session is None or session.done or session.saving:
                 return None
+            # un participant sans compte ni prenom qui a scanne ou valide est note « Invité »
             if step is None:
-                identities = [p.identity for p in session.participants.values()
-                              if p.identity and (p is participant or p.validated or p.entries)]
+                identities = [p.identity or GUEST_IDENTITY for p in session.participants.values()
+                              if p is not participant and (p.validated or p.entries)]
             else:
-                identities = [p.identity for p in session.participants.values()
-                              if p.identity and (p is participant or any(self._entry_in(entry, step) for entry in p.entries))]
+                identities = [p.identity or GUEST_IDENTITY for p in session.participants.values()
+                              if p is not participant and any(self._entry_in(entry, step) for entry in p.entries)]
             return {'id': session.id, 'pid': participant.id, 'keys': dict(session.lots), 'labels': set(session.labels),
-                    'identities': list(dict.fromkeys(identities)), 'full': session.full}
+                    'identities': list(dict.fromkeys(identities)), 'full': session.full,
+                    'shared': len(session.participants) > 1}
 
     @staticmethod
     def _entry_in(entry, iids):

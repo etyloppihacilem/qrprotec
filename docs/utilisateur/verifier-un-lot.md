@@ -81,7 +81,7 @@ tape toujours `@`, `#` ou `{`.
    si demandé. Si le TECH l'a autorisé, vous pouvez à la place toucher **Non connecté** et
    indiquer votre nom.
    Une fois connecté, une fenêtre rappelle la vérif en 3 points (scanner tout le contenu en suivant
-   la liste, monter le son pour entendre le bip, vérifier à plusieurs). Cochez **Ne plus afficher ce
+   la liste, monter le son pour entendre le bip, scanner le même lot à plusieurs, chacun avec son téléphone). Cochez **Ne plus afficher ce
    message** pour ne plus la voir : un admin peut la faire réapparaître depuis le poste
    (**Administration > Utilisateurs > Réglages du web**), et vous dans les réglages ⚙.
 3. **Scannez chaque objet.** Onglets en bas : **À scanner** (ce qui reste, par produit : en cours en
@@ -194,6 +194,13 @@ ma partie de la vérif » sous le bouton). Le dernier qui valide envoie la véri
 s'affiche chez tout le monde et tous les participants sont enregistrés sur la vérif. Si les autres
 ont fermé leur page, le compte rendu part dès que ceux qui restent ont tous validé. Scanner un item
 après avoir validé sa partie la « dé-valide ». **Quitter** dans le bandeau reprend la vérif seul, sans être rejoint automatiquement ensuite.
+
+**Invités.** Un secouriste sans compte (d'une autre antenne, par exemple) peut participer à une vérif à
+plusieurs sous la supervision d'un secouriste connecté : il commence la vérif du même lot sur son
+téléphone sans se connecter. Quand il valide, son prénom lui est demandé (facultatif) : il apparaît comme
+« Lucas (invité) », ou « Invité » sans prénom, dans le bandeau, le suivi et le compte rendu. Une vérif à
+plusieurs ne se valide qu'avec au moins un secouriste connecté et authentifié (badge, ou nom et PIN) :
+elle est enregistrée à son nom, les invités parmi les participants.
 
 La vérif est sur le serveur, partagée, dès qu'elle commence : premier item scanné, étiquette clé du
 lot, ou **Lancer une vérif** depuis la fiche du lot. Une vérif dont tous les téléphones sont fermés
