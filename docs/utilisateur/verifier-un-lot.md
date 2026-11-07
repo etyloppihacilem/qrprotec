@@ -135,7 +135,8 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
 
 - **Se connecter** (en haut à droite) ouvre une grande fenêtre « Scannez votre carte » : montrez le QR
   code de votre carte à la caméra, ou touchez « Pas de carte ? Connexion avec nom et prénom ». La même
-  fenêtre s'ouvre quand vous lancez une vérif sans être connecté. Habitués : cochez **Bulle de
+  fenêtre s'ouvre quand vous lancez une vérif sans être connecté ; sans compte (secouriste d'une autre
+  antenne), touchez « Continuer sans compte (invité) ». Habitués : cochez **Bulle de
   connexion** dans les réglages ⚙ pour un petit lecteur discret dans un coin à la place.
 - **Scanner** : l'écran de vérif, caméra prête à scanner. Le bouton 🏠 y ramène à l'accueil.
 - **Suivi des vérifs** : les vérifs **en cours, en direct** (lot, qui vérifie, items scannés,

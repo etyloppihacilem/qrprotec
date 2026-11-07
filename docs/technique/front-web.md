@@ -94,7 +94,8 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   sans connexion, gardée sur le téléphone, et le dernier connecté la fixe pour le téléphone). Décochée (le
   défaut), la **grande fenêtre de connexion** (`#login-gate`, `openGate`) remplace la petite bulle et
   s'ouvre au début d'une vérif sans connexion : la caméra (`#camera`, placée par `placeGateCamera`) au
-  milieu, « Scannez votre carte », connexion nom + PIN ; seule une carte y est acceptée. Puis son **code
+  milieu, « Scannez votre carte », connexion nom + PIN ; seule une carte y est acceptée. À une vérif, la
+  connexion n'est pas imposée : « Continuer sans compte (invité) » ferme la fenêtre. Puis son **code
   PIN** (`renderPinSettings`, `POST api/me/pin/`), ses **réglages de la vérif**
   (`renderVerifSettings`, `POST api/me/prefs/` `{user, web_prefs}` : `models.WEB_PREFS`, renvoyés dans
   `user.web_prefs`, `webPref()` ; aussi `PATCH api/users/<matricule>/` `{web_prefs}` par un admin au poste,
