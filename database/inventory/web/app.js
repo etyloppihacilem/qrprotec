@@ -5614,6 +5614,14 @@
     : row.status === 'resolved' ? 'Résolu' + (row.resolution_label ? ' · ' + row.resolution_label.toLowerCase() : '')
     : `En cours · ${row.usable ? 'utilisable' : 'inutilisable'}`);
 
+  // Ce qu'il faut retenir de l'objet : en cours, utilisable ou non ; resolu, ce que la resolution en a fait (un
+  // signalement resolu ne dit plus « inutilisable » : l'objet est de nouveau utilisable, ou desactive / retire)
+  const reportStateText = (row) => (row.status !== 'resolved'
+    ? (row.usable ? '✔ Toujours utilisable' : '✘ Inutilisable : à remplacer')
+    : row.resolution === 'disabled' ? '✔ Résolu : item désactivé, remplacé à la prochaine vérif'
+    : row.resolution === 'removed' ? '✔ Résolu : item retiré de l\'inventaire'
+    : '✔ Résolu : de nouveau utilisable');
+
   // Zone de texte de la reponse, par signalement : gardee a travers les rechargements de la liste. Enregistree par le
   // bouton choisi : reponse « en cours » (remplace la precedente) ou reponse de la resolution.
   const reportDrafts = {};
@@ -5637,7 +5645,7 @@
     const parts = [
       el('div', { class: 'row-head' }, el('div', { class: 'name' }, target), el('span', { class: 'tag ' + row.color }, reportLabel(row))),
       el('div', { class: 'sub' }, `Signalé par ${row.by} ${fmtOn(row.created, { long: true })}` + (row.item && showIds() ? ` · ${row.item}` : '')),
-      el('div', {}, row.usable ? '✔ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
+      el('div', {}, reportStateText(row)),
       row.comment ? el('p', { class: 'comment' }, row.comment) : '',
       ...repliesBlock(row),
       row.updated ? el('div', { class: 'sub' }, `Mis à jour ${fmtOn(row.updated, { long: true })}` + (row.updated_by ? ` par ${row.updated_by}` : '')) : '',
