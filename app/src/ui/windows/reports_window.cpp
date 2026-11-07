@@ -36,6 +36,17 @@ std::string report_label(const Json &report) {
   return report["usable"].boolean() ? "En cours · utilisable" : "En cours · inutilisable";
 }
 
+// Ce qu'il faut retenir de l'objet : en cours, utilisable ou non ; resolu, ce que la resolution en a fait (un
+// signalement resolu ne dit plus « inutilisable » : l'objet est de nouveau utilisable, ou desactive / retire)
+std::string report_state_text(const Json &report) {
+  if (report["status"].str() != "resolved")
+    return report["usable"].boolean() ? "toujours utilisable" : "inutilisable : à remplacer";
+  const std::string resolution = report["resolution"].str();
+  return resolution == "disabled"  ? "résolu : item désactivé, remplacé à la prochaine vérif"
+         : resolution == "removed" ? "résolu : item retiré de l'inventaire"
+                                   : "résolu : de nouveau utilisable";
+}
+
 // Gestion des signalements de problemes (admins) : nouveau (rouge), en cours de resolution (orange si l'objet est
 // inutilisable, vert s'il l'est toujours), resolu (vert). Meme page que « Signalements » sur le front web.
 class ReportsWindow final : public AppWindow {
@@ -144,7 +155,7 @@ class ReportsWindow final : public AppWindow {
       ImGui::SameLine();
       ImGui::TextDisabled("signalé %s par %s – %s", display_on(report["created"], true).c_str(),
                           report["by"].str().c_str(),
-                          report["usable"].boolean() ? "toujours utilisable" : "inutilisable : à remplacer");
+                          report_state_text(report).c_str());
       if (!report["comment"].str().empty())
         ImGui::TextWrapped("« %s »", report["comment"].str().c_str());
       draw_report_replies(report);
