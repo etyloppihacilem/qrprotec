@@ -1774,10 +1774,19 @@
         $('#name-login-error').textContent = e.message;
       }
     };
-    $('#name-login-cancel').onclick = () => dialog.close();
+    $('#name-login-cancel').onclick = () => { dialog.close(); nameLoginCancelled(); };
     if (!dialog.open) dialog.showModal();
     setTimeout(() => ($('#name-login-prenom').value ? $('#name-login-pin') : $('#name-login-prenom')).focus(), 50);
   }
+
+  // connexion par nom annulee (bouton ou Echap) : seule, elle oublie ce qui attendait la connexion ; ouverte depuis la
+  // grande fenetre ou le petit lecteur, ceux-ci restent ouverts et gardent la demande jusqu'a leur propre « Annuler »
+  function nameLoginCancelled() {
+    if (gateOpen() || readerOpen()) return;
+    pendingAfterLogin = '';
+    loginAction = null;
+  }
+  $('#name-login').addEventListener('cancel', nameLoginCancelled);
 
   function loggedIn(user) {
     const action = takeLoginAction(); // action qui attendait la connexion (signalement)
@@ -3137,9 +3146,12 @@
     render();
   }
 
-  function openReader(after = '') {
-    if (!bubbleOn()) { openGate(after); return; }
+  // after : page a ouvrir une fois connecte ; action : ce qui attendait la connexion (requireLogin). Chaque demande
+  // de connexion remplace la precedente : une action annulee ne ressurgit jamais a une connexion lancee pour autre chose
+  function openReader(after = '', action = null) {
+    if (!bubbleOn()) { openGate(after, action); return; }
     pendingAfterLogin = after;
+    setLoginAction(action);
     document.body.classList.add('login-reader');
     $('#scan-hint').textContent = 'Scannez votre badge';
     startCamera();
@@ -3171,8 +3183,9 @@
 
   const gateOpen = () => document.body.classList.contains('login-gate');
 
-  function openGate(after = '') {
+  function openGate(after = '', action = null) {
     pendingAfterLogin = after;
+    setLoginAction(action);
     // vérif : la connexion est conseillee, pas imposee (secouriste d'une autre antenne sans compte, supervise par un
     // secouriste connecte) ; il peut continuer en invite
     const verif = after === 'verif' || (!inHome() && !ficheOpen());
@@ -5170,6 +5183,8 @@
     feedback.info();
     showLotInfo();
     switchTab('todo');
+    // nouvelle demande : une action qui attendait encore la connexion (signalement, lot utilise...) est oubliee
+    loginAction = null;
     // pas encore connecte : grande fenetre « Scannez votre carte » (sauf « Bulle de connexion » cochee)
     if (!hasIdentity() && !bubbleOn()) openGate('verif');
   }
@@ -5759,6 +5774,10 @@
     : info.revision_late ? 'RÉVISION EN RETARD' : 'PÉRIMÉ');
   let loginAction = null; // {action, at} : a lancer une fois connecte
 
+  function setLoginAction(action) {
+    loginAction = action ? { action, at: Date.now() } : null;
+  }
+
   function takeLoginAction() {
     const pending = loginAction;
     loginAction = null;
@@ -5768,15 +5787,20 @@
   // Action reservee a un utilisateur connecte : badge (petit lecteur, ou camera du scanner) ou nom + PIN
   function requireLogin(reason, action) {
     if (state.user) { action(); return; }
+    loginAction = null; // nouvelle demande : la precedente, jamais menee au bout, est oubliee
     const dialog = $('#login-needed');
     $('#login-needed-text').textContent = `Connectez-vous pour ${reason}.`;
     $('#login-needed-badge').onclick = () => {
       dialog.close();
-      if (inHome() || ficheOpen()) openReader();
-      else { startCamera(); toast(`Scannez votre badge pour ${reason}.`); }
-      loginAction = { action, at: Date.now() };
+      if (inHome() || ficheOpen()) openReader('', action);
+      else { pendingAfterLogin = ''; setLoginAction(action); startCamera(); toast(`Scannez votre badge pour ${reason}.`); }
     };
-    $('#login-needed-name').onclick = () => { dialog.close(); loginAction = { action, at: Date.now() }; openNameLogin(); };
+    $('#login-needed-name').onclick = () => {
+      dialog.close();
+      pendingAfterLogin = '';
+      setLoginAction(action);
+      openNameLogin();
+    };
     $('#login-needed-cancel').onclick = () => { dialog.close(); loginAction = null; };
     if (!dialog.open) dialog.showModal();
   }
@@ -6255,7 +6279,7 @@
         el('p', {}, lists.id ? 'Connectez-vous pour ouvrir cette liste et la vérifier.'
           : 'Connectez-vous pour voir et préparer les listes de matériel.'),
         el('button', { type: 'button', class: 'primary', onclick: () => openReader('lists') }, 'Scanner mon badge'),
-        el('button', { type: 'button', class: 'secondary list-gap', onclick: () => { pendingAfterLogin = 'lists'; openNameLogin(); } },
+        el('button', { type: 'button', class: 'secondary list-gap', onclick: () => { pendingAfterLogin = 'lists'; loginAction = null; openNameLogin(); } },
           'Sans badge : nom et code PIN'));
       return;
     }
