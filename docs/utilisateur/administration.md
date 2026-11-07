@@ -210,7 +210,8 @@ sens est tourné automatiquement (**Retourner les étiquettes (180°)** si elles
 
 ## Réglages du poste
 
-Menu **Administration > Réglages** (admin) :
+Menu **Administration > Réglages** (admin). À l'ouverture, seules **Règles du serveur** et **Session et affichage**
+sont dépliées ; cliquez sur le titre d'une autre section pour la déplier.
 
 | Section | Contenu |
 |---|---|
