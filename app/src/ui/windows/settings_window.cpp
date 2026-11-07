@@ -13,6 +13,7 @@
 #include "../../core/template_io.hpp"
 #include "../../inateck/scanner_settings.hpp"
 #include "../editor.hpp"
+#include "../file_picker.hpp"
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
@@ -50,12 +51,22 @@ static void draw_front_config_import(App &app) {
     ImGui::TextDisabled("Connexion imposée par l'environnement (borne : sudo qrprotec-setup).");
     return;
   }
+  static FilePicker picker("Choisir le fichier de configuration", ".qrprotec");
+  static bool       focus_password = false;
+  if (picker.draw("Choisir le fichier…", app.front_config_path))
+    focus_password = true;
+  help_marker("Ouvre une fenêtre pour retrouver le fichier sur cet ordinateur ou sur une clé USB "
+              "(Téléchargements, Bureau...).");
   ImGui::InputTextWithHint("Fichier", "chemin du fichier .qrprotec",
                            &app.front_config_path);
   help_marker("Créé sur le serveur avec :\n  sudo qrprotec-manage frontkey add NOM --config NOM.qrprotec\n"
               "Il contient l'URL du serveur, la clé du front et, si besoin, le certificat de l'autorité, "
               "chiffrés (AES) avec un mot de passe. Il remplace les champs ci-dessous.\n"
               "Le fichier peut aussi être glissé sur la fenêtre de QRProtec.");
+  if (focus_password) {
+    ImGui::SetKeyboardFocusHere();
+    focus_password = false;
+  }
   const bool submit = ImGui::InputText("Mot de passe du fichier", &password,
                                        ImGuiInputTextFlags_Password | ImGuiInputTextFlags_EnterReturnsTrue);
   ImGui::BeginDisabled(app.front_config_path.empty() || password.empty());
