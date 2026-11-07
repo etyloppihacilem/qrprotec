@@ -4420,7 +4420,7 @@
   // Nouvelles etiquettes d'items d'un type existant (admins, Gestion de la TECH, bouton +). La demande part au poste,
   // qui ouvre la fenetre « Impressions en attente » meme sans personne de connecte : un secouriste qui rentre avec du
   // reassort lance l'impression et colle lui-meme les etiquettes. Les items sont crees a l'impression.
-  const labelPrints = { data: null, busy: false };
+  const labelPrints = { data: null, busy: false, type: '', picker: '' };
 
   function openLabelPrints() {
     if (!isAdmin()) return;
@@ -4443,7 +4443,7 @@
 
   const labelPrintType = () => {
     const data = labelPrints.data;
-    return data ? data.types.find((type) => type.type === $('#label-print-type').value) : null;
+    return data ? data.types.find((type) => type.type === labelPrints.type) : null;
   };
 
   function renderLabelPrintDate() {
@@ -4452,13 +4452,38 @@
     $('#label-print-date').required = !!(type && type.perissable);
   }
 
+  // Type d'item cherche au texte (sans accents ni casse, debut des mots, code), comme au poste. Le champ n'est
+  // reconstruit que si la liste des types change, pour ne pas effacer ce qui est en train d'etre tape.
+  function renderLabelPrintPicker() {
+    const data = labelPrints.data;
+    const box = $('#label-print-type-box');
+    const signature = data ? data.types.map((type) => type.type).join(',') : '';
+    if (labelPrints.picker === signature && box.firstChild) return;
+    labelPrints.picker = signature;
+    if (data && !data.types.some((type) => type.type === labelPrints.type)) labelPrints.type = '';
+    const items = (data ? data.types : []).map((type) => ({ key: type.type, label: type.name, type }));
+    const picker = searchPicker(data ? 'Rechercher un type d\'item (ex : comp, sérum)' : 'Chargement…', items, (item) => {
+      labelPrints.type = item.key;
+      input.value = item.label;
+      input.blur();
+      renderLabelPrintDate();
+      $('#label-print-count').focus();
+    });
+    const input = picker.querySelector('input');
+    input.id = 'label-print-type';
+    input.disabled = !data;
+    const chosen = labelPrintType();
+    if (chosen) input.value = chosen.name;
+    // texte modifie apres un choix : le type n'est plus choisi tant qu'on n'en touche pas un autre
+    input.addEventListener('input', () => {
+      if (labelPrints.type && input.value !== (labelPrintType() || {}).name) { labelPrints.type = ''; renderLabelPrintDate(); }
+    });
+    box.replaceChildren(picker);
+  }
+
   function renderLabelPrints() {
     const data = labelPrints.data;
-    const select = $('#label-print-type');
-    const chosen = select.value;
-    select.replaceChildren(el('option', { value: '' }, data ? 'Choisir un type d\'item…' : 'Chargement…'),
-      ...(data ? data.types : []).map((type) => el('option', { value: type.type }, type.name)));
-    select.value = data && data.types.some((type) => type.type === chosen) ? chosen : '';
+    renderLabelPrintPicker();
     if (data) $('#label-print-count').max = data.max_count;
     renderLabelPrintDate();
     $('#label-print-send').disabled = !data || labelPrints.busy;
@@ -4493,7 +4518,7 @@
     const type = labelPrintType();
     const error = $('#label-print-error');
     error.textContent = '';
-    if (!type) { error.textContent = 'Choisissez un type d\'item.'; return; }
+    if (!type) { error.textContent = 'Cherchez le type d\'item puis touchez-le dans la liste.'; return; }
     const count = parseInt($('#label-print-count').value, 10);
     if (!(count >= 1)) { error.textContent = 'Indiquez le nombre d\'étiquettes.'; return; }
     const peremption = type.perissable ? $('#label-print-date').value : '';
@@ -4506,7 +4531,8 @@
       toast(`${nb(count, 'étiquette')} de ${type.name} ${pl(count, 'envoyée', 'envoyées')} au poste.`);
       $('#label-print-count').value = 1;
       $('#label-print-date').value = '';
-      $('#label-print-type').value = '';
+      labelPrints.type = '';
+      labelPrints.picker = ''; // champ de recherche vide au prochain affichage
       loadStock();
     } catch (e) {
       error.textContent = e.message;
@@ -4528,7 +4554,6 @@
   }
 
   $('#label-print-form').addEventListener('submit', sendLabelPrint);
-  $('#label-print-type').addEventListener('change', renderLabelPrintDate);
   $('#label-print-close').addEventListener('click', () => $('#label-prints').close());
 
   function renderStock() {
