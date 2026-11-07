@@ -514,8 +514,7 @@ class LotsWindow final : public AppWindow {
           ImGui::TextDisabled("Sans commentaire.");
         else
           ImGui::TextWrapped("« %s »", report["comment"].str().c_str());
-        if (!report["note"].str().empty())
-          ImGui::TextWrapped("Réponse : %s", report["note"].str().c_str());
+        draw_report_replies(report, true);
         ImGui::Spacing();
       }
       ImGui::Separator();

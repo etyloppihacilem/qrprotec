@@ -4202,6 +4202,29 @@ class ProblemReportTests(ApiTestCase):
         code, body = self.call('POST', '/api/reports/list/', {'show': 'all'})
         self.assertEqual(len(body['reports']), 1)
 
+    def test_replies_with_progress(self):
+        """Le TECH repond en passant « en cours » (utilisable ou non) ; plusieurs commentaires restent dans
+        l'historique, visibles de tous (liste, fiche, popup au scan)."""
+        _, body = self.report({'item': self.items[0].iid, 'usable': True, 'comment': 'Emballage déchiré'})
+        report_id = body['report']['id']
+        url = f'/api/reports/{report_id}/'
+        code, body = self.call('POST', url, {'status': 'progress', 'usable': True, 'note': 'Je regarde demain'})
+        self.assertEqual(code, 200)
+        code, body = self.call('POST', url, {'status': 'progress', 'usable': False, 'note': '  Stérilité douteuse  '})
+        code, body = self.call('POST', url, {'note': 'Commandé'})  # simple commentaire, sans changer l'etat
+        code, body = self.call('POST', url, {'status': 'progress', 'note': ''})  # vide : pas de commentaire
+        self.assertEqual(body['note'], 'Commandé')
+        self.assertEqual([(reply['text'], reply['action']) for reply in body['replies']],
+                         [('Je regarde demain', 'En cours · utilisable'),
+                          ('Stérilité douteuse', 'En cours · inutilisable'), ('Commandé', '')])
+        self.assertTrue(all(reply['by'] and reply['created'] for reply in body['replies']))
+        code, body = self.call('POST', '/api/reports/list/', {'user': self.badge}, local=False)
+        self.assertEqual(len(body['reports'][0]['replies']), 3)
+        code, body = self.call('GET', f'/api/items/{self.items[0].iid}/')
+        self.assertEqual(body['reports'][0]['replies'][-1]['text'], 'Commandé')
+        code, body = self.call('POST', url, {'status': 'resolved', 'resolution': 'ok', 'note': 'Remplacé'})
+        self.assertEqual(body['replies'][-1]['action'], 'Résolu · remis en service')
+
     def test_list_puts_reports_to_handle_first(self):
         _, first = self.report({'item': self.items[0].iid, 'usable': True})
         self.call('POST', f"/api/reports/{first['report']['id']}/", {'status': 'resolved'})

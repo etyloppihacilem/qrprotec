@@ -92,8 +92,9 @@ class ReportsWindow final : public AppWindow {
           ImGui::PushID(id);
           if (ImGui::Selectable(report_label(report).c_str(), id == selected_,
                                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
+            if (id != selected_)
+              note_.clear(); // commentaire en cours de redaction : propre au signalement choisi
             selected_ = id;
-            note_     = report["note"].str();
           }
           ImGui::PopID();
           if (!compact) {
@@ -146,15 +147,21 @@ class ReportsWindow final : public AppWindow {
                           report["usable"].boolean() ? "toujours utilisable" : "inutilisable : à remplacer");
       if (!report["comment"].str().empty())
         ImGui::TextWrapped("« %s »", report["comment"].str().c_str());
+      draw_report_replies(report, true);
       if (!report["updated"].is_null())
         ImGui::TextDisabled("Mis à jour %s par %s", display_on(report["updated"], true).c_str(),
                             report["updated_by"].str("-").c_str());
-      ImGui::SetNextItemWidth(-200.0f);
-      ImGui::InputTextWithHint("##note", "Réponse visible de tous (facultatif)", &note_);
+      // commentaire envoye avec le bouton d'etat choisi (en cours, resolu...), ou seul avec « Commenter »
+      ImGui::SetNextItemWidth(-260.0f);
+      ImGui::InputTextWithHint("##note", "Commentaire visible de tous (facultatif), envoyé avec le bouton choisi",
+                               &note_);
       ImGui::SameLine();
-      Json changes;
-      if (button("Enregistrer la réponse", ImVec2(-1, 0)))
+      Json       changes;
+      const bool has_note = note_.find_first_not_of(" \t\n") != std::string::npos;
+      ImGui::BeginDisabled(!has_note);
+      if (button("Commenter sans changer l'état", ImVec2(-1, 0)))
         changes["note"] = note_;
+      ImGui::EndDisabled();
       const float third = (ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x) / 3.0f;
       if (report["status"].str() == "resolved") {
         if (button("Rouvrir", ImVec2(-1, 0)))
@@ -198,18 +205,25 @@ class ReportsWindow final : public AppWindow {
           ImGui::SetItemTooltip("L'item a déjà été jeté : il est marqué supprimé.");
         }
       }
-      if (!changes.is_null())
+      if (!changes.is_null()) {
+        if (has_note)
+          changes["note"] = note_;
         update(app, report["id"].integer(), changes);
+      }
     }
 
     void update(App &app, int id, Json body) {
-      body["user"] = app.user_ref();
-      app.api.post("/api/reports/" + std::to_string(id) + "/", body, [this, &app](const ApiResult &result) {
+      body["user"]         = app.user_ref();
+      const bool note_sent = !static_cast< const Json & >(body)["note"].is_null();
+      app.api.post("/api/reports/" + std::to_string(id) + "/", body,
+                   [this, &app, id, note_sent](const ApiResult &result) {
         if (!result.ok) {
           app.notify("Signalement : " + result.error, true);
           return;
         }
-        app.notify("Signalement mis à jour.");
+        app.notify(note_sent ? "Signalement mis à jour, commentaire ajouté." : "Signalement mis à jour.");
+        if (note_sent && selected_ == id)
+          note_.clear();
         load(app);
       });
     }

@@ -54,6 +54,30 @@ std::string display_on(const Json &value, bool long_form) {
   return relative_datetime(value.str(), Date::today(), long_form, true);
 }
 
+void draw_report_replies(const Json &report, bool long_form) {
+  const Json &replies = report["replies"];
+  if (replies.size() == 0) {
+    if (!report["note"].str().empty())
+      ImGui::TextWrapped("Réponse : %s", report["note"].str().c_str());
+    return;
+  }
+  for (const Json &reply : replies.items()) {
+    ImGui::PushStyleColor(ImGuiCol_Text, colors::blue);
+    ImGui::TextWrapped("Réponse : %s", reply["text"].str().c_str());
+    ImGui::PopStyleColor();
+    const std::string when = reply["created"].is_null() ? std::string() : display_on(reply["created"], long_form);
+    std::string       info = reply["action"].str();
+    for (const std::string &part : {reply["by"].str(), when})
+      if (!part.empty())
+        info += (info.empty() ? "" : " - ") + part;
+    if (!info.empty()) {
+      ImGui::Indent();
+      ImGui::TextDisabled("%s", info.c_str());
+      ImGui::Unindent();
+    }
+  }
+}
+
 std::string Catalog::item_type_name(const std::string &type) const {
   for (const Json &item_type : item_types.items())
     if (item_type["type"].str() == type)
@@ -4051,8 +4075,7 @@ void App::draw_reports_alert() {
       ImGui::TextDisabled("Sans commentaire.");
     else
       ImGui::TextWrapped("« %s »", report["comment"].str().c_str());
-    if (!report["note"].str().empty())
-      ImGui::TextWrapped("Réponse : %s", report["note"].str().c_str());
+    draw_report_replies(report);
   }
   ImGui::PopTextWrapPos();
   ImGui::Separator();
