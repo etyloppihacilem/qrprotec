@@ -55,11 +55,17 @@ public_patterns = [
     path('reports/', views.reports_create),
     path('reports/list/', views.reports_list),
     path('reports/<int:report_id>/', views.report_update),
+    # etiquettes d'items demandees depuis le web (admins), imprimees au poste
+    path('label-prints/', views.label_prints_create),
+    path('label-prints/list/', views.label_prints_list),
+    path('label-prints/<int:print_id>/cancel/', views.label_print_cancel),
 ]
 
 # Servies uniquement par l'API locale (poste de gestion). Elles doivent preceder les routes publiques
 # quand un meme prefixe est utilise (ex: items/batch/ avant items/<iid>/).
 local_patterns = [
+    path('label-prints/pending/', views.label_prints_poste),  # meme sans personne de connecte
+    path('label-prints/<int:print_id>/print/', views.label_print_print),
     path('item-types/', views.item_types),
     path('item-types/<str:type_code>/', views.item_type_detail),
     path('items/', views.items),

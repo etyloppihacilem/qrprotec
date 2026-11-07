@@ -191,6 +191,14 @@ PrintQueue (thread) ── NiimbotB1Printer ── SerialPort (/dev/ttyACM0, 115
 - **Imprimante occupée** : la B1 refuse parfois une commande pendant qu'elle termine l'étiquette
   précédente (code `0x31`) ; la commande est réessayée.
 
+- **Impressions demandées depuis le web** (`app/label_prints.cpp`) : le poste interroge
+  `GET /api/label-prints/pending/` toutes les 20 s, connecté ou non (route des postes, sans session).
+  Une demande jamais vue ouvre la fenêtre « Impressions en attente », dessinée par `App` hors de la
+  liste `windows` (pas de rôle, pas remise à zéro à l'inactivité). « Lancer l'impression » envoie
+  `POST /api/label-prints/<id>/print/` pour chaque demande : le serveur crée les items et les renvoie,
+  et leurs étiquettes partent dans la file comme une réception (`printed_by` = l'admin qui a demandé).
+  Voir `database/inventory/label_prints.py`.
+
 Changer d'imprimante : implémenter l'interface `Printer` (`printer/printer.hpp`) et l'utiliser dans
 `PrintQueue` et dans l'éditeur (voir [maintenance.md](maintenance.md#changer-de-modèle-dimprimante)). Le reste (rendu, rotation) est indépendant du modèle d'imprimante.
 

@@ -37,6 +37,7 @@ from rest_framework.response import Response
 from . import debug_codes
 from . import forecast
 from . import journal
+from . import label_prints
 from . import lot_sheet
 from . import live
 from . import notifications
@@ -2769,3 +2770,67 @@ def checklist_action(request, checklist_id, action=''):
     elif action:
         raise ApiError('Action inconnue', status.HTTP_404_NOT_FOUND)
     return Response({**checklists.checklist_dict(_checklist(checklist_id), user), 'message': message, **extra})
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Etiquettes d'items demandees depuis le web (admins) et imprimees au poste (voir label_prints.py)
+# ----------------------------------------------------------------------------------------------------------------------
+
+def _label_print_call(function, *args):
+    try:
+        return function(*args)
+    except label_prints.PrintError as exc:
+        raise ApiError(exc.message, exc.code)
+
+
+@api_view(['POST'])
+@handle_errors
+def label_prints_create(request):
+    """Web, admins : {"user", "type", "count", "peremption"} → demande envoyee aux postes (fenetre « Impressions en
+    attente »). Les items ne sont crees qu'a l'impression."""
+    user = connected_user(request, ADMIN)
+    data = request.data
+    count = parse_int(data.get('count', 1), 'count', 1, label_prints.MAX_COUNT)
+    row = _label_print_call(label_prints.create, f'{SOURCE_VERIFIED}:{user.matricule}', str(data.get('type', '')),
+                            count, parse_date(data.get('peremption'), 'peremption'))
+    return Response(label_prints.print_dict(row), status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@handle_errors
+def label_prints_list(request):
+    """Web, admins : types d'items proposes et demandes d'impression (en attente, puis des 7 derniers jours)."""
+    connected_user(request, ADMIN)
+    return Response(label_prints.web_list())
+
+
+@api_view(['POST'])
+@handle_errors
+def label_print_cancel(request, print_id):
+    """Web, admins : annule une demande pas encore imprimee."""
+    user = connected_user(request, ADMIN)
+    row = _label_print_call(label_prints.cancel, print_id, f'{SOURCE_VERIFIED}:{user.matricule}')
+    return Response(label_prints.print_dict(row))
+
+
+def require_poste(request):
+    """Routes des postes qui ne demandent personne de connecte : la machine suffit (API locale ou cle de front)."""
+    if not is_front(request):
+        raise ApiError("Réservé aux postes", status.HTTP_403_FORBIDDEN)
+
+
+@api_view(['GET'])
+@handle_errors
+def label_prints_poste(request):
+    """Poste, meme sans personne de connecte : impressions en attente et imprimees dans les dernieres 24 h."""
+    require_poste(request)
+    return Response(label_prints.poste_list())
+
+
+@api_view(['POST'])
+@handle_errors
+def label_print_print(request, print_id):
+    """Poste, meme sans personne de connecte : « Lancer l'impression ». Cree les items (reception au nom de l'admin
+    qui les a demandes) et repond la demande avec ses items, dont le poste imprime les etiquettes."""
+    require_poste(request)
+    return Response(_label_print_call(label_prints.print_now, print_id, getattr(request, 'qrprotec_front', '')))

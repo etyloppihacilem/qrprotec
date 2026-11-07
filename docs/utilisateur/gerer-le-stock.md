@@ -51,6 +51,21 @@ Une boîte fermée reçoit **une seule étiquette** de paquet ; ses items existe
   pour tous ses items.
 - L'onglet **Paquets fermés** de l'inventaire liste les boîtes en réserve.
 
+## Imprimer des étiquettes depuis le téléphone
+
+Pour du matériel d'un type déjà connu qui arrive sans passer par le poste (réassort des pompiers, dons),
+un administrateur peut demander les étiquettes depuis le téléphone : page **Gestion de la TECH**,
+bouton **+ Étiquettes**. Il choisit le type, le nombre d'étiquettes et, si le type est périssable, la
+date de péremption, puis **Envoyer au poste**. Les demandes en attente sont listées dessous et peuvent
+être annulées tant qu'elles ne sont pas imprimées.
+
+Au poste, la fenêtre **Impressions en attente** s'ouvre d'elle-même, **même si personne n'est
+connecté** : le secouriste qui rentre avec le matériel clique **Lancer l'impression** et colle lui-même
+les étiquettes. Les items sont créés à ce moment-là, au stock, au nom de l'administrateur qui les a
+demandés (réception dans le journal). **Plus tard** ferme la fenêtre : la demande reste en attente,
+signalée en bleu dans la barre de menu, et dans **À faire** (De temps en temps). Les impressions des
+dernières 24 heures restent dans la fenêtre avec un bouton **Réimprimer**.
+
 ## Gestion de la TECH : la liste de tâches
 
 Menu **Gestion > Gestion de la TECH** au poste, tuile **Gestion de la TECH** de l'accueil sur le téléphone

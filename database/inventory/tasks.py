@@ -17,7 +17,7 @@ revisions du materiel, verifs du stock, commandes et deplacements recommandes, p
 
 Chaque tache : {category, level ('bad' rouge, 'warn' orange, 'info'), title, detail, date, lot, item, report, link}.
 `link` dit ou la traiter : 'lot' (fiche du lot), 'item' (fiche de l'item), 'reports', 'forecast', 'lists', 'users',
-'inventory', 'lot_admin' (fenetres du poste ou pages du web).
+'inventory', 'lot_admin', 'label_prints' (fenetres du poste ou pages du web).
 """
 
 from collections import Counter, defaultdict
@@ -27,6 +27,7 @@ from django.db.models import Max
 from django.utils import timezone
 
 from . import forecast as stock_forecast
+from . import label_prints
 from . import serializers as ser
 from . import services
 from .idendity import format_identity_verified, identity_name
@@ -48,8 +49,8 @@ CATEGORIES = [
                                        'liste de matériel) : recompter.'),
     ('orders', 'Commandes', 'Commandes à passer dans les 30 jours pour ne pas passer sous le minimum (prévisions).'),
     ('transfers', 'Déplacements', 'Échanges qui évitent de laisser périmer du matériel dans les 30 jours (prévisions).'),
-    ('periodic', 'De temps en temps', 'Étiquettes et badges qui expirent, périmés du stock, listes pas rentrées, '
-                                      'matériel hors lot, vérifs de routine.'),
+    ('periodic', 'De temps en temps', 'Étiquettes à imprimer au poste, étiquettes et badges qui expirent, '
+                                      'périmés du stock, listes pas rentrées, matériel hors lot, vérifs de routine.'),
 ]
 ORDER_WINDOW_DAYS = 30
 REVISION_WINDOW_DAYS = 30
@@ -244,6 +245,12 @@ def _forecast_tasks(today):
 
 def _periodic_tasks(today):
     tasks = []
+    # etiquettes d'items demandees depuis le web, pas encore imprimees au poste
+    for row, text in label_prints.pending_tasks():
+        tasks.append(task('periodic', 'info', f'Étiquettes à imprimer : {text}',
+                          f'demandées par {identity_name(row.by)} le {_day(row.created)} : au poste, fenêtre '
+                          '« Impressions en attente », Lancer l\'impression', row.created, 'label_prints',
+                          sort=(-1, row.created.timestamp())))
     warning = timedelta(days=qrprotec_setting('KEY_EXPIRY_WARNING_DAYS'))
     # etiquettes privees des lots (cle) qui expirent : a renouveler et reimprimer (seulement si le nom declare est
     # autorise, sinon elles n'expirent plus)

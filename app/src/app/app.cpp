@@ -283,6 +283,7 @@ void App::reload_after_wake() {
       window->reload_pending = true;
   next_lots_poll_    = 0.0; // voyant des lots a traiter
   next_reports_poll_ = 0.0; // rappel des signalements (admins)
+  label_prints_.next_poll = 0.0;
 }
 
 void App::begin_frame() {
@@ -303,6 +304,9 @@ void App::begin_frame() {
     check_setup();
   if (admin() && ImGui::GetTime() >= next_reports_poll_)
     refresh_report_counts();
+  // impressions demandees depuis le web : verifiees meme sans personne de connecte
+  if (!label_prints_.loading && ImGui::GetTime() >= label_prints_.next_poll)
+    refresh_label_prints();
   // voyant des lots a traiter : liste tenue a jour meme fenetre Lots fermee (pas pendant une verif)
   if (!verif.active && !catalog.loading_lots && ImGui::GetTime() >= next_lots_poll_) {
     next_lots_poll_ = ImGui::GetTime() + 120.0;
@@ -356,6 +360,7 @@ void App::draw() {
   draw_windows();
   if (tint)
     ImGui::PopStyleColor(4);
+  draw_label_prints();
   inateck.draw_window();
   draw_setup_modal();
   draw_server_modal();
@@ -435,6 +440,15 @@ void App::draw_menu_bar() {
         open_window("reports");
       ImGui::PopStyleColor();
       ImGui::SetItemTooltip("Problèmes signalés pas encore pris en charge : ouvrir la gestion des signalements.");
+    }
+    // etiquettes demandees depuis le web pas encore imprimees (tout le monde, connecte ou non)
+    if (const int requests = static_cast< int >(label_prints_.data["pending"].size()); requests > 0) {
+      ImGui::PushStyleColor(ImGuiCol_Text, colors::blue);
+      const std::string label = "● " + nb(requests, "impression") + " en attente";
+      if (ImGui::MenuItem(label.c_str()))
+        open_label_prints();
+      ImGui::PopStyleColor();
+      ImGui::SetItemTooltip("Étiquettes d'items demandées par le TECH depuis le web : ouvrir pour les imprimer.");
     }
     if (ImGui::BeginMenu("Douchette")) {
       if (ImGui::MenuItem("Téléphone comme douchette...", nullptr, remote.active))

@@ -618,3 +618,10 @@ button.debug-item { text-align: left; background: var(--panel); border-radius: 0
   font-size: .85rem; border-top: 1px solid var(--line); }
 .debug-seq li { padding: 4px 0; cursor: pointer; }
 .debug-seq li.active { font-weight: 700; color: var(--navy); background: var(--navy-bg); }
+
+/* Nouvelles etiquettes d'items (admins) : formulaire puis demandes en attente et recentes */
+#label-print-form label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 2px; font-weight: 600; }
+#label-print-form label[hidden] { display: none; }
+#label-print-form select, #label-print-form input { font: inherit; font-weight: normal; padding: 8px; }
+#label-print-list h3 { margin: 16px 0 4px; }
+#label-print-list .row-head button { flex: none; }

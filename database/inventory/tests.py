@@ -4802,3 +4802,81 @@ class LabelErrorTests(TestCase):
         Lots.objects.create(lot_type=lot_type, name='Sac de soin', parent=bplus, created_by='test')
         self.assertTrue(views.label_error([bplus]).startswith(
             "Scannez l'étiquette de B+ (ou celle de Sac de soin ou de Sac O2) pour valider"))
+
+
+class LabelPrintTests(ApiTestCase):
+    """Etiquettes d'items demandees depuis le web par un admin, imprimees au poste meme sans personne de connecte."""
+
+    def admin(self):
+        return {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
+
+    def ask(self, **data):
+        return self.call('POST', '/api/label-prints/', {'user': self.admin(), **data}, local=False)
+
+    def test_admins_only_on_the_web(self):
+        code, _ = self.call('POST', '/api/label-prints/', {'type': 'garrot', 'count': 2}, local=False)
+        self.assertEqual(code, 403)
+        self.user.role = 'gestion'
+        self.user.save()
+        code, _ = self.call('POST', '/api/label-prints/list/', {'user': {'matricule': 'M001', 'key': self.user.new_key}},
+                            local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual([row['type'] for row in body['types']], ['compre', 'garrot'])
+
+    def test_request_then_print_without_anyone_logged_in(self):
+        code, body = self.ask(type='compre', count=3)
+        self.assertEqual(code, 400)  # perissable : date obligatoire
+        peremption = (self.today + timedelta(days=400)).isoformat()
+        code, body = self.ask(type='compre', count=3, peremption=peremption)
+        self.assertEqual(code, 201)
+        self.assertTrue(body['pending'])
+        self.assertEqual(Items.objects.count(), 0)  # rien de cree avant l'impression
+        # route du poste : pas sur l'API publique
+        self.assertEqual(self.call('GET', '/api/label-prints/pending/', local=False)[0], 404)
+        code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
+        self.assertEqual(code, 200)
+        self.assertEqual([row['id'] for row in listing['pending']], [body['id']])
+        # tache de la gestion tant que ce n'est pas imprime
+        code, tasks = self.call('GET', '/api/tasks/')
+        self.assertTrue(any(row['link'] == 'label_prints' for row in tasks['tasks']))
+        code, printed = self.call('POST', f"/api/label-prints/{body['id']}/print/", {}, session=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(len(printed['items']), 3)
+        self.assertEqual(printed['items'][0]['peremption'], peremption)
+        self.assertTrue(all(item['in_stock'] for item in printed['items']))
+        created = Items.objects.filter(iid__in=[item['iid'] for item in printed['items']])
+        self.assertEqual({item.added_by for item in created}, {'M:P001'})
+        operation = Operation.objects.get(kind='reception')
+        self.assertEqual(operation.by, 'M:P001')
+        self.assertEqual(operation.details['label_print'], body['id'])
+        # une seule fois
+        self.assertEqual(self.call('POST', f"/api/label-prints/{body['id']}/print/", {}, session=False)[0], 409)
+        code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
+        self.assertEqual(listing['pending'], [])
+        self.assertEqual(len(listing['recent'][0]['items']), 3)
+        code, tasks = self.call('GET', '/api/tasks/')
+        self.assertFalse(any(row['link'] == 'label_prints' for row in tasks['tasks']))
+        # imprimee : plus annulable
+        code, _ = self.call('POST', f"/api/label-prints/{body['id']}/cancel/", {'user': self.admin()}, local=False)
+        self.assertEqual(code, 409)
+
+    def test_cancel_and_limits(self):
+        self.assertEqual(self.ask(type='garrot', count=0)[0], 400)
+        self.assertEqual(self.ask(type='garrot', count=1000)[0], 400)
+        self.assertEqual(self.ask(type='nope00', count=1)[0], 404)
+        self.garrot.archived = True
+        self.garrot.save()
+        self.assertEqual(self.ask(type='garrot', count=1)[0], 400)
+        self.garrot.archived = False
+        self.garrot.save()
+        code, body = self.ask(type='garrot', count=2, peremption='2030-01-01')
+        self.assertEqual(code, 201)
+        self.assertIsNone(body['peremption'])  # pas perissable : date ignoree
+        code, cancelled = self.call('POST', f"/api/label-prints/{body['id']}/cancel/", {'user': self.admin()},
+                                    local=False)
+        self.assertEqual(code, 200)
+        self.assertFalse(cancelled['pending'])
+        self.assertEqual(self.call('POST', f"/api/label-prints/{body['id']}/print/", {}, session=False)[0], 409)
+        self.assertEqual(Items.objects.count(), 0)
