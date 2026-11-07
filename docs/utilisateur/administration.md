@@ -140,7 +140,11 @@ une vérif) :
   (redevient normal), **désactivé** (non conforme : à remplacer comme un périmé) ou **retiré** (déjà
   jeté : marqué supprimé). Un signalement résolu peut être rouvert.
 
-Une réponse (facultative) est visible de tous les utilisateurs qui suivent les signalements.
+Le TECH peut répondre par un commentaire (facultatif) à chaque étape : écrit dans le champ au-dessus des
+boutons, il part avec le bouton choisi (« En cours · utilisable », « En cours · inutilisable », « Résolu »…), ou
+seul avec « Commenter sans changer l'état ». Les commentaires s'ajoutent les uns aux autres, avec l'état choisi,
+leur auteur et leur date : ils sont visibles de tous, dans la page Signalements, sur la fiche de ce qui est
+signalé et dans la fenêtre qui s'ouvre au scan d'un item signalé.
 
 ### Désactiver des items (rappel produit, non-conformité)
 

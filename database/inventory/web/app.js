@@ -5408,7 +5408,18 @@
         where ? el('div', {}, where) : '',
         el('div', { class: 'sub' }, `${report.status_label} · signalé par ${report.by} ${fmtOn(report.created, { long: true })}`),
         report.comment ? el('p', { class: 'comment' }, '« ' + report.comment + ' »') : el('p', { class: 'sub' }, 'Sans commentaire.'),
-        report.note ? el('p', { class: 'note' }, '💬 ' + report.note) : '')));
+        repliesBlock(report))));
+  }
+
+  // Commentaires du TECH en reponse a un signalement, du plus ancien au plus recent, avec l'etat choisi en meme temps
+  // (« En cours · inutilisable »…). Signalement d'avant l'historique : sa reponse unique (note).
+  function repliesBlock(report) {
+    const replies = report.replies || (report.note ? [{ text: report.note }] : []);
+    if (!replies.length) return '';
+    return el('div', { class: 'replies' }, ...replies.map((reply) => el('div', { class: 'reply' },
+      el('p', { class: 'note' }, '💬 ' + reply.text),
+      reply.by || reply.created || reply.action ? el('div', { class: 'sub' },
+        [reply.action, reply.by, reply.created ? fmtOn(reply.created, { long: true }) : ''].filter(Boolean).join(' · ')) : '')));
   }
 
   // Signalements en cours d'un lot et de ses sous-lots : sur le lot lui-meme, sur un type d'item, ou sur un item
@@ -5449,7 +5460,7 @@
       el('b', {}, report.usable ? '⚠ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
       el('div', { class: 'sub' }, `${report.status_label} · signalé par ${report.by} ${fmtOn(report.created)}`),
       report.comment ? el('p', { class: 'comment' }, '« ' + report.comment + ' »') : el('p', { class: 'sub' }, 'Sans commentaire.'),
-      report.note ? el('p', { class: 'note' }, '💬 ' + report.note) : '')));
+      repliesBlock(report))));
     const dialog = $('#reported');
     $('#reported-close').onclick = () => dialog.close();
     if (!dialog.open) dialog.showModal();
@@ -5605,10 +5616,16 @@
     : row.status === 'resolved' ? 'Résolu' + (row.resolution_label ? ' · ' + row.resolution_label.toLowerCase() : '')
     : `En cours · ${row.usable ? 'utilisable' : 'inutilisable'}`);
 
+  // Commentaire en cours de redaction par signalement : garde a travers les rechargements de la liste, envoye avec
+  // le bouton d'etat choisi (ou seul, « Commenter »)
+  const reportDrafts = {};
+
   async function updateReport(row, changes) {
+    const note = (reportDrafts[row.id] || '').trim();
     try {
-      await api(`reports/${row.id}/`, { user: credentials(), ...changes });
-      toast('Signalement mis à jour.');
+      await api(`reports/${row.id}/`, { user: credentials(), ...changes, note });
+      delete reportDrafts[row.id];
+      toast(note ? 'Signalement mis à jour, commentaire ajouté.' : 'Signalement mis à jour.');
     } catch (e) {
       toast(e.message, true);
       if (e.data && e.data.pin_required) { state.user = null; save(); }
@@ -5625,12 +5642,14 @@
       el('div', { class: 'sub' }, `Signalé par ${row.by} ${fmtOn(row.created, { long: true })}` + (row.item && showIds() ? ` · ${row.item}` : '')),
       el('div', {}, row.usable ? '✔ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
       row.comment ? el('p', { class: 'comment' }, row.comment) : '',
-      row.note ? el('p', { class: 'note' }, '💬 ' + row.note) : '',
+      repliesBlock(row),
       row.updated ? el('div', { class: 'sub' }, `Mis à jour ${fmtOn(row.updated, { long: true })}` + (row.updated_by ? ` par ${row.updated_by}` : '')) : '',
     ];
     if (manage) {
-      const note = el('textarea', { rows: 2, maxlength: 1000, placeholder: 'Réponse visible de tous (facultatif)' });
-      note.value = row.note || '';
+      const note = el('textarea', { rows: 2, maxlength: 1000,
+        placeholder: 'Commentaire visible de tous (facultatif), envoyé avec le bouton choisi',
+        oninput: (event) => { reportDrafts[row.id] = event.target.value; } });
+      note.value = reportDrafts[row.id] || '';
       const buttons = row.status === 'resolved'
         ? [el('button', { type: 'button', onclick: () => updateReport(row, { status: 'progress' }) }, icon('undo'), 'Rouvrir')]
         : [
@@ -5651,7 +5670,10 @@
           ] : [el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved' }) }, icon('check'), 'Résolu')]),
         ];
       parts.push(el('div', { class: 'report-manage' }, note,
-        el('button', { type: 'button', onclick: () => updateReport(row, { note: note.value }) }, 'Enregistrer la réponse'),
+        el('button', { type: 'button', onclick: () => {
+          if (!note.value.trim()) { toast('Écrivez d\'abord le commentaire.', true); note.focus(); return; }
+          updateReport(row, {});
+        } }, 'Commenter sans changer l\'état'),
         el('div', { class: 'report-actions' }, ...buttons)));
     }
     return el('div', { class: 'report-card ' + row.color }, ...parts);

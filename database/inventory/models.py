@@ -1229,6 +1229,21 @@ class ProblemReport(models.Model):
         return 'green'
 
 
+class ReportReply(models.Model):
+    """Commentaire du TECH en reponse a un signalement, visible de tous. Un par prise en charge, changement d'etat
+    ou simple reponse : l'historique reste lisible. `action` : ce qui a ete fait en meme temps (« En cours ·
+    inutilisable », « Résolu · item désactivé »…), vide pour un simple commentaire. ProblemReport.note garde le
+    dernier."""
+    report = models.ForeignKey(ProblemReport, on_delete=models.CASCADE, related_name='replies')
+    created = models.DateTimeField(default=timezone.now)
+    by = models.CharField(max_length=64, blank=True, default='')
+    text = models.TextField()
+    action = models.CharField(max_length=80, blank=True, default='')
+
+    class Meta:
+        ordering = ('created', 'id')
+
+
 class ChecklistStatus(models.TextChoices):
     DRAFT = 'draft', 'À préparer'          # modifiable, verifiable (scans en direct)
     VALIDATED = 'validated', 'Sortie'      # verifiee : items sortis du stock, retour a faire
