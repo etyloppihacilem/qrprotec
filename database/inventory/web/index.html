@@ -305,6 +305,28 @@
     </div>
   </dialog>
 
+  <!-- Nouvelles etiquettes d'items (admins, Gestion de la TECH, bouton +) : imprimees au poste -->
+  <dialog id="label-prints">
+    <form id="label-print-form">
+      <h2>Nouvelles étiquettes d'items</h2>
+      <p class="hint">Pour du matériel d'un type existant (réassort, dons) : la demande part au poste, qui ouvre la
+        fenêtre « Impressions en attente », même sans personne de connecté. On y lance l'impression puis on colle les
+        étiquettes. Les items sont créés au stock à l'impression, à votre nom.</p>
+      <label>Type d'item
+        <select id="label-print-type" required></select></label>
+      <label>Nombre d'étiquettes
+        <input type="number" id="label-print-count" min="1" max="200" value="1" required inputmode="numeric"></label>
+      <label id="label-print-date-row" hidden>Date de péremption
+        <input type="date" id="label-print-date"></label>
+      <p id="label-print-error" class="pin-error"></p>
+      <div class="dialog-buttons">
+        <button type="button" id="label-print-close" class="secondary">Fermer</button>
+        <button type="submit" id="label-print-send" class="primary">Envoyer au poste</button>
+      </div>
+    </form>
+    <div id="label-print-list"></div>
+  </dialog>
+
   <dialog id="debug-player"></dialog>
   <dialog id="report"><div id="report-body"></div><button type="button" class="primary" id="report-close">OK</button></dialog>
   <!-- compte rendu d'une vérif passée (liste « Vérifs récentes ») -->

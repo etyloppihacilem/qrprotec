@@ -4320,7 +4320,7 @@
   // revisions, vérifs du stock, commandes et deplacements, puis les taches de temps en temps. Toucher une tache ouvre
   // ce qui permet de la traiter (fiche du lot ou de l'item, signalements, prévisions, listes).
   const TASK_LINK_HINTS = { users: 'Au poste : Administration › Utilisateurs', inventory: 'Au poste : Gestion › Inventaire',
-    lot_admin: 'Au poste : Gestion › Gestion des lots' };
+    lot_admin: 'Au poste : Gestion › Gestion des lots', label_prints: 'Au poste : fenêtre « Impressions en attente »' };
 
   function openTask(row) {
     if (row.link === 'lot' && row.lot) openFiche('lot', row.lot);
@@ -4329,6 +4329,7 @@
     else if (row.link === 'lists') showHome('lists');
     else if (row.link === 'forecast') { state.homeView = 'forecast'; renderStock(); $('#home-pages').scrollTop = 0; }
     else if (row.link === 'stock') { state.homeView = 'stock'; renderStock(); $('#home-pages').scrollTop = 0; }
+    else if (row.link === 'label_prints') openLabelPrints();
   }
 
   function renderTasks(parts) {
@@ -4350,7 +4351,8 @@
         `${category.title} (${category.count})`));
       parts.push(el('p', { class: 'hint' }, category.help));
       for (const row of rows) {
-        const clickable = ['lot', 'item', 'reports', 'lists', 'forecast', 'stock'].includes(row.link);
+        const clickable = ['lot', 'item', 'reports', 'lists', 'forecast', 'stock'].includes(row.link)
+          || (row.link === 'label_prints' && isAdmin());
         parts.push(el(clickable ? 'button' : 'div', {
           type: clickable ? 'button' : null,
           class: 'task-row stock-row' + (row.level === 'info' ? '' : ' ' + row.level),
@@ -4377,6 +4379,8 @@
     const head = el('div', { class: 'row-head' },
       el('h3', {}, view === 'tasks' ? 'À faire' : forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
       el('div', { class: 'buttons' },
+        isAdmin() ? el('button', { type: 'button', onclick: openLabelPrints, title: 'Nouvelles étiquettes d\'items' },
+          icon('plus'), 'Étiquettes') : null,
         el('button', { type: 'button', onclick: loadStock }, icon('refresh'), state.loading === 'stock' ? 'Chargement…' : 'Actualiser')));
     const parts = [toggle, head];
     if (view === 'tasks') {
@@ -4412,6 +4416,120 @@
     }
     return parts;
   }
+
+  // Nouvelles etiquettes d'items d'un type existant (admins, Gestion de la TECH, bouton +). La demande part au poste,
+  // qui ouvre la fenetre « Impressions en attente » meme sans personne de connecte : un secouriste qui rentre avec du
+  // reassort lance l'impression et colle lui-meme les etiquettes. Les items sont crees a l'impression.
+  const labelPrints = { data: null, busy: false };
+
+  function openLabelPrints() {
+    if (!isAdmin()) return;
+    $('#label-print-error').textContent = '';
+    renderLabelPrints();
+    const dialog = $('#label-prints');
+    if (!dialog.open) dialog.showModal();
+    loadLabelPrints();
+  }
+
+  async function loadLabelPrints() {
+    try {
+      labelPrints.data = await api('label-prints/list/', { user: badge() });
+    } catch (e) {
+      $('#label-print-error').textContent = e.message;
+      if (e.data && e.data.pin_required) { state.user = null; save(); render(); }
+    }
+    renderLabelPrints();
+  }
+
+  const labelPrintType = () => {
+    const data = labelPrints.data;
+    return data ? data.types.find((type) => type.type === $('#label-print-type').value) : null;
+  };
+
+  function renderLabelPrintDate() {
+    const type = labelPrintType();
+    $('#label-print-date-row').hidden = !(type && type.perissable);
+    $('#label-print-date').required = !!(type && type.perissable);
+  }
+
+  function renderLabelPrints() {
+    const data = labelPrints.data;
+    const select = $('#label-print-type');
+    const chosen = select.value;
+    select.replaceChildren(el('option', { value: '' }, data ? 'Choisir un type d\'item…' : 'Chargement…'),
+      ...(data ? data.types : []).map((type) => el('option', { value: type.type }, type.name)));
+    select.value = data && data.types.some((type) => type.type === chosen) ? chosen : '';
+    if (data) $('#label-print-count').max = data.max_count;
+    renderLabelPrintDate();
+    $('#label-print-send').disabled = !data || labelPrints.busy;
+    const list = $('#label-print-list');
+    if (!data) { list.replaceChildren(); return; }
+    const pending = data.prints.filter((row) => row.pending);
+    const done = data.prints.filter((row) => !row.pending);
+    const what = (row) => `${row.count} × ${row.type_name}` + (row.peremption ? `, péremption ${fmtDate(row.peremption)}` : '');
+    const parts = [];
+    parts.push(el('h3', {}, pending.length ? `En attente au poste (${pending.length})` : 'En attente au poste'));
+    if (!pending.length) parts.push(el('p', { class: 'hint' }, 'Aucune impression en attente.'));
+    for (const row of pending) {
+      parts.push(el('div', { class: 'stock-row warn' },
+        el('div', { class: 'row-head' }, el('b', {}, what(row)),
+          el('button', { type: 'button', class: 'secondary', onclick: () => cancelLabelPrint(row) }, 'Annuler')),
+        el('div', { class: 'sub hint' }, `demandé par ${row.by} ${fmtDateTime(row.created)}`)));
+    }
+    if (done.length) {
+      parts.push(el('h3', {}, '7 derniers jours'));
+      for (const row of done) {
+        const status = row.printed ? `imprimé ${fmtDateTime(row.printed)}` + (row.printed_on ? ` sur ${row.printed_on}` : '')
+          : `annulé ${fmtDateTime(row.cancelled)}` + (row.cancelled_by ? ` par ${row.cancelled_by}` : '');
+        parts.push(el('div', { class: 'stock-row' }, el('b', {}, what(row)),
+          el('div', { class: 'sub hint' }, `${status} · demandé par ${row.by}`)));
+      }
+    }
+    list.replaceChildren(...parts);
+  }
+
+  async function sendLabelPrint(event) {
+    event.preventDefault();
+    const type = labelPrintType();
+    const error = $('#label-print-error');
+    error.textContent = '';
+    if (!type) { error.textContent = 'Choisissez un type d\'item.'; return; }
+    const count = parseInt($('#label-print-count').value, 10);
+    if (!(count >= 1)) { error.textContent = 'Indiquez le nombre d\'étiquettes.'; return; }
+    const peremption = type.perissable ? $('#label-print-date').value : '';
+    if (type.perissable && !peremption) { error.textContent = `${type.name} est périssable : indiquez la date de péremption.`; return; }
+    labelPrints.busy = true;
+    renderLabelPrints();
+    try {
+      await api('label-prints/', { user: badge(), type: type.type, count, peremption: peremption || null });
+      feedback.good();
+      toast(`${nb(count, 'étiquette')} de ${type.name} ${pl(count, 'envoyée', 'envoyées')} au poste.`);
+      $('#label-print-count').value = 1;
+      $('#label-print-date').value = '';
+      $('#label-print-type').value = '';
+      loadStock();
+    } catch (e) {
+      error.textContent = e.message;
+      if (e.data && e.data.pin_required) { state.user = null; save(); render(); }
+    }
+    labelPrints.busy = false;
+    await loadLabelPrints();
+  }
+
+  async function cancelLabelPrint(row) {
+    if (!confirm(`Annuler l'impression de ${row.count} × ${row.type_name} ?`)) return;
+    try {
+      await api(`label-prints/${row.id}/cancel/`, { user: badge() });
+      loadStock();
+    } catch (e) {
+      $('#label-print-error').textContent = e.message;
+    }
+    await loadLabelPrints();
+  }
+
+  $('#label-print-form').addEventListener('submit', sendLabelPrint);
+  $('#label-print-type').addEventListener('change', renderLabelPrintDate);
+  $('#label-print-close').addEventListener('click', () => $('#label-prints').close());
 
   function renderStock() {
     $('#home-stock').replaceChildren(...stockParts(state.homeView || 'tasks'));

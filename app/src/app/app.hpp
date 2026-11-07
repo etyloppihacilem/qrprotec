@@ -257,6 +257,17 @@ struct ProblemPrompt {
     std::string   error;
 };
 
+// Fenetre « Impressions en attente » (database/inventory/label_prints.py) : demandes du web, imprimees au poste
+struct LabelPrints {
+    Json            data = Json::object(); // {"pending": [...], "recent": [...]} de /api/label-prints/pending/
+    std::set< int > seen;                  // demandes deja vues : seule une nouvelle rouvre la fenetre
+    bool            open    = false;
+    bool            focus   = false;
+    bool            loading = false;
+    bool            busy    = false; // impression lancee, demandes envoyees une par une
+    double          next_poll = 0.0;
+};
+
 struct LabelPreviewState {
     std::vector< PrintJob > jobs;
     std::string             title;
@@ -436,6 +447,10 @@ class App {
     void refresh_stock();
     void refresh_forecast();
     void refresh_tasks();
+    // Etiquettes d'items demandees depuis le web par un admin : fenetre « Impressions en attente », ouverte d'elle-meme
+    // a chaque nouvelle demande, meme sans personne de connecte (voir label_prints.cpp)
+    void refresh_label_prints();
+    void open_label_prints() { label_prints_.open = label_prints_.focus = true; }
     // « Marquer ce lot comme utilisé (demander une vérif) » : tout utilisateur identifie, lot en vérif recommandee
     void mark_lot_used(const std::string &lot_id, const std::string &name);
 
@@ -534,6 +549,9 @@ class App {
     void send_revision();
     void draw_reports_alert();
     void draw_seal_opening_modal();
+    void draw_label_prints();
+    void launch_label_prints(std::vector< int > ids);
+    void print_label_request(const Json &request); // etiquettes des items crees par une demande
     void send_problem();
     void reload_verif_lots(); // contenu a jour des lots de la verif (item signale inutilisable : a remplacer)
     void flush_cascade_seals(); // vérif en cascade : scelles intacts constates enregistres tout de suite
@@ -594,6 +612,7 @@ class App {
     RevisionPrompt          revision_;
     ReportsAlert            reports_alert_;
     SealOpening             seal_opening_;
+    LabelPrints             label_prints_;
     double                  next_reports_poll_ = 0.0;
     bool                    login_declared_    = true; // nom declare accepte pour l'action en attente
     std::string             login_reason_;

@@ -1263,3 +1263,28 @@ class ChecklistScan(models.Model):
 
     class Meta:
         ordering = ['at', 'id']
+
+
+class LabelPrint(models.Model):
+    """Etiquettes d'items demandees depuis le front web (admins, Gestion de la TECH, bouton +) et imprimees au poste.
+
+    Exemple : un secouriste rentre de poste avec du reassort des pompiers. Un admin demande depuis son telephone
+    « 5 × Compresses, perime le ... » ; le poste ouvre la fenetre « Impressions en attente », meme sans personne de
+    connecte, et le secouriste lance l'impression puis colle lui-meme les etiquettes. Les items ne sont crees qu'a
+    l'impression (`items` : leurs iids), au nom de l'admin qui les a demandes (journal : reception), et ranges au
+    stock. `printed_on` : nom du poste qui a imprime (cle de front), vide pour le poste local.
+    """
+    created = models.DateTimeField(default=timezone.now, db_index=True)
+    by = models.CharField(max_length=64)  # identite stockee de l'admin qui demande (M:matricule)
+    item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT, related_name='+')
+    count = models.PositiveIntegerField()
+    peremption = models.DateField(null=True, blank=True)
+    printed = models.DateTimeField(null=True, blank=True, db_index=True)
+    printed_on = models.CharField(max_length=64, blank=True, default='')
+    items = models.JSONField(default=list, blank=True)
+    cancelled = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.CharField(max_length=64, blank=True, default='')
+
+    @property
+    def pending(self) -> bool:
+        return self.printed is None and self.cancelled is None
