@@ -3107,6 +3107,69 @@ class LiveHubTests(ApiTestCase):
         for socket in (first, second, third):
             socket.push(None)
 
+    def start_guest_team(self, verified=True):
+        """Jeanne (badge, sinon un premier invite) commence la vérif du lot ; un invite sans compte la rejoint en
+        commencant la vérif du meme lot (fusion). Renvoie (sockets, hello de l'invite, items)."""
+        items = self.create(self.compresses, self.today + timedelta(days=200), 2)
+
+        def start(hello, item):
+            socket = FakeSocket(hello)
+            self.run_socket(self.hub.run_scanner, socket)
+            self.wait(lambda: socket.sent)
+            entry = {'code': item.iid, 'kind': 'item', 'iid': item.iid, 'info': {'type_name': 'Compresses'}}
+            socket.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'root': self.lot.id,
+                         'entries': [entry], 'keys': [{'id': self.lot.id, 'key': self.lot.verif_key}]})
+            return socket
+
+        first = start({'type': 'hello', 'user': self.badge} if verified else {'type': 'hello', 'guest': True}, items[0])
+        self.wait(lambda: self.hub.visible())
+        second = start({'type': 'hello', 'guest': True, 'name': ''}, items[1])
+        self.wait(lambda: any(m['type'] == 'hello' and m.get('merged') for m in second.sent))
+        return (first, second), next(m for m in second.sent if m.get('merged')), items
+
+    def test_guest_sends_the_team_check_in_the_name_of_a_connected_rescuer(self):
+        from unittest import mock
+        sockets, hello, items = self.start_guest_team()
+        session = self.hub.sessions[hello['id']]
+        self.assertEqual(sorted(p['who'] for p in session.people()), ['Invité', 'Jeanne'])
+        live = {'id': hello['id'], 'pid': hello['pid'], 'token': hello['token']}
+        with mock.patch.object(self.live, 'hub', self.hub):
+            code, report = self.call('POST', '/api/verifs/', {
+                'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items], 'guest': True, 'name': ' Lucas ',
+                'live': live}, local=False)
+        self.assertEqual(code, 200, report)
+        verif = Verifs.objects.get(lot=self.lot)
+        self.assertEqual((verif.by, verif.participants), ('M:M001', ['D:Lucas (invité)']))
+        self.assertEqual(report['participants'], ['Jeanne', 'Lucas (invité)'])
+        for socket in sockets:
+            socket.push(None)
+
+    def test_team_check_needs_a_connected_rescuer(self):
+        from unittest import mock
+        sockets, hello, items = self.start_guest_team(verified=False)
+        live = {'id': hello['id'], 'pid': hello['pid'], 'token': hello['token']}
+        with mock.patch.object(self.live, 'hub', self.hub):
+            code, body = self.call('POST', '/api/verifs/', {
+                'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items], 'guest': True, 'live': live},
+                local=False)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['login_required'])
+        self.assertFalse(Verifs.objects.filter(lot=self.lot).exists())
+        # abandonnee sans personne : pas enregistree non plus par le serveur
+        session = self.hub.sessions[hello['id']]
+        for participant in session.participants.values():
+            participant.validated = True
+        self.assertFalse(self.hub.save_unattended(session))
+        for socket in sockets:
+            socket.push(None)
+
+    def test_guest_identity(self):
+        from .idendity import guest_identity, declared_short_name
+        self.assertEqual(guest_identity(''), 'D:Invité')
+        self.assertEqual(guest_identity('  invité '), 'D:Invité')
+        self.assertEqual(guest_identity('Jean  Martin'), 'D:Jean Martin (invité)')
+        self.assertEqual(declared_short_name('Jean Martin (invité)'), 'Jean M. (invité)')
+
     def test_same_person_on_two_pages_is_shown_once(self):
         """Meme utilisateur sur deux pages (etiquette cle ouverte avec l'appareil photo dans un nouvel onglet) : les
         vérifs du meme lot global sont fusionnees, mais il n'apparait qu'une fois ; sa validation vaut pour les deux."""

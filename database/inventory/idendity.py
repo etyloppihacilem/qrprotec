@@ -36,6 +36,20 @@ def format_identity_declared(name: str) -> str:
     return f"{SOURCE_DECLARED}:{cleaned[:30]}"
 
 
+# Invite d'une vérif à plusieurs (secouriste d'une autre antenne, sans compte), supervise par un secouriste connecte :
+# identite declaree « Prenom (invité) », ou « Invité » sans prenom, meme sans le reglage du nom declare
+GUEST = 'Invité'
+GUEST_SUFFIX = ' (invité)'
+
+
+def guest_identity(name='') -> str:
+    """Identite stockee d'un invite d'une vérif à plusieurs : son prenom s'il l'a donne, sinon « Invité »."""
+    cleaned = ' '.join(str(name or '').split())[:30 - len(GUEST_SUFFIX)]
+    if not cleaned or cleaned.lower() in ('invité', 'invite'):
+        return f'{SOURCE_DECLARED}:{GUEST}'
+    return f'{SOURCE_DECLARED}:{cleaned}{GUEST_SUFFIX}'
+
+
 def parse_identity(value: str) -> dict:
     """Décode une identité stockée pour affichage/traitement interne."""
     source, _, payload = value.partition(':')
@@ -157,6 +171,8 @@ def _names() -> dict:
 
 def declared_short_name(name: str) -> str:
     """Identite declaree (texte libre, « Jean Martin ») : premier mot, plus l'initiale de la suite."""
+    if name.endswith(GUEST_SUFFIX):  # invite : « Jean M. (invité) »
+        return declared_short_name(name[:-len(GUEST_SUFFIX)]) + GUEST_SUFFIX
     words = name.split()
     if len(words) <= 1 or name == ANONYMOUS_OPENING:
         return name.strip()
