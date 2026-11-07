@@ -3173,8 +3173,11 @@
 
   function openGate(after = '') {
     pendingAfterLogin = after;
-    $('#login-gate-text').textContent = after === 'verif' || (!inHome() && !ficheOpen())
-      ? 'Pour vérifier ce lot, connectez-vous d\'abord.' : 'Connectez-vous pour continuer.';
+    // vérif : la connexion est conseillee, pas imposee (secouriste d'une autre antenne sans compte, supervise par un
+    // secouriste connecte) ; il peut continuer en invite
+    const verif = after === 'verif' || (!inHome() && !ficheOpen());
+    $('#login-gate-text').textContent = verif ? 'Connectez-vous pour que votre vérif soit à votre nom.' : 'Connectez-vous pour continuer.';
+    $('#login-gate-later').textContent = verif ? 'Continuer sans compte (invité)' : 'Annuler';
     document.body.classList.add('login-gate');
     $('#login-gate').hidden = false;
     placeGateCamera();
@@ -3183,7 +3186,7 @@
     if (inHome()) renderHomePage();
   }
 
-  // done : connexion reussie (sinon fermee par « Plus tard »)
+  // done : connexion reussie (sinon fermee par « Continuer sans compte (invité) » ou « Annuler »)
   function closeGate(done = false) {
     if (!gateOpen()) return;
     document.body.classList.remove('login-gate');

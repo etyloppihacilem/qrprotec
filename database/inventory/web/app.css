@@ -366,8 +366,8 @@ dialog.above-keyboard { margin-top: 0; margin-bottom: auto; bottom: auto; overfl
 #login-gate p { margin: 0; max-width: 420px; }
 #login-gate-cam { flex: 1 1 auto; width: min(86vw, 360px); min-height: 220px; max-height: 420px; }
 #login-gate .login-gate-help { color: var(--muted); font-size: .95rem; }
-#login-gate-name { width: min(100%, 420px); padding: 14px; font-size: 1.05rem; }
-#login-gate-later { color: var(--muted); font-size: .95rem; }
+#login-gate-name { width: min(100%, 420px); padding: 14px; font-size: 1.05rem; background: var(--navy); color: #fff; font-weight: 600; }
+#login-gate-later { width: min(100%, 420px); padding: 12px; background: none; border: 1px solid var(--line); color: var(--text); }
 body.login-gate #camera { display: block !important; position: fixed; z-index: 47; left: var(--gate-left, 7vw);
   top: var(--gate-top, 120px); width: var(--gate-width, 86vw); height: var(--gate-height, 40dvh); border-radius: 18px;
   outline: 4px solid var(--navy); box-shadow: 0 6px 24px rgba(0, 0, 0, .35); }
