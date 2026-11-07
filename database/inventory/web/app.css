@@ -231,6 +231,13 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .list li.group.bad { background: var(--red); }
 .list li.group.partial { background: var(--orange); }
 .list li.group.other { background: #8a8f94; }
+/* Facultatif (casques du VPS) : ni a faire ni un probleme, fond clair et bord en tirets ; scanne, il passe au vert */
+.list li.group.optional { background: var(--panel); color: var(--muted); border: 2px dashed #8a8f94; }
+.list li.group.optional .sub { color: var(--muted); }
+.list li.group.optional .plus { background: transparent; }
+.tag.optional { background: transparent; color: var(--muted); border: 1px dashed #8a8f94; font-weight: 600; margin-left: .4em; }
+.list li.group:not(.optional) .tag.optional { color: #fff; border-color: rgba(255, 255, 255, .8); }
+.req.optional .label { color: var(--muted); }
 .list li.group .count { font-size: 1.05rem; }
 .list li.group .chevron { width: 1em; flex: none; text-align: center; }
 .list li.group.foldable { cursor: pointer; user-select: none; }
@@ -243,6 +250,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .list li.place-head.ok { border-left-color: var(--green); }
 .list li.place-head.bad { border-left-color: var(--red); }
 .list li.place-head.partial { border-left-color: var(--orange); }
+.list li.place-head.optional { border-left: 6px dashed #8a8f94; }
 /* Bandeau d'etat du lot */
 .banner { color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 6px 0; }
 .banner.ok { background: var(--green); }
@@ -518,6 +526,9 @@ button.task-row.bad { border-left: 4px solid var(--red); background: var(--red-b
 .list li.sub-lot { cursor: pointer; }
 .list li.sub-lot .chevron { font-size: 1.4rem; opacity: .8; }
 .list li.lot-head.todo { border-left-color: #8a8f94; }
+/* sous-lot facultatif pas commence : validable sans lui */
+.list li.lot-head.optional { background: var(--panel); color: var(--muted); border: 2px dashed #8a8f94; }
+.list li.lot-head.optional .sub { color: var(--muted); }
 .list li.cascade-own { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; padding-top: 10px; }
 .list li.sub-lot.ok { background: var(--green); border-left-color: var(--green); }
 .list li.sub-lot.bad { background: var(--red); border-left-color: var(--red); }

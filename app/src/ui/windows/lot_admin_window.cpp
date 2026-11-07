@@ -26,7 +26,16 @@ struct RequirementRow {
     std::string type;
     int         quantity = 1;
     std::string location; // emplacement dans le lot (ex: pochette bleue)
+    bool        optional = false; // facultatif a la verif (seulement du non consommable sans taches)
 };
+
+// Un type d'item peut etre facultatif dans un lot : non consommable et sans taches (ItemType.can_be_optional)
+bool can_be_optional(const Json &item_types, const std::string &type) {
+  for (const Json &item_type : item_types.items())
+    if (item_type["type"].str() == type)
+      return !item_type["consumable"].boolean(true) && item_type["tasks"].size() == 0;
+  return false;
+}
 
 // Ligne du contenu propre d'un lot : un attendu de son type (base > 0) avec ce que le lot a en plus et son
 // emplacement dans ce lot, ou un item que seul ce lot contient (base 0).
@@ -285,6 +294,7 @@ class LotAdminWindow final : public AppWindow {
           edit_short_  = lot_["name_short"].str();
           edit_parent_ = lot_["parent"].str();
           edit_key_location_ = lot_["key_location"].str();
+          edit_optional_     = lot_["optional"].boolean();
         } else {
           app.notify(result.error, true);
         }
@@ -501,6 +511,14 @@ class LotAdminWindow final : public AppWindow {
       input_limited("Emplacement de l'étiquette clé", edit_key_location_, 128);
       help_marker("Où trouver l'étiquette clé dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
                   "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
+      if (!lot_["storage"].boolean()) {
+        ImGui::BeginDisabled(edit_parent_.empty());
+        ImGui::Checkbox("Sous-lot facultatif à la vérif", &edit_optional_);
+        ImGui::EndDisabled();
+        help_marker("Le lot qui le contient se valide sans lui (ex : la caisse des lampes du VPS) : il est affiché en "
+                    "gris pendant la vérif, on peut y entrer pour scanner ce qu'il contient et savoir où c'est. "
+                    "Seulement pour un sous-lot qui n'attend que du matériel non consommable sans tâches.");
+      }
       ImGui::BeginDisabled(edit_name_.empty() || name_taken);
       if (button("Enregistrer")) {
         Json body;
@@ -508,6 +526,8 @@ class LotAdminWindow final : public AppWindow {
         body["name_short"] = edit_short_;
         body["parent"]       = edit_parent_;
         body["key_location"] = edit_key_location_;
+        if (!lot_["storage"].boolean())
+          body["optional"] = edit_optional_ && !edit_parent_.empty();
         update_lot(app, body);
       }
       ImGui::EndDisabled();
@@ -563,7 +583,7 @@ class LotAdminWindow final : public AppWindow {
           const std::string location = row["location"].str();
           ImGui::TextDisabled("%s", location.empty() ? "-" : location.c_str());
           ImGui::TableNextColumn();
-          lot_bar(row["present"].integer(), row["required"].integer(), ImVec2(-FLT_MIN, 0));
+          requirement_bar(row, row["present"].integer(), ImVec2(-FLT_MIN, 0));
         }
         ImGui::EndTable();
       }
@@ -893,13 +913,23 @@ class LotAdminWindow final : public AppWindow {
         ImGui::PushID(static_cast< int >(index));
         const float width = ImGui::GetContentRegionAvail().x;
         search_select("type", item_types, "type", "name", row.type, "Tapez le nom du type d'item…",
-                      nullptr, width * 0.42f);
+                      nullptr, width * 0.36f);
         ImGui::SameLine();
-        input_suggest("location", row.location, suggestions, 64, "Emplacement (ex : pochette bleue)", width * 0.28f);
+        input_suggest("location", row.location, suggestions, 64, "Emplacement (ex : pochette bleue)", width * 0.24f);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
         ImGui::InputInt("##qty", &row.quantity);
         row.quantity = std::max(1, row.quantity);
+        ImGui::SameLine();
+        // facultatif : seulement du materiel non consommable sans taches (ex : les casques du VPS)
+        const bool optional_ok = can_be_optional(item_types, row.type);
+        row.optional           = row.optional && optional_ok;
+        ImGui::BeginDisabled(!optional_ok);
+        ImGui::Checkbox("Facultatif", &row.optional);
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip(optional_ok ? "Le lot se valide sans : affiché en gris pendant la vérif, on peut "
+                                            "quand même les scanner pour savoir où ils sont."
+                                          : "Seul le matériel non consommable sans tâches peut être facultatif.");
         ImGui::SameLine();
         if (small_button("Retirer"))
           remove = static_cast< int >(index);
@@ -923,6 +953,7 @@ class LotAdminWindow final : public AppWindow {
           entry["type"]     = row.type;
           entry["quantity"] = row.quantity;
           entry["location"] = row.location;
+          entry["optional"] = row.optional;
           body["requirements"].push_back(entry);
         }
         app.api.put("/api/lot-types/" + url_encode(editing_lot_type_) + "/requirements/", body,
@@ -1015,7 +1046,8 @@ class LotAdminWindow final : public AppWindow {
       for (const Json &location : lot_type["locations"].items())
         locations_.push_back(location.str());
       for (const Json &row : lot_type["requirements"].items())
-        requirements_.push_back({ row["type"].str(), row["quantity"].integer(1), row["location"].str() });
+        requirements_.push_back({ row["type"].str(), static_cast< int >(row["quantity"].integer(1)),
+                                  row["location"].str(), row["optional"].boolean() });
     }
 
     // Lots
@@ -1027,6 +1059,7 @@ class LotAdminWindow final : public AppWindow {
     std::string edit_short_;
     std::string edit_parent_;
     std::string edit_key_location_;
+    bool        edit_optional_ = false;
     std::string new_lot_parent_;
     std::string new_lot_key_location_;
     std::string new_lot_type_;

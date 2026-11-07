@@ -53,6 +53,11 @@ void draw_qr(const std::string &payload, float size);
 void stock_bar(int quantity, int minimum, const ImVec2 &size = ImVec2(-1.0f, 0.0f), int extra = 0);
 // Barre d'un type attendu dans un lot : les items au-dela du minimum en "+ x" (5 pour 3 attendus : 3/3 + 2)
 void lot_bar(int present, int required, const ImVec2 &size = ImVec2(-1.0f, 0.0f));
+// Attendu facultatif (casques du VPS) : jauge grise sur le nombre prevu, verte quand tout est vu, jamais rouge ni
+// orange (le lot se valide sans)
+void optional_bar(int present, int expected, const ImVec2 &size);
+// Jauge d'une ligne d'attendus du serveur (requirements) : lot_bar, ou optional_bar si elle est facultative
+void requirement_bar(const Json &row, int present, const ImVec2 &size);
 
 // Cle de tri des barres de stock, attention d'abord : sous le minimum (par ratio), puis bientot sous le minimum ou
 // vide (soon : combien periment bientot), puis 0/0, puis complets, puis x/0.
@@ -119,7 +124,8 @@ void status_banner(const std::string &text, const ImVec4 &color, float scale = 1
 // Scelle : valide sans verif ; SealedExpired : scelle mais contient des perimes (a ouvrir)
 // Recommended : complet mais reassort ou scelle ouvert depuis la derniere verif (orange, verif complete recommandee)
 // SealOpened / MustSeal : type a scelle obligatoire, lot ouvert (rouge) avant ou apres sa verif complete
-enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired, Recommended, SealOpened, MustSeal };
+// Optional : sous-lot facultatif jamais verifie (son lot parent se valide sans lui), gris
+enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired, Recommended, SealOpened, MustSeal, Optional };
 bool        lot_ok(LotStatus status); // vert
 LotStatus   lot_status(const Json &lot);
 ImVec4      lot_status_color(LotStatus status);

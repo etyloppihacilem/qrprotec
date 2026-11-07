@@ -19,7 +19,7 @@ from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
 from .models import PUSH_TYPES, ItemStatus, compact_iid, qrprotec_setting
 from .reports import item_reports, pack_reports
-from .services import LotPreload, ordered_requirements, out_deadline, requirements_status
+from .services import LotPreload, optional_lot, optional_types, ordered_requirements, out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -195,6 +195,9 @@ def lot_type_dict(lot_type):
                 'type_name': requirement.item_type.name,
                 'quantity': requirement.quantity,
                 'location': requirement.location,
+                # facultatif a la verif : seulement pour du materiel non consommable sans taches
+                'optional': requirement.optional and requirement.item_type.can_be_optional,
+                'can_be_optional': requirement.item_type.can_be_optional,
             }
             for requirement in ordered_requirements(lot_type)
         ],
@@ -213,6 +216,7 @@ STATE_LABELS = {
     'seal_opened': '✘ Scellé ouvert, vérif complète puis scellé requis',
     'must_seal': '✘ Vérifié, doit être scellé',
     'verified': '✔ Vérifié, complet',
+    'optional': '✔ Facultatif, jamais vérifié',
 }
 KIND_ORDER = {'ok': 0, 'warn': 1, 'bad': 2}
 
@@ -222,7 +226,8 @@ def lot_state(data):
     if data['is_sealed']:
         code = 'sealed_expired' if data['expired_count'] else 'sealed'
     elif not data['last_verif']:
-        code = 'never'
+        # sous-lot facultatif : son lot parent se valide sans lui, jamais verifie n'est pas un probleme
+        code = 'optional' if data.get('optional') else 'never'
     elif not data['complete']:
         code = 'incomplete'
     elif data.get('seal_required'):
@@ -234,7 +239,7 @@ def lot_state(data):
                 else 'used' if data.get('marked_used') else 'opened')
     else:
         code = 'verified'
-    kind = 'ok' if code in ('sealed', 'verified') else 'warn' if code in ('recommended', 'opened', 'list_back', 'used') else 'bad'
+    kind = 'ok' if code in ('sealed', 'verified', 'optional') else 'warn' if code in ('recommended', 'opened', 'list_back', 'used') else 'bad'
     return {'kind': kind, 'code': code, 'label': STATE_LABELS[code]}
 
 
@@ -259,6 +264,8 @@ def _lot_core(lot, today, items=None, preload=None):
         'active': lot.active,
         'parent': lot.parent_id,
         'key_location': lot.key_location,
+        # sous-lot facultatif a la verif de son parent (services.optional_lot)
+        'optional': optional_lot(lot),
         'is_sealed': lot.is_sealed,
         'sealed': _date(lot.sealed) if lot.is_sealed else None,
         'sealed_by': _who(lot.sealed_by) if lot.is_sealed else '',
@@ -299,6 +306,7 @@ def aggregate_tree(rows):
 
     - un lot qui ne contient rien et n'attend rien mais a des sous-lots (simple regroupement) ne compte pas ;
     - un sous-lot d'un lot scelle intact est valide tant qu'il ne contient pas de perimes ;
+    - un sous-lot facultatif (services.optional_lot) ne compte pas ;
     - le lot global est valide si tous ses lots le sont, et sa derniere verif est la plus ancienne des
       dernieres verifs de ses lots (aucune si l'un d'eux n'a jamais ete verifie).
     Ajoute a chaque ligne 'counted' et 'effective' (etat dans le lot global).
@@ -319,7 +327,9 @@ def aggregate_tree(rows):
                 covered = True
                 break
             parent = parents.get(parent)
-        row['counted'] = bool(row['requirements'] or row['item_count'] or row['id'] not in has_children)
+        # un sous-lot facultatif ne compte pas : le lot global est valide sans lui
+        row['counted'] = (not row.get('optional')
+                          and bool(row['requirements'] or row['item_count'] or row['id'] not in has_children))
         if covered and not row['expired_count']:
             row['effective'] = {'kind': 'ok', 'code': 'covered', 'label': '✔ Dans un lot scellé'}
         else:
@@ -426,7 +436,7 @@ def lot_global(lot, today):
     rows = attention_order(rows)  # sous-lots a traiter en haut, sous leur parent
     keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed', 'sealed',
             'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
-            'counted')
+            'counted', 'optional')
     summary.update({
         'id': root.id,
         'name': root.name,
@@ -513,9 +523,16 @@ def seal_opening_dict(lot):
 
 
 def _add_items(data, lot, items, today):
-    data['items'] = [item_dict(item, today) for item in items]
+    # facultatif dans ce lot (attendu facultatif ou sous-lot facultatif) : non scanne, il ne retient pas le lot
+    _, optional = optional_types(lot)
+
+    def row(item):
+        result = item_dict(item, today)
+        result['optional'] = optional(item)
+        return result
+    data['items'] = [row(item) for item in items]
     data['missing_items'] = [
-        item_dict(item, today)
+        row(item)
         for item in lot.items.select_related('pack__item_type').filter(status=ItemStatus.MISSING).order_by('iid')
     ]
 

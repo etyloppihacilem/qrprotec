@@ -1437,8 +1437,9 @@
       for (const item of [...(lot.items || []), ...(lot.missing_items || [])]) {
         locationOf[item.iid] = lot.id;
         // un item a etiquette a dechirer non scanne a ete utilise, un item non consommable non scanne d'un lot
-        // ordinaire passe hors lot (services.leaves_lot) : ils ne retiennent pas le lot
-        if (!done.has(item.iid) && !item.tear_off && (item.consumable !== false || lot.storage)) holding[lot.id] = true;
+        // ordinaire passe hors lot (services.leaves_lot), un item facultatif reste ou il etait : ils ne retiennent pas
+        // le lot
+        if (!done.has(item.iid) && !item.tear_off && !item.optional && (item.consumable !== false || lot.storage)) holding[lot.id] = true;
       }
     }
     const required = {};
@@ -1512,7 +1513,8 @@
     const make = (kind, label) => ({ ok: kind === 'ok', kind, label });
     if (lot.is_sealed && lot.expired_count) return make('bad', '✘ Scellé, contient des périmés');
     if (lot.is_sealed) return make('ok', '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : ''));
-    if (!lot.last_verif) return make('bad', '✘ Jamais vérifié');
+    // sous-lot facultatif : son lot parent se valide sans lui (meme regle que serializers.lot_state)
+    if (!lot.last_verif) return lot.optional ? make('ok', '✔ Facultatif, jamais vérifié') : make('bad', '✘ Jamais vérifié');
     if (!lot.complete) return make('bad', lot.expired_count ? '✘ Incomplet (périmés)' : '✘ Incomplet');
     if (lot.seal_required) {
       return make('bad', lot.verif_recommended ? '✘ Scellé ouvert, vérif complète puis scellé requis' : '✘ Vérifié, doit être scellé');
@@ -2278,8 +2280,8 @@
           + (row.sealed ? `🔒 ${row.name} : scellé intact`
             : row.verified ? (row.complete ? '✔ ' : '✘ ') + row.name + (row.complete ? ' : complet' : ' : incomplet')
             : `↷ ${row.name} : non vérifié` + (row.restocked ? `, ${nb(row.restocked, 'item ajouté', 'items ajoutés')} (réassort)` : '')))))] : []),
-      ...(report.requirements || []).map((row) => lotRequirementRow(
-        (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row.required)),
+      ...(report.requirements || []).map((row) => requirementLine(
+        (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row)),
       ...section('Périmés ou inutilisables encore dans le lot : à remplacer', report.expired),
       ...section('Périmés retirés du lot : à jeter', report.replaced),
       // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
@@ -2395,13 +2397,23 @@
   const lotRequirementRow = (label, present, required, after = null) =>
     requirementRow(label, Math.min(present, required), required, after, Math.max(0, present - required));
 
-  function requirementRow(label, present, required, after = null, extra = 0) {
+  // Ligne d'un attendu du lot (row : ligne de requirements du serveur). Facultatif (casques du VPS) : jauge grise
+  // sur le nombre prevu, jamais rouge ni orange, le lot se valide sans
+  function requirementLine(label, present, row, after = null) {
+    if (!row.optional) return lotRequirementRow(label, present, row.required, after);
+    const expected = row.expected || 0;
+    return requirementRow(label, Math.min(present, expected), expected, after, Math.max(0, present - expected), true);
+  }
+
+  function requirementRow(label, present, required, after = null, extra = 0, optional = false) {
     const ratio = required > 0 ? Math.min(1, present / required) : 1;
-    const empty = present <= 0 && required > 0; // x/0 : rien d'attendu, vert
+    const empty = present <= 0 && required > 0 && !optional; // x/0 : rien d'attendu, vert
     const none = present <= 0 && required <= 0 && !extra; // 0/0 : orange, a remarquer mais rien a faire
-    const color = empty ? 'var(--red)' : (none || present < required) ? 'var(--orange)' : 'var(--green)';
-    return el('div', { class: 'req' },
-      el('span', { class: 'label' }, label),
+    const color = optional ? (present >= required ? 'var(--green)' : 'var(--muted)')
+      : empty ? 'var(--red)' : (none || present < required) ? 'var(--orange)' : 'var(--green)';
+    return el('div', { class: 'req' + (optional ? ' optional' : '') },
+      el('span', { class: 'label' }, label, optional ? el('span', { class: 'tag optional',
+        title: 'Facultatif : le lot se valide sans, mais scannez-les pour savoir où ils sont' }, 'facultatif') : null),
       el('div', { class: 'bar' },
         el('i', { style: `width:${empty ? 100 : ratio * 100}%;background:${color}` }),
         el('span', { style: empty ? 'color:#fff' : '' }, ...countText(present, required, extra))), after);
@@ -2447,6 +2459,12 @@
       const items = (known[requirement.type] || []).sort((a, b) => b.expired - a.expired);
       delete known[requirement.type];
       const scanned = fresh[requirement.type] || 0;
+      if (requirement.optional) {
+        // facultatif (casques du VPS) : rien ne manque, le lot se valide sans ; scannes, on sait ou ils sont
+        const expected = requirement.expected || 0;
+        return { row: requirement, items, scanned: Math.min(scanned, expected), missing: 0, optional: true, expected,
+          pending: Math.max(0, expected - scanned), extra: Math.max(0, scanned - expected), fromStock: 0 };
+      }
       const missing = Math.max(0, requirement.required - scanned);
       const knownFresh = items.filter((item) => !item.expired).length;
       remaining += missing;
@@ -2455,7 +2473,7 @@
     });
     groups.push(...addedGroups(row, plan, groups));
     const others = Object.values(known).flat();
-    remaining += others.length;
+    remaining += others.filter((item) => !item.optional).length; // sous-lot facultatif : son materiel ne retient rien
     return { groups, others, remaining, complete: row ? row.complete : false };
   }
 
@@ -2546,21 +2564,26 @@
   function lotGroupRows(lot, groups, others, lastScan) {
     const rows = [];
     const lastScanOf = (group) => (group.row.type in lastScan ? lastScan[group.row.type] : -1);
-    const rank = (group) => (group.missing === 0 ? 2 : group.scanned === 0 ? 1 : 0);
+    // facultatif pas encore tout scanne : ni a faire ni un probleme, juste au-dessus des complets
+    const rank = (group) => (group.missing === 0 ? (group.pending > 0 ? 1.5 : 2) : group.scanned === 0 ? 1 : 0);
+    const need = (group) => (group.optional ? group.expected : group.row.required);
     const places = byPlace(groups, (group) => group.row.location);
     const placed = places.some((entry) => entry.place);
     const groupRows = (group) => {
       const expired = group.items.filter((item) => item.expired).length;
-      return groupHead(`${lot.id}:${group.row.type}`, rank(group) === 2 ? 'ok' : rank(group) === 1 ? 'bad' : 'partial', group.items,
+      const cls = { 2: 'ok', 1.5: 'optional', 1: 'bad', 0: 'partial' }[rank(group)];
+      return groupHead(`${lot.id}:${group.row.type}`, cls, group.items,
         el('div', { class: 'main' },
-          el('div', { class: 'name' }, group.row.type_name),
+          el('div', { class: 'name' }, group.row.type_name, group.optional ? el('span', { class: 'tag optional',
+            title: 'Facultatif : le lot se valide sans, mais scannez-les pour savoir où ils sont' }, 'facultatif') : null),
           el('div', { class: 'sub' }, [!placed && group.row.location ? '📍 ' + group.row.location : '',
-            group.missing > 0 ? `encore ${group.missing} à scanner` : group.row.required ? 'complet' : '',
+            group.pending > 0 ? (group.scanned ? `${group.pending} de plus si vous les voyez` : 'validable sans, scannez ceux que vous voyez')
+              : group.missing > 0 ? `encore ${group.missing} à scanner` : need(group) ? 'complet' : '',
             group.extra ? `${group.extra} en plus` : '',
             expired ? nb(expired, 'périmé') : '',
             group.fromStock > 0 ? `${group.fromStock} à prendre dans le stock` : ''].filter(Boolean).join(' · '))),
         [reportMark({ lot: lot.id, lotName: lot.name, type: group.row.type, label: `${group.row.type_name} (${lot.name})` }),
-          el('span', { class: 'count' }, ...countText(group.scanned, group.row.required, group.extra))]);
+          el('span', { class: 'count' }, ...countText(group.scanned, need(group), group.extra))]);
     };
     const sorted = (list) => list.sort((a, b) => rank(a) - rank(b)
       || (rank(a) === 0 ? lastScanOf(b) - lastScanOf(a) : 0));
@@ -2569,27 +2592,29 @@
       el('span', { class: 'count' }, String(others.length))) : []);
     if (!placed) {
       sorted(groups);
-      for (const group of groups) if (rank(group) < 2) rows.push(...groupRows(group));
+      for (const group of groups) if (rank(group) < 1.5) rows.push(...groupRows(group));
       rows.push(...othersRows());
-      for (const group of groups) if (rank(group) === 2) rows.push(...groupRows(group));
+      for (const group of groups) if (rank(group) >= 1.5) rows.push(...groupRows(group));
       return rows;
     }
     // emplacements tries comme les types : en cours (le dernier scanne en haut), puis rien de scanne, puis complets
     // en bas (le scan qui complete un emplacement le fait descendre) ; l'ordre de la TECH a egalite
     const placeRows = places.map(({ place, rows: list }) => {
-      const scanned = list.reduce((sum, group) => sum + Math.min(group.scanned, group.row.required), 0);
+      const scanned = list.reduce((sum, group) => sum + Math.min(group.scanned, need(group)), 0);
       const missing = list.reduce((sum, group) => sum + group.missing, 0);
+      const pending = list.reduce((sum, group) => sum + (group.pending || 0), 0);
       const extra = list.reduce((sum, group) => sum + (group.extra || 0), 0);
-      return { place, list, scanned, missing, extra,
-        required: list.reduce((sum, group) => sum + group.row.required, 0),
-        rank: !missing ? 2 : scanned ? 0 : 1, last: Math.max(...list.map(lastScanOf)) };
+      return { place, list, scanned, missing, pending, extra,
+        required: list.reduce((sum, group) => sum + need(group), 0),
+        rank: !missing ? (pending ? 1.5 : 2) : scanned ? 0 : 1, last: Math.max(...list.map(lastScanOf)) };
     });
     placeRows.sort((a, b) => a.rank - b.rank || (a.rank === 0 ? b.last - a.last : 0));
-    for (const { place, list, scanned, missing, extra, required, rank: placeRank } of placeRows) {
+    for (const { place, list, scanned, missing, pending, extra, required, rank: placeRank } of placeRows) {
       const key = `${lot.id}@${place}`;
       const fold = placeFolds.get(key);
-      const open = fold && fold.complete === !missing ? fold.open : missing > 0;
-      rows.push(el('li', { class: 'place-head ' + ['partial', 'bad', 'ok'][placeRank],
+      // un emplacement de materiel facultatif reste deplie : on peut y scanner ce qu'on voit
+      const open = fold && fold.complete === !missing ? fold.open : missing > 0 || pending > 0;
+      rows.push(el('li', { class: 'place-head ' + { 0: 'partial', 1: 'bad', 1.5: 'optional', 2: 'ok' }[placeRank],
         'aria-expanded': String(open), onclick: () => { placeFolds.set(key, { open: !open, complete: !missing }); renderTodo(); } },
       el('span', { class: 'chevron' }, open ? '▾' : '▸'),
       el('div', { class: 'main name' }, '📍 ' + (place || 'Sans emplacement')),
@@ -2699,6 +2724,10 @@
       } else if (sealed) {
         cls = 'ok';
         sub = '🔒 Scellé intact : enregistré à la validation';
+      } else if (child.optional && !who.length && !touched(child.id)) {
+        // sous-lot facultatif : on peut valider sans lui, ou y entrer pour scanner ce qu'il contient
+        cls = 'optional';
+        sub = 'Facultatif · validable sans, touchez pour y scanner';
       } else {
         left += 1;
         if (who.length) { cls = 'partial'; sub = `En cours · ${who.join(', ')}`; }
@@ -2795,18 +2824,20 @@
       ...renderGlobal(lot),
       // types incomplets en haut
       el('h3', {}, 'Scannés / attendus'),
-      ...incompleteFirst(lot.requirements, (row) => fresh[row.type] || 0).map((row) => lotRequirementRow(
-        row.type_name + (row.location ? ` (${row.location})` : ''), fresh[row.type] || 0, row.required)),
+      ...incompleteFirst(lot.requirements, (row) => fresh[row.type] || 0).map((row) => requirementLine(
+        row.type_name + (row.location ? ` (${row.location})` : ''), fresh[row.type] || 0, row)),
       el('h3', {}, 'État enregistré du lot'),
-      ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => lotRequirementRow(row.type_name, row.present, row.required)),
+      ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => requirementLine(row.type_name, row.present, row)),
     );
   }
 
   // Types attendus d'un lot, les incomplets d'abord (ordre de la definition a egalite)
   // incomplets, puis 0/0 (orange, rien a faire), puis complets
-  const requirementRank = (present, required) => present < required ? 0 : present <= 0 && required <= 0 ? 1 : 2;
+  // incomplets, puis 0/0, puis facultatifs pas tous vus, puis complets
+  const requirementRank = (present, row) => present < row.required ? 0 : row.optional ? (present < row.expected ? 1.5 : 2)
+    : present <= 0 && row.required <= 0 ? 1 : 2;
   const incompleteFirst = (requirements, present) => [...(requirements || [])]
-    .sort((a, b) => requirementRank(present(a), a.required) - requirementRank(present(b), b.required));
+    .sort((a, b) => requirementRank(present(a), a) - requirementRank(present(b), b));
 
   // Fiche d'inventaire papier (PDF A4) : liste de controle par emplacement, une page par sous-lot
   function sheetLink(id, label) {
@@ -4954,9 +4985,10 @@
       const lines = [];
       for (const row of requirements) {
         const rows = ofType(row.type);
-        const none = row.present <= 0 && row.required <= 0;
-        lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : 3, row, rows: ficheFold(`${sub.id}:${row.type}`, rows,
-          (arrow) => lotRequirementRow(row.type_name + (!placed && row.location ? ` (${row.location})` : ''), row.present, row.required, arrow)) });
+        const none = row.present <= 0 && row.required <= 0 && !row.optional;
+        lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : row.optional && row.present < row.expected ? 2.5 : 3,
+          row, rows: ficheFold(`${sub.id}:${row.type}`, rows,
+            (arrow) => requirementLine(row.type_name + (!placed && row.location ? ` (${row.location})` : ''), row.present, row, arrow)) });
       }
       // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
       const known = new Set(requirements.map((row) => row.type));
@@ -4975,9 +5007,11 @@
           .map((entry) => ({ ...entry, rank: Math.min(...entry.rows.map((line) => line.rank)) }))
           .sort((a, b) => a.rank - b.rank);
         for (const { place, rows: list } of placeGroups) {
-          const present = list.reduce((sum, line) => sum + Math.min(line.row.present, line.row.required), 0);
-          const required = list.reduce((sum, line) => sum + line.row.required, 0);
-          content.push(el('div', { class: 'place-title' + (present < required ? ' incomplete' : '') },
+          const need = (row) => (row.optional ? row.expected || 0 : row.required);
+          const present = list.reduce((sum, line) => sum + Math.min(line.row.present, need(line.row)), 0);
+          const required = list.reduce((sum, line) => sum + need(line.row), 0);
+          const lacking = list.some((line) => line.row.present < line.row.required);
+          content.push(el('div', { class: 'place-title' + (lacking ? ' incomplete' : '') },
             el('span', {}, '📍 ' + (place || 'Sans emplacement')), el('span', { class: 'count' }, `${present}/${required}`)));
           for (const line of byRank(list)) content.push(...line.rows);
         }

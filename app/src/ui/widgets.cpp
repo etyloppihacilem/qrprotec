@@ -274,6 +274,25 @@ void lot_bar(int present, int required, const ImVec2 &size) {
   stock_bar(std::min(present, required), required, size, std::max(0, present - required));
 }
 
+void optional_bar(int present, int expected, const ImVec2 &size) {
+  const int   shown    = std::min(present, expected);
+  const float fraction = expected > 0 ? std::clamp(static_cast< float >(shown) / static_cast< float >(expected), 0.0f, 1.0f)
+                                      : 1.0f;
+  std::string overlay = std::to_string(shown) + "/" + std::to_string(expected) + " facultatif";
+  if (present > expected)
+    overlay += " + " + std::to_string(present - expected);
+  ImGui::PushStyleColor(ImGuiCol_PlotHistogram, shown >= expected ? colors::green : colors::grey);
+  ImGui::ProgressBar(fraction, size, overlay.c_str());
+  ImGui::PopStyleColor();
+}
+
+void requirement_bar(const Json &row, int present, const ImVec2 &size) {
+  if (row["optional"].boolean())
+    optional_bar(present, row["expected"].integer(), size);
+  else
+    lot_bar(present, row["required"].integer(), size);
+}
+
 float stock_order(int quantity, int minimum, int soon) {
   if (minimum > 0 && quantity < minimum)
     return static_cast< float >(quantity) / static_cast< float >(minimum);
@@ -718,8 +737,8 @@ void status_banner(const std::string &text, const ImVec4 &color, float scale) {
 LotStatus lot_status(const Json &lot) {
   if (lot["is_sealed"].boolean())
     return lot["expired_count"].integer() > 0 ? LotStatus::SealedExpired : LotStatus::Sealed;
-  if (lot["last_verif"].is_null())
-    return LotStatus::Never;
+  if (lot["last_verif"].is_null()) // sous-lot facultatif : son lot parent se valide sans lui
+    return lot["optional"].boolean() ? LotStatus::Optional : LotStatus::Never;
   if (!lot["complete"].boolean())
     return LotStatus::Incomplete;
   // type a scelle obligatoire : rouge tant qu'un nouveau scelle n'est pas pose
@@ -729,12 +748,14 @@ LotStatus lot_status(const Json &lot) {
 }
 
 bool lot_ok(LotStatus status) {
-  return status == LotStatus::Verified || status == LotStatus::Sealed;
+  return status == LotStatus::Verified || status == LotStatus::Sealed || status == LotStatus::Optional;
 }
 
 ImVec4 lot_status_color(LotStatus status) {
   if (status == LotStatus::Recommended)
     return colors::orange;
+  if (status == LotStatus::Optional)
+    return colors::grey; // facultatif : ni a faire ni un probleme
   return lot_ok(status) ? colors::green : colors::red;
 }
 
@@ -748,6 +769,7 @@ const char *lot_status_label(LotStatus status) {
     case LotStatus::Recommended: return "! Vérif recommandée";
     case LotStatus::SealOpened: return "✘ Scellé ouvert";
     case LotStatus::MustSeal: return "✘ Doit être scellé";
+    case LotStatus::Optional: return "○ Facultatif";
   }
   return "";
 }
@@ -810,6 +832,7 @@ std::string lot_status_banner(const Json &lot) {
     }
     case LotStatus::MustSeal: return "✘ LOT VÉRIFIÉ, DOIT ÊTRE SCELLÉ – posez un nouveau scellé";
     case LotStatus::Never: banner = "✘ LOT JAMAIS VÉRIFIÉ"; break;
+    case LotStatus::Optional: banner = "○ SOUS-LOT FACULTATIF – jamais vérifié, son lot se valide sans lui"; break;
     case LotStatus::Incomplete:
       banner = "✘ LOT INCOMPLET";
       if (lot["verif_recommended"].boolean())

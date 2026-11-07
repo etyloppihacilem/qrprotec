@@ -2455,8 +2455,9 @@ std::vector< VerifPlanLot > App::plan_verif() const {
       for (const Json &item : (*lot)[list].items()) {
         location_of[item["iid"].str()] = id;
         // un item a etiquette a dechirer non scanne a ete utilise, un item non consommable non scanne d'un lot
-        // ordinaire passe hors lot (services.leaves_lot) : ils ne retiennent pas le lot
-        if (!done.count(item["iid"].str()) && !item["tear_off"].boolean()
+        // ordinaire passe hors lot (services.leaves_lot), un item facultatif reste ou il etait : ils ne retiennent
+        // pas le lot
+        if (!done.count(item["iid"].str()) && !item["tear_off"].boolean() && !item["optional"].boolean()
             && (item["consumable"].boolean(true) || (*lot)["storage"].boolean()))
           holding.insert(id);
       }

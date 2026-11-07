@@ -307,18 +307,21 @@ class VerifWindow final : public AppWindow {
               int         required, done, missing, rank, last_scan;
               bool        storage;
               int         extra; // items en trop : « + x »
+              bool        optional = false; // facultatif (casques du VPS) : rien ne manque, required = nombre prevu
           };
           std::vector< TypeRow >  type_rows;
           std::set< std::string > required_types;
+          // rangs : 0 en cours, 1 rien de scanne, 2 facultatif pas tout vu (ni a faire ni un probleme), 3 complet
           const auto add_type = [&](const std::string &type, const std::string &type_name,
-                                    const std::string &location, int required, int done, bool storage, int extra) {
-            const int  missing = std::max(0, required - done);
+                                    const std::string &location, int required, int done, bool storage, int extra,
+                                    bool optional = false) {
+            const int  missing = optional ? 0 : std::max(0, required - done);
             const auto last    = last_scan.find(type);
             required_types.insert(type);
             remaining += missing;
             type_rows.push_back({ type, type_name, location, required, done, missing,
-                                  missing == 0 ? 2 : done == 0 ? 1 : 0,
-                                  last == last_scan.end() ? -1 : last->second, storage, extra });
+                                  missing == 0 ? (optional && done < required ? 2 : 3) : done == 0 ? 1 : 0,
+                                  last == last_scan.end() ? -1 : last->second, storage, extra, optional });
           };
           // types ajoutes au lot pendant la verif sans y etre attendus : une ligne « + x » chacun (ses items connus
           // non scannes restent a scanner, ils sont listes sous cette ligne)
@@ -354,9 +357,11 @@ class VerifWindow final : public AppWindow {
               const std::string type     = row["type"].str();
               const auto        found    = plan_row.fresh.find(type);
               const int         fresh    = found == plan_row.fresh.end() ? 0 : found->second;
-              const int         required = row["required"].integer();
+              // facultatif : compte sur le nombre prevu, sans jamais manquer (le lot se valide sans)
+              const bool        optional = row["optional"].boolean();
+              const int required = optional ? static_cast< int >(row["expected"].integer()) : row["required"].integer();
               add_type(type, row["type_name"].str(), row["location"].str(), required, std::min(fresh, required), false,
-                       std::max(0, fresh - required));
+                       std::max(0, fresh - required), optional);
             }
             add_added(false);
           }
@@ -374,7 +379,11 @@ class VerifWindow final : public AppWindow {
             const std::string &type = entry.type;
             // ligne du type : progression coloree (rouge = rien, orange = partiel, vert = complet)
             ImGui::TableNextRow();
-            row_color(entry.missing == 0 ? colors::green : entry.done == 0 ? colors::red : colors::orange, 0.25f);
+            row_color(entry.rank == 2   ? colors::grey
+                      : entry.missing == 0 ? colors::green
+                      : entry.done == 0    ? colors::red
+                                           : colors::orange,
+                      entry.rank == 2 ? 0.10f : 0.25f);
             ImGui::TableNextColumn();
             // retrait avant le (!) : Indent apres SameLine ramenait le texte a gauche, par-dessus le (!)
             if (placed)
@@ -392,7 +401,11 @@ class VerifWindow final : public AppWindow {
               ImGui::TextColored(colors::grey, "– %s", entry.location.c_str());
             }
             ImGui::TableNextColumn();
-            if (entry.missing > 0)
+            if (entry.rank == 2) {
+              ImGui::TextColored(colors::grey, "facultatif");
+              help_marker("Facultatif : le lot se valide sans, mais scannez ceux que vous voyez pour savoir où ils "
+                          "sont. Non scannés, ils restent où ils étaient.");
+            } else if (entry.missing > 0)
               ImGui::TextColored(entry.done == 0 ? colors::red : colors::orange, "encore %d", entry.missing);
             else if (entry.required > 0)
               ImGui::TextColored(colors::green, "complet");
@@ -402,7 +415,10 @@ class VerifWindow final : public AppWindow {
               ImGui::TextColored(colors::blue, "%d en plus", entry.extra);
             }
             ImGui::TableNextColumn();
-            stock_bar(entry.done, entry.required, ImVec2(-1, 0), entry.extra);
+            if (entry.optional)
+              optional_bar(entry.done + entry.extra, entry.required, ImVec2(-1, 0));
+            else
+              stock_bar(entry.done, entry.required, ImVec2(-1, 0), entry.extra);
             // items connus du lot pour ce type, puis ce qu'il faut ajouter depuis le stock
             int known_fresh = 0;
             for (const Json *item : known_by_type[type]) {
@@ -431,7 +447,7 @@ class VerifWindow final : public AppWindow {
               }
               for (const Json *item : items) {
                 item_row(*item);
-                ++remaining;
+                remaining += (*item)["optional"].boolean() ? 0 : 1; // sous-lot facultatif : rien ne le retient
               }
             }
           };
@@ -441,7 +457,7 @@ class VerifWindow final : public AppWindow {
                 type_row(entry);
             other_rows();
             for (const TypeRow &entry : type_rows)
-              if (entry.rank == 2)
+              if (entry.rank >= 2)
                 type_row(entry);
             continue;
           }
@@ -451,7 +467,7 @@ class VerifWindow final : public AppWindow {
           // titre (touche pour le deplier). Les autres items du lot a la fin.
           struct PlaceRow {
               std::string place;
-              int         done = 0, required = 0, missing = 0, last_scan = -1, rank = 0, extra = 0;
+              int         done = 0, required = 0, missing = 0, last_scan = -1, rank = 0, extra = 0, pending = 0;
           };
           std::vector< PlaceRow > place_rows;
           for (const std::string &place : places) {
@@ -461,10 +477,11 @@ class VerifWindow final : public AppWindow {
                 row.done += std::min(entry.done, entry.required);
                 row.required += entry.required;
                 row.missing += entry.missing;
+                row.pending += entry.optional ? entry.required - entry.done : 0;
                 row.extra += entry.extra;
                 row.last_scan = std::max(row.last_scan, entry.last_scan);
               }
-            row.rank = row.missing == 0 ? 2 : row.done == 0 ? 1 : 0;
+            row.rank = row.missing == 0 ? (row.pending > 0 ? 2 : 3) : row.done == 0 ? 1 : 0;
             place_rows.push_back(row);
           }
           std::stable_sort(place_rows.begin(), place_rows.end(), [](const PlaceRow &a, const PlaceRow &b) {
@@ -475,9 +492,13 @@ class VerifWindow final : public AppWindow {
             const auto        fold = place_folds_.find(key);
             const bool open = fold != place_folds_.end() && fold->second.second == (row.missing == 0)
                               ? fold->second.first
-                              : row.missing > 0;
+                              : row.missing > 0 || row.pending > 0; // facultatif : deplie, on peut y scanner
             ImGui::TableNextRow();
-            row_color(row.rank == 2 ? colors::green : row.rank == 1 ? colors::red : colors::orange, 0.12f);
+            row_color(row.rank == 3   ? colors::green
+                      : row.rank == 2 ? colors::grey
+                      : row.rank == 1 ? colors::red
+                                      : colors::orange,
+                      0.12f);
             ImGui::TableNextColumn();
             ImGui::SetNextItemOpen(open, ImGuiCond_Always);
             const bool now = ImGui::TreeNodeEx(key.c_str(), ImGuiTreeNodeFlags_SpanAllColumns
@@ -618,6 +639,10 @@ class VerifWindow final : public AppWindow {
         } else if (app.verif_touched(id)) {
           color = colors::orange;
           text += "  –  commencé, pas encore validé";
+        } else if ((*child)["optional"].boolean()) {
+          // sous-lot facultatif : on peut valider sans lui, ou y entrer pour scanner ce qu'il contient
+          color = colors::grey;
+          text += "  –  facultatif : validable sans, cliquez pour y scanner";
         } else {
           color = colors::grey;
           text += std::string("  –  à faire · état actuel : ") + lot_status_label(lot_status(*child));
@@ -764,7 +789,7 @@ class VerifWindow final : public AppWindow {
                                                                 : row["lot_name"].str() + " · " + row["type_name"].str();
         ImGui::TextUnformatted(label.c_str());
         ImGui::SameLine(320.0f);
-        lot_bar(row["present"].integer(), row["required"].integer(), ImVec2(200.0f, 0));
+        requirement_bar(row, row["present"].integer(), ImVec2(200.0f, 0));
       }
       ImGui::Separator();
       ImGui::BeginChild("report", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
