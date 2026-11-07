@@ -88,21 +88,25 @@ def optional_lot(lot) -> bool:
 
 
 def optional_in_lot(lot, item_type, requirement_optional=False) -> bool:
-    """Un type d'item est facultatif dans un lot : du materiel non consommable sans taches, marque facultatif dans
-    le contenu du type de lot (requirement_optional) ou range dans un sous-lot facultatif."""
-    return item_type.can_be_optional and (requirement_optional or optional_lot(lot))
+    """Un type d'item est facultatif dans un lot : marque facultatif dans le contenu du type de lot
+    (requirement_optional, seulement du materiel non consommable sans taches), ou range dans un sous-lot facultatif
+    (tout son contenu l'est)."""
+    return (requirement_optional and item_type.can_be_optional) or optional_lot(lot)
 
 
-def optional_types(lot, requirements=None):
+def optional_types(lot, requirements=None, strict=False):
     """Types d'items facultatifs d'un lot (attendus marques facultatifs), et fonction item -> facultatif dans ce
-    lot (attendu facultatif, ou item non consommable sans taches d'un sous-lot facultatif)."""
+    lot (attendu facultatif, ou tout item d'un sous-lot facultatif). strict : vérif complete demandee par un admin,
+    rien n'est facultatif."""
+    if strict:
+        return set(), lambda item: False
     if requirements is None:
         requirements = lot_requirements(lot)
     types = {row.item_type_id for row in requirements if row.optional}
     whole = optional_lot(lot)
 
     def check(item):
-        return item.pack.item_type_id in types or (whole and item.pack.item_type.can_be_optional)
+        return whole or item.pack.item_type_id in types
     return types, check
 
 
@@ -127,10 +131,11 @@ def ordered_requirements(lot_type, requirements=None):
     return sort_requirements(requirements, lot_type.locations)
 
 
-def lot_requirements(lot, preload=None):
+def lot_requirements(lot, preload=None, strict=False):
     """Contenu attendu d'un lot (Requirement) : celui de son type, plus son contenu propre (LotContent : items en
     plus, emplacements de ce lot), dans l'ordre des emplacements du lot (Lots.locations, sinon ceux du type).
-    `preload` (LotPreload) : exigences et contenus deja lus pour une liste de lots."""
+    `preload` (LotPreload) : exigences et contenus deja lus pour une liste de lots. strict : vérif complete demandee
+    par un admin, aucun attendu n'est facultatif."""
     if lot.lot_type.storage:
         return []  # un rangement du stock n'attend rien
     if preload is not None:
@@ -145,11 +150,11 @@ def lot_requirements(lot, preload=None):
         location = requirement.location if custom is None or custom.location is None else custom.location
         extra = custom.extra if custom else 0
         rows.append(Requirement(requirement.item_type, requirement.quantity + extra, location, extra,
-                                optional_in_lot(lot, requirement.item_type, requirement.optional)))
+                                not strict and optional_in_lot(lot, requirement.item_type, requirement.optional)))
     for custom in own.values():
         if custom.extra > 0:
             rows.append(Requirement(custom.item_type, custom.extra, custom.location or '', custom.extra,
-                                    optional_in_lot(lot, custom.item_type)))
+                                    not strict and optional_in_lot(lot, custom.item_type)))
     return sort_requirements(rows, lot_locations(lot))
 
 
@@ -211,7 +216,7 @@ def location_order(rows, order=(), known=()):
     return result
 
 
-def requirements_status(lot, today=None, items=None, preload=None):
+def requirements_status(lot, today=None, items=None, preload=None, strict=False):
     """Compare le contenu d'un lot aux exigences de son type.
 
     Seuls les items vus lors de la derniere verif (ou ajoutes depuis) comptent comme presents : un item
@@ -232,7 +237,7 @@ def requirements_status(lot, today=None, items=None, preload=None):
         else:
             fresh[item.pack.item_type_id] += 1
     rows = []
-    for requirement in lot_requirements(lot, preload):
+    for requirement in lot_requirements(lot, preload, strict):
         type_id = requirement.item_type_id
         rows.append({
             'type': type_id,
@@ -262,12 +267,13 @@ def verif_lots(lots):
     return result
 
 
-def _required_by_lot(group):
-    """{lot id: {type d'item: quantite}} d'apres le contenu attendu de chaque lot (son type et son contenu propre)."""
-    return {lot.id: {row.item_type_id: row.required for row in lot_requirements(lot)} for lot in group}
+def _required_by_lot(group, strict=False):
+    """{lot id: {type d'item: quantite}} d'apres le contenu attendu de chaque lot (son type et son contenu propre) ;
+    0 pour un attendu facultatif, sauf en vérif complete (strict)."""
+    return {lot.id: {row.item_type_id: row.required for row in lot_requirements(lot, strict=strict)} for lot in group}
 
 
-def assign_items(group, scanned, today, places=None, cascade=False):
+def assign_items(group, scanned, today, places=None, cascade=False, strict=False):
     """Lot de destination de chaque item scanne pendant une verif de plusieurs lots.
 
     Un item deja range dans un des lots y reste (on l'a trouve la, meme scanne pendant qu'on verifiait un autre
@@ -290,7 +296,7 @@ def assign_items(group, scanned, today, places=None, cascade=False):
             lot_id = parent.get(lot_id)
         return False
 
-    required = _required_by_lot(group)
+    required = _required_by_lot(group, strict)
     deficit = {lot_id: dict(rows) for lot_id, rows in required.items()}
     target = {}
     newcomers = []
@@ -331,7 +337,8 @@ def _with_ancestors(lots):
     return list(result.values())
 
 
-def perform_verif(lot, iids, identity, partial=False, participants=(), places=None, sealed=(), exclude=()):
+def perform_verif(lot, iids, identity, partial=False, participants=(), places=None, sealed=(), exclude=(),
+                  strict=False):
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -357,6 +364,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
       a ete ouvert : il est verifie normalement ;
     - un item facultatif (attendu facultatif ou sous-lot facultatif, voir optional_types) non scanne reste ou il
       etait : ni manquant, ni hors lot, et il ne retient pas le lot. Scanne, il est compte et place comme les autres ;
+    - strict : « vérif complète » demandee par un admin, rien n'est facultatif (attendus et sous-lots facultatifs
+      sont obligatoires le temps de cette verif) ;
     - exclude : sous-lots des lots verifies laisses de cote avec leurs propres sous-lots (vérif en cascade : deja
       valides pendant cette vérif, pas encore faits, ou faits par un autre participant). Ils ne sont ni attendus, ni
       verifies, ni ouverts.
@@ -406,7 +415,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             .order_by('iid')
         )
         # items facultatifs non scannes (casques du VPS) : ils restent ou ils etaient, sans manquer ni retenir le lot
-        optional_checks = {sub_lot.id: optional_types(sub_lot)[1] for sub_lot in group or []}
+        optional_checks = {sub_lot.id: optional_types(sub_lot, strict=strict)[1] for sub_lot in group or []}
         not_seen = [item for item in not_seen
                     if not (item.location_id in optional_checks and optional_checks[item.location_id](item))]
 
@@ -419,13 +428,13 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         else:
             # un seul lot verifie avec ses sous-lots : vérif en cascade des fronts (plusieurs lots : vérif groupee)
             cascade = not isinstance(lot, (list, tuple)) or len(lot) == 1
-            target = assign_items(group, scanned, today, places, cascade)
+            target = assign_items(group, scanned, today, places, cascade, strict)
 
         # Detection des remplacements, par lot et par type. Un perime (inutilisable, desactive) scanne est retire du
         # lot, a jeter, des que le lot a son minimum d'items frais de ce type (meme deja presents avant la verif) ;
         # sinon il reste a remplacer. Un item a la revision en retard n'est pas jete : seulement remplace par un
         # item frais nouvellement arrive. Meme regle dans les fronts (planSession, App::plan_verif).
-        required = _required_by_lot(group) if group is not None else {}
+        required = _required_by_lot(group, strict) if group is not None else {}
         fresh = defaultdict(int)
         new_fresh = defaultdict(int)
         expired_by_key = defaultdict(list)
@@ -453,7 +462,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         if group is None:
             verified_ids = set()
         elif partial:
-            verified_ids = _complete_lots(group, scanned, not_seen, target, today)
+            verified_ids = _complete_lots(group, scanned, not_seen, target, today, strict)
         else:
             verified_ids = set(by_id)
         if group is not None and partial and not verified_ids and not scanned and not intact:
@@ -599,7 +608,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 sub_lot.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'last_used',
                                             'last_used_by', 'verif_recommended', 'restocked_count',
                                             'back_from_list', 'marked_used', 'marked_used_by'])
-                requirements = requirements_status(sub_lot, today)
+                requirements = requirements_status(sub_lot, today, strict=strict)
                 lot_expired = [iid for iid in report['expired'] if target.get(iid) == sub_lot.id]
                 # complet des que le minimum d'items frais est la, meme s'il reste un perime en trop
                 lot_complete = all(r['present'] >= r['required'] for r in requirements)
@@ -725,13 +734,13 @@ def _record_verif(lot, identity, now, verif, requirements, partial, missing, exp
                    expired_items=expired[:journal.MAX_LISTED_ITEMS])
 
 
-def _complete_lots(group, scanned, not_seen, target, today):
+def _complete_lots(group, scanned, not_seen, target, today, strict=False):
     """Lots que les items scannes rendent complets (verif partielle). Un lot sans aucun item scanne n'est retenu
     que s'il ne contient rien : sinon tout son contenu serait signale manquant. Un rangement du stock n'a pas de
     contenu attendu : ses items sont ses attendus, il n'est complet que si tous ont ete scannes. Un item a
     etiquette a dechirer (utilise) ou non consommable (passe hors lot) non scanne ne compte pas. Meme regle dans
     les fronts (planSession, App::plan_verif)."""
-    required = _required_by_lot(group)
+    required = _required_by_lot(group, strict)
     fresh = defaultdict(lambda: defaultdict(int))
     touched = set()
     for item in scanned:

@@ -72,13 +72,14 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    en stock à la main (`items/to-stock`, fenêtre Inventaire du poste). Il ne retient pas non plus son
    lot en vérif partielle. Dans un rangement du stock il manque comme les autres. Sorti du stock
    sans lot, il reste `out` jusqu'à son retour (`out_deadline` vaut `None`).
-   Un item **facultatif** (attendu `LotRequirements.optional`, ou item d'un sous-lot `Lots.optional`,
-   seulement du non consommable sans tâches : `ItemType.can_be_optional`, `services.optional_types`)
+   Un item **facultatif** (attendu `LotRequirements.optional`, seulement du non consommable sans tâches :
+   `ItemType.can_be_optional` ; ou tout item d'un sous-lot `Lots.optional`, `services.optional_types`)
    non scanné reste où il était : ni manquant, ni hors lot, et il ne retient pas son lot. Scanné, il
    est compté et placé comme les autres. Un attendu facultatif a `required` 0 (`expected` donne le
    nombre prévu, `optional` vrai) : toutes les règles de complétude restent les mêmes. Un sous-lot
    facultatif ne compte pas dans l'état du lot global (`counted` faux), jamais vérifié il est
-   `optional` (vert) et pas `never`.
+   `optional` (vert) et pas `never`. « Vérif complète » (`full` dans POST verifs, bouton des admins du
+   front web) : `perform_verif(strict=True)`, rien n'est facultatif pour cette vérif.
    **Révision** (`ItemType.revision_months` > 0, non consommable seulement : `has_revision`) : chaque
    item a `revision_due`, posée à la réception (`add_items`) et à l'activation sur le type, à
    aujourd'hui + la périodicité (`add_months`, dernier jour du mois s'il n'existe pas). Une révision

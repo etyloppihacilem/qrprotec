@@ -975,7 +975,8 @@ def lot_verif(request, lot_id):
     if not is_local(request):
         require_label(lots, request.data, sealed=sealed)
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
-                                    places=place_map(request.data), sealed=sealed)
+                                    places=place_map(request.data), sealed=sealed,
+                                    strict=bool(request.data.get('full')))
     return Response(report)
 
 
@@ -996,7 +997,9 @@ def verifs(request):
     "exclude" : [id], sous-lots laisses de cote (deja valides, pas faits, ou faits par un autre participant) ;
     "keys" : [{"id", "key"}], etiquettes cles d'autres lots du meme lot global scannees plus tot (key_holders) ;
     "step" : avec "live", la vérif commune continue (les autres participants voient le lot valide) au lieu de se
-    terminer."""
+    terminer.
+    "full" : « vérif complète » (bouton des admins du front web) : les items et sous-lots facultatifs sont
+    obligatoires pour cette verif (services.perform_verif strict)."""
     entries = request.data.get('lots')
     iids = iid_list(request.data)
     step = bool(request.data.get('step'))
@@ -1013,7 +1016,8 @@ def verifs(request):
         require_label(lots, request.data, holders, sealed, team['labels'] if team else ())
     participants = [value for value in team['identities'] if value != identity] if team else []
     report = services.perform_verif(lots, iids, identity, bool(request.data.get('partial')),
-                                    participants, place_map(request.data), sealed, excluded_lots(request.data, lots))
+                                    participants, place_map(request.data), sealed, excluded_lots(request.data, lots),
+                                    strict=bool(request.data.get('full')))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team and step:
         live.hub.step(team, report, iids, final=bool(request.data.get('finish')))
@@ -2129,16 +2133,11 @@ def parse_parent(lot, value):
 
 
 def check_optional_lot(lot):
-    """Un sous-lot facultatif : range dans un lot, pas un rangement du stock, et n'attendant que du materiel non
-    consommable sans taches (le reste serait toujours obligatoire)."""
+    """Un sous-lot facultatif (tout son contenu l'est) : range dans un lot, pas un rangement du stock."""
     if lot.lot_type.storage:
         raise ApiError("Un rangement du stock ne peut pas être facultatif")
     if lot.parent is None:
         raise ApiError("Seul un sous-lot peut être facultatif : rangez ce lot dans un autre lot d'abord")
-    blocking = [row.item_type.name for row in services.lot_requirements(lot) if not row.item_type.can_be_optional]
-    if blocking:
-        raise ApiError(f"{lot.name} ne peut pas être facultatif : il attend du matériel consommable ou à tâches ("
-                       + ', '.join(blocking[:5]) + ('…' if len(blocking) > 5 else '') + ')')
 
 
 def default_parent(lot):

@@ -72,6 +72,7 @@
     expiredSession: false,  // vérif precedente oubliee au demarrage (SESSION_TIMEOUT_MS)
     waitingTeam: false,     // vérif à plusieurs : partie validee, en attente des autres participants
     launched: '',           // lot dont la vérif a ete lancee depuis sa fiche (etiquette publique)
+    full: false,            // « vérif complète » (bouton des admins) : items et sous-lots facultatifs obligatoires
     current: '',            // lot dont l'etiquette (publique ou cle) a ete scannee en dernier pendant la vérif : les
                             // items venus du stock y sont ranges (services.assign_items)
     askPlace: false,        // vérif rejointe sans rien scanner : demander le sous-lot ou l'on se trouve
@@ -110,7 +111,7 @@
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
         at: Date.now(), // derniere activite (SESSION_TIMEOUT_MS)
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
-        launched: state.launched, current: state.current,
+        launched: state.launched, current: state.current, full: state.full,
         path: state.path, done: state.done, keys: state.keys, entered: state.entered, startedIn: state.startedIn,
         labels: state.labels,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
@@ -137,6 +138,7 @@
         state.lotId = session.lotId || '';
         state.lotKey = session.lotKey || '';
         state.launched = session.launched || '';
+        state.full = !!session.full;
         state.current = session.current || '';
         state.path = Array.isArray(session.path) ? session.path : [];
         state.done = session.done && typeof session.done === 'object' ? session.done : {};
@@ -1238,6 +1240,29 @@
 
   function resetCascade() {
     state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.startedIn = ''; state.labels = [];
+    state.full = false;
+  }
+
+  // Facultatif (casques du VPS, sous-lot facultatif) : le lot se valide sans, sauf en « vérif complète » (bouton des
+  // admins), ou tout redevient obligatoire (services.perform_verif strict)
+  const rowNeed = (row) => (row.optional && state.full ? row.expected || 0 : row.required);
+  const itemOptional = (item) => !!item.optional && !state.full;
+  const lotOptional = (lot) => !!lot.optional && !state.full;
+  // vérif complete : la ligne telle que le serveur la compterait (facultatif obligatoire)
+  const strictRow = (row) => (row.optional && state.full ? { ...row, optional: false, required: row.expected || 0 } : row);
+  const sessionHasOptional = () => sessionLots().some((lot) => lot.optional || (lot.requirements || []).some((row) => row.optional));
+
+  // Bouton des admins en vérif : « Rendre la vérif complète » (le facultatif devient obligatoire), ou l'annuler
+  function fullVerifRow() {
+    if (!isAdmin() || !state.lot || !sessionHasOptional()) return null;
+    const toggle = () => { state.full = !state.full; save(); render(); };
+    return el('li', { class: 'full-verif' + (state.full ? ' on' : '') },
+      el('div', { class: 'main' },
+        el('div', { class: 'name' }, state.full ? 'Vérif complète' : 'Matériel facultatif dans cette vérif'),
+        el('div', { class: 'sub' }, state.full ? 'Le facultatif est obligatoire.'
+          : 'Validable sans lui.')),
+      el('button', { type: 'button', class: state.full ? 'secondary' : 'warning', onclick: toggle },
+        state.full ? 'Revenir au facultatif' : 'Rendre la vérif complète'));
   }
 
   // lot id dans le lot top (ou top lui-meme)
@@ -1439,13 +1464,13 @@
         // un item a etiquette a dechirer non scanne a ete utilise, un item non consommable non scanne d'un lot
         // ordinaire passe hors lot (services.leaves_lot), un item facultatif reste ou il etait : ils ne retiennent pas
         // le lot
-        if (!done.has(item.iid) && !item.tear_off && !item.optional && (item.consumable !== false || lot.storage)) holding[lot.id] = true;
+        if (!done.has(item.iid) && !item.tear_off && !itemOptional(item) && (item.consumable !== false || lot.storage)) holding[lot.id] = true;
       }
     }
     const required = {};
     for (const lot of lots) {
       required[lot.id] = {};
-      for (const row of lot.requirements || []) required[lot.id][row.type] = row.required;
+      for (const row of lot.requirements || []) required[lot.id][row.type] = rowNeed(row);
     }
     const deficit = Object.fromEntries(lots.map((lot) => [lot.id, { ...required[lot.id] }]));
     const scanned = [];
@@ -1897,6 +1922,7 @@
         // etiquettes de scelle scannees : lots scelles intacts, comptes comme verifies
         sealed: allScanned().filter((entry) => entry.kind === 'seal' && !entry.error).map((entry) => ({ id: entry.iid, code: entry.key })),
         partial,
+        full: state.full,
         ...(credentials ? { live: credentials } : {}),
       });
       state.waitingTeam = false;
@@ -2072,6 +2098,7 @@
         ...identity(),
         ...payload,
         partial,
+        full: state.full,
         step: true,
         finish: atRoot && !partial, // lot global valide : on quitte la vérif commune cote serveur aussi
         ...(credentials ? { live: credentials } : {}),
@@ -2300,7 +2327,7 @@
   // Plus de lot selectionne (« Changer de lot », ou vérif enregistree : le lot n'est plus « en cours »)
   function forgetLot(message = "Scannez l'étiquette d'un lot.") {
     state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = []; resetCascade();
-    state.lastVerif = null; state.launched = ''; state.current = ''; state.askPlace = false;
+    state.lastVerif = null; state.launched = ''; state.current = ''; state.askPlace = false; state.full = false;
     showInfo('empty', message);
     save(); render();
   }
@@ -2455,7 +2482,7 @@
       (known[item.type] = known[item.type] || []).push(item);
     }
     let remaining = 0;
-    const groups = (lot.requirements || []).map((requirement) => {
+    const groups = (lot.requirements || []).map(strictRow).map((requirement) => {
       const items = (known[requirement.type] || []).sort((a, b) => b.expired - a.expired);
       delete known[requirement.type];
       const scanned = fresh[requirement.type] || 0;
@@ -2473,7 +2500,7 @@
     });
     groups.push(...addedGroups(row, plan, groups));
     const others = Object.values(known).flat();
-    remaining += others.filter((item) => !item.optional).length; // sous-lot facultatif : son materiel ne retient rien
+    remaining += others.filter((item) => !itemOptional(item)).length; // sous-lot facultatif : son materiel ne retient rien
     return { groups, others, remaining, complete: row ? row.complete : false };
   }
 
@@ -2681,6 +2708,8 @@
       rows.push(...lotGroupRows(lot, groups, others, lastScan));
     }
     if (!remaining) rows.unshift(el('li', { class: 'group ok' }, multi ? '✅ Tout est scanné : les lots seront complets.' : '✅ Tout est scanné : le lot sera complet.'));
+    const full = fullVerifRow();
+    if (full) rows.unshift(full);
     list.replaceChildren(...rows);
     return remaining;
   }
@@ -2724,7 +2753,7 @@
       } else if (sealed) {
         cls = 'ok';
         sub = '🔒 Scellé intact : enregistré à la validation';
-      } else if (child.optional && !who.length && !touched(child.id)) {
+      } else if (lotOptional(child) && !who.length && !touched(child.id)) {
         // sous-lot facultatif : on peut valider sans lui, ou y entrer pour scanner ce qu'il contient
         cls = 'optional';
         sub = 'Facultatif · validable sans, touchez pour y scanner';
@@ -2755,6 +2784,8 @@
       rows.splice(1, 0, el('li', { class: 'group ok' }, `✅ Tout est fait : validez ${level.name}`
         + (sealNextLevel() ? ', puis rescellez-le.' : parent ? ` pour revenir à ${parent.name}.` : ' pour terminer la vérif.')));
     }
+    const full = fullVerifRow();
+    if (full) rows.splice(1, 0, full);
     list.replaceChildren(...rows);
     return remaining + left;
   }
@@ -2824,7 +2855,7 @@
       ...renderGlobal(lot),
       // types incomplets en haut
       el('h3', {}, 'Scannés / attendus'),
-      ...incompleteFirst(lot.requirements, (row) => fresh[row.type] || 0).map((row) => requirementLine(
+      ...incompleteFirst((lot.requirements || []).map(strictRow), (row) => fresh[row.type] || 0).map((row) => requirementLine(
         row.type_name + (row.location ? ` (${row.location})` : ''), fresh[row.type] || 0, row)),
       el('h3', {}, 'État enregistré du lot'),
       ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => requirementLine(row.type_name, row.present, row)),
