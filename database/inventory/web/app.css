@@ -678,6 +678,7 @@ button.debug-item { text-align: left; background: var(--panel); border-radius: 0
 .list li.full-verif { background: var(--panel); border: 2px dashed #8a8f94; gap: 8px; }
 .list li.full-verif .sub { color: var(--muted); }
 .list li.full-verif button { flex: none; padding: 6px 10px; font-size: .85rem; }
+.list li.full-verif button.full-verif-close { background: none; border: none; color: var(--muted); padding: 4px 6px; font-size: 1.1rem; box-shadow: none; }
 .list li.full-verif.on { border: 2px solid var(--orange); background: var(--orange-bg); }
 
 /* Grandes popups de la vérif : étiquette du lot à scanner, explication après la connexion */

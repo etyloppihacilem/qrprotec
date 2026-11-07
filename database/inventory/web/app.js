@@ -118,7 +118,7 @@
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
         at: Date.now(), // derniere activite (SESSION_TIMEOUT_MS)
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
-        launched: state.launched, current: state.current, full: state.full,
+        launched: state.launched, current: state.current, full: state.full, fullHidden: state.fullHidden,
         path: state.path, done: state.done, keys: state.keys, entered: state.entered, startedIn: state.startedIn,
         labels: state.labels,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
@@ -147,6 +147,7 @@
         state.lotKey = session.lotKey || '';
         state.launched = session.launched || '';
         state.full = !!session.full;
+        state.fullHidden = !!session.fullHidden;
         state.current = session.current || '';
         state.path = Array.isArray(session.path) ? session.path : [];
         state.done = session.done && typeof session.done === 'object' ? session.done : {};
@@ -1284,7 +1285,7 @@
 
   function resetCascade() {
     state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.startedIn = ''; state.labels = [];
-    state.full = false; state.fullBy = '';
+    state.full = false; state.fullBy = ''; state.fullHidden = false;
   }
 
   // Facultatif (casques du VPS, sous-lot facultatif) : le lot se valide sans, sauf en « vérif complète » (bouton des
@@ -1294,13 +1295,20 @@
   const lotOptional = (lot) => !!lot.optional && !state.full;
   // vérif complete : la ligne telle que le serveur la compterait (facultatif obligatoire)
   const strictRow = (row) => (row.optional && state.full ? { ...row, optional: false, required: row.expected || 0 } : row);
-  const sessionHasOptional = () => sessionLots().some((lot) => lot.optional || (lot.requirements || []).some((row) => row.optional));
+  // Facultatif dans le lot verifie ou un de ses sous-lots (en descendant). En cascade, c'est le lot en cours : un
+  // sous-lot n'affiche pas le bandeau parce que son lot parent contient du facultatif (demande d'Hippolyte).
+  function sessionHasOptional() {
+    const scope = inCascade() ? sessionLots().filter((lot) => isUnder(lot.id, levelId())) : sessionLots();
+    return scope.some((lot) => lot.optional || (lot.requirements || []).some((row) => row.optional));
+  }
 
   // Bouton des admins en vérif : « Rendre la vérif complète » (le facultatif devient obligatoire), ou l'annuler
   function fullVerifRow() {
-    if (!state.lot || !sessionHasOptional() || !(isAdmin() || state.full)) return null;
+    if (!state.lot || state.fullHidden || !sessionHasOptional() || !(isAdmin() || state.full)) return null;
     // vérif commune : partage avec tous les participants (le serveur garde le reglage)
     const toggle = () => { state.full = !state.full; state.fullBy = ''; state.fullLocal = true; live.setFull(state.full); save(); render(); };
+    // « x » des admins : ferme le bandeau pour cette vérif seulement (sur cette page, le reglage ne change pas)
+    const hide = () => { state.fullHidden = true; save(); render(); };
     return el('li', { class: 'full-verif' + (state.full ? ' on' : '') },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, state.full ? 'Vérif complète' + (state.fullBy ? ` (par ${state.fullBy})` : '')
@@ -1308,7 +1316,9 @@
         el('div', { class: 'sub' }, state.full ? 'Le facultatif est obligatoire.'
           : 'Validable sans lui.')),
       isAdmin() ? el('button', { type: 'button', class: state.full ? 'secondary' : 'warning', onclick: toggle },
-        state.full ? 'Revenir au facultatif' : 'Rendre la vérif complète') : null);
+        state.full ? 'Revenir au facultatif' : 'Rendre la vérif complète') : null,
+      isAdmin() ? el('button', { type: 'button', class: 'full-verif-close', 'aria-label': 'Fermer', title: 'Fermer pour cette vérif',
+        onclick: hide }, '✕') : null);
   }
 
   // lot id dans le lot top (ou top lui-meme)
