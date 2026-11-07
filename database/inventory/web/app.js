@@ -5273,7 +5273,7 @@
         fact('Ajouté', item.added ? cap(fmtDateTime(item.added, { long: true })) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
         item.tear_off || (item.label_style && item.label_style !== 'qr')
           ? fact('Étiquette', [{ small: 'QR code réduit', barcode: 'code-barres' }[item.label_style] || '', item.tear_off ? 'à déchirer avant utilisation' : ''].filter(Boolean).join(', ')) : [],
-        item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il passe hors lot (pas perdu)') : [],
+        detailed() && item.consumable === false ? fact('Usage', 'non consommable : retiré d\'un lot, il passe hors lot (pas perdu)') : [],
         item.revision ? fact('Révision', item.revision_due ? `prochaine le ${fmtDate(item.revision_due)}` : 'pas encore prévue',
           el('div', { class: 'sub' }, `tous les ${item.revision_months} mois` + (item.revision_usable ? '' : ', inutilisable en retard'))) : [],
         item.revision && item.revised_at ? fact('Dernière révision', cap(fmtOn(item.revised_at, { long: true })) + (item.revised_by ? ' par ' + item.revised_by : '')) : [],
