@@ -530,6 +530,20 @@ class ScannerVolumeTests(ApiTestCase):
         self.call('PATCH', '/api/me/scanner-volume/', {'volume': None}, session=session)
         self.assertEqual(self.login(self.user)['scanner_volume'], 8)
 
+    def test_admin_sets_user_volume(self):
+        m = self.user.matricule
+        row = next(user for user in self.call('GET', '/api/users/')[1] if user['matricule'] == m)
+        self.assertIsNone(row['scanner_volume'])  # defaut du serveur
+        code, row = self.call('PATCH', f'/api/users/{m}/', {'scanner_volume': 2})
+        self.assertEqual((code, row['scanner_volume']), (200, 2))
+        self.assertEqual(self.login(self.user)['scanner_volume'], 2)
+        self.assertEqual(self.call('PATCH', f'/api/users/{m}/', {'scanner_volume': 5})[0], 400)
+        session = views.session_token(self.user)
+        self.assertEqual(self.call('PATCH', f'/api/users/{m}/', {'scanner_volume': 0}, session=session)[0], 403)
+        code, row = self.call('PATCH', f'/api/users/{m}/', {'scanner_volume': None})
+        self.assertIsNone(row['scanner_volume'])
+        self.assertEqual(self.login(self.user)['scanner_volume'], 4)
+
 
 class PublicNamesTests(ApiTestCase):
     """API publique : prenom seul, plus le debut du nom qui distingue les homonymes de meme prenom."""

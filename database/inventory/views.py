@@ -2584,6 +2584,9 @@ def user_detail(request, matricule):
             user.push_disabled = parse_push_disabled(data['push_disabled'])
         if 'web_prefs' in data:
             user.web_prefs = {**(user.web_prefs or {}), **parse_web_prefs(data['web_prefs'])}
+        if 'scanner_volume' in data:  # vide : volume par defaut du serveur
+            value = data['scanner_volume']
+            user.scanner_volume = None if value in (None, '') else parse_scanner_volume(value)
         with transaction.atomic():
             apply_default_contact(user, data)
             user.save()
@@ -2600,7 +2603,8 @@ def parse_fonction(value):
 
 USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'fonction': 'rôle', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé', 'pin_mode': 'mode du PIN',
                'pin_contact': 'admin à contacter', 'push_disabled': 'notifications', 'default_contact': 'contact par défaut',
-               'web_prefs': 'réglages du web'}
+               'web_prefs': 'réglages du web',
+               'scanner_volume': 'volume de la douchette'}
 
 
 def user_changes(data, user):

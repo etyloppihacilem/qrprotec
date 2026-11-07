@@ -13,6 +13,7 @@
 #include "imgui_stdlib.h"
 #include "windows.hpp"
 #include "../../core/codes.hpp"
+#include "../../inateck/scanner_settings.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -376,15 +377,46 @@ class UsersWindow final : public AppWindow {
       }
     }
 
-    // Reglages du front web de l'utilisateur (ligne d'info pendant la vérif, explication de la vérif masquee...),
-    // qu'il change lui-meme dans les Reglages du web : un admin peut les changer ici (ex. reafficher l'explication)
-    void draw_web_prefs(App &app) {
+    // Reglages personnels de l'utilisateur (ceux qu'il regle lui-meme au poste ou dans le ⚙ du web) : un admin les
+    // modifie ici pour lui, par exemple pour remettre un message qu'il a choisi de ne plus afficher.
+    void draw_user_settings(App &app) {
+      ImGui::SeparatorText("Réglages de l'utilisateur");
+      const Json &volume_value = user_["scanner_volume"];
+      const ScannerSettingInfo volume_info = scanner_setting_info(1001, "volume");
+      const char *default_label = "Volume par défaut du serveur";
+      std::string preview = default_label;
+      if (volume_value.is_number()) {
+        preview = "Valeur " + std::to_string(volume_value.integer());
+        for (const ScannerSettingOption &option : volume_info.options)
+          if (option.value == volume_value.integer())
+            preview = option.label;
+      }
+      ImGui::SetNextItemWidth(260.0f);
+      if (ImGui::BeginCombo("Volume de la douchette", preview.c_str())) {
+        if (ImGui::Selectable(default_label, !volume_value.is_number()) && volume_value.is_number()) {
+          Json body;
+          body["scanner_volume"] = Json();
+          patch_user(app, body, "Volume de la douchette : celui du serveur.");
+        }
+        for (const ScannerSettingOption &option : volume_info.options) {
+          const bool current = volume_value.is_number() && option.value == volume_value.integer();
+          if (!ImGui::Selectable(option.label, current) || current)
+            continue;
+          Json body;
+          body["scanner_volume"] = option.value;
+          patch_user(app, body, "Volume de la douchette enregistré.");
+        }
+        ImGui::EndCombo();
+      }
+      help_marker("Repris à chacune de ses connexions sur un poste. Il le change aussi lui-même avec la douchette "
+                  "connectée ; par défaut, le volume choisi dans Réglages > Règles du serveur.");
+      // reglages du front web (⚙ Reglages), qu'il change aussi lui-meme : une case chacun, d'apres le serveur
       const Json &prefs = user_["web_prefs_list"];
-      if (prefs.size() == 0)
-        return;
-      ImGui::SeparatorText("Réglages du web");
-      help_marker("Réglages que l'utilisateur choisit dans le front web (⚙ Réglages). Décocher « Explication de la "
-                  "vérif masquée » lui réaffiche l'explication au début de sa prochaine vérif.");
+      if (prefs.size() > 0) {
+        ImGui::TextDisabled("Front web");
+        help_marker("Réglages que l'utilisateur choisit aussi lui-même dans le front web (⚙ Réglages). Décocher "
+                    "« Explication de la vérif masquée » lui réaffiche l'explication au début de sa prochaine vérif.");
+      }
       for (std::size_t i = 0; i < prefs.size(); ++i) {
         bool value = prefs[i]["value"].boolean();
         if (!ImGui::Checkbox(prefs[i]["label"].str().c_str(), &value))
@@ -393,15 +425,18 @@ class UsersWindow final : public AppWindow {
         changed[prefs[i]["name"].str()] = Json(value);
         Json body;
         body["web_prefs"] = changed;
-        app.api.patch("/api/users/" + url_encode(selected_) + "/", body, [this, &app](const ApiResult &result) {
-          if (!result.ok) {
-            app.notify(result.error, true);
-            return;
-          }
-          select(result.data);
-          app.refresh_users();
-        });
+        patch_user(app, body, "Réglage enregistré.");
       }
+    }
+
+    // Modification immediate d'un reglage de l'utilisateur affiche (fiche mise a jour avec la reponse)
+    void patch_user(App &app, const Json &body, const std::string &done) {
+      app.api.patch("/api/users/" + url_encode(selected_) + "/", body, [this, &app, done](const ApiResult &result) {
+        app.notify(result.ok ? done : result.error, !result.ok);
+        if (result.ok)
+          select(result.data);
+        app.refresh_users();
+      });
     }
 
     void draw_contact(App &app) {
@@ -565,8 +600,8 @@ class UsersWindow final : public AppWindow {
                     "peut aussi se connecter sans badge, avec son nom, son prénom et son PIN.");
       }
 
+      draw_user_settings(app);
       draw_notifications(app);
-      draw_web_prefs(app);
 
       ImGui::SeparatorText("Badge");
       ImGui::Text("Valable jusqu'au : %s", display_date(user_["key_expires"]).c_str());
