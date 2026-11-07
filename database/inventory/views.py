@@ -36,6 +36,7 @@ from rest_framework.response import Response
 
 from . import debug_codes
 from . import forecast
+from . import front_config
 from . import journal
 from . import label_prints
 from . import lot_report
@@ -53,7 +54,7 @@ from .sessions import credentials_user, session_token, session_user, session_val
 from .models import (
     DEFAULT_FONCTION, PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
-    SCANNER_VOLUMES, ServerSettings, VerifItem, VerifResult, Verifs, add_months, name_key, qrprotec_setting,
+    SCANNER_VOLUMES, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -1662,6 +1663,88 @@ def items_disable(request):
     changed = services.set_disabled(targets, operation_identity(request), bool(data.get('disabled', True)),
                                     data.get('reason', ''))
     return Response({'count': len(changed), 'total': len(targets)})
+
+
+FRONT_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+
+
+@api_view(['GET', 'POST'])
+@handle_errors
+def front_configs(request):
+    """Connecter un autre ordinateur, depuis le poste (Reglages > Serveur), par un admin : cree la cle d'un front
+    distant et son fichier de configuration chiffre, telechargeable pendant 5 minutes par un lien (QR code).
+    POST {"name", "password" (vide = genere et renvoye), "replace": bool}. GET : fronts existants.
+    Seulement sur l'API locale du poste : jamais depuis un front distant (une cle ne cree pas d'autres cles)."""
+    require_front(request, ADMIN)
+    if getattr(request, 'qrprotec_front', ''):
+        raise ApiError("Seulement depuis le poste du serveur (API locale)", status.HTTP_403_FORBIDDEN)
+    now = timezone.now()
+    FrontConfigDownload.objects.filter(expires__lte=now).delete()
+    if request.method == 'GET':
+        return Response({'fronts': [
+            {'name': front.name, 'revoked': front.revoked, 'created': front.created.isoformat(),
+             'last_used': front.last_used.isoformat() if front.last_used else None}
+            for front in FrontKey.objects.order_by('name')]})
+    data = request.data
+    name = str(data.get('name', '')).strip()
+    if not FRONT_NAME_RE.match(name):
+        raise ApiError("Nom de l'ordinateur : lettres sans accents, chiffres, . _ - (64 caractères au plus, sans espace)")
+    password = str(data.get('password', ''))
+    generated = not password
+    if generated:
+        password = front_config.generate_password()
+    if len(password) < front_config.MIN_PASSWORD_LENGTH:
+        raise ApiError(f"Mot de passe trop court ({front_config.MIN_PASSWORD_LENGTH} caractères au moins)")
+    existing = FrontKey.objects.filter(name=name).first()
+    if existing is not None and not data.get('replace'):
+        raise ApiError(f"Un ordinateur s'appelle déjà « {name} » : choisissez un autre nom, ou remplacez sa clé "
+                       "(l'ancien fichier ne marchera plus)", status.HTTP_409_CONFLICT, exists=True)
+    base_url = qrprotec_setting('PUBLIC_BASE_URL').rstrip('/')
+    ca_pem = front_config.server_ca_pem(base_url, qrprotec_setting('TLS'), qrprotec_setting('FRONT_CA_FILE'))
+    with transaction.atomic():
+        if existing is not None:
+            existing.delete()
+        front, key = FrontKey.create(name)
+        payload = {'name': name, 'api_url': base_url, 'api_key': key,
+                   'created': timezone.localtime(now).isoformat(timespec='seconds')}
+        if ca_pem:
+            payload['api_ca_pem'] = ca_pem
+        download = FrontConfigDownload.objects.create(
+            token=front_config.new_download_token(), front=front, content=front_config.encrypt(payload, password),
+            created=now, expires=front_config.download_expiry(now))
+    journal.record(OperationKind.SETTINGS, front_identity(request),
+                   f"ordinateur « {name} » connecté au serveur" + (" (clé remplacée)" if existing else ''),
+                   front=name)
+    return Response({
+        'name': name,
+        'url': f'{base_url}/front-config/{download.token}',
+        'expires': download.expires.isoformat(),
+        'seconds': int((download.expires - now).total_seconds()),
+        'password': password if generated else '',
+        'ca': bool(ca_pem),
+        'replaced': existing is not None,
+    }, status=status.HTTP_201_CREATED)
+
+
+def front_config_download(request, token):
+    """Lien du QR code affiche au poste : le fichier chiffre, en piece jointe, tant que le lien est valable."""
+    if request.method != 'GET':
+        return HttpResponseNotAllowed(['GET'])
+    FrontConfigDownload.objects.filter(expires__lte=timezone.now()).delete()
+    download = FrontConfigDownload.objects.select_related('front').filter(
+        token=token, expires__gt=timezone.now(), front__revoked=False).first()
+    if download is None:
+        response = HttpResponse("Lien expiré ou inconnu : demandez un nouveau QR code au poste "
+                                "(Réglages > Serveur > Connecter un autre ordinateur).\n",
+                                content_type='text/plain; charset=utf-8', status=404)
+        response['Cache-Control'] = 'no-store'
+        return response
+    FrontConfigDownload.objects.filter(pk=download.pk).update(downloads=download.downloads + 1)
+    response = HttpResponse(download.content, content_type='application/octet-stream')
+    response['Content-Disposition'] = f'attachment; filename="{download.front.name}{front_config.SUFFIX}"'
+    response['Cache-Control'] = 'no-store'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @api_view(['GET'])

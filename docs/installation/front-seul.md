@@ -14,7 +14,32 @@ Deux paquets :
 
 ## Avant de commencer : la clé du poste
 
-### Le plus simple : un fichier de configuration chiffré
+### Le plus simple : depuis le poste du serveur, sans ligne de commande
+
+Un administrateur, sur le **poste** (le front de la machine du serveur) :
+
+1. **Administration > Réglages** (F12), section **Connecter un autre ordinateur**.
+2. Donnez un **nom** à l'ordinateur (`accueil`, `portable-chef`... sans espace ni accent). Laissez
+   le mot de passe vide : un mot de passe facile à recopier est choisi (`tf3t-bhr3-4spt`).
+3. **Créer le fichier de configuration** : un **QR code**, une **adresse** et le **mot de passe**
+   s'affichent. Le lien est valable **5 minutes** (on peut télécharger plusieurs fois pendant ce temps).
+
+Sur l'autre ordinateur, pendant ces 5 minutes :
+
+1. Tapez l'adresse dans le navigateur (ou scannez le QR code) : le fichier `accueil.qrprotec` se
+   télécharge. Avec l'autorité interne de Caddy, le navigateur avertit d'abord que le certificat
+   n'est pas reconnu : continuer (c'est le certificat du serveur, il est justement dans le fichier).
+2. Ouvrez QRProtec : il n'est pas encore relié au serveur, cliquez sur **API hors ligne** en haut à
+   droite.
+3. **Choisir le fichier…** : le fichier est dans **Téléchargements**. Tapez le **mot de passe**, puis
+   **Importer**. C'est tout : l'URL, la clé et le certificat sont enregistrés.
+
+Passé les 5 minutes, le lien ne marche plus mais l'ordinateur reste autorisé ; pour refaire un
+fichier, recréez-le avec le même nom (**Remplacer sa clé** : l'ancien fichier ne marchera plus).
+Seul le poste (API locale) peut créer ces fichiers, jamais un front distant. Chaque création est
+notée dans le journal (Réglages).
+
+### En ligne de commande : un fichier de configuration chiffré
 
 Sur le serveur, créez la clé du poste directement dans un fichier :
 

@@ -35,6 +35,12 @@ import base64
 import hashlib
 import json
 import os
+import secrets
+import socket
+import ssl
+from datetime import timedelta
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -48,6 +54,8 @@ MIN_ITERATIONS = 100_000
 MAX_ITERATIONS = 10_000_000
 MIN_PASSWORD_LENGTH = 8
 SUFFIX = '.qrprotec'
+DOWNLOAD_MINUTES = 5  # fichier cree au poste : lien (QR code) valable 5 minutes
+CADDY_CA_PATH = '/qrprotec-ca.crt'  # autorite interne de Caddy, servie par qrprotec.caddyfile
 
 
 class FrontConfigError(ValueError):
@@ -103,3 +111,59 @@ def decrypt(text, password):
     except InvalidTag as error:
         raise FrontConfigError("Mot de passe incorrect ou fichier modifie") from error
     return json.loads(plain.decode('utf-8'))
+
+
+def generate_password():
+    """Mot de passe lisible a dicter ou recopier : 3 groupes de 4 caracteres sans ambiguite (ni 0/o, ni 1/l/i)."""
+    alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+    return '-'.join(''.join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3))
+
+
+def server_ca_pem(base_url, tls_mode, ca_file=''):
+    """Certificat de l'autorite a mettre dans le fichier, ou ''.
+
+    `ca_file` (QRPROTEC_FRONT_CA_FILE) s'il est lisible. Sinon, avec l'autorite interne de Caddy
+    (QRPROTEC_TLS=internal), le certificat que Caddy sert lui-meme a /qrprotec-ca.crt, lu en boucle
+    locale (127.0.0.1:443) : le back tourne sous l'utilisateur qrprotec, qui ne lit pas les fichiers de
+    Caddy. Le certificat n'est pas verifie a cette lecture (c'est lui qu'on vient chercher, sur la meme
+    machine). Avec Let's Encrypt : rien, les autorites du systeme suffisent.
+    """
+    if ca_file:
+        try:
+            pem = Path(ca_file).read_text(encoding='ascii')
+            if '-----BEGIN CERTIFICATE-----' in pem:
+                return pem
+        except (OSError, UnicodeDecodeError):
+            pass
+    if tls_mode != 'internal':
+        return ''
+    host = urlsplit(base_url).hostname or 'localhost'
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection(('127.0.0.1', 443), timeout=3) as raw:
+            with context.wrap_socket(raw, server_hostname=host) as connection:
+                connection.sendall(f'GET {CADDY_CA_PATH} HTTP/1.0\r\nHost: {host}\r\n\r\n'.encode('ascii'))
+                response = b''
+                while len(response) < 65536:
+                    chunk = connection.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+    except OSError:
+        return ''
+    head, _, body = response.partition(b'\r\n\r\n')
+    if not head.startswith(b'HTTP/') or b' 200 ' not in head.split(b'\r\n', 1)[0] + b' ':
+        return ''
+    pem = body.decode('ascii', 'replace')
+    return pem if '-----BEGIN CERTIFICATE-----' in pem else ''
+
+
+def new_download_token():
+    # court, pour une adresse a recopier : 72 bits, valable 5 minutes
+    return secrets.token_urlsafe(9)
+
+
+def download_expiry(now):
+    return now + timedelta(minutes=DOWNLOAD_MINUTES)

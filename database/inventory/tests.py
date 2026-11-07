@@ -270,6 +270,69 @@ class PublicApiTests(ApiTestCase):
         self.assertIsNone(FrontKey.authenticate(key))
         self.assertNotIn(key, FrontKey.objects.get().key_hash)
 
+    def test_front_config_from_poste(self):
+        """Poste, admin : cle + fichier chiffre telechargeable 5 minutes par le lien du QR code."""
+        from datetime import timedelta
+        from unittest import mock
+
+        from inventory import front_config
+        from inventory.models import FrontConfigDownload
+
+        with mock.patch.object(front_config, 'server_ca_pem', return_value='-----BEGIN CERTIFICATE-----\nX\n'):
+            code, body = self.call('POST', '/api/front-configs/', {'name': 'accueil'})
+        self.assertEqual(code, 201, body)
+        password = body['password']  # genere : 3 groupes de 4
+        self.assertRegex(password, r'^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$')
+        self.assertTrue(body['ca'])
+        path = body['url'][body['url'].index('/front-config/'):]
+        # telechargement par l'API publique, sans connexion
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('accueil.qrprotec', response['Content-Disposition'])
+        payload = front_config.decrypt(response.content.decode(), password)
+        self.assertEqual(payload['api_ca_pem'], '-----BEGIN CERTIFICATE-----\nX\n')
+        self.assertIsNotNone(FrontKey.authenticate(payload['api_key']))
+        self.assertEqual(self.client.get(path).status_code, 200)  # plusieurs fois pendant 5 minutes
+        # nom deja pris : 409 sans replace ; mot de passe choisi, pas renvoye
+        code, body = self.call('POST', '/api/front-configs/', {'name': 'accueil', 'password': 'mot-de-passe'})
+        self.assertEqual((code, body.get('exists')), (409, True))
+        with mock.patch.object(front_config, 'server_ca_pem', return_value=''):
+            code, body = self.call('POST', '/api/front-configs/',
+                                   {'name': 'accueil', 'password': 'mot-de-passe', 'replace': True})
+        self.assertEqual((code, body['password'], body['ca'], body['replaced']), (201, '', False, True))
+        self.assertIsNone(FrontKey.authenticate(payload['api_key']))  # ancienne cle remplacee
+        self.assertEqual(self.client.get(path).status_code, 404)  # ancien lien supprime avec l'ancienne cle
+        # expire apres 5 minutes
+        new_path = body['url'][body['url'].index('/front-config/'):]
+        FrontConfigDownload.objects.update(expires=timezone.now() - timedelta(seconds=1))
+        self.assertEqual(self.client.get(new_path).status_code, 404)
+        self.assertFalse(FrontConfigDownload.objects.exists())
+        # liste ; refus : pas admin, personne de connecte, nom invalide, front distant
+        code, body = self.call('GET', '/api/front-configs/')
+        self.assertEqual([front['name'] for front in body['fronts']], ['accueil'])
+        self.assertEqual(self.call('POST', '/api/front-configs/', {'name': 'b'}, session=False)[0], 403)
+        self.assertEqual(self.call('POST', '/api/front-configs/', {'name': 'avec espace'})[0], 400)
+        self.assertEqual(self.call('POST', '/api/front-configs/', {'name': 'b', 'password': 'court'})[0], 400)
+        _, key = FrontKey.create('distant')
+        response = self.client.post('/api/front-configs/', json.dumps({'name': 'b'}), content_type='application/json',
+                                    HTTP_X_QRPROTEC_KEY=key, HTTP_X_QRPROTEC_SESSION=self.operator_session,
+                                    **{'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1'})
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(FrontKey.objects.filter(name='b').exists())
+        self.assertEqual(self.client.post('/api/front-configs/', {'name': 'b'}).status_code, 404)  # API publique
+
+    def test_server_ca_pem(self):
+        import tempfile
+        from pathlib import Path
+
+        from inventory import front_config
+
+        self.assertEqual(front_config.server_ca_pem('https://x.org', 'admin@x.org'), '')  # Let's Encrypt
+        with tempfile.TemporaryDirectory() as directory:
+            ca = Path(directory) / 'ca.pem'
+            ca.write_text('-----BEGIN CERTIFICATE-----\nY\n')
+            self.assertEqual(front_config.server_ca_pem('https://x.org', '', str(ca)), ca.read_text())
+
     def test_frontkey_config_file(self):
         """frontkey add --config : URL, cle et certificat chiffres en AES, relus avec le mot de passe."""
         import json

@@ -69,6 +69,7 @@ local_patterns = [
     path('label-prints/<int:print_id>/print/', views.label_print_print),
     path('label-prints/send/', views.label_prints_send),  # front d'un autre ordinateur -> poste
     path('label-prints/<int:print_id>/detail/', views.label_print_detail),
+    path('front-configs/', views.front_configs),
     path('item-types/', views.item_types),
     path('item-types/<str:type_code>/', views.item_type_detail),
     path('items/', views.items),
@@ -128,5 +129,6 @@ web_patterns = [
     path('pinreset', web_views.page),
     path('scanner', web_views.scanner_page),
     path('favicon.ico', web_views.favicon),
+    path('front-config/<str:token>', views.front_config_download),
     path('web/<path:name>', web_views.asset),
 ]

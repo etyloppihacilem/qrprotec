@@ -55,6 +55,12 @@ avec sa propre clé API** ; un front local et des fronts distants fonctionnent e
    ```sh
    sudo qrprotec-setup --front-key accueil     # ou : sudo qrprotec-manage frontkey add accueil
    sudo qrprotec-setup --front-key accueil --front-config accueil.qrprotec  # tout dans un fichier chiffré
+   ```
+
+   Sans ligne de commande : au poste, **Réglages > Connecter un autre ordinateur** affiche un QR code
+   pour télécharger ce fichier pendant 5 minutes (voir `docs/installation/front-seul.md`).
+
+   ```sh
    sudo qrprotec-manage frontkey list          # fronts, dernière utilisation et adresse
    sudo qrprotec-manage frontkey revoke accueil
    ```

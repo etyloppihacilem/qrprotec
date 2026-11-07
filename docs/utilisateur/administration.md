@@ -200,6 +200,7 @@ Menu **Administration > Réglages** (admin) :
 
 | Section | Contenu |
 |---|---|
+| Connecter un autre ordinateur | Au poste du serveur : nom de l'ordinateur, puis QR code, adresse et mot de passe du fichier de configuration à télécharger sur l'autre ordinateur (5 minutes), voir [front seul](../installation/front-seul.md) |
 | Serveur | **Importer un fichier de configuration** (`.qrprotec` créé sur le serveur par `qrprotec-setup --front-key NOM --front-config FICHIER`, mot de passe demandé), adresse de l'API (`http://127.0.0.1:8001` sur la borne), **Tester la connexion** |
 | Règles du serveur (tous les fronts) | **Autoriser les vérifs et les ajouts sans badge (nom déclaré)**, désactivé par défaut : voir ci-dessous |
 | Session et affichage | **Machine partagée** (cochée par défaut ; décochée sur un poste personnel, l'utilisateur reste connecté jusqu'à « Se déconnecter », même après un redémarrage, et seul son PIN est redemandé à l'ouverture), taille du texte, réinitialisation après inactivité (15 min, machine partagée seulement), alerte péremption proche (30 jours), **Exiger l'étiquette clé pour valider une vérif** |
