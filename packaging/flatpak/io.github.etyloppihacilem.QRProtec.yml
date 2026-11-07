@@ -28,6 +28,12 @@ finish-args:
   - --filesystem=xdg-config/qrprotec:create
   # Images ajoutees aux etiquettes dans l'editeur
   - --filesystem=xdg-pictures:ro
+  # Fichier de configuration d'un front (.qrprotec) a importer : la ou il arrive le plus souvent
+  # (telecharge, sur le bureau, sur une cle USB), en lecture seule
+  - --filesystem=xdg-download:ro
+  - --filesystem=xdg-desktop:ro
+  - --filesystem=xdg-documents:ro
+  - --filesystem=/run/media:ro
 cleanup:
   - /include
   - /lib/cmake
