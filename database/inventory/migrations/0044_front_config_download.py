@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("inventory", "0041_items_status_index"),
+        ("inventory", "0043_antenna_lot_report"),
     ]
 
     operations = [
