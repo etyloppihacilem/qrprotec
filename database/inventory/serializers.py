@@ -665,6 +665,7 @@ def server_settings_dict(settings_row):
         'pin_required_default': settings_row.pin_required_default,
         'scanner_volume_default': settings_row.scanner_volume_default,
         'web_barcodes': settings_row.web_barcodes,
+        'antenna_name': settings_row.antenna_name,
     }
 
 

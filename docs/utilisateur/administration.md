@@ -62,6 +62,23 @@ Menu **Gestion > Gestion des lots** (rôle gestion).
   clé ne fonctionne plus ; imprimez la nouvelle. Une clé est valable 1 an par défaut ; la date
   d'expiration est affichée dans la fiche.
 
+### Rapport d'état d'un lot à une date donnée
+
+Sur le **front web**, réservé aux **admins** (pas depuis le poste) : dans la fiche d'un lot, le petit
+bouton **📋 Rapport daté** (sous **📄 Fiche PDF**) ouvre une fenêtre où l'on choisit la date et l'heure
+(par défaut maintenant, jamais dans le futur) et le nom de l'antenne. **Éditer le rapport** produit un
+PDF A4 à ouvrir ou télécharger :
+
+- l'état du lot à cette date (complet ou non), qui a édité le rapport et quand ;
+- pour le lot puis chacun de ses **sous-lots en cascade** : la dernière vérif avant cette date (date,
+  qui, complète ou non), le scellé s'il était posé, ce qui manquait, et le **contenu détaillé** item par
+  item (type, iid, péremption, état : présent, périmé, désactivé, absent à la dernière vérif) ;
+- en bas, la case **« Certifié par le TECH <antenne> »** avec nom, date et un espace pour la signature.
+
+Le contenu est reconstitué depuis le journal des mouvements d'items ; le contenu attendu et
+l'arborescence des sous-lots sont ceux d'aujourd'hui. Le nom de l'antenne est retenu pour les
+rapports suivants, et chaque rapport édité est noté dans le **Journal des opérations**.
+
 ## Scellés
 
 Dans la fiche d'un lot (rôle gestion) :

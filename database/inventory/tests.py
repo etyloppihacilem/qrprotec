@@ -4928,3 +4928,107 @@ class LabelPrintTests(ApiTestCase):
         # pas listee parmi les etiquettes d'items du web
         code, web = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
         self.assertEqual(web['prints'], [])
+
+
+class LotStateReportTests(LotSheetTests.__base__):
+    """Rapport d'etat d'un lot a une date donnee (PDF, admins, front web)."""
+
+    def setUp(self):
+        super().setUp()
+        self.admin_badge = {'matricule': 'P001', 'key': self.operator.new_key,
+                            'session': views.session_token(self.operator)}
+        global_type = LotType.objects.create(type='bplus0', name='B+')
+        self.root = Lots(lot_type=global_type, name='B+ 1', name_short='B1', created_by='test')
+        self.root.save()
+        self.lot.parent = self.root
+        self.lot.save()
+        o2_type = LotType.objects.create(type='sacoxy', name='Sac O2')
+        self.o2 = Lots(lot_type=o2_type, name='Sac O2 1', name_short='O1', created_by='test', parent=self.root)
+        self.o2.save()
+        now = timezone.now()
+        self.ago = lambda days: now - timedelta(days=days)
+        Lots.objects.filter(id__in=[self.root.id, self.lot.id, self.o2.id]).update(created=self.ago(30))
+        self.items = self.create(self.compresses, self.today + timedelta(days=200), 3)
+        i1, i2, i3 = self.items
+        Items.objects.filter(iid__in=[i1.iid, i2.iid]).update(added=self.ago(10))
+        Items.objects.filter(iid=i3.iid).update(added=self.ago(1), location=self.lot)
+        Items.objects.filter(iid=i2.iid).update(location=self.lot)
+        move = lambda item, days, src, dst, kind=MovementKind.MOVE, **extra: ItemMovement.objects.create(
+            item=item, item_type=self.compresses, kind=kind, at=self.ago(days), by='M:M001', from_lot=src, to_lot=dst,
+            **extra)
+        move(i1, 8, None, self.lot)
+        move(i2, 8, None, self.lot)
+        move(i1, 3, self.lot, None)  # i1 ressorti vers le stock il y a 3 jours
+        # i2 note absent il y a 4 jours, retrouve il y a 2 jours
+        move(i2, 4, self.lot, None, kind=MovementKind.USED, cancelled=self.ago(2))
+        Verifs.objects.create(lot=self.lot, datetime=self.ago(7), by='M:M001', complete=True, present_count=2,
+                              participants=['M:M001', 'M:P001'])
+
+    def report(self, days=None, **extra):
+        at = '' if days is None else timezone.localtime(self.ago(days)).strftime('%Y-%m-%dT%H:%M')
+        response = self.client.post(f'/api/lots/{self.root.id}/state-report/',
+                                    json.dumps({'user': self.admin_badge, 'at': at, **extra}),
+                                    content_type='application/json')
+        return response
+
+    def text(self, response):
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        return '\n'.join(LotSheetTests.page_texts(self, response.content))
+
+    def test_state_at_past_date(self):
+        i1, i2, i3 = self.items
+        text = self.text(self.report(5, antenna='  Paris   15 '))
+        self.assertIn(f'({i1.iid})', text)
+        self.assertIn(f'({i2.iid})', text)
+        self.assertNotIn(i3.iid, text)  # ajoute apres la date du rapport
+        self.assertIn('(Complet \xe0 cette date \\(tous les sous-lots\\))', text)
+        self.assertIn('Derni\xe8re v\xe9rif : ', text)
+        self.assertIn('par Jeanne \\(avec Admin\\)', text)
+        self.assertIn('Sous-lot \xb7 Sac A', text)
+        self.assertIn('Sous-lot \xb7 Sac O2 1', text)
+        self.assertIn('(Certifi\xe9 par le TECH Paris 15)', text)
+        self.assertIn('Signature :', text)
+        self.assertIn('par Admin', text)  # qui a edite le rapport
+        self.assertNotIn('Poste', text)    # jamais de nom de famille
+        self.assertEqual(models.ServerSettings.get().antenna_name, 'Paris 15')
+        op = Operation.objects.get(kind='lot_report')
+        self.assertEqual((op.lot_id, op.by), (self.root.id, 'M:P001'))
+
+    def test_absent_and_moved_items(self):
+        i1, i2, i3 = self.items
+        text = self.text(self.report(3.5))  # i2 absent (pas encore retrouve), i1 encore dans le sac
+        self.assertIn('absent \xe0 la derni\xe8re v\xe9rif', text)
+        self.assertIn('Manque 1 \xd7 Compresses', text)
+        self.assertIn('Incomplet \xe0 cette date : Sac A', text)
+        text = self.text(self.report())  # maintenant : i2 retrouve, i3 ajoute, i1 sorti
+        self.assertNotIn(i1.iid, text)
+        self.assertIn(i2.iid, text)
+        self.assertIn(i3.iid, text)
+        self.assertNotIn('absent', text)
+        self.assertIn('(Certifi\xe9 par le TECH)', text)
+
+    def test_expired_at_report_date(self):
+        old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
+        Items.objects.filter(iid=old.iid).update(location=self.lot, added=self.ago(9))
+        text = self.text(self.report(5))
+        self.assertIn(old.iid, text)
+        self.assertNotIn('(p\xe9rim\xe9)', text)  # encore bon il y a 5 jours
+        text = self.text(self.report())
+        self.assertIn('(p\xe9rim\xe9)', text)
+
+    def test_admins_only_and_past_dates(self):
+        badge = {'matricule': 'M001', 'key': self.user.new_key}
+        response = self.client.post(f'/api/lots/{self.root.id}/state-report/', json.dumps({'user': badge}),
+                                    content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+        response = self.client.post(f'/api/lots/{self.root.id}/state-report/', '{}', content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+        response = self.report(-2)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('venir', response.json()['error'])
+        response = self.client.post(f'/api/lots/{self.root.id}/state-report/',
+                                    json.dumps({'user': self.admin_badge, 'at': 'hier'}),
+                                    content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Operation.objects.filter(kind='lot_report').exists())

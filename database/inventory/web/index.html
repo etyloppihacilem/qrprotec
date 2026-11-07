@@ -226,6 +226,28 @@
     </form>
   </dialog>
 
+  <!-- Rapport d'etat d'un lot a une date donnee (admins) : PDF A4 avec derniere verif, contenu, certification -->
+  <dialog id="state-report">
+    <form id="state-report-form">
+      <h2>Rapport d'état du lot</h2>
+      <p id="state-report-lot" class="hint"></p>
+      <div class="state-report-when">
+        <label>État au <input type="date" id="state-report-day" required></label>
+        <label>à <input type="time" id="state-report-time" required></label>
+      </div>
+      <label class="state-report-antenna">Nom de l'antenne
+        <input type="text" id="state-report-antenna" maxlength="64" autocomplete="off" placeholder="ex. Paris 15"></label>
+      <p class="hint">Le rapport donne la dernière vérif et le contenu détaillé (iid, péremption) du lot et de ses
+        sous-lots à cette date, et finit par la case «&nbsp;Certifié par le TECH&nbsp;» avec un espace pour la signature.</p>
+      <p id="state-report-error" class="pin-error"></p>
+      <p id="state-report-ready" hidden></p>
+      <div class="dialog-buttons">
+        <button type="button" id="state-report-cancel" class="secondary">Fermer</button>
+        <button type="submit" id="state-report-ok" class="primary">Éditer le rapport</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Item ou paquet signale scanne : signalements ouverts et commentaires -->
   <dialog id="reported">
     <h2 id="reported-title">Objet signalé</h2>

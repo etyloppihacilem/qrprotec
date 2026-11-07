@@ -649,6 +649,7 @@ class OperationKind(models.TextChoices):
     REVISION = 'revision', 'Révision de matériel'
     CHECKLIST = 'checklist', 'Liste de matériel'
     LOT_USED = 'lot_used', 'Lot marqué utilisé'
+    LOT_REPORT = 'lot_report', "Rapport d'état de lot"
 
 
 class Operation(models.Model):
@@ -1038,6 +1039,9 @@ class ServerSettings(models.Model):
     # tant qu'aucune etiquette a code-barres n'est en circulation, la page ne charge alors pas le decodeur. Active
     # d'office quand un type d'item passe au style code-barres ; a desactiver a la main quand il n'y en a plus.
     web_barcodes = models.BooleanField(default=False)
+    # Nom de l'antenne, dans la case « Certifié par le TECH <antenne> » des rapports d'etat de lot (retenu a chaque
+    # rapport edite depuis le front web)
+    antenna_name = models.CharField(max_length=64, blank=True, default='')
 
     @classmethod
     def get(cls):

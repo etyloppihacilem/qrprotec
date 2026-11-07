@@ -20,7 +20,7 @@ import functools
 from collections import Counter, defaultdict
 import hmac
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.core import signing
@@ -38,6 +38,7 @@ from . import debug_codes
 from . import forecast
 from . import journal
 from . import label_prints
+from . import lot_report
 from . import lot_sheet
 from . import live
 from . import notifications
@@ -46,7 +47,7 @@ from . import serializers as ser
 from . import services
 from . import tasks
 from . import webpush
-from .idendity import SOURCE_VERIFIED, identity_from_request, identity_name, short_name
+from .idendity import SOURCE_VERIFIED, format_identity_verified, identity_from_request, identity_name, short_name
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
@@ -309,6 +310,8 @@ def health(request):
         'scanner_volume_default': ServerSettings.get().scanner_volume_default,
         # lecture des codes-barres par le front web : le poste l'active a la premiere impression d'un code-barres
         'web_barcodes': ServerSettings.get().web_barcodes,
+        # nom de l'antenne (case « Certifié par le TECH ... » des rapports d'etat de lot)
+        'antenna_name': ServerSettings.get().antenna_name,
     })
 
 
@@ -704,6 +707,44 @@ def lot_sheet_pdf(request, lot_id):
     response = HttpResponse(lot_sheet.lot_sheet_pdf(lot), content_type='application/pdf')
     filename = re.sub(r'[^A-Za-z0-9_-]+', '-', name_key(lot.name)).strip('-') or lot.id
     response['Content-Disposition'] = f'inline; filename="fiche-{filename}.pdf"'
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@api_view(['POST'])
+@handle_errors
+def lot_state_report(request, lot_id):
+    """Rapport d'etat du lot et de ses sous-lots a une date donnee (PDF A4), admins seulement, depuis le front web :
+    {"user": badge admin, "at": "AAAA-MM-JJTHH:MM" (heure locale, passee), "antenna": nom de l'antenne}. Derniere
+    verif, items avec iid et peremption, qui a edite le rapport et quand, case « Certifié par le TECH <antenne> ».
+    Le nom de l'antenne est retenu pour les rapports suivants (reglage du serveur)."""
+    user = badge_user(request, ADMIN)
+    lot = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=lot_id)
+    raw = str(request.data.get('at') or '').strip()
+    try:
+        at = datetime.fromisoformat(raw) if raw else timezone.now()
+    except ValueError:
+        raise ApiError("Date et heure du rapport invalides (attendu : AAAA-MM-JJTHH:MM)")
+    if timezone.is_naive(at):
+        at = timezone.make_aware(at)
+    if at > timezone.now() + timedelta(minutes=1):
+        raise ApiError("Date à venir : le rapport décrit l'état d'un lot à une date passée (ou maintenant)")
+    settings_row = ServerSettings.get()
+    if 'antenna' in request.data:
+        antenna = ' '.join(str(request.data.get('antenna') or '').split())[:64]
+        if antenna != settings_row.antenna_name:
+            settings_row.antenna_name = antenna
+            settings_row.save(update_fields=['antenna_name'])
+    identity = format_identity_verified(user.matricule)
+    now = timezone.now()
+    pdf = lot_report.lot_report_pdf(lot, at, short_name(user.matricule), settings_row.antenna_name, edited=now)
+    journal.record(OperationKind.LOT_REPORT, identity,
+                   f"rapport d'état au {timezone.localtime(at).strftime('%d/%m/%Y %H:%M')}", lot=lot, at=now,
+                   state_at=ser._date(at))
+    response = HttpResponse(pdf, content_type='application/pdf')
+    filename = re.sub(r'[^A-Za-z0-9_-]+', '-', name_key(lot.name)).strip('-') or lot.id
+    response['Content-Disposition'] = (f'inline; filename="rapport-{filename}-'
+                                       f'{timezone.localtime(at).strftime("%Y%m%d-%H%M")}.pdf"')
     response['Cache-Control'] = 'no-store'
     return response
 
@@ -2441,6 +2482,9 @@ def server_settings(request):
         if 'web_barcodes' in request.data:
             settings_row.web_barcodes = bool(request.data['web_barcodes'])
             changes.append('lecture des codes-barres sur le web ' + ('activée' if settings_row.web_barcodes else 'désactivée'))
+        if 'antenna_name' in request.data:
+            settings_row.antenna_name = ' '.join(str(request.data['antenna_name'] or '').split())[:64]
+            changes.append(f"nom de l'antenne : {settings_row.antenna_name or '(vide)'}")
         settings_row.save()
         journal.record(OperationKind.SETTINGS, front_identity(request), ', '.join(changes) or 'aucun changement',
                        declared_identity=settings_row.declared_identity,
