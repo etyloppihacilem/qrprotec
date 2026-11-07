@@ -415,6 +415,12 @@ body.fiche-open #toast { bottom: calc(90px + env(safe-area-inset-bottom)); }
 #fiche-body .fiche-content > summary::before { content: '+'; display: inline-block; width: 18px; height: 18px; box-sizing: border-box;
   border: 1.5px solid var(--muted); border-radius: 3px; font-size: 15px; font-weight: 700; line-height: 15px; text-align: center; }
 #fiche-body .fiche-content[open] > summary::before { content: '\2212'; }
+/* etat des lots : meme petit carre [+] / [-] pour derouler les sous-lots d'un lot */
+.list li .lot-fold { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  margin: -6px -4px -6px -6px; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.list li .lot-fold::before { content: '+'; display: inline-block; width: 18px; height: 18px; box-sizing: border-box;
+  border: 1.5px solid var(--muted); border-radius: 3px; font-size: 15px; font-weight: 700; line-height: 15px; text-align: center; }
+.list li .lot-fold.open::before { content: '\2212'; }
 .banner .when, .info .when { font-weight: 400; }
 #fiche-body p { margin: 4px 0; }
 #fiche-body .sub { color: var(--muted); font-size: .85rem; }
