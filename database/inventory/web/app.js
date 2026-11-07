@@ -54,6 +54,7 @@
     lots: null,        // liste des lots (page « État des lots »)
     showStorage: false, // rangements du stock dans la liste des lots (affiches par defaut en gestion et admin)
     storageRole: null, // role pour lequel showStorage a pris sa valeur par defaut (comme au poste)
+    lotFolds: new Map(), // etat des lots : id -> sous-lots replies (true) ou deplies (false), choisi a la main
     stock: null,       // etat des stocks, roles gestion et admin uniquement
     tasks: null,       // liste de taches de la gestion (meme acces que l'etat des stocks)
     forecast: null,    // previsions de stock (meme acces que l'etat des stocks)
@@ -3412,13 +3413,43 @@
     }
     parts.push(el('p', { class: 'hint' }, "Touchez un lot pour l'ouvrir. Un lot global affiche l'état de l'ensemble de ses sous-lots."));
     const tags = { ok: 'green', warn: 'orange', bad: 'red' };
+    // lot global : son etat est celui de l'ensemble de ses lots
+    const statusOf = (lot) => (!lot.depth && lot.global ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot));
+    // sous-lots replies par defaut sous un lot valide (lui et tous ses sous-lots en vert), deplies sinon ;
+    // le petit carre [+] / [-] du lot les deroule ou les replie a la main
+    const children = new Map();
+    state.lots.forEach((lot) => {
+      if (lot.parent == null) return;
+      if (!children.has(lot.parent)) children.set(lot.parent, []);
+      children.get(lot.parent).push(lot);
+    });
+    const valid = new Map();
+    const allValid = (lot) => {
+      if (!valid.has(lot.id)) {
+        valid.set(lot.id, statusOf(lot).kind === 'ok' && (children.get(lot.id) || []).every(allValid));
+      }
+      return valid.get(lot.id);
+    };
+    const folded = (lot) => (state.lotFolds.has(lot.id) ? state.lotFolds.get(lot.id) : allValid(lot));
+    const byId = new Map(state.lots.map((lot) => [lot.id, lot]));
+    const hidden = (lot) => {
+      for (let parent = byId.get(lot.parent); parent; parent = byId.get(parent.parent)) {
+        if (folded(parent)) return true;
+      }
+      return false;
+    };
     const lotRow = (lot) => {
-      // lot global : son etat est celui de l'ensemble de ses lots
       const top = !lot.depth && lot.global;
-      const status = top ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot);
+      const status = statusOf(lot);
       const verif = top ? lot.global.last_verif : lot.last_verif;
+      const subs = children.get(lot.id);
+      const fold = subs && el('button', { type: 'button', class: 'lot-fold' + (folded(lot) ? '' : ' open'),
+        title: folded(lot) ? 'Afficher les sous-lots' : 'Replier les sous-lots',
+        'aria-label': folded(lot) ? 'Afficher les sous-lots' : 'Replier les sous-lots',
+        onclick: (event) => { event.stopPropagation(); state.lotFolds.set(lot.id, !folded(lot)); renderLotsPage(); } });
       return el('li', { class: status.kind, style: lot.depth ? `padding-left:${12 + lot.depth * 16}px` : null,
         onclick: () => openLot(lot.id) },
+        fold || null,
         el('div', { class: 'main' },
           el('div', { class: 'name' }, (lot.depth ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
           el('div', { class: 'sub' }, `${lot.lot_type_name}${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : `
@@ -3432,14 +3463,14 @@
       state.storageRole = canSeeStock();
       state.showStorage = state.storageRole;
     }
-    const lots = state.lots.filter((lot) => !lot.storage || (!state.showStorage && lot.id === state.lotId));
+    const lots = state.lots.filter((lot) => (!lot.storage || (!state.showStorage && lot.id === state.lotId)) && !hidden(lot));
     parts.push(el('ul', { class: 'list' }, ...lots.map(lotRow)));
     parts.push(el('label', { class: 'check' },
       el('input', { type: 'checkbox', checked: state.showStorage ? '' : null,
         onchange: (event) => { state.showStorage = event.target.checked; renderLotsPage(); } }),
       'Afficher les rangements du stock'));
     if (state.showStorage) {
-      const storage = state.lots.filter((lot) => lot.storage);
+      const storage = state.lots.filter((lot) => lot.storage && !hidden(lot));
       parts.push(el('div', { class: 'row-head storage-head' }, el('h3', {}, 'Rangements du stock')));
       parts.push(storage.length ? el('ul', { class: 'list' }, ...storage.map(lotRow))
         : el('p', { class: 'hint' }, 'Aucun rangement du stock.'));
