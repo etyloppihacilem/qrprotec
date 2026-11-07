@@ -50,7 +50,10 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    (`services.discardable`). C'est le geste « je remplace le sérum périmé par un neuf », ou « il y a
    déjà un neuf, je jette le périmé » : les fronts le suggèrent au scan (« retirez-le du lot et
    jetez-le »). Sans assez de frais, le périmé **reste** dans le lot, à remplacer, et le lot est
-   incomplet faute du minimum. Un item dont seule la révision est en retard n'est pas jeté : il n'est
+   incomplet faute du minimum. Un périmé scanné qui **n'était pas dans ce lot** (stock, autre lot,
+   hors lot) n'y entre jamais : il est `replaced`, à jeter, quel que soit le compte (« ne le mettez
+   pas dans le lot : jetez-le »). Dans le suivi en direct, les vérifs récentes et le compte rendu, un
+   périmé à jeter n'est pas en rouge (gris « à jeter »). Un item dont seule la révision est en retard n'est pas jeté : il n'est
    remplacé que par un frais nouvellement arrivé. Un lot est **complet** dès qu'il a le minimum
    d'items frais par type : un périmé en trop ne le rend pas incomplet (vérif et état du lot).
 4. **Présents** : `status=active`, `missed_verifs=0`, `last_seen*` mis à jour, rangés dans leur lot.

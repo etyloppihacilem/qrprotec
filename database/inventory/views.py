@@ -1046,6 +1046,7 @@ def verifs_recent(request):
             last['present'] += verif.present_count
             last['missing'] += verif.missing_count
             last['expired'] += verif.expired_count
+            last['replaced'] += verif.replaced_count
             continue
         if len(rows) >= limit:
             break
@@ -1060,6 +1061,7 @@ def verifs_recent(request):
             'present': verif.present_count,
             'missing': verif.missing_count,
             'expired': verif.expired_count,
+            'replaced': verif.replaced_count,  # perimes retires du lot, a jeter
         })
     for row in rows:
         del row['_key']

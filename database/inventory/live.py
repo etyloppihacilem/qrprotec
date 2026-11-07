@@ -168,7 +168,9 @@ def clean_state(message):
     for entry in (message.get('scanned') if isinstance(message.get('scanned'), list) else [])[-MAX_SCANNED:]:
         if isinstance(entry, dict):
             scanned.append({'name': _text(entry.get('name'), 64), 'expired': bool(entry.get('expired')),
-                            'error': bool(entry.get('error')), 'extra': bool(entry.get('extra'))})
+                            'error': bool(entry.get('error')), 'extra': bool(entry.get('extra')),
+                            # perime que la verif retire du lot, a jeter : pas de rouge dans le suivi
+                            'discard': bool(entry.get('discard'))})
     lots = message.get('lots') if isinstance(message.get('lots'), list) else []
     level = message.get('level') if isinstance(message.get('level'), dict) else {}
     return {
@@ -207,6 +209,7 @@ def clean_entries(value):
             'info': None if info is None else {
                 'type': _text(info.get('type'), 16), 'type_name': _text(info.get('type_name'), 64),
                 'peremption': _text(info.get('peremption'), 32) or None, 'count': _number(info.get('count')),
+                **{flag: bool(info.get(flag)) for flag in ('revision_late', 'outdated', 'unusable', 'disabled')},
             },
         })
     return entries

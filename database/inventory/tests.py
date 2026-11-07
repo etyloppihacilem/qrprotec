@@ -697,6 +697,26 @@ class VerifTests(ApiTestCase):
         self.assertEqual((report['replaced'], report['expired']), ([], [old.iid]))
         self.assertEqual(Items.objects.get(iid=old.iid).location_id, self.lot.id)
 
+    def test_expired_from_elsewhere_is_discarded(self):
+        # perime scanne qui n'etait pas dans le lot (stock) : jamais range dans le lot, a jeter, meme lot court
+        stray = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
+        fresh = self.create(self.compresses, self.today + timedelta(days=30), 1)[0]
+        Items.objects.filter(iid=fresh.iid).update(location=self.lot)
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [stray.iid, fresh.iid]})
+        self.assertEqual(code, 200)
+        self.assertEqual((report['replaced'], report['expired']), ([stray.iid], []))
+        stray.refresh_from_db()
+        self.assertEqual((stray.status, stray.location_id), (ItemStatus.REPLACED, None))
+        # lot complet : rien de rouge, le perime venu d'ailleurs est seulement a jeter
+        more = self.create(self.compresses, self.today + timedelta(days=30), 1)[0]
+        other = self.create(self.compresses, self.today - timedelta(days=3), 1)[0]
+        code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/',
+                                 {'items': [other.iid, fresh.iid, more.iid]})
+        self.assertTrue(report['complete'])
+        self.assertEqual((report['replaced'], report['expired']), ([other.iid], []))
+        verif = Verifs.objects.filter(lot=self.lot).latest('id')
+        self.assertEqual((verif.complete, verif.expired_count, verif.replaced_count), (True, 0, 1))
+
     def test_stock_expiring_soon_split(self):
         self.create(self.compresses, self.today + timedelta(days=10), 2)
         self.create(self.compresses, self.today + timedelta(days=200), 1)
@@ -2832,7 +2852,7 @@ class LiveHubTests(ApiTestCase):
         self.assertTrue(update['verified'])
         self.assertTrue(update['connected'])
         self.assertEqual(update['lot'], {'id': self.lot.id, 'name': 'Sac A'})
-        self.assertEqual(update['scanned'], [{'name': 'Compresses', 'expired': True, 'error': False, 'extra': False}])
+        self.assertEqual(update['scanned'], [{'name': 'Compresses', 'expired': True, 'error': False, 'extra': False, 'discard': False}])
         self.assertNotIn('token', update)
         scanner.push({'type': 'done', 'complete': True, 'present': 2, 'verif': 42})
         self.wait(lambda: watcher.sent[-1]['type'] == 'update' and watcher.sent[-1]['session']['done'])

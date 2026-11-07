@@ -2632,10 +2632,15 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     VerifPlanLot     &row = plan[index[id]];
     ++row.touched;
     row.iids.insert(item.iid);
-    if (item.expired)
+    const auto found  = location_of.find(item.iid);
+    const bool inside = found != location_of.end() && found->second == id;
+    if (item.expired) {
+      if (!inside)
+        row.outsiders.insert(item.iid);
       continue;
+    }
     ++row.fresh[item.type];
-    if (const auto found = location_of.find(item.iid); found == location_of.end() || found->second != id)
+    if (!inside)
       ++row.added[item.type];
   }
   for (VerifPlanLot &row : plan) {
@@ -2653,7 +2658,8 @@ std::vector< VerifPlanLot > App::plan_verif() const {
 }
 
 // Perime, inutilisable ou desactive (pas une revision en retard) : la verif le retire du lot, a jeter, des que le lot
-// a son minimum d'items frais de ce type, meme deja presents (services.perform_verif) ; sinon il est a remplacer
+// a son minimum d'items frais de ce type, meme deja presents (services.perform_verif) ; sinon il est a remplacer. Un
+// perime qui n'etait pas dans le lot n'y entre jamais : il est a jeter.
 std::string App::discard_advice(const Json &item) const {
   if (!item["outdated"].boolean() && !item["unusable"].boolean() && !item["disabled"].boolean())
     return {};
@@ -2662,6 +2668,8 @@ std::string App::discard_advice(const Json &item) const {
   int               need = 0, have = 0;
   for (const VerifPlanLot &row : plan_verif())
     if (row.iids.count(iid)) {
+      if (row.outsiders.count(iid))
+        return item["type_name"].str() + " : ne le mettez pas dans le lot, jetez-le.";
       const auto required = row.required.find(type);
       const auto fresh    = row.fresh.find(type);
       need                = required == row.required.end() ? 0 : required->second;
