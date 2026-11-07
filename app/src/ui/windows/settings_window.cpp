@@ -142,7 +142,7 @@ class SettingsWindow final : public AppWindow {
       ImGui::SameLine();
       ImGui::TextDisabled("%s", AppSettings::file_path().string().c_str());
 
-      if (ImGui::CollapsingHeader("Serveur", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (ImGui::CollapsingHeader("Serveur")) {
         draw_server_settings(app);
       }
 
@@ -215,7 +215,7 @@ class SettingsWindow final : public AppWindow {
       if (ImGui::CollapsingHeader("Notifications"))
         draw_notifications(app);
 
-      if (ImGui::CollapsingHeader("Étiquettes et impression", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (ImGui::CollapsingHeader("Étiquettes et impression")) {
         ImGui::TextUnformatted("Dossier des modèles (fichiers .qr et images, à commiter avec le dépôt) :");
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::InputTextWithHint("##templates_dir", default_templates_dir().c_str(), &settings.templates_dir,
