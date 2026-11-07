@@ -21,6 +21,9 @@ Menu **Administration > Utilisateurs**.
   prochaine connexion), **Désactiver le PIN** (PIN supprimé et plus jamais demandé), **Réglage par
   défaut** pour revenir au réglage **Réglages > Règles du serveur > Code PIN obligatoire par défaut
   pour les secouristes** (décoché au départ). Les admins ont toujours un PIN.
+- **Réglages du web** : les réglages que l'utilisateur choisit dans le ⚙ du front web, modifiables ici
+  (**Ligne d'info pendant la vérif**, **Explication de la vérif masquée** : décochez-la pour lui
+  réafficher le rappel en 3 points au début de sa prochaine vérif).
 - **Connexion sans badge** : un utilisateur qui a un PIN peut se connecter avec son prénom, son nom
   et son PIN (téléphone : bouton « Nom + PIN » du petit lecteur ou puce « Non connecté » ; poste :
   lien « Sans badge » de la fenêtre de connexion). Après 5 essais faux, pause de 15 minutes ; après

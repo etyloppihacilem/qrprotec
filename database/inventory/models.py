@@ -731,6 +731,15 @@ PUSH_TYPES = {
 DEFAULT_FONCTION = 'Secouriste'
 
 
+# Reglages du front web de chaque utilisateur : nom -> (libelle, valeur par defaut). Booleens seulement.
+WEB_PREFS = {
+    # ligne d'information entre la camera et la liste pendant la vérif (badge, lot, item scanne)
+    'verif_info_line': ("Ligne d'info pendant la vérif", False),
+    # popup explicative de la vérif (3 points) plus affichee apres la connexion : « ne plus afficher ce message »
+    'verif_help_hidden': ("Explication de la vérif masquée", False),
+}
+
+
 class Secouristes(models.Model):
     matricule = models.CharField(max_length=16, primary_key=True, editable=False)
     nom = models.CharField(max_length=32)
@@ -768,6 +777,17 @@ class Secouristes(models.Model):
     # Volume de la douchette (SDK Inateck : 0 muet, 2, 4, 8) choisi par l'utilisateur, applique a sa connexion
     # sur un poste. Vide : volume par defaut du serveur (ServerSettings.scanner_volume_default).
     scanner_volume = models.PositiveSmallIntegerField(blank=True, null=True)
+    # Reglages du front web de l'utilisateur (voir WEB_PREFS) : absents, c'est la valeur par defaut. Modifiables par
+    # l'utilisateur (Reglages du web) et par un admin (poste, fenetre Utilisateurs).
+    web_prefs = models.JSONField(default=dict, blank=True)
+
+    def web_pref(self, name):
+        """Valeur d'un reglage du web (WEB_PREFS), sa valeur par defaut s'il n'a jamais ete change."""
+        return bool((self.web_prefs or {}).get(name, WEB_PREFS[name][1]))
+
+    def web_prefs_full(self):
+        """Tous les reglages du web, valeurs par defaut comprises."""
+        return {name: self.web_pref(name) for name in WEB_PREFS}
 
     def contact_admin(self):
         """Admin a contacter si le PIN est bloque : celui choisi pour l'utilisateur, sinon l'admin par defaut."""

@@ -52,7 +52,7 @@ from .idendity import SOURCE_VERIFIED, format_identity_verified, identity_from_r
 from .remote_scanner import hub as scanner_hub
 from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
 from .models import (
-    DEFAULT_FONCTION, PUSH_TYPES, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
+    DEFAULT_FONCTION, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     SCANNER_VOLUMES, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, name_key, qrprotec_setting,
 )
@@ -2514,6 +2514,8 @@ def user_detail(request, matricule):
             user.pin_contact = parse_pin_contact(user, data['pin_contact'])
         if 'push_disabled' in data:
             user.push_disabled = parse_push_disabled(data['push_disabled'])
+        if 'web_prefs' in data:
+            user.web_prefs = {**(user.web_prefs or {}), **parse_web_prefs(data['web_prefs'])}
         with transaction.atomic():
             apply_default_contact(user, data)
             user.save()
@@ -2529,7 +2531,8 @@ def parse_fonction(value):
 
 
 USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'fonction': 'rôle', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé', 'pin_mode': 'mode du PIN',
-               'pin_contact': 'admin à contacter', 'push_disabled': 'notifications', 'default_contact': 'contact par défaut'}
+               'pin_contact': 'admin à contacter', 'push_disabled': 'notifications', 'default_contact': 'contact par défaut',
+               'web_prefs': 'réglages du web'}
 
 
 def user_changes(data, user):
@@ -2670,6 +2673,23 @@ def my_scanner_volume(request):
     user.scanner_volume = None if value in (None, '') else parse_scanner_volume(value)
     user.save(update_fields=['scanner_volume'])
     return Response({'scanner_volume': user.effective_scanner_volume, 'custom': user.scanner_volume is not None})
+
+
+def parse_web_prefs(value):
+    """Reglages du front web a changer ({nom: booleen}, noms de models.WEB_PREFS) : les autres restent tels quels."""
+    if not isinstance(value, dict) or not all(name in WEB_PREFS and isinstance(flag, bool) for name, flag in value.items()):
+        raise ApiError("web_prefs : réglages attendus (" + ', '.join(WEB_PREFS) + ") avec true ou false")
+    return value
+
+
+@api_view(['POST'])
+@handle_errors
+def my_prefs(request):
+    """Reglages du front web de l'utilisateur connecte (tous les roles) : {"user", "web_prefs": {nom: booleen}}."""
+    user = badge_user(request, ALL_ROLES)  # badge ou jeton de session
+    user.web_prefs = {**(user.web_prefs or {}), **parse_web_prefs(request.data.get('web_prefs'))}
+    user.save(update_fields=['web_prefs'])
+    return Response(ser.user_dict(user))
 
 
 PIN_SAVE_FIELDS = ['pin_hash', 'pin_mode', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',

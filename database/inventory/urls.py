@@ -20,6 +20,7 @@ public_patterns = [
     path('pin-reset/', views.pin_reset),
     path('pin-forgot/', views.pin_forgot),
     path('me/pin/', views.my_pin),               # PIN choisi, change ou supprime dans les reglages web
+    path('me/prefs/', views.my_prefs),           # reglages du front web (ligne d'info, explication de la vérif)
     path('items/out/', views.items_out),         # avant items/<iid>/
     path('items/<str:iid>/', views.item_detail),
     path('items/<str:iid>/revision/', views.item_revision),

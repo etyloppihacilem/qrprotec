@@ -376,6 +376,34 @@ class UsersWindow final : public AppWindow {
       }
     }
 
+    // Reglages du front web de l'utilisateur (ligne d'info pendant la vérif, explication de la vérif masquee...),
+    // qu'il change lui-meme dans les Reglages du web : un admin peut les changer ici (ex. reafficher l'explication)
+    void draw_web_prefs(App &app) {
+      const Json &prefs = user_["web_prefs_list"];
+      if (prefs.size() == 0)
+        return;
+      ImGui::SeparatorText("Réglages du web");
+      help_marker("Réglages que l'utilisateur choisit dans le front web (⚙ Réglages). Décocher « Explication de la "
+                  "vérif masquée » lui réaffiche l'explication au début de sa prochaine vérif.");
+      for (std::size_t i = 0; i < prefs.size(); ++i) {
+        bool value = prefs[i]["value"].boolean();
+        if (!ImGui::Checkbox(prefs[i]["label"].str().c_str(), &value))
+          continue;
+        Json changed = Json::object();
+        changed[prefs[i]["name"].str()] = Json(value);
+        Json body;
+        body["web_prefs"] = changed;
+        app.api.patch("/api/users/" + url_encode(selected_) + "/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          select(result.data);
+          app.refresh_users();
+        });
+      }
+    }
+
     void draw_contact(App &app) {
       // sans admin choisi : l'admin a contacter par defaut (case cochee dans la fiche d'un administrateur)
       std::string fallback = "(aucun : un administrateur)";
@@ -538,6 +566,7 @@ class UsersWindow final : public AppWindow {
       }
 
       draw_notifications(app);
+      draw_web_prefs(app);
 
       ImGui::SeparatorText("Badge");
       ImGui::Text("Valable jusqu'au : %s", display_date(user_["key_expires"]).c_str());

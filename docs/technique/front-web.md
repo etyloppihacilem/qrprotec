@@ -90,7 +90,10 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   `POST api/lots/summary/`), **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
   Chaque page a son ancre (`#lots`, `#suivi`, `#stock`, `#scan`) : le bouton retour du téléphone
   ramène à l'accueil. Le bouton ⚙ (**réglages**, dès qu'un utilisateur est connecté)
-  ouvre son **code PIN** (`renderPinSettings`, `POST api/me/pin/`) puis le **gestionnaire des
+  ouvre son **code PIN** (`renderPinSettings`, `POST api/me/pin/`), ses **réglages de la vérif**
+  (`renderVerifSettings`, `POST api/me/prefs/` `{user, web_prefs}` : `models.WEB_PREFS`, renvoyés dans
+  `user.web_prefs`, `webPref()` ; aussi `PATCH api/users/<matricule>/` `{web_prefs}` par un admin au poste,
+  qui lit `web_prefs_list` [{name, label, value}]) puis le **gestionnaire des
   notifications** (`renderNotifications`), affiché seulement pour les utilisateurs qui peuvent en
   recevoir (`notifications` dans la réponse de `api/auth/`).
 - **Outil de debug des codes** (admins) : page cachée `#debug`, ouverte par 5 appuis rapides sur

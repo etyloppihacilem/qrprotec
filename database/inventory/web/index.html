@@ -132,9 +132,7 @@
   <dialog id="menu">
     <button type="button" data-action="add">Ajouter les items scannés au lot</button>
     <button type="button" data-action="manual">Saisir un code à la main</button>
-    <button type="button" data-action="forget-lot">Changer de lot</button>
-    <button type="button" data-action="notifications" id="menu-notifications">Réglages</button>
-    <button type="button" data-action="logout">Se déconnecter</button>
+    <button type="button" data-action="quit-verif" id="menu-quit">Quitter cette vérif</button>
     <button type="button" data-action="close" class="secondary">Fermer</button>
   </dialog>
 
@@ -178,6 +176,33 @@
   </dialog>
 
   <!-- Signalement d'un probleme : connexion demandee avant de rediger -->
+  <!-- Etiquette du lot pas scannee au moment de valider : on la demande en grand, fermee d'elle-meme au scan -->
+  <dialog id="label-needed" class="big-popup">
+    <div class="big-popup-icon" aria-hidden="true">🏷️</div>
+    <h2 id="label-needed-title"></h2>
+    <p id="label-needed-text"></p>
+    <div class="dialog-stack">
+      <button type="button" id="label-needed-ok" class="primary">OK, je la scanne</button>
+    </div>
+  </dialog>
+
+  <!-- Explication de la vérif, apres la connexion (sauf « ne plus afficher ce message ») -->
+  <dialog id="verif-help" class="big-popup">
+    <h2>Comment faire la vérif</h2>
+    <ol class="verif-help-steps">
+      <li><span aria-hidden="true">📋</span><div><b>Scannez tout le contenu du lot</b> en suivant la liste à l'écran
+        (dans l'ordre que vous voulez !)</div></li>
+      <li><span aria-hidden="true">🔊</span><div><b>Montez le son</b> : le bip du téléphone vous indique quand vous
+        avez scanné</div></li>
+      <li><span aria-hidden="true">👥</span><div><b>Vérifiez à plusieurs</b> : d'autres secouristes peuvent vous aider
+        à vérifier en même temps que vous</div></li>
+    </ol>
+    <label class="verif-help-hide"><input type="checkbox" id="verif-help-hide"> Ne plus afficher ce message</label>
+    <div class="dialog-stack">
+      <button type="button" id="verif-help-ok" class="primary">OK</button>
+    </div>
+  </dialog>
+
   <dialog id="login-needed">
     <h2>Connexion requise</h2>
     <p id="login-needed-text"></p>
@@ -320,6 +345,7 @@
     <h2>Réglages</h2>
     <div id="settings-install" class="push-box"></div>
     <div id="settings-pin" class="push-box"></div>
+    <div id="settings-verif" class="push-box"></div>
     <h3 id="notifications-title" hidden>Notifications</h3>
     <div id="notifications-body"></div>
     <div class="dialog-buttons">

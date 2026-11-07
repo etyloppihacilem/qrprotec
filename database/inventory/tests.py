@@ -475,6 +475,32 @@ class DeclaredIdentityTests(ApiTestCase):
         self.assertEqual(Items.objects.get(iid=items[0].iid).last_seen_by, 'D:Jean')
 
 
+class WebPrefsTests(ApiTestCase):
+    """Reglages du front web (ligne d'info, explication de la vérif) : par l'utilisateur et par un admin au poste."""
+
+    def my_prefs(self, prefs, user=None):
+        user = user or self.user
+        credentials = {'matricule': user.matricule, 'key': user.new_key, 'session': views.session_token(user)}
+        return self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': prefs}, local=False)
+
+    def test_defaults_user_and_admin(self):
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
+        self.assertEqual(body['web_prefs'], {'verif_info_line': False, 'verif_help_hidden': False})
+        # l'utilisateur coche « ne plus afficher ce message » : les autres reglages restent tels quels
+        code, body = self.my_prefs({'verif_help_hidden': True})
+        self.assertEqual((code, body['web_prefs']), (200, {'verif_info_line': False, 'verif_help_hidden': True}))
+        code, body = self.my_prefs({'verif_info_line': True})
+        self.assertEqual(body['web_prefs'], {'verif_info_line': True, 'verif_help_hidden': True})
+        # reglage inconnu ou valeur non booleenne : refuse
+        self.assertEqual(self.my_prefs({'inconnu': True})[0], 400)
+        self.assertEqual(self.my_prefs({'verif_info_line': 'oui'})[0], 400)
+        self.assertEqual(self.call('POST', '/api/me/prefs/', {'web_prefs': {'verif_info_line': True}}, local=False)[0], 403)
+        # un admin reaffiche l'explication depuis le poste (fenetre Utilisateurs), journalise
+        code, body = self.call('PATCH', '/api/users/M001/', {'web_prefs': {'verif_help_hidden': False}})
+        self.assertEqual((code, body['web_prefs']), (200, {'verif_info_line': True, 'verif_help_hidden': False}))
+        self.assertEqual(self.call('PATCH', '/api/users/M001/', {'web_prefs': ['x']})[0], 400)
+
+
 class ScannerVolumeTests(ApiTestCase):
     """Volume de la douchette : choisi par chaque utilisateur, sinon defaut du serveur fixe par un admin."""
 

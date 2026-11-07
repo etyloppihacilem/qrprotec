@@ -370,6 +370,29 @@
     const node = $('#info');
     node.className = 'info ' + kind;
     node.replaceChildren(el('div', { class: 'title' }, title), ...lines.filter(Boolean).map((line) => el('div', {}, line)));
+    syncInfoLine();
+  }
+
+  // Reglages du web de l'utilisateur (models.WEB_PREFS, modifiables aussi par un admin au poste) : valeur par defaut
+  // sans utilisateur connecte, ou si la session date d'avant le reglage
+  const WEB_PREF_DEFAULTS = { verif_info_line: false, verif_help_hidden: false };
+  function webPref(name) {
+    const prefs = state.user && state.user.web_prefs;
+    return prefs && name in prefs ? !!prefs[name] : WEB_PREF_DEFAULTS[name];
+  }
+
+  async function setWebPrefs(prefs) {
+    const body = await api('me/prefs/', { user: credentials(), web_prefs: prefs });
+    if (state.user) state.user.web_prefs = body.web_prefs;
+    save();
+    render();
+  }
+
+  // Ligne d'info entre la camera et la liste (badge, etiquette du lot, item scanne) : pendant une vérif, seulement
+  // avec le reglage « ligne d'info pendant la vérif » (desactive par defaut). Le bip, les toasts et les popups
+  // (item a remplacer, taches, etiquette a scanner) disent l'essentiel.
+  function syncInfoLine() {
+    $('#info').hidden = !!state.lot && !webPref('verif_info_line');
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -506,8 +529,6 @@
     const button = document.getElementById(id);
     if (button) button.prepend(icon(name));
   }
-  const logoutAction = document.querySelector('#menu [data-action="logout"]');
-  if (logoutAction) logoutAction.prepend(icon('logout'));
   $('#start-button').addEventListener('click', startCamera);
 
   // Camera reduite en vignette flottante (comme en appel video) : la liste prend tout l'ecran, le scan continue.
@@ -1865,6 +1886,42 @@
     return missing;
   }
 
+  // Valider sans avoir scanne l'etiquette du lot : grande popup « Scannez l'etiquette de B+ », fermee d'elle-meme quand
+  // l'etiquette est scannee (render). false si l'etiquette n'est pas ce qui manque.
+  function askLabel() {
+    if (!state.lot || !keyOk() || labelOk()) return false;
+    const lot = labelMissing();
+    feedback.warn();
+    $('#label-needed-title').textContent = `Scannez l'étiquette ${labelTarget(lot)}`;
+    $('#label-needed-text').textContent = "Pour valider, scannez d'abord le QR code collé sur le lot : il confirme "
+      + `que vous vérifiez bien ${lot.name}.`;
+    const dialog = $('#label-needed');
+    if (!dialog.open) dialog.showModal();
+    return true;
+  }
+  $('#label-needed-ok').addEventListener('click', () => $('#label-needed').close());
+
+  // Explication de la vérif (3 points), une fois par vérif apres la connexion, sauf « ne plus afficher ce message »
+  // (reglage verif_help_hidden, remis par un admin au poste). Attend que les autres popups soient fermees.
+  const STORAGE_HELP = 'qrprotec.verif-help';
+  function maybeVerifHelp() {
+    if (!state.user || !state.lot || webPref('verif_help_hidden') || inHome() || ficheOpen()) return;
+    const key = state.user.matricule + ':' + state.lotId;
+    let shown = '';
+    try { shown = sessionStorage.getItem(STORAGE_HELP) || ''; } catch (e) { /* stockage indisponible */ }
+    if (shown === key || document.querySelector('dialog[open]')) return;
+    try { sessionStorage.setItem(STORAGE_HELP, key); } catch (e) { /* stockage indisponible */ }
+    $('#verif-help-hide').checked = false;
+    $('#verif-help').showModal();
+  }
+  $('#verif-help-ok').addEventListener('click', async () => {
+    $('#verif-help').close();
+    if (!$('#verif-help-hide').checked || !state.user) return;
+    try {
+      await setWebPrefs({ verif_help_hidden: true });
+    } catch (e) { toast(e.message, true); }
+  });
+
   // partial : verif partielle, seuls les lots rendus complets par les scans sont verifies (les autres items
   // scannes sont ajoutes a leur lot comme un reassort)
   // Sans badge, si le serveur l'autorise : le nom est demande une fois et garde sur ce navigateur
@@ -1894,6 +1951,7 @@
     const missing = blockers(false);
     if (missing.length) {
       if (auto) live.unvalidate();
+      if (!auto && askLabel()) return;
       feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return;
     }
     const team = live.inTeam();
@@ -2088,7 +2146,10 @@
       return;
     }
     const missing = blockers(false);
-    if (missing.length) { feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return; }
+    if (missing.length) {
+      if (askLabel()) return;
+      feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return;
+    }
     const plan = planSession();
     const lots = sessionLots().filter((lot) => scope.has(lot.id) && !plan.intact.has(lot.id));
     const verified = partial ? plan.lots.filter((row) => row.complete && scope.has(row.lot.id)).map((row) => row.lot) : lots;
@@ -2379,10 +2440,20 @@
         else handleCode(value);
       }
     }
-    if (action === 'notifications') openNotifications();
-    if (action === 'forget-lot') forgetLot();
-    if (action === 'logout') logout();
+    if (action === 'quit-verif') quitVerif();
   });
+
+  // « Quitter cette vérif » (menu ⋯) : rien n'est enregistre, retour a l'accueil. Les scans sont oublies (une vérif
+  // commune continue sans nous).
+  function quitVerif() {
+    const count = state.scanned.length;
+    if (count && !confirm(`Quitter cette vérif ? ${nb(count, 'scan')} ${pl(count, 'ne sera pas enregistré', 'ne seront pas enregistrés')}.`)) return;
+    state.waitingTeam = false;
+    if (live.inTeam()) live.leave();
+    state.scanned = [];
+    forgetLot();
+    showHome('menu');
+  }
 
   $('#user-chip').addEventListener('click', () => {
     if (state.user && confirm(`Déconnecter ${state.user.prenom} ?`)) {
@@ -4030,6 +4101,8 @@
     renderInstallSettings();
     $('#settings-pin').hidden = !state.user;
     renderPinSettings();
+    $('#settings-verif').hidden = !state.user;
+    renderVerifSettings();
     const notifications = hasNotifications();
     $('#notifications-title').hidden = !notifications;
     $('#notifications-body').hidden = !notifications;
@@ -4184,6 +4257,29 @@
         ? 'Le code PIN est obligatoire pour les administrateurs.' : 'Le TECH a rendu le code PIN obligatoire.'));
     }
     box.replaceChildren(...parts);
+  }
+
+  // Reglages de la vérif (models.WEB_PREFS) : ligne d'info sous la camera, explication apres la connexion
+  function renderVerifSettings() {
+    const box = $('#settings-verif');
+    if (!box || !state.user) return;
+    const check = (label, checked, hint, onchange) => {
+      const input = el('input', { type: 'checkbox' });
+      input.checked = checked;
+      input.addEventListener('change', async () => {
+        input.disabled = true;
+        try { await onchange(input.checked); } catch (e) { input.checked = !input.checked; toast(e.message, true); }
+        input.disabled = false;
+      });
+      return el('label', { class: 'settings-check' }, input, el('span', {}, label, el('br'), el('small', { class: 'hint' }, hint)));
+    };
+    box.replaceChildren(el('h3', {}, 'Vérif'),
+      check("Ligne d'info pendant la vérif", webPref('verif_info_line'),
+        'Une ligne sous la caméra dit ce qui vient d\'être scanné (badge, lot, item).',
+        (on) => setWebPrefs({ verif_info_line: on })),
+      check('Explication de la vérif', !webPref('verif_help_hidden'),
+        'Rappel en 3 points au début de chaque vérif.',
+        (on) => setWebPrefs({ verif_help_hidden: !on })));
   }
 
   async function savePin(disable) {
@@ -4690,6 +4786,13 @@
     $('#count-todo').textContent = remaining;
     $('#count-done').textContent = renderDone();
     renderLot();
+    // onglet « Scannés » (et ses outils) : gestion et admin seulement, les secouristes suivent « À scanner »
+    const doneTab = document.querySelector('#tabs [data-tab="done"]');
+    doneTab.hidden = !canSeeStock();
+    if (doneTab.hidden && state.tab === 'done') switchTab('todo');
+    $('#menu-quit').hidden = !state.lot;
+    syncInfoLine();
+    if ($('#label-needed').open && labelOk()) { $('#label-needed').close(); toast('Étiquette scannée : vous pouvez valider.'); }
     if (!state.user) { state.stock = null; state.tasks = null; state.push = null; state.pushDevices = null; debug.data = null; }
     renderHomePage();
     renderStock();
@@ -4729,6 +4832,7 @@
     if (inCascade() && !out) renderCascadeActions(validateButton);
     live.publish(liveSnapshot(remaining));
     renderTeam();
+    setTimeout(maybeVerifHelp, 0); // apres le rendu (et la fermeture eventuelle des popups de connexion)
     $('#scan-hint').textContent = readerOpen() ? 'Scannez votre badge' : out ? "Scannez l'étiquette d'un lot pour une vérif, ou sortez ces items du stock"
       : !state.lot ? "Visez l'étiquette d'un lot ou un item"
       : !hasIdentity() ? (state.declaredAllowed ? 'Scannez votre badge (ou touchez « Non connecté ») pour pouvoir valider'
