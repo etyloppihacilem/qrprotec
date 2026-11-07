@@ -95,6 +95,11 @@ QRPROTEC = {
     # Base des URLs encodees dans les QR codes (lots, badges, paquets). Changer ici (ou via la variable
     # d'environnement) suffit : le front reconnait les QR codes quel que soit le domaine.
     'PUBLIC_BASE_URL': os.environ.get('QRPROTEC_PUBLIC_BASE_URL', 'https://example.com/'),
+    # Certificats de Caddy (/etc/qrprotec/qrprotec.conf) : avec « internal », le fichier de configuration d'un
+    # front cree au poste contient l'autorite interne de Caddy (voir inventory.front_config.server_ca_pem).
+    # QRPROTEC_FRONT_CA_FILE : un autre certificat PEM a y mettre a la place.
+    'TLS': os.environ.get('QRPROTEC_TLS', ''),
+    'FRONT_CA_FILE': os.environ.get('QRPROTEC_FRONT_CA_FILE', ''),
     # Production : 127.0.0.1, derriere le reverse proxy HTTPS (Caddy). En DEBUG : tout le reseau (telephones)
     'PUBLIC_API_ADDRESS': os.environ.get('QRPROTEC_PUBLIC_API_ADDRESS', '0.0.0.0' if DEBUG else '127.0.0.1'),
     'PUBLIC_API_PORT': int(os.environ.get('QRPROTEC_PUBLIC_API_PORT', '8000')),

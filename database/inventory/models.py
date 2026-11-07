@@ -1158,6 +1158,21 @@ class FrontKey(models.Model):
         return self.name
 
 
+class FrontConfigDownload(models.Model):
+    """Fichier de configuration chiffre d'un front distant, cree au poste par un admin (Reglages > Serveur >
+    Connecter un autre ordinateur) et telechargeable par son lien (QR code) pendant quelques minutes :
+    https://serveur/front-config/<token>. Supprime a expiration (voir inventory.front_config)."""
+    token = models.CharField(max_length=64, unique=True)
+    front = models.ForeignKey(FrontKey, on_delete=models.CASCADE, related_name='config_downloads')
+    content = models.TextField()  # texte du fichier, deja chiffre (AES-256-GCM, mot de passe jamais stocke)
+    created = models.DateTimeField(default=timezone.now)
+    expires = models.DateTimeField()
+    downloads = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f'{self.front.name} (jusqu\'a {self.expires:%H:%M})'
+
+
 class ReportStatus(models.TextChoices):
     NEW = 'new', 'Nouveau'                          # rouge : pas encore pris en charge
     IN_PROGRESS = 'progress', 'En cours de résolution'  # orange (inutilisable) ou vert (toujours utilisable)
