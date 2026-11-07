@@ -345,11 +345,37 @@ a.field, button.field { color: var(--blue); text-decoration: underline; backgrou
 #reader-name { display: none; }
 :is(body.home-mode, body.fiche-open).login-reader #reader-name { display: block; position: absolute; top: 6px; left: 6px; z-index: 2;
   padding: 3px 7px; border-radius: 10px; background: rgba(0, 0, 0, .55); color: #fff; font-size: .7rem; }
+/* fenetre de connexion par nom (et du PIN) : calee en haut de la partie visible quand le clavier est ouvert (app.js),
+   et en haut de l'ecran sur un telephone pour que les champs restent au-dessus du clavier qui s'ouvre */
+dialog.above-keyboard { margin-top: 0; margin-bottom: auto; bottom: auto; overflow-y: auto; }
+@media (max-width: 600px) { #name-login, #pin { margin-top: calc(12px + env(safe-area-inset-top)); } }
 #name-login input { display: block; width: 100%; margin: 6px 0; font-size: 1.05rem; padding: 10px;
   border: 1px solid var(--line); border-radius: 8px; }
 :is(body.home-mode, body.fiche-open).login-reader #reader-close { display: block; position: absolute; top: 6px; right: 6px; z-index: 2;
   background: rgba(0, 0, 0, .6); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: .9rem; }
 :is(body.home-mode, body.fiche-open).login-reader #toast { bottom: calc(24px + min(56vw, 240px) + env(safe-area-inset-bottom)); }
+
+/* Grande fenetre de connexion (« Bulle de connexion » decochee) : tout l'ecran, la camera au milieu, placee par
+   app.js sur #login-gate-cam (--gate-*) */
+#login-gate { position: fixed; inset: 0; z-index: 46; display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: calc(18px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  background: var(--panel); border-top: 4px solid var(--pc-orange); overflow-y: auto; text-align: center; }
+#login-gate > :first-child { margin-top: auto; }
+#login-gate > :last-child { margin-bottom: auto; }
+#login-gate h2 { margin: 4px 0 0; font-size: 1.7rem; color: var(--navy); }
+#login-gate p { margin: 0; max-width: 420px; }
+#login-gate-cam { flex: 1 1 auto; width: min(86vw, 360px); min-height: 220px; max-height: 420px; }
+#login-gate .login-gate-help { color: var(--muted); font-size: .95rem; }
+#login-gate-name { width: min(100%, 420px); padding: 14px; font-size: 1.05rem; }
+#login-gate-later { color: var(--muted); font-size: .95rem; }
+body.login-gate #camera { display: block !important; position: fixed; z-index: 47; left: var(--gate-left, 7vw);
+  top: var(--gate-top, 120px); width: var(--gate-width, 86vw); height: var(--gate-height, 40dvh); border-radius: 18px;
+  outline: 4px solid var(--navy); box-shadow: 0 6px 24px rgba(0, 0, 0, .35); }
+body.login-gate #camera.hit { outline-color: #4ade80; }
+body.login-gate #topbar, body.login-gate #reader-name, body.login-gate #reader-close { display: none !important; }
+body.login-gate #viewfinder span { width: min(62%, 220px); }
+body.login-gate #scan-hint { font-size: 1.1rem; font-weight: 600; }
+body.login-gate #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 
 /* Suivi des verifs */
 .live-status { font-size: .8rem; color: var(--muted); font-weight: normal; }
@@ -666,3 +692,5 @@ dialog.big-popup p { font-size: 1.05rem; }
 #info[hidden] { display: none; }
 .settings-check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
 .settings-check input { margin-top: 3px; }
+/* QR code de connexion temporaire (outil de debug) : dans la fenetre */
+#temp-login .debug-qr { width: min(100%, 52dvh, 420px); margin: 0 auto; }

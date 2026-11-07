@@ -1,6 +1,8 @@
 import importlib
 import json
 import math
+import time
+from unittest import mock
 from datetime import date, datetime, timedelta
 from io import StringIO
 
@@ -4876,10 +4878,96 @@ class DebugCodesTests(ApiTestCase):
         self.assertEqual(by_iid[items[0].iid]['lot'], self.lot.id)
         self.assertTrue(by_iid[items[0].iid]['code'].endswith('/item?id=' + compact_iid(items[0].iid)))
         self.assertEqual(by_iid[garrot.iid]['code'], compact_iid(garrot.iid))  # code-barres : iid court seul
-        text = json.dumps(body)
+        # secouristes listes pour la connexion de depannage (jamais les admins), mais aucun badge
+        self.assertEqual([row['matricule'] for row in body['users']], ['M001'])
+        text = json.dumps({key: value for key, value in body.items() if key != 'users'})
         for user in (self.user, self.operator):
             self.assertNotIn('badge?', text)
             self.assertNotIn(user.matricule, text)
+        self.assertNotIn('badge?', json.dumps(body['users']))
+
+
+class TempLoginTests(ApiTestCase):
+    """QR code de connexion temporaire (outil de debug) : cree par un admin, valable 1 h, session de 24 h."""
+
+    def admin(self):
+        return {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
+
+    def qr(self, matricule='M001'):
+        code, body = self.call('POST', '/api/debug/temp-login/', {'user': self.admin(), 'matricule': matricule},
+                               local=False)
+        return code, body
+
+    def token(self, url):
+        from urllib.parse import parse_qs, urlparse
+        query = parse_qs(urlparse(url).query)
+        return query['m'][0], query['t'][0]
+
+    def test_admin_creates_qr_and_rescuer_logs_in_for_24h(self):
+        # refuse a un secouriste
+        code, _ = self.call('POST', '/api/debug/temp-login/',
+                            {'user': {'matricule': 'M001', 'key': self.user.new_key}, 'matricule': 'M001'}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.qr()
+        self.assertEqual(code, 200)
+        self.assertIn('/badge?', body['url'])
+        self.assertNotIn(self.user.new_key, body['url'])
+        matricule, token = self.token(body['url'])
+        self.assertEqual(matricule, 'M001')
+        self.assertTrue(Operation.objects.filter(summary__contains='QR code de connexion temporaire').exists())
+        code, user = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, local=False)
+        self.assertEqual(code, 200)
+        self.assertTrue(user['temporary'])
+        self.assertEqual(user['session_hours'], 24)
+        self.assertNotIn('nom', user)
+        # la session sert d'identifiant (comme apres une connexion par nom et PIN), pendant 24 h et pas plus
+        credentials = {'matricule': 'M001', 'session': user['session']}
+        code, _ = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'login_bubble': True}},
+                            local=False)
+        self.assertEqual(code, 200)
+        self.assertIsNotNone(views.credentials_user(credentials))
+        with mock.patch('django.core.signing.time.time', return_value=time.time() + 23 * 3600):
+            self.assertIsNotNone(views.credentials_user(credentials))
+        with mock.patch('django.core.signing.time.time', return_value=time.time() + 25 * 3600):
+            self.assertIsNone(views.credentials_user(credentials))
+
+    def test_qr_expires_after_one_hour_and_follows_the_badge(self):
+        _, body = self.qr()
+        matricule, token = self.token(body['url'])
+        with mock.patch('django.core.signing.time.time', return_value=time.time() + 3700):
+            code, _ = self.call('POST', '/api/auth/temp/', {'matricule': matricule, 'token': token}, local=False)
+        self.assertEqual(code, 403)
+        code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'P001', 'token': token}, local=False)
+        self.assertEqual(code, 403)  # QR code d'un autre
+        self.user.renew_key()  # nouveau badge : le QR code ne vaut plus
+        self.user.save()
+        code, _ = self.call('POST', '/api/auth/temp/', {'matricule': matricule, 'token': token}, local=False)
+        self.assertEqual(code, 403)
+
+    def test_never_for_an_admin(self):
+        code, _ = self.qr('P001')
+        self.assertEqual(code, 400)
+        forged = views.temp_login_token(self.operator)
+        code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'P001', 'token': forged}, local=False)
+        self.assertEqual(code, 403)
+
+
+class WebPrefsTests(ApiTestCase):
+    """Reglages du front web (WEB_PREFS) : « Bulle de connexion » decochee par defaut."""
+
+    def test_login_bubble_default_and_change(self):
+        credentials = {'matricule': 'M001', 'key': self.user.new_key}
+        code, body = self.call('POST', '/api/auth/', credentials, local=False)
+        self.assertEqual(body['web_prefs']['login_bubble'], False)
+        code, body = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'login_bubble': True,
+                                                                                          'inconnu': True}}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(body['web_prefs'], {**body['web_prefs'], 'login_bubble': True})
+        self.assertNotIn('inconnu', body['web_prefs'])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.web_pref('login_bubble'))
+        code, _ = self.call('POST', '/api/me/prefs/', {'web_prefs': {'login_bubble': False}}, local=False)
+        self.assertEqual(code, 403)
 
 
 class ConcurrencyTests(TransactionTestCase):

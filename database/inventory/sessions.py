@@ -20,18 +20,52 @@ from .models import Secouristes
 
 SESSION_SALT = 'qrprotec.session'
 SESSION_MAX_AGE = 12 * 3600  # jeton de session apres verification du PIN
+# Connexion de depannage (QR code temporaire montre par un admin a un secouriste qui a oublie sa carte) : le QR code
+# vaut 1 h apres sa creation, la session qu'il ouvre sur le telephone 24 h
+TEMP_LOGIN_SALT = 'qrprotec.temp-login'
+TEMP_LOGIN_MAX_AGE = 3600
+TEMP_SESSION_SALT = 'qrprotec.temp-session'
+TEMP_SESSION_MAX_AGE = 24 * 3600
 
 
-def session_token(user):
+def session_token(user, temporary=False):
     # lie au badge courant : renouveler le badge invalide les sessions
-    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]}, salt=SESSION_SALT)
+    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]},
+                         salt=TEMP_SESSION_SALT if temporary else SESSION_SALT)
+
+
+def _session_data(token):
+    """Contenu d'un jeton de session (normale 12 h, ou de depannage 24 h), None s'il est invalide ou expire."""
+    for salt, max_age in ((SESSION_SALT, SESSION_MAX_AGE), (TEMP_SESSION_SALT, TEMP_SESSION_MAX_AGE)):
+        try:
+            return signing.loads(str(token or ''), salt=salt, max_age=max_age)
+        except signing.BadSignature:
+            continue
+    return None
+
+
+def temp_login_token(user):
+    """Jeton du QR code de connexion de depannage (1 h), lie au badge courant comme les sessions."""
+    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]}, salt=TEMP_LOGIN_SALT)
+
+
+def temp_login_user(matricule, token):
+    """Secouriste d'un QR code de depannage valide (moins d'1 h, meme badge, PIN non bloque), None sinon."""
+    try:
+        data = signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=TEMP_LOGIN_MAX_AGE)
+    except signing.BadSignature:
+        return None
+    user = Secouristes.objects.filter(matricule=str(data.get('m', ''))[:16]).first()
+    if (user is None or user.matricule != str(matricule or '') or data.get('k') != user.key_hash[-8:]
+            or not user.badge_valid() or user.pin_blocked is not None):
+        return None
+    return user
 
 
 def session_user(token):
     """Utilisateur d'un jeton de session valide (badge valide, PIN non bloque), None sinon."""
-    try:
-        data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
-    except signing.BadSignature:
+    data = _session_data(token)
+    if data is None:
         return None
     user = Secouristes.objects.filter(matricule=str(data.get('m', ''))).first()
     if user is None or not user.badge_valid() or not session_valid(user, token):
@@ -40,9 +74,8 @@ def session_user(token):
 
 
 def session_valid(user, token):
-    try:
-        data = signing.loads(str(token or ''), salt=SESSION_SALT, max_age=SESSION_MAX_AGE)
-    except signing.BadSignature:
+    data = _session_data(token)
+    if data is None:
         return False
     # un PIN bloque coupe aussi les sessions deja ouvertes
     return data.get('m') == user.matricule and data.get('k') == user.key_hash[-8:] and user.pin_blocked is None

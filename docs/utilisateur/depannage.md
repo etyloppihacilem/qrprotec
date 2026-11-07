@@ -109,3 +109,8 @@ Le back ne répond pas. Redémarrez la borne ; si cela persiste, voir le
 **Le téléphone affiche « Serveur injoignable ».**
 Le téléphone n'est pas sur le bon réseau, ou la borne n'est pas joignable depuis Internet. Vérifiez
 l'adresse de la page.
+
+**J'ai oublié ma carte.**
+Demandez au TECH (un administrateur) : dans l'outil de debug des codes, il touche votre nom sous
+« Cartes des secouristes » et vous montre un QR code. Scannez-le avec votre téléphone (dans QRprotec ou avec
+l'appareil photo) : vous êtes connecté pour 24 h, sans carte ni code PIN. Le QR code ne vaut qu'une heure.

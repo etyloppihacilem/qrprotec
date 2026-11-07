@@ -202,6 +202,16 @@
       <button type="button" id="verif-help-ok" class="primary">OK</button>
     </div>
   </dialog>
+  <!-- Grande fenetre de connexion (« Bulle de connexion » decochee dans les reglages, le defaut) : la camera du
+       lecteur vient se placer sur #login-gate-cam -->
+  <div id="login-gate" hidden role="dialog" aria-modal="true" aria-labelledby="login-gate-title">
+    <h2 id="login-gate-title">Scannez votre carte</h2>
+    <p id="login-gate-text"></p>
+    <div id="login-gate-cam"></div>
+    <p class="login-gate-help">Montrez le QR code de votre carte de secouriste à la caméra, comme une étiquette.</p>
+    <button type="button" id="login-gate-name" class="secondary">Pas de carte ? Connexion avec nom et prénom</button>
+    <button type="button" id="login-gate-later" class="text-link">Plus tard</button>
+  </div>
 
   <dialog id="login-needed">
     <h2>Connexion requise</h2>
@@ -301,9 +311,9 @@
     <form id="name-login-form">
       <h2>Connexion sans badge</h2>
       <p class="hint">Si vous avez un code PIN : votre nom, votre prénom et votre code.</p>
-      <input id="name-login-prenom" type="text" autocomplete="given-name" maxlength="32" placeholder="Prénom">
-      <input id="name-login-nom" type="text" autocomplete="family-name" maxlength="32" placeholder="Nom">
-      <input id="name-login-pin" class="pin" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="Code PIN">
+      <input id="name-login-prenom" type="text" enterkeyhint="next" autocomplete="given-name" maxlength="32" placeholder="Prénom">
+      <input id="name-login-nom" type="text" enterkeyhint="next" autocomplete="family-name" maxlength="32" placeholder="Nom">
+      <input id="name-login-pin" class="pin" enterkeyhint="go" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="Code PIN">
       <p id="name-login-error" class="pin-error"></p>
       <button type="button" id="name-login-declared" class="text-link" hidden>Pas de code PIN ? Indiquer seulement mon nom</button>
       <div class="dialog-buttons">
@@ -345,6 +355,7 @@
     <h2>Réglages</h2>
     <div id="settings-install" class="push-box"></div>
     <div id="settings-pin" class="push-box"></div>
+    <div id="settings-login" class="push-box"></div>
     <div id="settings-verif" class="push-box"></div>
     <h3 id="notifications-title" hidden>Notifications</h3>
     <div id="notifications-body"></div>
@@ -377,6 +388,8 @@
   </dialog>
 
   <dialog id="debug-player"></dialog>
+  <!-- QR code de connexion temporaire d'un secouriste (outil de debug des admins) -->
+  <dialog id="temp-login"><div id="temp-login-body"></div><button type="button" class="primary" id="temp-login-close">Fermer</button></dialog>
   <dialog id="report"><div id="report-body"></div><button type="button" class="primary" id="report-close">OK</button></dialog>
   <!-- compte rendu d'une vérif passée (liste « Vérifs récentes ») -->
   <dialog id="verif-report"><div id="verif-report-body"></div><button type="button" class="primary" id="verif-report-close" autofocus>Fermer</button></dialog>
