@@ -838,8 +838,16 @@
     const type = entry.iid.slice(0, 6);
     const need = row ? row.required[type] || 0 : 0;
     const have = row ? row.fresh[type] || 0 : 0;
+    const inLot = row && [...(row.lot.items || []), ...(row.lot.missing_items || [])].some((item) => item.iid === entry.iid);
+    if (row && !inLot) return '🗑 Ne le mettez pas dans le lot : jetez-le.';
     if (have >= need) return '🗑 Retirez-le du lot et jetez-le : le lot a son compte sans lui.';
     return `🗑 À remplacer : jetez-le dès qu'un item non périmé le remplace (non ${pl(need, 'périmé')} : ${have}/${need}).`;
+  }
+
+  // Scan (item ou paquet) perime que la vérif retirera du lot, a jeter (planSession().discard)
+  function discardedEntry(plan) {
+    return (entry) => !entry.error && !!entry.expired && (entry.kind === 'item' ? plan.discard.has(entry.iid)
+      : entry.kind === 'pack' && (entry.items || []).length > 0 && entry.items.every((iid) => plan.discard.has(iid)));
   }
 
   async function scanPack(scan) {
@@ -1453,7 +1461,10 @@
       if (entry.error) continue;
       const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
       const iids = entry.kind === 'item' ? [entry.iid] : entry.items || [];
-      for (const iid of iids) scanned.push({ iid, type, expired: !!entry.expired, place: entry.place || '' });
+      // a jeter possible : perime, inutilisable ou desactive (pas une revision en retard seule, services.discardable)
+      const info = entry.info;
+      const discardable = !!entry.expired && !(entry.kind === 'item' && info && info.revision_late && !info.outdated && !info.unusable && !info.disabled);
+      for (const iid of iids) scanned.push({ iid, type, expired: !!entry.expired, discardable, place: entry.place || '' });
       if (type && entry.info && entry.info.type_name) typeNames[type] = entry.info.type_name;
     }
     // lot parent de chaque lot de la vérif : un item venu du stock va dans le lot de la derniere etiquette scannee
@@ -1502,7 +1513,14 @@
       // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
       row.complete = filled && (row.lot.storage ? !holding[row.lot.id] : (row.touched > 0 || !holding[row.lot.id]));
     }
-    return { lots: lots.map((lot) => plan[lot.id]), target, intact, typeNames };
+    // discard : perimes a jeter (services.perform_verif) : le lot a son compte sans eux, ou ils n'y etaient pas
+    const discard = new Set();
+    for (const item of scanned) {
+      const row = plan[target[item.iid]];
+      if (!row || !item.discardable) continue;
+      if (locationOf[item.iid] !== row.lot.id || (row.fresh[item.type] || 0) >= (row.required[item.type] || 0)) discard.add(item.iid);
+    }
+    return { lots: lots.map((lot) => plan[lot.id]), target, intact, typeNames, discard };
   }
 
   // Etat d'un lot : verifie et complet (vert), reassort depuis la derniere verif (orange : verif complete
@@ -2735,6 +2753,7 @@
     const list = $('#done-list');
     const expected = knownIids();
     const all = allScanned();
+    const discard = state.lot ? discardedEntry(planSession()) : () => false;
     const rows = all.map((entry, index) => {
       const mine = index < state.scanned.length;
       const info = entry.info;
@@ -2742,6 +2761,7 @@
       let cls = 'ok';
       const tags = [];
       if (entry.error) { cls = 'error'; tags.push(el('span', { class: 'tag red' }, 'INCONNU')); }
+      else if (discard(entry)) { cls = 'discard'; tags.push(el('span', { class: 'tag gray' }, 'À JETER')); }
       else if (entry.expired) { cls = 'expired'; tags.push(el('span', { class: 'tag red' }, badLabel(info))); }
       else if (state.lot && entry.kind === 'item' && !expected.has(entry.iid)) {
         cls = 'extra'; tags.push(el('span', { class: 'tag blue' }, 'nouveau'));
@@ -3475,6 +3495,7 @@
     if (!state.lot || !(scanned.length || verifInProgress() || (state.launched === state.lotId && !state.lastVerif)
       || cascadeActive())) return null;
     const expected = knownIids();
+    const discard = discardedEntry(planSession());
     return {
       lot: { id: state.lot.id, name: state.lot.name },
       root: rootOf(state.lot),
@@ -3486,6 +3507,8 @@
           // pas d'iid : le suivi en direct est vu par tous, pas seulement le TECH
           : (entry.info && entry.info.type_name) || (entry.kind === 'item' && !entry.error ? 'Item' : 'code inconnu'),
         expired: !!entry.expired,
+        // perime a jeter (le lot a son compte sans lui, ou il n'y etait pas) : pas de rouge dans le suivi
+        discard: discard(entry),
         error: !!entry.error,
         extra: entry.kind === 'item' && !expected.has(entry.iid),
       })),
@@ -3493,7 +3516,9 @@
       remaining,
       entries: state.scanned.map(({ code, kind, iid, key, expired, error, items, info, place }) => ({
         code, kind, iid, key, expired, error, items, place,
-        info: info ? { type: info.type, type_name: info.type_name, peremption: info.peremption, count: info.count } : null,
+        info: info ? { type: info.type, type_name: info.type_name, peremption: info.peremption, count: info.count,
+          // revision en retard seule : jamais a jeter (planSession, discard)
+          revision_late: !!info.revision_late, outdated: !!info.outdated, unusable: !!info.unusable, disabled: !!info.disabled } : null,
       })),
       keys: sessionEntries(),
       labels: state.labels,
@@ -3616,8 +3641,11 @@
         + ` · commencée à ${timeOf(row.started)}`),
       el('div', { class: 'sub' }, status),
       done ? null : requirementRow('Scannés', row.count, row.count + row.remaining),
-      row.scanned.length ? el('ul', {}, shown.map((item) => el('li', { class: item.error ? 'error' : item.expired ? 'expired' : '' },
-        item.name, item.expired ? el('span', { class: 'tag red' }, 'PÉRIMÉ') : null,
+      // perime a jeter : gris, pas de rouge ; vérif terminée complète : plus de rouge du tout
+      row.scanned.length ? el('ul', {}, shown.map((item) => el('li', {
+        class: item.error ? 'error' : item.discard || (item.expired && done && done.complete) ? 'discard' : item.expired ? 'expired' : '' },
+        item.name, item.discard ? el('span', { class: 'tag gray' }, 'À JETER')
+          : item.expired ? el('span', { class: 'tag ' + (done && done.complete ? 'gray' : 'red') }, done && done.complete ? 'À REMPLACER' : 'PÉRIMÉ') : null,
         item.error ? el('span', { class: 'tag red' }, 'INCONNU') : null,
         item.extra ? el('span', { class: 'tag blue' }, 'nouveau') : null))) : null,
       row.scanned.length > 4 ? el('button', { type: 'button', class: 'text-link', onclick: () => {
@@ -3660,7 +3688,8 @@
         el('div', { class: 'main' },
           el('div', { class: 'name' }, row.lots.map((lot) => lot.name).join(', ')),
           el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${nb(row.present, 'présent')}`
-            + (row.missing ? ` · ${nb(row.missing, 'manquant')}` : '') + (row.expired ? ` · ${nb(row.expired, 'périmé')}` : ''))),
+            + (row.missing ? ` · ${nb(row.missing, 'manquant')}` : '') + (row.expired ? ` · ${nb(row.expired, 'périmé')}` : '')
+            + (row.replaced ? ` · ${row.replaced} à jeter` : ''))),
         el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
     }
     view.replaceChildren(...parts);
@@ -3684,8 +3713,8 @@
     const people = [report.by || '?', ...(report.participants || [])];
     const total = (key) => report.lots.reduce((sum, lot) => sum + lot[key + '_count'], 0);
     const counts = [[total('present'), 'présent'], [total('missing'), 'manquant'], [total('expired'), 'périmé'],
-      [total('replaced'), 'remplacé']].filter(([count], index) => count || !index)
-      .map(([count, word]) => nb(count, word)).join(' · ');
+      [total('replaced'), 'à jeter', 'à jeter']].filter(([count], index) => count || !index)
+      .map(([count, word, plural]) => nb(count, word, plural)).join(' · ');
     const partial = report.lots.some((lot) => lot.partial);
     const rows = (list) => list.map((row) => el('li', {}, `${row.count} × ${row.type_name}`
       + (row.peremption ? ` – ${fmtDate(row.peremption)}` : '')));

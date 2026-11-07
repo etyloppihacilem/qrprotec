@@ -108,6 +108,8 @@ dl.facts dd { margin: 0; }
 .list li.iid.expired { color: var(--red); background: var(--red-bg); border-left: 0; }
 .list li.iid .tag { font-family: system-ui, sans-serif; font-size: .66rem; padding: 0 5px; }
 .list li.expired { background: var(--red-bg); border-left: 5px solid var(--red); }
+/* perime que la vérif retire du lot, a jeter : pas de rouge */
+.list li.discard { border-left: 5px solid #8a8f94; }
 .list li.error { background: var(--red-bg); border-left: 5px solid var(--red); }
 .list li.extra { border-left: 5px solid var(--blue); }
 .list li.ok { border-left: 5px solid var(--green); }

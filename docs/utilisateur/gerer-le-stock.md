@@ -244,7 +244,9 @@ dans la pile de scans.
   contenant des périmés (notification web « résumé quotidien des périmés »).
 - Dans un sac, on remplace un périmé **pendant une vérif** : scanner le périmé et le neuf, le
   logiciel sort le périmé du sac. Si le sac a déjà assez de non périmés, le périmé scanné est sorti
-  du sac lui aussi (à jeter) et la vérif reste complète.
+  du sac lui aussi (à jeter) et la vérif reste complète. Un périmé scanné qui n'était pas dans le
+  sac n'y est jamais rangé : il est à jeter. Ces périmés à jeter ne sont pas affichés en rouge dans
+  le suivi des vérifs ni dans le compte rendu.
 
 ## Rechercher un item, réimprimer une étiquette
 

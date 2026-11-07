@@ -379,7 +379,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
 
         # Detection des remplacements, par lot et par type. Un perime (inutilisable, desactive) scanne est retire du
         # lot, a jeter, des que le lot a son minimum d'items frais de ce type (meme deja presents avant la verif) ;
-        # sinon il reste a remplacer. Un item a la revision en retard n'est pas jete : seulement remplace par un
+        # sinon il reste a remplacer. Un perime scanne qui n'etait pas dans ce lot (stock, autre lot, hors lot) n'y
+        # entre jamais : il est a jeter. Un item a la revision en retard n'est pas jete : seulement remplace par un
         # item frais nouvellement arrive. Meme regle dans les fronts (planSession, App::plan_verif).
         required = _required_by_lot(group) if group is not None else {}
         fresh = defaultdict(int)
@@ -399,7 +400,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             covered = fresh[key] >= required.get(lot_id, {}).get(type_id, 0)
             slots = new_fresh.get(key, 0)
             for item in expired_items:
-                if covered and discardable(item, today):
+                if discardable(item, today) and (covered or item.location_id != lot_id):
                     replaced.add(item.iid)
                 elif slots > 0:
                     replaced.add(item.iid)
