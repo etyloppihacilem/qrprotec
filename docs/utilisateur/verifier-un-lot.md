@@ -437,3 +437,10 @@ scellé** d'un lot scellé qu'il contient (un kit accouchement) : le lot est com
 ses sous-lots, sans l'ouvrir ni scanner son contenu, et son scellé est gardé. Un scellé brisé, l'étiquette
 d'un ancien scellé ou un lot scellé contenant des périmés sont refusés : ouvrez le lot et scannez son
 contenu.
+
+En touchant un lot scellé dans la liste (ou en lançant la vérif d'un lot scellé, sur le web comme au
+poste), la liste « À scanner » ne montre qu'une ligne : **Étiquette du scellé 0 / 1**. Scannez
+l'étiquette collée sur le scellé : le lot est compté comme vérifié et l'on revient au lot qui le
+contient ; une vérif lancée sur le lot scellé lui-même est enregistrée aussitôt. Le scellé est ouvert
+ou abîmé : scannez l'étiquette d'ouverture rangée à l'intérieur, puis vérifiez le contenu (bouton
+**Vérifier le contenu**).

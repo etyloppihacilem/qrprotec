@@ -1911,6 +1911,21 @@ class SubLotTests(ApiTestCase):
         code, body = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 400)
 
+    def test_verif_of_a_sealed_lot_by_its_seal_label(self):
+        """Vérif lancee sur le lot scelle lui-meme : l'etiquette du scelle seule suffit, sans rien scanner dedans."""
+        self.call('POST', f"/api/lots/{self.sac_o2['id']}/verif/", {'items': [self.bottle()], 'user': 'M001'})
+        code, sealed = self.call('POST', f"/api/lots/{self.sac_o2['id']}/seal/", {'user': 'M001'})
+        seal_code = sealed['seal_url'].split('s=')[1]
+        payload = {'lots': [{'id': self.sac_o2['id']}], 'items': [], 'user': self.badge,
+                   'labels': [self.sac_o2['id']], 'sealed': [{'id': self.sac_o2['id'], 'code': seal_code}]}
+        for step in (False, True):  # vérif simple, puis validation d'un lot de la vérif en cascade
+            code, report = self.call('POST', '/api/verifs/', dict(payload, step=step), local=False)
+            self.assertEqual(code, 200, report)
+            self.assertTrue(report['complete'])
+            self.assertEqual(report['missing'], [])
+            self.assertEqual(report['sealed_lots'], ['Sac O2'])
+            self.assertTrue(Lots.objects.get(id=self.sac_o2['id']).is_sealed)  # scelle garde
+
     def test_badge_verif_with_a_sub_lot_label(self):
         """Avec un badge, l'etiquette d'un seul sous-lot (ou du lot qui le contient) suffit, pas celle d'un autre lot
         du meme lot global."""

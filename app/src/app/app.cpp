@@ -1853,7 +1853,9 @@ std::string root_of(const Json &lot) {
 
 void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
   // verif en cours d'un autre lot : le scelle d'un lot du meme lot global est constate intact (VerifSession::sealed)
-  const bool during_verif = verif.active && !verif.loading && scan.id != verif.lot_id;
+  // verif lancee sur le lot scelle lui-meme : son etiquette du scelle suffit, la verif est validee aussitot
+  const bool own_seal     = verif.active && !verif.loading && scan.id == verif.lot_id && verif_seal_waiting(scan.id);
+  const bool during_verif = verif.active && !verif.loading && (scan.id != verif.lot_id || own_seal);
   if (!during_verif)
     show_lot(scan.id, scan.key);
   api.get("/api/lots/" + url_encode(scan.id) + "/?seal=" + url_encode(scan.key),
@@ -1884,6 +1886,17 @@ void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
                 verif.sealed.push_back({ id, code, name });
               verif.labels.insert(id); // l'etiquette du scelle montre aussi que la verif est bien celle de ce lot
               notify(name + " : scellé intact, compté comme vérifié sans être ouvert.");
+              if (id == verif.lot_id) {
+                submit_verif(); // la verif du lot, c'est ce scan (connexion demandee si besoin)
+                return;
+              }
+              // lot scelle ou l'on etait entre : rien d'autre a y scanner, on revient au lot qui le contient (vérif
+              // lancee sur ce lot : elle s'arrete la, une fois le scelle enregistre)
+              if (verif_cascade() && verif_under(verif_level(), id)) {
+                if (id == verif.started_in)
+                  verif.seal_finish = id;
+                enter_level(verif_parent(id));
+              }
               flush_cascade_seals();
               return;
             }
@@ -1927,6 +1940,8 @@ void App::scan_lot_seal_open(const ParsedScan &scan, ScanSource source) {
         feedback.notice(source, settings);
       seal_opening_.result       = result.data;
       seal_opening_.open_pending = true;
+      if (verif.active && verif_lot(id))
+        reload_verif_lots(); // lot de la verif ouvert : son contenu est maintenant a verifier
     }
     refresh_lots();
   });
@@ -2794,6 +2809,39 @@ bool App::verif_touched(const std::string &id) const {
   return false;
 }
 
+// Lot scelle de la verif, scelle pas encore constate : la fenetre Vérif ne demande que l'etiquette du scelle (meme regle
+// que le web, sealWaiting). Plus le cas si un item du lot a ete scanne (il a ete ouvert), si l'on est entre plus bas,
+// ou si l'on a choisi d'en verifier le contenu.
+bool App::verif_seal_waiting(const std::string &id) const {
+  const Json *lot = verif_lot(id);
+  if (!lot || !(*lot)["is_sealed"].boolean() || verif.open_seals.count(id) || verif.done.count(id))
+    return false;
+  const std::set< std::string > ids = verif_subtree(id);
+  for (const VerifSealed &sealed : verif.sealed)
+    if (ids.count(sealed.id))
+      return false;
+  for (const std::string &entered : verif.entered)
+    if (entered != id && ids.count(entered))
+      return false;
+  const std::vector< std::string > scanned = stack.iids();
+  const std::set< std::string >    done(scanned.begin(), scanned.end());
+  for (const Json *sub : verif_lots()) {
+    if (!ids.count((*sub)["id"].str()))
+      continue;
+    for (const char *key : { "items", "missing_items" })
+      for (const Json &item : (*sub)[key].items())
+        if (done.count(item["iid"].str()))
+          return false;
+  }
+  if (verif_cascade())
+    for (const ScanEntry &entry : stack.entries())
+      if (entry.state != EntryState::Error
+          && (entry.scan.kind == ScanKind::Item || entry.scan.kind == ScanKind::SealedPack)
+          && ids.count(entry.place.empty() ? verif.lot_id : entry.place))
+        return false;
+  return true;
+}
+
 std::vector< std::string > App::verif_excluded(const std::string &top) const {
   std::vector< std::string > result;
   const std::function< void(const std::string &) > walk = [&](const std::string &id) {
@@ -3202,11 +3250,26 @@ void App::flush_cascade_seals() {
       if (row["sealed"].boolean())
         verif.done[row["id"].str()] = { at, true, true };
     verif.sealed.clear();
+    const std::string finish = verif.seal_finish;
+    verif.seal_finish.clear();
+    if (!finish.empty() && verif.done.count(finish)) {
+      const Json *lot = verif_lot(finish);
+      finish_cascade((lot ? (*lot)["name"].str() : finish) + " : scellé intact constaté, vérif terminée.");
+      return;
+    }
     refresh_lots();
   });
 }
 
 void App::submit_verif(bool partial) {
+  // lot scelle dont le scelle n'est pas encore constate : sa verif est le scan de l'etiquette du scelle (valider sans
+  // briserait le scelle et compterait tout son contenu manquant)
+  const std::string seal_lot = verif_cascade() ? verif_level() : verif.extras.empty() ? verif.lot_id : std::string();
+  if (verif.active && !seal_lot.empty() && verif_seal_waiting(seal_lot)) {
+    const Json *lot = verif_lot(seal_lot);
+    notify((lot ? (*lot)["name"].str() : seal_lot) + " est scellé : scannez l'étiquette collée sur le scellé.", true);
+    return;
+  }
   if (verif_cascade()) {
     submit_step(partial);
     return;

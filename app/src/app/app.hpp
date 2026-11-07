@@ -161,6 +161,8 @@ struct VerifSession {
     // scan d'un item, d'une etiquette ou d'un scelle d'un lot hors du lot en cours, alors que celui-ci est complet : il
     // est valide automatiquement, puis on continue vers ce lot (on y entre si after_enter)
     std::string                           started_in; // sous-lot dont on a lance la verif (ex : un kit du VPS)
+    std::set< std::string >               open_seals; // lots scelles dont on a choisi de verifier le contenu
+    std::string                           seal_finish; // lot scelle dont le scelle constate termine la verif
     std::string                           after_step;
     bool                                  after_enter = false;
     std::vector< std::string >            auto_done; // lots valides automatiquement, pour le message
@@ -405,6 +407,8 @@ class App {
     bool                        verif_under(const std::string &id, const std::string &top) const;
     std::set< std::string >     verif_subtree(const std::string &id) const;
     bool                        verif_touched(const std::string &id) const; // entre dedans ou scans dedans
+    // lot scelle de la verif dont le scelle n'est pas encore constate : sa verif est le scan de l'etiquette du scelle
+    bool                        verif_seal_waiting(const std::string &id) const;
     // sous-lots laisses de cote a la validation de top : deja valides ou pas commences
     std::vector< std::string >  verif_excluded(const std::string &top) const;
     std::set< std::string >     verif_scope(const std::string &top) const; // lots verifies a la validation de top
