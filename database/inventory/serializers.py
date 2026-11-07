@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
-from .models import PUSH_TYPES, ItemStatus, compact_iid, qrprotec_setting
+from .models import PUSH_TYPES, WEB_PREFS, ItemStatus, compact_iid, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import LotPreload, optional_lot, optional_types, ordered_requirements, out_deadline, requirements_status
 
@@ -614,6 +614,7 @@ def user_dict(user, local=False):
         'pin_blocked': user.pin_blocked is not None,
         'pin_reset_required': user.pin_reset_required,
         'default_contact': user.default_contact,
+        'web_prefs': user.web_prefs_full(),  # reglages du front web (models.WEB_PREFS), valeurs par defaut comprises
     }
     if local:
         data['nom'] = user.nom  # pas de nom de famille sur l'API publique (front web)
@@ -629,6 +630,9 @@ def user_dict(user, local=False):
                               for name in user.push_role_types()]
         count = getattr(user, 'push_device_count', None)
         data['push_devices'] = user.push_subscriptions.count() if count is None else count
+        # reglages du front web avec leur libelle, pour les cases de la fenetre Utilisateurs du poste
+        data['web_prefs_list'] = [{'name': name, 'label': label, 'value': user.web_pref(name)}
+                                  for name, (label, _) in WEB_PREFS.items()]
         # La cle du badge n'est connue qu'a sa creation ou son renouvellement (seule son empreinte est en base) :
         # elle n'apparait que dans cette reponse-la, pour imprimer le badge.
         key = getattr(user, 'new_key', None)

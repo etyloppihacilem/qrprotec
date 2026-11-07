@@ -653,3 +653,16 @@ button.debug-item { text-align: left; background: var(--panel); border-radius: 0
 .list li.full-verif .sub { color: var(--muted); }
 .list li.full-verif button { flex: none; padding: 6px 10px; font-size: .85rem; }
 .list li.full-verif.on { border: 2px solid var(--orange); background: var(--orange-bg); }
+
+/* Grandes popups de la vérif : étiquette du lot à scanner, explication après la connexion */
+dialog.big-popup { width: min(94vw, 460px); text-align: center; }
+dialog.big-popup h2 { margin: 4px 0 8px; font-size: 1.3rem; text-wrap: balance; }
+dialog.big-popup p { font-size: 1.05rem; }
+.big-popup-icon { font-size: 3rem; line-height: 1.2; }
+.verif-help-steps { list-style: none; margin: 8px 0 14px; padding: 0; text-align: left; }
+.verif-help-steps li { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 12px; font-size: 1.02rem; }
+.verif-help-steps li > span { font-size: 1.8rem; line-height: 1; flex: 0 0 auto; }
+.verif-help-hide { display: flex; gap: 8px; align-items: center; justify-content: center; margin: 4px 0 10px; color: var(--muted); }
+#info[hidden] { display: none; }
+.settings-check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
+.settings-check input { margin-top: 3px; }

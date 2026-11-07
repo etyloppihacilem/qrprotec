@@ -80,13 +80,25 @@ tape toujours `@`, `#` ou `{`.
 2. **Scannez votre badge** si ce n'est pas déjà fait (le téléphone s'en souvient). Saisissez votre PIN
    si demandé. Si le TECH l'a autorisé, vous pouvez à la place toucher **Non connecté** et
    indiquer votre nom.
+   Une fois connecté, une fenêtre rappelle la vérif en 3 points (scanner tout le contenu en suivant
+   la liste, monter le son pour entendre le bip, vérifier à plusieurs). Cochez **Ne plus afficher ce
+   message** pour ne plus la voir : un admin peut la faire réapparaître depuis le poste
+   (**Administration > Utilisateurs > Réglages du web**), et vous dans les réglages ⚙.
 3. **Scannez chaque objet.** Onglets en bas : **À scanner** (ce qui reste, par produit : en cours en
    haut, rien de scanné ensuite, complets en bas ; connecté en administrateur, touchez un produit
    pour déplier les codes de ses items, les périmés en rouge),
-   **Scannés** (avec « Annuler le dernier » et « Vider la liste »), **Lot** (exigences scannées /
+   **Scannés** (rôles gestion et admin seulement, avec « Annuler le dernier » et « Vider la liste » ;
+   tout le monde a le bouton ↶ pour annuler le dernier scan), **Lot** (exigences scannées /
    attendues). Un périmé ou un code inconnu fait clignoter l'écran en rouge, biper et vibrer.
-4. **Valider la vérif.** Le compte rendu s'affiche, et le lot est désélectionné (comme avec
-   **Changer de lot**) : il n'apparaît plus « en cours » dans l'état des lots.
+   La ligne d'information sous la caméra (badge, étiquette du lot, item scanné) n'est affichée pendant
+   la vérif qu'avec le réglage ⚙ **Ligne d'info pendant la vérif** (décoché par défaut).
+4. **Valider la vérif.** Si l'étiquette du lot n'a pas été scannée, une fenêtre demande de la
+   scanner (« Scannez l'étiquette de Sac PSE A ») et se ferme d'elle-même dès qu'elle l'est. Le
+   compte rendu s'affiche, et le lot est désélectionné : il n'apparaît plus « en cours » dans l'état
+   des lots.
+
+**Quitter cette vérif** (menu **⋯**) abandonne la vérif sans rien enregistrer et revient à l'accueil.
+Les réglages ⚙ et la déconnexion sont sur l'accueil (ou touchez votre prénom en haut).
 
 La caméra occupe le tiers haut de l'écran. Le bouton **↘** la réduit en vignette dans un coin, comme
 pendant un appel vidéo : la liste prend tout l'écran et le scan continue. Touchez la vignette pour
