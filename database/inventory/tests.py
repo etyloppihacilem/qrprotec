@@ -270,6 +270,66 @@ class PublicApiTests(ApiTestCase):
         self.assertIsNone(FrontKey.authenticate(key))
         self.assertNotIn(key, FrontKey.objects.get().key_hash)
 
+    def test_frontkey_config_file(self):
+        """frontkey add --config : URL, cle et certificat chiffres en AES, relus avec le mot de passe."""
+        import json
+        import os
+        import tempfile
+        from io import StringIO
+        from pathlib import Path
+        from unittest import mock
+
+        from django.core.management import CommandError, call_command
+
+        from inventory import front_config
+
+        pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n'
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.dict(os.environ, {'QRPROTEC_FRONT_CONFIG_PASSWORD': 'secret-antenne'}):
+            ca = Path(directory) / 'root.crt'
+            ca.write_text(pem)
+            path = Path(directory) / 'accueil.qrprotec'
+            out = StringIO()
+            call_command('frontkey', 'add', 'accueil', '--config', str(path), '--url', 'https://inv.example.org/',
+                         '--ca-file', str(ca), stdout=out)
+            self.assertNotIn('qrpf_', out.getvalue())  # la cle n'est que dans le fichier chiffre
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            text = path.read_text()
+            self.assertNotIn('qrpf_', text)
+            self.assertNotIn('inv.example.org', text)
+            document = json.loads(text)
+            self.assertEqual((document['qrprotec'], document['cipher']), ('front-config', 'AES-256-GCM'))
+            payload = front_config.decrypt(text, 'secret-antenne')
+            self.assertEqual(payload['name'], 'accueil')
+            self.assertEqual(payload['api_url'], 'https://inv.example.org')
+            self.assertEqual(payload['api_ca_pem'], pem)
+            self.assertIsNotNone(FrontKey.authenticate(payload['api_key']))
+            with self.assertRaisesMessage(front_config.FrontConfigError, 'Mot de passe incorrect'):
+                front_config.decrypt(text, 'mauvais-mot-de-passe')
+            tampered = dict(document, iterations=document['iterations'] + 1)
+            with self.assertRaises(front_config.FrontConfigError):
+                front_config.decrypt(json.dumps(tampered), 'secret-antenne')
+            # fichier deja la : refuse sans --replace, et l'ancienne cle reste valable
+            with self.assertRaises(CommandError):
+                call_command('frontkey', 'add', 'accueil', '--config', str(path), stdout=StringIO())
+            self.assertIsNotNone(FrontKey.authenticate(payload['api_key']))
+            # sortie standard : seulement le fichier, les explications sur l'erreur standard
+            out = StringIO()
+            call_command('frontkey', 'add', 'accueil', '--replace', '--config', '-', '--url', 'https://inv.example.org',
+                         stdout=out, stderr=StringIO())
+            new_payload = front_config.decrypt(out.getvalue(), 'secret-antenne')
+            self.assertNotIn('api_ca_pem', new_payload)
+            self.assertIsNone(FrontKey.authenticate(payload['api_key']))
+            self.assertIsNotNone(FrontKey.authenticate(new_payload['api_key']))
+            # front distant en HTTPS seulement ; mot de passe trop court
+            with self.assertRaises(CommandError):
+                call_command('frontkey', 'add', 'b', '--config', '-', '--url', 'http://inv.example.org',
+                             stdout=StringIO())
+        with mock.patch.dict(os.environ, {'QRPROTEC_FRONT_CONFIG_PASSWORD': 'court'}), \
+                self.assertRaises(CommandError):
+            call_command('frontkey', 'add', 'b', '--config', '-', '--url', 'https://x.org', stdout=StringIO())
+        self.assertFalse(FrontKey.objects.filter(name='b').exists())
+
 
 class DeclaredIdentityTests(ApiTestCase):
     """Identite declaree (nom sans badge) : reglage du serveur, desactive par defaut."""

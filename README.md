@@ -54,6 +54,7 @@ avec sa propre clé API** ; un front local et des fronts distants fonctionnent e
 
    ```sh
    sudo qrprotec-setup --front-key accueil     # ou : sudo qrprotec-manage frontkey add accueil
+   sudo qrprotec-setup --front-key accueil --front-config accueil.qrprotec  # tout dans un fichier chiffré
    sudo qrprotec-manage frontkey list          # fronts, dernière utilisation et adresse
    sudo qrprotec-manage frontkey revoke accueil
    ```
@@ -74,7 +75,9 @@ avec sa propre clé API** ; un front local et des fronts distants fonctionnent e
    `QRPROTEC_API_CA_FILE`, lisible par root seulement), qui prime sur les réglages du front.
 
 3. Sur un ordinateur de bureau (`dnf install qrprotec-front`, menu **QRProtec** ou commande
-   `qrprotec-front`) : **Réglages > Serveur** (URL, clé, certificat de l'autorité). Tant que le
+   `qrprotec-front`) : **Réglages > Serveur** (URL, clé, certificat de l'autorité), ou **Importer un
+   fichier de configuration** `.qrprotec` créé par `--front-config` (URL, clé et certificat chiffrés
+   en AES, mot de passe demandé à l'import ; le fichier peut aussi être glissé sur la fenêtre). Tant que le
    serveur est injoignable, un clic sur « API hors ligne » dans la barre de menu ouvre ces champs
    sans badge (jamais sur une borne `qrprotec-kiosk`, réglée par `qrprotec-setup`). Les variables `QRPROTEC_API_URL`, `QRPROTEC_API_KEY`, `QRPROTEC_API_CA_FILE` marchent
    aussi. Pour imprimer, l'utilisateur doit être dans le groupe `dialout`.

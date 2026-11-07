@@ -5,6 +5,7 @@
 #   sudo qrprotec-setup --domain inventaire.example.org --tls admin@example.org --yes
 #   sudo qrprotec-setup --restore /var/backups/qrprotec/qrprotec-backup_2026-10-01_031204.tar.xz
 #   sudo qrprotec-setup --front-key accueil  # back : cle API d'un front d'une autre machine
+#   sudo qrprotec-setup --front-key accueil --front-config accueil.qrprotec   # cle dans un fichier chiffre
 #   sudo qrprotec-setup --api-url https://inventaire.example.org --api-key qrpf_...   # kiosk distant
 #
 # Toute la configuration partagee du back (nom d'hote, TLS) est ecrite dans /etc/qrprotec/qrprotec.conf,
@@ -36,6 +37,7 @@ api_key=""
 api_ca_file=""
 local_api=no
 front_key=""
+front_config=""
 firewall=""      # yes / no / "" (demander)
 admin=""         # yes / no / "" (demander)
 restart=yes
@@ -53,6 +55,9 @@ Back :
   --tls MODE            "internal" (autorite locale de Caddy) ou adresse e-mail (Let's Encrypt)
   --front-key NOM       cree la cle API d'un front d'une autre machine et l'affiche
                         (liste : sudo qrprotec-manage frontkey list)
+  --front-config FICHIER  avec --front-key : ecrit plutot un fichier chiffre (AES, mot de passe demande)
+                        avec l'URL, la cle et le certificat de l'autorite interne de Caddy, a importer
+                        dans le front (Reglages > Serveur > Importer un fichier de configuration)
   --open-firewall       ouvre http/https dans firewalld ou UFW
   --no-firewall         ne touche pas au pare-feu
   --no-admin            ne propose pas de creer un administrateur
@@ -96,6 +101,7 @@ while (($#)); do
         --api-ca-file) api_ca_file=${2:?}; shift ;;
         --local-api) local_api=yes ;;
         --front-key) front_key=${2:?nom du front attendu}; shift ;;
+        --front-config) front_config=${2:?fichier attendu}; shift ;;
         --backup-dir) backup_dir=${2:?}; shift ;;
         --backup-keep) backup_keep=${2:?}; shift ;;
         --backup-schedule) backup_schedule=${2:?}; shift ;;
@@ -119,6 +125,9 @@ has_server=no has_kiosk=no
 [[ -f $KIOSK_CONF ]] && has_kiosk=yes
 [[ $has_server == yes || $has_kiosk == yes ]] ||
     die "ni $CONF_FILE ni $KIOSK_CONF : installez qrprotec-server, qrprotec-kiosk ou qrprotec"
+if [[ -n $front_config && -z $front_key ]]; then
+    die "--front-config va avec --front-key NOM"
+fi
 if [[ -n $front_key && $has_server != yes ]]; then
     die "--front-key se lance sur le serveur (paquet qrprotec-server)"
 fi
@@ -229,6 +238,25 @@ open_firewall() {
 }
 
 # Back : cle API d'un front distant, puis fin
+if [[ -n $front_key && -n $front_config ]]; then
+    [[ -e $front_config ]] && die "$front_config existe deja"
+    config_args=(--config -)
+    if [[ $(get_conf "$CONF_FILE" QRPROTEC_TLS) == internal ]]; then
+        [[ -r $CADDY_CA ]] || die "certificat de l'autorite interne de Caddy introuvable ($CADDY_CA) : demarrez caddy"
+        # qrprotec-manage repasse sous l'utilisateur qrprotec, qui ne lit pas les fichiers de Caddy
+        ca_copy=$(mktemp)
+        trap 'rm -f "$ca_copy" "$front_config.part"' EXIT
+        install -m 0644 "$CADDY_CA" "$ca_copy"
+        config_args+=(--ca-file "$ca_copy")
+    else
+        trap 'rm -f "$front_config.part"' EXIT
+    fi
+    # fichier ecrit par root (le mot de passe est demande sur le terminal), lisible par root seulement
+    (umask 077 && qrprotec-manage frontkey add "$front_key" "${config_args[@]}" > "$front_config.part")
+    mv "$front_config.part" "$front_config"
+    echo "Copiez $front_config sur la machine du front (cle USB, scp...) avec le mot de passe a part."
+    exit 0
+fi
 if [[ -n $front_key ]]; then
     qrprotec-manage frontkey add "$front_key"
     if [[ $(get_conf "$CONF_FILE" QRPROTEC_TLS) == internal ]]; then

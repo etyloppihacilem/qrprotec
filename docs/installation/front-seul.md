@@ -14,6 +14,27 @@ Deux paquets :
 
 ## Avant de commencer : la clé du poste
 
+### Le plus simple : un fichier de configuration chiffré
+
+Sur le serveur, créez la clé du poste directement dans un fichier :
+
+```sh
+sudo qrprotec-setup --front-key accueil --front-config accueil.qrprotec
+```
+
+Un mot de passe est demandé (8 caractères au moins). Le fichier contient l'**URL** du serveur, la
+**clé du front** et, avec l'autorité interne de Caddy (`QRPROTEC_TLS=internal`), son
+**certificat** : le tout chiffré en AES-256-GCM, avec une clé dérivée du mot de passe (PBKDF2,
+600 000 itérations). Copiez-le sur le poste (clé USB, `scp`...) et transmettez le mot de passe à
+part. Sur un poste de bureau, il s'importe dans le front (voir plus bas), même tant que le serveur
+n'est pas joignable.
+
+Pour un poste qui a déjà une clé : `sudo qrprotec-manage frontkey add accueil --replace --config - >
+accueil.qrprotec` (l'ancienne clé est remplacée). `--url` change l'adresse mise dans le fichier
+(défaut : `https://QRPROTEC_DOMAIN`).
+
+### À la main : la clé affichée
+
 Sur le serveur, créez une clé pour ce poste et notez-la (elle n'est affichée qu'une fois) :
 
 ```sh
@@ -74,8 +95,14 @@ QRProtec est une application du menu, avec son icône.
 2. Le serveur n'est pas encore configuré : cliquez sur **API hors ligne** dans la barre de menu.
    Les réglages du serveur s'ouvrent **sans badge** (uniquement tant que le serveur est
    injoignable).
-3. Renseignez l'**URL** (`https://inventaire.mon-antenne.org`), la **clé du front** (`qrpf_…`) et,
-   si besoin, le **certificat de l'autorité**. **Tester la connexion**, puis **Enregistrer**.
+3. Avec un fichier de configuration : en haut de la fenêtre, **Importer un fichier de
+   configuration**, indiquez le chemin du fichier `.qrprotec` (ou glissez le fichier sur la fenêtre
+   de QRProtec), puis son **mot de passe** et **Importer**. L'URL, la clé et le certificat sont
+   enregistrés (le certificat dans `~/.config/qrprotec/server-ca.crt`) et la connexion est testée.
+
+   Sinon, renseignez à la main l'**URL** (`https://inventaire.mon-antenne.org`), la **clé du front**
+   (`qrpf_…`) et, si besoin, le **certificat de l'autorité**. **Tester la connexion**, puis
+   **Enregistrer**.
 4. Scannez votre badge : vous êtes connecté au même inventaire que la borne.
 
 Réglages et modèles sont propres à l'utilisateur : `~/.config/qrprotec/app.conf` (`0600`, contient la

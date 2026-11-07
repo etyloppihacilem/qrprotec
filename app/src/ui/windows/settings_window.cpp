@@ -41,7 +41,35 @@ void api_field(const char *label, const char *env_name, std::string &value, ImGu
 
 } // namespace
 
+// Fichier cree sur le serveur : sudo qrprotec-manage frontkey add NOM --config NOM.qrprotec
+static void draw_front_config_import(App &app) {
+  static std::string password;
+  ImGui::SeparatorText("Importer un fichier de configuration");
+  if (AppSettings::api_env("QRPROTEC_KIOSK") || AppSettings::api_env("QRPROTEC_API_URL")
+      || AppSettings::api_env("QRPROTEC_API_KEY") || AppSettings::api_env("QRPROTEC_API_CA_FILE")) {
+    ImGui::TextDisabled("Connexion imposée par l'environnement (borne : sudo qrprotec-setup).");
+    return;
+  }
+  ImGui::InputTextWithHint("Fichier", "chemin du fichier .qrprotec",
+                           &app.front_config_path);
+  help_marker("Créé sur le serveur avec :\n  sudo qrprotec-manage frontkey add NOM --config NOM.qrprotec\n"
+              "Il contient l'URL du serveur, la clé du front et, si besoin, le certificat de l'autorité, "
+              "chiffrés (AES) avec un mot de passe. Il remplace les champs ci-dessous.\n"
+              "Le fichier peut aussi être glissé sur la fenêtre de QRProtec.");
+  const bool submit = ImGui::InputText("Mot de passe du fichier", &password,
+                                       ImGuiInputTextFlags_Password | ImGuiInputTextFlags_EnterReturnsTrue);
+  ImGui::BeginDisabled(app.front_config_path.empty() || password.empty());
+  if ((button("Importer") || submit) && !app.front_config_path.empty() && !password.empty()) {
+    if (app.import_front_config(app.front_config_path, password))
+      app.front_config_path.clear();
+    password.clear(); // vide apres chaque tentative
+  }
+  ImGui::EndDisabled();
+  ImGui::SeparatorText("Saisie manuelle");
+}
+
 void draw_server_settings(App &app, bool save_on_success) {
+  draw_front_config_import(app);
   api_field("URL du serveur", "QRPROTEC_API_URL", app.settings.api_url, 0,
             "Même machine : http://127.0.0.1:8001 (API locale, port non exposé).\n"
             "Serveur distant : https://nom-du-serveur (avec une clé de front).");

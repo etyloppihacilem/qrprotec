@@ -476,6 +476,14 @@ class App {
     void        apply_settings();
     void        select_default_templates(); // modeles fournis choisis pour les usages sans modele
     bool        save_settings();
+    // Fichier de configuration chiffre cree sur le serveur (frontkey add NOM --config) : URL, cle et
+    // certificat de l'autorite remplacent les reglages du serveur, enregistres aussitot, puis la connexion
+    // est testee. Refuse sur une borne ou si l'environnement impose la connexion (front-api.conf).
+    bool        import_front_config(const std::string &path, const std::string &password);
+    // Fichier deposé sur la fenetre (glisser-deposer) : propose a l'import, fenetre « Connexion au serveur »
+    // ouverte si le serveur est injoignable
+    void        file_dropped(const std::string &path);
+    std::string front_config_path;     // champ « Fichier » de l'import (partage modale / Reglages)
     void        save_current_layout();
     void        request_layout_reset() {
       layout_pending_ = true;

@@ -242,6 +242,12 @@ int main(int argc, char** argv)
     load_font(app->settings.font_size);
     glfwSetWindowSizeCallback(window, [](GLFWwindow*, int, int) { note_input(); });
     glfwSetWindowRefreshCallback(window, [](GLFWwindow*) { note_input(); });
+    // fichier de configuration d'un front (.qrprotec) depose sur la fenetre : propose a l'import
+    glfwSetDropCallback(window, [](GLFWwindow*, int count, const char** paths) {
+        note_input();
+        if (active_app && count > 0 && paths[0])
+            active_app->file_dropped(paths[0]);
+    });
     frame_clock::time_point frame_start = frame_clock::now();
     while (!glfwWindowShouldClose(window)) {
         inateck.begin_poll();

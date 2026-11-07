@@ -246,7 +246,7 @@ blanche** (`ASSETS`) : ajouter un fichier au front web demande de l'y déclarer.
 | `serve [--public A:P] [--local A:P] [--remote A:P] [--https] [--cert --key]` | Lance les trois API (+ WebSockets). `--https` génère un certificat auto-signé dans `database/.dev-certs/` pour tester la caméra d'un téléphone sur le réseau local. |
 | `createadmin MATRICULE NOM PRÉNOM [--pin 1234]` | Crée ou répare un administrateur (badge perdu, plus aucun admin) : nouvelle clé de badge, rôle admin. Affiche l'URL du badge à scanner sur le poste. |
 | `check_alerts` | Seuils de stock, résumé des périmés, expirations des clés et commandes à passer (timer quotidien). |
-| `frontkey add NOM` / `list` / `revoke NOM` / `delete NOM` | Clés d'API des fronts distants. La clé n'est affichée qu'à `add`. |
+| `frontkey add NOM` / `list` / `revoke NOM` / `delete NOM` | Clés d'API des fronts distants. La clé n'est affichée qu'à `add`. `add NOM --config FICHIER [--url URL] [--ca-file PEM]` l'écrit plutôt, avec l'URL et le certificat, dans un fichier chiffré (AES-256-GCM, PBKDF2-HMAC-SHA256, `inventory/front_config.py`, `-` = sortie standard) que le front importe avec le mot de passe (`app/src/net/front_config.cpp`). Mot de passe demandé, ou `QRPROTEC_FRONT_CONFIG_PASSWORD`. |
 
 ## Tests
 
