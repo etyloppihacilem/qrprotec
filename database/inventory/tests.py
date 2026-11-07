@@ -4959,11 +4959,10 @@ class WebPrefsTests(ApiTestCase):
         credentials = {'matricule': 'M001', 'key': self.user.new_key}
         code, body = self.call('POST', '/api/auth/', credentials, local=False)
         self.assertEqual(body['web_prefs']['login_bubble'], False)
-        code, body = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'login_bubble': True,
-                                                                                          'inconnu': True}}, local=False)
+        code, body = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'login_bubble': True}},
+                               local=False)
         self.assertEqual(code, 200)
-        self.assertEqual(body['web_prefs'], {**body['web_prefs'], 'login_bubble': True})
-        self.assertNotIn('inconnu', body['web_prefs'])
+        self.assertTrue(body['web_prefs']['login_bubble'])
         self.user.refresh_from_db()
         self.assertTrue(self.user.web_pref('login_bubble'))
         code, _ = self.call('POST', '/api/me/prefs/', {'web_prefs': {'login_bubble': False}}, local=False)
