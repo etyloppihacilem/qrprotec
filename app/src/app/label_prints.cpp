@@ -8,12 +8,17 @@
 
 ##################################################################################################################### */
 
-// Fenetre « Impressions en attente » : etiquettes d'items demandees depuis le front web par un admin (Gestion de la
-// TECH, bouton +), voir database/inventory/label_prints.py. Elle s'ouvre d'elle-meme a chaque nouvelle demande, meme
-// sans personne de connecte : un secouriste qui rentre de poste avec du reassort lance l'impression et colle lui-meme
-// les etiquettes. Les items sont crees par le serveur au moment ou l'on lance l'impression, au nom de l'admin.
+// Impressions demandees au poste depuis ailleurs (voir database/inventory/label_prints.py) :
+// - etiquettes d'items demandees depuis le front web par un admin (Gestion de la TECH, bouton +) : un secouriste qui
+//   rentre de poste avec du reassort lance l'impression et colle lui-meme les etiquettes. Les items sont crees par le
+//   serveur au moment ou l'on lance l'impression, au nom de l'admin ;
+// - etiquettes d'un front sur un autre ordinateur (cle de front, sans imprimante) : « Imprimer » y rend chaque
+//   etiquette en image 1 bit et l'envoie (send_to_poste) ; le poste l'imprime telle quelle.
+// Sur le poste (le seul front branche sur l'API locale), la fenetre « Impressions en attente » s'ouvre d'elle-meme a
+// chaque nouvelle demande, meme sans personne de connecte. Une demande pas imprimee expire en 24 h (serveur).
 
 #include "../core/plural.hpp"
+#include "../render/raster.hpp"
 #include "../ui/widgets.hpp"
 #include "app.hpp"
 #include "labels.hpp"
@@ -27,13 +32,46 @@ namespace qrprotec {
 
 namespace {
 
-constexpr double kPollSeconds = 20.0;
+constexpr double      kPollSeconds = 20.0;
+constexpr std::size_t kSendBytes   = 1500000; // par envoi au poste (le serveur refuse les requetes de plus de 2,5 Mo)
+constexpr std::size_t kSendLabels  = 200;     // par envoi (label_prints.MAX_COUNT)
 
-std::string request_what(const Json &request) {
-  std::string text = std::to_string(request["count"].integer()) + " × " + request["type_name"].str();
-  if (!request["peremption"].is_null())
-    text += ", péremption " + display_date(request["peremption"]);
-  return text;
+// Etiquette rendue -> {description, width, height, ppm, bits} : 1 bit par pixel (1 = noir), lignes de gauche a
+// droite, bit de poids fort d'abord (format de label_prints._check_label)
+Json encode_label(const PrintJob &job) {
+  const RasterImage image = render_template(job.document);
+  Json              label = Json::object();
+  label["description"] = job.description;
+  label["width"]       = image.width;
+  label["height"]      = image.height;
+  label["ppm"]         = static_cast< double >(job.document.media.pixels_per_mm);
+  label["bits"]        = encode_raster_bits(image);
+  return label;
+}
+
+bool decode_label(const Json &label, PrintJob &job) {
+  if (!decode_raster_bits(label["bits"].str(), label["width"].integer(), label["height"].integer(), job.image))
+    return false;
+  job.description                  = label["description"].str();
+  job.document.media.pixels_per_mm = static_cast< float >(label["ppm"].num(8.0));
+  return true;
+}
+
+// « Lot B+ 1 (clé) 2/3 » -> « Lot B+ 1 (clé) » : ce qui est imprime, pour la fenetre du poste
+std::string jobs_title(const std::vector< PrintJob > &jobs) {
+  std::string title = jobs.empty() ? std::string() : jobs.front().description;
+  if (jobs.size() > 1)
+    if (const auto space = title.rfind(' '); space != std::string::npos && title.find('/', space) != std::string::npos)
+      title.erase(space);
+  return title;
+}
+
+// Qui a demande, et d'ou : « Sophie Bernard », « Sophie Bernard (Ordi du TECH) », « Ordi du TECH »
+std::string request_who(const Json &request) {
+  const std::string by = request["by"].str(), front = request["front"].str();
+  if (front.empty())
+    return by;
+  return by.empty() ? front : by + " (" + front + ")";
 }
 
 } // namespace
@@ -54,7 +92,59 @@ void App::refresh_label_prints() {
   });
 }
 
+void App::send_to_poste(std::vector< PrintJob > jobs) {
+  if (jobs.empty())
+    return;
+  const std::string title = jobs_title(jobs);
+  // envois de 1,5 Mo au plus : une etiquette de 40 x 30 mm pese environ 13 ko
+  std::vector< Json > batches;
+  Json                labels = Json::array();
+  std::size_t         bytes  = 0;
+  for (const PrintJob &job : jobs) {
+    Json              label = encode_label(job);
+    const std::size_t size  = label["bits"].str().size() + 200;
+    if (labels.size() > 0 && (bytes + size > kSendBytes || labels.size() >= kSendLabels)) {
+      batches.push_back(std::move(labels));
+      labels = Json::array();
+      bytes  = 0;
+    }
+    labels.push_back(std::move(label));
+    bytes += size;
+  }
+  batches.push_back(std::move(labels));
+  const std::size_t count = jobs.size();
+  auto              left  = std::make_shared< std::size_t >(batches.size());
+  auto              failed = std::make_shared< bool >(false);
+  for (Json &batch : batches) {
+    Json body      = Json::object();
+    body["title"]  = title;
+    body["labels"] = std::move(batch);
+    api.post("/api/label-prints/send/", body, [this, count, left, failed](const ApiResult &result) {
+      if (!result.ok && !*failed) {
+        *failed = true;
+        notify("Envoi au poste refusé : " + result.error, true);
+      }
+      if (--*left == 0 && !*failed)
+        notify(nb(count, "étiquette envoyée", "étiquettes envoyées") + " au poste : lancez l'impression dans sa "
+               "fenêtre « Impressions en attente ».");
+    });
+  }
+}
+
 void App::print_label_request(const Json &request) {
+  if (request["kind"].str() == "labels") {
+    std::vector< PrintJob > jobs;
+    for (const Json &label : request["labels"].items()) {
+      PrintJob job;
+      if (decode_label(label, job))
+        jobs.push_back(std::move(job));
+    }
+    if (jobs.size() < request["labels"].size())
+      notify("Étiquettes illisibles ignorées : demandez un nouvel envoi.", true);
+    if (!jobs.empty())
+      print_documents(std::move(jobs));
+    return;
+  }
   const Json               &items = request["items"];
   std::vector< Parameters > labels;
   const int                 count = static_cast< int >(items.size());
@@ -107,8 +197,9 @@ void App::draw_label_prints() {
   const Json  &recent  = label_prints_.data["recent"];
   const float  base    = ImGui::GetStyle().FontSizeBase;
   ImGui::PushTextWrapPos(0.0f);
-  ImGui::TextUnformatted("Étiquettes d'items demandées par le TECH depuis le web. Lancez l'impression, puis collez "
-                         "chaque étiquette sur un item de ce type : les items sont ajoutés au stock.");
+  ImGui::TextUnformatted("Étiquettes demandées depuis le web ou un autre ordinateur. Lancez l'impression. Pour de "
+                         "nouvelles étiquettes d'items, collez chacune sur un item de ce type : les items sont ajoutés "
+                         "au stock. Une demande pas imprimée en 24 h disparaît.");
   ImGui::PopTextWrapPos();
   ImGui::Spacing();
 
@@ -120,10 +211,9 @@ void App::draw_label_prints() {
   }
   if (pending.size() == 0) {
     ImGui::TextColored(colors::green, "Aucune impression en attente.");
-  } else if (ImGui::BeginTable("label_prints_pending", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+  } else if (ImGui::BeginTable("label_prints_pending", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
     ImGui::TableSetupColumn("Étiquettes", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-    ImGui::TableSetupColumn("Demandé par", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+    ImGui::TableSetupColumn("Demandé par", ImGuiTableColumnFlags_WidthFixed, 200.0f);
     ImGui::TableSetupColumn("Quand", ImGuiTableColumnFlags_WidthFixed, 160.0f);
     ImGui::TableHeadersRow();
     for (const Json &request : pending.items()) {
@@ -131,13 +221,13 @@ void App::draw_label_prints() {
       ImGui::TableNextColumn();
       ImGui::PushFont(nullptr, base * 1.2f);
       ImGui::PushTextWrapPos(0.0f);
-      ImGui::Text("%d × %s", request["count"].integer(), request["type_name"].str().c_str());
+      ImGui::TextUnformatted(request["what"].str().c_str());
       ImGui::PopTextWrapPos();
       ImGui::PopFont();
       ImGui::TableNextColumn();
-      ImGui::TextUnformatted(request["peremption"].is_null() ? "-" : display_date(request["peremption"]).c_str());
-      ImGui::TableNextColumn();
-      ImGui::TextUnformatted(request["by"].str().c_str());
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextUnformatted(request_who(request).c_str());
+      ImGui::PopTextWrapPos();
       ImGui::TableNextColumn();
       ImGui::TextUnformatted(display_datetime(request["created"]).c_str());
     }
@@ -167,10 +257,17 @@ void App::draw_label_prints() {
     ImGui::SeparatorText("Imprimées dans les dernières 24 h");
     for (const Json &request : recent.items()) {
       ImGui::PushID(request["id"].integer());
+      // demande complete (items ou images) lue a la demande : la liste, interrogee toutes les 20 s, ne les a pas
       if (small_button("Réimprimer"))
-        print_label_request(request);
+        api.get("/api/label-prints/" + std::to_string(request["id"].integer()) + "/detail/",
+                [this](const ApiResult &result) {
+                  if (result.ok)
+                    print_label_request(result.data);
+                  else
+                    notify("Réimpression impossible : " + result.error, true);
+                });
       ImGui::SameLine();
-      ImGui::Text("%s", request_what(request).c_str());
+      ImGui::Text("%s", request["what"].str().c_str());
       ImGui::SameLine();
       ImGui::TextDisabled("imprimées %s", display_on(request["printed"]).c_str());
       ImGui::PopID();

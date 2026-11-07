@@ -92,7 +92,7 @@ void PrintQueue::run() {
     RasterImage   image;
     MediaSettings media;
     label.pixels_per_mm = job.document.media.pixels_per_mm;
-    bool ok = fit_to_label(render_template(job.document), label, image, media, error);
+    bool ok = fit_to_label(job.image.width > 0 ? job.image : render_template(job.document), label, image, media, error);
     if (ok) {
       ok = connected || printer_.connect(settings, error);
       if (ok) {

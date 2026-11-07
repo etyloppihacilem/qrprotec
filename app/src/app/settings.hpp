@@ -55,6 +55,9 @@ struct AppSettings {
 
     // Impression
     PrintSettings                        print;
+    // Front d'un autre ordinateur (cle de front) : « Imprimer » envoie les etiquettes au poste, sauf si une
+    // imprimante est branchee ici
+    bool                                 print_here = false;
     // Etiquettes chargees dans l'imprimante : largeur dans le sens de la tete, hauteur dans le sens du
     // defilement. Un modele dans l'autre sens est tourne d'un quart de tour a l'impression.
     float                                label_width_mm      = 40.0f;

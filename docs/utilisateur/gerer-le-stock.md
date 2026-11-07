@@ -64,7 +64,13 @@ connecté** : le secouriste qui rentre avec le matériel clique **Lancer l'impre
 les étiquettes. Les items sont créés à ce moment-là, au stock, au nom de l'administrateur qui les a
 demandés (réception dans le journal). **Plus tard** ferme la fenêtre : la demande reste en attente,
 signalée en bleu dans la barre de menu, et dans **À faire** (De temps en temps). Les impressions des
-dernières 24 heures restent dans la fenêtre avec un bouton **Réimprimer**.
+dernières 24 heures restent dans la fenêtre avec un bouton **Réimprimer**. Une demande pas imprimée
+en 24 heures disparaît.
+
+Sur un **autre ordinateur** relié au serveur avec une clé de front (sans imprimante), **Imprimer**
+devient **Envoyer au poste** : les étiquettes partent dans la même fenêtre du poste, qui les imprime
+telles quelles. Si une imprimante est branchée sur cet ordinateur, cochez **Imprimante branchée sur
+cet ordinateur** (Réglages, partie Imprimante).
 
 ## Gestion de la TECH : la liste de tâches
 

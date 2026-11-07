@@ -451,6 +451,9 @@ class App {
     // a chaque nouvelle demande, meme sans personne de connecte (voir label_prints.cpp)
     void refresh_label_prints();
     void open_label_prints() { label_prints_.open = label_prints_.focus = true; }
+    // front d'un autre ordinateur (cle de front) sans imprimante : « Imprimer » envoie les etiquettes au poste
+    bool prints_to_poste() const { return !settings.print_here && !settings.api_endpoint().key.empty(); }
+    void send_to_poste(std::vector< PrintJob > jobs);
     // « Marquer ce lot comme utilisé (demander une vérif) » : tout utilisateur identifie, lot en vérif recommandee
     void mark_lot_used(const std::string &lot_id, const std::string &name);
 
@@ -551,7 +554,7 @@ class App {
     void draw_seal_opening_modal();
     void draw_label_prints();
     void launch_label_prints(std::vector< int > ids);
-    void print_label_request(const Json &request); // etiquettes des items crees par une demande
+    void print_label_request(const Json &request); // etiquettes d'une demande (items crees ou images)
     void send_problem();
     void reload_verif_lots(); // contenu a jour des lots de la verif (item signale inutilisable : a remplacer)
     void flush_cascade_seals(); // vérif en cascade : scelles intacts constates enregistres tout de suite

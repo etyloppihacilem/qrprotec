@@ -1265,20 +1265,36 @@ class ChecklistScan(models.Model):
         ordering = ['at', 'id']
 
 
-class LabelPrint(models.Model):
-    """Etiquettes d'items demandees depuis le front web (admins, Gestion de la TECH, bouton +) et imprimees au poste.
+class LabelPrintKind(models.TextChoices):
+    ITEMS = 'items', "Nouvelles étiquettes d'items (web)"
+    LABELS = 'labels', "Étiquettes d'un autre ordinateur"
 
-    Exemple : un secouriste rentre de poste avec du reassort des pompiers. Un admin demande depuis son telephone
-    « 5 × Compresses, perime le ... » ; le poste ouvre la fenetre « Impressions en attente », meme sans personne de
-    connecte, et le secouriste lance l'impression puis colle lui-meme les etiquettes. Les items ne sont crees qu'a
-    l'impression (`items` : leurs iids), au nom de l'admin qui les a demandes (journal : reception), et ranges au
-    stock. `printed_on` : nom du poste qui a imprime (cle de front), vide pour le poste local.
+
+class LabelPrint(models.Model):
+    """Impression demandee au poste (seul front branche sur l'API locale, avec l'imprimante), depuis ailleurs.
+
+    - `items` : etiquettes d'items demandees depuis le front web (admins, Gestion de la TECH, bouton +). Exemple : un
+      secouriste rentre de poste avec du reassort des pompiers ; un admin demande « 5 × Compresses, perime le ... »
+      depuis son telephone, et le secouriste lance l'impression au poste puis colle lui-meme les etiquettes. Les items
+      ne sont crees qu'a l'impression (`items` : leurs iids), au nom de l'admin qui les a demandes, au stock.
+    - `labels` : etiquettes deja pretes d'un front sur un autre ordinateur (API distante, cle de front), qui n'a pas
+      l'imprimante : « Imprimer » y envoie les images 1 bit des etiquettes (`labels`), que le poste imprime telles
+      quelles. `front` : nom de ce front.
+
+    Le poste ouvre la fenetre « Impressions en attente » meme sans personne de connecte. Une demande pas imprimee
+    expire au bout de 24 h (EXPIRY_HOURS). `printed_on` : nom du front qui a imprime, vide pour le poste local.
     """
+    EXPIRY_HOURS = 24
+
     created = models.DateTimeField(default=timezone.now, db_index=True)
-    by = models.CharField(max_length=64)  # identite stockee de l'admin qui demande (M:matricule)
-    item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT, related_name='+')
+    by = models.CharField(max_length=64, blank=True, default='')  # identite stockee de qui demande (M:matricule)
+    kind = models.CharField(max_length=8, choices=LabelPrintKind.choices, default=LabelPrintKind.ITEMS)
+    item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT, related_name='+', null=True, blank=True)
     count = models.PositiveIntegerField()
     peremption = models.DateField(null=True, blank=True)
+    title = models.CharField(max_length=128, blank=True, default='')  # etiquettes d'un front : ce qui est imprime
+    front = models.CharField(max_length=64, blank=True, default='')   # front qui demande (etiquettes d'un front)
+    labels = models.JSONField(default=list, blank=True)  # [{description, width, height, ppm, bits (base64)}]
     printed = models.DateTimeField(null=True, blank=True, db_index=True)
     printed_on = models.CharField(max_length=64, blank=True, default='')
     items = models.JSONField(default=list, blank=True)
@@ -1286,5 +1302,10 @@ class LabelPrint(models.Model):
     cancelled_by = models.CharField(max_length=64, blank=True, default='')
 
     @property
+    def expired(self) -> bool:
+        return (self.printed is None and self.cancelled is None
+                and self.created < timezone.now() - timedelta(hours=self.EXPIRY_HOURS))
+
+    @property
     def pending(self) -> bool:
-        return self.printed is None and self.cancelled is None
+        return self.printed is None and self.cancelled is None and not self.expired

@@ -226,6 +226,12 @@ class SettingsWindow final : public AppWindow {
         ImGui::InputTextMultiline("##titre", &settings.label_title, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 3.5f));
 
         ImGui::SeparatorText("Imprimante Niimbot B1");
+        if (!settings.api_endpoint().key.empty()) {
+          ImGui::Checkbox("Imprimante branchée sur cet ordinateur", &settings.print_here);
+          help_marker("Décochée (par défaut) : cet ordinateur se connecte au serveur avec une clé de front, sans "
+                      "imprimante. « Imprimer » envoie les étiquettes au poste, qui les propose dans sa fenêtre « "
+                      "Impressions en attente » (même sans personne de connecté). Cochée : impression ici.");
+        }
         ImGui::InputText("Port série", &settings.print.serial.device);
         ImGui::SetNextItemWidth(150.0f);
         ImGui::InputInt("Débit", &settings.print.serial.baud_rate);

@@ -247,10 +247,13 @@ def _periodic_tasks(today):
     tasks = []
     # etiquettes d'items demandees depuis le web, pas encore imprimees au poste
     for row, text in label_prints.pending_tasks():
+        who = identity_name(row.by) if row.by else ''
+        if row.front:
+            who = f'{who} sur {row.front}' if who else row.front
         tasks.append(task('periodic', 'info', f'Étiquettes à imprimer : {text}',
-                          f'demandées par {identity_name(row.by)} le {_day(row.created)} : au poste, fenêtre '
-                          '« Impressions en attente », Lancer l\'impression', row.created, 'label_prints',
-                          sort=(-1, row.created.timestamp())))
+                          f'demandées par {who or "?"} le {_day(row.created)} : au poste, fenêtre « Impressions en '
+                          'attente », Lancer l\'impression (expire après 24 h)', row.created,
+                          'label_prints' if row.kind == 'items' else '', sort=(-1, row.created.timestamp())))
     warning = timedelta(days=qrprotec_setting('KEY_EXPIRY_WARNING_DAYS'))
     # etiquettes privees des lots (cle) qui expirent : a renouveler et reimprimer (seulement si le nom declare est
     # autorise, sinon elles n'expirent plus)
