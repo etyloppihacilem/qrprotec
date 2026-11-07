@@ -1017,7 +1017,7 @@ def verifs(request):
     participants = [value for value in team['identities'] if value != identity] if team else []
     report = services.perform_verif(lots, iids, identity, bool(request.data.get('partial')),
                                     participants, place_map(request.data), sealed, excluded_lots(request.data, lots),
-                                    strict=bool(request.data.get('full')))
+                                    strict=bool(request.data.get('full')) or bool(team and team['full']))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team and step:
         live.hub.step(team, report, iids, final=bool(request.data.get('finish')))

@@ -468,6 +468,7 @@ class VerifWindow final : public AppWindow {
           struct PlaceRow {
               std::string place;
               int         done = 0, required = 0, missing = 0, last_scan = -1, rank = 0, extra = 0, pending = 0;
+              bool        only_optional = true; // que du facultatif : replie par defaut
           };
           std::vector< PlaceRow > place_rows;
           for (const std::string &place : places) {
@@ -478,6 +479,7 @@ class VerifWindow final : public AppWindow {
                 row.required += entry.required;
                 row.missing += entry.missing;
                 row.pending += entry.optional ? entry.required - entry.done : 0;
+                row.only_optional = row.only_optional && entry.optional;
                 row.extra += entry.extra;
                 row.last_scan = std::max(row.last_scan, entry.last_scan);
               }
@@ -492,7 +494,7 @@ class VerifWindow final : public AppWindow {
             const auto        fold = place_folds_.find(key);
             const bool open = fold != place_folds_.end() && fold->second.second == (row.missing == 0)
                               ? fold->second.first
-                              : row.missing > 0 || row.pending > 0; // facultatif : deplie, on peut y scanner
+                              : row.missing > 0 || (row.pending > 0 && !row.only_optional); // que du facultatif : replie
             ImGui::TableNextRow();
             row_color(row.rank == 3   ? colors::green
                       : row.rank == 2 ? colors::grey
