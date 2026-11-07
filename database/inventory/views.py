@@ -737,7 +737,7 @@ def lot_state_report(request, lot_id):
             settings_row.save(update_fields=['antenna_name'])
     identity = format_identity_verified(user.matricule)
     now = timezone.now()
-    pdf = lot_report.lot_report_pdf(lot, at, short_name(user.matricule), settings_row.antenna_name, edited=now)
+    pdf = lot_report.lot_report_pdf(lot, at, lot_report.who(identity), settings_row.antenna_name, edited=now)
     journal.record(OperationKind.LOT_REPORT, identity,
                    f"rapport d'état au {timezone.localtime(at).strftime('%d/%m/%Y %H:%M')}", lot=lot, at=now,
                    state_at=ser._date(at))

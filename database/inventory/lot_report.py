@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 from django.utils import timezone
 
-from .idendity import short_identity_name
+from .idendity import ANONYMOUS_OPENING, parse_identity
 from .lot_sheet import CONTENT_WIDTH, GREY_BAND, GREY_TEXT, MARGIN, PAGE_HEIGHT, PAGE_WIDTH, Page, build_pdf, fit, wrap
 from .models import ABSENCE_KINDS, ItemMovement, Items, Operation, OperationKind, Verifs, name_key
 from .services import lot_requirements
@@ -51,8 +51,16 @@ def short_date(value):
 
 
 def who(identity):
-    # front web : jamais de nom de famille (prenom, initiale en cas d'homonyme)
-    return short_identity_name(identity) if identity else '?'
+    """Nom complet et matricule (« Jeanne Dupont, M001 ») : le rapport est un document certifie, imprime et signe, et
+    fait exception a la regle des prenoms seuls du front web (choix d'Hippolyte). Nom declare : « (nom déclaré) »."""
+    if not identity:
+        return '?'
+    info = parse_identity(identity)
+    if info['verified']:
+        return f"{info['display_name']}, {info['matricule']}" if not info['display_name'].endswith(')') \
+            else info['display_name']
+    name = info['display_name']
+    return name if name == ANONYMOUS_OPENING else f'{name} (nom déclaré)'
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -273,8 +281,9 @@ class ReportWriter:
                     + (' · complète' if verif.complete else ' · incomplète')
                     + f' ({verif.present_count} présent' + ('s' if verif.present_count > 1 else '')
                     + f', {verif.missing_count} manquant' + ('s' if verif.missing_count > 1 else '') + ')')
-        if line:
-            self.text(x, line, size=9.5, step=13)
+        if line:  # noms complets : la ligne peut deborder, elle passe a la ligne au lieu d'etre coupee
+            for part in wrap(line, PAGE_WIDTH - MARGIN - x, 9.5, max_lines=3):
+                self.text(x, part, size=9.5, step=13)
         if state.sealed is not None:
             seal = state.sealed
             number = seal.details.get('seal_number') or ''
