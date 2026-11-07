@@ -640,9 +640,9 @@ std::string display_date(const Json &value);
 std::string display_datetime(const Json &value, bool long_form = false);
 // Idem apres un verbe : « le 12/10/2026 à 09:00 » ou « aujourd'hui à 09:00 » (« scellé %s »)
 std::string display_on(const Json &value, bool long_form = false);
-// Commentaires du TECH en reponse a un signalement (« replies », du plus ancien au plus recent), avec l'etat choisi
-// en meme temps ; signalement d'avant l'historique : sa reponse unique (« note »). Comme sur le front web.
-void draw_report_replies(const Json &report, bool long_form = false);
+// Reponses du TECH a un signalement : celle donnee en le passant en cours (« note »), puis celle de la resolution
+// (« resolution_note »). Comme sur le front web.
+void draw_report_replies(const Json &report);
 // Explication de l'etiquette privee d'un lot (QR code dans le lot) et son emplacement s'il est renseigne
 std::string key_hint(const Json &lot);
 

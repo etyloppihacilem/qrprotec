@@ -93,7 +93,7 @@ class ReportsWindow final : public AppWindow {
           if (ImGui::Selectable(report_label(report).c_str(), id == selected_,
                                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
             if (id != selected_)
-              note_.clear(); // commentaire en cours de redaction : propre au signalement choisi
+              note_ = report["note"].str(); // la reponse deja donnee, a modifier avant le bouton suivant
             selected_ = id;
           }
           ImGui::PopID();
@@ -147,21 +147,18 @@ class ReportsWindow final : public AppWindow {
                           report["usable"].boolean() ? "toujours utilisable" : "inutilisable : à remplacer");
       if (!report["comment"].str().empty())
         ImGui::TextWrapped("« %s »", report["comment"].str().c_str());
-      draw_report_replies(report, true);
+      draw_report_replies(report);
       if (!report["updated"].is_null())
         ImGui::TextDisabled("Mis à jour %s par %s", display_on(report["updated"], true).c_str(),
                             report["updated_by"].str("-").c_str());
-      // commentaire envoye avec le bouton d'etat choisi (en cours, resolu...), ou seul avec « Commenter »
-      ImGui::SetNextItemWidth(-260.0f);
-      ImGui::InputTextWithHint("##note", "Commentaire visible de tous (facultatif), envoyé avec le bouton choisi",
-                               &note_);
-      ImGui::SameLine();
-      Json       changes;
-      const bool has_note = note_.find_first_not_of(" \t\n") != std::string::npos;
-      ImGui::BeginDisabled(!has_note);
-      if (button("Commenter sans changer l'état", ImVec2(-1, 0)))
-        changes["note"] = note_;
-      ImGui::EndDisabled();
+      // reponse enregistree par le bouton choisi : « En cours » (remplace la precedente) ou « Résolu » (resolution)
+      Json        changes;
+      const char *text_key = nullptr;
+      if (report["status"].str() != "resolved") {
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##note", "Réponse visible de tous (facultatif), enregistrée avec le bouton choisi",
+                                 &note_);
+      }
       const float third = (ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x) / 3.0f;
       if (report["status"].str() == "resolved") {
         if (button("Rouvrir", ImVec2(-1, 0)))
@@ -170,23 +167,28 @@ class ReportsWindow final : public AppWindow {
         if (primary_button("En cours · utilisable", ImVec2(third, 0))) {
           changes["status"] = "progress";
           changes["usable"] = true;
+          text_key          = "note";
         }
         ImGui::SetItemTooltip("Pris en charge, l'objet reste disponible (vert).");
         ImGui::SameLine();
         if (warning_button("En cours · inutilisable", ImVec2(third, 0))) {
           changes["status"] = "progress";
           changes["usable"] = false;
+          text_key          = "note";
         }
         ImGui::SetItemTooltip("Pris en charge, l'objet n'est pas disponible (orange) : un item est à remplacer.");
         if (report["item"].str().empty()) {
           ImGui::SameLine();
-          if (primary_button("Résolu", ImVec2(-1, 0)))
+          if (primary_button("Résolu", ImVec2(-1, 0))) {
             changes["status"] = "resolved";
+            text_key          = "resolution_note";
+          }
         } else {
           // item non conforme : desactive (remplace a la prochaine verif comme un perime) ou deja retire (jete)
           if (primary_button("Résolu · remis en service", ImVec2(third, 0))) {
             changes["status"]     = "resolved";
             changes["resolution"] = "ok";
+            text_key              = "resolution_note";
           }
           ImGui::SetItemTooltip("L'item est conforme ou réparé : il redevient normal.");
           ImGui::SameLine();
@@ -194,6 +196,7 @@ class ReportsWindow final : public AppWindow {
                              "confirm_disable", ImVec2(third, 0))) {
             changes["status"]     = "resolved";
             changes["resolution"] = "disabled";
+            text_key              = "resolution_note";
           }
           ImGui::SetItemTooltip("Item non conforme : invalide comme un périmé, remplacé à la prochaine vérif.");
           ImGui::SameLine();
@@ -201,29 +204,26 @@ class ReportsWindow final : public AppWindow {
                              ImVec2(-1, 0))) {
             changes["status"]     = "resolved";
             changes["resolution"] = "removed";
+            text_key              = "resolution_note";
           }
           ImGui::SetItemTooltip("L'item a déjà été jeté : il est marqué supprimé.");
         }
       }
       if (!changes.is_null()) {
-        if (has_note)
-          changes["note"] = note_;
+        if (text_key)
+          changes[text_key] = note_;
         update(app, report["id"].integer(), changes);
       }
     }
 
     void update(App &app, int id, Json body) {
-      body["user"]         = app.user_ref();
-      const bool note_sent = !static_cast< const Json & >(body)["note"].is_null();
-      app.api.post("/api/reports/" + std::to_string(id) + "/", body,
-                   [this, &app, id, note_sent](const ApiResult &result) {
+      body["user"] = app.user_ref();
+      app.api.post("/api/reports/" + std::to_string(id) + "/", body, [this, &app](const ApiResult &result) {
         if (!result.ok) {
           app.notify("Signalement : " + result.error, true);
           return;
         }
-        app.notify(note_sent ? "Signalement mis à jour, commentaire ajouté." : "Signalement mis à jour.");
-        if (note_sent && selected_ == id)
-          note_.clear();
+        app.notify("Signalement mis à jour.");
         load(app);
       });
     }
