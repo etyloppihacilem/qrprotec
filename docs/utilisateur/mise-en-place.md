@@ -150,11 +150,15 @@ comme celui du type le suit si le type change.
 **Matériel facultatif** (ex : les casques du VPS) : cochez **Facultatif** sur la ligne d'un attendu.
 Le lot se valide sans lui, mais on peut le scanner pour savoir où il est. Pendant la vérif, il est
 affiché en gris avec un bord en tirets (ni orange ni rouge : rien ne manque), et passe au vert une fois
-tout scanné. Non scanné, il reste là où il était : ni manquant, ni hors lot. Seul le matériel **non
-consommable sans tâches** peut être facultatif. Un **sous-lot** entier peut l'être aussi (case **Sous-lot
-facultatif à la vérif** dans **Gestion des lots > Lots**, ex : la caisse des lampes du VPS) : le lot
-qui le contient se valide sans lui, il ne compte pas dans l'état du lot global, et on peut y entrer
-pendant la vérif pour scanner ce qu'il contient.
+tout scanné. Non scanné, il reste là où il était : ni manquant, ni hors lot. Sur une ligne, seul le
+matériel **non consommable sans tâches** peut être facultatif. Un **sous-lot** entier peut l'être aussi,
+quel que soit son contenu (case **Sous-lot facultatif à la vérif** dans **Gestion des lots > Lots**,
+ex : la caisse des lampes du VPS) : le lot qui le contient se valide sans lui, il ne compte pas dans
+l'état du lot global, et on peut y entrer pendant la vérif pour scanner ce qu'il contient.
+
+Pendant une vérif sur le front web, un admin peut toucher **Rendre la vérif complète** : pour cette
+vérif, tous les items et sous-lots facultatifs deviennent obligatoires (manquants s'ils ne sont pas
+scannés). **Revenir au facultatif** annule.
 
 **Sac O2** (`saco2x`) : masques O2 adulte et enfant, lunettes, etc.
 

@@ -5120,9 +5120,6 @@ class OptionalContentTests(ApiTestCase):
         code, lot = self.call('GET', f"/api/lots/{self.vps['id']}/", local=False)
         self.assertEqual(lot['global']['kind'], 'ok')
         self.assertFalse(next(row for row in lot['global']['lots'] if row['id'] == rack['id'])['counted'])
-        # un sous-lot qui attend du consommable ne peut pas etre facultatif
-        code, body = self.call('PATCH', f"/api/lots/{sac['id']}/update/", {'optional': True})
-        self.assertEqual(code, 400)
         # verif du VPS entier : les casques non scannes du sous-lot restent dedans
         casques = [item.iid for item in self.create(self.casque, None, 2)]
         Items.objects.filter(iid__in=casques).update(location_id=rack['id'])
@@ -5130,3 +5127,29 @@ class OptionalContentTests(ApiTestCase):
         self.assertTrue(report['complete'])
         self.assertEqual(report['loose'], [])
         self.assertEqual(set(Items.objects.filter(iid__in=casques).values_list('location_id', flat=True)), {rack['id']})
+
+    def test_whole_sub_lot_optional_even_consumables(self):
+        code, sac = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac de réserve',
+                                                     'parent': self.vps['id'], 'user': 'M001'})
+        code, sac = self.call('PATCH', f"/api/lots/{sac['id']}/update/", {'optional': True})
+        self.assertEqual(code, 200)
+        self.assertEqual((sac['requirements'][0]['required'], sac['requirements'][0]['optional']), (0, True))
+        compresses = self.fresh()
+        Items.objects.filter(iid__in=compresses).update(location_id=sac['id'])
+        report = services.perform_verif(Lots.objects.get(id=self.vps['id']), [], 'M001')
+        self.assertTrue(report['complete'])
+        self.assertEqual(report['missing'], [])
+        self.assertEqual(set(Items.objects.filter(iid__in=compresses).values_list('location_id', flat=True)), {sac['id']})
+
+    def test_full_verif_makes_everything_required(self):
+        self.set_requirements([{'type': 'compre', 'quantity': 2}, {'type': 'casque', 'quantity': 2, 'optional': True}])
+        casques = [item.iid for item in self.create(self.casque, None, 2)]
+        Items.objects.filter(iid__in=casques).update(location_id=self.vps['id'])
+        code, report = self.call('POST', '/api/verifs/', {'lots': [{'id': self.vps['id']}], 'items': self.fresh(),
+                                                         'user': 'M001', 'full': True})
+        self.assertEqual(code, 200)
+        self.assertFalse(report['complete'])
+        self.assertEqual(sorted(report['loose']), sorted(casques))  # non consommables absents : hors lot
+        row = next(row for row in report['requirements'] if row['type'] == 'casque')
+        self.assertEqual((row['required'], row['optional']), (2, False))
+

@@ -235,8 +235,8 @@ class ItemType(models.Model):
 
     @property
     def can_be_optional(self) -> bool:
-        """Peut etre facultatif dans un lot (LotRequirements.optional, Lots.optional) : seulement du materiel non
-        consommable sans taches a cocher (ex : les casques du VPS)."""
+        """Attendu facultatif d'un type de lot (LotRequirements.optional) : seulement du materiel non consommable sans
+        taches a cocher (ex : les casques du VPS). Un sous-lot facultatif (Lots.optional) l'est en entier."""
         return not self.consumable and not self.tasks
 
     def __str__(self):
@@ -505,7 +505,7 @@ class Lots(models.Model):
     # du type de lot (LotType.locations). Tenu a jour avec le contenu propre du lot (LotContent).
     locations = models.JSONField(default=list, blank=True)
     # sous-lot facultatif a la verif de son lot parent : le parent se valide sans lui (il ne compte pas dans l'etat du
-    # lot global), et son materiel non consommable sans taches est facultatif (voir LotRequirements.optional)
+    # lot global), et tout son contenu est facultatif (voir LotRequirements.optional), sauf en « vérif complète »
     optional = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):

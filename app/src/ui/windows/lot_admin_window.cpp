@@ -517,7 +517,7 @@ class LotAdminWindow final : public AppWindow {
         ImGui::EndDisabled();
         help_marker("Le lot qui le contient se valide sans lui (ex : la caisse des lampes du VPS) : il est affiché en "
                     "gris pendant la vérif, on peut y entrer pour scanner ce qu'il contient et savoir où c'est. "
-                    "Seulement pour un sous-lot qui n'attend que du matériel non consommable sans tâches.");
+                    "Tout son contenu est facultatif, sauf quand un admin rend la vérif complète (front web).");
       }
       ImGui::BeginDisabled(edit_name_.empty() || name_taken);
       if (button("Enregistrer")) {

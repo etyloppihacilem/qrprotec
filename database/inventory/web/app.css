@@ -641,3 +641,9 @@ button.debug-item { text-align: left; background: var(--panel); border-radius: 0
 #label-print-form select, #label-print-form input { font: inherit; font-weight: normal; padding: 8px; }
 #label-print-list h3 { margin: 16px 0 4px; }
 #label-print-list .row-head button { flex: none; }
+
+/* Vérif : bouton des admins « Rendre la vérif complète » (le facultatif devient obligatoire) */
+.list li.full-verif { background: var(--panel); border: 2px dashed #8a8f94; gap: 8px; }
+.list li.full-verif .sub { color: var(--muted); }
+.list li.full-verif button { flex: none; padding: 6px 10px; font-size: .85rem; }
+.list li.full-verif.on { border: 2px solid var(--orange); background: var(--orange-bg); }
