@@ -147,6 +147,15 @@ emplacements dans son propre ordre. Un lot ne peut pas retirer ce que son type e
 partout : vérif (web et poste), fiche du lot, fiche PDF, liste des tâches. Un emplacement laissé
 comme celui du type le suit si le type change.
 
+**Matériel facultatif** (ex : les casques du VPS) : cochez **Facultatif** sur la ligne d'un attendu.
+Le lot se valide sans lui, mais on peut le scanner pour savoir où il est. Pendant la vérif, il est
+affiché en gris avec un bord en tirets (ni orange ni rouge : rien ne manque), et passe au vert une fois
+tout scanné. Non scanné, il reste là où il était : ni manquant, ni hors lot. Seul le matériel **non
+consommable sans tâches** peut être facultatif. Un **sous-lot** entier peut l'être aussi (case **Sous-lot
+facultatif à la vérif** dans **Gestion des lots > Lots**, ex : la caisse des lampes du VPS) : le lot
+qui le contient se valide sans lui, il ne compte pas dans l'état du lot global, et on peut y entrer
+pendant la vérif pour scanner ce qu'il contient.
+
 **Sac O2** (`saco2x`) : masques O2 adulte et enfant, lunettes, etc.
 
 Créez aussi :

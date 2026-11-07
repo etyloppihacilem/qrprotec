@@ -233,6 +233,12 @@ class ItemType(models.Model):
     def has_revision(self) -> bool:
         return self.revision_months > 0 and not self.consumable
 
+    @property
+    def can_be_optional(self) -> bool:
+        """Peut etre facultatif dans un lot (LotRequirements.optional, Lots.optional) : seulement du materiel non
+        consommable sans taches a cocher (ex : les casques du VPS)."""
+        return not self.consumable and not self.tasks
+
     def __str__(self):
         return f"{self.name} ({self.type})"
 
@@ -398,6 +404,10 @@ class LotRequirements(models.Model): # Pour mettre un item dans un lot
     item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT)
     quantity = models.PositiveIntegerField(default=1)
     location = models.CharField(max_length=64, blank=True, default='') # ex: "pochette bleue"
+    # facultatif a la verif (ex : les casques du VPS) : le lot se valide sans, mais on peut les scanner pour savoir ou
+    # ils sont. Non scannes, ils restent ou ils etaient (ni manquants, ni hors lot). Seulement pour du materiel non
+    # consommable sans taches (ItemType.can_be_optional), sinon sans effet.
+    optional = models.BooleanField(default=False)
 
     class Meta:
         unique_together = [('lot_type', 'item_type')]
@@ -494,6 +504,9 @@ class Lots(models.Model):
     # Ordre des emplacements propre a ce lot (ex : le sac du VPS n'est pas range comme celui du lot A). Vide : celui
     # du type de lot (LotType.locations). Tenu a jour avec le contenu propre du lot (LotContent).
     locations = models.JSONField(default=list, blank=True)
+    # sous-lot facultatif a la verif de son lot parent : le parent se valide sans lui (il ne compte pas dans l'etat du
+    # lot global), et son materiel non consommable sans taches est facultatif (voir LotRequirements.optional)
+    optional = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.version:

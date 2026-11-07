@@ -1970,8 +1970,9 @@ def lot_type_detail(request, type_code):
 @api_view(['PUT'])
 @handle_errors
 def lot_type_requirements(request, type_code):
-    """Remplace la liste des exigences : [{"type": "serphy", "quantity": 4, "location": "pochette bleue"}, ...], et
-    l'ordre des emplacements (locations, facultatif : ordre actuel, les nouveaux a la suite)."""
+    """Remplace la liste des exigences : [{"type": "serphy", "quantity": 4, "location": "pochette bleue",
+    "optional": false}, ...], et l'ordre des emplacements (locations, facultatif : ordre actuel, les nouveaux a la
+    suite). optional : facultatif a la verif, seulement pour du materiel non consommable sans taches."""
     require_front(request, GESTION)
     lot_type = get_object_or_404(LotType, type=type_code)
     rows = request.data.get('requirements', [])
@@ -1990,9 +1991,13 @@ def lot_type_requirements(request, type_code):
             item_type = get_object_or_404(ItemType, type=str(row.get('type', '')))
             quantity = parse_int(row.get('quantity', 1), 'quantity', 1)
             location = locations.get(name_key(services.clean_location(row.get('location'))), '')
+            optional = bool(row.get('optional', False))
+            if optional and not item_type.can_be_optional:
+                raise ApiError(f"{item_type.name} ne peut pas être facultatif : seul le matériel non consommable sans "
+                               "tâches peut l'être")
             try:
                 LotRequirements.objects.create(
-                    lot_type=lot_type, item_type=item_type, quantity=quantity, location=location
+                    lot_type=lot_type, item_type=item_type, quantity=quantity, location=location, optional=optional
                 )
             except IntegrityError:
                 raise ApiError(f"Le type {item_type.type} apparait plusieurs fois")
@@ -2002,7 +2007,8 @@ def lot_type_requirements(request, type_code):
         lot_type.save(update_fields=['version', 'valid_version', 'locations'])
         journal.record(OperationKind.CATALOG, front_identity(request), f'contenu attendu modifié : {lot_type}',
                        type=lot_type.type, requirements=[
-                           {'type': str(row.get('type', '')), 'quantity': row.get('quantity', 1)} for row in rows
+                           {'type': str(row.get('type', '')), 'quantity': row.get('quantity', 1),
+                            'optional': bool(row.get('optional', False))} for row in rows
                        ])
     return Response(ser.lot_type_dict(lot_type))
 
@@ -2122,6 +2128,19 @@ def parse_parent(lot, value):
     return parent
 
 
+def check_optional_lot(lot):
+    """Un sous-lot facultatif : range dans un lot, pas un rangement du stock, et n'attendant que du materiel non
+    consommable sans taches (le reste serait toujours obligatoire)."""
+    if lot.lot_type.storage:
+        raise ApiError("Un rangement du stock ne peut pas être facultatif")
+    if lot.parent is None:
+        raise ApiError("Seul un sous-lot peut être facultatif : rangez ce lot dans un autre lot d'abord")
+    blocking = [row.item_type.name for row in services.lot_requirements(lot) if not row.item_type.can_be_optional]
+    if blocking:
+        raise ApiError(f"{lot.name} ne peut pas être facultatif : il attend du matériel consommable ou à tâches ("
+                       + ', '.join(blocking[:5]) + ('…' if len(blocking) > 5 else '') + ')')
+
+
 def default_parent(lot):
     """Lot parent d'un lot independant : le stock pour un rangement du stock, aucun sinon."""
     return Lots.stock() if lot.lot_type.storage and not lot.is_stock else None
@@ -2146,6 +2165,10 @@ def lot_update(request, lot_id):
         lot.parent = parse_parent(lot, data['parent'])
     if 'key_location' in data:
         lot.key_location = str(data['key_location']).strip()[:128]
+    if 'optional' in data:
+        lot.optional = bool(data['optional'])
+    if lot.optional and 'optional' in data or lot.optional and 'parent' in data:
+        check_optional_lot(lot)
     if 'active' in data:
         active = bool(data['active'])
         if not active and lot.children.filter(active=True).exists():
@@ -2170,6 +2193,8 @@ def lot_update(request, lot_id):
         changes.append(f'rangé dans {lot.parent.name}' if lot.parent else 'lot indépendant')
     if 'key_location' in data:
         changes.append("emplacement de l'étiquette clé")
+    if 'optional' in data:
+        changes.append('facultatif à la vérif' if lot.optional else 'obligatoire à la vérif')
     if 'active' in data:
         changes.append('actif' if lot.active else 'archivé')
     journal.record(OperationKind.LOT, front_identity(request), 'lot modifié : ' + (', '.join(changes) or 'aucun changement'),

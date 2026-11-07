@@ -330,7 +330,8 @@ class SheetWriter:
         for location, rows in groups:
             result.append(('location', location, band + 3))
             for requirement in rows:
-                lines = wrap(requirement.item_type.name, name_width(size), size, max_lines=2)
+                name = requirement.item_type.name + (' (facultatif)' if requirement.optional else '')
+                lines = wrap(name, name_width(size), size, max_lines=2)
                 result.append(('item', (requirement, lines), line_height + (len(lines) - 1) * (size + 1)))
         return result
 

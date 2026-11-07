@@ -316,6 +316,8 @@ class LotsWindow final : public AppWindow {
           requirements.push_back(&row);
         const auto requirement_rank = [](const Json &row) {
           const int present = row["present"].integer(), required = row["required"].integer();
+          if (row["optional"].boolean()) // facultatif : jamais a traiter, au-dessus des complets s'il n'est pas tout vu
+            return row["expired"].integer() > 0 ? 1 : present < row["expected"].integer() ? 2 : 3;
           return present < required ? 0 : row["expired"].integer() > 0 ? 1 : (present <= 0 && required <= 0) ? 2 : 3;
         };
         // emplacements (pochettes) dans l'ordre du type de lot, « sans emplacement » en dernier : un titre chacun
@@ -367,7 +369,7 @@ class LotsWindow final : public AppWindow {
             if (grouped)
               ImGui::Unindent(12.0f);
             ImGui::TableNextColumn();
-            lot_bar(row["present"].integer(), row["required"].integer(), ImVec2(-1, 0));
+            requirement_bar(row, row["present"].integer(), ImVec2(-1, 0));
             ImGui::TableNextColumn();
             const int expired = row["expired"].integer();
             if (expired > 0)

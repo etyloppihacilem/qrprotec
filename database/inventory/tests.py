@@ -5031,3 +5031,102 @@ class LotStateReportTests(LotSheetTests.__base__):
                                     content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Operation.objects.filter(kind='lot_report').exists())
+
+class OptionalContentTests(ApiTestCase):
+    """Materiel facultatif a la verif (casques du VPS) : le lot se valide sans, mais on peut le scanner pour savoir ou
+    il est ; non scanne, il reste ou il etait. Seulement du non consommable sans taches."""
+
+    def setUp(self):
+        super().setUp()
+        self.casque = ItemType.objects.create(type='casque', name='Casque', consumable=False)
+        self.vps_type = LotType.objects.create(type='vpsxxx', name='VPS')
+        code, self.vps = self.call('POST', '/api/lots/', {'lot_type': 'vpsxxx', 'name': 'VPS 1', 'user': 'M001'})
+        self.assertEqual(code, 201)
+
+    def fresh(self, count=2):
+        return [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), count)]
+
+    def set_requirements(self, rows):
+        return self.call('PUT', '/api/lot-types/vpsxxx/requirements/', {'requirements': rows})
+
+    def test_only_non_consumable_without_tasks(self):
+        code, body = self.set_requirements([{'type': 'compre', 'quantity': 2, 'optional': True}])
+        self.assertEqual(code, 400)
+        self.assertIn('ne peut pas être facultatif', body['error'] if 'error' in body else str(body))
+        self.casque.tasks = ['Jugulaire']
+        self.casque.save()
+        code, body = self.set_requirements([{'type': 'casque', 'quantity': 4, 'optional': True}])
+        self.assertEqual(code, 400)
+        self.casque.tasks = []
+        self.casque.save()
+        code, body = self.set_requirements([{'type': 'casque', 'quantity': 4, 'optional': True}])
+        self.assertEqual(code, 200)
+        self.assertEqual(body['requirements'][0]['optional'], True)
+        # devenu consommable : le reglage ne vaut plus rien, l'attendu redevient obligatoire
+        self.casque.consumable = True
+        self.casque.save()
+        code, lot = self.call('GET', f"/api/lots/{self.vps['id']}/")
+        self.assertEqual((lot['requirements'][0]['optional'], lot['requirements'][0]['required']), (False, 4))
+
+    def test_lot_valid_without_optional_and_items_stay(self):
+        self.set_requirements([{'type': 'compre', 'quantity': 2}, {'type': 'casque', 'quantity': 2, 'optional': True}])
+        casques = [item.iid for item in self.create(self.casque, None, 2)]
+        Items.objects.filter(iid__in=casques).update(location_id=self.vps['id'])
+        code, lot = self.call('GET', f"/api/lots/{self.vps['id']}/")
+        row = next(row for row in lot['requirements'] if row['type'] == 'casque')
+        self.assertEqual((row['required'], row['expected'], row['optional']), (0, 2, True))
+        self.assertTrue(all(item['optional'] for item in lot['items'] if item['type'] == 'casque'))
+        # verif sans les casques : complete, les casques restent dans le VPS (ni manquants, ni hors lot)
+        code, report = self.call('POST', f"/api/lots/{self.vps['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertTrue(report['complete'])
+        self.assertEqual((report['missing'], report['loose']), ([], []))
+        for item in Items.objects.filter(iid__in=casques):
+            self.assertEqual((item.status, item.location_id, item.missed_verifs), (ItemStatus.ACTIVE, self.vps['id'], 0))
+        code, lot = self.call('GET', f"/api/lots/{self.vps['id']}/")
+        self.assertEqual(lot['state']['code'], 'verified')
+        # un casque scanne ailleurs (dans le sac A) y est range : on sait ou il est
+        code, report = self.call('POST', f"/api/lots/{self.lot.id}/verif/",
+                                 {'items': self.fresh() + [casques[0]], 'user': 'M001'})
+        self.assertEqual(Items.objects.get(iid=casques[0]).location_id, self.lot.id)
+        # a la vérif suivante du sac A, il n'y est pas facultatif : absent, il passe hors lot comme avant
+        code, report = self.call('POST', f"/api/lots/{self.lot.id}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        self.assertEqual(report['loose'], [casques[0]])
+
+    def test_partial_verif_not_held_by_optional(self):
+        self.set_requirements([{'type': 'compre', 'quantity': 2}, {'type': 'casque', 'quantity': 2, 'optional': True}])
+        casque = self.create(self.casque, None, 1)[0].iid
+        Items.objects.filter(iid=casque).update(location_id=self.vps['id'])
+        verif = services.perform_verif(Lots.objects.get(id=self.vps['id']), self.fresh(), 'M001', partial=True)
+        self.assertEqual([row['verified'] for row in verif['lots']], [True])
+        self.assertEqual(Items.objects.get(iid=casque).location_id, self.vps['id'])
+
+    def test_optional_sub_lot(self):
+        rack_type = LotType.objects.create(type='rackxx', name='Râtelier casques')
+        LotRequirements.objects.create(lot_type=rack_type, item_type=self.casque, quantity=4)
+        code, rack = self.call('POST', '/api/lots/', {'lot_type': 'rackxx', 'name': 'Casques', 'user': 'M001'})
+        # pas de parent : refuse
+        code, body = self.call('PATCH', f"/api/lots/{rack['id']}/update/", {'optional': True})
+        self.assertEqual(code, 400)
+        code, rack = self.call('PATCH', f"/api/lots/{rack['id']}/update/", {'parent': self.vps['id'], 'optional': True})
+        self.assertEqual(code, 200)
+        self.assertTrue(rack['optional'])
+        self.assertEqual(rack['requirements'][0]['required'], 0)
+        # jamais verifie : facultatif, le VPS est valide sans lui
+        self.assertEqual(rack['state']['code'], 'optional')
+        code, sac = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac VPS', 'parent': self.vps['id'],
+                                                     'user': 'M001'})
+        self.call('POST', f"/api/lots/{sac['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        code, lot = self.call('GET', f"/api/lots/{self.vps['id']}/", local=False)
+        self.assertEqual(lot['global']['kind'], 'ok')
+        self.assertFalse(next(row for row in lot['global']['lots'] if row['id'] == rack['id'])['counted'])
+        # un sous-lot qui attend du consommable ne peut pas etre facultatif
+        code, body = self.call('PATCH', f"/api/lots/{sac['id']}/update/", {'optional': True})
+        self.assertEqual(code, 400)
+        # verif du VPS entier : les casques non scannes du sous-lot restent dedans
+        casques = [item.iid for item in self.create(self.casque, None, 2)]
+        Items.objects.filter(iid__in=casques).update(location_id=rack['id'])
+        report = services.perform_verif(Lots.objects.get(id=self.vps['id']), self.fresh(), 'M001')
+        self.assertTrue(report['complete'])
+        self.assertEqual(report['loose'], [])
+        self.assertEqual(set(Items.objects.filter(iid__in=casques).values_list('location_id', flat=True)), {rack['id']})

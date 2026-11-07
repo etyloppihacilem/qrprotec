@@ -67,10 +67,43 @@ class Requirement:
     quantity: int
     location: str
     extra: int = 0
+    # facultatif a la verif (voir LotRequirements.optional) : le lot se valide sans, ses items non scannes restent
+    # ou ils etaient
+    optional: bool = False
 
     @property
     def item_type_id(self):
         return self.item_type.pk
+
+    @property
+    def required(self):
+        """Minimum qui retient le lot : 0 pour un attendu facultatif (quantity reste le nombre prevu)."""
+        return 0 if self.optional else self.quantity
+
+
+def optional_lot(lot) -> bool:
+    """Sous-lot facultatif a la verif de son lot parent (Lots.optional), un lot global ou un rangement ne l'est
+    jamais."""
+    return bool(lot.optional and lot.parent_id and not lot.lot_type.storage)
+
+
+def optional_in_lot(lot, item_type, requirement_optional=False) -> bool:
+    """Un type d'item est facultatif dans un lot : du materiel non consommable sans taches, marque facultatif dans
+    le contenu du type de lot (requirement_optional) ou range dans un sous-lot facultatif."""
+    return item_type.can_be_optional and (requirement_optional or optional_lot(lot))
+
+
+def optional_types(lot, requirements=None):
+    """Types d'items facultatifs d'un lot (attendus marques facultatifs), et fonction item -> facultatif dans ce
+    lot (attendu facultatif, ou item non consommable sans taches d'un sous-lot facultatif)."""
+    if requirements is None:
+        requirements = lot_requirements(lot)
+    types = {row.item_type_id for row in requirements if row.optional}
+    whole = optional_lot(lot)
+
+    def check(item):
+        return item.pack.item_type_id in types or (whole and item.pack.item_type.can_be_optional)
+    return types, check
 
 
 def sort_requirements(requirements, locations=()):
@@ -111,10 +144,12 @@ def lot_requirements(lot, preload=None):
         custom = own.pop(requirement.item_type_id, None)
         location = requirement.location if custom is None or custom.location is None else custom.location
         extra = custom.extra if custom else 0
-        rows.append(Requirement(requirement.item_type, requirement.quantity + extra, location, extra))
+        rows.append(Requirement(requirement.item_type, requirement.quantity + extra, location, extra,
+                                optional_in_lot(lot, requirement.item_type, requirement.optional)))
     for custom in own.values():
         if custom.extra > 0:
-            rows.append(Requirement(custom.item_type, custom.extra, custom.location or '', custom.extra))
+            rows.append(Requirement(custom.item_type, custom.extra, custom.location or '', custom.extra,
+                                    optional_in_lot(lot, custom.item_type)))
     return sort_requirements(rows, lot_locations(lot))
 
 
@@ -203,7 +238,10 @@ def requirements_status(lot, today=None, items=None, preload=None):
             'type': type_id,
             'type_name': requirement.item_type.name,
             'location': requirement.location,
-            'required': requirement.quantity,
+            # minimum qui retient le lot : 0 pour un attendu facultatif, expected est alors le nombre prevu
+            'required': requirement.required,
+            'expected': requirement.quantity,
+            'optional': requirement.optional,
             'extra': requirement.extra,  # dont en plus du type de lot (contenu propre du lot)
             'present': fresh.get(type_id, 0),
             'expired': expired.get(type_id, 0),
@@ -226,7 +264,7 @@ def verif_lots(lots):
 
 def _required_by_lot(group):
     """{lot id: {type d'item: quantite}} d'apres le contenu attendu de chaque lot (son type et son contenu propre)."""
-    return {lot.id: {row.item_type_id: row.quantity for row in lot_requirements(lot)} for lot in group}
+    return {lot.id: {row.item_type_id: row.required for row in lot_requirements(lot)} for lot in group}
 
 
 def assign_items(group, scanned, today, places=None, cascade=False):
@@ -317,6 +355,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
       views.sealed_targets). Ils comptent comme verifies avec leurs sous-lots, sans etre ouverts ni scannes : leur
       contenu n'est ni attendu ni signale manquant, et ils ne recoivent pas d'items. Un lot dont un item est scanne
       a ete ouvert : il est verifie normalement ;
+    - un item facultatif (attendu facultatif ou sous-lot facultatif, voir optional_types) non scanne reste ou il
+      etait : ni manquant, ni hors lot, et il ne retient pas le lot. Scanne, il est compte et place comme les autres ;
     - exclude : sous-lots des lots verifies laisses de cote avec leurs propres sous-lots (vérif en cascade : deja
       valides pendant cette vérif, pas encore faits, ou faits par un autre participant). Ils ne sont ni attendus, ni
       verifies, ni ouverts.
@@ -365,6 +405,10 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             .exclude(reported=True)  # signale (signalement ouvert) : jamais marque disparu
             .order_by('iid')
         )
+        # items facultatifs non scannes (casques du VPS) : ils restent ou ils etaient, sans manquer ni retenir le lot
+        optional_checks = {sub_lot.id: optional_types(sub_lot)[1] for sub_lot in group or []}
+        not_seen = [item for item in not_seen
+                    if not (item.location_id in optional_checks and optional_checks[item.location_id](item))]
 
         # Destination de chaque item scanne
         if group is None:
