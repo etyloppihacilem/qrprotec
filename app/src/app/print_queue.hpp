@@ -26,6 +26,7 @@ namespace qrprotec {
 struct PrintJob {
     std::string      description; // ex: "Item compre20271231000000A1"
     TemplateDocument document;    // parametres deja renseignes
+    RasterImage      image;       // deja rendue (etiquette envoyee par un autre ordinateur) : imprimee telle quelle
 };
 
 struct PrintQueueStatus {

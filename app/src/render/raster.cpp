@@ -1,4 +1,6 @@
 #include "raster.hpp"
+
+#include <cstring>
 #include "image_loader.hpp"
 #include "../core/fonts.hpp"
 #include "../core/paths.hpp"
@@ -444,6 +446,56 @@ bool write_png(const RasterImage& image, const std::string& path, std::string& e
     png_write_end(png, nullptr);
     png_destroy_write_struct(&png, &info);
     std::fclose(file);
+    return true;
+}
+
+namespace {
+const char kBase64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+}
+
+std::string encode_raster_bits(const RasterImage& image) {
+    std::vector<unsigned char> data((image.pixels.size() + 7) / 8, 0);
+    for (std::size_t index = 0; index < image.pixels.size(); ++index)
+        if (image.pixels[index] < 128)
+            data[index / 8] |= static_cast<unsigned char>(0x80 >> (index % 8));
+    std::string out;
+    out.reserve((data.size() + 2) / 3 * 4);
+    for (std::size_t index = 0; index < data.size(); index += 3) {
+        const unsigned value = (static_cast<unsigned>(data[index]) << 16)
+                             | (index + 1 < data.size() ? static_cast<unsigned>(data[index + 1]) << 8 : 0u)
+                             | (index + 2 < data.size() ? static_cast<unsigned>(data[index + 2]) : 0u);
+        out += kBase64[(value >> 18) & 63];
+        out += kBase64[(value >> 12) & 63];
+        out += index + 1 < data.size() ? kBase64[(value >> 6) & 63] : '=';
+        out += index + 2 < data.size() ? kBase64[value & 63] : '=';
+    }
+    return out;
+}
+
+bool decode_raster_bits(const std::string& bits, int width, int height, RasterImage& out) {
+    if (width <= 0 || height <= 0)
+        return false;
+    std::vector<unsigned char> data;
+    unsigned value = 0;
+    int pending = 0;
+    for (const char c : bits) {
+        const char* found = c ? std::strchr(kBase64, c) : nullptr;
+        if (!found)
+            continue; // '=' de fin
+        value = (value << 6) | static_cast<unsigned>(found - kBase64);
+        pending += 6;
+        if (pending >= 8) {
+            pending -= 8;
+            data.push_back(static_cast<unsigned char>((value >> pending) & 0xFF));
+        }
+    }
+    const std::size_t count = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    if (data.size() < (count + 7) / 8)
+        return false;
+    out = RasterImage{width, height, std::vector<std::uint8_t>(count, 255)};
+    for (std::size_t index = 0; index < count; ++index)
+        if (data[index / 8] & (0x80 >> (index % 8)))
+            out.pixels[index] = 0;
     return true;
 }
 

@@ -76,6 +76,21 @@ int main()
     std::string error;
     assert(qrprotec::write_png(image, "/tmp/qrprotec-test.png", error));
     std::remove("/tmp/qrprotec-test.png");
+    // etiquette envoyee au poste par un autre ordinateur : 1 bit par pixel, aller-retour sans perte
+    {
+        qrprotec::RasterImage line{10, 1, std::vector<std::uint8_t>(10, 255)};
+        line.pixels[0] = 0;
+        line.pixels[9] = 100; // gris fonce : noir
+        assert(qrprotec::encode_raster_bits(line) == "gEA="); // 0x80 0x40, meme format que label_prints.py
+        qrprotec::RasterImage back;
+        assert(qrprotec::decode_raster_bits("gEA=", 10, 1, back));
+        assert(back.pixels[0] == 0 && back.pixels[9] == 0 && back.pixels[1] == 255);
+        assert(!qrprotec::decode_raster_bits("gA==", 10, 1, back)); // trop court
+        qrprotec::RasterImage again;
+        assert(qrprotec::decode_raster_bits(qrprotec::encode_raster_bits(image), image.width, image.height, again));
+        for (std::size_t index = 0; index < image.pixels.size(); ++index)
+            assert((again.pixels[index] == 0) == (image.pixels[index] < 128));
+    }
     assert(qrprotec::save_template(document, "/tmp/qrprotec-template.json", error));
     qrprotec::TemplateDocument loaded;
     assert(qrprotec::load_template(loaded, "/tmp/qrprotec-template.json", error));

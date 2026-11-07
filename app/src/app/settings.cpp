@@ -148,6 +148,8 @@ void AppSettings::load() {
       forecast_history_months = std::clamp(to_int(value, forecast_history_months), 1, 36);
     else if (key == "shared_machine")
       shared_machine = to_int(value, 1) != 0;
+    else if (key == "print_here")
+      print_here = to_int(value, 0) != 0;
     else if (key == "debug_options")
       debug_options = to_int(value, 0) != 0;
     else if (key == "printer_device")
@@ -236,6 +238,7 @@ bool AppSettings::save(std::string &error) const {
          << "font_size=" << font_size << '\n'
          << "inactivity_minutes=" << inactivity_minutes << '\n'
          << "shared_machine=" << (shared_machine ? 1 : 0) << '\n'
+         << "print_here=" << (print_here ? 1 : 0) << '\n'
          << "debug_options=" << (debug_options ? 1 : 0) << '\n'
          << "expiring_soon_days=" << expiring_soon_days << '\n'
          << "order_lead_days=" << order_lead_days << '\n'

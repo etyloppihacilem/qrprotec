@@ -126,16 +126,18 @@ void draw_label_preview(App &app) {
 
     ImGui::Separator();
     ImGui::BeginDisabled(!texture.error.empty());
+    // front d'un autre ordinateur : les etiquettes partent au poste, qui les imprime
+    const bool        poste = app.prints_to_poste();
     if (count > 1) {
-      const std::string all = "Imprimer les " + std::to_string(count) + " étiquettes";
+      const std::string all = (poste ? "Envoyer au poste les " : "Imprimer les ") + std::to_string(count) + " étiquettes";
       if (primary_button(all.c_str())) {
         app.print_documents(preview.jobs);
         open = false;
       }
       ImGui::SameLine();
-      if (button("Imprimer celle-ci"))
+      if (button(poste ? "Envoyer celle-ci" : "Imprimer celle-ci"))
         app.print_documents({ job });
-    } else if (primary_button("Imprimer")) {
+    } else if (primary_button(poste ? "Envoyer au poste" : "Imprimer")) {
       app.print_documents(preview.jobs);
       open = false;
     }

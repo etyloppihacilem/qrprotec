@@ -66,6 +66,8 @@ public_patterns = [
 local_patterns = [
     path('label-prints/pending/', views.label_prints_poste),  # meme sans personne de connecte
     path('label-prints/<int:print_id>/print/', views.label_print_print),
+    path('label-prints/send/', views.label_prints_send),  # front d'un autre ordinateur -> poste
+    path('label-prints/<int:print_id>/detail/', views.label_print_detail),
     path('item-types/', views.item_types),
     path('item-types/<str:type_code>/', views.item_type_detail),
     path('items/', views.items),

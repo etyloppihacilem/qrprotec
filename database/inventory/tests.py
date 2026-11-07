@@ -4855,7 +4855,9 @@ class LabelPrintTests(ApiTestCase):
         self.assertEqual(self.call('POST', f"/api/label-prints/{body['id']}/print/", {}, session=False)[0], 409)
         code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
         self.assertEqual(listing['pending'], [])
-        self.assertEqual(len(listing['recent'][0]['items']), 3)
+        self.assertNotIn('items', listing['recent'][0])  # interrogee toutes les 20 s : sans les items
+        code, full = self.call('GET', f"/api/label-prints/{body['id']}/detail/", session=False)
+        self.assertEqual(len(full['items']), 3)  # Réimprimer
         code, tasks = self.call('GET', '/api/tasks/')
         self.assertFalse(any(row['link'] == 'label_prints' for row in tasks['tasks']))
         # imprimee : plus annulable
@@ -4880,3 +4882,49 @@ class LabelPrintTests(ApiTestCase):
         self.assertFalse(cancelled['pending'])
         self.assertEqual(self.call('POST', f"/api/label-prints/{body['id']}/print/", {}, session=False)[0], 409)
         self.assertEqual(Items.objects.count(), 0)
+
+    def test_expires_after_24_hours(self):
+        code, body = self.ask(type='garrot', count=2)
+        models.LabelPrint.objects.filter(id=body['id']).update(created=timezone.now() - timedelta(hours=25))
+        code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
+        self.assertEqual(listing['pending'], [])
+        code, tasks = self.call('GET', '/api/tasks/')
+        self.assertFalse(any(row['link'] == 'label_prints' for row in tasks['tasks']))
+        self.assertEqual(self.call('POST', f"/api/label-prints/{body['id']}/print/", {}, session=False)[0], 410)
+        self.assertEqual(Items.objects.count(), 0)
+        code, web = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
+        self.assertTrue(web['prints'][0]['expired'])
+
+    def label(self, width=10, height=3):
+        import base64
+        return {'description': 'Lot 1/1', 'width': width, 'height': height, 'ppm': 8,
+                'bits': base64.b64encode(bytes((width * height + 7) // 8)).decode()}
+
+    def test_labels_from_another_computer(self):
+        # front d'un autre ordinateur (API distante, cle de front), personne de connecte ou non
+        _, key = FrontKey.create('Ordi du TECH')
+        remote = {'qrprotec.role': 'remote', 'HTTP_X_QRPROTEC_KEY': key}
+        send = lambda data: self.client.post('/api/label-prints/send/', json.dumps(data),
+                                             content_type='application/json', **remote)
+        self.assertEqual(send({'title': 'Lot B+', 'labels': []}).status_code, 400)
+        bad = self.label()
+        bad['bits'] = 'AAAA'
+        self.assertEqual(send({'title': 'Lot B+', 'labels': [bad]}).status_code, 400)
+        response = send({'title': 'Lot B+ 1 (clé)', 'labels': [self.label(), self.label()]})
+        self.assertEqual(response.status_code, 201)
+        sent = response.json()
+        self.assertEqual((sent['kind'], sent['count'], sent['front']), ('labels', 2, 'Ordi du TECH'))
+        self.assertEqual(sent['what'], '2 étiquettes : Lot B+ 1 (clé)')
+        # pas sur l'API publique
+        self.assertEqual(self.call('POST', '/api/label-prints/send/', {'labels': [self.label()]}, local=False)[0], 404)
+        code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
+        self.assertEqual([row['id'] for row in listing['pending']], [sent['id']])
+        self.assertNotIn('labels', listing['pending'][0])
+        code, printed = self.call('POST', f"/api/label-prints/{sent['id']}/print/", {}, session=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(len(printed['labels']), 2)
+        self.assertEqual(printed['labels'][0]['width'], 10)
+        self.assertEqual(Items.objects.count(), 0)
+        # pas listee parmi les etiquettes d'items du web
+        code, web = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
+        self.assertEqual(web['prints'], [])

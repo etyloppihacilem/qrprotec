@@ -198,6 +198,12 @@ PrintQueue (thread) ── NiimbotB1Printer ── SerialPort (/dev/ttyACM0, 115
   `POST /api/label-prints/<id>/print/` pour chaque demande : le serveur crée les items et les renvoie,
   et leurs étiquettes partent dans la file comme une réception (`printed_by` = l'admin qui a demandé).
   Voir `database/inventory/label_prints.py`.
+- **Front d'un autre ordinateur** (clé de front, réglage « Imprimante branchée sur cet ordinateur »
+  décoché) : `App::print_documents` n'imprime pas, il rend chaque étiquette (`render_template`) et
+  l'envoie en image 1 bit base64 (`encode_raster_bits`) par `POST /api/label-prints/send/`, par lots de
+  1,5 Mo au plus. Le poste la reçoit comme une demande (`kind` labels) et l'imprime telle quelle
+  (`PrintJob::image`, recadrée à son étiquette physique par `fit_to_label`). Seul le poste (sans clé
+  de front) interroge la file. Une demande pas imprimée expire en 24 h.
 
 Changer d'imprimante : implémenter l'interface `Printer` (`printer/printer.hpp`) et l'utiliser dans
 `PrintQueue` et dans l'éditeur (voir [maintenance.md](maintenance.md#changer-de-modèle-dimprimante)). Le reste (rendu, rotation) est indépendant du modèle d'imprimante.

@@ -4499,13 +4499,14 @@
       parts.push(el('div', { class: 'stock-row warn' },
         el('div', { class: 'row-head' }, el('b', {}, what(row)),
           el('button', { type: 'button', class: 'secondary', onclick: () => cancelLabelPrint(row) }, 'Annuler')),
-        el('div', { class: 'sub hint' }, `demandé par ${row.by} ${fmtDateTime(row.created)}`)));
+        el('div', { class: 'sub hint' }, `demandé par ${row.by} ${fmtDateTime(row.created)}, expire après ${data.expiry_hours} h`)));
     }
     if (done.length) {
       parts.push(el('h3', {}, '7 derniers jours'));
       for (const row of done) {
         const status = row.printed ? `imprimé ${fmtDateTime(row.printed)}` + (row.printed_on ? ` sur ${row.printed_on}` : '')
-          : `annulé ${fmtDateTime(row.cancelled)}` + (row.cancelled_by ? ` par ${row.cancelled_by}` : '');
+          : row.cancelled ? `annulé ${fmtDateTime(row.cancelled)}` + (row.cancelled_by ? ` par ${row.cancelled_by}` : '')
+          : `expiré, pas imprimé en ${data.expiry_hours} h`;
         parts.push(el('div', { class: 'stock-row' }, el('b', {}, what(row)),
           el('div', { class: 'sub hint' }, `${status} · demandé par ${row.by}`)));
       }

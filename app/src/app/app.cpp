@@ -304,8 +304,9 @@ void App::begin_frame() {
     check_setup();
   if (admin() && ImGui::GetTime() >= next_reports_poll_)
     refresh_report_counts();
-  // impressions demandees depuis le web : verifiees meme sans personne de connecte
-  if (!label_prints_.loading && ImGui::GetTime() >= label_prints_.next_poll)
+  // impressions demandees depuis le web ou un autre ordinateur : verifiees meme sans personne de connecte, sur le
+  // poste seulement (le seul front branche sur l'API locale, sans cle de front)
+  if (settings.api_endpoint().key.empty() && !label_prints_.loading && ImGui::GetTime() >= label_prints_.next_poll)
     refresh_label_prints();
   // voyant des lots a traiter : liste tenue a jour meme fenetre Lots fermee (pas pendant une verif)
   if (!verif.active && !catalog.loading_lots && ImGui::GetTime() >= next_lots_poll_) {
@@ -3677,6 +3678,10 @@ void App::preview_jobs(std::vector< PrintJob > jobs, const std::string &title) {
 }
 
 void App::print_documents(std::vector< PrintJob > jobs) {
+  if (prints_to_poste()) {
+    send_to_poste(std::move(jobs));
+    return;
+  }
   const std::size_t count = jobs.size();
   // premiere etiquette a code-barres : des codes-barres circulent, le front web charge desormais leur decodeur
   const bool barcode = std::any_of(jobs.begin(), jobs.end(), [](const PrintJob &job) {

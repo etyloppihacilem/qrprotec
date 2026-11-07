@@ -2829,6 +2829,27 @@ def label_prints_poste(request):
 
 @api_view(['POST'])
 @handle_errors
+def label_prints_send(request):
+    """Front d'un autre ordinateur (API distante, cle de front) : « Imprimer » envoie au poste les etiquettes deja
+    rendues {"title", "labels": [{description, width, height, ppm, bits}]}. Le poste, seul front branche sur l'API
+    locale, les imprime depuis sa fenetre « Impressions en attente »."""
+    require_poste(request)
+    row = _label_print_call(label_prints.create_labels, front_identity(request),
+                            getattr(request, 'qrprotec_front', ''), request.data.get('title', ''),
+                            request.data.get('labels'))
+    return Response(label_prints.print_dict(row), status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@handle_errors
+def label_print_detail(request, print_id):
+    """Poste : demande complete (items crees ou images), pour « Réimprimer »."""
+    require_poste(request)
+    return Response(_label_print_call(label_prints.detail, print_id))
+
+
+@api_view(['POST'])
+@handle_errors
 def label_print_print(request, print_id):
     """Poste, meme sans personne de connecte : « Lancer l'impression ». Cree les items (reception au nom de l'admin
     qui les a demandes) et repond la demande avec ses items, dont le poste imprime les etiquettes."""

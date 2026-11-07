@@ -34,4 +34,10 @@ bool fit_to_label(const RasterImage& image, const PhysicalLabel& label, RasterIm
                   std::string& error);
 bool write_png(const RasterImage& image, const std::string& path, std::string& error);
 
+// Image 1 bit en base64 (etiquette envoyee au poste par un front d'un autre ordinateur, voir
+// database/inventory/label_prints.py) : 1 = noir (pixel < 128), lignes de gauche a droite, bit de poids fort d'abord.
+std::string encode_raster_bits(const RasterImage& image);
+// false si le texte ne contient pas assez de bits pour width x height
+bool decode_raster_bits(const std::string& bits, int width, int height, RasterImage& out);
+
 } // namespace qrprotec
