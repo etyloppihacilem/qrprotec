@@ -30,6 +30,7 @@ public_patterns = [
     path('debug/codes/', views.debug_codes_list),  # admins seulement
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/sheet.pdf', views.lot_sheet_pdf),
+    path('lots/<str:lot_id>/state-report/', views.lot_state_report),
     path('lots/<str:lot_id>/verif/', views.lot_verif),
     path('verifs/', views.verifs),
     path('verifs/recent/', views.verifs_recent),

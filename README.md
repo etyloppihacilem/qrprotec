@@ -399,7 +399,7 @@ des items attendus par emplacement, sur deux colonnes si la liste est longue, po
 sous-lot, avec en haut le QR code de l'étiquette publique et un cadre de 40 × 30 mm pour coller l'étiquette clé). `lots/<id>/?seal=CODE` renvoie `seal_check` : `valid`, `wrong` (ancien scellé) ou
 `unsealed`. `lots/<id>/?key=CLE` renvoie `key_check` : `valid`, `expired` ou `wrong` (étiquette clé d'une ancienne
 clé), et `key_error` (message à afficher) si elle n'est pas valide. En lecture seule avec un badge (`{"user": {"matricule", "key"}}` en POST) :
-`lots/summary/` (lots actifs et leur état, tout badge valide), `stock/summary/` (état des stocks,
+`lots/summary/` (lots actifs et leur état, tout badge valide), `lots/<id>/state-report/` (admin, `at` « AAAA-MM-JJTHH:MM » passée et `antenna` : rapport d'état du lot et de ses sous-lots à cette date, en PDF A4 à certifier et signer), `stock/summary/` (état des stocks,
 rôles gestion et admin) et `stock/forecast/summary/` (prévisions de stock, mêmes rôles, `months`). Notifications web : `push/key/` (GET, clé publique VAPID),
 `push/subscription/` (POST badge + `endpoint` pour l'état, ou + `subscription`, `stock_low`,
 `stock_empty`, `pin_blocked`, `lot_key_renewed`, `lot_key_expiring`, `badge_renewed`,

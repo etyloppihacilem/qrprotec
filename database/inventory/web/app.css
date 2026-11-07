@@ -403,6 +403,7 @@ body.fiche-open #toast { bottom: calc(90px + env(safe-area-inset-bottom)); }
   border-top: 1px solid var(--line); }
 #fiche-actions button[hidden] { display: none; }
 .title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.pdf-links { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
 /* fiche d'inventaire PDF : discrete (pas l'action principale) mais visible */
 a.pdf-link { flex: none; padding: 4px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted);
   font-size: .8rem; text-decoration: none; white-space: nowrap; }
@@ -424,6 +425,10 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
 #revision-ok:disabled { opacity: .45; }
 #revision .revision-next { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 2px; }
 #revision .revision-next input { font: inherit; padding: 6px 8px; }
+#state-report .state-report-when { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+#state-report .state-report-antenna { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 2px; }
+#state-report input { font: inherit; padding: 6px 8px; }
+#state-report-ready { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0 14px; }
 #revision textarea { display: block; width: 100%; font: inherit; padding: 8px; box-sizing: border-box; }
 .used-btn { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; background: #fff; color: var(--navy);
   border: 2px solid var(--navy); font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; }

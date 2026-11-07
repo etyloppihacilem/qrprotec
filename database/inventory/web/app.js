@@ -4874,8 +4874,12 @@
     const parts = [
       el('div', { class: 'title-row' },
         el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, withId(lot.lot_type_name, lot.id))),
-        el('a', { class: 'pdf-link', href: new URL(`lots/${encodeURIComponent(lot.id)}/sheet.pdf`, API).href,
-          target: '_blank', rel: 'noopener', title: "Fiche d'inventaire papier (PDF)" }, '📄 Fiche PDF')),
+        el('div', { class: 'pdf-links' },
+          el('a', { class: 'pdf-link', href: new URL(`lots/${encodeURIComponent(lot.id)}/sheet.pdf`, API).href,
+            target: '_blank', rel: 'noopener', title: "Fiche d'inventaire papier (PDF)" }, '📄 Fiche PDF'),
+          // admins : rapport d'etat du lot a une date donnee (PDF a certifier et signer)
+          isAdmin() ? el('a', { class: 'pdf-link', href: '#', title: "État du lot à une date donnée (PDF A4 à certifier)",
+            onclick: (event) => { event.preventDefault(); openStateReport(lot); } }, '📋 Rapport daté') : '')),
       (lot.path || []).length ? el('p', { class: 'sub' }, 'Dans : ',
         ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       fiche.seal ? sealBanner(lot) : '',
@@ -5204,6 +5208,64 @@
       }
     };
     $('#revision-cancel').onclick = () => dialog.close();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  // Rapport d'etat d'un lot a une date donnee (admins, web seulement) : derniere verif, contenu detaille avec iid
+  // et peremption, sous-lots en cascade, qui l'a edite et quand, case « Certifié par le TECH <antenne> ». Le PDF
+  // arrive par une requete POST (badge) : il s'ouvre ensuite par un lien, clic de l'utilisateur (bloqueurs de popups).
+  let stateReportUrl = null;
+  function openStateReport(lot) {
+    const dialog = $('#state-report');
+    const now = new Date();
+    $('#state-report-lot').textContent = withId(lot.name, lot.id) + ((lot.descendants || []).length > 1 ? ' et ses sous-lots' : '');
+    $('#state-report-day').value = isoDay(now);
+    $('#state-report-day').max = isoDay(now);
+    $('#state-report-time').value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    $('#state-report-antenna').value = state.antennaName || '';
+    $('#state-report-error').textContent = '';
+    $('#state-report-ready').hidden = true;
+    $('#state-report-ok').disabled = false;
+    $('#state-report-form').onsubmit = async (event) => {
+      event.preventDefault();
+      const ok = $('#state-report-ok');
+      ok.disabled = true;
+      $('#state-report-error').textContent = '';
+      $('#state-report-ready').hidden = true;
+      const antenna = $('#state-report-antenna').value.trim();
+      const at = `${$('#state-report-day').value}T${$('#state-report-time').value}`;
+      try {
+        let response;
+        try {
+          response = await fetch(new URL(`lots/${encodeURIComponent(lot.id)}/state-report/`, API), {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/pdf, application/json' },
+            body: JSON.stringify({ user: credentials(), at, antenna }) });
+        } catch (e) {
+          throw Object.assign(new Error('Serveur injoignable, vérifiez le réseau.'), { status: 0 });
+        }
+        if (!response.ok) {
+          let data = {};
+          try { data = await response.json(); } catch (e) { /* reponse vide */ }
+          throw Object.assign(new Error(data.error || data.detail || `Erreur ${response.status}`), { status: response.status });
+        }
+        const blob = await response.blob();
+        state.antennaName = antenna;
+        if (stateReportUrl) URL.revokeObjectURL(stateReportUrl);
+        stateReportUrl = URL.createObjectURL(blob);
+        const name = (/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') || '') || [])[1] || 'rapport.pdf';
+        const [day, time] = [$('#state-report-day').value, $('#state-report-time').value];
+        $('#state-report-ready').replaceChildren(
+          el('a', { class: 'button-link', href: stateReportUrl, target: '_blank', rel: 'noopener' }, `📋 Ouvrir le rapport au ${fmtDate(day)} à ${time}`),
+          el('a', { class: 'link', href: stateReportUrl, download: name }, 'Télécharger'));
+        $('#state-report-ready').hidden = false;
+        feedback.info();
+      } catch (e) {
+        $('#state-report-error').textContent = e.message;
+        if (e.status === 403) { state.user = null; save(); render(); dialog.close(); }
+      }
+      ok.disabled = false;
+    };
+    $('#state-report-cancel').onclick = () => dialog.close();
     if (!dialog.open) dialog.showModal();
   }
 
@@ -6091,6 +6153,7 @@
     // reglage du serveur : identite declaree (nom sans badge) acceptee ou non
     api('health/').then((health) => {
       state.declaredAllowed = !!health.declared_identity;
+      state.antennaName = health.antenna_name || ''; // case « Certifié par le TECH ... » des rapports d'etat
       render();
       if (fiche.lot) renderFiche(); // encadre de l'etiquette cle
     }).catch(() => {});
