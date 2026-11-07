@@ -1011,6 +1011,19 @@ class WebFrontTests(ApiTestCase):
         self.assertEqual(b''.join(response.streaming_content)[:4], b'\0asm')
         self.assertIn(f"'{WASM}'", (web / 'decoder.js').read_text(encoding='utf-8'))
 
+    def test_scanner_page_can_be_left(self):
+        """Douchette : « ← Accueil » visible (l'id #home est cache par app.css, c'est la section d'accueil de
+        index.html) et bouton « Quitter » qui marche hors connexion (scanner.js, leave)."""
+        from pathlib import Path
+        web = Path(__file__).resolve().parent / 'web'
+        html = (web / 'scanner.html').read_text(encoding='utf-8')
+        self.assertNotIn('id="home"', html)
+        self.assertIn('id="go-home"', html)
+        self.assertIn('id="quit"', html)
+        self.assertIn('id="left"', html)
+        js = (web / 'scanner.js').read_text(encoding='utf-8')
+        self.assertIn("$('#go-home').addEventListener('click', leave)", js)
+
     def test_douchette_easter_egg(self):
         """Le script est servi aux deux pages et ses phrases sont celles de l'app (codes.cpp)."""
         import re

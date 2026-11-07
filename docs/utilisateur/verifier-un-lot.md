@@ -203,6 +203,10 @@ reste au local :
 Si le téléphone reste déconnecté plus de 5 minutes (réglable), la session se ferme : créez un nouveau
 QR code.
 
+Pour quitter la page de scan du téléphone, touchez **← Accueil** en haut ou **Quitter** dans la barre
+de connexion, même quand la connexion est perdue. Si le serveur est injoignable (Wi-Fi coupé), la page
+le dit : **Réessayer** une fois le réseau revenu, ou fermez la page.
+
 ## Items à tâches (étiquette de tâches)
 
 Certains items ont des tâches à faire à chaque vérif (ex : DAE : voyant vert allumé, électrodes dans

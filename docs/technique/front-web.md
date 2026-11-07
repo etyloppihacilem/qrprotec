@@ -134,6 +134,10 @@ ramène la page sur l'état des stocks de l'accueil.
 (`/scanner?s=SESSION&k=CLÉ`). Elle se connecte en WebSocket à `/ws/scanner/phone`, envoie chaque code
 lu, affiche un libellé court (jamais les clés), restitue les erreurs renvoyées par le poste, et se
 reconnecte seule. « Annuler le dernier » retire du poste le dernier scan venu du téléphone.
+« ← Accueil » (en haut), « Quitter » (barre de connexion) et « Revenir à l'accueil » (session fermée)
+rendent la caméra, ferment la WebSocket puis ouvrent l'accueil seulement si le serveur répond ; sinon
+la page tente de se fermer, puis affiche « Serveur injoignable » (Réessayer / Rester sur la douchette)
+au lieu d'une page d'erreur sans issue, ce qui compte dans l'appli installée (pas de bouton retour).
 
 ## Tester sur un téléphone
 

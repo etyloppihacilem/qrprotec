@@ -154,6 +154,7 @@
   let connected = false;     // connecte au serveur
   let frontConnected = false; // poste connecte a la session
   let ended = false;
+  let leaving = false;        // « Quitter » touche : plus de reconnexion
   let retryDelay = 1000;
   let pingTimer = 0;
 
@@ -183,7 +184,7 @@
   }
 
   function connect() {
-    if (ended) return;
+    if (ended || leaving) return;
     const url = new URL(`ws/scanner/phone?s=${encodeURIComponent(sessionId)}&k=${encodeURIComponent(sessionKey)}`, document.baseURI);
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     let opened = false;
@@ -205,7 +206,7 @@
       clearInterval(pingTimer);
       connected = false;
       frontConnected = false;
-      if (ended) return;
+      if (ended || leaving) return;
       updateLink();
       if (opened) { setTimeout(connect, retryDelay); return; }
       // refus a la poignee de main : la session a peut-etre expire pendant l'absence
@@ -310,7 +311,7 @@
   // Jamais de camera ouverte quand la page est cachee, et une seule ouverture a la fois : sur Firefox
   // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
   // camera « utilisee par Firefox » jusqu'au redemarrage du telephone.
-  function cameraShouldRun() { return cameraWanted && !document.hidden && !ended; }
+  function cameraShouldRun() { return cameraWanted && !document.hidden && !ended && !leaving; }
 
   function syncCamera() {
     if (!cameraShouldRun()) stopCamera();
@@ -428,6 +429,67 @@
     const code = prompt('Code à envoyer au poste :');
     if (code && code.trim()) sendCode(code.trim());
   });
+
+  // ------------------------------------------------------------------------------------------------
+  // Quitter la douchette (« ← Accueil », « Quitter », fin de session). Pense pour l'appli installee, sans
+  // bouton retour du navigateur, et surtout pour un telephone qui a perdu le reseau : un simple lien vers
+  // l'accueil ouvrirait alors une page d'erreur sans issue. La camera est rendue et la WebSocket fermee tout
+  // de suite (le poste voit le telephone deconnecte, la session reste ouverte jusqu'a son delai), puis
+  // l'accueil n'est ouvert que si le serveur repond ; sinon on tente de fermer l'onglet, et a defaut un ecran
+  // explique que le serveur est injoignable (Reessayer / Rester sur la douchette). Pas de retour arriere hors
+  // reseau : si la page precedente n'est plus en memoire, on tomberait sur la page d'erreur du navigateur.
+
+  const HOME = new URL('./', document.baseURI).href;
+
+  async function serverReachable() {
+    if (navigator.onLine === false) return false;
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 4000);
+    try {
+      const response = await fetch(HOME, { cache: 'no-store', signal: abort.signal });
+      return response.ok;
+    } catch (e) {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function leave(event) {
+    if (event) event.preventDefault();
+    leaving = true;
+    stopCamera();
+    clearInterval(pingTimer);
+    if (socket) { try { socket.close(); } catch (e) { /* deja fermee */ } }
+    connected = false;
+    frontConnected = false;
+    $('#left').hidden = true;
+    setLink('warn', 'Retour à l\'accueil…');
+    // replace : le bouton retour du telephone ne ramene pas sur la douchette (qui se reconnecterait)
+    if (await serverReachable()) { location.replace(HOME); return; }
+    window.close(); // refuse par le navigateur si l'onglet n'a pas ete ouvert par un script
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    $('#start').hidden = true;
+    $('#ended').hidden = true;
+    $('#left').hidden = false;
+    setLink('bad', 'Serveur injoignable');
+  }
+
+  // « Rester sur la douchette » : on se reconnecte, la camera se rallume en touchant « Démarrer »
+  function stay() {
+    leaving = false;
+    $('#left').hidden = true;
+    if (ended) { $('#ended').hidden = false; updateLink(); return; }
+    $('#start').hidden = false;
+    cameraWanted = false;
+    retryDelay = 1000;
+    updateLink();
+    connect();
+  }
+
+  $('#go-home').addEventListener('click', leave);
+  document.querySelectorAll('.leave').forEach((button) => button.addEventListener('click', leave));
+  $('#stay').addEventListener('click', stay);
 
   // ------------------------------------------------------------------------------------------------
   // Demarrage : la cle est retiree de la barre d'adresse (historique, partage d'ecran) mais gardee

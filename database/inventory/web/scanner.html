@@ -34,7 +34,11 @@
     #info .title { font-size: 1.05rem; }
     #topbar { z-index: 1; }
     #topbar .left { display: flex; gap: 8px; min-width: 0; }
-    #home { text-decoration: none; flex: none; }
+    #go-home { text-decoration: none; flex: none; }
+    #link #link-text { flex: 1; min-width: 0; }
+    #quit { flex: none; padding: 6px 12px; font-size: .9rem; background: rgba(255, 255, 255, .2); color: #fff;
+      border: 1px solid rgba(255, 255, 255, .7); }
+    .overlay .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   </style>
 </head>
 <body>
@@ -43,7 +47,7 @@
     <div id="viewfinder"><span></span></div>
     <div id="topbar">
       <div class="left">
-        <a id="home" class="chip" href="./" aria-label="Revenir à l'écran principal">← Accueil</a>
+        <a id="go-home" class="chip" href="./" aria-label="Quitter la douchette et revenir à l'écran principal">← Accueil</a>
         <span class="chip">📱 Douchette QRProtec</span>
       </div>
       <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>
@@ -59,11 +63,22 @@
       <p id="ended-reason"></p>
       <p>Pour reconnecter ce téléphone, créez une nouvelle session sur le poste et scannez le nouveau QR code
         avec l'appareil photo.</p>
+      <button class="big leave" type="button">← Revenir à l'accueil</button>
+    </div>
+    <div id="left" class="overlay" hidden>
+      <p><b>Serveur injoignable</b></p>
+      <p>Le téléphone n'arrive pas à joindre QRProtec (Wi-Fi ou réseau coupé ?), l'accueil ne peut pas s'ouvrir.
+        Vous pouvez fermer cette page, ou réessayer une fois le réseau revenu.</p>
+      <div class="actions">
+        <button class="leave" type="button">Réessayer</button>
+        <button id="stay" class="secondary" type="button">Rester sur la douchette</button>
+      </div>
     </div>
   </section>
 
   <section id="panel">
-    <div id="link"><span class="dot"></span><span id="link-text">Connexion au serveur…</span></div>
+    <div id="link"><span class="dot"></span><span id="link-text">Connexion au serveur…</span>
+      <button id="quit" class="leave" type="button">Quitter</button></div>
     <div id="info" class="info empty">Aucun code envoyé.</div>
     <div id="history"><ul id="history-list" class="list"></ul></div>
     <footer>
