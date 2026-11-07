@@ -158,7 +158,8 @@ l'état du lot global, et on peut y entrer pendant la vérif pour scanner ce qu'
 
 Pendant une vérif sur le front web, un admin peut toucher **Rendre la vérif complète** : pour cette
 vérif, tous les items et sous-lots facultatifs deviennent obligatoires (manquants s'ils ne sont pas
-scannés). **Revenir au facultatif** annule.
+scannés). **Revenir au facultatif** annule. Dans une vérif à plusieurs, le réglage vaut pour tous les
+participants ; un admin peut aussi l'activer depuis **Suivi des vérifs**, sur la carte de la vérif en cours.
 
 **Sac O2** (`saco2x`) : masques O2 adulte et enfant, lunettes, etc.
 

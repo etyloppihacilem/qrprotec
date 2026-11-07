@@ -2697,6 +2697,33 @@ class LiveHubTests(ApiTestCase):
         watching.join(5)
         self.assertFalse(self.hub.watchers)
 
+    def test_full_verif_shared_by_admin(self):
+        """« Rendre la vérif complète » : un admin l'active depuis la page de suivi, tous les participants le voient,
+        un secouriste ne peut pas."""
+        from unittest import mock
+        admins = mock.patch.object(self.live, 'is_admin', side_effect=lambda credentials: isinstance(credentials, dict)
+                                   and credentials.get('matricule') == 'P001')
+        admins.start()
+        self.addCleanup(admins.stop)
+        scanner = FakeSocket({'type': 'hello', 'user': self.badge})
+        scanning = self.run_socket(self.hub.run_scanner, scanner)
+        self.wait(lambda: scanner.sent)
+        session_id = scanner.sent[0]['id']
+        scanner.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}, 'optional': True})
+        self.wait(lambda: self.hub.sessions[session_id].state)
+        self.assertFalse(self.hub.sessions[session_id].public()['full'])
+        self.assertTrue(self.hub.sessions[session_id].public()['optional'])
+        # un secouriste (page de scan) : refuse
+        scanner.push({'type': 'full', 'on': True, 'user': self.badge})
+        # un admin depuis la page de suivi : partage avec les participants
+        self.assertTrue(self.hub.set_full(session_id, True, {'matricule': 'P001', 'key': 'x'}))
+        self.wait(lambda: any(m['type'] == 'team' and m['full'] for m in scanner.sent))
+        self.assertTrue(self.hub.sessions[session_id].public()['full'])
+        self.assertFalse(self.hub.set_full(session_id, False, self.badge))
+        self.assertTrue(self.hub.sessions[session_id].full)
+        scanner.push(None)
+        scanning.join(5)
+
     def test_reload_resumes_the_session(self):
         first = FakeSocket({'type': 'hello', 'name': 'Paul Martin'})
         thread = self.run_socket(self.hub.run_scanner, first)
@@ -5152,4 +5179,3 @@ class OptionalContentTests(ApiTestCase):
         self.assertEqual(sorted(report['loose']), sorted(casques))  # non consommables absents : hors lot
         row = next(row for row in report['requirements'] if row['type'] == 'casque')
         self.assertEqual((row['required'], row['optional']), (2, False))
-

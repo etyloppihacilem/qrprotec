@@ -338,6 +338,15 @@ plusieurs dont tous les participants restants ont validé, et envoie `submit` au
 connecté qui a validé ; sa page envoie alors la vérif sans redemander de confirmation. Si le
 participant désigné disparaît lui-même plus de `GRACE`, un autre est désigné au tour suivant.
 
+### « Vérif complète » partagée
+
+`LiveSession.full` (et `full_by`) : un admin rend la vérif complète, depuis sa page de scan (message
+`{"type": "full", "on", "user"}`) ou depuis la page de suivi (même message avec `"id"` de la vérif sur
+`/ws/live/watch`). `LiveHub.set_full` vérifie le badge admin (`is_admin`), puis le réglage part à tous
+les participants dans `team` (`full`, `full_by`) et aux pages de suivi dans la carte (`full`, plus
+`optional` publié par les pages de scan pour afficher le bouton). La vérif envoyée (`POST verifs`
+avec `live`, ou `save_unattended`) est alors faite en `strict` : rien n'est facultatif.
+
 ## Vérif en cascade à plusieurs
 
 Une vérif en cascade (lot global avec des sous-lots : VPS > armoires > sacs) est **une seule vérif

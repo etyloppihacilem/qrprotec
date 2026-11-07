@@ -132,6 +132,19 @@ def badge_identity(credentials):
         close_old_connections()
 
 
+def is_admin(credentials):
+    """Badge (ou jeton de connexion) valide d'un administrateur actif. Acces base : appele hors verrou."""
+    from .models import Role
+    from .sessions import credentials_user
+    if not isinstance(credentials, dict):
+        return False
+    try:
+        user = credentials_user(credentials)
+        return bool(user and user.active and user.role == Role.ADMIN)
+    finally:
+        close_old_connections()
+
+
 def scanner_identity(message):
     """(identite stockee, nom affiche, badge verifie) d'une page de scan : badge verifie, sinon nom declare (marque
     comme tel), sinon personne."""
@@ -168,6 +181,7 @@ def clean_state(message):
         'scanned': scanned,
         'count': _number(message.get('count')),
         'remaining': _number(message.get('remaining')),
+        'optional': bool(message.get('optional')),  # du materiel facultatif dans la vérif
     }
 
 
@@ -246,6 +260,10 @@ class LiveSession:
         self.solo = False          # « Quitter » la verif commune : pas de fusion automatique
         self.finished = 0          # fin de la verif (time.monotonic), pour DONE_KEEP
         self.steps = {}            # vérif en cascade : lot id -> {"at", "by", "complete", "sealed"}, lots deja valides
+        # « vérif complète » activee par un admin (scanner ou page de suivi) : items et sous-lots facultatifs
+        # obligatoires pour tous les participants (services.perform_verif strict)
+        self.full = False
+        self.full_by = ''
 
     @property
     def state(self):
@@ -298,6 +316,10 @@ class LiveSession:
             'count': state.get('count', 0),
             'remaining': state.get('remaining', 0),
             'done': self.done,
+            'full': self.full,
+            'full_by': self.full_by,
+            # la vérif contient du facultatif (publie par les pages de scan) : bouton « Rendre la vérif complète »
+            'optional': bool(state.get('optional')),
         }
 
 
@@ -342,6 +364,8 @@ class LiveHub:
                         for entry in p.entries],
             'nearby': self._nearby(session),
             'done': session.steps,
+            'full': session.full,
+            'full_by': session.full_by,
         }
 
     def _changed(self, session):
@@ -481,7 +505,8 @@ class LiveHub:
             targets = verif_lots(lots, False, verified=is_verified(identities[0]))
             sealed_lots = sealed_targets({'sealed': sealed}, targets)
             require_label(targets, {}, sealed=sealed_lots, extra=labels)
-            report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places, sealed_lots)
+            report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places, sealed_lots,
+                                            strict=session.full)
         except Exception as exc:  # cle expiree, etiquette d'aucun lot scannee, lot archive... : la verif est abandonnee
             if isinstance(exc, (ApiError, ValueError)):
                 logger.warning('Verif commune %s abandonnee : %s', session.id, getattr(exc, 'message', exc))
@@ -717,6 +742,8 @@ class LiveHub:
                     # vérif en cascade terminee par ce participant : les autres continuent sans lui
                     self.leave_cascade(session, participant)
                     return
+                elif kind == 'full':
+                    self.set_full(session.id, message.get('on'), message.get('user'))
                 elif kind == 'cancel':
                     with self.lock:
                         participant.state = None
@@ -753,7 +780,7 @@ class LiveHub:
                 identities = [p.identity for p in session.participants.values()
                               if p.identity and (p is participant or any(self._entry_in(entry, step) for entry in p.entries))]
             return {'id': session.id, 'pid': participant.id, 'keys': dict(session.lots), 'labels': set(session.labels),
-                    'identities': list(dict.fromkeys(identities))}
+                    'identities': list(dict.fromkeys(identities)), 'full': session.full}
 
     @staticmethod
     def _entry_in(entry, iids):
@@ -812,6 +839,22 @@ class LiveHub:
             websocket.send_json({'type': 'report', 'report': report})
         self._changed(session)
 
+    def set_full(self, session_id, on, credentials):
+        """« Rendre la vérif complète » (ou revenir au facultatif) pour tous les participants : admins seulement,
+        depuis la page de scan d'un participant ou la page de suivi. Renvoie False si refuse."""
+        if not is_admin(credentials):
+            return False
+        who = public_name(badge_identity(credentials) or '')
+        with self.lock:
+            session = self.sessions.get(str(session_id or ''))
+            if session is None or session.done:
+                return False
+            session.full = bool(on)
+            session.full_by = who if session.full else ''
+            session.updated = timezone.now()
+        self._changed(session)
+        return True
+
     # -- page de suivi -------------------------------------------------------------------------------------------------
 
     def run_watcher(self, websocket):
@@ -825,7 +868,10 @@ class LiveHub:
                 self.watchers.add(websocket)
             websocket.send_json({'type': 'snapshot', 'sessions': self.visible()})
             while True:
-                websocket.receive()  # pings du client
+                message = self._parse(websocket.receive())  # pings du client, ou « vérif complète » d'un admin
+                if message.get('type') == 'full' and not self.set_full(message.get('id'), message.get('on'),
+                                                                      hello.get('user')):
+                    websocket.send_json({'type': 'error', 'message': 'Réservé aux administrateurs.'})
         except WebSocketClosed:
             pass
         finally:

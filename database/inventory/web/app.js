@@ -1240,7 +1240,7 @@
 
   function resetCascade() {
     state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.startedIn = ''; state.labels = [];
-    state.full = false;
+    state.full = false; state.fullBy = '';
   }
 
   // Facultatif (casques du VPS, sous-lot facultatif) : le lot se valide sans, sauf en « vérif complète » (bouton des
@@ -1254,15 +1254,17 @@
 
   // Bouton des admins en vérif : « Rendre la vérif complète » (le facultatif devient obligatoire), ou l'annuler
   function fullVerifRow() {
-    if (!isAdmin() || !state.lot || !sessionHasOptional()) return null;
-    const toggle = () => { state.full = !state.full; save(); render(); };
+    if (!state.lot || !sessionHasOptional() || !(isAdmin() || state.full)) return null;
+    // vérif commune : partage avec tous les participants (le serveur garde le reglage)
+    const toggle = () => { state.full = !state.full; state.fullBy = ''; state.fullLocal = true; live.setFull(state.full); save(); render(); };
     return el('li', { class: 'full-verif' + (state.full ? ' on' : '') },
       el('div', { class: 'main' },
-        el('div', { class: 'name' }, state.full ? 'Vérif complète' : 'Matériel facultatif dans cette vérif'),
+        el('div', { class: 'name' }, state.full ? 'Vérif complète' + (state.fullBy ? ` (par ${state.fullBy})` : '')
+          : 'Matériel facultatif dans cette vérif'),
         el('div', { class: 'sub' }, state.full ? 'Le facultatif est obligatoire.'
           : 'Validable sans lui.')),
-      el('button', { type: 'button', class: state.full ? 'secondary' : 'warning', onclick: toggle },
-        state.full ? 'Revenir au facultatif' : 'Rendre la vérif complète'));
+      isAdmin() ? el('button', { type: 'button', class: state.full ? 'secondary' : 'warning', onclick: toggle },
+        state.full ? 'Revenir au facultatif' : 'Rendre la vérif complète') : null);
   }
 
   // lot id dans le lot top (ou top lui-meme)
@@ -2639,8 +2641,10 @@
     for (const { place, list, scanned, missing, pending, extra, required, rank: placeRank } of placeRows) {
       const key = `${lot.id}@${place}`;
       const fold = placeFolds.get(key);
-      // un emplacement de materiel facultatif reste deplie : on peut y scanner ce qu'on voit
-      const open = fold && fold.complete === !missing ? fold.open : missing > 0 || pending > 0;
+      // un emplacement qui ne contient que du facultatif est replie (sauf en vérif complete, ou il est obligatoire) ;
+      // avec aussi de l'obligatoire, il reste deplie tant que le facultatif n'est pas tout vu
+      const onlyOptional = list.every((group) => group.optional);
+      const open = fold && fold.complete === !missing ? fold.open : missing > 0 || (pending > 0 && !onlyOptional);
       rows.push(el('li', { class: 'place-head ' + { 0: 'partial', 1: 'bad', 1.5: 'optional', 2: 'ok' }[placeRank],
         'aria-expanded': String(open), onclick: () => { placeFolds.set(key, { open: !open, complete: !missing }); renderTodo(); } },
       el('span', { class: 'chevron' }, open ? '▾' : '▸'),
@@ -3337,6 +3341,13 @@
         stop();
       },
       identity() { if (ready) send({ type: 'identity', ...who() }); },
+      // « Rendre la vérif complète » (admins) : partage avec tous les participants. false : pas de vérif commune
+      // publiee, le reglage reste sur ce telephone
+      setFull(on) {
+        if (!ready || !session || !state.user) return false;
+        send({ type: 'full', on: !!on, user: credentials() });
+        return true;
+      },
       // rejoindre la vérif `id` (page de suivi, ou autre vérif du meme lot vue depuis le scanner)
       join(id) {
         join = id;
@@ -3418,6 +3429,12 @@
       for (const [id, row] of Object.entries(done)) {
         if (!state.done[id] && !state.entered.includes(id) && lotById(id)) state.done[id] = row;
       }
+    }
+    // « vérif complète » partagee : activee par un admin, ici ou depuis la page de suivi
+    // (un changement fait ici avant la connexion est renvoye au serveur au lieu d'etre ecrase)
+    if (live.team && 'full' in live.team) {
+      if (state.fullLocal && !!live.team.full !== state.full && isAdmin()) live.setFull(state.full);
+      else { state.full = !!live.team.full; state.fullBy = live.team.full_by || ''; state.fullLocal = false; }
     }
     syncTeamLots();
     render();
@@ -3562,6 +3579,7 @@
       // vérif en cascade : lot ou l'on se trouve (les autres participants le voient « en cours »)
       cascade: inCascade(),
       level: inCascade() ? { id: levelLot().id, name: levelLot().name } : null,
+      optional: sessionHasOptional(), // bouton « Rendre la vérif complète » de la page de suivi (admins)
     };
   }
 
@@ -3689,7 +3707,15 @@
       // vérif à plusieurs : rejoindre la vérif, ses scans s'ajoutent a ceux de ce telephone
       !done && row.lot && !mine ? el('div', { class: 'join' },
         el('button', { type: 'button', onclick: () => joinLiveVerif(row) }, '👥 Rejoindre cette vérif')) : null,
-      mine && !done ? el('div', { class: 'sub' }, 'Vous participez à cette vérif.') : null);
+      mine && !done ? el('div', { class: 'sub' }, 'Vous participez à cette vérif.') : null,
+      // « vérif complète » : items et sous-lots facultatifs obligatoires pour tous les participants (admins)
+      !done && row.full ? el('div', { class: 'sub' }, '✔ Vérif complète : le facultatif est obligatoire'
+        + (row.full_by ? ` (par ${row.full_by})` : '')) : null,
+      !done && isAdmin() && (row.optional || row.full) ? el('div', { class: 'join' },
+        el('button', { type: 'button', class: row.full ? 'secondary' : 'warning', onclick: () => {
+          if (!watch.socket || watch.socket.readyState !== WebSocket.OPEN) { toast('Suivi déconnecté, réessayez.', true); return; }
+          watch.socket.send(JSON.stringify({ type: 'full', id: row.id, on: !row.full }));
+        } }, row.full ? 'Revenir au facultatif' : 'Rendre la vérif complète')) : null);
   }
 
   function renderLive() {
