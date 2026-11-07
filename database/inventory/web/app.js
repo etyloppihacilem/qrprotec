@@ -1987,6 +1987,10 @@
     $('#verif-help-hide').checked = false;
     $('#verif-help').showModal();
   }
+  // nouvelle vérif (vérif quittee ou enregistree, « Lancer une vérif ») : le rappel s'affiche de nouveau, meme lot compris
+  function resetVerifHelp() {
+    try { sessionStorage.removeItem(STORAGE_HELP); } catch (e) { /* stockage indisponible */ }
+  }
   $('#verif-help-ok').addEventListener('click', async () => {
     $('#verif-help').close();
     if (!$('#verif-help-hide').checked || !state.user) return;
@@ -2502,6 +2506,7 @@
   function forgetLot(message = "Scannez l'étiquette d'un lot.") {
     state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = []; resetCascade();
     state.lastVerif = null; state.launched = ''; state.current = ''; state.askPlace = false; state.full = false;
+    resetVerifHelp();
     showInfo('empty', message);
     save(); render();
   }
@@ -5178,6 +5183,7 @@
     if (!state.lot) return;
     if (key) setKey(id, key);
     if (label) addLabel(id);
+    if (state.launched !== state.lotId) resetVerifHelp();
     state.launched = state.lotId;
     if (inCascade()) enterLevel(id);
     feedback.info();
