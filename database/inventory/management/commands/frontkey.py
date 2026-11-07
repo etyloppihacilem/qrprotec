@@ -11,6 +11,9 @@
 """Cles API des fronts distants (autres machines).
 
     python manage.py frontkey add accueil       # cree une cle et l'affiche UNE seule fois
+    python manage.py frontkey add accueil --config accueil.qrprotec [--ca-file root.crt]
+                                                # cle + fichier chiffre (mot de passe demande) a importer
+                                                # dans le front : URL, cle, certificat de l'autorite
     python manage.py frontkey list
     python manage.py frontkey revoke accueil     # le front n'a plus acces (immediat)
     python manage.py frontkey delete accueil
@@ -20,12 +23,17 @@ cette cle, envoyee dans l'en-tete X-QRProtec-Key. Le front local de la borne n'e
 utilise l'API locale (127.0.0.1:8001), jamais exposee.
 """
 
+import getpass
+import os
 import re
+from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
+from inventory import front_config
 from inventory.models import FrontKey
 
 NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
@@ -39,6 +47,14 @@ class Command(BaseCommand):
         add = sub.add_parser('add', help="cree une cle (affichee une seule fois)")
         add.add_argument('name')
         add.add_argument('--replace', action='store_true', help="remplace la cle d'un front existant")
+        add.add_argument('--config', metavar='FICHIER',
+                         help="ecrit aussi un fichier de configuration chiffre (AES) a importer dans le front "
+                              "(- = sortie standard) ; mot de passe demande, ou variable "
+                              "QRPROTEC_FRONT_CONFIG_PASSWORD")
+        add.add_argument('--url', help="URL du serveur pour le front (defaut : QRPROTEC_PUBLIC_BASE_URL)")
+        add.add_argument('--ca-file', metavar='PEM',
+                         help="certificat de l'autorite du serveur a mettre dans le fichier "
+                              "(autorite interne de Caddy, QRPROTEC_TLS=internal)")
         sub.add_parser('list', help="liste les fronts")
         revoke = sub.add_parser('revoke', help="retire l'acces d'un front")
         revoke.add_argument('name')
@@ -50,7 +66,8 @@ class Command(BaseCommand):
             return self.list()
         name = options['name']
         if action == 'add':
-            return self.add(name, options['replace'])
+            return self.add(name, options['replace'], options.get('config'), options.get('url'),
+                            options.get('ca_file'))
         front = FrontKey.objects.filter(name=name).first()
         if front is None:
             raise CommandError(f"Front inconnu : {name}")
@@ -62,20 +79,86 @@ class Command(BaseCommand):
             front.delete()
             self.stdout.write(f"Front {name} supprime.")
 
-    def add(self, name, replace):
+    def add(self, name, replace, config=None, url=None, ca_file=None):
         if not NAME_RE.match(name):
             raise CommandError("Nom invalide (lettres, chiffres, . _ -, 64 caracteres au plus)")
+        if (url or ca_file) and not config:
+            raise CommandError("--url et --ca-file vont avec --config")
         existing = FrontKey.objects.filter(name=name).first()
-        if existing is not None:
-            if not replace:
-                raise CommandError(f"Le front {name} existe deja (--replace pour lui donner une nouvelle cle)")
-            existing.delete()
-        _, key = FrontKey.create(name)
-        base_url = settings.QRPROTEC['PUBLIC_BASE_URL'].rstrip('/')
+        if existing is not None and not replace:
+            raise CommandError(f"Le front {name} existe deja (--replace pour lui donner une nouvelle cle)")
+        base_url = (url or settings.QRPROTEC['PUBLIC_BASE_URL']).rstrip('/')
+        # tout ce qui peut echouer avant de creer la cle : certificat, mot de passe, fichier de sortie
+        if config:
+            if not base_url.startswith('https://'):
+                raise CommandError(f"URL du serveur en HTTPS attendue pour un front distant : {base_url}")
+            ca_pem = self.read_ca(ca_file) if ca_file else ''
+            password = self.ask_password()
+            if config != '-' and Path(config).exists() and not replace:
+                raise CommandError(f"{config} existe deja (--replace pour l'ecraser)")
+        # fichier impossible a ecrire : ni nouvelle cle, ni ancienne cle supprimee
+        with transaction.atomic():
+            if existing is not None:
+                existing.delete()
+            front, key = FrontKey.create(name)
+            if config:
+                payload = {'name': name, 'api_url': base_url, 'api_key': key,
+                           'created': timezone.localtime(front.created).isoformat(timespec='seconds')}
+                if ca_pem:
+                    payload['api_ca_pem'] = ca_pem
+                self.write_config(config, front_config.encrypt(payload, password))
+        if config:
+            # fichier sur la sortie standard : les explications passent sur l'erreur standard
+            out = self.stderr if config == '-' else self.stdout
+            if config != '-':
+                out.write(f"Fichier de configuration du front {name} : {config}")
+            out.write("Dans le front de l'autre machine : Reglages > Serveur (ou « API hors ligne » dans la barre "
+                      "de menu tant qu'il n'est pas connecte) > Importer un fichier de configuration, puis le "
+                      "mot de passe choisi.")
+            out.write(f"URL : {base_url}" + (" ; certificat de l'autorite inclus" if ca_pem else ''))
+            return
         self.stdout.write(f"Cle du front {name} (notez-la, elle ne sera plus affichee) :\n\n    {key}\n")
         self.stdout.write("Sur la machine du front (paquet qrprotec-kiosk ou qrprotec-front) :")
         self.stdout.write(f"    sudo qrprotec-setup --api-url {base_url} --api-key {key}")
         self.stdout.write(f"ou dans Reglages > Serveur du front : URL {base_url}, cle ci-dessus.")
+        self.stdout.write(f"(ou frontkey add {name} --replace --config FICHIER : un fichier chiffre a importer)")
+
+    @staticmethod
+    def read_ca(path):
+        try:
+            pem = Path(path).read_text(encoding='ascii')
+        except (OSError, UnicodeDecodeError) as error:
+            raise CommandError(f"Certificat illisible : {path} ({error})") from error
+        if '-----BEGIN CERTIFICATE-----' not in pem:
+            raise CommandError(f"{path} n'est pas un certificat PEM")
+        return pem
+
+    def ask_password(self):
+        password = os.environ.get('QRPROTEC_FRONT_CONFIG_PASSWORD', '')
+        if not password:
+            try:
+                password = getpass.getpass("Mot de passe du fichier (demande a l'import dans le front) : ")
+                if password != getpass.getpass("Confirmez le mot de passe : "):
+                    raise CommandError("Les mots de passe ne correspondent pas")
+            except (EOFError, KeyboardInterrupt) as error:
+                raise CommandError("Mot de passe non saisi") from error
+        if len(password) < front_config.MIN_PASSWORD_LENGTH:
+            raise CommandError(f"Mot de passe trop court ({front_config.MIN_PASSWORD_LENGTH} caracteres au moins)")
+        return password
+
+    def write_config(self, config, text):
+        if config == '-':
+            self.stdout.write(text, ending='')
+            self.stdout.flush()
+            return
+        path = Path(config)
+        try:
+            # chiffre, mais il donne acces au serveur avec le bon mot de passe : lisible par son seul proprietaire
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'w', encoding='utf-8') as output:
+                output.write(text)
+        except OSError as error:
+            raise CommandError(f"Impossible d'ecrire {config} : {error}") from error
 
     def list(self):
         fronts = FrontKey.objects.order_by('name')

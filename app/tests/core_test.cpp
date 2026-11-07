@@ -2,6 +2,7 @@
 #include "../src/core/placeholders.hpp"
 #include "../src/core/template.hpp"
 #include "../src/core/template_io.hpp"
+#include "../src/net/front_config.hpp"
 #include "../src/net/websocket.hpp"
 #include "../src/render/raster.hpp"
 
@@ -13,6 +14,43 @@
 
 int main()
 {
+    // fichier de configuration d'un front distant, chiffre par database/inventory/front_config.py
+    {
+        const std::string file = R"({
+ "qrprotec": "front-config",
+ "version": 1,
+ "kdf": "PBKDF2-HMAC-SHA256",
+ "iterations": 100000,
+ "salt": "FiFOd3apTkjCMYBwpdgVSg==",
+ "cipher": "AES-256-GCM",
+ "nonce": "2zGZ7aB7Bcnv2mtv",
+ "data": "y3FAgYfyg0hES03m34oc10NwiDCcP0LtW5iRhVpq8VdFuYd3qBKrEJ/Q27A3235w/mDbcdyFtpdIWokwuf7GU2DtAJcoSSxLnrIUGBnuIHPsdd526n0SfpRiy8s6AaIjHZF5LGrDxvekKjH4KSYCC+NT4u2qOtrLWPAMmMMg6G736iZcrVKI/p+EzAfDLOV1QiXibkemQLFCpSdMySvdF9Yg9vDwxoFSj0wxZ+CnLPGYz7hhZvzqzM5+iMkWqR472rJHzN00ihqW5hcIbzZbSg=="
+})";
+        qrprotec::FrontConfig config;
+        std::string           error;
+        assert(qrprotec::decrypt_front_config(file, "secret-antenne", config, error));
+        assert(config.name == "accueil");
+        assert(config.api_url == "https://inv.example.org");
+        assert(config.api_key == "qrpf_test");
+        assert(config.api_ca_pem == "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n");
+        assert(config.created == "2026-11-07T13:00:00+01:00");
+        assert(!qrprotec::decrypt_front_config(file, "mauvais", config, error));
+        assert(error.find("Mot de passe incorrect") != std::string::npos);
+        assert(config.api_key == "qrpf_test"); // inchange en cas d'echec
+        std::string tampered = file;
+        tampered.replace(tampered.find("100000"), 6, "100001");
+        assert(!qrprotec::decrypt_front_config(tampered, "secret-antenne", config, error));
+        tampered = file;
+        tampered.replace(tampered.find("\"data\": \"y3"), 11, "\"data\": \"z3");
+        assert(!qrprotec::decrypt_front_config(tampered, "secret-antenne", config, error));
+        tampered = file;
+        tampered.replace(tampered.find("100000"), 6, "1000");  // trop peu d'iterations : refuse avant de deriver
+        assert(!qrprotec::decrypt_front_config(tampered, "secret-antenne", config, error));
+        assert(error == "Fichier de configuration invalide.");
+        assert(!qrprotec::decrypt_front_config("api_url=https://x", "secret-antenne", config, error));
+        assert(error.find("Ce n'est pas") == 0);
+    }
+
     // messages des verifs : le nom des lots, avec « de » accorde
     assert(de_name("Trousse de secours") == "de Trousse de secours");
     assert(de_name("Armoire 1") == "d'Armoire 1");

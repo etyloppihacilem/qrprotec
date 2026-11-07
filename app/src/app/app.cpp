@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "app.hpp"
+#include "../net/front_config.hpp"
 #include "../core/french.hpp"
 #include "../core/plural.hpp"
 #include "../printer/logging.hpp"
@@ -25,6 +26,7 @@
 #include "imgui_stdlib.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <ctime>
 #include <map>
@@ -155,6 +157,73 @@ bool App::save_settings() {
   apply_shared_machine();
   notify("Réglages enregistrés.");
   return true;
+}
+
+bool App::import_front_config(const std::string &path, const std::string &password) {
+  if (AppSettings::api_env("QRPROTEC_KIOSK") || AppSettings::api_env("QRPROTEC_API_URL")
+      || AppSettings::api_env("QRPROTEC_API_KEY") || AppSettings::api_env("QRPROTEC_API_CA_FILE")) {
+    notify("Connexion imposée par l'environnement (borne : sudo qrprotec-setup) : import impossible.", true);
+    return false;
+  }
+  // chemin colle depuis un gestionnaire de fichiers : espaces, guillemets, file://, ~/
+  std::string file = path;
+  while (!file.empty() && std::isspace(static_cast< unsigned char >(file.back())))
+    file.pop_back();
+  file.erase(0, file.find_first_not_of(" \t"));
+  if (file.size() >= 2 && (file.front() == '\'' || file.front() == '"') && file.back() == file.front())
+    file = file.substr(1, file.size() - 2);
+  if (file.rfind("file://", 0) == 0)
+    file.erase(0, 7);
+  if (file.rfind("~/", 0) == 0)
+    if (const char *home = std::getenv("HOME"))
+      file = std::string(home) + file.substr(1);
+  FrontConfig config;
+  std::string error;
+  if (!read_front_config(file, password, config, error)) {
+    notify(error, true);
+    return false;
+  }
+  std::string ca_file;
+  if (!config.api_ca_pem.empty()) {
+    const std::filesystem::path ca_path = AppSettings::file_path().parent_path() / "server-ca.crt";
+    if (!write_server_ca(ca_path, config.api_ca_pem, error)) {
+      notify(error, true);
+      return false;
+    }
+    ca_file = ca_path.string();
+  }
+  settings.api_url     = config.api_url;
+  settings.api_key     = config.api_key;
+  settings.api_ca_file = ca_file;
+  settings.api_token.clear(); // jeton de l'API locale, sans objet pour un serveur distant
+  apply_settings();
+  if (!save_settings())
+    return false;
+  notify("Configuration importée : front « " + config.name + " », serveur " + config.api_url
+         + (ca_file.empty() ? std::string() : ", certificat de l'autorité enregistré") + ".");
+  // meme verification que « Tester la connexion »
+  api.get("/api/health/", [this](const ApiResult &result) {
+    if (!result.ok) {
+      notify("Connexion impossible : " + result.error, true);
+      return;
+    }
+    notify("Connecté au serveur (front " + result.data["front"].str() + ").");
+    refresh_item_types();
+    refresh_lots();
+  });
+  return true;
+}
+
+void App::file_dropped(const std::string &path) {
+  if (path.size() < 9 || path.compare(path.size() - 9, 9, ".qrprotec") != 0)
+    return;
+  front_config_path = path;
+  if (!api.online())
+    server_modal_requested_ = true;
+  else if (!user || !user->admin())
+    notify("Fichier de configuration : connectez-vous en administrateur, puis Réglages > Serveur.", true);
+  else
+    open_window("settings");
 }
 
 void App::apply_default_open_state() {
