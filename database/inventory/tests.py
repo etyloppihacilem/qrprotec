@@ -4984,13 +4984,12 @@ class LotStateReportTests(LotSheetTests.__base__):
         self.assertNotIn(i3.iid, text)  # ajoute apres la date du rapport
         self.assertIn('(Complet \xe0 cette date \\(tous les sous-lots\\))', text)
         self.assertIn('Derni\xe8re v\xe9rif : ', text)
-        self.assertIn('par Jeanne \\(avec Admin\\)', text)
+        self.assertIn('par Jeanne Dupont, M001 \\(avec Admin Poste, P001\\)', text)
         self.assertIn('Sous-lot \xb7 Sac A', text)
         self.assertIn('Sous-lot \xb7 Sac O2 1', text)
         self.assertIn('(Certifi\xe9 par le TECH Paris 15)', text)
         self.assertIn('Signature :', text)
-        self.assertIn('par Admin', text)  # qui a edite le rapport
-        self.assertNotIn('Poste', text)    # jamais de nom de famille
+        self.assertIn('par Admin Poste, P001', text)  # qui a edite le rapport : nom complet et matricule
         self.assertEqual(models.ServerSettings.get().antenna_name, 'Paris 15')
         op = Operation.objects.get(kind='lot_report')
         self.assertEqual((op.lot_id, op.by), (self.root.id, 'M:P001'))

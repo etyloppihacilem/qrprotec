@@ -76,7 +76,8 @@ PDF A4 à ouvrir ou télécharger :
 - en bas, la case **« Certifié par le TECH <antenne> »** avec nom, date et un espace pour la signature.
 
 Le contenu est reconstitué depuis le journal des mouvements d'items ; le contenu attendu et
-l'arborescence des sous-lots sont ceux d'aujourd'hui. Le nom de l'antenne est retenu pour les
+l'arborescence des sous-lots sont ceux d'aujourd'hui. Contrairement au reste du front web, le rapport donne les **noms complets avec le
+matricule** des secouristes (document certifié). Le nom de l'antenne est retenu pour les
 rapports suivants, et chaque rapport édité est noté dans le **Journal des opérations**.
 
 ## Scellés
