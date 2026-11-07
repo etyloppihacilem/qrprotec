@@ -4218,6 +4218,45 @@ class ProblemReportTests(ApiTestCase):
         self.assertTrue(report['complete'])
         self.assertEqual(report['replaced'], [broken.iid])
 
+    def test_lot_reported_unusable_shows_on_its_fiche(self):
+        # signalement d'un lot « non utilisable » : rouge et visible de tous sur sa fiche, meme apres une verif complete
+        _, body = self.report({'lot': self.lot.id, 'comment': 'Sac déchiré', 'usable': False})
+        report_id = body['report']['id']
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in self.items]})
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(code, 200)
+        self.assertTrue(lot['complete'])
+        self.assertTrue(lot['unusable'])
+        self.assertEqual((lot['state']['kind'], lot['state']['code']), ('bad', 'unusable'))
+        self.assertEqual([(row['comment'], row['usable']) for row in lot['reports']], [('Sac déchiré', False)])
+        self.assertNotIn('nom', lot['reports'][0])
+        # liste des lots (etat calcule pour toute la liste a la fois) : meme etat
+        code, lots = self.call('GET', '/api/lots/')
+        row = next(row for row in lots if row['id'] == self.lot.id)
+        self.assertEqual(row['state']['code'], 'unusable')
+        self.assertEqual(len(row['reports']), 1)
+        # utilisable apres prise en charge : signalement toujours affiche, le lot redevient valide
+        self.call('POST', f'/api/reports/{report_id}/', {'status': 'progress', 'usable': True})
+        _, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertFalse(lot['unusable'])
+        self.assertEqual(lot['state']['code'], 'verified')
+        self.assertEqual(len(lot['reports']), 1)
+        # resolu : plus rien sur la fiche
+        self.call('POST', f'/api/reports/{report_id}/', {'status': 'resolved'})
+        _, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(lot['reports'], [])
+
+    def test_item_type_report_listed_on_lot(self):
+        self.report({'lot': self.lot.id, 'type': 'compre', 'usable': True}, local=True)
+        _, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual([row['type_name'] for row in lot['reports']], ['Compresses'])
+        self.assertFalse(lot['unusable'])
+        # le signalement d'un item n'est pas un signalement du lot : il suit l'item (et le rend a remplacer)
+        self.report({'item': self.items[0].iid, 'usable': False})
+        _, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual(len(lot['reports']), 1)
+        self.assertFalse(lot['unusable'])
+
     def test_reported_item_never_missing(self):
         reported, other = self.items
         self.report({'item': reported.iid, 'usable': True})

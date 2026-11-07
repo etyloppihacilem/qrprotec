@@ -55,9 +55,13 @@ dl.facts dd { margin: 0; }
 .error { color: #ffb4b4; }
 .danger-text { color: var(--red); background: transparent; }
 .danger { background: var(--red); color: #fff; font-weight: 600; }
-#reported .reported-item { border-left: 4px solid var(--orange); padding: 6px 10px; margin: 8px 0; }
-#reported .reported-item.bad { border-color: var(--red); }
-#reported .reported-item p { margin: 4px 0; }
+#reported .reported-item, .fiche-reports .reported-item { border-left: 4px solid var(--orange); padding: 6px 10px; margin: 8px 0; }
+#reported .reported-item.bad, .fiche-reports .reported-item.bad { border-color: var(--red); }
+#reported .reported-item p, .fiche-reports .reported-item p { margin: 4px 0; }
+/* signalements en cours sur la fiche d'un lot ou d'un item : toujours visibles, sous l'etat */
+.fiche-reports { margin: 10px 0; }
+.fiche-reports h3 { margin: 0 0 4px; }
+.fiche-reports .reported-item.bad { background: var(--red-bg); }
 
 /* ---- Tiers haut : camera ---- */
 #camera { position: relative; height: 33dvh; background: #000; overflow: hidden; }

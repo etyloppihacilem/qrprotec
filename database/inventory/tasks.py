@@ -57,7 +57,7 @@ REVISION_WINDOW_DAYS = 30
 LIST_RETURN_DAYS = 2  # liste sortie depuis plus longtemps : retour a faire
 LEVEL_ORDER = {'bad': 0, 'warn': 1, 'info': 2}
 SEAL_ORDER = {'seal_opened': 0, 'must_seal': 1}
-INVALID_ORDER = {'sealed_expired': 0, 'incomplete': 1, 'never': 2}
+INVALID_ORDER = {'unusable': 0, 'sealed_expired': 1, 'incomplete': 2, 'never': 3}
 
 
 def _iso(value):
@@ -134,7 +134,9 @@ def _lot_tasks(rows, today):
                               sort=SEAL_ORDER[code]))
         elif state['kind'] == 'bad':
             parts = []
-            if code == 'never':
+            if code == 'unusable':
+                parts.append('signalé non utilisable : voir les signalements')
+            elif code == 'never':
                 parts.append('jamais vérifié')
             elif code == 'sealed_expired':
                 parts.append('scellé, contient des périmés : ouvrir et remplacer')

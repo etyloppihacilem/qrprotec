@@ -125,7 +125,7 @@ void status_banner(const std::string &text, const ImVec4 &color, float scale = 1
 // Recommended : complet mais reassort ou scelle ouvert depuis la derniere verif (orange, verif complete recommandee)
 // SealOpened / MustSeal : type a scelle obligatoire, lot ouvert (rouge) avant ou apres sa verif complete
 // Optional : sous-lot facultatif jamais verifie (son lot parent se valide sans lui), gris
-enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired, Recommended, SealOpened, MustSeal, Optional };
+enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired, Recommended, SealOpened, MustSeal, Optional, Unusable };
 bool        lot_ok(LotStatus status); // vert
 LotStatus   lot_status(const Json &lot);
 ImVec4      lot_status_color(LotStatus status);

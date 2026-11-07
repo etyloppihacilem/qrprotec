@@ -18,7 +18,7 @@ from django.utils import timezone
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
 from .models import PUSH_TYPES, ItemStatus, compact_iid, qrprotec_setting
-from .reports import item_reports, pack_reports
+from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import LotPreload, optional_lot, optional_types, ordered_requirements, out_deadline, requirements_status
 
 
@@ -205,6 +205,7 @@ def lot_type_dict(lot_type):
 
 
 STATE_LABELS = {
+    'unusable': '✘ Non utilisable (signalé)',
     'sealed': '✔ Scellé',
     'sealed_expired': '✘ Scellé, contient des périmés',
     'never': '✘ Jamais vérifié',
@@ -223,7 +224,10 @@ KIND_ORDER = {'ok': 0, 'warn': 1, 'bad': 2}
 
 def lot_state(data):
     """Etat d'un lot seul (memes regles que les fronts) : kind 'ok' (vert), 'warn' (orange) ou 'bad' (rouge)."""
-    if data['is_sealed']:
+    if data.get('unusable'):
+        # signale non utilisable (signalement ouvert sur le lot) : rouge, scelle ou verifie, jusqu'a sa resolution
+        code = 'unusable'
+    elif data['is_sealed']:
         code = 'sealed_expired' if data['expired_count'] else 'sealed'
     elif not data['last_verif']:
         # sous-lot facultatif : son lot parent se valide sans lui, jamais verifie n'est pas un probleme
@@ -296,7 +300,12 @@ def _lot_core(lot, today, items=None, preload=None):
         # complet des que le minimum d'items frais est la : un perime en trop ne le rend pas incomplet
         'complete': all(row['present'] >= row['required'] for row in requirements),
         'public_url': public_url('verif', lot=lot.id),
+        # signalements ouverts du lot lui-meme (ou d'un type d'item du lot) : toujours affiches sur sa fiche ; un
+        # seul inutilisable rend le lot non utilisable
+        'reports': ([report_summary(report) for report in preload.reports[lot.id]] if preload is not None
+                    else lot_reports(lot)),
     }
+    data['unusable'] = any(not report['usable'] for report in data['reports'])
     data['state'] = lot_state(data)
     return data
 
@@ -330,7 +339,7 @@ def aggregate_tree(rows):
         # un sous-lot facultatif ne compte pas : le lot global est valide sans lui
         row['counted'] = (not row.get('optional')
                           and bool(row['requirements'] or row['item_count'] or row['id'] not in has_children))
-        if covered and not row['expired_count']:
+        if covered and not row['expired_count'] and not row.get('unusable'):
             row['effective'] = {'kind': 'ok', 'code': 'covered', 'label': '✔ Dans un lot scellé'}
         else:
             row['effective'] = row['state']
@@ -436,7 +445,7 @@ def lot_global(lot, today):
     rows = attention_order(rows)  # sous-lots a traiter en haut, sous leur parent
     keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed', 'sealed',
             'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
-            'counted', 'optional')
+            'counted', 'optional', 'unusable')
     summary.update({
         'id': root.id,
         'name': root.name,
