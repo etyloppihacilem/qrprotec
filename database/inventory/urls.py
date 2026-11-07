@@ -17,6 +17,7 @@ public_patterns = [
     path('health/', views.health),
     path('auth/', views.auth),
     path('auth/name/', views.auth_name),
+    path('auth/temp/', views.auth_temp),         # QR code de connexion temporaire (outil de debug des admins)
     path('pin-reset/', views.pin_reset),
     path('pin-forgot/', views.pin_forgot),
     path('me/pin/', views.my_pin),               # PIN choisi, change ou supprime dans les reglages web
@@ -29,6 +30,7 @@ public_patterns = [
     path('stock/forecast/summary/', views.stock_forecast_summary),
     path('tasks/summary/', views.tasks_summary),
     path('debug/codes/', views.debug_codes_list),  # admins seulement
+    path('debug/temp-login/', views.debug_temp_login),  # admins seulement
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/sheet.pdf', views.lot_sheet_pdf),
     path('lots/<str:lot_id>/state-report/', views.lot_state_report),

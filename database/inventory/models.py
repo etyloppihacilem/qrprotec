@@ -737,6 +737,8 @@ WEB_PREFS = {
     'verif_info_line': ("Ligne d'info pendant la vérif", False),
     # popup explicative de la vérif (3 points) plus affichee apres la connexion : « ne plus afficher ce message »
     'verif_help_hidden': ("Explication de la vérif masquée", False),
+    # petite bulle de connexion dans un coin au lieu de la grande fenetre « Scannez votre carte »
+    'login_bubble': ('Bulle de connexion', False),
 }
 
 

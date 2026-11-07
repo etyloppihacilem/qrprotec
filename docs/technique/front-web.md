@@ -90,7 +90,12 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   `POST api/lots/summary/`), **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
   Chaque page a son ancre (`#lots`, `#suivi`, `#stock`, `#scan`) : le bouton retour du téléphone
   ramène à l'accueil. Le bouton ⚙ (**réglages**, dès qu'un utilisateur est connecté)
-  ouvre son **code PIN** (`renderPinSettings`, `POST api/me/pin/`), ses **réglages de la vérif**
+  ouvre la case **Bulle de connexion** (`renderLoginSettings`, réglage `login_bubble` de `web_prefs` ;
+  sans connexion, gardée sur le téléphone, et le dernier connecté la fixe pour le téléphone). Décochée (le
+  défaut), la **grande fenêtre de connexion** (`#login-gate`, `openGate`) remplace la petite bulle et
+  s'ouvre au début d'une vérif sans connexion : la caméra (`#camera`, placée par `placeGateCamera`) au
+  milieu, « Scannez votre carte », connexion nom + PIN ; seule une carte y est acceptée. Puis son **code
+  PIN** (`renderPinSettings`, `POST api/me/pin/`), ses **réglages de la vérif**
   (`renderVerifSettings`, `POST api/me/prefs/` `{user, web_prefs}` : `models.WEB_PREFS`, renvoyés dans
   `user.web_prefs`, `webPref()` ; aussi `PATCH api/users/<matricule>/` `{web_prefs}` par un admin au poste,
   qui lit `web_prefs_list` [{name, label, value}]) puis le **gestionnaire des
@@ -100,7 +105,11 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   « État des stocks » (`debugTap`). `POST api/debug/codes/` (`debug_codes.py`, refusé à tout autre rôle
   par le serveur) rend le contenu de toutes les étiquettes imprimables : items (QR de l'URL, ou iid court
   des QR réduits et codes-barres), lots (publique, clé, scellé, ouverture), paquets scellés, listes.
-  Jamais les badges ni les liens de déblocage de PIN. Un code s'affiche en grand (`#debug-player`), seul
+  Jamais les badges ni les liens de déblocage de PIN. En tête, les **cartes des secouristes (dépannage)** :
+  un appui sur un nom crée (`POST api/debug/temp-login/`, noté au journal) un QR code `badge?m=…&t=…`
+  valable 1 h, jamais pour un admin. Scanné par le téléphone du secouriste (`POST api/auth/temp/`), il ouvre
+  sans badge ni PIN une session de 24 h (jeton `qrprotec.temp-session`, `sessionMs` dans le stockage local).
+  Un nouveau badge invalide le QR code et la session. Un code s'affiche en grand (`#debug-player`), seul
   ou en suite (contenu d'un lot, avec ses sous-lots dans l'ordre d'une vérif en cascade) passée au code
   suivant d'un appui, par Suivant, les flèches du clavier ou en automatique.
 - **Suivi des vérifs en direct** : `live` publie la vérif en cours de la page de scan (lot, scans,

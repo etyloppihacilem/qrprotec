@@ -13,11 +13,15 @@ imprimer, pour les reafficher a l'ecran et les scanner a la douchette.
 
 Items (QR de l'URL, QR reduit ou code-barres de l'iid court, version taches), lots (etiquette publique, etiquette
 cle, scelle et etiquette d'ouverture du scelle en cours), paquets scelles et listes de materiel. Jamais les badges
-ni les liens de deblocage de PIN : ce sont des identifiants de personnes.
+ni les liens de deblocage de PIN : ce sont des identifiants de personnes. Les secouristes sont listes (nom court)
+pour leur creer a la demande un QR code de connexion temporaire (views.debug_temp_login), jamais leur badge.
 """
 
+from django.utils import timezone
+
 from . import serializers as ser
-from .models import Checklist, Items, LabelStyle, Lots, SealedPacks, compact_iid
+from .idendity import short_names
+from .models import Checklist, Items, LabelStyle, Lots, Role, SealedPacks, Secouristes, compact_iid
 
 
 def item_code(item):
@@ -88,6 +92,16 @@ def lot_tree():
     return rows
 
 
+def rescuers():
+    """Secouristes qui peuvent recevoir un QR code de connexion temporaire : actifs, badge valide, pas admin."""
+    users = list(Secouristes.objects.filter(active=True, key_expires__gte=timezone.localdate())
+                 .exclude(role=Role.ADMIN))
+    names = short_names((user.matricule, user.prenom, user.nom) for user in Secouristes.objects.all())
+    rows = [{'matricule': user.matricule, 'name': names.get(user.matricule, user.prenom), 'fonction': user.fonction,
+             'pin_blocked': user.pin_blocked is not None} for user in users]
+    return sorted(rows, key=lambda row: row['name'].lower())
+
+
 def catalog():
     items = list(Items.objects.select_related('pack__item_type')
                  .order_by('pack__item_type__name', 'pack__peremption', 'iid'))
@@ -121,4 +135,5 @@ def catalog():
             'template': checklist.is_template,
             'code': ser.public_url('liste', id=checklist.id),
         } for checklist in Checklist.objects.order_by('is_template', '-updated')],
+        'users': rescuers(),
     }

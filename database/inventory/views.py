@@ -50,7 +50,10 @@ from . import tasks
 from . import webpush
 from .idendity import SOURCE_VERIFIED, format_identity_verified, guest_identity, identity_from_request, identity_name, short_name
 from .remote_scanner import hub as scanner_hub
-from .sessions import credentials_user, session_token, session_user, session_valid  # noqa: F401 (tests)
+from .sessions import (  # noqa: F401 (tests)
+    TEMP_LOGIN_MAX_AGE, TEMP_SESSION_MAX_AGE, credentials_user, session_token, session_user, session_valid,
+    temp_login_token, temp_login_user,
+)
 from .models import (
     DEFAULT_FONCTION, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
@@ -448,11 +451,14 @@ def auth(request):
     return Response(login_response(request, user))
 
 
-def login_response(request, user):
+def login_response(request, user, temporary=False):
     data = ser.user_dict(user)
     if is_front(request):
         data['nom'] = user.nom  # le poste l'affiche ; jamais sur le front web
-    data['session'] = session_token(user)
+    data['session'] = session_token(user, temporary)
+    if temporary:
+        data['temporary'] = True  # connexion de depannage : la session du telephone vaut 24 h
+        data['session_hours'] = TEMP_SESSION_MAX_AGE // 3600
     # reglages des notifications web affiches seulement si l'utilisateur peut en recevoir
     data['notifications'] = bool(user.push_types()) and webpush.available()
     data['scanner_volume'] = user.effective_scanner_volume
@@ -521,6 +527,24 @@ def auth_name(request):
         raise ApiError("Saisissez votre nom, votre prénom et votre code PIN (4 à 8 chiffres)")
     user = pin_login(request, name_login_candidates(nom, prenom), pin, NAME_LOGIN_ERROR)
     return Response(login_response(request, user))
+
+
+@api_view(['POST'])
+@handle_errors
+def auth_temp(request):
+    """Connexion de depannage : {"matricule", "token"} d'un QR code temporaire montre par un admin (outil de debug)
+    a un secouriste qui a oublie sa carte. Le QR code vaut 1 h ; la session ouverte (sans cle de badge ni PIN, l'admin
+    s'en porte garant) vaut 24 h."""
+    check_login_address(request)
+    user = temp_login_user(request.data.get('matricule'), request.data.get('token'))
+    if user is None or user.role == Role.ADMIN:
+        reserve_login_attempt(login_address_key(request))
+        raise ApiError("QR code de connexion expiré ou invalide : demandez-en un nouveau au TECH",
+                       status.HTTP_403_FORBIDDEN)
+    journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
+                   f'connexion de dépannage de {user} ({user.matricule}) par QR code temporaire',
+                   matricule=user.matricule)
+    return Response(login_response(request, user, temporary=True))
 
 
 def check_login_address(request):
@@ -1235,6 +1259,29 @@ def debug_codes_list(request):
     les etiquettes imprimables, sauf les badges. Administrateurs seulement, verifie ici et pas seulement par le front."""
     connected_user(request, ADMIN)
     return Response(debug_codes.catalog())
+
+
+@api_view(['POST'])
+@handle_errors
+def debug_temp_login(request):
+    """QR code de connexion de depannage d'un secouriste (outil de debug, admins) : {"user", "matricule"} -> lien
+    badge?m=...&t=... valable 1 h, qui ouvre une session de 24 h sur le telephone qui le scanne. Jamais pour un
+    admin (son PIN est obligatoire). Chaque QR code cree est note au journal."""
+    admin = connected_user(request, ADMIN)
+    user = Secouristes.objects.filter(matricule=str(request.data.get('matricule', ''))[:16]).first()
+    if user is None or user.role == Role.ADMIN or not user.badge_valid():
+        raise ApiError("Pas de connexion de dépannage pour ce compte (administrateur, désactivé ou badge expiré)")
+    if user.pin_blocked is not None:
+        raise ApiError("Le code PIN de ce secouriste est bloqué : réinitialisez-le d'abord")
+    journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{admin.matricule}',
+                   f'QR code de connexion temporaire de {user} ({user.matricule}) créé par {admin}',
+                   matricule=user.matricule)
+    return Response({
+        'matricule': user.matricule,
+        'name': short_name(user.matricule),
+        'url': ser.public_url('badge', m=user.matricule, t=temp_login_token(user)),
+        'expires': (timezone.now() + timedelta(seconds=TEMP_LOGIN_MAX_AGE)).isoformat(),
+    })
 
 
 @api_view(['GET'])

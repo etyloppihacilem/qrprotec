@@ -28,7 +28,10 @@
   const STORAGE_SESSION = 'qrprotec.session';
   const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
   const STORAGE_NAME = 'qrprotec.declared-name';   // nom declare (sans badge), si le serveur l'autorise
-  const STORAGE_FICHE_KEY = 'qrprotec.fiche-key';  // etiquette privee ouverte (fiche du lot), gardee au rechargement
+  const STORAGE_FICHE_KEY = 'qrprotec.fiche-key';
+  // « Bulle de connexion » du dernier connecte sur ce telephone (reglage web login_bubble) : vaut aussi avant la
+  // connexion, pour choisir entre la petite bulle et la grande fenetre « Scannez votre carte »
+  const STORAGE_BUBBLE = 'qrprotec.login-bubble';  // etiquette privee ouverte (fiche du lot), gardee au rechargement
   // Vérif en cours oubliee au rechargement de la page (ou a l'ouverture d'une etiquette hors du lecteur) apres
   // 20 minutes sans activite : on ne retombe pas sur le lot d'une vérif commencee il y a une heure.
   const SESSION_TIMEOUT_MS = 20 * 60 * 1000;
@@ -132,7 +135,8 @@
     try {
       const user = JSON.parse(localStorage.getItem(STORAGE_USER) || 'null');
       // connexion par nom et PIN : pas de cle de badge, le jeton de session (12 h) est le seul identifiant
-      const sessionOk = user && (user.key || (user.loginAt && Date.now() - user.loginAt < NAME_SESSION_MS));
+      // connexion de depannage (QR code temporaire d'un admin) : 24 h (sessionMs donne par le serveur)
+      const sessionOk = user && (user.key || (user.loginAt && Date.now() - user.loginAt < (user.sessionMs || NAME_SESSION_MS)));
       if (user && sessionOk && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
       state.declaredName = localStorage.getItem(STORAGE_NAME) || '';
       const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
@@ -283,7 +287,8 @@
     if (route === 'item' && expandIid(p.get('id'))) return itemScan(expandIid(p.get('id')));
     if (route === 'task' && expandIid(p.get('id'))) return itemScan(expandIid(p.get('id')), true);
     if (route === 'verif' && p.get('lot')) return { kind: 'lot', code, id: p.get('lot'), key: p.get('key') || '' };
-    if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '' };
+    // badge, ou QR code de connexion temporaire (t) cree par un admin dans l'outil de debug
+    if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '', temp: p.get('t') || '' };
     if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
     if (route === 'seal' && p.get('lot') && p.get('s')) return { kind: 'seal', code, id: p.get('lot'), key: p.get('s') };
     if (route === 'unseal' && p.get('lot') && p.get('c')) return { kind: 'sealopen', code, id: p.get('lot'), key: p.get('c') };
@@ -379,7 +384,7 @@
 
   // Reglages du web de l'utilisateur (models.WEB_PREFS, modifiables aussi par un admin au poste) : valeur par defaut
   // sans utilisateur connecte, ou si la session date d'avant le reglage
-  const WEB_PREF_DEFAULTS = { verif_info_line: false, verif_help_hidden: false };
+  const WEB_PREF_DEFAULTS = { verif_info_line: false, verif_help_hidden: false, login_bubble: false };
   function webPref(name) {
     const prefs = state.user && state.user.web_prefs;
     return prefs && name in prefs ? !!prefs[name] : WEB_PREF_DEFAULTS[name];
@@ -418,7 +423,7 @@
   // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
   // camera « utilisee par Firefox » jusqu'au redemarrage du telephone.
   function cameraShouldRun() {
-    return cameraWanted && !document.hidden && (!ficheOpen() || readerOpen()) && $('#opening').hidden;
+    return cameraWanted && !document.hidden && (!ficheOpen() || readerOpen() || gateOpen()) && $('#opening').hidden;
   }
 
   function syncCamera() {
@@ -529,7 +534,7 @@
 
   // icones des boutons fixes de la page
   for (const [id, name] of [['start-button', 'camera'], ['undo', 'undo'], ['clear', 'trash'], ['fiche-home', 'home'],
-    ['login-needed-badge', 'badge'], ['login-needed-name', 'keypad'], ['problem-send', 'send'], ['revision-ok', 'check']]) {
+    ['login-needed-badge', 'badge'], ['login-needed-name', 'keypad'], ['login-gate-name', 'keypad'], ['problem-send', 'send'], ['revision-ok', 'check']]) {
     const button = document.getElementById(id);
     if (button) button.prepend(icon(name));
   }
@@ -582,6 +587,12 @@
     if (leavePopup) { leavePopup('skip'); await new Promise((resolve) => setTimeout(resolve, 50)); }
     if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
     const scan = parseCode(raw);
+    // grande fenetre de connexion : seulement la carte (ou le lien de deblocage du PIN)
+    if (gateOpen() && scan.kind !== 'user' && scan.kind !== 'pinreset') {
+      feedback.bad();
+      toast("Scannez d'abord votre carte de secouriste (le QR code de votre carte).", true);
+      return;
+    }
     // page d'une liste de materiel a verifier ou a rentrer : l'etiquette d'un lot ou d'un item y compte
     if (listScanning() && (scan.kind === 'item' || scan.kind === 'lot')) { listScanCode(scan); return; }
     if (scan.kind === 'liste') { feedback.info(); if (readerOpen()) closeReader(); openList(scan.id); return; }
@@ -613,7 +624,7 @@
     switch (scan.kind) {
       case 'item': return scanItem(scan);
       case 'lot': return scanLot(scan);
-      case 'user': return login(scan.id, scan.key);
+      case 'user': return scan.temp ? tempLogin(scan.id, scan.temp) : login(scan.id, scan.key);
       case 'pack': return scanPack(scan);
       case 'seal': return scanSeal(scan);
       case 'sealopen': return openSeal(scan);
@@ -1690,6 +1701,53 @@
     }
   }
 
+  // Fenetre avec des champs a remplir au-dessus du clavier du telephone : le clavier ne reduit que la partie visible
+  // de la page (visualViewport), la fenetre centree restait cachee dessous. Elle se cale en haut de la partie visible,
+  // a sa hauteur (elle defile), et le champ en cours reste visible avec le suivant ; Entree passe au champ suivant.
+  function keepAboveKeyboard(dialog) {
+    const viewport = window.visualViewport;
+    const fields = () => [...dialog.querySelectorAll('input:not([hidden])')];
+    const reveal = (field) => {
+      if (!dialog.open || !field || !dialog.contains(field)) return;
+      const list = fields();
+      const next = list[list.indexOf(field) + 1] || dialog.querySelector('button[type=submit]');
+      if (next) next.scrollIntoView({ block: 'nearest' });
+      field.scrollIntoView({ block: 'nearest' });
+    };
+    const fit = () => {
+      if (!dialog.open || !viewport) return;
+      const keyboard = window.innerHeight - viewport.height > 80;
+      dialog.classList.toggle('above-keyboard', keyboard);
+      dialog.style.top = keyboard ? `${viewport.offsetTop + 8}px` : '';
+      dialog.style.maxHeight = keyboard ? `${viewport.height - 16}px` : '';
+      if (keyboard) reveal(document.activeElement);
+    };
+    if (viewport) { viewport.addEventListener('resize', fit); viewport.addEventListener('scroll', fit); }
+    dialog.addEventListener('focusin', (event) => { fit(); setTimeout(() => reveal(event.target), 60); setTimeout(() => reveal(event.target), 400); });
+    dialog.addEventListener('close', () => { dialog.classList.remove('above-keyboard'); dialog.style.top = ''; dialog.style.maxHeight = ''; });
+    dialog.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.target.tagName !== 'INPUT') return;
+      const list = fields();
+      const next = list[list.indexOf(event.target) + 1];
+      if (next && !next.value) { event.preventDefault(); next.focus(); }
+    });
+  }
+  keepAboveKeyboard($('#name-login'));
+  keepAboveKeyboard($('#pin'));
+
+  // Connexion de depannage : QR code temporaire (1 h) montre par un admin depuis l'outil de debug, pour un secouriste
+  // qui a oublie sa carte. Pas de PIN (l'admin s'en porte garant) ; la session du telephone vaut 24 h.
+  async function tempLogin(matricule, token) {
+    try {
+      const user = await api('auth/temp/', { matricule, token });
+      loggedIn({ ...user, loginAt: Date.now(), sessionMs: (user.session_hours || 24) * 3600 * 1000 - 5 * 60 * 1000 });
+    } catch (e) {
+      feedback.bad();
+      showInfo('bad', 'QR code refusé', e.message);
+      toast(e.message, true);
+    }
+  }
+
   // Connexion sans badge (nom, prenom et code PIN) : discrete, depuis le petit lecteur de l'accueil ou la puce
   // « Non connecté » du scanner. Le serveur ne dit pas si le nom existe.
   function openNameLogin() {
@@ -1725,6 +1783,7 @@
     const action = takeLoginAction(); // action qui attendait la connexion (signalement)
     state.user = user;
     state.guest = null; // connecte : plus invite
+    rememberBubble();
     state.lots = null;
     state.stock = null;
     state.push = null;
@@ -3079,6 +3138,7 @@
   }
 
   function openReader(after = '') {
+    if (!bubbleOn()) { openGate(after); return; }
     pendingAfterLogin = after;
     document.body.classList.add('login-reader');
     $('#scan-hint').textContent = 'Scannez votre badge';
@@ -3094,6 +3154,62 @@
     if (inHome() || ficheOpen()) { cameraWanted = false; syncCamera(); }
     renderHomePage();
   }
+  // ------------------------------------------------------------------------------------------------
+  // Grande fenetre de connexion (« Bulle de connexion » decochee, le reglage par defaut) : pour les secouristes qui
+  // ne font pas encore le lien entre leur carte et le telephone. Elle prend tout l'ecran au debut d'une vérif (et a la
+  // place de la petite bulle de l'accueil) : la camera au milieu, « Scannez votre carte », et la connexion par nom.
+
+  // reglage de l'utilisateur connecte, sinon celui du dernier connecte sur ce telephone (decoche par defaut)
+  function bubbleOn() {
+    if (state.user) return webPref('login_bubble');
+    try { return localStorage.getItem(STORAGE_BUBBLE) === '1'; } catch (e) { return false; }
+  }
+
+  function rememberBubble() {
+    try { localStorage.setItem(STORAGE_BUBBLE, bubbleOn() ? '1' : '0'); } catch (e) { /* ignore */ }
+  }
+
+  const gateOpen = () => document.body.classList.contains('login-gate');
+
+  function openGate(after = '') {
+    pendingAfterLogin = after;
+    $('#login-gate-text').textContent = after === 'verif' || (!inHome() && !ficheOpen())
+      ? 'Pour vérifier ce lot, connectez-vous d\'abord.' : 'Connectez-vous pour continuer.';
+    document.body.classList.add('login-gate');
+    $('#login-gate').hidden = false;
+    placeGateCamera();
+    $('#scan-hint').textContent = 'Scannez votre carte';
+    startCamera();
+    if (inHome()) renderHomePage();
+  }
+
+  // done : connexion reussie (sinon fermee par « Plus tard »)
+  function closeGate(done = false) {
+    if (!gateOpen()) return;
+    document.body.classList.remove('login-gate');
+    $('#login-gate').hidden = true;
+    if (!done) { pendingAfterLogin = ''; loginAction = null; }
+    if (inHome() || ficheOpen()) { cameraWanted = false; syncCamera(); }
+    render();
+    if (inHome()) renderHomePage();
+  }
+
+  // la camera (#camera, toujours au meme endroit du DOM) se pose sur l'emplacement reserve de la fenetre
+  function placeGateCamera() {
+    if (!gateOpen()) return;
+    const box = $('#login-gate-cam').getBoundingClientRect();
+    const style = document.body.style;
+    style.setProperty('--gate-left', `${box.left}px`);
+    style.setProperty('--gate-top', `${box.top}px`);
+    style.setProperty('--gate-width', `${box.width}px`);
+    style.setProperty('--gate-height', `${box.height}px`);
+  }
+  window.addEventListener('resize', placeGateCamera);
+  $('#login-gate').addEventListener('scroll', placeGateCamera);
+
+  $('#login-gate-name').addEventListener('click', () => openNameLogin());
+  $('#login-gate-later').addEventListener('click', () => closeGate());
+
   $('#reader-close').addEventListener('click', (event) => { event.stopPropagation(); closeReader(); });
   $('#reader-name').addEventListener('click', (event) => { event.stopPropagation(); openNameLogin(); });
 
@@ -3101,7 +3217,8 @@
   // (badge?m=...) ou dans le scanner vide (aucun lot, aucun scan) mene aussi a l'accueil : apres un scan
   // (item seul, hors vérif compris), on reste dans le scanner.
   function afterLogin() {
-    const next = pendingAfterLogin;
+    const next = pendingAfterLogin === 'verif' ? '' : pendingAfterLogin; // vérif lancee : on y reste
+    if (gateOpen()) closeGate(true);
     if (readerOpen()) closeReader();
     if (ficheOpen()) { // connexion depuis une fiche (signalement) : on y reste, avec les actions du role
       openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false, label: fiche.label });
@@ -4122,6 +4239,7 @@
   function openNotifications() {
     installGuideShown = false;
     renderInstallSettings();
+    renderLoginSettings();
     $('#settings-pin').hidden = !state.user;
     renderPinSettings();
     $('#settings-verif').hidden = !state.user;
@@ -4252,6 +4370,40 @@
   // PIN facultatif : supprimable sauf pour un admin ou si le TECH l'a rendu obligatoire (verifie par le serveur)
   const pinCanDisable = (user) => (user.pin_can_disable !== undefined ? !!user.pin_can_disable
     : user.role !== 'admin' && user.pin_mode !== 'required');
+
+  // « Bulle de connexion » : la petite camera dans un coin (connexion discrete) au lieu de la grande fenetre
+  // « Scannez votre carte ». Reglage du compte (web_prefs, modifiable aussi par un admin) ; sans connexion, celui
+  // de ce telephone.
+  function renderLoginSettings() {
+    const box = $('#settings-login');
+    if (!box) return;
+    const input = el('input', { type: 'checkbox', checked: bubbleOn() ? '' : null, onchange: () => saveBubble(input) });
+    box.replaceChildren(el('h3', {}, 'Connexion'),
+      el('label', { class: 'check' }, input, 'Bulle de connexion'),
+      el('p', { class: 'hint' }, 'Cochée : la connexion se fait dans une petite fenêtre en bas de l\'écran. Décochée : '
+        + 'une grande fenêtre « Scannez votre carte » s\'ouvre au début de chaque vérif, tant que vous n\'êtes pas '
+        + 'connecté.' + (state.user ? '' : ' Connectez-vous pour l\'enregistrer sur votre compte.')));
+  }
+
+  async function saveBubble(input) {
+    const value = input.checked;
+    if (!state.user) {
+      try { localStorage.setItem(STORAGE_BUBBLE, value ? '1' : '0'); } catch (e) { /* ignore */ }
+      return;
+    }
+    input.disabled = true;
+    try {
+      await setWebPrefs({ login_bubble: value });
+      rememberBubble();
+      toast(value ? 'Bulle de connexion activée.' : 'Grande fenêtre de connexion activée.');
+    } catch (e) {
+      feedback.bad();
+      input.checked = !value;
+      toast(e.message, true);
+    } finally {
+      input.disabled = false;
+    }
+  }
 
   function renderPinSettings() {
     const box = $('#settings-pin');
@@ -5015,6 +5167,8 @@
     feedback.info();
     showLotInfo();
     switchTab('todo');
+    // pas encore connecte : grande fenetre « Scannez votre carte » (sauf « Bulle de connexion » cochee)
+    if (!hasIdentity() && !bubbleOn()) openGate('verif');
   }
 
   async function launchFromFiche() {
@@ -6489,7 +6643,8 @@
       // carte scannee : page d'accueil
       history.replaceState(null, '', './');
       showHome('menu', false);
-      await login(params.get('m'), params.get('key') || '');
+      if (params.get('t')) await tempLogin(params.get('m'), params.get('t'));
+      else await login(params.get('m'), params.get('key') || '');
     } else if (route === 'seal' && params.get('lot') && params.get('s')) {
       // etiquette du scelle : fiche du lot scelle (sans vérif), ou scan « scellé intact » de la vérif en cours
       if (state.lotId) await loadLot(state.lotId);
@@ -6839,9 +6994,41 @@
     return groups;
   }
 
+  // Connexion de depannage : un QR code temporaire par secouriste (pas sa carte), cree a la demande
+  function debugUsersParts(users, title = 'Cartes des secouristes (dépannage)') {
+    if (!users.length) return [];
+    return [el('h3', {}, title),
+      el('p', { class: 'hint' }, 'Un secouriste a oublié sa carte : touchez son nom et faites-lui scanner le QR code. '
+        + 'Il vaut 1 h ; le téléphone qui le scanne reste connecté 24 h. Pas de QR code pour les administrateurs.'),
+      el('div', { class: 'debug-chips' }, ...users.map((user) => el('button', { type: 'button',
+        disabled: user.pin_blocked ? '' : null, title: user.pin_blocked ? 'PIN bloqué : réinitialisez-le d\'abord' : '',
+        onclick: () => showTempLogin(user) }, icon('badge'), user.name)))];
+  }
+
+  async function showTempLogin(user) {
+    const dialog = $('#temp-login');
+    const body = $('#temp-login-body');
+    body.replaceChildren(el('h2', {}, user.name), el('p', { class: 'hint' }, 'Création du QR code…'));
+    if (!dialog.open) dialog.showModal();
+    try {
+      const data = await api('debug/temp-login/', { user: badge(), matricule: user.matricule });
+      const until = new Date(data.expires);
+      body.replaceChildren(
+        el('h2', {}, `Connexion de ${data.name}`),
+        debugQr(data.url),
+        el('p', {}, el('b', {}, 'Scannez ce QR code avec le téléphone du secouriste'),
+          ' (dans QRprotec, ou avec l\'appareil photo).'),
+        el('p', { class: 'hint' }, `Valable jusqu'à ${until.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+          + ' (1 h). Le téléphone reste connecté 24 h, sans carte ni code PIN.'));
+    } catch (e) {
+      body.replaceChildren(el('h2', {}, user.name), el('p', { class: 'pin-error' }, e.message));
+    }
+  }
+  $('#temp-login-close').addEventListener('click', () => $('#temp-login').close());
+
   function debugBrowseParts() {
     const data = debug.data;
-    const parts = [el('h3', {}, 'Lots et rangements')];
+    const parts = [...debugUsersParts(data.users || []), el('h3', {}, 'Lots et rangements')];
     data.lots.filter((lot) => lot.active).forEach((lot) => parts.push(debugLotRow(lot)));
     const loose = debug.byLot.get('') || [];
     parts.push(el('h3', {}, 'Stock hors rangement'));
@@ -6895,8 +7082,9 @@
     const items = data.items.filter((item) => debugMatch(needle, item.iid, item.short, item.type_name, item.type));
     const packs = data.packs.filter((pack) => debugMatch(needle, pack.id, pack.type_name));
     const lists = data.lists.filter((list) => debugMatch(needle, list.id, list.name));
-    if (!lots.length && !items.length && !packs.length && !lists.length) return [el('p', { class: 'hint' }, 'Aucun code trouvé.')];
-    const parts = [];
+    const users = (data.users || []).filter((user) => debugMatch(needle, user.name, user.matricule));
+    if (!lots.length && !items.length && !packs.length && !lists.length && !users.length) return [el('p', { class: 'hint' }, 'Aucun code trouvé.')];
+    const parts = debugUsersParts(users, 'Secouristes (dépannage)');
     if (lots.length) {
       parts.push(el('h3', {}, nb(lots.length, 'lot')));
       lots.slice(0, DEBUG_SEARCH_MAX).forEach((lot) => parts.push(debugLotRow(lot, 0)));
@@ -6949,7 +7137,7 @@
       el('div', { class: 'row-head' }, el('h3', {}, 'Codes des étiquettes'),
         el('button', { type: 'button', onclick: loadDebug }, icon('refresh'), debug.loading ? 'Chargement…' : 'Actualiser')),
       el('p', { class: 'hint' }, 'Outil de debug des administrateurs : le code de toutes les étiquettes imprimables, sauf '
-        + 'les badges. Touchez un code pour l\'afficher en grand, ou ▶ pour enchaîner un contenu : touchez le code, '
+        + 'les badges (un QR code de connexion temporaire les remplace). Touchez un code pour l\'afficher en grand, ou ▶ pour enchaîner un contenu : touchez le code, '
         + 'Suivant ou la flèche → pour passer au suivant.'),
     ];
     if (debug.error) parts.push(el('p', { class: 'pin-error' }, debug.error));
