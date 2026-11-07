@@ -119,6 +119,12 @@ class VerifWindow final : public AppWindow {
       }
       const std::vector< VerifPlanLot > plan  = app.plan_verif();
       const bool                        multi = !cascade && plan.size() > 1;
+      // lot scelle : sa verif est le scan de l'etiquette du scelle, rien d'autre a scanner
+      const std::string seal_lot = cascade ? level : plan.size() == 1 ? verif.lot_id : std::string();
+      if (!seal_lot.empty() && app.verif_seal_waiting(seal_lot)) {
+        draw_seal_wait(app, seal_lot);
+        return;
+      }
       if (!verif.lot["global"].is_null()) {
         const Json &global = verif.lot["global"];
         ImGui::TextDisabled("Lot global %s : %s – vérif la plus ancienne : %s", global["name"].str().c_str(),
@@ -641,6 +647,9 @@ class VerifWindow final : public AppWindow {
         } else if (app.verif_touched(id)) {
           color = colors::orange;
           text += "  –  commencé, pas encore validé";
+        } else if (app.verif_seal_waiting(id)) {
+          color = colors::grey;
+          text += "  –  scellé : scannez l'étiquette du scellé";
         } else if ((*child)["optional"].boolean()) {
           // sous-lot facultatif : on peut valider sans lui, ou y entrer pour scanner ce qu'il contient
           color = colors::grey;
@@ -664,6 +673,46 @@ class VerifWindow final : public AppWindow {
       }
       (void)plan;
       return moved;
+    }
+
+    // Lot scelle en verif : une seule chose a faire, scanner l'etiquette collee sur le scelle (meme ecran que le web,
+    // sealRows). Scelle ouvert : l'etiquette d'ouverture rangee a l'interieur, puis le contenu.
+    void draw_seal_wait(App &app, const std::string &id) {
+      VerifSession &verif = app.verif;
+      const Json   &lot   = *app.verif_lot(id);
+      const std::string name = lot["name"].str(id);
+      if (id != verif.lot_id) {
+        const Json       *parent = app.verif_lot(app.verif_parent(id));
+        const std::string back = "← Revenir à " + (parent ? (*parent)["name"].str() : std::string("lot global"));
+        if (button(back.c_str()))
+          app.leave_level();
+        ImGui::SetItemTooltip("Sans constater le scellé : %s reste tel quel.", name.c_str());
+      }
+      ImGui::Spacing();
+      status_banner("Étiquette du scellé de " + name + " : 0 / 1", colors::red, 1.5f);
+      std::string seal = "Scellé";
+      if (!lot["seal_number"].str().empty())
+        seal += " n°" + lot["seal_number"].str();
+      if (!lot["sealed"].is_null())
+        seal += " du " + display_datetime(lot["sealed"]);
+      ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.2f);
+      ImGui::TextWrapped("%s : scannez l'étiquette collée sur le scellé, sans l'ouvrir. %s est alors compté comme "
+                         "vérifié, avec tout ce qu'il contient.",
+                         seal.c_str(), name.c_str());
+      ImGui::PopFont();
+      ImGui::Spacing();
+      ImGui::Separator();
+      ImGui::TextDisabled("Scellé ouvert ou abîmé ? Scannez l'étiquette d'ouverture rangée à l'intérieur, puis vérifiez "
+                          "le contenu.");
+      if (button("Vérifier le contenu"))
+        verif.open_seals.insert(id);
+      ImGui::SetItemTooltip("Affiche le contenu attendu de %s pour le vérifier item par item.", name.c_str());
+      ImGui::Spacing();
+      const bool cascade_done = app.verif_cascade() && !verif.done.empty();
+      if (danger_button(cascade_done ? "Quitter la vérif" : "Annuler la vérif", ImVec2(-1, 0)))
+        app.cancel_verif();
+      if (cascade_done)
+        ImGui::SetItemTooltip("Les lots déjà validés restent enregistrés ; les scans pas encore validés sont oubliés.");
     }
 
     void draw_list(const App &app, const char *title, const Json &iids, const ImVec4 &color) {
@@ -761,7 +810,8 @@ class VerifWindow final : public AppWindow {
         ImGui::TextColored(colors::orange, "Scellé brisé (%s) : resceller depuis la Gestion des lots.",
                            names.empty() ? "lot" : names.c_str());
       }
-      ImGui::Text("%s.", nb(report["present"].size(), "item présent", "items présents").c_str());
+      if (report["present"].size() > 0 || report["sealed_lots"].size() == 0) // scelle seul : rien de scanne
+        ImGui::Text("%s.", nb(report["present"].size(), "item présent", "items présents").c_str());
       if (report["sealed_lots"].size() > 0) {
         std::string names;
         for (const Json &name : report["sealed_lots"].items())

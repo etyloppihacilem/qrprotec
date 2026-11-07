@@ -90,6 +90,7 @@
     labels: [],             // lots dont l'etiquette (publique ou cle) a ete scannee pendant la vérif (labelMissing)
     entered: [],            // lots ou l'on est entre : leurs sous-lots non faits sont laisses de cote, pas manquants
     startedIn: '',          // sous-lot dont on a lance la vérif (ex : un kit dans le VPS)
+    openSeals: [],          // lots scelles dont on a choisi de verifier le contenu (sealWaiting)
   };
 
   // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -121,7 +122,7 @@
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
         launched: state.launched, current: state.current, full: state.full, fullHidden: state.fullHidden,
         path: state.path, done: state.done, keys: state.keys, entered: state.entered, startedIn: state.startedIn,
-        labels: state.labels,
+        labels: state.labels, openSeals: state.openSeals,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place }) => ({ code, kind, iid, key, info, expired, error, items, place })),
       }));
@@ -154,6 +155,7 @@
         state.done = session.done && typeof session.done === 'object' ? session.done : {};
         state.keys = session.keys && typeof session.keys === 'object' ? session.keys : {};
         state.labels = Array.isArray(session.labels) ? session.labels : [];
+        state.openSeals = Array.isArray(session.openSeals) ? session.openSeals : [];
         state.entered = Array.isArray(session.entered) ? session.entered : [];
         state.startedIn = typeof session.startedIn === 'string' ? session.startedIn : '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
@@ -1036,6 +1038,8 @@
   // global, le lot scelle (et ses sous-lots) compte comme verifie sans etre ouvert (intactLots).
   async function scanSeal(scan) {
     if (state.lot && state.lotId !== scan.id && checkRunning() && await sealDuringVerif(scan)) return;
+    // vérif lancee sur le lot scelle lui-meme : son etiquette du scelle suffit, la vérif est validee aussitot
+    if (state.lot && state.lotId === scan.id && sealWaiting(state.lot) && await sealDuringVerif(scan)) return;
     if (state.lotId !== scan.id) { state.lotKey = ''; state.lastVerif = null; }
     await loadLot(scan.id, scan.key);
     const lot = state.lot;
@@ -1091,9 +1095,20 @@
     feedback.good();
     showInfo('ok', `🔒 Scellé intact – ${lot.name}`, 'Compté comme vérifié, avec ses sous-lots, sans être ouvert.',
       closed.length ? `✔ ${closed.join(', ')} : validé.` : '');
+    // lot scelle dont on fait la vérif (on y etait entre, ou la vérif a ete lancee dessus) : rien d'autre a y scanner
+    const root = lot.id === state.lotId;
+    const inside = inCascade() && !root && isUnder(levelId(), lot.id);
+    const ends = inside && lot.id === state.startedIn;
+    if (inside) { state.path = chainTo(parentIdOf(lotById(lot.id))); state.current = levelId(); }
     save();
     render();
-    flushSeals();
+    if (root) {
+      // la vérif du lot, c'est ce scan : on la valide (connexion demandee si besoin)
+      if (inCascade()) await validateStep(false); else await validate(false);
+      return true;
+    }
+    await flushSeals();
+    if (ends && state.done[lot.id]) finishCascade(null, `${lot.name} : scellé intact constaté, vérif terminée.`);
     return true;
   }
 
@@ -1119,6 +1134,8 @@
     showInfo(result.result === 'opened' && result.seal && result.seal.valid ? 'ok' : 'warn',
       `🔓 ${result.result === 'opened' ? 'Scellé ouvert' : 'Scellé déjà ouvert'} – ${lot.name}`, opened);
     save();
+    // lot de la vérif en cours : rechargé, son contenu est maintenant a verifier (plus scelle)
+    if (state.lot && lotById(lot.id)) loadLot(state.lotId);
     // ecran en grand, pas de vérif : l'ouverture est enregistree, les responsables le voient
     showOpening(result, fromUrl);
   }
@@ -1286,7 +1303,7 @@
 
   function resetCascade() {
     state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.startedIn = ''; state.labels = [];
-    state.full = false; state.fullBy = ''; state.fullHidden = false;
+    state.openSeals = []; state.full = false; state.fullBy = ''; state.fullHidden = false;
   }
 
   // Facultatif (casques du VPS, sous-lot facultatif) : le lot se valide sans, sauf en « vérif complète » (bouton des
@@ -1502,6 +1519,43 @@
       if (!opened) for (const lot of subtree) result.add(lot.id);
     }
     return result;
+  }
+
+  // Lot scelle de la vérif dont le scelle n'est pas encore constate : sa vérif, c'est scanner l'etiquette du scelle,
+  // sans l'ouvrir. La liste ne montre alors que cette etiquette (sealRows). Plus le cas quand un item du lot a ete scanne
+  // (il a ete ouvert), quand on y est deja entre plus bas, ou quand on a choisi d'en verifier le contenu.
+  function sealWaiting(lot) {
+    if (!lot || !lot.is_sealed || state.openSeals.includes(lot.id) || state.done[lot.id]) return false;
+    const ids = new Set(subtreeIds(lot.id));
+    if (allScanned().some((entry) => entry.kind === 'seal' && !entry.error && ids.has(entry.iid))) return false;
+    if (state.entered.some((id) => id !== lot.id && ids.has(id))) return false;
+    const done = scannedIids();
+    const opened = sessionLots().filter((sub) => ids.has(sub.id))
+      .some((sub) => [...(sub.items || []), ...(sub.missing_items || [])].some((item) => done.has(item.iid)));
+    return !opened && !allScanned().some((entry) => !entry.error && entry.kind !== 'seal' && inCascade()
+      && ids.has(entry.place || state.lotId));
+  }
+
+  // Liste « à scanner » d'un lot scelle : une seule ligne, l'etiquette du scelle. Scelle ouvert : l'etiquette
+  // d'ouverture rangee a l'interieur le dit au TECH, puis on verifie le contenu.
+  function sealRows(lot) {
+    const seal = `Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''}${lot.sealed ? ' ' + fmtOn(lot.sealed) : ''}`;
+    return [
+      el('li', { class: 'group bad seal-wait' },
+        el('div', { class: 'main' },
+          el('div', { class: 'name' }, `🔒 Étiquette du scellé de ${lot.name}`),
+          el('div', { class: 'sub' }, `${seal} : scannez l'étiquette collée sur le scellé, sans l'ouvrir.`)),
+        el('span', { class: 'count' }, '0 / 1')),
+      el('li', { class: 'seal-hint' },
+        el('div', { class: 'main' },
+          el('div', {}, 'Scellé ouvert ou abîmé ?'),
+          el('div', { class: 'sub' }, "Scannez l'étiquette d'ouverture rangée à l'intérieur, puis vérifiez le contenu.")),
+        el('button', { type: 'button', class: 'secondary', onclick: () => {
+          if (!state.openSeals.includes(lot.id)) state.openSeals.push(lot.id);
+          save();
+          render();
+        } }, 'Vérifier le contenu')),
+    ];
   }
 
   // Repartition des items scannes entre les lots de la verif (meme regle que le serveur, services.assign_items) :
@@ -1990,6 +2044,8 @@
   const STORAGE_HELP = 'qrprotec.verif-help';
   function maybeVerifHelp() {
     if (!state.user || !state.lot || webPref('verif_help_hidden') || inHome() || ficheOpen()) return;
+    // lot scelle : rien a scanner dans le lot, seulement l'etiquette du scelle (rappel montre si l'on ouvre le contenu)
+    if (sealWaiting(inCascade() ? levelLot() : state.lot)) return;
     const key = state.user.matricule + ':' + state.lotId;
     let shown = '';
     try { shown = sessionStorage.getItem(STORAGE_HELP) || ''; } catch (e) { /* stockage indisponible */ }
@@ -2486,7 +2542,7 @@
       el('h2', { style: `color:var(--${report.complete ? 'green' : report.partial ? 'orange' : 'red'})` },
         report.complete ? ((report.lots || []).length > 1 ? '✅ Lots complets' : '✅ Lot complet')
           : report.partial ? '↷ Vérif partielle enregistrée' : '⚠️ Lot NON complet'),
-      el('p', {}, `${nb(report.present.length, 'item présent', 'items présents')}.`),
+      !report.present.length && (report.sealed_lots || []).length ? '' : el('p', {}, `${nb(report.present.length, 'item présent', 'items présents')}.`),
       (report.participants || []).length > 1 ? el('p', {}, `👥 Vérif à plusieurs : ${report.participants.join(', ')}.`) : '',
       (report.sealed_lots || []).length ? el('p', {}, `🔒 Scellé intact, compté comme vérifié : ${report.sealed_lots.join(', ')}.`) : '',
       report.unsealed ? el('p', { style: 'color:var(--orange)' },
@@ -2884,6 +2940,10 @@
         el('li', { class: 'empty' }, 'Scannez un item pour commencer une nouvelle vérif.'));
       return 0;
     }
+    if (sessionLots().length === 1 && sealWaiting(state.lot)) {
+      list.replaceChildren(...sealRows(state.lot));
+      return 1;
+    }
     const plan = planSession();
     const lots = sessionLots();
     const multi = lots.length > 1;
@@ -2933,11 +2993,17 @@
     });
     rows.push(el('li', { class: 'cascade-path' },
       el('div', { class: 'main' }, el('div', { class: 'crumbs' }, ...crumbs),
-        el('div', { class: 'sub' }, sealNextLevel() ? `Validez ${level.name} : la vérif s'arrête là, le lot est ensuite à resceller.`
+        el('div', { class: 'sub' }, sealWaiting(level) ? `Scannez l'étiquette du scellé : ${level.name} est validé sans l'ouvrir.`
+          : sealNextLevel() ? `Validez ${level.name} : la vérif s'arrête là, le lot est ensuite à resceller.`
           : parent ? `Validez ${level.name} pour revenir à ${parent.name}.`
           : childrenOf(level.id).length ? `Scannez l'étiquette ${childrenDe(level.id)} pour y entrer.` : '')),
       parent ? el('button', { type: 'button', class: 'secondary', title: `Revenir à ${parent.name} sans valider ${level.name} (ses scans sont gardés)`,
         onclick: goUp }, '← ' + (parent.name_short || parent.name)) : null));
+    if (sealWaiting(level)) {
+      rows.push(...sealRows(level));
+      list.replaceChildren(...rows);
+      return 1;
+    }
     const others = othersLevels();
     let left = 0;
     for (const child of childrenOf(level.id)) {
@@ -2963,6 +3029,7 @@
         left += 1;
         if (who.length) { cls = 'partial'; sub = `En cours · ${who.join(', ')}`; }
         else if (touched(child.id)) { cls = 'partial'; sub = `Commencé · ${nb(scanned, 'scanné')}, pas encore validé`; }
+        else if (sealWaiting(child)) { cls = 'todo'; sub = "🔒 Scellé : scannez l'étiquette du scellé"; }
         else { cls = 'todo'; sub = 'À faire · état actuel : ' + childStatus(child).label; }
       }
       rows.push(el('li', { class: 'lot-head sub-lot ' + cls, onclick: () => {
@@ -5068,6 +5135,14 @@
         : missing.length ? 'Valider la vérif…' : 'Valider la vérif';
     setLabel(validateButton, validateText.startsWith('Valider') ? 'check' : '', validateText);
     if (inCascade() && !out) renderCascadeActions(validateButton);
+    // lot scelle : sa vérif est le scan de l'etiquette du scelle (sealRows), rien a valider a la main
+    const sealTarget = !out && state.lot && !state.busy ? (inCascade() ? levelLot() : sessionLots().length === 1 ? state.lot : null) : null;
+    if (sealTarget && sealWaiting(sealTarget)) {
+      validateButton.disabled = true;
+      setLabel(validateButton, '', "Scannez l'étiquette du scellé");
+      validateButton.title = `${sealTarget.name} est scellé : scannez l'étiquette collée sur le scellé.`;
+      $('#restock').hidden = true;
+    }
     live.publish(liveSnapshot(remaining));
     renderTeam();
     setTimeout(maybeVerifHelp, 0); // apres le rendu (et la fermeture eventuelle des popups de connexion)
@@ -5075,7 +5150,7 @@
       : !state.lot ? "Visez l'étiquette d'un lot ou un item"
       : !hasIdentity() ? (state.declaredAllowed ? 'Scannez votre badge (ou touchez « Non connecté ») pour pouvoir valider'
         : 'Scannez votre badge pour pouvoir valider')
-        : 'Scannez les items du lot';
+        : sealTarget && sealWaiting(sealTarget) ? "Scannez l'étiquette du scellé" : 'Scannez les items du lot';
   }
 
   // Boutons de la vérif en cascade : valider le lot en cours (et revenir), terminer au lot global ; vérif partielle ou
