@@ -5408,18 +5408,16 @@
         where ? el('div', {}, where) : '',
         el('div', { class: 'sub' }, `${report.status_label} · signalé par ${report.by} ${fmtOn(report.created, { long: true })}`),
         report.comment ? el('p', { class: 'comment' }, '« ' + report.comment + ' »') : el('p', { class: 'sub' }, 'Sans commentaire.'),
-        repliesBlock(report))));
+        ...repliesBlock(report))));
   }
 
-  // Commentaires du TECH en reponse a un signalement, du plus ancien au plus recent, avec l'etat choisi en meme temps
-  // (« En cours · inutilisable »…). Signalement d'avant l'historique : sa reponse unique (note).
+  // Reponses du TECH a un signalement (deux au plus, apres le message du signalement) : celle donnee en le passant en
+  // cours, puis celle de la resolution
   function repliesBlock(report) {
-    const replies = report.replies || (report.note ? [{ text: report.note }] : []);
-    if (!replies.length) return '';
-    return el('div', { class: 'replies' }, ...replies.map((reply) => el('div', { class: 'reply' },
-      el('p', { class: 'note' }, '💬 ' + reply.text),
-      reply.by || reply.created || reply.action ? el('div', { class: 'sub' },
-        [reply.action, reply.by, reply.created ? fmtOn(reply.created, { long: true }) : ''].filter(Boolean).join(' · ')) : '')));
+    return [
+      report.note ? el('p', { class: 'note' }, '💬 ' + report.note) : '',
+      report.resolution_note ? el('p', { class: 'note' }, '✔ ' + report.resolution_note) : '',
+    ];
   }
 
   // Signalements en cours d'un lot et de ses sous-lots : sur le lot lui-meme, sur un type d'item, ou sur un item
@@ -5460,7 +5458,7 @@
       el('b', {}, report.usable ? '⚠ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
       el('div', { class: 'sub' }, `${report.status_label} · signalé par ${report.by} ${fmtOn(report.created)}`),
       report.comment ? el('p', { class: 'comment' }, '« ' + report.comment + ' »') : el('p', { class: 'sub' }, 'Sans commentaire.'),
-      repliesBlock(report))));
+      ...repliesBlock(report))));
     const dialog = $('#reported');
     $('#reported-close').onclick = () => dialog.close();
     if (!dialog.open) dialog.showModal();
@@ -5616,16 +5614,15 @@
     : row.status === 'resolved' ? 'Résolu' + (row.resolution_label ? ' · ' + row.resolution_label.toLowerCase() : '')
     : `En cours · ${row.usable ? 'utilisable' : 'inutilisable'}`);
 
-  // Commentaire en cours de redaction par signalement : garde a travers les rechargements de la liste, envoye avec
-  // le bouton d'etat choisi (ou seul, « Commenter »)
+  // Zone de texte de la reponse, par signalement : gardee a travers les rechargements de la liste. Enregistree par le
+  // bouton choisi : reponse « en cours » (remplace la precedente) ou reponse de la resolution.
   const reportDrafts = {};
 
   async function updateReport(row, changes) {
-    const note = (reportDrafts[row.id] || '').trim();
     try {
-      await api(`reports/${row.id}/`, { user: credentials(), ...changes, note });
+      await api(`reports/${row.id}/`, { user: credentials(), ...changes });
       delete reportDrafts[row.id];
-      toast(note ? 'Signalement mis à jour, commentaire ajouté.' : 'Signalement mis à jour.');
+      toast('Signalement mis à jour.');
     } catch (e) {
       toast(e.message, true);
       if (e.data && e.data.pin_required) { state.user = null; save(); }
@@ -5642,38 +5639,38 @@
       el('div', { class: 'sub' }, `Signalé par ${row.by} ${fmtOn(row.created, { long: true })}` + (row.item && showIds() ? ` · ${row.item}` : '')),
       el('div', {}, row.usable ? '✔ Toujours utilisable' : '✘ Inutilisable : à remplacer'),
       row.comment ? el('p', { class: 'comment' }, row.comment) : '',
-      repliesBlock(row),
+      ...repliesBlock(row),
       row.updated ? el('div', { class: 'sub' }, `Mis à jour ${fmtOn(row.updated, { long: true })}` + (row.updated_by ? ` par ${row.updated_by}` : '')) : '',
     ];
     if (manage) {
+      // en cours : la reponse deja donnee, a modifier ou completer avant le bouton suivant
       const note = el('textarea', { rows: 2, maxlength: 1000,
-        placeholder: 'Commentaire visible de tous (facultatif), envoyé avec le bouton choisi',
+        placeholder: 'Réponse visible de tous (facultatif), enregistrée avec le bouton choisi',
         oninput: (event) => { reportDrafts[row.id] = event.target.value; } });
-      note.value = reportDrafts[row.id] || '';
+      note.value = reportDrafts[row.id] ?? (row.note || '');
+      const progress = (usable) => updateReport(row, { status: 'progress', usable, note: note.value });
+      const resolve = (resolution) => updateReport(row, { status: 'resolved', resolution_note: note.value,
+        ...(resolution ? { resolution } : {}) });
       const buttons = row.status === 'resolved'
         ? [el('button', { type: 'button', onclick: () => updateReport(row, { status: 'progress' }) }, icon('undo'), 'Rouvrir')]
         : [
-          el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'progress', usable: true }) },
+          el('button', { type: 'button', class: 'primary', onclick: () => progress(true) },
             row.status === 'progress' && row.usable ? '✔ En cours · utilisable' : 'En cours · utilisable'),
-          el('button', { type: 'button', class: 'warning', onclick: () => updateReport(row, { status: 'progress', usable: false }) },
+          el('button', { type: 'button', class: 'warning', onclick: () => progress(false) },
             row.status === 'progress' && !row.usable ? '✔ En cours · inutilisable' : 'En cours · inutilisable'),
           ...(row.item ? [
             // item non conforme : desactive (remplace a la prochaine verif comme un perime) ou deja retire
-            el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved', resolution: 'ok' }) },
+            el('button', { type: 'button', class: 'primary', onclick: () => resolve('ok') },
               icon('check'), 'Résolu · remis en service'),
             el('button', { type: 'button', class: 'warning', onclick: () => {
-              if (confirm(`Désactiver ${row.item} ? Il devra être remplacé comme un périmé.`)) updateReport(row, { status: 'resolved', resolution: 'disabled' });
+              if (confirm(`Désactiver ${row.item} ? Il devra être remplacé comme un périmé.`)) resolve('disabled');
             } }, 'Résolu · item désactivé'),
             el('button', { type: 'button', class: 'danger', onclick: () => {
-              if (confirm(`Retirer ${row.item} de l'inventaire (déjà jeté) ?`)) updateReport(row, { status: 'resolved', resolution: 'removed' });
+              if (confirm(`Retirer ${row.item} de l'inventaire (déjà jeté) ?`)) resolve('removed');
             } }, 'Résolu · item retiré'),
-          ] : [el('button', { type: 'button', class: 'primary', onclick: () => updateReport(row, { status: 'resolved' }) }, icon('check'), 'Résolu')]),
+          ] : [el('button', { type: 'button', class: 'primary', onclick: () => resolve('') }, icon('check'), 'Résolu')]),
         ];
-      parts.push(el('div', { class: 'report-manage' }, note,
-        el('button', { type: 'button', onclick: () => {
-          if (!note.value.trim()) { toast('Écrivez d\'abord le commentaire.', true); note.focus(); return; }
-          updateReport(row, {});
-        } }, 'Commenter sans changer l\'état'),
+      parts.push(el('div', { class: 'report-manage' }, row.status === 'resolved' ? '' : note,
         el('div', { class: 'report-actions' }, ...buttons)));
     }
     return el('div', { class: 'report-card ' + row.color }, ...parts);

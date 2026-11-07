@@ -140,11 +140,11 @@ une vérif) :
   (redevient normal), **désactivé** (non conforme : à remplacer comme un périmé) ou **retiré** (déjà
   jeté : marqué supprimé). Un signalement résolu peut être rouvert.
 
-Le TECH peut répondre par un commentaire (facultatif) à chaque étape : écrit dans le champ au-dessus des
-boutons, il part avec le bouton choisi (« En cours · utilisable », « En cours · inutilisable », « Résolu »…), ou
-seul avec « Commenter sans changer l'état ». Les commentaires s'ajoutent les uns aux autres, avec l'état choisi,
-leur auteur et leur date : ils sont visibles de tous, dans la page Signalements, sur la fiche de ce qui est
-signalé et dans la fenêtre qui s'ouvre au scan d'un item signalé.
+Un signalement a trois messages au plus, visibles de tous : celui de la personne qui l'a fait, la réponse du
+TECH quand il le passe en cours, et celle de la résolution. La zone de texte au-dessus des boutons est
+enregistrée par le bouton choisi : « En cours · utilisable » ou « En cours · inutilisable » remplacent la réponse
+en cours (déjà dans la zone, à modifier), un bouton « Résolu » enregistre la réponse de résolution. Rouvrir un
+signalement efface sa réponse de résolution.
 
 ### Désactiver des items (rappel produit, non-conformité)
 

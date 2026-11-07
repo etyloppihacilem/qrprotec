@@ -177,7 +177,7 @@ class LotPreload:
         # signalements ouverts sur les lots eux-memes (ou un type d'item d'un lot) : lot non utilisable s'il y en a un
         # inutilisable (voir reports.lot_reports)
         self.reports = defaultdict(list)
-        for report in (ProblemReport.objects.select_related('item_type').prefetch_related('replies')
+        for report in (ProblemReport.objects.select_related('item_type')
                        .filter(lot_id__in=ids, item__isnull=True, sealed_pack__isnull=True)
                        .exclude(status=ReportStatus.RESOLVED).order_by('usable', 'created', 'id')):
             self.reports[report.lot_id].append(report)

@@ -1208,7 +1208,9 @@ class ProblemReport(models.Model):
     comment = models.TextField(blank=True, default='')
     usable = models.BooleanField(default=True)
     status = models.CharField(max_length=8, choices=ReportStatus.choices, default=ReportStatus.NEW, db_index=True)
-    note = models.TextField(blank=True, default='')  # reponse de l'admin, visible de tous
+    # reponses du TECH, visibles de tous : en passant « en cours » (remplacee a chaque fois), puis a la resolution
+    note = models.TextField(blank=True, default='')
+    resolution_note = models.TextField(blank=True, default='')
     updated = models.DateTimeField(blank=True, null=True)
     updated_by = models.CharField(max_length=64, blank=True, default='')
     resolved = models.DateTimeField(blank=True, null=True)
@@ -1227,21 +1229,6 @@ class ProblemReport(models.Model):
         if self.status == ReportStatus.IN_PROGRESS and not self.usable:
             return 'orange'
         return 'green'
-
-
-class ReportReply(models.Model):
-    """Commentaire du TECH en reponse a un signalement, visible de tous. Un par prise en charge, changement d'etat
-    ou simple reponse : l'historique reste lisible. `action` : ce qui a ete fait en meme temps (« En cours ·
-    inutilisable », « Résolu · item désactivé »…), vide pour un simple commentaire. ProblemReport.note garde le
-    dernier."""
-    report = models.ForeignKey(ProblemReport, on_delete=models.CASCADE, related_name='replies')
-    created = models.DateTimeField(default=timezone.now)
-    by = models.CharField(max_length=64, blank=True, default='')
-    text = models.TextField()
-    action = models.CharField(max_length=80, blank=True, default='')
-
-    class Meta:
-        ordering = ('created', 'id')
 
 
 class ChecklistStatus(models.TextChoices):

@@ -4202,28 +4202,30 @@ class ProblemReportTests(ApiTestCase):
         code, body = self.call('POST', '/api/reports/list/', {'show': 'all'})
         self.assertEqual(len(body['reports']), 1)
 
-    def test_replies_with_progress(self):
-        """Le TECH repond en passant « en cours » (utilisable ou non) ; plusieurs commentaires restent dans
-        l'historique, visibles de tous (liste, fiche, popup au scan)."""
+    def test_three_messages_at_most(self):
+        """Trois messages au plus : le signalement, la reponse en cours (remplacee a chaque bouton « En cours ») et
+        celle de la resolution (effacee si le signalement est rouvert)."""
         _, body = self.report({'item': self.items[0].iid, 'usable': True, 'comment': 'Emballage déchiré'})
-        report_id = body['report']['id']
-        url = f'/api/reports/{report_id}/'
+        url = f"/api/reports/{body['report']['id']}/"
         code, body = self.call('POST', url, {'status': 'progress', 'usable': True, 'note': 'Je regarde demain'})
-        self.assertEqual(code, 200)
-        code, body = self.call('POST', url, {'status': 'progress', 'usable': False, 'note': '  Stérilité douteuse  '})
-        code, body = self.call('POST', url, {'note': 'Commandé'})  # simple commentaire, sans changer l'etat
-        code, body = self.call('POST', url, {'status': 'progress', 'note': ''})  # vide : pas de commentaire
-        self.assertEqual(body['note'], 'Commandé')
-        self.assertEqual([(reply['text'], reply['action']) for reply in body['replies']],
-                         [('Je regarde demain', 'En cours · utilisable'),
-                          ('Stérilité douteuse', 'En cours · inutilisable'), ('Commandé', '')])
-        self.assertTrue(all(reply['by'] and reply['created'] for reply in body['replies']))
+        self.assertEqual((code, body['note']), (200, 'Je regarde demain'))
+        code, body = self.call('POST', url, {'status': 'progress', 'usable': False, 'note': '  Commandé  '})
+        self.assertEqual((body['note'], body['color']), ('Commandé', 'orange'))
         code, body = self.call('POST', '/api/reports/list/', {'user': self.badge}, local=False)
-        self.assertEqual(len(body['reports'][0]['replies']), 3)
+        self.assertEqual(body['reports'][0]['note'], 'Commandé')
         code, body = self.call('GET', f'/api/items/{self.items[0].iid}/')
-        self.assertEqual(body['reports'][0]['replies'][-1]['text'], 'Commandé')
-        code, body = self.call('POST', url, {'status': 'resolved', 'resolution': 'ok', 'note': 'Remplacé'})
-        self.assertEqual(body['replies'][-1]['action'], 'Résolu · remis en service')
+        self.assertEqual(body['reports'][0]['note'], 'Commandé')
+        # zone de texte laissee telle quelle en resolvant : pas de message de resolution
+        code, body = self.call('POST', url, {'status': 'resolved', 'resolution': 'ok', 'resolution_note': 'Commandé'})
+        self.assertEqual((body['note'], body['resolution_note']), ('Commandé', ''))
+        self.call('POST', url, {'status': 'progress'})
+        code, body = self.call('POST', url, {'status': 'resolved', 'resolution': 'ok', 'resolution_note': 'Remplacé'})
+        self.assertEqual((body['comment'], body['note'], body['resolution_note']),
+                         ('Emballage déchiré', 'Commandé', 'Remplacé'))
+        code, body = self.call('POST', url, {'status': 'progress'})  # rouvert : la resolution n'a plus cours
+        self.assertEqual((body['note'], body['resolution_note']), ('Commandé', ''))
+        code, body = self.call('POST', url, {'status': 'progress', 'usable': True, 'note': ''})
+        self.assertEqual(body['note'], '')
 
     def test_list_puts_reports_to_handle_first(self):
         _, first = self.report({'item': self.items[0].iid, 'usable': True})

@@ -25,8 +25,7 @@ from django.utils import timezone
 from . import journal, notifications, services
 from .idendity import identity_name, short_identity_name
 from .models import (
-    Items, ItemStatus, ItemType, Lots, OperationKind, ProblemReport, ReportReply, ReportResolution, ReportStatus,
-    SealedPacks,
+    Items, ItemStatus, ItemType, Lots, OperationKind, ProblemReport, ReportResolution, ReportStatus, SealedPacks,
 )
 
 COMMENT_LENGTH = 1000
@@ -84,21 +83,6 @@ def target_name(report):
     return report.lot_name or 'Lot inconnu'
 
 
-def state_label(report):
-    """« Nouveau », « En cours · inutilisable », « Résolu · item désactivé » : l'etat, comme sur les boutons."""
-    if report.status == ReportStatus.NEW:
-        return 'Nouveau'
-    if report.status == ReportStatus.RESOLVED:
-        return 'Résolu' + (f' · {ReportResolution(report.resolution).label.lower()}' if report.resolution else '')
-    return 'En cours · ' + ('utilisable' if report.usable else 'inutilisable')
-
-
-def replies(report):
-    """Commentaires du TECH, du plus ancien au plus recent (prefetch_related('replies') conseille)."""
-    return [{'created': _local(reply.created), 'by': identity_name(reply.by), 'text': reply.text,
-             'action': reply.action} for reply in report.replies.all()]
-
-
 def report_dict(report):
     data = {
         'id': report.id,
@@ -117,7 +101,7 @@ def report_dict(report):
         'status_label': ReportStatus(report.status).label,
         'color': report.color,
         'note': report.note,
-        'replies': replies(report),
+        'resolution_note': report.resolution_note,
         'updated': _local(report.updated),
         'updated_by': identity_name(report.updated_by),
         'resolved': _local(report.resolved),
@@ -175,9 +159,11 @@ def create(identity, lot_id='', iid='', type_code='', comment='', usable=True, p
     return report, item
 
 
-def update(report, identity, status=None, usable=None, note=None, resolution=None):
-    """Prise en charge par un admin : statut, objet utilisable ou non, commentaire en reponse (`note`, ajoute a
-    l'historique des reponses avec l'etat choisi en meme temps ; vide : pas de commentaire). En resolvant le signalement d'un
+def update(report, identity, status=None, usable=None, note=None, resolution=None, resolution_note=None):
+    """Prise en charge par un admin : statut, objet utilisable ou non, et sa reponse. Trois messages au plus par
+    signalement : celui du signalement (comment), la reponse du TECH en le passant en cours (`note`, la zone de texte
+    enregistree a chaque bouton « En cours », remplacee a chaque fois) et celle de la resolution (`resolution_note`,
+    effacee si le signalement est rouvert). En resolvant le signalement d'un
     item (ou d'un paquet ferme : tous ses items), `resolution` dit ce qu'il devient : 'ok' (remis en service), 'disabled' (desactive, non conforme) ou
     'removed' (retire de l'inventaire, deja jete)."""
     changes = []
@@ -203,6 +189,7 @@ def update(report, identity, status=None, usable=None, note=None, resolution=Non
             report.resolved = None
             report.resolved_by = ''
             report.resolution = ReportResolution.NONE
+            report.resolution_note = ''
     if usable is not None and bool(usable) != report.usable:
         report.usable = bool(usable)
         changes.append('utilisable' if report.usable else 'inutilisable')
@@ -210,20 +197,24 @@ def update(report, identity, status=None, usable=None, note=None, resolution=Non
     if resolution_changed:
         report.resolution = resolution
         changes.append(ReportResolution(resolution).label.lower())
-    note = str(note or '').strip()[:NOTE_LENGTH]
-    if note:
-        report.note = note
-        changes.append('réponse')
+    if note is not None:
+        note = str(note).strip()[:NOTE_LENGTH]
+        if note != report.note:
+            report.note = note
+            changes.append('réponse')
+    if resolution_note is not None and report.status == ReportStatus.RESOLVED:
+        resolution_note = str(resolution_note).strip()[:NOTE_LENGTH]
+        if resolution_note == report.note:
+            resolution_note = ''  # zone de texte laissee telle qu'en cours : pas un nouveau message
+        if resolution_note != report.resolution_note:
+            report.resolution_note = resolution_note
+            changes.append('réponse de résolution')
     if not changes:
         return report
     report.updated = now
     report.updated_by = identity
     with transaction.atomic():
         report.save()
-        if note:
-            # bouton d'etat (meme sans changement) : l'etat accompagne le commentaire
-            action = state_label(report) if (status, usable, resolution) != (None, None, None) else ''
-            ReportReply.objects.create(report=report, created=now, by=identity, text=note, action=action)
         items = report_items(report)
         if items and resolution_changed:
             reason = f'Non conforme (signalement n°{report.id})'
@@ -239,7 +230,9 @@ def update(report, identity, status=None, usable=None, note=None, resolution=Non
             refresh_item(item)
         journal.record(OperationKind.REPORT, identity, f'{target_name(report)} : ' + ', '.join(changes),
                        lot=report.lot, report=report.id, status=report.status, usable=report.usable,
-                       resolution=report.resolution, **({'note': note[:200]} if note else {}))
+                       resolution=report.resolution,
+                       **({'note': report.note[:200]} if note else {}),
+                       **({'resolution_note': report.resolution_note[:200]} if resolution_note else {}))
     return report
 
 
@@ -265,7 +258,7 @@ def lot_reports(lot):
     """Signalements ouverts d'un lot (le lot ou un type d'item du lot) : affiches sur sa fiche, sur le web et le
     poste. Un seul signale inutilisable rend le lot non utilisable (rouge) jusqu'a sa resolution."""
     return [summary(report) for report in ProblemReport.objects.filter(lot_reports_q(), lot=lot)
-            .select_related('item_type').prefetch_related('replies').order_by('usable', 'created', 'id')]
+            .select_related('item_type').order_by('usable', 'created', 'id')]
 
 
 def summary(report):
@@ -280,13 +273,12 @@ def summary(report):
         'status': report.status,
         'status_label': ReportStatus(report.status).label,
         'note': report.note,
-        'replies': replies(report),
+        'resolution_note': report.resolution_note,
     }
 
 
 def _summaries(queryset):
-    return [summary(report) for report in queryset.select_related('item_type').prefetch_related('replies')
-            .order_by('created')]
+    return [summary(report) for report in queryset.select_related('item_type').order_by('created')]
 
 
 def listing(show='open', limit=200):
@@ -297,8 +289,8 @@ def listing(show='open', limit=200):
                      When(status=ReportStatus.IN_PROGRESS, usable=False, then=Value(1)),
                      When(status=ReportStatus.IN_PROGRESS, then=Value(2)),
                      default=Value(3), output_field=IntegerField())
-    queryset = (ProblemReport.objects.select_related('item_type').prefetch_related('replies')
-                .annotate(attention=attention).order_by('attention', '-created', '-id'))
+    queryset = (ProblemReport.objects.select_related('item_type').annotate(attention=attention)
+                .order_by('attention', '-created', '-id'))
     if show == 'open':
         queryset = queryset.exclude(status=ReportStatus.RESOLVED)
     counts = {

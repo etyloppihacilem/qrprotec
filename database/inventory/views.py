@@ -1416,13 +1416,15 @@ def reports_list(request):
 @api_view(['POST'])
 @handle_errors
 def report_update(request, report_id):
-    """Prise en charge par un admin : {"user", "status": new|progress|resolved, "usable": bool, "note": texte,
-    "resolution": ok|disabled|removed (issue pour l'item, en resolvant)}."""
+    """Prise en charge par un admin : {"user", "status": new|progress|resolved, "usable": bool, "note": reponse en
+    cours (remplacee), "resolution": ok|disabled|removed (issue pour l'item, en resolvant), "resolution_note": reponse
+    de la resolution}."""
     user = connected_user(request, ADMIN)
     report = get_object_or_404(ProblemReport.objects.select_related('item_type', 'item', 'lot'), id=report_id)
     data = request.data
     reports.update(report, f'{SOURCE_VERIFIED}:{user.matricule}', status=data.get('status'),
-                   usable=data.get('usable'), note=data.get('note'), resolution=data.get('resolution'))
+                   usable=data.get('usable'), note=data.get('note'), resolution=data.get('resolution'),
+                   resolution_note=data.get('resolution_note'))
     return Response(reports.report_dict(report))
 
 
