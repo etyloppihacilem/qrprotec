@@ -1159,8 +1159,8 @@ class FrontKey(models.Model):
 
 
 class FrontConfigDownload(models.Model):
-    """Fichier de configuration chiffre d'un front distant, cree au poste par un admin (Reglages > Serveur >
-    Connecter un autre ordinateur) et telechargeable par son lien (QR code) pendant quelques minutes :
+    """Fichier de configuration chiffre d'un front distant, cree au poste par un admin (fenetre
+    Utilisateurs > Ordinateurs connectes) et telechargeable par son lien (QR code) pendant quelques minutes :
     https://serveur/front-config/<token>. Supprime a expiration (voir inventory.front_config)."""
     token = models.CharField(max_length=64, unique=True)
     front = models.ForeignKey(FrontKey, on_delete=models.CASCADE, related_name='config_downloads')

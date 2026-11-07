@@ -321,6 +321,36 @@ class PublicApiTests(ApiTestCase):
         self.assertFalse(FrontKey.objects.filter(name='b').exists())
         self.assertEqual(self.client.post('/api/front-configs/', {'name': 'b'}).status_code, 404)  # API publique
 
+    def test_front_config_revoke_restore_delete(self):
+        """Onglet Ordinateurs connectes : revoquer (lien en cours coupe), reactiver, supprimer, journal."""
+        from unittest import mock
+
+        from inventory import front_config
+        from inventory.models import FrontConfigDownload, Operation
+
+        with mock.patch.object(front_config, 'server_ca_pem', return_value=''):
+            code, body = self.call('POST', '/api/front-configs/', {'name': 'accueil'})
+        path = body['url'][body['url'].index('/front-config/'):]
+        key = front_config.decrypt(self.client.get(path).content.decode(), body['password'])['api_key']
+        code, listing = self.call('GET', '/api/front-configs/')
+        self.assertTrue(listing['fronts'][0]['download_pending'])
+        self.assertEqual(self.call('POST', '/api/front-configs/accueil/', {'action': 'revoke'})[0], 200)
+        self.assertIsNone(FrontKey.authenticate(key))
+        self.assertFalse(FrontConfigDownload.objects.exists())
+        self.assertEqual(self.client.get(path).status_code, 404)
+        code, listing = self.call('GET', '/api/front-configs/')
+        self.assertEqual((listing['fronts'][0]['revoked'], listing['fronts'][0]['download_pending']), (True, False))
+        self.assertEqual(self.call('POST', '/api/front-configs/accueil/', {'action': 'restore'})[0], 200)
+        self.assertIsNotNone(FrontKey.authenticate(key))
+        self.assertEqual(self.call('POST', '/api/front-configs/accueil/', {'action': 'x'})[0], 400)
+        self.assertEqual(self.call('POST', '/api/front-configs/accueil/', {'action': 'delete'}, session=False)[0], 403)
+        self.assertEqual(self.call('POST', '/api/front-configs/accueil/', {'action': 'delete'})[0], 200)
+        self.assertFalse(FrontKey.objects.exists())
+        self.assertEqual(self.call('POST', '/api/front-configs/accueil/', {'action': 'delete'})[0], 404)
+        summaries = list(Operation.objects.filter(kind='settings').values_list('summary', flat=True))
+        self.assertIn('ordinateur « accueil » révoqué', summaries)
+        self.assertIn('ordinateur « accueil » supprimé', summaries)
+
     def test_server_ca_pem(self):
         import tempfile
         from pathlib import Path
