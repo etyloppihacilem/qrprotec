@@ -634,6 +634,12 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .picker-results li small, #label-prints .picker-results li small { color: var(--muted); }
 #home-lists .picker-results li.active, #label-prints .picker-results li.active { background: var(--blue-bg); }
 #home-lists .picker-results li.empty, #label-prints .picker-results li.empty { color: var(--muted); cursor: default; }
+/* genre du resultat de la recherche unique d'ajout a une liste : lot precis, lot au choix (par type), materiel */
+#home-lists .picker-results li .picker-kind { flex: none; align-self: center; font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap;
+  padding: 4px 8px; border-radius: 999px; border: 1px solid var(--navy); }
+#home-lists .picker-kind-lot { background: var(--navy); color: #fff; }
+#home-lists .picker-kind-lot-type { background: #fff; color: var(--navy); border-style: dashed !important; }
+#home-lists .picker-kind-type { background: var(--button); color: var(--text); border-color: var(--line) !important; }
 
 #home-lists .list-share { display: flex; gap: 8px; align-items: stretch; }
 #home-lists .list-share button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }

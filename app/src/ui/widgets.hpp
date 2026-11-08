@@ -75,10 +75,12 @@ bool json_combo(
 // Champ de recherche avec completion : resultats en direct sous le champ (sans accents ni casse,
 // par debut de mots ou code), fleches pour choisir, Tab ou Entree pour valider, Echap pour annuler.
 // `list` : objets JSON ; `key_field` est la valeur retournee dans `selected`. `empty_label` (optionnel)
-// ajoute un premier choix qui vide la selection (ex: "Tous les types"). Retourne true si change.
+// ajoute un premier choix qui vide la selection (ex: "Tous les types"). `code_field` (optionnel) : texte
+// entre parentheses apres le nom au lieu de la cle (ex : genre du resultat quand la liste melange lots et
+// materiel). Retourne true si change.
 bool search_select(const char *id, const Json &list, const char *key_field, const char *name_field,
                    std::string &selected, const char *hint = "Rechercher…", const char *empty_label = nullptr,
-                   float width = -FLT_MIN);
+                   float width = -FLT_MIN, const char *code_field = nullptr);
 
 // Champ texte libre avec suggestions (ex : emplacements deja donnes dans le lot) : la liste sous le champ filtre
 // les suggestions comme search_select, fleches pour en choisir une, Tab pour completer, Entree pour garder le

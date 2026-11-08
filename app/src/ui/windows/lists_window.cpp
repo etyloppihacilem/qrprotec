@@ -746,51 +746,41 @@ class ListsWindow final : public AppWindow {
       if (options_.is_null()) {
         ImGui::TextDisabled("Chargement des lots et du matériel...");
       } else {
+        // une seule recherche pour tout ce qui se scanne : lots precis, lots au choix (« 1 lot B+ », n'importe
+        // lequel de ce type, choisi en scannant son etiquette) et materiel (type d'item). Le genre de chaque
+        // resultat est ecrit entre parentheses, la cle porte un prefixe (lot:, lots:, type:) pour les distinguer.
+        Json choices = Json::array();
+        const auto choice = [&](const std::string &key, const std::string &name, const std::string &code) {
+          Json row;
+          row["key"]  = key;
+          row["name"] = name;
+          row["code"] = code;
+          choices.push_back(row);
+        };
+        for (const Json &option : options_["lot_types"].items())
+          choice("lots:" + option["type"].str(), option["name"].str(), "lot au choix, " + option["type"].str());
+        for (const Json &option : options_["lots"].items())
+          choice("lot:" + option["id"].str(), option["name"].str(),
+                 option["lot_type_name"].str().empty() ? "lot" : "lot, " + option["lot_type_name"].str());
+        for (const Json &option : options_["types"].items())
+          choice("type:" + option["type"].str(), option["name"].str(), "matériel, " + option["type"].str());
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Ajouter un lot");
+        ImGui::TextUnformatted("Ajouter");
         ImGui::SameLine(185.0f);
-        if (search_select("add_lot", options_["lots"], "id", "name", add_lot_, "Rechercher un lot…", nullptr, 360.0f)
-            && !add_lot_.empty()) {
-          add_line(true, std::exchange(add_lot_, {}), 1);
+        if (search_select("add_any", choices, "key", "name", add_pick_, "Rechercher un lot, un type de lot ou du matériel…",
+                          nullptr, 480.0f, "code")
+            && !add_pick_.empty()) {
+          const std::string pick = std::exchange(add_pick_, {});
+          if (pick.rfind("lot:", 0) == 0)
+            add_line(true, pick.substr(4), 1);
+          else if (pick.rfind("type:", 0) == 0)
+            add_line(false, pick.substr(5), 1);
+          else if (pick.rfind("lots:", 0) == 0)
+            add_lot_type(pick.substr(5));
         }
-        // n'importe quel lot de ce type (« 1 lot B+ ») : choisi en scannant son etiquette
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Ajouter un lot au choix");
-        ImGui::SameLine(185.0f);
-        if (search_select("add_lot_type", options_["lot_types"], "type", "name", add_lot_type_,
-                          "Rechercher un type de lot…", nullptr, 360.0f)
-            && !add_lot_type_.empty()) {
-          const std::string code = std::exchange(add_lot_type_, {});
-          bool              found = false;
-          for (Json &line : edit_lines_.items())
-            if (line.contains("lot_types") && line["lot_types"].size() == 1 && line["lot_types"][std::size_t{ 0 }].str() == code) {
-              line["quantity"] = std::min(99, static_cast< int >(line["quantity"].integer()) + 1);
-              found            = true;
-            }
-          for (const Json &option : options_["lot_types"].items())
-            if (!found && option["type"].str() == code) {
-              Json row;
-              row["lot_types"] = Json::array();
-              row["lot_types"].push_back(code);
-              row["label"]    = option["name"].str() + " (lot au choix)";
-              row["quantity"] = 1;
-              edit_lines_.push_back(row);
-            }
-        }
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Ajouter du matériel");
-        ImGui::SameLine(185.0f);
-        search_select("add_type", options_["types"], "type", "name", add_type_, "Rechercher un type d'item…", nullptr,
-                      360.0f);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(110.0f);
-        ImGui::InputInt("##add_quantity", &add_quantity_);
-        add_quantity_ = std::clamp(add_quantity_, 1, 999);
-        ImGui::SameLine();
-        ImGui::BeginDisabled(add_type_.empty());
-        if (button("Ajouter"))
-          add_line(false, std::exchange(add_type_, {}), std::exchange(add_quantity_, 1));
-        ImGui::EndDisabled();
+        help_marker("Lot : ce lot-là précisément. Lot au choix : n'importe quel lot de ce type, choisi en scannant "
+                    "son étiquette. Matériel : un type d'item, la quantité se règle dans le tableau.");
       }
       // tache libre : ni lot ni item, cochee a la verif (ex : verifier le niveau d'eau dans le sous-sol)
       ImGui::AlignTextToFramePadding();
@@ -822,6 +812,25 @@ class ListsWindow final : public AppWindow {
       if (primary_button("Enregistrer"))
         save(app);
       ImGui::EndDisabled();
+    }
+
+    // ligne « lot au choix » d'un type de lot : une de plus si la ligne existe deja
+    void add_lot_type(const std::string &code) {
+      for (Json &line : edit_lines_.items())
+        if (line.contains("lot_types") && line["lot_types"].size() == 1 && line["lot_types"][std::size_t{ 0 }].str() == code) {
+          line["quantity"] = std::min(99, static_cast< int >(line["quantity"].integer()) + 1);
+          return;
+        }
+      for (const Json &option : options_["lot_types"].items())
+        if (option["type"].str() == code) {
+          Json row;
+          row["lot_types"] = Json::array();
+          row["lot_types"].push_back(code);
+          row["label"]    = option["name"].str() + " (lot au choix)";
+          row["quantity"] = 1;
+          edit_lines_.push_back(row);
+          return;
+        }
     }
 
     void add_line(bool lot, const std::string &key, int quantity) {
@@ -1035,13 +1044,10 @@ class ListsWindow final : public AppWindow {
     bool        edit_started_  = false;
     Json        edit_lines_    = Json::array();
     Json        options_;
-    std::string add_lot_;
-    std::string add_lot_type_;
+    std::string add_pick_; // recherche unique d'ajout : lot:<id>, lots:<type de lot> ou type:<type d'item>
     Json        departure_ = Json::array(); // types proposes par « Partir avec un lot »
     std::string departure_pick_;
-    std::string add_type_;
     std::string add_task_;
-    int         add_quantity_ = 1;
 };
 
 } // namespace

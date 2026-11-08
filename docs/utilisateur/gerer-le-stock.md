@@ -211,8 +211,12 @@ Pour une liste qui revient souvent (poste de secours du stade, match du dimanche
 **modèle** : il ne se vérifie pas, **Utiliser ce modèle** en fait une nouvelle liste à vérifier.
 **Dupliquer** refait une liste déjà sortie ou rentrée.
 
-**Lot au choix** : une ligne peut demander « 1 B+ » sans dire lequel (**Ajouter un lot au choix**,
-par type). On la coche en scannant l'étiquette de n'importe quel lot de ce type, sauf un lot rangé
+**Ajouter à la liste** : un seul champ de recherche propose tout ce qui se scanne. Chaque résultat
+porte son genre : **Lot** (ce lot-là précisément), **Lot au choix** (un type de lot, n'importe
+lequel) ou **Matériel** (un type d'item, avec sa quantité). Les tâches s'ajoutent à part.
+
+**Lot au choix** : une ligne peut demander « 1 B+ » sans dire lequel (résultat **Lot au choix** de
+la recherche). On la coche en scannant l'étiquette de n'importe quel lot de ce type, sauf un lot rangé
 pour de bon dans un autre (une place fixe des lots exigés : on ne part pas avec le B+ du VPS) ou déjà
 pris par une autre liste pas encore rentrée. La ligne montre les lots disponibles, les valides en
 premier ; un lot pris qui n'est pas valide est signalé au scan.
