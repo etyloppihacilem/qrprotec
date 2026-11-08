@@ -202,12 +202,41 @@ def _deliver(jobs):
         close_old_connections()
 
 
+_threads = set()
+_threads_lock = threading.Lock()
+
+
+def _run(jobs):
+    try:
+        _deliver(jobs)
+    finally:
+        with _threads_lock:
+            _threads.discard(threading.current_thread())
+
+
 def _dispatch(jobs):
     # envoi dans la requete (tests) ou dans un thread
     if qrprotec_setting('NOTIFY_SYNC'):
         _deliver(jobs)
     else:
-        threading.Thread(target=_deliver, args=(jobs,), daemon=True).start()
+        thread = threading.Thread(target=_run, args=(jobs,), daemon=True)
+        with _threads_lock:
+            _threads.add(thread)
+        thread.start()
+
+
+def flush(timeout=60):
+    """Attend la fin des envois en cours. A appeler a la fin d'une commande (check_alerts, server_problem) : le
+    processus s'arrete ensuite, et avec lui les threads d'envoi qui n'ont pas fini (notifications perdues)."""
+    deadline = time.monotonic() + timeout
+    while True:
+        with _threads_lock:
+            pending = [thread for thread in _threads if thread is not threading.current_thread()]
+        if not pending:
+            return
+        pending[0].join(max(0.0, deadline - time.monotonic()))
+        if time.monotonic() >= deadline:
+            return
 
 
 def queue(jobs):

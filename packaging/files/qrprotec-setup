@@ -7,6 +7,7 @@
 #   sudo qrprotec-setup --front-key accueil  # back : cle API d'un front d'une autre machine
 #   sudo qrprotec-setup --front-key accueil --front-config accueil.qrprotec   # cle dans un fichier chiffre
 #   sudo qrprotec-setup --api-url https://inventaire.example.org --api-key qrpf_...   # kiosk distant
+#   sudo qrprotec-setup --backup-sync sauvegarde@nas:/srv/qrprotec   # copie des sauvegardes sur une autre machine
 #
 # Toute la configuration partagee du back (nom d'hote, TLS) est ecrite dans /etc/qrprotec/qrprotec.conf,
 # lu a la fois par le back et par Caddy ; la connexion du kiosk a un back distant dans
@@ -20,6 +21,7 @@ readonly CADDYFILE=/etc/caddy/Caddyfile
 readonly BACKUP_CONF=/etc/qrprotec/backup.conf
 readonly FRONT_API_CONF=/etc/qrprotec/front-api.conf
 readonly SERVER_CA=/etc/qrprotec/server-ca.crt
+readonly SYNC_KEY=/etc/qrprotec/backup_ssh_key
 readonly CADDY_CA=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
 
 domain=""
@@ -30,6 +32,9 @@ backup_dir=""
 backup_keep=""
 backup_schedule=""
 backup_now=no
+backup_sync=""
+backup_sync_port=""
+backup_sync_off=no
 restore_archive=""
 restore_db_only=no
 api_url=""
@@ -77,6 +82,11 @@ Sauvegardes :
   --backup-keep N       nombre de sauvegardes conservees (0 = toutes)
   --backup-schedule F   frequence : hourly, daily, weekly, monthly, expression OnCalendar
                         de systemd (ex. "*-*-* 03:30:00") ou off
+  --backup-sync CIBLE   copie les sauvegardes sur une autre machine apres chacune, par rsync sur SSH :
+                        utilisateur@machine:/dossier (cle SSH dediee creee et affichee, a autoriser la-bas ;
+                        rsync doit etre installe sur les deux machines)
+  --backup-sync-port N  port SSH de la machine distante (defaut 22)
+  --no-backup-sync      n'envoie plus les sauvegardes sur une autre machine
   --backup-now          cree une sauvegarde a la fin
   --restore ARCHIVE     restaure une sauvegarde qrprotec-backup_*.tar.xz (base, options de
                         /etc/qrprotec, Caddy, reglages et modeles du kiosk) puis s'arrete
@@ -105,6 +115,9 @@ while (($#)); do
         --backup-dir) backup_dir=${2:?}; shift ;;
         --backup-keep) backup_keep=${2:?}; shift ;;
         --backup-schedule) backup_schedule=${2:?}; shift ;;
+        --backup-sync) backup_sync=${2:?utilisateur@machine:/dossier attendu}; shift ;;
+        --backup-sync-port) backup_sync_port=${2:?}; shift ;;
+        --no-backup-sync) backup_sync_off=yes ;;
         --backup-now) backup_now=yes ;;
         --restore) restore_archive=${2:?archive .tar.xz attendue}; shift ;;
         --restore-db-only) restore_db_only=yes ;;
@@ -398,6 +411,42 @@ fi
 set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_DIR "$backup_dir"
 set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_KEEP "$backup_keep"
 set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SCHEDULE "\"$backup_schedule\""
+
+# Copie des sauvegardes sur une autre machine (rsync sur SSH, cle dediee sans mot de passe)
+current_sync=$(get_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SYNC_TARGET)
+if [[ $backup_sync_off == yes ]]; then
+    backup_sync=""
+elif [[ -z $backup_sync && $assume_yes != yes && -t 0 ]]; then
+    read -r -p "Copier les sauvegardes sur une autre machine par SSH (utilisateur@machine:/dossier, vide = non) [${current_sync:-non}] : " backup_sync
+    backup_sync=${backup_sync:-$current_sync}
+    [[ ${backup_sync,,} =~ ^(non|no|-)$ ]] && backup_sync=""
+elif [[ -z $backup_sync ]]; then
+    backup_sync=$current_sync
+fi
+if [[ -n $backup_sync ]]; then
+    if [[ ! $backup_sync =~ ^[^[:space:]:/]+:[^[:space:]]+$ && ! $backup_sync =~ ^[^[:space:]@/]+@\[[0-9A-Fa-f:.]+\]:[^[:space:]]+$ ]]; then
+        die "machine distante invalide (utilisateur@machine:/dossier) : $backup_sync"
+    fi
+    current_port=$(get_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SYNC_PORT)
+    backup_sync_port=${backup_sync_port:-${current_port:-22}}
+    [[ $backup_sync_port =~ ^[0-9]+$ ]] || die "port SSH invalide : $backup_sync_port"
+    set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SYNC_TARGET "$backup_sync"
+    set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SYNC_PORT "$backup_sync_port"
+    if [[ ! -s $SYNC_KEY ]]; then
+        command -v ssh-keygen >/dev/null || die "ssh-keygen introuvable (sudo dnf install openssh-clients)"
+        rm -f "$SYNC_KEY" "$SYNC_KEY.pub"
+        ssh-keygen -q -t ed25519 -N '' -C "qrprotec-backup@$(uname -n)" -f "$SYNC_KEY"
+    fi
+    chown root:root "$SYNC_KEY"
+    chmod 0600 "$SYNC_KEY"
+    if [[ $backup_sync != "$current_sync" ]] || [[ $assume_yes != yes ]]; then
+        echo "Sur la machine distante (${backup_sync%%:*}), autorisez cette cle (une ligne dans ~/.ssh/authorized_keys"
+        echo "de l'utilisateur, idealement dedie aux sauvegardes ; rsync doit y etre installe) :"
+        echo "    $(cat "$SYNC_KEY.pub")"
+    fi
+else
+    unset_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SYNC_TARGET
+fi
 echo "Configuration ecrite dans $BACKUP_CONF"
 
 if [[ $has_server == yes && -f $CADDYFILE ]] && ! grep -Eq '^[[:space:]]*import[[:space:]]+(/etc/caddy/)?Caddyfile\.d/' "$CADDYFILE"; then
@@ -453,7 +502,22 @@ if [[ $admin == yes ]]; then
 fi
 
 if [[ $backup_now == yes ]]; then
-    qrprotec-backup
+    qrprotec-backup  # envoie aussi sur la machine distante
+elif [[ -n $backup_sync && ( $backup_sync != "$current_sync" || ! -s /etc/qrprotec/backup_known_hosts ) ]]; then
+    # premiere connexion : enregistre la cle de la machine distante (le service n'accepte ensuite qu'elle)
+    # pas d'essai sans terminal (--yes) : la cle n'est sans doute pas encore autorisee la-bas
+    if [[ $assume_yes != yes && -t 0 ]] &&
+       confirm "Cle autorisee sur ${backup_sync%%:*} : tester l'envoi des sauvegardes maintenant ?" yes; then
+        # essai : un echec s'affiche ici, sans notification des admins
+        if [[ -z $(find "${backup_dir}" -maxdepth 1 -name 'qrprotec-backup_*.tar.xz' -print -quit 2>/dev/null) ]]; then
+            qrprotec-backup --no-report || echo "ATTENTION : sauvegarde ou envoi en echec (voir ci-dessus)" >&2
+        else
+            qrprotec-backup --sync --no-report ||
+                echo "ATTENTION : envoi en echec (voir ci-dessus) ; reessayer : sudo qrprotec-backup --sync" >&2
+        fi
+    else
+        echo "Une fois la cle autorisee la-bas : sudo qrprotec-backup --sync (premiere connexion, a faire a la main)"
+    fi
 fi
 
 if [[ $has_server == yes ]]; then

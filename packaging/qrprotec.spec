@@ -100,6 +100,10 @@ Requires:       tar
 Requires:       xz
 Requires:       python3
 Requires:       util-linux
+# copie des archives sur une autre machine (QRPROTEC_BACKUP_SYNC_TARGET), notification d'un kiosk distant
+Requires:       rsync
+Requires:       openssh-clients
+Requires:       curl
 Requires(post): coreutils
 Requires(post): systemd
 Requires(preun): systemd

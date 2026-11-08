@@ -279,16 +279,21 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'qrprotec',
         },
+        # erreurs (pas les avertissements) : notification « Problème de serveur » des admins qui l'ont choisie
+        'server_problem': {
+            'class': 'inventory.server_log.ServerProblemHandler',
+            'level': 'ERROR',
+        },
     },
     'loggers': {
         # django.request (erreurs 500), django.security (hote refuse...), erreurs de la base
         'django': {
-            'handlers': ['stderr'],
+            'handlers': ['stderr', 'server_problem'],
             'level': 'ERROR',
             'propagate': False,
         },
         'inventory': {
-            'handlers': ['stderr'],
+            'handlers': ['stderr', 'server_problem'],
             'level': 'WARNING',
             'propagate': False,
         },

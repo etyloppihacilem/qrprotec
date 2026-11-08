@@ -75,6 +75,7 @@ local_patterns = [
     path('label-prints/<int:print_id>/print/', views.label_print_print),
     path('label-prints/send/', views.label_prints_send),  # front d'un autre ordinateur -> poste
     path('label-prints/<int:print_id>/detail/', views.label_print_detail),
+    path('server-problem/', views.server_problem_report),  # kiosk distant : sauvegarde ou envoi en echec
     path('front-configs/', views.front_configs),
     path('front-configs/<str:name>/', views.front_config_detail),
     path('item-types/', views.item_types),

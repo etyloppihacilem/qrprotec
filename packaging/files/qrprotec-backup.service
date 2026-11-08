@@ -1,7 +1,9 @@
 [Unit]
 Description=QRProtec : sauvegarde de la base et de la configuration
 Documentation=file:///usr/share/doc/qrprotec/README.md
-After=qrprotec.service local-fs.target remote-fs.target
+After=qrprotec.service local-fs.target remote-fs.target network-online.target
+# envoi des archives sur une autre machine (QRPROTEC_BACKUP_SYNC_TARGET) et notification des admins en cas d'echec
+Wants=network-online.target
 
 [Service]
 Type=oneshot
@@ -10,18 +12,18 @@ Nice=10
 IOSchedulingClass=idle
 UMask=0077
 
-# Le dossier des archives est configurable (disque externe, NAS) : /usr, /boot, /etc en lecture seule
+# Le dossier des archives est configurable (disque externe, NAS) : /usr, /boot, /etc en lecture seule.
+# Reseau ouvert : rsync sur SSH vers la machine distante, notification « Problème de serveur » (Web Push).
 NoNewPrivileges=yes
 ProtectSystem=full
 PrivateTmp=yes
-PrivateNetwork=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
-RestrictAddressFamilies=AF_UNIX
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=yes
 RestrictRealtime=yes
 LockPersonality=yes

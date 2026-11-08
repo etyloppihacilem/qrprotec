@@ -23,7 +23,8 @@ from django.utils import timezone
 from . import forecast, webpush
 from .idendity import short_name
 from .models import (
-    ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, lot_keys_expire, revision_blocked_q,
+    ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, ServerProblem, lot_keys_expire,
+    revision_blocked_q,
 )
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -255,3 +256,51 @@ def check_orders(today=None):
              for row in due]
     notify_admins('order_due', 'commande à passer', 'commande à passer : ' + ', '.join(lines))
     return lines
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Problème de serveur (notification des admins, desactivee par defaut) : sauvegarde ou envoi des sauvegardes sur la
+# machine distante en echec, erreur du back (500...). Le detail est dans les journaux, la notification dit ou regarder.
+
+SERVER_PROBLEM_SOURCES = {
+    # source : (titre, journal a lire)
+    'backup': ('sauvegarde en échec', 'journalctl -u qrprotec-backup'),
+    'sync': ("envoi des sauvegardes en échec", 'journalctl -u qrprotec-backup'),
+    'server': ('erreur du serveur', 'journalctl -u qrprotec'),
+}
+# Un probleme qui dure n'est rappele qu'apres ce delai (une erreur 500 a chaque requete n'envoie pas une notification
+# a chaque fois) ; la source qui refonctionne (sauvegarde reussie) remet tout a zero (resolve_server_problem).
+SERVER_PROBLEM_REMINDER = timedelta(hours=12)
+
+
+def server_problem(source, message='', where='', journal=''):
+    """Enregistre un probleme du serveur et previent les admins qui ont choisi « Problème de serveur », au plus une
+    fois par SERVER_PROBLEM_REMINDER et par source. source : cle de SERVER_PROBLEM_SOURCES, ou « backup:<poste> » pour
+    un poste distant ; where : machine concernee, journal : ou lire le detail. Retourne True si la notification part."""
+    title, default_journal = SERVER_PROBLEM_SOURCES.get(source.split(':')[0], SERVER_PROBLEM_SOURCES['server'])
+    journal = journal or default_journal
+    message = ' '.join(str(message or '').split())[:300]
+    now = timezone.now()
+    row, created = ServerProblem.objects.get_or_create(source=source, defaults={'message': message})
+    row.count = 1 if created else row.count + 1
+    row.message = message
+    row.last_seen = now
+    send = row.notified is None or now - row.notified >= SERVER_PROBLEM_REMINDER
+    if send:
+        row.notified = now
+    row.save()
+    if not send:
+        return False
+    lines = [message or f'{title[:1].upper()}{title[1:]}']
+    if row.count > 1:
+        lines.append(f'{row.count} erreurs depuis le {timezone.localtime(row.first_seen).strftime("%d/%m à %H:%M")}')
+    lines.append(f'Un admin doit lire les journaux : {journal}')
+    notify_admins('server_problem', f'problème de serveur, {title}' + (f' ({where})' if where else ''),
+                  '\n'.join(lines), tag=f'server-{source}')
+    return True
+
+
+def resolve_server_problem(source):
+    """La source refonctionne (sauvegarde ou envoi reussi) : le prochain echec sera annonce tout de suite."""
+    return ServerProblem.objects.filter(source=source).delete()[0] > 0
+

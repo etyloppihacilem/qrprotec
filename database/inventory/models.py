@@ -777,6 +777,9 @@ PUSH_TYPES = {
     'expired_daily': ('Résumé quotidien des lots contenant des périmés (7 h 45)', _GESTION_ROLES, True),
     'revision_daily': ('Résumé quotidien des révisions de matériel à faire (7 h 45)', _GESTION_ROLES, True),
     'verif_problem': ('Vérif de lot incomplète (manquants, périmés, disparus)', _GESTION_ROLES, False),
+    # sauvegarde ou envoi sur la machine distante en echec, erreur 500... : le detail est dans les journaux
+    'server_problem': ('Problème de serveur (sauvegarde, envoi des sauvegardes, erreur à lire dans les journaux)',
+                       _ADMIN_ROLES, False),
 }
 
 
@@ -1205,6 +1208,7 @@ class PushSubscription(models.Model):
     expired_daily = models.BooleanField(default=True)   # resume quotidien des lots contenant des perimes (check_alerts)
     revision_daily = models.BooleanField(default=True)  # resume quotidien des revisions de materiel a faire
     verif_problem = models.BooleanField(default=False)  # verif de lot incomplete (manquants, perimes, disparus)
+    server_problem = models.BooleanField(default=False)  # sauvegarde, envoi des sauvegardes, erreur du serveur (admins)
     device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme, d'apres le User-Agent
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)
@@ -1216,6 +1220,21 @@ class PushSubscription(models.Model):
     def wants(self, name):
         """Type choisi sur cet appareil et permis a son utilisateur."""
         return getattr(self, name) and name in self.user.push_types()
+
+
+class ServerProblem(models.Model):
+    """Probleme du serveur en cours, par source (sauvegarde, envoi des sauvegardes, erreur du back) : sert a ne pas
+    renvoyer la notification « Problème de serveur » a chaque erreur (voir notifications.server_problem). La ligne est
+    supprimee quand la source refonctionne (sauvegarde reussie), pour qu'un nouvel echec soit annonce tout de suite."""
+    source = models.CharField(max_length=32, primary_key=True)
+    message = models.CharField(max_length=300, blank=True, default='')  # derniere erreur
+    count = models.PositiveIntegerField(default=0)                       # erreurs depuis la premiere
+    first_seen = models.DateTimeField(default=timezone.now)
+    last_seen = models.DateTimeField(default=timezone.now)
+    notified = models.DateTimeField(blank=True, null=True)               # derniere notification envoyee
+
+    def __str__(self):
+        return f'{self.source} : {self.message}'
 
 
 class FrontKey(models.Model):
