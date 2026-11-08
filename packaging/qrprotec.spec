@@ -252,7 +252,6 @@ install -d -m 0750 %{buildroot}%{_sharedstatedir}/%{name}
 # --- Commun : assistant et sauvegardes ---------------------------------------------------------
 install -Dpm 0755 packaging/files/qrprotec-setup %{buildroot}%{_sbindir}/qrprotec-setup
 install -Dpm 0755 packaging/files/qrprotec-backup %{buildroot}%{_sbindir}/qrprotec-backup
-%{_sbindir}/qrprotec-storage
 install -Dpm 0755 packaging/files/qrprotec-storage %{buildroot}%{_sbindir}/qrprotec-storage
 install -Dpm 0644 packaging/files/backup.conf %{buildroot}%{_sysconfdir}/%{name}/backup.conf
 install -Dpm 0644 packaging/files/qrprotec-backup.service %{buildroot}%{_unitdir}/qrprotec-backup.service
@@ -468,6 +467,7 @@ fi
 %doc README.md
 %{_sbindir}/qrprotec-setup
 %{_sbindir}/qrprotec-backup
+%{_sbindir}/qrprotec-storage
 %dir %{_sysconfdir}/%{name}
 %config(noreplace) %{_sysconfdir}/%{name}/backup.conf
 %{_unitdir}/qrprotec-backup.service
