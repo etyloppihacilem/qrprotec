@@ -68,6 +68,9 @@ if not sys.stdout.isatty():
 KEY_METRICS = [
     ('bluetooth.adapter', 'Adaptateur Bluetooth', None),
     ('bluetooth.le', 'Bluetooth basse consommation (BLE)', None),
+    ('machine.free_gb', 'Place libre base / sauvegardes (Go)', False),
+    ('machine.lvm_free_gb', 'Disque non attribue LVM (Go)', False),
+    ('machine.disk_gb', 'Taille du disque (Go)', False),
     ('disk.fdatasync_p99_ms', 'Disque : fdatasync p99 (ms)', True),
     ('disk.seq_write_mb_s', 'Disque : ecriture sequentielle (Mo/s)', False),
     ('sqlite.commits_s', 'SQLite : commits/s (WAL, NORMAL)', False),
@@ -162,21 +165,64 @@ def machine(rep, target):
         in_memory = fstype.strip() in ('tmpfs', 'ramfs')
         rep.add('machine.fs', f'{source} ({fstype.strip()})', f'Partition de {target}', BAD if in_memory else INFO,
                 'en memoire : choisir un --dir sur le disque' if in_memory else '')
-        code, out = run(['lsblk', '-sPo', 'NAME,ROTA,TRAN,MODEL', source])
+        code, out = run(['lsblk', '-bsPo', 'NAME,ROTA,TRAN,MODEL,SIZE', source])
         disks = [dict(re.findall(r'(\w+)="([^"]*)"', line)) for line in out.splitlines()] if code == 0 else []
         disks = [d for d in disks if d.get('NAME')]
         if disks:
             disk = disks[-1]  # -s : de la partition vers le disque physique
             rotational = disk.get('ROTA') == '1'
-            rep.add('machine.disk', f"{disk.get('MODEL') or disk['NAME']} ({disk.get('TRAN') or '?'})", 'Disque')
+            size = int(disk.get('SIZE') or 0) / 1e9
+            rep.add('machine.disk', f"{disk.get('MODEL') or disk['NAME']} ({disk.get('TRAN') or '?'}, {size:.0f} Go)",
+                    'Disque')
+            rep.values['machine.disk_gb'] = size
             rep.add('machine.rotational', rotational, 'Disque a plateaux (HDD)', BAD if rotational else OK,
                     'un SSD est fortement conseille' + (' ; souvent faux en machine virtuelle' if
                                                         disk.get('TRAN') == 'virtio' or 'vd' in disk['NAME'] else ''))
-    free = shutil.disk_usage(target).free / 1e9
-    rep.add('machine.free_gb', free, 'Place libre (Go)', grade(free, 20, 5, False), 'base + 5 ans de sauvegardes')
+    storage(rep)
     battery = any(read(p / 'type') == 'Battery' for p in Path('/sys/class/power_supply').glob('*'))
     rep.add('machine.battery', battery, 'Batterie (portable)', OK if battery else INFO,
             'tient une coupure de courant' if battery else 'prevoir un onduleur')
+
+
+def existing_parent(path):
+    path = Path(path)
+    while not path.exists():
+        path = path.parent
+    return path
+
+
+def backup_dir():
+    match = re.search(r'^\s*QRPROTEC_BACKUP_DIR=["\']?([^"\'\n]+)', read('/etc/qrprotec/backup.conf'), re.M)
+    return match.group(1).strip() if match else '/var/backups/qrprotec'
+
+
+def storage(rep):
+    """Place libre la ou vivent vraiment la base et les sauvegardes (chemins du RPM), pas dans le dossier de test :
+    sous Fedora Server, / est un volume LVM de 15 Go par defaut et le reste du disque n'est pas attribue."""
+    places = {}
+    for label, path in (('base', '/var/lib/qrprotec'), ('sauvegardes', backup_dir())):
+        code, out = run(['findmnt', '-no', 'TARGET,SOURCE', '--target', str(existing_parent(path))])
+        mount, _, source = out.strip().partition(' ') if code == 0 and out.strip() else ('/', '', '')
+        places.setdefault(mount, (source.strip(), []))[1].append((label, path))
+    frees = []
+    for mount, (source, labels) in places.items():
+        usage = shutil.disk_usage(mount)
+        free = usage.free / 1e9
+        frees.append(free)
+        rep.add(None, f'{free:.1f} / {usage.total / 1e9:.0f} Go', 'Place libre : ' + ' + '.join(l for l, _ in labels),
+                grade(free, 20, 5, False), f'{mount} sur {source or "?"} : ' + ', '.join(p for _, p in labels))
+    rep.values['machine.free_gb'] = min(frees)
+    # LVM : espace du disque pas encore attribue au volume (vgs demande souvent root)
+    code, out = run(['vgs', '--noheadings', '--units', 'b', '--nosuffix', '-o', 'vg_name,vg_free'])
+    groups = [line.split() for line in out.splitlines() if len(line.split()) == 2] if code == 0 else []
+    if groups:
+        vg_free = sum(int(float(free)) for _, free in groups) / 1e9
+        rep.values['machine.lvm_free_gb'] = vg_free
+        rep.add(None, f'{vg_free:.0f} Go', 'Disque non attribue (LVM)', INFO,
+                'sudo lvextend -r -l +100%FREE <volume de />' if vg_free > 5 else '')
+    elif any(source.startswith('/dev/mapper/') for source, _ in places.values()):
+        rep.add(None, 'illisible sans sudo', 'Disque non attribue (LVM)', INFO,
+                'sudo vgs : place a ajouter au volume si le disque est plus grand')
 
 
 # -------------------------------------------------------------------------------------------------- Bluetooth
@@ -881,6 +927,8 @@ def score(values):
         blockers.append('Bluetooth sans BLE')
     if v('machine.rotational'):
         blockers.append('disque a plateaux')
+    if v('machine.free_gb') is not None and v('machine.free_gb') < 2 and (v('machine.lvm_free_gb') or 0) < 2:
+        blockers.append('moins de 2 Go libres pour la base et les sauvegardes')
     if (v('machine.ram_gib') or 0) and v('machine.ram_gib') < 1.8:
         blockers.append('moins de 2 Gio de memoire')
     if v('app.error'):
