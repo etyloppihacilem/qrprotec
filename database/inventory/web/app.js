@@ -6275,6 +6275,7 @@
   const LIST_TAGS = { draft: 'blue', validated: 'orange', returned: 'green' };
   const lists = {
     index: null,     // {lists, can_see_all, can_create}
+    departure: null, // « Partir avec » : {lot_types, full_verif} ou {loading}
     show: 'mine',    // 'mine' (les miennes et celles attribuees), 'templates', 'all' (chef, gestion, admin)
     id: '',          // liste ouverte
     list: null,      // detail de la liste ouverte
@@ -6485,6 +6486,7 @@
       started: !!(list && list.lines.some((line) => line.scanned)),
       lines: list ? list.lines.map((line) => line.kind === 'task' ? { task: line.task, label: line.task } : line.kind === 'lot'
         ? { lot: line.lot, label: line.lot_name, sub: line.lot_type_name }
+        : line.kind === 'lot_type' ? { lot_types: line.lot_types, label: line.type_name, sub: 'Lot au choix', quantity: line.quantity }
         : { type: line.type, label: line.type_name, quantity: line.quantity }) : [],
     };
     renderListsPage(true);
@@ -6503,6 +6505,7 @@
     if (!edit.name.trim()) { toast('Donnez un nom à la liste.', true); return; }
     const body = { user: badge(), name: edit.name, note: edit.note, template: edit.template,
       lines: edit.lines.map((line) => line.task ? { task: line.task } : line.lot ? { lot: line.lot }
+        : line.lot_types ? { lot_types: line.lot_types, quantity: line.quantity }
         : { type: line.type, quantity: line.quantity }) };
     lists.busy = true;
     try {
@@ -6544,6 +6547,49 @@
     view.replaceChildren(...(lists.id ? listDetail() : listIndex()));
   }
 
+  // « Partir avec » : types de lots proposes, avec les lots disponibles ; le choix cree la liste de depart
+  async function openDeparture() {
+    if (lists.departure) { lists.departure = null; renderListsPage(true); return; }
+    lists.departure = { loading: true };
+    renderListsPage(true);
+    try {
+      lists.departure = await api('checklists/departure/', { user: badge() });
+    } catch (e) {
+      lists.departure = null;
+      toast(e.message, true);
+    }
+    renderListsPage(true);
+  }
+
+  async function startDeparture(type) {
+    if (lists.busy) return;
+    lists.busy = true;
+    try {
+      const list = await api('checklists/departure/', { user: badge(), lot_type: type });
+      lists.departure = null;
+      lists.busy = false;
+      openList(list.id);
+    } catch (e) {
+      lists.busy = false;
+      toast(e.message, true);
+    }
+  }
+
+  function departurePicker() {
+    const data = lists.departure;
+    if (data.loading) return el('p', { class: 'hint' }, 'Chargement des lots…');
+    return el('div', { class: 'departure' },
+      el('p', { class: 'hint' }, "Choisissez ce avec quoi vous partez : la liste générée demande l'étiquette de chaque lot à "
+        + 'prendre (n\'importe lequel du type, les valides en premier).'
+        + (data.full_verif ? ' Une vérif complète de chaque lot non scellé est demandée avant de partir.'
+          : ' Pas de vérif au départ : touchez « Vérif recommandée » au retour sur ce qui a servi.')),
+      el('ul', { class: 'list' }, ...data.lot_types.map((row) => el('li', { onclick: () => startDeparture(row.type) },
+        el('div', { class: 'main' }, el('div', { class: 'name' }, row.name),
+          el('div', { class: 'sub' }, row.available ? `${nb(row.available, 'disponible')}, dont ${nb(row.available_ok, 'valide')}`
+            : nb(row.lines, 'ligne') + ' à prendre')),
+        el('span', { class: 'tag ' + (row.available_ok ? 'green' : row.available ? 'orange' : 'gray') }, 'Partir')))));
+  }
+
   function listIndex() {
     const data = lists.index;
     const choose = (show) => { lists.show = show; loadLists(); };
@@ -6560,6 +6606,10 @@
           ? el('button', { type: 'button', class: lists.show === 'all' ? 'active' : '', onclick: () => choose('all') }, 'Toutes') : '') : '',
       canCreate ? el('button', { type: 'button', class: 'primary list-new', onclick: () => editList() },
         lists.show === 'templates' ? '＋ Nouveau modèle' : '＋ Nouvelle liste') : '',
+      // tout le monde : liste de depart generee depuis un type de lot (un lot C, un B+…)
+      lists.show === 'templates' ? '' : el('button', { type: 'button', class: 'secondary list-new', onclick: openDeparture },
+        '🚑 Partir avec un lot'),
+      lists.departure ? departurePicker() : '',
       el('p', { class: 'hint' }, canCreate || !data
         ? 'Une liste sert à demander à des secouristes de prendre du matériel précis pour un '
           + 'poste en particulier : les lots et le matériel à emporter, avec les quantités. Elle se partage par lien ou '
@@ -6589,6 +6639,7 @@
       : list.template ? 'Modèle : dupliquez-le, puis scannez le matériel dans la nouvelle liste.'
         : list.status !== 'draft' ? 'Pas pris à la sortie.'
           : line.kind === 'lot' ? `Scannez l'étiquette du lot « ${title} » pour le cocher.`
+            : line.kind === 'lot_type' ? `Scannez l'étiquette d'un lot ${title} disponible pour le prendre.`
             : `Scannez ${line.quantity > 1 ? `${line.quantity} items` : 'un item'} « ${title} » pris dans le stock pour la cocher.`;
     const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : ''), 'aria-label': text, onclick: (event) => {
       event.stopPropagation();
@@ -6623,7 +6674,8 @@
     }
     const done = line.scanned >= line.quantity;
     const title = line.kind === 'lot' ? line.lot_name : line.type_name;
-    const sub = line.kind === 'lot' ? `Lot · ${line.lot_type_name}` : nb(line.quantity, 'demandé');
+    const sub = line.kind === 'lot' ? `Lot · ${line.lot_type_name}`
+      : line.kind === 'lot_type' ? `${nb(line.quantity, 'lot')} au choix : scannez son étiquette` : nb(line.quantity, 'demandé');
     const out = list.status !== 'draft';
     const count = line.kind === 'lot' ? (line.scanned ? '✓' : '–') : `${line.scanned}/${line.quantity}`;
     const back = out && line.scanned ? (line.kind === 'lot' ? (line.back ? 'rentré' : 'pas rentré')
@@ -6642,6 +6694,22 @@
             + ` · ${scan.by || '?'}` + (out ? (returned ? ' · ✓ rentré' : scan.status === 'missing' ? ' · utilisé' : '') : ''))),
           list.status === 'draft' ? el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', title: 'Retirer de la liste',
             onclick: () => listAction('unscan', { item: scan.iid }) }, '✕') : ''));
+      }
+    } else if (line.kind === 'lot_type') {
+      // n'importe quel lot de ce type : les lots pris, puis ceux qu'on peut encore prendre (valides en premier)
+      const backLots = new Set((list.back || []).filter((scan) => scan.lot).map((scan) => scan.lot));
+      for (const scan of line.scans) {
+        rows.push(el('li', { class: 'static list-scan-row' },
+          el('div', { class: 'main' }, el('div', { class: 'sub' }, `${scan.lot_name} · ${scan.by || '?'}`
+            + (out ? (backLots.has(scan.lot) ? ' · ✓ rentré' : ' · pas rentré') : ''))),
+          list.status === 'draft' ? el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', title: 'Retirer de la liste',
+            onclick: () => listAction('unscan', { lot: scan.lot }) }, '✕') : ''));
+      }
+      if (!done && line.available) {
+        rows.push(el('li', { class: 'static list-scan-row' }, el('div', { class: 'main' }, el('div', { class: 'sub' },
+          line.available.length ? 'Disponibles : ' + line.available.map((lot) => lot.name
+            + (lot.state.kind === 'ok' ? '' : ` (${lot.state.label.replace(/^[✔✘⚠] */, '').toLowerCase()})`)).join(', ')
+            : 'Aucun lot disponible : tous sont pris ou rangés pour de bon dans un autre lot.'))));
       }
     } else if (line.scanned && list.status === 'draft') {
       rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Décocher', title: 'Décocher',
@@ -6850,7 +6918,8 @@
   function listEditor(edit) {
     const redraw = () => renderListsPage(true);
     const options = lists.options;
-    const taken = new Set(edit.lines.map((line) => line.task ? 'task:' + line.task : line.lot || 'type:' + line.type));
+    const taken = new Set(edit.lines.map((line) => line.task ? 'task:' + line.task : line.lot_types ? 'lots:' + line.lot_types.join('+')
+      : line.lot || 'type:' + line.type));
     const taskInput = el('input', { type: 'text', maxlength: '200', placeholder: "Ex : vérifier le niveau d'eau dans le sous-sol",
       onkeydown: (event) => { if (event.key === 'Enter') { event.preventDefault(); addTask(); } } });
     const addTask = () => {
@@ -6863,6 +6932,11 @@
       (options ? options.lots : []).filter((lot) => !taken.has(lot.id))
         .map((lot) => ({ key: lot.id, label: lot.name, sub: lot.lot_type_name, row: lot })),
       (pick) => { edit.lines.push({ lot: pick.row.id, label: pick.row.name, sub: pick.row.lot_type_name }); redraw(); });
+    // n'importe quel lot de ce type (« 1 lot B+ ») : choisi en scannant son etiquette
+    const lotTypeSelect = searchPicker('＋ Ajouter un lot au choix (par type) : rechercher…',
+      (options ? options.lot_types || [] : []).filter((type) => !taken.has('lots:' + type.type))
+        .map((type) => ({ key: type.type, label: type.name, sub: "n'importe lequel", row: type })),
+      (pick) => { edit.lines.push({ lot_types: [pick.row.type], label: pick.row.name, sub: 'Lot au choix', quantity: 1 }); redraw(); });
     const typeSelect = searchPicker('＋ Ajouter du matériel : rechercher…',
       (options ? options.types : []).filter((type) => !taken.has('type:' + type.type))
         .map((type) => ({ key: type.type, label: type.name, sub: type.type, row: type })),
@@ -6882,11 +6956,12 @@
       edit.lines.length ? '' : el('p', { class: 'hint' }, 'Ajoutez des lots (sacs, armoires), du matériel avec sa quantité et des tâches à cocher.'),
       el('ul', { class: 'list' }, ...edit.lines.map((line, index) => el('li', { class: 'static' },
         el('div', { class: 'main' }, el('div', { class: 'name' }, line.label),
-          el('div', { class: 'sub' }, line.task ? 'Tâche à cocher' : line.lot ? `Lot · ${line.sub || ''}` : 'Matériel')),
-        line.lot || line.task ? '' : el('input', { type: 'number', class: 'list-qty', min: '1', max: '999', value: String(line.quantity), 'aria-label': 'Quantité',
+          el('div', { class: 'sub' }, line.task ? 'Tâche à cocher' : line.lot ? `Lot · ${line.sub || ''}`
+            : line.lot_types ? "Lot au choix : n'importe lequel de ce type" : 'Matériel')),
+        line.lot || line.task ? '' : el('input', { type: 'number', class: 'list-qty', min: '1', max: line.lot_types ? '99' : '999', value: String(line.quantity), 'aria-label': 'Quantité',
           oninput: (event) => { line.quantity = Math.max(1, Math.min(999, parseInt(event.target.value, 10) || 1)); } }),
         el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', onclick: () => { edit.lines.splice(index, 1); redraw(); } }, '✕')))),
-      options ? el('div', { class: 'list-add' }, lotSelect, typeSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
+      options ? el('div', { class: 'list-add' }, lotSelect, lotTypeSelect, typeSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
       el('div', { class: 'list-add-task' }, taskInput, el('button', { type: 'button', onclick: addTask }, '＋ Tâche')),
       el('p', { class: 'hint' }, 'Une tâche se coche pendant la vérif de la liste (ni lot ni matériel).'),
       el('div', { class: 'list-buttons' },

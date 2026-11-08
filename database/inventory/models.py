@@ -1149,6 +1149,10 @@ class ServerSettings(models.Model):
     # Nom de l'antenne, dans la case « Certifié par le TECH <antenne> » des rapports d'etat de lot (retenu a chaque
     # rapport edite depuis le front web)
     antenna_name = models.CharField(max_length=64, blank=True, default='')
+    # Depart avec une liste (« Partir avec ») : verif complete de chaque lot non scelle avant de partir. Desactive
+    # (defaut) : on fait confiance aux secouristes, l'etiquette du lot suffit, et la verif se fait au retour
+    # (« Vérif recommandée »). Jamais pour un lot scelle.
+    departure_full_verif = models.BooleanField(default=False)
 
     @classmethod
     def get(cls):
@@ -1372,6 +1376,8 @@ class ChecklistLine(models.Model):
     item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT, null=True, blank=True)
     quantity = models.PositiveIntegerField(default=1)
     task = models.CharField(max_length=200, blank=True, default='')
+    # n'importe quel lot d'un de ces types (« 1 lot B+ », « Lot V ou B+ ou VPS ») : choisi en scannant son etiquette
+    lot_types = models.JSONField(default=list, blank=True)
     done = models.DateTimeField(blank=True, null=True)  # tache cochee a la verif de la liste
     done_by = models.CharField(max_length=64, blank=True, default='')
 

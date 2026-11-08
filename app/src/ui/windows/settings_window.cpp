@@ -435,6 +435,25 @@ class SettingsWindow final : public AppWindow {
                   "web et le téléphone-douchette ne chargent pas le lecteur de codes-barres (page plus légère) et "
                   "ne lisent que les QR codes. À désactiver quand plus aucune étiquette à code-barres ne circule ; "
                   "la douchette du poste lit les codes-barres dans tous les cas.");
+      bool full_verif = server_rules_["departure_full_verif"].boolean();
+      if (ImGui::Checkbox("Vérif complète à chaque départ", &full_verif)) {
+        Json body;
+        body["departure_full_verif"] = full_verif;
+        app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify("Règles du serveur : " + result.error, true);
+            return;
+          }
+          server_rules_ = result.data;
+          app.notify(server_rules_["departure_full_verif"].boolean()
+                         ? "Une vérif complète de chaque lot non scellé est demandée avant de partir."
+                         : "Départ sans vérif : l'étiquette de chaque lot suffit.");
+        });
+      }
+      help_marker("Listes de départ (« Partir avec un lot ») : décoché (par défaut), on fait confiance aux secouristes, "
+                  "l'étiquette de chaque lot suffit et on touche « Vérif recommandée » au retour sur ce qui a servi. "
+                  "Coché, chaque lot non scellé pris doit être vérifié (complet) avant de valider le départ. Jamais "
+                  "pour un lot scellé.");
       const int volume = server_rules_["scanner_volume_default"].integer(4);
       const ScannerSettingInfo volume_info = scanner_setting_info(1001, "volume");
       std::string preview = "Valeur " + std::to_string(volume);

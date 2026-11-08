@@ -111,6 +111,51 @@ class ListsWindow final : public AppWindow {
         if (primary_button(show_ == "templates" ? "Nouveau modèle" : "Nouvelle liste"))
           start_edit(app, nullptr);
       }
+      // « Partir avec » (tout le monde) : liste de depart generee depuis un type de lot
+      if (show_ != "templates") {
+        ImGui::SameLine();
+        if (button("Partir avec un lot")) {
+          departure_pick_.clear();
+          Json body;
+          body["user"] = app.user_ref();
+          app.api.post("/api/checklists/departure/", body, [this, &app](const ApiResult &result) {
+            if (!result.ok) {
+              app.notify("Partir avec : " + result.error, true);
+              return;
+            }
+            departure_ = result.data["lot_types"];
+            for (Json &row : departure_.items())
+              row["label"] = row["name"].str() + " — " + (row["available"].integer() > 0
+                               ? std::to_string(row["available"].integer()) + " disponibles, dont "
+                                     + std::to_string(row["available_ok"].integer()) + " valides"
+                               : std::to_string(row["lines"].integer()) + " lignes à prendre");
+          });
+        }
+      }
+      if (departure_.size() > 0) {
+        ImGui::TextUnformatted("Partir avec :");
+        ImGui::SameLine();
+        if (search_select("departure", departure_, "type", "label", departure_pick_, "Tapez le type de lot (lot C, B+…)",
+                          nullptr, 420.0f)
+            && !departure_pick_.empty()) {
+          Json body;
+          body["user"]     = app.user_ref();
+          body["lot_type"] = std::exchange(departure_pick_, {});
+          departure_       = Json::array();
+          app.api.post("/api/checklists/departure/", body, [this, &app](const ApiResult &result) {
+            if (!result.ok) {
+              app.notify("Partir avec : " + result.error, true);
+              return;
+            }
+            app.notify("Liste « " + result.data["name"].str() + " » créée : scannez l'étiquette de chaque lot pris.");
+            load(app);
+            select(app, result.data["id"].str());
+          });
+        }
+        ImGui::SameLine();
+        if (small_button("Annuler##departure"))
+          departure_ = Json::array();
+      }
       ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
       if (can_create_)
         ImGui::TextWrapped("Une liste sert à demander à des secouristes de prendre du matériel précis pour un poste en "
@@ -509,9 +554,18 @@ class ListsWindow final : public AppWindow {
         if (done)
           row_color(colors::green, 0.20f);
         ImGui::TableNextColumn();
+        const bool lot_type = line["kind"].str() == "lot_type"; // n'importe quel lot de ce type
         ImGui::TextUnformatted((lot ? line["lot_name"] : line["type_name"]).str().c_str());
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", lot ? ("lot · " + line["lot_type_name"].str()).c_str() : "matériel");
+        ImGui::TextDisabled("%s", lot ? ("lot · " + line["lot_type_name"].str()).c_str()
+                                      : lot_type ? "lot au choix" : "matériel");
+        if (lot_type && !done && line["available"].size() > 0) {
+          std::string available;
+          for (const Json &row : line["available"].items())
+            available += (available.empty() ? "" : ", ") + row["name"].str()
+                       + (row["state"]["kind"].str() == "ok" ? "" : " (" + row["state"]["label"].str() + ")");
+          ImGui::TextDisabled("  disponibles : %s", available.c_str());
+        }
         ImGui::TableNextColumn();
         ImGui::Text("%d", line["quantity"].integer());
         ImGui::TableNextColumn();
@@ -537,6 +591,33 @@ class ListsWindow final : public AppWindow {
         for (const Json &scan : line["scans"].items()) {
           if (lot)
             continue;
+          if (lot_type) {
+            const std::string lot_id = scan["lot"].str();
+            bool              returned = false;
+            for (const Json &row : list["back"].items())
+              returned = returned || row["lot"].str() == lot_id;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Indent();
+            ImGui::TextDisabled("%s · %s", scan["lot_name"].str().c_str(), scan["by"].str("?").c_str());
+            ImGui::Unindent();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
+            if (draft) {
+              ImGui::PushID(lot_id.c_str());
+              if (small_button("Retirer")) {
+                Json body;
+                body["lot"] = lot_id;
+                unscan(app, body);
+              }
+              ImGui::PopID();
+            }
+            if (out) {
+              ImGui::TableNextColumn();
+              ImGui::TextUnformatted(returned ? "✓ rentré" : "pas rentré");
+            }
+            continue;
+          }
           const std::string iid      = scan["iid"].str();
           const bool        returned = std::find(back.begin(), back.end(), iid) != back.end();
           ImGui::TableNextRow();
@@ -590,6 +671,10 @@ class ListsWindow final : public AppWindow {
           if (line["kind"].str() == "lot") {
             row["lot"]   = line["lot"].str();
             row["label"] = line["lot_name"].str() + " (" + line["lot_type_name"].str() + ")";
+          } else if (line["kind"].str() == "lot_type") {
+            row["lot_types"] = line["lot_types"];
+            row["label"]     = line["type_name"].str() + " (lot au choix)";
+            row["quantity"]  = line["quantity"].integer();
           } else {
             row["type"]     = line["type"].str();
             row["label"]    = line["type_name"].str();
@@ -636,7 +721,8 @@ class ListsWindow final : public AppWindow {
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(line["label"].str().c_str());
           ImGui::SameLine();
-          ImGui::TextDisabled("%s", line.contains("task") ? "tâche à cocher" : line.contains("lot") ? "lot" : "matériel");
+          ImGui::TextDisabled("%s", line.contains("task") ? "tâche à cocher" : line.contains("lot") ? "lot"
+                              : line.contains("lot_types") ? "lot au choix" : "matériel");
           ImGui::TableNextColumn();
           if (!line.contains("lot") && !line.contains("task")) {
             int quantity = line["quantity"].integer(1);
@@ -666,6 +752,30 @@ class ListsWindow final : public AppWindow {
         if (search_select("add_lot", options_["lots"], "id", "name", add_lot_, "Rechercher un lot…", nullptr, 360.0f)
             && !add_lot_.empty()) {
           add_line(true, std::exchange(add_lot_, {}), 1);
+        }
+        // n'importe quel lot de ce type (« 1 lot B+ ») : choisi en scannant son etiquette
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Ajouter un lot au choix");
+        ImGui::SameLine(185.0f);
+        if (search_select("add_lot_type", options_["lot_types"], "type", "name", add_lot_type_,
+                          "Rechercher un type de lot…", nullptr, 360.0f)
+            && !add_lot_type_.empty()) {
+          const std::string code = std::exchange(add_lot_type_, {});
+          bool              found = false;
+          for (Json &line : edit_lines_.items())
+            if (line.contains("lot_types") && line["lot_types"].size() == 1 && line["lot_types"][0].str() == code) {
+              line["quantity"] = std::min(99, static_cast< int >(line["quantity"].integer()) + 1);
+              found            = true;
+            }
+          for (const Json &option : options_["lot_types"].items())
+            if (!found && option["type"].str() == code) {
+              Json row;
+              row["lot_types"] = Json::array();
+              row["lot_types"].push_back(code);
+              row["label"]    = option["name"].str() + " (lot au choix)";
+              row["quantity"] = 1;
+              edit_lines_.push_back(row);
+            }
         }
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Ajouter du matériel");
@@ -747,6 +857,9 @@ class ListsWindow final : public AppWindow {
           row["task"] = line["task"].str();
         } else if (line.contains("lot")) {
           row["lot"] = line["lot"].str();
+        } else if (line.contains("lot_types")) {
+          row["lot_types"] = line["lot_types"];
+          row["quantity"]  = line["quantity"].integer(1);
         } else {
           row["type"]     = line["type"].str();
           row["quantity"] = line["quantity"].integer(1);
@@ -923,6 +1036,9 @@ class ListsWindow final : public AppWindow {
     Json        edit_lines_    = Json::array();
     Json        options_;
     std::string add_lot_;
+    std::string add_lot_type_;
+    Json        departure_ = Json::array(); // types proposes par « Partir avec un lot »
+    std::string departure_pick_;
     std::string add_type_;
     std::string add_task_;
     int         add_quantity_ = 1;

@@ -4878,6 +4878,59 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 201, body)
         return body
 
+    def test_departure(self):
+        """« Partir avec » : liste generee depuis un type de lot, ligne « n'importe quel lot de ce type » (jamais un
+        lot fixe, ni un lot deja pris par une autre liste), reglage « vérif complète à chaque départ », retour."""
+        from .models import LotTypeSlot, ServerSettings
+        bplus_type = LotType.objects.create(type='bplusx', name='B+')
+        vps_type = LotType.objects.create(type='vpsxxx', name='VPS')
+        LotTypeSlot.objects.create(lot_type=vps_type, name='B+', accepted=['bplusx'])
+        c_type = LotType.objects.create(type='lotcxx', name='Lot C')
+        LotTypeSlot.objects.create(lot_type=c_type, name='B+', accepted=['bplusx'], mode='assembly')
+        LotRequirements.objects.create(lot_type=c_type, item_type=self.compresses, quantity=2)
+        b1 = Lots.objects.create(lot_type=bplus_type, name='B+ 1', name_short='B+ 1', created_by='M001')
+        b2 = Lots.objects.create(lot_type=bplus_type, name='B+ 2', name_short='B+ 2', created_by='M001')
+        vps = Lots.objects.create(lot_type=vps_type, name='VPS', name_short='VPS', created_by='M001')
+        b_vps = Lots.objects.create(lot_type=bplus_type, name='B+ VPS', name_short='B+ VPS', created_by='M001',
+                                    parent=vps)
+        code, body = self.as_(self.other, '/api/checklists/departure/')  # un secouriste peut partir
+        self.assertEqual(code, 200, body)
+        rows = {row['type']: row for row in body['lot_types']}
+        self.assertEqual(rows['lotcxx']['lines'], 2)
+        self.assertEqual(rows['bplusx']['available'], 2)  # le B+ du VPS est fixe
+        code, depart = self.as_(self.other, '/api/checklists/departure/', {'lot_type': 'lotcxx'})
+        self.assertEqual(code, 201, depart)
+        self.assertEqual([line['kind'] for line in depart['lines']], ['lot_type', 'type'])
+        self.assertEqual({row['id'] for row in depart['lines'][0]['available']}, {b1.id, b2.id})
+        path = f"/api/checklists/{depart['id']}/"
+        code, body = self.as_(self.other, path + 'scan/', {'lot': b_vps.id})
+        self.assertEqual(code, 400)  # on ne part pas avec le B+ du VPS
+        self.assertIn('pour de bon', body['error'])
+        code, body = self.as_(self.other, path + 'scan/', {'lot': b1.id})
+        self.assertEqual(code, 200, body)
+        code, body = self.as_(self.other, path + 'scan/', {'lot': b2.id})
+        self.assertEqual(code, 400)  # 1/1 deja
+        other = self.new_list(lines=[{'lot_types': ['bplusx'], 'quantity': 1}])
+        code, body = self.as_(self.chief, f"/api/checklists/{other['id']}/scan/", {'lot': b1.id})
+        self.assertEqual(code, 400)  # deja pris pour le depart
+        self.assertEqual([row['id'] for row in other['lines'][0]['available']], [b2.id])
+        settings_row = ServerSettings.get()
+        settings_row.departure_full_verif = True
+        settings_row.save()
+        code, body = self.as_(self.other, path + 'validate/', {'partial': True})
+        self.assertEqual(code, 400)
+        self.assertIn('B+ 1', body['error'])
+        settings_row.departure_full_verif = False
+        settings_row.save()
+        code, body = self.as_(self.other, path + 'validate/', {'partial': True})
+        self.assertEqual(code, 200, body)
+        code, body = self.as_(self.other, path + 'return-scan/', {'lot': b1.id})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body['lines'][0]['back'], 1)
+        self.assertTrue(Lots.objects.get(id=b1.id).verif_recommended)
+        code, body = self.as_(self.chief, f"/api/checklists/{other['id']}/scan/", {'lot': b1.id})
+        self.assertEqual(code, 200)  # rentre : de nouveau libre
+
     def test_rights_and_templates(self):
         mine = self.new_list()
         self.assertTrue(mine['can_edit'])

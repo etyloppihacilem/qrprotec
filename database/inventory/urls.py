@@ -55,6 +55,7 @@ public_patterns = [
     path('checklists/', views.checklists_create),
     path('checklists/list/', views.checklists_list),
     path('checklists/options/', views.checklists_options),
+    path('checklists/departure/', views.checklists_departure),
     path('checklists/users/', views.checklists_users),
     path('checklists/<str:checklist_id>/', views.checklist_action),
     path('checklists/<str:checklist_id>/<str:action>/', views.checklist_action),
