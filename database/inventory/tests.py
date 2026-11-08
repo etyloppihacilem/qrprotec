@@ -997,6 +997,40 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(code, 400)
         self.assertIn('Sac A', body['error'])
 
+    def test_content_versions(self):
+        """Une nouvelle version du contenu (type de lot, contenu propre d'un lot) n'est creee que si le contenu change
+        et qu'une verif a deja ete faite sur la version en cours ; sinon elle est corrigee en place."""
+        url = '/api/lot-types/sacpse/requirements/'
+        version = self.lot_type.version
+        rows = [{'type': 'compre', 'quantity': 2, 'location': 'Pochette rouge'}]
+        code, body = self.call('PUT', url, {'requirements': rows})
+        self.assertEqual((code, body['version'], body['new_version']), (200, version, False))  # aucune verif
+        code, body = self.call('PUT', url, {'requirements': rows})
+        self.assertEqual((body['version'], body['new_version']), (version, False))  # rien de change
+        items = self.create(self.compresses, self.today + timedelta(days=200), 2)
+        code, body = self.call('POST', '/api/verifs/', {'lots': [self.lot.id], 'items': [item.iid for item in items]})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(Verifs.objects.get(lot=self.lot).lot_type_version, version)
+        code, body = self.call('PUT', url, {'requirements': rows})
+        self.assertEqual((body['version'], body['new_version']), (version, False))  # toujours rien de change
+        rows[0]['quantity'] = 3
+        code, body = self.call('PUT', url, {'requirements': rows})
+        self.assertEqual((body['version'], body['new_version']), (version + 1, True))
+        rows[0]['quantity'] = 4  # aucune verif sur la nouvelle version : corrigee en place
+        code, body = self.call('PUT', url, {'requirements': rows})
+        self.assertEqual((body['version'], body['new_version']), (version + 1, False))
+        # contenu propre du lot : meme regle, sur la version du lot
+        self.lot.refresh_from_db()
+        lot_version = self.lot.version
+        content = f'/api/lots/{self.lot.id}/content/'
+        self.call('PUT', content, {'content': [{'type': 'garrot', 'extra': 1}]})  # verif faite sur cette version
+        self.lot.refresh_from_db()
+        self.assertEqual(self.lot.version, lot_version + 1)
+        self.call('PUT', content, {'content': [{'type': 'garrot', 'extra': 1}]})  # rien de change
+        self.call('PUT', content, {'content': [{'type': 'garrot', 'extra': 2}]})  # pas de verif dessus : en place
+        self.lot.refresh_from_db()
+        self.assertEqual(self.lot.version, lot_version + 1)
+
     def test_user_fonction(self):
         """Role dans l'equipe : texte libre, Secouriste par defaut, sans effet sur les droits."""
         code, body = self.call('POST', '/api/users/', {'matricule': 'M002', 'nom': 'Martin', 'prenom': 'Paul'})

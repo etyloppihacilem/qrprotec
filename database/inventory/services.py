@@ -133,6 +133,41 @@ def ordered_requirements(lot_type, requirements=None):
     return sort_requirements(requirements, lot_type.locations)
 
 
+def lot_type_content_snapshot(lot_type):
+    """Contenu attendu d'un type de lot, comparable avant/apres un enregistrement (exigences et ordre des
+    emplacements)."""
+    rows = sorted((row.item_type_id, row.quantity, row.location, row.optional)
+                  for row in LotRequirements.objects.filter(lot_type=lot_type))
+    return rows, list(lot_type.locations or [])
+
+
+def lot_content_snapshot(lot):
+    """Contenu propre d'un lot, comparable avant/apres un enregistrement."""
+    rows = sorted((row.item_type_id, row.extra, row.location) for row in LotContent.objects.filter(lot=lot))
+    return rows, list(lot.locations or [])
+
+
+def bump_lot_type_version(lot_type):
+    """Contenu du type de lot modifie : nouvelle version seulement si une verif d'un lot de ce type a ete faite sur
+    la version en cours ; sinon la version en cours est corrigee en place. Renvoie vrai si la version a change (a
+    enregistrer ensuite)."""
+    if not lot_type.type or not Verifs.objects.filter(lot__lot_type=lot_type,
+                                                      lot_type_version=lot_type.version).exists():
+        return False
+    lot_type.version += 1
+    lot_type.valid_version = lot_type.version
+    return True
+
+
+def bump_lot_version(lot):
+    """Contenu propre du lot modifie : nouvelle version seulement si une verif de ce lot a ete faite sur la version
+    en cours. Renvoie vrai si la version a change (a enregistrer ensuite)."""
+    if not Verifs.objects.filter(lot=lot, lot_version=lot.version).exists():
+        return False
+    lot.version += 1
+    return True
+
+
 def lot_requirements(lot, preload=None, strict=False):
     """Contenu attendu d'un lot (Requirement) : celui de son type, plus son contenu propre (LotContent : items en
     plus, emplacements de ce lot), dans l'ordre des emplacements du lot (Lots.locations, sinon ceux du type).
@@ -656,7 +691,9 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             verifs[None] = Verifs.objects.create(lot=None, datetime=now, by=identity, participants=participants)
         for lot_id in verified_ids:
             verifs[lot_id] = Verifs.objects.create(lot=by_id[lot_id], datetime=now, by=identity,
-                                                   participants=participants)
+                                                   participants=participants,
+                                                   lot_type_version=by_id[lot_id].lot_type.version,
+                                                   lot_version=by_id[lot_id].version)
 
         report = {'present': [], 'expired': [], 'replaced': [], 'missing': [], 'unknown': unknown, 'reactivated': [],
                   'restocked': [], 'torn': [], 'unusable': [], 'loose': [item.iid for item in loose]}
