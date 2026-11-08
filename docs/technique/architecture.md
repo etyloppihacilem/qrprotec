@@ -63,6 +63,9 @@ locale appelée sur le port public renvoie donc simplement 404. Raisons détaill
 Un front local (même machine, API locale sans clé) et des fronts distants (API distante, une clé par
 front) travaillent en même temps sur la même base. Le front choisit son API par son seul réglage
 « URL du serveur » : `http://127.0.0.1:8001` (défaut) ou `https://<domaine du serveur>` avec une clé.
+Le **poste principal** (impressions en attente, gestion des ordinateurs connectés) est le front de
+l'API locale, ou un front distant dont la clé est marquée poste (`FrontKey.poste`) : c'est ce qui
+permet un back **sans kiosk**, avec la borne sur une autre machine.
 
 ## Ce qui circule entre les programmes
 

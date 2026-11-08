@@ -14,6 +14,8 @@
     python manage.py frontkey add accueil --config accueil.qrprotec [--ca-file root.crt]
                                                 # cle + fichier chiffre (mot de passe demande) a importer
                                                 # dans le front : URL, cle, certificat de l'autorite
+    python manage.py frontkey add borne --poste # poste principal : kiosk sur une autre machine que le back
+    python manage.py frontkey poste borne        # donne les droits de poste principal (--off : les retire)
     python manage.py frontkey list
     python manage.py frontkey revoke accueil     # le front n'a plus acces (immediat)
     python manage.py frontkey delete accueil
@@ -21,6 +23,10 @@
 Le front distant se configure avec l'URL HTTPS du serveur (ex. https://inventaire.example.org) et
 cette cle, envoyee dans l'en-tete X-QRProtec-Key. Le front local de la borne n'en a pas besoin : il
 utilise l'API locale (127.0.0.1:8001), jamais exposee.
+
+Poste principal (--poste) : le kiosk avec l'imprimante, quand le back tourne sur une autre machine (serveur sans
+kiosk). Il a les droits du front de l'API locale : il imprime les « Impressions en attente » (etiquettes demandees
+depuis le web ou un autre ordinateur) et gere les ordinateurs connectes (fenetre Utilisateurs).
 """
 
 import getpass
@@ -40,13 +46,16 @@ NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 
 
 class Command(BaseCommand):
-    help = "Gere les cles API des fronts distants (add, list, revoke, delete)."
+    help = "Gere les cles API des fronts distants (add, poste, list, revoke, delete)."
 
     def add_arguments(self, parser):
         sub = parser.add_subparsers(dest='action', required=True)
         add = sub.add_parser('add', help="cree une cle (affichee une seule fois)")
         add.add_argument('name')
         add.add_argument('--replace', action='store_true', help="remplace la cle d'un front existant")
+        add.add_argument('--poste', action='store_true',
+                         help="poste principal (kiosk sur une autre machine que le back) : impressions en attente "
+                              "et gestion des ordinateurs connectes")
         add.add_argument('--config', metavar='FICHIER',
                          help="ecrit aussi un fichier de configuration chiffre (AES) a importer dans le front "
                               "(- = sortie standard) ; mot de passe demande, ou variable "
@@ -55,6 +64,9 @@ class Command(BaseCommand):
         add.add_argument('--ca-file', metavar='PEM',
                          help="certificat de l'autorite du serveur a mettre dans le fichier "
                               "(autorite interne de Caddy, QRPROTEC_TLS=internal)")
+        poste = sub.add_parser('poste', help="donne (ou retire, --off) les droits de poste principal")
+        poste.add_argument('name')
+        poste.add_argument('--off', action='store_true', help="retire les droits de poste principal")
         sub.add_parser('list', help="liste les fronts")
         revoke = sub.add_parser('revoke', help="retire l'acces d'un front")
         revoke.add_argument('name')
@@ -67,11 +79,15 @@ class Command(BaseCommand):
         name = options['name']
         if action == 'add':
             return self.add(name, options['replace'], options.get('config'), options.get('url'),
-                            options.get('ca_file'))
+                            options.get('ca_file'), options.get('poste', False))
         front = FrontKey.objects.filter(name=name).first()
         if front is None:
             raise CommandError(f"Front inconnu : {name}")
-        if action == 'revoke':
+        if action == 'poste':
+            front.poste = not options['off']
+            front.save(update_fields=['poste'])
+            self.stdout.write(f"Front {name} : " + ("poste principal." if front.poste else "n'est plus poste principal."))
+        elif action == 'revoke':
             front.revoked = True
             front.save(update_fields=['revoked'])
             self.stdout.write(f"Cle du front {name} revoquee.")
@@ -79,7 +95,7 @@ class Command(BaseCommand):
             front.delete()
             self.stdout.write(f"Front {name} supprime.")
 
-    def add(self, name, replace, config=None, url=None, ca_file=None):
+    def add(self, name, replace, config=None, url=None, ca_file=None, poste=False):
         if not NAME_RE.match(name):
             raise CommandError("Nom invalide (lettres, chiffres, . _ -, 64 caracteres au plus)")
         if (url or ca_file) and not config:
@@ -100,7 +116,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             if existing is not None:
                 existing.delete()
-            front, key = FrontKey.create(name)
+            front, key = FrontKey.create(name, poste=poste)
             if config:
                 payload = {'name': name, 'api_url': base_url, 'api_key': key,
                            'created': timezone.localtime(front.created).isoformat(timespec='seconds')}
@@ -168,6 +184,8 @@ class Command(BaseCommand):
         for front in fronts:
             used = timezone.localtime(front.last_used).strftime('%Y-%m-%d %H:%M') if front.last_used else 'jamais'
             state = 'revoquee' if front.revoked else 'active'
+            if front.poste:
+                state += ', poste principal'
             where = f" depuis {front.last_address}" if front.last_address else ''
-            self.stdout.write(f"{front.name:24} {state:9} cree le {timezone.localtime(front.created):%Y-%m-%d}, "
+            self.stdout.write(f"{front.name:24} {state:9}, cree le {timezone.localtime(front.created):%Y-%m-%d}, "
                               f"derniere utilisation : {used}{where}")

@@ -1251,16 +1251,19 @@ class FrontKey(models.Model):
     last_used = models.DateTimeField(blank=True, null=True)
     last_address = models.CharField(max_length=64, blank=True, default='')
     revoked = models.BooleanField(default=False)
+    # Poste principal (borne du kiosk sur une autre machine que le back) : memes droits que le front de l'API locale,
+    # imprime les « Impressions en attente » et gere les ordinateurs connectes. Un back sans kiosk en a besoin.
+    poste = models.BooleanField(default=False)
 
     @staticmethod
     def hash_key(key):
         return hash_key(key)
 
     @classmethod
-    def create(cls, name):
+    def create(cls, name, poste=False):
         """Cree une cle et retourne (FrontKey, cle en clair)."""
         key = cls.PREFIX + secrets.token_urlsafe(32)
-        return cls.objects.create(name=name, key_hash=cls.hash_key(key)), key
+        return cls.objects.create(name=name, key_hash=cls.hash_key(key), poste=bool(poste)), key
 
     @classmethod
     def authenticate(cls, key, address=''):
@@ -1428,7 +1431,7 @@ class LabelPrintKind(models.TextChoices):
 
 
 class LabelPrint(models.Model):
-    """Impression demandee au poste (seul front branche sur l'API locale, avec l'imprimante), depuis ailleurs.
+    """Impression demandee au poste (poste principal : API locale ou cle marquee poste, avec l'imprimante), depuis ailleurs.
 
     - `items` : etiquettes d'items demandees depuis le front web (admins, Gestion de la TECH, bouton +). Exemple : un
       secouriste rentre de poste avec du reassort des pompiers ; un admin demande « 5 × Compresses, perime le ... »

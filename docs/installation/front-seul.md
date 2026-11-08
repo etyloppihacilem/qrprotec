@@ -14,13 +14,15 @@ Deux paquets :
 
 ## Avant de commencer : la clé du poste
 
-### Le plus simple : depuis le poste du serveur, sans ligne de commande
+### Le plus simple : depuis le poste principal, sans ligne de commande
 
-Un administrateur, sur le **poste** (le front de la machine du serveur) :
+Un administrateur, sur le **poste principal** (le kiosk de la machine du serveur, ou la borne
+déclarée « poste principal » quand le serveur n'a pas de kiosk, voir [back seul](back-seul.md#la-borne--poste-principal)) :
 
 1. **Administration > Utilisateurs** (F9), onglet **Ordinateurs connectés**.
 2. Donnez un **nom** à l'ordinateur (`accueil`, `portable-chef`... sans espace ni accent). Laissez
-   le mot de passe vide : un mot de passe facile à recopier est choisi (`tf3t-bhr3-4spt`).
+   le mot de passe vide : un mot de passe facile à recopier est choisi (`tf3t-bhr3-4spt`). Cochez
+   **Poste principal** pour une autre borne avec imprimante.
 3. **Créer le fichier de configuration** : un **QR code**, une **adresse** et le **mot de passe**
    s'affichent. Le lien est valable **5 minutes** (on peut télécharger plusieurs fois pendant ce temps).
 
@@ -36,12 +38,13 @@ Sur l'autre ordinateur, pendant ces 5 minutes :
 
 Passé les 5 minutes, le lien ne marche plus mais l'ordinateur reste autorisé ; pour refaire un
 fichier, recréez-le avec le même nom (**Remplacer sa clé** : l'ancien fichier ne marchera plus).
-Seul le poste (API locale) peut créer ces fichiers, jamais un front distant. Chaque création est
+Seul un poste principal peut créer ces fichiers, jamais un simple front distant. Chaque création est
 notée dans le journal (Réglages).
 
 Le même onglet liste les ordinateurs connectés (état, dernière connexion, adresse au survol) :
 **Révoquer** coupe l'accès d'un ordinateur tout de suite (perdu, volé, prêté...) ; un ordinateur
 révoqué peut être **Réactivé** (même fichier) ou **Supprimé** (il faudra lui refaire un fichier).
+**Poste principal** / **Simple front** donne ou retire les droits de poste principal.
 
 ### En ligne de commande : un fichier de configuration chiffré
 
@@ -56,7 +59,8 @@ Un mot de passe est demandé (8 caractères au moins). Le fichier contient l'**U
 **certificat** : le tout chiffré en AES-256-GCM, avec une clé dérivée du mot de passe (PBKDF2,
 600 000 itérations). Copiez-le sur le poste (clé USB, `scp`...) et transmettez le mot de passe à
 part. Sur un poste de bureau, il s'importe dans le front (voir plus bas), même tant que le serveur
-n'est pas joignable.
+n'est pas joignable ; sur une borne kiosk, avec `sudo qrprotec-setup --front-config accueil.qrprotec`.
+`--poste` en fait un poste principal (la borne d'un serveur sans kiosk).
 
 Pour un poste qui a déjà une clé : `sudo qrprotec-manage frontkey add accueil --replace --config - >
 accueil.qrprotec` (l'ancienne clé est remplacée). `--url` change l'adresse mise dans le fichier
@@ -90,13 +94,23 @@ complète](borne-complete.md#1-préparer-la-machine) pour la préparation).
 curl -fsSL https://etyloppihacilem.github.io/qrprotec/bootstrap.sh | sudo QRPROTEC_PACKAGE=qrprotec-kiosk bash
 ```
 
-puis :
+puis, avec le fichier créé sur le serveur ou depuis le poste principal :
+
+```sh
+sudo qrprotec-setup --front-config borne.qrprotec   # mot de passe du fichier demandé
+sudo systemctl reboot
+```
+
+L'URL, la clé et le certificat du serveur sont lus dans le fichier. Sans fichier, la clé affichée
+se donne à la main :
 
 ```sh
 sudo qrprotec-setup --api-url https://inventaire.mon-antenne.org --api-key qrpf_... \
     --api-ca-file /etc/qrprotec/server-ca.crt     # seulement pour l'autorité interne de Caddy
-sudo systemctl reboot
 ```
+
+Si le serveur n'a pas de kiosk, la borne doit être **poste principal** (`--poste` à la création de
+sa clé) : sinon personne n'imprime les étiquettes demandées depuis le web ou les autres postes.
 
 L'assistant demande aussi le clavier, l'extinction de l'écran et les sauvegardes. La connexion est
 écrite dans `/etc/qrprotec/front-api.conf` (lisible par root seulement), qui **prime** sur les

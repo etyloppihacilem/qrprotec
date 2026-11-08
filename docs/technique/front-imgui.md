@@ -191,7 +191,8 @@ PrintQueue (thread) ── NiimbotB1Printer ── SerialPort (/dev/ttyACM0, 115
 - **Imprimante occupée** : la B1 refuse parfois une commande pendant qu'elle termine l'étiquette
   précédente (code `0x31`) ; la commande est réessayée.
 
-- **Impressions demandées depuis le web** (`app/label_prints.cpp`) : le poste interroge
+- **Impressions demandées depuis le web** (`app/label_prints.cpp`) : le poste principal
+  (`App::main_poste()` : API locale, ou clé marquée poste d'après `/api/health/`) interroge
   `GET /api/label-prints/pending/` toutes les 20 s, connecté ou non (route des postes, sans session).
   Une demande jamais vue ouvre la fenêtre « Impressions en attente », dessinée par `App` hors de la
   liste `windows` (pas de rôle, pas remise à zéro à l'inactivité). « Lancer l'impression » envoie

@@ -102,6 +102,7 @@ void draw_server_settings(App &app, bool save_on_success) {
         return;
       }
       const std::string front = result.data["front"].str();
+      app.poste_key           = result.data["poste"].boolean();
       app.notify("Connecté à l'API " + (front.empty() ? result.data["api"].str() : "distante (front " + front + ")")
                  + ", URLs publiques : " + result.data["public_base_url"].str());
       if (result.data["api"].str() != "local") {
@@ -265,11 +266,16 @@ class SettingsWindow final : public AppWindow {
         ImGui::InputTextMultiline("##titre", &settings.label_title, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 3.5f));
 
         ImGui::SeparatorText("Imprimante Niimbot B1");
-        if (!settings.api_endpoint().key.empty()) {
+        if (app.main_poste() && !settings.api_endpoint().key.empty()) {
+          ImGui::TextWrapped("Poste principal : les étiquettes s'impriment ici, avec celles demandées depuis le web "
+                             "ou d'autres ordinateurs (« Impressions en attente »).");
+        } else if (!settings.api_endpoint().key.empty()) {
           ImGui::Checkbox("Imprimante branchée sur cet ordinateur", &settings.print_here);
           help_marker("Décochée (par défaut) : cet ordinateur se connecte au serveur avec une clé de front, sans "
                       "imprimante. « Imprimer » envoie les étiquettes au poste, qui les propose dans sa fenêtre « "
-                      "Impressions en attente » (même sans personne de connecté). Cochée : impression ici.");
+                      "Impressions en attente » (même sans personne de connecté). Cochée : impression ici. La borne "
+                      "avec l'imprimante se déclare plutôt « poste principal » sur le serveur (Utilisateurs > "
+                      "Ordinateurs connectés).");
         }
         ImGui::InputText("Port série", &settings.print.serial.device);
         ImGui::SetNextItemWidth(150.0f);

@@ -33,7 +33,7 @@ const char *role_label(const std::string &role) {
   return role == "admin" ? "Administrateur" : role == "gestion" ? "Gestion" : role == "chef" ? "Chef" : "Secouriste";
 }
 
-// Onglet « Ordinateurs connectes » (poste du serveur, API locale) : un admin cree la cle d'un autre ordinateur et
+// Onglet « Ordinateurs connectes » (poste principal : API locale, ou cle marquee poste sur un back sans kiosk) : un admin cree la cle d'un autre ordinateur et
 // son fichier de configuration chiffre, telechargeable pendant 5 minutes par le lien du QR code
 // (POST /api/front-configs/), puis revoque, reactive ou supprime les ordinateurs (POST /api/front-configs/NOM/).
 void draw_new_computer(App &app, const std::function< void() > &on_created) {
@@ -42,6 +42,7 @@ void draw_new_computer(App &app, const std::function< void() > &on_created) {
       std::string password;
       bool        busy    = false;
       bool        exists  = false; // nom deja pris : proposer de remplacer sa cle
+      bool        poste   = false; // poste principal (borne avec l'imprimante, back sur une autre machine)
       std::string url;
       std::string shown_password; // genere par le serveur, ou celui saisi
       bool        ca      = false;
@@ -49,8 +50,8 @@ void draw_new_computer(App &app, const std::function< void() > &on_created) {
       std::chrono::steady_clock::time_point expires;
   };
   static State state;
-  if (!app.settings.api_endpoint().key.empty()) {
-    ImGui::TextWrapped("Seulement depuis le poste du serveur : cet ordinateur est lui-même un front distant.");
+  if (!app.main_poste()) {
+    ImGui::TextWrapped("Seulement depuis le poste principal : cet ordinateur est un simple front distant.");
     return;
   }
   ImGui::TextWrapped("Pour utiliser QRProtec sur un autre ordinateur (bureau, ordinateur portable) relié au même "
@@ -66,6 +67,10 @@ void draw_new_computer(App &app, const std::function< void() > &on_created) {
                            ImGuiInputTextFlags_Password);
   help_marker("Demandé sur l'autre ordinateur à l'import du fichier. Laissé vide, un mot de passe facile à "
               "recopier est choisi et affiché à côté du QR code. 8 caractères au moins.");
+  ImGui::Checkbox("Poste principal", &state.poste);
+  help_marker("À cocher pour la borne (kiosk) quand le serveur tourne sur une autre machine : elle imprime les "
+              "étiquettes demandées depuis le web ou les autres ordinateurs (« Impressions en attente ») et gère "
+              "les ordinateurs connectés, comme le poste du serveur.");
   if (state.exists)
     ImGui::TextColored(ImVec4(0.85f, 0.45f, 0.0f, 1.0f),
                        "Ce nom existe déjà : « Remplacer » lui donne une nouvelle clé, l'ancien fichier ne marchera plus.");
@@ -78,6 +83,7 @@ void draw_new_computer(App &app, const std::function< void() > &on_created) {
     body["name"]     = state.name;
     body["password"] = state.password;
     body["replace"]  = replace;
+    body["poste"]    = state.poste;
     state.busy       = true;
     const std::string typed_password = state.password;
     app.api.post("/api/front-configs/", body, [&app, typed_password, on_created](const ApiResult &result) {
@@ -96,6 +102,7 @@ void draw_new_computer(App &app, const std::function< void() > &on_created) {
       state.expires        = std::chrono::steady_clock::now() + std::chrono::seconds(result.data["seconds"].integer(300));
       state.password.clear();
       state.name.clear();
+      state.poste = false;
       app.notify("Ordinateur « " + state.created_name + " » ajouté : fichier téléchargeable pendant 5 minutes.");
       on_created();
     });
@@ -174,8 +181,8 @@ class UsersWindow final : public AppWindow {
     bool computers_loading_ = false;
 
     void load_computers(App &app) {
-      if (!app.settings.api_endpoint().key.empty())
-        return; // front distant : l'API refuse, rien a lister
+      if (!app.main_poste())
+        return; // simple front distant : l'API refuse, rien a lister
       computers_loading_ = true;
       app.api.get("/api/front-configs/", [this, &app](const ApiResult &result) {
         computers_loading_ = false;
@@ -198,9 +205,9 @@ class UsersWindow final : public AppWindow {
     }
 
     void draw_computers(App &app) {
-      if (!app.settings.api_endpoint().key.empty()) {
-        ImGui::TextWrapped("Les ordinateurs se gèrent depuis le poste du serveur : cet ordinateur est lui-même "
-                           "connecté au serveur à distance.");
+      if (!app.main_poste()) {
+        ImGui::TextWrapped("Les ordinateurs se gèrent depuis le poste principal : cet ordinateur est un simple "
+                           "front distant.");
         return;
       }
       // liste en haut, creation en dessous : toute la largeur pour le QR code et ses explications
@@ -219,7 +226,7 @@ class UsersWindow final : public AppWindow {
         ImGui::TableSetupColumn("Ordinateur", ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("Dernière connexion", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 230.0f);
         ImGui::TableHeadersRow();
         for (const Json &front : computers_.items()) {
           const std::string name    = front["name"].str();
@@ -231,12 +238,18 @@ class UsersWindow final : public AppWindow {
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(name.c_str());
           ImGui::TableNextColumn();
+          const bool poste     = front["poste"].boolean();
+          const bool this_one  = front["self"].boolean(); // cet ordinateur : ne se coupe pas lui-meme l'acces
           if (revoked)
             ImGui::TextDisabled("Révoqué");
           else if (front["download_pending"].boolean())
             ImGui::TextUnformatted("Fichier à télécharger");
           else
-            ImGui::TextUnformatted("Autorisé");
+            ImGui::TextUnformatted(poste ? "Poste principal" : "Autorisé");
+          if (this_one) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(cet ordinateur)");
+          }
           ImGui::TableNextColumn();
           if (front["last_used"].is_null()) {
             ImGui::TextDisabled("jamais");
@@ -253,10 +266,20 @@ class UsersWindow final : public AppWindow {
             if (confirm_button("Supprimer", ("Supprimer « " + name + " » ? Il faudra lui refaire un fichier.").c_str(),
                                "delete_computer"))
               computer_action(app, name, "delete");
-          } else if (confirm_button("Révoquer",
-                                    ("Révoquer « " + name + " » ? Il n'aura plus accès au serveur, tout de suite.").c_str(),
-                                    "revoke_computer")) {
-            computer_action(app, name, "revoke");
+          } else if (this_one) {
+            ImGui::TextDisabled("—");
+          } else {
+            if (small_button(poste ? "Simple front" : "Poste principal"))
+              computer_action(app, name, poste ? "unposte" : "poste");
+            if (ImGui::IsItemHovered())
+              ImGui::SetTooltip(poste ? "Retirer les droits de poste principal (impressions en attente, ordinateurs)"
+                                      : "Borne avec l'imprimante quand le serveur est sur une autre machine : "
+                                        "impressions en attente et gestion des ordinateurs");
+            ImGui::SameLine();
+            if (confirm_button("Révoquer",
+                               ("Révoquer « " + name + " » ? Il n'aura plus accès au serveur, tout de suite.").c_str(),
+                               "revoke_computer"))
+              computer_action(app, name, "revoke");
           }
           ImGui::PopID();
         }

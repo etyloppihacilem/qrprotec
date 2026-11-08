@@ -95,6 +95,7 @@ class ApiRoleMiddleware:
             if problem:
                 return JsonResponse({'error': problem}, status=403)
             request.qrprotec_local = True
+            request.qrprotec_poste = True
             request.urlconf = 'qrprotecDB.urls_local'
         elif role == 'remote':
             address = remote_client_address(request.META.get('REMOTE_ADDR'), request.META.get('HTTP_X_FORWARDED_FOR'))
@@ -103,6 +104,8 @@ class ApiRoleMiddleware:
                 return JsonResponse({'error': problem}, status=401)
             request.qrprotec_local = True
             request.qrprotec_front = front.name
+            # poste principal (kiosk sur une autre machine) : memes droits que le front de l'API locale
+            request.qrprotec_poste = front.poste
             request.urlconf = 'qrprotecDB.urls_remote'
         else:
             # API publique : les noms des secouristes sont raccourcis (prenom, initiale en cas d'homonyme)

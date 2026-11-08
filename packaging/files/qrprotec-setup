@@ -6,7 +6,9 @@
 #   sudo qrprotec-setup --restore /var/backups/qrprotec/qrprotec-backup_2026-10-01_031204.tar.xz
 #   sudo qrprotec-setup --front-key accueil  # back : cle API d'un front d'une autre machine
 #   sudo qrprotec-setup --front-key accueil --front-config accueil.qrprotec   # cle dans un fichier chiffre
+#   sudo qrprotec-setup --front-key borne --poste --front-config borne.qrprotec   # back sans kiosk : la borne
 #   sudo qrprotec-setup --api-url https://inventaire.example.org --api-key qrpf_...   # kiosk distant
+#   sudo qrprotec-setup --front-config borne.qrprotec   # kiosk distant, depuis le fichier chiffre du serveur
 #   sudo qrprotec-setup --backup-sync sauvegarde@nas:/srv/qrprotec   # copie des sauvegardes sur une autre machine
 #   sudo qrprotec-setup --storage            # back : volumes dedies a la base et aux sauvegardes (LVM)
 #
@@ -46,6 +48,8 @@ front_key=""
 front_config=""
 storage=no
 storage_device=""
+poste=no
+imported=no
 firewall=""      # yes / no / "" (demander)
 admin=""         # yes / no / "" (demander)
 restart=yes
@@ -65,7 +69,11 @@ Back :
                         (liste : sudo qrprotec-manage frontkey list)
   --front-config FICHIER  avec --front-key : ecrit plutot un fichier chiffre (AES, mot de passe demande)
                         avec l'URL, la cle et le certificat de l'autorite interne de Caddy, a importer
-                        dans le front (Reglages > Serveur > Importer un fichier de configuration)
+                        dans le front (Reglages > Serveur > Importer un fichier de configuration) ou
+                        sur un kiosk (sudo qrprotec-setup --front-config FICHIER)
+  --poste               avec --front-key : poste principal, pour la borne quand le back tourne sur une
+                        autre machine (serveur sans kiosk) : elle imprime les impressions en attente et
+                        gere les ordinateurs connectes, comme le kiosk du serveur
   --storage             volumes LVM dedies a la base (/var/lib/qrprotec) et aux sauvegardes, pris dans
                         l'espace libre du disque (qrprotec-storage), puis historique de sauvegardes long
                         (30 recentes + 26 hebdomadaires + 60 mensuelles, rotation automatique)
@@ -82,6 +90,8 @@ Kiosk :
                         elle est demandee sans s'afficher (et sans apparaitre dans la liste des processus)
   --api-ca-file PEM     certificat de l'autorite du serveur (QRPROTEC_TLS=internal sur le serveur :
                         $CADDY_CA)
+  --front-config FICHIER  sans --front-key : importe le fichier chiffre cree sur le serveur (URL, cle,
+                        certificat ; mot de passe demande, ou variable QRPROTEC_FRONT_CONFIG_PASSWORD)
   --local-api           revient au back de cette machine (API locale, defaut)
 
 Sauvegardes :
@@ -121,6 +131,7 @@ while (($#)); do
         --front-config) front_config=${2:?fichier attendu}; shift ;;
         --storage) storage=yes ;;
         --storage-device) storage=yes storage_device=${2:?disque attendu}; shift ;;
+        --poste) poste=yes ;;
         --backup-dir) backup_dir=${2:?}; shift ;;
         --backup-keep) backup_keep=${2:?}; shift ;;
         --backup-schedule) backup_schedule=${2:?}; shift ;;
@@ -147,8 +158,14 @@ has_server=no has_kiosk=no
 [[ -f $KIOSK_CONF ]] && has_kiosk=yes
 [[ $has_server == yes || $has_kiosk == yes ]] ||
     die "ni $CONF_FILE ni $KIOSK_CONF : installez qrprotec-server, qrprotec-kiosk ou qrprotec"
-if [[ -n $front_config && -z $front_key ]]; then
-    die "--front-config va avec --front-key NOM"
+if [[ -n $front_config && -z $front_key && $has_kiosk != yes ]]; then
+    die "--front-config va avec --front-key NOM (sur le serveur), ou s'importe sur un kiosk (paquet qrprotec-kiosk)"
+fi
+if [[ $poste == yes && -z $front_key ]]; then
+    die "--poste va avec --front-key NOM"
+fi
+if [[ -n $front_config && -z $front_key && ( -n $api_url || -n $api_key || -n $api_ca_file || $local_api == yes ) ]]; then
+    die "--front-config contient deja l'URL, la cle et le certificat : sans --api-url, --api-key, --api-ca-file ni --local-api"
 fi
 if [[ -n $front_key && $has_server != yes ]]; then
     die "--front-key se lance sur le serveur (paquet qrprotec-server)"
@@ -274,13 +291,17 @@ if [[ -n $front_key && -n $front_config ]]; then
         trap 'rm -f "$front_config.part"' EXIT
     fi
     # fichier ecrit par root (le mot de passe est demande sur le terminal), lisible par root seulement
+    [[ $poste == yes ]] && config_args+=(--poste)
     (umask 077 && qrprotec-manage frontkey add "$front_key" "${config_args[@]}" > "$front_config.part")
     mv "$front_config.part" "$front_config"
     echo "Copiez $front_config sur la machine du front (cle USB, scp...) avec le mot de passe a part."
+    echo "Sur un kiosk : sudo qrprotec-setup --front-config $(basename "$front_config")"
     exit 0
 fi
 if [[ -n $front_key ]]; then
-    qrprotec-manage frontkey add "$front_key"
+    key_args=()
+    [[ $poste == yes ]] && key_args+=(--poste)
+    qrprotec-manage frontkey add "$front_key" "${key_args[@]}"
     if [[ $(get_conf "$CONF_FILE" QRPROTEC_TLS) == internal ]]; then
         echo "Certificat de l'autorite interne de Caddy, a copier sur la machine du front (--api-ca-file) :"
         echo "    $CADDY_CA"
@@ -302,6 +323,66 @@ if [[ $storage == yes ]]; then
     echo "Sauvegardes : 30 recentes + 26 hebdomadaires + 60 mensuelles (5 ans), rotation automatique ($BACKUP_CONF)"
     exit 0
 fi
+
+# Kiosk : fichier chiffre cree sur le serveur (frontkey add NOM --config, ou Utilisateurs > Ordinateurs connectes)
+# -> api_url, api_key et api_ca_file, ecrits ensuite par configure_front_api. Meme format que front_config.py du
+# serveur (PBKDF2-HMAC-SHA256 + AES-256-GCM), dechiffre avec python3-cryptography.
+import_front_config() {
+    local password=${QRPROTEC_FRONT_CONFIG_PASSWORD:-} decoded ca_tmp
+    [[ -r $front_config ]] || die "fichier illisible : $front_config"
+    if [[ -z $password ]]; then
+        [[ -t 0 ]] || die "mot de passe du fichier : variable QRPROTEC_FRONT_CONFIG_PASSWORD (pas de terminal)"
+        read -r -s -p "Mot de passe du fichier $(basename "$front_config") : " password
+        echo
+    fi
+    local decrypt_py
+    read -r -d '' decrypt_py <<'PY' || true
+import base64, hashlib, json, os, sys
+try:
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+except ImportError:
+    sys.exit("python3-cryptography manquant : sudo dnf install python3-cryptography")
+try:
+    with open(sys.argv[1], encoding='utf-8') as source:
+        document = json.load(source)
+    assert document.get('qrprotec') == 'front-config' and document.get('version') == 1
+    assert document.get('kdf') == 'PBKDF2-HMAC-SHA256' and document.get('cipher') == 'AES-256-GCM'
+    iterations = document['iterations']
+    assert isinstance(iterations, int) and 100_000 <= iterations <= 10_000_000
+    salt, nonce, data = (base64.b64decode(document[name], validate=True) for name in ('salt', 'nonce', 'data'))
+except (OSError, ValueError, KeyError, TypeError, AssertionError):
+    sys.exit("ce n'est pas un fichier de configuration QRProtec valide")
+key = hashlib.pbkdf2_hmac('sha256', os.environ['QRPROTEC_FRONT_CONFIG_PASSWORD'].encode(), salt, iterations, dklen=32)
+try:
+    payload = json.loads(AESGCM(key).decrypt(nonce, data, b'qrprotec-front-config-v1'))
+except (InvalidTag, ValueError):
+    sys.exit("mot de passe incorrect ou fichier modifie")
+with open(sys.argv[2], 'w', encoding='ascii') as ca:
+    ca.write(payload.get('api_ca_pem', ''))
+print(payload.get('name', ''))
+print(payload['api_url'])
+print(payload['api_key'])
+PY
+    ca_tmp=$(mktemp)
+    # mot de passe passe par l'environnement du seul python (jamais dans la ligne de commande, visible dans `ps`)
+    if ! decoded=$(QRPROTEC_FRONT_CONFIG_PASSWORD=$password python3 -I -c "$decrypt_py" "$front_config" "$ca_tmp"); then
+        rm -f "$ca_tmp"
+        die "import de $front_config impossible"
+    fi
+    local lines
+    mapfile -t lines <<<"$decoded"
+    api_url=${lines[1]:-}
+    api_key=${lines[2]:-}
+    [[ -n $api_url && -n $api_key ]] || { rm -f "$ca_tmp"; die "fichier incomplet : $front_config"; }
+    if [[ -s $ca_tmp ]]; then
+        install -m 0644 "$ca_tmp" "$SERVER_CA"
+        api_ca_file=$SERVER_CA
+    fi
+    rm -f "$ca_tmp"
+    imported=yes
+    echo "Fichier importe : front « ${lines[0]} », serveur $api_url${api_ca_file:+, avec le certificat du serveur}"
+}
 
 # URL HTTPS du back distant, cle et autorite : /etc/qrprotec/front-api.conf (lu par qrprotec-kiosk.service)
 configure_front_api() {
@@ -343,7 +424,9 @@ configure_front_api() {
     api_key=${api_key:-$current_key}
     [[ -n $api_key ]] || die "cle API requise pour un serveur distant (--api-key)"
     [[ $api_key =~ ^[A-Za-z0-9_-]+$ ]] || die "cle API invalide"
-    ask api_ca_file "Certificat de l'autorite du serveur (PEM, vide = autorites du systeme)" "$current_ca"
+    # fichier importe : son certificat (ou aucun : autorites du systeme), sans question
+    [[ $imported == yes ]] ||
+        ask api_ca_file "Certificat de l'autorite du serveur (PEM, vide = autorites du systeme)" "$current_ca"
     if [[ -n $api_ca_file && $api_ca_file != "$SERVER_CA" ]]; then
         [[ -f $api_ca_file ]] || die "certificat introuvable : $api_ca_file"
         install -m 0644 "$api_ca_file" "$SERVER_CA"
@@ -413,6 +496,7 @@ if [[ $has_kiosk == yes ]]; then
     set_conf "$KIOSK_CONF" QRPROTEC_SCREEN_BLANK_SECONDS "$blank"
     echo "Configuration ecrite dans $KIOSK_CONF"
 
+    [[ -n $front_config && -z $front_key ]] && import_front_config
     configure_front_api
 fi
 
@@ -547,6 +631,7 @@ fi
 
 if [[ $has_server == yes ]]; then
     echo "Fronts sur d'autres machines (qrprotec-kiosk, qrprotec-front) : sudo qrprotec-setup --front-key NOM"
+    echo "Borne sur une autre machine (serveur sans kiosk) : sudo qrprotec-setup --front-key borne --poste --front-config borne.qrprotec"
     echo "Termine. Journaux : journalctl -u qrprotec -u caddy -u qrprotec-kiosk"
 else
     echo "Termine. Journal : journalctl -u qrprotec-kiosk"
