@@ -763,7 +763,7 @@ class ListsWindow final : public AppWindow {
           const std::string code = std::exchange(add_lot_type_, {});
           bool              found = false;
           for (Json &line : edit_lines_.items())
-            if (line.contains("lot_types") && line["lot_types"].size() == 1 && line["lot_types"][0].str() == code) {
+            if (line.contains("lot_types") && line["lot_types"].size() == 1 && line["lot_types"][std::size_t{ 0 }].str() == code) {
               line["quantity"] = std::min(99, static_cast< int >(line["quantity"].integer()) + 1);
               found            = true;
             }
