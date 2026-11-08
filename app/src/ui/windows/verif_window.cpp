@@ -201,19 +201,13 @@ class VerifWindow final : public AppWindow {
             expected.insert(item["iid"].str());
       int remaining = 0;
 
-      ProblemTarget report; // (!) touche dans la liste : signalement apres la table
+      ProblemTarget report; // bouton de signalement du lot en cours, en bas de la fenetre
       const auto item_row = [&](const Json &item) {
         ImGui::TableNextRow();
         if (item["expired"].boolean())
           row_color(colors::red, 0.45f);
         ImGui::TableNextColumn();
         ImGui::Indent();
-        ImGui::PushID(item["iid"].str().c_str());
-        if (report_mark("##report"))
-          report = { item["location"].str(), item["location_name"].str(), item["iid"].str(), "",
-                     item["type_name"].str() + " (" + item["iid"].str() + ")" };
-        ImGui::PopID();
-        ImGui::SameLine();
         ImGui::TextUnformatted(item["type_name"].str().c_str());
         if (item["disabled"].boolean() && !item["outdated"].boolean()) {
           ImGui::SameLine();
@@ -272,7 +266,7 @@ class VerifWindow final : public AppWindow {
                            && !level_lot["storage"].boolean();
       if (!grouping)
         ImGui::SeparatorText("À scanner");
-      const float footer = ImGui::GetFrameHeightWithSpacing() * (orange ? 4.4f : 3.2f);
+      const float footer = ImGui::GetFrameHeightWithSpacing() * (orange ? 5.9f : 4.7f);
       if (grouping)
         ImGui::Dummy(ImVec2(0, std::max(0.0f, ImGui::GetContentRegionAvail().y - footer)));
       else if (ImGui::BeginTable("expected", 3,
@@ -400,7 +394,7 @@ class VerifWindow final : public AppWindow {
                                            : colors::orange,
                       entry.rank == 2 ? 0.10f : 0.25f);
             ImGui::TableNextColumn();
-            // retrait avant le (!) : Indent apres SameLine ramenait le texte a gauche, par-dessus le (!)
+            // retrait avant la case a cocher : Indent apres SameLine ramenait le texte a gauche, par-dessus la case
             if (placed)
               ImGui::Indent(12.0f);
             ImGui::PushID((lot["id"].str() + ":" + type).c_str());
@@ -409,10 +403,9 @@ class VerifWindow final : public AppWindow {
               if (ImGui::Checkbox("##check", &ticked))
                 app.toggle_verif_check(lot["id"].str(), type);
               ImGui::SetItemTooltip("Item à cocher : comptez-les à la main, puis cochez.");
-            } else if (report_mark("##report"))
-              report = { lot["id"].str(), lot["name"].str(), "", type, entry.type_name + " (" + lot["name"].str() + ")" };
+              ImGui::SameLine();
+            }
             ImGui::PopID();
-            ImGui::SameLine();
             if (entry.check)
               ImGui::Text("%d × %s", entry.required, entry.type_name.c_str());
             else
@@ -551,8 +544,6 @@ class VerifWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
-      if (!report.label.empty())
-        app.report_problem(report);
       if (grouping)
         status_banner(level == verif.lot_id ? "Les sous-lots validés sont enregistrés : terminez quand vous avez fini"
                                             : "Validez les sous-lots, puis revenez", colors::grey, 1.0f);
@@ -627,6 +618,13 @@ class VerifWindow final : public AppWindow {
         app.cancel_verif();
       if (cascade && !verif.done.empty())
         ImGui::SetItemTooltip("Les lots déjà validés restent enregistrés ; les scans pas encore validés sont oubliés.");
+      // plus de (!) dans la liste (pris pour des cases a cocher) : un seul bouton, pour le lot en cours
+      const std::string report_label = "⚠ Signaler un problème sur " + level_lot["name"].str();
+      if (report_button(report_label.c_str(), ImVec2(-1, 0)))
+        report = { level_lot["id"].str(), level_lot["name"].str(), "", "", level_lot["name"].str() };
+      ImGui::SetItemTooltip("Prévenir le TECH d'un problème sur le matériel. Ce n'est pas la validation de la vérif.");
+      if (!report.label.empty())
+        app.report_problem(report);
     }
 
     // Vérif en cascade : retour au lot qui contient le lot en cours, et ses sous-lots (faits en vert, commencés en

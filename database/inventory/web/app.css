@@ -500,22 +500,32 @@ button.task-row.bad { border-left: 4px solid var(--red); background: var(--red-b
 
 /* ---- Signalements de problemes ---- */
 /* signalement reconnaissable sans faire croire a un probleme en cours (meme sur un lot tout vert) : « ⚠ Signaler un
-   problème » sur les fiches en noir plein a liseré hachure, texte blanc ; (!) dans les listes en contour noir sur blanc */
+   problème » en noir plein a liseré hachure, texte blanc ; plus de petits (!) dans les listes (pris pour des cases) */
 .report-btn { font-weight: 800; }
 .report-wide { position: relative; overflow: hidden; background: #111; color: #fff; }
 .report-wide::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 16px;
   background: repeating-linear-gradient(-45deg, #ffd400 0 6px, #111 6px 12px); }
 .report-wide:active { background: #3a3a3a; }
-.report-mark { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; line-height: 22px; text-align: center;
-  font-size: .95rem; background: #fff; color: #111; border: 2px solid #111; }
-.report-mark:active { background: #e6e6e6; }
-.list li.iid .report-mark { width: 20px; height: 20px; line-height: 17px; border-width: 1.5px; font-size: .75rem; font-family: system-ui, sans-serif; }
 .report-wide { display: block; width: 100%; margin: 8px 0; padding: 10px 14px 10px 32px; }
 .tiles .tile.wide { grid-column: span 2; min-height: 0; flex-direction: row; gap: 14px; padding: 12px 16px; }
 .tiles .tile.wide > span:last-child { display: flex; flex-direction: column; align-items: flex-start; }
 .tiles .tile.alert { box-shadow: 0 0 0 3px var(--red); }
 .dialog-stack { display: flex; flex-direction: column; gap: 8px; }
-#problem h2, #login-needed h2, #reported h2, #replace-item h2 { margin: 0 0 6px; font-size: 1.2rem; }
+#login-needed h2, #reported h2, #replace-item h2 { margin: 0 0 6px; font-size: 1.2rem; }
+/* signalement en plein ecran, panneau attention jaune dans le titre : on comprend qu'on previent le TECH d'un
+   probleme, pas qu'on remplit un formulaire « est-ce valide » pour valider la vérif */
+#problem { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border: 0;
+  padding: calc(14px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom)); }
+#problem-form { display: flex; flex-direction: column; min-height: 100%; max-width: 640px; margin: 0 auto; }
+#problem .problem-title { display: flex; align-items: center; gap: 12px; margin: 4px 0 10px; font-size: 1.6rem;
+  line-height: 1.15; }
+#problem .warning-sign { flex: none; width: 56px; height: 49px; }
+#problem .problem-target { margin: 0 0 8px; font-size: 1.15rem; font-weight: 700; }
+#problem .problem-explain { margin: 0 0 12px; padding: 10px 12px; border-left: 6px solid #ffd400; border-radius: 8px;
+  background: #fff8cc; color: #111; }
+#problem #problem-question { font-size: 1.1rem; }
+#problem .dialog-buttons { margin-top: auto; padding-top: 12px; }
+#problem .dialog-buttons button { flex: 1; min-height: 52px; }
 #problem .choice { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
 #problem .choice label { display: flex; align-items: center; gap: 8px; padding: 6px 2px; }
 #problem .choice input { width: 20px; height: 20px; flex: none; }

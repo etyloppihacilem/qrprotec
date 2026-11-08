@@ -4088,16 +4088,62 @@ void App::draw_problem_modal() {
     if (!ImGui::IsPopupOpen(kTitle))
       ImGui::OpenPopup(kTitle);
   }
+  // plein ecran, panneau attention jaune dans le titre : on previent le TECH d'un probleme, ce n'est pas un
+  // formulaire « est-ce valide » qui validerait la verif
   const ImGuiViewport *viewport = ImGui::GetMainViewport();
-  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+  ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
+  ImGui::SetNextWindowSize(viewport->WorkSize, ImGuiCond_Always);
+  if (!ImGui::BeginPopupModal(kTitle, nullptr,
+                              ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+                                | ImGuiWindowFlags_NoSavedSettings))
     return;
   const bool  pack   = !problem_.target.pack.empty();
   const bool  object = !problem_.target.iid.empty() || !problem_.target.type.empty();
-  const float width  = ImGui::GetFontSize() * 26.0f;
-  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
+  const float base   = ImGui::GetStyle().FontSizeBase;
+  const float width  = std::min(ImGui::GetContentRegionAvail().x, base * 40.0f);
+  const float left   = std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowWidth() - width) * 0.5f);
+  ImGui::Dummy(ImVec2(0, base * 0.5f));
+  ImGui::SetCursorPosX(left);
+  warning_sign(base * 3.2f);
+  ImGui::SameLine(0.0f, base);
+  ImGui::PushFont(nullptr, base * 2.0f);
+  ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (base * 3.2f - ImGui::GetTextLineHeight()) * 0.5f);
+  ImGui::TextUnformatted("Signaler un problème");
+  ImGui::PopFont();
+  ImGui::Spacing();
+  ImGui::Indent(left - ImGui::GetStyle().WindowPadding.x);
+  ImGui::PushTextWrapPos(left + width);
+  ImGui::PushFont(nullptr, base * 1.4f);
   ImGui::TextUnformatted(problem_.target.label.c_str());
   ImGui::PopFont();
+  ImGui::Spacing();
+  {
+    // explication sur fond jaune pale, liseré jaune a gauche (comme le front web)
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float  pad   = base * 0.6f;
+    ImDrawList  *draw  = ImGui::GetWindowDrawList();
+    draw->ChannelsSplit(2);
+    draw->ChannelsSetCurrent(1);
+    ImGui::Dummy(ImVec2(0, pad * 0.5f));
+    ImGui::Indent(pad * 2.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
+    ImGui::PushTextWrapPos(left + width - pad);
+    ImGui::TextUnformatted("Un problème sur le matériel (cassé, sale, abîmé…) ? Ce message part au TECH.");
+    ImGui::PushFont(nullptr, base * 1.1f);
+    ImGui::TextUnformatted("Ce n'est pas la validation de la vérif. Si tout va bien, annulez.");
+    ImGui::PopFont();
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+    ImGui::Unindent(pad * 2.0f);
+    ImGui::Dummy(ImVec2(0, pad * 0.5f));
+    const ImVec2 end(start.x + width, ImGui::GetItemRectMax().y);
+    draw->ChannelsSetCurrent(0);
+    draw->AddRectFilled(start, end, IM_COL32(255, 248, 204, 255), pad);
+    draw->AddRectFilled(start, ImVec2(start.x + pad, end.y), IM_COL32(255, 212, 0, 255), pad,
+                        ImDrawFlags_RoundCornersLeft);
+    draw->ChannelsMerge();
+  }
+  ImGui::Spacing();
   ImGui::Spacing();
   ImGui::TextUnformatted(pack     ? "Le paquet est-il toujours utilisable ?"
                          : object ? "L'objet est-il toujours utilisable ?"
@@ -4114,12 +4160,13 @@ void App::draw_problem_modal() {
   ImGui::PopStyleColor();
   if (problem_.comment.size() > 1000)
     problem_.comment.resize(1000);
-  ImGui::TextDisabled("Commentaire facultatif. Envoyé tout de suite au TECH, indépendamment de la vérif.");
+  ImGui::TextDisabled("Commentaire facultatif.");
   if (!problem_.error.empty())
     ImGui::TextColored(colors::red, "%s", problem_.error.c_str());
   ImGui::Spacing();
   ImGui::BeginDisabled(problem_.busy);
-  if (primary_button(problem_.busy ? "Envoi..." : "Envoyer", ImVec2(width * 0.5f, 0))) {
+  const ImVec2 action(width * 0.5f - ImGui::GetStyle().ItemSpacing.x * 0.5f, ImGui::GetFrameHeight() * 1.6f);
+  if (primary_button(problem_.busy ? "Envoi..." : "Envoyer au TECH", action)) {
     if (problem_.usable < 0)
       problem_.error = object ? "Indiquez si l'objet est toujours utilisable." : "Indiquez si le lot est toujours utilisable.";
     else
@@ -4127,10 +4174,12 @@ void App::draw_problem_modal() {
   }
   ImGui::EndDisabled();
   ImGui::SameLine();
-  if (button("Annuler", ImVec2(-1, 0)) || (!problem_.busy && escape_pressed())) {
+  if (button("Annuler", action) || (!problem_.busy && escape_pressed())) {
     problem_ = ProblemPrompt{};
     ImGui::CloseCurrentPopup();
   }
+  ImGui::PopTextWrapPos();
+  ImGui::Unindent(left - ImGui::GetStyle().WindowPadding.x);
   if (problem_.target.label.empty() && !problem_.busy) // envoye
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();

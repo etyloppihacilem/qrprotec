@@ -2858,7 +2858,6 @@
   // Item attendu, dans la liste depliable de son type : seulement son iid, en petit (le type est dans le titre)
   function todoItem(item) {
     return el('li', { class: 'iid' + (item.expired ? ' expired' : '') },
-      reportMark({ item: item.iid, label: withId(item.type_name, item.iid), lot: item.location, lotName: item.location_name }),
       el('span', { class: 'main' }, item.iid),
       item.expired ? el('span', { class: 'tag red' }, badLabel(item)) : null,
       item.reported && !item.unusable ? el('span', { class: 'tag orange', title: 'Problème signalé, toujours utilisable' }, 'signalé') : null,
@@ -2938,8 +2937,7 @@
             group.extra ? `${group.extra} en plus` : '',
             expired ? nb(expired, 'périmé') : '',
             group.fromStock > 0 ? `${group.fromStock} à prendre dans le stock` : ''].filter(Boolean).join(' · '))),
-        [reportMark({ lot: lot.id, lotName: lot.name, type: group.row.type, label: `${group.row.type_name} (${lot.name})` }),
-          el('span', { class: 'count' }, ...countText(group.scanned, need(group), group.extra))]);
+        el('span', { class: 'count' }, ...countText(group.scanned, need(group), group.extra)));
     };
     const sorted = (list) => list.sort((a, b) => rank(a) - rank(b)
       || (rank(a) === 0 ? lastScanOf(b) - lastScanOf(a) : 0));
@@ -3159,9 +3157,6 @@
             entry.kind === 'check' ? `coché à la main – ${(lotById(entry.iid) || {}).name || ''}` : idText(entry.iid),
             mine ? '' : `par ${entry.who || 'un autre participant'}`].filter(Boolean).join(' · '))),
         ...tags,
-        entry.kind === 'item' && !entry.error ? reportMark({ item: entry.iid, label: withId(name, entry.iid),
-          lot: info && info.location, lotName: info && info.location_name })
-          : entry.kind === 'pack' && info ? reportMark({ pack: info.id, label: withId(`Paquet de ${info.type_name}`, info.id) }) : null,
         mine && el('button', {
           class: 'remove', type: 'button', 'aria-label': 'Retirer',
           onclick: () => { scannedAgain(); state.scanned.splice(index, 1); save(); render(); },
@@ -6040,12 +6035,8 @@
     if (!dialog.open) dialog.showModal();
   }
 
-  // target : {item, lot, lotName, type, label}
-  function reportMark(target) {
-    return el('button', { type: 'button', class: 'report-btn report-mark', title: 'Signaler un problème',
-      'aria-label': 'Signaler un problème', onclick: (event) => { event.stopPropagation(); openReport(target); } }, '!');
-  }
-
+  // target : {item, pack, lot, lotName, type, label}. Plus de petits (!) dans les listes de la vérif : un secouriste
+  // les prenait pour des cases a cocher ; seulement ce gros bouton, sur les fiches et pour le lot en cours de vérif
   function reportButton(target) {
     return el('button', { type: 'button', class: 'report-btn report-wide', onclick: () => openReport(target) },
       '⚠ Signaler un problème');

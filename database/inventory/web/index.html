@@ -225,19 +225,19 @@
 
   <dialog id="problem">
     <form id="problem-form">
-      <h2>Signaler un problème</h2>
-      <p id="problem-target" class="hint"></p>
+      <h2 class="problem-title"><svg class="warning-sign" viewBox="0 0 64 56" aria-hidden="true"><path d="M32 3 61 53H3Z" fill="#ffd400" stroke="#111" stroke-width="5" stroke-linejoin="round"/><path d="M32 19v18" stroke="#111" stroke-width="7" stroke-linecap="round"/><circle cx="32" cy="45.5" r="4" fill="#111"/></svg>Signaler un problème</h2>
+      <p id="problem-target" class="problem-target"></p>
+      <p class="problem-explain">Un problème sur le matériel (cassé, sale, abîmé…) ? Ce message part au TECH.<br><b>Ce n'est pas la validation de la vérif.</b> Si tout va bien, annulez.</p>
       <p><b id="problem-question">L'objet est-il toujours utilisable ?</b></p>
       <div class="choice">
         <label><input type="radio" name="problem-usable" id="problem-usable-yes"> Oui, toujours utilisable</label>
         <label><input type="radio" name="problem-usable" id="problem-usable-no"> Non, à remplacer</label>
       </div>
       <textarea id="problem-comment" rows="4" maxlength="1000" placeholder="Décrivez le problème (facultatif)"></textarea>
-      <p class="hint">Envoyé tout de suite au TECH, indépendamment de la vérif.</p>
       <p id="problem-error" class="pin-error"></p>
       <div class="dialog-buttons">
         <button type="button" id="problem-cancel" class="secondary">Annuler</button>
-        <button type="submit" id="problem-send" class="primary">Envoyer</button>
+        <button type="submit" id="problem-send" class="primary">Envoyer au TECH</button>
       </div>
     </form>
   </dialog>

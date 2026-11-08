@@ -252,6 +252,22 @@ bool report_mark(const char *id) {
   return clicked;
 }
 
+void warning_sign(float height) {
+  const float  width = height * 64.0f / 56.0f; // memes proportions que le panneau du front web
+  ImGui::Dummy(ImVec2(width, height));
+  const ImVec2 min  = ImGui::GetItemRectMin();
+  ImDrawList  *draw = ImGui::GetWindowDrawList();
+  const ImU32  ink  = IM_COL32(17, 17, 17, 255);
+  const float  unit = height / 56.0f;
+  const auto   at   = [&](float x, float y) { return ImVec2(min.x + x * unit, min.y + y * unit); };
+  draw->AddTriangleFilled(at(32, 3), at(61, 53), at(3, 53), IM_COL32(255, 212, 0, 255));
+  draw->AddTriangle(at(32, 3), at(61, 53), at(3, 53), ink, 5.0f * unit);
+  draw->AddLine(at(32, 19), at(32, 37), ink, 7.0f * unit);
+  draw->AddCircleFilled(at(32, 19), 3.5f * unit, ink);
+  draw->AddCircleFilled(at(32, 37), 3.5f * unit, ink);
+  draw->AddCircleFilled(at(32, 45.5f), 4.0f * unit, ink);
+}
+
 void stock_bar(int quantity, int minimum, const ImVec2 &size, int extra) {
   const bool   empty = quantity <= 0 && minimum > 0; // x/0 : rien d'attendu, vert
   const bool   none  = quantity <= 0 && minimum <= 0 && extra <= 0; // 0/0 : orange, a remarquer mais rien a faire

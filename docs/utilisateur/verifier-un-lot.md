@@ -396,12 +396,16 @@ le scellé** (le poste prévient avant). Après la vérif, un responsable pourra
 Un objet abîmé, un sac déchiré, un appareil qui ne marche plus : n'importe quel utilisateur connecté
 peut le **signaler** au TECH, pendant une vérif ou en dehors.
 
-- **Pendant une vérif** : touchez le **(!)** hachuré noir et jaune à côté de l'item (ou du type
-  d'item) dans la liste ;
+- **Pendant une vérif** : le bouton noir **⚠ Signaler un problème** du lot en cours (sur le téléphone,
+  dans la fiche du lot ; au poste, en bas de la fenêtre Vérif). Il n'y a plus de petit (!) dans la
+  liste des items : on le prenait pour une case à cocher ;
 - **Hors vérif** : scannez l'étiquette de l'item ou du lot, puis **Signaler un problème** sur sa fiche.
   Au poste, le bouton est dans la fenêtre du lot et le (!) dans la pile de scans ;
-- **Paquet fermé** : le (!) à côté du paquet scanné (téléphone et pile de scans), ou **Signaler un
+- **Paquet fermé** : le (!) à côté du paquet dans la pile de scans du poste, ou **Signaler un
   problème sur ce paquet** dans la fenêtre Paquet fermé du poste. Le signalement vaut pour tous ses items.
+
+Le signalement s'ouvre **en plein écran**, avec un panneau attention jaune dans le titre : ce n'est
+**pas** la validation de la vérif. Si tout va bien, on annule.
 
 La connexion est demandée **avant** de rédiger. Il faut ensuite répondre à **« L'objet est-il toujours
 utilisable ? »** et, si on veut, ajouter un commentaire :
