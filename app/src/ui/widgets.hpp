@@ -40,6 +40,8 @@ bool warning_button(const char *label, const ImVec2 &size = ImVec2(0, 0)); // or
 // contour noir sur fond blanc (meme style que le front web)
 bool report_button(const char *label, const ImVec2 &size = ImVec2(0, 0));
 bool report_mark(const char *id); // id unique dans la fenetre (ex : "##report")
+// Panneau attention jaune (triangle a bord noir, « ! » noir) de hauteur `height`, a la position du curseur
+void warning_sign(float height);
 // Police grasse chargee au demarrage (texte des boutons de signalement), nullptr : gras synthetique
 void set_bold_font(ImFont *font);
 
