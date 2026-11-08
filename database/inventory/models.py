@@ -788,8 +788,6 @@ DEFAULT_FONCTION = 'Secouriste'
 
 # Reglages du front web de chaque utilisateur : nom -> (libelle, valeur par defaut). Booleens seulement.
 WEB_PREFS = {
-    # ligne d'information entre la camera et la liste pendant la vérif (badge, lot, item scanne)
-    'verif_info_line': ("Ligne d'info pendant la vérif", False),
     # popup explicative de la vérif (3 points) plus affichee apres la connexion : « ne plus afficher ce message »
     'verif_help_hidden': ("Explication de la vérif masquée", False),
     # petite bulle de connexion dans un coin au lieu de la grande fenetre « Scannez votre carte »
