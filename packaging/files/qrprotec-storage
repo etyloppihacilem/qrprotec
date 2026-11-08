@@ -1,0 +1,212 @@
+#!/usr/bin/bash
+# Volumes dedies a la base et aux sauvegardes de QRProtec (LVM), pour ne jamais manquer de place.
+#
+#   sudo qrprotec-storage                    # etat : montages, place libre, espace LVM disponible
+#   sudo qrprotec-storage --setup            # cree les volumes dans l'espace libre du groupe LVM du systeme
+#   sudo qrprotec-storage --setup --device /dev/sdb   # ou sur un disque dedie (EFFACE ce disque)
+#
+# Sous Fedora Server, / est un volume LVM de 15 Go et le reste du disque n'est pas attribue. Ce script cree
+# deux volumes logiques XFS dans cet espace libre (ou sur un disque dedie) :
+#   qrprotec-data     monte sur /var/lib/qrprotec      (base SQLite)       --data-size, 10 Go par defaut
+#   qrprotec-backups  monte sur QRPROTEC_BACKUP_DIR    (archives)          --backup-size, defaut : 80 % du
+#                                                                           reste (20 % gardes pour /)
+# La base ne depend plus de la place sur / (journaux, mises a jour) et les sauvegardes ne peuvent pas la
+# remplir. Le contenu existant est recopie (service arrete), l'ancien dossier est garde a cote
+# (<dossier>.avant-volume-AAAAMMJJ) jusqu'a ce que vous le supprimiez. Montages dans /etc/fstab ; le back et
+# les sauvegardes ne demarrent pas si leur volume n'est pas monte (RequiresMountsFor). Relancer est sans
+# risque : un volume deja monte est laisse tel quel.
+set -euo pipefail
+
+readonly DATA_DIR=/var/lib/qrprotec
+readonly BACKUP_CONF=/etc/qrprotec/backup.conf
+readonly DATA_LV=qrprotec-data
+readonly BACKUP_LV=qrprotec-backups
+readonly DEDICATED_VG=qrprotec
+
+action=status device="" data_size=10G backup_size="" assume_yes=no
+
+die() { echo "qrprotec-storage : $*" >&2; exit 1; }
+log() { echo "qrprotec-storage : $*"; }
+
+usage() {
+    cat <<USAGE
+Usage : qrprotec-storage                         etat des volumes
+        qrprotec-storage --setup [options]       cree et monte les volumes
+
+  --device DISQUE     disque dedie (ex. /dev/sdb) : tout son contenu est EFFACE (confirmation demandee).
+                      Sans cette option : espace libre du groupe LVM du systeme
+  --data-size TAILLE  volume de la base (defaut 10G ; la base fait quelques dizaines de Mo)
+  --backup-size TAILLE  volume des sauvegardes (defaut : 80 % de l'espace restant)
+  -y, --yes           ne demande pas de confirmation
+USAGE
+}
+
+while (($#)); do
+    case $1 in
+        --setup) action=setup ;;
+        --device) device=${2:?disque attendu}; shift ;;
+        --data-size) data_size=${2:?taille attendue}; shift ;;
+        --backup-size) backup_size=${2:?taille attendue}; shift ;;
+        -y|--yes) assume_yes=yes ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+[[ $(id -u) -eq 0 ]] || die "a lancer en root (sudo qrprotec-storage)"
+
+backup_dir() {
+    local value
+    value=$(sed -n 's/^QRPROTEC_BACKUP_DIR=//p' "$BACKUP_CONF" 2>/dev/null | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/')
+    echo "${value:-/var/backups/qrprotec}"
+}
+BACKUP_DIR=$(backup_dir)
+readonly BACKUP_DIR
+
+# Point de montage du dossier (ou de son premier parent existant)
+mount_of() {
+    local path=$1
+    while [[ ! -e $path ]]; do path=$(dirname "$path"); done
+    findmnt -no TARGET --target "$path"
+}
+
+human() { numfmt --to=iec --suffix=o "$1"; }
+
+show_status() {
+    local dir mount
+    for dir in "$DATA_DIR" "$BACKUP_DIR"; do
+        mount=$(mount_of "$dir")
+        printf '%-28s monte sur %-22s %s libres sur %s (%s)\n' "$dir" "$mount" \
+            "$(df -B1 --output=avail "$mount" | tail -n 1 | xargs -I{} numfmt --to=iec --suffix=o {})" \
+            "$(df -B1 --output=size "$mount" | tail -n 1 | xargs -I{} numfmt --to=iec --suffix=o {})" \
+            "$(findmnt -no SOURCE "$mount")"
+    done
+    if command -v vgs >/dev/null; then
+        echo "Groupes LVM (espace non attribue) :"
+        vgs --noheadings -o vg_name,vg_size,vg_free 2>/dev/null | sed 's/^ */  /' || echo "  aucun"
+    fi
+    if [[ $(mount_of "$DATA_DIR") == / ]]; then
+        echo "La base est sur / : sudo qrprotec-storage --setup pour lui donner son propre volume."
+    fi
+}
+
+confirm() {
+    local answer
+    [[ $assume_yes == yes ]] && return 0
+    [[ -t 0 ]] || die "confirmation impossible sans terminal : relancer avec --yes"
+    read -r -p "$1 [o/N] : " answer
+    [[ ${answer,,} =~ ^(o|oui|y|yes)$ ]]
+}
+
+# Groupe LVM qui accueille les volumes : disque dedie (cree), sinon celui de /
+volume_group() {
+    local root_source vg
+    if [[ -n $device ]]; then
+        [[ -b $device ]] || die "$device n'est pas un disque"
+        if vgs "$DEDICATED_VG" >/dev/null 2>&1; then
+            echo "$DEDICATED_VG"
+            return
+        fi
+        findmnt -rno SOURCE | grep -q "^$device" && die "$device a des partitions montees"
+        lsblk -no NAME,SIZE,MODEL "$device" >&2
+        confirm "Tout le contenu de $device sera EFFACE. Continuer ?" || die "annule"
+        wipefs -qa "$device"
+        pvcreate -qy "$device" >&2
+        vgcreate -q "$DEDICATED_VG" "$device" >&2
+        echo "$DEDICATED_VG"
+        return
+    fi
+    root_source=$(findmnt -no SOURCE /)
+    vg=$(lvs --noheadings -o vg_name "$root_source" 2>/dev/null | xargs || true)
+    [[ -n $vg ]] || die "/ n'est pas sur LVM ($root_source) : utilisez un disque dedie (--device /dev/sdX)"
+    echo "$vg"
+}
+
+# Cree, formate et monte un volume sur DIR, en recopiant le contenu existant ; OWNER:GROUP et MODE du dossier
+setup_volume() {
+    local vg=$1 lv=$2 size=$3 dir=$4 owner=$5 mode=$6 label=$7 dev uuid tmp old
+    dev=/dev/$vg/$lv
+    if findmnt -no SOURCE --mountpoint "$dir" >/dev/null 2>&1; then
+        log "$dir est deja un point de montage ($(findmnt -no SOURCE --mountpoint "$dir")) : laisse tel quel"
+        return
+    fi
+    if ! lvs "$vg/$lv" >/dev/null 2>&1; then
+        if [[ $size == *% ]]; then
+            lvcreate -qy --wipesignatures y -n "$lv" -l "${size%\%}%FREE" "$vg" >/dev/null
+        else
+            lvcreate -qy --wipesignatures y -n "$lv" -L "$size" "$vg" >/dev/null
+        fi
+        mkfs.xfs -q -L "$label" "$dev"
+        log "volume $dev cree ($(human "$(blockdev --getsize64 "$dev")"))"
+    fi
+    tmp=$(mktemp -d)
+    mount "$dev" "$tmp"
+    if [[ -d $dir ]]; then
+        cp -a --preserve=all "$dir/." "$tmp/"
+    fi
+    chown "$owner" "$tmp"
+    chmod "$mode" "$tmp"
+    umount "$tmp"
+    rmdir "$tmp"
+    if [[ -d $dir ]]; then
+        old="$dir.avant-volume-$(date +%Y%m%d-%H%M%S)"
+        mv "$dir" "$old"
+        log "ancien contenu garde dans $old (a supprimer une fois verifie)"
+    fi
+    mkdir -p "$dir"
+    uuid=$(blkid -s UUID -o value "$dev")
+    if ! grep -q "UUID=$uuid" /etc/fstab; then
+        printf 'UUID=%s %s xfs defaults 0 0  # qrprotec-storage\n' "$uuid" "$dir" >>/etc/fstab
+    fi
+    systemctl daemon-reload
+    mount "$dir"
+    command -v restorecon >/dev/null && restorecon -RF "$dir"
+    log "$dir monte sur $dev"
+}
+
+# Le service ne demarre pas sur un dossier vide si le volume manque
+require_mount() {
+    local dir=$2 dropin=/etc/systemd/system/$1.d
+    mkdir -p "$dropin"
+    printf '# qrprotec-storage : pas de demarrage sans le volume\n[Unit]\nRequiresMountsFor=%s\n' "$dir" \
+        >"$dropin/qrprotec-storage.conf"
+}
+
+if [[ $action == status ]]; then
+    show_status
+    exit 0
+fi
+
+for tool in lvcreate mkfs.xfs blkid findmnt numfmt; do
+    command -v "$tool" >/dev/null || die "$tool introuvable (sudo dnf install lvm2 xfsprogs)"
+done
+vg=$(volume_group)
+free=$(vgs --noheadings --units b --nosuffix -o vg_free "$vg" | xargs)
+data_bytes=$(numfmt --from=iec "${data_size%[oB]}")
+mounted_data=no
+findmnt --mountpoint "$DATA_DIR" >/dev/null 2>&1 && mounted_data=yes
+if [[ $mounted_data == no ]] && ! lvs "$vg/$DATA_LV" >/dev/null 2>&1; then
+    ((free > data_bytes + 1024 ** 3)) ||
+        die "pas assez de place dans le groupe $vg ($(human "$free") libres) : agrandir le disque ou --device"
+fi
+backup_size=${backup_size:-80%}
+echo "Groupe LVM : $vg ($(human "$free") non attribues)"
+echo "  $DATA_LV -> $DATA_DIR ($data_size)"
+echo "  $BACKUP_LV -> $BACKUP_DIR ($backup_size$([[ $backup_size == *% ]] && echo " de l'espace restant"))"
+confirm "Creer ces volumes ? Le back et les sauvegardes sont arretes pendant la copie" || die "annule"
+
+was_active=no
+systemctl is-active --quiet qrprotec.service && was_active=yes
+systemctl stop qrprotec-backup.timer qrprotec-backup.service qrprotec.service 2>/dev/null || true
+trap '[[ $was_active == yes ]] && systemctl start qrprotec.service; systemctl start qrprotec-backup.timer 2>/dev/null || true' EXIT
+
+owner=root:root
+id qrprotec >/dev/null 2>&1 && owner=qrprotec:qrprotec
+setup_volume "$vg" "$DATA_LV" "$data_size" "$DATA_DIR" "$owner" 0750 qrp-data
+setup_volume "$vg" "$BACKUP_LV" "$backup_size" "$BACKUP_DIR" root:root 0700 qrp-backups
+require_mount qrprotec.service "$DATA_DIR"
+require_mount qrprotec-backup.service "$BACKUP_DIR"
+systemctl daemon-reload
+echo
+show_status

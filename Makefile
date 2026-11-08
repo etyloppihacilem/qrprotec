@@ -16,7 +16,7 @@ CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2
 IMAGE ?= qrprotec-rpmbuild:f$(FEDORA_VERSION)
 RPMBUILD_ARGS ?=
 SHELL_SCRIPTS := bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
-                 packaging/files/qrprotec-setup packaging/files/qrprotec-backup \
+                 packaging/files/qrprotec-setup packaging/files/qrprotec-backup packaging/files/qrprotec-storage \
                  packaging/files/qrprotec-kiosk-session packaging/files/qrprotec-front
 
 .PHONY: rpm rpm-local image sources lint clean version icon doc flatpak flatpak-umount

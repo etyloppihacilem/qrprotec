@@ -57,7 +57,11 @@ sauf avec --no-report.
 
 Reglages (/etc/qrprotec/backup.conf) :
   QRPROTEC_BACKUP_DIR       dossier des archives        (defaut /var/backups/qrprotec)
-  QRPROTEC_BACKUP_KEEP      nombre d'archives gardees   (defaut 14, 0 = toutes)
+  QRPROTEC_BACKUP_KEEP      archives recentes gardees   (defaut 14, 0 = toutes, sans rotation)
+  QRPROTEC_BACKUP_KEEP_WEEKLY   plus une par semaine sur N semaines   (defaut 8)
+  QRPROTEC_BACKUP_KEEP_MONTHLY  plus une par mois sur N mois          (defaut 12)
+  QRPROTEC_BACKUP_MIN_FREE  % de place libre gardee dans le dossier : les plus anciennes sont
+                            supprimees en dessous (defaut 10, jamais les 3 plus recentes)
   QRPROTEC_BACKUP_SCHEDULE  frequence : hourly, daily, weekly, monthly, une expression
                             OnCalendar de systemd (ex. "*-*-* 03:30"), ou off
   QRPROTEC_BACKUP_SYNC_TARGET  copie des archives sur une autre machine, par rsync sur SSH :
@@ -87,6 +91,9 @@ load_settings() {
     read_conf "$BACKUP_CONF"
     backup_dir=${QRPROTEC_BACKUP_DIR:-/var/backups/qrprotec}
     keep=${QRPROTEC_BACKUP_KEEP:-14}
+    keep_weekly=${QRPROTEC_BACKUP_KEEP_WEEKLY:-8}
+    keep_monthly=${QRPROTEC_BACKUP_KEEP_MONTHLY:-12}
+    min_free=${QRPROTEC_BACKUP_MIN_FREE:-10}
     schedule=${QRPROTEC_BACKUP_SCHEDULE:-daily}
     sync_target=${QRPROTEC_BACKUP_SYNC_TARGET:-}
     sync_port=${QRPROTEC_BACKUP_SYNC_PORT:-22}
@@ -98,6 +105,9 @@ load_settings() {
     [[ -f $CONF_DIR/kiosk.conf ]] && id qrprotec-kiosk >/dev/null 2>&1 && has_kiosk=yes
     templates_dir=$(kiosk_templates_dir)
     [[ $keep =~ ^[0-9]+$ ]] || die "QRPROTEC_BACKUP_KEEP invalide : $keep"
+    [[ $keep_weekly =~ ^[0-9]+$ ]] || die "QRPROTEC_BACKUP_KEEP_WEEKLY invalide : $keep_weekly"
+    [[ $keep_monthly =~ ^[0-9]+$ ]] || die "QRPROTEC_BACKUP_KEEP_MONTHLY invalide : $keep_monthly"
+    if [[ ! $min_free =~ ^[0-9]+$ ]] || ((min_free >= 90)); then die "QRPROTEC_BACKUP_MIN_FREE invalide : $min_free"; fi
     [[ $backup_dir == /* ]] || die "QRPROTEC_BACKUP_DIR doit etre un chemin absolu : $backup_dir"
 }
 
@@ -296,19 +306,57 @@ MANIFEST
     mv "$archive.part" "$archive"
     log "archive creee : $archive ($(du -h "$archive" | cut -f1))"
 
-    if [[ $rotate == yes ]] && ((keep > 0)); then
-        local old
+    if [[ $rotate == yes ]]; then prune_archives; fi
+}
+
+# Rotation a paliers : les KEEP plus recentes, puis la plus recente de chacune des KEEP_WEEKLY dernieres semaines
+# et de chacun des KEEP_MONTHLY derniers mois (ex. 14 + 8 + 12 : deux semaines au jour pres, deux mois a la
+# semaine, un an au mois, pour une quarantaine d'archives). KEEP=0 garde tout. Puis garde-fou : tant que le
+# dossier a moins de MIN_FREE % de place libre, la plus ancienne est supprimee (les 3 plus recentes jamais).
+prune_archives() {
+    local name day week month count=0 weeks=0 months=0 last_week="" last_month="" old
+    local -A kept=()
+    if ((keep > 0)); then
+        while read -r name; do
+            [[ -n $name ]] || continue
+            day=${name#"$PREFIX"}
+            day=${day:0:10}
+            week=$(date -d "$day" +%G-%V 2>/dev/null) || continue
+            month=${day:0:7}
+            ((count < keep)) && kept[$name]=1
+            count=$((count + 1))
+            if [[ $week != "$last_week" ]]; then
+                last_week=$week
+                ((weeks < keep_weekly)) && kept[$name]=1
+                weeks=$((weeks + 1))
+            fi
+            if [[ $month != "$last_month" ]]; then
+                last_month=$month
+                ((months < keep_monthly)) && kept[$name]=1
+                months=$((months + 1))
+            fi
+        done < <(archives | sort -r)
         while read -r old; do
-            [[ -n $old ]] || continue
+            [[ -n $old && -z ${kept[$old]:-} ]] || continue
             rm -f -- "$backup_dir/$old"
             log "ancienne archive supprimee : $old"
-        done < <(archives | head -n "-$keep")
+        done < <(archives)
     fi
+    while (($(free_percent) < min_free)) && (($(archives | wc -l) > 3)); do
+        old=$(archives | head -n 1)
+        rm -f -- "$backup_dir/$old"
+        log "place insuffisante (moins de $min_free % libres) : $old supprimee"
+    done
+}
+
+free_percent() {
+    df --output=avail,size "$backup_dir" | awk 'NR == 2 { printf "%d", $1 * 100 / $2 }'
 }
 
 list_backups() {
     local name
-    echo "Dossier : $backup_dir (garder : $keep, frequence : $schedule)"
+    echo "Dossier : $backup_dir (garder : $keep + $keep_weekly hebdo + $keep_monthly mensuelles, $min_free % libres," \
+        "frequence : $schedule)"
     while read -r name; do
         [[ -n $name ]] || continue
         printf '  %s  %6s\n' "$name" "$(du -h "$backup_dir/$name" | cut -f1)"
