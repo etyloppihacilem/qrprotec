@@ -55,7 +55,7 @@ from .sessions import (  # noqa: F401 (tests)
     temp_login_token, temp_login_user,
 )
 from .models import (
-    DEFAULT_FONCTION, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
+    DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     SCANNER_VOLUMES, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, name_key, qrprotec_setting,
 )
@@ -391,6 +391,13 @@ def pin_blocked_error(user):
     return ApiError(message, status.HTTP_403_FORBIDDEN, pin_required=True, pin_blocked=True, pin_reset=info)
 
 
+def pin_setup_extra(user):
+    """Champs de l'erreur « choisissez votre code » : la case « Demander a chaque connexion » est cochee par defaut
+    quand le code est obligatoire, et imposee pour un admin."""
+    return {'pin_setup_required': True, 'pin_at_login_default': user.pin_mandatory,
+            'pin_at_login_locked': user.pin_at_login_locked}
+
+
 def verify_pin(user, data):
     """Controle du PIN a la connexion (obligatoire pour un admin, ou si l'utilisateur en a un).
 
@@ -409,13 +416,15 @@ def verify_pin(user, data):
         new_pin = str(data.get('new_pin', '') or '')
         if not new_pin:
             raise ApiError("Choisissez votre code PIN (4 à 8 chiffres)", status.HTTP_403_FORBIDDEN,
-                           pin_setup_required=True)
+                           **pin_setup_extra(user))
         try:
             user.set_pin(new_pin)
         except ValueError as exc:
-            raise ApiError(str(exc), status.HTTP_400_BAD_REQUEST, pin_setup_required=True)
+            raise ApiError(str(exc), status.HTTP_400_BAD_REQUEST, **pin_setup_extra(user))
+        # case « Demander a chaque connexion » de la fenetre de choix du code (absente : demande, comme avant)
+        user.set_pin_at_login(data.get('pin_at_login', True))
         user.save(update_fields=['pin_hash', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',
-                                 'pin_reset_required', 'pin_forgotten', 'pin_reset_notified'])
+                                 'pin_reset_required', 'pin_forgotten', 'pin_reset_notified', 'pin_at_login'])
         return
     pin = str(data.get('pin', '') or '')
     if not pin:
@@ -2516,9 +2525,9 @@ def users(request):
     if request.method == 'GET':
         users_list = (Secouristes.objects.select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions'))
                       .order_by('nom', 'prenom'))
-        pin_default = ServerSettings.get().pin_required_default  # lu une fois pour toute la liste
+        pin_roles = ServerSettings.get().pin_required_roles  # lu une fois pour toute la liste
         for user in users_list:
-            user.server_pin_required_default = pin_default
+            user.server_pin_required_roles = pin_roles
         return Response([ser.user_dict(user, local=True) for user in users_list])
     data = request.data
     matricule = str(data.get('matricule', '')).strip()
@@ -2538,6 +2547,8 @@ def users(request):
         user.set_pin_mode(str(data['pin_mode']))
     if data.get('pin'):
         user.set_pin(data['pin'])  # sinon, un admin choisira son PIN a sa premiere connexion
+    if 'pin_at_login' in data:
+        user.set_pin_at_login(data['pin_at_login'])
     if data.get('pin_contact'):
         user.pin_contact = parse_pin_contact(user, data['pin_contact'])
     user.renew_key()
@@ -2576,6 +2587,8 @@ def user_detail(request, matricule):
             user.active = bool(data['active'])
         if 'pin' in data:
             user.set_pin(data['pin'])  # '' supprime le PIN (refuse pour un admin)
+        if 'pin_at_login' in data:
+            user.set_pin_at_login(data['pin_at_login'])  # « Demander a chaque connexion » (impose pour un admin)
         if data.get('pin_reset'):
             user.reset_pin()  # deblocage : nouveau PIN choisi a la prochaine connexion
         if 'pin_contact' in data:
@@ -2601,7 +2614,7 @@ def parse_fonction(value):
     return ' '.join(str(value or '').split())[:32] or DEFAULT_FONCTION
 
 
-USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'fonction': 'rôle', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé', 'pin_mode': 'mode du PIN',
+USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'fonction': 'rôle', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé', 'pin_mode': 'mode du PIN', 'pin_at_login': 'PIN demandé à chaque connexion',
                'pin_contact': 'admin à contacter', 'push_disabled': 'notifications', 'default_contact': 'contact par défaut',
                'web_prefs': 'réglages du web',
                'scanner_volume': 'volume de la douchette'}
@@ -2685,10 +2698,16 @@ def server_settings(request):
             settings_row.declared_identity = bool(request.data['declared_identity'])
             changes.append('identité déclarée (nom sans badge) '
                            + ('autorisée' if settings_row.declared_identity else 'refusée'))
-        if 'pin_required_default' in request.data:
-            settings_row.pin_required_default = bool(request.data['pin_required_default'])
-            changes.append('PIN ' + ('obligatoire' if settings_row.pin_required_default else 'facultatif')
-                           + ' par défaut pour les secouristes')
+        roles = None
+        if 'pin_required_roles' in request.data:
+            roles = parse_pin_roles(request.data['pin_required_roles'])
+        elif 'pin_required_default' in request.data:  # ancien poste : une case pour tous les roles
+            roles = list(PIN_OPTIONAL_ROLES) if request.data['pin_required_default'] else []
+        if roles is not None:
+            settings_row.pin_required_roles = roles
+            labels = [Role(role).label.lower() for role in roles]
+            changes.append('code PIN obligatoire pour les administrateurs'
+                           + (' et les rôles ' + ', '.join(labels) if labels else ' seulement'))
         if 'scanner_volume_default' in request.data:
             settings_row.scanner_volume_default = parse_scanner_volume(request.data['scanner_volume_default'])
             changes.append(f'volume de la douchette par défaut : {settings_row.scanner_volume_default}')
@@ -2701,10 +2720,17 @@ def server_settings(request):
         settings_row.save()
         journal.record(OperationKind.SETTINGS, front_identity(request), ', '.join(changes) or 'aucun changement',
                        declared_identity=settings_row.declared_identity,
-                       pin_required_default=settings_row.pin_required_default,
+                       pin_required_roles=settings_row.pin_required_roles,
                        scanner_volume_default=settings_row.scanner_volume_default,
                        web_barcodes=settings_row.web_barcodes)
     return Response(ser.server_settings_dict(settings_row))
+
+
+def parse_pin_roles(value):
+    """Roles du reglage « code obligatoire » (les admins le sont toujours), dans l'ordre des roles."""
+    if not isinstance(value, list) or any(role not in PIN_OPTIONAL_ROLES + (Role.ADMIN,) for role in value):
+        raise ApiError('Code obligatoire : liste de rôles parmi ' + ', '.join(PIN_OPTIONAL_ROLES))
+    return [role for role in PIN_OPTIONAL_ROLES if role in value]
 
 
 @api_view(['POST'])
@@ -2764,7 +2790,7 @@ def my_prefs(request):
     return Response(ser.user_dict(user))
 
 
-PIN_SAVE_FIELDS = ['pin_hash', 'pin_mode', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',
+PIN_SAVE_FIELDS = ['pin_hash', 'pin_mode', 'pin_at_login', 'pin_failures', 'pin_failures_total', 'pin_locked_until', 'pin_blocked',
                    'pin_reset_required', 'pin_forgotten', 'pin_reset_notified']
 
 
@@ -2773,9 +2799,21 @@ PIN_SAVE_FIELDS = ['pin_hash', 'pin_mode', 'pin_failures', 'pin_failures_total',
 def my_pin(request):
     """Code PIN de l'utilisateur connecte, depuis ses reglages (web) : {"user", "current_pin", "pin"} le choisit ou le
     change, {"user", "current_pin", "disable": true} le supprime (refuse pour un admin, ou si un admin l'a rendu
-    obligatoire). Le PIN actuel est redemande (essais faux comptes comme a la connexion). La session reste ouverte."""
+    obligatoire). Le PIN actuel est redemande (essais faux comptes comme a la connexion). La session reste ouverte.
+    `pin_at_login` (case « Demander a chaque connexion ») accompagne le PIN choisi, ou se change seul, sans PIN."""
     user = badge_user(request, ALL_ROLES)  # badge ou jeton de session, PIN deja verifie s'il est demande
     data = request.data
+    if 'pin_at_login' in data and not data.get('pin') and not data.get('disable'):
+        if not user.has_pin:
+            raise ApiError("Vous n'avez pas de code PIN")
+        if user.pin_at_login_locked and not data['pin_at_login']:
+            raise ApiError("Le PIN est demandé à chaque connexion pour un administrateur", status.HTTP_403_FORBIDDEN)
+        user.set_pin_at_login(data['pin_at_login'])
+        user.save(update_fields=['pin_at_login'])
+        journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
+                       f'code PIN {"demandé" if user.pin_at_login else "plus demandé"} à chaque connexion pour '
+                       f'{user} ({user.matricule}) dans ses réglages', matricule=user.matricule, fields=['pin_at_login'])
+        return Response(ser.user_dict(user))
     if user.pin_blocked:
         raise pin_blocked_error(user)
     if user.pin_locked():
@@ -2801,6 +2839,8 @@ def my_pin(request):
             raise ApiError('Le PIN doit comporter 4 à 8 chiffres')
         summary = 'code PIN modifié' if user.has_pin else 'code PIN choisi'
         user.set_pin(pin)
+        if 'pin_at_login' in data:
+            user.set_pin_at_login(data['pin_at_login'])
     user.save(update_fields=PIN_SAVE_FIELDS)
     journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
                    f'{summary} par {user} ({user.matricule}) dans ses réglages', matricule=user.matricule, fields=['pin'])

@@ -146,7 +146,8 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
 - **État des lots** : tous les lots et leur état ; toucher un lot l'ouvre.
 - **Gestion de la TECH** (tâches, état des stocks, prévisions) : rôles gestion et admin (badge demandé, grisé pour les autres).
 - ⚙ : vos réglages, une fois connecté : **code PIN** (le choisir, le changer avec l'ancien, ou le
-  supprimer s'il n'est pas obligatoire : jamais pour un admin, ni quand le TECH l'a imposé), puis
+  supprimer s'il n'est pas obligatoire : jamais pour un admin, ni quand le TECH l'a imposé ; case
+  **Demander à chaque connexion** : décochée, le code ne sert qu'à se connecter sans badge), puis
   les notifications pour ceux qui peuvent en recevoir.
 
 Une vérif commencée au téléphone apparaît dans le **Suivi des vérifs** dès le premier scan, et y

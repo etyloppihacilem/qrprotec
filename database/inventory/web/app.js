@@ -1717,16 +1717,24 @@
       keyOk() && labelOk() ? '' : labelLine(lot));
   }
 
-  // Saisie du PIN (ou choix du PIN pour un admin qui n'en a pas encore)
+  // Saisie du PIN (ou choix du PIN quand il est obligatoire et pas encore choisi). `setup` : reponse du serveur
+  // (pin_at_login_default : case « Demander a chaque connexion » cochee par defaut, pin_at_login_locked : imposee)
   function askPin(matricule, key, setup, errorMessage) {
     const dialog = $('#pin');
     $('#pin-title').textContent = setup ? 'Choisissez votre code PIN' : 'Code PIN';
     $('#pin-text').textContent = setup
-      ? 'Nouveau code PIN de 4 à 8 chiffres, demandé après le badge à chaque connexion (obligatoire pour les administrateurs).'
+      ? 'Choisissez votre code de 4 à 8 chiffres. Il permet aussi de vous connecter sans badge (nom, prénom et code).'
       : `Badge ${matricule} : saisissez votre code PIN.`;
     $('#pin-input').value = '';
     $('#pin-confirm').value = '';
     $('#pin-confirm').hidden = !setup;
+    const atLogin = $('#pin-at-login');
+    $('#pin-at-login-box').hidden = !setup;
+    if (setup && setup !== askPin.lastSetup) { // garder le choix de la personne si le serveur refuse le code
+      atLogin.checked = setup.pin_at_login_default !== false || !!setup.pin_at_login_locked;
+      atLogin.disabled = !!setup.pin_at_login_locked;
+    }
+    askPin.lastSetup = setup || null;
     $('#pin-error').textContent = errorMessage || '';
     $('#pin-form').onsubmit = (event) => {
       event.preventDefault();
@@ -1734,7 +1742,7 @@
       if (!/^\d{4,8}$/.test(pin)) { $('#pin-error').textContent = 'Le PIN doit comporter 4 à 8 chiffres.'; return; }
       if (setup && pin !== $('#pin-confirm').value.trim()) { $('#pin-error').textContent = 'Les deux PIN sont différents.'; return; }
       dialog.close();
-      login(matricule, key, setup ? { new_pin: pin } : { pin });
+      login(matricule, key, setup ? { new_pin: pin, pin_at_login: atLogin.checked } : { pin });
     };
     $('#pin-cancel').onclick = () => dialog.close();
     const forgot = $('#pin-forgot');
@@ -1744,9 +1752,18 @@
     setTimeout(() => $('#pin-input').focus(), 50);
   }
 
+  // Reglages de la case « Demander a chaque connexion » au choix du code : meme objet pour un meme badge, pour
+  // garder la case telle que la personne l'a laissee quand le serveur refuse le code
+  function pinSetupOf(data, matricule) {
+    const last = askPin.lastSetup;
+    if (last && last.matricule === matricule) return last;
+    return { matricule, pin_at_login_default: data.pin_at_login_default, pin_at_login_locked: data.pin_at_login_locked };
+  }
+
   async function login(matricule, key, extra = {}) {
     try {
       const user = await api('auth/', { matricule, key, ...extra });
+      askPin.lastSetup = null;
       loggedIn({ ...user, key });
     } catch (e) {
       if (e.data && e.data.pin_blocked) {
@@ -1758,7 +1775,7 @@
       if (e.data && (e.data.pin_required || e.data.pin_setup_required)) {
         const retry = extra.pin || extra.new_pin || e.data.pin_locked;
         if (retry) feedback.bad(); else feedback.info();
-        askPin(matricule, key, !!e.data.pin_setup_required, retry ? e.message : '');
+        askPin(matricule, key, e.data.pin_setup_required ? pinSetupOf(e.data, matricule) : null, retry ? e.message : '');
         return;
       }
       feedback.bad();
@@ -1895,7 +1912,7 @@
         showPinBlocked(e.data.pin_reset || {});
         return;
       }
-      if (e.data && e.data.pin_setup_required) { askPin(matricule, key, true, ''); return; }
+      if (e.data && e.data.pin_setup_required) { askPin(matricule, key, pinSetupOf(e.data, matricule), ''); return; }
       feedback.bad();
       showInfo('bad', 'Code oublié', e.message);
     }
@@ -4542,10 +4559,21 @@
       pattern: '[0-9]*', maxlength: 8, autocomplete: 'off', placeholder });
     const hasPin = !!user.has_pin;
     const parts = [el('h3', {}, 'Code PIN')];
-    parts.push(el('p', { class: 'hint' }, hasPin
-      ? 'Votre code PIN est demandé après le badge, et permet de vous connecter sans badge (Nom + PIN).'
-      : 'Pas de code PIN : le badge suffit pour vous connecter. Avec un PIN, il est demandé après le badge et vous '
-        + 'pouvez vous connecter sans badge (Nom + PIN).'));
+    const atLogin = !!user.pin_at_login;
+    parts.push(el('p', { class: 'hint' }, !hasPin
+      ? 'Pas de code PIN : le badge suffit pour vous connecter. Un code vous permet de vous connecter sans badge '
+        + '(Nom + PIN), et peut être demandé après le badge.'
+      : atLogin ? 'Votre code PIN est demandé après le badge, et permet de vous connecter sans badge (Nom + PIN).'
+        : 'Votre code PIN sert seulement à vous connecter sans badge (Nom + PIN) : le badge suffit.'));
+    // « Demander a chaque connexion » : changee tout de suite avec un PIN, envoyee avec le PIN choisi sinon (cochee
+    // par defaut quand le code est obligatoire), imposee pour un admin
+    const askInput = el('input', { type: 'checkbox', id: 'settings-pin-at-login' });
+    askInput.checked = hasPin ? atLogin || !!user.pin_at_login_locked : !!user.pin_mandatory;
+    askInput.disabled = !!user.pin_at_login_locked;
+    if (hasPin) askInput.addEventListener('change', () => savePinAtLogin(askInput));
+    parts.push(el('label', { class: 'settings-check' }, askInput, el('span', {}, 'Demander à chaque connexion', el('br'),
+      el('small', { class: 'hint' }, user.pin_at_login_locked ? 'Toujours demandé pour les administrateurs.'
+        : 'Décochée : le code ne sert qu\'à vous connecter sans badge.'))));
     if (hasPin) parts.push(pinInput('settings-pin-current', 'PIN actuel'));
     parts.push(pinInput('settings-pin-new', hasPin ? 'Nouveau PIN (4 à 8 chiffres)' : 'PIN (4 à 8 chiffres)'));
     parts.push(pinInput('settings-pin-confirm', 'Confirmez le PIN'));
@@ -4586,6 +4614,29 @@
         (on) => setWebPrefs({ verif_help_hidden: !on })));
   }
 
+  const PIN_FIELDS = ['has_pin', 'pin_required', 'pin_mode', 'pin_can_disable', 'pin_mandatory', 'pin_at_login',
+    'pin_at_login_locked'];
+  function keepPinFields(body) {
+    for (const field of PIN_FIELDS) state.user[field] = body[field];
+  }
+
+  // Case « Demander a chaque connexion » d'un code existant : enregistree tout de suite
+  async function savePinAtLogin(input) {
+    const value = input.checked;
+    input.disabled = true;
+    try {
+      keepPinFields(await api('me/pin/', { user: badge(), pin_at_login: value }));
+      save();
+      toast(value ? 'Code PIN demandé à chaque connexion.' : 'Code PIN demandé seulement pour la connexion sans badge.');
+      renderPinSettings();
+    } catch (e) {
+      feedback.bad();
+      input.checked = !value;
+      input.disabled = false;
+      toast(e.message, true);
+    }
+  }
+
   async function savePin(disable) {
     const user = state.user;
     const value = (id) => ($(id) ? $(id).value.trim() : '');
@@ -4602,8 +4653,10 @@
       if (pin !== value('#settings-pin-confirm')) { error('Les deux PIN sont différents.'); return; }
     }
     try {
-      const body = await api('me/pin/', { user: badge(), current_pin: current, ...(disable ? { disable: true } : { pin }) });
-      for (const field of ['has_pin', 'pin_required', 'pin_mode', 'pin_can_disable']) state.user[field] = body[field];
+      const atLogin = $('#settings-pin-at-login') ? $('#settings-pin-at-login').checked : true;
+      const body = await api('me/pin/', { user: badge(), current_pin: current,
+        ...(disable ? { disable: true } : hadPin ? { pin } : { pin, pin_at_login: atLogin }) });
+      keepPinFields(body);
       save();
       toast(disable ? 'Code PIN supprimé.' : hadPin ? 'Code PIN changé.' : 'Code PIN enregistré.');
       renderPinSettings();

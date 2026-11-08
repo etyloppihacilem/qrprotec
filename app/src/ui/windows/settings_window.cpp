@@ -369,26 +369,53 @@ class SettingsWindow final : public AppWindow {
       help_marker("Désactivé (par défaut) : une vérif, un ajout d'items ou l'ouverture d'un scellé exige un "
                   "badge.\nActivé : à la place du badge, la personne peut saisir son nom, enregistré sans "
                   "vérification (« D:nom »). L'étiquette clé du lot reste exigée.");
-      bool pin_default = server_rules_["pin_required_default"].boolean();
-      if (ImGui::Checkbox("Code PIN obligatoire par défaut pour les secouristes", &pin_default)) {
-        Json body;
-        body["pin_required_default"] = pin_default;
-        app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
-          if (!result.ok) {
-            app.notify("Règles du serveur : " + result.error, true);
-            return;
+      // Code PIN obligatoire par role (toujours pour les admins) : une case par role. Obligatoire ne veut pas dire
+      // demande a chaque connexion : c'est la case « Demander a chaque connexion » de chacun, cochee par defaut.
+      ImGui::TextUnformatted("Code PIN obligatoire pour :");
+      ImGui::SameLine();
+      help_marker("Les administrateurs ont toujours un code PIN, demandé à chaque connexion.\nRôle coché : chacun doit "
+                  "avoir un code, sauf ceux dont le PIN est désactivé (fenêtre Utilisateurs) ; ceux qui n'en ont pas le "
+                  "choisissent à leur prochaine connexion. La case « Demander à chaque connexion » y est cochée par "
+                  "défaut ; décochée, le code ne sert qu'à la connexion sans badge (nom, prénom et code).\nRôle "
+                  "décoché : le code est facultatif.");
+      const Json &roles   = server_rules_["pin_required_roles"];
+      const Json &choices = server_rules_["pin_role_choices"];
+      for (std::size_t i = 0; i < choices.size(); ++i) {
+        const std::string role = choices[i]["value"].str();
+        bool              on   = false;
+        for (std::size_t j = 0; j < roles.size(); ++j)
+          on = on || roles[j].str() == role;
+        if (i > 0)
+          ImGui::SameLine();
+        if (ImGui::Checkbox((choices[i]["label"].str() + "##pin_role_" + role).c_str(), &on)) {
+          Json list = Json::array();
+          for (std::size_t j = 0; j < choices.size(); ++j) {
+            const std::string other = choices[j]["value"].str();
+            bool              keep  = other == role ? on : false;
+            for (std::size_t k = 0; k < roles.size() && other != role; ++k)
+              keep = keep || roles[k].str() == other;
+            if (keep)
+              list.push_back(Json(other));
           }
-          server_rules_ = result.data;
-          app.notify(server_rules_["pin_required_default"].boolean()
-                         ? "Code PIN obligatoire par défaut : choisi à la prochaine connexion par ceux qui n'en ont pas."
-                         : "Code PIN facultatif par défaut (toujours obligatoire pour les administrateurs).");
-          app.refresh_users();
-        });
+          Json body;
+          body["pin_required_roles"] = list;
+          app.api.patch("/api/server-settings/", body, [this, &app, role, on](const ApiResult &result) {
+            if (!result.ok) {
+              app.notify("Règles du serveur : " + result.error, true);
+              return;
+            }
+            server_rules_ = result.data;
+            app.notify(on ? "Code PIN obligatoire pour ce rôle : choisi à la prochaine connexion par ceux qui n'en ont pas."
+                          : "Code PIN facultatif pour ce rôle.");
+            app.refresh_users();
+          });
+        }
       }
-      help_marker("Désactivé (par défaut) : le PIN n'est obligatoire que pour les administrateurs et les "
-                  "secouristes pour qui il a été rendu obligatoire (fenêtre Utilisateurs).\nActivé : tous les "
-                  "secouristes doivent avoir un PIN, sauf ceux dont le PIN est désactivé ; ceux qui n'en ont pas le "
-                  "choisissent à leur prochaine connexion.");
+      ImGui::SameLine();
+      ImGui::BeginDisabled();
+      bool admins = true;
+      ImGui::Checkbox("Administrateur##pin_role_admin", &admins);
+      ImGui::EndDisabled();
       bool web_barcodes = server_rules_["web_barcodes"].boolean();
       if (ImGui::Checkbox("Lire les codes-barres sur le web (téléphones)", &web_barcodes)) {
         Json body;

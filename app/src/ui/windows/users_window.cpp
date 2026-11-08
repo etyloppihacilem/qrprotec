@@ -493,9 +493,10 @@ class UsersWindow final : public AppWindow {
       const ImGuiInputTextFlags pin_flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal;
       ImGui::SetNextItemWidth(160.0f);
       input_limited(creating ? "Code PIN" : "Nouveau PIN", pin_, 8, "4 à 8 chiffres", pin_flags);
-      help_marker("Demandé après le badge à chaque connexion. Obligatoire pour un administrateur (s'il n'en a pas, "
-                  "il le choisit à sa prochaine connexion) ; pour les autres rôles, selon le réglage par défaut ou "
-                  "le choix fait plus bas (obligatoire ou désactivé).");
+      help_marker("Demandé après le badge si « Demander à chaque connexion » est cochée, et sert à la connexion sans "
+                  "badge. Obligatoire pour un administrateur (s'il n'en a pas, il le choisit à sa prochaine "
+                  "connexion) ; pour les autres rôles, selon le réglage du rôle (Règles du serveur) ou le choix fait "
+                  "plus bas (obligatoire ou désactivé).");
       const bool pin_valid = pin_.empty() || (pin_.size() >= 4 && pin_.size() <= 8);
       if (!pin_valid)
         ImGui::TextColored(colors::orange, "Le PIN doit comporter 4 à 8 chiffres.");
@@ -565,11 +566,34 @@ class UsersWindow final : public AppWindow {
       else if (pin_mode == "disabled")
         ImGui::TextDisabled("PIN désactivé : jamais demandé.");
       else if (user_["has_pin"].boolean())
-        ImGui::TextColored(colors::green, "PIN défini%s.", pin_mode == "required" ? " (obligatoire)" : "");
+        ImGui::TextColored(colors::green, "PIN défini%s%s.", user_["pin_mandatory"].boolean() ? " (obligatoire)" : "",
+                           user_["pin_at_login"].boolean() ? "" : ", seulement pour la connexion sans badge");
       else if (user_["pin_required"].boolean())
         ImGui::TextColored(colors::orange, "Aucun PIN : il sera choisi à la prochaine connexion (obligatoire).");
       else
         ImGui::TextDisabled("Aucun PIN (facultatif).");
+      // « Demander a chaque connexion » : decochee, le PIN ne sert qu'a la connexion sans badge (impose pour un admin)
+      if (pin_mode != "disabled" && !user_["pin_reset_required"].boolean()) {
+        bool at_login = user_["pin_at_login"].boolean(true);
+        ImGui::BeginDisabled(user_["pin_at_login_locked"].boolean());
+        if (ImGui::Checkbox("Demander à chaque connexion##pin_at_login", &at_login)) {
+          Json body;
+          body["pin_at_login"] = at_login;
+          app.api.patch("/api/users/" + url_encode(selected_) + "/", body, [this, &app, at_login](const ApiResult &result) {
+            app.notify(!result.ok ? result.error
+                       : at_login ? "PIN demandé après le badge à chaque connexion."
+                                  : "PIN demandé seulement pour la connexion sans badge.",
+                       !result.ok);
+            if (result.ok)
+              select(result.data);
+            app.refresh_users();
+          });
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        help_marker("Cochée : le PIN est demandé après le badge. Décochée : le badge suffit, le PIN ne sert qu'à la "
+                    "connexion sans badge (nom, prénom et PIN). Toujours cochée pour un administrateur.");
+      }
       ImGui::BeginDisabled(pin_.empty() || !pin_valid);
       if (button("Définir le PIN"))
         update_pin(app, pin_);
@@ -587,16 +611,16 @@ class UsersWindow final : public AppWindow {
           ImGui::SameLine();
         if (pin_mode != "disabled"
             && confirm_button("Désactiver le PIN", "Le PIN de cet utilisateur sera supprimé et ne lui sera plus "
-                                                   "demandé, même s'il est obligatoire par défaut. Continuer ?",
+                                                   "demandé, même s'il est obligatoire pour son rôle. Continuer ?",
                               "pin_disable"))
           update_pin_mode(app, "disabled");
         if (!pin_mode.empty()) {
           ImGui::SameLine();
-          if (button("Réglage par défaut"))
+          if (button("Selon le rôle"))
             update_pin_mode(app, "");
         }
         help_marker("Obligatoire : sans PIN, il le choisit à sa prochaine connexion. Désactivé : jamais de PIN, même "
-                    "si le PIN est obligatoire par défaut (Réglages > Règles du serveur). Un utilisateur qui a un PIN "
+                    "si le PIN est obligatoire pour son rôle (Réglages > Règles du serveur). Un utilisateur qui a un PIN "
                     "peut aussi se connecter sans badge, avec son nom, son prénom et son PIN.");
       }
 
@@ -636,7 +660,7 @@ class UsersWindow final : public AppWindow {
         app.notify(!result.ok            ? result.error
                    : mode == "required" ? "PIN obligatoire : choisi à la prochaine connexion s'il n'existe pas."
                    : mode == "disabled" ? "PIN désactivé."
-                                        : "PIN selon le réglage par défaut.",
+                                        : "PIN selon le réglage de son rôle (Règles du serveur).",
                    !result.ok);
         if (result.ok)
           select(result.data);

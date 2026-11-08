@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
-from .models import PUSH_TYPES, WEB_PREFS, ItemStatus, compact_iid, qrprotec_setting
+from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, Role, compact_iid, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import LotPreload, optional_lot, optional_types, ordered_requirements, out_deadline, requirements_status
 
@@ -609,6 +609,9 @@ def user_dict(user, local=False):
         'pin_required': user.pin_required,
         'pin_mode': user.pin_mode,  # '' : reglage par defaut du serveur, 'required' ou 'disabled'
         'pin_can_disable': user.pin_can_disable,  # PIN facultatif : l'utilisateur peut le supprimer (reglages web)
+        'pin_mandatory': user.pin_mandatory,  # code obligatoire (admin, pin_mode required ou role du reglage serveur)
+        'pin_at_login': user.pin_at_login or user.pin_at_login_locked,  # « Demander a chaque connexion »
+        'pin_at_login_locked': user.pin_at_login_locked,  # case imposee (admin)
         'active': user.active,
         'key_expires': _date(user.key_expires),
         'pin_blocked': user.pin_blocked is not None,
@@ -693,7 +696,8 @@ def operation_dict(operation, names):
 def server_settings_dict(settings_row):
     return {
         'declared_identity': settings_row.declared_identity,
-        'pin_required_default': settings_row.pin_required_default,
+        'pin_required_roles': list(settings_row.pin_required_roles or []),  # code obligatoire, en plus des admins
+        'pin_role_choices': [{'value': role, 'label': Role(role).label} for role in PIN_OPTIONAL_ROLES],
         'scanner_volume_default': settings_row.scanner_volume_default,
         'web_barcodes': settings_row.web_barcodes,
         'antenna_name': settings_row.antenna_name,

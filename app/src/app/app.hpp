@@ -86,7 +86,11 @@ struct SessionUser {
 // Saisie du PIN apres le scan d'un badge (admins, ou utilisateurs ayant un PIN)
 struct PinPrompt {
     bool        active = false;
-    bool        setup  = false; // admin sans PIN : il le choisit (saisi deux fois)
+    bool        setup  = false; // code obligatoire pas encore choisi : il le choisit (saisi deux fois)
+    // case « Demander a chaque connexion » du choix du code : cochee par defaut si le code est obligatoire, imposee
+    // pour un admin. Decochee, le code ne sert qu'a la connexion sans badge (nom, prenom et code).
+    bool        at_login        = true;
+    bool        at_login_locked = false;
     bool        busy   = false;
     bool        focus  = false;
     std::string matricule;

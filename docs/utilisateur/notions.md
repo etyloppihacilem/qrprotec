@@ -139,7 +139,9 @@ Partout, ce qui demande de l'attention est **en haut** des listes, sur le web co
 
 Chaque utilisateur a un **badge** : une étiquette avec un QR code personnel (valable un an). On le
 scanne pour s'identifier. Les administrateurs ont en plus un **code PIN** (4 à 8 chiffres) ; les
-autres peuvent en avoir un.
+autres peuvent en avoir un, obligatoire pour les rôles choisis par le TECH. Le code est demandé après
+le badge, ou sert seulement à se connecter sans badge (nom, prénom et code) : case **Demander à
+chaque connexion**.
 
 | Rôle | Ce qu'il peut faire |
 |---|---|
