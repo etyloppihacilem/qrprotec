@@ -818,6 +818,7 @@ class LotAdminWindow final : public AppWindow {
                   "même nom, est créé en même temps que le type, et aucun autre lot de ce type ne peut être créé. "
                   "Son nom court est aussi le nom du type. Renommer le type renomme son lot, l'archiver archive "
                   "son lot.");
+      draw_referentiel_fields(app);
       if (editing_lot_type_.empty()) {
         if (type_unique_) {
           ImGui::Indent();
@@ -837,6 +838,8 @@ class LotAdminWindow final : public AppWindow {
           body["storage"]       = type_storage_;
           body["unique"]        = type_unique_;
           body["seal_required"] = type_seal_required_ && !type_storage_;
+          body["referentiel"]   = type_referentiel_ && !type_storage_;
+          body["part_of"]       = type_storage_ || type_referentiel_ ? std::string() : type_part_of_;
           body["user"]          = app.user_ref();
           if (type_unique_) {
             body["parent"] = type_lot_parent_;
@@ -881,8 +884,12 @@ class LotAdminWindow final : public AppWindow {
         body["storage"]       = type_storage_;
         body["unique"]        = type_unique_;
         body["seal_required"] = type_seal_required_ && !type_storage_;
-        app.api.patch("/api/lot-types/" + url_encode(editing_lot_type_) + "/", body, [&app](const ApiResult &result) {
+        body["referentiel"]   = type_referentiel_ && !type_storage_;
+        body["part_of"]       = type_storage_ || type_referentiel_ ? std::string() : type_part_of_;
+        app.api.patch("/api/lot-types/" + url_encode(editing_lot_type_) + "/", body, [this, &app](const ApiResult &result) {
           app.notify(result.ok ? "Type de lot enregistré." : result.error, !result.ok);
+          if (result.ok)
+            edit_lot_type(result.data); // emplacements effaces d'un nouveau referentiel
           app.refresh_lot_types();
           app.refresh_lots(); // nom du lot d'un type unique
         });
@@ -897,8 +904,15 @@ class LotAdminWindow final : public AppWindow {
         ImGui::EndChild();
         return;
       }
-      ImGui::TextDisabled("Type d'item, emplacement dans le lot (facultatif : pendant la vérif, les attendus sont "
-                          "regroupés par emplacement), quantité.");
+      if (type_referentiel_) {
+        ImGui::TextWrapped("Liste obligatoire (d'après les recommandations du ministère), sans emplacements : ils sont "
+                           "donnés par les rangements de ce référentiel.");
+        if (!type_rangements_.empty())
+          ImGui::TextColored(colors::grey, "Répartie entre : %s. Un lot de ce type n'attend rien lui-même : son contenu "
+                             "est porté par ses sous-lots.", type_rangements_.c_str());
+      } else
+        ImGui::TextDisabled("Type d'item, emplacement dans le lot (facultatif : pendant la vérif, les attendus sont "
+                            "regroupés par emplacement), quantité.");
       int        remove     = -1;
       const Json item_types = without_archived(app.catalog.item_types);
       // emplacements deja donnes dans ce type de lot, dans l'ordre de la verif : suggeres a la saisie (un nouveau
@@ -913,10 +927,12 @@ class LotAdminWindow final : public AppWindow {
         ImGui::PushID(static_cast< int >(index));
         const float width = ImGui::GetContentRegionAvail().x;
         search_select("type", item_types, "type", "name", row.type, "Tapez le nom du type d'item…",
-                      nullptr, width * 0.36f);
+                      nullptr, width * (type_referentiel_ ? 0.6f : 0.36f));
         ImGui::SameLine();
-        input_suggest("location", row.location, suggestions, 64, "Emplacement (ex : pochette bleue)", width * 0.24f);
-        ImGui::SameLine();
+        if (!type_referentiel_) {
+          input_suggest("location", row.location, suggestions, 64, "Emplacement (ex : pochette bleue)", width * 0.24f);
+          ImGui::SameLine();
+        }
         ImGui::SetNextItemWidth(90.0f);
         ImGui::InputInt("##qty", &row.quantity);
         row.quantity = std::max(1, row.quantity);
@@ -952,7 +968,7 @@ class LotAdminWindow final : public AppWindow {
           Json entry;
           entry["type"]     = row.type;
           entry["quantity"] = row.quantity;
-          entry["location"] = row.location;
+          entry["location"] = type_referentiel_ ? std::string() : row.location;
           entry["optional"] = row.optional;
           body["requirements"].push_back(entry);
         }
@@ -968,7 +984,7 @@ class LotAdminWindow final : public AppWindow {
                     });
       }
       // ordre des emplacements : celui de la verif (une pochette apres l'autre) et de la fiche du lot
-      if (places.size() > 1) {
+      if (places.size() > 1 && !type_referentiel_) {
         ImGui::SeparatorText("Ordre des emplacements");
         ImGui::TextDisabled("Ordre dans lequel les secouristes les vérifient, une pochette après l'autre.");
         if (location_order_editor(places)) {
@@ -977,7 +993,150 @@ class LotAdminWindow final : public AppWindow {
         }
         ImGui::TextDisabled("Enregistrez le contenu pour garder l'ordre.");
       }
+      if (type_referentiel_)
+        draw_coverage(app);
       ImGui::EndChild();
+    }
+
+    // Referentiel (liste du ministere, sans emplacements) et « Rangement de » (sa repartition entre des sacs)
+    void draw_referentiel_fields(App &app) {
+      ImGui::BeginDisabled(type_storage_ || !type_part_of_.empty());
+      ImGui::Checkbox("Référentiel (liste obligatoire, sans emplacements)", &type_referentiel_);
+      ImGui::EndDisabled();
+      help_marker("Le contenu obligatoire d'après les recommandations du ministère (ex : la liste du B+), sans "
+                  "emplacements. Ses rangements (ex : « Sac de soin » et « Sac O2 ») se répartissent la liste, rangée "
+                  "par pochettes, avec ce qu'ils ont en plus. Un lot du référentiel n'attend alors rien lui-même : "
+                  "ses sous-lots portent son contenu, et la couverture montre ce qui manque dans ses sacs. Sans "
+                  "rangement (ex : un kit d'un seul sac), un lot du référentiel attend la liste lui-même.");
+      if (type_storage_ || type_referentiel_)
+        return;
+      Json referentiels = Json::array();
+      for (const Json &lot_type : app.catalog.lot_types.items())
+        if (lot_type["referentiel"].boolean() && lot_type["type"].str() != editing_lot_type_)
+          referentiels.push_back(lot_type);
+      ImGui::TextUnformatted("Rangement de");
+      ImGui::SameLine();
+      help_marker("Ce type range une partie de la liste d'un référentiel (ex : le sac de soin du B+), par "
+                  "emplacements, avec ce qu'il a en plus. Deux sacs du même rangement sont interchangeables ; un sac "
+                  "rangé autrement (ex : le sac de soin du VPS) est un autre rangement du même référentiel.");
+      search_select("type_part_of", referentiels, "type", "name", type_part_of_, "Aucun référentiel",
+                    "Aucun : type ordinaire");
+      if (!type_part_of_.empty() || type_suggested_part_of_.empty())
+        return;
+      // transition : tous les lots de ce type sont des sous-lots de lots d'un meme type
+      std::string name = type_suggested_part_of_;
+      bool        ready = false;
+      for (const Json &lot_type : app.catalog.lot_types.items())
+        if (lot_type["type"].str() == type_suggested_part_of_) {
+          name  = lot_type["name"].str();
+          ready = lot_type["referentiel"].boolean();
+        }
+      ImGui::TextColored(colors::grey, "Suggestion : rangement de %s (tous ses lots sont dans des lots %s).", name.c_str(),
+                         name.c_str());
+      if (ready) {
+        ImGui::SameLine();
+        if (small_button("Choisir"))
+          type_part_of_ = type_suggested_part_of_;
+      } else
+        ImGui::TextColored(colors::grey, "Cochez d'abord « Référentiel » sur le type %s.", name.c_str());
+    }
+
+    // Couverture d'un referentiel : pour chaque lot, la liste face au contenu attendu de ses sacs
+    void draw_coverage(App &app) {
+      ImGui::SeparatorText("Couverture");
+      ImGui::TextDisabled("Pour chaque lot, ce que ses sacs placent de la liste obligatoire.");
+      if (coverage_type_ != editing_lot_type_ && !coverage_loading_)
+        load_coverage(app);
+      ImGui::SameLine();
+      if (small_button("Actualiser"))
+        load_coverage(app);
+      if (coverage_loading_) {
+        ImGui::TextDisabled("Chargement…");
+        return;
+      }
+      if (coverage_["lots"].size() == 0) {
+        ImGui::TextDisabled("Aucun lot de ce référentiel pour l'instant.");
+        return;
+      }
+      for (const Json &lot : coverage_["lots"].items()) {
+        ImGui::PushID(lot["id"].str().c_str());
+        const long        missing = lot["missing"].integer();
+        const std::string title   = lot["name"].str() + (lot["complete"].boolean()
+                                                             ? std::string(" — liste couverte")
+                                                             : " — " + std::to_string(missing)
+                                                                   + (missing > 1 ? " lignes manquent" : " ligne manque"))
+                                + "###coverage";
+        ImGui::PushStyleColor(ImGuiCol_Text, lot["complete"].boolean() ? colors::green : colors::red);
+        const bool open = ImGui::CollapsingHeader(title.c_str());
+        ImGui::PopStyleColor();
+        if (open) {
+          if (ImGui::BeginTable("coverage", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+            ImGui::TableSetupColumn("Type d'item", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+            ImGui::TableSetupColumn("Liste", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableSetupColumn("Placé", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableSetupColumn("Où", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+            ImGui::TableHeadersRow();
+            for (const char *group : { "lines", "extra" })
+              for (const Json &line : lot[group].items()) {
+                const long   required = line["required"].integer();
+                const long   placed   = line["placed"].integer();
+                const bool   extra    = std::string(group) == "extra" || placed > required;
+                const ImVec4 color    = placed < required ? colors::red : (extra ? colors::blue : colors::green);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextColored(color, "%s", line["type_name"].str().c_str());
+                ImGui::TableNextColumn();
+                if (required > 0)
+                  ImGui::Text("%ld", required);
+                else
+                  ImGui::TextDisabled("en plus");
+                ImGui::TableNextColumn();
+                ImGui::TextColored(color, "%ld", placed);
+                ImGui::TableNextColumn();
+                std::string where;
+                for (const Json &place : line["places"].items()) {
+                  if (!where.empty())
+                    where += ", ";
+                  where += place["lot_name"].str();
+                  if (!place["location"].str().empty())
+                    where += " (" + place["location"].str() + ")";
+                  where += " : " + place["quantity"].str();
+                }
+                if (where.empty())
+                  ImGui::TextColored(colors::red, "à placer dans un rangement");
+                else
+                  ImGui::TextWrapped("%s", where.c_str());
+              }
+            ImGui::EndTable();
+          }
+          if (small_button("Reprendre ce contenu comme liste")) {
+            // transition : la liste part de ce qui est rangé dans ce lot, la TECH la corrige d'après le PDF
+            requirements_.clear();
+            for (const char *group : { "lines", "extra" })
+              for (const Json &line : lot[group].items())
+                if (line["placed"].integer() > 0)
+                  requirements_.push_back({ line["type"].str(), static_cast< int >(line["placed"].integer()), "", false });
+            app.notify("Liste reprise de " + lot["name"].str() + " : corrigez-la puis « Enregistrer le contenu ».");
+          }
+          ImGui::SetItemTooltip("Remplace les lignes ci-dessus par tout ce que ce lot et ses sacs contiennent "
+                                "(rien n'est enregistré avant « Enregistrer le contenu »).");
+        }
+        ImGui::PopID();
+      }
+    }
+
+    void load_coverage(App &app) {
+      coverage_type_    = editing_lot_type_;
+      coverage_loading_ = true;
+      const std::string type = editing_lot_type_;
+      app.api.get("/api/lot-types/" + url_encode(type) + "/coverage/", [this, &app, type](const ApiResult &result) {
+        if (type != coverage_type_)
+          return; // un autre type a ete choisi entre-temps
+        coverage_loading_ = false;
+        coverage_         = result.ok ? result.data : Json();
+        if (!result.ok)
+          app.notify(result.error, true);
+      });
     }
 
     // Archivage : le type n'est plus propose a la creation de lots. Un lot unique est archive avec son type.
@@ -1040,6 +1199,13 @@ class LotAdminWindow final : public AppWindow {
       type_seal_required_ = lot_type["seal_required"].boolean();
       type_archived_      = lot_type["archived"].boolean();
       type_lot_           = lot_type["lot"].str();
+      type_referentiel_   = lot_type["referentiel"].boolean();
+      type_part_of_       = lot_type["part_of"].str();
+      type_suggested_part_of_ = lot_type["suggested_part_of"].str();
+      type_rangements_.clear();
+      for (const Json &row : lot_type["rangements"].items())
+        type_rangements_ += (type_rangements_.empty() ? "" : ", ") + row["name"].str();
+      coverage_type_.clear(); // couverture rechargee a l'affichage
       type_lot_parent_.clear();
       requirements_.clear();
       locations_.clear();
@@ -1080,6 +1246,13 @@ class LotAdminWindow final : public AppWindow {
     bool                          type_unique_  = false;
     bool                          type_seal_required_ = false;
     bool                          type_archived_ = false;
+    bool                          type_referentiel_ = false;
+    std::string                   type_part_of_;           // referentiel dont ce type est un rangement
+    std::string                   type_suggested_part_of_; // transition : referentiel de tous ses lots
+    std::string                   type_rangements_;        // rangements d'un referentiel, pour l'affichage
+    std::string                   coverage_type_;          // type dont la couverture est chargee
+    bool                          coverage_loading_ = false;
+    Json                          coverage_;
     std::string                   type_lot_;        // lot d'un type unique
     std::string                   type_lot_parent_; // creation d'un type unique : parent de son lot
     bool                          show_archived_types_ = false;

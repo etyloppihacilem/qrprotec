@@ -389,6 +389,13 @@ class LotType(models.Model):
     # Emplacements du contenu attendu (ex : pochette bleue, poche avant), dans l'ordre de la vérif : les attendus sont
     # regroupes par emplacement dans cet ordre (fiche, verif, fiche PDF). Tenu a jour avec les exigences.
     locations = models.JSONField(default=list, blank=True)
+    # Referentiel (ex : la liste du B+ d'apres les recommandations du ministere) : seulement le contenu obligatoire,
+    # sans emplacements. Quand des rangements le repartissent (part_of), un lot de ce type n'attend rien lui-meme :
+    # son contenu est porte par ses sous-lots (ses sacs), et la couverture compare leur somme a cette liste.
+    referentiel = models.BooleanField(default=False)
+    # Rangement d'un referentiel (ex : « Sac de soin » et « Sac O2 » du B+, « Sac de soin du VPS ») : contenu range
+    # par emplacements, sa part de la liste du referentiel et ce qu'il a en plus.
+    part_of = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='rangements')
 
     def __str__(self):
         return f"{self.name} ({self.type})"

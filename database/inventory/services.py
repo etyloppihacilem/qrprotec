@@ -21,7 +21,7 @@ from django.utils import timezone
 from . import journal, movements, notifications, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_identity_name
 from .models import (
-    ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotContent, LotRequirements, Lots, MovementKind, OperationKind,
+    ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotContent, LotRequirements, Lots, LotType, MovementKind, OperationKind,
     ProblemReport, ReportStatus, STOCK_LOT_TYPE, SeenWhile, VerifItem, Operation, VerifResult,
     Verifs, add_months, generate_key, name_key,
     qrprotec_setting, revision_blocked_q,
@@ -139,6 +139,8 @@ def lot_requirements(lot, preload=None, strict=False):
     par un admin, aucun attendu n'est facultatif."""
     if lot.lot_type.storage:
         return []  # un rangement du stock n'attend rien
+    if carried_by_rangements(lot.lot_type, preload):
+        return []  # referentiel reparti entre des rangements : le contenu est porte par ses sous-lots
     if preload is not None:
         own_rows, type_rows = preload.content[lot.id], preload.requirements[lot.lot_type_id]
     else:
@@ -157,6 +159,16 @@ def lot_requirements(lot, preload=None, strict=False):
             rows.append(Requirement(custom.item_type, custom.extra, custom.location or '', custom.extra,
                                     not strict and optional_in_lot(lot, custom.item_type)))
     return sort_requirements(rows, lot_locations(lot))
+
+
+def carried_by_rangements(lot_type, preload=None) -> bool:
+    """Un referentiel dont des rangements se partagent la liste (ex : le B+, reparti entre le sac de soin et le sac
+    O2) : ses lots n'attendent rien eux-memes, leur contenu est porte par leurs sous-lots."""
+    if not lot_type.referentiel:
+        return False
+    if preload is not None:
+        return lot_type.type in preload.carried
+    return LotType.objects.filter(part_of=lot_type).exists()
 
 
 class LotPreload:
@@ -181,6 +193,8 @@ class LotPreload:
                        .filter(lot_id__in=ids, item__isnull=True, sealed_pack__isnull=True)
                        .exclude(status=ReportStatus.RESOLVED).order_by('usable', 'created', 'id')):
             self.reports[report.lot_id].append(report)
+        # referentiels repartis entre des rangements (voir carried_by_rangements)
+        self.carried = set(LotType.objects.filter(part_of__isnull=False).values_list('part_of_id', flat=True))
         self.content = defaultdict(list)
         for row in LotContent.objects.select_related('item_type').filter(lot_id__in=ids).order_by('pk'):
             self.content[row.lot_id].append(row)
@@ -201,6 +215,58 @@ class LotPreload:
             seen.add(parent.id)
             parent = self.tree.get(parent.parent_id)
         return chain
+
+
+def coverage_lots(referentiel):
+    """Lots qui doivent couvrir la liste d'un referentiel : ses lots (ex : B+ 1, B+ 2), et les lots d'un de ses
+    rangements qui ne sont pas dans un lot du referentiel (ex : un kit range sans lot global)."""
+    lots = list(Lots.objects.select_related('lot_type', 'parent').filter(
+        Q(lot_type=referentiel) | Q(lot_type__part_of=referentiel), active=True).order_by('name', 'id'))
+    result = []
+    for lot in lots:
+        if lot.lot_type_id != referentiel.type and any(
+                parent.lot_type_id == referentiel.type for parent in lot.ancestors()):
+            continue  # sac d'un B+ : couvert avec son B+
+        result.append(lot)
+    return result
+
+
+def lot_coverage(lot, referentiel):
+    """Compare la liste d'un referentiel au contenu attendu d'un lot et de ses sous-lots (ses sacs, rangements par
+    emplacements) : pour chaque ligne du referentiel, la quantite placee et ou elle l'est, puis ce qui est en plus.
+    Un sous-lot d'un autre referentiel (le B+ d'un VPS) n'est pas compte : il couvre sa propre liste."""
+    placed = defaultdict(int)
+    places = defaultdict(list)
+    names = {}
+    stack = [lot]
+    while stack:
+        node = stack.pop()
+        if node.lot_type.storage:
+            continue
+        if node is not lot and (
+                (node.lot_type.referentiel and node.lot_type_id != referentiel.type)
+                or (node.lot_type.part_of_id not in (None, referentiel.type))):
+            continue
+        for requirement in lot_requirements(node, strict=True):
+            type_id = requirement.item_type_id
+            names[type_id] = requirement.item_type.name
+            placed[type_id] += requirement.quantity
+            places[type_id].append({'lot': node.id, 'lot_name': node.name, 'location': requirement.location,
+                                    'quantity': requirement.quantity})
+        stack.extend(reversed(list(node.children.select_related('lot_type').filter(active=True).order_by('name'))))
+    lines = []
+    wanted = set()
+    for requirement in ordered_requirements(referentiel):
+        type_id = requirement.item_type_id
+        wanted.add(type_id)
+        lines.append({'type': type_id, 'type_name': requirement.item_type.name, 'required': requirement.quantity,
+                      'placed': placed.get(type_id, 0), 'places': places.get(type_id, [])})
+    extra = [{'type': type_id, 'type_name': names[type_id], 'required': 0, 'placed': placed[type_id],
+              'places': places[type_id]}
+             for type_id in sorted(set(placed) - wanted, key=lambda key: (name_key(names[key]), key))]
+    missing = [line for line in lines if line['placed'] < line['required']]
+    return {'id': lot.id, 'name': lot.name, 'type': lot.lot_type_id, 'type_name': lot.lot_type.name,
+            'complete': not missing, 'missing': len(missing), 'lines': lines, 'extra': extra}
 
 
 def lot_locations(lot):

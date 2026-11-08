@@ -96,6 +96,7 @@ local_patterns = [
     path('lot-types/', views.lot_types),
     path('lot-types/<str:type_code>/', views.lot_type_detail),
     path('lot-types/<str:type_code>/requirements/', views.lot_type_requirements),
+    path('lot-types/<str:type_code>/coverage/', views.lot_type_coverage),
     path('lots/', views.lots),
     path('lots/<str:lot_id>/update/', views.lot_update),
     path('lots/<str:lot_id>/content/', views.lot_content),

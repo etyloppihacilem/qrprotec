@@ -1837,6 +1837,67 @@ class SubLotTests(ApiTestCase):
     def bottle(self):
         return self.create(self.o2, None, 1)[0].iid
 
+    def test_referentiel_coverage(self):
+        """Referentiel : liste obligatoire sans emplacements, repartie entre des rangements (les sacs) ; le lot du
+        referentiel n'attend rien lui-meme, la couverture compare la somme de ses sacs a la liste."""
+        code, body = self.call('GET', '/api/lot-types/saco2x/')
+        self.assertEqual(body['suggested_part_of'], 'bplusx')  # tous les sacs O2 sont dans des B+
+        code, body = self.call('PATCH', '/api/lot-types/saco2x/', {'part_of': 'bplusx'})
+        self.assertEqual(code, 400)  # le B+ n'est pas (encore) un referentiel
+        code, body = self.call('PATCH', '/api/lot-types/bplusx/', {'referentiel': True})
+        self.assertEqual(code, 200)
+        self.assertTrue(body['referentiel'])
+        code, body = self.call('PUT', '/api/lot-types/bplusx/requirements/', {'requirements': [
+            {'type': 'compre', 'quantity': 3, 'location': 'Pochette rouge'}, {'type': 'bouo2x', 'quantity': 1},
+            {'type': 'garrot', 'quantity': 1}]})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['locations'], [])
+        self.assertEqual({row['location'] for row in body['requirements']}, {''})
+        # sans rangement, un lot du referentiel attend sa liste lui-meme (un kit d'un seul sac)
+        bplus = Lots.objects.get(id=self.bplus['id'])
+        self.assertEqual(len(services.lot_requirements(bplus)), 3)
+        for code_type in ('sacpse', 'saco2x'):
+            code, body = self.call('PATCH', f'/api/lot-types/{code_type}/', {'part_of': 'bplusx'})
+            self.assertEqual(code, 200)
+            self.assertEqual(body['part_of_name'], 'B+')
+        code, body = self.call('GET', '/api/lot-types/bplusx/')
+        self.assertEqual([row['name'] for row in body['rangements']], ['Sac O2', 'Sac PSE'])
+        self.assertEqual(services.lot_requirements(bplus), [])
+        code, body = self.call('GET', f"/api/lots/{self.bplus['id']}/", local=False)
+        self.assertEqual(body['requirements'], [])
+        code, body = self.call('GET', '/api/lot-types/bplusx/coverage/')
+        self.assertEqual(code, 200)
+        # le Sac A (rangement du B+ hors de tout B+) doit couvrir la liste a lui seul
+        self.assertEqual([lot['name'] for lot in body['lots']], ['B+ 1', 'Sac A'])
+        lot = body['lots'][0]
+        self.assertEqual([(line['type'], line['required'], line['placed']) for line in lot['lines']],
+                         [('bouo2x', 1, 1), ('compre', 3, 2), ('garrot', 1, 0)])
+        self.assertEqual(lot['lines'][1]['places'], [
+            {'lot': self.soin['id'], 'lot_name': 'Sac de soin', 'location': '', 'quantity': 2}])
+        self.assertFalse(lot['complete'])
+        self.assertEqual(lot['missing'], 2)
+        # du contenu propre comble un manque ; un type absent de la liste est en plus
+        self.call('PUT', f"/api/lots/{self.soin['id']}/content/", {'content': [
+            {'type': 'compre', 'extra': 1}, {'type': 'garrot', 'extra': 2, 'location': 'Poche avant'}]})
+        ItemType.objects.create(type='ciseau', name='Ciseaux')
+        self.call('PUT', f"/api/lots/{self.sac_o2['id']}/content/", {'content': [{'type': 'ciseau', 'extra': 1}]})
+        code, body = self.call('GET', '/api/lot-types/bplusx/coverage/')
+        lot = body['lots'][0]
+        self.assertTrue(lot['complete'])
+        self.assertEqual([(line['type'], line['placed']) for line in lot['lines']],
+                         [('bouo2x', 1), ('compre', 3), ('garrot', 2)])
+        self.assertEqual([(line['type'], line['placed']) for line in lot['extra']], [('ciseau', 1)])
+        # un referentiel reparti ne redevient pas un type ordinaire, un referentiel n'est le rangement de personne
+        code, body = self.call('PATCH', '/api/lot-types/bplusx/', {'referentiel': False})
+        self.assertEqual(code, 400)
+        self.assertIn('Sac O2', body['error'])
+        code, _ = self.call('PATCH', '/api/lot-types/sacpse/', {'referentiel': True})
+        self.assertEqual(code, 400)
+        code, _ = self.call('GET', '/api/lot-types/sacpse/coverage/')
+        self.assertEqual(code, 400)
+        code, body = self.call('PATCH', '/api/lot-types/sacpse/', {'part_of': ''})
+        self.assertEqual(body['part_of'], '')
+
     def test_tree_and_global_state(self):
         code, lot = self.call('GET', f"/api/lots/{self.sac_o2['id']}/", local=False)
         self.assertEqual(lot['parent'], self.bplus['id'])
