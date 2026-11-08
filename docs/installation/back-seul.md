@@ -54,10 +54,37 @@ Ouvrez le pare-feu (`--open-firewall`) : seuls les ports 80 et 443 sont nécessa
 
 Le premier administrateur est créé par l'assistant, ou plus tard :
 `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821`. Comme il n'y a pas d'écran, imprimez
-son badge depuis le premier poste connecté (scanner ou saisir l'URL affichée, puis **Administration >
+son badge depuis la borne, une fois connectée (scanner ou saisir l'URL affichée, puis **Administration >
 Utilisateurs**).
 
 ## 3. Créer une clé par poste
+
+### La borne : poste principal
+
+Sans kiosk sur le serveur, la **borne** (le kiosk avec l'imprimante et la douchette) se déclare
+**poste principal** : elle a alors les mêmes droits que le kiosk d'une borne complète.
+
+- Elle **imprime les « Impressions en attente »** : étiquettes demandées depuis le web (Gestion de
+  la TECH) ou envoyées par les postes de bureau sans imprimante. Sans poste principal, ces demandes
+  ne s'imprimeraient nulle part.
+- Elle **gère les ordinateurs connectés** (Administration > Utilisateurs > Ordinateurs connectés) :
+  créer le fichier d'un nouveau poste, révoquer, réactiver, supprimer. Elle ne peut pas se révoquer
+  ni se retirer ses propres droits (à faire sur le serveur ou depuis un autre poste principal).
+
+```sh
+sudo qrprotec-setup --front-key borne --poste --front-config borne.qrprotec
+```
+
+Copiez `borne.qrprotec` sur la borne (clé USB, `scp`) et importez-le avec son mot de passe :
+`sudo qrprotec-setup --front-config borne.qrprotec` (voir [front seul](front-seul.md#borne-kiosk-reliée-à-un-back-distant)).
+Les autres postes se créent ensuite **depuis la borne**, sans ligne de commande.
+
+Un front existant devient poste principal (ou ne l'est plus) avec
+`sudo qrprotec-manage frontkey poste borne` (`--off` pour retirer), ou depuis un autre poste
+principal (bouton **Poste principal** / **Simple front** de la liste). Plusieurs postes principaux
+sont possibles : une impression en attente n'est lancée qu'une fois.
+
+### Les autres postes
 
 Chaque front distant a **sa propre clé**, ce qui permet d'en révoquer une (poste volé, réformé) sans
 toucher aux autres :
@@ -71,7 +98,7 @@ La clé (`qrpf_…`) n'est **affichée qu'une fois** : notez-la pour la saisir s
 n'en garde que l'empreinte.
 
 ```sh
-sudo qrprotec-manage frontkey list             # fronts, dernière utilisation, dernière adresse
+sudo qrprotec-manage frontkey list             # fronts, poste principal, dernière utilisation, adresse
 sudo qrprotec-manage frontkey revoke accueil   # le poste perd l'accès immédiatement
 sudo qrprotec-manage frontkey delete accueil
 ```

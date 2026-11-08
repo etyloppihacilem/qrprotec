@@ -14,7 +14,8 @@ models.LabelPrint).
 - Web (admins, Gestion de la TECH, bouton +) : nouvelles etiquettes d'items d'un type existant, nombre, peremption si
   le type est perissable. « Lancer l'impression » cree les items (reception au nom de l'admin) puis imprime.
 - Front d'un autre ordinateur (API distante) : « Imprimer » envoie les etiquettes deja rendues (images 1 bit), que le
-  poste imprime telles quelles. Le poste est le seul front branche sur l'API locale du serveur.
+  poste imprime telles quelles. Le poste est le poste principal : front de l'API locale du
+  serveur, ou kiosk d'une autre machine dont la cle est marquee poste (FrontKey.poste, back sans kiosk).
 
 La fenetre du poste s'ouvre d'elle-meme, meme sans personne de connecte. Une demande pas imprimee expire en 24 h.
 """

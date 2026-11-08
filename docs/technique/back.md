@@ -45,6 +45,11 @@ Chacun enveloppe l'application dans `RoleWSGIHandler(app, 'public'|'local'|'remo
   l'API locale sans l'admin Django** (`urls_remote.py`, `request.qrprotec_local = True`), avec
   `request.qrprotec_front` = nom du front. L'adresse notée est celle de `X-Forwarded-For` (posé par
   Caddy) ;
+- **poste principal** (`request.qrprotec_poste`, `views.is_main_poste`) : vrai pour l'API locale et
+  pour une clé marquée `FrontKey.poste` (borne d'un serveur sans kiosk, `frontkey add NOM --poste`).
+  Seul un poste principal gère les ordinateurs connectés (`/api/front-configs/`) ; le front lit ce
+  droit dans `/api/health/` (`poste`) pour imprimer la file `/api/label-prints/pending/`. Un poste
+  principal distant ne peut ni se révoquer, ni se supprimer, ni se retirer ce droit (409) ;
 - sinon : URLs publiques.
 
 **Utilisateur connecté.** Ni le localhost ni la clé de front ne donnent de droits de gestion :

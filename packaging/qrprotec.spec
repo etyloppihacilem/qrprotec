@@ -172,6 +172,8 @@ License:        LicenseRef-Proprietary
 Requires:       %{name}-front%{?_isa} = %{version}-%{release}
 Requires:       %{name}-common = %{version}-%{release}
 Requires:       cage
+# sudo qrprotec-setup --front-config FICHIER : dechiffre le fichier .qrprotec cree sur le serveur (back distant)
+Requires:       python3-cryptography
 # Charges par GLFW avec dlopen (pas de dependance automatique) : sans eux, GLFW ne peut pas
 # ouvrir de fenetre Wayland et Cage reste sur un ecran noir
 Requires:       libwayland-client
@@ -194,7 +196,11 @@ Recommends:     ddcutil
 %description kiosk
 Runs the QRProtec front full screen in the Cage Wayland kiosk compositor on
 tty1. By default it uses the backend of the same machine (qrprotec-server);
-to use a server on another machine:
+to use a server on another machine, import the encrypted file created on
+the server (sudo qrprotec-setup --front-key kiosk --poste --front-config
+kiosk.qrprotec, or Users > Connected computers):
+  sudo qrprotec-setup --front-config kiosk.qrprotec
+or give the URL and key by hand:
   sudo qrprotec-setup --api-url https://server.example.org --api-key KEY
 %endif
 

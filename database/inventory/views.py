@@ -84,6 +84,13 @@ def is_front(request) -> bool:
     return getattr(request, 'qrprotec_local', False)
 
 
+def is_main_poste(request) -> bool:
+    """Poste principal : front de l'API locale (meme machine que le back) ou front distant dont la cle est marquee
+    « poste principal » (kiosk sur une autre machine, back sans kiosk). Il imprime les « Impressions en attente » et
+    gere les ordinateurs connectes."""
+    return getattr(request, 'qrprotec_poste', False)
+
+
 def front_user(request):
     """Utilisateur connecte sur le poste : le front envoie le jeton de session recu de /api/auth/ (badge, puis PIN
     si besoin) dans l'en-tete X-QRProtec-Session. Le serveur ne croit plus le matricule envoye par le poste."""
@@ -347,6 +354,8 @@ def health(request):
         'remote_scanner': scanner_hub.enabled,
         # front distant (API distante, cle X-QRProtec-Key) : nom de sa cle
         'front': getattr(request, 'qrprotec_front', ''),
+        # poste principal (API locale, ou cle marquee poste) : impressions en attente, ordinateurs connectes
+        'poste': is_main_poste(request),
         # operations sur un lot possibles sans badge, sous un nom declare (reglage du serveur)
         'declared_identity': ServerSettings.get().declared_identity,
         # volume de la douchette quand personne n'est connecte (et des utilisateurs sans volume choisi)
@@ -1810,11 +1819,12 @@ FRONT_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 def front_configs(request):
     """Connecter un autre ordinateur, depuis le poste (Utilisateurs > Ordinateurs connectes), par un admin : cree la cle d'un front
     distant et son fichier de configuration chiffre, telechargeable pendant 5 minutes par un lien (QR code).
-    POST {"name", "password" (vide = genere et renvoye), "replace": bool}. GET : fronts existants.
-    Seulement sur l'API locale du poste : jamais depuis un front distant (une cle ne cree pas d'autres cles)."""
+    POST {"name", "password" (vide = genere et renvoye), "replace": bool, "poste": bool}. GET : fronts existants.
+    Seulement depuis le poste principal (API locale, ou cle marquee poste) : la cle d'un simple front distant ne
+    cree pas d'autres cles."""
     require_front(request, ADMIN)
-    if getattr(request, 'qrprotec_front', ''):
-        raise ApiError("Seulement depuis le poste du serveur (API locale)", status.HTTP_403_FORBIDDEN)
+    if not is_main_poste(request):
+        raise ApiError("Seulement depuis le poste principal", status.HTTP_403_FORBIDDEN)
     now = timezone.now()
     FrontConfigDownload.objects.filter(expires__lte=now).delete()
     if request.method == 'GET':
@@ -1822,7 +1832,8 @@ def front_configs(request):
         return Response({'fronts': [
             {'name': front.name, 'revoked': front.revoked, 'created': front.created.isoformat(),
              'last_used': front.last_used.isoformat() if front.last_used else None,
-             'last_address': front.last_address, 'download_pending': front.pk in pending}
+             'last_address': front.last_address, 'download_pending': front.pk in pending, 'poste': front.poste,
+             'self': front.name == getattr(request, 'qrprotec_front', '')}
             for front in FrontKey.objects.order_by('revoked', 'name')]})
     data = request.data
     name = str(data.get('name', '')).strip()
@@ -1843,7 +1854,7 @@ def front_configs(request):
     with transaction.atomic():
         if existing is not None:
             existing.delete()
-        front, key = FrontKey.create(name)
+        front, key = FrontKey.create(name, poste=bool(data.get('poste')))
         payload = {'name': name, 'api_url': base_url, 'api_key': key,
                    'created': timezone.localtime(now).isoformat(timespec='seconds')}
         if ca_pem:
@@ -1852,7 +1863,8 @@ def front_configs(request):
             token=front_config.new_download_token(), front=front, content=front_config.encrypt(payload, password),
             created=now, expires=front_config.download_expiry(now))
     journal.record(OperationKind.SETTINGS, front_identity(request),
-                   f"ordinateur « {name} » connecté au serveur" + (" (clé remplacée)" if existing else ''),
+                   f"ordinateur « {name} » connecté au serveur" + (" (poste principal)" if front.poste else '')
+                   + (" (clé remplacée)" if existing else ''),
                    front=name)
     return Response({
         'name': name,
@@ -1862,20 +1874,31 @@ def front_configs(request):
         'password': password if generated else '',
         'ca': bool(ca_pem),
         'replaced': existing is not None,
+        'poste': front.poste,
     }, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
 @handle_errors
 def front_config_detail(request, name):
-    """Ordinateurs connectes (fenetre Utilisateurs du poste), admin : {"action": "revoke" | "restore" | "delete"}.
-    Revoquer coupe l'acces tout de suite (la cle reste, reactivable) ; supprimer efface la cle et ses liens."""
+    """Ordinateurs connectes (fenetre Utilisateurs du poste), admin :
+    {"action": "revoke" | "restore" | "delete" | "poste" | "unposte"}.
+    Revoquer coupe l'acces tout de suite (la cle reste, reactivable) ; supprimer efface la cle et ses liens ;
+    poste / unposte donne ou retire les droits de poste principal. Un poste principal distant ne peut ni se
+    revoquer, ni se supprimer, ni se retirer ces droits : il se couperait lui-meme l'acces a cette fenetre."""
     require_front(request, ADMIN)
-    if getattr(request, 'qrprotec_front', ''):
-        raise ApiError("Seulement depuis le poste du serveur (API locale)", status.HTTP_403_FORBIDDEN)
+    if not is_main_poste(request):
+        raise ApiError("Seulement depuis le poste principal", status.HTTP_403_FORBIDDEN)
     front = get_object_or_404(FrontKey, name=name)
     action = request.data.get('action')
-    if action in ('revoke', 'restore'):
+    if action in ('revoke', 'delete', 'unposte') and name == getattr(request, 'qrprotec_front', ''):
+        raise ApiError("Impossible depuis cet ordinateur lui-même : faites-le depuis un autre poste principal, ou "
+                       "sur le serveur (sudo qrprotec-manage frontkey)", status.HTTP_409_CONFLICT)
+    if action in ('poste', 'unposte'):
+        front.poste = action == 'poste'
+        front.save(update_fields=['poste'])
+        summary = f"ordinateur « {name} » " + ("devenu poste principal" if front.poste else "n'est plus poste principal")
+    elif action in ('revoke', 'restore'):
         front.revoked = action == 'revoke'
         front.save(update_fields=['revoked'])
         if front.revoked:
@@ -1885,7 +1908,7 @@ def front_config_detail(request, name):
         front.delete()
         summary = f"ordinateur « {name} » supprimé"
     else:
-        raise ApiError("Action inconnue (revoke, restore ou delete)")
+        raise ApiError("Action inconnue (revoke, restore, delete, poste ou unposte)")
     journal.record(OperationKind.SETTINGS, front_identity(request), summary, front=name)
     return Response({'name': name, 'action': action})
 
@@ -3581,8 +3604,8 @@ def label_prints_poste(request):
 @handle_errors
 def label_prints_send(request):
     """Front d'un autre ordinateur (API distante, cle de front) : « Imprimer » envoie au poste les etiquettes deja
-    rendues {"title", "labels": [{description, width, height, ppm, bits}]}. Le poste, seul front branche sur l'API
-    locale, les imprime depuis sa fenetre « Impressions en attente »."""
+    rendues {"title", "labels": [{description, width, height, ppm, bits}]}. Le poste principal (API locale, ou cle marquee
+    poste) les imprime depuis sa fenetre « Impressions en attente »."""
     require_poste(request)
     row = _label_print_call(label_prints.create_labels, front_identity(request),
                             getattr(request, 'qrprotec_front', ''), request.data.get('title', ''),

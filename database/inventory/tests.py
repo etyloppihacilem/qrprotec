@@ -353,6 +353,61 @@ class PublicApiTests(ApiTestCase):
         self.assertIn('ordinateur « accueil » révoqué', summaries)
         self.assertIn('ordinateur « accueil » supprimé', summaries)
 
+    def remote_call(self, method, path, key, data=None):
+        """Requete d'un front distant (API distante, cle de front), l'admin du test connecte."""
+        extra = {'HTTP_X_QRPROTEC_KEY': key, 'HTTP_X_QRPROTEC_SESSION': self.operator_session,
+                 'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1'}
+        if method == 'GET':
+            response = self.client.get(path, **extra)
+        else:
+            response = self.client.post(path, json.dumps(data or {}), content_type='application/json', **extra)
+        return response.status_code, response.json()
+
+    def test_main_poste_key(self):
+        """Back sans kiosk : la cle marquee « poste principal » a les droits du front de l'API locale (ordinateurs
+        connectes, impressions en attente), une simple cle non ; le poste ne se coupe pas lui-meme l'acces."""
+        from io import StringIO
+        from unittest import mock
+
+        from django.core.management import call_command
+
+        from inventory import front_config
+
+        _, plain = FrontKey.create('bureau')
+        out = StringIO()
+        call_command('frontkey', 'add', 'borne', '--poste', stdout=out)
+        poste = next(word for word in out.getvalue().split() if word.startswith('qrpf_'))
+        self.assertTrue(FrontKey.objects.get(name='borne').poste)
+        self.assertTrue(self.call('GET', '/api/health/')[1]['poste'])  # API locale : toujours poste principal
+        self.assertTrue(self.remote_call('GET', '/api/health/', poste)[1]['poste'])
+        self.assertFalse(self.remote_call('GET', '/api/health/', plain)[1]['poste'])
+        self.assertEqual(self.remote_call('GET', '/api/front-configs/', plain)[0], 403)
+        code, listing = self.remote_call('GET', '/api/front-configs/', poste)
+        self.assertEqual(code, 200)
+        rows = {front['name']: front for front in listing['fronts']}
+        self.assertEqual((rows['borne']['poste'], rows['borne']['self'], rows['bureau']['poste']), (True, True, False))
+        # creation depuis le poste distant, d'un autre poste principal
+        with mock.patch.object(front_config, 'server_ca_pem', return_value=''):
+            code, body = self.remote_call('POST', '/api/front-configs/', poste, {'name': 'secours', 'poste': True})
+        self.assertEqual((code, body['poste']), (201, True))
+        self.assertTrue(FrontKey.objects.get(name='secours').poste)
+        # droits donnes et retires ; le poste ne se revoque, ne se supprime ni ne se retire ses droits
+        self.assertEqual(self.remote_call('POST', '/api/front-configs/bureau/', poste, {'action': 'poste'})[0], 200)
+        self.assertTrue(FrontKey.objects.get(name='bureau').poste)
+        self.assertEqual(self.remote_call('POST', '/api/front-configs/bureau/', poste, {'action': 'unposte'})[0], 200)
+        self.assertFalse(FrontKey.objects.get(name='bureau').poste)
+        for action in ('revoke', 'delete', 'unposte'):
+            self.assertEqual(self.remote_call('POST', '/api/front-configs/borne/', poste, {'action': action})[0], 409)
+        self.assertEqual(self.remote_call('POST', '/api/front-configs/borne/', plain, {'action': 'delete'})[0], 403)
+        # en ligne de commande
+        call_command('frontkey', 'poste', 'borne', '--off', stdout=StringIO())
+        self.assertFalse(FrontKey.objects.get(name='borne').poste)
+        self.assertEqual(self.remote_call('GET', '/api/front-configs/', poste)[0], 403)
+        call_command('frontkey', 'poste', 'borne', stdout=StringIO())
+        out = StringIO()
+        call_command('frontkey', 'list', stdout=out)
+        self.assertIn('poste principal', out.getvalue())
+
     def test_server_ca_pem(self):
         import tempfile
         from pathlib import Path

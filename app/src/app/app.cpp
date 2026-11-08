@@ -173,7 +173,8 @@ bool App::save_settings() {
 bool App::import_front_config(const std::string &path, const std::string &password) {
   if (AppSettings::api_env("QRPROTEC_KIOSK") || AppSettings::api_env("QRPROTEC_API_URL")
       || AppSettings::api_env("QRPROTEC_API_KEY") || AppSettings::api_env("QRPROTEC_API_CA_FILE")) {
-    notify("Connexion imposée par l'environnement (borne : sudo qrprotec-setup) : import impossible.", true);
+    notify("Connexion imposée par l'environnement : import impossible ici. Borne : sudo qrprotec-setup "
+           "--front-config FICHIER.", true);
     return false;
   }
   // chemin colle depuis un gestionnaire de fichiers : espaces, guillemets, file://, ~/
@@ -218,7 +219,9 @@ bool App::import_front_config(const std::string &path, const std::string &passwo
       notify("Connexion impossible : " + result.error, true);
       return;
     }
-    notify("Connecté au serveur (front " + result.data["front"].str() + ").");
+    poste_key = result.data["poste"].boolean();
+    notify("Connecté au serveur (front " + result.data["front"].str()
+           + (poste_key ? ", poste principal" : "") + ").");
     refresh_item_types();
     refresh_lots();
   });
@@ -394,8 +397,8 @@ void App::begin_frame() {
   if (admin() && ImGui::GetTime() >= next_reports_poll_)
     refresh_report_counts();
   // impressions demandees depuis le web ou un autre ordinateur : verifiees meme sans personne de connecte, sur le
-  // poste seulement (le seul front branche sur l'API locale, sans cle de front)
-  if (settings.api_endpoint().key.empty() && !label_prints_.loading && ImGui::GetTime() >= label_prints_.next_poll)
+  // poste principal seulement (API locale, ou cle marquee poste sur un back sans kiosk)
+  if (main_poste() && !label_prints_.loading && ImGui::GetTime() >= label_prints_.next_poll)
     refresh_label_prints();
   // voyant des lots a traiter : liste tenue a jour meme fenetre Lots fermee (pas pendant une verif)
   if (!verif.active && !catalog.loading_lots && ImGui::GetTime() >= next_lots_poll_) {
@@ -1040,6 +1043,7 @@ void App::refresh_server_rules() {
       return;
     declared_identity = result.data["declared_identity"].boolean();
     web_barcodes      = result.data["web_barcodes"].boolean();
+    poste_key         = result.data["poste"].boolean();
     const Json &volume = result.data["scanner_volume_default"];
     scanner_volume_default = volume.is_number() ? volume.integer() : -1;
     if (!logged_in())
@@ -1105,7 +1109,8 @@ void App::draw_server_modal() {
     ImGui::TextWrapped("Le serveur est injoignable : %s", api.last_error().c_str());
     if (kiosk)
       ImGui::TextWrapped("Borne : la connexion se règle sur la machine avec sudo qrprotec-setup "
-                         "(--api-url, --api-key, --local-api).");
+                         "--front-config FICHIER.qrprotec (fichier créé sur le serveur), ou --api-url et "
+                         "--api-key, ou --local-api.");
     else
       draw_server_settings(*this, true);
   }

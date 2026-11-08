@@ -473,7 +473,11 @@ class App {
     void refresh_label_prints();
     void open_label_prints() { label_prints_.open = label_prints_.focus = true; }
     // front d'un autre ordinateur (cle de front) sans imprimante : « Imprimer » envoie les etiquettes au poste
-    bool prints_to_poste() const { return !settings.print_here && !settings.api_endpoint().key.empty(); }
+    // Poste principal : front de l'API locale (meme machine que le back), ou front distant dont la cle est marquee
+    // « poste principal » sur le serveur (kiosk sur une autre machine, back sans kiosk). Il imprime les
+    // « Impressions en attente » et gere les ordinateurs connectes. Lu dans /api/health/ (champ poste).
+    bool main_poste() const { return settings.api_endpoint().key.empty() || poste_key; }
+    bool prints_to_poste() const { return !settings.print_here && !main_poste(); }
     void send_to_poste(std::vector< PrintJob > jobs);
     // « Marquer ce lot comme utilisé (demander une vérif) » : tout utilisateur identifie, lot en vérif recommandee
     void mark_lot_used(const std::string &lot_id, const std::string &name);
@@ -527,6 +531,7 @@ class App {
     std::optional< SessionUser > user;
     // reglage du serveur (/api/health/) : verif et ajout possibles sans badge, sous un nom declare non verifie
     bool                         declared_identity = false;
+    bool                         poste_key         = false; // cle de ce front marquee poste principal (serveur)
     // lecture des codes-barres par le front web : activee par la premiere impression d'un code-barres
     bool                         web_barcodes = false;
     // reglage du serveur (/api/health/) : volume de la douchette des utilisateurs qui n'en ont pas choisi (-1 : inconnu)
