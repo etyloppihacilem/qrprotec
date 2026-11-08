@@ -6567,9 +6567,9 @@
     if (data.loading) return el('p', { class: 'hint' }, 'Chargement des lots…');
     return el('div', { class: 'departure' },
       el('p', { class: 'hint' }, "Choisissez ce avec quoi vous partez : la liste générée demande l'étiquette de chaque lot à "
-        + 'prendre (n\'importe lequel du type, les valides en premier).'
+        + 'prendre.'
         + (data.full_verif ? ' Une vérif complète de chaque lot non scellé est demandée avant de partir.'
-          : ' Pas de vérif au départ : touchez « Vérif recommandée » au retour sur ce qui a servi.')),
+          : ' Touchez « Vérif recommandée » au retour sur ce qui a servi.')),
       el('ul', { class: 'list' }, ...data.lot_types.map((row) => el('li', { onclick: () => startDeparture(row.type) },
         el('div', { class: 'main' }, el('div', { class: 'name' }, row.name),
           el('div', { class: 'sub' }, row.available ? `${nb(row.available, 'disponible')}, dont ${nb(row.available_ok, 'valide')}`
@@ -6601,7 +6601,7 @@
         ? 'Une liste sert à demander à des secouristes de prendre du matériel précis pour un '
           + 'poste en particulier : les lots et le matériel à emporter, avec les quantités. Elle se partage par lien ou '
           + 'QR code et se vérifie en direct, à plusieurs. Validée, son matériel sort du stock. Un modèle se duplique '
-          + 'pour les postes qui reviennent souvent. Ajoutez des secouristes à une liste pour qu\'elle apparaisse ici chez eux.'
+          + 'pour les postes qui reviennent souvent. Ajoutez des secouristes à une liste pour qu\'elle apparaisse sur cette page, sur leur téléphone.'
         : 'Les listes de matériel qui vous sont attribuées par un chef, ou que vous avez ouvertes par leur lien ou leur '
           + 'QR code. Scannez le matériel demandé pour la vérifier, à plusieurs ; partagez-la par lien ou QR code.'),
     ];
