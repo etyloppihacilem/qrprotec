@@ -1630,7 +1630,37 @@ ITEM_TYPE_FIELDS = {
     'archived': 'archivage',
 }
 LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',
-                   'seal_required': 'scellé obligatoire', 'archived': 'archivage'}
+                   'seal_required': 'scellé obligatoire', 'archived': 'archivage', 'referentiel': 'référentiel',
+                   'part_of': 'rangement de'}
+
+
+def apply_referentiel(lot_type, data):
+    """Champs referentiel (bool) et part_of (code du referentiel dont ce type est un rangement, '' : aucun) d'un
+    type de lot. Un referentiel n'a pas d'emplacements (ils sont effaces) et n'est le rangement de personne ; un
+    rangement du stock n'est ni l'un ni l'autre. A enregistrer ensuite (save)."""
+    referentiel = bool(data.get('referentiel', lot_type.referentiel))
+    part_of = lot_type.part_of
+    if 'part_of' in data:
+        code = str(data.get('part_of') or '').strip()
+        part_of = get_object_or_404(LotType, type=code) if code else None
+    if lot_type.storage and (referentiel or part_of is not None):
+        raise ApiError("Un rangement du stock n'est ni un référentiel ni le rangement d'un référentiel")
+    if referentiel and part_of is not None:
+        raise ApiError("Un référentiel n'est le rangement d'aucun autre : retirez « Rangement de » d'abord")
+    if part_of is not None and (part_of.type == lot_type.type or not part_of.referentiel):
+        raise ApiError(f"{part_of.name} n'est pas un référentiel : cochez « Référentiel » sur ce type d'abord")
+    if not referentiel and lot_type.referentiel and lot_type.type and lot_type.rangements.exists():
+        names = ', '.join(lot_type.rangements.order_by('name').values_list('name', flat=True))
+        raise ApiError(f"Des rangements répartissent ce référentiel ({names}) : détachez-les d'abord")
+    if referentiel and not lot_type.referentiel and lot_type.type:
+        # la liste obligatoire n'a pas d'emplacements : ils sont portes par les rangements
+        if lot_type.requirements.exclude(location='').exists() or lot_type.locations:
+            lot_type.requirements.update(location='')
+            lot_type.locations = []
+            lot_type.version += 1
+            lot_type.valid_version = lot_type.version
+    lot_type.referentiel = referentiel
+    lot_type.part_of = part_of
 
 
 @api_view(['GET'])
@@ -2051,10 +2081,13 @@ def lot_types(request):
     unique = storage or bool(data.get('unique', False))
     identity = operation_identity(request, data)[:32]
     with transaction.atomic():
-        lot_type = LotType.objects.create(
-            type=code, name=name, description=str(data.get('description', '')), created_by=identity,
+        lot_type = LotType(
+            type='', name=name, description=str(data.get('description', '')), created_by=identity,
             storage=storage, unique=unique, seal_required=bool(data.get('seal_required', False)),
         )
+        apply_referentiel(lot_type, data)
+        lot_type.type = code
+        lot_type.save(force_insert=True)
         lot = None
         if unique:
             ensure_name_free(Lots.objects.filter(active=True), name, 'Le lot')
@@ -2102,9 +2135,13 @@ def lot_type_detail(request, type_code):
             lot_type.description = str(data['description'])
         if 'seal_required' in data:
             lot_type.seal_required = bool(data['seal_required'])
+        if 'referentiel' in data or 'part_of' in data:
+            apply_referentiel(lot_type, data)
         storage = bool(data.get('storage', lot_type.storage))
         # un rangement du stock est un lot unique (sauf un ancien type de rangement qui a deja plusieurs lots)
         unique = bool(data.get('unique', lot_type.unique)) or (storage and len(lots) <= 1)
+        if storage and not lot_type.storage and (lot_type.referentiel or lot_type.part_of_id):
+            raise ApiError("Un référentiel ou le rangement d'un référentiel ne peut pas devenir un rangement du stock")
         if storage and not lot_type.storage and len(lots) > 1:
             raise ApiError(f"{len(lots)} lots de ce type existent : un rangement du stock n'en a qu'un")
         if unique and not lot_type.unique and len(lots) > 1:
@@ -2186,6 +2223,8 @@ def lot_type_requirements(request, type_code):
             item_type = get_object_or_404(ItemType, type=str(row.get('type', '')))
             quantity = parse_int(row.get('quantity', 1), 'quantity', 1)
             location = locations.get(name_key(services.clean_location(row.get('location'))), '')
+            if lot_type.referentiel:
+                location = ''  # liste obligatoire : les emplacements sont ceux de ses rangements
             optional = bool(row.get('optional', False))
             if optional and not item_type.can_be_optional:
                 raise ApiError(f"{item_type.name} ne peut pas être facultatif : seul le matériel non consommable sans "
@@ -2196,7 +2235,7 @@ def lot_type_requirements(request, type_code):
                 )
             except IntegrityError:
                 raise ApiError(f"Le type {item_type.type} apparait plusieurs fois")
-        lot_type.locations = list(locations.values())
+        lot_type.locations = [] if lot_type.referentiel else list(locations.values())
         lot_type.version += 1
         lot_type.valid_version = lot_type.version
         lot_type.save(update_fields=['version', 'valid_version', 'locations'])
@@ -2206,6 +2245,20 @@ def lot_type_requirements(request, type_code):
                             'optional': bool(row.get('optional', False))} for row in rows
                        ])
     return Response(ser.lot_type_dict(lot_type))
+
+
+@api_view(['GET'])
+@handle_errors
+def lot_type_coverage(request, type_code):
+    """Couverture d'un referentiel : pour chaque lot qui doit le couvrir (ses lots, ou un lot d'un de ses rangements
+    hors d'un lot du referentiel), la liste obligatoire face au contenu attendu de ses sacs (voir
+    services.lot_coverage)."""
+    require_front(request, GESTION)
+    lot_type = get_object_or_404(LotType, type=type_code)
+    if not lot_type.referentiel:
+        raise ApiError(f"{lot_type.name} n'est pas un référentiel")
+    return Response({'type': lot_type.type, 'name': lot_type.name,
+                     'lots': [services.lot_coverage(lot, lot_type) for lot in services.coverage_lots(lot_type)]})
 
 
 @api_view(['PUT'])
@@ -2244,7 +2297,7 @@ def lot_content(request, lot_id):
         wanted[item_type.type] = (item_type, extra, location)
     # emplacements du lot (ceux du type que le lot garde et les siens), une seule orthographe par emplacement
     effective = [{'location': type_rows[code].location} for code in type_rows if code not in wanted]
-    effective += [{'location': (type_rows[code].location if location is None else location)}
+    effective += [{'location': (type_rows[code].location if location is None and code in type_rows else location or '')}
                   for code, (_, _, location) in wanted.items()]
     known = [*(lot.locations or []), *(lot_type.locations or [])]
     locations = services.location_order(effective, [str(name) for name in order], known)

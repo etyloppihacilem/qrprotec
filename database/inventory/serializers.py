@@ -174,6 +174,18 @@ def sealed_pack_dict(sealed_pack, with_items=True):
     return data
 
 
+def suggested_part_of(lot_type):
+    """Referentiel propose pour un type qui n'en a pas encore (transition) : celui de tous ses lots s'ils sont tous
+    des sous-lots de lots d'un meme type (ex : les sacs de soin, tous dans des B+). '' sinon."""
+    if lot_type.referentiel or lot_type.part_of_id or lot_type.storage:
+        return ''
+    parents = set(lot_type.lots_set.filter(active=True).values_list('parent__lot_type', flat=True))
+    if len(parents) != 1 or None in parents:
+        return ''
+    parent_type = parents.pop()
+    return '' if parent_type == lot_type.type else parent_type
+
+
 def lot_type_dict(lot_type):
     # lot unique : son lot (actif de preference, le plus recent s'il y en a eu plusieurs)
     lot = lot_type.lots_set.order_by('-active', '-created').first() if lot_type.unique else None
@@ -189,6 +201,13 @@ def lot_type_dict(lot_type):
         'lot': lot.id if lot else '',
         'lot_count': lot_type.lots_set.count(),
         'locations': list(lot_type.locations or []),
+        # referentiel (liste obligatoire, sans emplacements) et rangements (sa repartition entre des sacs)
+        'referentiel': lot_type.referentiel,
+        'part_of': lot_type.part_of_id or '',
+        'part_of_name': lot_type.part_of.name if lot_type.part_of_id else '',
+        'rangements': [{'type': row.type, 'name': row.name}
+                       for row in lot_type.rangements.order_by('name')] if lot_type.referentiel else [],
+        'suggested_part_of': suggested_part_of(lot_type),
         'requirements': [
             {
                 'type': requirement.item_type_id,
