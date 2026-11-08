@@ -2705,6 +2705,78 @@ class WebPushTests(ApiTestCase):
                             {'user': self.badge, 'subscription': self.subscription('http://insecure/')}, local=False)
         self.assertEqual(code, 400)
 
+    def now(self, function, *args, **kwargs):
+        """Appel dont les notifications partent tout de suite (envoyees a la validation de la transaction)."""
+        with self.captureOnCommitCallbacks(execute=True):
+            return function(*args, **kwargs)
+
+    def test_server_problem_off_by_default_admins_only(self):
+        from . import notifications
+        self.subscribe()
+        self.assertFalse(models.PushSubscription.objects.get().server_problem)  # desactivee par defaut
+        self.now(notifications.server_problem, 'backup', 'base introuvable')
+        self.assertEqual(self.messages(), [])
+        self.assertIn('server_problem', self.admin.push_role_types())
+        self.assertNotIn('server_problem', Secouristes(role='gestion').push_role_types())
+
+    def test_server_problem_throttled_then_resolved(self):
+        from django.core.management import call_command
+
+        from . import notifications
+        problem = lambda *args: self.now(notifications.server_problem, *args)
+        self.subscribe(server_problem=True)
+        self.now(call_command, 'server_problem', 'backup', 'base introuvable : /var/lib/qrprotec/db.sqlite3',
+                 stdout=StringIO())
+        [message] = self.messages()
+        self.assertEqual(message['title'], 'QRProtec : problème de serveur, sauvegarde en échec')
+        self.assertIn('base introuvable', message['body'])
+        self.assertIn('journalctl -u qrprotec-backup', message['body'])
+        # meme probleme qui dure : pas de nouvelle notification avant le rappel
+        self.assertFalse(problem('backup', 'encore'))
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(models.ServerProblem.objects.get(pk='backup').count, 2)
+        # autre source : annoncee
+        self.assertTrue(problem('sync', 'ssh: connect to host nas port 22: No route to host'))
+        # sauvegarde reussie, puis nouvel echec : annonce tout de suite
+        call_command('server_problem', 'backup', '--resolved', stdout=StringIO())
+        self.assertTrue(problem('backup', 'disque plein'))
+        self.assertEqual(len(self.sent), 3)
+        # rappel apres le delai
+        models.ServerProblem.objects.filter(pk='sync').update(
+            notified=timezone.now() - notifications.SERVER_PROBLEM_REMINDER)
+        self.assertTrue(problem('sync', 'toujours'))
+        self.assertIn('2 erreurs depuis le', self.messages()[-1]['body'])
+
+    def test_server_errors_in_the_log_notify(self):
+        import logging
+        self.subscribe(server_problem=True)
+        with self.captureOnCommitCallbacks(execute=True):
+            try:
+                raise RuntimeError('database is locked')
+            except RuntimeError:
+                logging.getLogger('django.request').error('Internal Server Error: /api/verifs/', exc_info=True)
+            logging.getLogger('inventory.live').warning('simple avertissement')       # pas une erreur
+            logging.getLogger('django.security.DisallowedHost').error('Invalid HTTP_HOST header')  # robots
+        [message] = self.messages()
+        self.assertEqual(message['title'], 'QRProtec : problème de serveur, erreur du serveur')
+        self.assertIn('Internal Server Error: /api/verifs/ (RuntimeError : database is locked)', message['body'])
+        self.assertIn('journalctl -u qrprotec', message['body'])
+
+    def test_remote_front_reports_backup_failure(self):
+        self.subscribe(server_problem=True)
+        code, _ = self.call('POST', '/api/server-problem/', {'source': 'autre'})
+        self.assertEqual(code, 400)
+        code, body = self.now(self.call, 'POST', '/api/server-problem/', {'source': 'sync', 'message': 'rsync code 255'})
+        self.assertEqual((code, body['sent']), (200, True))
+        [message] = self.messages()
+        self.assertIn('envoi des sauvegardes en échec', message['title'])
+        self.assertIn('sur ce poste', message['body'])
+        self.assertEqual(self.call('POST', '/api/server-problem/', {'source': 'sync'})[1]['sent'], False)
+        self.call('POST', '/api/server-problem/', {'source': 'sync', 'resolved': True})
+        self.assertFalse(models.ServerProblem.objects.exists())
+        # API publique : refuse
+        self.assertNotEqual(self.call('POST', '/api/server-problem/', {'source': 'sync'}, local=False)[0], 200)
+
     def test_subscribe_status_and_unsubscribe(self):
         code, body = self.subscribe(stock_low=False, stock_empty=True)
         self.assertEqual(code, 200)
@@ -2818,7 +2890,7 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual([(row['device'], row['current']) for row in body['devices']],
                          [('Firefox · Linux', False), ('Navigateur', True)])
-        self.assertEqual(len(body['types']), 13)
+        self.assertEqual(len(body['types']), 14)
         # alertes d'un autre appareil, puis desabonnement a distance
         code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
                                local=False)

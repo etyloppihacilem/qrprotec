@@ -3590,6 +3590,26 @@ def label_prints_send(request):
     return Response(label_prints.print_dict(row), status=status.HTTP_201_CREATED)
 
 
+@api_view(['POST'])
+@handle_errors
+def server_problem_report(request):
+    """Poste d'une autre machine (kiosk relie a un back distant) : sa sauvegarde ou son envoi sur la machine distante
+    a echoue {"source": "backup" | "sync", "message"}. Notification « Problème de serveur » des admins, avec le nom
+    de la cle du poste (le detail est dans le journal du poste)."""
+    require_poste(request)
+    source = request.data.get('source')
+    if source not in ('backup', 'sync'):
+        raise ApiError('source : backup ou sync attendu')
+    front = getattr(request, 'qrprotec_front', '') or 'poste'
+    key = f'{source}:{front}'[:32]
+    if request.data.get('resolved'):
+        notifications.resolve_server_problem(key)
+        return Response({'sent': False})
+    sent = notifications.server_problem(key, str(request.data.get('message') or ''), where=front,
+                                        journal='journalctl -u qrprotec-backup sur ce poste')
+    return Response({'sent': sent})
+
+
 @api_view(['GET'])
 @handle_errors
 def label_print_detail(request, print_id):

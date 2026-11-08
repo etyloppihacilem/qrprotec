@@ -295,7 +295,11 @@ retire (un téléphone perdu, par exemple).
 - Gestion : stock bas, stock vide, commande à passer, ouverture d'un lot scellé (le clic ouvre la fiche du lot),
   résumé quotidien des lots contenant des périmés (7 h 45), vérif incomplète (désactivée par défaut,
   le clic ouvre la fiche du lot), renouvellement et expiration des étiquettes clés de lot.
-- Admin : en plus, PIN bloqué, signalements, renouvellement et expiration des badges.
+- Admin : en plus, PIN bloqué, signalements, renouvellement et expiration des badges, et
+  **Problème de serveur** (désactivée par défaut, à cocher) : une sauvegarde ou son envoi sur la
+  machine distante a échoué, ou le serveur a rencontré une erreur. La notification dit quel journal
+  lire (`journalctl -u qrprotec-backup` ou `journalctl -u qrprotec`) : il faut qu'un admin aille y voir.
+  Un problème qui dure n'est rappelé qu'au bout de 12 heures ; une sauvegarde réussie remet à zéro.
 - Sur le poste, **Utilisateurs > Notifications web** : décochez un type pour le couper à cet
   utilisateur sur tous ses appareils. La fiche indique aussi combien d'appareils sont abonnés. Les alertes arrivent même page fermée.
 
@@ -309,6 +313,8 @@ retire (un téléphone perdu, par exemple).
 ## Sauvegardes
 
 La borne fait une sauvegarde automatique chaque jour (base, configuration, réglages et modèles
-d'étiquettes) et garde les 14 dernières. **Une fois par an au moins, vérifiez qu'elles existent** et,
-idéalement, qu'elles sont copiées ailleurs (clé USB, NAS). Commandes et restauration : voir le
+d'étiquettes) et garde les 14 dernières. Elle peut les recopier après chacune sur une autre machine
+(`sudo qrprotec-setup --backup-sync utilisateur@machine:/dossier`). Activez la notification
+**Problème de serveur** pour être prévenu d'un échec. **Une fois par an au moins, vérifiez qu'elles
+existent**, ici et sur l'autre machine. Commandes et restauration : voir le
 [guide d'installation](../installation/README.md).

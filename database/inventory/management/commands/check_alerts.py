@@ -21,7 +21,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Count
 from django.utils import timezone
 
-from inventory import notifications, services
+from inventory import notifications, services, webpush
 from inventory.models import ItemStatus, Lots
 
 
@@ -64,3 +64,4 @@ class Command(BaseCommand):
         self.stdout.write(f'Badges à renouveler : {", ".join(expirations["badge_expiring"]) or "aucun"}')
         orders = notifications.check_orders(today)
         self.stdout.write(f'Commandes à passer : {", ".join(orders) or "aucune"}')
+        webpush.flush()  # sinon les envois en cours sont coupes a la fin du processus

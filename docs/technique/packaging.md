@@ -102,7 +102,7 @@ d'écran noir), puis lance le front. `Ctrl+Alt+F2` donne une console de maintena
 |---|---|
 | `qrprotec-manage` | `manage.py` avec l'environnement de la borne, exécuté sous l'utilisateur `qrprotec`. |
 | `qrprotec-setup` | Assistant idempotent : nom d'hôte, TLS, clavier, écran, sauvegardes, pare-feu, premier admin, restauration. Interactif ou par options (`--help`). |
-| `qrprotec-backup` | Sauvegarde (instantané SQLite cohérent via l'API de sauvegarde de SQLite, sans arrêter le back, intégrité vérifiée) + `/etc/qrprotec` + réglages et modèles du kiosk + `MANIFEST`, en `tar.xz`, rotation. `--list`, `--apply-schedule`, restauration via `qrprotec-setup --restore`. |
+| `qrprotec-backup` | Sauvegarde (instantané SQLite cohérent via l'API de sauvegarde de SQLite, sans arrêter le back, intégrité vérifiée) + `/etc/qrprotec` + réglages et modèles du kiosk + `MANIFEST`, en `tar.xz`, rotation, copie sur une autre machine par rsync sur SSH (`QRPROTEC_BACKUP_SYNC_TARGET`, `--sync`) ; un échec lance `qrprotec-manage server_problem` (notification « Problème de serveur » des admins), ou `POST /api/server-problem/` sur un kiosk distant. `--list`, `--apply-schedule`, restauration via `qrprotec-setup --restore`. |
 | `bootstrap.sh` (racine) | Installation en une commande : ajoute le dépôt, `dnf install`, propose l'assistant. |
 
 ## Construction
