@@ -33,10 +33,10 @@ from django.db.models import Q
 
 from .idendity import SOURCE_VERIFIED, _fold, format_identity_verified, identity_name
 from .models import (
-    Checklist, ChecklistLine, ChecklistScan, ChecklistStatus, ItemMovement, ItemStatus, Items, ItemType, Lots,
-    MovementKind, OperationKind, Role, Secouristes, SeenWhile,
+    Checklist, ChecklistLine, ChecklistScan, ChecklistStatus, ItemMovement, ItemStatus, Items, ItemType, Lots, LotType,
+    MovementKind, OperationKind, Role, Secouristes, SeenWhile, ServerSettings,
 )
-from .serializers import _date, public_url
+from .serializers import _date, _lot_core, public_url
 
 MAX_LINES = 100
 MAX_QUANTITY = 999
@@ -123,12 +123,13 @@ def _clean_text(value, length):
 
 
 def set_lines(checklist, lines):
-    """Remplace les lignes : [{"lot": id} | {"type": code, "quantity": n} | {"task": texte}], dans l'ordre. Un lot, un
+    """Remplace les lignes : [{"lot": id} | {"lot_types": [codes], "quantity": n} | {"type": code, "quantity": n} |
+    {"task": texte}], dans l'ordre. lot_types : n'importe quel lot d'un de ces types, choisi en scannant son etiquette. Un lot, un
     type ou une tache n'apparait qu'une fois (les quantites d'un meme type s'ajoutent). Une tache deja cochee le reste."""
     if not isinstance(lines, list):
         raise ValueError('lines : liste de lignes attendue')
     checked = {line.task: line for line in checklist.lines.all() if line.task and line.done} if checklist.pk else {}
-    rows, lots, types, tasks = [], set(), {}, set()
+    rows, lots, types, tasks, lot_types = [], set(), {}, set(), {}
     for line in lines:
         if not isinstance(line, dict):
             raise ValueError('lines : chaque ligne est un lot, un type avec une quantité ou une tâche')
@@ -141,6 +142,29 @@ def set_lines(checklist, lines):
                 old = checked.get(task)
                 rows.append(ChecklistLine(checklist=checklist, task=task, quantity=1, done=old.done if old else None,
                                           done_by=old.done_by if old else ''))
+        elif line.get('lot_types'):
+            codes = line['lot_types']
+            if not isinstance(codes, list):
+                raise ValueError('lot_types : liste de types de lots attendue')
+            accepted = []
+            for code in codes:
+                lot_type = LotType.objects.filter(type=str(code), archived=False, storage=False).first()
+                if lot_type is None:
+                    raise ValueError(f"Type de lot inconnu ou archivé : {code}")
+                if lot_type.type not in accepted:
+                    accepted.append(lot_type.type)
+            try:
+                quantity = int(line.get('quantity', 1))
+            except (TypeError, ValueError):
+                raise ValueError('quantity : entier attendu')
+            if quantity < 1 or quantity > 99:
+                raise ValueError('Entre 1 et 99 lots')
+            key = tuple(sorted(accepted))
+            if key in lot_types:
+                lot_types[key].quantity = min(99, lot_types[key].quantity + quantity)
+            else:
+                lot_types[key] = ChecklistLine(checklist=checklist, lot_types=accepted, quantity=quantity)
+                rows.append(lot_types[key])
         elif line.get('lot'):
             lot = Lots.objects.filter(id=str(line['lot']), active=True).first()
             if lot is None:
@@ -215,6 +239,7 @@ def update(checklist, user, data):
 def duplicate(checklist, user, name=None, template=False):
     """Copie (nouvelle liste a preparer, a l'utilisateur) : modele -> liste a verifier, ou liste a refaire."""
     lines = [{'task': line.task} if line.task else {'lot': line.lot_id} if line.lot_id
+             else {'lot_types': list(line.lot_types), 'quantity': line.quantity} if line.lot_types
              else {'type': line.item_type_id, 'quantity': line.quantity}
              for line in checklist.lines.all() if (line.lot_id is None or line.lot.active)
              and (line.item_type_id is None or not line.item_type.archived)]
@@ -236,11 +261,29 @@ def _out_scans(checklist):
     return [scan for scan in checklist.scans.all() if scan.phase == ChecklistScan.OUT]
 
 
+def lot_type_scans(lines, scans):
+    """Lots scannes pour les lignes « n'importe quel lot de ce type » : {id de ligne: [scans]}, chaque lot dans la
+    premiere ligne qui l'accepte et a encore de la place (les lots d'une ligne « lot » precis n'y comptent pas)."""
+    fixed = {line.lot_id for line in lines if line.lot_id}
+    result = {line.id: [] for line in lines if line.lot_types}
+    for scan in scans:
+        if not scan.lot_id or scan.lot_id in fixed:
+            continue
+        for line in lines:
+            if line.lot_types and scan.lot.lot_type_id in line.lot_types and len(result[line.id]) < line.quantity:
+                result[line.id].append(scan)
+                break
+    return result
+
+
 def _drop_extra_scans(checklist):
-    wanted = {line.item_type_id: line.quantity for line in checklist.lines.all() if line.item_type_id}
-    lots = {line.lot_id for line in checklist.lines.all() if line.lot_id}
+    lines = list(checklist.lines.all())
+    wanted = {line.item_type_id: line.quantity for line in lines if line.item_type_id}
+    lots = {line.lot_id for line in lines if line.lot_id}
+    scans = _out_scans(checklist)
+    lots |= {scan.lot_id for taken in lot_type_scans(lines, scans).values() for scan in taken}
     counts = {}
-    for scan in _out_scans(checklist):
+    for scan in scans:
         if scan.lot_id:
             if scan.lot_id not in lots:
                 scan.delete()
@@ -258,6 +301,56 @@ def _require_open(checklist):
         raise ValueError('Liste déjà validée : elle ne peut plus être vérifiée')
 
 
+def lot_taken_by(lot, checklist=None):
+    """Liste (a preparer ou sortie, pas rentree) qui a deja pris ce lot, hors `checklist` : None s'il est libre."""
+    scans = (ChecklistScan.objects.filter(lot=lot, phase=ChecklistScan.OUT,
+                                          checklist__status__in=(ChecklistStatus.DRAFT, ChecklistStatus.VALIDATED))
+             .select_related('checklist'))
+    if checklist is not None:
+        scans = scans.exclude(checklist=checklist)
+    for scan in scans:
+        other = scan.checklist
+        if other.status == ChecklistStatus.DRAFT or not other.scans.filter(lot=lot, phase=ChecklistScan.BACK).exists():
+            return other
+    return None
+
+
+def _departure_hint(lot):
+    """Ce qu'il reste a faire sur un lot pris pour partir : rien s'il est valide, sinon son etat ; la vérif complete
+    si le reglage la demande (jamais pour un lot scelle)."""
+    state = _lot_core(lot, timezone.localdate())['state']
+    hint = '' if state['kind'] == 'ok' else f" (⚠ {state['label'].lstrip('✔✘⚠ ')})"
+    if ServerSettings.get().departure_full_verif and not lot.is_sealed:
+        hint += ' : vérif complète à faire avant de partir'
+    return hint
+
+
+def _scan_any_lot(checklist, lines, scans, lot_id, identity):
+    """Etiquette d'un lot pour une ligne « n'importe quel lot de ce type » : jamais un lot fixe (le sac du VPS pour un
+    lot A), ni un lot deja pris par une autre liste."""
+    lot = Lots.objects.select_related('lot_type', 'parent__lot_type').filter(id=lot_id, active=True).first()
+    if lot is None:
+        raise ValueError('Lot inconnu ou archivé')
+    accepting = [line for line in lines if line.lot_types and lot.lot_type_id in line.lot_types]
+    if not accepting:
+        raise ValueError(f"{lot.name} : pas demandé dans cette liste")
+    if any(row.lot_id == lot.id for row in scans):
+        return f'{lot.name} : déjà pris'
+    if services.fixed_place(lot):
+        raise ValueError(f'{lot.name} est rangé pour de bon dans {lot.parent.name} : prenez un autre '
+                         f'{lot.lot_type.name}')
+    other = lot_taken_by(lot, checklist)
+    if other is not None:
+        raise ValueError(f'{lot.name} : déjà pris pour la liste « {other.name} »')
+    taken = lot_type_scans(lines, scans)
+    line = next((line for line in accepting if len(taken[line.id]) < line.quantity), None)
+    if line is None:
+        line = accepting[0]
+        raise ValueError(f'{lot.lot_type.name} : déjà {line.quantity}/{line.quantity}, rien de plus à prendre')
+    ChecklistScan.objects.create(checklist=checklist, lot=lot, by=identity)
+    return f'{lot.name} : {len(taken[line.id]) + 1}/{line.quantity}' + _departure_hint(lot)
+
+
 def scan(checklist, user, iid='', lot_id=''):
     """Scan a la verif d'une liste : un item du stock d'un type demande (dans la quantite), ou l'etiquette d'un lot de
     la liste. Repond un message pour le scanneur."""
@@ -271,11 +364,12 @@ def scan(checklist, user, iid='', lot_id=''):
         if lot_id:
             line = next((line for line in lines if line.lot_id == lot_id), None)
             if line is None:
-                raise ValueError("Ce lot n'est pas dans la liste")
-            if any(row.lot_id == lot_id for row in scans):
-                return f'{line.lot.name} : déjà coché'
-            ChecklistScan.objects.create(checklist=checklist, lot=line.lot, by=identity)
-            message = f'{line.lot.name} : coché'
+                message = _scan_any_lot(checklist, lines, scans, lot_id, identity)
+            else:
+                if any(row.lot_id == lot_id for row in scans):
+                    return f'{line.lot.name} : déjà coché'
+                ChecklistScan.objects.create(checklist=checklist, lot=line.lot, by=identity)
+                message = f'{line.lot.name} : coché' + _departure_hint(line.lot)
         else:
             item = Items.objects.select_related('pack__item_type', 'location__lot_type').filter(iid=iid).first()
             if item is None:
@@ -335,9 +429,13 @@ def progress(checklist):
     """Avancement de chaque ligne a la verif : (ligne, scans) et complet. Une tache cochee compte comme un scan."""
     scans = _out_scans(checklist)
     rows = []
-    for line in checklist.lines.all():
+    lines = list(checklist.lines.all())
+    by_type = lot_type_scans(lines, scans)
+    for line in lines:
         if line.task:
             done = [line] if line.done else []
+        elif line.lot_types:
+            done = by_type[line.id]
         elif line.lot_id:
             done = [scan for scan in scans if scan.lot_id == line.lot_id]
         else:
@@ -360,6 +458,13 @@ def validate(checklist, user, partial=False):
             raise ValueError('Rien de fait : scannez le matériel ou cochez les tâches de la liste avant de la valider')
         if not complete and not partial:
             raise ValueError('Liste incomplète : validez-la incomplète ou finissez de la scanner')
+        if ServerSettings.get().departure_full_verif:
+            # reglage : chaque lot non scelle pris avec la liste est verifie (complet) apres avoir ete pris
+            late = [scan.lot.name for scan in _out_scans(checklist) if scan.lot_id and not scan.lot.is_sealed
+                    and not (scan.lot.last_verif and scan.lot.last_verif >= scan.at
+                             and _lot_core(scan.lot, timezone.localdate())['complete'])]
+            if late:
+                raise ValueError('Vérif complète à faire avant de partir : ' + ', '.join(late))
         iids = [scan.item_id for scan in _out_scans(checklist) if scan.item_id]
         if iids:
             result = services.mark_out(iids, identity)
@@ -398,13 +503,13 @@ def return_scan(checklist, user, iid='', lot_id=''):
     with transaction.atomic():
         back = [scan for scan in checklist.scans.all() if scan.phase == ChecklistScan.BACK]
         if lot_id:
-            line = checklist.lines.filter(lot_id=lot_id).select_related('lot').first()
-            if line is None or not any(scan.lot_id == lot_id for scan in _out_scans(checklist)):
+            out = next((scan for scan in _out_scans(checklist) if scan.lot_id == lot_id), None)
+            if out is None:
                 raise ValueError("Ce lot n'est pas sorti avec la liste")
+            lot = out.lot
             if any(scan.lot_id == lot_id for scan in back):
-                return f'{line.lot.name} : déjà rentré'
-            ChecklistScan.objects.create(checklist=checklist, lot=line.lot, phase=ChecklistScan.BACK, by=identity)
-            lot = line.lot
+                return f'{lot.name} : déjà rentré'
+            ChecklistScan.objects.create(checklist=checklist, lot=lot, phase=ChecklistScan.BACK, by=identity)
             if lot.is_sealed:
                 message = f'{lot.name} : rentré, toujours scellé'
             else:
@@ -475,6 +580,62 @@ def _scan_dict(scan):
     return data
 
 
+def available_lots(codes, checklist=None, limit=8):
+    """Lots qu'on peut prendre pour une ligne « n'importe quel lot de ce type » : ni fixes ailleurs, ni pris par une
+    autre liste, les valides en premier (nom, etat)."""
+    today = timezone.localdate()
+    rows = []
+    for lot in Lots.objects.select_related('lot_type', 'parent__lot_type').filter(active=True, lot_type_id__in=codes):
+        if services.fixed_place(lot) or lot_taken_by(lot, checklist) is not None:
+            continue
+        state = _lot_core(lot, today)['state']
+        rows.append({'id': lot.id, 'name': lot.name, 'state': state})
+    order = {'ok': 0, 'warn': 1, 'bad': 2}
+    rows.sort(key=lambda row: (order[row['state']['kind']], row['name'].lower()))
+    return rows[:limit]
+
+
+def departure_lines(lot_type):
+    """Lignes d'une liste de depart pour un type de lot : un lot de ce type s'il en existe (on prend le lot entier,
+    ses sous-lots avec lui ; un lot C scelle pret au depart), sinon son contenu : ses lots exiges (n'importe quel lot
+    d'un type accepte), ses rangements s'ils portent sa liste, sinon les items de sa liste (les items a cocher en
+    taches)."""
+    if lot_type.lots_set.filter(active=True).exists():
+        return [{'lot_types': [lot_type.type], 'quantity': 1}]
+    lines = [{'lot_types': list(slot.accepted), 'quantity': slot.quantity}
+             for slot in lot_type.slots.all() if not slot.optional]
+    rangements = list(lot_type.rangements.filter(archived=False, storage=False).order_by('name'))
+    if lot_type.referentiel and rangements:
+        lines += [{'lot_types': [rangement.type], 'quantity': 1} for rangement in rangements]
+    else:
+        for requirement in services.ordered_requirements(lot_type):
+            if requirement.optional:
+                continue
+            if requirement.item_type.physical:
+                lines.append({'type': requirement.item_type_id, 'quantity': requirement.quantity})
+            else:
+                lines.append({'task': f'{requirement.quantity} × {requirement.item_type.name}'})
+    return lines
+
+
+def departure(user, lot_type):
+    """« Partir avec » : liste a preparer generee depuis un type de lot, a l'utilisateur (secouristes compris : ils
+    ne creent pas d'autres listes), qui y est attribue."""
+    if lot_type.archived or lot_type.storage:
+        raise ValueError(f'{lot_type.name} : on ne part pas avec ce type de lot')
+    lines = departure_lines(lot_type)
+    if not lines:
+        raise ValueError(f"{lot_type.name} n'a ni lot, ni lots exigés, ni contenu : rien à prendre")
+    name = f"Départ {lot_type.name} du {timezone.localtime().strftime('%d/%m')}"
+    with transaction.atomic():
+        checklist = Checklist.objects.create(name=name[:80], owner=user)
+        set_lines(checklist, lines)
+        checklist.members.add(user)
+    journal.record(OperationKind.CHECKLIST, identity_of(user), f'liste « {checklist.name} » créée (départ)',
+                   checklist=checklist.id)
+    return checklist
+
+
 def checklist_dict(checklist, user=None, full=True):
     owner = checklist.owner
     data = {
@@ -515,6 +676,15 @@ def checklist_dict(checklist, user=None, full=True):
             lines.append(row)
             continue
         row['scans'] = [_scan_dict(scan) for scan in done]
+        if line.lot_types:
+            names = dict(LotType.objects.filter(type__in=line.lot_types).values_list('type', 'name'))
+            label = ' ou '.join(names.get(code, code) for code in line.lot_types)
+            row.update({'kind': 'lot_type', 'lot_types': list(line.lot_types), 'type_name': label,
+                        'back': sum(1 for scan in back if scan.lot_id in {done_scan.lot_id for done_scan in done})})
+            if checklist.status == ChecklistStatus.DRAFT and not checklist.is_template:
+                row['available'] = available_lots(line.lot_types, checklist)
+            lines.append(row)
+            continue
         if line.lot_id:
             row.update({'kind': 'lot', 'lot': line.lot_id, 'lot_name': line.lot.name,
                         'lot_type_name': line.lot.lot_type.name,

@@ -3109,6 +3109,10 @@ def server_settings(request):
         if 'web_barcodes' in request.data:
             settings_row.web_barcodes = bool(request.data['web_barcodes'])
             changes.append('lecture des codes-barres sur le web ' + ('activée' if settings_row.web_barcodes else 'désactivée'))
+        if 'departure_full_verif' in request.data:
+            settings_row.departure_full_verif = bool(request.data['departure_full_verif'])
+            changes.append('vérif complète à chaque départ ' + ('demandée' if settings_row.departure_full_verif
+                                                                else 'non demandée'))
         if 'antenna_name' in request.data:
             settings_row.antenna_name = ' '.join(str(request.data['antenna_name'] or '').split())[:64]
             changes.append(f"nom de l'antenne : {settings_row.antenna_name or '(vide)'}")
@@ -3117,7 +3121,8 @@ def server_settings(request):
                        declared_identity=settings_row.declared_identity,
                        pin_required_roles=settings_row.pin_required_roles,
                        scanner_volume_default=settings_row.scanner_volume_default,
-                       web_barcodes=settings_row.web_barcodes)
+                       web_barcodes=settings_row.web_barcodes,
+                       departure_full_verif=settings_row.departure_full_verif)
     return Response(ser.server_settings_dict(settings_row))
 
 
@@ -3410,10 +3415,37 @@ def checklists_options(request):
     lots = (Lots.objects.select_related('lot_type').filter(active=True, lot_type__storage=False)
             .order_by('name'))
     types = ItemType.objects.filter(archived=False).order_by('name')
+    lot_types = LotType.objects.filter(archived=False, storage=False).order_by('name')
     return Response({
         'lots': [{'id': lot.id, 'name': lot.name, 'lot_type_name': lot.lot_type.name} for lot in lots],
         'types': [{'type': row.type, 'name': row.name, 'consumable': row.consumable} for row in types],
+        # lignes « n'importe quel lot de ce type »
+        'lot_types': [{'type': row.type, 'name': row.name} for row in lot_types],
     })
+
+
+@api_view(['POST'])
+@handle_errors
+def checklists_departure(request):
+    """« Partir avec » (tout utilisateur connecte) : sans lot_type, les types de lots proposes avec le nombre de lots
+    disponibles ; avec {"lot_type"}, cree la liste de depart (checklists.departure) et la renvoie."""
+    from . import checklists
+    user = connected_user(request)
+    code = str(request.data.get('lot_type') or '')
+    if code:
+        lot_type = get_object_or_404(LotType, type=code)
+        checklist = _checklist_call(lambda: checklists.departure(user, lot_type))
+        return Response(checklists.checklist_dict(_checklist(checklist.id), user), status=status.HTTP_201_CREATED)
+    rows = []
+    for lot_type in LotType.objects.filter(archived=False, storage=False).order_by('name'):
+        free = lot_type.lots_set.filter(active=True, parent__isnull=True).exists()
+        if not (lot_type.referentiel or lot_type.slots.exists() or free):
+            continue  # sac toujours range dans un autre lot : on part avec son lot
+        available = checklists.available_lots([lot_type.type], limit=1000)
+        rows.append({'type': lot_type.type, 'name': lot_type.name, 'available': len(available),
+                     'available_ok': sum(1 for row in available if row['state']['kind'] == 'ok'),
+                     'lines': len(checklists.departure_lines(lot_type))})
+    return Response({'lot_types': rows, 'full_verif': ServerSettings.get().departure_full_verif})
 
 
 @api_view(['POST'])

@@ -211,6 +211,30 @@ Pour une liste qui revient souvent (poste de secours du stade, match du dimanche
 **modèle** : il ne se vérifie pas, **Utiliser ce modèle** en fait une nouvelle liste à vérifier.
 **Dupliquer** refait une liste déjà sortie ou rentrée.
 
+**Lot au choix** : une ligne peut demander « 1 B+ » sans dire lequel (**Ajouter un lot au choix**,
+par type). On la coche en scannant l'étiquette de n'importe quel lot de ce type, sauf un lot rangé
+pour de bon dans un autre (une place fixe des lots exigés : on ne part pas avec le B+ du VPS) ou déjà
+pris par une autre liste pas encore rentrée. La ligne montre les lots disponibles, les valides en
+premier ; un lot pris qui n'est pas valide est signalé au scan.
+
+### Partir avec un lot
+
+Tout le monde, secouristes compris : **Listes de matériel** > **🚑 Partir avec un lot** (téléphone) ou
+**Partir avec un lot** (poste), puis le type de lot (« Lot C », « B+ »…). Le serveur crée la liste de
+départ, attribuée à celui qui part :
+
+- s'il existe des lots de ce type (un lot C scellé prêt au départ, des B+), une ligne « 1 lot au
+  choix » : on prend le lot entier, avec ses sous-lots ;
+- sinon, le contenu du type : ses lots exigés (lots au choix), ses rangements s'ils portent sa liste,
+  ou les items de sa liste (les items à cocher deviennent des tâches).
+
+Scannez l'étiquette de chaque lot pris, puis **Valider** : le lot est noté parti avec la liste et
+n'est plus proposé ailleurs. Par défaut, pas de vérif au départ : on fait confiance aux secouristes,
+et au retour (**Retour : scanner**) chaque lot rentré passe en **vérif recommandée**. Le réglage
+**Vérif complète à chaque départ** (poste, Réglages > Règles du serveur) demande au contraire une vérif
+complète de chaque lot non scellé pris, après l'avoir scanné et avant de valider. Jamais pour un lot
+scellé.
+
 ## Réviser le matériel
 
 Le matériel non consommable dont le type a une révision (voir les types d'items dans la mise en

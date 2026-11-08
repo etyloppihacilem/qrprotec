@@ -769,6 +769,7 @@ def server_settings_dict(settings_row):
         'scanner_volume_default': settings_row.scanner_volume_default,
         'web_barcodes': settings_row.web_barcodes,
         'antenna_name': settings_row.antenna_name,
+        'departure_full_verif': settings_row.departure_full_verif,
     }
 
 
