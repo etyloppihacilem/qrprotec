@@ -691,6 +691,7 @@ class ListsWindow final : public AppWindow {
             return;
           }
           options_ = result.data;
+          build_choices();
         });
       }
     }
@@ -747,27 +748,11 @@ class ListsWindow final : public AppWindow {
         ImGui::TextDisabled("Chargement des lots et du matériel...");
       } else {
         // une seule recherche pour tout ce qui se scanne : lots precis, lots au choix (« 1 lot B+ », n'importe
-        // lequel de ce type, choisi en scannant son etiquette) et materiel (type d'item). Le genre de chaque
-        // resultat est ecrit entre parentheses, la cle porte un prefixe (lot:, lots:, type:) pour les distinguer.
-        Json choices = Json::array();
-        const auto choice = [&](const std::string &key, const std::string &name, const std::string &code) {
-          Json row;
-          row["key"]  = key;
-          row["name"] = name;
-          row["code"] = code;
-          choices.push_back(row);
-        };
-        for (const Json &option : options_["lot_types"].items())
-          choice("lots:" + option["type"].str(), option["name"].str(), "lot au choix, " + option["type"].str());
-        for (const Json &option : options_["lots"].items())
-          choice("lot:" + option["id"].str(), option["name"].str(),
-                 option["lot_type_name"].str().empty() ? "lot" : "lot, " + option["lot_type_name"].str());
-        for (const Json &option : options_["types"].items())
-          choice("type:" + option["type"].str(), option["name"].str(), "matériel, " + option["type"].str());
+        // lequel de ce type, choisi en scannant son etiquette) et materiel (type d'item), voir build_choices
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Ajouter");
         ImGui::SameLine(185.0f);
-        if (search_select("add_any", choices, "key", "name", add_pick_, "Rechercher un lot, un type de lot ou du matériel…",
+        if (search_select("add_any", choices_, "key", "name", add_pick_, "Rechercher un lot, un type de lot ou du matériel…",
                           nullptr, 480.0f, "code")
             && !add_pick_.empty()) {
           const std::string pick = std::exchange(add_pick_, {});
@@ -812,6 +797,29 @@ class ListsWindow final : public AppWindow {
       if (primary_button("Enregistrer"))
         save(app);
       ImGui::EndDisabled();
+    }
+
+    // Choix de la recherche unique d'ajout, construits une fois a la reception des options (pas a chaque image : il
+    // peut y avoir des centaines de types). Le genre de chaque resultat est ecrit entre parentheses, la cle porte
+    // un prefixe (lot:, lots:, type:) pour les distinguer ; la description (marques, autres noms ; celle du type
+    // pour un lot) est cherchee aussi, apres les noms.
+    void build_choices() {
+      choices_ = Json::array();
+      const auto choice = [&](const std::string &key, const Json &option, const std::string &code) {
+        Json row;
+        row["key"]         = key;
+        row["name"]        = option["name"].str();
+        row["code"]        = code;
+        row["description"] = option["description"].str();
+        choices_.push_back(row);
+      };
+      for (const Json &option : options_["lot_types"].items())
+        choice("lots:" + option["type"].str(), option, "lot au choix, " + option["type"].str());
+      for (const Json &option : options_["lots"].items())
+        choice("lot:" + option["id"].str(), option,
+               option["lot_type_name"].str().empty() ? "lot" : "lot, " + option["lot_type_name"].str());
+      for (const Json &option : options_["types"].items())
+        choice("type:" + option["type"].str(), option, "matériel, " + option["type"].str());
     }
 
     // ligne « lot au choix » d'un type de lot : une de plus si la ligne existe deja
@@ -1044,6 +1052,7 @@ class ListsWindow final : public AppWindow {
     bool        edit_started_  = false;
     Json        edit_lines_    = Json::array();
     Json        options_;
+    Json        choices_ = Json::array(); // recherche unique d'ajout (build_choices)
     std::string add_pick_; // recherche unique d'ajout : lot:<id>, lots:<type de lot> ou type:<type d'item>
     Json        departure_ = Json::array(); // types proposes par « Partir avec un lot »
     std::string departure_pick_;

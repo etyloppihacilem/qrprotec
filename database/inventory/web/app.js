@@ -5089,7 +5089,7 @@
     if (labelPrints.picker === signature && box.firstChild) return;
     labelPrints.picker = signature;
     if (data && !data.types.some((type) => type.type === labelPrints.type)) labelPrints.type = '';
-    const items = (data ? data.types : []).map((type) => ({ key: type.type, label: type.name, type }));
+    const items = (data ? data.types : []).map((type) => ({ key: type.type, label: type.name, description: type.description, type }));
     const picker = searchPicker(data ? 'Rechercher un type d\'item (ex : comp, sérum)' : 'Chargement…', items, (item) => {
       labelPrints.type = item.key;
       input.value = item.label;
@@ -6855,37 +6855,52 @@
   // Champ de recherche avec resultats en direct (sans accents ni casse, debut de mots ou code), comme la recherche des
   // types d'items du poste : fleches pour choisir, Entree ou toucher un resultat pour l'ajouter.
   const searchKey = (text) => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  // items : { key, label, sub?, kind? } ; kind ({ id, label, order }) : genre du resultat (lot, lot au choix,
-  // materiel) affiche en pastille quand une meme recherche melange plusieurs genres
+  // items : { key, label, sub?, kind?, description? } ; kind ({ id, label, order }) : genre du resultat (lot, lot au
+  // choix, materiel) affiche en pastille quand une meme recherche melange plusieurs genres. La description (marques,
+  // autres noms) est cherchee aussi, en priorite moindre : apres tout ce qui correspond par le nom ou le code.
   function searchPicker(placeholder, items, onPick, limit = 8) {
     const input = el('input', { type: 'search', class: 'picker-input', placeholder, autocomplete: 'off' });
     const results = el('ul', { class: 'picker-results', hidden: '' });
     let shown = [];
     let highlighted = 0;
+    // extrait de la description affiche quand c'est elle qui correspond : premiere ligne, 40 caracteres
+    const excerpt = (text) => {
+      const line = String(text || '').split('\n')[0].trim();
+      return line.length > 40 ? line.slice(0, 40) + '…' : line;
+    };
+    // score >= 1 par mot trouve dans le nom ou le code ; un mot trouve seulement dans la description fait passer
+    // le resultat sous tous ceux trouves par le nom (score < 1), -1 si un mot n'est nulle part
     const score = (item, words) => {
       const label = searchKey(item.label);
       const key = searchKey(item.key + ' ' + (item.sub || ''));
+      const description = searchKey(item.description);
       const starts = label.split(/[^a-z0-9]+/);
       let total = 0;
+      let inDescription = false;
       for (const word of words) {
         if (starts.some((part) => part.startsWith(word))) total += label.startsWith(word) ? 3 : 2;
         else if (label.includes(word) || key.includes(word)) total += 1;
+        else if (description.includes(word)) inDescription = true;
         else return -1;
       }
-      return total;
+      return inDescription ? total / 1000 : total;
     };
     const update = () => {
       const words = searchKey(input.value).split(/\s+/).filter(Boolean);
-      shown = items.map((item) => ({ item, score: score(item, words) })).filter((row) => row.score >= 0)
+      const scored = items.map((item) => ({ item, score: score(item, words) })).filter((row) => row.score >= 0);
+      const fromDescription = new Set(scored.filter((row) => words.length && row.score < 1).map((row) => row.item));
+      shown = scored
         .sort((a, b) => b.score - a.score || (a.item.kind ? a.item.kind.order : 0) - (b.item.kind ? b.item.kind.order : 0)
           || a.item.label.localeCompare(b.item.label, 'fr')).slice(0, limit).map((row) => row.item);
       highlighted = Math.min(highlighted, Math.max(0, shown.length - 1));
       results.replaceChildren(...(shown.length ? shown.map((item, index) => el('li', {
         class: index === highlighted ? 'active' : '',
         onpointerdown: (event) => { event.preventDefault(); onPick(item); },
-      }, ...(item.kind ? [el('span', {}, item.label, item.sub ? el('small', {}, ' · ' + item.sub) : ''),
+      }, ...(item.kind ? [el('span', {}, item.label, item.sub ? el('small', {}, ' · ' + item.sub) : '',
+        fromDescription.has(item) ? el('small', { class: 'picker-note' }, excerpt(item.description)) : ''),
         el('span', { class: 'picker-kind picker-kind-' + item.kind.id }, item.kind.label)]
-        : [el('span', {}, item.label), item.sub ? el('small', {}, item.sub) : '']))) : [el('li', { class: 'empty' }, 'Aucun résultat')]));
+        : [el('span', {}, item.label, fromDescription.has(item) ? el('small', { class: 'picker-note' }, excerpt(item.description)) : ''),
+          item.sub ? el('small', {}, item.sub) : '']))) : [el('li', { class: 'empty' }, 'Aucun résultat')]));
       results.hidden = document.activeElement !== input;
     };
     input.addEventListener('input', () => { highlighted = 0; update(); });
@@ -6927,11 +6942,11 @@
     const KIND_TYPE = { id: 'type', label: 'Matériel', order: 2 };
     const addSelect = searchPicker('＋ Ajouter un lot ou du matériel : rechercher…', [
       ...(options ? options.lot_types || [] : []).filter((type) => !taken.has('lots:' + type.type))
-        .map((type) => ({ key: type.type, label: type.name, kind: KIND_LOT_TYPE, row: type })),
+        .map((type) => ({ key: type.type, label: type.name, kind: KIND_LOT_TYPE, description: type.description, row: type })),
       ...(options ? options.lots : []).filter((lot) => !taken.has(lot.id))
-        .map((lot) => ({ key: lot.id, label: lot.name, sub: lot.lot_type_name, kind: KIND_LOT, row: lot })),
+        .map((lot) => ({ key: lot.id, label: lot.name, sub: lot.lot_type_name, kind: KIND_LOT, description: lot.description, row: lot })),
       ...(options ? options.types : []).filter((type) => !taken.has('type:' + type.type))
-        .map((type) => ({ key: type.type, label: type.name, sub: type.type, kind: KIND_TYPE, row: type })),
+        .map((type) => ({ key: type.type, label: type.name, sub: type.type, kind: KIND_TYPE, description: type.description, row: type })),
     ], (pick) => {
       if (pick.kind === KIND_LOT) edit.lines.push({ lot: pick.row.id, label: pick.row.name, sub: pick.row.lot_type_name });
       else if (pick.kind === KIND_LOT_TYPE) edit.lines.push({ lot_types: [pick.row.type], label: pick.row.name, sub: 'Lot au choix', quantity: 1 });

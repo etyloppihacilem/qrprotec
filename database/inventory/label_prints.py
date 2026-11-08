@@ -153,7 +153,7 @@ def web_list():
     rows = LabelPrint.objects.select_related('item_type').filter(kind=LabelPrintKind.ITEMS).filter(
         Q(created__gte=since) | Q(printed__isnull=True, cancelled__isnull=True, created__gte=_expiry()))
     rows = sorted(rows, key=lambda row: (not row.pending, -row.created.timestamp()))
-    types = [{'type': t.type, 'name': t.name, 'perissable': t.perissable}
+    types = [{'type': t.type, 'name': t.name, 'perissable': t.perissable, 'description': t.description}
              for t in ItemType.objects.filter(archived=False, physical=True).order_by('name')]
     return {'types': types, 'prints': [print_dict(row) for row in rows], 'max_count': MAX_COUNT,
             'expiry_hours': LabelPrint.EXPIRY_HOURS}

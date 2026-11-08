@@ -3449,10 +3449,13 @@ def checklists_options(request):
     types = ItemType.objects.filter(archived=False).order_by('name')
     lot_types = LotType.objects.filter(archived=False, storage=False).order_by('name')
     return Response({
-        'lots': [{'id': lot.id, 'name': lot.name, 'lot_type_name': lot.lot_type.name} for lot in lots],
-        'types': [{'type': row.type, 'name': row.name, 'consumable': row.consumable} for row in types],
+        # description : cherchee aussi, apres les noms (marques, autres noms) ; un lot prend celle de son type
+        'lots': [{'id': lot.id, 'name': lot.name, 'lot_type_name': lot.lot_type.name,
+                  'description': lot.lot_type.description} for lot in lots],
+        'types': [{'type': row.type, 'name': row.name, 'consumable': row.consumable, 'description': row.description}
+                  for row in types],
         # lignes « n'importe quel lot de ce type »
-        'lot_types': [{'type': row.type, 'name': row.name} for row in lot_types],
+        'lot_types': [{'type': row.type, 'name': row.name, 'description': row.description} for row in lot_types],
     })
 
 

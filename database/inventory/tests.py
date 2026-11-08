@@ -5044,6 +5044,20 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 201, body)
         return body
 
+    def test_options_with_descriptions(self):
+        """Options de l'editeur : descriptions des types d'items et de lots (cherchees apres les noms), celle du type
+        pour un lot."""
+        self.compresses.description = 'Marque Hartmann, gazes'
+        self.compresses.save(update_fields=['description'])
+        self.lot.lot_type.description = 'Sac rouge de premiers secours'
+        self.lot.lot_type.save(update_fields=['description'])
+        code, body = self.as_(self.chief, '/api/checklists/options/')
+        self.assertEqual(code, 200, body)
+        self.assertEqual({row['type']: row['description'] for row in body['types']}['compre'], 'Marque Hartmann, gazes')
+        self.assertEqual({row['id']: row['description'] for row in body['lots']}[self.lot.id], 'Sac rouge de premiers secours')
+        self.assertEqual({row['type']: row['description'] for row in body['lot_types']}[self.lot.lot_type.type],
+                         'Sac rouge de premiers secours')
+
     def test_departure(self):
         """« Partir avec » : liste generee depuis un type de lot, ligne « n'importe quel lot de ce type » (jamais un
         lot fixe, ni un lot deja pris par une autre liste), reglage « vérif complète à chaque départ », retour."""
