@@ -1219,8 +1219,10 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
   body["key"]       = key;
   if (!pin.empty())
     body["pin"] = pin;
-  if (!new_pin.empty())
-    body["new_pin"] = new_pin;
+  if (!new_pin.empty()) {
+    body["new_pin"]      = new_pin;
+    body["pin_at_login"] = pin_.at_login || pin_.at_login_locked;
+  }
   pin_.busy = true;
   api.post("/api/auth/", body, [this, matricule, key, source](const ApiResult &result) {
     pin_.busy = false;
@@ -1246,6 +1248,10 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
         pin_.matricule = matricule;
         pin_.key       = key;
         pin_.source    = static_cast< int >(source);
+      }
+      if (setup && (first || !pin_.setup)) { // garder la case telle que la personne l'a laissee si le code est refuse
+        pin_.at_login_locked = result.data["pin_at_login_locked"].boolean();
+        pin_.at_login        = result.data["pin_at_login_default"].boolean(true) || pin_.at_login_locked;
       }
       pin_.setup = setup;
       pin_.focus = true;
@@ -1347,8 +1353,8 @@ void App::draw_pin_modal() {
   ImGui::PopFont();
   ImGui::TextDisabled("Badge %s", pin_.matricule.c_str());
   if (pin_.setup)
-    ImGui::TextWrapped("Nouveau PIN de 4 à 8 chiffres (obligatoire pour les administrateurs, ou après une "
-                       "réinitialisation). Il sera demandé à chaque connexion, après le badge.");
+    ImGui::TextWrapped("Nouveau PIN de 4 à 8 chiffres (obligatoire pour vous, ou après une réinitialisation). Il "
+                       "permet aussi de vous connecter sans badge, avec votre nom et votre prénom.");
   const ImGuiInputTextFlags flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal
                                   | ImGuiInputTextFlags_EnterReturnsTrue;
   ImGui::SetNextItemWidth(220.0f);
@@ -1360,6 +1366,15 @@ void App::draw_pin_modal() {
   if (pin_.setup) {
     ImGui::SetNextItemWidth(220.0f);
     submit = ImGui::InputTextWithHint("##pin_confirm", "confirmez le PIN", &pin_.confirm, flags) || submit;
+  }
+  if (pin_.setup) {
+    ImGui::BeginDisabled(pin_.at_login_locked);
+    ImGui::Checkbox("Demander à chaque connexion", &pin_.at_login);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    help_marker(pin_.at_login_locked ? "Toujours demandé pour les administrateurs."
+                                     : "Cochée : le code est demandé après le badge.\nDécochée : le badge suffit, le "
+                                       "code ne sert qu'à se connecter sans badge (nom, prénom et code).");
   }
   if (!pin_.error.empty())
     ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "%s", pin_.error.c_str());

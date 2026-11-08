@@ -18,9 +18,13 @@ Menu **Administration > Utilisateurs**.
 - **PIN** : **Définir le PIN** / **Supprimer le PIN** (impossible pour un admin). Un admin sans PIN le
   choisit à sa prochaine connexion. Après 5 PIN faux, le compte est bloqué 5 minutes.
 - **PIN obligatoire ou désactivé** : **Rendre le PIN obligatoire** (sans PIN, il le choisit à sa
-  prochaine connexion), **Désactiver le PIN** (PIN supprimé et plus jamais demandé), **Réglage par
-  défaut** pour revenir au réglage **Réglages > Règles du serveur > Code PIN obligatoire par défaut
-  pour les secouristes** (décoché au départ). Les admins ont toujours un PIN.
+  prochaine connexion), **Désactiver le PIN** (PIN supprimé et plus jamais demandé), **Selon le
+  rôle** pour revenir au réglage **Réglages > Règles du serveur > Code PIN obligatoire pour** (une
+  case par rôle, toutes décochées au départ). Les admins ont toujours un PIN.
+- **Demander à chaque connexion** : cochée, le PIN est demandé après le badge ; décochée, le badge
+  suffit et le PIN ne sert qu'à la connexion sans badge (nom, prénom et PIN). La même case est
+  proposée à chacun quand il choisit son code (fenêtre du code à la connexion, ⚙ Réglages du
+  téléphone), cochée par défaut quand le code est obligatoire pour lui. Toujours cochée pour un admin.
 - **Réglages du web** : les réglages que l'utilisateur choisit dans le ⚙ du front web, modifiables ici
   (**Ligne d'info pendant la vérif**, **Explication de la vérif masquée** : décochez-la pour lui
   réafficher le rappel en 3 points au début de sa prochaine vérif).
@@ -223,7 +227,7 @@ sont dépliées ; cliquez sur le titre d'une autre section pour la déplier.
 | Section | Contenu |
 |---|---|
 | Serveur | **Importer un fichier de configuration** (`.qrprotec` créé sur le serveur par `qrprotec-setup --front-key NOM --front-config FICHIER`, mot de passe demandé), adresse de l'API (`http://127.0.0.1:8001` sur la borne), **Tester la connexion** |
-| Règles du serveur (tous les fronts) | **Autoriser les vérifs et les ajouts sans badge (nom déclaré)**, désactivé par défaut : voir ci-dessous |
+| Règles du serveur (tous les fronts) | **Autoriser les vérifs et les ajouts sans badge (nom déclaré)**, désactivé par défaut : voir ci-dessous ; **Code PIN obligatoire pour** : une case par rôle (Secouriste, Chef, Gestion ; toujours pour les administrateurs), toutes décochées par défaut |
 | Session et affichage | **Machine partagée** (cochée par défaut ; décochée sur un poste personnel, l'utilisateur reste connecté jusqu'à « Se déconnecter », même après un redémarrage, et seul son PIN est redemandé à l'ouverture), taille du texte, réinitialisation après inactivité (15 min, machine partagée seulement), alerte péremption proche (30 jours), **Exiger l'étiquette clé pour valider une vérif** |
 | Débug | **Activer les options de débug** (décoché par défaut, à laisser décoché en service) : un administrateur peut alors ajouter à un lot des items périmés, désactivés, supprimés, remplacés ou pris dans un autre lot, pour construire des lots de test. Le serveur refuse ces options à tout autre qu'un administrateur |
 | Disposition par défaut | **Utiliser la disposition actuelle** : la position des fenêtres à laquelle le poste revient après inactivité |

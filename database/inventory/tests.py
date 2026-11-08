@@ -1312,18 +1312,49 @@ class PinModeTests(ApiTestCase):
         code, body = self.call('PATCH', '/api/users/M001/', {'pin': '1357'})
         self.assertEqual((body['pin_mode'], body['pin_required']), ('', True))
 
-    def test_server_default(self):
+    def test_server_roles(self):
         self.assertEqual(self.auth(self.user)[0], 200)
-        code, body = self.call('PATCH', '/api/server-settings/', {'pin_required_default': True})
-        self.assertEqual((code, body['pin_required_default']), (200, True))
+        code, body = self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['gestion']})
+        self.assertEqual((code, body['pin_required_roles']), (200, ['gestion']))
+        self.assertEqual(self.auth(self.user)[0], 200)  # role secouriste : code toujours facultatif
+        code, body = self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['normal', 'gestion']})
+        self.assertEqual(body['pin_required_roles'], ['normal', 'gestion'])
         code, body = self.auth(self.user)
-        self.assertEqual((code, body.get('pin_setup_required')), (403, True))
-        # desactive pour ce secouriste : le reglage par defaut ne s'applique plus
+        self.assertEqual((code, body.get('pin_setup_required'), body.get('pin_at_login_default')), (403, True, True))
+        # desactive pour ce secouriste : le reglage du role ne s'applique plus
         self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
         self.assertEqual(self.auth(self.user)[0], 200)
+        # role inconnu refuse, ancien reglage (une case pour tous) toujours accepte
+        self.assertEqual(self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['chef', 'pompier']})[0], 400)
+        code, body = self.call('PATCH', '/api/server-settings/', {'pin_required_default': True})
+        self.assertEqual(body['pin_required_roles'], ['normal', 'chef', 'gestion'])
         # reservee aux admins
-        self.assertEqual(self.call('PATCH', '/api/server-settings/', {'pin_required_default': False},
+        self.assertEqual(self.call('PATCH', '/api/server-settings/', {'pin_required_roles': []},
                                    session=views.session_token(self.user))[0], 403)
+
+    def test_pin_at_login(self):
+        """Code obligatoire mais pas demande a chaque connexion : il ne sert qu'a la connexion sans badge."""
+        self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['normal']})
+        code, body = self.auth(self.user, new_pin='2468', pin_at_login=False)
+        self.assertEqual((code, body['has_pin'], body['pin_at_login'], body['pin_required']), (200, True, False, False))
+        self.assertEqual(self.auth(self.user)[0], 200)  # badge seul
+        cache.clear()
+        response = self.client.post('/api/auth/name/', json.dumps({'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '2468'}),
+                                    content_type='application/json', REMOTE_ADDR='10.0.0.9')
+        self.assertEqual(response.status_code, 200)
+        # coche par un admin : redemande apres le badge
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin_at_login': True})
+        self.assertEqual((body['pin_at_login'], body['pin_required']), (True, True))
+        self.assertEqual(self.auth(self.user)[0], 403)
+        # admin : toujours demande, case imposee
+        self.operator.set_pin('4821')
+        self.operator.save()
+        code, body = self.call('PATCH', '/api/users/P001/', {'pin_at_login': False})
+        self.assertEqual((body['pin_at_login'], body['pin_at_login_locked'], body['pin_required']), (True, True, True))
+        # sans la case (ancien front) : demande a chaque connexion, comme avant
+        self.call('PATCH', '/api/users/M001/', {'pin_reset': True})
+        self.assertEqual(self.auth(self.user, new_pin='1357')[0], 200)
+        self.assertEqual(self.auth(self.user)[0], 403)
 
 
 class MyPinTests(ApiTestCase):
@@ -1355,6 +1386,16 @@ class MyPinTests(ApiTestCase):
         self.assertEqual(self.auth(self.user)[0], 200)
         self.assertEqual(self.my_pin(self.user, disable=True)[0], 400)
         self.assertTrue(Operation.objects.filter(summary__contains='code PIN supprimé').exists())
+        # case « Demander a chaque connexion » : avec le PIN choisi, ou seule
+        code, body = self.my_pin(self.user, pin='2468', pin_at_login=False)
+        self.assertEqual((code, body['pin_at_login'], body['pin_required']), (200, False, False))
+        self.assertEqual(self.auth(self.user)[0], 200)
+        code, body = self.my_pin(self.user, pin_at_login=True)
+        self.assertEqual((code, body['pin_required']), (200, True))
+        self.assertEqual(self.auth(self.user)[0], 403)
+        self.operator.set_pin('4821')
+        self.operator.save()
+        self.assertEqual(self.my_pin(self.operator, pin_at_login=False)[0], 403)
         self.assertEqual(self.call('POST', '/api/me/pin/', {'pin': '2468'}, local=False)[0], 403)
 
     def test_disable_refused_when_mandatory(self):
@@ -1370,7 +1411,7 @@ class MyPinTests(ApiTestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.my_pin(self.user, current_pin='2468', disable=True)[0], 403)
         self.call('PATCH', '/api/users/M001/', {'pin_mode': ''})
-        self.call('PATCH', '/api/server-settings/', {'pin_required_default': True})
+        self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['normal']})
         code, body = self.auth(self.user, pin='2468')
         self.assertFalse(body['pin_can_disable'])
         self.assertEqual(self.my_pin(self.user, current_pin='2468', disable=True)[0], 403)

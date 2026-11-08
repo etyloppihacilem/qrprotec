@@ -397,10 +397,20 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
   invalide l'ancien.
 - Le **PIN** (4 à 8 chiffres) authentifie : obligatoire pour les admins. Pour les autres, selon
   `pin_mode` du secouriste : `required` (obligatoire), `disabled` (jamais de PIN, le PIN existant est
-  supprimé ; refusé pour un admin) ou vide, le réglage du serveur `pin_required_default`
-  (`/api/server-settings/`, facultatif par défaut). Un PIN existant est toujours demandé, sauf s'il est
-  désactivé. Sans PIN alors qu'il est obligatoire, il est choisi à la connexion suivante
-  (`pin_setup_required`). 5 erreurs : blocage 5 minutes.
+  supprimé ; refusé pour un admin) ou vide, le réglage du serveur `pin_required_roles`
+  (`/api/server-settings/`, liste des rôles parmi `normal`, `chef`, `gestion` pour qui le code est
+  obligatoire ; vide par défaut, `pin_role_choices` donne les libellés ; l'ancien booléen
+  `pin_required_default` est encore accepté : vrai = tous les rôles) : `pin_mandatory` dans
+  `user_dict`. Sans PIN alors qu'il est obligatoire, il est choisi à la connexion suivante
+  (`pin_setup_required`, avec `pin_at_login_default` = code obligatoire et `pin_at_login_locked` pour un
+  admin). 5 erreurs : blocage 5 minutes.
+- **Demander à chaque connexion** (`pin_at_login`, vrai par défaut et pour les comptes existants) : un
+  PIN existant est demandé après le badge seulement si la case est cochée ; décochée, il ne sert qu'à
+  la connexion sans badge (nom + prénom + PIN, ou matricule + PIN). Toujours cochée pour un admin
+  (`pin_at_login_locked`). La case accompagne le choix du code (`pin_at_login` avec `new_pin` à
+  `/api/auth/`, ou avec `pin` à `/api/me/pin/`, absente : cochée), se change seule par
+  `POST /api/me/pin/` (`{"user", "pin_at_login"}`, sans PIN actuel) ou par un admin
+  (`PATCH /api/users/<m>/`). Côté fronts, elle est cochée par défaut quand le code est obligatoire.
 - **Volume de la douchette** : propre à chaque secouriste (`scanner_volume`, 0, 2, 4 ou 8), renvoyé à
   la connexion (`scanner_volume` dans la réponse de `/api/auth/`, toujours rempli) et enregistré par
   `PATCH /api/me/scanner-volume/` (`{"volume": 4}`, vide : revient au défaut). Sans choix, et sans
@@ -429,8 +439,8 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 - **PIN choisi par l'utilisateur** (réglages ⚙ du front web, tous les rôles) : `POST /api/me/pin/`
   (`user` : badge ou jeton de session, `current_pin` s'il a déjà un PIN, essais faux comptés comme
   à la connexion) : `pin` le choisit ou le change, `disable: true` le supprime. La suppression est
-  refusée pour un admin et quand le TECH a rendu le PIN obligatoire (`pin_mode` `required`, ou PIN
-  obligatoire par défaut sans exemption) : `pin_can_disable` dans la réponse de `api/auth/`. Le mode
+  refusée pour un admin et quand le TECH a rendu le PIN obligatoire (`pin_mode` `required`, ou rôle
+  coché dans `pin_required_roles` sans exemption) : `pin_can_disable` dans la réponse de `api/auth/`. Le mode
   du PIN n'est pas modifié (le PIN redevient facultatif) ; la session reste ouverte.
 - **Notification des admins** au blocage (50 erreurs ou code oublié) : notifications web (option
   `pin_blocked` de l'abonnement), avec le lien de déblocage. **Une seule par
