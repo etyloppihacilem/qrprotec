@@ -163,6 +163,22 @@ participants ; un admin peut aussi l'activer depuis **Suivi des vérifs**, sur l
 
 **Sac O2** (`saco2x`) : masques O2 adulte et enfant, lunettes, etc.
 
+**Référentiels et rangements** : la liste obligatoire d'un lot (d'après les recommandations du
+ministère, ex : le B+) se saisit sur un type à part, case **Référentiel (liste obligatoire, sans
+emplacements)** cochée. Elle n'a pas d'emplacements : ce sont ses **rangements** qui rangent la liste
+par pochettes. Sur le type « Sac de soin » et le type « Sac O2 », choisissez **Rangement de : B+** :
+chaque sac range sa part de la liste, avec ce qu'il a en plus. Un lot B+ n'attend alors rien lui-même,
+ses sacs portent son contenu. Deux sacs du même rangement sont interchangeables ; un sac rangé
+autrement (le sac de soin du VPS) est un autre rangement du même référentiel. Un référentiel sans
+rangement (un kit d'un seul sac) est attendu tel quel dans son lot.
+
+Sous la liste d'un référentiel, la section **Couverture** montre pour chaque lot ce que ses sacs
+placent de la liste : vert couvert, rouge à placer dans un rangement, bleu en plus. Elle ne change pas
+l'état des lots : c'est un repère pour la TECH. Pour partir de l'existant, **Reprendre ce contenu comme
+liste** recopie tout ce que contient un lot (ses sacs compris) dans la liste, à corriger d'après le
+document du ministère avant **Enregistrer le contenu**. Quand tous les lots d'un type sont des
+sous-lots de lots d'un même type, le formulaire le propose comme rangement (**Suggestion**).
+
 Créez aussi :
 
 - des types **sans contenu** pour les regroupements : « VPS » (`vpsxxx`), « B+ » (`bplusx`) ;
