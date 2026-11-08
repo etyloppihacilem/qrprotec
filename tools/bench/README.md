@@ -1,67 +1,58 @@
 # Banc de mesure d'une borne
 
-`qrprotec-bench` compare des ordinateurs candidats pour une **borne complète** : le back (base,
-API, site des téléphones) et le kiosk (écran, douchette Bluetooth) sur la même machine. Il ne
-demande que Python 3 (bibliothèque standard), et utilise le back installé par le RPM
-(`/usr/share/qrprotec`) ou celui du dépôt (`database/`, avec Django installé).
-
-La production n'est jamais touchée : le back est lancé sur une **copie** de la base, sur des ports
-libres, dans un dossier de test supprimé à la fin.
-
-## Lancer
-
-Sur chaque candidat, avec la même Fedora, écran de la borne branché et douchette allumée (non
-appairée au système) :
+`qrprotec-bench` note sur 100 un ordinateur candidat pour une **borne complète** : le back (base,
+API, site des téléphones) et le kiosk (écran, douchette Bluetooth) sur la même machine.
 
 ```sh
 git clone https://github.com/etyloppihacilem/qrprotec && cd qrprotec
 pip install --user "django>=6.1,<7" "djangorestframework>=3.18,<4"   # inutile si le RPM est installé
-tools/bench/qrprotec-bench --bt-scan 15 --endurance 30 --name pc-a --json pc-a.json
+tools/bench/qrprotec-bench
 ```
 
-Puis, sur n'importe quelle machine :
+Une seule commande, sans réglage : environ 5 minutes, sans rien brancher ni manipuler. La
+production n'est jamais touchée : le back tourne sur une **copie** de la base, sur des ports libres,
+dans un dossier de test supprimé à la fin. Il ne faut que Python 3 ; le back utilisé est celui du
+RPM (`/usr/share/qrprotec`) ou celui du dépôt.
 
-```sh
-tools/bench/qrprotec-bench --compare pc-a.json pc-b.json pc-c.json
+Deux options seulement :
+
+- `--db /var/lib/qrprotec/db.sqlite3` : mesure avec une copie de la vraie base (sinon base fictive
+  de 80 lots) ;
+- `--compare *.json` : met côte à côte les machines déjà mesurées. Chaque passage enregistre ses
+  résultats dans `qrprotec-bench-<machine>-<date>.json`, dans le dossier courant.
+
+## Le score
+
+```
+================================================================
+  SCORE 78/100 : Convenable
+================================================================
+  Back (10 secouristes)  ███████···  17.4/25  p95 310 ms
+  Disque                 ██████████  20.0/20  fdatasync p99 0.35 ms
+  ...
 ```
 
-La meilleure valeur de chaque ligne est en vert. Options utiles :
+**80 et plus : excellent, 60 à 79 : convenable, 40 à 59 : limite, moins de 40 : insuffisant.**
+**ÉLIMINÉ** quand un point bloquant rend la machine inutilisable, quel que soit le score : pas de
+Bluetooth (ou Bluetooth sans BLE, ou coupé par un interrupteur), disque à plateaux, moins de 2 Gio
+de mémoire, ou back qui ne démarre pas.
 
-| Option | Effet |
-| --- | --- |
-| `--db /var/lib/qrprotec/db.sqlite3` | mesure avec une copie de la vraie base (sinon base fictive de `--lots` lots) |
-| `--bt-scan 15` | cherche les appareils BLE pendant 15 s (portée de l'antenne, douchette vue) |
-| `--endurance 30` | 30 min de charge sur tous les cœurs : ralentissement en chauffant, température |
-| `--levels 1,5,10,20` | nombres de secouristes simulés, `--seconds` la durée de chaque palier |
-| `--only bluetooth,kiosk` | seulement certaines sections |
-| `--dir` | dossier de test : doit être sur le disque de la base (défaut `/var/lib/qrprotec` ou `/var/tmp`) |
+| Partie | Points | Plein score | Zéro |
+| --- | --- | --- | --- |
+| Back : 10 secouristes simulés (fiches, état des lots, vérifs, PDF), p95 | 25 | ≤ 200 ms | ≥ 2 s, ou une erreur |
+| Disque : latence fdatasync p99 (chaque vérif est un commit SQLite) | 20 | ≤ 1 ms | ≥ 20 ms |
+| CPU sur un cœur (Django est en Python, un cœur à la fois) | 20 | ≤ 150 ms | ≥ 1,2 s |
+| SQLite : 8 écritures simultanées, p95 | 10 | ≤ 10 ms | ≥ 300 ms, ou « locked » |
+| Chauffe : lenteur après 3 min de charge sur tous les cœurs | 10 | ≤ 5 % | ≥ 35 % |
+| Kiosk : carte graphique KMS (5), rendu matériel (3), carte son (2) | 10 | tout | rien |
+| Suivi en direct (WebSocket), p95 | 5 | ≤ 20 ms | ≥ 300 ms |
 
-`sudo` n'est utile que pour lire la version Bluetooth exacte et la prise en charge du BLE (`btmgmt`).
-Le code de sortie vaut 1 si un point bloquant a été trouvé.
+Entre les deux bornes, la note suit une échelle logarithmique (linéaire pour la chauffe). Deux
+passages sur la même machine varient de quelques points : un écart de moins de 5 points entre deux
+candidats ne départage pas. À score proche, préférer la machine silencieuse, sobre (allumée en
+permanence) et avec une batterie ou un onduleur.
 
-## Ce qui est mesuré, et comment lire
+Le Bluetooth est seulement vérifié (adaptateur présent, pas coupé, BLE si lisible) : la douchette n'a
+pas besoin d'être allumée.
 
-Faire 2 ou 3 passages par machine et garder le plus représentatif : les écarts de quelques % ne
-veulent rien dire. Par ordre d'importance :
-
-1. **Bluetooth** : adaptateur présent, **BLE** pris en charge (Bluetooth 4.0 minimum, 5.0 conseillé),
-   pas bloqué par rfkill, service `bluetooth` actif. Sans BLE, la douchette Inateck ne peut pas se
-   connecter : machine éliminée (ou prévoir un dongle USB Bluetooth 5). `--bt-scan` montre aussi les
-   appareils déjà connectés au système, qui peuvent faire échouer la recherche du SDK Inateck.
-2. **Disque, fdatasync p99** : chaque vérif validée est un commit SQLite. Moins de 2 ms : bon SSD.
-   Plus de 10 ms : carte SD, eMMC ou SSD bas de gamme, à éviter. Un disque à plateaux est bloquant.
-3. **Back, secouristes simulés** : chacun enchaîne état des lots, fiche d'un lot, vérif complète
-   (écriture) et parfois la fiche PDF, une action toutes les 1 à 3 s (bien plus soutenu qu'en vrai).
-   Bon si p95 < 200 ms à 10 secouristes, **toujours 0 erreur**. Le détail par action est donné.
-4. **Suivi en direct (WebSocket)** : délai entre l'état publié par une page de scan et sa réception
-   sur les pages de suivi. Bon sous 50 ms.
-5. **CPU un cœur** : Django tourne en Python, sur un cœur à la fois (GIL) : c'est ce chiffre qui
-   compte, pas le nombre de cœurs. « Tous les cœurs » montre le turbo perdu sous charge.
-6. **Endurance** : ralentissement après la charge prolongée. Plus de 25 % : refroidissement
-   insuffisant (mini PC passif dans une armoire, par exemple).
-7. **Kiosk** : carte graphique KMS (pour Cage), rendu matériel `/dev/dri` (sinon ImGui en logiciel),
-   écran détecté, rétroéclairage pilotable (veille de l'écran), carte son (bips).
-
-Le reste (mémoire, démarrage, sauvegarde, VACUUM) départage rarement : 4 Gio de mémoire suffisent.
-À puissance proche, préférer la machine silencieuse, sobre (allumée en permanence) et avec un bon
-SSD ; une batterie (portable) ou un onduleur protège la base des coupures de courant.
+`QRPROTEC_BENCH_QUICK=1` raccourcit tout pour essayer le script : son score n'est pas comparable.
