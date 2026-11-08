@@ -10,27 +10,26 @@
 # ######################################################################################################################
 
 """Banc de mesure d'un ordinateur candidat pour la production : kiosk (poste + douchette Bluetooth) et serveur sur la
-meme machine.
+meme machine. Une seule commande, sans reglage, environ 5 minutes, et un score sur 100 a la fin :
 
-    tools/bench/qrprotec-bench                          # tout, base fictive, ~3 min
-    tools/bench/qrprotec-bench --db /var/lib/qrprotec/db.sqlite3 --json pc-a.json
-    tools/bench/qrprotec-bench --bt-scan 15             # cherche aussi les appareils BLE (douchette allumee)
-    tools/bench/qrprotec-bench --endurance 30           # + 30 min de charge pour voir si le CPU ralentit en chauffant
-    tools/bench/qrprotec-bench --compare pc-a.json pc-b.json
+    tools/bench/qrprotec-bench
+    tools/bench/qrprotec-bench --db /var/lib/qrprotec/db.sqlite3     # avec une copie de la vraie base
+    tools/bench/qrprotec-bench --compare *.json                       # compare les machines deja mesurees
 
-Sections : machine, Bluetooth (adaptateur, BLE, rfkill, bluetoothd), ecran et son du kiosk, disque (fdatasync), SQLite
-(config de prod WAL + IMMEDIATE, ecritures concurrentes), CPU Python, et le vrai back : `manage.py serve` lance sur une
-COPIE de la base, sur des ports libres (la production n'est jamais touchee), avec des secouristes simules en HTTP
-(fiches, etat des lots, verifs) et en WebSocket (suivi en direct), la fiche PDF, la sauvegarde et le VACUUM.
+Verifie le materiel (Bluetooth present, ecran/carte graphique/son du kiosk, SSD, memoire) puis mesure : disque
+(fdatasync), SQLite dans la config de prod, CPU Python, chauffe sous charge, et le vrai back : `manage.py serve` lance
+sur une COPIE de la base, sur des ports libres (la production n'est jamais touchee), avec des secouristes simules en
+HTTP (fiches, etat des lots, verifs, PDF) et en WebSocket (suivi en direct). Aucune manipulation pendant le test.
 
-Rien que la bibliotheque standard de Python. La partie back utilise le back installe par le RPM
-(/usr/share/qrprotec) ou celui du depot (database/, avec Django installe). Lancer en utilisateur normal ; root
-n'apporte que la lecture complete des infos Bluetooth (btmgmt).
+Les resultats sont enregistres dans qrprotec-bench-<machine>-<date>.json (dossier courant) pour --compare.
+Rien que la bibliotheque standard de Python ; le back est celui du RPM (/usr/share/qrprotec) ou du depot (database/,
+avec Django installe).
 """
 
 import argparse
 import base64
 import json
+import math
 import os
 import platform
 import random
@@ -49,6 +48,16 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+
+# Reglages du banc, figes pour que les scores des machines soient comparables.
+# QRPROTEC_BENCH_QUICK=1 raccourcit tout (essai du script, score non comparable).
+QUICK = os.environ.get('QRPROTEC_BENCH_QUICK') == '1'
+LOTS = 20 if QUICK else 80               # lots de la base fictive
+LEVELS = [1, 10] if QUICK else [1, 5, 10, 20]  # secouristes simules en meme temps
+SECONDS = 4 if QUICK else 10             # duree de chaque palier
+WS_SCANNERS, WS_WATCHERS = 10, 3         # pages de scan et de suivi en direct
+FSYNCS = 200 if QUICK else 1000          # fdatasync mesures
+ENDURANCE_MIN = 0.3 if QUICK else 3      # minutes de charge CPU sur tous les coeurs
 
 OK, WARN, BAD, INFO = 'ok', 'attention', 'mauvais', 'info'
 MARKS = {OK: '\033[32m✔\033[0m', WARN: '\033[33m!\033[0m', BAD: '\033[31m✘\033[0m', INFO: ' '}
@@ -172,80 +181,36 @@ def machine(rep, target):
 
 # -------------------------------------------------------------------------------------------------- Bluetooth
 
-def bluetooth(rep, scan_seconds):
-    rep.section('Bluetooth (douchette Inateck, BLE)')
+def bluetooth(rep):
+    """Presence du Bluetooth seulement (la douchette Inateck est en BLE) : aucun appareil a allumer ni a approcher."""
+    rep.section('Bluetooth (douchette)')
     adapters = sorted(p for p in Path('/sys/class/bluetooth').glob('hci*') if ':' not in p.name)
     rep.add('bluetooth.adapter', bool(adapters), 'Adaptateur Bluetooth present', OK if adapters else BAD,
-            ', '.join(p.name for p in adapters) if adapters else 'aucun : la douchette ne pourra pas se connecter')
-    for adapter in adapters:
-        device = adapter / 'device'
-        driver = os.path.basename(os.path.realpath(device / 'driver')) if (device / 'driver').exists() else '?'
-        modalias = read(device / 'modalias')
-        usb = re.search(r'usb:v([0-9A-F]{4})p([0-9A-F]{4})', modalias)
-        bus = f'USB {usb.group(1).lower()}:{usb.group(2).lower()}' if usb else modalias.split(':')[0] or '?'
-        rep.add(None, f'{driver}, {bus}', f'  {adapter.name} : pilote')
-    blocked = []
-    for rfkill in Path('/sys/class/rfkill').glob('rfkill*'):
-        if read(rfkill / 'type') == 'bluetooth':
-            if read(rfkill / 'hard') == '1':
-                blocked.append(f'{read(rfkill / "name")} bloque materiellement (interrupteur/BIOS)')
-            elif read(rfkill / 'soft') == '1':
-                blocked.append(f'{read(rfkill / "name")} bloque (rfkill unblock bluetooth)')
-    if adapters:
-        rep.add('bluetooth.rfkill_ok', not blocked, 'Non bloque (rfkill)', BAD if blocked else OK, '; '.join(blocked))
-    code, out = run(['systemctl', 'is-active', 'bluetooth'])
-    active = out.strip() == 'active'
-    rep.add('bluetooth.bluetoothd', active, 'Service bluetooth (BlueZ) actif', OK if active else BAD,
-            '' if active else 'sudo systemctl enable --now bluetooth')
-    code, out = run(['bluetoothctl', '--version'])
-    if code == 0:
-        rep.add('bluetooth.bluez', out.strip().split()[-1], 'Version de BlueZ')
+            ', '.join(p.name for p in adapters) if adapters else 'aucun : douchette impossible (dongle USB BT 5 ?)')
     if not adapters:
-        rep.values['bluetooth.le'] = False
         return
-    le = powered = None
+    device = adapters[0] / 'device'
+    driver = os.path.basename(os.path.realpath(device / 'driver')) if (device / 'driver').exists() else '?'
+    usb = re.search(r'usb:v([0-9A-F]{4})p([0-9A-F]{4})', read(device / 'modalias'))
+    rep.add(None, driver + (f', USB {usb.group(1).lower()}:{usb.group(2).lower()}' if usb else ''), '  Pilote')
+    hard = [read(r / 'name') for r in Path('/sys/class/rfkill').glob('rfkill*')
+            if read(r / 'type') == 'bluetooth' and read(r / 'hard') == '1']
+    rep.add('bluetooth.hard_blocked', bool(hard), 'Coupe par un interrupteur ou le BIOS', BAD if hard else OK)
+    # version / BLE : lisibles sans root avec la plupart des BlueZ ; sinon on ne penalise pas
     code, out = run(['btmgmt', '--index', adapters[0].name[3:], 'info'])
-    supported = re.search(r'supported settings:(.*)', out or '')
-    if code == 0 and supported:
+    supported = re.search(r'supported settings:(.*)', out or '') if code == 0 else None
+    if supported:
         le = ' le' in f' {supported.group(1)} '
-        current = re.search(r'current settings:(.*)', out)
-        powered = bool(current and 'powered' in current.group(1))
+        rep.add('bluetooth.le', le, 'Basse consommation (BLE)', OK if le else BAD,
+                '' if le else 'necessaire pour la douchette')
         version = re.search(r'version (\d+)', out)
         if version:
-            # 6 = Bluetooth 4.0 (premier avec le BLE) ; 9 = 5.0 (portee et debit meilleurs)
             names = {6: '4.0', 7: '4.1', 8: '4.2', 9: '5.0', 10: '5.1', 11: '5.2', 12: '5.3', 13: '5.4'}
-            hci = int(version.group(1))
-            rep.add('bluetooth.version', names.get(hci, f'HCI {hci}'), 'Version Bluetooth',
-                    OK if hci >= 9 else WARN if hci >= 6 else BAD, '5.0 ou plus conseille')
-    elif active:
-        code, out = run(['bluetoothctl', 'show'])
-        if code == 0:
-            powered = 'Powered: yes' in out
-            # BlueZ recent : « Roles: central » si le controleur fait du LE ; sinon on ne sait pas
-            le = True if re.search(r'Roles:\s*central', out) else None
-    rep.add('bluetooth.le', le, 'Bluetooth basse consommation (BLE)',
-            OK if le else BAD if le is False else WARN,
-            'necessaire pour la douchette' if le is not False else 'adaptateur sans BLE : douchette impossible')
-    if le is None:
-        rep.values['bluetooth.le'] = 'inconnu'
-        print('      (relancer avec sudo pour lire les capacites exactes avec btmgmt)')
-    if powered is not None:
-        rep.add('bluetooth.powered', powered, 'Adaptateur allume', OK if powered else WARN,
-                '' if powered else 'bluetoothctl power on')
-    if scan_seconds and active:
-        print(f'      recherche BLE pendant {scan_seconds} s (douchette allumee, pas appairee au systeme)...')
-        run(['bluetoothctl', '--timeout', str(scan_seconds), 'scan', 'le'], timeout=scan_seconds + 10)
-        code, out = run(['bluetoothctl', 'devices'])
-        devices = re.findall(r'Device ([0-9A-F:]{17}) (.*)', out or '')
-        rep.add('bluetooth.seen', len(devices), 'Appareils vus', OK if devices else WARN,
-                'aucun : antenne faible ou recherche impossible' if not devices else '')
-        inateck = [f'{name} ({addr})' for addr, name in devices if re.search(r'inateck|bcst|^p\d', name, re.I)]
-        if inateck:
-            rep.add('bluetooth.inateck', ', '.join(inateck), 'Douchette probable', OK)
-        others = [d for d in devices if run(['bluetoothctl', 'info', d[0]])[1].count('Connected: yes')]
-        if others:
-            rep.add(None, ', '.join(n for _, n in others), 'Appareils connectes au systeme', WARN,
-                    'peuvent faire echouer la recherche du SDK Inateck')
+            rep.add('bluetooth.version', names.get(int(version.group(1)), version.group(1)), 'Version', INFO)
+    code, out = run(['systemctl', 'is-active', 'bluetooth'])
+    active = out.strip() == 'active'
+    rep.add('bluetooth.service', active, 'Service bluetooth actif', OK if active else INFO,
+            '' if active else 'active par le RPM qrprotec-kiosk')
 
 
 # ------------------------------------------------------------------------------------------------ kiosk / ecran
@@ -259,8 +224,7 @@ def kiosk(rep):
     rep.add('kiosk.render', bool(render), 'Rendu OpenGL materiel (/dev/dri)', OK if render else WARN,
             '' if render else 'ImGui tournera en logiciel (llvmpipe), plus lent')
     outputs = [p.name.split('-', 1)[1] for p in Path('/sys/class/drm').glob('card*-*') if read(p / 'status') == 'connected']
-    rep.add('kiosk.outputs', ', '.join(outputs) or 'aucun', 'Ecrans branches', OK if outputs else WARN,
-            '' if outputs else 'brancher l\'ecran de la borne avant le test')
+    rep.add('kiosk.outputs', ', '.join(outputs) or 'aucun', 'Ecrans branches', INFO)
     backlight = [p.name for p in Path('/sys/class/backlight').glob('*')]
     rep.add('kiosk.backlight', ', '.join(backlight) or 'aucun', 'Retroeclairage pilotable', OK if backlight else INFO,
             '' if backlight else 'veille par DDC/CI (ddcutil) ou signal coupe seulement')
@@ -439,7 +403,7 @@ def temperatures():
 
 
 def endurance(rep, minutes):
-    rep.section(f'Endurance ({minutes} min de charge sur tous les coeurs)')
+    rep.section(f'Chauffe ({minutes:g} min de charge sur tous les coeurs)')
     stop = time.monotonic() + minutes * 60
     workers = max(1, (os.cpu_count() or 1) - 1)  # un coeur garde pour la mesure
     first, scores, hottest = None, [], 0
@@ -755,7 +719,7 @@ def ws_bench(port, user, lots, scanners, watchers, seconds):
 
 def app(rep, args):
     rep.section('Back QRProtec (copie de la base, ports libres)')
-    backend, vendor = find_backend(args.backend)
+    backend, vendor = find_backend(None)
     if backend is None:
         rep.add('app.available', False, 'Back introuvable', WARN, 'installer le RPM ou lancer depuis le depot')
         return
@@ -773,8 +737,8 @@ def app(rep, args):
             seed_lots = 0
         else:
             result = server.manage('migrate', '--noinput')
-            label = f'base fictive de {args.lots} lots'
-            seed_lots = args.lots
+            label = f'base fictive de {LOTS} lots'
+            seed_lots = LOTS
         if result.returncode != 0:
             raise RuntimeError(f'migrate : {result.stderr[-800:]}')
         result = server.manage('shell', '-c', SEED.replace("sys.argv[-1]", repr(str(seed_lots))))
@@ -804,25 +768,25 @@ def app(rep, args):
                                           {'items': lots[biggest]}, session)[1] for _ in range(5))
         rep.add('app.verif_ms', verif, f'Verif complete, {len(lots[biggest])} items (ms)', grade(verif, 300, 1500))
 
-        for clients in args.levels:
-            latencies, errors, client_errors, per_kind = load(server.port, session, lots, clients, args.seconds)
+        for clients in LEVELS:
+            latencies, errors, client_errors, per_kind = load(server.port, session, lots, clients, SECONDS)
             p95 = pct(latencies, 95)
             key = f'app.load_{clients}'
             rep.values[f'{key}.p50_ms'] = pct(latencies, 50)
             rep.values[f'{key}.p99_ms'] = pct(latencies, 99)
             rep.values[f'{key}.errors'] = len(errors)
-            rep.values[f'{key}.rps'] = len(latencies) / args.seconds
+            rep.values[f'{key}.rps'] = len(latencies) / SECONDS
             detail = ', '.join(f'{kind} {pct(values, 95):.0f}' for kind, values in sorted(per_kind.items()))
             rep.add(f'{key}.p95_ms', p95, f'{clients:2d} secouristes : p95 (ms)',
-                    BAD if errors else grade(p95, 200, 1000),
-                    f'{len(latencies) / args.seconds:.1f} req/s, {len(errors)} erreurs (5xx ou connexion coupée), {client_errors} 4xx ; '
+                    BAD if errors else grade(p95, 300, 2000),
+                    f'{len(latencies) / SECONDS:.1f} req/s, {len(errors)} erreurs (5xx ou connexion coupée), {client_errors} 4xx ; '
                     f'p95 : {detail}')
             if errors:
                 print(f'      exemple d\'erreur : {errors[0]}')
 
-        delays, failures = ws_bench(server.port, data['user'], lots, args.ws_scanners, args.ws_watchers, args.seconds)
+        delays, failures = ws_bench(server.port, data['user'], lots, WS_SCANNERS, WS_WATCHERS, SECONDS)
         p95 = pct(delays, 95)
-        rep.add('app.ws.p95_ms', p95, f'Suivi en direct ({args.ws_scanners} scans, {args.ws_watchers} suivis), p95 (ms)',
+        rep.add('app.ws.p95_ms', p95, f'Suivi en direct ({WS_SCANNERS} scans, {WS_WATCHERS} suivis), p95 (ms)',
                 BAD if failures or p95 is None else grade(p95, 50, 300),
                 f'{len(delays)} messages, {len(failures)} echecs' + (f' : {failures[0]}' if failures else ''))
         rep.add('app.rss_mb', server.rss_mb(), 'Memoire max du back (Mo)', INFO)
@@ -848,10 +812,77 @@ def app(rep, args):
         rep.add('app.error', str(error), 'Back : echec', BAD)
     finally:
         server.stop()
-        if args.keep:
-            print(f'      dossier garde : {workdir}')
-        else:
-            shutil.rmtree(workdir, ignore_errors=True)
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# -------------------------------------------------------------------------------------------------------- score
+
+def scale(value, good, bad, log=True):
+    """1 si value atteint good, 0 a bad, entre les deux sur une echelle logarithmique (latences) ou lineaire."""
+    if value is None:
+        return 0.0
+    if log:
+        value, good, bad = (math.log(max(x, 1e-6)) for x in (value, good, bad))
+    return max(0.0, min(1.0, (bad - value) / (bad - good)))
+
+
+def score(values):
+    """(score sur 100, verdict, [(partie, points, sur, detail)], [raisons d'elimination])."""
+    v = values.get
+    load = v('app.load_10.p95_ms')
+    errors = sum(v(f'app.load_{n}.errors') or 0 for n in LEVELS)
+    kiosk_points = 5 * bool(v('kiosk.drm') not in (None, 'aucune')) + 3 * bool(v('kiosk.render')) + 2 * bool(v('kiosk.sound'))
+    parts = [
+        # partie, poids, note de 0 a 1, detail
+        ('Back (10 secouristes)', 25, 0.0 if errors else scale(load, 200, 2000),
+         f'p95 {load:.0f} ms' if load is not None else 'non mesure', ),
+        ('Disque', 20, scale(v('disk.fdatasync_p99_ms'), 1, 20),
+         f'fdatasync p99 {v("disk.fdatasync_p99_ms") or 0:.2f} ms'),
+        ('CPU (un coeur)', 20, scale(v('cpu.single_ms'), 150, 1200), f'{v("cpu.single_ms") or 0:.0f} ms'),
+        ('SQLite concurrent', 10, 0.0 if v('sqlite.contention_errors') else scale(v('sqlite.contention_p95_ms'), 10, 300),
+         f'p95 {v("sqlite.contention_p95_ms") or 0:.1f} ms'),
+        ('Chauffe', 10, scale(v('endurance.slowdown_pct'), 5, 35, log=False),
+         f'{v("endurance.slowdown_pct") or 0:+.0f} % de lenteur'),
+        ('Kiosk (GPU, son)', 10, kiosk_points / 10, f'{kiosk_points}/10'),
+        ('Suivi en direct', 5, scale(v('app.ws.p95_ms'), 20, 300), f'p95 {v("app.ws.p95_ms") or 0:.0f} ms'),
+    ]
+    if errors:
+        parts[0] = (*parts[0][:3], f'{errors} erreur(s) sous charge')
+    rows = [(name, weight * note, weight, detail) for name, weight, note, detail in parts]
+    total = round(sum(points for _, points, _, _ in rows))
+    blockers = []
+    if not v('bluetooth.adapter'):
+        blockers.append('pas de Bluetooth')
+    elif v('bluetooth.hard_blocked'):
+        blockers.append('Bluetooth coupe materiellement')
+    elif v('bluetooth.le') is False:
+        blockers.append('Bluetooth sans BLE')
+    if v('machine.rotational'):
+        blockers.append('disque a plateaux')
+    if (v('machine.ram_gib') or 0) and v('machine.ram_gib') < 1.8:
+        blockers.append('moins de 2 Gio de memoire')
+    if v('app.error'):
+        blockers.append('le back n\'a pas tourne')
+    if blockers:
+        verdict = 'ELIMINE'
+    else:
+        verdict = 'Excellent' if total >= 80 else 'Convenable' if total >= 60 else 'Limite' if total >= 40 else 'Insuffisant'
+    return total, verdict, rows, blockers
+
+
+def print_score(values):
+    total, verdict, rows, blockers = score(values)
+    color = '' if not sys.stdout.isatty() else ('\033[31m' if blockers or total < 40 else '\033[33m' if total < 60
+                                                else '\033[32m')
+    reset = '\033[0m' if color else ''
+    print('\n' + '=' * 64)
+    print(f'  {color}SCORE {total}/100 : {verdict}{reset}' + (f'  ({", ".join(blockers)})' if blockers else ''))
+    print('=' * 64)
+    for name, points, weight, detail in rows:
+        bar = '█' * round(points / weight * 10) + '·' * (10 - round(points / weight * 10))
+        print(f'  {name:<22} {bar} {points:4.1f}/{weight:<3} {detail}')
+    print('  80+ excellent, 60-79 convenable, 40-59 limite, <40 insuffisant ; ELIMINE = point bloquant')
+    return total, verdict, blockers
 
 
 # ------------------------------------------------------------------------------------------------------ compare
@@ -861,8 +892,18 @@ def compare(paths):
     for path in paths:
         data = json.loads(Path(path).read_text())
         results.append((data.get('values', {}).get('machine.name') or Path(path).stem, data.get('values', {})))
-    width = max(18, *(len(name) for name, _ in results))
+    width = max(14, *(len(name) + 2 for name, _ in results))
     print(f'{"":<44}' + ''.join(f'{name:>{width}}' for name, _ in results))
+    scores = [score(values) for _, values in results]
+    best = max(total for total, _, _, blockers in scores)
+    cells = []
+    for total, verdict, _, blockers in scores:
+        cell = f'{"ELIMINE" if blockers else total:>{width}}'
+        if not blockers and total == best and sys.stdout.isatty():
+            cell = f'\033[1;32m{cell}\033[0m'
+        cells.append(cell)
+    print(f'{"SCORE /100":<44}' + ''.join(cells))
+    print(f'{"":<44}' + ''.join(f'{", ".join(b) if b else v:>{width}}' for _, v, _, b in scores))
     for key, label, lower in KEY_METRICS:
         values = [values.get(key) for _, values in results]
         if all(value is None for value in values):
@@ -881,69 +922,45 @@ def compare(paths):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--db', help='base a copier (ex : /var/lib/qrprotec/db.sqlite3) ; sinon base fictive')
-    parser.add_argument('--lots', type=int, default=80, help='lots de la base fictive (defaut 80)')
-    parser.add_argument('--dir', default=None, help='dossier de test, sur le disque de la base (defaut : '
-                        '/var/lib/qrprotec s\'il est accessible en ecriture, sinon /var/tmp)')
-    parser.add_argument('--backend', help='dossier du back (contient manage.py)')
-    parser.add_argument('--levels', type=lambda v: [int(x) for x in v.split(',')], default=[1, 5, 10, 20],
-                        help='nombres de secouristes simules (defaut 1,5,10,20)')
-    parser.add_argument('--seconds', type=int, default=15, help='duree de chaque palier (defaut 15 s)')
-    parser.add_argument('--ws-scanners', type=int, default=10, help='pages de scan en direct (defaut 10)')
-    parser.add_argument('--ws-watchers', type=int, default=3, help='pages de suivi (defaut 3)')
-    parser.add_argument('--fsyncs', type=int, default=1000, help='fdatasync mesures (defaut 1000)')
-    parser.add_argument('--bt-scan', type=int, default=0, metavar='S', help='recherche BLE pendant S secondes')
-    parser.add_argument('--endurance', type=int, default=0, metavar='MIN', help='charge CPU pendant MIN minutes')
-    parser.add_argument('--only', help='sections a lancer, separees par des virgules : '
-                        'machine,bluetooth,kiosk,disk,sqlite,cpu,app,endurance')
-    parser.add_argument('--name', default=platform.node(), help='nom de la machine dans le rapport')
-    parser.add_argument('--json', help='enregistre les resultats (pour --compare)')
-    parser.add_argument('--keep', action='store_true', help='garde le dossier de test du back')
-    parser.add_argument('--compare', nargs='+', metavar='JSON', help='compare des resultats enregistres')
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--db', help='base a copier pour le test (ex : /var/lib/qrprotec/db.sqlite3) ; '
+                        'sinon base fictive de %d lots' % LOTS)
+    parser.add_argument('--compare', nargs='+', metavar='JSON', help='compare des resultats deja enregistres')
     args = parser.parse_args()
 
     if args.compare:
         compare(args.compare)
         return 0
-    if args.dir is None:
-        # /var/tmp plutot que /tmp : sous Fedora /tmp est en memoire (tmpfs), le disque ne serait pas mesure
-        args.dir = '/var/lib/qrprotec' if os.access('/var/lib/qrprotec', os.W_OK) else '/var/tmp'
-    only = set(args.only.split(',')) if args.only else {'machine', 'bluetooth', 'kiosk', 'disk', 'sqlite', 'cpu', 'app'}
-    if args.endurance:
-        only.add('endurance')
-
+    # sur le disque de la base ; /var/tmp plutot que /tmp, en memoire (tmpfs) sous Fedora
+    args.dir = '/var/lib/qrprotec' if os.access('/var/lib/qrprotec', os.W_OK) else '/var/tmp'
+    name = platform.node() or 'machine'
     rep = Report()
-    rep.values['machine.name'] = args.name
-    print(f'QRProtec : banc de mesure de {args.name}, {time.strftime("%Y-%m-%d %H:%M")}')
-    if 'machine' in only:
-        machine(rep, args.dir)
-    if 'bluetooth' in only:
-        bluetooth(rep, args.bt_scan)
-    if 'kiosk' in only:
-        kiosk(rep)
-    if 'disk' in only:
-        disk(rep, args.dir, args.fsyncs)
-    if 'sqlite' in only:
-        sqlite_bench(rep, args.dir)
-    if 'cpu' in only:
-        cpu(rep)
-    if 'app' in only:
-        app(rep, args)
-    if 'endurance' in only:
-        endurance(rep, args.endurance)
+    rep.values['machine.name'] = name
+    print(f'QRProtec : banc de mesure de {name}, {time.strftime("%Y-%m-%d %H:%M")} (environ 5 min, ne rien toucher)')
+    machine(rep, args.dir)
+    bluetooth(rep)
+    kiosk(rep)
+    disk(rep, args.dir, FSYNCS)
+    sqlite_bench(rep, args.dir)
+    cpu(rep)
+    app(rep, args)
+    endurance(rep, ENDURANCE_MIN)
 
-    bad = [line for line in rep.lines if line[0] == BAD]
-    warn = [line for line in rep.lines if line[0] == WARN]
-    print(f'\nBilan : {len(bad)} point(s) bloquant(s), {len(warn)} a surveiller.')
-    for verdict, label, shown, hint in bad + warn:
-        print(f'  {MARKS[verdict]} {label.strip()} : {shown}' + (f' ({hint})' if hint else ''))
-    if args.json:
-        Path(args.json).write_text(json.dumps({'date': time.strftime('%Y-%m-%dT%H:%M:%S'), 'values': rep.values},
-                                              indent=1, ensure_ascii=False, default=str))
-        print(f'Resultats enregistres dans {args.json}')
-    return 1 if bad else 0
+    warnings = [line for line in rep.lines if line[0] in (BAD, WARN)]
+    if warnings:
+        print('\nA regarder :')
+        for verdict, label, shown, hint in warnings:
+            print(f'  {MARKS[verdict]} {label.strip()} : {shown}' + (f' ({hint})' if hint else ''))
+    total, verdict, blockers = print_score(rep.values)
+    rep.values.update({'score': total, 'verdict': verdict, 'quick': QUICK})
+    output = Path(f'qrprotec-bench-{re.sub(r"[^A-Za-z0-9_-]+", "-", name)}-{time.strftime("%Y%m%d-%H%M")}.json')
+    try:
+        output.write_text(json.dumps({'date': time.strftime('%Y-%m-%dT%H:%M:%S'), 'values': rep.values},
+                                     indent=1, ensure_ascii=False, default=str))
+        print(f'Resultats : {output.resolve()}  (tools/bench/qrprotec-bench --compare *.json)')
+    except OSError as error:
+        print(f'Resultats non enregistres : {error}')
+    return 1 if blockers else 0
 
 
 if __name__ == '__main__':
