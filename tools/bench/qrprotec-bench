@@ -1,0 +1,950 @@
+#!/usr/bin/env python3
+# ###################################646f75627420796f7572206f776e206578697374656e6365###################################
+#
+#              """          qrprotec-bench
+#       -\-    _|__
+#        |\___/  . \        Created on 08 Nov. 2026 at 12:00
+#        \     /(((/        by hmelica
+#         \___/)))/         hmelica@student.42.fr
+#
+# ######################################################################################################################
+
+"""Banc de mesure d'un ordinateur candidat pour la production : kiosk (poste + douchette Bluetooth) et serveur sur la
+meme machine.
+
+    tools/bench/qrprotec-bench                          # tout, base fictive, ~3 min
+    tools/bench/qrprotec-bench --db /var/lib/qrprotec/db.sqlite3 --json pc-a.json
+    tools/bench/qrprotec-bench --bt-scan 15             # cherche aussi les appareils BLE (douchette allumee)
+    tools/bench/qrprotec-bench --endurance 30           # + 30 min de charge pour voir si le CPU ralentit en chauffant
+    tools/bench/qrprotec-bench --compare pc-a.json pc-b.json
+
+Sections : machine, Bluetooth (adaptateur, BLE, rfkill, bluetoothd), ecran et son du kiosk, disque (fdatasync), SQLite
+(config de prod WAL + IMMEDIATE, ecritures concurrentes), CPU Python, et le vrai back : `manage.py serve` lance sur une
+COPIE de la base, sur des ports libres (la production n'est jamais touchee), avec des secouristes simules en HTTP
+(fiches, etat des lots, verifs) et en WebSocket (suivi en direct), la fiche PDF, la sauvegarde et le VACUUM.
+
+Rien que la bibliotheque standard de Python. La partie back utilise le back installe par le RPM
+(/usr/share/qrprotec) ou celui du depot (database/, avec Django installe). Lancer en utilisateur normal ; root
+n'apporte que la lecture complete des infos Bluetooth (btmgmt).
+"""
+
+import argparse
+import base64
+import json
+import os
+import platform
+import random
+import re
+import shutil
+import socket
+import sqlite3
+import statistics
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+
+OK, WARN, BAD, INFO = 'ok', 'attention', 'mauvais', 'info'
+MARKS = {OK: '\033[32m✔\033[0m', WARN: '\033[33m!\033[0m', BAD: '\033[31m✘\033[0m', INFO: ' '}
+if not sys.stdout.isatty():
+    MARKS = {OK: '✔', WARN: '!', BAD: '✘', INFO: ' '}
+
+# Metriques reprises par --compare : (cle, libelle, plus petit = mieux)
+KEY_METRICS = [
+    ('bluetooth.adapter', 'Adaptateur Bluetooth', None),
+    ('bluetooth.le', 'Bluetooth basse consommation (BLE)', None),
+    ('disk.fdatasync_p99_ms', 'Disque : fdatasync p99 (ms)', True),
+    ('disk.seq_write_mb_s', 'Disque : ecriture sequentielle (Mo/s)', False),
+    ('sqlite.commits_s', 'SQLite : commits/s (WAL, NORMAL)', False),
+    ('sqlite.contention_p95_ms', 'SQLite : 8 ecrivains, p95 (ms)', True),
+    ('sqlite.contention_errors', 'SQLite : erreurs « locked »', True),
+    ('cpu.single_ms', 'CPU : un coeur (ms)', True),
+    ('cpu.all_cores_ms', 'CPU : tous les coeurs, par tache (ms)', True),
+    ('app.startup_s', 'Back : demarrage (s)', True),
+    ('app.load_10.p95_ms', 'Back : 10 secouristes, p95 (ms)', True),
+    ('app.load_20.p95_ms', 'Back : 20 secouristes, p95 (ms)', True),
+    ('app.load_20.errors', 'Back : erreurs a 20 secouristes', True),
+    ('app.ws.p95_ms', 'Suivi en direct (WS), p95 (ms)', True),
+    ('app.lots_summary_ms', 'Etat des lots (ms)', True),
+    ('app.sheet_pdf_ms', 'Fiche PDF (ms)', True),
+    ('app.backup_s', 'Copie de sauvegarde (s)', True),
+    ('app.vacuum_s', 'VACUUM (s)', True),
+    ('app.rss_mb', 'Memoire du back (Mo)', True),
+    ('endurance.slowdown_pct', 'Endurance : ralentissement (%)', True),
+]
+
+
+class Report:
+    def __init__(self):
+        self.values = {}
+        self.lines = []
+
+    def section(self, title):
+        print(f'\n== {title} ==')
+
+    def add(self, key, value, label, verdict=INFO, hint=''):
+        if key:
+            self.values[key] = value
+        shown = f'{value:.2f}' if isinstance(value, float) else ('oui' if value is True else 'non' if value is False
+                                                                 else str(value))
+        line = f'  {MARKS[verdict]} {label:<44} {shown}'
+        if hint:
+            line += f'   ({hint})'
+        print(line, flush=True)
+        self.lines.append((verdict, label, shown, hint))
+
+
+def grade(value, good, warn, lower_is_better=True):
+    if value is None:
+        return BAD
+    if lower_is_better:
+        return OK if value <= good else WARN if value <= warn else BAD
+    return OK if value >= good else WARN if value >= warn else BAD
+
+
+def pct(values, p):
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(round(p / 100 * (len(ordered) - 1))))]
+
+
+def run(cmd, timeout=20):
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return result.returncode, result.stdout + result.stderr
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return None, str(error)
+
+
+def read(path, default=''):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return default
+
+
+# ---------------------------------------------------------------------------------------------------- machine
+
+def machine(rep, target):
+    rep.section('Machine')
+    cpu = re.search(r'model name\s*:\s*(.*)', read('/proc/cpuinfo'))
+    rep.add('machine.cpu', cpu.group(1) if cpu else platform.processor(), 'Processeur')
+    rep.add('machine.cores', os.cpu_count(), 'Coeurs logiques')
+    max_freq = read('/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq')
+    if max_freq:
+        rep.add('machine.max_ghz', int(max_freq) / 1e6, 'Frequence max (GHz)')
+    mem = re.search(r'MemTotal:\s*(\d+)', read('/proc/meminfo'))
+    if mem:
+        gib = int(mem.group(1)) / 1024 / 1024
+        rep.add('machine.ram_gib', gib, 'Memoire (Gio)', grade(gib, 4, 2, False), '4 Gio suffisent largement')
+    os_name = re.search(r'PRETTY_NAME="?([^"\n]*)', read('/etc/os-release'))
+    rep.add('machine.os', os_name.group(1) if os_name else platform.platform(), 'Systeme')
+    rep.add('machine.kernel', platform.release(), 'Noyau')
+    code, out = run(['findmnt', '-no', 'SOURCE,FSTYPE', '--target', str(target)])
+    if code == 0 and out.strip():
+        source, _, fstype = out.strip().partition(' ')
+        in_memory = fstype.strip() in ('tmpfs', 'ramfs')
+        rep.add('machine.fs', f'{source} ({fstype.strip()})', f'Partition de {target}', BAD if in_memory else INFO,
+                'en memoire : choisir un --dir sur le disque' if in_memory else '')
+        code, out = run(['lsblk', '-sPo', 'NAME,ROTA,TRAN,MODEL', source])
+        disks = [dict(re.findall(r'(\w+)="([^"]*)"', line)) for line in out.splitlines()] if code == 0 else []
+        disks = [d for d in disks if d.get('NAME')]
+        if disks:
+            disk = disks[-1]  # -s : de la partition vers le disque physique
+            rotational = disk.get('ROTA') == '1'
+            rep.add('machine.disk', f"{disk.get('MODEL') or disk['NAME']} ({disk.get('TRAN') or '?'})", 'Disque')
+            rep.add('machine.rotational', rotational, 'Disque a plateaux (HDD)', BAD if rotational else OK,
+                    'un SSD est fortement conseille' + (' ; souvent faux en machine virtuelle' if
+                                                        disk.get('TRAN') == 'virtio' or 'vd' in disk['NAME'] else ''))
+    free = shutil.disk_usage(target).free / 1e9
+    rep.add('machine.free_gb', free, 'Place libre (Go)', grade(free, 20, 5, False), 'base + 5 ans de sauvegardes')
+    battery = any(read(p / 'type') == 'Battery' for p in Path('/sys/class/power_supply').glob('*'))
+    rep.add('machine.battery', battery, 'Batterie (portable)', OK if battery else INFO,
+            'tient une coupure de courant' if battery else 'prevoir un onduleur')
+
+
+# -------------------------------------------------------------------------------------------------- Bluetooth
+
+def bluetooth(rep, scan_seconds):
+    rep.section('Bluetooth (douchette Inateck, BLE)')
+    adapters = sorted(p for p in Path('/sys/class/bluetooth').glob('hci*') if ':' not in p.name)
+    rep.add('bluetooth.adapter', bool(adapters), 'Adaptateur Bluetooth present', OK if adapters else BAD,
+            ', '.join(p.name for p in adapters) if adapters else 'aucun : la douchette ne pourra pas se connecter')
+    for adapter in adapters:
+        device = adapter / 'device'
+        driver = os.path.basename(os.path.realpath(device / 'driver')) if (device / 'driver').exists() else '?'
+        modalias = read(device / 'modalias')
+        usb = re.search(r'usb:v([0-9A-F]{4})p([0-9A-F]{4})', modalias)
+        bus = f'USB {usb.group(1).lower()}:{usb.group(2).lower()}' if usb else modalias.split(':')[0] or '?'
+        rep.add(None, f'{driver}, {bus}', f'  {adapter.name} : pilote')
+    blocked = []
+    for rfkill in Path('/sys/class/rfkill').glob('rfkill*'):
+        if read(rfkill / 'type') == 'bluetooth':
+            if read(rfkill / 'hard') == '1':
+                blocked.append(f'{read(rfkill / "name")} bloque materiellement (interrupteur/BIOS)')
+            elif read(rfkill / 'soft') == '1':
+                blocked.append(f'{read(rfkill / "name")} bloque (rfkill unblock bluetooth)')
+    if adapters:
+        rep.add('bluetooth.rfkill_ok', not blocked, 'Non bloque (rfkill)', BAD if blocked else OK, '; '.join(blocked))
+    code, out = run(['systemctl', 'is-active', 'bluetooth'])
+    active = out.strip() == 'active'
+    rep.add('bluetooth.bluetoothd', active, 'Service bluetooth (BlueZ) actif', OK if active else BAD,
+            '' if active else 'sudo systemctl enable --now bluetooth')
+    code, out = run(['bluetoothctl', '--version'])
+    if code == 0:
+        rep.add('bluetooth.bluez', out.strip().split()[-1], 'Version de BlueZ')
+    if not adapters:
+        rep.values['bluetooth.le'] = False
+        return
+    le = powered = None
+    code, out = run(['btmgmt', '--index', adapters[0].name[3:], 'info'])
+    supported = re.search(r'supported settings:(.*)', out or '')
+    if code == 0 and supported:
+        le = ' le' in f' {supported.group(1)} '
+        current = re.search(r'current settings:(.*)', out)
+        powered = bool(current and 'powered' in current.group(1))
+        version = re.search(r'version (\d+)', out)
+        if version:
+            # 6 = Bluetooth 4.0 (premier avec le BLE) ; 9 = 5.0 (portee et debit meilleurs)
+            names = {6: '4.0', 7: '4.1', 8: '4.2', 9: '5.0', 10: '5.1', 11: '5.2', 12: '5.3', 13: '5.4'}
+            hci = int(version.group(1))
+            rep.add('bluetooth.version', names.get(hci, f'HCI {hci}'), 'Version Bluetooth',
+                    OK if hci >= 9 else WARN if hci >= 6 else BAD, '5.0 ou plus conseille')
+    elif active:
+        code, out = run(['bluetoothctl', 'show'])
+        if code == 0:
+            powered = 'Powered: yes' in out
+            # BlueZ recent : « Roles: central » si le controleur fait du LE ; sinon on ne sait pas
+            le = True if re.search(r'Roles:\s*central', out) else None
+    rep.add('bluetooth.le', le, 'Bluetooth basse consommation (BLE)',
+            OK if le else BAD if le is False else WARN,
+            'necessaire pour la douchette' if le is not False else 'adaptateur sans BLE : douchette impossible')
+    if le is None:
+        rep.values['bluetooth.le'] = 'inconnu'
+        print('      (relancer avec sudo pour lire les capacites exactes avec btmgmt)')
+    if powered is not None:
+        rep.add('bluetooth.powered', powered, 'Adaptateur allume', OK if powered else WARN,
+                '' if powered else 'bluetoothctl power on')
+    if scan_seconds and active:
+        print(f'      recherche BLE pendant {scan_seconds} s (douchette allumee, pas appairee au systeme)...')
+        run(['bluetoothctl', '--timeout', str(scan_seconds), 'scan', 'le'], timeout=scan_seconds + 10)
+        code, out = run(['bluetoothctl', 'devices'])
+        devices = re.findall(r'Device ([0-9A-F:]{17}) (.*)', out or '')
+        rep.add('bluetooth.seen', len(devices), 'Appareils vus', OK if devices else WARN,
+                'aucun : antenne faible ou recherche impossible' if not devices else '')
+        inateck = [f'{name} ({addr})' for addr, name in devices if re.search(r'inateck|bcst|^p\d', name, re.I)]
+        if inateck:
+            rep.add('bluetooth.inateck', ', '.join(inateck), 'Douchette probable', OK)
+        others = [d for d in devices if run(['bluetoothctl', 'info', d[0]])[1].count('Connected: yes')]
+        if others:
+            rep.add(None, ', '.join(n for _, n in others), 'Appareils connectes au systeme', WARN,
+                    'peuvent faire echouer la recherche du SDK Inateck')
+
+
+# ------------------------------------------------------------------------------------------------ kiosk / ecran
+
+def kiosk(rep):
+    rep.section('Kiosk : ecran, carte graphique, son')
+    cards = sorted(Path('/sys/class/drm').glob('card[0-9]'))
+    drivers = [os.path.basename(os.path.realpath(c / 'device/driver')) for c in cards if (c / 'device/driver').exists()]
+    rep.add('kiosk.drm', ', '.join(drivers) or 'aucune', 'Carte graphique (KMS, pour Cage)', OK if drivers else BAD)
+    render = list(Path('/dev/dri').glob('renderD*')) if Path('/dev/dri').exists() else []
+    rep.add('kiosk.render', bool(render), 'Rendu OpenGL materiel (/dev/dri)', OK if render else WARN,
+            '' if render else 'ImGui tournera en logiciel (llvmpipe), plus lent')
+    outputs = [p.name.split('-', 1)[1] for p in Path('/sys/class/drm').glob('card*-*') if read(p / 'status') == 'connected']
+    rep.add('kiosk.outputs', ', '.join(outputs) or 'aucun', 'Ecrans branches', OK if outputs else WARN,
+            '' if outputs else 'brancher l\'ecran de la borne avant le test')
+    backlight = [p.name for p in Path('/sys/class/backlight').glob('*')]
+    rep.add('kiosk.backlight', ', '.join(backlight) or 'aucun', 'Retroeclairage pilotable', OK if backlight else INFO,
+            '' if backlight else 'veille par DDC/CI (ddcutil) ou signal coupe seulement')
+    sound = read('/proc/asound/cards')
+    has_sound = bool(sound) and 'no soundcards' not in sound
+    rep.add('kiosk.sound', has_sound, 'Carte son (bips du poste)', OK if has_sound else WARN)
+    for tool in ('cage', 'qrprotec-front'):
+        found = shutil.which(tool) is not None
+        rep.add(f'kiosk.{tool}', found, f'{tool} installe', OK if found else INFO)
+
+
+# -------------------------------------------------------------------------------------------------------- disque
+
+def disk(rep, directory, count):
+    rep.section(f'Disque ({directory})')
+    latencies = []
+    path = Path(directory) / f'.qrprotec-bench-{os.getpid()}'
+    block = os.urandom(4096)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        for _ in range(count):
+            os.write(fd, block)
+            start = time.perf_counter()
+            os.fdatasync(fd)
+            latencies.append((time.perf_counter() - start) * 1000)
+    finally:
+        os.close(fd)
+    p99 = pct(latencies, 99)
+    rep.add('disk.fdatasync_p50_ms', pct(latencies, 50), 'fdatasync 4 Kio, mediane (ms)')
+    rep.add('disk.fdatasync_p99_ms', p99, 'fdatasync 4 Kio, p99 (ms)', grade(p99, 2, 10),
+            '< 2 ms : bon SSD ; > 10 ms : carte SD, eMMC ou SSD bas de gamme')
+    size = 256 * 1024 * 1024
+    chunk = os.urandom(1024 * 1024)
+    start = time.perf_counter()
+    with open(path, 'wb') as out:
+        for _ in range(size // len(chunk)):
+            out.write(chunk)
+        out.flush()
+        os.fsync(out.fileno())
+    rate = size / 1e6 / (time.perf_counter() - start)
+    path.unlink()
+    rep.add('disk.seq_write_mb_s', rate, 'Ecriture sequentielle 256 Mo (Mo/s)', grade(rate, 200, 50, False),
+            'sauvegardes, mises a jour')
+
+
+# -------------------------------------------------------------------------------------------------------- SQLite
+
+def sqlite_conn(path):
+    # meme configuration que DATABASES['default']['OPTIONS'] du back (settings.py)
+    conn = sqlite3.connect(path, timeout=20, isolation_level=None, check_same_thread=False)
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA synchronous=NORMAL')
+    return conn
+
+
+def sqlite_bench(rep, directory):
+    rep.section('SQLite (WAL + IMMEDIATE, comme en production)')
+    tmp = Path(tempfile.mkdtemp(prefix='qrprotec-bench-', dir=directory))
+    try:
+        path = str(tmp / 'bench.sqlite3')
+        conn = sqlite_conn(path)
+        conn.execute('CREATE TABLE scan (id INTEGER PRIMARY KEY, iid TEXT, lot TEXT, at REAL, payload TEXT)')
+        count = 2000
+        start = time.perf_counter()
+        for index in range(count):
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('INSERT INTO scan (iid, lot, at, payload) VALUES (?, ?, ?, ?)',
+                         (f'{index:08x}', 'lot', time.time(), 'x' * 200))
+            conn.execute('COMMIT')
+        rate = count / (time.perf_counter() - start)
+        rep.add('sqlite.commits_s', rate, 'Commits/s (un ecrivain)', grade(rate, 2000, 300, False))
+        conn.execute('PRAGMA synchronous=FULL')
+        start = time.perf_counter()
+        for index in range(500):
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('INSERT INTO scan (iid, lot, at, payload) VALUES (?, ?, ?, ?)', ('full', 'lot', 0, ''))
+            conn.execute('COMMIT')
+        rep.add('sqlite.commits_full_s', 500 / (time.perf_counter() - start), 'Commits/s en synchronous=FULL',
+                INFO, 'fsync a chaque commit : reflete le disque')
+        conn.close()
+
+        # 8 ecrivains concurrents, chacun une verif de 30 items par transaction (comme 8 verifs simultanees)
+        latencies, errors = [], []
+        lock = threading.Lock()
+
+        def writer(number):
+            local = sqlite_conn(path)
+            for round_ in range(40):
+                start = time.perf_counter()
+                try:
+                    local.execute('BEGIN IMMEDIATE')
+                    local.execute('SELECT count(*) FROM scan WHERE lot = ?', (f'lot{number}',)).fetchone()
+                    local.executemany('INSERT INTO scan (iid, lot, at, payload) VALUES (?, ?, ?, ?)',
+                                      [(f'{number}-{round_}-{i}', f'lot{number}', time.time(), 'y' * 100)
+                                       for i in range(30)])
+                    local.execute('COMMIT')
+                    with lock:
+                        latencies.append((time.perf_counter() - start) * 1000)
+                except sqlite3.OperationalError as error:
+                    with lock:
+                        errors.append(str(error))
+                    try:
+                        local.execute('ROLLBACK')
+                    except sqlite3.OperationalError:
+                        pass
+            local.close()
+
+        threads = [threading.Thread(target=writer, args=(n,)) for n in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        p95 = pct(latencies, 95)
+        rep.add('sqlite.contention_p95_ms', p95, '8 ecrivains simultanes, p95 (ms)', grade(p95, 50, 300))
+        rep.add('sqlite.contention_errors', len(errors), 'Erreurs « database is locked »',
+                OK if not errors else BAD)
+
+        conn = sqlite_conn(path)
+        conn.execute('BEGIN')
+        conn.executemany('INSERT INTO scan (iid, lot, at, payload) VALUES (?, ?, ?, ?)',
+                         ((f'v{i}', f'lot{i % 50}', 0, 'z' * 300) for i in range(150000)))
+        conn.execute('COMMIT')
+        conn.execute('DELETE FROM scan WHERE id % 2 = 0')
+        start = time.perf_counter()
+        conn.execute('VACUUM')
+        rep.add('sqlite.vacuum_s', time.perf_counter() - start, 'VACUUM d\'une base de ~50 Mo (s)', INFO)
+        conn.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ----------------------------------------------------------------------------------------------------------- CPU
+
+def cpu_task(_=None):
+    """Travail type d'une requete Django (dicts, JSON, regex, tri), en pur Python : un seul coeur."""
+    start = time.perf_counter()
+    pattern = re.compile(r'([a-z]{6})-(\d{4})')
+    for round_ in range(6):
+        rows = [{'iid': f'{i:08x}', 'type': f'compre-{i % 9999:04d}', 'lot': i % 50, 'qty': i % 7,
+                 'name': 'Compresses stériles 10×10'} for i in range(20000)]
+        text = json.dumps(rows)
+        rows = json.loads(text)
+        rows.sort(key=lambda row: (row['lot'], row['type'], row['iid']))
+        groups = {}
+        for row in rows:
+            match = pattern.match(row['type'])
+            groups.setdefault((row['lot'], match.group(1)), []).append(row['qty'])
+        sum(sum(values) for values in groups.values())
+    return (time.perf_counter() - start) * 1000
+
+
+def cpu(rep):
+    rep.section('CPU (Python, comme Django)')
+    single = min(cpu_task() for _ in range(3))
+    rep.add('cpu.single_ms', single, 'Un coeur, meilleur de 3 (ms)', grade(single, 1500, 4000),
+            'plus petit = mieux ; compte le plus (GIL)')
+    workers = os.cpu_count() or 1
+    with ProcessPoolExecutor(workers) as pool:
+        results = list(pool.map(cpu_task, range(workers * 2)))
+    allcores = statistics.median(results)
+    rep.add('cpu.all_cores_ms', allcores, f'Tous les coeurs ({workers}), mediane (ms)', INFO,
+            f'{allcores / single:.2f}× le temps sur un coeur : turbo perdu sous charge')
+
+
+def temperatures():
+    temps = []
+    for zone in Path('/sys/class/thermal').glob('thermal_zone*'):
+        value = read(zone / 'temp')
+        if value.lstrip('-').isdigit() and int(value) > 0:
+            temps.append(int(value) / 1000)
+    for sensor in Path('/sys/class/hwmon').glob('hwmon*/temp*_input'):
+        value = read(sensor)
+        if value.isdigit():
+            temps.append(int(value) / 1000)
+    return max(temps) if temps else None
+
+
+def endurance(rep, minutes):
+    rep.section(f'Endurance ({minutes} min de charge sur tous les coeurs)')
+    stop = time.monotonic() + minutes * 60
+    workers = max(1, (os.cpu_count() or 1) - 1)  # un coeur garde pour la mesure
+    first, scores, hottest = None, [], 0
+    with ProcessPoolExecutor(workers) as pool:
+        while time.monotonic() < stop:
+            futures = [pool.submit(cpu_task) for _ in range(workers)]
+            score = cpu_task()
+            for future in futures:
+                future.result()
+            first = first or score
+            scores.append(score)
+            temp = temperatures()
+            hottest = max(hottest, temp or 0)
+            remaining = int(stop - time.monotonic())
+            print(f'      {score:7.0f} ms   {temp or 0:5.1f} °C   reste {remaining // 60:2d} min {remaining % 60:02d}',
+                  end='\r', flush=True)
+    print()
+    last = statistics.median(scores[-5:])
+    slowdown = (last / first - 1) * 100
+    rep.add('endurance.slowdown_pct', slowdown, 'Ralentissement fin / debut (%)', grade(slowdown, 10, 25),
+            'refroidissement insuffisant si eleve')
+    rep.add('endurance.max_temp_c', hottest or None, 'Temperature max (°C)', grade(hottest, 80, 92) if hottest else INFO)
+
+
+# -------------------------------------------------------------------------------------------------- back QRProtec
+
+def find_backend(option):
+    here = Path(__file__).resolve().parent
+    candidates = [Path(option)] if option else [here.parent.parent / 'database', Path('/usr/share/qrprotec/backend')]
+    for backend in candidates:
+        if (backend / 'manage.py').exists():
+            vendor = backend.parent / 'vendor'
+            return backend, (vendor if vendor.is_dir() else None)
+    return None, None
+
+
+def free_port():
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0))
+        return sock.getsockname()[1]
+
+
+SEED = r'''
+import json, random, sys
+from datetime import timedelta
+from django.utils import timezone
+from inventory.models import ItemType, LotType, LotRequirements, Lots, ItemsPacks, Items, Secouristes
+from inventory import services
+lots_wanted = int(sys.argv[-1]) if sys.argv[-1].isdigit() else 0
+who = 'M:BENCH'
+if lots_wanted:
+    today = timezone.localdate()
+    types = [ItemType.objects.create(type=f'bt{i:04d}', name=f'Article {i}', perissable=i % 3 != 0, min_quantity=5)
+             for i in range(40)]
+    lot_types = []
+    for t in range(4):
+        lot_type = LotType.objects.create(type=f'lt{t:04d}', name=f'Sac type {t}')
+        for index, item_type in enumerate(random.sample(types, 12)):
+            LotRequirements.objects.create(lot_type=lot_type, item_type=item_type, quantity=1 + index % 4,
+                                           location=f'pochette {index % 4}')
+        lot_types.append(lot_type)
+    for n in range(lots_wanted):
+        lot_type = lot_types[n % len(lot_types)]
+        lot = Lots(lot_type=lot_type, name=f'Sac {n}', name_short=f'S{n}', created_by=who)
+        lot.save()
+        iids = []
+        for req in LotRequirements.objects.filter(lot_type=lot_type):
+            date = today + timedelta(days=random.randint(-20, 700)) if req.item_type.perissable else None
+            iids += [item.iid for item in ItemsPacks.objects.add_items(req.item_type, date, req.quantity, who)]
+        services.perform_verif(lot, iids, who)
+user = Secouristes.objects.filter(matricule='BENCH').first() or Secouristes(matricule='BENCH', nom='Banc', prenom='Mesure', role='normal')
+key = user.renew_key()
+user.save()
+lots = {}
+for lot in Lots.objects.filter(active=True):
+    iids = list(Items.objects.filter(location=lot).values_list('iid', flat=True)[:200])
+    if iids:
+        lots[lot.id] = iids
+print('BENCH_JSON=' + json.dumps({'user': {'matricule': 'BENCH', 'key': key}, 'lots': lots}))
+'''
+
+
+class Backend:
+    def __init__(self, backend, vendor, workdir):
+        self.backend, self.vendor, self.workdir = backend, vendor, workdir
+        self.db = workdir / 'db.sqlite3'
+        self.port = free_port()
+        self.env = dict(os.environ, QRPROTEC_DB_PATH=str(self.db), QRPROTEC_SECRET_KEY=base64.b64encode(os.urandom(32)).decode(),
+                        QRPROTEC_DEBUG='0', DJANGO_SETTINGS_MODULE='qrprotecDB.settings', PYTHONDONTWRITEBYTECODE='1',
+                        QRPROTEC_LOCAL_API_TOKEN='', QRPROTEC_ALLOWED_HOSTS='localhost,127.0.0.1')
+        if vendor:
+            self.env['PYTHONPATH'] = f'{backend}:{vendor}'
+        self.process = None
+
+    def manage(self, *args, timeout=600):
+        cmd = [sys.executable, str(self.backend / 'manage.py'), *args]
+        return subprocess.run(cmd, cwd=self.workdir, env=self.env, capture_output=True, text=True, timeout=timeout)
+
+    def start(self):
+        log = open(self.workdir / 'serve.log', 'w')
+        cmd = [sys.executable, str(self.backend / 'manage.py'), 'serve', '--no-public', '--no-remote',
+               '--local', f'127.0.0.1:{self.port}']
+        started = time.perf_counter()
+        self.process = subprocess.Popen(cmd, cwd=self.workdir, env=self.env, stdout=log, stderr=subprocess.STDOUT)
+        while time.perf_counter() - started < 60:
+            if self.process.poll() is not None:
+                raise RuntimeError(f'serve s\'est arrete, voir {self.workdir / "serve.log"}')
+            try:
+                with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/api/health/', timeout=1) as response:
+                    if response.status == 200:
+                        return time.perf_counter() - started
+            except (urllib.error.URLError, ConnectionError, socket.timeout):
+                time.sleep(0.05)
+        raise RuntimeError('serve ne repond pas apres 60 s')
+
+    def rss_mb(self):
+        match = re.search(r'VmHWM:\s*(\d+)', read(f'/proc/{self.process.pid}/status'))
+        return int(match.group(1)) / 1024 if match else None
+
+    def stop(self):
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+
+
+def request(port, method, path, body=None, session=None, timeout=60):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', data=data, method=method)
+    req.add_header('Content-Type', 'application/json')
+    if session:
+        req.add_header('X-QRProtec-Session', session)
+    start = time.perf_counter()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            payload = response.read()
+            status = response.status
+    except urllib.error.HTTPError as error:
+        payload, status = error.read(), error.code
+    except (urllib.error.URLError, ConnectionError, socket.timeout) as error:
+        # refus ou coupure de la connexion (file d'attente du serveur pleine), ou delai depasse
+        payload, status = f'connexion : {getattr(error, "reason", error)}'.encode(), 0
+    return status, (time.perf_counter() - start) * 1000, payload
+
+
+def load(port, session, lots, clients, seconds):
+    """Secouristes simules : etat des lots, fiche d'un lot, verif complete d'un lot (ecriture), parfois la fiche PDF."""
+    stop = time.monotonic() + seconds
+    lot_ids = list(lots)
+    latencies, errors, client_errors, lock = [], [], [0], threading.Lock()
+    per_kind = {}
+
+    def client(number):
+        rng = random.Random(number)
+        while time.monotonic() < stop:
+            lot = rng.choice(lot_ids)
+            roll = rng.random()
+            if roll < 0.25:
+                kind, result = 'etat des lots', request(port, 'POST', '/api/lots/summary/', {})
+            elif roll < 0.6:
+                kind, result = 'fiche', request(port, 'GET', f'/api/lots/{lot}/')
+            elif roll < 0.95:
+                kind, result = 'verif', request(port, 'POST', f'/api/lots/{lot}/verif/', {'items': lots[lot]}, session)
+            else:
+                kind, result = 'pdf', request(port, 'GET', f'/api/lots/{lot}/sheet.pdf')
+            status, elapsed, payload = result
+            with lock:
+                latencies.append(elapsed)
+                per_kind.setdefault(kind, []).append(elapsed)
+                if status == 0 or status >= 500:
+                    errors.append(payload[:200].decode(errors='replace'))
+                elif status >= 400:
+                    client_errors[0] += 1
+            time.sleep(rng.uniform(1.0, 3.0))  # entre deux actions : rythme soutenu, plus rapide qu'en vrai
+
+    threads = [threading.Thread(target=client, args=(n,)) for n in range(clients)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return latencies, errors, client_errors[0], per_kind
+
+
+class WSClient:
+    """Client WebSocket minimal (trames texte masquees), assez pour /ws/live/."""
+
+    def __init__(self, port, path):
+        self.sock = socket.create_connection(('127.0.0.1', port), timeout=10)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall((f'GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+                           f'Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n').encode())
+        head = b''
+        while b'\r\n\r\n' not in head:
+            chunk = self.sock.recv(1)
+            if not chunk:
+                raise ConnectionError('WebSocket refuse')
+            head += chunk
+        if b' 101 ' not in head.split(b'\r\n')[0]:
+            raise ConnectionError(head.split(b'\r\n')[0].decode())
+        self.lock = threading.Lock()
+
+    def send(self, message):
+        payload = json.dumps(message).encode()
+        mask = os.urandom(4)
+        size = len(payload)
+        header = bytes([0x81]) + (bytes([0x80 | size]) if size < 126 else bytes([0x80 | 126]) + struct.pack('!H', size)
+                                  if size < 65536 else bytes([0x80 | 127]) + struct.pack('!Q', size))
+        with self.lock:
+            self.sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+
+    def _exact(self, count):
+        data = b''
+        while len(data) < count:
+            chunk = self.sock.recv(count - len(data))
+            if not chunk:
+                raise ConnectionError('ferme')
+            data += chunk
+        return data
+
+    def receive(self):
+        while True:
+            first, second = self._exact(2)
+            size = second & 0x7F
+            if size == 126:
+                size = struct.unpack('!H', self._exact(2))[0]
+            elif size == 127:
+                size = struct.unpack('!Q', self._exact(8))[0]
+            payload = self._exact(size)
+            if first & 0x0F == 0x1:
+                return json.loads(payload)
+            if first & 0x0F == 0x8:
+                raise ConnectionError('ferme')
+
+    def close(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def ws_bench(port, user, lots, scanners, watchers, seconds):
+    """Pages de scan qui publient leur etat, pages de suivi qui le recoivent : delai de diffusion."""
+    sent, delays, failures, lock = {}, [], [], threading.Lock()
+    stop = time.monotonic() + seconds
+    lot_ids = list(lots)
+    watch_clients = []
+    for _ in range(watchers):
+        client = WSClient(port, '/ws/live/watch')
+        client.send({'type': 'hello', 'user': user})
+        watch_clients.append(client)
+
+    def watch(client):
+        client.sock.settimeout(2)
+        while time.monotonic() < stop + 1:
+            try:
+                message = client.receive()
+            except (socket.timeout, TimeoutError):
+                continue
+            except (ConnectionError, OSError, ValueError) as error:
+                with lock:
+                    failures.append(f'suivi : {error}')
+                return
+            if message.get('type') == 'error':
+                with lock:
+                    failures.append(f'suivi : {message.get("message")}')
+                return
+            session = message.get('session') or {}
+            mark = (session.get('id'), session.get('count'))
+            with lock:
+                if mark in sent:
+                    delays.append((time.perf_counter() - sent[mark]) * 1000)
+
+    def scan(number):
+        try:
+            client = WSClient(port, '/ws/live/scanner')
+            client.send({'type': 'hello', 'user': user, 'solo': True})
+            hello = client.receive()
+            if hello.get('type') != 'hello':
+                raise ConnectionError(hello.get('message', 'hello refuse'))
+            lot = lot_ids[number % len(lot_ids)]
+            seq = 0
+            client.sock.settimeout(0.05)
+            while time.monotonic() < stop:
+                seq += 1
+                with lock:
+                    sent[(hello['id'], seq)] = time.perf_counter()
+                client.send({'type': 'state', 'lot': {'id': lot, 'name': f'Sac {number}'}, 'count': seq,
+                             'remaining': 5, 'scanned': [{'name': 'Compresses'}] * min(seq, 40)})
+                deadline = time.monotonic() + random.uniform(0.5, 1.5)
+                while time.monotonic() < deadline:  # vide les messages "team" recus
+                    try:
+                        client.receive()
+                    except (socket.timeout, TimeoutError):
+                        pass
+            client.send({'type': 'cancel'})
+            client.close()
+        except (ConnectionError, OSError, ValueError) as error:
+            with lock:
+                failures.append(f'scan : {error}')
+
+    threads = [threading.Thread(target=watch, args=(c,)) for c in watch_clients]
+    threads += [threading.Thread(target=scan, args=(n,)) for n in range(scanners)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    for client in watch_clients:
+        client.close()
+    return delays, failures
+
+
+def app(rep, args):
+    rep.section('Back QRProtec (copie de la base, ports libres)')
+    backend, vendor = find_backend(args.backend)
+    if backend is None:
+        rep.add('app.available', False, 'Back introuvable', WARN, 'installer le RPM ou lancer depuis le depot')
+        return
+    workdir = Path(tempfile.mkdtemp(prefix='qrprotec-bench-app-', dir=args.dir))
+    server = Backend(backend, vendor, workdir)
+    try:
+        if args.db:
+            source = sqlite3.connect(f'file:{args.db}?mode=ro', uri=True)
+            target = sqlite3.connect(server.db)
+            source.backup(target)  # copie coherente meme si le service tourne
+            source.close()
+            target.close()
+            result = server.manage('migrate', '--noinput')
+            label = f'copie de {args.db}'
+            seed_lots = 0
+        else:
+            result = server.manage('migrate', '--noinput')
+            label = f'base fictive de {args.lots} lots'
+            seed_lots = args.lots
+        if result.returncode != 0:
+            raise RuntimeError(f'migrate : {result.stderr[-800:]}')
+        result = server.manage('shell', '-c', SEED.replace("sys.argv[-1]", repr(str(seed_lots))))
+        found = re.search(r'BENCH_JSON=(.*)', result.stdout)
+        if not found:
+            raise RuntimeError(f'preparation de la base : {(result.stderr or result.stdout)[-800:]}')
+        data = json.loads(found.group(1))
+        lots = data['lots']
+        if not lots:
+            raise RuntimeError('aucun lot actif avec des items dans la base')
+        rep.add(None, f'{label}, {len(lots)} lots, {sum(map(len, lots.values()))} items', 'Donnees')
+
+        startup = server.start()
+        rep.add('app.startup_s', startup, 'Demarrage de serve (s)', grade(startup, 3, 10))
+        status, _, payload = request(server.port, 'POST', '/api/auth/', data['user'])
+        if status != 200:
+            raise RuntimeError(f'connexion du secouriste de test : {status} {payload[:200]!r}')
+        session = json.loads(payload)['session']
+
+        times = [request(server.port, 'POST', '/api/lots/summary/', {})[1] for _ in range(5)]
+        summary = statistics.median(times)
+        rep.add('app.lots_summary_ms', summary, f'Etat des lots, {len(lots)} lots (ms)', grade(summary, 300, 1500))
+        biggest = max(lots, key=lambda lot: len(lots[lot]))
+        pdf = statistics.median(request(server.port, 'GET', f'/api/lots/{biggest}/sheet.pdf')[1] for _ in range(5))
+        rep.add('app.sheet_pdf_ms', pdf, 'Fiche PDF du plus gros lot (ms)', grade(pdf, 500, 2000))
+        verif = statistics.median(request(server.port, 'POST', f'/api/lots/{biggest}/verif/',
+                                          {'items': lots[biggest]}, session)[1] for _ in range(5))
+        rep.add('app.verif_ms', verif, f'Verif complete, {len(lots[biggest])} items (ms)', grade(verif, 300, 1500))
+
+        for clients in args.levels:
+            latencies, errors, client_errors, per_kind = load(server.port, session, lots, clients, args.seconds)
+            p95 = pct(latencies, 95)
+            key = f'app.load_{clients}'
+            rep.values[f'{key}.p50_ms'] = pct(latencies, 50)
+            rep.values[f'{key}.p99_ms'] = pct(latencies, 99)
+            rep.values[f'{key}.errors'] = len(errors)
+            rep.values[f'{key}.rps'] = len(latencies) / args.seconds
+            detail = ', '.join(f'{kind} {pct(values, 95):.0f}' for kind, values in sorted(per_kind.items()))
+            rep.add(f'{key}.p95_ms', p95, f'{clients:2d} secouristes : p95 (ms)',
+                    BAD if errors else grade(p95, 200, 1000),
+                    f'{len(latencies) / args.seconds:.1f} req/s, {len(errors)} erreurs (5xx ou connexion coupée), {client_errors} 4xx ; '
+                    f'p95 : {detail}')
+            if errors:
+                print(f'      exemple d\'erreur : {errors[0]}')
+
+        delays, failures = ws_bench(server.port, data['user'], lots, args.ws_scanners, args.ws_watchers, args.seconds)
+        p95 = pct(delays, 95)
+        rep.add('app.ws.p95_ms', p95, f'Suivi en direct ({args.ws_scanners} scans, {args.ws_watchers} suivis), p95 (ms)',
+                BAD if failures or p95 is None else grade(p95, 50, 300),
+                f'{len(delays)} messages, {len(failures)} echecs' + (f' : {failures[0]}' if failures else ''))
+        rep.add('app.rss_mb', server.rss_mb(), 'Memoire max du back (Mo)', INFO)
+        server.stop()
+
+        start = time.perf_counter()
+        source = sqlite3.connect(server.db)
+        backup = workdir / 'backup.sqlite3'
+        target = sqlite3.connect(backup)
+        source.backup(target)
+        target.close()
+        source.close()
+        with open(backup, 'rb') as handle:
+            os.fsync(handle.fileno())
+        rep.add('app.backup_s', time.perf_counter() - start,
+                f'Copie de sauvegarde, {backup.stat().st_size / 1e6:.1f} Mo (s)', INFO)
+        start = time.perf_counter()
+        conn = sqlite3.connect(backup)
+        conn.execute('VACUUM')
+        conn.close()
+        rep.add('app.vacuum_s', time.perf_counter() - start, 'VACUUM de la base (s)', INFO)
+    except (RuntimeError, OSError, subprocess.SubprocessError, sqlite3.Error, ValueError, KeyError) as error:
+        rep.add('app.error', str(error), 'Back : echec', BAD)
+    finally:
+        server.stop()
+        if args.keep:
+            print(f'      dossier garde : {workdir}')
+        else:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+
+# ------------------------------------------------------------------------------------------------------ compare
+
+def compare(paths):
+    results = []
+    for path in paths:
+        data = json.loads(Path(path).read_text())
+        results.append((data.get('values', {}).get('machine.name') or Path(path).stem, data.get('values', {})))
+    width = max(18, *(len(name) for name, _ in results))
+    print(f'{"":<44}' + ''.join(f'{name:>{width}}' for name, _ in results))
+    for key, label, lower in KEY_METRICS:
+        values = [values.get(key) for _, values in results]
+        if all(value is None for value in values):
+            continue
+        numbers = [value for value in values if isinstance(value, (int, float)) and not isinstance(value, bool)]
+        best = (min(numbers) if lower else max(numbers)) if numbers and lower is not None and len(numbers) > 1 else None
+        cells = []
+        for value in values:
+            text = '—' if value is None else ('oui' if value is True else 'non' if value is False else
+                                             f'{value:.1f}' if isinstance(value, float) else str(value))
+            cell = f'{text:>{width}}'
+            if best is not None and value == best and sys.stdout.isatty():
+                cell = f'\033[1;32m{cell}\033[0m'
+            cells.append(cell)
+        print(f'{label:<44}' + ''.join(cells))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--db', help='base a copier (ex : /var/lib/qrprotec/db.sqlite3) ; sinon base fictive')
+    parser.add_argument('--lots', type=int, default=80, help='lots de la base fictive (defaut 80)')
+    parser.add_argument('--dir', default=None, help='dossier de test, sur le disque de la base (defaut : '
+                        '/var/lib/qrprotec s\'il est accessible en ecriture, sinon /var/tmp)')
+    parser.add_argument('--backend', help='dossier du back (contient manage.py)')
+    parser.add_argument('--levels', type=lambda v: [int(x) for x in v.split(',')], default=[1, 5, 10, 20],
+                        help='nombres de secouristes simules (defaut 1,5,10,20)')
+    parser.add_argument('--seconds', type=int, default=15, help='duree de chaque palier (defaut 15 s)')
+    parser.add_argument('--ws-scanners', type=int, default=10, help='pages de scan en direct (defaut 10)')
+    parser.add_argument('--ws-watchers', type=int, default=3, help='pages de suivi (defaut 3)')
+    parser.add_argument('--fsyncs', type=int, default=1000, help='fdatasync mesures (defaut 1000)')
+    parser.add_argument('--bt-scan', type=int, default=0, metavar='S', help='recherche BLE pendant S secondes')
+    parser.add_argument('--endurance', type=int, default=0, metavar='MIN', help='charge CPU pendant MIN minutes')
+    parser.add_argument('--only', help='sections a lancer, separees par des virgules : '
+                        'machine,bluetooth,kiosk,disk,sqlite,cpu,app,endurance')
+    parser.add_argument('--name', default=platform.node(), help='nom de la machine dans le rapport')
+    parser.add_argument('--json', help='enregistre les resultats (pour --compare)')
+    parser.add_argument('--keep', action='store_true', help='garde le dossier de test du back')
+    parser.add_argument('--compare', nargs='+', metavar='JSON', help='compare des resultats enregistres')
+    args = parser.parse_args()
+
+    if args.compare:
+        compare(args.compare)
+        return 0
+    if args.dir is None:
+        # /var/tmp plutot que /tmp : sous Fedora /tmp est en memoire (tmpfs), le disque ne serait pas mesure
+        args.dir = '/var/lib/qrprotec' if os.access('/var/lib/qrprotec', os.W_OK) else '/var/tmp'
+    only = set(args.only.split(',')) if args.only else {'machine', 'bluetooth', 'kiosk', 'disk', 'sqlite', 'cpu', 'app'}
+    if args.endurance:
+        only.add('endurance')
+
+    rep = Report()
+    rep.values['machine.name'] = args.name
+    print(f'QRProtec : banc de mesure de {args.name}, {time.strftime("%Y-%m-%d %H:%M")}')
+    if 'machine' in only:
+        machine(rep, args.dir)
+    if 'bluetooth' in only:
+        bluetooth(rep, args.bt_scan)
+    if 'kiosk' in only:
+        kiosk(rep)
+    if 'disk' in only:
+        disk(rep, args.dir, args.fsyncs)
+    if 'sqlite' in only:
+        sqlite_bench(rep, args.dir)
+    if 'cpu' in only:
+        cpu(rep)
+    if 'app' in only:
+        app(rep, args)
+    if 'endurance' in only:
+        endurance(rep, args.endurance)
+
+    bad = [line for line in rep.lines if line[0] == BAD]
+    warn = [line for line in rep.lines if line[0] == WARN]
+    print(f'\nBilan : {len(bad)} point(s) bloquant(s), {len(warn)} a surveiller.')
+    for verdict, label, shown, hint in bad + warn:
+        print(f'  {MARKS[verdict]} {label.strip()} : {shown}' + (f' ({hint})' if hint else ''))
+    if args.json:
+        Path(args.json).write_text(json.dumps({'date': time.strftime('%Y-%m-%dT%H:%M:%S'), 'values': rep.values},
+                                              indent=1, ensure_ascii=False, default=str))
+        print(f'Resultats enregistres dans {args.json}')
+    return 1 if bad else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

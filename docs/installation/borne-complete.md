@@ -18,6 +18,10 @@ directement QRProtec, sans bureau ni écran de connexion.
 
 ## 1. Préparer la machine
 
+Pour choisir entre plusieurs ordinateurs, le banc de mesure `tools/bench/qrprotec-bench` du dépôt
+vérifie le Bluetooth (BLE, nécessaire à la douchette), l'écran et le disque, et mesure le back avec
+des secouristes simulés ; voir `tools/bench/README.md`.
+
 1. Installer **Fedora Server** (42 ou plus) en « Minimal Install ». Créer un compte administrateur
    (avec `sudo`) pendant l'installation.
 2. Brancher l'écran, le clavier, l'imprimante (USB). Ne **pas** appairer la douchette Bluetooth dans
