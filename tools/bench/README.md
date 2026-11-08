@@ -5,14 +5,15 @@ API, site des téléphones) et le kiosk (écran, douchette Bluetooth) sur la mê
 
 ```sh
 git clone https://github.com/etyloppihacilem/qrprotec && cd qrprotec
-pip install --user "django>=6.1,<7" "djangorestframework>=3.18,<4"   # inutile si le RPM est installé
+poetry install --no-root --with push   # inutile si le RPM est installé
 tools/bench/qrprotec-bench
 ```
 
 Une seule commande, sans réglage : environ 5 minutes, sans rien brancher ni manipuler. La
 production n'est jamais touchée : le back tourne sur une **copie** de la base, sur des ports libres,
-dans un dossier de test supprimé à la fin. Il ne faut que Python 3 ; le back utilisé est celui du
-RPM (`/usr/share/qrprotec`) ou celui du dépôt.
+dans un dossier de test supprimé à la fin. Il ne faut que Python 3 : le script trouve tout seul le
+Python qui a Django (le sien, le `.venv` de poetry du dépôt, `poetry env`), sinon le back du RPM
+(`/usr/share/qrprotec`). Il marche donc aussi sur la machine où le back tourne déjà.
 
 Deux options seulement :
 

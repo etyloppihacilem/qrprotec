@@ -418,9 +418,11 @@ def endurance(rep, minutes):
             temp = temperatures()
             hottest = max(hottest, temp or 0)
             remaining = int(stop - time.monotonic())
-            print(f'      {score:7.0f} ms   {temp or 0:5.1f} °C   reste {remaining // 60:2d} min {remaining % 60:02d}',
-                  end='\r', flush=True)
-    print()
+            if sys.stdout.isatty():
+                print(f'      {score:7.0f} ms   {temp or 0:5.1f} °C   reste {remaining // 60:2d} min {remaining % 60:02d}',
+                      end='\r', flush=True)
+    if sys.stdout.isatty():
+        print()
     last = statistics.median(scores[-5:])
     slowdown = (last / first - 1) * 100
     rep.add('endurance.slowdown_pct', slowdown, 'Ralentissement fin / debut (%)', grade(slowdown, 10, 25),
@@ -430,14 +432,33 @@ def endurance(rep, minutes):
 
 # -------------------------------------------------------------------------------------------------- back QRProtec
 
-def find_backend(option):
-    here = Path(__file__).resolve().parent
-    candidates = [Path(option)] if option else [here.parent.parent / 'database', Path('/usr/share/qrprotec/backend')]
-    for backend in candidates:
-        if (backend / 'manage.py').exists():
-            vendor = backend.parent / 'vendor'
-            return backend, (vendor if vendor.is_dir() else None)
-    return None, None
+def django_ok(python, vendor=None):
+    env = dict(os.environ, PYTHONPATH=str(vendor)) if vendor else None
+    try:
+        return subprocess.run([python, '-c', 'import django, rest_framework, cryptography'], env=env,
+                              capture_output=True, timeout=30).returncode == 0
+    except OSError:
+        return False
+
+
+def find_backend():
+    """(dossier du back, vendor/ ou None, python qui a Django) : depot (Python courant, .venv de poetry, `poetry env`),
+    sinon back du RPM avec ses dependances figees. (None, None, message) si rien ne convient."""
+    repo = Path(__file__).resolve().parent.parent.parent
+    if (repo / 'database' / 'manage.py').exists():
+        pythons = [sys.executable, str(repo / '.venv' / 'bin' / 'python')]
+        if shutil.which('poetry'):
+            code, out = run(['poetry', '-C', str(repo), 'env', 'info', '--executable'])
+            if code == 0 and out.strip():
+                pythons.append(out.strip().splitlines()[-1])
+        for python in dict.fromkeys(pythons):
+            if Path(python).exists() and django_ok(python):
+                return repo / 'database', None, python
+    rpm = Path('/usr/share/qrprotec')
+    if (rpm / 'backend' / 'manage.py').exists() and django_ok('/usr/bin/python3', rpm / 'vendor'):
+        return rpm / 'backend', rpm / 'vendor', '/usr/bin/python3'
+    return None, None, ('Django (ou cryptography) introuvable : lancer `poetry install --no-root --with push` a la '
+                        'racine du depot, ou installer le RPM qrprotec')
 
 
 def free_port():
@@ -487,8 +508,8 @@ print('BENCH_JSON=' + json.dumps({'user': {'matricule': 'BENCH', 'key': key}, 'l
 
 
 class Backend:
-    def __init__(self, backend, vendor, workdir):
-        self.backend, self.vendor, self.workdir = backend, vendor, workdir
+    def __init__(self, backend, vendor, python, workdir):
+        self.backend, self.vendor, self.python, self.workdir = backend, vendor, python, workdir
         self.db = workdir / 'db.sqlite3'
         self.port = free_port()
         self.env = dict(os.environ, QRPROTEC_DB_PATH=str(self.db), QRPROTEC_SECRET_KEY=base64.b64encode(os.urandom(32)).decode(),
@@ -499,12 +520,12 @@ class Backend:
         self.process = None
 
     def manage(self, *args, timeout=600):
-        cmd = [sys.executable, str(self.backend / 'manage.py'), *args]
+        cmd = [self.python, str(self.backend / 'manage.py'), *args]
         return subprocess.run(cmd, cwd=self.workdir, env=self.env, capture_output=True, text=True, timeout=timeout)
 
     def start(self):
         log = open(self.workdir / 'serve.log', 'w')
-        cmd = [sys.executable, str(self.backend / 'manage.py'), 'serve', '--no-public', '--no-remote',
+        cmd = [self.python, str(self.backend / 'manage.py'), 'serve', '--no-public', '--no-remote',
                '--local', f'127.0.0.1:{self.port}']
         started = time.perf_counter()
         self.process = subprocess.Popen(cmd, cwd=self.workdir, env=self.env, stdout=log, stderr=subprocess.STDOUT)
@@ -719,12 +740,13 @@ def ws_bench(port, user, lots, scanners, watchers, seconds):
 
 def app(rep, args):
     rep.section('Back QRProtec (copie de la base, ports libres)')
-    backend, vendor = find_backend(None)
+    backend, vendor, python = find_backend()
     if backend is None:
-        rep.add('app.available', False, 'Back introuvable', WARN, 'installer le RPM ou lancer depuis le depot')
+        rep.add('app.error', python, 'Back : echec', BAD)
         return
+    rep.add(None, f'{backend} ({python})', 'Back utilise')
     workdir = Path(tempfile.mkdtemp(prefix='qrprotec-bench-app-', dir=args.dir))
-    server = Backend(backend, vendor, workdir)
+    server = Backend(backend, vendor, python, workdir)
     try:
         if args.db:
             source = sqlite3.connect(f'file:{args.db}?mode=ro', uri=True)
