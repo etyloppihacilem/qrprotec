@@ -476,14 +476,19 @@ int search_callback(ImGuiInputTextCallbackData *data) {
 } // namespace
 
 bool search_select(const char *id, const Json &list, const char *key_field, const char *name_field,
-                   std::string &selected, const char *hint, const char *empty_label, float width) {
+                   std::string &selected, const char *hint, const char *empty_label, float width,
+                   const char *code_field) {
   ImGui::PushID(id);
+  const auto entry_label = [&](const Json &entry) {
+    const std::string code = code_field ? entry[code_field].str() : entry[key_field].str();
+    return code.empty() ? entry[name_field].str() : entry[name_field].str() + " (" + code + ")";
+  };
   SearchState &state = search_states[ImGui::GetID("state")];
   // libelle de la selection courante
   std::string selected_label = empty_label && selected.empty() ? empty_label : std::string();
   for (const Json &entry : list.items())
     if (entry[key_field].str() == selected && !selected.empty())
-      selected_label = entry[name_field].str() + " (" + selected + ")";
+      selected_label = entry_label(entry);
 
   const ImGuiID input_id = ImGui::GetID("##input");
   const bool    active   = ImGui::GetActiveID() == input_id;
@@ -517,7 +522,7 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
     matches.push_back({ 1000, "", empty_label, "" });
   for (const Json &entry : list.items()) {
     const std::string key   = entry[key_field].str();
-    const std::string label = entry[name_field].str() + " (" + key + ")";
+    const std::string label = entry_label(entry);
     const int         score = search_score(query, label);
     if (score >= 0) {
       matches.push_back({ score, key, label, "" });

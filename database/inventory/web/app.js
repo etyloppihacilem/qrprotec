@@ -6855,7 +6855,9 @@
   // Champ de recherche avec resultats en direct (sans accents ni casse, debut de mots ou code), comme la recherche des
   // types d'items du poste : fleches pour choisir, Entree ou toucher un resultat pour l'ajouter.
   const searchKey = (text) => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  function searchPicker(placeholder, items, onPick) {
+  // items : { key, label, sub?, kind? } ; kind ({ id, label, order }) : genre du resultat (lot, lot au choix,
+  // materiel) affiche en pastille quand une meme recherche melange plusieurs genres
+  function searchPicker(placeholder, items, onPick, limit = 8) {
     const input = el('input', { type: 'search', class: 'picker-input', placeholder, autocomplete: 'off' });
     const results = el('ul', { class: 'picker-results', hidden: '' });
     let shown = [];
@@ -6875,12 +6877,15 @@
     const update = () => {
       const words = searchKey(input.value).split(/\s+/).filter(Boolean);
       shown = items.map((item) => ({ item, score: score(item, words) })).filter((row) => row.score >= 0)
-        .sort((a, b) => b.score - a.score || a.item.label.localeCompare(b.item.label, 'fr')).slice(0, 8).map((row) => row.item);
+        .sort((a, b) => b.score - a.score || (a.item.kind ? a.item.kind.order : 0) - (b.item.kind ? b.item.kind.order : 0)
+          || a.item.label.localeCompare(b.item.label, 'fr')).slice(0, limit).map((row) => row.item);
       highlighted = Math.min(highlighted, Math.max(0, shown.length - 1));
       results.replaceChildren(...(shown.length ? shown.map((item, index) => el('li', {
         class: index === highlighted ? 'active' : '',
         onpointerdown: (event) => { event.preventDefault(); onPick(item); },
-      }, el('span', {}, item.label), item.sub ? el('small', {}, item.sub) : '')) : [el('li', { class: 'empty' }, 'Aucun résultat')]));
+      }, ...(item.kind ? [el('span', {}, item.label, item.sub ? el('small', {}, ' · ' + item.sub) : ''),
+        el('span', { class: 'picker-kind picker-kind-' + item.kind.id }, item.kind.label)]
+        : [el('span', {}, item.label), item.sub ? el('small', {}, item.sub) : '']))) : [el('li', { class: 'empty' }, 'Aucun résultat')]));
       results.hidden = document.activeElement !== input;
     };
     input.addEventListener('input', () => { highlighted = 0; update(); });
@@ -6915,19 +6920,24 @@
       if (!taken.has('task:' + task)) edit.lines.push({ task, label: task });
       redraw();
     };
-    const lotSelect = searchPicker('＋ Ajouter un lot : rechercher…',
-      (options ? options.lots : []).filter((lot) => !taken.has(lot.id))
-        .map((lot) => ({ key: lot.id, label: lot.name, sub: lot.lot_type_name, row: lot })),
-      (pick) => { edit.lines.push({ lot: pick.row.id, label: pick.row.name, sub: pick.row.lot_type_name }); redraw(); });
-    // n'importe quel lot de ce type (« 1 lot B+ ») : choisi en scannant son etiquette
-    const lotTypeSelect = searchPicker('＋ Ajouter un lot au choix (par type) : rechercher…',
-      (options ? options.lot_types || [] : []).filter((type) => !taken.has('lots:' + type.type))
-        .map((type) => ({ key: type.type, label: type.name, sub: "n'importe lequel", row: type })),
-      (pick) => { edit.lines.push({ lot_types: [pick.row.type], label: pick.row.name, sub: 'Lot au choix', quantity: 1 }); redraw(); });
-    const typeSelect = searchPicker('＋ Ajouter du matériel : rechercher…',
-      (options ? options.types : []).filter((type) => !taken.has('type:' + type.type))
-        .map((type) => ({ key: type.type, label: type.name, sub: type.type, row: type })),
-      (pick) => { edit.lines.push({ type: pick.row.type, label: pick.row.name, quantity: 1 }); redraw(); });
+    // une seule recherche pour tout ce qui se scanne : lots precis, lots au choix (« 1 lot B+ », n'importe lequel
+    // de ce type, choisi en scannant son etiquette) et materiel (type d'item, avec quantite)
+    const KIND_LOT_TYPE = { id: 'lot-type', label: 'Lot au choix', order: 0 };
+    const KIND_LOT = { id: 'lot', label: 'Lot', order: 1 };
+    const KIND_TYPE = { id: 'type', label: 'Matériel', order: 2 };
+    const addSelect = searchPicker('＋ Ajouter un lot ou du matériel : rechercher…', [
+      ...(options ? options.lot_types || [] : []).filter((type) => !taken.has('lots:' + type.type))
+        .map((type) => ({ key: type.type, label: type.name, kind: KIND_LOT_TYPE, row: type })),
+      ...(options ? options.lots : []).filter((lot) => !taken.has(lot.id))
+        .map((lot) => ({ key: lot.id, label: lot.name, sub: lot.lot_type_name, kind: KIND_LOT, row: lot })),
+      ...(options ? options.types : []).filter((type) => !taken.has('type:' + type.type))
+        .map((type) => ({ key: type.type, label: type.name, sub: type.type, kind: KIND_TYPE, row: type })),
+    ], (pick) => {
+      if (pick.kind === KIND_LOT) edit.lines.push({ lot: pick.row.id, label: pick.row.name, sub: pick.row.lot_type_name });
+      else if (pick.kind === KIND_LOT_TYPE) edit.lines.push({ lot_types: [pick.row.type], label: pick.row.name, sub: 'Lot au choix', quantity: 1 });
+      else edit.lines.push({ type: pick.row.type, label: pick.row.name, quantity: 1 });
+      redraw();
+    }, 12);
     return [
       el('h3', {}, edit.id ? 'Modifier la liste' : edit.template ? 'Nouveau modèle' : 'Nouvelle liste'),
       el('label', { class: 'field' }, 'Nom',
@@ -6948,7 +6958,7 @@
         line.lot || line.task ? '' : el('input', { type: 'number', class: 'list-qty', min: '1', max: line.lot_types ? '99' : '999', value: String(line.quantity), 'aria-label': 'Quantité',
           oninput: (event) => { line.quantity = Math.max(1, Math.min(999, parseInt(event.target.value, 10) || 1)); } }),
         el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', onclick: () => { edit.lines.splice(index, 1); redraw(); } }, '✕')))),
-      options ? el('div', { class: 'list-add' }, lotSelect, lotTypeSelect, typeSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
+      options ? el('div', { class: 'list-add' }, addSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
       el('div', { class: 'list-add-task' }, taskInput, el('button', { type: 'button', onclick: addTask }, '＋ Tâche')),
       el('p', { class: 'hint' }, 'Une tâche se coche pendant la vérif de la liste (ni lot ni matériel).'),
       el('div', { class: 'list-buttons' },
