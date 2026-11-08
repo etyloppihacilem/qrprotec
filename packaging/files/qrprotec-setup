@@ -8,6 +8,7 @@
 #   sudo qrprotec-setup --front-key accueil --front-config accueil.qrprotec   # cle dans un fichier chiffre
 #   sudo qrprotec-setup --api-url https://inventaire.example.org --api-key qrpf_...   # kiosk distant
 #   sudo qrprotec-setup --backup-sync sauvegarde@nas:/srv/qrprotec   # copie des sauvegardes sur une autre machine
+#   sudo qrprotec-setup --storage            # back : volumes dedies a la base et aux sauvegardes (LVM)
 #
 # Toute la configuration partagee du back (nom d'hote, TLS) est ecrite dans /etc/qrprotec/qrprotec.conf,
 # lu a la fois par le back et par Caddy ; la connexion du kiosk a un back distant dans
@@ -43,6 +44,8 @@ api_ca_file=""
 local_api=no
 front_key=""
 front_config=""
+storage=no
+storage_device=""
 firewall=""      # yes / no / "" (demander)
 admin=""         # yes / no / "" (demander)
 restart=yes
@@ -63,6 +66,10 @@ Back :
   --front-config FICHIER  avec --front-key : ecrit plutot un fichier chiffre (AES, mot de passe demande)
                         avec l'URL, la cle et le certificat de l'autorite interne de Caddy, a importer
                         dans le front (Reglages > Serveur > Importer un fichier de configuration)
+  --storage             volumes LVM dedies a la base (/var/lib/qrprotec) et aux sauvegardes, pris dans
+                        l'espace libre du disque (qrprotec-storage), puis historique de sauvegardes long
+                        (30 recentes + 26 hebdomadaires + 60 mensuelles, rotation automatique)
+  --storage-device DISQUE  avec --storage : sur un disque dedie, entierement EFFACE (ex. /dev/sdb)
   --open-firewall       ouvre http/https dans firewalld ou UFW
   --no-firewall         ne touche pas au pare-feu
   --no-admin            ne propose pas de creer un administrateur
@@ -112,6 +119,8 @@ while (($#)); do
         --local-api) local_api=yes ;;
         --front-key) front_key=${2:?nom du front attendu}; shift ;;
         --front-config) front_config=${2:?fichier attendu}; shift ;;
+        --storage) storage=yes ;;
+        --storage-device) storage=yes storage_device=${2:?disque attendu}; shift ;;
         --backup-dir) backup_dir=${2:?}; shift ;;
         --backup-keep) backup_keep=${2:?}; shift ;;
         --backup-schedule) backup_schedule=${2:?}; shift ;;
@@ -279,6 +288,21 @@ if [[ -n $front_key ]]; then
     exit 0
 fi
 
+# Back : volumes dedies (qrprotec-storage) puis historique de sauvegardes long, puis fin
+if [[ $storage == yes ]]; then
+    [[ $has_server == yes ]] || die "--storage se lance sur le serveur (paquet qrprotec-server)"
+    storage_args=(--setup)
+    [[ -n $storage_device ]] && storage_args+=(--device "$storage_device")
+    [[ $assume_yes == yes ]] && storage_args+=(--yes)
+    qrprotec-storage "${storage_args[@]}"
+    [[ -f $BACKUP_CONF ]] || install -m 0644 /dev/null "$BACKUP_CONF"
+    set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_KEEP 30
+    set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_KEEP_WEEKLY 26
+    set_conf "$BACKUP_CONF" QRPROTEC_BACKUP_KEEP_MONTHLY 60
+    echo "Sauvegardes : 30 recentes + 26 hebdomadaires + 60 mensuelles (5 ans), rotation automatique ($BACKUP_CONF)"
+    exit 0
+fi
+
 # URL HTTPS du back distant, cle et autorite : /etc/qrprotec/front-api.conf (lu par qrprotec-kiosk.service)
 configure_front_api() {
     local current_url current_key current_ca answer=""
@@ -399,7 +423,8 @@ ask backup_dir "Dossier des sauvegardes" "${current_backup_dir:-/var/backups/qrp
 [[ $backup_dir == /* ]] || die "le dossier des sauvegardes doit etre un chemin absolu : $backup_dir"
 
 current_backup_keep=$(get_conf "$BACKUP_CONF" QRPROTEC_BACKUP_KEEP)
-ask backup_keep "Nombre de sauvegardes conservees (0 = toutes)" "${current_backup_keep:-14}"
+ask backup_keep "Sauvegardes recentes conservees, plus une par semaine et par mois (0 = toutes)" \
+    "${current_backup_keep:-14}"
 [[ $backup_keep =~ ^[0-9]+$ ]] || die "nombre invalide : $backup_keep"
 
 current_backup_schedule=$(get_conf "$BACKUP_CONF" QRPROTEC_BACKUP_SCHEDULE)

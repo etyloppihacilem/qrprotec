@@ -104,6 +104,9 @@ Requires:       util-linux
 Requires:       rsync
 Requires:       openssh-clients
 Requires:       curl
+# qrprotec-storage : volumes dedies a la base et aux sauvegardes
+Recommends:     lvm2
+Recommends:     xfsprogs
 Requires(post): coreutils
 Requires(post): systemd
 Requires(preun): systemd
@@ -249,6 +252,8 @@ install -d -m 0750 %{buildroot}%{_sharedstatedir}/%{name}
 # --- Commun : assistant et sauvegardes ---------------------------------------------------------
 install -Dpm 0755 packaging/files/qrprotec-setup %{buildroot}%{_sbindir}/qrprotec-setup
 install -Dpm 0755 packaging/files/qrprotec-backup %{buildroot}%{_sbindir}/qrprotec-backup
+%{_sbindir}/qrprotec-storage
+install -Dpm 0755 packaging/files/qrprotec-storage %{buildroot}%{_sbindir}/qrprotec-storage
 install -Dpm 0644 packaging/files/backup.conf %{buildroot}%{_sysconfdir}/%{name}/backup.conf
 install -Dpm 0644 packaging/files/qrprotec-backup.service %{buildroot}%{_unitdir}/qrprotec-backup.service
 sed -i 's|@SBINDIR@|%{_sbindir}|g' %{buildroot}%{_unitdir}/qrprotec-backup.service
