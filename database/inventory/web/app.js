@@ -1558,6 +1558,41 @@
     ];
   }
 
+  // Items a cocher (ItemType.physical faux : gobelets, sucres, « piles vérifiées ») : pas d'etiquette, la vérif les
+  // coche a la main. Une case cochee est un « scan » de type 'check' (iid : le lot, info.type : le type d'item), partage
+  // avec les autres participants comme les autres scans. checked d'une verif : {lot: [types]} (services.perform_verif).
+  function checkedMap(entries) {
+    const checked = {};
+    for (const entry of entries) {
+      if (entry.kind !== 'check' || entry.error || !entry.info || !entry.info.type) continue;
+      const types = checked[entry.iid] = checked[entry.iid] || [];
+      if (!types.includes(entry.info.type)) types.push(entry.info.type);
+    }
+    return checked;
+  }
+
+  // Scannes (ou coches, pour un item a cocher) d'un attendu pendant la vérif
+  const scannedOf = (lot, row, fresh) => (row.check ? (checkEntry(lot.id, row.type) ? row.expected || row.required : 0)
+    : fresh[row.type] || 0);
+
+  const checkEntry = (lotId, type) => allScanned().find((entry) => entry.kind === 'check' && entry.iid === lotId
+    && entry.info && entry.info.type === type);
+
+  function toggleCheck(lot, row) {
+    const entry = checkEntry(lot.id, row.type);
+    const index = entry ? state.scanned.indexOf(entry) : -1;
+    if (entry && index < 0) { toast(`Coché par ${entry.who || 'un autre participant'}.`); return; }
+    scannedAgain();
+    if (entry) state.scanned.splice(index, 1);
+    else {
+      state.scanned.push({ code: `check:${lot.id}:${row.type}`, kind: 'check', iid: lot.id, key: '', expired: false, error: '',
+        items: [], place: lot.id, info: { type: row.type, type_name: row.type_name, count: row.expected || row.required } });
+      feedback.good();
+    }
+    save();
+    render();
+  }
+
   // Repartition des items scannes entre les lots de la verif (meme regle que le serveur, services.assign_items) :
   // un item deja dans un des lots y reste, un nouvel item va dans le lot de la derniere etiquette scannee avant lui
   // (ou un de ses sous-lots) qui en attend encore, sinon dans le premier lot qui en attend encore.
@@ -1579,10 +1614,15 @@
       }
     }
     const required = {};
+    const checks = {}; // items a cocher qui retiennent le lot (gobelets...) : coches a la main, jamais scannes
     for (const lot of lots) {
       required[lot.id] = {};
-      for (const row of lot.requirements || []) required[lot.id][row.type] = rowNeed(row);
+      checks[lot.id] = [];
+      for (const row of lot.requirements || []) {
+        if (row.check) { if (rowNeed(row) > 0) checks[lot.id].push(row.type); } else required[lot.id][row.type] = rowNeed(row);
+      }
     }
+    const ticked = checkedMap(allScanned());
     const deficit = Object.fromEntries(lots.map((lot) => [lot.id, { ...required[lot.id] }]));
     const scanned = [];
     const typeNames = {};
@@ -1638,7 +1678,8 @@
     }
     for (const row of Object.values(plan)) {
       // seul compte le minimum d'items frais : un perime en trop ne retient pas le lot (il est retire, a jeter)
-      const filled = Object.entries(required[row.lot.id]).every(([type, quantity]) => (row.fresh[type] || 0) >= quantity);
+      const filled = Object.entries(required[row.lot.id]).every(([type, quantity]) => (row.fresh[type] || 0) >= quantity)
+        && checks[row.lot.id].every((type) => (ticked[row.lot.id] || []).includes(type));
       // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
       row.complete = filled && (row.lot.storage ? !holding[row.lot.id] : (row.touched > 0 || !holding[row.lot.id]));
     }
@@ -2180,6 +2221,7 @@
         places: scanPlaces(),
         // etiquettes de scelle scannees : lots scelles intacts, comptes comme verifies
         sealed: allScanned().filter((entry) => entry.kind === 'seal' && !entry.error).map((entry) => ({ id: entry.iid, code: entry.key })),
+        checked: checkedMap(allScanned()),
         partial,
         full: state.full,
         ...(credentials ? { live: credentials } : {}),
@@ -2214,12 +2256,13 @@
     const sealed = [];
     for (const entry of entries) {
       if (entry.kind === 'seal') { sealed.push({ id: entry.iid, code: entry.key }); continue; }
+      if (entry.kind === 'check') continue;
       for (const iid of entry.kind === 'item' ? [entry.iid] : entry.items || []) {
         items.add(iid);
         if (entry.place) places[iid] = entry.place;
       }
     }
-    return { items: [...items], places, sealed };
+    return { items: [...items], places, sealed, checked: checkedMap(entries) };
   }
 
   // Lots valides par une validation de la vérif en cascade (compte rendu du serveur) : notes, et leurs scans retires
@@ -2230,7 +2273,7 @@
     }
     const gone = new Set(sent);
     state.scanned = state.scanned.filter((entry) => !(entry.kind === 'pack' ? (entry.items || []).some((iid) => gone.has(iid))
-      : gone.has(entry.iid)));
+      : entry.kind === 'check' ? !!state.done[entry.iid] : gone.has(entry.iid)));
   }
 
   // Valider le lot en cours de la vérif en cascade (partial : vérif partielle ou reassort de ce lot). Il est enregistre
@@ -2759,6 +2802,15 @@
       const items = (known[requirement.type] || []).sort((a, b) => b.expired - a.expired);
       delete known[requirement.type];
       const scanned = fresh[requirement.type] || 0;
+      if (requirement.check) {
+        // item a cocher : coche (tout est la) ou non (il manque), compte a la main
+        const quantity = requirement.expected || requirement.required;
+        const ticked = !!checkEntry(lot.id, requirement.type);
+        const missing = ticked || requirement.optional ? 0 : quantity;
+        remaining += missing ? 1 : 0; // une case a cocher, pas `quantity` scans
+        return { row: requirement, items: [], check: true, ticked, scanned: ticked ? quantity : 0, missing,
+          optional: !!requirement.optional, expected: quantity, pending: 0, extra: 0, fromStock: 0 };
+      }
       if (requirement.optional) {
         // facultatif (casques du VPS) : rien ne manque, le lot se valide sans ; scannes, on sait ou ils sont
         const expected = requirement.expected || 0;
@@ -2870,6 +2922,19 @@
     const places = byPlace(groups, (group) => group.row.location);
     const placed = places.some((entry) => entry.place);
     const groupRows = (group) => {
+      if (group.check) {
+        const entry = checkEntry(lot.id, group.row.type);
+        const tasks = group.row.tasks || [];
+        return [el('li', { class: 'group check ' + (group.ticked ? 'ok' : group.optional ? 'optional' : 'bad'),
+          onclick: () => toggleCheck(lot, group.row), role: 'checkbox', 'aria-checked': String(group.ticked) },
+        el('span', { class: 'checkbox' }, group.ticked ? '☑' : '☐'),
+        el('div', { class: 'main' },
+          el('div', { class: 'name' }, `${group.expected} × ${group.row.type_name}`),
+          el('div', { class: 'sub' }, [!placed && group.row.location ? '📍 ' + group.row.location : '',
+            group.ticked ? 'coché' + (entry && entry.who ? ' par ' + entry.who : '') : 'à vérifier à la main, puis cochez',
+            tasks.join(', ')].filter(Boolean).join(' · '))),
+        el('span', { class: 'count' }, ...countText(group.scanned, need(group), 0)))];
+      }
       const expired = group.items.filter((item) => item.expired).length;
       const cls = { 2: 'ok', 1.5: 'optional', 1: 'bad', 0: 'partial' }[rank(group)];
       return groupHead(`${lot.id}:${group.row.type}`, cls, group.items,
@@ -3085,7 +3150,8 @@
     const rows = all.map((entry, index) => {
       const mine = index < state.scanned.length;
       const info = entry.info;
-      let name = entry.kind === 'pack' && info ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : idText(entry.iid) || 'Code non reconnu';
+      let name = entry.kind === 'check' && info ? `☑ ${info.count || ''} × ${info.type_name}`
+        : entry.kind === 'pack' && info ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : idText(entry.iid) || 'Code non reconnu';
       let cls = 'ok';
       const tags = [];
       if (entry.error) { cls = 'error'; tags.push(el('span', { class: 'tag red' }, 'INCONNU')); }
@@ -3098,7 +3164,8 @@
       return el('li', { class: cls },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, name),
-          el('div', { class: 'sub' }, [peremption ? fmtDate(peremption) : info && entry.kind === 'item' ? 'Non périssable' : '', idText(entry.iid),
+          el('div', { class: 'sub' }, [peremption ? fmtDate(peremption) : info && entry.kind === 'item' ? 'Non périssable' : '',
+            entry.kind === 'check' ? `coché à la main – ${(lotById(entry.iid) || {}).name || ''}` : idText(entry.iid),
             mine ? '' : `par ${entry.who || 'un autre participant'}`].filter(Boolean).join(' · '))),
         ...tags,
         entry.kind === 'item' && !entry.error ? reportMark({ item: entry.iid, label: withId(name, entry.iid),
@@ -3143,8 +3210,8 @@
       ...renderGlobal(lot),
       // types incomplets en haut
       el('h3', {}, 'Scannés / attendus'),
-      ...incompleteFirst((lot.requirements || []).map(strictRow), (row) => fresh[row.type] || 0).map((row) => requirementLine(
-        row.type_name + (row.location ? ` (${row.location})` : ''), fresh[row.type] || 0, row)),
+      ...incompleteFirst((lot.requirements || []).map(strictRow), (row) => scannedOf(lot, row, fresh)).map((row) => requirementLine(
+        row.type_name + (row.location ? ` (${row.location})` : ''), scannedOf(lot, row, fresh), row)),
       el('h3', {}, 'État enregistré du lot'),
       ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => requirementLine(row.type_name, row.present, row)),
     );
@@ -3941,7 +4008,8 @@
       lots: inCascade() ? [] : sessionLots().filter((lot) => lot.id !== state.lot.id && ((lot.requirements || []).length || (lot.items || []).length))
         .map((lot) => lot.name),
       scanned: scanned.map((entry) => ({
-        name: entry.kind === 'pack' && entry.info ? `Paquet : ${entry.info.count} × ${entry.info.type_name}`
+        name: entry.kind === 'check' && entry.info ? `☑ ${entry.info.type_name}`
+          : entry.kind === 'pack' && entry.info ? `Paquet : ${entry.info.count} × ${entry.info.type_name}`
           // pas d'iid : le suivi en direct est vu par tous, pas seulement le TECH
           : (entry.info && entry.info.type_name) || (entry.kind === 'item' && !entry.error ? 'Item' : 'code inconnu'),
         expired: !!entry.expired,

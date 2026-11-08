@@ -311,8 +311,18 @@ def requirements_status(lot, today=None, items=None, preload=None, strict=False)
         else:
             fresh[item.pack.item_type_id] += 1
     rows = []
+    unchecked = set(lot.unchecked or [])
     for requirement in lot_requirements(lot, preload, strict):
         type_id = requirement.item_type_id
+        if not requirement.item_type.physical:
+            # item a cocher : la a moins d'avoir ete laisse non coche a la derniere vérif
+            rows.append({
+                'type': type_id, 'type_name': requirement.item_type.name, 'location': requirement.location,
+                'required': requirement.required, 'expected': requirement.quantity, 'optional': requirement.optional,
+                'extra': requirement.extra, 'check': True, 'tasks': list(requirement.item_type.tasks or []),
+                'present': 0 if type_id in unchecked else requirement.quantity, 'expired': 0, 'unconfirmed': 0,
+            })
+            continue
         rows.append({
             'type': type_id,
             'type_name': requirement.item_type.name,
@@ -344,7 +354,14 @@ def verif_lots(lots):
 def _required_by_lot(group, strict=False):
     """{lot id: {type d'item: quantite}} d'apres le contenu attendu de chaque lot (son type et son contenu propre) ;
     0 pour un attendu facultatif, sauf en vérif complete (strict)."""
-    return {lot.id: {row.item_type_id: row.required for row in lot_requirements(lot, strict=strict)} for lot in group}
+    return {lot.id: {row.item_type_id: row.required for row in lot_requirements(lot, strict=strict)
+                     if row.item_type.physical} for lot in group}
+
+
+def checks_by_lot(group, strict=False):
+    """{lot id: [types d'items a cocher qui retiennent le lot]} (attendus non physiques, hors facultatifs)."""
+    return {lot.id: [row.item_type_id for row in lot_requirements(lot, strict=strict)
+                     if not row.item_type.physical and row.required > 0] for lot in group}
 
 
 def assign_items(group, scanned, today, places=None, cascade=False, strict=False):
@@ -412,7 +429,7 @@ def _with_ancestors(lots):
 
 
 def perform_verif(lot, iids, identity, partial=False, participants=(), places=None, sealed=(), exclude=(),
-                  strict=False):
+                  strict=False, checked=None):
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -442,7 +459,10 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
       sont obligatoires le temps de cette verif) ;
     - exclude : sous-lots des lots verifies laisses de cote avec leurs propres sous-lots (vérif en cascade : deja
       valides pendant cette vérif, pas encore faits, ou faits par un autre participant). Ils ne sont ni attendus, ni
-      verifies, ni ouverts.
+      verifies, ni ouverts ;
+    - checked : {lot id: [types]} items a cocher (ItemType.physical faux) coches pendant la vérif. Ceux d'un lot
+      verifie qui ne le sont pas manquent jusqu'a sa prochaine vérif (Lots.unchecked). None (ancien front) : rien ne
+      change ; en verif partielle, un lot n'est complet que si ses items a cocher le sont.
     """
     now = timezone.now()
     today = timezone.localdate()
@@ -537,10 +557,10 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         if group is None:
             verified_ids = set()
         elif partial:
-            verified_ids = _complete_lots(group, scanned, not_seen, target, today, strict)
+            verified_ids = _complete_lots(group, scanned, not_seen, target, today, strict, checked)
         else:
             verified_ids = set(by_id)
-        if group is not None and partial and not verified_ids and not scanned and not intact:
+        if group is not None and partial and not verified_ids and not scanned and not intact and not checked:
             raise ValueError('Rien à valider : aucun item scanné')
         not_seen = [item for item in not_seen if group is None or item.location_id in verified_ids]
         # items non consommables absents d'un lot ordinaire verifie : retires du lot, ils passent hors lot
@@ -680,9 +700,13 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 sub_lot.back_from_list = ''
                 sub_lot.marked_used = None
                 sub_lot.marked_used_by = ''
+                if checked is not None:
+                    ticked = set(checked.get(sub_lot.id, ()))
+                    sub_lot.unchecked = [type_id for type_id in checks_by_lot([sub_lot], strict)[sub_lot.id]
+                                         if type_id not in ticked]
                 sub_lot.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'last_used',
                                             'last_used_by', 'verif_recommended', 'restocked_count',
-                                            'back_from_list', 'marked_used', 'marked_used_by'])
+                                            'back_from_list', 'marked_used', 'marked_used_by', 'unchecked'])
                 requirements = requirements_status(sub_lot, today, strict=strict)
                 lot_expired = [iid for iid in report['expired'] if target.get(iid) == sub_lot.id]
                 # complet des que le minimum d'items frais est la, meme s'il reste un perime en trop
@@ -809,7 +833,7 @@ def _record_verif(lot, identity, now, verif, requirements, partial, missing, exp
                    expired_items=expired[:journal.MAX_LISTED_ITEMS])
 
 
-def _complete_lots(group, scanned, not_seen, target, today, strict=False):
+def _complete_lots(group, scanned, not_seen, target, today, strict=False, checked=None):
     """Lots que les items scannes rendent complets (verif partielle). Un lot sans aucun item scanne n'est retenu
     que s'il ne contient rien : sinon tout son contenu serait signale manquant. Un rangement du stock n'a pas de
     contenu attendu : ses items sont ses attendus, il n'est complet que si tous ont ete scannes. Un item a
@@ -825,10 +849,13 @@ def _complete_lots(group, scanned, not_seen, target, today, strict=False):
             fresh[destination][item.pack.item_type_id] += 1
     # un item a dechirer ou non consommable (passe hors lot) non scanne ne retient pas son lot
     holding = {item.location_id for item in not_seen if not item.pack.item_type.tear_off and not leaves_lot(item)}
+    checks = checks_by_lot(group, strict) if checked is not None else {}
     complete = set()
     for lot in group:
         if lot.id in holding and (lot.id not in touched or lot.lot_type.storage):
             continue
+        if checked is not None and not set(checks[lot.id]) <= set(checked.get(lot.id, ())):
+            continue  # un item a cocher ne l'est pas
         # un perime en trop ne retient pas le lot : seul compte le minimum d'items frais
         if all(fresh[lot.id][type_id] >= quantity for type_id, quantity in required[lot.id].items()):
             complete.add(lot.id)
@@ -1328,7 +1355,7 @@ def stock_status(soon_days=30):
     in_stock = in_stock_q(f'{items}__')
     in_lot = Q(**{f'{items}__location__isnull': False, f'{items}__location__lot_type__storage': False})
     soon_filter = Q(itemspacks__peremption__gte=today) & Q(itemspacks__peremption__lte=soon)
-    queryset = ItemType.objects.filter(archived=False).order_by('name').annotate(
+    queryset = ItemType.objects.filter(archived=False, physical=True).order_by('name').annotate(
         stock_fresh=Count(items, filter=active & fresh & in_stock),
         stock_expired=Count(items, filter=active & expired & in_stock),
         lots_fresh=Count(items, filter=active & fresh & in_lot),

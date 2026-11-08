@@ -54,6 +54,7 @@ def item_type_dict(item_type):
         'tear_off': item_type.tear_off,
         'label_style': item_type.label_style,
         'consumable': item_type.consumable,
+        'physical': item_type.physical,  # faux : item a cocher, sans etiquette
         'tasks': list(item_type.tasks or []),
         # revision du materiel non consommable (0 mois : pas de revision)
         'revision_months': item_type.revision_months,

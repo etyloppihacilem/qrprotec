@@ -314,20 +314,21 @@ class VerifWindow final : public AppWindow {
               bool        storage;
               int         extra; // items en trop : « + x »
               bool        optional = false; // facultatif (casques du VPS) : rien ne manque, required = nombre prevu
+              bool        check    = false; // item a cocher (gobelets) : une case, comptee a la main
           };
           std::vector< TypeRow >  type_rows;
           std::set< std::string > required_types;
           // rangs : 0 en cours, 1 rien de scanne, 2 facultatif pas tout vu (ni a faire ni un probleme), 3 complet
           const auto add_type = [&](const std::string &type, const std::string &type_name,
                                     const std::string &location, int required, int done, bool storage, int extra,
-                                    bool optional = false) {
+                                    bool optional = false, bool check = false) {
             const int  missing = optional ? 0 : std::max(0, required - done);
             const auto last    = last_scan.find(type);
             required_types.insert(type);
-            remaining += missing;
+            remaining += check ? (missing > 0 ? 1 : 0) : missing; // une case a cocher, pas `required` scans
             type_rows.push_back({ type, type_name, location, required, done, missing,
                                   missing == 0 ? (optional && done < required ? 2 : 3) : done == 0 ? 1 : 0,
-                                  last == last_scan.end() ? -1 : last->second, storage, extra, optional });
+                                  last == last_scan.end() ? -1 : last->second, storage, extra, optional, check });
           };
           // types ajoutes au lot pendant la verif sans y etre attendus : une ligne « + x » chacun (ses items connus
           // non scannes restent a scanner, ils sont listes sous cette ligne)
@@ -361,6 +362,14 @@ class VerifWindow final : public AppWindow {
           } else {
             for (const Json &row : lot["requirements"].items()) {
               const std::string type     = row["type"].str();
+              if (row["check"].boolean()) {
+                // item a cocher : tout est la une fois coche
+                const int  expected = static_cast< int >(row["expected"].integer(row["required"].integer()));
+                const bool ticked   = app.verif_checked(lot["id"].str(), type);
+                add_type(type, row["type_name"].str(), row["location"].str(), expected, ticked ? expected : 0, false, 0,
+                         row["optional"].boolean(), true);
+                continue;
+              }
               const auto        found    = plan_row.fresh.find(type);
               const int         fresh    = found == plan_row.fresh.end() ? 0 : found->second;
               // facultatif : compte sur le nombre prevu, sans jamais manquer (le lot se valide sans)
@@ -395,11 +404,19 @@ class VerifWindow final : public AppWindow {
             if (placed)
               ImGui::Indent(12.0f);
             ImGui::PushID((lot["id"].str() + ":" + type).c_str());
-            if (report_mark("##report"))
+            if (entry.check) {
+              bool ticked = entry.missing == 0 && entry.done > 0;
+              if (ImGui::Checkbox("##check", &ticked))
+                app.toggle_verif_check(lot["id"].str(), type);
+              ImGui::SetItemTooltip("Item à cocher : comptez-les à la main, puis cochez.");
+            } else if (report_mark("##report"))
               report = { lot["id"].str(), lot["name"].str(), "", type, entry.type_name + " (" + lot["name"].str() + ")" };
             ImGui::PopID();
             ImGui::SameLine();
-            ImGui::Text("%s", entry.type_name.c_str());
+            if (entry.check)
+              ImGui::Text("%d × %s", entry.required, entry.type_name.c_str());
+            else
+              ImGui::Text("%s", entry.type_name.c_str());
             if (placed)
               ImGui::Unindent(12.0f);
             if (!placed && !entry.location.empty()) {
@@ -411,7 +428,10 @@ class VerifWindow final : public AppWindow {
               ImGui::TextColored(colors::grey, "facultatif");
               help_marker("Facultatif : le lot se valide sans, mais scannez ceux que vous voyez pour savoir où ils "
                           "sont. Non scannés, ils restent où ils étaient.");
-            } else if (entry.missing > 0)
+            } else if (entry.check)
+              ImGui::TextColored(entry.missing > 0 ? colors::red : colors::green,
+                                 entry.missing > 0 ? "à compter, puis cocher" : "coché");
+            else if (entry.missing > 0)
               ImGui::TextColored(entry.done == 0 ? colors::red : colors::orange, "encore %d", entry.missing);
             else if (entry.required > 0)
               ImGui::TextColored(colors::green, "complet");
@@ -431,7 +451,7 @@ class VerifWindow final : public AppWindow {
               item_row(*item);
               known_fresh += (*item)["expired"].boolean() ? 0 : 1;
             }
-            if (!entry.storage && entry.missing > known_fresh) {
+            if (!entry.storage && !entry.check && entry.missing > known_fresh) {
               ImGui::TableNextRow();
               ImGui::TableNextColumn();
               ImGui::Indent();

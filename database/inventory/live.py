@@ -197,8 +197,9 @@ def clean_entries(value):
     sont que des iids : la verif envoyee est controlee par le serveur comme toute autre verif."""
     entries = []
     for entry in (value if isinstance(value, list) else [])[:MAX_ENTRIES]:
-        # 'seal' : etiquette du scelle d'un lot (iid : id du lot, key : code du scelle), scelle intact
-        if not isinstance(entry, dict) or entry.get('kind') not in ('item', 'pack', 'seal'):
+        # 'seal' : etiquette du scelle d'un lot (iid : id du lot, key : code du scelle), scelle intact ; 'check' : item
+        # a cocher coche a la main (iid : id du lot, info.type : son type d'item)
+        if not isinstance(entry, dict) or entry.get('kind') not in ('item', 'pack', 'seal', 'check'):
             continue
         info = entry.get('info') if isinstance(entry.get('info'), dict) else None
         items = entry.get('items') if isinstance(entry.get('items'), list) else []
@@ -218,6 +219,17 @@ def clean_entries(value):
             },
         })
     return entries
+
+
+def checked_entries(entries):
+    """{lot id: [types]} des items a cocher coches (scans 'check') : le "checked" d'une verif."""
+    checked = {}
+    for entry in entries:
+        if entry['kind'] == 'check' and entry['info'] and entry['info']['type']:
+            checked.setdefault(entry['iid'], [])
+            if entry['info']['type'] not in checked[entry['iid']]:
+                checked[entry['iid']].append(entry['info']['type'])
+    return checked
 
 
 def clean_labels(value):
@@ -513,14 +525,15 @@ class LiveHub:
         places = {iid: entry['place'] for entry in entries if entry['place']
                   for iid in ([entry['iid']] if entry['kind'] == 'item' else entry['items'])}
         sealed = [{'id': entry['iid'], 'code': entry['key']} for entry in entries if entry['kind'] == 'seal']
-        if not identities or not lots or not (iids or sealed):
+        checked = checked_entries(entries)
+        if not identities or not lots or not (iids or sealed or checked):
             return False
         try:
             targets = verif_lots(lots, False, verified=is_verified(identities[0]))
             sealed_lots = sealed_targets({'sealed': sealed}, targets)
             require_label(targets, {}, sealed=sealed_lots, extra=labels)
             report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places, sealed_lots,
-                                            strict=session.full)
+                                            strict=session.full, checked=checked)
         except Exception as exc:  # cle expiree, etiquette d'aucun lot scannee, lot archive... : la verif est abandonnee
             if isinstance(exc, (ApiError, ValueError)):
                 logger.warning('Verif commune %s abandonnee : %s', session.id, getattr(exc, 'message', exc))
@@ -823,8 +836,10 @@ class LiveHub:
                 if len(session.steps) < 500 or row['id'] in session.steps:
                     session.steps[row['id']] = {'at': at, 'by': who, 'complete': bool(row.get('complete')),
                                                 'sealed': bool(row.get('sealed')), 'verif': report.get('verif_id')}
+            done = {row['id'] for row in rows}
             for participant in session.participants.values():
-                participant.entries = [entry for entry in participant.entries if not self._entry_in(entry, sent)]
+                participant.entries = [entry for entry in participant.entries if not self._entry_in(entry, sent)
+                                       and not (entry['kind'] == 'check' and entry['iid'] in done)]
             session.updated = timezone.now()
             sockets = [p.socket for p in session.participants.values() if p.id != team['pid'] and p.socket is not None]
         message = {'type': 'step', 'by': who, 'items': sorted(sent),

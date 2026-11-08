@@ -160,7 +160,9 @@ def state_at(root, at):
             if not (row.absent or row.expired or row.disabled):
                 good[row.item.pack.item_type_id] += 1
         state.lacking = [(requirement, requirement.quantity - good[requirement.item_type_id])
-                         for requirement in state.requirements if good[requirement.item_type_id] < requirement.quantity]
+                         for requirement in state.requirements
+                         # item a cocher : sans etiquette ni historique, il n'est pas suivi dans le rapport
+                         if requirement.item_type.physical and good[requirement.item_type_id] < requirement.quantity]
     return [states[lot.id] for lot in lots]
 
 

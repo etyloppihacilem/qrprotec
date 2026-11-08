@@ -179,6 +179,15 @@ liste** recopie tout ce que contient un lot (ses sacs compris) dans la liste, à
 document du ministère avant **Enregistrer le contenu**. Quand tous les lots d'un type sont des
 sous-lots de lots d'un même type, le formulaire le propose comme rangement (**Suggestion**).
 
+**Items à cocher** : ce qui ne porte pas d'étiquette (gobelets, sucres) ou ce qui est une
+vérification à faire (« Vérifier les piles ») se crée comme un type d'item, case **Item à cocher
+(sans étiquette : gobelets, sucres…)** cochée. Il n'a ni stock, ni étiquette, ni péremption, et
+s'ajoute au contenu d'un type de lot comme les autres (« 10 Gobelets »). En vérif, il s'affiche
+avec une case : le secouriste compte à la main puis coche. Tant qu'il n'est pas coché, le lot n'est
+pas complet ; un item laissé décoché à la fin d'une vérif reste manquant jusqu'à la vérif suivante.
+Dans une vérif à plusieurs, la case cochée par l'un est cochée pour tous. Un type d'item qui a déjà
+des items étiquetés ne peut pas devenir « à cocher ».
+
 Créez aussi :
 
 - des types **sans contenu** pour les regroupements : « VPS » (`vpsxxx`), « B+ » (`bplusx`) ;

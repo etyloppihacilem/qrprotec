@@ -423,6 +423,14 @@ class InventoryWindow final : public AppWindow {
                                                  "Le type d'item");
       ImGui::TextUnformatted("Description");
       ImGui::InputTextMultiline("##description", &form_description_, ImVec2(-FLT_MIN, 60));
+      ImGui::Checkbox("Item à cocher (sans étiquette : gobelets, sucres…)", &form_to_check_);
+      help_marker("Pour ce qu'on ne va pas étiqueter un par un (ex : 5 gobelets, 15 sucres) ou une simple "
+                  "vérification (ex : « Piles de la lampe vérifiées ») : pas d'étiquette, pas de stock, pas de "
+                  "péremption. Dans un lot, la vérif affiche une case à cocher : on compte à la main, puis on coche. "
+                  "Non coché, il manque jusqu'à la vérif suivante. Un type qui a déjà des étiquettes ne peut pas "
+                  "le devenir.");
+      // item a cocher : rien de ce qui suit ne le concerne (sauf les taches, affichees sous la case)
+      ImGui::BeginDisabled(form_to_check_);
       ImGui::SetNextItemWidth(150.0f);
       ImGui::InputInt("Quantité minimale en stock", &form_min_);
       ImGui::SetNextItemWidth(150.0f);
@@ -440,11 +448,14 @@ class InventoryWindow final : public AppWindow {
                   "« Déchirer avant utilisation » : on l'arrache dès qu'on entame l'ensemble. À la vérif suivante, "
                   "l'étiquette manquante compte l'ensemble comme utilisé tout de suite : il faut remettre un "
                   "ensemble complet, les restes de l'ancien sont considérés comme perdus.");
+      ImGui::EndDisabled();
+      ImGui::BeginDisabled(form_to_check_);
       ImGui::Checkbox("Non consommable (matériel réutilisable)", &form_non_consumable_);
       help_marker("Ex : lecteur de glycémie, oxymètre. Un item non consommable ne s'use pas : s'il manque à la vérif "
                   "d'un lot, il a été retiré du lot : il passe « hors lot » au lieu d'être compté comme utilisé ou "
                   "perdu, et rejoint le stock quand il y est scanné ou remis en stock à la main. Sorti du stock sans lot, il reste « sorti » jusqu'à son retour. Dans un rangement du "
                   "stock, il manque comme les autres items.");
+      ImGui::EndDisabled();
       ImGui::TextUnformatted("Tâches à la vérif (une par ligne)");
       help_marker("Ex : DAE « Voyant vert allumé », « Électrodes dans leur date ». Les items de ce type ont une "
                   "étiquette de tâches : la scanner pendant une vérif ouvre la liste à cocher, et l'item n'est "
@@ -457,7 +468,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextColored(colors::red, "Une étiquette à déchirer ne peut pas avoir de tâches : décochez-la ou videz "
                                         "les tâches.");
       // revision periodique : materiel non consommable seulement
-      ImGui::BeginDisabled(!form_non_consumable_);
+      ImGui::BeginDisabled(!form_non_consumable_ || form_to_check_);
       ImGui::SetNextItemWidth(150.0f);
       ImGui::InputInt("Révision tous les (mois)", &form_revision_months_);
       help_marker("Ex : aspirateur de mucosités révisé tous les 3 mois. 0 : pas de révision. À la révision (bouton "
@@ -480,15 +491,16 @@ class InventoryWindow final : public AppWindow {
       body["name"]              = form_name_;
       body["description"]       = form_description_;
       body["min_quantity"]      = form_min_;
-      body["perissable"]        = form_perishable_;
+      body["perissable"]        = form_perishable_ && !form_to_check_;
       body["default_pack_size"] = form_pack_size_;
-      body["tear_off"]          = form_tear_off_;
+      body["tear_off"]          = form_tear_off_ && !form_to_check_;
+      body["physical"]          = !form_to_check_;
       body["label_style"]       = kLabelStyles[form_label_style_];
       body["consumable"]        = !form_non_consumable_;
       body["tasks"]             = Json::array();
       for (const std::string &task : form_task_list())
         body["tasks"].push_back(task);
-      body["revision_months"] = form_non_consumable_ ? form_revision_months_ : 0;
+      body["revision_months"] = form_non_consumable_ && !form_to_check_ ? form_revision_months_ : 0;
       body["revision_usable"] = form_revision_usable_;
       body["revision_tasks"]  = Json::array();
       for (const std::string &task : task_lines(form_revision_tasks_))
@@ -602,6 +614,7 @@ class InventoryWindow final : public AppWindow {
       form_tear_off_    = item_type["tear_off"].boolean();
       form_label_style_ = label_style_index(item_type["label_style"].str());
       form_non_consumable_ = !item_type["consumable"].boolean(true);
+      form_to_check_       = !item_type["physical"].boolean(true);
       form_tasks_.clear();
       for (const std::string &task : tasks_of(item_type))
         form_tasks_ += (form_tasks_.empty() ? "" : "\n") + task;
@@ -624,6 +637,7 @@ class InventoryWindow final : public AppWindow {
       form_tear_off_   = false;
       form_label_style_ = 0;
       form_non_consumable_ = false;
+      form_to_check_       = false;
       form_tasks_.clear();
       form_revision_months_ = 0;
       form_revision_usable_ = true;
@@ -1110,6 +1124,7 @@ class InventoryWindow final : public AppWindow {
     bool        form_tear_off_   = false;
     int         form_label_style_ = 0; // index dans kLabelStyles
     bool        form_non_consumable_ = false;
+    bool        form_to_check_       = false; // item a cocher (ItemType.physical faux)
     std::string form_tasks_;
     int         form_revision_months_ = 0;
     bool        form_revision_usable_ = true;
