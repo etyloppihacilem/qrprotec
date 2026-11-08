@@ -5569,6 +5569,11 @@
         ? el('p', {}, '🔒 Scellé obligatoire pour ce type de lot : il reste à traiter tant qu\'un nouveau scellé n\'est pas posé.') : '',
       lot.global && lot.global.id !== lot.id && full
         ? el('p', {}, 'Lot global : ', ficheLink('lot', lot.global.id, lot.global.name), ` · ${lot.global.label}`) : '',
+      // lots exiges : place fixe vide (rouge), lot qui en remplace un autre
+      (lot.slots_missing || []).length
+        ? el('p', { class: 'danger-text' }, `✘ Lot manquant : ${lot.slots_missing.join(', ')}`) : '',
+      ...(lot.slots || []).flatMap((slot) => slot.lots.filter((child) => child.replaces_name).map((child) =>
+        el('p', {}, '↔ ', ficheLink('lot', child.id, child.name), ` remplace ${child.replaces_name}`))),
     ];
 
     // etiquette privee : scannee (cle verifiee par le serveur) ou ou la trouver

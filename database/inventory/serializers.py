@@ -17,9 +17,9 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
-from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, Role, compact_iid, qrprotec_setting
+from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, compact_iid, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
-from .services import LotPreload, optional_lot, optional_types, ordered_requirements, out_deadline, requirements_status
+from .services import LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -209,6 +209,12 @@ def lot_type_dict(lot_type):
         'rangements': [{'type': row.type, 'name': row.name}
                        for row in lot_type.rangements.order_by('name')] if lot_type.referentiel else [],
         'suggested_part_of': suggested_part_of(lot_type),
+        # lots exiges (fixes ou a l'assemblage), avec les types acceptes
+        'slots': [
+            {'id': slot.id, 'name': slot.name, 'accepted': list(slot.accepted), 'quantity': slot.quantity,
+             'mode': slot.mode, 'optional': slot.optional}
+            for slot in lot_type.slots.all()
+        ],
         'requirements': [
             {
                 'type': requirement.item_type_id,
@@ -288,6 +294,10 @@ def _lot_core(lot, today, items=None, preload=None):
         'active': lot.active,
         'parent': lot.parent_id,
         'key_location': lot.key_location,
+        # place a l'assemblage (temporaire) ; lot qui tient la place fixe d'un autre (remplacement)
+        'assembled': lot.assembled,
+        'replaces': lot.replaces_id or '',
+        'replaces_name': lot.replaces.name if lot.replaces_id and preload is None else '',
         # sous-lot facultatif a la verif de son parent (services.optional_lot)
         'optional': optional_lot(lot),
         'is_sealed': lot.is_sealed,
@@ -318,7 +328,8 @@ def _lot_core(lot, today, items=None, preload=None):
         'revision_soon_count': sum(1 for item in revised if today <= item.revision_due <= soon_limit),
         'requirements': requirements,
         # complet des que le minimum d'items frais est la : un perime en trop ne le rend pas incomplet
-        'complete': all(row['present'] >= row['required'] for row in requirements),
+        # places fixes (lots exiges, LotTypeSlot) vides : le lot est incomplet
+        'slots_missing': fixed_slots_missing(lot, preload),
         'public_url': public_url('verif', lot=lot.id),
         # signalements ouverts du lot lui-meme (ou d'un type d'item du lot) : toujours affiches sur sa fiche ; un
         # seul inutilisable rend le lot non utilisable
@@ -326,6 +337,7 @@ def _lot_core(lot, today, items=None, preload=None):
                     else lot_reports(lot)),
     }
     data['unusable'] = any(not report['usable'] for report in data['reports'])
+    data['complete'] = all(row['present'] >= row['required'] for row in requirements) and not data['slots_missing']
     data['state'] = lot_state(data)
     return data
 
@@ -358,7 +370,8 @@ def aggregate_tree(rows):
             parent = parents.get(parent)
         # un sous-lot facultatif ne compte pas : le lot global est valide sans lui
         row['counted'] = (not row.get('optional')
-                          and bool(row['requirements'] or row['item_count'] or row['id'] not in has_children))
+                          and bool(row['requirements'] or row['item_count'] or row.get('slots_missing')
+                                   or row['id'] not in has_children))
         if covered and not row['expired_count'] and not row.get('unusable'):
             row['effective'] = {'kind': 'ok', 'code': 'covered', 'label': '✔ Dans un lot scellé'}
         else:
@@ -465,7 +478,7 @@ def lot_global(lot, today):
     rows = attention_order(rows)  # sous-lots a traiter en haut, sous leur parent
     keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed', 'sealed',
             'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
-            'counted', 'optional', 'unusable')
+            'counted', 'optional', 'unusable', 'slots_missing', 'assembled', 'replaces_name')
     summary.update({
         'id': root.id,
         'name': root.name,
@@ -494,6 +507,8 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, p
     ]
     if with_global:
         data['global'] = lot_global(lot, today)
+    if preload is None:
+        data['slots'] = lot_slots(lot, children, today)
     if with_items:
         _add_items(data, lot, items, today)
         # sous-lots (en profondeur d'abord) : une verif du lot les couvre aussi
@@ -516,6 +531,39 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, p
                                  if lot.is_sealed and lot.seal_open_code else '')
         data['own_content'] = lot_own_content(lot, preload)
     return data
+
+
+def _slot_lot(lot, today):
+    core = _lot_core(lot, today)
+    return {'id': lot.id, 'name': lot.name, 'lot_type': lot.lot_type_id, 'lot_type_name': lot.lot_type.name,
+            'state': core['state'], 'parent_name': lot.parent.name if lot.parent_id else '',
+            'replaces': lot.replaces_id or '', 'replaces_name': lot.replaces.name if lot.replaces_id else ''}
+
+
+def lot_slots(lot, children, today):
+    """Lots exiges du type du lot (LotTypeSlot) et ce qui les occupe : sous-lots ranges dans chaque place, places
+    vides, lots disponibles pour une place a l'assemblage (valides en premier) et lots qui peuvent remplacer un lot
+    fixe (Gestion des lots du poste)."""
+    slots = list(lot.lot_type.slots.all())
+    if not slots:
+        return []
+    names = dict(LotType.objects.filter(type__in={code for slot in slots for code in slot.accepted})
+                 .values_list('type', 'name'))
+    children = list(lot.children.select_related('lot_type', 'replaces').filter(active=True))
+    rows = []
+    for slot, taken in assign_slots(slots, children)[0]:
+        candidates = [_slot_lot(other, today) for other in slot_candidates(lot, slot)]
+        candidates.sort(key=lambda row: KIND_ORDER[row['state']['kind']])  # valides en premier (tri stable)
+        rows.append({
+            'id': slot.id, 'name': slot.name, 'mode': slot.mode, 'quantity': slot.quantity, 'optional': slot.optional,
+            'accepted': [{'type': code, 'name': names.get(code, code)} for code in slot.accepted],
+            'lots': [_slot_lot(child, today) for child in taken],
+            'missing': slot.quantity - len(taken),
+            'available': candidates if slot.mode == 'assembly' else [],
+            'available_ok': sum(1 for row in candidates if row['state']['kind'] == 'ok'),
+            'candidates': candidates if slot.mode == 'fixed' else [],
+        })
+    return rows
 
 
 def lot_own_content(lot, preload=None):

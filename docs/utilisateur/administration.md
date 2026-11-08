@@ -77,6 +77,9 @@ Menu **Gestion > Gestion des lots** (rôle gestion).
   (« Aucun : lot indépendant » ou le lot global). Aperçu et impression des étiquettes publique et
   clé. **Nombre de lots** : plusieurs lots du type d'un coup, avec leurs sous-lots (proposés d'après les
   lots existants et les rangements du référentiel), noms numérotés et modifiables, étiquettes groupées.
+- **Lots exigés** (type de lot) : sous-lots fixes ou à l'assemblage, types acceptés, quantité,
+  facultatif. Sur la fiche du lot : places vides, **Assembler** / **Libérer**, **Remplacer…** un lot fixe
+  puis **Remettre l'original**.
 - **Fiche d'un lot** : modifier le nom, le parent ou l'**emplacement de l'étiquette clé** (ex : « poche intérieure du couvercle », affiché à qui essaie de valider une vérif sans l'avoir scannée), réimprimer les étiquettes (**publique**,
   **clé**, **les deux**), **Archiver le lot** quand il est réformé (il disparaît des listes ; il
   se réactive).

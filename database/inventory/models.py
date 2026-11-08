@@ -425,6 +425,32 @@ class LotRequirements(models.Model): # Pour mettre un item dans un lot
         unique_together = [('lot_type', 'item_type')]
 
 
+class SlotMode(models.TextChoices):
+    FIXED = 'fixed', 'Fixe'
+    ASSEMBLY = 'assembly', "À l'assemblage"
+
+
+class LotTypeSlot(models.Model):
+    """Lot exige par un type de lot (ex : « 1 lot B+ » dans le VPS ou le C, « Lot V ou B+ ou VPS » dans le CAI).
+
+    - fixe : le sous-lot y est range pour de bon (le B+ du VPS) ; il n'est jamais propose ailleurs. Il peut etre
+      remplace par un lot non fixe d'un type accepte quand il a un probleme (Lots.replaces), jamais l'inverse ;
+    - a l'assemblage : n'importe quel lot libre d'un type accepte, choisi quand on assemble (le B+ d'un C), et libere
+      ensuite (Lots.assembled).
+    Une place fixe non facultative vide rend le lot incomplet ; une place a l'assemblage vide montre les lots
+    disponibles."""
+    lot_type = models.ForeignKey(LotType, on_delete=models.CASCADE, related_name='slots')
+    name = models.CharField(max_length=64)
+    accepted = models.JSONField(default=list)  # codes des types de lots acceptes
+    quantity = models.PositiveIntegerField(default=1)
+    mode = models.CharField(max_length=8, choices=SlotMode.choices, default=SlotMode.FIXED)
+    optional = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'pk']
+
+
 class KeyExpiry(models.IntegerChoices):
     """Etape d'expiration d'une cle (etiquette privee de lot, badge) deja annoncee aux admins : une seule alerte
     par etape, remise a zero au renouvellement."""
@@ -522,6 +548,12 @@ class Lots(models.Model):
     # Items a cocher (ItemType.physical faux) laisses non coches a la derniere vérif de ce lot : ils manquent jusqu'a
     # la prochaine. Vide : tout est la (on fait confiance aux secouristes entre deux vérifs).
     unchecked = models.JSONField(default=list, blank=True)
+    # Sous-lot range dans son parent par une place « a l'assemblage » (LotTypeSlot) : temporaire, libere ensuite
+    assembled = models.BooleanField(default=False)
+    # Lot qui tient la place fixe d'un autre (le sac de soin du VPS en panne) et lot parent d'ou il vient, pour l'y
+    # remettre quand l'original reprend sa place
+    replaces = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replaced_by')
+    borrowed_from = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='lent')
 
     def save(self, *args, **kwargs):
         if not self.version:

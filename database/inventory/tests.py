@@ -1912,6 +1912,63 @@ class SubLotTests(ApiTestCase):
         bplus3 = Lots.objects.get(name='B+ 3')
         self.assertEqual(sorted(child.name for child in bplus3.children.all()), ['Sac O2 B+ 3', 'Sac PSE B+ 3'])
 
+    def test_lot_type_slots(self):
+        """Lots exiges : place fixe (vide = lot incomplet, remplacement par un lot non fixe puis retour de
+        l'original) et place a l'assemblage (n'importe quel lot libre, jamais un lot fixe)."""
+        code, body = self.call('PUT', '/api/lot-types/bplusx/slots/', {'slots': [
+            {'accepted': ['sacpse'], 'mode': 'fixed'}, {'name': 'Sac O2', 'accepted': ['saco2x']}]})
+        self.assertEqual(code, 200)
+        self.assertEqual([slot['name'] for slot in body['slots']], ['Sac PSE', 'Sac O2'])
+        code, lot = self.call('GET', f"/api/lots/{self.bplus['id']}/")
+        self.assertEqual(lot['slots_missing'], [])
+        self.assertEqual([row['lots'][0]['id'] for row in lot['slots']], [self.soin['id'], self.sac_o2['id']])
+        code, bplus2 = self.call('POST', '/api/lots/', {'lot_type': 'bplusx', 'name': 'B+ 2', 'user': 'M001'})
+        code, o2_2 = self.call('POST', '/api/lots/', {'lot_type': 'saco2x', 'name': 'Sac O2 2',
+                                                      'parent': bplus2['id'], 'user': 'M001'})
+        code, lot = self.call('GET', f"/api/lots/{bplus2['id']}/")
+        self.assertEqual(lot['slots_missing'], ['Sac PSE'])
+        self.assertFalse(lot['complete'])
+        self.assertTrue(lot['global']['lots'][0]['counted'])  # le B+ vide de sac compte dans son lot global
+        # remplacement : un sac libre prend la place du sac de soin du B+ 1 ; le sac O2 du B+ 2 (fixe) n'est pas propose
+        code, spare = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac réserve', 'user': 'M001'})
+        code, lot = self.call('GET', f"/api/lots/{self.bplus['id']}/")
+        soin_slot, o2_slot = lot['slots']
+        self.assertIn(spare['id'], [row['id'] for row in soin_slot['candidates']])  # lots libres (le sac du setUp aussi)
+        self.assertEqual(o2_slot['candidates'], [])
+        code, body = self.call('POST', f"/api/lots/{self.bplus['id']}/slots/replace/",
+                               {'slot': o2_slot['id'], 'original': self.sac_o2['id'], 'lot': o2_2['id'], 'user': 'M001'})
+        self.assertEqual(code, 400)  # on ne prend pas un lot fixe
+        code, body = self.call('POST', f"/api/lots/{self.bplus['id']}/slots/replace/",
+                               {'slot': soin_slot['id'], 'original': self.soin['id'], 'lot': spare['id'], 'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['slots'][0]['lots'][0]['replaces_name'], 'Sac de soin')
+        self.assertIsNone(Lots.objects.get(id=self.soin['id']).parent_id)
+        code, body = self.call('POST', f"/api/lots/{self.bplus['id']}/slots/restore/",
+                               {'lot': spare['id'], 'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertEqual(Lots.objects.get(id=self.soin['id']).parent_id, self.bplus['id'])
+        self.assertIsNone(Lots.objects.get(id=spare['id']).parent_id)
+        # assemblage : un C prend n'importe quel B+ libre
+        LotType.objects.create(type='lotcxx', name='Lot C')
+        code, body = self.call('PUT', '/api/lot-types/lotcxx/slots/', {'slots': [
+            {'name': 'B+', 'accepted': ['bplusx'], 'mode': 'assembly'}]})
+        code, lot_c = self.call('POST', '/api/lots/', {'lot_type': 'lotcxx', 'name': 'C 1', 'user': 'M001'})
+        code, lot = self.call('GET', f"/api/lots/{lot_c['id']}/")
+        self.assertEqual(lot['slots_missing'], [])  # une place a l'assemblage vide n'est pas un manque
+        slot = lot['slots'][0]
+        self.assertEqual({row['id'] for row in slot['available']}, {self.bplus['id'], bplus2['id']})
+        code, body = self.call('POST', f"/api/lots/{lot_c['id']}/slots/assemble/",
+                               {'slot': slot['id'], 'lot': self.bplus['id'], 'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertTrue(Lots.objects.get(id=self.bplus['id']).assembled)
+        code, body = self.call('POST', f"/api/lots/{lot_c['id']}/slots/assemble/",
+                               {'slot': slot['id'], 'lot': bplus2['id'], 'user': 'M001'})
+        self.assertEqual(code, 400)  # place deja occupee
+        code, body = self.call('POST', f"/api/lots/{lot_c['id']}/slots/release/",
+                               {'lot': self.bplus['id'], 'user': 'M001'})
+        self.assertEqual(code, 200)
+        self.assertIsNone(Lots.objects.get(id=self.bplus['id']).parent_id)
+
     def test_referentiel_coverage(self):
         """Referentiel : liste obligatoire sans emplacements, repartie entre des rangements (les sacs) ; le lot du
         referentiel n'attend rien lui-meme, la couverture compare la somme de ses sacs a la liste."""
