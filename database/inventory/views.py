@@ -55,7 +55,8 @@ from .sessions import (  # noqa: F401 (tests)
     temp_login_token, temp_login_user,
 )
 from .models import (
-    DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType,
+    DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType, LotTypeSlot,
+    SlotMode,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
     SCANNER_VOLUMES, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, name_key, qrprotec_setting,
 )
@@ -2223,6 +2224,148 @@ def lot_type_detail(request, type_code):
                        f'type de lot modifié : {lot_type} ({changed_fields(data, LOT_TYPE_FIELDS)})',
                        type=lot_type.type, fields=sorted(data.keys()))
     return Response(ser.lot_type_dict(lot_type))
+
+
+@api_view(['PUT'])
+@handle_errors
+def lot_type_slots(request, type_code):
+    """Remplace les lots exiges du type : [{"name": "B+", "accepted": ["bplusx"], "quantity": 1, "mode": "fixed",
+    "optional": false}, ...] dans l'ordre. mode : 'fixed' (range pour de bon) ou 'assembly' (n'importe quel lot libre,
+    choisi a l'assemblage). Les sous-lots deja ranges ne bougent pas : seule leur place change."""
+    require_front(request, GESTION)
+    lot_type = get_object_or_404(LotType, type=type_code)
+    rows = request.data.get('slots', [])
+    if not isinstance(rows, list):
+        raise ApiError("slots : liste attendue")
+    if rows and lot_type.storage:
+        raise ApiError(f"{lot_type.name} est un rangement du stock : il n'exige pas de lots")
+    clean = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ApiError("slots : liste d'objets attendue")
+        accepted = row.get('accepted', [])
+        if not isinstance(accepted, list) or not accepted:
+            raise ApiError("Chaque lot exigé accepte au moins un type de lot")
+        codes = []
+        for code in accepted:
+            other = get_object_or_404(LotType, type=str(code))
+            if other.storage:
+                raise ApiError(f"{other.name} est un rangement du stock : il ne peut pas être exigé")
+            if other.type == lot_type.type:
+                raise ApiError("Un type de lot ne peut pas s'exiger lui-même")
+            if other.type not in codes:
+                codes.append(other.type)
+        mode = str(row.get('mode', SlotMode.FIXED))
+        if mode not in SlotMode.values:
+            raise ApiError("mode : 'fixed' ou 'assembly'")
+        names = dict(LotType.objects.filter(type__in=codes).values_list('type', 'name'))
+        name = str(row.get('name', '')).strip()[:64] or ' ou '.join(names[code] for code in codes)[:64]
+        clean.append(LotTypeSlot(lot_type=lot_type, name=name, accepted=codes, mode=mode, order=index,
+                                 quantity=parse_int(row.get('quantity', 1), 'quantity', 1),
+                                 optional=bool(row.get('optional', False))))
+    with transaction.atomic():
+        lot_type.slots.all().delete()
+        LotTypeSlot.objects.bulk_create(clean)
+    journal.record(OperationKind.LOT, front_identity(request), f'lots exigés du type {lot_type.name} modifiés',
+                   lot_type=lot_type.type, slots=[{'name': slot.name, 'accepted': slot.accepted,
+                                                   'quantity': slot.quantity, 'mode': slot.mode} for slot in clean])
+    return Response(ser.lot_type_dict(lot_type))
+
+
+def slot_of(lot, slot_id):
+    slot = get_object_or_404(LotTypeSlot, id=parse_int(slot_id, 'slot', 1))
+    if slot.lot_type_id != lot.lot_type_id:
+        raise ApiError(f"Cette place n'est pas une place de {lot.name}")
+    return slot
+
+
+def slot_lot(lot_id):
+    other = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=str(lot_id or ''))
+    if not other.active:
+        raise ApiError(f"Le lot {other.name} est archivé")
+    return other
+
+
+@api_view(['POST'])
+@handle_errors
+def lot_slot_action(request, lot_id, action):
+    """Places des lots exiges d'un lot (Gestion des lots) :
+
+    - assemble {slot, lot} : range un lot libre d'un type accepte dans une place a l'assemblage ;
+    - release {lot} : libere un lot assemble (il redevient independant) ;
+    - replace {slot, original, lot} : un lot non fixe prend la place fixe d'un sous-lot qui a un probleme ; l'original
+      sort du lot (independant), le remplacant garde la trace du lot d'ou il vient ;
+    - restore {lot} : l'original reprend sa place, le remplacant retourne dans le lot d'ou il venait."""
+    require_front(request, GESTION)
+    lot = slot_lot(lot_id)
+    data = request.data
+    who = operation_identity(request, data)[:32]
+    with transaction.atomic():
+        if action == 'assemble':
+            slot = slot_of(lot, data.get('slot'))
+            if slot.mode != SlotMode.ASSEMBLY:
+                raise ApiError(f"{slot.name} est une place fixe : utilisez Remplacer")
+            other = slot_lot(data.get('lot'))
+            if other.id not in {candidate.id for candidate in services.slot_candidates(lot, slot)}:
+                raise ApiError(f"{other.name} ne peut pas aller dans cette place : il faut un lot libre "
+                               f"({', '.join(slot.accepted)}), pas un lot rangé dans un autre")
+            taken = services.assign_slots([slot], list(lot.children.filter(active=True)))[0][0][1]
+            if len(taken) >= slot.quantity:
+                raise ApiError(f"La place {slot.name} est déjà occupée : libérez d'abord un lot")
+            other.parent = lot
+            other.assembled = True
+            other.save(update_fields=['parent', 'assembled'])
+            journal.record(OperationKind.LOT, who, f'assemblé dans {lot.name} ({slot.name})', lot=other)
+        elif action == 'release':
+            other = slot_lot(data.get('lot'))
+            if other.parent_id != lot.id or not other.assembled:
+                raise ApiError(f"{other.name} n'est pas assemblé dans {lot.name}")
+            other.parent = None
+            other.assembled = False
+            other.save(update_fields=['parent', 'assembled'])
+            journal.record(OperationKind.LOT, who, f'libéré de {lot.name}', lot=other)
+        elif action == 'replace':
+            slot = slot_of(lot, data.get('slot'))
+            if slot.mode != SlotMode.FIXED:
+                raise ApiError(f"{slot.name} est une place à l'assemblage : libérez le lot puis assemblez-en un autre")
+            original = slot_lot(data.get('original'))
+            taken = services.assign_slots([slot], list(lot.children.filter(active=True)))[0][0][1]
+            if original.id not in {child.id for child in taken}:
+                raise ApiError(f"{original.name} n'occupe pas la place {slot.name} de {lot.name}")
+            other = slot_lot(data.get('lot'))
+            if other.id not in {candidate.id for candidate in services.slot_candidates(lot, slot)}:
+                raise ApiError(f"{other.name} ne peut pas remplacer {original.name} : il faut un lot d'un type "
+                               "accepté qui ne tient pas lui-même une place fixe")
+            other.borrowed_from = other.parent
+            other.parent = lot
+            other.assembled = False
+            other.replaces = original
+            other.save(update_fields=['parent', 'assembled', 'replaces', 'borrowed_from'])
+            original.parent = None
+            original.assembled = False
+            original.save(update_fields=['parent', 'assembled'])
+            journal.record(OperationKind.LOT, who, f'remplace {original.name} dans {lot.name}', lot=other)
+            journal.record(OperationKind.LOT, who, f'remplacé par {other.name}, sorti de {lot.name}', lot=original)
+        elif action == 'restore':
+            other = slot_lot(data.get('lot'))
+            if other.parent_id != lot.id or other.replaces_id is None:
+                raise ApiError(f"{other.name} ne remplace aucun lot dans {lot.name}")
+            original = slot_lot(other.replaces_id)
+            if original.parent_id is not None:
+                raise ApiError(f"{original.name} est rangé dans {original.parent.name} : sortez-le d'abord")
+            back = other.borrowed_from if other.borrowed_from_id and other.borrowed_from.active else None
+            original.parent = lot
+            original.save(update_fields=['parent'])
+            other.parent = back
+            other.replaces = None
+            other.borrowed_from = None
+            other.save(update_fields=['parent', 'replaces', 'borrowed_from'])
+            journal.record(OperationKind.LOT, who, f'reprend sa place dans {lot.name}', lot=original)
+            journal.record(OperationKind.LOT, who, 'rendu' + (f' à {back.name}' if back else ''), lot=other)
+        else:
+            raise Http404
+    lot.refresh_from_db()
+    return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 
 @api_view(['PUT'])

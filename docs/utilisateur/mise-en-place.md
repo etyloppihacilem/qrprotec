@@ -188,6 +188,23 @@ pas complet ; un item laissé décoché à la fin d'une vérif reste manquant ju
 Dans une vérif à plusieurs, la case cochée par l'un est cochée pour tous. Un type d'item qui a déjà
 des items étiquetés ne peut pas devenir « à cocher ».
 
+**Lots exigés** : sur un type de lot, la section **Lots exigés** dit quels sous-lots il lui faut
+(« 1 B+ » pour le VPS, « Lot V ou B+ ou VPS » pour le CAI : plusieurs types acceptés). Chaque ligne
+est :
+
+- **Fixe** : le sous-lot y reste (le B+ du VPS, les sacs d'un B+). Une place fixe vide rend le lot
+  incomplet (rouge), sauf si elle est **facultative**. Un lot fixe n'est jamais proposé ailleurs : on ne
+  part pas avec le sac du VPS pour un lot A.
+- **À l'assemblage** : n'importe quel lot libre (rangé dans aucun lot) d'un type accepté, choisi au
+  moment d'assembler (le B+ d'un lot C). Une place vide n'est pas un manque : la fiche du lot dit combien
+  de lots sont disponibles et valides, et **Assembler** en range un. **Libérer** le rend indépendant.
+
+Sur la fiche d'un lot (Gestion des lots), **Remplacer…** met un autre lot à la place d'un lot fixe qui a
+un problème : un lot d'un type accepté qui ne tient pas lui-même une place fixe (un sac de soin de
+réserve, ou celui d'un B+ libre). L'original sort du lot, et le remplaçant est affiché « remplace … »
+(sur le web aussi). **Remettre l'original** remet l'original à sa place et renvoie le remplaçant dans
+le lot d'où il venait.
+
 Créez aussi :
 
 - des types **sans contenu** pour les regroupements : « VPS » (`vpsxxx`), « B+ » (`bplusx`) ;

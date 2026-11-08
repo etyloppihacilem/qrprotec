@@ -778,6 +778,8 @@ class LotAdminWindow final : public AppWindow {
       if (button(lot_["is_sealed"].boolean() ? "Lancer une vérif (brise le scellé)" : "Lancer une vérif"))
         app.start_verif(selected_lot_, "", app.lot_label_scanned(selected_lot_)); // l'etiquette du lot reste a scanner
 
+      if (lot_["slots"].size() > 0)
+        draw_lot_slots(app);
       ImGui::SeparatorText("Contenu");
       if (ImGui::BeginTable("lot_requirements", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
@@ -821,6 +823,116 @@ class LotAdminWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
+    }
+
+    // Places des lots exiges : sous-lots ranges, places vides, assembler / liberer, remplacer un lot fixe
+    void draw_lot_slots(App &app) {
+      ImGui::SeparatorText("Lots exigés");
+      for (const Json &slot : lot_["slots"].items()) {
+        const std::string slot_id  = slot["id"].str();
+        const bool        assembly = slot["mode"].str() == "assembly";
+        ImGui::PushID(slot_id.c_str());
+        std::string accepted;
+        for (const Json &row : slot["accepted"].items())
+          accepted += (accepted.empty() ? "" : " ou ") + row["name"].str();
+        ImGui::Text("%s", slot["name"].str().c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%s%s%s)", assembly ? "à l'assemblage" : "fixe",
+                            slot["quantity"].integer() > 1 ? (", " + std::to_string(slot["quantity"].integer())).c_str() : "",
+                            slot["optional"].boolean() ? ", facultatif" : "");
+        if (accepted != slot["name"].str())
+          ImGui::TextDisabled("  accepte : %s", accepted.c_str());
+        ImGui::Indent();
+        for (const Json &child : slot["lots"].items()) {
+          ImGui::PushID(child["id"].str().c_str());
+          ImGui::TextColored(state_color(child["state"]), "%s", child["name"].str().c_str());
+          ImGui::SameLine();
+          ImGui::TextDisabled("%s", child["state"]["label"].str().c_str());
+          if (!child["replaces_name"].str().empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(colors::orange, "remplace %s", child["replaces_name"].str().c_str());
+            ImGui::SameLine();
+            if (small_button("Remettre l'original"))
+              slot_action(app, "restore", "", child["id"].str(), "");
+          } else if (assembly) {
+            ImGui::SameLine();
+            if (small_button("Libérer"))
+              slot_action(app, "release", "", child["id"].str(), "");
+          } else if (slot["candidates"].size() > 0) {
+            ImGui::SameLine();
+            if (small_button("Remplacer…")) {
+              slot_pick_.clear();
+              ImGui::OpenPopup("replace");
+            }
+            if (ImGui::BeginPopup("replace")) {
+              ImGui::Text("Remplacer %s par :", child["name"].str().c_str());
+              ImGui::TextDisabled("Un lot non fixe d'un type accepté. L'original sort du lot jusqu'à son retour.");
+              search_select("replace_by", slot["candidates"], "id", "name", slot_pick_, "Tapez le nom du lot…",
+                            nullptr, 320.0f);
+              ImGui::BeginDisabled(slot_pick_.empty());
+              if (primary_button("Remplacer")) {
+                slot_action(app, "replace", slot_id, slot_pick_, child["id"].str());
+                ImGui::CloseCurrentPopup();
+              }
+              ImGui::EndDisabled();
+              ImGui::EndPopup();
+            }
+          }
+          ImGui::PopID();
+        }
+        const int missing = static_cast< int >(slot["missing"].integer());
+        if (missing > 0) {
+          if (assembly) {
+            ImGui::TextColored(colors::grey, "%d à assembler : %s disponibles, dont %s valides", missing,
+                               std::to_string(slot["available"].size()).c_str(),
+                               std::to_string(slot["available_ok"].integer()).c_str());
+            if (slot["available"].size() > 0) {
+              ImGui::SameLine();
+              search_select("assemble", slot["available"], "id", "name", slot_pick_, "Lot à assembler…", nullptr,
+                            260.0f);
+              ImGui::SameLine();
+              ImGui::BeginDisabled(slot_pick_.empty());
+              if (small_button("Assembler"))
+                slot_action(app, "assemble", slot_id, slot_pick_, "");
+              ImGui::EndDisabled();
+            }
+          } else {
+            ImGui::TextColored(slot["optional"].boolean() ? colors::grey : colors::red, "%s : %d manquant%s%s",
+                               slot["name"].str().c_str(), missing, missing > 1 ? "s" : "",
+                               slot["optional"].boolean() ? " (facultatif)" : " : rangez un lot dans celui-ci (Dans le lot)");
+          }
+        }
+        ImGui::Unindent();
+        ImGui::PopID();
+      }
+    }
+
+    static ImVec4 state_color(const Json &state) {
+      const std::string kind = state["kind"].str();
+      return kind == "ok" ? colors::green : kind == "warn" ? colors::orange : colors::red;
+    }
+
+    void slot_action(App &app, const std::string &action, const std::string &slot, const std::string &lot,
+                     const std::string &original) {
+      Json body;
+      if (!slot.empty())
+        body["slot"] = slot;
+      body["lot"] = lot;
+      if (!original.empty())
+        body["original"] = original;
+      body["user"]         = app.user_ref();
+      const std::string id = selected_lot_;
+      app.api.post("/api/lots/" + url_encode(id) + "/slots/" + action + "/", body,
+                   [this, &app, id](const ApiResult &result) {
+                     if (!result.ok) {
+                       app.notify(result.error, true);
+                       return;
+                     }
+                     slot_pick_.clear();
+                     if (selected_lot_ == id)
+                       lot_ = result.data;
+                     app.refresh_lots();
+                   });
     }
 
     // Contenu propre au lot, par-dessus celui de son type : items en plus, emplacements et leur ordre dans ce lot
@@ -1111,6 +1223,8 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SameLine();
       draw_archive_lot_type(app);
 
+      if (!type_storage_ && !editing_lot_type_.empty())
+        draw_slots_editor(app);
       ImGui::SeparatorText("Contenu attendu");
       if (type_storage_) {
         ImGui::TextDisabled("Un rangement du stock n'a pas de contenu attendu : on y range ce qu'on veut.");
@@ -1209,6 +1323,94 @@ class LotAdminWindow final : public AppWindow {
       if (type_referentiel_)
         draw_coverage(app);
       ImGui::EndChild();
+    }
+
+    // Lots exiges par le type (« 1 lot B+ » du VPS, « Lot V ou B+ ou VPS » du CAI) : fixes ou a l'assemblage
+    void draw_slots_editor(App &app) {
+      ImGui::SeparatorText("Lots exigés");
+      ImGui::TextDisabled("Fixe : le sous-lot y reste (le B+ du VPS), une place vide rend le lot incomplet. À "
+                          "l'assemblage : n'importe quel lot libre d'un type accepté, choisi au moment d'assembler.");
+      Json types = Json::array();
+      for (const Json &lot_type : app.catalog.lot_types.items())
+        if (!lot_type["archived"].boolean() && !lot_type["storage"].boolean() && lot_type["type"].str() != editing_lot_type_)
+          types.push_back(lot_type);
+      int remove = -1;
+      for (std::size_t index = 0; index < slots_.size(); ++index) {
+        SlotRow &row = slots_[index];
+        ImGui::PushID(static_cast< int >(index) + 5000);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.3f);
+        input_limited("##slot_name", row.name, 64, "Nom (par défaut : les types acceptés)");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80.0f);
+        ImGui::InputInt("##slot_qty", &row.quantity);
+        row.quantity = std::clamp(row.quantity, 1, 99);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(150.0f);
+        const char *modes[] = { "Fixe", "À l'assemblage" };
+        ImGui::Combo("##slot_mode", &row.mode, modes, 2);
+        ImGui::SameLine();
+        ImGui::Checkbox("Facultatif", &row.optional);
+        ImGui::SameLine();
+        if (small_button("Retirer"))
+          remove = static_cast< int >(index);
+        ImGui::Indent();
+        ImGui::TextDisabled("Types acceptés :");
+        int drop = -1;
+        for (std::size_t accepted = 0; accepted < row.accepted.size(); ++accepted) {
+          ImGui::SameLine();
+          const Json *lot_type = find_lot_type(app, row.accepted[accepted]);
+          const std::string label = (lot_type ? (*lot_type)["name"].str() : row.accepted[accepted]) + "  ✕##acc"
+                                  + std::to_string(accepted);
+          if (small_button(label.c_str()))
+            drop = static_cast< int >(accepted);
+          if (accepted + 1 < row.accepted.size()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("ou");
+          }
+        }
+        if (drop >= 0)
+          row.accepted.erase(row.accepted.begin() + drop);
+        if (search_select("slot_add", types, "type", "name", row.adding, "+ Ajouter un type accepté…", nullptr,
+                          ImGui::GetContentRegionAvail().x * 0.5f)
+            && !row.adding.empty()) {
+          if (std::find(row.accepted.begin(), row.accepted.end(), row.adding) == row.accepted.end())
+            row.accepted.push_back(row.adding);
+          row.adding.clear();
+        }
+        ImGui::Unindent();
+        ImGui::PopID();
+      }
+      if (remove >= 0)
+        slots_.erase(slots_.begin() + remove);
+      if (button("+ Ajouter un lot exigé"))
+        slots_.push_back({});
+      ImGui::SameLine();
+      if (primary_button("Enregistrer les lots exigés")) {
+        Json body;
+        body["slots"] = Json::array();
+        for (const SlotRow &row : slots_) {
+          if (row.accepted.empty())
+            continue;
+          Json entry;
+          entry["name"]     = row.name;
+          entry["quantity"] = row.quantity;
+          entry["mode"]     = std::string(row.mode == 1 ? "assembly" : "fixed");
+          entry["optional"] = row.optional;
+          entry["accepted"] = Json::array();
+          for (const std::string &code : row.accepted)
+            entry["accepted"].push_back(code);
+          body["slots"].push_back(entry);
+        }
+        app.api.put("/api/lot-types/" + url_encode(editing_lot_type_) + "/slots/", body,
+                    [this, &app](const ApiResult &result) {
+                      app.notify(result.ok ? "Lots exigés enregistrés." : result.error, !result.ok);
+                      if (result.ok) {
+                        edit_lot_type(result.data);
+                        app.refresh_lot_types();
+                        app.refresh_lots();
+                      }
+                    });
+      }
     }
 
     // Referentiel (liste du ministere, sans emplacements) et « Rangement de » (sa repartition entre des sacs)
@@ -1427,6 +1629,17 @@ class LotAdminWindow final : public AppWindow {
       for (const Json &row : lot_type["requirements"].items())
         requirements_.push_back({ row["type"].str(), static_cast< int >(row["quantity"].integer(1)),
                                   row["location"].str(), row["optional"].boolean() });
+      slots_.clear();
+      for (const Json &row : lot_type["slots"].items()) {
+        SlotRow slot;
+        slot.name     = row["name"].str();
+        slot.quantity = static_cast< int >(row["quantity"].integer(1));
+        slot.mode     = row["mode"].str() == "assembly" ? 1 : 0;
+        slot.optional = row["optional"].boolean();
+        for (const Json &code : row["accepted"].items())
+          slot.accepted.push_back(code.str());
+        slots_.push_back(slot);
+      }
     }
 
     // Lots
@@ -1455,7 +1668,17 @@ class LotAdminWindow final : public AppWindow {
       std::string type, type_name, name, short_name, key_location;
       int         depth;
     };
-    int                     new_lot_count_ = 1;
+    struct SlotRow {
+      std::string                name;
+      std::vector< std::string > accepted;
+      int                        quantity = 1;
+      int                        mode     = 0; // 0 fixe, 1 a l'assemblage
+      bool                       optional = false;
+      std::string                adding;
+    };
+    std::vector< SlotRow > slots_;
+    std::string            slot_pick_; // lot choisi pour assembler / remplacer (fiche du lot)
+    int                    new_lot_count_ = 1;
     std::string             batch_type_;
     std::string             batch_base_;
     std::string             batch_base_short_;

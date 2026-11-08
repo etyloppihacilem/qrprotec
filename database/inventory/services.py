@@ -21,7 +21,8 @@ from django.utils import timezone
 from . import journal, movements, notifications, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_identity_name
 from .models import (
-    ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotContent, LotRequirements, Lots, LotType, MovementKind, OperationKind,
+    ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotContent, LotRequirements, Lots, LotType, LotTypeSlot, MovementKind,
+    OperationKind, SlotMode,
     ProblemReport, ReportStatus, STOCK_LOT_TYPE, SeenWhile, VerifItem, Operation, VerifResult,
     Verifs, add_months, generate_key, name_key,
     qrprotec_setting, revision_blocked_q,
@@ -199,7 +200,12 @@ class LotPreload:
         for row in LotContent.objects.select_related('item_type').filter(lot_id__in=ids).order_by('pk'):
             self.content[row.lot_id].append(row)
         # arborescence : tous les lots (un parent peut etre hors de la liste), quelques champs seulement
-        self.tree = {lot.id: lot for lot in Lots.objects.only('id', 'name', 'parent_id', 'active')}
+        self.tree = {lot.id: lot for lot in Lots.objects.only('id', 'name', 'parent_id', 'active', 'lot_type_id',
+                                                                  'assembled')}
+        # lots exiges par type (voir fixed_slots_missing)
+        self.slots = defaultdict(list)
+        for slot in LotTypeSlot.objects.all():
+            self.slots[slot.lot_type_id].append(slot)
         self.children = defaultdict(list)
         for lot in self.tree.values():
             if lot.active and lot.parent_id is not None:
@@ -215,6 +221,62 @@ class LotPreload:
             seen.add(parent.id)
             parent = self.tree.get(parent.parent_id)
         return chain
+
+
+def assign_slots(slots, children):
+    """Repartit les sous-lots actifs d'un lot entre les lots exiges de son type, dans l'ordre des places : une place
+    fixe prend les sous-lots ranges pour de bon, une place a l'assemblage les sous-lots assembles, d'un type accepte.
+    Renvoie [(place, [sous-lots])] et les sous-lots sans place (simples sous-lots, comme avant)."""
+    left = sorted(children, key=lambda child: child.name.lower())
+    result = []
+    for slot in slots:
+        assembly = slot.mode == SlotMode.ASSEMBLY
+        taken = [child for child in left
+                 if child.lot_type_id in slot.accepted and bool(child.assembled) == assembly][:slot.quantity]
+        left = [child for child in left if child not in taken]
+        result.append((slot, taken))
+    return result, left
+
+
+def fixed_slots_missing(lot, preload=None):
+    """Places fixes non facultatives du type du lot qui ne sont pas toutes occupees : « Sac de soin » ou
+    « Kit AES (3/5) ». Un lot auquel il en manque est incomplet."""
+    slots = preload.slots.get(lot.lot_type_id, []) if preload is not None else list(lot.lot_type.slots.all())
+    slots = [slot for slot in slots if slot.mode == SlotMode.FIXED and not slot.optional]
+    if not slots:
+        return []
+    children = (preload.children.get(lot.id, []) if preload is not None
+                else list(lot.children.filter(active=True).only('id', 'name', 'lot_type_id', 'assembled')))
+    missing = []
+    for slot, taken in assign_slots(slots, children)[0]:
+        if len(taken) < slot.quantity:
+            missing.append(slot.name if slot.quantity == 1 else f'{slot.name} ({len(taken)}/{slot.quantity})')
+    return missing
+
+
+def fixed_place(lot):
+    """Le lot tient-il une place fixe dans son parent ? Un lot fixe n'est jamais propose ailleurs (assemblage,
+    remplacement) : on ne part pas avec le sac du VPS pour un lot A."""
+    if lot.parent_id is None or lot.assembled:
+        return False
+    parent = lot.parent
+    slots = list(parent.lot_type.slots.filter(mode=SlotMode.FIXED))
+    if not slots:
+        return False
+    children = list(parent.children.filter(active=True).only('id', 'name', 'lot_type_id', 'assembled'))
+    return any(lot.id in {child.id for child in taken} for _, taken in assign_slots(slots, children)[0])
+
+
+def slot_candidates(lot, slot):
+    """Lots qu'on peut mettre dans une place du lot : pour une place a l'assemblage, les lots libres (sans parent)
+    d'un type accepte ; pour une place fixe (remplacement), tous les lots d'un type accepte qui ne tiennent pas
+    eux-memes une place fixe. Jamais le lot lui-meme, ses lots parents ou ses sous-lots."""
+    tree = {other.id for other in lot.descendants()} | {other.id for other in lot.ancestors()} | {lot.id}
+    queryset = (Lots.objects.select_related('lot_type', 'parent__lot_type')
+                .filter(active=True, lot_type_id__in=slot.accepted).exclude(id__in=tree).order_by('name'))
+    if slot.mode == SlotMode.ASSEMBLY:
+        return list(queryset.filter(parent__isnull=True))
+    return [other for other in queryset if not fixed_place(other)]
 
 
 def coverage_lots(referentiel):
