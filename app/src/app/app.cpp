@@ -26,9 +26,11 @@
 #include "imgui_stdlib.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstdlib>
 #include <ctime>
+#include <iterator>
 #include <map>
 #include <random>
 #include <set>
@@ -316,6 +318,15 @@ void App::handle_shortcuts() {
     toggle_fullscreen();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Space))
     request_layout_reset();
+  // Super+fleches : ranger la fenetre sur une moitie ou un quart de l'ecran
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_LeftArrow))
+    snap_focused(-1, 0);
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightArrow))
+    snap_focused(1, 0);
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_UpArrow))
+    snap_focused(0, -1);
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_DownArrow))
+    snap_focused(0, 1);
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W))
     if (AppWindow *target = window(focused_window_); target && target->open && target->can_close(*this))
       target->open = false;
@@ -477,6 +488,35 @@ void App::draw_menu_bar() {
         window(focused_window_)->open = false;
       if (ImGui::MenuItem("Remettre les fenêtres en place", "Ctrl+Espace"))
         request_layout_reset();
+      // rangement de la fenetre qui a le focus (aussi en la glissant sur un bord ou dans un coin de l'ecran)
+      AppWindow *snap_target = window(focused_window_);
+      const bool snappable   = snap_target && snap_target->open && can_open(*snap_target) && can_snap(*snap_target);
+      if (ImGui::BeginMenu("Ranger la fenêtre", snappable)) {
+        struct SnapEntry {
+            const char *label;
+            const char *shortcut;
+            int         h, v;
+        };
+        static const SnapEntry kEntries[] = {
+          { "Moitié gauche", "Super+Gauche", -1, 0 },          { "Moitié droite", "Super+Droite", 1, 0 },
+          { "Moitié haute", "Super+Haut", 0, -1 },             { "Moitié basse", "Super+Bas", 0, 1 },
+          { "Quart en haut à gauche", nullptr, -1, -1 },       { "Quart en haut à droite", nullptr, 1, -1 },
+          { "Quart en bas à gauche", nullptr, -1, 1 },         { "Quart en bas à droite", nullptr, 1, 1 },
+        };
+        for (std::size_t index = 0; index < std::size(kEntries); ++index) {
+          const SnapEntry &entry = kEntries[index];
+          if (index == 4)
+            ImGui::Separator();
+          const bool current = snap_target->snap_h == entry.h && snap_target->snap_v == entry.v;
+          if (ImGui::MenuItem(entry.label, entry.shortcut, current))
+            snap_window(*snap_target, entry.h, entry.v);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Place d'avant", nullptr, false, snap_target->snap_h != 0 || snap_target->snap_v != 0))
+          snap_window(*snap_target, 0, 0);
+        ImGui::TextDisabled("Ou glissez la fenêtre sur un bord (moitié)\nou dans un coin de l'écran (quart).");
+        ImGui::EndMenu();
+      }
       ImGui::EndMenu();
     }
     // Gestion : le stock (roles gestion et admin) ; Administration : ce qui est reserve aux admins
@@ -619,6 +659,7 @@ void App::window_menu_item(AppWindow &target) {
 void App::draw_windows() {
   ImVec2 origin, size;
   work_area(origin, size);
+  AppWindow *moving_window = nullptr; // fenetre glissee a la souris
   // ecran redimensionne (kiosk : Cage agrandit la fenetre a la taille de l'ecran apres la premiere
   // image, dessinee en 1280x800) : les fenetres deja placees gardent leur place en proportion
   if (last_work_size_.x > 0.0f && last_work_size_.y > 0.0f && size.x > 0.0f && size.y > 0.0f
@@ -656,6 +697,7 @@ void App::draw_windows() {
     }
     if (place) {
       window->resize_pending = false;
+      window->snap_h = window->snap_v = 0; // disposition par defaut : plus rangee
     } else if (window->resize_pending && !fullscreen_) {
       ImGui::SetNextWindowPos(window->last_pos, ImGuiCond_Always);
       ImGui::SetNextWindowSize(window->last_size, ImGuiCond_Always);
@@ -687,7 +729,11 @@ void App::draw_windows() {
     bool              open  = true;
     bool             *p_open = window->can_close(*this) ? &open : nullptr;
     const std::string label = window->title + "###" + window->id;
-    if (ImGui::Begin(label.c_str(), p_open, flags)) {
+    const bool        visible = ImGui::Begin(label.c_str(), p_open, flags);
+    if (const ImGuiWindow *moving = GImGui->MovingWindow;
+        moving != nullptr && moving->RootWindow == ImGui::GetCurrentWindow())
+      moving_window = window.get();
+    if (visible) {
       if (!fullscreen_) {
         window->last_pos  = ImGui::GetWindowPos();
         window->last_size = ImGui::GetWindowSize();
@@ -702,6 +748,121 @@ void App::draw_windows() {
     window->was_open = window->open;
   }
   layout_pending_ = false;
+  update_snap_drag(moving_window);
+}
+
+// --- Rangement des fenetres : moitie de l'ecran sur un bord, quart dans un coin ---
+
+bool App::can_snap(const AppWindow &target) const {
+  // fenetres a taille automatique ou fixes : rien a ranger
+  return !fullscreen_ && !(target.flags() & (ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize));
+}
+
+void App::snap_rect(int h, int v, ImVec2 &pos, ImVec2 &size) const {
+  ImVec2 origin, work;
+  work_area(origin, work);
+  const float half_w = std::floor(work.x * 0.5f);
+  const float half_h = std::floor(work.y * 0.5f);
+  pos  = ImVec2(h > 0 ? origin.x + half_w : origin.x, v > 0 ? origin.y + half_h : origin.y);
+  size = ImVec2(h == 0 ? work.x : h < 0 ? half_w : work.x - half_w, v == 0 ? work.y : v < 0 ? half_h : work.y - half_h);
+}
+
+void App::snap_window(AppWindow &target, int h, int v) {
+  if (h == 0 && v == 0) {
+    // sortie du rangement : place et taille d'avant
+    if (target.snap_h != 0 || target.snap_v != 0) {
+      if (target.snap_restore_size.x > 0.0f) {
+        target.last_pos       = target.snap_restore_pos;
+        target.last_size      = target.snap_restore_size;
+        target.resize_pending = true;
+      }
+      target.snap_h = target.snap_v = 0;
+    }
+    return;
+  }
+  if (target.snap_h == 0 && target.snap_v == 0) {
+    target.snap_restore_pos  = target.last_pos;
+    target.snap_restore_size = target.last_size;
+  }
+  snap_rect(h, v, target.last_pos, target.last_size);
+  target.snap_h         = h;
+  target.snap_v         = v;
+  target.resize_pending = true;
+  target.focus_pending  = true;
+}
+
+// Super+fleche : la fenetre qui a le focus va vers ce bord. Gauche puis Haut : quart en haut a gauche ; la fleche
+// opposee la ramene d'un cran (quart -> moitie -> place d'avant).
+void App::snap_focused(int dh, int dv) {
+  AppWindow *target = window(focused_window_);
+  if (target == nullptr || !target->open || !can_open(*target) || !can_snap(*target))
+    return;
+  int h = target->snap_h, v = target->snap_v;
+  if (dh != 0)
+    h = h == -dh ? 0 : dh;
+  if (dv != 0)
+    v = v == -dv ? 0 : dv;
+  snap_window(*target, h, v);
+}
+
+void App::update_snap_drag(AppWindow *moving) {
+  if (moving != nullptr && can_snap(*moving) && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    if (!ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+      return; // simple clic sur la fenetre : rien ne bouge
+    ImGuiContext &g = *GImGui;
+    // fenetre rangee qu'on decroche : elle reprend sa taille d'avant, sous la souris au meme endroit en proportion
+    if ((moving->snap_h != 0 || moving->snap_v != 0) && !snap_drag_restored_ && g.MovingWindow != nullptr) {
+      ImGuiWindow *root = g.MovingWindow->RootWindow;
+      if (moving->snap_restore_size.x > 0.0f && root->Size.x > 0.0f) {
+        g.ActiveIdClickOffset.x *= moving->snap_restore_size.x / root->Size.x;
+        ImGui::SetWindowSize(root, moving->snap_restore_size, ImGuiCond_Always);
+      }
+      moving->snap_h = moving->snap_v = 0;
+    }
+    snap_drag_restored_ = true;
+    // zone sous la souris : bord (moitie) ou coin (quart, le long du bord sur un cinquieme de l'ecran)
+    ImVec2 origin, work;
+    work_area(origin, work);
+    const ImVec2 mouse  = ImGui::GetIO().MousePos;
+    const float  edge   = ImGui::GetFontSize() * 1.5f;
+    const float  corner_w = work.x * 0.2f, corner_h = work.y * 0.2f;
+    const bool   left   = mouse.x <= origin.x + edge;
+    const bool   right  = mouse.x >= origin.x + work.x - edge;
+    const bool   top    = mouse.y <= origin.y + edge;
+    const bool   bottom = mouse.y >= origin.y + work.y - edge;
+    int          h = 0, v = 0;
+    if (left || right) {
+      h = left ? -1 : 1;
+      v = mouse.y <= origin.y + corner_h ? -1 : mouse.y >= origin.y + work.y - corner_h ? 1 : 0;
+    } else if (top || bottom) {
+      v = top ? -1 : 1;
+      h = mouse.x <= origin.x + corner_w ? -1 : mouse.x >= origin.x + work.x - corner_w ? 1 : 0;
+    }
+    snap_drag_id_ = moving->id;
+    snap_drag_h_  = h;
+    snap_drag_v_  = v;
+    if (h != 0 || v != 0) {
+      // apercu de la place que prendra la fenetre
+      ImVec2 pos, size;
+      snap_rect(h, v, pos, size);
+      const float  pad  = 6.0f;
+      const ImVec2 min(pos.x + pad, pos.y + pad), max(pos.x + size.x - pad, pos.y + size.y - pad);
+      ImVec4       tint = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+      ImDrawList  *draw = ImGui::GetForegroundDrawList();
+      tint.w            = 0.18f;
+      draw->AddRectFilled(min, max, ImGui::GetColorU32(tint), 8.0f);
+      tint.w = 0.9f;
+      draw->AddRect(min, max, ImGui::GetColorU32(tint), 8.0f, 0, 3.0f);
+    }
+    return;
+  }
+  // souris lachee au dessus d'une zone : la fenetre y est rangee
+  if (!snap_drag_id_.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left) && (snap_drag_h_ != 0 || snap_drag_v_ != 0))
+    if (AppWindow *target = window(snap_drag_id_); target && target->open && can_snap(*target))
+      snap_window(*target, snap_drag_h_, snap_drag_v_);
+  snap_drag_id_.clear();
+  snap_drag_h_ = snap_drag_v_ = 0;
+  snap_drag_restored_ = false;
 }
 
 void App::draw_douchette_modal() {

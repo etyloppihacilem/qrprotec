@@ -62,6 +62,12 @@ class AppWindow {
     bool              focus_pending = false;
     bool              resize_pending = false; // reprendre last_pos et last_size (ecran redimensionne)
     bool              fullscreen    = false; // dessinee en plein ecran (mode plein ecran de l'application)
+    // rangee sur une moitie ou un quart de l'ecran : snap_h -1 gauche / 1 droite, snap_v -1 haut / 1 bas, 0 toute
+    // la largeur ou hauteur (0, 0 : pas rangee). snap_restore_* : place et taille d'avant, reprises en la sortant.
+    int               snap_h = 0;
+    int               snap_v = 0;
+    ImVec2            snap_restore_pos{ 0, 0 };
+    ImVec2            snap_restore_size{ 0, 0 };
     ImGuiKeyChord     shortcut      = 0;     // raccourci d'ouverture (F1 a F12)
     std::string       shortcut_label;        // affiche dans les menus
 };
@@ -557,6 +563,13 @@ class App {
     void handle_shortcuts();
     void assign_shortcuts();
     void draw_windows();
+    // Rangement des fenetres : glissee sur un bord, une fenetre prend la moitie de l'ecran, dans un coin un quart
+    // (apercu pendant le glisser) ; Super+fleches au clavier.
+    bool can_snap(const AppWindow &target) const;
+    void snap_rect(int h, int v, ImVec2 &pos, ImVec2 &size) const;
+    void snap_window(AppWindow &target, int h, int v);
+    void snap_focused(int dh, int dv);
+    void update_snap_drag(AppWindow *moving);
     void draw_login_modal();
     void draw_name_login();
     void send_name_login();
@@ -619,6 +632,10 @@ class App {
     ImVec2                  last_work_origin_{ 0, 0 }; // zone de travail de l'image precedente
     ImVec2                  last_work_size_{ 0, 0 };
     bool                    fullscreen_     = false;
+    std::string             snap_drag_id_;            // fenetre glissee au dessus d'une zone de rangement
+    int                     snap_drag_h_ = 0;
+    int                     snap_drag_v_ = 0;
+    bool                    snap_drag_restored_ = false; // fenetre rangee glissee : taille d'avant deja reprise
     std::string             focused_window_; // derniere fenetre de l'application ayant eu le focus
     std::vector< Toast >    toasts_;
     bool                    login_prompt_ = false;
