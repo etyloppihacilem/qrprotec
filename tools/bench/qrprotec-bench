@@ -435,16 +435,23 @@ def cpu(rep):
             f'{allcores / single:.2f}× le temps sur un coeur : turbo perdu sous charge')
 
 
+CPU_SENSORS = ('k10temp', 'zenpower', 'coretemp', 'cpu_thermal', 'soc_thermal')
+
+
 def temperatures():
-    temps = []
-    for zone in Path('/sys/class/thermal').glob('thermal_zone*'):
-        value = read(zone / 'temp')
-        if value.lstrip('-').isdigit() and int(value) > 0:
-            temps.append(int(value) / 1000)
+    """Temperature du processeur (°C) : capteurs du CPU en priorite (k10temp, coretemp...), sinon tous ; les valeurs
+    impossibles (capteur absent ou mal lu, ex. 179 °C) sont ignorees."""
+    cpu, other = [], []
     for sensor in Path('/sys/class/hwmon').glob('hwmon*/temp*_input'):
         value = read(sensor)
-        if value.isdigit():
-            temps.append(int(value) / 1000)
+        if value.isdigit() and 1000 <= int(value) <= 125000:
+            (cpu if read(sensor.parent / 'name') in CPU_SENSORS else other).append(int(value) / 1000)
+    for zone in Path('/sys/class/thermal').glob('thermal_zone*'):
+        value = read(zone / 'temp')
+        if value.isdigit() and 1000 <= int(value) <= 125000:
+            (cpu if 'cpu' in read(zone / 'type').lower() or read(zone / 'type') == 'x86_pkg_temp' else other).append(
+                int(value) / 1000)
+    temps = cpu or other
     return max(temps) if temps else None
 
 
