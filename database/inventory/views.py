@@ -222,6 +222,12 @@ def check_tear_off_tasks(tear_off, tasks):
         raise ApiError("Un type à étiquette à déchirer ne peut pas avoir de tâches à la vérif")
 
 
+def check_physical(physical, perissable, tear_off, revision_months):
+    """Un item a cocher (sans etiquette) n'a ni date de peremption, ni etiquette a dechirer, ni revision."""
+    if not physical and (perissable or tear_off or revision_months):
+        raise ApiError("Un item à cocher n'a pas d'étiquette : ni péremption, ni étiquette à déchirer, ni révision")
+
+
 def parse_tasks(value):
     """Taches d'un type d'item (etiquette de taches) : liste de libelles, sans vides ni doublons."""
     if value is None:
@@ -254,6 +260,17 @@ def iid_list(data):
     if not isinstance(items, list) or not all(isinstance(iid, str) for iid in items):
         raise ApiError("items : liste d'iids attendue")
     return [iid.strip() for iid in items if iid.strip()]
+
+
+def checked_map(data):
+    """"checked" d'une verif : {lot id: [types d'items a cocher coches]}, None si absent (ancien front)."""
+    value = data.get('checked')
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ApiError("checked : {lot: [types]} attendu")
+    return {str(lot_id)[:16]: [str(code)[:16] for code in types] for lot_id, types in value.items()
+            if isinstance(types, list)}
 
 
 def place_map(data):
@@ -1031,7 +1048,7 @@ def lot_verif(request, lot_id):
         require_label(lots, request.data, sealed=sealed)
     report = services.perform_verif(lots, iid_list(request.data), identity, bool(request.data.get('partial')),
                                     places=place_map(request.data), sealed=sealed,
-                                    strict=bool(request.data.get('full')))
+                                    strict=bool(request.data.get('full')), checked=checked_map(request.data))
     return Response(report)
 
 
@@ -1072,7 +1089,8 @@ def verifs(request):
     participants = [value for value in team['identities'] if value != identity] if team else []
     report = services.perform_verif(lots, iids, identity, bool(request.data.get('partial')),
                                     participants, place_map(request.data), sealed, excluded_lots(request.data, lots),
-                                    strict=bool(request.data.get('full')) or bool(team and team['full']))
+                                    strict=bool(request.data.get('full')) or bool(team and team['full']),
+                                    checked=checked_map(request.data))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team and step:
         live.hub.step(team, report, iids, final=bool(request.data.get('finish')))
@@ -1535,6 +1553,8 @@ def item_types(request):
         raise ApiError("Nom obligatoire")
     ensure_name_free(ItemType.objects.all(), name, "Le type d'item")
     check_tear_off_tasks(bool(data.get('tear_off', False)), parse_tasks(data.get('tasks')))
+    check_physical(bool(data.get('physical', True)), bool(data.get('perissable', False)),
+                   bool(data.get('tear_off', False)), parse_int(data.get('revision_months', 0), 'revision_months'))
     item_type = ItemType.objects.create(
         type=code,
         name=name,
@@ -1545,6 +1565,7 @@ def item_types(request):
         tear_off=bool(data.get('tear_off', False)),
         label_style=parse_label_style(data.get('label_style', LabelStyle.QR)),
         consumable=bool(data.get('consumable', True)),
+        physical=bool(data.get('physical', True)),
         tasks=parse_tasks(data.get('tasks')),
         revision_months=parse_int(data.get('revision_months', 0), 'revision_months', 0, MAX_REVISION_MONTHS),
         revision_tasks=parse_tasks(data.get('revision_tasks')),
@@ -1588,6 +1609,10 @@ def item_type_detail(request, type_code):
         if 'tasks' in data:
             item_type.tasks = parse_tasks(data['tasks'])
         check_tear_off_tasks(item_type.tear_off, item_type.tasks)
+        if 'physical' in data and bool(data['physical']) != item_type.physical:
+            if not data['physical'] and ItemsPacks.objects.filter(item_type=item_type).exists():
+                raise ApiError("Des items de ce type ont déjà des étiquettes : il ne peut pas devenir un item à cocher")
+            item_type.physical = bool(data['physical'])
         had_revision = item_type.has_revision
         if 'revision_months' in data:
             item_type.revision_months = parse_int(data['revision_months'], 'revision_months', 0, MAX_REVISION_MONTHS)
@@ -1595,6 +1620,7 @@ def item_type_detail(request, type_code):
             item_type.revision_tasks = parse_tasks(data['revision_tasks'])
         if 'revision_usable' in data:
             item_type.revision_usable = bool(data['revision_usable'])
+        check_physical(item_type.physical, item_type.perissable, item_type.tear_off, item_type.revision_months)
         if 'archived' in data:
             archived = bool(data['archived'])
             if archived:
@@ -1625,7 +1651,7 @@ ITEM_TYPE_FIELDS = {
     'name': 'nom', 'description': 'description', 'min_quantity': 'stock minimum',
     'default_pack_size': 'taille de paquet', 'perissable': 'périssable', 'tear_off': 'étiquette à déchirer',
     'label_style': "style d'étiquette",
-    'consumable': 'consommable', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
+    'consumable': 'consommable', 'physical': 'à cocher', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
     'revision_tasks': 'tâches de révision', 'revision_usable': 'utilisable en retard de révision',
     'archived': 'archivage',
 }

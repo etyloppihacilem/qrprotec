@@ -247,6 +247,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .list li.group .count { font-size: 1.05rem; }
 .list li.group .chevron { width: 1em; flex: none; text-align: center; }
 .list li.group.foldable { cursor: pointer; user-select: none; }
+/* Item a cocher (gobelets, sucres) : une grande case, compte a la main */
+.list li.group.check { cursor: pointer; user-select: none; }
+.list li.group.check .checkbox { font-size: 1.6rem; line-height: 1; flex: none; width: 1.2em; text-align: center; }
 /* Lot scelle en vérif : une seule ligne, l'etiquette du scelle a scanner (sealRows) */
 .list li.group.seal-wait { background: var(--red); padding: 16px 12px; }
 .list li.group.seal-wait .name { font-size: 1.15rem; }

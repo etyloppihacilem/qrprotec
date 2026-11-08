@@ -2699,6 +2699,30 @@ std::set< std::string > App::verif_intact() const {
   return result;
 }
 
+bool App::verif_checked(const std::string &lot, const std::string &type) const {
+  const auto found = verif.checked.find(lot);
+  return found != verif.checked.end() && found->second.count(type) > 0;
+}
+
+void App::toggle_verif_check(const std::string &lot, const std::string &type) {
+  std::set< std::string > &types = verif.checked[lot];
+  if (!types.erase(type))
+    types.insert(type);
+}
+
+Json App::verif_checked_body(const std::set< std::string > *scope) const {
+  Json body = Json::object();
+  for (const auto &[lot, types] : verif.checked) {
+    if (scope && !scope->count(lot))
+      continue;
+    Json list = Json::array();
+    for (const std::string &type : types)
+      list.push_back(type);
+    body[lot] = list;
+  }
+  return body;
+}
+
 std::vector< VerifPlanLot > App::plan_verif() const {
   // lots scelles intacts : ni attendus ni destinataires d'items (services.perform_verif)
   const std::set< std::string > intact = verif_intact();
@@ -2714,6 +2738,7 @@ std::vector< VerifPlanLot > App::plan_verif() const {
   std::map< std::string, std::string > location_of;    // iid connu -> lot
   std::map< std::string, std::map< std::string, int > > required, deficit;
   std::set< std::string >              holding;        // lots dont des items connus n'ont pas ete scannes
+  std::set< std::string >              unticked;       // lots dont un item a cocher ne l'est pas
   const std::vector< std::string >     scanned = stack.iids();
   const std::set< std::string >        done(scanned.begin(), scanned.end());
   for (const Json *lot : lots) {
@@ -2730,8 +2755,14 @@ std::vector< VerifPlanLot > App::plan_verif() const {
             && (item["consumable"].boolean(true) || (*lot)["storage"].boolean()))
           holding.insert(id);
       }
-    for (const Json &row : (*lot)["requirements"].items())
+    for (const Json &row : (*lot)["requirements"].items()) {
+      if (row["check"].boolean()) { // item a cocher : jamais scanne, coche a la main
+        if (row["required"].integer() > 0 && !verif_checked(id, row["type"].str()))
+          unticked.insert(id);
+        continue;
+      }
       required[id][row["type"].str()] = row["required"].integer();
+    }
     deficit[id] = required[id];
   }
   if (plan.empty())
@@ -2847,7 +2878,7 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     const std::string id = (*row.lot)["id"].str();
     row.required         = required[id];
     // seul compte le minimum d'items frais : un perime en trop ne retient pas le lot (il est retire, a jeter)
-    bool filled = true;
+    bool filled = !unticked.count(id);
     for (const auto &[type, quantity] : required[id])
       filled = filled && row.fresh[type] >= quantity;
     // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
@@ -3153,6 +3184,7 @@ void App::submit_step(bool partial) {
       body["sealed"].push_back(entry);
       sent_seals.insert(sealed.id);
     }
+    body["checked"]  = verif_checked_body(&scope);
     body["partial"]  = partial;
     body["step"]     = true;
     verif.submitting = true;
@@ -3176,6 +3208,7 @@ void App::submit_step(bool partial) {
         if (!row["verified"].boolean() && !row["sealed"].boolean())
           continue;
         verif.done[row["id"].str()] = { at, row["complete"].boolean(), row["sealed"].boolean() };
+        verif.checked.erase(row["id"].str());
         if (row["verified"].boolean()) {
           ++verified;
           incomplete += row["complete"].boolean() ? 0 : 1;
@@ -3334,6 +3367,10 @@ bool App::ask_leave(const std::string &target, int entry_id) {
       continue;
     }
     for (const Json &requirement : lot["requirements"].items()) {
+      if (requirement["check"].boolean()) {
+        missing += requirement["required"].integer() > 0 && !verif_checked(lot["id"].str(), requirement["type"].str());
+        continue;
+      }
       const auto found = row.fresh.find(requirement["type"].str());
       missing += std::max< int >(0, static_cast< int >(requirement["required"].integer())
                                        - (found == row.fresh.end() ? 0 : found->second));
@@ -3499,6 +3536,7 @@ void App::submit_verif(bool partial) {
       body["sealed"].push_back(entry);
     }
     body["labels"]   = verif_labels();
+    body["checked"]  = verif_checked_body();
     body["partial"]  = partial;
     verif.submitting  = true;
     const std::string title = verif_title();

@@ -667,6 +667,46 @@ class FrontSessionTests(ApiTestCase):
 
 
 class VerifTests(ApiTestCase):
+    def test_items_to_check(self):
+        """Item a cocher (gobelets) : sans etiquette ni stock, la vérif le coche a la main ; non coche, il manque
+        jusqu'a la prochaine vérif. Sans "checked" (ancien front), rien ne change."""
+        code, body = self.call('POST', '/api/item-types/', {'type': 'gobele', 'name': 'Gobelets', 'physical': False})
+        self.assertEqual(code, 201)
+        self.assertFalse(body['physical'])
+        code, _ = self.call('POST', '/api/item-types/', {'type': 'sucres', 'name': 'Sucres', 'physical': False,
+                                                         'perissable': True})
+        self.assertEqual(code, 400)
+        gobelets = ItemType.objects.get(type='gobele')
+        with self.assertRaises(ValueError):
+            self.create(gobelets, None, 5)
+        LotRequirements.objects.create(lot_type=self.lot_type, item_type=gobelets, quantity=5)
+        url = f'/api/lots/{self.lot.id}/'
+        code, body = self.call('GET', url)
+        row = next(row for row in body['requirements'] if row['type'] == 'gobele')
+        self.assertTrue(row['check'])
+        self.assertEqual((row['present'], row['required']), (5, 5))  # confiance entre deux vérifs
+        fresh = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), 2)]
+        report = self.call('POST', f'{url}verif/', {'items': fresh, 'checked': {}, 'user': 'M001'})[1]
+        self.assertFalse(report['complete'])
+        self.assertEqual(Lots.objects.get(id=self.lot.id).unchecked, ['gobele'])
+        row = next(row for row in report['requirements'] if row['type'] == 'gobele')
+        self.assertEqual(row['present'], 0)
+        # verif partielle : le lot n'est complet qu'avec ses items a cocher
+        report = self.call('POST', f'{url}verif/', {'items': fresh, 'checked': {}, 'partial': True})[1]
+        self.assertFalse(report['lots'][0]['verified'])
+        report = self.call('POST', f'{url}verif/', {'items': fresh, 'checked': {self.lot.id: ['gobele']},
+                                                    'partial': True})[1]
+        self.assertTrue(report['complete'])
+        self.assertEqual(Lots.objects.get(id=self.lot.id).unchecked, [])
+        # ancien front : les items a cocher gardent leur etat
+        Lots.objects.filter(id=self.lot.id).update(unchecked=['gobele'])
+        self.call('POST', f'{url}verif/', {'items': fresh})
+        self.assertEqual(Lots.objects.get(id=self.lot.id).unchecked, ['gobele'])
+        # pas dans l'etat des stocks ; un type qui a deja des etiquettes ne devient pas un item a cocher
+        self.assertNotIn('gobele', [row['type'] for row in services.stock_status()])
+        code, _ = self.call('PATCH', '/api/item-types/compre/', {'physical': False})
+        self.assertEqual(code, 400)
+
     def test_verif_replacement_and_missing(self):
         old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
         kept = self.create(self.compresses, self.today + timedelta(days=30), 1)[0]

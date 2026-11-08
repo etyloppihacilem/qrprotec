@@ -104,6 +104,8 @@ def create(by, type_code, count, peremption):
         raise PrintError("Type d'item inconnu", 404)
     if item_type.archived:
         raise PrintError(f"Le type « {item_type.name} » est archivé")
+    if not item_type.physical:
+        raise PrintError(f"« {item_type.name} » est un item à cocher : il n'a pas d'étiquette")
     if not 1 <= count <= MAX_COUNT:
         raise PrintError(f"Entre 1 et {MAX_COUNT} étiquettes par demande")
     if item_type.perissable and peremption is None:
@@ -151,7 +153,7 @@ def web_list():
         Q(created__gte=since) | Q(printed__isnull=True, cancelled__isnull=True, created__gte=_expiry()))
     rows = sorted(rows, key=lambda row: (not row.pending, -row.created.timestamp()))
     types = [{'type': t.type, 'name': t.name, 'perissable': t.perissable}
-             for t in ItemType.objects.filter(archived=False).order_by('name')]
+             for t in ItemType.objects.filter(archived=False, physical=True).order_by('name')]
     return {'types': types, 'prints': [print_dict(row) for row in rows], 'max_count': MAX_COUNT,
             'expiry_hours': LabelPrint.EXPIRY_HOURS}
 

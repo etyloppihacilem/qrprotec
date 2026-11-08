@@ -141,6 +141,8 @@ class ItemsPacksManager(models.Manager):
     def add_items(self, item_type, peremption, count, user, location=None, context=SeenWhile.CREATE, sealed_pack=None):
         if count <= 0:
             raise ValueError("La quantite doit etre positive")
+        if not item_type.physical:
+            raise ValueError(f"{item_type.name} est un item à cocher : il n'a pas d'étiquette, rien à réceptionner")
         if item_type.perissable and peremption is None:
             raise ValueError(f"Le type {item_type.type} est perissable : une date de peremption est obligatoire")
         if not item_type.perissable:
@@ -228,6 +230,9 @@ class ItemType(models.Model):
     revision_tasks = models.JSONField(default=list, blank=True)
     revision_usable = models.BooleanField(default=True)
     archived = models.BooleanField(default=False) # plus propose (reception, contenu des lots), desarchivable
+    # Item physique (par defaut), avec une etiquette. Faux : item « a cocher » (ex : 5 gobelets, 15 sucres, « piles
+    # verifiees ») : pas d'etiquette, pas de stock, pas de peremption ; dans un lot, la vérif le coche a la main.
+    physical = models.BooleanField(default=True)
 
     @property
     def has_revision(self) -> bool:
@@ -237,7 +242,7 @@ class ItemType(models.Model):
     def can_be_optional(self) -> bool:
         """Attendu facultatif d'un type de lot (LotRequirements.optional) : seulement du materiel non consommable sans
         taches a cocher (ex : les casques du VPS). Un sous-lot facultatif (Lots.optional) l'est en entier."""
-        return not self.consumable and not self.tasks
+        return not self.consumable and not self.tasks and self.physical
 
     def __str__(self):
         return f"{self.name} ({self.type})"
@@ -514,6 +519,9 @@ class Lots(models.Model):
     # sous-lot facultatif a la verif de son lot parent : le parent se valide sans lui (il ne compte pas dans l'etat du
     # lot global), et tout son contenu est facultatif (voir LotRequirements.optional), sauf en « vérif complète »
     optional = models.BooleanField(default=False)
+    # Items a cocher (ItemType.physical faux) laisses non coches a la derniere vérif de ce lot : ils manquent jusqu'a
+    # la prochaine. Vide : tout est la (on fait confiance aux secouristes entre deux vérifs).
+    unchecked = models.JSONField(default=list, blank=True)
 
     def save(self, *args, **kwargs):
         if not self.version:
