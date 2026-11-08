@@ -2381,6 +2381,179 @@ def lots(request):
     return Response(ser.lot_dict(lot, local=True, with_items=True), status=status.HTTP_201_CREATED)
 
 
+BATCH_MAX = 30  # lots crees d'un coup (sous-lots non compris)
+
+
+def batch_sub_types(lot_type):
+    """Sous-lots proposes a la creation de lots de `lot_type`, avec leur nombre par defaut.
+
+    Les types de sous-lots deja ranges dans les lots de ce type, au nombre le plus courant, et les rangements du
+    referentiel : 1 par defaut, 0 si tous leurs lots sont ranges dans des lots d'un autre type (le sac de soin du
+    VPS est un rangement du B+, mais pas un sac des lots B+)."""
+    lots = list(lot_type.lots_set.filter(active=True).prefetch_related('children__lot_type'))
+    counts = defaultdict(Counter)  # type de sous-lot -> {nombre dans un lot: nombre de lots}
+    names = {}
+    for lot in lots:
+        per_lot = Counter(child.lot_type_id for child in lot.children.all() if child.active)
+        for child in lot.children.all():
+            if child.active:
+                names[child.lot_type_id] = child.lot_type
+        for code in names:
+            counts[code][per_lot.get(code, 0)] += 1
+    for code in names:  # types apparus dans un lot apres les premiers : 0 pour les lots qui ne l'ont pas
+        counts[code][0] += len(lots) - sum(counts[code].values())
+    rows = {}
+    for code, counter in counts.items():
+        rows[code] = (names[code], max(counter.items(), key=lambda pair: (pair[1], pair[0]))[0])
+    for rangement in lot_type.rangements.filter(archived=False).order_by('name'):
+        if rangement.type in rows:
+            continue
+        parents = set(rangement.lots_set.filter(active=True).values_list('parent__lot_type_id', flat=True))
+        rows[rangement.type] = (rangement, 0 if parents and lot_type.type not in parents else 1)
+    return [
+        {'lot_type': sub_type.type, 'name': sub_type.name, 'count': count,
+         'rangement': sub_type.part_of_id == lot_type.type}
+        for code, (sub_type, count) in sorted(rows.items(), key=lambda pair: pair[1][0].name.lower())
+        if not (sub_type.archived or sub_type.storage or sub_type.unique)
+    ]
+
+
+def usual_key_location(lot_type):
+    """Emplacement de l'etiquette cle le plus courant parmi les lots du type (vide s'il n'y en a pas)."""
+    places = Counter(lot_type.lots_set.filter(active=True).exclude(key_location='')
+                     .values_list('key_location', flat=True))
+    return places.most_common(1)[0][0] if places else ''
+
+
+def batch_plan(lot_type, count, base_name, base_short, sub_counts):
+    """Noms proposes pour `count` lots de `lot_type` et leurs sous-lots : « B+ 3 », « Sac de soin B+ 3 »…
+
+    La numerotation reprend apres le plus grand numero deja pris par un lot actif nomme « <base> <n> »."""
+    pattern = re.compile(re.escape(name_key(base_name)) + r' (\d+)$')
+    taken = [int(match.group(1)) for lot in Lots.objects.filter(active=True).only('name')
+             if (match := pattern.match(name_key(lot.name)))]
+    start = max(taken, default=0) + 1
+    sub_types = {sub.type: sub for sub in LotType.objects.filter(type__in=[code for code, n in sub_counts if n > 0])}
+    key_locations = {code: usual_key_location(sub) for code, sub in sub_types.items()}
+    plan = []
+    for index in range(start, start + count):
+        name = f'{base_name} {index}'
+        short = f'{base_short} {index}'[:16]
+        sub_lots = []
+        for code, number in sub_counts:
+            sub = sub_types.get(code)
+            for rank in range(1, number + 1 if sub else 1):
+                label = sub.name if number == 1 else f'{sub.name} {rank}'
+                sub_lots.append({'lot_type': code, 'lot_type_name': sub.name, 'name': f'{label} {name}',
+                                 'name_short': f'{label} {short}'[:16], 'key_location': key_locations[code]})
+        plan.append({'name': name, 'name_short': short, 'key_location': usual_key_location(lot_type),
+                     'sub_lots': sub_lots})
+    return plan
+
+
+def batch_lot_type(code):
+    """Type de lot d'une creation groupee : ni archive, ni lot unique, ni rangement du stock."""
+    lot_type = get_object_or_404(LotType, type=str(code or ''))
+    if lot_type.archived:
+        raise ApiError(f"Le type de lot {lot_type.name} est archivé")
+    if lot_type.unique or lot_type.storage:
+        raise ApiError(f"{lot_type.name} est un " + ("rangement du stock" if lot_type.storage else "lot unique")
+                       + " : il n'existe qu'en un exemplaire")
+    return lot_type
+
+
+@api_view(['POST'])
+@handle_errors
+def lots_batch(request):
+    """Creation de plusieurs lots d'un type, avec leurs sous-lots, en une fois.
+
+    `preview` : renvoie les sous-lots proposes (`sub_types`) et les noms prevus (`lots`) sans rien creer, a partir
+    de `count`, `name` (base des noms, le nom du type par defaut), `name_short` et `sub_lots` ([{lot_type, count}],
+    les sous-lots proposes par defaut si absent). Sans `preview` : cree les `lots` donnes (noms eventuellement
+    corriges a la main), tous ou aucun."""
+    require_front(request, GESTION)
+    data = request.data
+    lot_type = batch_lot_type(data.get('lot_type'))
+    if data.get('preview'):
+        sub_types = batch_sub_types(lot_type)
+        try:
+            count = int(data.get('count', 1))
+        except (TypeError, ValueError):
+            raise ApiError("Nombre de lots invalide")
+        if not 1 <= count <= BATCH_MAX:
+            raise ApiError(f"Entre 1 et {BATCH_MAX} lots à la fois")
+        base_name = str(data.get('name', '') or lot_type.name).strip()[:56] or lot_type.name
+        base_short = str(data.get('name_short', '') or base_name).strip()[:12]
+        wanted = data.get('sub_lots')
+        if isinstance(wanted, list):
+            sub_counts = []
+            for row in wanted:
+                if not isinstance(row, dict):
+                    raise ApiError("Sous-lots invalides")
+                try:
+                    number = max(0, min(int(row.get('count', 0)), 9))
+                except (TypeError, ValueError):
+                    raise ApiError("Nombre de sous-lots invalide")
+                sub_counts.append((str(row.get('lot_type', '')), number))
+        else:
+            sub_counts = [(row['lot_type'], row['count']) for row in sub_types]
+        for code, number in sub_counts:
+            if number:
+                batch_lot_type(code)
+        return Response({'sub_types': sub_types, 'lots': batch_plan(lot_type, count, base_name, base_short,
+                                                                    sub_counts)})
+    wanted = data.get('lots')
+    if not isinstance(wanted, list) or not wanted:
+        raise ApiError("Aucun lot à créer")
+    if len(wanted) > BATCH_MAX:
+        raise ApiError(f"Entre 1 et {BATCH_MAX} lots à la fois")
+    who = operation_identity(request, data)[:32]
+    sub_type_cache = {}
+    seen = set()
+    existing = list(Lots.objects.filter(active=True).only('name', 'active'))
+
+    def clean(row, row_type):
+        if not isinstance(row, dict):
+            raise ApiError("Lots invalides")
+        name = str(row.get('name', '')).strip()[:64]
+        if not name:
+            raise ApiError("Nom obligatoire")
+        if name_key(name) in seen:
+            raise ApiError(f"Le nom « {name} » est donné deux fois", status.HTTP_409_CONFLICT)
+        seen.add(name_key(name))
+        ensure_name_free(existing, name, 'Le lot')
+        return Lots(lot_type=row_type, name=name, name_short=str(row.get('name_short', '') or name).strip()[:16],
+                    key_location=str(row.get('key_location', '')).strip()[:128], created_by=who)
+
+    planned = []
+    for row in wanted:
+        lot = clean(row, lot_type)
+        children = []
+        for sub_row in (row.get('sub_lots') or []) if isinstance(row, dict) else []:
+            code = str(sub_row.get('lot_type', '')) if isinstance(sub_row, dict) else ''
+            if code not in sub_type_cache:
+                sub_type_cache[code] = batch_lot_type(code)
+            children.append(clean(sub_row, sub_type_cache[code]))
+        planned.append((lot, children))
+    parent = parse_parent(planned[0][0], data.get('parent'))
+    created = []
+    with transaction.atomic():
+        for lot, children in planned:
+            lot.parent = parent
+            lot.save()
+            journal.record(OperationKind.LOT, who, f'lot créé ({lot_type.name})'
+                           + (f', rangé dans {parent.name}' if parent else ''), lot=lot)
+            created.append(lot)
+            for child in children:
+                child.parent = lot
+                child.save()
+                journal.record(OperationKind.LOT, who, f'lot créé ({child.lot_type.name}), rangé dans {lot.name}',
+                               lot=child)
+                created.append(child)
+    return Response({'lots': [ser.lot_dict(lot, local=True, with_items=True) for lot in created]},
+                    status=status.HTTP_201_CREATED)
+
+
 def parse_parent(lot, value):
     """Lot parent demande (id, ou vide pour un lot independant). Refuse un lot archive et les boucles.
 

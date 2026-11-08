@@ -75,7 +75,8 @@ Menu **Gestion > Gestion des lots** (rôle gestion).
   stock** pour les armoires et tiroirs.
 - **Nouveau lot** : type, nom, nom court (16 caractères, pour les petites étiquettes), lot parent
   (« Aucun : lot indépendant » ou le lot global). Aperçu et impression des étiquettes publique et
-  clé.
+  clé. **Nombre de lots** : plusieurs lots du type d'un coup, avec leurs sous-lots (proposés d'après les
+  lots existants et les rangements du référentiel), noms numérotés et modifiables, étiquettes groupées.
 - **Fiche d'un lot** : modifier le nom, le parent ou l'**emplacement de l'étiquette clé** (ex : « poche intérieure du couvercle », affiché à qui essaie de valider une vérif sans l'avoir scannée), réimprimer les étiquettes (**publique**,
   **clé**, **les deux**), **Archiver le lot** quand il est réformé (il disparaît des listes ; il
   se réactive).

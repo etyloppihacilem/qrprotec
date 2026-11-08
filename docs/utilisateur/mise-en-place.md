@@ -225,6 +225,15 @@ petit**, pour pouvoir choisir le lot parent :
    des rangements, créés chacun avec son type ;
 8. `Malle catastrophe`.
 
+**Plusieurs lots d'un coup** : choisissez le type puis le **Nombre de lots**. Les **sous-lots de chaque
+lot** sont proposés d'après les lots déjà créés de ce type (au nombre le plus courant) et d'après les
+rangements du référentiel : pour le B+, un sac de soin et un sac O2 par lot. Mettez 0 pour un
+rangement qui n'en fait pas partie (le sac de soin du VPS, rangé dans le VPS, est proposé à 0). Le
+formulaire montre alors les **Lots prévus** : `B+ 2`, `Sac de soin B+ 2`, `Sac O2 B+ 2`, `B+ 3`…, numérotés
+après le plus grand numéro déjà pris, avec l'emplacement de l'étiquette clé le plus courant du type.
+Tous les noms se corrigent à la main avant **Créer**. Les lots sont tous créés, ou aucun si un nom est
+pris. L'aperçu propose ensuite toutes les étiquettes ensemble : les publiques puis les clés.
+
 Le nom d'un lot doit être unique parmi les lots actifs : le formulaire le signale pendant la saisie.
 Un lot archivé se retrouve avec la case **Afficher les lots archivés** (bouton **Désarchiver le lot**).
 Les rangements du stock sont masqués des listes de lots (fenêtres **Lots** et **Gestion des lots**,

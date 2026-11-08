@@ -1877,6 +1877,41 @@ class SubLotTests(ApiTestCase):
     def bottle(self):
         return self.create(self.o2, None, 1)[0].iid
 
+    def test_lots_batch(self):
+        """Creer N lots d'un coup : noms numerotes apres l'existant, sous-lots proposes d'apres les lots deja
+        crees (et les rangements du referentiel), creation tout ou rien."""
+        vps_type = LotType.objects.create(type='vpsxxx', name='VPS', unique=True)
+        vps_bag_type = LotType.objects.create(type='sacvps', name='Sac de soin VPS', part_of=self.global_type)
+        self.global_type.referentiel = True
+        self.global_type.save()
+        code, vps = self.call('POST', '/api/lots/', {'lot_type': 'vpsxxx', 'name': 'VPS', 'user': 'M001'})
+        code, _ = self.call('POST', '/api/lots/', {'lot_type': 'sacvps', 'name': 'Sac VPS', 'parent': vps['id'],
+                                                   'user': 'M001'})
+        self.assertEqual(code, 201)
+        code, body = self.call('POST', '/api/lots/batch/', {'lot_type': 'bplusx', 'count': 2, 'preview': True})
+        self.assertEqual(code, 200)
+        counts = {row['lot_type']: row['count'] for row in body['sub_types']}
+        self.assertEqual(counts, {'sacpse': 1, 'saco2x': 1, 'sacvps': 0})  # le sac du VPS n'est pas dans un B+
+        self.assertEqual([lot['name'] for lot in body['lots']], ['B+ 2', 'B+ 3'])  # B+ 1 existe deja
+        self.assertEqual([sub['name'] for sub in body['lots'][0]['sub_lots']], ['Sac O2 B+ 2', 'Sac PSE B+ 2'])
+        code, body = self.call('POST', '/api/lots/batch/', {'lot_type': 'bplusx', 'count': 1, 'preview': True,
+                                                            'sub_lots': [{'lot_type': 'sacpse', 'count': 2}]})
+        self.assertEqual([sub['name'] for sub in body['lots'][0]['sub_lots']],
+                         ['Sac PSE 1 B+ 2', 'Sac PSE 2 B+ 2'])
+        code, body = self.call('POST', '/api/lots/batch/', {'lot_type': 'vpsxxx', 'count': 1, 'preview': True})
+        self.assertEqual(code, 400)  # lot unique
+        code, plan = self.call('POST', '/api/lots/batch/', {'lot_type': 'bplusx', 'count': 2, 'preview': True})
+        plan['lots'][1]['sub_lots'][0]['name'] = 'B+ 1'  # deja pris : rien n'est cree
+        code, body = self.call('POST', '/api/lots/batch/', {'lot_type': 'bplusx', 'lots': plan['lots'], 'user': 'M001'})
+        self.assertEqual(code, 409)
+        self.assertFalse(Lots.objects.filter(name='B+ 2').exists())
+        plan['lots'][1]['sub_lots'][0]['name'] = 'Sac O2 B+ 3'
+        code, body = self.call('POST', '/api/lots/batch/', {'lot_type': 'bplusx', 'lots': plan['lots'], 'user': 'M001'})
+        self.assertEqual(code, 201)
+        self.assertEqual(len(body['lots']), 6)
+        bplus3 = Lots.objects.get(name='B+ 3')
+        self.assertEqual(sorted(child.name for child in bplus3.children.all()), ['Sac O2 B+ 3', 'Sac PSE B+ 3'])
+
     def test_referentiel_coverage(self):
         """Referentiel : liste obligatoire sans emplacements, repartie entre des rangements (les sacs) ; le lot du
         referentiel n'attend rien lui-meme, la couverture compare la somme de ses sacs a la liste."""

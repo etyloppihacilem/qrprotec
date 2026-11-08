@@ -230,10 +230,223 @@ class LotAdminWindow final : public AppWindow {
     }
 
     void draw_new_lot(App &app) {
-      ImGui::SeparatorText("Nouveau lot");
+      ImGui::SeparatorText("Nouveaux lots");
       ImGui::TextUnformatted("Type de lot");
       search_select("new_lot_type", new_lot_types(app), "type", "name", new_lot_type_, "Tapez le nom du type de lot…");
       help_marker("Les types archivés et les lots uniques (créés avec leur type) ne sont pas proposés.");
+      if (new_lot_type_ != batch_type_) {
+        batch_type_ = new_lot_type_;
+        batch_base_.clear();
+        batch_base_short_.clear();
+        batch_subs_.clear();
+        batch_rows_.clear();
+        if (!new_lot_type_.empty())
+          load_batch(app, true);
+      }
+      ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6);
+      if (ImGui::InputInt("Nombre de lots", &new_lot_count_, 1, 1)) {
+        new_lot_count_ = std::clamp(new_lot_count_, 1, 30);
+        if (!new_lot_type_.empty())
+          load_batch(app, false);
+      }
+      if (!batch_subs_.empty()) {
+        ImGui::TextUnformatted("Sous-lots de chaque lot");
+        help_marker("Proposés d'après les lots déjà créés de ce type et les rangements du référentiel. Mettez 0 pour "
+                    "un rangement qui n'en fait pas partie (le sac de soin du VPS n'est pas un sac des lots B+).");
+        for (BatchSub &sub : batch_subs_) {
+          ImGui::PushID(sub.type.c_str());
+          ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6);
+          if (ImGui::InputInt((sub.name + (sub.rangement ? "  (rangement)" : "")).c_str(), &sub.count, 1, 1)) {
+            sub.count = std::clamp(sub.count, 0, 9);
+            load_batch(app, false);
+          }
+          ImGui::PopID();
+        }
+      }
+      if (batch_mode())
+        draw_batch(app);
+      else
+        draw_single_lot(app);
+    }
+
+    bool batch_mode() const {
+      if (new_lot_count_ > 1)
+        return true;
+      for (const BatchSub &sub : batch_subs_)
+        if (sub.count > 0)
+          return true;
+      return false;
+    }
+
+    // Noms proposes par le serveur (numerotes apres l'existant), sous-lots par defaut au changement de type
+    void load_batch(App &app, bool default_subs) {
+      Json body;
+      body["lot_type"]   = new_lot_type_;
+      body["count"]      = new_lot_count_;
+      body["preview"]    = true;
+      body["name"]       = batch_base_;
+      body["name_short"] = batch_base_short_;
+      if (!default_subs) {
+        Json subs = Json::array();
+        for (const BatchSub &sub : batch_subs_) {
+          Json row;
+          row["lot_type"] = sub.type;
+          row["count"]    = sub.count;
+          subs.push_back(row);
+        }
+        body["sub_lots"] = subs;
+      }
+      const std::string type = new_lot_type_;
+      app.api.post("/api/lots/batch/", body, [this, &app, type, default_subs](const ApiResult &result) {
+        if (type != new_lot_type_)
+          return;  // type change entre-temps
+        if (!result.ok) {
+          app.notify(result.error, true);
+          return;
+        }
+        if (default_subs) {
+          batch_subs_.clear();
+          for (const Json &row : result.data["sub_types"].items())
+            batch_subs_.push_back({ row["lot_type"].str(), row["name"].str(), static_cast< int >(row["count"].integer()),
+                                    row["rangement"].boolean() });
+        }
+        batch_rows_.clear();
+        for (const Json &lot : result.data["lots"].items()) {
+          batch_rows_.push_back({ type, "", lot["name"].str(), lot["name_short"].str(), lot["key_location"].str(), 0 });
+          for (const Json &sub : lot["sub_lots"].items())
+            batch_rows_.push_back({ sub["lot_type"].str(), sub["lot_type_name"].str(), sub["name"].str(),
+                                    sub["name_short"].str(), sub["key_location"].str(), 1 });
+        }
+      });
+    }
+
+    void draw_batch(App &app) {
+      if (input_limited("Nom de base", batch_base_, 56, "Le nom du type : « B+ » donne B+ 1, B+ 2…"))
+        load_batch(app, false);
+      if (input_limited("Nom court de base", batch_base_short_, 12, "Le nom de base"))
+        load_batch(app, false);
+      ImGui::TextUnformatted("Dans le lot");
+      search_select("batch_parent", app.catalog.lots, "id", "name", new_lot_parent_, "Aucun : lots indépendants",
+                    "Aucun : lots indépendants");
+      ImGui::SeparatorText("Lots prévus");
+      ImGui::TextDisabled("Noms modifiables. Changer le nombre ou le nom de base les recalcule.");
+      bool taken = false;
+      std::set< std::string > seen;
+      if (ImGui::BeginTable("batch_rows", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Nom");
+        ImGui::TableSetupColumn("Nom court");
+        ImGui::TableSetupColumn("Emplacement de l'étiquette clé");
+        ImGui::TableHeadersRow();
+        for (size_t index = 0; index < batch_rows_.size(); ++index) {
+          BatchRow &row = batch_rows_[index];
+          ImGui::PushID(static_cast< int >(index));
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          if (row.depth > 0)
+            ImGui::TextDisabled("└");
+          if (row.depth > 0)
+            ImGui::SameLine();
+          ImGui::SetNextItemWidth(-FLT_MIN);
+          input_limited("##name", row.name, 64);
+          const std::string key = normalize_search(row.name);
+          const bool        dup = !seen.insert(key).second || !name_taken(app.catalog.lots, "id", row.name, "").empty();
+          if (dup || row.name.empty()) {
+            taken = true;
+            ImGui::SameLine();
+            ImGui::TextColored(colors::red, "%s", row.name.empty() ? "vide" : "déjà pris");
+          }
+          ImGui::TableNextColumn();
+          ImGui::SetNextItemWidth(-FLT_MIN);
+          input_limited("##short", row.short_name, 16);
+          ImGui::TableNextColumn();
+          ImGui::SetNextItemWidth(-FLT_MIN);
+          input_limited("##key", row.key_location, 128);
+          ImGui::PopID();
+        }
+        ImGui::EndTable();
+      }
+      ImGui::Checkbox("Voir toutes les étiquettes après création (publiques puis clés, groupées)", &print_new_);
+      size_t lots = 0;
+      for (const BatchRow &row : batch_rows_)
+        lots += row.depth == 0;
+      const std::string label = "Créer " + std::to_string(batch_rows_.size()) + (batch_rows_.size() > 1 ? " lots" : " lot")
+                              + (batch_rows_.size() > lots ? " (sous-lots compris)" : "");
+      ImGui::BeginDisabled(batch_rows_.empty() || taken);
+      if (primary_button(label.c_str())) {
+        Json list = Json::array();
+        Json current;
+        bool has_current = false;
+        auto row_json    = [](const BatchRow &row) {
+          Json item;
+          item["lot_type"]     = row.type;
+          item["name"]         = row.name;
+          item["name_short"]   = row.short_name;
+          item["key_location"] = row.key_location;
+          return item;
+        };
+        Json subs = Json::array();
+        for (const BatchRow &row : batch_rows_) {
+          if (row.depth == 0) {
+            if (has_current) {
+              current["sub_lots"] = subs;
+              list.push_back(current);
+            }
+            current     = row_json(row);
+            subs        = Json::array();
+            has_current = true;
+          } else {
+            subs.push_back(row_json(row));
+          }
+        }
+        if (has_current) {
+          current["sub_lots"] = subs;
+          list.push_back(current);
+        }
+        Json body;
+        body["lot_type"] = new_lot_type_;
+        body["lots"]     = list;
+        body["parent"]   = new_lot_parent_;
+        body["user"]     = app.user_ref();
+        const bool print = print_new_;
+        app.api.post("/api/lots/batch/", body, [this, &app, print](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          const Json &created = result.data["lots"];
+          app.notify(std::to_string(created.size()) + (created.size() > 1 ? " lots créés." : " lot créé."));
+          if (print)
+            preview_lots(app, created);
+          batch_rows_.clear();
+          batch_type_.clear();  // recharge les noms suivants
+          app.refresh_lots();
+        });
+      }
+      ImGui::EndDisabled();
+      if (taken)
+        ImGui::TextDisabled("Un nom est vide, donné deux fois ou déjà pris par un lot.");
+    }
+
+    // Etiquettes de plusieurs lots en un seul apercu : toutes les publiques (sauf scelle obligatoire), puis les cles
+    void preview_lots(App &app, const Json &lots) {
+      std::vector< Parameters > publics, keys;
+      for (const Json &lot : lots.items()) {
+        if (lot["storage"].boolean())
+          continue;
+        if (!lot["seal_required"].boolean())
+          publics.push_back(lot_parameters(lot));
+        keys.push_back(lot_parameters(lot));
+      }
+      std::vector< PrintJob > jobs;
+      const std::string       what = std::to_string(lots.size()) + " lots";
+      if (!publics.empty())
+        app.build_label_jobs(TemplateCategory::LotPublic, publics, what + " (publiques)", jobs);
+      if (app.declared_identity && !keys.empty())
+        app.build_label_jobs(TemplateCategory::LotPrivate, keys, what + " (clés)", jobs);
+      app.preview_jobs(std::move(jobs), what);
+    }
+
+    void draw_single_lot(App &app) {
       input_limited("Nom", new_lot_name_, 64);
       const bool name_taken = name_taken_warning(app.catalog.lots, "id", new_lot_name_, "", "Le lot");
       input_limited("Nom court (16 car.)", new_lot_short_, 16);
@@ -1232,6 +1445,22 @@ class LotAdminWindow final : public AppWindow {
     std::string new_lot_name_;
     std::string new_lot_short_;
     bool        print_new_ = true;
+    // creation de plusieurs lots (et de leurs sous-lots) d'un coup
+    struct BatchSub {
+      std::string type, name;
+      int         count;
+      bool        rangement;
+    };
+    struct BatchRow {
+      std::string type, type_name, name, short_name, key_location;
+      int         depth;
+    };
+    int                     new_lot_count_ = 1;
+    std::string             batch_type_;
+    std::string             batch_base_;
+    std::string             batch_base_short_;
+    std::vector< BatchSub > batch_subs_;
+    std::vector< BatchRow > batch_rows_;
     std::string seal_number_;
     bool        show_archived_lots_ = false;
     bool        show_storage_       = false; // rangements du stock masques par defaut
