@@ -53,6 +53,13 @@ passages sur la même machine varient de quelques points : un écart de moins de
 candidats ne départage pas. À score proche, préférer la machine silencieuse, sobre (allumée en
 permanence) et avec une batterie ou un onduleur.
 
+La place libre est mesurée là où vivent la base (`/var/lib/qrprotec`) et les sauvegardes
+(`QRPROTEC_BACKUP_DIR` de `/etc/qrprotec/backup.conf`, `/var/backups/qrprotec` par défaut), pas dans
+le dossier de test. Sous Fedora Server, `/` est un volume LVM de 15 Go par défaut et le reste du
+disque n'est pas attribué : le script affiche aussi la taille du disque et, s'il peut le lire (`vgs`,
+souvent avec sudo), l'espace LVM à ajouter avec `lvextend`. Moins de 2 Go libres (et rien à
+attribuer) élimine la machine.
+
 Le Bluetooth est seulement vérifié (adaptateur présent, pas coupé, BLE si lisible) : la douchette n'a
 pas besoin d'être allumée.
 
