@@ -90,8 +90,9 @@ tape toujours `@`, `#` ou `{`.
    **Scannés** (rôles gestion et admin seulement, avec « Annuler le dernier » et « Vider la liste » ;
    tout le monde a le bouton ↶ pour annuler le dernier scan), **Lot** (exigences scannées /
    attendues). Un périmé ou un code inconnu fait clignoter l'écran en rouge, biper et vibrer.
-   La ligne d'information sous la caméra (badge, étiquette du lot, item scanné) n'est affichée pendant
-   la vérif qu'avec le réglage ⚙ **Ligne d'info pendant la vérif** (décoché par défaut).
+   La ligne d'information sous la caméra dit ce qui vient d'être scanné (badge, item…). Au début de la
+   vérif, elle donne le nom du lot et « L'étiquette est scannée » (ou l'étiquette à scanner), pas
+   l'état passé du lot : on est en train de le vérifier.
 4. **Valider la vérif.** Si l'étiquette du lot n'a pas été scannée, une fenêtre demande de la
    scanner (« Scannez l'étiquette de Sac PSE A ») et se ferme d'elle-même dès qu'elle l'est. Le
    compte rendu s'affiche, et le lot est désélectionné : il n'apparaît plus « en cours » dans l'état

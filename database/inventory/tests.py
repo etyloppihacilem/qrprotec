@@ -533,7 +533,7 @@ class DeclaredIdentityTests(ApiTestCase):
 
 
 class WebPrefsTests(ApiTestCase):
-    """Reglages du front web (ligne d'info, explication de la vérif) : par l'utilisateur et par un admin au poste."""
+    """Reglages du front web (explication de la vérif) : par l'utilisateur et par un admin au poste."""
 
     def my_prefs(self, prefs, user=None):
         user = user or self.user
@@ -542,19 +542,24 @@ class WebPrefsTests(ApiTestCase):
 
     def test_defaults_user_and_admin(self):
         code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
-        self.assertEqual(body['web_prefs'], {'verif_info_line': False, 'verif_help_hidden': False})
+        self.assertEqual(body['web_prefs'], {'verif_help_hidden': False, 'login_bubble': False})
         # l'utilisateur coche « ne plus afficher ce message » : les autres reglages restent tels quels
         code, body = self.my_prefs({'verif_help_hidden': True})
-        self.assertEqual((code, body['web_prefs']), (200, {'verif_info_line': False, 'verif_help_hidden': True}))
-        code, body = self.my_prefs({'verif_info_line': True})
-        self.assertEqual(body['web_prefs'], {'verif_info_line': True, 'verif_help_hidden': True})
+        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': True, 'login_bubble': False}))
+        code, body = self.my_prefs({'login_bubble': True})
+        self.assertEqual(body['web_prefs'], {'verif_help_hidden': True, 'login_bubble': True})
+        # l'ancien reglage « ligne d'info pendant la vérif » n'existe plus : refuse, et ignore s'il est deja en base
+        self.assertEqual(self.my_prefs({'verif_info_line': True})[0], 400)
+        self.user.refresh_from_db()
+        self.user.web_prefs = {**self.user.web_prefs, 'verif_info_line': True}
+        self.user.save(update_fields=['web_prefs'])
         # reglage inconnu ou valeur non booleenne : refuse
         self.assertEqual(self.my_prefs({'inconnu': True})[0], 400)
-        self.assertEqual(self.my_prefs({'verif_info_line': 'oui'})[0], 400)
-        self.assertEqual(self.call('POST', '/api/me/prefs/', {'web_prefs': {'verif_info_line': True}}, local=False)[0], 403)
+        self.assertEqual(self.my_prefs({'login_bubble': 'oui'})[0], 400)
+        self.assertEqual(self.call('POST', '/api/me/prefs/', {'web_prefs': {'login_bubble': True}}, local=False)[0], 403)
         # un admin reaffiche l'explication depuis le poste (fenetre Utilisateurs), journalise
         code, body = self.call('PATCH', '/api/users/M001/', {'web_prefs': {'verif_help_hidden': False}})
-        self.assertEqual((code, body['web_prefs']), (200, {'verif_info_line': True, 'verif_help_hidden': False}))
+        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': False, 'login_bubble': True}))
         self.assertEqual(self.call('PATCH', '/api/users/M001/', {'web_prefs': ['x']})[0], 400)
 
 
@@ -5429,7 +5434,7 @@ class TempLoginTests(ApiTestCase):
         self.assertEqual(code, 403)
 
 
-class WebPrefsTests(ApiTestCase):
+class LoginBubblePrefTests(ApiTestCase):
     """Reglages du front web (WEB_PREFS) : « Bulle de connexion » decochee par defaut."""
 
     def test_login_bubble_default_and_change(self):

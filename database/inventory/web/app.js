@@ -383,12 +383,11 @@
     const node = $('#info');
     node.className = 'info ' + kind;
     node.replaceChildren(el('div', { class: 'title' }, title), ...lines.filter(Boolean).map((line) => el('div', {}, line)));
-    syncInfoLine();
   }
 
   // Reglages du web de l'utilisateur (models.WEB_PREFS, modifiables aussi par un admin au poste) : valeur par defaut
   // sans utilisateur connecte, ou si la session date d'avant le reglage
-  const WEB_PREF_DEFAULTS = { verif_info_line: false, verif_help_hidden: false, login_bubble: false };
+  const WEB_PREF_DEFAULTS = { verif_help_hidden: false, login_bubble: false };
   function webPref(name) {
     const prefs = state.user && state.user.web_prefs;
     return prefs && name in prefs ? !!prefs[name] : WEB_PREF_DEFAULTS[name];
@@ -399,13 +398,6 @@
     if (state.user) state.user.web_prefs = body.web_prefs;
     save();
     render();
-  }
-
-  // Ligne d'info entre la camera et la liste (badge, etiquette du lot, item scanne) : pendant une vérif, seulement
-  // avec le reglage « ligne d'info pendant la vérif » (desactive par defaut). Le bip, les toasts et les popups
-  // (item a remplacer, taches, etiquette a scanner) disent l'essentiel.
-  function syncInfoLine() {
-    $('#info').hidden = !!state.lot && !webPref('verif_info_line');
   }
 
   // ------------------------------------------------------------------------------------------------
@@ -1747,15 +1739,14 @@
     return { word: status.kind === 'ok' && !lot.is_sealed ? status.label.split(',')[0] : status.label, at: lot.is_sealed ? null : lot.last_verif };
   }
 
-  // Bandeau du lecteur a l'etiquette d'un lot : son nom, son etat en un mot avec la date, et ce qu'il manque pour
-  // valider ; le detail est sur la fiche du lot
+  // Bandeau du lecteur au debut d'une vérif (etiquette du lot scannee, vérif lancee depuis la fiche) : le nom du
+  // lot et son etiquette, scannee ou a scanner. Pas l'etat passe du lot (« Vérifié (hier à …) ») : on est en train
+  // de le vérifier, le detail est sur la fiche du lot.
   function showLotInfo() {
     const lot = state.lot;
     if (!lot) return;
-    const status = groupStatus(lot) || lotStatus(lot);
-    const { word, at } = shortStatus(lot, status);
-    showInfo(status.kind, lot.name, el('span', {}, word, at ? el('span', { class: 'when' }, ` (${fmtDateTime(at)})`) : ''),
-      keyOk() && labelOk() ? '' : labelLine(lot));
+    if (keyOk() && labelOk()) showInfo('ok', lot.name, state.lotKey ? "✔ L'étiquette clé est scannée" : "✔ L'étiquette est scannée");
+    else showInfo('warn', lot.name, labelLine(lot));
   }
 
   // Saisie du PIN (ou choix du PIN quand il est obligatoire et pas encore choisi). `setup` : reponse du serveur
@@ -4674,9 +4665,6 @@
       return el('label', { class: 'settings-check' }, input, el('span', {}, label, el('br'), el('small', { class: 'hint' }, hint)));
     };
     box.replaceChildren(el('h3', {}, 'Vérif'),
-      check("Ligne d'info pendant la vérif", webPref('verif_info_line'),
-        'Une ligne sous la caméra dit ce qui vient d\'être scanné (badge, lot, item).',
-        (on) => setWebPrefs({ verif_info_line: on })),
       check('Explication de la vérif', !webPref('verif_help_hidden'),
         'Rappel en 3 points au début de chaque vérif.',
         (on) => setWebPrefs({ verif_help_hidden: !on })));
@@ -5216,7 +5204,6 @@
     doneTab.hidden = !canSeeStock();
     if (doneTab.hidden && state.tab === 'done') switchTab('todo');
     $('#menu-quit').hidden = !state.lot;
-    syncInfoLine();
     if ($('#label-needed').open && labelOk()) { $('#label-needed').close(); toast('Étiquette scannée : vous pouvez valider.'); }
     if (!state.user) { state.stock = null; state.tasks = null; state.push = null; state.pushDevices = null; debug.data = null; }
     renderHomePage();

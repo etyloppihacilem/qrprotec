@@ -26,7 +26,7 @@ Menu **Administration > Utilisateurs**.
   proposée à chacun quand il choisit son code (fenêtre du code à la connexion, ⚙ Réglages du
   téléphone), cochée par défaut quand le code est obligatoire pour lui. Toujours cochée pour un admin.
 - **Réglages du web** : les réglages que l'utilisateur choisit dans le ⚙ du front web, modifiables ici
-  (**Ligne d'info pendant la vérif**, **Explication de la vérif masquée** : décochez-la pour lui
+  (**Explication de la vérif masquée** : décochez-la pour lui
   réafficher le rappel en 3 points au début de sa prochaine vérif).
 - **Connexion sans badge** : un utilisateur qui a un PIN peut se connecter avec son prénom, son nom
   et son PIN (téléphone : bouton « Nom + PIN » du petit lecteur ou puce « Non connecté » ; poste :
