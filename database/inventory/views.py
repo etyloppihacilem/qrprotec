@@ -1684,8 +1684,7 @@ def apply_referentiel(lot_type, data):
         if lot_type.requirements.exclude(location='').exists() or lot_type.locations:
             lot_type.requirements.update(location='')
             lot_type.locations = []
-            lot_type.version += 1
-            lot_type.valid_version = lot_type.version
+            services.bump_lot_type_version(lot_type)
     lot_type.referentiel = referentiel
     lot_type.part_of = part_of
 
@@ -2187,8 +2186,7 @@ def lot_type_detail(request, type_code):
             if storage and lot_type.requirements.exists():
                 lot_type.requirements.all().delete()
                 lot_type.locations = []
-                lot_type.version += 1
-                lot_type.valid_version = lot_type.version
+                services.bump_lot_type_version(lot_type)
             for lot in lots:
                 lot.verif_key_expires = lot.key_expiration()
                 lot.key_expiry_stage = KeyExpiry.VALID
@@ -2387,6 +2385,7 @@ def lot_type_requirements(request, type_code):
     locations = services.location_order([row for row in rows if isinstance(row, dict)], [str(name) for name in order],
                                         lot_type.locations or [])
     with transaction.atomic():
+        before = services.lot_type_content_snapshot(lot_type)
         LotRequirements.objects.filter(lot_type=lot_type).delete()
         for row in rows:
             item_type = get_object_or_404(ItemType, type=str(row.get('type', '')))
@@ -2405,15 +2404,19 @@ def lot_type_requirements(request, type_code):
             except IntegrityError:
                 raise ApiError(f"Le type {item_type.type} apparait plusieurs fois")
         lot_type.locations = [] if lot_type.referentiel else list(locations.values())
-        lot_type.version += 1
-        lot_type.valid_version = lot_type.version
+        # rien de change (« Enregistrer » sans modification) : pas de nouvelle version ; modifie sans verif faite sur
+        # la version en cours : corrigee en place
+        changed = services.lot_type_content_snapshot(lot_type) != before
+        new_version = changed and services.bump_lot_type_version(lot_type)
         lot_type.save(update_fields=['version', 'valid_version', 'locations'])
+        if not changed:
+            return Response({**ser.lot_type_dict(lot_type), 'new_version': False})
         journal.record(OperationKind.CATALOG, front_identity(request), f'contenu attendu modifié : {lot_type}',
                        type=lot_type.type, requirements=[
                            {'type': str(row.get('type', '')), 'quantity': row.get('quantity', 1),
                             'optional': bool(row.get('optional', False))} for row in rows
-                       ])
-    return Response(ser.lot_type_dict(lot_type))
+                       ], version=lot_type.version)
+    return Response({**ser.lot_type_dict(lot_type), 'new_version': new_version})
 
 
 @api_view(['GET'])
@@ -2472,6 +2475,7 @@ def lot_content(request, lot_id):
     locations = services.location_order(effective, [str(name) for name in order], known)
     inherited = services.location_order(effective, lot_type.locations or [], known)
     with transaction.atomic():
+        before = services.lot_content_snapshot(lot)
         LotContent.objects.filter(lot=lot).delete()
         for item_type, extra, location in wanted.values():
             if location is not None:
@@ -2479,7 +2483,12 @@ def lot_content(request, lot_id):
             LotContent.objects.create(lot=lot, item_type=item_type, extra=extra, location=location)
         # meme ordre que le type : le lot suit celui du type (nouveaux emplacements, ordre change par la TECH)
         lot.locations = [] if list(locations) == list(inherited) else list(locations.values())
-        lot.save(update_fields=['locations'])
+        changed = services.lot_content_snapshot(lot) != before
+        if changed:
+            services.bump_lot_version(lot)  # nouvelle version seulement si une verif a ete faite sur la version en cours
+        lot.save(update_fields=['locations', 'version'])
+        if not changed:
+            return Response(ser.lot_dict(lot, local=True, with_items=True))
         journal.record(OperationKind.LOT, front_identity(request), f'contenu propre du lot modifié : {lot.name}',
                        lot=lot, content=[
                            {'type': code, 'extra': extra, 'location': location}

@@ -1049,6 +1049,10 @@ class Verifs(models.Model):
     missing_count = models.PositiveIntegerField(default=0)
     expired_count = models.PositiveIntegerField(default=0)
     replaced_count = models.PositiveIntegerField(default=0)
+    # Versions du contenu attendu verifie (type de lot, contenu propre du lot) : une modification du contenu ne cree
+    # une nouvelle version que si une verif a deja ete faite sur la version en cours (sinon elle est corrigee en place)
+    lot_type_version = models.PositiveIntegerField(null=True, blank=True)
+    lot_version = models.PositiveIntegerField(null=True, blank=True)
 
 
 class VerifItem(models.Model):

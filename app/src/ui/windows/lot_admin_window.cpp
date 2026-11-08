@@ -1305,7 +1305,10 @@ class LotAdminWindow final : public AppWindow {
                         app.notify(result.error, true);
                         return;
                       }
-                      app.notify("Contenu enregistre (version " + result.data["version"].str() + ").");
+                      // nouvelle version seulement si le contenu a change et qu'une verif a ete faite sur l'ancienne
+                      app.notify(std::string(result.data["new_version"].boolean() ? "Contenu enregistre (nouvelle version "
+                                                                                  : "Contenu enregistre (version ")
+                                 + result.data["version"].str() + ").");
                       edit_lot_type(result.data);
                       app.refresh_lot_types();
                     });
