@@ -5540,6 +5540,34 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 200, body)
 
 
+    def test_legacy_close_return(self):
+        """Ancienne liste sortie (retour a scanner) : la fenetre « Clôturer le retour ? » montre ce qui n'est pas
+        rentre ; clore met le lot pas rescanne en vérif recommandee et compte le consommable pas rentre utilise."""
+        checklist = self.new_list()
+        path = f"/api/checklists/{checklist['id']}/"
+        for data in ({'item': self.fresh[0].iid}, {'item': self.fresh[1].iid}, {'lot': self.lot.id},
+                     {'item': self.garrots[0].iid}):
+            code, body = self.as_(self.chief, path + 'scan/', data)
+            self.assertEqual(code, 200, body)
+        self.as_(self.chief, path + 'validate/')
+        # comme une liste sortie avant le depart d'aujourd'hui : retour a scanner, lot pas encore recommande
+        Checklist.objects.filter(id=checklist['id']).update(status=ChecklistStatus.VALIDATED, returned=None)
+        Lots.objects.filter(id=self.lot.id).update(verif_recommended=False, back_from_list='')
+        code, body = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[0].iid})
+        self.assertEqual(code, 200, body)
+        code, body = self.as_(self.chief, path)
+        preview = body['return_preview']
+        self.assertEqual((preview['back'], preview['lots']), (1, [self.lot.name]))
+        self.assertEqual((preview['used'], len(preview['still_out'])), (['Compresses'], 1))
+        code, body = self.as_(self.chief, path + 'close-return/')
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body['status'], 'returned')
+        self.assertNotIn('return_preview', body)
+        self.assertEqual(Items.objects.get(iid=self.fresh[1].iid).status, ItemStatus.MISSING)
+        self.assertEqual(Items.objects.get(iid=self.fresh[0].iid).status, ItemStatus.ACTIVE)
+        lot = Lots.objects.get(id=self.lot.id)
+        self.assertEqual((lot.verif_recommended, lot.back_from_list), (True, 'Poste de secours'))
+
     def test_reopen_departure(self):
         """Depart valide par erreur : rouvrable 30 minutes, le materiel revient ou il etait, le lot n'est plus en
         verif recommandee a cause de la liste, les scans restent."""
