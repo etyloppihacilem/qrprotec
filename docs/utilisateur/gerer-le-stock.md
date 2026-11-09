@@ -206,6 +206,9 @@ la liste, ses équipiers la vérifient en sortant le matériel.
   scellé. La liste est alors **terminée** : pas de retour à scanner. Le matériel sorti rentre en
   stock quand on le rescanne (vérif du stock) ; un consommable jamais revu est compté utilisé au
   bout d'un mois (règle des sorties).
+- **Rouvrir le départ** : validée par erreur, la liste se rouvre pendant **30 minutes** (auteur ou
+  secouriste de la liste). Le matériel sorti revient où il était, les lots pris ne sont plus en
+  vérif recommandée à cause de cette liste, et la liste redevient à préparer avec ce qui est coché.
 
 Pour une liste qui revient souvent (poste de secours du stade, match du dimanche), faites-en un
 **modèle** : il ne se vérifie pas, **Utiliser ce modèle** en fait une nouvelle liste à vérifier.

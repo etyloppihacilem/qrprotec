@@ -6483,6 +6483,16 @@
     });
   }
 
+  async function reopenList() {
+    const ok = await askDialog({
+      title: 'Rouvrir le départ ?',
+      text: 'Le matériel sorti revient où il était, les lots pris ne sont plus en vérif recommandée à cause de cette '
+        + 'liste. La liste redevient à préparer, avec ce qui est déjà coché.',
+      choices: [{ label: 'Rouvrir le départ', value: true, cls: 'primary' }],
+    });
+    if (ok) listAction('reopen', {}, () => toast('Départ rouvert : la liste est de nouveau à préparer.'));
+  }
+
   async function validateList() {
     const list = lists.list;
     const partial = !list.complete;
@@ -7031,7 +7041,12 @@
       parts.push(el('div', { class: 'banner ok' }, `${!list.went_out ? 'Terminée' : scannedBack ? 'Rentrée' : 'Validée'} ${fmtOn(list.returned)}`
         + `${list.returned_by ? ' par ' + list.returned_by : ''}.`
         + (list.went_out && !scannedBack ? ' Les lots pris sont en vérif recommandée ; le matériel sorti rentre en stock quand on le rescanne.' : '')
-        + ' La liste ne sert plus : dupliquez-la pour la refaire.'));
+        + (list.can_reopen ? ' Validée par erreur ? Vous pouvez la rouvrir pendant 30 minutes.'
+          : ' La liste ne sert plus : dupliquez-la pour la refaire.')));
+      if (list.can_reopen) {
+        buttons.push(el('button', { type: 'button', class: 'secondary', disabled: busy || null, onclick: reopenList },
+          '↩ Rouvrir le départ'));
+      }
     }
     if (lists.message && listScanning()) parts.push(el('div', { class: 'banner ' + lists.message.kind }, lists.message.text));
     parts.push(el('div', { class: 'list-buttons' }, ...buttons));
