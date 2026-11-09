@@ -809,6 +809,8 @@ class LotAdminWindow final : public AppWindow {
                            lot_["seal_number"].str().empty() ? "" : (" n°" + lot_["seal_number"].str()).c_str());
       }
 
+      draw_distribution_hint(app);
+
       // actions de tous les jours, toujours au meme endroit
       if (active) {
         if (primary_button(lot_["is_sealed"].boolean() ? "Lancer une vérif (brise le scellé)" : "Lancer une vérif"))
@@ -847,7 +849,11 @@ class LotAdminWindow final : public AppWindow {
         ImGui::EndTabItem();
       }
       // lot global dont les sacs sont des rangements d'un referentiel (le B+) : ou va chaque ligne de la liste
-      if (lot_["distribution"].size() > 0 && tab_item("Répartition")) {
+      const ImGuiTabItemFlags distribution_flags = focus_distribution_tab_ ? ImGuiTabItemFlags_SetSelected : 0;
+      if (lot_["distribution"].size() > 0) {
+        focus_distribution_tab_ = false;
+      }
+      if (lot_["distribution"].size() > 0 && tab_item("Répartition", distribution_flags)) {
         ImGui::BeginChild("lot_distribution_tab");
         draw_distribution(app);
         ImGui::EndChild();
@@ -873,7 +879,10 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SeparatorText("Contenu attendu");
       if (lot_["requirements"].size() == 0) {
         if (lot_["slots"].size() > 0 || lot_["children"].size() > 0)
-          ImGui::TextDisabled("Aucun item attendu directement : ce lot regroupe ses sous-lots.");
+          ImGui::TextDisabled(lot_["distribution"].size() > 0
+                                ? "Aucun item attendu directement : la liste se répartit entre ses sacs (onglet "
+                                  "Répartition)."
+                                : "Aucun item attendu directement : ce lot regroupe ses sous-lots.");
         else
           ImGui::TextDisabled("Aucun item attendu : le type « %s » n'a pas de contenu (onglet Types de lots).",
                               lot_["lot_type_name"].str().c_str());
@@ -974,6 +983,46 @@ class LotAdminWindow final : public AppWindow {
         }
       }
       ImGui::EndTable();
+    }
+
+    // Ou se regle la repartition du referentiel, bien visible en haut de la fiche :
+    // - lot global : lignes de la liste dans aucun sac (en rouge), bouton vers l'onglet Repartition ;
+    // - sac (lot d'un rangement range dans un lot) : sa part de la liste se regle sur son lot, bouton pour y aller.
+    void draw_distribution_hint(App &app) {
+      int lines = 0, missing = 0;
+      std::string referentiels;
+      for (const Json &group : lot_["distribution"].items()) {
+        referentiels += (referentiels.empty() ? "" : ", ") + group["referentiel_name"].str();
+        for (const Json &line : group["lines"].items()) {
+          ++lines;
+          missing += line["placed"].integer() < line["required"].integer();
+        }
+      }
+      if (lines > 0) {
+        ImGui::AlignTextToFramePadding();
+        if (missing > 0)
+          ImGui::TextColored(colors::red, "%s de la liste %s dans aucun sac", nb(missing, "ligne").c_str(),
+                             referentiels.c_str());
+        else
+          ImGui::TextDisabled("Liste %s répartie entre les sacs", referentiels.c_str());
+        ImGui::SameLine();
+        if (small_button("Répartir entre les sacs"))
+          focus_distribution_tab_ = true;
+        return;
+      }
+      const std::string referentiel = rangement_of(app, lot_["lot_type"].str());
+      if (referentiel.empty() || lot_["path"].size() == 0)
+        return;
+      const Json       &path   = lot_["path"];
+      const Json       &parent = path[static_cast< std::size_t >(path.size() - 1)];
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled("Sac de la liste %s : ce qu'il contient pour ce lot se règle sur %s, onglet Répartition.",
+                          referentiel.c_str(), parent["name"].str().c_str());
+      ImGui::PopTextWrapPos();
+      if (small_button(("Répartir la liste " + referentiel + " dans " + parent["name"].str()).c_str())) {
+        focus_distribution_tab_ = true;
+        select_lot(app, parent["id"].str());
+      }
     }
 
     // Onglet « Répartition » : la liste du referentiel (ex : B+) repartie entre les sacs de ce lot, lot par lot.
@@ -1950,13 +1999,14 @@ class LotAdminWindow final : public AppWindow {
     void draw_coverage(App &app) {
       ImGui::SeparatorText("Couverture");
       ImGui::TextDisabled("Pour chaque lot, ce que ses sacs placent de la liste obligatoire.");
-      if (coverage_type_ != editing_lot_type_ && !coverage_loading_)
+      // rechargee aussi apres tout enregistrement (contenu d'un sac, repartition d'un lot, autre type...)
+      if ((coverage_type_ != editing_lot_type_ || coverage_writes_ != app.api.writes()) && !coverage_loading_)
         load_coverage(app);
       ImGui::SameLine();
       if (small_button("Actualiser"))
         load_coverage(app);
-      if (coverage_loading_) {
-        ImGui::TextDisabled("Chargement…");
+      if (coverage_loading_ && coverage_shown_type_ != editing_lot_type_) {
+        ImGui::TextDisabled("Chargement…"); // autre type : l'ancienne couverture ne vaut plus
         return;
       }
       if (coverage_["lots"].size() == 0) {
@@ -2032,13 +2082,15 @@ class LotAdminWindow final : public AppWindow {
 
     void load_coverage(App &app) {
       coverage_type_    = editing_lot_type_;
+      coverage_writes_  = app.api.writes();
       coverage_loading_ = true;
       const std::string type = editing_lot_type_;
       app.api.get("/api/lot-types/" + url_encode(type) + "/coverage/", [this, &app, type](const ApiResult &result) {
         if (type != coverage_type_)
           return; // un autre type a ete choisi entre-temps
-        coverage_loading_ = false;
-        coverage_         = result.ok ? result.data : Json();
+        coverage_loading_    = false;
+        coverage_            = result.ok ? result.data : Json();
+        coverage_shown_type_ = type;
         if (!result.ok)
           app.notify(result.error, true);
       });
@@ -2182,6 +2234,7 @@ class LotAdminWindow final : public AppWindow {
     std::string lot_search_;
     Json        all_lots_           = Json::array(); // archives compris (case « Afficher les lots archivés »)
     bool        focus_lots_tab_     = false;
+    bool        focus_distribution_tab_ = false; // ouvrir l'onglet Repartition (bouton d'un sac ou du lot global)
     // Types de lots
     std::string                   editing_lot_type_;
     std::string                   type_code_;
@@ -2197,6 +2250,8 @@ class LotAdminWindow final : public AppWindow {
     std::string                   type_rangements_;        // rangements d'un referentiel, pour l'affichage
     std::string                   coverage_type_;          // type dont la couverture est chargee
     bool                          coverage_loading_ = false;
+    std::string                   coverage_shown_type_;    // type de coverage_ (garde a l'ecran pendant un rechargement)
+    unsigned long                 coverage_writes_  = 0;   // ecritures vues au dernier chargement
     Json                          coverage_;
     std::string                   type_lot_;        // lot d'un type unique
     std::string                   type_lot_parent_; // creation d'un type unique : parent de son lot

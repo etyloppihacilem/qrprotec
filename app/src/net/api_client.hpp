@@ -59,6 +59,9 @@ class ApiClient {
     bool        online() const;
     bool        busy() const;
     std::string last_error() const;
+    // Nombre d'ecritures (POST/PATCH/PUT/DELETE) reussies depuis le lancement : une vue calculee
+    // ailleurs (couverture d'un referentiel...) se recharge quand il change.
+    unsigned long writes() const { return writes_; }
 
   private:
     struct Job {
@@ -70,6 +73,7 @@ class ApiClient {
     struct Done {
         ApiResult result;
         Callback  callback;
+        bool      write = false;
     };
 
     void enqueue(const std::string &method, const std::string &path, const Json *body, Callback callback);
@@ -86,6 +90,7 @@ class ApiClient {
     std::string             last_error_;
     bool                    stopping_ = false;
     std::thread             thread_;
+    unsigned long           writes_ = 0; // thread UI seulement
 };
 
 std::string url_encode(const std::string &value);

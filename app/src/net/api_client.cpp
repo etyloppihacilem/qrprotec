@@ -89,6 +89,8 @@ void ApiClient::poll() {
     done.swap(done_);
   }
   for (Done &entry : done) {
+    if (entry.write && entry.result.ok)
+      ++writes_;
     if (entry.result.status == 403 && entry.result.data["login_required"].boolean() && on_login_required)
       on_login_required();
     if (entry.callback)
@@ -162,7 +164,7 @@ void ApiClient::run() {
     online_  = result.status != 0;
     if (result.status == 0)
       last_error_ = result.error;
-    done_.push_back({ std::move(result), std::move(job.callback) });
+    done_.push_back({ std::move(result), std::move(job.callback), job.method != "GET" });
   }
 }
 
