@@ -754,3 +754,23 @@ body.home-mode:has(#home-depart.active.with-go) #toast { bottom: calc(96px + env
 .list-buttons button.navy { background: var(--navy); }
 #home-lists .list-box.by-hand { cursor: pointer; border-color: var(--navy); }
 dialog.ask-dialog .dialog-stack button { width: 100%; }
+/* Liste : case d'un lot, grande fenetre de scan de son etiquette (camera placee sur #lot-pick-cam, --gate-*) */
+#lot-pick { position: fixed; inset: 0; z-index: 46; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: calc(18px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); background: var(--panel);
+  border-top: 4px solid var(--pc-orange); overflow-y: auto; text-align: center; }
+#lot-pick > :first-child { margin-top: auto; }
+#lot-pick > :last-child { margin-bottom: auto; }
+#lot-pick h2 { margin: 4px 0 0; font-size: 1.5rem; color: var(--navy); text-wrap: balance; }
+#lot-pick p { margin: 0; max-width: 420px; color: var(--muted); }
+#lot-pick-cam { flex: 1 1 auto; width: min(86vw, 360px); min-height: 220px; max-height: 420px; }
+#lot-pick .lot-pick-manual { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+#lot-pick .lot-pick-manual .text-link { font-size: .9rem; padding: 4px 0; }
+#lot-pick .lot-pick-cancel { width: min(100%, 420px); padding: 12px; }
+/* specificite au-dessus du lecteur en coin (:is(...).login-reader #camera) */
+body.lot-pick.lot-pick.lot-pick #camera { display: block !important; position: fixed; z-index: 47; left: var(--gate-left, 7vw);
+  top: var(--gate-top, 120px); width: var(--gate-width, 86vw); height: var(--gate-height, 40dvh); border-radius: 18px;
+  outline: 4px solid var(--navy); box-shadow: 0 6px 24px rgba(0, 0, 0, .35); }
+body.lot-pick.lot-pick.lot-pick #camera.hit { outline-color: #4ade80; }
+body.lot-pick #topbar, body.lot-pick #reader-name, body.lot-pick #reader-close { display: none !important; }
+body.lot-pick #viewfinder span { width: min(62%, 220px); }
+body.lot-pick #scan-hint { font-size: 1.1rem; font-weight: 600; }
