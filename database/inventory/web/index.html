@@ -353,7 +353,10 @@
   <!-- Reglages de l'utilisateur connecte : son code PIN (tous les roles), puis les notifications web (roles gestion et
        admin) de cet appareil et de tous ses appareils abonnes -->
   <dialog id="notifications">
-    <h2>Réglages</h2>
+    <div class="dialog-head">
+      <h2 tabindex="-1" autofocus>Réglages</h2>
+      <button type="button" id="notifications-x" class="dialog-x" aria-label="Fermer les réglages">✕</button>
+    </div>
     <div id="settings-install" class="push-box"></div>
     <div id="settings-pin" class="push-box"></div>
     <div id="settings-login" class="push-box"></div>
