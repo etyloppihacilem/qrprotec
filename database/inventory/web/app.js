@@ -3422,7 +3422,9 @@
     else openReader();
   });
   $('#home-settings').addEventListener('click', openNotifications);
-  $('#home-back').addEventListener('click', () => history.back());
+  // « Départ » : la fleche ramene toujours a l'accueil (apres une liste preparee, validee, rentree, l'historique
+  // repasserait par chacune de ses pages)
+  $('#home-back').addEventListener('click', () => (state.homePage === 'depart' ? showHome('menu') : history.back()));
   $('#go-home').addEventListener('click', (event) => { event.stopPropagation(); showHome('menu'); });
   document.querySelectorAll('.tile').forEach((tile) => tile.addEventListener('click', () => {
     const page = tile.dataset.go;
