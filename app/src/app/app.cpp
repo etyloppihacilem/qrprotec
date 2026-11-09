@@ -2336,11 +2336,12 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
       open_window("verif");
       return;
     }
-    const bool reopened = verif.done.count(scan.id) > 0;
-    enter_level(scan.id);
-    const std::string name = (*verif_lot(scan.id))["name"].str();
+    const std::string entered = verif_visible(scan.id); // etiquette d'un lot cache : son parent affiche
+    const bool reopened = verif.done.count(entered) > 0;
+    enter_level(entered);
+    const std::string name = (*verif_lot(entered))["name"].str();
     notify(reopened ? name + " : déjà validé pendant cette vérif, vous le refaites."
-           : scan.id == verif.lot_id ? name + " : scannez l'étiquette " + verif_children_de(scan.id) + " pour y entrer."
+           : entered == verif.lot_id ? name + " : scannez l'étiquette " + verif_children_de(entered) + " pour y entrer."
                                      : "Entrée dans " + name + " : scannez son contenu, puis validez-le.");
     open_window("verif");
     flush_cascade_seals();
@@ -2598,6 +2599,9 @@ std::string App::verif_label_missing() const {
   const Json *lot = verif_lot(tops.front());
   const std::string name = lot ? (*lot)["name"].str(tops.front()) : verif.lot["name"].str(tops.front());
   const std::string subs = verif_children_de(tops.front());
+  // lot d'un referentiel (B+, services.virtual_lot) : pas d'etiquette a lui, celles de ses sacs
+  if (!subs.empty() && (lot ? (*lot)["virtual"].boolean() : verif.lot["virtual"].boolean()))
+    return subs;
   return de_name(name) + (subs.empty() ? "" : " (ou celle " + subs + ")");
 }
 
@@ -2975,21 +2979,43 @@ const Json *App::verif_lot(const std::string &id) const {
   return nullptr;
 }
 
+static std::string real_parent(const Json &lot) {
+  const Json &path = lot["path"];
+  return !lot["parent"].str().empty() ? lot["parent"].str()
+                                      : (path.size() > 0 ? path[path.size() - 1]["id"].str() : std::string());
+}
+
+// Lot qui contient id dans la verif en cascade. Un lot cache (Lots.hidden_in_verif, ex : le B+ du VPS) est saute :
+// ses sous-lots apparaissent directement dans son parent (meme regle que le web, parentIdOf).
 std::string App::verif_parent(const std::string &id) const {
   const Json *lot = verif_lot(id);
   if (!lot)
     return "";
-  const Json &path = (*lot)["path"];
-  return !(*lot)["parent"].str().empty() ? (*lot)["parent"].str()
-                                         : (path.size() > 0 ? path[path.size() - 1]["id"].str() : std::string());
+  std::string parent = real_parent(*lot);
+  for (int guard = 0; guard < 64; ++guard) {
+    const Json *above = verif_lot(parent);
+    if (!above || !(*above)["hidden"].boolean())
+      break;
+    parent = real_parent(*above);
+  }
+  return parent;
 }
 
 std::vector< const Json * > App::verif_children(const std::string &id) const {
   std::vector< const Json * > result;
   for (const Json *lot : verif_lots())
-    if ((*lot)["id"].str() != id && verif_parent((*lot)["id"].str()) == id)
+    if ((*lot)["id"].str() != id && !(*lot)["hidden"].boolean() && verif_parent((*lot)["id"].str()) == id)
       result.push_back(lot);
   return result;
+}
+
+// Lot ou l'on entre a la place d'un lot cache : le premier lot affiche qui le contient
+std::string App::verif_visible(const std::string &id) const {
+  const Json *lot = verif_lot(id);
+  if (!lot || !(*lot)["hidden"].boolean())
+    return id;
+  const std::string parent = verif_parent(id);
+  return parent.empty() ? verif.lot_id : parent;
 }
 
 bool App::verif_under(const std::string &id, const std::string &top) const {
@@ -3077,7 +3103,8 @@ std::set< std::string > App::verif_scope(const std::string &top) const {
   return result;
 }
 
-void App::enter_level(const std::string &id) {
+void App::enter_level(const std::string &target) {
+  const std::string id = verif_visible(target); // lot cache : on entre dans le lot affiche qui le contient
   if (!verif_lot(id))
     return;
   verif.path.clear();

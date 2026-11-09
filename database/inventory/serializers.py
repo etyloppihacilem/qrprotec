@@ -19,7 +19,7 @@ from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
 from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, compact_iid, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
-from .services import LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, out_deadline, requirements_status
+from .services import LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -301,6 +301,7 @@ def _lot_core(lot, today, items=None, preload=None):
         # sous-lot facultatif a la verif de son parent (services.optional_lot)
         'optional': optional_lot(lot),
         'spare': lot.spare,  # sac de rechange (rangement libre, voir Lots.spare)
+        'hidden_in_verif': lot.hidden_in_verif,  # case de la gestion (effet reel : 'hidden' des descendants)
         'is_sealed': lot.is_sealed,
         'sealed': _date(lot.sealed) if lot.is_sealed else None,
         'sealed_by': _who(lot.sealed_by) if lot.is_sealed else '',
@@ -510,6 +511,8 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, p
         data['global'] = lot_global(lot, today)
     if preload is None:
         data['slots'] = lot_slots(lot, children, today)
+        # lot d'un referentiel (B+) : pas d'etiquette, verifie par ses sacs (services.virtual_lot)
+        data['virtual'] = virtual_lot(lot)
     if with_items:
         _add_items(data, lot, items, today)
         # sous-lots (en profondeur d'abord) : une verif du lot les couvre aussi
@@ -520,6 +523,9 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, p
             row = _lot_core(sub_lot, today, sub_items)
             row['depth'] = sub_lot.depth
             row['parent'] = sub_lot.parent_id  # repartition des items par lot (services.assign_items)
+            # cache dans la vérif en cascade : les fronts remontent ses sous-lots dans son parent (parentIdOf)
+            row['hidden'] = hidden_in_verif(sub_lot, row)
+            row['virtual'] = virtual_lot(sub_lot)
             _add_items(row, sub_lot, sub_items, today)
             data['descendants'].append(row)
     if local:

@@ -557,6 +557,10 @@ class Lots(models.Model):
     # Sac de rechange : un lot d'un rangement (LotType.part_of, ex : un sac de soin du B+) se range toujours dans un
     # lot ; seul un sac de rechange peut rester libre (assemblage, remplacement d'un sac en panne)
     spare = models.BooleanField(default=False)
+    # Cache dans la hierarchie de la vérif en cascade (ex : le B+ du VPS) : ses sous-lots y apparaissent comme s'ils
+    # etaient directement dans son parent. Sans effet sur un lot qui attend ou contient des items lui-meme
+    # (services.hidden_in_verif). La gestion affiche toujours la vraie hierarchie.
+    hidden_in_verif = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.version:

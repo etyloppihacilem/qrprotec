@@ -2886,6 +2886,8 @@ def lot_update(request, lot_id):
         check_rangement_parent(lot)
     if 'optional' in data:
         lot.optional = bool(data['optional'])
+    if 'hidden_in_verif' in data:
+        lot.hidden_in_verif = bool(data['hidden_in_verif'])
     if lot.optional and 'optional' in data or lot.optional and 'parent' in data:
         check_optional_lot(lot)
     if 'active' in data:
@@ -2915,6 +2917,8 @@ def lot_update(request, lot_id):
         changes.append("emplacement de l'étiquette clé")
     if 'optional' in data:
         changes.append('facultatif à la vérif' if lot.optional else 'obligatoire à la vérif')
+    if 'hidden_in_verif' in data:
+        changes.append('caché dans la vérif en cascade' if lot.hidden_in_verif else 'affiché dans la vérif en cascade')
     if 'spare' in data:
         changes.append('sac de rechange' if lot.spare else 'pas un sac de rechange')
     if 'active' in data:
