@@ -4269,8 +4269,13 @@
     view.replaceChildren(...parts);
   }
 
-  // Compte rendu d'une vérif passée : résumé, puis lot par lot ce qui a été vu, manquait ou était périmé
+  // Compte rendu d'une vérif passée, compact : bandeau d'état, puis l'arbre des lots, une ligne par lot.
+  // Secouristes et chefs : l'état en un mot, les lots du haut et seulement ce qui est à faire (manque, à remplacer,
+  // à jeter). Gestion et admin : même présentation, avec les comptes, tous les sous-lots, les présents et non
+  // scannés à déplier par lot ([+]) et les opérations faites pendant la vérif.
   // ids : une vérif, ou les étapes d'une vérif en cascade terminée (suivi en direct), réunies en un compte rendu
+  const reportView = { report: null, open: new Set() };
+
   async function openVerifReport(ids) {
     let reports;
     try {
@@ -4280,49 +4285,101 @@
       return;
     }
     const last = reports[reports.length - 1];
-    const report = { ...last, complete: reports.every((one) => one.complete),
+    // un lot revu à plusieurs étapes d'une cascade : sa dernière vérif compte
+    const byId = new Map();
+    for (const lot of reports.flatMap((one) => one.lots)) { byId.delete(lot.id); byId.set(lot.id, lot); }
+    reportView.report = { ...last, complete: reports.every((one) => one.complete),
       participants: [...new Set(reports.flatMap((one) => [one.by, ...(one.participants || [])]))].filter((who) => who !== last.by),
-      lots: reports.flatMap((one) => one.lots), sealed: reports.flatMap((one) => one.sealed),
+      lots: [...byId.values()], sealed: reports.flatMap((one) => one.sealed),
       operations: reports.flatMap((one) => one.operations) };
-    const people = [report.by || '?', ...(report.participants || [])];
-    const total = (key) => report.lots.reduce((sum, lot) => sum + lot[key + '_count'], 0);
-    const counts = [[total('present'), 'présent'], [total('missing'), 'manquant'], [total('expired'), 'périmé'],
-      [total('replaced'), 'à jeter', 'à jeter']].filter(([count], index) => count || !index)
-      .map(([count, word, plural]) => nb(count, word, plural)).join(' · ');
+    reportView.open = new Set();
+    renderVerifReport();
+    if (!$('#verif-report').open) $('#verif-report').showModal();
+  }
+
+  function renderVerifReport() {
+    const report = reportView.report;
+    const full = detailed();
+    const sum = (list) => list.reduce((total, row) => total + row.count, 0);
+    // un seul arbre pour toutes les étapes : chaque lot sous son parent, ce qui demande l'attention d'abord
+    const ids = new Set(report.lots.map((lot) => lot.id));
+    const children = new Map();
+    for (const lot of report.lots) {
+      const parent = ids.has(lot.parent) ? lot.parent : null;
+      if (!children.has(parent)) children.set(parent, []);
+      children.get(parent).push(lot);
+    }
+    const rank = (lot) => (lot.complete ? 2 : lot.partial ? 1 : 0);
+    const tree = [];
+    const walk = (parent, depth) => {
+      for (const lot of [...(children.get(parent) || [])].sort((a, b) => rank(a) - rank(b))) {
+        tree.push({ lot, depth });
+        // secouristes : rien sous un lot complet, il suffit à dire que tout ce qu'il contient l'est
+        if (full || !lot.complete) walk(lot.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    const state = (lot) => (lot.complete ? 'ok' : lot.partial ? 'partial' : 'bad');
+    const bad = report.lots.filter((lot) => !lot.complete);
     const partial = report.lots.some((lot) => lot.partial);
-    const rows = (list) => list.map((row) => el('li', {}, `${row.count} × ${row.type_name}`
-      + (row.peremption ? ` – ${fmtDate(row.peremption)}` : '')));
-    const section = (title, list) => list.length
-      ? [el('h3', {}, `${title} (${list.reduce((sum, row) => sum + row.count, 0)})`), el('ul', {}, rows(list))] : [];
-    const lotBlock = (lot) => [
-      el('div', { class: 'lot-head ' + (lot.complete ? 'ok' : lot.partial ? 'partial' : 'bad'),
-        style: lot.depth ? `margin-left:${lot.depth * 14}px` : '' },
-        lot.complete ? '✔ ' : '✘ ', lotLink(lot), lot.complete ? ' : complet' : ' : incomplet'),
-      ...(lot.lacking || []).map((row) => lotRequirementRow(row.type_name, row.present, row.required)),
-      ...section('Périmés ou inutilisables restés dans le lot', lot.expired),
-      ...section('Périmés retirés du lot : à jeter', lot.replaced),
-      ...section('Attendus mais non scannés', lot.missing),
-      // presents replies : ce qui demande l'attention passe avant
-      lot.present.length ? el('details', {}, el('summary', {},
-        `Présents (${lot.present.reduce((sum, row) => sum + row.count, 0)})`), el('ul', {}, rows(lot.present))) : '',
+    const kind = report.complete ? 'ok' : partial && bad.every((lot) => lot.partial) ? 'partial' : 'bad';
+    const title = kind === 'ok' ? (report.lots.length > 1 ? 'Tout est complet' : 'Lot complet')
+      : kind === 'partial' ? 'Vérif partielle'
+      : report.lots.length === 1 ? 'Lot incomplet'
+      : full ? `${nb(bad.length, 'lot à compléter', 'lots à compléter')} sur ${report.lots.length}` : 'À compléter';
+    const people = [report.by || '?', ...(report.participants || [])];
+    const total = (key) => report.lots.reduce((count, lot) => count + lot[key + '_count'], 0);
+    const stats = full ? [[report.lots.length, 'lot', 'lots', ''], [total('present'), 'présent', 'présents', ''],
+      [total('missing'), 'non scanné', 'non scannés', 'warn'], [total('expired'), 'périmé', 'périmés', 'bad'],
+      [total('replaced'), 'à jeter', 'à jeter', 'gray']].filter(([count], index) => count || index < 2) : [];
+    const typeText = (row) => `${row.count} × ${row.type_name}` + (row.peremption ? ` · ${fmtDate(row.peremption)}` : '');
+    // ce qui reste à faire sur le lot, toujours visible
+    const issues = (lot) => [
+      ...(lot.lacking || []).map((row) => el('div', { class: 'vr-issue bad' },
+        `Manque ${Math.max(0, row.required - row.present)} × ${row.type_name}`,
+        full ? el('span', { class: 'vr-ratio' }, ` (${row.present}/${row.required})`) : null)),
+      ...lot.expired.map((row) => el('div', { class: 'vr-issue bad' }, 'À remplacer : ' + typeText(row))),
+      ...lot.replaced.map((row) => el('div', { class: 'vr-issue gray' }, 'À jeter : ' + typeText(row))),
     ];
-    const body = $('#verif-report-body');
-    body.replaceChildren(
-      el('h2', { style: `color:var(--${report.complete ? 'green' : partial ? 'orange' : 'red'})` },
-        report.complete ? (report.lots.length > 1 ? '✅ Lots complets' : '✅ Lot complet')
-          : partial ? '↷ Vérif partielle' : report.lots.length > 1
-          ? `⚠️ ${nb(report.lots.filter((lot) => !lot.complete).length, 'lot NON complet', 'lots NON complets')} sur ${report.lots.length}`
-          : '⚠️ Lot NON complet'),
-      el('p', {}, `${cap(fmtDateTime(report.at))} · ${people.length > 1 ? '👥 ' : ''}${people.join(', ')}`),
-      el('p', {}, counts + '.'),
-      report.sealed.length ? el('p', {}, '🔒 Scellé intact, compté comme vérifié : ',
-        ...report.sealed.flatMap((lot, index) => [index ? ', ' : '', lotLink(lot)]), '.') : '',
-      ...report.lots.flatMap(lotBlock),
-      ...(report.operations.length ? [el('h3', {}, 'Pendant cette vérif'), el('ul', {}, report.operations.map((op) =>
-        el('li', {}, `${op.kind_label}`, op.lot ? [' · ', lotLink({ id: op.lot, name: op.lot_name })] : '',
-          op.summary ? ` : ${op.summary}` : '')))] : []),
+    const lotRow = ({ lot, depth }) => {
+      const open = reportView.open.has(lot.id);
+      const more = full && (lot.present.length || lot.missing.length);
+      const words = { ok: 'complet', partial: 'partielle', bad: 'incomplet' };
+      return el('li', { class: 'vr-lot ' + state(lot) + (depth ? ' sub' : ''), style: depth ? `--depth:${depth}` : null },
+        el('div', { class: 'vr-row' },
+          el('span', { class: 'vr-ico', 'aria-hidden': 'true' }, lot.complete ? '✓' : lot.partial ? '↷' : '!'),
+          el('span', { class: 'vr-name' }, lotLink(lot)),
+          full ? el('span', { class: 'vr-count', title: nb(lot.present_count, 'présent')
+            + (lot.missing_count ? `, ${nb(lot.missing_count, 'non scanné')}` : '') }, String(lot.present_count),
+            lot.missing_count ? el('span', { class: 'warn' }, ` −${lot.missing_count}`) : null) : null,
+          lot.complete ? null : el('span', { class: 'vr-word' }, words[state(lot)]),
+          more ? el('button', { type: 'button', class: 'lot-fold' + (open ? ' open' : ''), 'aria-expanded': String(open),
+            'aria-label': open ? 'Replier le détail' : 'Voir le détail', onclick: () => {
+              if (open) reportView.open.delete(lot.id); else reportView.open.add(lot.id);
+              renderVerifReport();
+            } }) : null),
+        ...issues(lot),
+        open ? el('div', { class: 'vr-more' },
+          lot.missing.length ? el('div', { class: 'vr-more-head warn' }, `Non scannés (${sum(lot.missing)})`) : null,
+          ...lot.missing.map((row) => el('div', {}, typeText(row))),
+          lot.present.length ? el('div', { class: 'vr-more-head' }, `Présents (${sum(lot.present)})`) : null,
+          ...lot.present.map((row) => el('div', {}, typeText(row)))) : null);
+    };
+    $('#verif-report-body').replaceChildren(
+      el('div', { class: 'vr-head ' + kind },
+        el('div', { class: 'vr-title' }, el('span', { class: 'vr-ico', 'aria-hidden': 'true' },
+          kind === 'ok' ? '✓' : kind === 'partial' ? '↷' : '!'), title),
+        el('div', { class: 'vr-sub' }, `${cap(fmtDateTime(report.at))} · ${people.length > 1 ? '👥 ' : ''}${people.join(', ')}`),
+        stats.length ? el('div', { class: 'vr-stats' }, ...stats.map(([count, one, many, tone]) =>
+          el('span', { class: tone }, nb(count, one, many)))) : null),
+      el('ul', { class: 'vr-lots' }, ...tree.map(lotRow),
+        ...report.sealed.map((lot) => el('li', { class: 'vr-lot ok' }, el('div', { class: 'vr-row' },
+          el('span', { class: 'vr-ico sealed', 'aria-hidden': 'true' }, '🔒'), el('span', { class: 'vr-name' }, lotLink(lot)),
+          el('span', { class: 'vr-word' }, 'scellé intact'))))),
+      full && report.operations.length ? el('div', { class: 'vr-ops' }, el('div', { class: 'vr-more-head' }, 'Pendant cette vérif'),
+        ...report.operations.map((op) => el('div', {}, op.kind_label,
+          op.lot ? [' · ', lotLink({ id: op.lot, name: op.lot_name })] : '', op.summary ? ` : ${op.summary}` : ''))) : '',
     );
-    $('#verif-report').showModal();
   }
   $('#verif-report-close').addEventListener('click', () => $('#verif-report').close());
   // nom d'un lot : sa fiche s'ouvre a la place du compte rendu (retour : page de suivi)

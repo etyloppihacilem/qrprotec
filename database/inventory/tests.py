@@ -3455,6 +3455,7 @@ class RecentVerifsTests(ApiTestCase):
         lots = {lot['id']: lot for lot in report['lots']}
         self.assertEqual(set(lots), {self.lot.id, sub.id})
         self.assertEqual((lots[self.lot.id]['depth'], lots[sub.id]['depth']), (0, 1))
+        self.assertEqual(lots[sub.id]['parent'], self.lot.id)
         self.assertEqual(lots[sub.id]['present_count'], 1)
         self.assertEqual(lots[sub.id]['missing_count'], 1)
         self.assertEqual([(row['type_name'], row['count']) for row in lots[sub.id]['missing']],
