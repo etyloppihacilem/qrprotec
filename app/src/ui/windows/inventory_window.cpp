@@ -10,6 +10,7 @@
 
 #include "../../app/labels.hpp"
 #include "../../core/plural.hpp"
+#include "../../core/search.hpp"
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
@@ -349,38 +350,64 @@ class InventoryWindow final : public AppWindow {
     // ---------------------------------------------------------------------------------------------------------------
     // Types d'items
     void draw_types(App &app) {
+      if (primary_button("Nouveau type d'item"))
+        clear_type_form();
+      ImGui::SameLine();
       if (button("Rafraîchir"))
         app.refresh_item_types();
       ImGui::SameLine();
-      ImGui::Checkbox("Afficher les types archivés", &show_archived_);
-      if (ImGui::BeginTable("types", 10,
+      ImGui::SetNextItemWidth(std::min(360.0f, ImGui::GetContentRegionAvail().x * 0.5f));
+      input_limited("##item_type_search", type_search_, 64, "Rechercher un type d'item (nom, code)…");
+      ImGui::SameLine();
+      ImGui::Checkbox("Types archivés", &show_archived_);
+      // par nom, archives en dernier
+      std::vector< const Json * > types;
+      for (const Json &item_type : app.catalog.item_types.items())
+        if ((show_archived_ || !item_type["archived"].boolean())
+            && (type_search_.empty() || search_matches(type_search_, item_type["name"].str())
+                || search_matches(type_search_, item_type["type"].str())))
+          types.push_back(&item_type);
+      std::stable_sort(types.begin(), types.end(), [](const Json *a, const Json *b) {
+        const bool archived_a = (*a)["archived"].boolean(), archived_b = (*b)["archived"].boolean();
+        if (archived_a != archived_b)
+          return archived_b;
+        return name_key((*a)["name"].str()) < name_key((*b)["name"].str());
+      });
+      if (types.empty())
+        ImGui::TextDisabled(type_search_.empty() ? "Aucun type d'item." : "Aucun type d'item trouvé.");
+      if (ImGui::BeginTable("types", 9,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, ImGui::GetContentRegionAvail().y * 0.45f))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Code", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Minimum", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn("Périssable", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::TableSetupColumn("Par paquet", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::TableSetupColumn("À déchirer", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::TableSetupColumn("Étiquette", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::TableSetupColumn("Consommable", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-        ImGui::TableSetupColumn("Tâches", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-        ImGui::TableSetupColumn("Révision", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        // nom en premier (code en gris), colonnes courtes ensuite : le nom garde la place
+        ImGui::TableSetupColumn("Type d'item", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Min.", ImGuiTableColumnFlags_WidthFixed, 45.0f);
+        ImGui::TableSetupColumn("Périssable", ImGuiTableColumnFlags_WidthFixed, 85.0f);
+        ImGui::TableSetupColumn("Paquet", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn("À déchirer", ImGuiTableColumnFlags_WidthFixed, 85.0f);
+        ImGui::TableSetupColumn("Étiquette", ImGuiTableColumnFlags_WidthFixed, 95.0f);
+        ImGui::TableSetupColumn("Consomm.", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("Tâches", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn("Révision", ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableHeadersRow();
-        for (const Json &item_type : app.catalog.item_types.items()) {
-          const bool archived = item_type["archived"].boolean();
-          if (archived && !show_archived_)
-            continue;
+        for (const Json *row : types) {
+          const Json       &item_type = *row;
+          const bool        archived  = item_type["archived"].boolean();
           const std::string code = item_type["type"].str();
           ImGui::TableNextRow();
           if (archived)
             row_color(colors::grey, 0.3f);
           ImGui::TableNextColumn();
-          if (ImGui::Selectable(code.c_str(), editing_type_ == code, ImGuiSelectableFlags_SpanAllColumns))
+          // ligne entiere cliquable, nom puis code en gris par-dessus
+          const float start = ImGui::GetCursorPosX();
+          if (ImGui::Selectable(("##" + code).c_str(), editing_type_ == code,
+                                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap))
             edit_type(item_type);
-          ImGui::TableNextColumn();
-          ImGui::Text("%s%s", item_type["name"].str().c_str(), archived ? " (archivé)" : "");
+          ImGui::SameLine();
+          ImGui::SetCursorPosX(start);
+          ImGui::TextUnformatted(item_type["name"].str().c_str());
+          ImGui::SameLine();
+          ImGui::TextDisabled("%s%s", code.c_str(), archived ? " - archivé" : "");
           ImGui::TableNextColumn();
           ImGui::Text("%d", item_type["min_quantity"].integer());
           ImGui::TableNextColumn();
@@ -1131,6 +1158,7 @@ class InventoryWindow final : public AppWindow {
     std::string form_revision_tasks_;
     bool        editing_type_archived_ = false;
     bool        show_archived_   = false;
+    std::string type_search_;
     // Items
     std::string search_text_;
     std::string search_type_;

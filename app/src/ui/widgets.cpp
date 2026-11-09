@@ -915,7 +915,8 @@ std::string group_banner(const Json &lot, ImVec4 &color, bool *all_ok) {
     return "✔ SOUS-LOTS TOUS VALIDES (" + std::to_string(counted) + ")";
   }
   color = warn && problems == 1 ? colors::orange : colors::red;
-  return "✘ " + std::to_string(problems) + " SOUS-LOT(S) À TRAITER SUR " + std::to_string(counted);
+  return "✘ " + std::to_string(problems) + (problems > 1 ? " SOUS-LOTS" : " SOUS-LOT") + " À TRAITER SUR "
+       + std::to_string(counted);
 }
 
 void draw_qr(const std::string &payload, float size) {
