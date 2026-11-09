@@ -166,6 +166,12 @@ class LotsWindow final : public AppWindow {
           ImGui::TextDisabled("%s%s", lot["lot_type_name"].str().c_str(),
                               top ? " · lot global" : lot["storage"].boolean() ? " · rangement" : "");
         }
+        if (!lot["out_with"].str().empty()) {
+          // parti avec une liste sortie, pas encore rentre (comme sur l'Etat des lots du web)
+          ImGui::SameLine();
+          ImGui::TextColored(ImVec4(0.14f, 0.39f, 0.70f, 1.0f), "· En poste");
+          ImGui::SetItemTooltip("En poste avec la liste « %s » : retour à scanner dans la liste", lot["out_with"].str().c_str());
+        }
         if (revisions > 0) {
           ImGui::SameLine();
           ImGui::TextColored(colors::orange, "· %d à réviser", revisions);

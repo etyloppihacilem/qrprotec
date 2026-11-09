@@ -3661,6 +3661,7 @@
           el('div', { class: 'name' }, (indent ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
           el('div', { class: 'sub' }, `${flat && lot.parent_name ? `dans ${lot.parent_name} · ` : ''}${lot.lot_type_name}`
             + `${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : ` + (verif ? fmtDateTime(verif) : 'jamais')),
+          lot.out_with ? el('div', { class: 'sub out-with', title: `Liste « ${lot.out_with} »` }, '🚑 En poste') : null,
           note ? el('div', { class: 'sub pick-note' }, note) : null),
         el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]),
         pick ? el('button', { type: 'button', class: 'pick-fiche', title: 'Ouvrir la fiche du lot', 'aria-label': 'Ouvrir la fiche du lot',
@@ -6217,8 +6218,8 @@
       el('span', { class: 'used-text' }, el('span', {}, title), el('span', { class: 'used-sub' }, sub)));
     if (taken && taken.out) {
       const gone = taken.gone && taken.gone.id !== lot.id ? taken.gone.name : ''; // parti avec le lot au-dessus
-      return button('↩', gone ? `Retour de ${gone}` : 'Retour de ce lot', `(parti avec « ${taken.name} »)`,
-        () => requireLogin('noter le retour de ce lot', () => (taken.open ? openList(taken.id) : returnLot(lot, gone || lot.name))));
+      return button('↩', gone ? `Retour de ${gone}` : 'Retour de ce lot', '(le lot est en poste)',
+        () => requireLogin('noter le retour de ce lot', () => returnLot(lot, gone || lot.name)));
     }
     if (taken) {
       return button('🎒', 'Continuer le départ', `(liste « ${taken.name} »)`,
@@ -6227,10 +6228,10 @@
     return button('🎒', 'Partir avec ce lot', '(liste de départ à scanner)', () => departWithLot(lot));
   }
 
-  // « Retour de ce lot » : le lot parti avec une liste deja terminee est note rentre (vérif recommandee) ; la fiche
-  // revient au bouton « Partir avec ce lot »
+  // « Retour de ce lot » : le lot en poste est scanne rentre sur sa liste (vérif recommandee) ; tout rentre, le
+  // serveur clot le retour de la liste. La fiche revient au bouton « Partir avec ce lot »
   async function returnLot(lot, name) {
-    if (!confirm(`Noter le retour de ${name} ?\nIl passe en « vérif recommandée » jusqu'à la prochaine vérif complète.`)) return;
+    if (!confirm(`Retour de ${name} ?\nSon contenu a pu servir : il passe en « vérif recommandée » jusqu'à la prochaine vérif complète.`)) return;
     try {
       const result = await api(`lots/${encodeURIComponent(lot.id)}/return/`, { user: badge() });
       feedback.good();
@@ -6670,11 +6671,16 @@
     });
   }
 
+  // « Rouvrir le départ » (validee par erreur, 30 min) : petit lien discret sous les boutons, pas un vrai bouton
+  function reopenLink(busy) {
+    return el('button', { type: 'button', class: 'text-link reopen-link', disabled: busy || null, onclick: reopenList },
+      'Validée par erreur ? Rouvrir le départ');
+  }
+
   async function reopenList() {
     const ok = await askDialog({
       title: 'Rouvrir le départ ?',
-      text: 'Le matériel sorti revient où il était, les lots pris ne sont plus en vérif recommandée à cause de cette '
-        + 'liste. La liste redevient à préparer, avec ce qui est déjà coché.',
+      text: 'Le matériel sorti revient où il était. La liste redevient à préparer, avec ce qui est déjà coché.',
       choices: [{ label: 'Rouvrir le départ', value: true, cls: 'primary' }],
     });
     if (ok) listAction('reopen', {}, () => toast('Départ rouvert : la liste est de nouveau à préparer.'));
@@ -6688,7 +6694,8 @@
       title: partial ? 'Partir sans tout ?' : 'Prêt au départ ?',
       text: (partial ? `${nb(missing.length, 'ligne')} pas ${pl(missing.length, 'prête')} : ${missing.map((line) => line.lot_name
         || line.type_name || line.task).join(', ')}. Ce qui manque n'est pas pris. ` : '')
-        + 'Les lots pris passent en vérif recommandée, le matériel scanné sort du stock. La liste est ensuite terminée.',
+        + 'Le matériel scanné sort du stock. Au retour, scannez ce qui rentre et clôturez le retour : les lots pris '
+        + 'passent alors en vérif recommandée.',
       choices: [{ label: partial ? 'Partir sans tout' : 'Prêt au départ', value: true, cls: partial ? 'warning' : 'primary' }],
     });
     if (!ok) return;
@@ -6696,7 +6703,7 @@
       stopListScan();
       lists.message = null;
       feedback.good();
-      toast(lists.list && !lists.list.went_out ? 'Liste validée.' : 'Liste validée : bonne sortie !');
+      toast(lists.list && !lists.list.went_out ? 'Liste terminée.' : 'Liste sortie : bon poste !');
     });
   }
 
@@ -6707,7 +6714,7 @@
     return [...counts].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name)).join(', ');
   }
 
-  // Ancienne liste sortie (retour a scanner, d'avant le depart d'aujourd'hui) : meme popup que « Prêt au départ ? »,
+  // Liste sortie (retour a scanner) : meme popup que « Prêt au départ ? »,
   // avec ce qui n'est pas rentre et ce qui en sera fait (return_preview du serveur)
   async function closeListReturn() {
     const preview = lists.list.return_preview || { back: 0, lots: [], used: [], still_out: [] };
@@ -7257,17 +7264,14 @@
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Retour : scanner'));
       buttons.push(el('button', { type: 'button', class: 'warning', disabled: busy || null, onclick: closeListReturn }, icon('lock'), 'Clôturer le retour'));
+      if (list.can_reopen) buttons.push(reopenLink(busy));
     } else {
       const scannedBack = (list.back || []).length;
       parts.push(el('div', { class: 'banner ok' }, `${!list.went_out ? 'Terminée' : scannedBack ? 'Rentrée' : 'Validée'} ${fmtOn(list.returned)}`
         + `${list.returned_by ? ' par ' + list.returned_by : ''}.`
         + (list.went_out && !scannedBack ? ' Les lots pris sont en vérif recommandée ; le matériel sorti rentre en stock quand on le rescanne.' : '')
-        + (list.can_reopen ? ' Validée par erreur ? Vous pouvez la rouvrir pendant 30 minutes.'
-          : ' La liste ne sert plus : dupliquez-la pour la refaire.')));
-      if (list.can_reopen) {
-        buttons.push(el('button', { type: 'button', class: 'secondary', disabled: busy || null, onclick: reopenList },
-          '↩ Rouvrir le départ'));
-      }
+        + (list.can_reopen ? '' : ' La liste ne sert plus : dupliquez-la pour la refaire.')));
+      if (list.can_reopen) buttons.push(reopenLink(busy));
     }
     if (lists.message && listScanning()) parts.push(el('div', { class: 'banner ' + lists.message.kind }, lists.message.text));
     parts.push(el('div', { class: 'list-buttons' }, ...buttons));

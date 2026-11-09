@@ -446,9 +446,8 @@ def progress(checklist):
 
 
 def validate(checklist, user, partial=False):
-    """Liste verifiee : ses items sortent du stock (statut sorti), ses lots non scelles passent en vérif recommandee
-    (le contenu va servir) et la liste est terminee : pas de retour a scanner (choix d'Hippolyte, 2026-11-09), le
-    materiel sorti rentre quand on le revoit. Incomplete, il faut `partial` (ce qui manque n'est pas pris)."""
+    """Liste verifiee : ses items sortent du stock (statut sorti) et la liste est sortie, retour a scanner ; ses lots
+    passent en vérif recommandee au retour. Incomplete, il faut `partial` (ce qui manque n'est pas pris)."""
     _require_open(checklist)
     identity = identity_of(user)
     with transaction.atomic():
@@ -474,19 +473,14 @@ def validate(checklist, user, partial=False):
             for scan_row in refused:
                 scan_row.delete()  # plus en stock entre-temps : pas sorti avec la liste
         went_out = bool(_out_scans(checklist))
-        for lot in {scan.lot for scan in _out_scans(checklist) if scan.lot_id}:
-            if lot.is_sealed or lot.verif_recommended:
-                continue  # scelle : rien n'a servi tant que le scelle tient ; deja recommandee : sa raison reste
-            lot.verif_recommended = True
-            lot.back_from_list = checklist.name
-            lot.restocked = now
-            lot.restocked_by = identity
-            lot.save(update_fields=['verif_recommended', 'back_from_list', 'restocked', 'restocked_by'])
-        checklist.status = ChecklistStatus.RETURNED
+        # quelque chose est sorti : la liste est « Sortie » jusqu'au retour (scans de ce qui rentre, puis « Clôturer le
+        # retour ») ; les lots ne passent en vérif recommandee qu'au retour, pas pendant le poste (Hippolyte,
+        # 2026-11-09). Rien de sorti (taches seulement) : terminee tout de suite
+        checklist.status = ChecklistStatus.VALIDATED if went_out else ChecklistStatus.RETURNED
         checklist.validated = now
         checklist.validated_by = identity
-        checklist.returned = now
-        checklist.returned_by = identity
+        checklist.returned = None if went_out else now
+        checklist.returned_by = '' if went_out else identity
         checklist.updated = now
         checklist.save()
         journal.record(OperationKind.CHECKLIST, identity,
@@ -500,9 +494,12 @@ REOPEN_MINUTES = 30
 
 def can_reopen(checklist, user=None):
     """Depart valide par erreur : rouvrable pendant REOPEN_MINUTES par l'auteur, un secouriste de la liste, la gestion
-    ou un admin (pas une ancienne liste rentree par le retour)."""
-    if checklist.is_template or checklist.status != ChecklistStatus.RETURNED or not checklist.validated:
+    ou un admin, tant que rien n'est rentre (sortie) ; une liste sans rien de sorti, terminee a la validation, aussi."""
+    if checklist.is_template or not checklist.validated:
         return False
+    if checklist.status != ChecklistStatus.VALIDATED and not (
+            checklist.status == ChecklistStatus.RETURNED and checklist.returned == checklist.validated):
+        return False  # retour clos
     if timezone.now() - checklist.validated > timezone.timedelta(minutes=REOPEN_MINUTES):
         return False
     if any(scan.phase == ChecklistScan.BACK for scan in checklist.scans.all()):
@@ -598,8 +595,8 @@ def return_scan(checklist, user, iid='', lot_id=''):
 
 
 def _return_left(checklist):
-    """Ancienne liste sortie (retour a scanner) : ce que « Clôturer le retour » laisse de cote. Lots sortis et pas
-    rescannes, non scelles (ils passent en vérif recommandee, comme au depart d'aujourd'hui), consommables encore
+    """Liste sortie (retour a scanner) : ce que « Clôturer le retour » laisse de cote. Lots sortis et pas
+    rescannes, non scelles (ils passent en vérif recommandee), consommables encore
     sortis (comptes utilises), non consommables encore sortis (ils rentreront quand on les reverra)."""
     back = [scan for scan in checklist.scans.all() if scan.phase == ChecklistScan.BACK]
     back_lots = {scan.lot_id for scan in back if scan.lot_id}
@@ -622,34 +619,23 @@ def return_preview(checklist):
 
 
 def lot_return(lot, user):
-    """Fiche du lot, bouton « Retour de ce lot » : le lot parti avec une liste validee (lui ou le lot au-dessus avec
-    lequel il est parti) est note rentre sur cette liste, en vérif recommandee s'il n'est pas scelle."""
+    """Fiche du lot, bouton « Retour de ce lot » : le lot parti avec une liste sortie (lui ou le lot au-dessus avec
+    lequel il est parti) est scanne rentre sur cette liste, comme au retour par la liste (vérif recommandee s'il
+    n'est pas scelle : son contenu a pu servir pendant le poste)."""
     gone = lot_gone_with(lot)
     if gone is None:
         raise ValueError(f"{lot.name} n'est pas parti avec une liste")
     parent, checklist = gone
-    identity = identity_of(user)
-    with transaction.atomic():
-        ChecklistScan.objects.create(checklist=checklist, lot=parent, phase=ChecklistScan.BACK, by=identity)
-        if parent.is_sealed:
-            message = f'{parent.name} : rentré, toujours scellé'
-        else:
-            now = timezone.now()
-            parent.verif_recommended = True
-            parent.back_from_list = checklist.name
-            parent.restocked = now
-            parent.restocked_by = identity
-            parent.save(update_fields=['verif_recommended', 'back_from_list', 'restocked', 'restocked_by'])
-            message = f'{parent.name} : rentré, vérif recommandée'
-        checklist.updated = timezone.now()
-        checklist.save(update_fields=['updated'])
-    journal.record(OperationKind.CHECKLIST, identity, f'{parent.name} rentré (liste « {checklist.name} »)',
-                   checklist=checklist.id)
-    return message
+    message = return_scan(checklist, user, lot_id=parent.id)
+    _, lots, used, still_out = _return_left(checklist)
+    if not (lots or used or still_out):  # tout est rentre : le retour de la liste est clos d'office
+        close_return(checklist, user)
+        message += '. Tout est rentré : liste close'
+    return message, checklist
 
 
 def close_return(checklist, user):
-    """Retour clos : les lots pas rescannes (non scelles) passent en vérif recommandee comme au depart d'aujourd'hui,
+    """Retour clos : les lots pas rescannes (non scelles) passent en vérif recommandee (leur contenu a pu servir),
     les consommables sortis et pas rentres sont comptes utilises, les non consommables restent sortis (ils rentreront
     quand on les reverra). La liste ne sert plus."""
     _require_return(checklist)
@@ -764,7 +750,8 @@ def departure_blocked():
     for lot in Lots.objects.filter(id__in=list(scanned), active=True):
         other = lot_taken_by(lot)
         if other is not None:
-            blocked[lot.id] = f'Pris pour « {other.name} »'
+            blocked[lot.id] = (f'En poste avec « {other.name} »' if other.status == ChecklistStatus.VALIDATED
+                               else f'Pris pour « {other.name} »')
     taken = dict(blocked)
     for lot in Lots.objects.select_related('parent__lot_type').filter(active=True, parent__isnull=False):
         if lot.id in blocked:
@@ -778,36 +765,38 @@ def departure_blocked():
 
 
 def lot_gone_with(lot):
-    """Depart en cours du lot (ou d'un lot au-dessus de lui) : (lot parti, liste validee) si la derniere liste qui l'a
-    pris est validee (sortie) sans que son retour soit scanne ni qu'une vérif l'ait revu depuis ; None sinon."""
+    """Lot en poste : (lot parti, liste sortie) si lui ou un lot au-dessus de lui est parti avec une liste validee
+    (sortie) dont le retour ne l'a pas encore scanne ; None sinon."""
     for gone in [lot, *lot.ancestors()]:
-        scan = (ChecklistScan.objects.filter(lot=gone, phase=ChecklistScan.OUT, checklist__validated__isnull=False,
-                                             checklist__is_template=False)
-                .exclude(checklist__status=ChecklistStatus.DRAFT).select_related('checklist').order_by('-at').first())
-        if scan is None:
-            continue
-        checklist = scan.checklist
-        if checklist.scans.filter(lot=gone, phase=ChecklistScan.BACK).exists():
-            continue  # retour scanne
-        if checklist.returned and checklist.returned > checklist.validated:
-            continue  # ancienne liste sortie dont le retour a ete clos (validee aujourd'hui : returned == validated)
-        if gone.last_verif and gone.last_verif >= checklist.validated:
-            continue  # revu par une vérif depuis : il est rentre
-        return gone, checklist
+        other = lot_taken_by(gone)
+        if other is not None and other.status == ChecklistStatus.VALIDATED:
+            return gone, other
     return None
+
+
+def lots_out():
+    """État des lots : {id du lot: nom de la liste} pour les lots partis avec une liste sortie et pas encore rentres
+    (sans leurs sous-lots : le front les deduit de l'arborescence)."""
+    out = {}
+    scans = (ChecklistScan.objects.filter(lot__isnull=False, checklist__status=ChecklistStatus.VALIDATED)
+             .select_related('checklist').order_by('at'))
+    back = {(scan.checklist_id, scan.lot_id) for scan in scans if scan.phase == ChecklistScan.BACK}
+    for scan in scans:
+        if scan.phase == ChecklistScan.OUT and (scan.checklist_id, scan.lot_id) not in back:
+            out[scan.lot_id] = scan.checklist.name
+    return out
 
 
 def lot_departure(lot):
     """Fiche du lot, bouton « Partir avec ce lot » (memes regles que departure_lots) : {"blocked": raison si on ne
     peut pas partir avec ce lot seul ('' si on peut), "list": liste qui l'a pris (lui ou un lot au-dessus) ou None}.
-    Pris par une liste a preparer : le bouton ouvre la liste (« Continuer le départ ») ; parti avec une liste validee
+    Pris par une liste a preparer : le bouton ouvre la liste (« Continuer le départ ») ; parti avec une liste sortie
     (`out`) : le bouton devient « Retour de ce lot » (`gone` : le lot parti, lui ou un lot au-dessus)."""
     gone = lot_gone_with(lot)
     if gone is not None:
         parent, checklist = gone
         return {'blocked': f'Parti avec « {checklist.name} »',
                 'list': {'id': checklist.id, 'name': checklist.name, 'out': True,
-                         'open': checklist.status == ChecklistStatus.VALIDATED,  # retour a scanner dans la liste
                          'gone': {'id': parent.id, 'name': parent.name}}}
     for taken in [lot, *lot.ancestors()]:
         other = lot_taken_by(taken)

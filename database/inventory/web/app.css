@@ -643,6 +643,8 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; align-items: center; }
 #home-lists .list-buttons button:not(.text-link) { flex: 1 1 auto; }
 #home-lists .list-buttons .text-link { padding: 0; }
+#home-lists .list-buttons .reopen-link { flex-basis: 100%; text-align: left; }
+.list .sub.out-with, .out-with { color: var(--navy); font-weight: 600; }
 #home-lists .list-count { font-size: .95rem; white-space: nowrap; color: var(--muted); }
 #home-lists .list-count.done { color: var(--green); }
 #home-lists .list-scan-row { padding: 2px 12px 2px 28px; background: var(--blue-bg); }

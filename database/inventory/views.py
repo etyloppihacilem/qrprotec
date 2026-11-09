@@ -849,13 +849,13 @@ def lot_unseal(request, lot_id):
 @api_view(['POST'])
 @handle_errors
 def lot_return(request, lot_id):
-    """Bouton « Retour de ce lot » de la fiche (tout utilisateur connecte) : le lot parti avec une liste validee est
-    note rentre (checklists.lot_return)."""
+    """Bouton « Retour de ce lot » de la fiche (tout utilisateur connecte) : le lot parti avec une liste sortie est
+    scanne rentre sur cette liste (checklists.lot_return) ; renvoie l'identifiant de la liste pour l'ouvrir."""
     from . import checklists
     user = connected_user(request)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id, active=True)
-    message = _checklist_call(lambda: checklists.lot_return(lot, user))
-    return Response({'message': message})
+    message, checklist = _checklist_call(lambda: checklists.lot_return(lot, user))
+    return Response({'message': message, 'list': checklist.id})
 
 
 @api_view(['POST'])
@@ -1295,7 +1295,21 @@ def lots_summary(request):
         badge_user(request)
     today = timezone.localdate()
     queryset = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
-    return Response(ser.lot_list(queryset, today=today, attention=True))  # lots a traiter en haut
+    return Response(_with_out(ser.lot_list(queryset, today=today, attention=True)))  # lots a traiter en haut
+
+
+def _with_out(rows):
+    """État des lots (web et poste) : `out_with` = nom de la liste avec laquelle le lot est en poste (parti avec une
+    liste sortie, pas encore rentre ; sous-lots compris, avec leur lot), '' sinon."""
+    from . import checklists
+    out = checklists.lots_out()
+    parents = {row['id']: row['parent'] for row in rows}
+    for row in rows:
+        lot_id, hops = row['id'], 0
+        while lot_id is not None and lot_id not in out and hops < 20:
+            lot_id, hops = parents.get(lot_id), hops + 1
+        row['out_with'] = out.get(lot_id, '') if lot_id is not None else ''
+    return rows
 
 
 @api_view(['POST'])
@@ -2650,7 +2664,7 @@ def lots(request):
         if request.query_params.get('all') != '1':
             queryset = queryset.filter(active=True)
         # cles des lots (etiquettes privees) : roles gestion et admin seulement
-        return Response(ser.lot_list(queryset, local=is_privileged(request)))
+        return Response(_with_out(ser.lot_list(queryset, local=is_privileged(request))))
     data = request.data
     lot_type = get_object_or_404(LotType, type=str(data.get('lot_type', '')))
     if lot_type.archived:
