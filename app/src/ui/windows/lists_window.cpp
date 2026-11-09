@@ -355,17 +355,7 @@ class ListsWindow final : public AppWindow {
                              nb(list["line_count"].integer(), "ligne prête", "lignes prêtes").c_str());
         draw_scan_toggle(app, "Scanner vers cette liste");
         ImGui::SameLine();
-        if (list["complete"].boolean()) {
-          if (confirm_action("Prêt au départ", "Prêt au départ ? Le matériel scanné sort du stock. Au retour, scannez "
-                                               "ce qui rentre et clôturez le retour : les lots pris passent alors en "
-                                               "vérif recommandée.", "confirm_validate", false))
-            validate(app, false);
-        } else if (confirm_action("Partir sans tout", "Liste incomplète : partir quand même ? Ce qui manque ne "
-                                                      "sera pas pris. Le matériel scanné sort du stock ; les lots "
-                                                      "pris passent en vérif recommandée au retour.",
-                                "confirm_partial", true)) {
-          validate(app, true);
-        }
+        draw_validate(app, list);
       } else if (status == "validated") {
         ImGui::TextColored(colors::orange, "Sortie %s%s.", display_on(list["validated"]).c_str(),
                            list["validated_by"].str().empty() ? "" : (" par " + list["validated_by"].str()).c_str());
@@ -440,6 +430,73 @@ class ListsWindow final : public AppWindow {
         ImGui::EndGroup();
       }
       draw_lines(app, list);
+    }
+
+    // Lots de la liste en vérif recommandee (rentres d'un poste, marques utilises, reassortis) : lots fixes (pris ou
+    // non, sauf taken_only) et lots au choix deja pris. Tant que la liste est a preparer, « Lancer la vérif » incite a
+    // la faire avant de partir, dans la liste et dans « Prêt au départ ? », comme sur le web.
+    static std::vector< std::pair< std::string, std::string > > verif_lots(const Json &list, bool taken_only) {
+      std::vector< std::pair< std::string, std::string > > lots;
+      for (const Json &line : list["lines"].items()) {
+        if (line["kind"].str() == "lot" && line["verif_recommended"].boolean() && (!taken_only || line["scanned"].integer() > 0))
+          lots.emplace_back(line["lot"].str(), line["lot_name"].str());
+        if (line["kind"].str() == "lot_type")
+          for (const Json &scan : line["scans"].items())
+            if (scan["verif_recommended"].boolean())
+              lots.emplace_back(scan["lot"].str(), scan["lot_name"].str());
+      }
+      return lots;
+    }
+
+    // la vérif s'ouvre sur le lot ; les scans ne vont plus vers la liste, qui reste ouverte pour la suite du depart
+    void verif_from_list(App &app, const std::string &lot_id) {
+      stop_scan(app);
+      app.start_verif(lot_id, "", app.lot_label_scanned(lot_id));
+    }
+
+    // « Prêt au départ » (ou « Partir sans tout ») : lots pris en vérif recommandee, la vérif d'abord (boutons en
+    // premier), partir reste possible
+    void draw_validate(App &app, const Json &list) {
+      const bool  complete = list["complete"].boolean();
+      const auto  verifs   = verif_lots(list, true);
+      const char *label    = complete ? "Prêt au départ" : "Partir sans tout";
+      if (complete ? primary_button(label) : warning_button(label))
+        ImGui::OpenPopup("confirm_validate");
+      if (!ImGui::BeginPopup("confirm_validate"))
+        return;
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 460.0f);
+      ImGui::TextUnformatted(complete ? "Prêt au départ ? Le matériel scanné sort du stock. Au retour, scannez ce qui "
+                                        "rentre et clôturez le retour : les lots pris passent alors en vérif recommandée."
+                                      : "Liste incomplète : partir quand même ? Ce qui manque ne sera pas pris. Le "
+                                        "matériel scanné sort du stock ; les lots pris passent en vérif recommandée au "
+                                        "retour.");
+      if (!verifs.empty()) {
+        std::string names;
+        for (const auto &[id, name] : verifs)
+          names += (names.empty() ? "" : ", ") + name;
+        ImGui::TextColored(colors::orange, "⚠ Vérif recommandée avant de partir : %s. Faites-la maintenant, la liste "
+                                           "reste ouverte pour la suite.", names.c_str());
+      }
+      ImGui::PopTextWrapPos();
+      for (const auto &[id, name] : verifs) {
+        ImGui::PushID(id.c_str());
+        if (primary_button(verifs.size() > 1 ? ("Lancer la vérif de " + name).c_str() : "Lancer la vérif")) {
+          ImGui::CloseCurrentPopup();
+          verif_from_list(app, id);
+        }
+        ImGui::PopID();
+      }
+      const char *go      = !verifs.empty() ? (complete ? "Partir sans la vérif" : "Partir sans tout ni la vérif")
+                                            : "Confirmer";
+      const bool  pressed = complete && verifs.empty() ? primary_button(go) : warning_button(go);
+      if (pressed) {
+        ImGui::CloseCurrentPopup();
+        validate(app, !complete);
+      }
+      ImGui::SameLine();
+      if (button("Annuler"))
+        ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
     }
 
     // Secouristes attribues a la liste : elle apparait dans leurs listes. Qui modifie la liste les ajoute (recherche
@@ -565,8 +622,13 @@ class ListsWindow final : public AppWindow {
       const bool validated = list["status"].str() == "validated" && !list["template"].boolean();
       const auto todo      = [&](const Json &line) {
         const int took = line["scanned"].integer();
-        if (draft)
-          return line["kind"].str() == "task" ? took == 0 : took < line["quantity"].integer();
+        if (draft) {
+          // vérif recommandee sur un lot de la ligne : a faire avant de partir, en haut aussi
+          bool verif = line["verif_recommended"].boolean();
+          for (const Json &scan : line["scans"].items())
+            verif = verif || scan["verif_recommended"].boolean();
+          return line["kind"].str() == "task" ? took == 0 : took < line["quantity"].integer() || verif;
+        }
         if (!validated || line["kind"].str() == "task" || took == 0)
           return false;
         return line["kind"].str() == "lot" ? !line["back"].boolean() : line["back"].integer() < took;
@@ -618,6 +680,12 @@ class ListsWindow final : public AppWindow {
         ImGui::SameLine();
         ImGui::TextDisabled("%s", lot ? ("lot · " + line["lot_type_name"].str()).c_str()
                                       : lot_type ? "lot au choix" : "matériel");
+        if (lot && draft && line["verif_recommended"].boolean()) {
+          ImGui::TextColored(colors::orange, "⚠ Vérif recommandée avant de partir");
+          ImGui::SameLine();
+          if (primary_button("Lancer la vérif"))
+            verif_from_list(app, line["lot"].str());
+        }
         if (lot_type && !done && line["available"].size() > 0) {
           std::string available;
           for (const Json &row : line["available"].items())
@@ -659,6 +727,15 @@ class ListsWindow final : public AppWindow {
             ImGui::TableNextColumn();
             ImGui::Indent();
             ImGui::TextDisabled("%s · %s", scan["lot_name"].str().c_str(), scan["by"].str("?").c_str());
+            if (draft && scan["verif_recommended"].boolean()) {
+              ImGui::SameLine();
+              ImGui::TextColored(colors::orange, "⚠ vérif recommandée");
+              ImGui::SameLine();
+              ImGui::PushID(lot_id.c_str());
+              if (primary_button("Lancer la vérif"))
+                verif_from_list(app, lot_id);
+              ImGui::PopID();
+            }
             ImGui::Unindent();
             ImGui::TableNextColumn();
             ImGui::TableNextColumn();
