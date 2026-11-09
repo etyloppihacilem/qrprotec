@@ -6391,6 +6391,7 @@
   }
 
   function stopListScan() {
+    if (lotPick) lotPick.close();
     if (!lists.mode) return;
     lists.mode = false;
     document.body.classList.remove('list-scan');
@@ -6403,6 +6404,8 @@
     const body = scan.kind === 'lot' ? { lot: scan.id } : { item: scan.id };
     try {
       const result = await listCall(action, body);
+      const picked = lotPick && lists.list && lists.list.lines.find((line) => line.id === lotPick.lineId);
+      if (picked && picked.scanned >= picked.quantity) lotPick.close();
       feedback.good();
       lists.message = { kind: 'ok', text: result.message || 'Scanné' };
     } catch (e) {
@@ -6410,6 +6413,53 @@
       lists.message = { kind: 'bad', text: e.message };
     }
     renderListsPage();
+  }
+
+  // Case d'un lot a prendre : grande fenetre avec la camera pour scanner son etiquette (ce qu'on veut encourager),
+  // et en petit « Cocher sans scanner » (le VPS reste dehors pendant qu'on prepare). Fermee d'elle-meme quand la
+  // ligne est cochee. La camera (#camera) est placee sur #lot-pick-cam comme dans la grande fenetre de connexion.
+  let lotPick = null; // { lineId, close }
+  function placeLotPickCamera() {
+    const cam = $('#lot-pick-cam');
+    if (!cam) return;
+    const box = cam.getBoundingClientRect();
+    const style = document.body.style;
+    style.setProperty('--gate-left', `${box.left}px`);
+    style.setProperty('--gate-top', `${box.top}px`);
+    style.setProperty('--gate-width', `${box.width}px`);
+    style.setProperty('--gate-height', `${box.height}px`);
+  }
+  window.addEventListener('resize', placeLotPickCamera);
+
+  function openLotPick(line, title) {
+    if (lotPick) lotPick.close();
+    const scanning = lists.mode;
+    const state = (row) => (row.state.kind === 'ok' ? '' : ` (${row.state.label.replace(/^[✔✘⚠] */, '').toLowerCase()})`);
+    const close = () => {
+      if (!lotPick || lotPick.close !== close) return;
+      lotPick = null;
+      overlay.remove();
+      document.body.classList.remove('lot-pick');
+      if (!scanning) stopListScan();
+      renderListsPage();
+    };
+    const byHand = (lot) => { close(); listAction('scan', { lot }); };
+    const overlay = el('div', { id: 'lot-pick', role: 'dialog', 'aria-modal': 'true' },
+      el('h2', {}, line.kind === 'lot' ? `Scannez l'étiquette de ${title}` : `Scannez l'étiquette d'un ${title}`),
+      el('p', {}, line.kind === 'lot' ? 'Le QR code collé sur le lot le coche dans la liste.'
+        : 'Disponibles : ' + line.available.map((row) => row.name + state(row)).join(', ') + '.'),
+      el('div', { id: 'lot-pick-cam' }),
+      el('div', { class: 'lot-pick-manual' }, ...(line.kind === 'lot'
+        ? [el('button', { type: 'button', class: 'text-link', onclick: () => byHand(line.lot) }, 'Cocher sans scanner')]
+        : line.available.map((row) => el('button', { type: 'button', class: 'text-link', onclick: () => byHand(row.id) },
+          `Prendre ${row.name} sans scanner`)))),
+      el('button', { type: 'button', class: 'secondary lot-pick-cancel', onclick: () => close() }, 'Annuler'));
+    lotPick = { lineId: line.id, close };
+    document.body.append(overlay);
+    document.body.classList.add('lot-pick');
+    if (!lists.mode) startListScan();
+    $('#scan-hint').textContent = "Scannez l'étiquette du lot";
+    placeLotPickCamera();
   }
 
   // Popup de choix (au lieu d'un confirm du navigateur) : { title, text, choices: [{ label, value, cls }] } ;
@@ -6869,16 +6919,7 @@
       && (line.kind === 'lot' || (line.kind === 'lot_type' && line.available && line.available.length));
     const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : '') + (byHand ? ' by-hand' : ''), 'aria-label': text, onclick: async (event) => {
       event.stopPropagation();
-      if (byHand) {
-        const lot = await askDialog(line.kind === 'lot'
-          ? { title: `Prendre ${title} ?`, text: "Cochez-le sans scanner son étiquette si vous ne l'avez pas sous la main.",
-            choices: [{ label: 'Cocher sans scanner', value: line.lot, cls: 'primary' }] }
-          : { title: `Quel ${title} prenez-vous ?`, text: 'Choisissez le lot, sans scanner son étiquette.',
-            choices: line.available.map((row) => ({ value: row.id, cls: row.state.kind === 'ok' ? 'primary' : 'warning',
-              label: row.name + (row.state.kind === 'ok' ? '' : ` (${row.state.label.replace(/^[✔✘⚠] */, '').toLowerCase()})`) })) });
-        if (lot) listAction('scan', { lot });
-        return;
-      }
+      if (byHand) { openLotPick(line, title); return; }
       document.querySelectorAll('#home-lists .list-bubble').forEach((node) => node.remove());
       const bubble = el('span', { class: 'list-bubble', role: 'status' }, text);
       box.parentNode.append(bubble);
