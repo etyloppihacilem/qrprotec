@@ -85,10 +85,14 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
 - **Page d'accueil** (`#home`, `showHome`/`renderHomePage`) : plein écran, affichée à l'ouverture
   de `/` et après le scan d'une carte (`badge?m=...`). Bouton **Se connecter** qui ouvre un petit
   lecteur de badge dans un coin (`openReader` : la caméra en vignette ; un autre code que le badge
-  ouvre le scanner), et quatre tuiles : **Scanner** (`enterScanner`, l'écran de vérif, caméra
+  ouvre le scanner), et ses tuiles : **Scanner** (`enterScanner`, l'écran de vérif, caméra
   démarrée), **Suivi des vérifs** (`renderLive`), **État des lots** (`renderLotsPage`, liste publique
-  `POST api/lots/summary/`), **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
-  Chaque page a son ancre (`#lots`, `#suivi`, `#stock`, `#scan`) : le bouton retour du téléphone
+  `POST api/lots/summary/`), **Départ** (`renderDepartPage`, objet `depart` : onglet « Ma liste », listes de
+  matériel attribuées et pas encore rentrées, `POST api/checklists/list/ {show: "assigned"}` ; onglet « Lots », les
+  lots hors rangements avec une recherche `searchScore` sur le nom, le type et la description du type ; onglet Lots
+  par défaut sans liste attribuée ou sans connexion), puis en larges tuiles Listes de matériel, Signalements et,
+  tout en bas, **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
+  Chaque page a son ancre (`#lots`, `#suivi`, `#depart`, `#stock`, `#scan`) : le bouton retour du téléphone
   ramène à l'accueil. Le bouton ⚙ (**réglages**, dès qu'un utilisateur est connecté)
   ouvre la case **Bulle de connexion** (`renderLoginSettings`, réglage `login_bubble` de `web_prefs` ;
   sans connexion, gardée sur le téléphone, et le dernier connecté la fixe pour le téléphone). Décochée (le

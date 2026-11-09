@@ -3423,7 +3423,7 @@ def _checklist_call(action):
 @handle_errors
 def checklists_list(request):
     """Listes : {"user", "show": "mine" (les siennes et celles qui lui sont attribuees) | "templates" (les modeles) |
-    "all" (sans les modeles)} ; modeles et toutes les listes pour les chefs, la gestion et les admins."""
+    "all" (sans les modeles) | "assigned" (attribuees et pas encore rentrees, page « Départ »)} ; modeles et toutes les listes pour les chefs, la gestion et les admins."""
     from . import checklists
     user = connected_user(request)
     show = str(request.data.get('show') or 'mine')
