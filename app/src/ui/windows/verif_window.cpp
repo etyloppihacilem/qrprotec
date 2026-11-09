@@ -159,8 +159,21 @@ class VerifWindow final : public AppWindow {
         ImGui::TextColored(colors::green, "Étiquette clé scannée : la vérif peut être validée.");
       else
         ImGui::TextColored(colors::green, "Étiquette du lot scannée : la vérif peut être validée.");
+      // vérif en cascade : sous-lots au-dessus du contenu propre du lot en cours, sauf si ce contenu est commence
+      // (un type en partie scanne, meme facultatif, ex. casques 1/4) et passe avant eux : dernier scan plus recent
+      // que tout sous-lot commence, et aucun sous-lot rouge. Il est alors dessine en premier (comme le web).
+      std::vector< CascadeRow > cascade_rows;
+      bool                      own_first = false;
       if (cascade) {
-        if (draw_cascade(app, level, plan))
+        if (draw_cascade_back(app, level))
+          return;
+        cascade_rows = cascade_children(app, level);
+        own_first    = !cascade_rows.empty() && own_started(level, plan) && [&] {
+          const int own_last = last_scan_in(app, { level });
+          const CascadeRow &top = cascade_rows.front();
+          return top.rank > 1 || (top.rank == 1 && top.last < own_last);
+        }();
+        if (!own_first && draw_cascade_children(app, cascade_rows))
           return;
       } else {
         ImGui::TextWrapped("Scannez chaque item du lot : il passe dans la pile et disparaît de la liste ci-dessous. "
@@ -266,7 +279,8 @@ class VerifWindow final : public AppWindow {
                            && !level_lot["storage"].boolean();
       if (!grouping)
         ImGui::SeparatorText("À scanner");
-      const float footer = ImGui::GetFrameHeightWithSpacing() * (orange ? 5.9f : 4.7f);
+      const float footer = ImGui::GetFrameHeightWithSpacing() * (orange ? 5.9f : 4.7f)
+                           + (own_first ? ImGui::GetFrameHeightWithSpacing() * (cascade_rows.size() + 1.5f) : 0.0f);
       if (grouping)
         ImGui::Dummy(ImVec2(0, std::max(0.0f, ImGui::GetContentRegionAvail().y - footer)));
       else if (ImGui::BeginTable("expected", 3,
@@ -306,6 +320,7 @@ class VerifWindow final : public AppWindow {
               std::string type, type_name, location;
               int         required, done, missing, rank, last_scan;
               bool        storage;
+              int         order = 0; // tri : rank, mais un facultatif commence (casques 1/4) monte avec ceux en cours
               int         extra; // items en trop : « + x »
               bool        optional = false; // facultatif (casques du VPS) : rien ne manque, required = nombre prevu
               bool        check    = false; // item a cocher (gobelets) : une case, comptee a la main
@@ -320,9 +335,10 @@ class VerifWindow final : public AppWindow {
             const auto last    = last_scan.find(type);
             required_types.insert(type);
             remaining += check ? (missing > 0 ? 1 : 0) : missing; // une case a cocher, pas `required` scans
-            type_rows.push_back({ type, type_name, location, required, done, missing,
-                                  missing == 0 ? (optional && done < required ? 2 : 3) : done == 0 ? 1 : 0,
-                                  last == last_scan.end() ? -1 : last->second, storage, extra, optional, check });
+            const int rank = missing == 0 ? (optional && done < required ? 2 : 3) : done == 0 ? 1 : 0;
+            type_rows.push_back({ type, type_name, location, required, done, missing, rank,
+                                  last == last_scan.end() ? -1 : last->second, storage,
+                                  optional && !check && done > 0 && done < required ? 0 : rank, extra, optional, check });
           };
           // types ajoutes au lot pendant la verif sans y etre attendus : une ligne « + x » chacun (ses items connus
           // non scannes restent a scanner, ils sont listes sous cette ligne)
@@ -382,7 +398,7 @@ class VerifWindow final : public AppWindow {
           std::stable_partition(places.begin(), places.end(), [](const std::string &place) { return !place.empty(); });
           const bool placed = !places.empty() && !places.front().empty();
           std::stable_sort(type_rows.begin(), type_rows.end(), [](const TypeRow &a, const TypeRow &b) {
-            return a.rank != b.rank ? a.rank < b.rank : a.rank == 0 && a.last_scan > b.last_scan;
+            return a.order != b.order ? a.order < b.order : a.order == 0 && a.last_scan > b.last_scan;
           });
           const auto type_row = [&](const TypeRow &entry) {
             const std::string &type = entry.type;
@@ -472,11 +488,11 @@ class VerifWindow final : public AppWindow {
           };
           if (!placed) {
             for (const TypeRow &entry : type_rows)
-              if (entry.rank < 2)
+              if (entry.order < 2)
                 type_row(entry);
             other_rows();
             for (const TypeRow &entry : type_rows)
-              if (entry.rank >= 2)
+              if (entry.order >= 2)
                 type_row(entry);
             continue;
           }
@@ -487,6 +503,7 @@ class VerifWindow final : public AppWindow {
           struct PlaceRow {
               std::string place;
               int         done = 0, required = 0, missing = 0, last_scan = -1, rank = 0, extra = 0, pending = 0;
+              int         order = 0; // emplacement commence, meme seulement du facultatif : monte avec ceux en cours
               bool        only_optional = true; // que du facultatif : replie par defaut
           };
           std::vector< PlaceRow > place_rows;
@@ -502,11 +519,12 @@ class VerifWindow final : public AppWindow {
                 row.extra += entry.extra;
                 row.last_scan = std::max(row.last_scan, entry.last_scan);
               }
-            row.rank = row.missing == 0 ? (row.pending > 0 ? 2 : 3) : row.done == 0 ? 1 : 0;
+            row.rank  = row.missing == 0 ? (row.pending > 0 ? 2 : 3) : row.done == 0 ? 1 : 0;
+            row.order = row.done > 0 && (row.missing > 0 || row.pending > 0) ? 0 : row.rank;
             place_rows.push_back(row);
           }
           std::stable_sort(place_rows.begin(), place_rows.end(), [](const PlaceRow &a, const PlaceRow &b) {
-            return a.rank != b.rank ? a.rank < b.rank : a.rank == 0 && a.last_scan > b.last_scan;
+            return a.order != b.order ? a.order < b.order : a.order == 0 && a.last_scan > b.last_scan;
           });
           for (const PlaceRow &row : place_rows) {
             const std::string key  = lot["id"].str() + "@" + row.place;
@@ -544,6 +562,8 @@ class VerifWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
+      if (own_first && draw_cascade_children(app, cascade_rows))
+        return;
       if (grouping)
         status_banner(level == verif.lot_id ? "Les sous-lots validés sont enregistrés : terminez quand vous avez fini"
                                             : "Validez les sous-lots, puis revenez", colors::grey, 1.0f);
@@ -627,39 +647,68 @@ class VerifWindow final : public AppWindow {
         app.report_problem(report);
     }
 
-    // Vérif en cascade : retour au lot qui contient le lot en cours, et ses sous-lots (faits en vert, commencés en
-    // orange, à faire) ; cliquer un sous-lot (ou scanner son étiquette) y fait entrer. Renvoie true si l'on vient de
-    // changer de lot (la suite de la fenêtre est dessinée a la prochaine image).
-    bool draw_cascade(App &app, const std::string &level, const std::vector< VerifPlanLot > &plan) {
-      VerifSession &verif = app.verif;
-      if (level != verif.lot_id) {
-        const Json *parent = app.verif_lot(app.verif_parent(level));
-        const std::string back = "← Revenir à " + (parent ? (*parent)["name"].str() : std::string("lot global"));
-        if (button(back.c_str())) {
-          app.leave_level();
-          return true;
-        }
-        ImGui::SetItemTooltip("Sans valider ce lot : ses scans sont gardés.");
-        ImGui::SameLine();
-        ImGui::TextDisabled("Validez ce lot pour revenir au lot qui le contient.");
-      }
-      const std::vector< const Json * > children = app.verif_children(level);
-      if (children.empty())
+    // Vérif en cascade : retour au lot qui contient le lot en cours. Renvoie true si l'on vient de changer de lot (la
+    // suite de la fenêtre est dessinée a la prochaine image).
+    bool draw_cascade_back(App &app, const std::string &level) {
+      if (level == app.verif.lot_id)
         return false;
-      ImGui::SeparatorText(children.size() > 1 ? "Ce qu'il contient : scannez l'étiquette de l'un d'eux (ou cliquez-le) pour y entrer"
-                                                  : "Ce qu'il contient : scannez son étiquette (ou cliquez-le) pour y entrer");
-      const std::set< std::string > intact = app.verif_intact();
-      bool                          moved  = false;
-      // ordre general des listes (attention d'abord) : rouge, commence (orange), a faire, facultatif, vert en bas ;
-      // a egalite, le dernier scanne monte (sauf les verts), puis l'ordre d'origine (tri stable). Comme le web.
-      struct Row {
+      const Json *parent = app.verif_lot(app.verif_parent(level));
+      const std::string back = "← Revenir à " + (parent ? (*parent)["name"].str() : std::string("lot global"));
+      if (button(back.c_str())) {
+        app.leave_level();
+        return true;
+      }
+      ImGui::SetItemTooltip("Sans valider ce lot : ses scans sont gardés.");
+      ImGui::SameLine();
+      ImGui::TextDisabled("Validez ce lot pour revenir au lot qui le contient.");
+      return false;
+    }
+
+    // Sous-lot du lot en cours, dans la liste de la vérif en cascade
+    struct CascadeRow {
         std::string id;
         std::string text;
         ImVec4      color;
-        int         rank = 2;
-        int         last = -1;
-      };
-      std::vector< Row > rows;
+        int         rank = 2; // 0 rouge, 1 commencé, 2 à faire, 3 facultatif, 4 vert
+        int         last = -1; // dernier scan dedans (id de la pile), -1 pour les verts
+    };
+
+    // Dernier scan (id de la pile) range dans l'un de ces lots, -1 sinon
+    static int last_scan_in(const App &app, const std::set< std::string > &ids) {
+      int last = -1;
+      for (const ScanEntry &entry : app.stack.entries())
+        if (entry.state != EntryState::Error && ids.count(entry.place.empty() ? app.verif.lot_id : entry.place))
+          last = std::max(last, entry.id);
+      return last;
+    }
+
+    // Contenu propre du lot commence : un type attendu en partie scanne, facultatif compris (casques 1/4)
+    static bool own_started(const std::string &level, const std::vector< VerifPlanLot > &plan) {
+      for (const VerifPlanLot &row : plan) {
+        if ((*row.lot)["id"].str() != level)
+          continue;
+        for (const Json &requirement : (*row.lot)["requirements"].items()) {
+          if (requirement["check"].boolean())
+            continue;
+          const auto found    = row.fresh.find(requirement["type"].str());
+          const int  fresh    = found == row.fresh.end() ? 0 : found->second;
+          const int  required = static_cast< int >(requirement["optional"].boolean() ? requirement["expected"].integer()
+                                                                                     : requirement["required"].integer());
+          if (fresh > 0 && fresh < required)
+            return true;
+        }
+      }
+      return false;
+    }
+
+    // Sous-lots du lot en cours (faits en vert, commencés en orange, à faire), dans l'ordre general des listes
+    // (attention d'abord) : rouge, commence, a faire, facultatif, vert en bas ; a egalite, le dernier scanne monte
+    // (sauf les verts), puis l'ordre d'origine (tri stable). Comme le web.
+    std::vector< CascadeRow > cascade_children(App &app, const std::string &level) {
+      VerifSession &verif = app.verif;
+      const std::vector< const Json * > children = app.verif_children(level);
+      const std::set< std::string > intact = app.verif_intact();
+      std::vector< CascadeRow > rows;
       for (const Json *child : children) {
         const std::string id   = (*child)["id"].str();
         const auto        done = verif.done.find(id);
@@ -695,19 +744,23 @@ class VerifWindow final : public AppWindow {
         const std::size_t subs = app.verif_children(id).size();
         if (subs)
           text += " · " + nb(subs, "sous-lot");
-        int last = -1;
-        if (rank != 4) {
-          const std::set< std::string > ids = app.verif_subtree(id);
-          for (const ScanEntry &entry : app.stack.entries())
-            if (entry.state != EntryState::Error && ids.count(entry.place.empty() ? verif.lot_id : entry.place))
-              last = std::max(last, entry.id);
-        }
-        rows.push_back({ id, text, color, rank, last });
+        rows.push_back({ id, text, color, rank, rank == 4 ? -1 : last_scan_in(app, app.verif_subtree(id)) });
       }
-      std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+      std::stable_sort(rows.begin(), rows.end(), [](const CascadeRow &a, const CascadeRow &b) {
         return a.rank != b.rank ? a.rank < b.rank : a.last > b.last;
       });
-      for (const Row &row : rows) {
+      return rows;
+    }
+
+    // Liste des sous-lots : cliquer un sous-lot (ou scanner son étiquette) y fait entrer. Renvoie true si l'on vient
+    // de changer de lot.
+    bool draw_cascade_children(App &app, const std::vector< CascadeRow > &rows) {
+      if (rows.empty())
+        return false;
+      ImGui::SeparatorText(rows.size() > 1 ? "Ce qu'il contient : scannez l'étiquette de l'un d'eux (ou cliquez-le) pour y entrer"
+                                           : "Ce qu'il contient : scannez son étiquette (ou cliquez-le) pour y entrer");
+      bool moved = false;
+      for (const CascadeRow &row : rows) {
         const ImVec4 &color = row.color;
         ImGui::PushID(row.id.c_str());
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(color.x, color.y, color.z, 0.45f));
@@ -719,7 +772,6 @@ class VerifWindow final : public AppWindow {
         ImGui::PopStyleColor(2);
         ImGui::PopID();
       }
-      (void)plan;
       return moved;
     }
 
