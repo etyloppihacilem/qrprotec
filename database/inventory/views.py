@@ -764,6 +764,9 @@ def lot_detail(request, lot_id):
     if not is_front(request) and not lot.active:
         raise ApiError("Lot inconnu", status.HTTP_404_NOT_FOUND)
     data = ser.lot_dict(lot, local=is_privileged(request), with_items=True)
+    from . import checklists
+    # bouton « Partir avec ce lot » de la fiche, ou retour du lot sorti avec une liste
+    data['departure'] = checklists.lot_departure(lot)
     # QR code de scelle : ?seal=CODE -> 'valid' (scelle intact), 'unsealed' (brise), 'wrong' (ancien scelle)
     seal = request.query_params.get('seal')
     if seal is not None:
@@ -841,6 +844,18 @@ def lot_unseal(request, lot_id):
     with transaction.atomic():
         services.break_seal(lot, identity, str(request.data.get('reason', '')).strip()[:64] or 'ouverture')
     return Response(ser.lot_dict(lot, local=is_privileged(request), with_items=True))
+
+
+@api_view(['POST'])
+@handle_errors
+def lot_return(request, lot_id):
+    """Bouton « Retour de ce lot » de la fiche (tout utilisateur connecte) : le lot parti avec une liste validee est
+    note rentre (checklists.lot_return)."""
+    from . import checklists
+    user = connected_user(request)
+    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id, active=True)
+    message = _checklist_call(lambda: checklists.lot_return(lot, user))
+    return Response({'message': message})
 
 
 @api_view(['POST'])

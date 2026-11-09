@@ -621,6 +621,33 @@ def return_preview(checklist):
             'still_out': [item.pack.item_type.name for item in still_out]}
 
 
+def lot_return(lot, user):
+    """Fiche du lot, bouton « Retour de ce lot » : le lot parti avec une liste validee (lui ou le lot au-dessus avec
+    lequel il est parti) est note rentre sur cette liste, en vérif recommandee s'il n'est pas scelle."""
+    gone = lot_gone_with(lot)
+    if gone is None:
+        raise ValueError(f"{lot.name} n'est pas parti avec une liste")
+    parent, checklist = gone
+    identity = identity_of(user)
+    with transaction.atomic():
+        ChecklistScan.objects.create(checklist=checklist, lot=parent, phase=ChecklistScan.BACK, by=identity)
+        if parent.is_sealed:
+            message = f'{parent.name} : rentré, toujours scellé'
+        else:
+            now = timezone.now()
+            parent.verif_recommended = True
+            parent.back_from_list = checklist.name
+            parent.restocked = now
+            parent.restocked_by = identity
+            parent.save(update_fields=['verif_recommended', 'back_from_list', 'restocked', 'restocked_by'])
+            message = f'{parent.name} : rentré, vérif recommandée'
+        checklist.updated = timezone.now()
+        checklist.save(update_fields=['updated'])
+    journal.record(OperationKind.CHECKLIST, identity, f'{parent.name} rentré (liste « {checklist.name} »)',
+                   checklist=checklist.id)
+    return message
+
+
 def close_return(checklist, user):
     """Retour clos : les lots pas rescannes (non scelles) passent en vérif recommandee comme au depart d'aujourd'hui,
     les consommables sortis et pas rentres sont comptes utilises, les non consommables restent sortis (ils rentreront
@@ -748,6 +775,50 @@ def departure_blocked():
         elif services.fixed_place(lot):
             blocked[lot.id] = f'Part avec {lot.parent.name}'
     return blocked
+
+
+def lot_gone_with(lot):
+    """Depart en cours du lot (ou d'un lot au-dessus de lui) : (lot parti, liste validee) si la derniere liste qui l'a
+    pris est validee (sortie) sans que son retour soit scanne ni qu'une vérif l'ait revu depuis ; None sinon."""
+    for gone in [lot, *lot.ancestors()]:
+        scan = (ChecklistScan.objects.filter(lot=gone, phase=ChecklistScan.OUT, checklist__validated__isnull=False,
+                                             checklist__is_template=False)
+                .exclude(checklist__status=ChecklistStatus.DRAFT).select_related('checklist').order_by('-at').first())
+        if scan is None:
+            continue
+        checklist = scan.checklist
+        if checklist.scans.filter(lot=gone, phase=ChecklistScan.BACK).exists():
+            continue  # retour scanne
+        if checklist.returned and checklist.returned > checklist.validated:
+            continue  # ancienne liste sortie dont le retour a ete clos (validee aujourd'hui : returned == validated)
+        if gone.last_verif and gone.last_verif >= checklist.validated:
+            continue  # revu par une vérif depuis : il est rentre
+        return gone, checklist
+    return None
+
+
+def lot_departure(lot):
+    """Fiche du lot, bouton « Partir avec ce lot » (memes regles que departure_lots) : {"blocked": raison si on ne
+    peut pas partir avec ce lot seul ('' si on peut), "list": liste qui l'a pris (lui ou un lot au-dessus) ou None}.
+    Pris par une liste a preparer : le bouton ouvre la liste (« Continuer le départ ») ; parti avec une liste validee
+    (`out`) : le bouton devient « Retour de ce lot » (`gone` : le lot parti, lui ou un lot au-dessus)."""
+    gone = lot_gone_with(lot)
+    if gone is not None:
+        parent, checklist = gone
+        return {'blocked': f'Parti avec « {checklist.name} »',
+                'list': {'id': checklist.id, 'name': checklist.name, 'out': True,
+                         'open': checklist.status == ChecklistStatus.VALIDATED,  # retour a scanner dans la liste
+                         'gone': {'id': parent.id, 'name': parent.name}}}
+    for taken in [lot, *lot.ancestors()]:
+        other = lot_taken_by(taken)
+        if other is not None:
+            return {'blocked': f'Pris pour « {other.name} »',
+                    'list': {'id': other.id, 'name': other.name, 'out': False}}
+    if not lot.active or lot.lot_type.storage:
+        return {'blocked': 'Pas de départ avec ce lot', 'list': None}
+    if services.fixed_place(lot):
+        return {'blocked': f'Part avec {lot.parent.name}', 'list': None}
+    return {'blocked': '', 'list': None}
 
 
 def departure_lots(user, lot_ids):

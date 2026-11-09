@@ -5470,6 +5470,8 @@ class ChecklistTests(ApiTestCase):
         sac_vps = Lots.objects.create(lot_type=sac_type, name='Sac VPS', name_short='SV', created_by='M001', parent=vps)
         code, body = self.as_(self.other, '/api/checklists/departure/', {'blocked': True})
         self.assertEqual((code, body['blocked']), (200, {sac_vps.id: 'Part avec VPS'}))
+        fiche = lambda lot: self.client.get(f'/api/lots/{lot.id}/').json()['departure']  # bouton de la fiche
+        self.assertEqual([fiche(lot)['blocked'] for lot in (sac_vps, b1, sac)], ['Part avec VPS', '', ''])
         code, body = self.as_(self.other, '/api/checklists/departure/', {'lots': [sac_vps.id]})
         self.assertEqual(code, 400)
         self.assertIn('pour de bon', body['error'])
@@ -5483,10 +5485,21 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, '/api/checklists/departure/', {'blocked': True})
         self.assertEqual(body['blocked'][b1.id], f"Pris pour « {depart['name']} »")
         self.assertEqual(body['blocked'][sac.id], f"Pris pour « {depart['name']} »")  # avec son lot
+        taken = {'blocked': f"Pris pour « {depart['name']} »", 'list': {'id': depart['id'], 'name': depart['name'], 'out': False}}
+        self.assertEqual((fiche(b1), fiche(sac)), (taken, taken))  # bouton « Continuer le départ »
         code, body = self.as_(self.chief, '/api/checklists/departure/', {'lots': [sac.id]})
         self.assertEqual(code, 400)
         self.assertIn('déjà pris', body['error'])
         code, body = self.as_(self.other, '/api/checklists/departure/', {'lots': []})
+        self.assertEqual(code, 400)
+        code, body = self.as_(self.other, f"/api/checklists/{depart['id']}/validate/", {'partial': True})
+        self.assertEqual(code, 200, body)
+        gone = fiche(sac)['list']  # sorti : bouton « Retour », aussi sur le sac parti avec B+ 1
+        self.assertEqual((gone['out'], gone['open'], gone['gone']['id']), (True, False, b1.id))
+        code, body = self.as_(self.other, f'/api/lots/{sac.id}/return/')
+        self.assertEqual((code, body['message']), (200, 'B+ 1 : rentré, vérif recommandée'))
+        self.assertEqual((fiche(b1), fiche(sac)), ({'blocked': '', 'list': None},) * 2)  # de nouveau « Partir »
+        code, body = self.as_(self.other, f'/api/lots/{sac.id}/return/')
         self.assertEqual(code, 400)
 
     def test_assigned_for_departure(self):

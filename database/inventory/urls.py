@@ -43,6 +43,7 @@ public_patterns = [
     path('lots/<str:lot_id>/unseal/', views.lot_unseal),
     path('lots/<str:lot_id>/seal-open/', views.lot_seal_open),
     path('lots/<str:lot_id>/used/', views.lot_used),
+    path('lots/<str:lot_id>/return/', views.lot_return),
     path('lots/<str:lot_id>/slots/<str:action>/', views.lot_slot_action),
     path('packs/<str:pack_id>/', views.sealed_pack_detail),
     path('remote-scanner/check/', views.remote_scanner_check),
