@@ -2465,6 +2465,50 @@ class SubLotTests(ApiTestCase):
                                                          'exclude': [self.sac_o2['id']]}, local=False)
         self.assertEqual(code, 400)
 
+    def test_hidden_lot_in_cascade(self):
+        """B+ du VPS cache dans la vérif en cascade : ses sacs remontent dans le VPS (descendants 'hidden'), le B+
+        (referentiel, sans etiquette) est valide par ses sacs, jamais par une etape a lui."""
+        vps_type = LotType.objects.create(type='vpsxxx', name='VPS', unique=True)
+        self.global_type.referentiel = True
+        self.global_type.save()
+        code, vps = self.call('POST', '/api/lots/', {'lot_type': 'vpsxxx', 'name': 'VPS', 'user': 'M001'})
+        code, body = self.call('PATCH', f"/api/lots/{self.bplus['id']}/update/", {'parent': vps['id']})
+        self.assertEqual(code, 200, body)
+        code, body = self.call('PATCH', f"/api/lots/{self.bplus['id']}/update/", {'hidden_in_verif': True})
+        self.assertEqual(code, 200, body)
+        self.assertTrue(body['hidden_in_verif'])
+        self.assertTrue(body['virtual'])
+        code, lot = self.call('GET', f"/api/lots/{vps['id']}/")
+        rows = {row['id']: row for row in lot['descendants']}
+        self.assertTrue(rows[self.bplus['id']]['hidden'])
+        self.assertFalse(rows[self.soin['id']]['hidden'])
+        self.assertEqual(rows[self.soin['id']]['parent'], self.bplus['id'])  # vraie hierarchie, remontee par les fronts
+        # un lot qui attend des items a lui reste affiche
+        LotRequirements.objects.create(lot_type=self.global_type, item_type=self.compresses, quantity=1)
+        code, lot = self.call('GET', f"/api/lots/{vps['id']}/")
+        self.assertFalse({row['id']: row for row in lot['descendants']}[self.bplus['id']]['hidden'])
+        LotRequirements.objects.filter(lot_type=self.global_type).delete()
+        vps_key = [{'id': vps['id'], 'key': Lots.objects.get(id=vps['id']).verif_key}]
+        # premier sac : le B+ n'est pas encore valide
+        code, report = self.call('POST', '/api/verifs/', {'lots': [{'id': self.sac_o2['id']}], 'keys': vps_key,
+                                                         'items': [self.bottle()], 'user': self.badge, 'step': True},
+                                 local=False)
+        self.assertEqual(code, 200, report)
+        self.assertIsNone(Lots.objects.get(id=self.bplus['id']).last_verif)
+        # second sac : le B+ est valide avec lui
+        code, report = self.call('POST', '/api/verifs/', {'lots': [{'id': self.soin['id']}], 'keys': vps_key,
+                                                         'items': [], 'user': self.badge, 'step': True}, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertIn(self.bplus['id'], [row['id'] for row in report['lots'] if row['verified']])
+        self.assertIsNotNone(Lots.objects.get(id=self.bplus['id']).last_verif)
+        # le VPS valide a la fin : le B+, sans vérif a lui, n'est pas revalide (ses sacs sont laisses de cote)
+        stamp = Lots.objects.get(id=self.bplus['id']).last_verif
+        code, report = self.call('POST', '/api/verifs/', {'lots': vps_key, 'items': [], 'user': self.badge,
+                                                         'exclude': [self.soin['id'], self.sac_o2['id']]}, local=False)
+        self.assertEqual(code, 200, report)
+        self.assertNotIn(self.bplus['id'], [row['id'] for row in report['lots']])
+        self.assertEqual(Lots.objects.get(id=self.bplus['id']).last_verif, stamp)
+
     def test_cascade_item_counted_where_found(self):
         """Vérif en cascade : un item range dans un sous-lot, scanne pendant qu'on etait dans un autre, y est deplace."""
         content = self.fresh()

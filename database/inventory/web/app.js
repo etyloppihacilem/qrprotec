@@ -958,9 +958,9 @@
   async function joinVerif(scan) {
     if (!checkRunning()) return false;
     if (inCascade()) {
-      // vérif en cascade : l'etiquette d'un lot du meme lot global fait entrer dans ce lot
-      const lot = lotById(scan.id);
-      if (!lot) return false;
+      // vérif en cascade : l'etiquette d'un lot du meme lot global fait entrer dans ce lot (lot cache : son parent)
+      if (!lotById(scan.id)) return false;
+      const lot = lotById(visibleId(scan.id));
       if (scan.key && !(await keyAccepted(scan.id, scan.key))) return true;
       if (scan.key) setKey(scan.id, scan.key);
       if (scan.code) addLabel(scan.id);
@@ -1274,19 +1274,30 @@
 
   const inCascade = () => !!state.lot && !state.extra.length && (state.lot.descendants || []).length > 0;
   const lotById = (id) => (id ? sessionLots().find((lot) => lot.id === id) || null : null);
-  const parentIdOf = (lot) => lot.parent || (lot.path && lot.path.length ? lot.path[lot.path.length - 1].id : null);
+  const realParentOf = (lot) => lot.parent || (lot.path && lot.path.length ? lot.path[lot.path.length - 1].id : null);
+  // Lot cache dans la vérif en cascade (Lots.hidden_in_verif, ex : le B+ du VPS) : ses sous-lots apparaissent
+  // directement dans son parent, on n'y entre jamais (meme regle que le poste, App::verif_parent)
+  function parentIdOf(lot) {
+    let id = realParentOf(lot);
+    for (let parent = lotById(id), guard = 0; parent && parent.hidden && guard < 50; parent = lotById(id), guard += 1) id = realParentOf(parent);
+    return id;
+  }
+  // lot ou l'on entre a la place d'un lot cache : le premier lot affiche qui le contient
+  const visibleId = (id) => { const lot = lotById(id); return lot && lot.hidden ? parentIdOf(lot) || state.lotId : id; };
   const levelId = () => (state.path.length ? state.path[state.path.length - 1] : state.lotId);
   const levelLot = () => lotById(levelId()) || state.lot;
-  const childrenOf = (id) => sessionLots().filter((lot) => parentIdOf(lot) === id);
+  const childrenOf = (id) => sessionLots().filter((lot) => !lot.hidden && parentIdOf(lot) === id);
   // Sous-lots d'un lot nommes : « de Sac de soin ou de Sac O2 » (jusqu'a 3), sinon « d'un des lots qu'il contient ».
   // Les messages disent le nom des lots, pas « lot ou sous-lot » (meme regle que le poste, App::verif_children_de).
   function childrenDe(id) {
     const subs = childrenOf(id);
     return subs.length > 3 ? "d'un des lots qu'il contient" : deNames(subs.map((lot) => lot.name));
   }
-  // Etiquette a scanner pour valider : « de B+ (ou celle de Sac de soin ou de Sac O2) »
+  // Etiquette a scanner pour valider : « de B+ (ou celle de Sac de soin ou de Sac O2) ». Un lot de referentiel
+  // (B+, services.virtual_lot) n'a pas d'etiquette : « de Sac de soin ou de Sac O2 »
   function labelTarget(lot) {
     const subs = childrenDe(lot.id);
+    if (lot.virtual && subs) return subs;
     return deName(lot.name) + (subs ? ` (ou celle ${subs})` : '');
   }
   // vérif en cours dans la cascade : un lot ouvert, un lot valide ou une etiquette cle scannee
@@ -1353,6 +1364,7 @@
   // Entrer dans un lot du lot global : il devient le lot en cours (les items venus du stock y sont ranges). Un lot deja
   // valide pendant la vérif est rouvert : on le refait.
   function enterLevel(id) {
+    id = visibleId(id); // lot cache : on entre dans le lot affiche qui le contient
     const lot = lotById(id);
     if (!lot) return;
     state.path = id === state.lotId ? [] : chainTo(id);

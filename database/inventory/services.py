@@ -89,6 +89,68 @@ def optional_lot(lot) -> bool:
     return bool(lot.optional and lot.parent_id and not lot.lot_type.storage)
 
 
+def hidden_in_verif(lot, core=None) -> bool:
+    """Lot cache dans la hierarchie de la vérif en cascade (Lots.hidden_in_verif, ex : le B+ du VPS) : ses sous-lots
+    y apparaissent comme s'ils etaient directement dans son parent. Seulement un sous-lot (pas un lot global) qui n'a
+    ni contenu attendu ni item a lui : sinon on ne pourrait plus le verifier, il reste affiche. `core` : ligne deja
+    calculee (serializers._lot_core) pour ne pas relire son contenu."""
+    if not (lot.hidden_in_verif and lot.parent_id) or lot.lot_type.storage:
+        return False
+    if core is not None:
+        return not core['requirements'] and not core['item_count']
+    return not lot_requirements(lot) and not lot.items.filter(status=ItemStatus.ACTIVE).exists()
+
+
+def virtual_lot(lot) -> bool:
+    """Lot d'un referentiel (B+) : il n'existe pas physiquement, c'est l'ensemble de ses sacs. Pas d'etiquette a lui ;
+    il n'est verifie qu'en verifiant tous ses sacs (verify_hidden_parents). Seulement s'il n'a ni contenu attendu
+    ni item a lui."""
+    return (lot.lot_type.referentiel and not lot.lot_type.storage and lot.children.filter(active=True).exists()
+            and not lot_requirements(lot) and not lot.items.filter(status=ItemStatus.ACTIVE).exists())
+
+
+def verify_hidden_parents(lots, identity, now):
+    """Vérif en cascade : un lot cache (hidden_in_verif) ou un lot de referentiel (virtual_lot) n'a pas d'etape a lui, il est valide des que tous ses
+    sous-lots l'ont ete depuis sa derniere verif (ex : les deux sacs du B+ du VPS). Complet si leurs dernieres
+    verifs le sont. Remonte les lots caches imbriques."""
+    done = []
+    seen = set()
+    pending = [lot.parent_id for lot in lots if lot.parent_id]
+    while pending:
+        parent_id = pending.pop()
+        if parent_id in seen:
+            continue
+        seen.add(parent_id)
+        parent = Lots.objects.select_related('lot_type').filter(id=parent_id, active=True).first()
+        if parent is None or not (hidden_in_verif(parent) or virtual_lot(parent)):
+            continue
+        children = [child for child in parent.children.filter(active=True) if not optional_lot(child)]
+        if not children or any(child.last_verif is None or (parent.last_verif and child.last_verif <= parent.last_verif)
+                               for child in children):
+            continue
+        latest = {child.id: Verifs.objects.filter(lot=child).order_by('-datetime').first() for child in children}
+        verif = Verifs.objects.create(lot=parent, datetime=now, by=identity,
+                                      complete=all(row is not None and row.complete for row in latest.values()),
+                                      lot_type_version=parent.lot_type.version, lot_version=parent.version)
+        parent.last_verif = now
+        parent.last_verif_by = identity
+        parent.last_verif_while = SeenWhile.VERIF
+        parent.verif_recommended = False
+        parent.restocked_count = 0
+        parent.back_from_list = ''
+        parent.marked_used = None
+        parent.marked_used_by = ''
+        parent.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'verif_recommended',
+                                   'restocked_count', 'back_from_list', 'marked_used', 'marked_used_by'])
+        journal.record(OperationKind.VERIF, identity,
+                       ('complète' if verif.complete else 'incomplète') + ' : ses sous-lots sont vérifiés',
+                       lot=parent, at=now, verif=verif.id, complete=verif.complete, hidden_in_verif=True)
+        done.append((parent, verif))
+        if parent.parent_id:
+            pending.append(parent.parent_id)
+    return done
+
+
 def optional_in_lot(lot, item_type, requirement_optional=False) -> bool:
     """Un type d'item est facultatif dans un lot : marque facultatif dans le contenu du type de lot
     (requirement_optional, seulement du materiel non consommable sans taches), ou range dans un sous-lot facultatif
@@ -702,6 +764,9 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             verified_ids = set(by_id)
         if group is not None and partial and not verified_ids and not scanned and not intact and not checked:
             raise ValueError('Rien à valider : aucun item scanné')
+        # lots caches (B+ du VPS) et lots de referentiel : pas de vérif a eux, valides par leurs sous-lots (plus bas)
+        derived = {lot_id for lot_id, sub_lot in by_id.items() if hidden_in_verif(sub_lot) or virtual_lot(sub_lot)}
+        verified_ids -= derived
         not_seen = [item for item in not_seen if group is None or item.location_id in verified_ids]
         # items non consommables absents d'un lot ordinaire verifie : retires du lot, ils passent hors lot
         loose = [item for item in not_seen if leaves_lot(item)]
@@ -829,6 +894,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             journal.record(OperationKind.VERIF, identity, 'scellé intact constaté pendant une vérif', lot=sub_lot,
                            at=now, sealed_intact=True)
         for sub_lot in group or []:
+            if sub_lot.id in derived:
+                continue  # ligne ajoutee s'il est valide par ses sous-lots (verify_hidden_parents)
             row = {'id': sub_lot.id, 'name': sub_lot.name, 'parent': sub_lot.parent_id, 'depth': sub_lot.depth,
                    'verified': sub_lot.id in verified_ids, 'restocked': restocked.get(sub_lot.id, 0)}
             if sub_lot.id in verified_ids:
@@ -899,6 +966,14 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             verif.replaced_count = len(report['replaced'])
             verif.save()
             _record_verif(None, identity, now, verif, [], False, report['missing'], report['expired'])
+
+        if group is not None:
+            # lots caches dans la vérif en cascade (B+ du VPS) : valides avec le dernier de leurs sous-lots
+            for parent, verif in verify_hidden_parents([by_id[lot_id] for lot_id in verified_ids] + intact, identity, now):
+                lots_report.append({'id': parent.id, 'name': parent.name, 'parent': parent.parent_id,
+                                    'depth': by_id[parent.id].depth if parent.id in by_id else 0, 'verified': True,
+                                    'complete': verif.complete, 'requirements': [], 'verif_id': verif.id,
+                                    'restocked': 0})
 
         affected = {item.pack.item_type_id for item in scanned + not_seen + loose}
         notifications.check_stock_levels(affected)

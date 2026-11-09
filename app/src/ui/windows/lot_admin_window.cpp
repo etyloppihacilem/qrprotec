@@ -547,8 +547,8 @@ class LotAdminWindow final : public AppWindow {
     void preview_lots(App &app, const Json &lots) {
       std::vector< Parameters > publics, keys;
       for (const Json &lot : lots.items()) {
-        if (lot["storage"].boolean())
-          continue;
+        if (lot["storage"].boolean() || lot["virtual"].boolean())
+          continue; // rangement : etiquette a part ; lot de referentiel (B+) : pas d'etiquette, celles de ses sacs
         if (!lot["seal_required"].boolean())
           publics.push_back(lot_parameters(lot));
         keys.push_back(lot_parameters(lot));
@@ -626,6 +626,7 @@ class LotAdminWindow final : public AppWindow {
           edit_parent_ = lot_["parent"].str();
           edit_key_location_ = lot_["key_location"].str();
           edit_optional_     = lot_["optional"].boolean();
+          edit_hidden_       = lot_["hidden_in_verif"].boolean();
           edit_spare_        = lot_["spare"].boolean();
         } else {
           app.notify(result.error, true);
@@ -1144,6 +1145,14 @@ class LotAdminWindow final : public AppWindow {
     }
 
     void draw_lot_labels(App &app) {
+      if (lot_["virtual"].boolean()) {
+        // lot d'un referentiel (B+) : il n'existe pas physiquement, c'est l'ensemble de ses sacs
+        ImGui::TextWrapped("%s est un lot de référentiel : il n'existe pas physiquement, c'est l'ensemble de ses sacs. "
+                           "Il n'a pas d'étiquette : il est vérifié quand tous ses sacs le sont (scanner l'étiquette "
+                           "d'un sac lance la vérif de tout le lot).",
+                           lot_["name"].str().c_str());
+        return;
+      }
       if (lot_["storage"].boolean()) {
         // rangement du stock : une seule etiquette, a coller a l'interieur
         ImGui::TextWrapped("Une seule étiquette, à coller à l'intérieur du rangement.");
@@ -1218,12 +1227,14 @@ class LotAdminWindow final : public AppWindow {
                   "seul, ou avec les autres lots du même lot global. Le lot global est valide si tous ses lots le sont.");
       search_select("edit_lot_parent", app.catalog.lots, "id", "name", edit_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
-      ImGui::TextUnformatted("Emplacement de l'étiquette clé");
-      ImGui::SameLine();
-      help_marker("Où trouver l'étiquette clé dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
-                  "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
-      ImGui::SetNextItemWidth(-FLT_MIN);
-      input_limited("##key_location", edit_key_location_, 128, "ex : poche intérieure du couvercle");
+      if (!lot_["virtual"].boolean()) { // lot de referentiel : pas d'etiquette
+        ImGui::TextUnformatted("Emplacement de l'étiquette clé");
+        ImGui::SameLine();
+        help_marker("Où trouver l'étiquette clé dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
+                    "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        input_limited("##key_location", edit_key_location_, 128, "ex : poche intérieure du couvercle");
+      }
       const bool spare_ok = spare_choice(app, lot_["lot_type"].str(), edit_parent_, edit_spare_);
       if (!lot_["storage"].boolean() && !edit_parent_.empty()) {
         ImGui::Checkbox("Sous-lot facultatif à la vérif", &edit_optional_);
@@ -1231,6 +1242,14 @@ class LotAdminWindow final : public AppWindow {
         help_marker("Le lot qui le contient se valide sans lui (ex : la caisse des lampes du VPS) : il est affiché en "
                     "gris pendant la vérif, on peut y entrer pour scanner ce qu'il contient et savoir où c'est. "
                     "Tout son contenu est facultatif, sauf quand un admin rend la vérif complète (front web).");
+        ImGui::Checkbox("Cacher dans la hiérarchie de la vérif", &edit_hidden_);
+        ImGui::SameLine();
+        help_marker("Pendant la vérif en cascade, ses sous-lots apparaissent directement dans le lot qui le contient "
+                    "(ex : les deux sacs du B+ du VPS, sans passer par le B+). Il est validé quand tous ses sous-lots "
+                    "le sont. La gestion affiche toujours la vraie hiérarchie.");
+        if (edit_hidden_ && (lot_["requirements"].size() > 0 || lot_["item_count"].integer() > 0))
+          ImGui::TextColored(colors::grey, "Sans effet tant que %s attend ou contient des items lui-même.",
+                             lot_["name"].str().c_str());
       }
       ImGui::BeginDisabled(edit_name_.empty() || name_taken || !spare_ok);
       if (primary_button("Enregistrer")) {
@@ -1239,8 +1258,10 @@ class LotAdminWindow final : public AppWindow {
         body["name_short"] = edit_short_;
         body["parent"]       = edit_parent_;
         body["key_location"] = edit_key_location_;
-        if (!lot_["storage"].boolean())
-          body["optional"] = edit_optional_ && !edit_parent_.empty();
+        if (!lot_["storage"].boolean()) {
+          body["optional"]        = edit_optional_ && !edit_parent_.empty();
+          body["hidden_in_verif"] = edit_hidden_ && !edit_parent_.empty();
+        }
         if (!rangement_of(app, lot_["lot_type"].str()).empty())
           body["spare"] = edit_parent_.empty() && edit_spare_;
         update_lot(app, body);
@@ -2194,6 +2215,7 @@ class LotAdminWindow final : public AppWindow {
     std::string edit_parent_;
     std::string edit_key_location_;
     bool        edit_optional_ = false;
+    bool        edit_hidden_   = false; // cache dans la hierarchie de la verif en cascade
     bool        edit_spare_    = false; // sac de rechange (rangement libre)
     std::string new_lot_parent_;
     bool        new_lot_spare_ = false; // rangement cree libre (sac de rechange)
