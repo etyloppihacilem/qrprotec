@@ -19,7 +19,7 @@ from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
 from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, compact_iid, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
-from .services import LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, out_deadline, requirements_status
+from .services import LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -232,6 +232,7 @@ def lot_type_dict(lot_type):
 
 STATE_LABELS = {
     'unusable': '✘ Non utilisable (signalé)',
+    'unplaced': '✘ Liste pas toute dans les sacs',
     'sealed': '✔ Scellé',
     'sealed_expired': '✘ Scellé, contient des périmés',
     'never': '✘ Jamais vérifié',
@@ -253,6 +254,9 @@ def lot_state(data):
     if data.get('unusable'):
         # signale non utilisable (signalement ouvert sur le lot) : rouge, scelle ou verifie, jusqu'a sa resolution
         code = 'unusable'
+    elif data.get('unplaced'):
+        # lot d'un referentiel (B+) : des lignes de la liste ne sont dans aucun de ses sacs (onglet Repartition)
+        code = 'unplaced'
     elif data['is_sealed']:
         code = 'sealed_expired' if data['expired_count'] else 'sealed'
     elif not data['last_verif']:
@@ -339,7 +343,10 @@ def _lot_core(lot, today, items=None, preload=None):
                     else lot_reports(lot)),
     }
     data['unusable'] = any(not report['usable'] for report in data['reports'])
-    data['complete'] = all(row['present'] >= row['required'] for row in requirements) and not data['slots_missing']
+    # lot d'un referentiel reparti entre ses sacs : lignes de la liste placees dans aucun sac (attendues nulle part)
+    data['unplaced'] = unplaced_lines(lot)
+    data['complete'] = (all(row['present'] >= row['required'] for row in requirements) and not data['slots_missing']
+                        and not data['unplaced'])
     data['state'] = lot_state(data)
     return data
 
@@ -372,7 +379,7 @@ def aggregate_tree(rows):
             parent = parents.get(parent)
         # un sous-lot facultatif ne compte pas : le lot global est valide sans lui
         row['counted'] = (not row.get('optional')
-                          and bool(row['requirements'] or row['item_count'] or row.get('slots_missing')
+                          and bool(row['requirements'] or row['item_count'] or row.get('slots_missing') or row.get('unplaced')
                                    or row['id'] not in has_children))
         if covered and not row['expired_count'] and not row.get('unusable'):
             row['effective'] = {'kind': 'ok', 'code': 'covered', 'label': '✔ Dans un lot scellé'}
@@ -476,11 +483,14 @@ def lot_global(lot, today):
     if len(tree) <= 1:
         return None
     rows = [_tree_row(sub_lot, today, sub_lot.depth) for sub_lot in tree]
+    for sub_lot, row in zip(tree, rows):
+        # cache dans la hierarchie (B+ du VPS) : les fronts l'enlevent de l'arbre, hors gestion des lots du poste
+        row['hidden'] = hidden_in_verif(sub_lot, row)
     summary = aggregate_tree(rows)
     rows = attention_order(rows)  # sous-lots a traiter en haut, sous leur parent
     keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed', 'sealed',
             'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
-            'counted', 'optional', 'unusable', 'slots_missing', 'assembled', 'replaces_name')
+            'counted', 'optional', 'unusable', 'slots_missing', 'assembled', 'replaces_name', 'hidden', 'unplaced')
     summary.update({
         'id': root.id,
         'name': root.name,
@@ -502,7 +512,9 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, p
         children = lot.children.filter(active=True)
     data = _lot_core(lot, today, items, preload)
     data['parent_name'] = ancestors[0].name if ancestors else ''
-    data['path'] = [{'id': parent.id, 'name': parent.name} for parent in reversed(ancestors)]
+    # hidden : lot cache dans la hierarchie (B+ du VPS), saute par le fil « Dans : » du web
+    data['path'] = [{'id': parent.id, 'name': parent.name, 'hidden': hidden_in_verif(parent)}
+                    for parent in reversed(ancestors)]
     data['children'] = [
         {'id': child.id, 'name': child.name}
         for child in sorted(children, key=lambda child: (child.name.lower(), child.id))
@@ -660,6 +672,7 @@ def lot_list(lots, local=False, today=None, attention=False):
         row = lot_dict(lot, local=local, today=today, with_global=False, preload=preload)
         row['depth'] = depth
         row['root'] = root.id
+        row['hidden'] = hidden_in_verif(lot, row)  # cache dans la hierarchie : saute par l'Etat des lots du web
         row['description'] = lot.lot_type.description  # recherche de la page « Départ » (autres noms, marques)
         rows.append(row)
         trees.setdefault(root.id, []).append(row)

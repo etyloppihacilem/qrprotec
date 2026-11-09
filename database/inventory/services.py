@@ -96,9 +96,11 @@ def hidden_in_verif(lot, core=None) -> bool:
     calculee (serializers._lot_core) pour ne pas relire son contenu."""
     if not (lot.hidden_in_verif and lot.parent_id) or lot.lot_type.storage:
         return False
+    # liste pas toute dans les sacs (unplaced_lines) : il reste affiche, rouge, pour qu'on voie le probleme
     if core is not None:
-        return not core['requirements'] and not core['item_count']
-    return not lot_requirements(lot) and not lot.items.filter(status=ItemStatus.ACTIVE).exists()
+        return not core['requirements'] and not core['item_count'] and not core.get('unplaced')
+    return (not lot_requirements(lot) and not lot.items.filter(status=ItemStatus.ACTIVE).exists()
+            and not unplaced_lines(lot))
 
 
 def virtual_lot(lot) -> bool:
@@ -272,6 +274,20 @@ def distribution_sacs(lot):
     return groups
 
 
+def unplaced_lines(lot):
+    """Lot d'un referentiel reparti entre ses sacs (le B+) : lignes de la liste que ses sacs ne placent pas en
+    entier, attendues nulle part ([{type, type_name, missing}]). Le lot est incomplet tant qu'il y en a."""
+    if not lot.lot_type.referentiel or lot.lot_type.storage or not lot.active:
+        return []
+    result = []
+    for group in lot_distribution(lot):
+        for line in group['lines']:
+            if line['placed'] < line['required']:
+                result.append({'type': line['type'], 'type_name': line['type_name'],
+                               'missing': line['required'] - line['placed']})
+    return result
+
+
 def lot_distribution(lot):
     """Repartition du contenu d'un referentiel entre les sacs d'un lot global : pour chaque ligne du referentiel, la
     quantite et l'emplacement dans chaque sac (contenu attendu du sac : son type, puis ce que ce lot y change), et ce
@@ -340,7 +356,7 @@ class LotPreload:
         for row in LotContent.objects.select_related('item_type').filter(lot_id__in=ids).order_by('pk'):
             self.content[row.lot_id].append(row)
         # arborescence : tous les lots (un parent peut etre hors de la liste), quelques champs seulement
-        self.tree = {lot.id: lot for lot in Lots.objects.only('id', 'name', 'parent_id', 'active', 'lot_type_id',
+        self.tree = {lot.id: lot for lot in Lots.objects.only('id', 'name', 'parent_id', 'active', 'lot_type_id', 'hidden_in_verif',
                                                                   'assembled')}
         # lots exiges par type (voir fixed_slots_missing)
         self.slots = defaultdict(list)

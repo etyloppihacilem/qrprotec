@@ -129,7 +129,7 @@ void status_banner(const std::string &text, const ImVec4 &color, float scale = 1
 // Recommended : complet mais reassort ou scelle ouvert depuis la derniere verif (orange, verif complete recommandee)
 // SealOpened / MustSeal : type a scelle obligatoire, lot ouvert (rouge) avant ou apres sa verif complete
 // Optional : sous-lot facultatif jamais verifie (son lot parent se valide sans lui), gris
-enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired, Recommended, SealOpened, MustSeal, Optional, Unusable };
+enum class LotStatus { Never, Incomplete, Verified, Sealed, SealedExpired, Recommended, SealOpened, MustSeal, Optional, Unusable, Unplaced };
 bool        lot_ok(LotStatus status); // vert
 LotStatus   lot_status(const Json &lot);
 ImVec4      lot_status_color(LotStatus status);
@@ -139,6 +139,9 @@ std::string lot_status_banner(const Json &lot); // texte du bandeau de la fiche 
 // de ses sous-lots. group_banner : bandeau d'etat de l'ensemble de ses sous-lots (couleur dans color, all_ok :
 // tous valides).
 bool        lot_is_group(const Json &lot);
+// Lignes de lots sans les lots caches dans la hierarchie (Lots.hidden_in_verif, ex : le B+ du VPS) : leurs sous-lots
+// remontent dans le lot qui les contient (parent, depth). Seule la gestion des lots montre la vraie hierarchie.
+Json        without_hidden(const Json &rows);
 std::string group_banner(const Json &lot, ImVec4 &color, bool *all_ok = nullptr);
 
 } // namespace qrprotec
