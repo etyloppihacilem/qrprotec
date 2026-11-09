@@ -6490,11 +6490,11 @@
     const partial = !list.complete;
     const missing = list.lines.filter((line) => (line.kind === 'task' ? !line.scanned : line.scanned < line.quantity));
     const ok = await askDialog({
-      title: partial ? 'Valider la liste incomplète ?' : 'Valider la liste ?',
+      title: partial ? 'Partir sans tout ?' : 'Prêt au départ ?',
       text: (partial ? `${nb(missing.length, 'ligne')} pas ${pl(missing.length, 'prête')} : ${missing.map((line) => line.lot_name
         || line.type_name || line.task).join(', ')}. Ce qui manque n'est pas pris. ` : '')
         + 'Les lots pris passent en vérif recommandée, le matériel scanné sort du stock. La liste est ensuite terminée.',
-      choices: [{ label: partial ? 'Valider incomplète' : 'Valider la liste', value: true, cls: partial ? 'warning' : 'primary' }],
+      choices: [{ label: partial ? 'Partir sans tout' : 'Prêt au départ', value: true, cls: partial ? 'warning' : 'primary' }],
     });
     if (!ok) return;
     listAction('validate', { partial }, () => {
@@ -7014,13 +7014,13 @@
       buttons.push(el('button', { type: 'button', class: 'primary', disabled: busy || null, onclick: () => duplicateList(false) }, icon('template'), 'Utiliser ce modèle'));
     } else if (list.status === 'draft') {
       parts.push(el('div', { class: 'banner ' + (list.complete ? 'ok' : 'info') }, list.complete
-        ? 'Tout est prêt : validez la liste.'
+        ? 'Tout est pris : touchez « Prêt au départ ».'
         : `${list.done_count}/${nb(list.line_count, 'ligne prête', 'lignes prêtes')}. Scannez l'étiquette des lots (ou touchez leur case), le matériel pris dans le stock, cochez les tâches.`));
       buttons.push(lists.mode
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
         : el('button', { type: 'button', class: 'primary navy', onclick: startListScan }, '📷 Scanner'));
       buttons.push(el('button', { type: 'button', class: list.complete ? 'primary' : 'warning', disabled: busy || null, onclick: validateList },
-        icon('check'), list.complete ? 'Valider la liste' : 'Valider incomplète'));
+        icon('check'), list.complete ? 'Prêt au départ' : 'Partir sans tout'));
     } else if (list.status === 'validated') {
       parts.push(el('div', { class: 'banner warn' }, `Sortie ${fmtOn(list.validated)}${list.validated_by ? ' par ' + list.validated_by : ''}. `
         + 'Au retour, scannez ce qui rentre (remis en stock), puis clôturez le retour.'));

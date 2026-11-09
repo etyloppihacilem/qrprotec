@@ -297,7 +297,7 @@ class ListsWindow final : public AppWindow {
           duplicate(app, false);
       } else if (draft) {
         if (list["complete"].boolean())
-          ImGui::TextColored(colors::green, "Tout est prêt : validez la liste.");
+          ImGui::TextColored(colors::green, "Tout est pris : cliquez « Prêt au départ ».");
         else
           ImGui::TextWrapped("%d/%s. Scannez l'étiquette des lots et le matériel pris dans le stock, cochez les tâches.",
                              list["done_count"].integer(),
@@ -305,13 +305,13 @@ class ListsWindow final : public AppWindow {
         draw_scan_toggle(app, "Scanner vers cette liste");
         ImGui::SameLine();
         if (list["complete"].boolean()) {
-          if (confirm_action("Valider la liste", "Valider la liste ? Les lots pris passent en vérif recommandée, le "
-                                                 "matériel scanné sort du stock. La liste est ensuite terminée.", "confirm_validate", false))
+          if (confirm_action("Prêt au départ", "Prêt au départ ? Les lots pris passent en vérif recommandée, le "
+                                               "matériel scanné sort du stock. La liste est ensuite terminée.", "confirm_validate", false))
             validate(app, false);
-        } else if (confirm_action("Valider incomplète", "Liste incomplète : la valider quand même ? Ce qui manque ne "
-                                                        "sera pas pris. Les lots pris passent en vérif recommandée, "
-                                                        "le matériel scanné sort du stock.",
-                                  "confirm_partial", true)) {
+        } else if (confirm_action("Partir sans tout", "Liste incomplète : partir quand même ? Ce qui manque ne "
+                                                      "sera pas pris. Les lots pris passent en vérif recommandée, "
+                                                      "le matériel scanné sort du stock.",
+                                "confirm_partial", true)) {
           validate(app, true);
         }
       } else if (status == "validated") {

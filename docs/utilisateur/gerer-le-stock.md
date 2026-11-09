@@ -200,8 +200,8 @@ la liste, ses équipiers la vérifient en sortant le matériel.
   se cochent à la main ; une tâche cochée le reste si l'on modifie la liste. **Un lot se coche aussi
   sans scanner** (au téléphone) : touchez sa case, puis « Cocher sans scanner » (le VPS resté dehors
   pendant qu'on prépare le matériel) ; pour un lot au choix, la case propose les lots disponibles.
-- **Valider** : une fenêtre récapitule ce qui manque (**Valider incomplète** : ce qui manque n'est pas
-  pris). Le matériel scanné sort du stock, comme une sortie sans lot, et **les lots pris passent en
+- **Prêt au départ** (valider) : une fenêtre récapitule ce qui manque (**Partir sans tout** : ce qui
+  manque n'est pas pris). Le matériel scanné sort du stock, comme une sortie sans lot, et **les lots pris passent en
   vérif recommandée** (orange, « sorti avec une liste ») jusqu'à leur prochaine vérif, sauf un lot
   scellé. La liste est alors **terminée** : pas de retour à scanner. Le matériel sorti rentre en
   stock quand on le rescanne (vérif du stock) ; un consommable jamais revu est compté utilisé au
