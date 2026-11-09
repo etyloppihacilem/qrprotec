@@ -2465,6 +2465,18 @@ class SubLotTests(ApiTestCase):
                                                          'exclude': [self.sac_o2['id']]}, local=False)
         self.assertEqual(code, 400)
 
+    def test_debug_codes_reference_lot_has_no_label(self):
+        """Outil de debug des codes : un lot de referentiel (B+, agregat de sacs) n'a ni etiquette publique ni cle ;
+        un lot cache dans la cascade est signale pour que la suite de la vérif le saute."""
+        from . import debug_codes
+        self.global_type.referentiel = True
+        self.global_type.save()
+        rows = {row['id']: row for row in debug_codes.catalog()['lots']}
+        self.assertTrue(rows[self.bplus['id']]['virtual'])
+        self.assertEqual(rows[self.bplus['id']]['codes'], [])
+        self.assertFalse(rows[self.soin['id']]['virtual'])
+        self.assertEqual([code['kind'] for code in rows[self.soin['id']]['codes']], ['public', 'key'])
+
     def test_hidden_lot_in_cascade(self):
         """B+ du VPS cache dans la vérif en cascade : ses sacs remontent dans le VPS (descendants 'hidden'), le B+
         (referentiel, sans etiquette) est valide par ses sacs, jamais par une etape a lui."""

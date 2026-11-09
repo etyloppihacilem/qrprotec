@@ -119,6 +119,8 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   sans badge ni PIN une session de 24 h (jeton `qrprotec.temp-session`, `sessionMs` dans le stockage local).
   Un nouveau badge invalide le QR code et la session. Un code s'affiche en grand (`#debug-player`), seul
   ou en suite (contenu d'un lot, avec ses sous-lots dans l'ordre d'une vérif en cascade) passée au code
+  suivant. Dans la cascade, un sous-lot scellé ne donne que l'étiquette de son scellé (ni clé ni contenu),
+  un lot de référentiel (B+) ou caché dans la vérif n'a pas d'étiquette, seulement ses sous-lots. Code
   suivant d'un appui, par Suivant, les flèches du clavier ou en automatique.
 - **Suivi des vérifs en direct** : `live` publie la vérif en cours de la page de scan (lot, scans,
   reste à scanner) sur `/ws/live/scanner`, avec une session conservée dans `sessionStorage` pour

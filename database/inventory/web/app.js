@@ -7507,16 +7507,24 @@
   }
 
   // Suite d'un lot : son etiquette cle (valable partout, poste et web), puis ses items ; avec les sous-lots, chacun
-  // suit avec son etiquette cle et ses items, dans l'ordre de l'arbre (comme une vérif en cascade).
+  // suit avec son etiquette cle et ses items, dans l'ordre de l'arbre (comme une vérif en cascade). Dans la cascade,
+  // un lot scelle ne montre que l'etiquette de son scelle (c'est tout ce que la vérif demande, sans l'ouvrir) : ni
+  // cle, ni contenu, ni sous-lots ; lance seul, sa cle puis son scelle. Un lot de referentiel (virtual) n'a pas
+  // d'etiquette, un lot cache dans la cascade (hidden) non plus : seulement leurs sous-lots.
   function debugLotSequence(lot, deep) {
     const entries = [];
-    const walk = (row) => {
+    const walk = (row, root) => {
+      const seal = deep && row.sealed && row.codes.find((code) => code.kind === 'seal');
       const key = row.codes.find((code) => code.kind === 'key');
-      if (key) entries.push(debugLotEntry(row, key));
+      if (key && (root || (!row.hidden && !seal))) entries.push(debugLotEntry(row, key));
+      if (seal) {
+        entries.push(debugLotEntry(row, seal));
+        return;
+      }
       entries.push(...(debug.byLot.get(row.id) || []).map(debugItemEntry));
-      if (deep) (debug.children.get(row.id) || []).forEach(walk);
+      if (deep) (debug.children.get(row.id) || []).forEach((child) => walk(child, false));
     };
-    walk(lot);
+    walk(lot, true);
     return entries;
   }
 
