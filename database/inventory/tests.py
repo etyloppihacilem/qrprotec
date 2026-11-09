@@ -2095,6 +2095,35 @@ class SubLotTests(ApiTestCase):
         bplus3 = Lots.objects.get(name='B+ 3')
         self.assertEqual(sorted(child.name for child in bplus3.children.all()), ['Sac O2 B+ 3', 'Sac PSE B+ 3'])
 
+    def test_rangement_needs_parent_or_spare(self):
+        """Un lot d'un rangement (sac de soin du B+) se range dans un lot, sauf un sac de rechange ; un sac sorti
+        d'un lot (remplace, libere) devient un sac de rechange."""
+        self.global_type.referentiel = True
+        self.global_type.save()
+        LotType.objects.filter(type='sacpse').update(part_of=self.global_type)
+        code, body = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac seul', 'user': 'M001'})
+        self.assertEqual(code, 400)
+        self.assertIn('Sac de rechange', body['error'])
+        code, spare = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac réserve', 'spare': True,
+                                                       'user': 'M001'})
+        self.assertEqual(code, 201)
+        self.assertTrue(spare['spare'])
+        code, body = self.call('POST', '/api/lots/batch/', {'lot_type': 'sacpse', 'user': 'M001',
+                                                            'lots': [{'name': 'Sac PSE 9'}]})
+        self.assertEqual(code, 400)
+        code, body = self.call('POST', '/api/lots/batch/', {'lot_type': 'sacpse', 'user': 'M001', 'spare': True,
+                                                            'lots': [{'name': 'Sac PSE 9'}]})
+        self.assertEqual(code, 201)
+        # sortir le sac de soin de son B+ : refuse, sauf en le marquant sac de rechange
+        code, body = self.call('PATCH', f"/api/lots/{self.soin['id']}/update/", {'parent': ''})
+        self.assertEqual(code, 400)
+        code, body = self.call('PATCH', f"/api/lots/{self.soin['id']}/update/", {'parent': '', 'spare': True})
+        self.assertEqual(code, 200)
+        self.assertTrue(body['spare'])
+        # un lot ordinaire n'est jamais un sac de rechange
+        code, body = self.call('PATCH', f"/api/lots/{self.sac_o2['id']}/update/", {'spare': True})
+        self.assertFalse(body['spare'])
+
     def test_lot_type_slots(self):
         """Lots exiges : place fixe (vide = lot incomplet, remplacement par un lot non fixe puis retour de
         l'original) et place a l'assemblage (n'importe quel lot libre, jamais un lot fixe)."""

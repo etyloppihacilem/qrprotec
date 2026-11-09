@@ -554,6 +554,9 @@ class Lots(models.Model):
     # remettre quand l'original reprend sa place
     replaces = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replaced_by')
     borrowed_from = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='lent')
+    # Sac de rechange : un lot d'un rangement (LotType.part_of, ex : un sac de soin du B+) se range toujours dans un
+    # lot ; seul un sac de rechange peut rester libre (assemblage, remplacement d'un sac en panne)
+    spare = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.version:

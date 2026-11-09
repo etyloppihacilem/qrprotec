@@ -300,6 +300,7 @@ def _lot_core(lot, today, items=None, preload=None):
         'replaces_name': lot.replaces.name if lot.replaces_id and preload is None else '',
         # sous-lot facultatif a la verif de son parent (services.optional_lot)
         'optional': optional_lot(lot),
+        'spare': lot.spare,  # sac de rechange (rangement libre, voir Lots.spare)
         'is_sealed': lot.is_sealed,
         'sealed': _date(lot.sealed) if lot.is_sealed else None,
         'sealed_by': _who(lot.sealed_by) if lot.is_sealed else '',

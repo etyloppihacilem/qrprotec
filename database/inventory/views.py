@@ -2343,7 +2343,8 @@ def lot_slot_action(request, lot_id, action):
                 raise ApiError(f"{other.name} n'est pas assemblé dans {lot.name}")
             other.parent = None
             other.assembled = False
-            other.save(update_fields=['parent', 'assembled'])
+            free_rangement(other)
+            other.save(update_fields=['parent', 'assembled', 'spare'])
             journal.record(OperationKind.LOT, who, f'libéré de {lot.name}', lot=other)
         elif action == 'replace':
             slot = slot_of(lot, data.get('slot'))
@@ -2364,7 +2365,8 @@ def lot_slot_action(request, lot_id, action):
             other.save(update_fields=['parent', 'assembled', 'replaces', 'borrowed_from'])
             original.parent = None
             original.assembled = False
-            original.save(update_fields=['parent', 'assembled'])
+            free_rangement(original)
+            original.save(update_fields=['parent', 'assembled', 'spare'])
             journal.record(OperationKind.LOT, who, f'remplace {original.name} dans {lot.name}', lot=other)
             journal.record(OperationKind.LOT, who, f'remplacé par {other.name}, sorti de {lot.name}', lot=original)
         elif action == 'restore':
@@ -2380,7 +2382,9 @@ def lot_slot_action(request, lot_id, action):
             other.parent = back
             other.replaces = None
             other.borrowed_from = None
-            other.save(update_fields=['parent', 'replaces', 'borrowed_from'])
+            if back is None:
+                free_rangement(other)
+            other.save(update_fields=['parent', 'replaces', 'borrowed_from', 'spare'])
             journal.record(OperationKind.LOT, who, f'reprend sa place dans {lot.name}', lot=original)
             journal.record(OperationKind.LOT, who, 'rendu' + (f' à {back.name}' if back else ''), lot=other)
         else:
@@ -2550,6 +2554,8 @@ def lots(request):
         created_by=operation_identity(request, data)[:32],
     )
     lot.parent = parse_parent(lot, data.get('parent'))
+    lot.spare = bool(data.get('spare')) and lot_type.part_of_id is not None
+    check_rangement_parent(lot)
     lot.save()
     journal.record(OperationKind.LOT, lot.created_by, f'lot créé ({lot_type.name})'
                    + (f', rangé dans {lot.parent.name}' if lot.parent else ''), lot=lot)
@@ -2711,6 +2717,11 @@ def lots_batch(request):
             children.append(clean(sub_row, sub_type_cache[code]))
         planned.append((lot, children))
     parent = parse_parent(planned[0][0], data.get('parent'))
+    spare = bool(data.get('spare')) and lot_type.part_of_id is not None
+    for lot, children in planned:
+        lot.parent = parent
+        lot.spare = spare
+        check_rangement_parent(lot)
     created = []
     with transaction.atomic():
         for lot, children in planned:
@@ -2750,6 +2761,20 @@ def parse_parent(lot, value):
     return parent
 
 
+def check_rangement_parent(lot):
+    """Un lot d'un rangement (ex : un sac de soin du B+) se range dans un lot, sauf un sac de rechange."""
+    rangement_of = lot.lot_type.part_of
+    if rangement_of is not None and lot.parent_id is None and not lot.spare:
+        raise ApiError(f"Un {lot.lot_type.name} se range dans un lot ({rangement_of.name} ou autre) : choisissez "
+                       "« Rangé dans le lot », ou cochez « Sac de rechange » pour un sac libre")
+
+
+def free_rangement(lot):
+    """Lot sorti de son lot (libere, remplace) : un rangement devient un sac de rechange."""
+    if lot.lot_type.part_of_id:
+        lot.spare = True
+
+
 def check_optional_lot(lot):
     """Un sous-lot facultatif (tout son contenu l'est) : range dans un lot, pas un rangement du stock."""
     if lot.lot_type.storage:
@@ -2782,6 +2807,10 @@ def lot_update(request, lot_id):
         lot.parent = parse_parent(lot, data['parent'])
     if 'key_location' in data:
         lot.key_location = str(data['key_location']).strip()[:128]
+    if 'spare' in data:
+        lot.spare = bool(data['spare']) and lot.lot_type.part_of_id is not None
+    if 'parent' in data or 'spare' in data:
+        check_rangement_parent(lot)
     if 'optional' in data:
         lot.optional = bool(data['optional'])
     if lot.optional and 'optional' in data or lot.optional and 'parent' in data:
@@ -2798,6 +2827,7 @@ def lot_update(request, lot_id):
             raise ApiError("Le stock ne peut pas être archivé")
         if active and lot.parent is not None and not lot.parent.active:
             lot.parent = default_parent(lot)  # le lot parent a ete archive entre-temps : le lot redevient independant
+            free_rangement(lot)
         lot.active = active
     old_name = Lots.objects.filter(id=lot.id).values_list('name', flat=True).first()
     lot.save()
@@ -2812,6 +2842,8 @@ def lot_update(request, lot_id):
         changes.append("emplacement de l'étiquette clé")
     if 'optional' in data:
         changes.append('facultatif à la vérif' if lot.optional else 'obligatoire à la vérif')
+    if 'spare' in data:
+        changes.append('sac de rechange' if lot.spare else 'pas un sac de rechange')
     if 'active' in data:
         changes.append('actif' if lot.active else 'archivé')
     journal.record(OperationKind.LOT, front_identity(request), 'lot modifié : ' + (', '.join(changes) or 'aucun changement'),

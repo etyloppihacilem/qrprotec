@@ -267,6 +267,8 @@ class LotAdminWindow final : public AppWindow {
         ImGui::TextUnformatted(lot["name"].str().c_str());
       ImGui::SameLine();
       std::string detail = lot["lot_type_name"].str();
+      if (lot["spare"].boolean() && lot["parent"].str().empty())
+        detail += " - rechange";
       if (flat && !lot["parent"].str().empty())
         for (const Json &parent : (show_archived_lots_ ? all_lots_ : app.catalog.lots).items())
           if (parent["id"].str() == lot["parent"].str()) {
@@ -296,6 +298,40 @@ class LotAdminWindow final : public AppWindow {
             && !((lot_type["unique"].boolean() || lot_type["storage"].boolean()) && lot_type["lot_count"].integer() > 0))
           result.push_back(lot_type);
       return result;
+    }
+
+    // Referentiel dont ce type est un rangement (ex : « Lot B+ » pour un sac de soin), vide sinon
+    static std::string rangement_of(const App &app, const std::string &type) {
+      std::string parent;
+      for (const Json &lot_type : app.catalog.lot_types.items())
+        if (lot_type["type"].str() == type)
+          parent = lot_type["part_of"].str();
+      if (!parent.empty())
+        for (const Json &lot_type : app.catalog.lot_types.items())
+          if (lot_type["type"].str() == parent)
+            return lot_type["name"].str();
+      return parent;
+    }
+
+    // Lot d'un rangement sans lot parent : case « Sac de rechange », sinon creation refusee (comme le serveur).
+    // Retourne vrai si le lot peut etre cree / enregistre.
+    static bool spare_choice(const App &app, const std::string &type, const std::string &parent, bool &spare) {
+      const std::string referentiel = rangement_of(app, type);
+      if (referentiel.empty())
+        return true;
+      if (!parent.empty())
+        return true;
+      ImGui::Checkbox("Sac de rechange (libre, hors de tout lot)", &spare);
+      ImGui::SameLine();
+      help_marker("Un rangement (ex : un sac de soin) se range dans un lot. Seul un sac de rechange reste libre : il "
+                  "sert à l'assemblage ou à remplacer un sac en panne.");
+      if (!spare) {
+        ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
+        ImGui::TextWrapped("Rangement de %s : choisissez le lot où il est rangé, ou cochez « Sac de rechange ».",
+                           referentiel.c_str());
+        ImGui::PopStyleColor();
+      }
+      return spare;
     }
 
     static bool type_seal_required(const App &app, const std::string &type) {
@@ -404,6 +440,7 @@ class LotAdminWindow final : public AppWindow {
       ImGui::TextUnformatted("Dans le lot");
       search_select("batch_parent", app.catalog.lots, "id", "name", new_lot_parent_, "Aucun : lots indépendants",
                     "Aucun : lots indépendants");
+      const bool spare_ok = spare_choice(app, new_lot_type_, new_lot_parent_, new_lot_spare_);
       ImGui::SeparatorText("Lots prévus");
       ImGui::TextDisabled("Noms modifiables. Changer le nombre ou le nom de base les recalcule.");
       bool taken = false;
@@ -449,7 +486,7 @@ class LotAdminWindow final : public AppWindow {
         lots += row.depth == 0;
       const std::string label = "Créer " + std::to_string(batch_rows_.size()) + (batch_rows_.size() > 1 ? " lots" : " lot")
                               + (batch_rows_.size() > lots ? " (sous-lots compris)" : "");
-      ImGui::BeginDisabled(batch_rows_.empty() || taken);
+      ImGui::BeginDisabled(batch_rows_.empty() || taken || !spare_ok);
       if (primary_button(label.c_str())) {
         Json list = Json::array();
         Json current;
@@ -484,6 +521,7 @@ class LotAdminWindow final : public AppWindow {
         body["lot_type"] = new_lot_type_;
         body["lots"]     = list;
         body["parent"]   = new_lot_parent_;
+        body["spare"]    = new_lot_parent_.empty() && new_lot_spare_;
         body["user"]     = app.user_ref();
         const bool print = print_new_;
         app.api.post("/api/lots/batch/", body, [this, &app, print](const ApiResult &result) {
@@ -533,6 +571,7 @@ class LotAdminWindow final : public AppWindow {
                   "seul, ou avec les autres lots du même lot global. Le lot global est valide si tous ses lots le sont.");
       search_select("new_lot_parent", app.catalog.lots, "id", "name", new_lot_parent_, "Aucun : lot indépendant",
                     "Aucun : lot indépendant");
+      const bool spare_ok = spare_choice(app, new_lot_type_, new_lot_parent_, new_lot_spare_);
       input_limited("Emplacement de l'étiquette clé", new_lot_key_location_, 128);
       help_marker("Où trouver l'étiquette clé dans le lot (ex : « poche intérieure du couvercle »). Affiché quand "
                   "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
@@ -541,13 +580,14 @@ class LotAdminWindow final : public AppWindow {
                                                               "sert d'étiquette publique)"
                                                             : "Voir les étiquettes publique et clé après création",
                       &print_new_);
-      ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty() || name_taken);
+      ImGui::BeginDisabled(new_lot_type_.empty() || new_lot_name_.empty() || name_taken || !spare_ok);
       if (primary_button("Créer le lot")) {
         Json body;
         body["lot_type"]   = new_lot_type_;
         body["name"]       = new_lot_name_;
         body["name_short"] = new_lot_short_;
         body["parent"]       = new_lot_parent_;
+        body["spare"]        = new_lot_parent_.empty() && new_lot_spare_;
         body["key_location"] = new_lot_key_location_;
         body["user"]         = app.user_ref();
         const bool print   = print_new_;
@@ -586,6 +626,7 @@ class LotAdminWindow final : public AppWindow {
           edit_parent_ = lot_["parent"].str();
           edit_key_location_ = lot_["key_location"].str();
           edit_optional_     = lot_["optional"].boolean();
+          edit_spare_        = lot_["spare"].boolean();
         } else {
           app.notify(result.error, true);
         }
@@ -742,6 +783,8 @@ class LotAdminWindow final : public AppWindow {
           path += (path.empty() ? "" : " › ") + parent["name"].str();
         ImGui::TextWrapped("Rangé dans : %s", path.c_str());
       }
+      if (lot_["spare"].boolean() && lot_["path"].size() == 0)
+        ImGui::TextUnformatted("Sac de rechange : libre, hors de tout lot.");
       if (lot_["children"].size() > 0) {
         std::string children;
         for (const Json &child : lot_["children"].items())
@@ -1007,6 +1050,7 @@ class LotAdminWindow final : public AppWindow {
                   "quelqu'un essaie de valider une vérif sans l'avoir scannée.");
       ImGui::SetNextItemWidth(-FLT_MIN);
       input_limited("##key_location", edit_key_location_, 128, "ex : poche intérieure du couvercle");
+      const bool spare_ok = spare_choice(app, lot_["lot_type"].str(), edit_parent_, edit_spare_);
       if (!lot_["storage"].boolean() && !edit_parent_.empty()) {
         ImGui::Checkbox("Sous-lot facultatif à la vérif", &edit_optional_);
         ImGui::SameLine();
@@ -1014,7 +1058,7 @@ class LotAdminWindow final : public AppWindow {
                     "gris pendant la vérif, on peut y entrer pour scanner ce qu'il contient et savoir où c'est. "
                     "Tout son contenu est facultatif, sauf quand un admin rend la vérif complète (front web).");
       }
-      ImGui::BeginDisabled(edit_name_.empty() || name_taken);
+      ImGui::BeginDisabled(edit_name_.empty() || name_taken || !spare_ok);
       if (primary_button("Enregistrer")) {
         Json body;
         body["name"]       = edit_name_;
@@ -1023,6 +1067,8 @@ class LotAdminWindow final : public AppWindow {
         body["key_location"] = edit_key_location_;
         if (!lot_["storage"].boolean())
           body["optional"] = edit_optional_ && !edit_parent_.empty();
+        if (!rangement_of(app, lot_["lot_type"].str()).empty())
+          body["spare"] = edit_parent_.empty() && edit_spare_;
         update_lot(app, body);
       }
       ImGui::EndDisabled();
@@ -1963,7 +2009,9 @@ class LotAdminWindow final : public AppWindow {
     std::string edit_parent_;
     std::string edit_key_location_;
     bool        edit_optional_ = false;
+    bool        edit_spare_    = false; // sac de rechange (rangement libre)
     std::string new_lot_parent_;
+    bool        new_lot_spare_ = false; // rangement cree libre (sac de rechange)
     std::string new_lot_key_location_;
     std::string new_lot_type_;
     std::string new_lot_name_;
