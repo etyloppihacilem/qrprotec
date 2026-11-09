@@ -147,7 +147,10 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
 - **État des lots** : tous les lots et leur état ; toucher un lot l'ouvre.
 - **Départ** (pour un poste de secours) : onglet **Ma liste**, les listes de matériel qui vous sont
   attribuées et pas encore rentrées (touchez-la pour scanner le matériel demandé) ; onglet **Lots**, tous
-  les lots avec une barre de recherche (nom, type). Sans liste attribuée, la page s'ouvre sur l'onglet Lots.
+  les lots avec une barre de recherche (nom, type) : **cochez tout ce que vous prenez**, puis « Partir avec N
+  lots » crée votre liste de départ, où vous scannez l'étiquette de chaque lot (un sous-lot part avec son lot ;
+  un lot déjà pris par une autre liste ou rangé pour de bon dans un autre lot ne se coche pas ; la flèche ›
+  ouvre la fiche). Sans liste attribuée, la page s'ouvre sur l'onglet Lots.
 - **Listes de matériel** et **Signalements**, puis tout en bas **Gestion de la TECH** (tâches, état des stocks, prévisions) : rôles gestion et admin (badge demandé, grisé pour les autres).
 - ⚙ : vos réglages, une fois connecté : **code PIN** (le choisir, le changer avec l'ancien, ou le
   supprimer s'il n'est pas obligatoire : jamais pour un admin, ni quand le TECH l'a imposé ; case

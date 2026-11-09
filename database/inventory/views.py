@@ -3463,9 +3463,18 @@ def checklists_options(request):
 @handle_errors
 def checklists_departure(request):
     """« Partir avec » (tout utilisateur connecte) : sans lot_type, les types de lots proposes avec le nombre de lots
-    disponibles ; avec {"lot_type"}, cree la liste de depart (checklists.departure) et la renvoie."""
+    disponibles ; avec {"lot_type"}, cree la liste de depart (checklists.departure) et la renvoie. Page « Départ » :
+    {"blocked": true} renvoie les lots qu'on ne peut pas cocher, {"lots": [ids]} cree la liste des lots coches."""
     from . import checklists
     user = connected_user(request)
+    if request.data.get('blocked'):  # page « Départ » : lots qu'on ne peut pas cocher
+        return Response({'blocked': checklists.departure_blocked()})
+    if request.data.get('lots') is not None:  # page « Départ » : liste des lots coches
+        lot_ids = request.data.get('lots')
+        if not isinstance(lot_ids, list):
+            raise ApiError('lots : liste d\'identifiants de lots attendue', status.HTTP_400_BAD_REQUEST)
+        checklist = _checklist_call(lambda: checklists.departure_lots(user, lot_ids))
+        return Response(checklists.checklist_dict(_checklist(checklist.id), user), status=status.HTTP_201_CREATED)
     code = str(request.data.get('lot_type') or '')
     if code:
         lot_type = get_object_or_404(LotType, type=code)

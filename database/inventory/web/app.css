@@ -732,3 +732,17 @@ dialog.big-popup p { font-size: 1.05rem; }
 #home-depart .depart-search { width: 100%; box-sizing: border-box; font: inherit; font-size: 1rem; padding: 10px 12px; margin: 8px 0 2px;
   border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 #home-depart .list-gap { display: block; margin-top: 8px; }
+/* onglet Lots de « Départ » : on coche ce qu'on prend, la fleche ouvre la fiche */
+#home-depart .pick-box { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  margin-right: 10px; border: 2px solid #9aa0a8; border-radius: 5px; background: #fff; color: #fff; font-size: 15px; font-weight: 700; }
+#home-depart .pick-box.on { background: var(--green); border-color: var(--green); }
+#home-depart .pick-box.off { border-style: dashed; background: #eceae6; }
+#home-depart li.pick-on { background: #eef7ef; }
+#home-depart li.pick-blocked .main { opacity: .55; }
+#home-depart .pick-note { color: var(--navy); font-weight: 600; }
+#home-depart .pick-fiche { flex: none; margin-left: 6px; min-height: 0; padding: 4px 10px; font-size: 1.4rem; line-height: 1;
+  background: transparent; color: var(--muted); box-shadow: none; }
+#home-depart .depart-go { position: sticky; bottom: 0; display: flex; gap: 8px; margin: 10px -16px 0; padding: 10px 16px
+  calc(10px + env(safe-area-inset-bottom)); background: var(--bg, #f2f3f6); box-shadow: 0 -2px 8px rgba(0, 0, 0, .1); }
+#home-depart .depart-go .primary { flex: 1; }
+#home-depart .depart-go .secondary { flex: none; }
