@@ -20,6 +20,7 @@ pour leur creer a la demande un QR code de connexion temporaire (views.debug_tem
 from django.utils import timezone
 
 from . import serializers as ser
+from . import services
 from .idendity import short_names
 from .models import Checklist, Items, LabelStyle, Lots, Role, SealedPacks, Secouristes, compact_iid
 
@@ -51,13 +52,15 @@ def item_row(item):
     }
 
 
-def lot_codes(lot):
-    """Etiquettes du lot : publique, cle (seule etiquette d'un rangement), scelle et ouverture du scelle en cours."""
+def lot_codes(lot, virtual=False):
+    """Etiquettes du lot : publique, cle (seule etiquette d'un rangement), scelle et ouverture du scelle en cours.
+    Un lot de referentiel sans contenu a lui (services.virtual_lot, ex : le B+) n'a ni etiquette publique ni cle."""
     codes = []
-    if not lot.storage:
+    if not lot.storage and not virtual:
         codes.append({'kind': 'public', 'label': 'Étiquette publique', 'code': ser.public_url('verif', lot=lot.id)})
-    codes.append({'kind': 'key', 'label': 'Étiquette de rangement' if lot.storage else 'Étiquette clé',
-                  'code': ser.public_url('verif', lot=lot.id, key=lot.verif_key)})
+    if not virtual:
+        codes.append({'kind': 'key', 'label': 'Étiquette de rangement' if lot.storage else 'Étiquette clé',
+                      'code': ser.public_url('verif', lot=lot.id, key=lot.verif_key)})
     if lot.is_sealed and lot.seal_code:
         codes.append({'kind': 'seal', 'label': 'Scellé', 'code': ser.public_url('seal', lot=lot.id, s=lot.seal_code)})
     if lot.is_sealed and lot.seal_open_code:
@@ -102,23 +105,30 @@ def rescuers():
     return sorted(rows, key=lambda row: row['name'].lower())
 
 
+def lot_row(lot, depth):
+    virtual = services.virtual_lot(lot)
+    return {
+        'id': lot.id,
+        'name': lot.name,
+        'type_name': lot.lot_type.name,
+        'parent': lot.parent_id or '',
+        'depth': depth,
+        'storage': lot.storage,
+        'stock': lot.is_stock,
+        'active': lot.active,
+        'sealed': lot.is_sealed,
+        'seal_number': lot.seal_number,
+        'virtual': virtual,  # referentiel sans etiquette, verifie par ses sacs
+        'hidden': services.hidden_in_verif(lot),  # absent de la vérif en cascade, ses sous-lots sont dans son parent
+        'codes': lot_codes(lot, virtual),
+    }
+
+
 def catalog():
     items = list(Items.objects.select_related('pack__item_type')
                  .order_by('pack__item_type__name', 'pack__peremption', 'iid'))
     return {
-        'lots': [{
-            'id': lot.id,
-            'name': lot.name,
-            'type_name': lot.lot_type.name,
-            'parent': lot.parent_id or '',
-            'depth': depth,
-            'storage': lot.storage,
-            'stock': lot.is_stock,
-            'active': lot.active,
-            'sealed': lot.is_sealed,
-            'seal_number': lot.seal_number,
-            'codes': lot_codes(lot),
-        } for lot, depth in lot_tree()],
+        'lots': [lot_row(lot, depth) for lot, depth in lot_tree()],
         'items': [item_row(item) for item in items],
         'packs': [{
             'id': pack.id,
