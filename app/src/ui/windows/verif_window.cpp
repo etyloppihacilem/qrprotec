@@ -650,20 +650,35 @@ class VerifWindow final : public AppWindow {
                                                   : "Ce qu'il contient : scannez son étiquette (ou cliquez-le) pour y entrer");
       const std::set< std::string > intact = app.verif_intact();
       bool                          moved  = false;
+      // ordre general des listes (attention d'abord) : rouge, commence (orange), a faire, facultatif, vert en bas ;
+      // a egalite, le dernier scanne monte (sauf les verts), puis l'ordre d'origine (tri stable). Comme le web.
+      struct Row {
+        std::string id;
+        std::string text;
+        ImVec4      color;
+        int         rank = 2;
+        int         last = -1;
+      };
+      std::vector< Row > rows;
       for (const Json *child : children) {
         const std::string id   = (*child)["id"].str();
         const auto        done = verif.done.find(id);
         std::string       text = std::string((*child)["is_sealed"].boolean() ? "[scellé] " : "") + (*child)["name"].str();
         ImVec4            color;
+        int               rank = 2;
         if (done != verif.done.end()) {
-          color = done->second.complete || done->second.sealed ? colors::green : colors::red;
+          const bool ok = done->second.complete || done->second.sealed;
+          color = ok ? colors::green : colors::red;
+          rank  = ok ? 4 : 0;
           text += done->second.sealed ? "  –  scellé intact constaté à " + done->second.at
                                       : "  –  validé à " + done->second.at + (done->second.complete ? "" : ", incomplet");
         } else if (intact.count(id)) {
           color = colors::green;
+          rank  = 4;
           text += "  –  scellé intact : enregistré à la validation";
         } else if (app.verif_touched(id)) {
           color = colors::orange;
+          rank  = 1;
           text += "  –  commencé, pas encore validé";
         } else if (app.verif_seal_waiting(id)) {
           color = colors::grey;
@@ -671,6 +686,7 @@ class VerifWindow final : public AppWindow {
         } else if ((*child)["optional"].boolean()) {
           // sous-lot facultatif : on peut valider sans lui, ou y entrer pour scanner ce qu'il contient
           color = colors::grey;
+          rank  = 3;
           text += "  –  facultatif : validable sans, cliquez pour y scanner";
         } else {
           color = colors::grey;
@@ -679,11 +695,25 @@ class VerifWindow final : public AppWindow {
         const std::size_t subs = app.verif_children(id).size();
         if (subs)
           text += " · " + nb(subs, "sous-lot");
-        ImGui::PushID(id.c_str());
+        int last = -1;
+        if (rank != 4) {
+          const std::set< std::string > ids = app.verif_subtree(id);
+          for (const ScanEntry &entry : app.stack.entries())
+            if (entry.state != EntryState::Error && ids.count(entry.place.empty() ? verif.lot_id : entry.place))
+              last = std::max(last, entry.id);
+        }
+        rows.push_back({ id, text, color, rank, last });
+      }
+      std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+        return a.rank != b.rank ? a.rank < b.rank : a.last > b.last;
+      });
+      for (const Row &row : rows) {
+        const ImVec4 &color = row.color;
+        ImGui::PushID(row.id.c_str());
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(color.x, color.y, color.z, 0.45f));
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(color.x, color.y, color.z, 0.65f));
-        if (ImGui::Selectable(text.c_str(), true)) {
-          app.enter_level(id);
+        if (ImGui::Selectable(row.text.c_str(), true)) {
+          app.enter_level(row.id);
           moved = true;
         }
         ImGui::PopStyleColor(2);

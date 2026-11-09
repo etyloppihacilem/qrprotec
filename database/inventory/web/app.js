@@ -3060,6 +3060,9 @@
     return remaining;
   }
 
+  // Ordre des sous-lots de la vérif en cascade (attention d'abord) : rouge, commencé (orange), à faire, facultatif, vert
+  const SUB_LOT_RANK = { bad: 0, partial: 1, todo: 2, optional: 3, ok: 4 };
+
   // Vérif en cascade : le lot en cours (fil depuis le lot global, retour au lot qui le contient), ses sous-lots (faits
   // en vert, en cours, a faire ; touchez-en un ou scannez son etiquette pour y entrer), puis ses propres attendus.
   function renderCascade(list) {
@@ -3090,6 +3093,8 @@
     }
     const others = othersLevels();
     let left = 0;
+    const subRows = [];
+    const scansNow = allScanned();
     for (const child of childrenOf(level.id)) {
       const ids = subtreeIds(child.id);
       const done = state.done[child.id];
@@ -3116,7 +3121,10 @@
         else if (sealWaiting(child)) { cls = 'todo'; sub = "🔒 Scellé : scannez l'étiquette du scellé"; }
         else { cls = 'todo'; sub = 'À faire · état actuel : ' + childStatus(child).label; }
       }
-      rows.push(el('li', { class: 'lot-head sub-lot ' + cls, onclick: () => {
+      // dernier scan dans ce sous-lot (ou ses sous-lots) : le plus recent monte, s'il n'est pas vert
+      let last = -1;
+      scansNow.forEach((entry, index) => { if (!entry.error && ids.includes(entry.place || state.lotId)) last = index; });
+      subRows.push({ rank: SUB_LOT_RANK[cls] ?? 2, last: cls === 'ok' ? -1 : last, row: el('li', { class: 'lot-head sub-lot ' + cls, onclick: () => {
         if (done && !confirm(`${child.name} est déjà ${done.sealed ? 'constaté scellé' : 'validé'}. Le refaire ?`)) return;
         enterLevel(child.id);
         save();
@@ -3125,8 +3133,12 @@
       el('div', { class: 'main' },
         el('div', { class: 'name' }, (child.is_sealed ? '🔒 ' : '📦 ') + child.name),
         el('div', { class: 'sub' }, sub + (subs ? ` · ${nb(subs, 'sous-lot')}` : ''))),
-      el('span', { class: 'chevron' }, '›')));
+      el('span', { class: 'chevron' }, '›')) });
     }
+    // ordre general des listes : rouge en haut, orange, a faire, facultatif, vert en bas ; a egalite, le dernier
+    // scanne monte (sauf les verts), puis l'ordre d'origine (tri stable)
+    subRows.sort((a, b) => a.rank - b.rank || b.last - a.last);
+    rows.push(...subRows.map((entry) => entry.row));
     const { groups, others: loose, remaining } = level.storage || ownContent(level) ? expectedGroups(level, plan)
       : { groups: [], others: [], remaining: 0 };
     if (groups.length || loose.length) {
