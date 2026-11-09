@@ -1076,7 +1076,7 @@ class ManagementTests(ApiTestCase):
                                                         {'type': 'garrot', 'extra': 1, 'location': 'Pochette bleue'}],
                                             'locations': ['pochette rouge', 'Pochette bleue']})
         self.assertEqual(body['own_content'], {'locations': [], 'rows': [
-            {'type': 'garrot', 'type_name': 'Garrot', 'extra': 1, 'location': 'Pochette bleue'}]})
+            {'type': 'garrot', 'type_name': 'Garrot', 'extra': 1, 'removed': 0, 'location': 'Pochette bleue'}]})
         self.assertEqual([row['type'] for row in body['requirements']], ['compre', 'garrot', 'serphy'])
         # seulement ajouter, un type en double refuse, un item en plus empeche d'archiver son type
         code, _ = self.call('PUT', url, {'content': [{'type': 'garrot', 'extra': -1}]})
@@ -2123,6 +2123,47 @@ class SubLotTests(ApiTestCase):
         # un lot ordinaire n'est jamais un sac de rechange
         code, body = self.call('PATCH', f"/api/lots/{self.sac_o2['id']}/update/", {'spare': True})
         self.assertFalse(body['spare'])
+
+    def test_distribution_per_lot(self):
+        """Repartition d'un referentiel entre les sacs d'un lot global, lot par lot : les types des sacs donnent le
+        defaut, ce lot met la cardio-pompe dans son sac d'O2, un autre B+ garde le defaut."""
+        cardio = ItemType.objects.create(type='cardio', name='Cardio-pompe', perissable=False)
+        self.global_type.referentiel = True
+        self.global_type.save()
+        LotRequirements.objects.create(lot_type=self.global_type, item_type=cardio, quantity=1)
+        LotRequirements.objects.create(lot_type=self.global_type, item_type=self.o2, quantity=1)
+        sac_type = LotType.objects.get(type='sacpse')
+        LotRequirements.objects.create(lot_type=sac_type, item_type=cardio, quantity=1, location='Poche avant')
+        LotType.objects.filter(type__in=['sacpse', 'saco2x']).update(part_of=self.global_type)
+        code, lot = self.call('GET', f"/api/lots/{self.bplus['id']}/")
+        (dist,) = lot['distribution']
+        self.assertEqual(dist['referentiel'], 'bplusx')
+        line = next(line for line in dist['lines'] if line['type'] == 'cardio')
+        self.assertEqual({p['lot']: p['quantity'] for p in line['places']}, {self.soin['id']: 1, self.sac_o2['id']: 0})
+        code, body = self.call('PUT', f"/api/lots/{self.bplus['id']}/distribution/", {'referentiel': 'bplusx', 'rows': [
+            {'lot': self.soin['id'], 'type': 'cardio', 'quantity': 0},
+            {'lot': self.sac_o2['id'], 'type': 'cardio', 'quantity': 1, 'location': 'Poche latérale'}]})
+        self.assertEqual(code, 200)
+        line = next(line for line in body['distribution'][0]['lines'] if line['type'] == 'cardio')
+        self.assertEqual(line['placed'], 1)
+        self.assertEqual({p['lot']: (p['quantity'], p['location']) for p in line['places']},
+                         {self.soin['id']: (0, 'Poche avant'), self.sac_o2['id']: (1, 'Poche latérale')})
+        code, soin = self.call('GET', f"/api/lots/{self.soin['id']}/")
+        self.assertNotIn('cardio', [row['type'] for row in soin['requirements']])
+        code, o2 = self.call('GET', f"/api/lots/{self.sac_o2['id']}/")
+        self.assertIn('cardio', [row['type'] for row in o2['requirements']])
+        # le contenu propre du sac de soin (items en plus) garde la repartition
+        code, body = self.call('PUT', f"/api/lots/{self.soin['id']}/content/", {'content': []})
+        self.assertNotIn('cardio', [row['type'] for row in body['requirements']])
+        # un autre B+ garde la repartition par defaut (celle des types)
+        code, bplus2 = self.call('POST', '/api/lots/', {'lot_type': 'bplusx', 'name': 'B+ 2', 'user': 'M001'})
+        code, soin2 = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac de soin 2',
+                                                       'parent': bplus2['id'], 'user': 'M001'})
+        self.assertIn('cardio', [row['type'] for row in soin2['requirements']])
+        # une ligne hors du referentiel est refusee
+        code, body = self.call('PUT', f"/api/lots/{self.bplus['id']}/distribution/", {'referentiel': 'bplusx', 'rows': [
+            {'lot': self.soin['id'], 'type': 'compre', 'quantity': 1}]})
+        self.assertEqual(code, 400)
 
     def test_lot_type_slots(self):
         """Lots exiges : place fixe (vide = lot incomplet, remplacement par un lot non fixe puis retour de

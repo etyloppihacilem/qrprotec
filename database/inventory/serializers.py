@@ -19,7 +19,7 @@ from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
 from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, compact_iid, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
-from .services import LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, out_deadline, requirements_status
+from .services import LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -531,6 +531,8 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, p
         data['seal_open_url'] = (public_url('unseal', lot=lot.id, c=lot.seal_open_code)
                                  if lot.is_sealed and lot.seal_open_code else '')
         data['own_content'] = lot_own_content(lot, preload)
+        if preload is None:
+            data['distribution'] = lot_distribution(lot)  # repartition du referentiel entre ses sacs
     return data
 
 
@@ -577,7 +579,8 @@ def lot_own_content(lot, preload=None):
     return {
         'locations': list(lot.locations or []),
         'rows': [
-            {'type': row.item_type_id, 'type_name': row.item_type.name, 'extra': row.extra, 'location': row.location}
+            {'type': row.item_type_id, 'type_name': row.item_type.name, 'extra': row.extra, 'removed': row.removed,
+             'location': row.location}
             for row in content
         ],
     }

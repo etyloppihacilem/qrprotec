@@ -143,7 +143,7 @@ def lot_type_content_snapshot(lot_type):
 
 def lot_content_snapshot(lot):
     """Contenu propre d'un lot, comparable avant/apres un enregistrement."""
-    rows = sorted((row.item_type_id, row.extra, row.location) for row in LotContent.objects.filter(lot=lot))
+    rows = sorted((row.item_type_id, row.extra, row.removed, row.location) for row in LotContent.objects.filter(lot=lot))
     return rows, list(lot.locations or [])
 
 
@@ -188,13 +188,56 @@ def lot_requirements(lot, preload=None, strict=False):
         custom = own.pop(requirement.item_type_id, None)
         location = requirement.location if custom is None or custom.location is None else custom.location
         extra = custom.extra if custom else 0
-        rows.append(Requirement(requirement.item_type, requirement.quantity + extra, location, extra,
+        quantity = requirement.quantity + extra - (custom.removed if custom else 0)
+        if quantity <= 0:
+            continue  # reparti dans un autre sac de son lot global (LotContent.removed)
+        rows.append(Requirement(requirement.item_type, quantity, location, extra,
                                 not strict and optional_in_lot(lot, requirement.item_type, requirement.optional)))
     for custom in own.values():
         if custom.extra > 0:
             rows.append(Requirement(custom.item_type, custom.extra, custom.location or '', custom.extra,
                                     not strict and optional_in_lot(lot, custom.item_type)))
     return sort_requirements(rows, lot_locations(lot))
+
+
+def distribution_sacs(lot):
+    """Sacs d'un lot global par referentiel : ses sous-lots actifs dont le type est un rangement (le sac de soin et
+    le sac d'O2 du B+), {referentiel: [sacs]} dans l'ordre des noms."""
+    groups = defaultdict(list)
+    for child in (lot.children.select_related('lot_type__part_of').filter(active=True, lot_type__part_of__isnull=False)
+                  .order_by('name', 'id')):
+        groups[child.lot_type.part_of].append(child)
+    return groups
+
+
+def lot_distribution(lot):
+    """Repartition du contenu d'un referentiel entre les sacs d'un lot global : pour chaque ligne du referentiel, la
+    quantite et l'emplacement dans chaque sac (contenu attendu du sac : son type, puis ce que ce lot y change), et ce
+    qui est place en tout. Le type de chaque rangement donne la repartition par defaut."""
+    result = []
+    for referentiel, sacs in sorted(distribution_sacs(lot).items(), key=lambda pair: pair[0].name.lower()):
+        placed = {sac.id: {row.item_type_id: row for row in lot_requirements(sac, strict=True)} for sac in sacs}
+        defaults = {}
+        for row in LotRequirements.objects.filter(lot_type_id__in={sac.lot_type_id for sac in sacs}):
+            defaults[(row.lot_type_id, row.item_type_id)] = row.location
+        lines = []
+        for requirement in ordered_requirements(referentiel):
+            type_id = requirement.item_type_id
+            places = []
+            for sac in sacs:
+                row = placed[sac.id].get(type_id)
+                places.append({'lot': sac.id, 'quantity': row.quantity if row else 0,
+                               'location': row.location if row else defaults.get((sac.lot_type_id, type_id), '')})
+            lines.append({'type': type_id, 'type_name': requirement.item_type.name, 'required': requirement.quantity,
+                          'placed': sum(place['quantity'] for place in places), 'places': places})
+        result.append({
+            'referentiel': referentiel.type, 'referentiel_name': referentiel.name,
+            'sacs': [{'id': sac.id, 'name': sac.name, 'lot_type': sac.lot_type_id, 'lot_type_name': sac.lot_type.name,
+                      'locations': list(dict.fromkeys([*lot_locations(sac), *sac.lot_type.locations]))}
+                     for sac in sacs],
+            'lines': lines,
+        })
+    return result
 
 
 def carried_by_rangements(lot_type, preload=None) -> bool:

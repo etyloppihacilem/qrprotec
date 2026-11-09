@@ -2503,11 +2503,18 @@ def lot_content(request, lot_id):
     inherited = services.location_order(effective, lot_type.locations or [], known)
     with transaction.atomic():
         before = services.lot_content_snapshot(lot)
+        # repartition du referentiel (onglet Repartition du lot global) : gardee telle quelle
+        removed = {row.item_type_id: row for row in LotContent.objects.filter(lot=lot, removed__gt=0)}
         LotContent.objects.filter(lot=lot).delete()
         for item_type, extra, location in wanted.values():
             if location is not None:
                 location = locations.get(name_key(location), '')
-            LotContent.objects.create(lot=lot, item_type=item_type, extra=extra, location=location)
+            kept = removed.pop(item_type.type, None)
+            LotContent.objects.create(lot=lot, item_type=item_type, extra=extra, location=location,
+                                      removed=kept.removed if kept else 0)
+        for kept in removed.values():
+            LotContent.objects.create(lot=lot, item_type_id=kept.item_type_id, removed=kept.removed,
+                                      location=kept.location)
         # meme ordre que le type : le lot suit celui du type (nouveaux emplacements, ordre change par la TECH)
         lot.locations = [] if list(locations) == list(inherited) else list(locations.values())
         changed = services.lot_content_snapshot(lot) != before
@@ -2521,6 +2528,72 @@ def lot_content(request, lot_id):
                            {'type': code, 'extra': extra, 'location': location}
                            for code, (_, extra, location) in wanted.items()
                        ])
+    return Response(ser.lot_dict(lot, local=True, with_items=True))
+
+
+@api_view(['PUT'])
+@handle_errors
+def lot_distribution(request, lot_id):
+    """Repartit la liste d'un referentiel entre les sacs d'un lot global (ses sous-lots dont le type est un rangement
+    de ce referentiel) : {"referentiel": "lotBpl", "rows": [{"lot": <sac>, "type": "cardio", "quantity": 1,
+    "location": "poche avant"}, ...]}. Le type de chaque sac reste la repartition par defaut : seul ce qui en differe
+    est garde dans le contenu propre du sac (LotContent extra / removed / location). Une ligne absente ne change pas."""
+    require_front(request, GESTION)
+    lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
+    referentiel = get_object_or_404(LotType, type=str(request.data.get('referentiel', '')))
+    sacs = {sac.id: sac for sac in services.distribution_sacs(lot).get(referentiel, [])}
+    if not sacs:
+        raise ApiError(f"{lot.name} ne contient aucun sac rangement de {referentiel.name}")
+    rows = request.data.get('rows', [])
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise ApiError("rows : liste attendue")
+    wanted_types = {row.item_type_id for row in LotRequirements.objects.filter(lot_type=referentiel)}
+    changes = {}
+    for row in rows:
+        sac = sacs.get(str(row.get('lot', '')))
+        if sac is None:
+            raise ApiError(f"{row.get('lot')} n'est pas un sac de {lot.name}")
+        code = str(row.get('type', ''))
+        if code not in wanted_types:
+            raise ApiError(f"{code} n'est pas dans la liste de {referentiel.name}")
+        if (sac.id, code) in changes:
+            raise ApiError(f"{code} est donné deux fois pour {sac.name}")
+        changes[(sac.id, code)] = (parse_int(row.get('quantity', 0), 'quantity', 0),
+                                   services.clean_location(row.get('location')))
+    item_types = {item_type.type: item_type for item_type in ItemType.objects.filter(type__in=wanted_types)}
+    changed_sacs = []
+    with transaction.atomic():
+        for sac in sacs.values():
+            before = services.lot_content_snapshot(sac)
+            base = {row.item_type_id: row for row in LotRequirements.objects.filter(lot_type_id=sac.lot_type_id)}
+            for (sac_id, code), (quantity, location) in changes.items():
+                if sac_id != sac.id:
+                    continue
+                requirement = base.get(code)
+                default = requirement.quantity if requirement else 0
+                content = LotContent.objects.filter(lot=sac, item_type_id=code).first()
+                content = content or LotContent(lot=sac, item_type=item_types[code])
+                content.extra = max(0, quantity - default)
+                content.removed = max(0, default - quantity)
+                if quantity == 0 or (requirement is not None and name_key(location) == name_key(requirement.location)):
+                    content.location = None  # absent de ce sac, ou au meme emplacement que son type : le suit
+                else:
+                    content.location = location
+                if not content.extra and not content.removed and content.location is None:
+                    if content.pk:
+                        content.delete()
+                    continue
+                content.save()
+            if services.lot_content_snapshot(sac) != before:
+                services.bump_lot_version(sac)
+                sac.save(update_fields=['version'])
+                changed_sacs.append(sac.name)
+        if changed_sacs:
+            journal.record(OperationKind.LOT, front_identity(request),
+                           f'répartition de {referentiel.name} modifiée : ' + ', '.join(changed_sacs), lot=lot,
+                           distribution=[{'lot': sac_id, 'type': code, 'quantity': quantity, 'location': location}
+                                         for (sac_id, code), (quantity, location) in changes.items()])
+    lot.refresh_from_db()
     return Response(ser.lot_dict(lot, local=True, with_items=True))
 
 

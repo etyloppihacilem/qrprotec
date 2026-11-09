@@ -680,6 +680,9 @@ class LotContent(models.Model):
     lot = models.ForeignKey(Lots, on_delete=models.CASCADE, related_name='content')
     item_type = models.ForeignKey(ItemType, on_delete=models.PROTECT)
     extra = models.PositiveIntegerField(default=0)
+    # Retires de la quantite du type dans ce lot : repartition du referentiel entre les sacs d'un lot global (la
+    # cardio-pompe dans le sac d'O2 de ce B+ au lieu de son sac de soin). Seulement pour un lot d'un rangement.
+    removed = models.PositiveIntegerField(default=0)
     # None : l'emplacement du type de lot ; '' : sans emplacement dans ce lot
     location = models.CharField(max_length=64, null=True, blank=True)
 
