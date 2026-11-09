@@ -420,6 +420,7 @@ class App {
     const Json                 *verif_lot(const std::string &id) const;
     std::string                 verif_parent(const std::string &id) const;
     std::vector< const Json * > verif_children(const std::string &id) const;
+    std::string                 verif_visible(const std::string &id) const; // lot cache -> lot affiche
     bool                        verif_under(const std::string &id, const std::string &top) const;
     std::set< std::string >     verif_subtree(const std::string &id) const;
     bool                        verif_touched(const std::string &id) const; // entre dedans ou scans dedans
@@ -428,7 +429,7 @@ class App {
     // sous-lots laisses de cote a la validation de top : deja valides ou pas commences
     std::vector< std::string >  verif_excluded(const std::string &top) const;
     std::set< std::string >     verif_scope(const std::string &top) const; // lots verifies a la validation de top
-    void                        enter_level(const std::string &id);
+    void                        enter_level(const std::string &target);
     void                        leave_level(); // retour au lot qui contient le lot en cours, sans le valider
     // valide le lot en cours (partial : verif partielle ou reassort de ce lot) et revient au lot qui le contient
     void                        submit_step(bool partial = false);
