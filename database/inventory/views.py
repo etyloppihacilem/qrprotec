@@ -1194,7 +1194,9 @@ def verif_report(request, verif_id):
     for verif in ordered:
         info = details.get(verif.id, {})
         lots.append({
-            'id': verif.lot_id, 'name': verif.lot.name, 'depth': depth(verif.lot), 'complete': verif.complete,
+            # parent : les etapes d'une verif en cascade sont reunies en un seul arbre par le front
+            'id': verif.lot_id, 'name': verif.lot.name, 'parent': verif.lot.parent_id, 'depth': depth(verif.lot),
+            'complete': verif.complete,
             'partial': bool(info.get('partial')), 'present_count': verif.present_count,
             'missing_count': verif.missing_count, 'expired_count': verif.expired_count,
             'replaced_count': verif.replaced_count, 'lacking': info.get('lacking', []),
