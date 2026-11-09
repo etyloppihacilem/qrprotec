@@ -680,8 +680,14 @@ def _scan_dict(scan):
                      'peremption': _date(item.pack.peremption), 'status': item.status,
                      'consumable': item.pack.item_type.consumable})
     else:
-        data.update({'lot': scan.lot_id, 'lot_name': scan.lot.name})
+        data.update({'lot': scan.lot_id, 'lot_name': scan.lot.name, 'verif_recommended': needs_verif(scan.lot)})
     return data
+
+
+def needs_verif(lot):
+    """Lot en vérif recommandée (rentré d'un poste, marqué utilisé, réassorti...) : la liste propose de lancer sa vérif
+    avant de partir. Jamais un lot scellé : son scellé intact suffit."""
+    return bool(lot.verif_recommended and not lot.is_sealed)
 
 
 def available_lots(codes, checklist=None, limit=8):
@@ -902,7 +908,7 @@ def checklist_dict(checklist, user=None, full=True):
             continue
         if line.lot_id:
             row.update({'kind': 'lot', 'lot': line.lot_id, 'lot_name': line.lot.name,
-                        'lot_type_name': line.lot.lot_type.name,
+                        'lot_type_name': line.lot.lot_type.name, 'verif_recommended': needs_verif(line.lot),
                         'back': any(scan.lot_id == line.lot_id for scan in back)})
         else:
             row.update({'kind': 'type', 'type': line.item_type_id, 'type_name': line.item_type.name,

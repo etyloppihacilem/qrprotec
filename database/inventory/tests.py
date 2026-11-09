@@ -5515,6 +5515,29 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, f'/api/lots/{sac.id}/return/')
         self.assertEqual(code, 400)
 
+    def test_verif_recommended_lots(self):
+        """Lots en vérif recommandée dans une liste à préparer (lot fixe pris ou non, lot au choix pris) : signalés pour
+        le bouton « Lancer la vérif », jamais un lot scellé."""
+        sac_type = LotType.objects.create(type='sacsoi', name='Sac de soin')
+        sac = Lots.objects.create(lot_type=sac_type, name='Sac 2', name_short='S2', created_by='M001',
+                                  verif_recommended=True)
+        Lots.objects.filter(id=self.lot.id).update(verif_recommended=True)
+        code, created = self.as_(self.chief, '/api/checklists/', {
+            'name': 'Poste', 'lines': [{'lot': self.lot.id}, {'lot_types': ['sacsoi'], 'quantity': 1}]})
+        self.assertEqual(code, 201, created)
+        lines = {line['kind']: line for line in created['lines']}
+        self.assertTrue(lines['lot']['verif_recommended'])  # pas encore pris : bouton quand meme
+        code, body = self.as_(self.chief, f"/api/checklists/{created['id']}/scan/", {'lot': sac.id})
+        self.assertEqual(code, 200, body)
+        Lots.objects.filter(id=self.lot.id).update(is_sealed=True)
+        code, body = self.as_(self.chief, f"/api/checklists/{created['id']}/")
+        lines = {line['kind']: line for line in body['lines']}
+        self.assertFalse(lines['lot']['verif_recommended'])  # scelle : le scelle intact suffit
+        self.assertEqual([(row['lot'], row['verif_recommended']) for row in lines['lot_type']['scans']], [(sac.id, True)])
+        Lots.objects.filter(id=sac.id).update(verif_recommended=False)
+        code, body = self.as_(self.chief, f"/api/checklists/{created['id']}/")
+        self.assertFalse({line['kind']: line for line in body['lines']}['lot_type']['scans'][0]['verif_recommended'])
+
     def test_assigned_for_departure(self):
         """Page « Départ » : listes attribuees (members) et pas encore rentrees, pas celles de l'auteur seul."""
         mine = self.new_list()

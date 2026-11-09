@@ -2237,6 +2237,7 @@
       live.done(report);
       forgetLot('Vérif enregistrée. Scannez un item ou l\'étiquette d\'un lot pour en commencer une autre.');
       loadLots();
+      backToList();
     } catch (e) {
       identityRefused(e);
       if (team || auto) live.unvalidate();
@@ -2499,6 +2500,17 @@
     resetCascade();
     forgetLot(message || `Vérif de ${name} terminée : ${nb(done, 'lot validé', 'lots validés')}` + (left ? `, ${nb(left, 'scan non validé oublié', 'scans non validés oubliés')}.` : '.'));
     if (!report) feedback.good();
+    backToList();
+  }
+
+  // Vérif lancee depuis une liste de depart (« Lancer la vérif ») : une fois enregistree (ou quittee), retour a la
+  // liste pour finir le depart ; le compte rendu eventuel reste ouvert par-dessus
+  function backToList(saved = true) {
+    const back = lists.verifBack;
+    if (!back) return false;
+    openList(back.id);
+    if (saved) toast(`Vérif enregistrée : retour à la liste « ${back.name} ».`);
+    return true;
   }
 
   async function takeOut() {
@@ -2681,7 +2693,8 @@
     if (live.inTeam()) live.leave();
     state.scanned = [];
     forgetLot();
-    showHome('menu');
+    // vérif lancee depuis une liste de depart : retour a la liste
+    if (!backToList(false)) showHome('menu');
   }
 
   $('#user-chip').addEventListener('click', () => {
@@ -3318,7 +3331,7 @@
         : new URL(HOME_PAGES[page] ? './#' + HOME_PAGES[page] : './', document.baseURI).href);
     }
     if (ficheOpen()) closeFiche();
-    if (page !== 'lists') stopListScan();
+    if (page !== 'lists') { stopListScan(); lists.verifBack = null; }
     state.homePage = page;
     if (!readerOpen()) { cameraWanted = false; syncCamera(); }
     document.body.classList.add('home-mode');
@@ -3986,6 +3999,7 @@
     live.done(null);
     forgetLot('Vérif enregistrée. Scannez un item ou l\'étiquette d\'un lot pour en commencer une autre.');
     loadLots();
+    backToList();
   }
 
   // Rejoindre une vérif en cours (page de suivi) : ses scans et ses lots arrivent par la connexion
@@ -6474,6 +6488,7 @@
     timer: 0,
     qr: { url: '', src: '' },
     qrOpen: '',
+    verifBack: null, // « Lancer la vérif » depuis une liste : {id, name}, le compte rendu propose d'y revenir
   };
 
   const listUrl = (id) => new URL(`liste?id=${encodeURIComponent(id)}`, document.baseURI).href;
@@ -6483,14 +6498,14 @@
     && (lists.list.status === 'draft' || lists.list.status === 'validated');
 
   function openLists(push = true) {
-    Object.assign(lists, { id: '', list: null, error: '', edit: null, message: null });
+    Object.assign(lists, { id: '', list: null, error: '', edit: null, message: null, verifBack: null });
     stopListScan();
     showHome('lists', push);
   }
 
   function openList(id, push = true) {
     if (lists.id !== id) Object.assign(lists, { list: null, message: null });
-    Object.assign(lists, { id, error: '', edit: null });
+    Object.assign(lists, { id, error: '', edit: null, verifBack: null });
     stopListScan();
     if (push) history.pushState(null, '', listUrl(id));
     showHome('lists', false);
@@ -6690,14 +6705,22 @@
     const list = lists.list;
     const partial = !list.complete;
     const missing = list.lines.filter((line) => (line.kind === 'task' ? !line.scanned : line.scanned < line.quantity));
+    // lots pris en vérif recommandee : la vérif d'abord (boutons en premier), partir reste possible
+    const verifs = listVerifLots(list, true);
     const ok = await askDialog({
       title: partial ? 'Partir sans tout ?' : 'Prêt au départ ?',
       text: (partial ? `${nb(missing.length, 'ligne')} pas ${pl(missing.length, 'prête')} : ${missing.map((line) => line.lot_name
         || line.type_name || line.task).join(', ')}. Ce qui manque n'est pas pris. ` : '')
         + 'Le matériel scanné sort du stock. Au retour, scannez ce qui rentre et clôturez le retour : les lots pris '
         + 'passent alors en vérif recommandée.',
-      choices: [{ label: partial ? 'Partir sans tout' : 'Prêt au départ', value: true, cls: partial ? 'warning' : 'primary' }],
+      body: verifs.length ? el('div', { class: 'banner warn' }, `⚠ Vérif recommandée avant de partir : ${verifs.map((lot) => lot.name).join(', ')}. `
+        + 'Faites-la maintenant : vous revenez à la liste une fois la vérif enregistrée.') : '',
+      choices: [
+        ...verifs.map((lot) => ({ label: verifs.length > 1 ? `Lancer la vérif de ${lot.name}` : 'Lancer la vérif', value: { verif: lot.id }, cls: 'primary' })),
+        { label: verifs.length ? (partial ? 'Partir sans tout ni la vérif' : 'Partir sans la vérif') : partial ? 'Partir sans tout' : 'Prêt au départ',
+          value: true, cls: partial || verifs.length ? 'warning' : 'primary' }],
     });
+    if (ok && ok.verif) { verifFromList(ok.verif); return; }
     if (!ok) return;
     listAction('validate', { partial }, () => {
       stopListScan();
@@ -7164,11 +7187,50 @@
     return el('span', { class: 'list-box-wrap' }, box);
   }
 
+  // Vérif recommandee sur un lot de la liste (rentre d'un poste, marque utilise, reassorti) : tant que la liste est a
+  // preparer, un bouton « Lancer la vérif » incite a la faire avant de partir, dans la liste et dans « Prêt au départ ? »
+  const listWantsVerif = (list) => list.status === 'draft' && !list.template;
+
+  // lots de la liste en vérif recommandee : lots fixes (pris ou non) et lots au choix deja pris
+  function listVerifLots(list, takenOnly = false) {
+    const rows = [];
+    for (const line of list.lines) {
+      if (line.kind === 'lot' && line.verif_recommended && (!takenOnly || line.scanned)) rows.push({ id: line.lot, name: line.lot_name });
+      if (line.kind === 'lot_type') {
+        for (const scan of line.scans) if (scan.verif_recommended) rows.push({ id: scan.lot, name: scan.lot_name });
+      }
+    }
+    return rows;
+  }
+
+  function listVerifButton(lot, name) {
+    return el('button', { type: 'button', class: 'primary list-verif', onclick: (event) => {
+      event.stopPropagation();
+      verifFromList(lot, name);
+    } }, icon('verif'), 'Lancer la vérif');
+  }
+
+  // Quitte la liste pour la vérif du lot ; le compte rendu de la vérif propose de revenir a la liste
+  function verifFromList(lot) {
+    if (!lists.list) return;
+    const back = { id: lists.list.id, name: lists.list.name };
+    stopListScan();
+    clearInterval(lists.timer);
+    lists.timer = 0;
+    watchStop();
+    document.body.classList.remove('home-mode', 'login-reader');
+    state.homePage = 'scan';
+    lists.verifBack = back;
+    launchVerif(lot, '');
+  }
+
   // Lignes a traiter en haut (ordre de la liste a egalite) : a preparer, ce qui n'est pas encore pris ou coche ;
   // sortie, ce qui est pris et pas encore rentre. Un modele ou une liste rentree garde son ordre.
   function listLinesByAttention(list) {
+    // vérif recommandee sur un lot de la ligne : a faire avant de partir, en haut aussi
+    const verif = (line) => !!line.verif_recommended || (line.scans || []).some((scan) => scan.verif_recommended);
     const todo = (line) => (list.template ? false
-      : list.status === 'draft' ? (line.kind === 'task' ? !line.scanned : line.scanned < line.quantity)
+      : list.status === 'draft' ? (line.kind === 'task' ? !line.scanned : line.scanned < line.quantity || verif(line))
         : list.status === 'validated' ? line.kind !== 'task' && !!line.scanned
           && (line.kind === 'lot' ? !line.back : line.back < line.scanned) : false);
     return [...list.lines].sort((a, b) => todo(b) - todo(a));
@@ -7195,6 +7257,9 @@
     const count = line.kind === 'lot' ? (line.scanned ? '✓' : '–') : `${line.scanned}/${line.quantity}`;
     const back = out && line.scanned ? (line.kind === 'lot' ? (line.back ? 'rentré' : 'pas rentré')
       : `${line.back}/${nb(line.scanned, 'rentré')}`) : '';
+    const verifRow = (lot, name) => el('li', { class: 'static list-verif-row' },
+      el('div', { class: 'main' }, el('div', { class: 'sub' }, `⚠ ${name} : vérif recommandée avant de partir`)),
+      listVerifButton(lot, name));
     const rows = [el('li', { class: 'static ' + (out ? (line.kind === 'lot' ? line.back : line.back >= line.scanned) && line.scanned ? 'ok' : ''
       : done ? 'ok' : '') },
       // case visuelle comme pour les taches : cochee quand la ligne est prise, mais on coche en scannant
@@ -7219,6 +7284,7 @@
             + (out ? (backLots.has(scan.lot) ? ' · ✓ rentré' : ' · pas rentré') : ''))),
           list.status === 'draft' ? el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', title: 'Retirer de la liste',
             onclick: () => listAction('unscan', { lot: scan.lot }) }, '✕') : ''));
+        if (listWantsVerif(list) && scan.verif_recommended) rows.push(verifRow(scan.lot, scan.lot_name));
       }
       if (!done && line.available) {
         rows.push(el('li', { class: 'static list-scan-row' }, el('div', { class: 'main' }, el('div', { class: 'sub' },
@@ -7226,9 +7292,12 @@
             + (lot.state.kind === 'ok' ? '' : ` (${lot.state.label.replace(/^[✔✘⚠] */, '').toLowerCase()})`)).join(', ')
             : 'Aucun lot disponible : tous sont pris ou rangés pour de bon dans un autre lot.'))));
       }
-    } else if (line.scanned && list.status === 'draft') {
-      rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Décocher', title: 'Décocher',
-        onclick: () => listAction('unscan', { lot: line.lot }) }, '✕'));
+    } else if (line.kind === 'lot') {
+      if (line.scanned && list.status === 'draft') {
+        rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Décocher', title: 'Décocher',
+          onclick: () => listAction('unscan', { lot: line.lot }) }, '✕'));
+      }
+      if (listWantsVerif(list) && line.verif_recommended) rows.push(verifRow(line.lot, line.lot_name));
     }
     return rows;
   }
