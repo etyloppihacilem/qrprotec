@@ -446,8 +446,9 @@ def progress(checklist):
 
 
 def validate(checklist, user, partial=False):
-    """Liste verifiee : ses items sortent du stock (statut sorti) et elle ne peut plus etre verifiee. Incomplete, il
-    faut `partial` (ce qui manque n'est pas pris)."""
+    """Liste verifiee : ses items sortent du stock (statut sorti), ses lots non scelles passent en vérif recommandee
+    (le contenu va servir) et la liste est terminee : pas de retour a scanner (choix d'Hippolyte, 2026-11-09), le
+    materiel sorti rentre quand on le revoit. Incomplete, il faut `partial` (ce qui manque n'est pas pris)."""
     _require_open(checklist)
     identity = identity_of(user)
     with transaction.atomic():
@@ -465,22 +466,27 @@ def validate(checklist, user, partial=False):
                              and _lot_core(scan.lot, timezone.localdate())['complete'])]
             if late:
                 raise ValueError('Vérif complète à faire avant de partir : ' + ', '.join(late))
+        now = timezone.now()
         iids = [scan.item_id for scan in _out_scans(checklist) if scan.item_id]
         if iids:
             result = services.mark_out(iids, identity)
             refused = [scan for scan in _out_scans(checklist) if scan.item_id and scan.item_id not in result['out']]
             for scan_row in refused:
                 scan_row.delete()  # plus en stock entre-temps : pas sorti avec la liste
-        now = timezone.now()
         went_out = bool(_out_scans(checklist))
-        checklist.status = ChecklistStatus.VALIDATED
+        for lot in {scan.lot for scan in _out_scans(checklist) if scan.lot_id}:
+            if lot.is_sealed:
+                continue  # scelle : rien n'a servi tant que le scelle tient
+            lot.verif_recommended = True
+            lot.back_from_list = checklist.name
+            lot.restocked = now
+            lot.restocked_by = identity
+            lot.save(update_fields=['verif_recommended', 'back_from_list', 'restocked', 'restocked_by'])
+        checklist.status = ChecklistStatus.RETURNED
         checklist.validated = now
         checklist.validated_by = identity
-        if not went_out:
-            # que des taches : rien n'est sorti, pas de retour a faire
-            checklist.status = ChecklistStatus.RETURNED
-            checklist.returned = now
-            checklist.returned_by = identity
+        checklist.returned = now
+        checklist.returned_by = identity
         checklist.updated = now
         checklist.save()
         journal.record(OperationKind.CHECKLIST, identity,
@@ -708,7 +714,9 @@ def checklist_dict(checklist, user=None, full=True):
         'template': checklist.is_template,
         'status': checklist.status,
         'status_label': 'Modèle' if checklist.is_template else 'Terminée' if (
-            checklist.status == ChecklistStatus.RETURNED and not _out_scans(checklist)) else checklist.get_status_display(),
+            checklist.status == ChecklistStatus.RETURNED and not _out_scans(checklist)) else 'Validée' if (
+            checklist.status == ChecklistStatus.RETURNED
+            and not any(scan.phase == ChecklistScan.BACK for scan in checklist.scans.all())) else checklist.get_status_display(),
         'went_out': bool(_out_scans(checklist)),
         'created': _date(checklist.created),
         'updated': _date(checklist.updated),

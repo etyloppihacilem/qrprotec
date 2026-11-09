@@ -5104,12 +5104,9 @@ class ChecklistTests(ApiTestCase):
         settings_row.save()
         code, body = self.as_(self.other, path + 'validate/', {'partial': True})
         self.assertEqual(code, 200, body)
-        code, body = self.as_(self.other, path + 'return-scan/', {'lot': b1.id})
-        self.assertEqual(code, 200, body)
-        self.assertEqual(body['lines'][0]['back'], 1)
-        self.assertTrue(Lots.objects.get(id=b1.id).verif_recommended)
+        self.assertTrue(Lots.objects.get(id=b1.id).verif_recommended)  # sorti : vérif recommandee, sans retour
         code, body = self.as_(self.chief, f"/api/checklists/{other['id']}/scan/", {'lot': b1.id})
-        self.assertEqual(code, 200)  # rentre : de nouveau libre
+        self.assertEqual(code, 200)  # liste terminee : de nouveau libre
 
     def test_rights_and_templates(self):
         mine = self.new_list()
@@ -5289,24 +5286,19 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, f"/api/checklists/{other['id']}/scan/", {'item': self.fresh[0].iid})
         self.assertEqual(code, 400)
         code, body = self.as_(self.chief, path + 'validate/')
-        self.assertEqual(body['status'], 'validated')
+        # pas de retour a scanner : la liste est terminee, ses lots en vérif recommandee, ses items sortis
+        self.assertEqual((body['status'], body['status_label']), ('returned', 'Validée'))
         self.assertEqual(Items.objects.get(iid=self.fresh[0].iid).status, ItemStatus.OUT)
-        code, _ = self.as_(self.chief, path + 'scan/', {'item': self.fresh[2].iid})
-        self.assertEqual(code, 400)  # validee : plus de verif
-        # retour : une compresse et le garrot rentrent
-        code, body = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[0].iid})
-        self.assertEqual(body['message'], 'Compresses : remis en stock')
-        self.assertEqual(Items.objects.get(iid=self.fresh[0].iid).status, ItemStatus.ACTIVE)
-        code, _ = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[2].iid})
-        self.assertEqual(code, 400)  # pas sorti avec la liste
-        code, body = self.as_(self.chief, path + 'return-scan/', {'lot': self.lot.id})
-        self.assertEqual(body['message'], f'{self.lot.name} : rentré, vérif recommandée')
         code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
         self.assertEqual((body['verif_recommended'], body['back_from_list']), (True, 'Poste de secours'))
-        code, body = self.as_(self.chief, path + 'close-return/')
-        self.assertEqual((body['status'], body['used']), ('returned', [self.fresh[1].iid]))
-        self.assertEqual(body['still_out'], [self.garrots[0].iid])
-        self.assertEqual(Items.objects.get(iid=self.fresh[1].iid).status, ItemStatus.MISSING)
+        code, _ = self.as_(self.chief, path + 'scan/', {'item': self.fresh[2].iid})
+        self.assertEqual(code, 400)  # validee : plus de verif
+        code, _ = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[0].iid})
+        self.assertEqual(code, 400)  # plus de retour par la liste
+        # le lot est libre pour une autre liste
+        other_list = self.new_list()
+        code, body = self.as_(self.chief, f"/api/checklists/{other_list['id']}/scan/", {'lot': self.lot.id})
+        self.assertEqual(code, 200, body)
 
 
 class TasksTests(ApiTestCase):

@@ -5565,7 +5565,7 @@
       full ? revisionLine(lot) : '',
       !lot.verif_recommended || !full ? '' : el('p', {}, lot.restocked_count
         ? `⚠ Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
-        : lot.back_from_list ? `⚠ Rentré avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
+        : lot.back_from_list ? `⚠ Sorti avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
         : lot.marked_used ? `⚠ Marqué utilisé ${fmtOn(lot.marked_used, { long: true })}${lot.marked_used_by ? ' par ' + lot.marked_used_by : ''} : vérif complète recommandée.`
         : `⚠ Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
       lot.seal_required && !lot.is_sealed && full
@@ -6410,12 +6410,41 @@
     renderListsPage();
   }
 
-  function validateList() {
+  // Popup de choix (au lieu d'un confirm du navigateur) : { title, text, choices: [{ label, value, cls }] } ;
+  // renvoie la valeur choisie, null si fermee (Echap, Annuler)
+  function askDialog({ title, text, choices }) {
+    return new Promise((resolve) => {
+      const dialog = el('dialog', { class: 'big-popup ask-dialog' });
+      let answered = false;
+      const close = (value) => {
+        if (answered) return;
+        answered = true;
+        if (dialog.open) dialog.close();
+        dialog.remove();
+        resolve(value);
+      };
+      dialog.append(el('h2', {}, title), text ? el('p', {}, text) : '',
+        el('div', { class: 'dialog-stack' }, ...choices.map((choice) => el('button', { type: 'button',
+          class: choice.cls || 'secondary', onclick: () => close(choice.value) }, choice.label)),
+        el('button', { type: 'button', class: 'secondary', onclick: () => close(null) }, 'Annuler')));
+      dialog.addEventListener('close', () => close(null));
+      document.body.append(dialog);
+      dialog.showModal();
+    });
+  }
+
+  async function validateList() {
     const list = lists.list;
     const partial = !list.complete;
-    if (!confirm(partial
-      ? 'Liste incomplète : la valider quand même ? Ce qui manque ne sera pas pris. Le matériel scanné sort du stock.'
-      : 'Valider la liste ? Le matériel scanné sort du stock et la liste ne pourra plus être vérifiée.')) return;
+    const missing = list.lines.filter((line) => (line.kind === 'task' ? !line.scanned : line.scanned < line.quantity));
+    const ok = await askDialog({
+      title: partial ? 'Valider la liste incomplète ?' : 'Valider la liste ?',
+      text: (partial ? `${nb(missing.length, 'ligne')} pas ${pl(missing.length, 'prête')} : ${missing.map((line) => line.lot_name
+        || line.type_name || line.task).join(', ')}. Ce qui manque n'est pas pris. ` : '')
+        + 'Les lots pris passent en vérif recommandée, le matériel scanné sort du stock. La liste est ensuite terminée.',
+      choices: [{ label: partial ? 'Valider incomplète' : 'Valider la liste', value: true, cls: partial ? 'warning' : 'primary' }],
+    });
+    if (!ok) return;
     listAction('validate', { partial }, () => {
       stopListScan();
       lists.message = null;
@@ -6830,11 +6859,24 @@
     const text = done ? (line.kind === 'lot' ? 'Lot pris : son étiquette a été scannée.' : 'Quantité prise : les items ont été scannés.')
       : list.template ? 'Modèle : dupliquez-le, puis scannez le matériel dans la nouvelle liste.'
         : list.status !== 'draft' ? 'Pas pris à la sortie.'
-          : line.kind === 'lot' ? `Scannez l'étiquette du lot « ${title} » pour le cocher.`
-            : line.kind === 'lot_type' ? `Scannez l'étiquette d'un lot ${title} disponible pour le prendre.`
+          : line.kind === 'lot' ? `Scannez l'étiquette du lot « ${title} » ou touchez sa case pour le cocher.`
+            : line.kind === 'lot_type' ? `Scannez l'étiquette d'un lot ${title} disponible ou touchez la case pour le choisir.`
             : `Scannez ${line.quantity > 1 ? `${line.quantity} items` : 'un item'} « ${title} » pris dans le stock pour la cocher.`;
-    const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : ''), 'aria-label': text, onclick: (event) => {
+    // lot a preparer : on peut le cocher sans scanner (le VPS dehors pendant qu'on prepare le materiel)
+    const byHand = !done && !list.template && list.status === 'draft'
+      && (line.kind === 'lot' || (line.kind === 'lot_type' && line.available && line.available.length));
+    const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : '') + (byHand ? ' by-hand' : ''), 'aria-label': text, onclick: async (event) => {
       event.stopPropagation();
+      if (byHand) {
+        const lot = await askDialog(line.kind === 'lot'
+          ? { title: `Prendre ${title} ?`, text: "Cochez-le sans scanner son étiquette si vous ne l'avez pas sous la main.",
+            choices: [{ label: 'Cocher sans scanner', value: line.lot, cls: 'primary' }] }
+          : { title: `Quel ${title} prenez-vous ?`, text: 'Choisissez le lot, sans scanner son étiquette.',
+            choices: line.available.map((row) => ({ value: row.id, cls: row.state.kind === 'ok' ? 'primary' : 'warning',
+              label: row.name + (row.state.kind === 'ok' ? '' : ` (${row.state.label.replace(/^[✔✘⚠] */, '').toLowerCase()})`) })) });
+        if (lot) listAction('scan', { lot });
+        return;
+      }
       document.querySelectorAll('#home-lists .list-bubble').forEach((node) => node.remove());
       const bubble = el('span', { class: 'list-bubble', role: 'status' }, text);
       box.parentNode.append(bubble);
@@ -6868,7 +6910,9 @@
     const title = line.kind === 'lot' ? line.lot_name : line.type_name;
     const sub = line.kind === 'lot' ? `Lot · ${line.lot_type_name}`
       : line.kind === 'lot_type' ? `${nb(line.quantity, 'lot')} au choix : scannez son étiquette` : nb(line.quantity, 'demandé');
-    const out = list.status !== 'draft';
+    // retour par la liste (anciennes listes : sortie, ou rentree avec des scans de retour) ; une liste validee
+    // aujourd'hui est terminee sans retour a scanner
+    const out = list.status === 'validated' || (list.status === 'returned' && !!(list.back || []).length);
     const count = line.kind === 'lot' ? (line.scanned ? '✓' : '–') : `${line.scanned}/${line.quantity}`;
     const back = out && line.scanned ? (line.kind === 'lot' ? (line.back ? 'rentré' : 'pas rentré')
       : `${line.back}/${nb(line.scanned, 'rentré')}`) : '';
@@ -6928,10 +6972,10 @@
     } else if (list.status === 'draft') {
       parts.push(el('div', { class: 'banner ' + (list.complete ? 'ok' : 'info') }, list.complete
         ? 'Tout est prêt : validez la liste.'
-        : `${list.done_count}/${nb(list.line_count, 'ligne prête', 'lignes prêtes')}. Scannez l'étiquette des lots et le matériel pris dans le stock, cochez les tâches.`));
+        : `${list.done_count}/${nb(list.line_count, 'ligne prête', 'lignes prêtes')}. Scannez l'étiquette des lots (ou touchez leur case), le matériel pris dans le stock, cochez les tâches.`));
       buttons.push(lists.mode
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
-        : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Scanner'));
+        : el('button', { type: 'button', class: 'primary navy', onclick: startListScan }, '📷 Scanner'));
       buttons.push(el('button', { type: 'button', class: list.complete ? 'primary' : 'warning', disabled: busy || null, onclick: validateList },
         icon('check'), list.complete ? 'Valider la liste' : 'Valider incomplète'));
     } else if (list.status === 'validated') {
@@ -6942,16 +6986,13 @@
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Retour : scanner'));
       buttons.push(el('button', { type: 'button', class: 'warning', disabled: busy || null, onclick: closeListReturn }, icon('lock'), 'Clôturer le retour'));
     } else {
-      parts.push(el('div', { class: 'banner ok' }, `${list.went_out ? 'Rentrée' : 'Terminée'} ${fmtOn(list.returned)}`
-        + `${list.returned_by ? ' par ' + list.returned_by : ''}. La liste ne sert plus : dupliquez-la pour la refaire.`));
+      const scannedBack = (list.back || []).length;
+      parts.push(el('div', { class: 'banner ok' }, `${!list.went_out ? 'Terminée' : scannedBack ? 'Rentrée' : 'Validée'} ${fmtOn(list.returned)}`
+        + `${list.returned_by ? ' par ' + list.returned_by : ''}.`
+        + (list.went_out && !scannedBack ? ' Les lots pris sont en vérif recommandée ; le matériel sorti rentre en stock quand on le rescanne.' : '')
+        + ' La liste ne sert plus : dupliquez-la pour la refaire.'));
     }
     if (lists.message && listScanning()) parts.push(el('div', { class: 'banner ' + lists.message.kind }, lists.message.text));
-    if (listScanning()) {
-      buttons.push(el('button', { type: 'button', class: 'text-link', onclick: () => {
-        const code = prompt("Code de l'item ou URL d'une étiquette :");
-        if (code && code.trim()) handleCode(code.trim());
-      } }, 'Saisir un code'));
-    }
     parts.push(el('div', { class: 'list-buttons' }, ...buttons));
     const backIids = new Set((list.back || []).filter((scan) => scan.iid).map((scan) => scan.iid));
     parts.push(el('h3', {}, 'À prendre'));

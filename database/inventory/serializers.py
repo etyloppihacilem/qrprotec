@@ -238,7 +238,7 @@ STATE_LABELS = {
     'incomplete': '✘ Incomplet',
     'recommended': '⚠ Vérif recommandée, réassort',
     'opened': '⚠ Vérif recommandée, scellé ouvert',
-    'list_back': '⚠ Vérif recommandée, retour de liste',
+    'list_back': '⚠ Vérif recommandée, sorti avec une liste',
     'used': '⚠ Vérif recommandée, lot utilisé',
     'seal_opened': '✘ Scellé ouvert, vérif complète puis scellé requis',
     'must_seal': '✘ Vérifié, doit être scellé',
