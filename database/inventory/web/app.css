@@ -742,7 +742,11 @@ dialog.big-popup p { font-size: 1.05rem; }
 #home-depart .pick-note { color: var(--navy); font-weight: 600; }
 #home-depart .pick-fiche { flex: none; margin-left: 6px; min-height: 0; padding: 4px 10px; font-size: 1.4rem; line-height: 1;
   background: transparent; color: var(--muted); box-shadow: none; }
-#home-depart .depart-go { position: sticky; bottom: 0; display: flex; gap: 8px; margin: 10px -16px 0; padding: 10px 16px
-  calc(10px + env(safe-area-inset-bottom)); background: var(--bg, #f2f3f6); box-shadow: 0 -2px 8px rgba(0, 0, 0, .1); }
+/* bouton « Partir » colle au bas de l'ecran, la page garde la place de le faire defiler dessous */
+#home-depart .depart-go { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; gap: 8px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--bg, #f2f3f6);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, .12); }
+#home-depart.with-go { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 #home-depart .depart-go .primary { flex: 1; }
 #home-depart .depart-go .secondary { flex: none; }
+body.home-mode:has(#home-depart.active.with-go) #toast { bottom: calc(96px + env(safe-area-inset-bottom)); }

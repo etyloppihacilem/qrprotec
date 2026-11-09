@@ -6776,6 +6776,7 @@
     if (depart.tab === 'lists') parts.push(...departListsTab());
     else if (depart.tab === 'lots') parts.push(...departLotsTab());
     else parts.push(el('p', { class: 'hint' }, 'Chargement…'));
+    view.classList.toggle('with-go', depart.tab === 'lots' && !!departCount());
     view.replaceChildren(...parts);
   }
 
