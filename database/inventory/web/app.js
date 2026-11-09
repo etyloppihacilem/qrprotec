@@ -3545,8 +3545,9 @@
 
   // Lignes des lots de state.lots (page « État des lots », onglet Lots de « Départ ») : etat, derniere vérif,
   // sous-lots replies sous un lot valide. rerender redessine la page apres un depli. flat : resultat de recherche,
-  // sans retrait ni depli, le lot parent ecrit en dessous.
-  function lotRows(rerender) {
+  // sans retrait ni depli, le lot parent ecrit en dessous. pick (page « Départ ») : { lead(lot), click(lot),
+  // note(lot), cls(lot) } case devant le lot, toucher la ligne, ligne d'explication et classe en plus.
+  function lotRows(rerender, pick = null) {
     const tags = { ok: 'green', warn: 'orange', bad: 'red' };
     // lot global : son etat est celui de l'ensemble de ses lots
     const statusOf = (lot) => (!lot.depth && lot.global ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot));
@@ -3583,14 +3584,20 @@
         'aria-label': folded(lot) ? 'Afficher les sous-lots' : 'Replier les sous-lots',
         onclick: (event) => { event.stopPropagation(); state.lotFolds.set(lot.id, !folded(lot)); rerender(); } });
       const indent = !flat && lot.depth;
-      return el('li', { class: status.kind, style: indent ? `padding-left:${12 + lot.depth * 16}px` : null,
-        onclick: () => openLot(lot.id) },
+      const note = pick && pick.note(lot);
+      return el('li', { class: status.kind + (pick ? ' ' + pick.cls(lot) : ''),
+        style: indent ? `padding-left:${12 + lot.depth * 16}px` : null,
+        onclick: () => (pick ? pick.click(lot) : openLot(lot.id)) },
         (!flat && fold) || null,
+        pick ? pick.lead(lot) : null,
         el('div', { class: 'main' },
           el('div', { class: 'name' }, (indent ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
           el('div', { class: 'sub' }, `${flat && lot.parent_name ? `dans ${lot.parent_name} · ` : ''}${lot.lot_type_name}`
-            + `${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : ` + (verif ? fmtDateTime(verif) : 'jamais'))),
-        el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]));
+            + `${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : ` + (verif ? fmtDateTime(verif) : 'jamais')),
+          note ? el('div', { class: 'sub pick-note' }, note) : null),
+        el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]),
+        pick ? el('button', { type: 'button', class: 'pick-fiche', title: 'Ouvrir la fiche du lot', 'aria-label': 'Ouvrir la fiche du lot',
+          onclick: (event) => { event.stopPropagation(); openLot(lot.id); } }, '›') : null);
     };
     return { lotRow, hidden };
   }
@@ -6592,12 +6599,69 @@
     busy: false,
     query: '',
     input: null,    // champ de recherche garde d'un rendu a l'autre (le clavier du telephone reste ouvert)
+    selected: new Set(), // lots coches pour partir (gardes jusqu'au depart, meme apres une connexion)
+    blocked: {},    // lots qu'on ne peut pas cocher : {id: raison} (pris par une liste, place fixe dans leur lot)
   };
 
   function departShown() {
     depart.tab = state.user ? '' : 'lots';
     if (state.loading !== 'lots') loadLots(); // etat des lots a jour a chaque ouverture de la page
-    if (state.user) loadDepartLists();
+    if (state.user) { loadDepartLists(); loadDepartBlocked(); }
+  }
+
+  async function loadDepartBlocked() {
+    try {
+      depart.blocked = (await api('checklists/departure/', { user: badge(), blocked: true })).blocked || {};
+      Object.keys(depart.blocked).forEach((id) => depart.selected.delete(id));
+    } catch (e) {
+      depart.blocked = {};
+    }
+    renderDepartPage();
+  }
+
+  // lot coche, ou qui part avec un lot coche au-dessus de lui (sous-lot)
+  function departParentPicked(lot) {
+    const byId = new Map((state.lots || []).map((row) => [row.id, row]));
+    for (let parent = byId.get(lot.parent); parent; parent = byId.get(parent.parent)) {
+      if (depart.selected.has(parent.id)) return parent;
+    }
+    return null;
+  }
+
+  // lots coches sans ceux qui partent deja avec un lot coche au-dessus d'eux
+  function departCount() {
+    return (state.lots || []).filter((lot) => depart.selected.has(lot.id) && !departParentPicked(lot)).length;
+  }
+
+  function departToggle(lot) {
+    const reason = depart.blocked[lot.id];
+    const parent = departParentPicked(lot);
+    if (reason) { toast(`${lot.name} : ${reason.charAt(0).toLowerCase() + reason.slice(1)}.`, true); return; }
+    if (parent) { toast(`${lot.name} part déjà avec ${parent.name}.`); return; }
+    if (depart.selected.has(lot.id)) depart.selected.delete(lot.id);
+    else depart.selected.add(lot.id);
+    renderDepartPage(true);
+  }
+
+  // « Partir avec N lots » : liste de depart a son nom, puis la liste ouverte pour scanner l'etiquette de chaque lot
+  async function departGo() {
+    if (!state.user) {
+      openReader('depart');
+      toast('Scannez votre badge pour partir avec ces lots.');
+      return;
+    }
+    if (depart.busy) return;
+    depart.busy = true;
+    try {
+      const list = await api('checklists/departure/', { user: badge(), lots: [...depart.selected] });
+      depart.selected.clear();
+      depart.busy = false;
+      openList(list.id);
+    } catch (e) {
+      depart.busy = false;
+      toast(e.message, true);
+      loadDepartBlocked();
+    }
   }
 
   async function loadDepartLists() {
@@ -6648,7 +6712,18 @@
     if (!state.lots) {
       return el('p', { class: 'hint' }, state.loading === 'lots' ? 'Chargement des lots…' : 'Liste non chargée.');
     }
-    const { lotRow, hidden } = lotRows(renderDepartPage);
+    const { lotRow, hidden } = lotRows(() => renderDepartPage(true), {
+      lead: (lot) => {
+        const on = depart.selected.has(lot.id) || !!departParentPicked(lot);
+        return el('span', { class: 'pick-box' + (on ? ' on' : '') + (depart.blocked[lot.id] ? ' off' : '') }, on ? '✓' : '');
+      },
+      click: departToggle,
+      note: (lot) => {
+        const parent = departParentPicked(lot);
+        return depart.blocked[lot.id] || (parent ? `Part avec ${parent.name}` : '');
+      },
+      cls: (lot) => (depart.blocked[lot.id] ? 'pick-blocked' : depart.selected.has(lot.id) ? 'pick-on' : ''),
+    });
     const lots = state.lots.filter((lot) => !lot.storage);
     const words = searchKey(depart.query).split(/\s+/).filter(Boolean);
     if (!words.length) return el('ul', { class: 'list' }, ...lots.filter((lot) => !hidden(lot)).map((lot) => lotRow(lot)));
@@ -6673,16 +6748,22 @@
     depart.input.value = depart.query;
     return [
       depart.input,
-      el('p', { class: 'hint' }, 'Touchez un lot pour ouvrir sa fiche et lancer sa vérif.'),
+      el('p', { class: 'hint' }, 'Cochez tout ce que vous prenez pour le poste, puis « Partir » : vous scannerez '
+        + "l'étiquette de chaque lot. La flèche › ouvre la fiche d'un lot."),
       el('div', { id: 'depart-results' }, departLotResults()),
+      departCount() ? el('div', { class: 'depart-go' },
+        el('button', { type: 'button', class: 'primary', onclick: departGo },
+          depart.busy ? 'Création de la liste…' : `🎒 Partir avec ${nb(departCount(), 'lot')}`),
+        el('button', { type: 'button', class: 'secondary', onclick: () => { depart.selected.clear(); renderDepartPage(true); } },
+          'Tout décocher')) : '',
     ];
   }
 
-  function renderDepartPage() {
+  function renderDepartPage(force = false) {
     const view = $('#home-depart');
     if (!view || !inHome() || state.homePage !== 'depart') return;
     // saisie en cours : seuls les resultats changent, le champ garde son focus
-    if (depart.tab === 'lots' && depart.input && document.activeElement === depart.input && $('#depart-results')) {
+    if (!force && depart.tab === 'lots' && depart.input && document.activeElement === depart.input && $('#depart-results')) {
       $('#depart-results').replaceChildren(departLotResults());
       return;
     }

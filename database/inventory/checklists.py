@@ -636,6 +636,67 @@ def departure(user, lot_type):
     return checklist
 
 
+def departure_blocked():
+    """Lots qu'on ne peut pas cocher sur la page « Départ » : {id: raison} pour les lots deja pris par une liste (a
+    preparer ou sortie) et les sous-lots qui tiennent une place fixe dans leur lot (on part avec le lot entier)."""
+    blocked = {}
+    scanned = (ChecklistScan.objects.filter(phase=ChecklistScan.OUT, lot__isnull=False,
+                                            checklist__status__in=(ChecklistStatus.DRAFT, ChecklistStatus.VALIDATED))
+               .values_list('lot_id', flat=True).distinct())
+    for lot in Lots.objects.filter(id__in=list(scanned), active=True):
+        other = lot_taken_by(lot)
+        if other is not None:
+            blocked[lot.id] = f'Pris pour « {other.name} »'
+    taken = dict(blocked)
+    for lot in Lots.objects.select_related('parent__lot_type').filter(active=True, parent__isnull=False):
+        if lot.id in blocked:
+            continue
+        parent = next((parent for parent in lot.ancestors() if parent.id in taken), None)
+        if parent is not None:  # pris avec son lot
+            blocked[lot.id] = taken[parent.id]
+        elif services.fixed_place(lot):
+            blocked[lot.id] = f'Part avec {lot.parent.name}'
+    return blocked
+
+
+def departure_lots(user, lot_ids):
+    """Page « Départ » : liste a preparer avec les lots coches (un sous-lot coche avec son lot part avec lui), a
+    l'utilisateur (secouristes compris), qui y est attribue ; on scanne ensuite l'etiquette de chaque lot."""
+    ids = [str(lot_id) for lot_id in (lot_ids or []) if lot_id]
+    if not ids:
+        raise ValueError('Cochez au moins un lot')
+    if len(ids) > 50:
+        raise ValueError('Trop de lots pour une liste (50 au plus)')
+    lots = {lot.id: lot for lot in Lots.objects.select_related('lot_type', 'parent__lot_type').filter(id__in=ids)}
+    chosen = []
+    for lot_id in dict.fromkeys(ids):
+        lot = lots.get(lot_id)
+        if lot is None or not lot.active:
+            raise ValueError(f'Lot inconnu ou archivé : {lot_id}')
+        if lot.lot_type.storage:
+            raise ValueError(f'{lot.name} est un rangement du stock : on ne part pas avec')
+        if any(parent.id in lots for parent in lot.ancestors()):
+            continue  # part avec son lot
+        if services.fixed_place(lot):
+            raise ValueError(f'{lot.name} est rangé pour de bon dans {lot.parent.name} : partez avec {lot.parent.name}')
+        for taken in [lot, *lot.ancestors()]:
+            other = lot_taken_by(taken)
+            if other is not None:
+                raise ValueError(f'{lot.name} : déjà pris pour la liste « {other.name} »')
+        chosen.append(lot)
+    names = ', '.join(lot.name for lot in chosen)
+    name = f"Départ du {timezone.localtime().strftime('%d/%m')} : {names}"
+    if len(name) > 80:
+        name = name[:79] + '…'
+    with transaction.atomic():
+        checklist = Checklist.objects.create(name=name, owner=user)
+        set_lines(checklist, [{'lot': lot.id} for lot in chosen])
+        checklist.members.add(user)
+    journal.record(OperationKind.CHECKLIST, identity_of(user), f'liste « {checklist.name} » créée (départ)',
+                   checklist=checklist.id)
+    return checklist
+
+
 def checklist_dict(checklist, user=None, full=True):
     owner = checklist.owner
     data = {

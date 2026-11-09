@@ -89,7 +89,10 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   démarrée), **Suivi des vérifs** (`renderLive`), **État des lots** (`renderLotsPage`, liste publique
   `POST api/lots/summary/`), **Départ** (`renderDepartPage`, objet `depart` : onglet « Ma liste », listes de
   matériel attribuées et pas encore rentrées, `POST api/checklists/list/ {show: "assigned"}` ; onglet « Lots », les
-  lots hors rangements avec une recherche `searchScore` sur le nom, le type et la description du type ; onglet Lots
+  lots hors rangements avec une recherche `searchScore` sur le nom, le type et la description du type, cochés
+  (`depart.selected`, `lotRows(rerender, pick)`) puis « Partir avec N lots » → `POST api/checklists/departure/
+  {lots: [ids]}` (liste à préparer, lignes lot, l'utilisateur attribué) ouverte pour scanner ; `{blocked: true}`
+  donne les lots non cochables (pris par une liste, place fixe dans leur lot) ; onglet Lots
   par défaut sans liste attribuée ou sans connexion), puis en larges tuiles Listes de matériel, Signalements et,
   tout en bas, **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
   Chaque page a son ancre (`#lots`, `#suivi`, `#depart`, `#stock`, `#scan`) : le bouton retour du téléphone

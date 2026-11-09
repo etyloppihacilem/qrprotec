@@ -5276,6 +5276,39 @@ class ChecklistTests(ApiTestCase):
         code, _ = self.as_(self.chief, path + 'members/', {'add': ['X999']})
         self.assertEqual(code, 400)
 
+    def test_departure_checked_lots(self):
+        """Page « Départ » : liste des lots coches (sous-lot coche avec son lot ignore), lots pris ou fixes refuses et
+        signales comme non cochables."""
+        from .models import LotTypeSlot
+        bplus_type = LotType.objects.create(type='bplusx', name='B+')
+        sac_type = LotType.objects.create(type='sacsoi', name='Sac de soin')
+        vps_type = LotType.objects.create(type='vpsxxx', name='VPS')
+        LotTypeSlot.objects.create(lot_type=vps_type, name='Sac', accepted=['sacsoi'])
+        b1 = Lots.objects.create(lot_type=bplus_type, name='B+ 1', name_short='B+ 1', created_by='M001')
+        sac = Lots.objects.create(lot_type=sac_type, name='Sac B+ 1', name_short='S1', created_by='M001', parent=b1)
+        vps = Lots.objects.create(lot_type=vps_type, name='VPS', name_short='VPS', created_by='M001')
+        sac_vps = Lots.objects.create(lot_type=sac_type, name='Sac VPS', name_short='SV', created_by='M001', parent=vps)
+        code, body = self.as_(self.other, '/api/checklists/departure/', {'blocked': True})
+        self.assertEqual((code, body['blocked']), (200, {sac_vps.id: 'Part avec VPS'}))
+        code, body = self.as_(self.other, '/api/checklists/departure/', {'lots': [sac_vps.id]})
+        self.assertEqual(code, 400)
+        self.assertIn('pour de bon', body['error'])
+        code, depart = self.as_(self.other, '/api/checklists/departure/', {'lots': [b1.id, sac.id, self.lot.id]})
+        self.assertEqual(code, 201, depart)
+        self.assertEqual([line['lot'] for line in depart['lines']], [b1.id, self.lot.id])  # le sac part avec B+ 1
+        self.assertEqual([row['matricule'] for row in depart['members']], ['M002'])
+        self.assertTrue(depart['name'].startswith('Départ du '))
+        code, body = self.as_(self.other, f"/api/checklists/{depart['id']}/scan/", {'lot': b1.id})
+        self.assertEqual(code, 200, body)
+        code, body = self.as_(self.other, '/api/checklists/departure/', {'blocked': True})
+        self.assertEqual(body['blocked'][b1.id], f"Pris pour « {depart['name']} »")
+        self.assertEqual(body['blocked'][sac.id], f"Pris pour « {depart['name']} »")  # avec son lot
+        code, body = self.as_(self.chief, '/api/checklists/departure/', {'lots': [sac.id]})
+        self.assertEqual(code, 400)
+        self.assertIn('déjà pris', body['error'])
+        code, body = self.as_(self.other, '/api/checklists/departure/', {'lots': []})
+        self.assertEqual(code, 400)
+
     def test_assigned_for_departure(self):
         """Page « Départ » : listes attribuees (members) et pas encore rentrees, pas celles de l'auteur seul."""
         mine = self.new_list()
