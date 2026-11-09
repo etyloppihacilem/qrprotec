@@ -5686,6 +5686,7 @@
         + (canSeeStock() ? ' (à répartir au poste : Gestion des lots, onglet Répartition).' : '.')) : '',
       lotReportsBlock(lot),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
+      departButton(lot),
       lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot),
       current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${nb(state.scanned.length, 'scan')}.`) : '',
       lot.is_sealed && !sealIntact && full ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
@@ -6201,6 +6202,60 @@
       icon('used'),
       el('span', { class: 'used-text' }, el('span', {}, 'Marquer ce lot comme utilisé'),
         el('span', { class: 'used-sub' }, '(demander une vérif)')));
+  }
+
+  // « Partir avec ce lot » : meme depart que la page « Départ » avec ce seul lot coche (liste de depart a son nom,
+  // ouverte pour scanner l'etiquette). Lot (ou lot au-dessus) deja pris par une liste : le bouton ouvre cette liste,
+  // « Retour de ce lot » si elle est sortie, « Continuer le départ » si elle est a preparer. Pas de bouton pour un
+  // rangement, un lot archive ou un sous-lot a place fixe (on part avec son lot)
+  function departButton(lot) {
+    const departure = lot.departure || { blocked: '', list: null };
+    const taken = departure.list;
+    if (lot.storage || !lot.active || (departure.blocked && !taken)) return '';
+    const button = (emoji, title, sub, onclick) => el('button', { type: 'button', class: 'used-btn depart-btn', onclick },
+      el('span', { class: 'depart-emoji', 'aria-hidden': 'true' }, emoji),
+      el('span', { class: 'used-text' }, el('span', {}, title), el('span', { class: 'used-sub' }, sub)));
+    if (taken && taken.out) {
+      const gone = taken.gone && taken.gone.id !== lot.id ? taken.gone.name : ''; // parti avec le lot au-dessus
+      return button('↩', gone ? `Retour de ${gone}` : 'Retour de ce lot', `(parti avec « ${taken.name} »)`,
+        () => requireLogin('noter le retour de ce lot', () => (taken.open ? openList(taken.id) : returnLot(lot, gone || lot.name))));
+    }
+    if (taken) {
+      return button('🎒', 'Continuer le départ', `(liste « ${taken.name} »)`,
+        () => requireLogin('continuer le départ', () => openList(taken.id)));
+    }
+    return button('🎒', 'Partir avec ce lot', '(liste de départ à scanner)', () => departWithLot(lot));
+  }
+
+  // « Retour de ce lot » : le lot parti avec une liste deja terminee est note rentre (vérif recommandee) ; la fiche
+  // revient au bouton « Partir avec ce lot »
+  async function returnLot(lot, name) {
+    if (!confirm(`Noter le retour de ${name} ?\nIl passe en « vérif recommandée » jusqu'à la prochaine vérif complète.`)) return;
+    try {
+      const result = await api(`lots/${encodeURIComponent(lot.id)}/return/`, { user: badge() });
+      feedback.good();
+      toast(result.message);
+      state.lots = null;
+      if (ficheOpen() && fiche.kind === 'lot' && fiche.id === lot.id) openFiche('lot', lot.id, { key: fiche.key, seal: fiche.seal, push: false, label: fiche.label });
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  function departWithLot(lot) {
+    requireLogin('partir avec ce lot', async () => {
+      if (depart.busy) return;
+      depart.busy = true;
+      try {
+        const list = await api('checklists/departure/', { user: badge(), lots: [lot.id] });
+        depart.busy = false;
+        state.lots = null; // lot pris : etat des lots a recharger
+        openList(list.id);
+      } catch (e) {
+        depart.busy = false;
+        toast(e.message, true);
+      }
+    });
   }
 
   function markUsed(lot) {

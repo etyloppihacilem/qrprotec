@@ -530,6 +530,7 @@ ul.tasks-facts { margin: 0; padding-left: 18px; }
   border: 2px solid var(--navy); font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .used-text { display: flex; flex-direction: column; align-items: center; line-height: 1.25; }
 .used-sub { font-weight: 400; font-size: .9em; }
+.depart-emoji { font-size: 22px; line-height: 1; }
 .task-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 2px; }
 .task-rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%;
   background: var(--dark); color: #fff; font-size: .8rem; }
