@@ -2286,7 +2286,7 @@ class SubLotTests(ApiTestCase):
     def test_tree_and_global_state(self):
         code, lot = self.call('GET', f"/api/lots/{self.sac_o2['id']}/", local=False)
         self.assertEqual(lot['parent'], self.bplus['id'])
-        self.assertEqual(lot['path'], [{'id': self.bplus['id'], 'name': 'B+ 1'}])
+        self.assertEqual(lot['path'], [{'id': self.bplus['id'], 'name': 'B+ 1', 'hidden': False}])
         self.assertEqual(lot['global']['id'], self.bplus['id'])
         self.assertEqual([row['name'] for row in lot['global']['lots']], ['B+ 1', 'Sac de soin', 'Sac O2'])
         self.assertEqual(lot['global']['kind'], 'bad')
@@ -2464,6 +2464,29 @@ class SubLotTests(ApiTestCase):
                                                          'items': [], 'user': self.badge,
                                                          'exclude': [self.sac_o2['id']]}, local=False)
         self.assertEqual(code, 400)
+
+    def test_unplaced_referentiel_line(self):
+        """Ligne du referentiel dans aucun sac : le B+ est rouge (et son lot global), meme si ses sacs sont valides,
+        et il reste affiche meme cache ; placee dans un sac par la repartition, le B+ redevient complet."""
+        cardio = ItemType.objects.create(type='cardio', name='Cardio-pompe', perissable=False)
+        self.global_type.referentiel = True
+        self.global_type.save()
+        LotRequirements.objects.create(lot_type=self.global_type, item_type=cardio, quantity=1)
+        LotType.objects.filter(type__in=['sacpse', 'saco2x']).update(part_of=self.global_type)
+        Lots.objects.filter(id=self.bplus['id']).update(hidden_in_verif=True)
+        code, lot = self.call('GET', f"/api/lots/{self.bplus['id']}/")
+        self.assertEqual([row['type'] for row in lot['unplaced']], ['cardio'])
+        self.assertFalse(lot['complete'])
+        self.assertEqual(lot['state']['code'], 'unplaced')
+        self.assertFalse(lot['global']['complete'])
+        code, rows = self.call('GET', '/api/lots/')
+        self.assertFalse(next(row for row in rows if row['id'] == self.bplus['id'])['hidden'])
+        code, body = self.call('PUT', f"/api/lots/{self.bplus['id']}/distribution/", {'referentiel': 'bplusx', 'rows': [
+            {'lot': self.sac_o2['id'], 'type': 'cardio', 'quantity': 1}]})
+        self.assertEqual(code, 200, body)
+        code, lot = self.call('GET', f"/api/lots/{self.bplus['id']}/")
+        self.assertEqual(lot['unplaced'], [])
+        self.assertNotEqual(lot['state']['code'], 'unplaced')
 
     def test_hidden_lot_in_cascade(self):
         """B+ du VPS cache dans la vérif en cascade : ses sacs remontent dans le VPS (descendants 'hidden'), le B+

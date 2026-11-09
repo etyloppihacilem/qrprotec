@@ -1704,6 +1704,8 @@
     const make = (kind, label) => ({ ok: kind === 'ok', kind, label });
     // signalement ouvert « inutilisable » sur le lot : rouge, meme scelle ou verifie, jusqu'a sa resolution
     if (lot.unusable) return make('bad', '✘ Non utilisable (signalé)');
+    // lot d'un referentiel (B+) : des lignes de la liste dans aucun de ses sacs (serializers.lot_state)
+    if ((lot.unplaced || []).length) return make('bad', '✘ Liste pas toute dans les sacs');
     if (lot.is_sealed && lot.expired_count) return make('bad', '✘ Scellé, contient des périmés');
     if (lot.is_sealed) return make('ok', '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : ''));
     // sous-lot facultatif : son lot parent se valide sans lui (meme regle que serializers.lot_state)
@@ -3193,8 +3195,12 @@
       el('h2', {}, lot.name),
       el('div', { class: 'sub' }, withId(lot.lot_type_name, lot.id)),
       (lot.path || []).length ? el('div', { class: 'sub' }, 'Dans : ',
-        ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
+        ...lot.path.filter((parent) => !parent.hidden) // lot cache dans la hierarchie (B+ du VPS) : saute
+          .flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       el('div', { class: 'banner ' + (groupStatus(lot) || lotStatus(lot)).kind }, (groupStatus(lot) || lotStatus(lot)).label),
+      // lot d'un referentiel (B+) : lignes de la liste dans aucun de ses sacs, a repartir au poste
+      (lot.unplaced || []).length ? el('p', { class: 'hint' }, `Dans aucun sac : ${lot.unplaced.map((row) => row.type_name).join(', ')}`
+        + (canSeeStock() ? ' (à répartir au poste, Gestion des lots, onglet Répartition).' : '.')) : '',
       el('p', {}, ficheLink('lot', lot.id, 'Fiche du lot : contenu et emplacement des items')),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed)}` +
@@ -3240,7 +3246,7 @@
       el('div', { class: 'banner ' + global.kind }, global.label),
       global.id !== lot.id ? el('p', {}, sheetLink(global.id, 'Fiche du lot global en PDF (une page par sous-lot)')) : '',
       el('p', { class: 'hint' }, 'Vérif la plus ancienne : ' + (global.last_verif ? fmtDateTime(global.last_verif) : 'jamais')),
-      el('ul', { class: 'list tree' }, global.lots.map((row) => el('li', {
+      el('ul', { class: 'list tree' }, withoutHidden(global.lots).map((row) => el('li', {
         class: (row.counted ? row.effective.kind : 'group-lot') + (row.id === lot.id ? ' current' : ''),
         style: `padding-left:${12 + row.depth * 16}px;cursor:pointer`,
         onclick: () => openFiche('lot', row.id), // fiche du lot
@@ -3472,12 +3478,33 @@
     openFiche('lot', id);
   }
 
+  // Lots caches dans la hierarchie (Lots.hidden_in_verif, ex : le B+ du VPS) : retires de l'arbre, leurs sous-lots
+  // remontent dans le lot qui les contient (parent et profondeur). Seule la gestion des lots du poste montre la vraie
+  // hierarchie. rows : lignes avec id, parent, depth et hidden, dans n'importe quel ordre.
+  function withoutHidden(rows) {
+    if (!rows.some((row) => row.hidden)) return rows;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const shown = (id) => {
+      let parent = byId.get(id);
+      for (let guard = 0; parent && parent.hidden && guard < 50; guard += 1) parent = byId.get(parent.parent);
+      return parent ? parent.id : id; // parent hors de la liste : garde tel quel
+    };
+    return rows.filter((row) => !row.hidden).map((row) => {
+      if (row.parent == null) return row;
+      let depth = 0;
+      for (let parent = byId.get(row.parent), guard = 0; parent && guard < 50; parent = byId.get(parent.parent), guard += 1) {
+        if (!parent.hidden) depth += 1;
+      }
+      return Object.assign({}, row, { parent: shown(row.parent), depth: byId.has(row.parent) ? depth : row.depth });
+    });
+  }
+
   async function loadLots() {
     state.loading = 'lots';
     render();
     try {
       // liste publique ; le badge, s'il y en a un, est verifie
-      state.lots = await api('lots/summary/', state.user ? { user: badge() } : {});
+      state.lots = withoutHidden(await api('lots/summary/', state.user ? { user: badge() } : {}));
     } catch (e) {
       toast('Lots : ' + e.message, true);
       if (e.status === 403) { state.user = null; save(); }
@@ -5564,9 +5591,13 @@
           isAdmin() ? el('a', { class: 'pdf-link', href: '#', title: "État du lot à une date donnée (PDF A4 à certifier)",
             onclick: (event) => { event.preventDefault(); openStateReport(lot); } }, '📋 Rapport daté') : '')),
       (lot.path || []).length ? el('p', { class: 'sub' }, 'Dans : ',
-        ...lot.path.flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
+        ...lot.path.filter((parent) => !parent.hidden) // lot cache dans la hierarchie (B+ du VPS) : saute
+          .flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
       fiche.seal ? sealBanner(lot) : '',
       sealIntact ? '' : full ? el('div', { class: 'banner ' + status.kind }, status.label) : shortBanner(lot, status),
+      // lot d'un referentiel (B+) : lignes de la liste dans aucun de ses sacs, a repartir au poste
+      (lot.unplaced || []).length ? el('p', { class: 'warn-text' }, `Dans aucun sac : ${lot.unplaced.map((row) => row.type_name).join(', ')}`
+        + (canSeeStock() ? ' (à répartir au poste : Gestion des lots, onglet Répartition).' : '.')) : '',
       lotReportsBlock(lot),
       reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
       lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot),

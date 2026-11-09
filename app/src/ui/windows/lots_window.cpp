@@ -125,7 +125,8 @@ class LotsWindow final : public AppWindow {
       // lots a traiter en haut (rouges, orange, puis peremption ou revision proche), chacun suivi de ses sous-lots :
       // ordre calcule par le serveur (serializers.attention_order)
       std::vector< const Json * > lots;
-      for (const Json &lot : app.catalog.lots.items())
+      const Json                  shown = without_hidden(app.catalog.lots); // lot cache (B+ du VPS) : hors de l'arbre
+      for (const Json &lot : shown.items())
         lots.push_back(&lot);
       std::stable_sort(lots.begin(), lots.end(), [](const Json *a, const Json *b) {
         return (*a)["attention_order"].integer() < (*b)["attention_order"].integer();
@@ -533,7 +534,8 @@ class LotsWindow final : public AppWindow {
       if (ImGui::BeginTable("global", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("Lot", ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        for (const Json &row : global["lots"].items()) {
+        const Json shown = without_hidden(global["lots"]); // lot cache dans la hierarchie : hors de l'arbre
+        for (const Json &row : shown.items()) {
           const std::string id      = row["id"].str();
           const bool        counted = row["counted"].boolean();
           const Json       &state   = row["effective"];

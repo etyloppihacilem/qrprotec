@@ -8,6 +8,7 @@
 
 ##################################################################################################################### */
 
+#include <map>
 #include "widgets.hpp"
 #include "../core/plural.hpp"
 
@@ -759,6 +760,9 @@ LotStatus lot_status(const Json &lot) {
   // signalement ouvert « inutilisable » sur le lot : rouge, meme scelle ou verifie, jusqu'a sa resolution
   if (lot["unusable"].boolean())
     return LotStatus::Unusable;
+  // lot d'un referentiel (B+) : des lignes de la liste ne sont dans aucun de ses sacs (serializers.lot_state)
+  if (lot["unplaced"].size() > 0)
+    return LotStatus::Unplaced;
   if (lot["is_sealed"].boolean())
     return lot["expired_count"].integer() > 0 ? LotStatus::SealedExpired : LotStatus::Sealed;
   if (lot["last_verif"].is_null()) // sous-lot facultatif : son lot parent se valide sans lui
@@ -795,6 +799,7 @@ const char *lot_status_label(LotStatus status) {
     case LotStatus::MustSeal: return "✘ Doit être scellé";
     case LotStatus::Optional: return "○ Facultatif";
     case LotStatus::Unusable: return "✘ Non utilisable (signalé)";
+    case LotStatus::Unplaced: return "✘ Liste pas toute dans les sacs";
   }
   return "";
 }
@@ -857,6 +862,8 @@ std::string lot_status_banner(const Json &lot) {
     }
     case LotStatus::MustSeal: return "✘ LOT VÉRIFIÉ, DOIT ÊTRE SCELLÉ – posez un nouveau scellé";
     case LotStatus::Unusable: return "✘ LOT NON UTILISABLE – signalé, voir les signalements";
+    case LotStatus::Unplaced:
+      return "✘ " + nb(static_cast< long long >(lot["unplaced"].size()), "LIGNE", "LIGNES") + " DE LA LISTE DANS AUCUN SAC – onglet Répartition";
     case LotStatus::Never: banner = "✘ LOT JAMAIS VÉRIFIÉ"; break;
     case LotStatus::Optional: banner = "○ SOUS-LOT FACULTATIF – jamais vérifié, son lot se valide sans lui"; break;
     case LotStatus::Incomplete:
@@ -879,6 +886,46 @@ void help_marker(const char *text) {
     ImGui::PopTextWrapPos();
     ImGui::EndTooltip();
   }
+}
+
+Json without_hidden(const Json &rows) {
+  std::map< std::string, const Json * > by_id;
+  bool                                  any = false;
+  for (const Json &row : rows.items()) {
+    by_id[row["id"].str()] = &row;
+    any                   = any || row["hidden"].boolean();
+  }
+  if (!any)
+    return rows;
+  const auto find = [&](const std::string &id) -> const Json * {
+    const auto found = by_id.find(id);
+    return found == by_id.end() ? nullptr : found->second;
+  };
+  Json result = Json::array();
+  for (const Json &row : rows.items()) {
+    if (row["hidden"].boolean())
+      continue;
+    const Json *parent = find(row["parent"].str());
+    if (!parent) {
+      result.push_back(row);
+      continue;
+    }
+    Json copy  = row;
+    int  depth = 0;
+    std::string shown;
+    for (int guard = 0; parent && guard < 64; ++guard, parent = find((*parent)["parent"].str())) {
+      if ((*parent)["hidden"].boolean())
+        continue;
+      if (shown.empty())
+        shown = (*parent)["id"].str();
+      ++depth;
+    }
+    if (!shown.empty())
+      copy["parent"] = shown;
+    copy["depth"] = depth;
+    result.push_back(copy);
+  }
+  return result;
 }
 
 bool lot_is_group(const Json &lot) {
