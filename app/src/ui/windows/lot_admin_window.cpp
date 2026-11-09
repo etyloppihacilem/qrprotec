@@ -332,10 +332,12 @@ class LotAdminWindow final : public AppWindow {
       ImGui::TextDisabled("Noms modifiables. Changer le nombre ou le nom de base les recalcule.");
       bool taken = false;
       std::set< std::string > seen;
-      if (ImGui::BeginTable("batch_rows", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("Nom");
-        ImGui::TableSetupColumn("Nom court");
-        ImGui::TableSetupColumn("Emplacement de l'étiquette clé");
+      // colonnes elargissables a la souris (bord de l'en-tete), largeurs gardees dans imgui.ini
+      if (ImGui::BeginTable("batch_rows", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp
+                                                 | ImGuiTableFlags_Resizable)) {
+        ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn("Nom court", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+        ImGui::TableSetupColumn("Emplacement de l'étiquette clé", ImGuiTableColumnFlags_WidthStretch, 3.0f);
         ImGui::TableHeadersRow();
         for (size_t index = 0; index < batch_rows_.size(); ++index) {
           BatchRow &row = batch_rows_[index];
