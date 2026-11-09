@@ -396,18 +396,24 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 - Le **badge** (QR avec matricule et clé) identifie. Il expire au bout d'un an ; le renouveler
   invalide l'ancien.
 - Le **PIN** (4 à 8 chiffres) authentifie : obligatoire pour les admins. Pour les autres, selon
-  `pin_mode` du secouriste : `required` (obligatoire), `disabled` (jamais de PIN, le PIN existant est
+  `pin_mode` du secouriste : `required` (obligatoire), `login` (obligatoire à chaque connexion, voir
+  plus bas), `disabled` (jamais de PIN, le PIN existant est
   supprimé ; refusé pour un admin) ou vide, le réglage du serveur `pin_required_roles`
   (`/api/server-settings/`, liste des rôles parmi `normal`, `chef`, `gestion` pour qui le code est
-  obligatoire ; vide par défaut, `pin_role_choices` donne les libellés ; l'ancien booléen
+  obligatoire ; tous les rôles par défaut sur une nouvelle installation, décochables ;
+  `pin_role_choices` donne les libellés ; l'ancien booléen
   `pin_required_default` est encore accepté : vrai = tous les rôles) : `pin_mandatory` dans
   `user_dict`. Sans PIN alors qu'il est obligatoire, il est choisi à la connexion suivante
   (`pin_setup_required`, avec `pin_at_login_default` = code obligatoire et `pin_at_login_locked` pour un
   admin). 5 erreurs : blocage 5 minutes.
 - **Demander à chaque connexion** (`pin_at_login`, vrai par défaut et pour les comptes existants) : un
   PIN existant est demandé après le badge seulement si la case est cochée ; décochée, il ne sert qu'à
-  la connexion sans badge (nom + prénom + PIN, ou matricule + PIN). Toujours cochée pour un admin
-  (`pin_at_login_locked`). La case accompagne le choix du code (`pin_at_login` avec `new_pin` à
+  la connexion sans badge (nom + prénom + PIN, ou matricule + PIN). Toujours cochée quand le **code
+  à la connexion est obligatoire** (`pin_at_login_locked`) : pour un admin, pour un secouriste en
+  `pin_mode` `login`, ou pour son rôle dans le réglage du serveur `pin_login_roles` (même format que
+  `pin_required_roles`, vide par défaut : admins seulement), sauf PIN désactivé. Le code est alors
+  aussi obligatoire (choisi à la première connexion) et redemandé après le badge à chaque connexion,
+  même s'il avait été choisi avec la case décochée. La case accompagne le choix du code (`pin_at_login` avec `new_pin` à
   `/api/auth/`, ou avec `pin` à `/api/me/pin/`, absente : cochée), se change seule par
   `POST /api/me/pin/` (`{"user", "pin_at_login"}`, sans PIN actuel) ou par un admin
   (`PATCH /api/users/<m>/`). Côté fronts, elle est cochée par défaut quand le code est obligatoire.

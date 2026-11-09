@@ -744,6 +744,7 @@ PIN_STATE_FIELDS = ['pin_hash', 'pin_failures', 'pin_failures_total', 'pin_locke
 class PinMode(models.TextChoices):
     DEFAULT = '', 'Réglage par défaut'   # obligatoire si le role est dans ServerSettings.pin_required_roles
     REQUIRED = 'required', 'Obligatoire'  # choisi a la prochaine connexion s'il n'existe pas encore
+    LOGIN = 'login', 'Obligatoire à chaque connexion'  # obligatoire et demande apres le badge a chaque connexion
     DISABLED = 'disabled', 'Désactivé'    # pas de PIN (refuse pour un administrateur)
 
 
@@ -757,6 +758,11 @@ class Role(models.TextChoices):
 # Roles dont le code peut etre rendu obligatoire par le reglage du serveur (ServerSettings.pin_required_roles) :
 # toujours obligatoire pour un admin
 PIN_OPTIONAL_ROLES = ('normal', 'chef', 'gestion')
+
+
+def default_pin_required_roles():
+    """Code obligatoire par defaut pour tous les roles (a choisir a la premiere connexion), decochable par role."""
+    return list(PIN_OPTIONAL_ROLES)
 
 
 # Types de notifications web : libelle, roles qui peuvent les recevoir, valeur par defaut a l'abonnement.
@@ -877,6 +883,8 @@ class Secouristes(models.Model):
             return True
         if self.pin_mode == PinMode.DISABLED:
             return False
+        if self.pin_at_login_locked:
+            return True
         if self.has_pin:
             return self.pin_at_login
         return self.pin_mandatory
@@ -885,14 +893,23 @@ class Secouristes(models.Model):
     def pin_mandatory(self) -> bool:
         """Code obligatoire (a choisir a la prochaine connexion s'il n'existe pas) : toujours pour un admin, pour ce
         secouriste (pin_mode required) ou pour son role (reglage du serveur pin_required_roles), sauf si desactive."""
-        if self.role == Role.ADMIN or self.pin_mode == PinMode.REQUIRED:
+        if self.pin_mode == PinMode.REQUIRED or self.pin_at_login_locked:
             return True
         return self.pin_mode != PinMode.DISABLED and self.role in self._pin_required_roles()
 
     @property
     def pin_at_login_locked(self) -> bool:
-        """« Demander a chaque connexion » impose (admin) : la case est cochee et grisee."""
-        return self.role == Role.ADMIN
+        """« Code a la connexion obligatoire » : code obligatoire ET demande apres le badge a chaque connexion, la case
+        « Demander a chaque connexion » est cochee et grisee. Toujours pour un admin, pour ce secouriste (pin_mode
+        login) ou pour son role (reglage du serveur pin_login_roles), sauf si son PIN est desactive."""
+        if self.role == Role.ADMIN or self.pin_mode == PinMode.LOGIN:
+            return True
+        return self.pin_mode != PinMode.DISABLED and self.role in self._pin_login_roles()
+
+    def _pin_login_roles(self):
+        """Reglage du serveur « code a la connexion obligatoire » par role (meme principe que _pin_required_roles)."""
+        value = getattr(self, 'server_pin_login_roles', None)
+        return ServerSettings.get().pin_login_roles if value is None else value
 
     def _pin_required_roles(self):
         """Reglage du serveur « code obligatoire » par role. Une liste d'utilisateurs le pose une fois pour tous dans
@@ -1141,10 +1158,14 @@ class ServerSettings(models.Model):
     # verifie (identite D:nom). Desactive (defaut) : badge, ou utilisateur connecte sur le poste, obligatoire.
     declared_identity = models.BooleanField(default=False)
     # Roles pour qui le code (PIN) est obligatoire, en plus des admins (toujours) : ceux qui n'en ont pas le
-    # choisissent a leur prochaine connexion, sauf ceux dont le PIN est desactive. Vide (defaut) : admins seulement.
-    # Obligatoire ne veut pas dire demande a chaque connexion : c'est la case « Demander a chaque connexion » du
-    # secouriste (Secouristes.pin_at_login), cochee par defaut quand le code est obligatoire.
-    pin_required_roles = models.JSONField(default=list, blank=True)
+    # choisissent a leur prochaine connexion, sauf ceux dont le PIN est desactive. Tous les roles par defaut (a
+    # decocher). Obligatoire ne veut pas dire demande a chaque connexion : c'est la case « Demander a chaque
+    # connexion » du secouriste (Secouristes.pin_at_login), cochee par defaut quand le code est obligatoire.
+    pin_required_roles = models.JSONField(default=default_pin_required_roles, blank=True)
+    # Roles pour qui le « code a la connexion » est obligatoire, en plus des admins (toujours) : code obligatoire et
+    # demande apres le badge a chaque connexion, la case « Demander a chaque connexion » ne se decoche plus. Vide
+    # (defaut) : admins seulement.
+    pin_login_roles = models.JSONField(default=list, blank=True)
     # Volume de la douchette des utilisateurs qui n'en ont pas choisi, et quand personne n'est connecte
     scanner_volume_default = models.PositiveSmallIntegerField(default=4)
     # Lecture des codes-barres Code 128 a la camera du front web et du telephone-douchette (web/code128.js) : inutile

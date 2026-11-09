@@ -29,6 +29,36 @@ from .models import (
 LOCAL = {'qrprotec.role': 'local'}
 
 
+# Code PIN obligatoire par defaut pour tous les roles (ServerSettings.pin_required_roles) : les tests sont ecrits
+# pour un code facultatif, sauf ceux qui reglent pin_required_roles eux-memes ou qui verifient le vrai defaut
+# (PinLoginRolesTests.test_defaults, avec real_pin_default).
+_PIN_ROLES_FIELD = models.ServerSettings._meta.get_field('pin_required_roles')
+_PIN_ROLES_DEFAULT = _PIN_ROLES_FIELD.default
+
+
+def _set_pin_roles_default(default):
+    _PIN_ROLES_FIELD.default = default
+    _PIN_ROLES_FIELD.__dict__.pop('_get_default', None)  # cached_property de Django
+
+
+def setUpModule():
+    _set_pin_roles_default(list)
+
+
+def tearDownModule():
+    _set_pin_roles_default(_PIN_ROLES_DEFAULT)
+
+
+class real_pin_default:
+    """Le vrai defaut de pin_required_roles (tous les roles) le temps d'un bloc."""
+
+    def __enter__(self):
+        _set_pin_roles_default(_PIN_ROLES_DEFAULT)
+
+    def __exit__(self, *exc):
+        _set_pin_roles_default(list)
+
+
 class ApiTestCase(TestCase):
     def call(self, method, path, data=None, local=True, session=None):
         """local : requete du poste, avec par defaut la session de l'administrateur connecte (session=False :
@@ -1489,6 +1519,65 @@ class PinModeTests(ApiTestCase):
         self.call('PATCH', '/api/users/M001/', {'pin_reset': True})
         self.assertEqual(self.auth(self.user, new_pin='1357')[0], 200)
         self.assertEqual(self.auth(self.user)[0], 403)
+
+    def test_defaults(self):
+        """Nouvelle installation : code obligatoire pour tous les roles (decochable), code a la connexion obligatoire
+        pour les admins seulement."""
+        with real_pin_default():
+            code, body = self.call('GET', '/api/server-settings/')
+            self.assertEqual((body['pin_required_roles'], body['pin_login_roles']), (['normal', 'chef', 'gestion'], []))
+            code, body = self.auth(self.user)  # premiere connexion : code a choisir, case cochee mais decochable
+            self.assertEqual((code, body.get('pin_setup_required'), body.get('pin_at_login_default'),
+                              body.get('pin_at_login_locked')), (403, True, True, False))
+            code, body = self.auth(self.user, new_pin='2468', pin_at_login=False)
+            self.assertEqual((code, body['pin_mandatory'], body['pin_can_disable'], body['pin_required']),
+                             (200, True, False, False))
+            self.assertEqual(self.auth(self.user)[0], 200)  # badge seul
+            # role decoche : le code redevient facultatif
+            self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['chef', 'gestion']})
+            self.user.refresh_from_db()
+            self.assertFalse(self.user.pin_mandatory)
+
+    def test_login_roles(self):
+        """Code a la connexion obligatoire pour un role : choisi a la premiere connexion, puis demande apres le badge a
+        chaque connexion, case « Demander a chaque connexion » imposee."""
+        code, body = self.call('PATCH', '/api/server-settings/', {'pin_login_roles': ['normal', 'admin']})
+        self.assertEqual((code, body['pin_login_roles'], body['pin_required_roles']), (200, ['normal'], []))
+        code, body = self.auth(self.user)
+        self.assertEqual((code, body.get('pin_setup_required'), body.get('pin_at_login_locked')), (403, True, True))
+        # la case decochee est ignoree
+        code, body = self.auth(self.user, new_pin='2468', pin_at_login=False)
+        self.assertEqual((code, body['pin_at_login'], body['pin_at_login_locked'], body['pin_mandatory']),
+                         (200, True, True, True))
+        self.assertEqual(self.auth(self.user)[0], 403)
+        self.assertEqual(self.auth(self.user, pin='2468')[0], 200)
+        # ni decochable, ni supprimable par l'utilisateur
+        credentials = {'matricule': 'M001', 'key': self.user.new_key, 'session': views.session_token(self.user)}
+        code, body = self.call('POST', '/api/me/pin/', {'user': credentials, 'pin_at_login': False}, local=False)
+        self.assertEqual(code, 403)
+        self.assertIn('TECH', body['error'])
+        # un code deja choisi sans « chaque connexion » est redemande des que le role est coche
+        self.call('PATCH', '/api/server-settings/', {'pin_login_roles': []})
+        self.call('PATCH', '/api/users/M001/', {'pin_at_login': False})
+        self.assertEqual(self.auth(self.user)[0], 200)
+        self.call('PATCH', '/api/server-settings/', {'pin_login_roles': ['normal']})
+        self.assertEqual(self.auth(self.user)[0], 403)
+        # desactive pour ce secouriste : le reglage du role ne s'applique plus
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
+        self.assertEqual((body['pin_at_login_locked'], body['pin_required']), (False, False))
+        self.assertEqual(self.auth(self.user)[0], 200)
+        self.assertEqual(self.call('PATCH', '/api/server-settings/', {'pin_login_roles': ['pompier']})[0], 400)
+
+    def test_login_mode_per_user(self):
+        """« Obligatoire a chaque connexion » pour un seul secouriste (pin_mode login)."""
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': 'login'})
+        self.assertEqual((code, body['pin_mode'], body['pin_required'], body['pin_at_login_locked']),
+                         (200, 'login', True, True))
+        self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
+        self.assertEqual(self.auth(self.user, new_pin='2468', pin_at_login=False)[0], 200)
+        self.assertEqual(self.auth(self.user)[0], 403)
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': ''})
+        self.assertEqual((body['pin_at_login_locked'], body['pin_mandatory']), (False, False))
 
 
 class MyPinTests(ApiTestCase):
