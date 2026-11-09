@@ -2954,16 +2954,18 @@
             group.fromStock > 0 ? `${group.fromStock} à prendre dans le stock` : ''].filter(Boolean).join(' · '))),
         el('span', { class: 'count' }, ...countText(group.scanned, need(group), group.extra)));
     };
-    const sorted = (list) => list.sort((a, b) => rank(a) - rank(b)
-      || (rank(a) === 0 ? lastScanOf(b) - lastScanOf(a) : 0));
+    // tri : un facultatif commence (casques 1/4) monte avec les types en cours, le dernier scanne en haut
+    const order = (group) => (group.optional && group.scanned > 0 && group.pending > 0 ? 0 : rank(group));
+    const sorted = (list) => list.sort((a, b) => order(a) - order(b)
+      || (order(a) === 0 ? lastScanOf(b) - lastScanOf(a) : 0));
     const othersRows = () => (others.length ? groupHead(`${lot.id}:others`, 'other', others,
       el('div', { class: 'main' }, 'Autres items du lot (hors définition)'),
       el('span', { class: 'count' }, String(others.length))) : []);
     if (!placed) {
       sorted(groups);
-      for (const group of groups) if (rank(group) < 1.5) rows.push(...groupRows(group));
+      for (const group of groups) if (order(group) < 1.5) rows.push(...groupRows(group));
       rows.push(...othersRows());
-      for (const group of groups) if (rank(group) >= 1.5) rows.push(...groupRows(group));
+      for (const group of groups) if (order(group) >= 1.5) rows.push(...groupRows(group));
       return rows;
     }
     // emplacements tries comme les types : en cours (le dernier scanne en haut), puis rien de scanne, puis complets
@@ -2975,9 +2977,11 @@
       const extra = list.reduce((sum, group) => sum + (group.extra || 0), 0);
       return { place, list, scanned, missing, pending, extra,
         required: list.reduce((sum, group) => sum + need(group), 0),
-        rank: !missing ? (pending ? 1.5 : 2) : scanned ? 0 : 1, last: Math.max(...list.map(lastScanOf)) };
+        rank: !missing ? (pending ? 1.5 : 2) : scanned ? 0 : 1, last: Math.max(...list.map(lastScanOf)),
+        // emplacement commence, meme seulement du facultatif (casques 1/4) : monte avec ceux en cours
+        order: scanned && (missing || pending) ? 0 : !missing ? (pending ? 1.5 : 2) : 1 };
     });
-    placeRows.sort((a, b) => a.rank - b.rank || (a.rank === 0 ? b.last - a.last : 0));
+    placeRows.sort((a, b) => a.order - b.order || (a.order === 0 ? b.last - a.last : 0));
     for (const { place, list, scanned, missing, pending, extra, required, rank: placeRank } of placeRows) {
       const key = `${lot.id}@${place}`;
       const fold = placeFolds.get(key);
@@ -3139,14 +3143,24 @@
     }
     // ordre general des listes : rouge en haut, orange, a faire, facultatif, vert en bas ; a egalite, le dernier
     // scanne monte (sauf les verts), puis l'ordre d'origine (tri stable)
-    subRows.sort((a, b) => a.rank - b.rank || b.last - a.last);
-    rows.push(...subRows.map((entry) => entry.row));
+    // Contenu propre du lot en cours : sous les sous-lots, sauf s'il est commence (un type en partie scanne, meme
+    // facultatif, ex. casques 1/4) : il se range alors avec eux comme un sous-lot commence, dernier scan compris
     const { groups, others: loose, remaining } = level.storage || ownContent(level) ? expectedGroups(level, plan)
       : { groups: [], others: [], remaining: 0 };
+    let ownRows = [];
     if (groups.length || loose.length) {
-      if (childrenOf(level.id).length) rows.push(el('li', { class: 'cascade-own' }, `Contenu de ${level.name}`));
-      rows.push(...lotGroupRows(level, groups, loose, lastScanRanks()));
+      if (childrenOf(level.id).length) ownRows.push(el('li', { class: 'cascade-own' }, `Contenu de ${level.name}`));
+      ownRows.push(...lotGroupRows(level, groups, loose, lastScanRanks()));
+      const started = groups.some((group) => group.scanned > 0 && (group.missing > 0 || group.pending > 0));
+      if (started && subRows.length) {
+        let last = -1;
+        scansNow.forEach((entry, index) => { if (!entry.error && (entry.place || state.lotId) === level.id) last = index; });
+        subRows.push({ rank: SUB_LOT_RANK.partial, last, rows: ownRows });
+        ownRows = [];
+      }
     }
+    subRows.sort((a, b) => a.rank - b.rank || b.last - a.last);
+    rows.push(...subRows.flatMap((entry) => entry.rows || [entry.row]), ...ownRows);
     if (!left && !remaining) {
       rows.splice(1, 0, el('li', { class: 'group ok' }, `✅ Tout est fait : validez ${level.name}`
         + (sealNextLevel() ? ', puis rescellez-le.' : parent ? ` pour revenir à ${parent.name}.` : ' pour terminer la vérif.')));
