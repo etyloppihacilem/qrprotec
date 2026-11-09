@@ -1333,14 +1333,58 @@ class LotAdminWindow final : public AppWindow {
              : lot_type["unique"].boolean()   ? Unique
                                               : Lots;
       };
-      int shown = 0;
+      // rangements d'un referentiel (part_of, ex : Sac B+ soin du Lot B+) : sous leur referentiel, en arborescence
+      // (a plat pendant une recherche, avec le nom du referentiel en gris)
+      std::map< std::string, const Json * > by_code;
+      for (const Json *row : types)
+        if (!(*row)["archived"].boolean() || show_archived_types_)
+          by_code[(*row)["type"].str()] = row;
+      const bool searching = !lot_type_search_.empty();
+      const auto nested    = [&](const Json &lot_type) {
+        const std::string parent = lot_type["part_of"].str();
+        return !searching && !parent.empty() && by_code.count(parent) > 0;
+      };
+      int        shown    = 0;
+      const auto draw_row = [&](const Json &lot_type, int depth) {
+        ++shown;
+        const bool        archived = lot_type["archived"].boolean();
+        const std::string code     = lot_type["type"].str();
+        ImGui::PushID(code.c_str());
+        if (depth > 0)
+          ImGui::Indent(18.0f);
+        // ligne entiere cliquable, nom puis code en gris par-dessus
+        const float start = ImGui::GetCursorPosX();
+        if (ImGui::Selectable("##type", editing_lot_type_ == code, ImGuiSelectableFlags_AllowOverlap))
+          edit_lot_type(lot_type);
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(start);
+        const std::string name = (depth > 0 ? "└ " : "") + lot_type["name"].str();
+        if (archived)
+          ImGui::TextDisabled("%s", name.c_str());
+        else
+          ImGui::TextUnformatted(name.c_str());
+        ImGui::SameLine();
+        std::string detail = code;
+        if (lot_type["referentiel"].boolean())
+          detail += " - référentiel";
+        if (searching && !lot_type["part_of"].str().empty())
+          for (const Json &parent : app.catalog.lot_types.items())
+            if (parent["type"].str() == lot_type["part_of"].str())
+              detail += " - rangement de " + parent["name"].str();
+        if (!lot_type["storage"].boolean() && !lot_type["unique"].boolean())
+          detail += " - " + nb(lot_counts[code], "lot");
+        ImGui::TextDisabled("%s", detail.c_str());
+        if (depth > 0)
+          ImGui::Unindent(18.0f);
+        ImGui::PopID();
+      };
       for (const Group group : { Lots, Unique, Storage, Archived }) {
         if (group == Archived && !show_archived_types_)
           continue;
         bool header = false;
         for (const Json *row : types) {
           const Json &lot_type = *row;
-          if (group_of(lot_type) != group)
+          if (group_of(lot_type) != group || nested(lot_type))
             continue;
           if (!header) {
             header = true;
@@ -1349,26 +1393,13 @@ class LotAdminWindow final : public AppWindow {
                                  : group == Storage ? "Rangements du stock"
                                                     : "Archivés");
           }
-          ++shown;
-          const std::string code = lot_type["type"].str();
-          ImGui::PushID(code.c_str());
-          // ligne entiere cliquable, nom puis code en gris par-dessus
-          const float start = ImGui::GetCursorPosX();
-          if (ImGui::Selectable("##type", editing_lot_type_ == code, ImGuiSelectableFlags_AllowOverlap))
-            edit_lot_type(lot_type);
-          ImGui::SameLine();
-          ImGui::SetCursorPosX(start);
-          if (group == Archived)
-            ImGui::TextDisabled("%s", lot_type["name"].str().c_str());
-          else
-            ImGui::TextUnformatted(lot_type["name"].str().c_str());
-          ImGui::SameLine();
-          const int count = lot_counts[code];
-          if (group == Lots)
-            ImGui::TextDisabled("%s - %s", code.c_str(), nb(count, "lot").c_str());
-          else
-            ImGui::TextDisabled("%s", code.c_str());
-          ImGui::PopID();
+          draw_row(lot_type, 0);
+          if (searching)
+            continue;
+          for (const Json *child : types)
+            if (nested(*child) && (*child)["part_of"].str() == lot_type["type"].str()
+                && (show_archived_types_ || !(*child)["archived"].boolean()))
+              draw_row(*child, 1);
         }
       }
       if (shown == 0)
