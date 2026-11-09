@@ -305,11 +305,12 @@ class ListsWindow final : public AppWindow {
         draw_scan_toggle(app, "Scanner vers cette liste");
         ImGui::SameLine();
         if (list["complete"].boolean()) {
-          if (confirm_action("Valider la liste", "Valider la liste ? Le matériel scanné sort du stock et la liste ne "
-                                                 "pourra plus être vérifiée.", "confirm_validate", false))
+          if (confirm_action("Valider la liste", "Valider la liste ? Les lots pris passent en vérif recommandée, le "
+                                                 "matériel scanné sort du stock. La liste est ensuite terminée.", "confirm_validate", false))
             validate(app, false);
         } else if (confirm_action("Valider incomplète", "Liste incomplète : la valider quand même ? Ce qui manque ne "
-                                                        "sera pas pris. Le matériel scanné sort du stock.",
+                                                        "sera pas pris. Les lots pris passent en vérif recommandée, "
+                                                        "le matériel scanné sort du stock.",
                                   "confirm_partial", true)) {
           validate(app, true);
         }
@@ -324,8 +325,9 @@ class ListsWindow final : public AppWindow {
                            "confirm_return", true))
           close_return(app);
       } else {
+        // status_label : Terminée (rien de sorti), Validée (sortie sans retour a scanner), Rentrée (ancien retour)
         ImGui::TextColored(colors::green, "%s %s%s. La liste ne sert plus : dupliquez-la pour la refaire.",
-                           list["went_out"].boolean() ? "Rentrée" : "Terminée", display_on(list["returned"]).c_str(),
+                           list["status_label"].str().c_str(), display_on(list["returned"]).c_str(),
                            list["returned_by"].str().empty() ? "" : (" par " + list["returned_by"].str()).c_str());
       }
       if (scanning_ && !message_.empty())

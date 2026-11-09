@@ -108,7 +108,7 @@ def _recommended_reason(row):
         return (f"réassort de {plural(row['restocked_count'], 'item')}"
                 + (f" par {row['restocked_by']}" if row['restocked_by'] else ''), row['restocked'])
     if row['back_from_list']:
-        return f"rentré avec la liste « {row['back_from_list']} »", None
+        return f"sorti avec la liste « {row['back_from_list']} »", None
     if row.get('marked_used'):
         return ('marqué utilisé' + (f" par {row['marked_used_by']}" if row['marked_used_by'] else ''),
                 row['marked_used'])

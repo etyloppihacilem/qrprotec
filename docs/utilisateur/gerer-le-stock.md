@@ -197,15 +197,15 @@ la liste, ses équipiers la vérifient en sortant le matériel.
   matériel pris dans le stock : chaque scan compte tout de suite pour tous ceux qui ont la liste
   ouverte. Un item doit venir du stock (pas d'un lot), être bon (ni périmé ni à remplacer) et ne
   pas être déjà pris pour une autre liste. Un scan en trop se retire (✕ ou **Retirer**). Les tâches
-  se cochent à la main ; une tâche cochée le reste si l'on modifie la liste.
-- **Valider** : la liste validée (ou **validée incomplète** : ce qui manque n'est pas pris) sort son
-  matériel du stock, comme une sortie sans lot. Elle ne peut plus être vérifiée. Une liste de
-  tâches seulement est **terminée** à la validation : rien n'est sorti, il n'y a pas de retour.
-- **Au retour** : rouvrez la liste, **Retour : scanner**, et scannez ce qui rentre. Le matériel est
-  remis en stock tout de suite ; un lot rentré passe en **vérif recommandée** (orange, « retour de
-  liste ») jusqu'à sa prochaine vérif. Puis **Clôturer le retour** : les consommables pas rentrés
-  sont comptés **utilisés**, le matériel non consommable pas rentré reste **sorti** (il rentrera
-  quand on le scannera). Sans retour clos, la règle des sorties s'applique (consommable compté utilisé au bout d'un mois).
+  se cochent à la main ; une tâche cochée le reste si l'on modifie la liste. **Un lot se coche aussi
+  sans scanner** (au téléphone) : touchez sa case, puis « Cocher sans scanner » (le VPS resté dehors
+  pendant qu'on prépare le matériel) ; pour un lot au choix, la case propose les lots disponibles.
+- **Valider** : une fenêtre récapitule ce qui manque (**Valider incomplète** : ce qui manque n'est pas
+  pris). Le matériel scanné sort du stock, comme une sortie sans lot, et **les lots pris passent en
+  vérif recommandée** (orange, « sorti avec une liste ») jusqu'à leur prochaine vérif, sauf un lot
+  scellé. La liste est alors **terminée** : pas de retour à scanner. Le matériel sorti rentre en
+  stock quand on le rescanne (vérif du stock) ; un consommable jamais revu est compté utilisé au
+  bout d'un mois (règle des sorties).
 
 Pour une liste qui revient souvent (poste de secours du stade, match du dimanche), faites-en un
 **modèle** : il ne se vérifie pas, **Utiliser ce modèle** en fait une nouvelle liste à vérifier.

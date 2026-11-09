@@ -756,3 +756,7 @@ dialog.big-popup p { font-size: 1.05rem; }
 #home-depart .depart-go .primary { flex: 1; }
 #home-depart .depart-go .secondary { flex: none; }
 body.home-mode:has(#home-depart.active.with-go) #toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
+/* listes : bouton Scanner en marine comme les autres actions, case d'un lot cochable a la main */
+.list-buttons button.navy { background: var(--navy); }
+#home-lists .list-box.by-hand { cursor: pointer; border-color: var(--navy); }
+dialog.ask-dialog .dialog-stack button { width: 100%; }
