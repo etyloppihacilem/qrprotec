@@ -5376,9 +5376,14 @@ class ChecklistTests(ApiTestCase):
         settings_row.save()
         code, body = self.as_(self.other, path + 'validate/', {'partial': True})
         self.assertEqual(code, 200, body)
-        self.assertTrue(Lots.objects.get(id=b1.id).verif_recommended)  # sorti : vérif recommandee, sans retour
+        self.assertFalse(Lots.objects.get(id=b1.id).verif_recommended)  # en poste : pas encore
         code, body = self.as_(self.chief, f"/api/checklists/{other['id']}/scan/", {'lot': b1.id})
-        self.assertEqual(code, 200)  # liste terminee : de nouveau libre
+        self.assertEqual(code, 400)  # en poste avec la liste sortie
+        code, body = self.as_(self.other, path + 'return-scan/', {'lot': b1.id})
+        self.assertEqual(code, 200, body)
+        self.assertTrue(Lots.objects.get(id=b1.id).verif_recommended)  # rentre : vérif recommandee
+        code, body = self.as_(self.chief, f"/api/checklists/{other['id']}/scan/", {'lot': b1.id})
+        self.assertEqual(code, 200)  # rentre : de nouveau libre
 
     def test_rights_and_templates(self):
         mine = self.new_list()
@@ -5494,10 +5499,18 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 400)
         code, body = self.as_(self.other, f"/api/checklists/{depart['id']}/validate/", {'partial': True})
         self.assertEqual(code, 200, body)
-        gone = fiche(sac)['list']  # sorti : bouton « Retour », aussi sur le sac parti avec B+ 1
-        self.assertEqual((gone['out'], gone['open'], gone['gone']['id']), (True, False, b1.id))
+        gone = fiche(sac)['list']  # en poste : bouton « Retour », aussi sur le sac parti avec B+ 1
+        self.assertEqual((gone['out'], gone['gone']['id']), (True, b1.id))
+        self.assertFalse(Lots.objects.get(id=b1.id).verif_recommended)  # pas pendant le poste
+        code, rows = self.call('POST', '/api/lots/summary/', {}, local=False)  # État des lots : en poste
+        out = {row['id']: row['out_with'] for row in rows}
+        self.assertEqual((out[b1.id], out[sac.id], out[self.lot.id]), (depart['name'], depart['name'], ''))
         code, body = self.as_(self.other, f'/api/lots/{sac.id}/return/')
-        self.assertEqual((code, body['message']), (200, 'B+ 1 : rentré, vérif recommandée'))
+        # tout ce qui est sorti est rentre : le retour de la liste est clos d'office
+        self.assertEqual((code, body['message']), (200, 'B+ 1 : rentré, vérif recommandée. Tout est rentré : liste close'))
+        self.assertTrue(Lots.objects.get(id=b1.id).verif_recommended)
+        code, body = self.as_(self.other, f"/api/checklists/{depart['id']}/")
+        self.assertEqual(body['status'], 'returned')
         self.assertEqual((fiche(b1), fiche(sac)), ({'blocked': '', 'list': None},) * 2)  # de nouveau « Partir »
         code, body = self.as_(self.other, f'/api/lots/{sac.id}/return/')
         self.assertEqual(code, 400)
@@ -5571,16 +5584,21 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, f"/api/checklists/{other['id']}/scan/", {'item': self.fresh[0].iid})
         self.assertEqual(code, 400)
         code, body = self.as_(self.chief, path + 'validate/')
-        # pas de retour a scanner : la liste est terminee, ses lots en vérif recommandee, ses items sortis
-        self.assertEqual((body['status'], body['status_label']), ('returned', 'Validée'))
+        # sortie : retour a scanner, items sortis, lots PAS en vérif recommandee pendant le poste (seulement au retour)
+        self.assertEqual((body['status'], body['status_label']), ('validated', 'Sortie'))
         self.assertEqual(Items.objects.get(iid=self.fresh[0].iid).status, ItemStatus.OUT)
         code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
-        self.assertEqual((body['verif_recommended'], body['back_from_list']), (True, 'Poste de secours'))
+        self.assertFalse(body['verif_recommended'])
         code, _ = self.as_(self.chief, path + 'scan/', {'item': self.fresh[2].iid})
         self.assertEqual(code, 400)  # validee : plus de verif
-        code, _ = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[0].iid})
-        self.assertEqual(code, 400)  # plus de retour par la liste
-        # le lot est libre pour une autre liste
+        code, body = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[0].iid})
+        self.assertEqual(code, 200, body)  # retour par la liste
+        self.assertEqual(Items.objects.get(iid=self.fresh[0].iid).status, ItemStatus.ACTIVE)
+        code, body = self.as_(self.chief, path + 'return-scan/', {'lot': self.lot.id})
+        self.assertEqual(code, 200, body)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual((body['verif_recommended'], body['back_from_list']), (True, 'Poste de secours'))
+        # le lot rentre est libre pour une autre liste
         other_list = self.new_list()
         code, body = self.as_(self.chief, f"/api/checklists/{other_list['id']}/scan/", {'lot': self.lot.id})
         self.assertEqual(code, 200, body)
@@ -5625,7 +5643,7 @@ class ChecklistTests(ApiTestCase):
             code, body = self.as_(self.chief, path + 'scan/', data)
             self.assertEqual(code, 200, body)
         code, body = self.as_(self.chief, path + 'validate/')
-        self.assertEqual((body['status'], body['can_reopen']), ('returned', True))
+        self.assertEqual((body['status'], body['can_reopen']), ('validated', True))
         code, body = self.as_(self.other, path)
         self.assertFalse(body['can_reopen'])  # ni auteur, ni dans la liste
         code, body = self.as_(self.other, path + 'reopen/')

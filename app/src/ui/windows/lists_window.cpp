@@ -71,7 +71,7 @@ std::string grouped_names(const Json &names) {
   return out;
 }
 
-// Ancienne liste sortie (retour a scanner) : question de « Clôturer le retour », avec ce qui n'est pas rentre et ce
+// Liste sortie (retour a scanner) : question de « Clôturer le retour », avec ce qui n'est pas rentre et ce
 // qui en sera fait (return_preview du serveur), comme sur le web
 std::string return_question(const Json &preview) {
   std::string     steps;
@@ -356,12 +356,13 @@ class ListsWindow final : public AppWindow {
         draw_scan_toggle(app, "Scanner vers cette liste");
         ImGui::SameLine();
         if (list["complete"].boolean()) {
-          if (confirm_action("Prêt au départ", "Prêt au départ ? Les lots pris passent en vérif recommandée, le "
-                                               "matériel scanné sort du stock. La liste est ensuite terminée.", "confirm_validate", false))
+          if (confirm_action("Prêt au départ", "Prêt au départ ? Le matériel scanné sort du stock. Au retour, scannez "
+                                               "ce qui rentre et clôturez le retour : les lots pris passent alors en "
+                                               "vérif recommandée.", "confirm_validate", false))
             validate(app, false);
         } else if (confirm_action("Partir sans tout", "Liste incomplète : partir quand même ? Ce qui manque ne "
-                                                      "sera pas pris. Les lots pris passent en vérif recommandée, "
-                                                      "le matériel scanné sort du stock.",
+                                                      "sera pas pris. Le matériel scanné sort du stock ; les lots "
+                                                      "pris passent en vérif recommandée au retour.",
                                 "confirm_partial", true)) {
           validate(app, true);
         }
@@ -376,19 +377,15 @@ class ListsWindow final : public AppWindow {
         if (confirm_action("Clôturer le retour", return_question(preview), "confirm_return", !all_back,
                            all_back ? "Clôturer le retour" : "Clôturer sans tout"))
           close_return(app);
+        draw_reopen(app, list);
       } else {
         // status_label : Terminée (rien de sorti), Validée (sortie sans retour a scanner), Rentrée (ancien retour)
         const bool reopenable = list["can_reopen"].boolean();
         ImGui::TextColored(colors::green, "%s %s%s. %s", list["status_label"].str().c_str(),
                            display_on(list["returned"]).c_str(),
                            list["returned_by"].str().empty() ? "" : (" par " + list["returned_by"].str()).c_str(),
-                           reopenable ? "Validée par erreur ? Vous pouvez la rouvrir pendant 30 minutes."
-                                      : "La liste ne sert plus : dupliquez-la pour la refaire.");
-        if (reopenable && confirm_action("Rouvrir le départ", "Rouvrir le départ ? Le matériel sorti revient où il "
-                                                               "était, les lots pris ne sont plus en vérif recommandée "
-                                                               "à cause de cette liste. La liste redevient à préparer.",
-                                         "confirm_reopen", false))
-          reopen(app);
+                           reopenable ? "" : "La liste ne sert plus : dupliquez-la pour la refaire.");
+        draw_reopen(app, list);
       }
       if (scanning_ && !message_.empty())
         ImGui::TextColored(message_bad_ ? colors::red : colors::green, "%s", message_.c_str());
@@ -996,6 +993,31 @@ class ListsWindow final : public AppWindow {
         app.notify("Liste validée : le matériel est sorti du stock.");
         load(app);
       });
+    }
+
+    // « Rouvrir le départ » (validee par erreur, 30 min) : petit lien grise sous les boutons, pas un vrai bouton
+    void draw_reopen(App &app, const Json &list) {
+      if (!list["can_reopen"].boolean())
+        return;
+      ImGui::TextDisabled("Validée par erreur ? Rouvrir le départ");
+      if (ImGui::IsItemHovered())
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      if (ImGui::IsItemClicked())
+        ImGui::OpenPopup("confirm_reopen");
+      if (ImGui::BeginPopup("confirm_reopen")) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 460.0f);
+        ImGui::TextUnformatted("Rouvrir le départ ? Le matériel sorti revient où il était. La liste redevient à "
+                               "préparer, avec ce qui est déjà coché.");
+        ImGui::PopTextWrapPos();
+        if (primary_button("Rouvrir le départ")) {
+          reopen(app);
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (button("Annuler"))
+          ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+      }
     }
 
     void reopen(App &app) {
