@@ -215,6 +215,7 @@ button.dialog-x { flex: none; width: 36px; height: 36px; padding: 0; border-radi
 #report ul, #verif-report ul { margin: 0; padding-left: 20px; font-size: .9rem; }
 #report .primary, #verif-report .primary { width: 100%; margin-top: 12px; }
 .live-card.clickable { cursor: pointer; }
+.list li .name .sublots { color: var(--muted); font-weight: 400; font-size: .85rem; }
 /* compte rendu de vérif : bandeau d'état collé en haut, puis une ligne par lot, indentée sous son parent */
 #verif-report { padding: 0 14px 14px; }
 #verif-report .vr-head { position: sticky; top: 0; z-index: 1; margin: 0 -14px 4px; padding: 12px 14px 10px;
