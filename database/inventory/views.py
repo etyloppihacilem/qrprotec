@@ -2952,9 +2952,10 @@ def users(request):
     if request.method == 'GET':
         users_list = (Secouristes.objects.select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions'))
                       .order_by('nom', 'prenom'))
-        pin_roles = ServerSettings.get().pin_required_roles  # lu une fois pour toute la liste
+        settings_row = ServerSettings.get()  # lu une fois pour toute la liste
         for user in users_list:
-            user.server_pin_required_roles = pin_roles
+            user.server_pin_required_roles = settings_row.pin_required_roles
+            user.server_pin_login_roles = settings_row.pin_login_roles
         return Response([ser.user_dict(user, local=True) for user in users_list])
     data = request.data
     matricule = str(data.get('matricule', '')).strip()
@@ -3135,6 +3136,11 @@ def server_settings(request):
             labels = [Role(role).label.lower() for role in roles]
             changes.append('code PIN obligatoire pour les administrateurs'
                            + (' et les rôles ' + ', '.join(labels) if labels else ' seulement'))
+        if 'pin_login_roles' in request.data:
+            settings_row.pin_login_roles = parse_pin_roles(request.data['pin_login_roles'], 'Code à la connexion obligatoire')
+            labels = [Role(role).label.lower() for role in settings_row.pin_login_roles]
+            changes.append('code PIN à la connexion obligatoire pour les administrateurs'
+                           + (' et les rôles ' + ', '.join(labels) if labels else ' seulement'))
         if 'scanner_volume_default' in request.data:
             settings_row.scanner_volume_default = parse_scanner_volume(request.data['scanner_volume_default'])
             changes.append(f'volume de la douchette par défaut : {settings_row.scanner_volume_default}')
@@ -3152,16 +3158,18 @@ def server_settings(request):
         journal.record(OperationKind.SETTINGS, front_identity(request), ', '.join(changes) or 'aucun changement',
                        declared_identity=settings_row.declared_identity,
                        pin_required_roles=settings_row.pin_required_roles,
+                       pin_login_roles=settings_row.pin_login_roles,
                        scanner_volume_default=settings_row.scanner_volume_default,
                        web_barcodes=settings_row.web_barcodes,
                        departure_full_verif=settings_row.departure_full_verif)
     return Response(ser.server_settings_dict(settings_row))
 
 
-def parse_pin_roles(value):
-    """Roles du reglage « code obligatoire » (les admins le sont toujours), dans l'ordre des roles."""
+def parse_pin_roles(value, name='Code obligatoire'):
+    """Roles du reglage « code obligatoire » ou « code a la connexion obligatoire » (les admins le sont toujours),
+    dans l'ordre des roles."""
     if not isinstance(value, list) or any(role not in PIN_OPTIONAL_ROLES + (Role.ADMIN,) for role in value):
-        raise ApiError('Code obligatoire : liste de rôles parmi ' + ', '.join(PIN_OPTIONAL_ROLES))
+        raise ApiError(name + ' : liste de rôles parmi ' + ', '.join(PIN_OPTIONAL_ROLES))
     return [role for role in PIN_OPTIONAL_ROLES if role in value]
 
 
@@ -3239,7 +3247,8 @@ def my_pin(request):
         if not user.has_pin:
             raise ApiError("Vous n'avez pas de code PIN")
         if user.pin_at_login_locked and not data['pin_at_login']:
-            raise ApiError("Le PIN est demandé à chaque connexion pour un administrateur", status.HTTP_403_FORBIDDEN)
+            raise ApiError("Le PIN est demandé à chaque connexion pour un administrateur" if user.role == Role.ADMIN
+                           else "Le TECH a rendu le code obligatoire à chaque connexion", status.HTTP_403_FORBIDDEN)
         user.set_pin_at_login(data['pin_at_login'])
         user.save(update_fields=['pin_at_login'])
         journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',

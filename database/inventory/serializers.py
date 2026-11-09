@@ -679,7 +679,7 @@ def user_dict(user, local=False):
         'pin_can_disable': user.pin_can_disable,  # PIN facultatif : l'utilisateur peut le supprimer (reglages web)
         'pin_mandatory': user.pin_mandatory,  # code obligatoire (admin, pin_mode required ou role du reglage serveur)
         'pin_at_login': user.pin_at_login or user.pin_at_login_locked,  # « Demander a chaque connexion »
-        'pin_at_login_locked': user.pin_at_login_locked,  # case imposee (admin)
+        'pin_at_login_locked': user.pin_at_login_locked,  # code a la connexion obligatoire (admin, mode, role)
         'active': user.active,
         'key_expires': _date(user.key_expires),
         'pin_blocked': user.pin_blocked is not None,
@@ -765,6 +765,7 @@ def server_settings_dict(settings_row):
     return {
         'declared_identity': settings_row.declared_identity,
         'pin_required_roles': list(settings_row.pin_required_roles or []),  # code obligatoire, en plus des admins
+        'pin_login_roles': list(settings_row.pin_login_roles or []),  # code a la connexion obligatoire, idem
         'pin_role_choices': [{'value': role, 'label': Role(role).label} for role in PIN_OPTIONAL_ROLES],
         'scanner_volume_default': settings_row.scanner_volume_default,
         'web_barcodes': settings_row.web_barcodes,

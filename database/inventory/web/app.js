@@ -4627,7 +4627,8 @@
     askInput.disabled = !!user.pin_at_login_locked;
     if (hasPin) askInput.addEventListener('change', () => savePinAtLogin(askInput));
     parts.push(el('label', { class: 'settings-check' }, askInput, el('span', {}, 'Demander à chaque connexion', el('br'),
-      el('small', { class: 'hint' }, user.pin_at_login_locked ? 'Toujours demandé pour les administrateurs.'
+      el('small', { class: 'hint' }, user.pin_at_login_locked ? (user.role === 'admin'
+        ? 'Toujours demandé pour les administrateurs.' : 'Toujours demandé : le TECH l\'a rendu obligatoire.')
         : 'Décochée : le code ne sert qu\'à vous connecter sans badge.'))));
     if (hasPin) parts.push(pinInput('settings-pin-current', 'PIN actuel'));
     parts.push(pinInput('settings-pin-new', hasPin ? 'Nouveau PIN (4 à 8 chiffres)' : 'PIN (4 à 8 chiffres)'));

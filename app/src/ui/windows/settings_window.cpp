@@ -377,6 +377,7 @@ class SettingsWindow final : public AppWindow {
                   "vérification (« D:nom »). L'étiquette clé du lot reste exigée.");
       // Code PIN obligatoire par role (toujours pour les admins) : une case par role. Obligatoire ne veut pas dire
       // demande a chaque connexion : c'est la case « Demander a chaque connexion » de chacun, cochee par defaut.
+      // « Code a la connexion obligatoire » : obligatoire ET demande apres le badge a chaque connexion (case imposee).
       ImGui::TextUnformatted("Code PIN obligatoire pour :");
       ImGui::SameLine();
       help_marker("Les administrateurs ont toujours un code PIN, demandé à chaque connexion.\nRôle coché : chacun doit "
@@ -384,44 +385,14 @@ class SettingsWindow final : public AppWindow {
                   "choisissent à leur prochaine connexion. La case « Demander à chaque connexion » y est cochée par "
                   "défaut ; décochée, le code ne sert qu'à la connexion sans badge (nom, prénom et code).\nRôle "
                   "décoché : le code est facultatif.");
-      const Json &roles   = server_rules_["pin_required_roles"];
-      const Json &choices = server_rules_["pin_role_choices"];
-      for (std::size_t i = 0; i < choices.size(); ++i) {
-        const std::string role = choices[i]["value"].str();
-        bool              on   = false;
-        for (std::size_t j = 0; j < roles.size(); ++j)
-          on = on || roles[j].str() == role;
-        if (i > 0)
-          ImGui::SameLine();
-        if (ImGui::Checkbox((choices[i]["label"].str() + "##pin_role_" + role).c_str(), &on)) {
-          Json list = Json::array();
-          for (std::size_t j = 0; j < choices.size(); ++j) {
-            const std::string other = choices[j]["value"].str();
-            bool              keep  = other == role ? on : false;
-            for (std::size_t k = 0; k < roles.size() && other != role; ++k)
-              keep = keep || roles[k].str() == other;
-            if (keep)
-              list.push_back(Json(other));
-          }
-          Json body;
-          body["pin_required_roles"] = list;
-          app.api.patch("/api/server-settings/", body, [this, &app, role, on](const ApiResult &result) {
-            if (!result.ok) {
-              app.notify("Règles du serveur : " + result.error, true);
-              return;
-            }
-            server_rules_ = result.data;
-            app.notify(on ? "Code PIN obligatoire pour ce rôle : choisi à la prochaine connexion par ceux qui n'en ont pas."
-                          : "Code PIN facultatif pour ce rôle.");
-            app.refresh_users();
-          });
-        }
-      }
+      draw_pin_roles(app, "pin_required_roles", "pin_login_roles");
+      ImGui::TextUnformatted("Code PIN à la connexion obligatoire pour :");
       ImGui::SameLine();
-      ImGui::BeginDisabled();
-      bool admins = true;
-      ImGui::Checkbox("Administrateur##pin_role_admin", &admins);
-      ImGui::EndDisabled();
+      help_marker("Rôle coché : le code est obligatoire et demandé après le badge à chaque connexion ; la case "
+                  "« Demander à chaque connexion » ne peut plus être décochée. Ceux qui n'ont pas de code le choisissent "
+                  "à leur prochaine connexion, sauf ceux dont le PIN est désactivé.\nToujours le cas des "
+                  "administrateurs.");
+      draw_pin_roles(app, "pin_login_roles", "");
       bool web_barcodes = server_rules_["web_barcodes"].boolean();
       if (ImGui::Checkbox("Lire les codes-barres sur le web (téléphones)", &web_barcodes)) {
         Json body;
@@ -491,6 +462,57 @@ class SettingsWindow final : public AppWindow {
     // -----------------------------------------------------------------------------------------------------------
     // Notifications : reglages enregistres sur le serveur, appliques immediatement. Les alertes partent en
     // notifications web (front web) ; l'API SMS de Free Mobile n'est plus maintenue (voir notifications.py).
+    // Une case par role pour le reglage `field` (liste de roles), plus la case Administrateur toujours cochee. Un
+    // role coche dans `implied_by` (code a la connexion obligatoire) l'est aussi ici, case grisee.
+    void draw_pin_roles(App &app, const std::string &field, const std::string &implied_by) {
+      const Json &roles   = server_rules_[field];
+      const Json &choices = server_rules_["pin_role_choices"];
+      auto        has     = [](const Json &list, const std::string &role) {
+        for (std::size_t j = 0; j < list.size(); ++j)
+          if (list[j].str() == role)
+            return true;
+        return false;
+      };
+      for (std::size_t i = 0; i < choices.size(); ++i) {
+        const std::string role    = choices[i]["value"].str();
+        const bool        implied = !implied_by.empty() && has(server_rules_[implied_by], role);
+        bool              on      = implied || has(roles, role);
+        if (i > 0)
+          ImGui::SameLine();
+        ImGui::BeginDisabled(implied);
+        if (ImGui::Checkbox((choices[i]["label"].str() + "##" + field + "_" + role).c_str(), &on)) {
+          Json list = Json::array();
+          for (std::size_t j = 0; j < choices.size(); ++j) {
+            const std::string other = choices[j]["value"].str();
+            if (other == role ? on : has(roles, other))
+              list.push_back(Json(other));
+          }
+          Json body;
+          body[field] = list;
+          const bool at_login = field == "pin_login_roles";
+          app.api.patch("/api/server-settings/", body, [this, &app, on, at_login](const ApiResult &result) {
+            if (!result.ok) {
+              app.notify("Règles du serveur : " + result.error, true);
+              return;
+            }
+            server_rules_ = result.data;
+            app.notify(at_login ? (on ? "Code PIN obligatoire et demandé à chaque connexion pour ce rôle."
+                                      : "Code PIN plus imposé à chaque connexion pour ce rôle.")
+                       : on     ? "Code PIN obligatoire pour ce rôle : choisi à la prochaine connexion par ceux qui "
+                                  "n'en ont pas."
+                                : "Code PIN facultatif pour ce rôle.");
+            app.refresh_users();
+          });
+        }
+        ImGui::EndDisabled();
+      }
+      ImGui::SameLine();
+      ImGui::BeginDisabled();
+      bool admins = true;
+      ImGui::Checkbox(("Administrateur##" + field + "_admin").c_str(), &admins);
+      ImGui::EndDisabled();
+    }
+
     void load_notifications(App &app) {
       app.api.get("/api/notifications/", [this](const ApiResult &result) {
         if (!result.ok)
