@@ -3517,8 +3517,8 @@ def checklists_create(request):
 @handle_errors
 def checklist_action(request, checklist_id, action=''):
     """Une liste : {"user"} lit ; update {name, note, template, lines} ; duplicate {name, template} ; delete ;
-    scan / unscan {item | lot} ; check {line, done} (tache libre) ; validate {partial} ; return-scan {item | lot} ;
-    close-return ; members {add: [matricules], remove: [matricules]}. A la lecture, {"open": true} (liste ouverte par
+    scan / unscan {item | lot} ; check {line, done} (tache libre) ; validate {partial} ; reopen (depart valide par
+    erreur, 30 min) ; return-scan {item | lot} ; close-return ; members {add: [matricules], remove: [matricules]}. A la lecture, {"open": true} (liste ouverte par
     son lien ou son QR code) l'ajoute aux listes d'un secouriste."""
     from . import checklists
     user = connected_user(request)
@@ -3559,6 +3559,8 @@ def checklist_action(request, checklist_id, action=''):
         message = checklists.check_task(checklist, user, line, data.get('done', True) is not False)
     elif action == 'validate':
         checklists.validate(checklist, user, bool(data.get('partial')))
+    elif action == 'reopen':
+        checklists.reopen(checklist, user)
     elif action == 'close-return':
         extra = checklists.close_return(checklist, user)
     elif action:

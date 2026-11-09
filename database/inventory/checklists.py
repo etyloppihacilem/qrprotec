@@ -475,8 +475,8 @@ def validate(checklist, user, partial=False):
                 scan_row.delete()  # plus en stock entre-temps : pas sorti avec la liste
         went_out = bool(_out_scans(checklist))
         for lot in {scan.lot for scan in _out_scans(checklist) if scan.lot_id}:
-            if lot.is_sealed:
-                continue  # scelle : rien n'a servi tant que le scelle tient
+            if lot.is_sealed or lot.verif_recommended:
+                continue  # scelle : rien n'a servi tant que le scelle tient ; deja recommandee : sa raison reste
             lot.verif_recommended = True
             lot.back_from_list = checklist.name
             lot.restocked = now
@@ -492,6 +492,59 @@ def validate(checklist, user, partial=False):
         journal.record(OperationKind.CHECKLIST, identity,
                        f'liste « {checklist.name} » ' + ('sortie' if went_out else 'faite')
                        + ('' if complete else ' (incomplète)'), at=now, checklist=checklist.id, items=iids)
+    return checklist
+
+
+REOPEN_MINUTES = 30
+
+
+def can_reopen(checklist, user=None):
+    """Depart valide par erreur : rouvrable pendant REOPEN_MINUTES par l'auteur, un secouriste de la liste, la gestion
+    ou un admin (pas une ancienne liste rentree par le retour)."""
+    if checklist.is_template or checklist.status != ChecklistStatus.RETURNED or not checklist.validated:
+        return False
+    if timezone.now() - checklist.validated > timezone.timedelta(minutes=REOPEN_MINUTES):
+        return False
+    if any(scan.phase == ChecklistScan.BACK for scan in checklist.scans.all()):
+        return False
+    return user is None or can_edit(checklist, user) or is_member(checklist, user)
+
+
+def reopen(checklist, user):
+    """Annule la validation (depart valide par erreur) : les items sortis retournent ou ils etaient (stock ou
+    rangement), les lots mis en vérif recommandee par cette liste reviennent a leur etat, la liste est de nouveau a
+    preparer avec ses scans."""
+    if not can_reopen(checklist, user):
+        raise ValueError(f'Seul un départ validé depuis moins de {REOPEN_MINUTES} minutes peut être rouvert')
+    identity = identity_of(user)
+    with transaction.atomic():
+        checklist = Checklist.objects.select_for_update().get(id=checklist.id)
+        if not can_reopen(checklist, user):
+            raise ValueError(f'Seul un départ validé depuis moins de {REOPEN_MINUTES} minutes peut être rouvert')
+        back = {}
+        for scan in _out_scans(checklist):
+            if not scan.item_id or scan.item.status != ItemStatus.OUT:
+                continue
+            last = (ItemMovement.objects.filter(item_id=scan.item_id, kind=MovementKind.OUT)
+                    .order_by('-at').first())
+            back.setdefault(last.from_lot_id if last else None, []).append(scan.item_id)
+        for lot_id, iids in back.items():
+            lot = Lots.objects.filter(id=lot_id, active=True).first() if lot_id else None
+            services.move_items(iids, lot, identity, SeenWhile.CHECKLIST)
+        for lot in {scan.lot for scan in _out_scans(checklist) if scan.lot_id}:
+            if lot.verif_recommended and lot.back_from_list == checklist.name and lot.restocked == checklist.validated:
+                lot.verif_recommended = False
+                lot.back_from_list = ''
+                lot.save(update_fields=['verif_recommended', 'back_from_list'])
+        checklist.status = ChecklistStatus.DRAFT
+        checklist.validated = None
+        checklist.validated_by = ''
+        checklist.returned = None
+        checklist.returned_by = ''
+        checklist.updated = timezone.now()
+        checklist.save()
+        journal.record(OperationKind.CHECKLIST, identity, f'liste « {checklist.name} » rouverte (départ annulé)',
+                       checklist=checklist.id)
     return checklist
 
 
@@ -727,6 +780,7 @@ def checklist_dict(checklist, user=None, full=True):
         'url': public_url('liste', id=checklist.id),
         'can_edit': bool(user and can_edit(checklist, user)),
         'can_duplicate': bool(user and can_make_lists(user)),
+        'can_reopen': bool(user and can_reopen(checklist, user)),
         'source': checklist.source_id,
     }
     rows, complete = progress(checklist)

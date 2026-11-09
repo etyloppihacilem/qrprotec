@@ -326,9 +326,17 @@ class ListsWindow final : public AppWindow {
           close_return(app);
       } else {
         // status_label : Terminée (rien de sorti), Validée (sortie sans retour a scanner), Rentrée (ancien retour)
-        ImGui::TextColored(colors::green, "%s %s%s. La liste ne sert plus : dupliquez-la pour la refaire.",
-                           list["status_label"].str().c_str(), display_on(list["returned"]).c_str(),
-                           list["returned_by"].str().empty() ? "" : (" par " + list["returned_by"].str()).c_str());
+        const bool reopenable = list["can_reopen"].boolean();
+        ImGui::TextColored(colors::green, "%s %s%s. %s", list["status_label"].str().c_str(),
+                           display_on(list["returned"]).c_str(),
+                           list["returned_by"].str().empty() ? "" : (" par " + list["returned_by"].str()).c_str(),
+                           reopenable ? "Validée par erreur ? Vous pouvez la rouvrir pendant 30 minutes."
+                                      : "La liste ne sert plus : dupliquez-la pour la refaire.");
+        if (reopenable && confirm_action("Rouvrir le départ", "Rouvrir le départ ? Le matériel sorti revient où il "
+                                                               "était, les lots pris ne sont plus en vérif recommandée "
+                                                               "à cause de cette liste. La liste redevient à préparer.",
+                                         "confirm_reopen", false))
+          reopen(app);
       }
       if (scanning_ && !message_.empty())
         ImGui::TextColored(message_bad_ ? colors::red : colors::green, "%s", message_.c_str());
@@ -934,6 +942,17 @@ class ListsWindow final : public AppWindow {
         stop_scan(app);
         message_.clear();
         app.notify("Liste validée : le matériel est sorti du stock.");
+        load(app);
+      });
+    }
+
+    void reopen(App &app) {
+      call(app, "reopen", Json::object(), [this, &app](const ApiResult &result) {
+        if (!result.ok) {
+          app.notify("Liste : " + result.error, true);
+          return;
+        }
+        app.notify("Départ rouvert : la liste est de nouveau à préparer.");
         load(app);
       });
     }

@@ -5390,6 +5390,39 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 200, body)
 
 
+    def test_reopen_departure(self):
+        """Depart valide par erreur : rouvrable 30 minutes, le materiel revient ou il etait, le lot n'est plus en
+        verif recommandee a cause de la liste, les scans restent."""
+        place = {item.iid: Items.objects.get(iid=item.iid).location_id for item in self.fresh[:2]}
+        checklist = self.new_list()
+        path = f"/api/checklists/{checklist['id']}/"
+        for data in ({'item': self.fresh[0].iid}, {'item': self.fresh[1].iid}, {'lot': self.lot.id},
+                     {'item': self.garrots[0].iid}):
+            code, body = self.as_(self.chief, path + 'scan/', data)
+            self.assertEqual(code, 200, body)
+        code, body = self.as_(self.chief, path + 'validate/')
+        self.assertEqual((body['status'], body['can_reopen']), ('returned', True))
+        code, body = self.as_(self.other, path)
+        self.assertFalse(body['can_reopen'])  # ni auteur, ni dans la liste
+        code, body = self.as_(self.other, path + 'reopen/')
+        self.assertEqual(code, 400)
+        code, body = self.as_(self.chief, path + 'reopen/')
+        self.assertEqual(code, 200, body)
+        self.assertEqual((body['status'], body['complete'], body['can_reopen']), ('draft', True, False))
+        for iid, location in place.items():
+            item = Items.objects.get(iid=iid)
+            self.assertEqual((item.status, item.location_id), (ItemStatus.ACTIVE, location))
+        lot = Lots.objects.get(id=self.lot.id)
+        self.assertEqual((lot.verif_recommended, lot.back_from_list), (False, ''))
+        # revalidee, puis trop tard pour rouvrir
+        code, body = self.as_(self.chief, path + 'validate/')
+        self.assertEqual(code, 200, body)
+        Checklist.objects.filter(id=checklist['id']).update(validated=timezone.now() - timedelta(minutes=31))
+        code, body = self.as_(self.chief, path + 'reopen/')
+        self.assertEqual(code, 400)
+        self.assertIn('30 minutes', body['error'])
+
+
 class TasksTests(ApiTestCase):
     """Liste de taches de la gestion (Gestion de la TECH) et bouton « Marquer ce lot comme utilisé »."""
 
