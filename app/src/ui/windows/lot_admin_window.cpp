@@ -846,6 +846,13 @@ class LotAdminWindow final : public AppWindow {
         ImGui::EndChild();
         ImGui::EndTabItem();
       }
+      // lot global dont les sacs sont des rangements d'un referentiel (le B+) : ou va chaque ligne de la liste
+      if (lot_["distribution"].size() > 0 && tab_item("Répartition")) {
+        ImGui::BeginChild("lot_distribution_tab");
+        draw_distribution(app);
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+      }
       if (tab_item("Modifier le lot")) {
         ImGui::BeginChild("lot_edit_tab");
         draw_lot_info(app);
@@ -967,6 +974,124 @@ class LotAdminWindow final : public AppWindow {
         }
       }
       ImGui::EndTable();
+    }
+
+    // Onglet « Répartition » : la liste du referentiel (ex : B+) repartie entre les sacs de ce lot, lot par lot.
+    // Le type de chaque sac donne la repartition par defaut ; une ligne peut changer de sac ou etre coupee en deux.
+    void draw_distribution(App &app) {
+      const std::string source = lot_["id"].str() + lot_["distribution"].dump();
+      if (distribution_source_ != source) {
+        distribution_source_ = source;
+        distribution_.clear();
+        for (const Json &group : lot_["distribution"].items())
+          for (const Json &line : group["lines"].items())
+            for (const Json &place : line["places"].items())
+              distribution_[group["referentiel"].str() + "|" + line["type"].str() + "|" + place["lot"].str()] = {
+                static_cast< int >(place["quantity"].integer()), place["location"].str()
+              };
+      }
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled("La liste du référentiel répartie entre les sacs de ce lot. Le type de chaque sac donne la "
+                          "répartition par défaut ; ici, elle ne vaut que pour ce lot (ex : la cardio-pompe dans le "
+                          "sac d'O2 de ce lot, dans le sac de soin d'un autre).");
+      ImGui::PopTextWrapPos();
+      for (const Json &group : lot_["distribution"].items()) {
+        const std::string referentiel = group["referentiel"].str();
+        ImGui::PushID(referentiel.c_str());
+        ImGui::SeparatorText(("Liste " + group["referentiel_name"].str()).c_str());
+        const int sacs = static_cast< int >(group["sacs"].size());
+        // lignes mal placees (le serveur en compte moins que la liste) en haut ; ordre fixe pendant la saisie
+        std::vector< const Json * > lines;
+        for (const Json &line : group["lines"].items())
+          lines.push_back(&line);
+        std::stable_sort(lines.begin(), lines.end(), [](const Json *a, const Json *b) {
+          return (*a)["placed"].integer() < (*a)["required"].integer()
+              && (*b)["placed"].integer() >= (*b)["required"].integer();
+        });
+        int missing = 0;
+        if (ImGui::BeginTable("distribution", sacs + 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+          ImGui::TableSetupColumn("Liste", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+          ImGui::TableSetupColumn("Nb", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+          for (const Json &sac : group["sacs"].items())
+            ImGui::TableSetupColumn(sac["lot_type_name"].str().c_str(), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+          ImGui::TableSetupColumn("Placés", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+          ImGui::TableHeadersRow();
+          for (const Json *row : lines) {
+            const Json       &line = *row;
+            const std::string type = line["type"].str();
+            ImGui::PushID(type.c_str());
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextWrapped("%s", line["type_name"].str().c_str());
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("%d", static_cast< int >(line["required"].integer()));
+            int placed = 0;
+            for (const Json &sac : group["sacs"].items()) {
+              ImGui::TableNextColumn();
+              ImGui::PushID(sac["id"].str().c_str());
+              DistributionCell &cell = distribution_[referentiel + "|" + type + "|" + sac["id"].str()];
+              ImGui::SetNextItemWidth(-FLT_MIN);
+              if (ImGui::InputInt("##quantity", &cell.quantity, 1, 1))
+                cell.quantity = std::clamp(cell.quantity, 0, 999);
+              if (cell.quantity > 0) {
+                std::vector< std::string > places;
+                for (const Json &location : sac["locations"].items())
+                  places.push_back(location.str());
+                input_suggest("location", cell.location, places, 64, "Sans emplacement");
+              }
+              placed += cell.quantity;
+              ImGui::PopID();
+            }
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            const int required = static_cast< int >(line["required"].integer());
+            if (placed < required) {
+              ++missing;
+              ImGui::TextColored(colors::red, "%d/%d", placed, required);
+            } else if (placed > required) {
+              ImGui::TextColored(colors::blue, "%d + %d", required, placed - required);
+            } else {
+              ImGui::TextColored(colors::green, "%d", placed);
+            }
+            ImGui::PopID();
+          }
+          ImGui::EndTable();
+        }
+        if (missing > 0)
+          ImGui::TextColored(colors::red, "%s de la liste dans aucun sac : elle%s manquera%s à la vérif.",
+                             nb(missing, "ligne").c_str(), missing > 1 ? "s" : "", missing > 1 ? "nt" : "");
+        if (primary_button("Enregistrer la répartition")) {
+          Json body;
+          body["referentiel"] = referentiel;
+          body["rows"]        = Json::array();
+          for (const Json &line : group["lines"].items())
+            for (const Json &sac : group["sacs"].items()) {
+              const DistributionCell &cell = distribution_[referentiel + "|" + line["type"].str() + "|" + sac["id"].str()];
+              Json entry;
+              entry["lot"]      = sac["id"].str();
+              entry["type"]     = line["type"].str();
+              entry["quantity"] = cell.quantity;
+              entry["location"] = cell.location;
+              body["rows"].push_back(entry);
+            }
+          app.api.put("/api/lots/" + url_encode(selected_lot_) + "/distribution/", body,
+                      [this, &app](const ApiResult &result) {
+                        if (!result.ok) {
+                          app.notify(result.error, true);
+                          return;
+                        }
+                        lot_ = result.data;
+                        app.notify("Répartition enregistrée.");
+                        app.refresh_lots();
+                      });
+        }
+        ImGui::SameLine();
+        if (button("Annuler les changements"))
+          distribution_source_.clear();
+        ImGui::PopID();
+      }
     }
 
     void draw_lot_labels(App &app) {
@@ -1338,6 +1463,14 @@ class LotAdminWindow final : public AppWindow {
         const auto found = std::find_if(content_.begin(), content_.end(),
                                         [&](const LotContentRow &line) { return line.type == row["type"].str(); });
         const int extra = static_cast< int >(row["extra"].integer());
+        if (found != content_.end() && row["removed"].integer() > 0) {
+          // reparti dans un autre sac (onglet Repartition du lot global) : le serveur garde ce retrait
+          found->base -= static_cast< int >(row["removed"].integer());
+          if (found->base <= 0) {
+            content_.erase(found);
+            continue;
+          }
+        }
         if (found == content_.end()) {
           if (extra > 0)
             content_.push_back({ row["type"].str(), 0, extra, row["location"].str(), "" });
@@ -2072,6 +2205,12 @@ class LotAdminWindow final : public AppWindow {
     std::vector< RequirementRow > requirements_;
     std::vector< std::string >    locations_; // emplacements du type de lot, dans l'ordre de la verif
     // Contenu propre au lot affiche
+    struct DistributionCell {
+      int         quantity = 0;
+      std::string location;
+    };
+    std::map< std::string, DistributionCell > distribution_; // referentiel|type|sac -> quantite et emplacement
+    std::string                               distribution_source_;
     std::string                  content_source_; // lot et type d'ou viennent les lignes (rechargees s'ils changent)
     std::vector< LotContentRow > content_;
     std::vector< std::string >   content_locations_; // ordre des emplacements du lot
