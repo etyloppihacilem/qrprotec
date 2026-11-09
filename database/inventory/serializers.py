@@ -650,6 +650,7 @@ def lot_list(lots, local=False, today=None, attention=False):
         row = lot_dict(lot, local=local, today=today, with_global=False, preload=preload)
         row['depth'] = depth
         row['root'] = root.id
+        row['description'] = lot.lot_type.description  # recherche de la page « Départ » (autres noms, marques)
         rows.append(row)
         trees.setdefault(root.id, []).append(row)
     for root_id, tree in trees.items():

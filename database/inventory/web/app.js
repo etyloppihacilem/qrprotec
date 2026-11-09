@@ -3248,9 +3248,9 @@
 
   const badge = credentials;
   const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock', reports: 'signalements', lists: 'listes',
-    debug: 'debug' };
+    depart: 'depart', debug: 'debug' };
   const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'Gestion de la TECH',
-    reports: 'Signalements', lists: 'Listes de matériel', debug: 'Debug des codes' };
+    reports: 'Signalements', lists: 'Listes de matériel', depart: 'Départ', debug: 'Debug des codes' };
   // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
   const hasNotifications = () => !!state.user && (state.user.notifications !== undefined ? !!state.user.notifications : canSeeStock());
 
@@ -3283,6 +3283,7 @@
     if (page === 'debug' && isAdmin() && !debug.data) loadDebug();
     if (page === 'live') watchStart(); else watchStop();
     if (page === 'lists') listsShown(); else { clearInterval(lists.timer); lists.timer = 0; }
+    if (page === 'depart') departShown();
     renderHomePage();
     $('#home-pages').scrollTop = 0;
   }
@@ -3408,6 +3409,7 @@
     state.reports = null;
     lists.index = null;
     lists.list = null;
+    Object.assign(depart, { lists: null, tab: 'lots' });
     if (inHome() && ['live', 'stock', 'reports', 'lists'].includes(state.homePage)) showHome('menu', false);
     render();
   }
@@ -3536,19 +3538,14 @@
     if (page === 'live') renderLive();
     if (page === 'reports') renderReports();
     if (page === 'lists') renderListsPage();
+    if (page === 'depart') renderDepartPage();
     if (page === 'debug') renderDebugPage();
   }
 
-  function renderLotsPage() {
-    const view = $('#home-lots');
-    const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'Lots'),
-      el('button', { type: 'button', onclick: loadLots }, icon('refresh'), state.loading === 'lots' ? 'Chargement…' : 'Actualiser'))];
-    if (!state.lots) {
-      parts.push(el('p', { class: 'hint' }, state.loading === 'lots' ? 'Chargement des lots…' : 'Liste non chargée.'));
-      view.replaceChildren(...parts);
-      return;
-    }
-    parts.push(el('p', { class: 'hint' }, "Touchez un lot pour l'ouvrir. Un lot global affiche l'état de l'ensemble de ses sous-lots."));
+  // Lignes des lots de state.lots (page « État des lots », onglet Lots de « Départ ») : etat, derniere vérif,
+  // sous-lots replies sous un lot valide. rerender redessine la page apres un depli. flat : resultat de recherche,
+  // sans retrait ni depli, le lot parent ecrit en dessous.
+  function lotRows(rerender) {
     const tags = { ok: 'green', warn: 'orange', bad: 'red' };
     // lot global : son etat est celui de l'ensemble de ses lots
     const statusOf = (lot) => (!lot.depth && lot.global ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot));
@@ -3575,7 +3572,7 @@
       }
       return false;
     };
-    const lotRow = (lot) => {
+    const lotRow = (lot, flat = false) => {
       const top = !lot.depth && lot.global;
       const status = statusOf(lot);
       const verif = top ? lot.global.last_verif : lot.last_verif;
@@ -3583,16 +3580,31 @@
       const fold = subs && el('button', { type: 'button', class: 'lot-fold' + (folded(lot) ? '' : ' open'),
         title: folded(lot) ? 'Afficher les sous-lots' : 'Replier les sous-lots',
         'aria-label': folded(lot) ? 'Afficher les sous-lots' : 'Replier les sous-lots',
-        onclick: (event) => { event.stopPropagation(); state.lotFolds.set(lot.id, !folded(lot)); renderLotsPage(); } });
-      return el('li', { class: status.kind, style: lot.depth ? `padding-left:${12 + lot.depth * 16}px` : null,
+        onclick: (event) => { event.stopPropagation(); state.lotFolds.set(lot.id, !folded(lot)); rerender(); } });
+      const indent = !flat && lot.depth;
+      return el('li', { class: status.kind, style: indent ? `padding-left:${12 + lot.depth * 16}px` : null,
         onclick: () => openLot(lot.id) },
-        fold || null,
+        (!flat && fold) || null,
         el('div', { class: 'main' },
-          el('div', { class: 'name' }, (lot.depth ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
-          el('div', { class: 'sub' }, `${lot.lot_type_name}${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : `
-            + (verif ? fmtDateTime(verif) : 'jamais'))),
+          el('div', { class: 'name' }, (indent ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
+          el('div', { class: 'sub' }, `${flat && lot.parent_name ? `dans ${lot.parent_name} · ` : ''}${lot.lot_type_name}`
+            + `${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : ` + (verif ? fmtDateTime(verif) : 'jamais'))),
         el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]));
     };
+    return { lotRow, hidden };
+  }
+
+  function renderLotsPage() {
+    const view = $('#home-lots');
+    const parts = [el('div', { class: 'row-head' }, el('h3', {}, 'Lots'),
+      el('button', { type: 'button', onclick: loadLots }, icon('refresh'), state.loading === 'lots' ? 'Chargement…' : 'Actualiser'))];
+    if (!state.lots) {
+      parts.push(el('p', { class: 'hint' }, state.loading === 'lots' ? 'Chargement des lots…' : 'Liste non chargée.'));
+      view.replaceChildren(...parts);
+      return;
+    }
+    parts.push(el('p', { class: 'hint' }, "Touchez un lot pour l'ouvrir. Un lot global affiche l'état de l'ensemble de ses sous-lots."));
+    const { lotRow, hidden } = lotRows(renderLotsPage);
     // rangements du stock dans leur propre tableau, sous celui des lots, seulement si la case est cochee (sinon
     // seul le rangement en cours reste dans le tableau des lots)
     // case cochee par defaut en gestion et admin, decochee sinon (de nouveau a chaque changement de role)
@@ -3601,7 +3613,7 @@
       state.showStorage = state.storageRole;
     }
     const lots = state.lots.filter((lot) => (!lot.storage || (!state.showStorage && lot.id === state.lotId)) && !hidden(lot));
-    parts.push(el('ul', { class: 'list' }, ...lots.map(lotRow)));
+    parts.push(el('ul', { class: 'list' }, ...lots.map((lot) => lotRow(lot))));
     parts.push(el('label', { class: 'check' },
       el('input', { type: 'checkbox', checked: state.showStorage ? '' : null,
         onchange: (event) => { state.showStorage = event.target.checked; renderLotsPage(); } }),
@@ -3609,7 +3621,7 @@
     if (state.showStorage) {
       const storage = state.lots.filter((lot) => lot.storage && !hidden(lot));
       parts.push(el('div', { class: 'row-head storage-head' }, el('h3', {}, 'Rangements du stock')));
-      parts.push(storage.length ? el('ul', { class: 'list' }, ...storage.map(lotRow))
+      parts.push(storage.length ? el('ul', { class: 'list' }, ...storage.map((lot) => lotRow(lot)))
         : el('p', { class: 'hint' }, 'Aucun rangement du stock.'));
     }
     view.replaceChildren(...parts);
@@ -6568,6 +6580,124 @@
         el('span', { class: 'tag ' + (row.available_ok ? 'green' : row.available ? 'orange' : 'gray') }, 'Partir')))));
   }
 
+  // ------------------------------------------------------------------------------------------------
+  // « Départ » (pour un poste de secours) : onglet 1, les listes de matériel attribuées au secouriste connecté et
+  // pas encore rentrées ; onglet 2, les lots avec une recherche. Onglet 2 par défaut sans liste attribuée.
+
+  const depart = {
+    tab: '',        // 'lists' | 'lots' ; '' : choisi a la reception des listes
+    lists: null,    // listes attribuees (null : pas encore lues)
+    busy: false,
+    query: '',
+    input: null,    // champ de recherche garde d'un rendu a l'autre (le clavier du telephone reste ouvert)
+  };
+
+  function departShown() {
+    depart.tab = state.user ? '' : 'lots';
+    if (state.loading !== 'lots') loadLots(); // etat des lots a jour a chaque ouverture de la page
+    if (state.user) loadDepartLists();
+  }
+
+  async function loadDepartLists() {
+    depart.busy = true;
+    renderDepartPage();
+    try {
+      const data = await api('checklists/list/', { user: badge(), show: 'assigned' });
+      // a preparer d'abord (c'est pour partir), puis les listes sorties dont le retour reste a faire
+      depart.lists = data.lists.slice().sort((a, b) => (a.status === 'draft' ? 0 : 1) - (b.status === 'draft' ? 0 : 1));
+    } catch (e) {
+      depart.lists = depart.lists || [];
+      toast('Listes : ' + e.message, true);
+    } finally {
+      depart.busy = false;
+      if (!depart.tab) depart.tab = depart.lists && depart.lists.length ? 'lists' : 'lots';
+      renderDepartPage();
+    }
+  }
+
+  function departListsTab() {
+    if (!state.user) {
+      return [
+        el('p', { class: 'hint' }, 'Connectez-vous pour voir les listes de matériel qui vous sont attribuées.'),
+        el('button', { type: 'button', class: 'primary', onclick: () => openReader('depart') }, 'Scanner mon badge'),
+        el('button', { type: 'button', class: 'secondary list-gap', onclick: () => { pendingAfterLogin = 'depart'; loginAction = null; openNameLogin(); } },
+          'Sans badge : nom et code PIN'),
+      ];
+    }
+    if (!depart.lists) return [el('p', { class: 'hint' }, 'Chargement des listes…')];
+    if (!depart.lists.length) {
+      return [el('p', { class: 'hint' }, "Aucune liste de matériel ne vous est attribuée pour l'instant. Un chef peut vous en "
+        + 'attribuer une, ou ouvrez son lien ou son QR code. Sinon, prenez un lot dans l\'onglet « Lots ».')];
+    }
+    return [
+      el('p', { class: 'hint' }, 'Touchez la liste du poste pour scanner le matériel demandé avant de partir.'),
+      el('ul', { class: 'list' }, ...depart.lists.map((row) => el('li', { onclick: () => openList(row.id) },
+        el('div', { class: 'main' },
+          el('div', { class: 'name' }, row.name),
+          el('div', { class: 'sub' }, [row.owner_name, `${row.done_count}/${nb(row.line_count, 'ligne prête', 'lignes prêtes')}`,
+            'modifiée ' + fmtDateTime(row.updated)].join(' · '))),
+        el('span', { class: 'tag ' + (LIST_TAGS[row.status] || 'blue') }, row.status_label)))),
+    ];
+  }
+
+  // lots trouves par la recherche (nom, type, description ; id pour les admins), les plus proches d'abord, puis
+  // dans l'ordre de state.lots (lots a traiter en haut)
+  function departLotResults() {
+    if (!state.lots) {
+      return el('p', { class: 'hint' }, state.loading === 'lots' ? 'Chargement des lots…' : 'Liste non chargée.');
+    }
+    const { lotRow, hidden } = lotRows(renderDepartPage);
+    const lots = state.lots.filter((lot) => !lot.storage);
+    const words = searchKey(depart.query).split(/\s+/).filter(Boolean);
+    if (!words.length) return el('ul', { class: 'list' }, ...lots.filter((lot) => !hidden(lot)).map((lot) => lotRow(lot)));
+    const found = lots.map((lot, index) => ({ lot, index, score: searchScore({ label: lot.name,
+      key: lot.lot_type_name + (isAdmin() ? ' ' + lot.id : ''), description: lot.description }, words) }))
+      .filter((row) => row.score >= 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+    if (!found.length) return el('p', { class: 'hint' }, 'Aucun lot trouvé.');
+    return el('ul', { class: 'list' }, ...found.map((row) => lotRow(row.lot, true)));
+  }
+
+  function departLotsTab() {
+    if (!depart.input) {
+      depart.input = el('input', { type: 'search', class: 'depart-search', placeholder: '🔍 Rechercher un lot : nom, type…',
+        autocomplete: 'off', 'aria-label': 'Rechercher un lot' });
+      depart.input.addEventListener('input', () => {
+        depart.query = depart.input.value;
+        const results = $('#depart-results');
+        if (results) results.replaceChildren(departLotResults());
+      });
+    }
+    depart.input.value = depart.query;
+    return [
+      depart.input,
+      el('p', { class: 'hint' }, 'Touchez un lot pour ouvrir sa fiche et lancer sa vérif.'),
+      el('div', { id: 'depart-results' }, departLotResults()),
+    ];
+  }
+
+  function renderDepartPage() {
+    const view = $('#home-depart');
+    if (!view || !inHome() || state.homePage !== 'depart') return;
+    // saisie en cours : seuls les resultats changent, le champ garde son focus
+    if (depart.tab === 'lots' && depart.input && document.activeElement === depart.input && $('#depart-results')) {
+      $('#depart-results').replaceChildren(departLotResults());
+      return;
+    }
+    const count = depart.lists ? depart.lists.length : 0;
+    const choose = (tab) => () => { depart.tab = tab; renderDepartPage(); };
+    const parts = [
+      el('div', { class: 'segmented' },
+        el('button', { type: 'button', class: depart.tab === 'lists' ? 'active' : '', onclick: choose('lists') },
+          count > 1 ? `Mes listes (${count})` : 'Ma liste'),
+        el('button', { type: 'button', class: depart.tab === 'lots' ? 'active' : '', onclick: choose('lots') }, 'Lots')),
+    ];
+    if (depart.tab === 'lists') parts.push(...departListsTab());
+    else if (depart.tab === 'lots') parts.push(...departLotsTab());
+    else parts.push(el('p', { class: 'hint' }, 'Chargement…'));
+    view.replaceChildren(...parts);
+  }
+
   function listIndex() {
     const data = lists.index;
     const choose = (show) => { lists.show = show; loadLists(); };
@@ -6849,6 +6979,24 @@
   // items : { key, label, sub?, kind?, description? } ; kind ({ id, label, order }) : genre du resultat (lot, lot au
   // choix, materiel) affiche en pastille quand une meme recherche melange plusieurs genres. La description (marques,
   // autres noms) est cherchee aussi, en priorite moindre : apres tout ce qui correspond par le nom ou le code.
+  // score >= 1 par mot trouve dans le nom ou le code ; un mot trouve seulement dans la description fait passer
+  // le resultat sous tous ceux trouves par le nom (score < 1), -1 si un mot n'est nulle part
+  function searchScore(item, words) {
+    const label = searchKey(item.label);
+    const key = searchKey(item.key + ' ' + (item.sub || ''));
+    const description = searchKey(item.description);
+    const starts = label.split(/[^a-z0-9]+/);
+    let total = 0;
+    let inDescription = false;
+    for (const word of words) {
+      if (starts.some((part) => part.startsWith(word))) total += label.startsWith(word) ? 3 : 2;
+      else if (label.includes(word) || key.includes(word)) total += 1;
+      else if (description.includes(word)) inDescription = true;
+      else return -1;
+    }
+    return inDescription ? total / 1000 : total;
+  }
+
   function searchPicker(placeholder, items, onPick, limit = 8) {
     const input = el('input', { type: 'search', class: 'picker-input', placeholder, autocomplete: 'off' });
     const results = el('ul', { class: 'picker-results', hidden: '' });
@@ -6859,23 +7007,7 @@
       const line = String(text || '').split('\n')[0].trim();
       return line.length > 40 ? line.slice(0, 40) + '…' : line;
     };
-    // score >= 1 par mot trouve dans le nom ou le code ; un mot trouve seulement dans la description fait passer
-    // le resultat sous tous ceux trouves par le nom (score < 1), -1 si un mot n'est nulle part
-    const score = (item, words) => {
-      const label = searchKey(item.label);
-      const key = searchKey(item.key + ' ' + (item.sub || ''));
-      const description = searchKey(item.description);
-      const starts = label.split(/[^a-z0-9]+/);
-      let total = 0;
-      let inDescription = false;
-      for (const word of words) {
-        if (starts.some((part) => part.startsWith(word))) total += label.startsWith(word) ? 3 : 2;
-        else if (label.includes(word) || key.includes(word)) total += 1;
-        else if (description.includes(word)) inDescription = true;
-        else return -1;
-      }
-      return inDescription ? total / 1000 : total;
-    };
+    const score = searchScore;
     const update = () => {
       const words = searchKey(input.value).split(/\s+/).filter(Boolean);
       const scored = items.map((item) => ({ item, score: score(item, words) })).filter((row) => row.score >= 0);

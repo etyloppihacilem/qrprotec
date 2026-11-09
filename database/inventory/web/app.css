@@ -728,3 +728,7 @@ dialog.big-popup p { font-size: 1.05rem; }
 .settings-check input { margin-top: 3px; }
 /* QR code de connexion temporaire (outil de debug) : dans la fenetre */
 #temp-login .debug-qr { width: min(100%, 52dvh, 420px); margin: 0 auto; }
+/* page « Départ » : recherche des lots */
+#home-depart .depart-search { width: 100%; box-sizing: border-box; font: inherit; font-size: 1rem; padding: 10px 12px; margin: 8px 0 2px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+#home-depart .list-gap { display: block; margin-top: 8px; }

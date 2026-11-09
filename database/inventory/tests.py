@@ -22,8 +22,8 @@ from . import idendity
 from . import lot_sheet
 from . import services
 from .models import (
-    ABSENCE_KINDS, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, MovementKind,
-    Operation, Secouristes, STOCK_LOT_TYPE, Verifs, compact_iid, expand_iid,
+    ABSENCE_KINDS, Checklist, ChecklistStatus, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType,
+    LotRequirements, Lots, LotType, MovementKind, Operation, Secouristes, STOCK_LOT_TYPE, Verifs, compact_iid, expand_iid,
 )
 
 LOCAL = {'qrprotec.role': 'local'}
@@ -5186,6 +5186,20 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 400)
         code, _ = self.as_(self.chief, path + 'members/', {'add': ['X999']})
         self.assertEqual(code, 400)
+
+    def test_assigned_for_departure(self):
+        """Page « Départ » : listes attribuees (members) et pas encore rentrees, pas celles de l'auteur seul."""
+        mine = self.new_list()
+        other = self.new_list()
+        code, body = self.as_(self.chief, '/api/checklists/list/', {'show': 'assigned'})
+        self.assertEqual((code, body['lists']), (200, []))  # auteur, pas attribuee
+        for checklist in (mine, other):
+            self.as_(self.chief, f"/api/checklists/{checklist['id']}/members/", {'add': ['M002']})
+        code, body = self.as_(self.other, '/api/checklists/list/', {'show': 'assigned'})
+        self.assertEqual({row['id'] for row in body['lists']}, {mine['id'], other['id']})
+        Checklist.objects.filter(id=other['id']).update(status=ChecklistStatus.RETURNED)
+        code, body = self.as_(self.other, '/api/checklists/list/', {'show': 'assigned'})
+        self.assertEqual([row['id'] for row in body['lists']], [mine['id']])
 
     def test_user_search(self):
         for matricule, prenom, nom in (('M003', 'Paul', 'Muller'), ('M004', 'Émilie', 'Roux'),

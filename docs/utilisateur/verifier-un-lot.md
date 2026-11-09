@@ -145,7 +145,10 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
   compte rendu, d'où les noms de lots ouvrent leur fiche. Pratique pour le chef de poste qui veut
   confirmer que ses équipiers ont fait leur vérif. Badge demandé.
 - **État des lots** : tous les lots et leur état ; toucher un lot l'ouvre.
-- **Gestion de la TECH** (tâches, état des stocks, prévisions) : rôles gestion et admin (badge demandé, grisé pour les autres).
+- **Départ** (pour un poste de secours) : onglet **Ma liste**, les listes de matériel qui vous sont
+  attribuées et pas encore rentrées (touchez-la pour scanner le matériel demandé) ; onglet **Lots**, tous
+  les lots avec une barre de recherche (nom, type). Sans liste attribuée, la page s'ouvre sur l'onglet Lots.
+- **Listes de matériel** et **Signalements**, puis tout en bas **Gestion de la TECH** (tâches, état des stocks, prévisions) : rôles gestion et admin (badge demandé, grisé pour les autres).
 - ⚙ : vos réglages, une fois connecté : **code PIN** (le choisir, le changer avec l'ancien, ou le
   supprimer s'il n'est pas obligatoire : jamais pour un admin, ni quand le TECH l'a imposé ; case
   **Demander à chaque connexion** : décochée, le code ne sert qu'à se connecter sans badge), puis

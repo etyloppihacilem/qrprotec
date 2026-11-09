@@ -705,12 +705,15 @@ def checklist_dict(checklist, user=None, full=True):
 def visible(user, show='mine'):
     """Listes affichees : les siennes et celles qui lui sont attribuees, les modeles (de tous, seulement dans l'onglet
     Modeles), ou toutes les listes ; modeles et toutes les listes pour les chefs, la gestion et les admins. Les
-    modeles ne sont ni dans « Mes listes » ni dans « Toutes »."""
+    modeles ne sont ni dans « Mes listes » ni dans « Toutes ». « assigned » : celles qui lui sont attribuees (members)
+    et pas encore rentrees, pour la page « Départ » du web."""
     queryset = Checklist.objects.select_related('owner').prefetch_related(
         'lines__lot', 'lines__item_type', 'scans__item__pack__item_type', 'scans__lot')
     if show == 'templates':
         return queryset.filter(is_template=True) if can_make_lists(user) else queryset.none()
     queryset = queryset.filter(is_template=False)
+    if show == 'assigned':  # page « Départ » : listes attribuees (members), pas encore rentrees
+        return queryset.filter(members=user, status__in=(ChecklistStatus.DRAFT, ChecklistStatus.VALIDATED)).distinct()
     if show == 'all' and can_make_lists(user):
         return queryset
     return queryset.filter(Q(owner=user) | Q(members=user)).distinct()
