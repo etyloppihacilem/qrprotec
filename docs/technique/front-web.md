@@ -93,8 +93,8 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   (`depart.selected`, `lotRows(rerender, pick)`) puis « Partir avec N lots » → `POST api/checklists/departure/
   {lots: [ids]}` (liste à préparer, lignes lot, l'utilisateur attribué) ouverte pour scanner ; `{blocked: true}`
   donne les lots non cochables (pris par une liste, place fixe dans leur lot) ; onglet Lots
-  par défaut sans liste attribuée ou sans connexion), puis en larges tuiles Listes de matériel, Signalements et,
-  tout en bas, **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
+  par défaut sans liste attribuée ou sans connexion) et Listes de matériel, puis en larges tuiles Signalements,
+  État des lots et, tout en bas, **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
   Chaque page a son ancre (`#lots`, `#suivi`, `#depart`, `#stock`, `#scan`) : le bouton retour du téléphone
   ramène à l'accueil. Le bouton ⚙ (**réglages**, dès qu'un utilisateur est connecté)
   ouvre la case **Bulle de connexion** (`renderLoginSettings`, réglage `login_bubble` de `web_prefs` ;
