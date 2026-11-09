@@ -3438,6 +3438,39 @@ class RecentVerifsTests(ApiTestCase):
         self.assertEqual(grouped['present'], 4)
         self.assertEqual(grouped['by'], 'Admin')  # nom court de l'API publique (prenom seul, pas d'homonyme)
 
+    def test_recent_verifs_join_the_steps_of_a_cascade(self):
+        sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
+        sub.save()
+        other = Lots(lot_type=self.lot_type, name='Trousse', name_short='T', created_by='test')
+        other.save()
+        items = self.create(self.compresses, self.today + timedelta(days=200), 3)
+        self.call('POST', f'/api/lots/{sub.id}/add/', {'items': [items[0].iid]})
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [items[1].iid]})
+        self.call('POST', f'/api/lots/{other.id}/add/', {'items': [items[2].iid]})
+        # cascade : le sac valide a part, puis le lot du haut ; une autre verif ensuite sur un autre lot
+        self.call('POST', '/api/verifs/', {'lots': [{'id': sub.id}], 'items': [items[0].iid]})
+        self.call('POST', '/api/verifs/', {'lots': [{'id': self.lot.id}], 'items': [items[1].iid], 'exclude': [sub.id]})
+        self.call('POST', '/api/verifs/', {'lots': [{'id': other.id}], 'items': [items[2].iid]})
+        badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
+        _, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
+        self.assertEqual(len(rows), 2)
+        trousse, cascade = rows
+        self.assertEqual([lot['id'] for lot in trousse['top']], [other.id])
+        self.assertEqual({lot['id'] for lot in cascade['lots']}, {self.lot.id, sub.id})
+        self.assertEqual([lot['id'] for lot in cascade['top']], [self.lot.id])
+        self.assertEqual(len(cascade['ids']), 2)
+        self.assertEqual(cascade['present'], 2)
+        # une nouvelle vérif du sac juste après : une autre ligne, le sac est déjà dans la cascade
+        self.call('POST', '/api/verifs/', {'lots': [{'id': sub.id}], 'items': [items[0].iid]})
+        _, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
+        self.assertEqual([[lot['id'] for lot in row['top']] for row in rows], [[sub.id], [other.id], [self.lot.id]])
+        # étape plus vieille que CASCADE_GAP : plus dans la même vérif
+        first_step = Verifs.objects.filter(lot=sub).order_by('id').first()
+        Verifs.objects.filter(id=first_step.id).update(datetime=timezone.now() - timedelta(hours=2))
+        _, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
+        self.assertEqual([row['ids'] for row in rows][-1], [first_step.id])
+        self.assertEqual(len(rows), 4)
+
     def test_verif_report_lists_each_lot_of_a_grouped_verif(self):
         sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
         sub.save()

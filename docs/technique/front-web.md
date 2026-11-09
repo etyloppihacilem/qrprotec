@@ -127,7 +127,7 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   survivre à un rechargement ; la page de suivi ouvre `/ws/live/watch` (badge exigé) et reçoit les
   mises à jour, puis l'historique par `POST api/verifs/recent/`. Un clic n'importe où sur une ligne de
   l'historique (ou sur une carte « En direct » terminée) ouvre le compte rendu de la vérif
-  (`POST api/verifs/<id>/report/`, `#verif-report`) : leurs titres n'ont pas de lien, ce sont les noms
+  (`POST api/verifs/<id>/report/` pour chaque étape de `ids`, réunies en un seul arbre, `#verif-report`) : leurs titres n'ont pas de lien, ce sont les noms
   de lots du compte rendu qui ouvrent la fiche du lot.
 - **Fiche de lot selon le rôle** : `detailed()` (gestion, admin) garde l'état détaillé, la ligne
   « Dernière vérif … par », la prochaine révision, le lot global et la raison d'une vérif recommandée.

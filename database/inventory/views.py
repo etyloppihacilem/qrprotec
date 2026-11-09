@@ -1110,43 +1110,69 @@ def verifs(request):
 
 
 RECENT_VERIFS = 30
+# etapes d'une meme verif en cascade (VPS > armoire > sac, chaque sous-lot valide a part) : meme personne, meme lot du
+# haut, chacune a moins de CASCADE_GAP de la precedente et sans revoir un lot deja valide
+CASCADE_GAP = timedelta(minutes=30)
 
 
 @api_view(['POST'])
 @handle_errors
 def verifs_recent(request):
     """Dernieres verifs de lots (page « Suivi des vérifs ») : tout badge valide. Une verif groupee (meme instant,
-    meme personne) forme une seule ligne avec la liste de ses lots."""
+    meme personne) et les etapes d'une verif en cascade forment une seule ligne avec la liste de ses lots ; "ids" :
+    une verif par etape, que le compte rendu reunit."""
     badge_user(request)
     limit = parse_int(request.data.get('limit', RECENT_VERIFS), 'limit', 1, 100)
+    parents = dict(Lots.objects.values_list('id', 'parent_id'))
+
+    def root(lot_id):
+        seen = set()
+        while parents.get(lot_id) and lot_id not in seen:
+            seen.add(lot_id)
+            lot_id = parents[lot_id]
+        return lot_id
+
+    # etapes : verifs au meme instant par la meme personne (verif groupee d'un lot et de ses sous-lots)
+    steps = []
+    for verif in Verifs.objects.select_related('lot').filter(lot__isnull=False).order_by('-datetime', '-id')[:limit * 20]:
+        if steps and (steps[-1][0].datetime, steps[-1][0].by) == (verif.datetime, verif.by):
+            steps[-1].append(verif)
+        else:
+            steps.append([verif])
     rows = []
-    for verif in Verifs.objects.select_related('lot').filter(lot__isnull=False).order_by('-datetime', '-id')[:limit * 5]:
+    for step in steps:
+        head = step[0]
+        roots = {root(verif.lot_id) for verif in step}
         last = rows[-1] if rows else None
-        if last and last['_key'] == (verif.datetime, verif.by):
-            last['lots'].append({'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete})
+        same_cascade = (last and last['by_raw'] == head.by and roots == {last['_root']}
+                        and last['_oldest'] - head.datetime <= CASCADE_GAP
+                        and not {verif.lot_id for verif in step} & {lot['id'] for lot in last['lots']})
+        if not same_cascade:
+            if len(rows) >= limit:
+                break
+            last = {'_root': roots.pop() if len(roots) == 1 else None, 'by_raw': head.by, 'id': head.id, 'ids': [],
+                    'at': ser._date(head.datetime), 'by': ser._who(head.by), 'participants': [], 'lots': [],
+                    'complete': True, 'present': 0, 'missing': 0, 'expired': 0,
+                    'replaced': 0}  # replaced : perimes retires du lot, a jeter
+            rows.append(last)
+        last['_oldest'] = head.datetime
+        last['ids'].append(head.id)
+        last['participants'] = list(dict.fromkeys(last['participants'] + [ser._who(value) for value in head.participants]))
+        for verif in step:
+            last['lots'].append({'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete,
+                                 'parent': verif.lot.parent_id})
             last['complete'] = last['complete'] and verif.complete
             last['present'] += verif.present_count
             last['missing'] += verif.missing_count
             last['expired'] += verif.expired_count
             last['replaced'] += verif.replaced_count
-            continue
-        if len(rows) >= limit:
-            break
-        rows.append({
-            '_key': (verif.datetime, verif.by),
-            'id': verif.id,
-            'at': ser._date(verif.datetime),
-            'by': ser._who(verif.by),
-            'participants': [ser._who(value) for value in verif.participants],
-            'lots': [{'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete}],
-            'complete': verif.complete,
-            'present': verif.present_count,
-            'missing': verif.missing_count,
-            'expired': verif.expired_count,
-            'replaced': verif.replaced_count,  # perimes retires du lot, a jeter
-        })
     for row in rows:
-        del row['_key']
+        for key in ('_root', '_oldest', 'by_raw'):
+            del row[key]
+        # les lots du haut de la verif nomment la ligne, leurs sous-lots sont dans le compte rendu
+        ids = {lot['id'] for lot in row['lots']}
+        row['top'] = [lot for lot in row['lots'] if lot['parent'] not in ids]
+        row['participants'] = [who for who in row['participants'] if who != row['by']]
     return Response(rows)
 
 

@@ -4271,10 +4271,13 @@
       parts.push(el('p', { class: 'hint' }, 'Aucune vérif enregistrée.'));
     } else {
       // clic n'importe ou sur la ligne : compte rendu de la vérif, qui mene aux fiches des lots (pas de lien ici)
+      // une ligne par vérif : les étapes d'une cascade (VPS > armoire > sac) réunies, nommée par ses lots du haut
       parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad',
-        title: 'Voir le compte rendu', onclick: () => openVerifReport(row.id) },
+        title: 'Voir le compte rendu', onclick: () => openVerifReport(row.ids || row.id) },
         el('div', { class: 'main' },
-          el('div', { class: 'name' }, row.lots.map((lot) => lot.name).join(', ')),
+          el('div', { class: 'name' }, (row.top || row.lots).map((lot) => lot.name).join(', '),
+            detailed() && row.top && row.lots.length > row.top.length
+              ? el('span', { class: 'sublots' }, ` + ${nb(row.lots.length - row.top.length, 'sous-lot')}`) : null),
           el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${nb(row.present, 'présent')}`
             + (row.missing ? ` · ${nb(row.missing, 'manquant')}` : '') + (row.expired ? ` · ${nb(row.expired, 'périmé')}` : '')
             + (row.replaced ? ` · ${row.replaced} à jeter` : ''))),
