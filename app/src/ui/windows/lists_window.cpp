@@ -31,14 +31,18 @@ ImVec4 status_color(const Json &list) {
   return status == "returned" ? colors::green : status == "validated" ? colors::orange : ImVec4(0.14f, 0.39f, 0.70f, 1.0f);
 }
 
-// Bouton vert (ou orange) avec confirmation en deux temps : confirm_button est reserve aux actions dangereuses
-bool confirm_action(const char *label, const char *question, const char *popup_id, bool warning) {
+// Bouton vert (ou orange) avec confirmation en deux temps : confirm_button est reserve aux actions dangereuses. La
+// question est coupee a la largeur de la fenetre de confirmation ; confirm_label nomme le bouton de confirmation.
+bool confirm_action(const char *label, const std::string &question, const char *popup_id, bool warning,
+                    const char *confirm_label = "Confirmer") {
   if (warning ? warning_button(label) : primary_button(label))
     ImGui::OpenPopup(popup_id);
   bool confirmed = false;
   if (ImGui::BeginPopup(popup_id)) {
-    ImGui::TextUnformatted(question);
-    if (primary_button("Confirmer")) {
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 460.0f);
+    ImGui::TextUnformatted(question.c_str());
+    ImGui::PopTextWrapPos();
+    if (warning ? warning_button(confirm_label) : primary_button(confirm_label)) {
       confirmed = true;
       ImGui::CloseCurrentPopup();
     }
@@ -50,10 +54,57 @@ bool confirm_action(const char *label, const char *question, const char *popup_i
   return confirmed;
 }
 
+// « Compresses ×2, Garrot » : noms regroupes, dans l'ordre de la liste
+std::string grouped_names(const Json &names) {
+  std::vector< std::pair< std::string, int > > counts;
+  for (std::size_t index = 0; index < names.size(); ++index) {
+    const std::string name = names[index].str();
+    auto found = std::find_if(counts.begin(), counts.end(), [&name](const auto &row) { return row.first == name; });
+    if (found == counts.end())
+      counts.emplace_back(name, 1);
+    else
+      ++found->second;
+  }
+  std::string out;
+  for (const auto &[name, count] : counts)
+    out += (out.empty() ? "" : ", ") + name + (count > 1 ? " ×" + std::to_string(count) : std::string());
+  return out;
+}
+
+// Ancienne liste sortie (retour a scanner) : question de « Clôturer le retour », avec ce qui n'est pas rentre et ce
+// qui en sera fait (return_preview du serveur), comme sur le web
+std::string return_question(const Json &preview) {
+  std::string     steps;
+  const Json     &lots  = preview["lots"];
+  const long long nlots = static_cast< long long >(lots.size());
+  if (nlots > 0) {
+    std::string names;
+    for (std::size_t index = 0; index < lots.size(); ++index)
+      names += (index ? ", " : "") + lots[index].str();
+    steps += "- " + names + " : " + pl(nlots, "passe", "passent") + " en vérif recommandée, " + (nlots > 1 ? "leur" : "son")
+             + " contenu a pu servir.\n";
+  }
+  const long long used = static_cast< long long >(preview["used"].size());
+  if (used > 0)
+    steps += "- " + grouped_names(preview["used"]) + " : consommable pas rentré, compté comme utilisé.\n";
+  const long long out = static_cast< long long >(preview["still_out"].size());
+  if (out > 0)
+    steps += "- " + grouped_names(preview["still_out"]) + " : matériel pas rentré, il reste sorti et rentrera en stock au "
+             "prochain scan.\n";
+  if (steps.empty()) {
+    const long long back = preview["back"].integer();
+    return "Clôturer le retour ? Tout est rentré" + (back > 0 ? " (" + nb(back, "scan") + ")" : std::string())
+           + ".\nLa liste est ensuite terminée.";
+  }
+  return "Clôturer le retour sans tout ? Pas encore rentré :\n" + steps
+         + "Du matériel est revenu ? Annulez et scannez-le avant de clôturer. La liste est ensuite terminée.";
+}
+
 // Listes de materiel a prendre (ex : un chef demande du materiel a ses equipiers), meme page que « Listes de
 // matériel » sur le front web : lots et types d'items avec une quantite, partagees par lien et QR code. Le mode scan
 // dirige les scans (douchette, telephone) vers la liste ouverte : verif tant qu'elle est a preparer, retour une fois
-// sortie. Validee, son materiel sort du stock ; « Clôturer le retour » compte les consommables pas rentres utilises.
+// sortie. Validee (« Prêt au départ »), son materiel sort du stock et la liste est terminee ; seules les anciennes
+// listes sorties ont encore un retour a scanner, que « Clôturer le retour » clot.
 class ListsWindow final : public AppWindow {
   public:
     ListsWindow() : AppWindow("lists", "Listes de matériel", false, true) {}
@@ -317,12 +368,13 @@ class ListsWindow final : public AppWindow {
       } else if (status == "validated") {
         ImGui::TextColored(colors::orange, "Sortie %s%s.", display_on(list["validated"]).c_str(),
                            list["validated_by"].str().empty() ? "" : (" par " + list["validated_by"].str()).c_str());
-        ImGui::TextWrapped("Au retour, scannez ce qui rentre (remis en stock), puis clôturez le retour.");
+        ImGui::TextWrapped("Au retour, scannez ce qui rentre (remis en stock), puis cliquez « Clôturer le retour ».");
         draw_scan_toggle(app, "Retour : scanner ce qui rentre");
         ImGui::SameLine();
-        if (confirm_action("Clôturer le retour", "Clôturer le retour ? Les consommables pas rentrés seront comptés "
-                                                 "utilisés, le matériel non consommable pas rentré reste sorti.",
-                           "confirm_return", true))
+        const Json &preview  = list["return_preview"];
+        const bool  all_back = preview["lots"].size() == 0 && preview["used"].size() == 0 && preview["still_out"].size() == 0;
+        if (confirm_action("Clôturer le retour", return_question(preview), "confirm_return", !all_back,
+                           all_back ? "Clôturer le retour" : "Clôturer sans tout"))
           close_return(app);
       } else {
         // status_label : Terminée (rien de sorti), Validée (sortie sans retour a scanner), Rentrée (ancien retour)
@@ -965,9 +1017,15 @@ class ListsWindow final : public AppWindow {
         }
         stop_scan(app);
         message_.clear();
-        const std::size_t still = result.data["still_out"].size();
-        app.notify("Retour clos : " + nb(result.data["used"].size(), "consommable utilisé", "consommables utilisés")
-                   + (still ? ", " + nb(still, "matériel encore sorti", "matériels encore sortis") : std::string()) + ".");
+        std::string done;
+        const auto  add = [&done](std::size_t count, const char *word, const char *plural) {
+          if (count > 0)
+            done += (done.empty() ? "" : ", ") + nb(static_cast< long long >(count), word, plural);
+        };
+        add(result.data["lots"].size(), "lot en vérif recommandée", "lots en vérif recommandée");
+        add(result.data["used"].size(), "consommable utilisé", "consommables utilisés");
+        add(result.data["still_out"].size(), "matériel encore sorti", "matériels encore sortis");
+        app.notify("Retour clôturé : " + (done.empty() ? std::string("tout est rentré") : done) + ".");
         load(app);
       });
     }

@@ -597,16 +597,47 @@ def return_scan(checklist, user, iid='', lot_id=''):
     return message
 
 
+def _return_left(checklist):
+    """Ancienne liste sortie (retour a scanner) : ce que « Clôturer le retour » laisse de cote. Lots sortis et pas
+    rescannes, non scelles (ils passent en vérif recommandee, comme au depart d'aujourd'hui), consommables encore
+    sortis (comptes utilises), non consommables encore sortis (ils rentreront quand on les reverra)."""
+    back = [scan for scan in checklist.scans.all() if scan.phase == ChecklistScan.BACK]
+    back_lots = {scan.lot_id for scan in back if scan.lot_id}
+    back_items = {scan.item_id for scan in back if scan.item_id}
+    out = _out_scans(checklist)
+    lots = list({scan.lot_id: scan.lot for scan in out if scan.lot_id and scan.lot_id not in back_lots
+                 and scan.lot.active and not scan.lot.is_sealed}.values())
+    missing = [scan.item for scan in out if scan.item_id and scan.item_id not in back_items]
+    used = [item for item in missing if item.status == ItemStatus.OUT and item.pack.item_type.consumable]
+    still_out = [item for item in missing if item.status == ItemStatus.OUT and not item.pack.item_type.consumable]
+    return back, lots, used, still_out
+
+
+def return_preview(checklist):
+    """Pour la fenetre « Clôturer le retour ? » (web et poste) : noms de ce qui n'est pas rentre et ce qui en sera fait."""
+    back, lots, used, still_out = _return_left(checklist)
+    return {'back': len(back), 'lots': [lot.name for lot in lots],
+            'used': [item.pack.item_type.name for item in used],
+            'still_out': [item.pack.item_type.name for item in still_out]}
+
+
 def close_return(checklist, user):
-    """Retour clos : les consommables sortis et pas rentres sont comptes utilises, les non consommables restent
-    sortis (ils rentreront quand on les reverra). La liste ne sert plus."""
+    """Retour clos : les lots pas rescannes (non scelles) passent en vérif recommandee comme au depart d'aujourd'hui,
+    les consommables sortis et pas rentres sont comptes utilises, les non consommables restent sortis (ils rentreront
+    quand on les reverra). La liste ne sert plus."""
     _require_return(checklist)
     identity = identity_of(user)
     now = timezone.now()
     with transaction.atomic():
-        back = {scan.item_id for scan in checklist.scans.all() if scan.phase == ChecklistScan.BACK and scan.item_id}
-        missing = [scan.item for scan in _out_scans(checklist) if scan.item_id and scan.item_id not in back]
-        used = [item for item in missing if item.status == ItemStatus.OUT and item.pack.item_type.consumable]
+        back, lots, used, still_out = _return_left(checklist)
+        for lot in lots:
+            if lot.verif_recommended:
+                continue  # deja recommandee : sa raison reste
+            lot.verif_recommended = True
+            lot.back_from_list = checklist.name
+            lot.restocked = now
+            lot.restocked_by = identity
+            lot.save(update_fields=['verif_recommended', 'back_from_list', 'restocked', 'restocked_by'])
         if used:
             ItemMovement.objects.bulk_create([movements.movement(item, MovementKind.USED, now, identity)
                                               for item in used])
@@ -624,7 +655,8 @@ def close_return(checklist, user):
                        f'retour de la liste « {checklist.name} » : {journal.plural(len(back), "rentré")}, '
                        f'{journal.plural(len(used), "utilisé")}',
                        at=now, checklist=checklist.id, items=[item.iid for item in used])
-    return {'used': [item.iid for item in used], 'still_out': [item.iid for item in missing if item not in used]}
+    return {'used': [item.iid for item in used], 'still_out': [item.iid for item in still_out],
+            'lots': [lot.id for lot in lots]}
 
 
 def _scan_dict(scan):
@@ -822,6 +854,8 @@ def checklist_dict(checklist, user=None, full=True):
                                'name': identity_name(format_identity_verified(member.matricule))}
                               for member in checklist.members.all()), key=lambda row: _fold(row['name']))
     data['back'] = [_scan_dict(scan) for scan in back]
+    if checklist.status == ChecklistStatus.VALIDATED and not checklist.is_template:
+        data['return_preview'] = return_preview(checklist)
     return data
 
 

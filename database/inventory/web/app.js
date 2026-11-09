@@ -6398,8 +6398,8 @@
   // ------------------------------------------------------------------------------------------------
   // Listes de materiel (checklists.py) : lots et materiel a prendre (ex : un chef demande du materiel a ses
   // equipiers), partagees par lien et QR code (<base>/liste?id=ID). Elles se verifient en direct, a plusieurs :
-  // chaque scan va tout de suite au serveur et la page relit la liste. Validee, la liste sort son materiel du stock ;
-  // au retour on scanne ce qui rentre, puis « Clôturer le retour » compte le reste comme utilise.
+  // chaque scan va tout de suite au serveur et la page relit la liste. Validee (« Prêt au départ »), la liste sort son
+  // materiel du stock et elle est terminee ; seules les anciennes listes sorties ont encore un retour a scanner.
 
   const LIST_POLL_MS = 3000;
   const LIST_TAGS = { draft: 'blue', validated: 'orange', returned: 'green' };
@@ -6591,9 +6591,10 @@
     placeLotPickCamera();
   }
 
-  // Popup de choix (au lieu d'un confirm du navigateur) : { title, text, choices: [{ label, value, cls }] } ;
-  // renvoie la valeur choisie, null si fermee (Echap, Annuler)
-  function askDialog({ title, text, choices }) {
+  // Popup de choix (au lieu d'un confirm du navigateur) : { title, text, body, choices: [{ label, value, cls }] } ;
+  // body : elements sous le texte (ex : liste de ce qui va se passer). Renvoie la valeur choisie, null si fermee
+  // (Echap, Annuler)
+  function askDialog({ title, text, body, choices }) {
     return new Promise((resolve) => {
       const dialog = el('dialog', { class: 'big-popup ask-dialog' });
       let answered = false;
@@ -6604,7 +6605,7 @@
         dialog.remove();
         resolve(value);
       };
-      dialog.append(el('h2', {}, title), text ? el('p', {}, text) : '',
+      dialog.append(el('h2', {}, title), text ? el('p', {}, text) : '', body || '',
         el('div', { class: 'dialog-stack' }, ...choices.map((choice) => el('button', { type: 'button',
           class: choice.cls || 'secondary', onclick: () => close(choice.value) }, choice.label)),
         el('button', { type: 'button', class: 'secondary', onclick: () => close(null) }, 'Annuler')));
@@ -6644,14 +6645,48 @@
     });
   }
 
-  function closeListReturn() {
-    if (!confirm('Clôturer le retour ? Les consommables pas rentrés seront comptés utilisés, le matériel non '
-      + 'consommable pas rentré reste sorti.')) return;
+  // « Compresses ×2, Garrot » : noms regroupes, dans l'ordre de la liste
+  function groupedNames(names) {
+    const counts = new Map();
+    for (const name of names) counts.set(name, (counts.get(name) || 0) + 1);
+    return [...counts].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name)).join(', ');
+  }
+
+  // Ancienne liste sortie (retour a scanner, d'avant le depart d'aujourd'hui) : meme popup que « Prêt au départ ? »,
+  // avec ce qui n'est pas rentre et ce qui en sera fait (return_preview du serveur)
+  async function closeListReturn() {
+    const preview = lists.list.return_preview || { back: 0, lots: [], used: [], still_out: [] };
+    const steps = [];
+    if (preview.lots.length) {
+      const many = preview.lots.length > 1;
+      steps.push(['🔍', `${preview.lots.join(', ')} : ${many ? 'passent' : 'passe'} en vérif recommandée, `
+        + `${many ? 'leur' : 'son'} contenu a pu servir.`]);
+    }
+    if (preview.used.length) {
+      steps.push(['🩹', `${groupedNames(preview.used)} : consommable pas rentré, compté comme utilisé.`]);
+    }
+    if (preview.still_out.length) {
+      steps.push(['📤', `${groupedNames(preview.still_out)} : matériel pas rentré, il reste sorti et rentrera en stock au prochain scan.`]);
+    }
+    const ok = await askDialog({
+      title: steps.length ? 'Clôturer le retour sans tout ?' : 'Clôturer le retour ?',
+      text: steps.length ? "Pas encore rentré :" : `Tout est rentré${preview.back ? ` (${nb(preview.back, 'scan')})` : ''}.`,
+      body: el('div', {},
+        steps.length ? el('ul', { class: 'verif-help-steps' }, ...steps.map(([emoji, line]) => el('li', {}, el('span', {}, emoji), el('div', {}, line)))) : '',
+        el('p', { class: 'hint' }, (steps.length ? 'Du matériel est revenu ? Annulez et scannez-le avant de clôturer. ' : '')
+          + 'La liste est ensuite terminée.')),
+      choices: [{ label: steps.length ? 'Clôturer sans tout' : 'Clôturer le retour', value: true, cls: steps.length ? 'warning' : 'primary' }],
+    });
+    if (!ok) return;
     listAction('close-return', {}, (result) => {
       stopListScan();
       lists.message = null;
-      toast(`Retour clos : ${nb((result.used || []).length, 'consommable utilisé', 'consommables utilisés')}`
-        + ((result.still_out || []).length ? `, ${nb(result.still_out.length, 'matériel encore sorti', 'matériels encore sortis')}` : '') + '.');
+      feedback.good();
+      const parts = [];
+      if ((result.lots || []).length) parts.push(`${nb(result.lots.length, 'lot')} en vérif recommandée`);
+      if ((result.used || []).length) parts.push(nb(result.used.length, 'consommable utilisé', 'consommables utilisés'));
+      if ((result.still_out || []).length) parts.push(nb(result.still_out.length, 'matériel encore sorti', 'matériels encore sortis'));
+      toast('Retour clôturé' + (parts.length ? ' : ' + parts.join(', ') : ' : tout est rentré') + '.');
     });
   }
 
@@ -7162,7 +7197,7 @@
         icon('check'), list.complete ? 'Prêt au départ' : 'Partir sans tout'));
     } else if (list.status === 'validated') {
       parts.push(el('div', { class: 'banner warn' }, `Sortie ${fmtOn(list.validated)}${list.validated_by ? ' par ' + list.validated_by : ''}. `
-        + 'Au retour, scannez ce qui rentre (remis en stock), puis clôturez le retour.'));
+        + 'Au retour, scannez ce qui rentre (remis en stock), puis touchez « Clôturer le retour ».'));
       buttons.push(lists.mode
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Retour : scanner'));
