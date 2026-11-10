@@ -3631,6 +3631,17 @@ def checklists_users(request):
     return Response({'users': _checklist_call(lambda: checklists.search_users(user, request.data.get('q')))})
 
 
+def _option_lot(lot):
+    """Lot de l'editeur de liste ; un sac d'un B+ de referentiel (sans etiquette) donne son B+ (`unit`) : le choisir
+    ajoute le B+ entier."""
+    from . import checklists
+    row = {'id': lot.id, 'name': lot.name, 'lot_type_name': lot.lot_type.name, 'description': lot.lot_type.description}
+    unit = checklists.lot_unit(lot)
+    if unit.id != lot.id:
+        row['unit'] = {'id': unit.id, 'name': unit.name, 'lot_type_name': unit.lot_type.name}
+    return row
+
+
 @api_view(['POST'])
 @handle_errors
 def checklists_options(request):
@@ -3646,8 +3657,7 @@ def checklists_options(request):
     lot_types = LotType.objects.filter(archived=False, storage=False).order_by('name')
     return Response({
         # description : cherchee aussi, apres les noms (marques, autres noms) ; un lot prend celle de son type
-        'lots': [{'id': lot.id, 'name': lot.name, 'lot_type_name': lot.lot_type.name,
-                  'description': lot.lot_type.description} for lot in lots],
+        'lots': [_option_lot(lot) for lot in lots],
         'types': [{'type': row.type, 'name': row.name, 'consumable': row.consumable, 'description': row.description}
                   for row in types],
         # lignes « n'importe quel lot de ce type »
@@ -3738,6 +3748,10 @@ def checklist_action(request, checklist_id, action=''):
             checklists.unscan(checklist, user, iid, lot)
         else:
             message = checklists.return_scan(checklist, user, iid, lot)
+    elif action == 'remove-part':  # croix d'un sac d'un B+ de referentiel : le B+ separe, ce sac retire
+        if not lot:
+            raise ApiError('Lot attendu')
+        message = _checklist_call(lambda: checklists.remove_part(checklist, user, lot))
     elif action == 'check':
         try:
             line = int(data.get('line'))
