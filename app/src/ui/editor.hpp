@@ -32,6 +32,9 @@ public:
     // file de l'application (adaptation au sens de l'etiquette physique)
     void set_label_title(const std::string &title);
     void set_default_media(double width_mm, double height_mm);
+    // Etiquettes reglees dans les Reglages et support (ruban ou non) : type construit pour les modeles qui n'en
+    // ont pas
+    void set_default_label(const PhysicalLabel &label, LabelSupport support);
     void set_print_callback(std::function< void(const TemplateDocument &) > callback) { print_callback_ = std::move(callback); }
     // Modeles choisis dans les Reglages pour chaque usage (id de categorie -> fichier .qr), signales dans le
     // navigateur d'etiquettes
@@ -161,6 +164,8 @@ private:
     std::string label_title_ = "PROTECTION CIVILE\nPARIS CENTRE";
     double default_width_mm_ = 40.0;
     double default_height_mm_ = 30.0;
+    PhysicalLabel default_label_;
+    LabelSupport default_support_ = LabelSupport::Direct;
     std::function< void(const TemplateDocument &) > print_callback_;
 
     std::string loaded_templates_dir_;

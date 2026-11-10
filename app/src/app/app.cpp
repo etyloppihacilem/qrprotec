@@ -13,6 +13,7 @@
 #include "../core/french.hpp"
 #include "../core/plural.hpp"
 #include "../printer/logging.hpp"
+#include "../render/label_types.hpp"
 
 #include "../ui/inateck.hpp"
 #include "../ui/label_preview.hpp"
@@ -100,6 +101,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
     screen_blank_seconds_ = blank != nullptr ? std::atof(blank) : 1800.0;
   }
   select_default_templates();
+  add_missing_label_types();
   windows.push_back(make_scan_window());
   windows.push_back(make_lots_window());
   windows.push_back(make_verif_window());
@@ -168,6 +170,33 @@ bool App::save_settings() {
   apply_shared_machine();
   notify("Réglages enregistrés.");
   return true;
+}
+
+void App::add_missing_label_types() {
+  const LabelSupport support = settings.print.kind != PrinterKind::NiimbotB1 && settings.print.raw.ribbon
+                               ? LabelSupport::Transfer
+                               : LabelSupport::Direct;
+  std::vector< LabelType >   types;
+  std::vector< std::string > errors;
+  const int updated = qrprotec::add_missing_label_types(settings.physical_label(), support, &types, &errors);
+  for (const std::string &error : errors)
+    error_log("Type d'étiquette non enregistré : " + error, "modèles");
+  if (updated > 0)
+    notify("Type d'étiquette ajouté à " + nb(updated, "modèle") + ".");
+  if (!settings.print.loaded_label_type.empty() || types.empty())
+    return;
+  // rouleau en place : le type le plus courant (celui de presque tous les modeles a l'installation)
+  std::map< std::string, int > counts;
+  for (const LabelType &type : types)
+    ++counts[type.name];
+  const auto common = std::max_element(counts.begin(), counts.end(), [](const auto &a, const auto &b) {
+    return a.second < b.second;
+  });
+  settings.print.loaded_label_type = common->first;
+  std::string error;
+  if (!settings.save(error))
+    notify(error, true);
+  printer.set_loaded_label_type(common->first);
 }
 
 void App::set_loaded_label_type(const std::string &name) {

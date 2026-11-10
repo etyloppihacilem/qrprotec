@@ -264,8 +264,8 @@ class SettingsWindow final : public AppWindow {
             ImGui::EndCombo();
           }
           help_marker("Types d'étiquettes des modèles (Éditeur d'étiquettes > Types d'étiquettes). Un modèle d'un "
-                      "autre type met la file en pause jusqu'à ce que son rouleau soit chargé. Les modèles sans "
-                      "type s'impriment sur l'étiquette réglée ci-dessous.");
+                      "autre type met la file en pause jusqu'à ce que son rouleau soit chargé. Un modèle sans "
+                      "type reçoit à sa lecture un type construit d'après l'étiquette réglée ci-dessous.");
           const bool known = loaded.empty() || std::any_of(label_types_.begin(), label_types_.end(),
                                                            [&](const LabelType &type) { return type.name == loaded; });
           if (!known)
@@ -825,6 +825,10 @@ class EditorWindow final : public AppWindow {
       }
       editor_.set_label_title(app.settings.label_title);
       editor_.set_default_media(app.settings.label_width_mm, app.settings.label_height_mm);
+      editor_.set_default_label(app.settings.physical_label(),
+                                app.settings.print.kind != PrinterKind::NiimbotB1 && app.settings.print.raw.ribbon
+                                  ? LabelSupport::Transfer
+                                  : LabelSupport::Direct);
       editor_.set_selected_templates(app.settings.label_templates);
       editor_.draw_contents();
     }

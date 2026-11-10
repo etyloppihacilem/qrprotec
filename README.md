@@ -690,8 +690,10 @@ ou par le réseau (port 9100), avec ou sans ruban ; la **Niimbot B1** reste pour
 orientation d'impression, thermique direct ou transfert). Chaque modèle garde son type dans son fichier et le
 front reconstruit la liste en lisant les modèles ; un type créé reste en mémoire jusqu'à ce qu'un modèle qui
 l'utilise soit enregistré. Le rouleau en place se choisit dans Réglages (« Type chargé ») : un modèle d'un autre
-type met la file en pause jusqu'à ce qu'on confirme avoir chargé le bon rouleau. Les modèles sans type
-s'impriment comme avant, sur l'étiquette réglée dans Réglages.
+type met la file en pause jusqu'à ce qu'on confirme avoir chargé le bon rouleau. Un modèle sans type (anciens
+modèles, modèles fournis) reçoit à la lecture un type construit d'après l'étiquette réglée dans Réglages et
+l'orientation qu'il avait à l'impression, et son fichier est mis à jour ; sans rouleau choisi, le type le plus
+courant devient le « Type chargé ».
 
 **Saisie** : les types (items, lots) se cherchent en tapant une partie du nom ou du code, sans se
 soucier des accents ; les résultats s'affichent en direct (↑/↓, Tab ou Entrée pour valider). Les
