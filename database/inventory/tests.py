@@ -5609,6 +5609,33 @@ class ChecklistTests(ApiTestCase):
                          (200, 'Lot B+ 1 : rentré, vérif recommandée. Tout est rentré : liste close'))
         self.assertTrue(Lots.objects.get(id=soin.id).verif_recommended)
 
+    def test_reference_lot_picked_by_a_bag_and_split(self):
+        """Un sac du B+ choisi (Départ, editeur) : le B+ entier ; la croix d'un sac dans la liste separe le B+, ce sac
+        sort de la liste, l'autre reste seul sur sa ligne (Hippolyte, 2026-11-10)."""
+        b1, soin, o2 = self.reference_bplus('Lot B+ 1')
+        code, options = self.as_(self.chief, '/api/checklists/options/')
+        rows = {row['id']: row for row in options['lots']}
+        self.assertEqual(rows[o2.id]['unit']['id'], b1.id)
+        self.assertNotIn('unit', rows[b1.id])
+        code, rows = self.call('POST', '/api/lots/summary/', {}, local=False)
+        self.assertTrue({row['id']: row for row in rows}[b1.id]['virtual'])
+        code, depart = self.as_(self.other, '/api/checklists/departure/', {'lots': [o2.id]})
+        self.assertEqual(code, 201, depart)
+        self.assertIn('Lot B+ 1', depart['name'])
+        self.assertEqual([line['part_of'] for line in depart['lines']], [b1.id, b1.id])
+        path = f"/api/checklists/{depart['id']}/"
+        code, body = self.as_(self.other, path + 'scan/', {'lot': soin.id})
+        code, body = self.as_(self.chief, path + 'remove-part/', {'lot': soin.id})
+        self.assertEqual(code, 403)  # pas l'auteur de la liste
+        code, body = self.as_(self.other, path + 'remove-part/', {'lot': soin.id})
+        self.assertEqual((code, body['message']), (200, 'Sac de soin Lot B+ 1 retiré de la liste : Sac O2 Lot B+ 1 part seul'))
+        self.assertEqual([(line['lot'], line.get('part_of')) for line in body['lines']], [(o2.id, None)])
+        self.assertEqual(body['done_count'], 0)  # le scan du sac retire est parti avec lui
+        code, body = self.as_(self.other, path + 'remove-part/', {'lot': o2.id})
+        self.assertEqual(code, 400)  # plus un sac d'un B+ de la liste
+        code, body = self.as_(self.other, path + 'scan/', {'lot': o2.id})
+        self.assertEqual((code, body['complete']), (200, True))
+
     def test_any_reference_lot_bag_by_bag(self):
         """Ligne « n'importe quel B+ » : l'etiquette d'un sac prend son B+ (sans etiquette), complet avec ses deux
         sacs ; pris sans scanner, tous ses sacs ; ✕ retire le B+ entier."""

@@ -710,6 +710,16 @@ class ListsWindow final : public AppWindow {
             body["lot"] = line["lot"].str();
             unscan(app, body);
           }
+        } else if (lot && draft && !part_of.empty() && list["can_edit"].boolean()) {
+          // sac d'un B+ choisi d'un bloc : le B+ est separe, ce sac retire de la liste
+          ImGui::SameLine();
+          if (small_button("Retirer")) {
+            Json body;
+            body["lot"] = line["lot"].str();
+            call(app, "remove-part", body, [&app](const ApiResult &result) {
+              app.notify(result.ok ? result.data["message"].str() : "Liste : " + result.error, !result.ok);
+            });
+          }
         }
         if (out) {
           ImGui::TableNextColumn();
@@ -1004,6 +1014,18 @@ class ListsWindow final : public AppWindow {
       for (const Json &option : options_[lot ? "lots" : "types"].items()) {
         if (option[lot ? "id" : "type"].str() != key)
           continue;
+        if (lot && option.contains("unit")) {
+          // sac d'un B+ de referentiel (sans etiquette) : le B+ entier (un sac se retire ensuite dans la liste)
+          const Json &unit = option["unit"];
+          for (const Json &line : edit_lines_.items())
+            if (line["lot"].str() == unit["id"].str())
+              return;
+          Json row;
+          row["lot"]   = unit["id"].str();
+          row["label"] = unit["name"].str() + " (" + unit["lot_type_name"].str() + ")";
+          edit_lines_.push_back(row);
+          return;
+        }
         Json row;
         row[lot ? "lot" : "type"] = key;
         row["label"] = lot ? option["name"].str() + " (" + option["lot_type_name"].str() + ")" : option["name"].str();

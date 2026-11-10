@@ -679,6 +679,7 @@ def lot_list(lots, local=False, today=None, attention=False):
         row['depth'] = depth
         row['root'] = root.id
         row['hidden'] = hidden_in_verif(lot, row)  # cache dans la hierarchie : saute par l'Etat des lots du web
+        row['virtual'] = virtual_lot(lot)  # B+ de referentiel : un de ses sacs coche au « Départ » coche le B+
         row['description'] = lot.lot_type.description  # recherche de la page « Départ » (autres noms, marques)
         rows.append(row)
         trees.setdefault(root.id, []).append(row)

@@ -209,6 +209,34 @@ def create(user, name, note='', template=False, lines=None):
     return checklist
 
 
+def remove_part(checklist, user, lot_id):
+    """Croix d'un sac d'un B+ de referentiel (sans etiquette) dans la liste a preparer : le B+, choisi d'un bloc, est
+    separe, ce sac retire et ses autres sacs gardes chacun sur sa ligne, a la place du B+ (on part avec un seul
+    sac). Son scan eventuel est retire."""
+    _require_edit(checklist, user)
+    _require_open(checklist)
+    with transaction.atomic():
+        checklist = Checklist.objects.select_for_update().get(id=checklist.id)
+        _require_open(checklist)
+        lines = list(checklist.lines.select_related('lot', 'item_type').order_by('position'))
+        rows, removed, kept = [], None, []
+        for line in lines:
+            parts = lot_parts(line.lot) if line.lot_id else []
+            if removed is None and line.lot_id and line.lot_id != lot_id and any(part.id == lot_id for part in parts):
+                removed = next(part for part in parts if part.id == lot_id)
+                kept = [part for part in parts if part.id != lot_id]
+                rows += [{'lot': part.id} for part in kept]
+            else:
+                rows.append(_line_data(line))
+        if removed is None:
+            raise ValueError("Ce lot n'est pas un sac d'un lot de la liste")
+        set_lines(checklist, rows)
+        _drop_extra_scans(checklist)
+        checklist.updated = timezone.now()
+        checklist.save(update_fields=['updated'])
+    return f'{removed.name} retiré de la liste' + (f' : {", ".join(part.name for part in kept)} part seul' if kept else '')
+
+
 def update(checklist, user, data):
     """Nom, remarque, modele, lignes : tant que la liste n'est pas validee."""
     _require_edit(checklist, user)
@@ -236,12 +264,16 @@ def update(checklist, user, data):
     return checklist
 
 
+def _line_data(line):
+    """Ligne enregistree -> ligne de set_lines."""
+    return ({'task': line.task} if line.task else {'lot': line.lot_id} if line.lot_id
+            else {'lot_types': list(line.lot_types), 'quantity': line.quantity} if line.lot_types
+            else {'type': line.item_type_id, 'quantity': line.quantity})
+
+
 def duplicate(checklist, user, name=None, template=False):
     """Copie (nouvelle liste a preparer, a l'utilisateur) : modele -> liste a verifier, ou liste a refaire."""
-    lines = [{'task': line.task} if line.task else {'lot': line.lot_id} if line.lot_id
-             else {'lot_types': list(line.lot_types), 'quantity': line.quantity} if line.lot_types
-             else {'type': line.item_type_id, 'quantity': line.quantity}
-             for line in checklist.lines.all() if (line.lot_id is None or line.lot.active)
+    lines = [_line_data(line) for line in checklist.lines.all() if (line.lot_id is None or line.lot.active)
              and (line.item_type_id is None or not line.item_type.archived)]
     _require_make(user)
     copy = create(user, name or checklist.name, checklist.note, template, lines)
@@ -978,11 +1010,20 @@ def departure_lots(user, lot_ids):
     if len(ids) > 50:
         raise ValueError('Trop de lots pour une liste (50 au plus)')
     lots = {lot.id: lot for lot in Lots.objects.select_related('lot_type', 'parent__lot_type').filter(id__in=ids)}
+    # un sac d'un B+ de referentiel (sans etiquette) coche : le B+ entier (separable ensuite par la croix du sac dans
+    # la liste, remove_part)
+    for lot_id, lot in list(lots.items()):
+        if lot.active and lot_unit(lot).id != lot.id:
+            unit = lot_unit(lot)
+            lots[lot_id] = unit
+            lots.setdefault(unit.id, unit)
     chosen = []
     for lot_id in dict.fromkeys(ids):
         lot = lots.get(lot_id)
         if lot is None or not lot.active:
             raise ValueError(f'Lot inconnu ou archivé : {lot_id}')
+        if any(row.id == lot.id for row in chosen):
+            continue
         if lot.lot_type.storage:
             raise ValueError(f'{lot.name} est un rangement du stock : on ne part pas avec')
         if any(parent.id in lots for parent in lot.ancestors()):

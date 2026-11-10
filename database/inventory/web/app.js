@@ -6989,6 +6989,14 @@
   }
 
   function departToggle(lot) {
+    // sac d'un B+ de referentiel (sans etiquette) : on coche le B+ entier ; un sac se retire ensuite par sa croix dans
+    // la liste
+    const up = (state.lots || []).find((row) => row.id === lot.parent);
+    if (up && up.virtual) {
+      if (!depart.selected.has(up.id) && !depart.blocked[up.id] && !departParentPicked(up)) toast(`${lot.name} fait partie de ${up.name} : ${up.name} entier est coché.`);
+      departToggle(up);
+      return;
+    }
     const reason = depart.blocked[lot.id];
     const parent = departParentPicked(lot);
     if (reason) { toast(`${lot.name} : ${reason.charAt(0).toLowerCase() + reason.slice(1)}.`, true); return; }
@@ -7314,10 +7322,25 @@
       if (line.scanned && list.status === 'draft') {
         rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Décocher', title: 'Décocher',
           onclick: () => listAction('unscan', { lot: line.lot }) }, '✕'));
+      } else if (line.part_of && list.status === 'draft' && list.can_edit) {
+        // sac d'un B+ choisi d'un bloc : la croix separe le B+ et retire ce sac de la liste
+        rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer de la liste', title: 'Retirer de la liste',
+          onclick: (event) => { event.stopPropagation(); removeListPart(list, line); } }, '✕'));
       }
       if (listWantsVerif(list) && line.verif_recommended) rows.push(verifRow(line.lot, line.lot_name));
     }
     return rows;
+  }
+
+  async function removeListPart(list, line) {
+    const others = list.lines.filter((row) => row.part_of === line.part_of && row.lot !== line.lot).map((row) => row.lot_name);
+    const ok = await askDialog({
+      title: `Retirer ${line.lot_name} ?`,
+      text: `${line.part_of_name} est séparé : ${line.lot_name} sort de la liste`
+        + (others.length ? `, ${others.join(', ')} ${others.length > 1 ? 'partent seuls' : 'part seul'}.` : '.'),
+      choices: [{ label: 'Retirer de la liste', value: true, cls: 'danger' }],
+    });
+    if (ok) listAction('remove-part', { lot: line.lot }, (result) => toast(result.message || 'Retiré'));
   }
 
   function listDetail() {
@@ -7564,7 +7587,12 @@
       ...(options ? options.types : []).filter((type) => !taken.has('type:' + type.type))
         .map((type) => ({ key: type.type, label: type.name, sub: type.type, kind: KIND_TYPE, description: type.description, row: type })),
     ], (pick) => {
-      if (pick.kind === KIND_LOT) edit.lines.push({ lot: pick.row.id, label: pick.row.name, sub: pick.row.lot_type_name });
+      if (pick.kind === KIND_LOT) {
+        // sac d'un B+ de referentiel (sans etiquette) : le B+ entier (un sac se retire ensuite par sa croix dans la liste)
+        const lot = pick.row.unit || pick.row;
+        if (pick.row.unit) toast(`${pick.row.name} fait partie de ${lot.name} : ${lot.name} entier est ajouté.`);
+        if (!edit.lines.some((line) => line.lot === lot.id)) edit.lines.push({ lot: lot.id, label: lot.name, sub: lot.lot_type_name });
+      }
       else if (pick.kind === KIND_LOT_TYPE) edit.lines.push({ lot_types: [pick.row.type], label: pick.row.name, sub: 'Lot au choix', quantity: 1 });
       else edit.lines.push({ type: pick.row.type, label: pick.row.name, quantity: 1 });
       redraw();
