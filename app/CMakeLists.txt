@@ -128,6 +128,8 @@ target_compile_definitions(QRProtecCore PRIVATE
 
 add_library(QRProtecPrinter STATIC
     src/printer/niimbot_protocol.cpp
+    src/printer/label_languages.cpp
+    src/printer/raw_transport.cpp
     src/printer/serial.cpp
     src/printer/printer.cpp
 )
@@ -247,6 +249,8 @@ if(BUILD_TESTING)
     add_executable(QRProtecPrinterTest
         tests/printer_test.cpp
         src/printer/niimbot_protocol.cpp
+        src/printer/label_languages.cpp
+        src/printer/raw_transport.cpp
     )
     target_include_directories(QRProtecPrinterTest PRIVATE src)
     add_test(NAME QRProtecPrinterTest COMMAND QRProtecPrinterTest)

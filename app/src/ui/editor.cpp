@@ -1330,7 +1330,7 @@ void Editor::draw_document_properties() {
     document_.media.pixels_per_mm = std::clamp(ppmm, 1.0f, 20.0f);
     preview_dirty_ = fit_pending_ = true;
   }
-  ImGui::SetItemTooltip("Résolution de l'imprimante (8 px/mm = 203 dpi pour une Niimbot B1).");
+  ImGui::SetItemTooltip("Résolution de l'imprimante (8 px/mm = 203 dpi : Niimbot B1, imprimantes TSPL / ZPL en 203 dpi).");
   ImGui::TextDisabled("Résolution : %d x %d px", document_.media.width_pixels(), document_.media.height_pixels());
 
   ImGui::SeparatorText("Valeurs d'aperçu");

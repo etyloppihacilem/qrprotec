@@ -4,7 +4,7 @@ Inventaire par QR code du matériel de secours (consommable ou non) : chaque ite
 avec un identifiant unique, les lots (sacs, malles...) sont vérifiés en scannant leur contenu.
 
 - `database/` : back Django (base de données + API).
-- `app/` : front ImGui (poste local : douchette Inateck, imprimante Niimbot B1).
+- `app/` : front ImGui (poste local : douchette Inateck, imprimante d'étiquettes TSPL / ZPL, Niimbot B1 en secours).
 - `packaging/` : paquets RPM pour Fedora (voir [Borne Fedora](#borne-fedora-paquet-rpm)).
 
 Documentation complète dans [`docs/`](docs/README.md) : [guide de l'utilisateur](docs/utilisateur/README.md),
@@ -683,6 +683,8 @@ Fond orange. Menu **Gestion** (Réglages, Utilisateurs et Éditeur d'étiquettes
 hauteur dans le sens du défilement) se règle dans **Réglages**. Un modèle dessiné dans l'autre sens
 (portrait / paysage) est tourné d'un quart de tour à l'impression (sens réglable, retournement à 180°
 possible) et centré. Sans modèle choisi pour un usage, seul le QR code est imprimé, centré.
+Imprimantes : **TSPL** (TSC, IDPRT, Munbyn…) ou **ZPL** (Zebra) en 203 dpi, par USB (`/dev/usb/lp0`)
+ou par le réseau (port 9100), avec ou sans ruban ; la **Niimbot B1** reste pour le secours et le debug.
 
 **Saisie** : les types (items, lots) se cherchent en tapant une partie du nom ou du code, sans se
 soucier des accents ; les résultats s'affichent en direct (↑/↓, Tab ou Entrée pour valider). Les

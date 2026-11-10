@@ -152,6 +152,20 @@ void AppSettings::load() {
       print_here = to_int(value, 0) != 0;
     else if (key == "debug_options")
       debug_options = to_int(value, 0) != 0;
+    else if (key == "printer_kind")
+      print.kind = printer_kind_from_id(value);
+    else if (key == "printer_address")
+      print.raw.address = value;
+    else if (key == "printer_darkness")
+      print.raw.darkness = std::clamp(to_int(value, print.raw.darkness), 0, 15);
+    else if (key == "printer_ribbon")
+      print.raw.ribbon = to_int(value, 1) != 0;
+    else if (key == "printer_gap_mm")
+      print.raw.gap_mm = std::clamp(to_float(value, static_cast< float >(print.raw.gap_mm)), 0.0f, 20.0f);
+    else if (key == "printer_offset_x_mm")
+      print.raw.offset_x_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_x_mm)), 0.0f, 50.0f);
+    else if (key == "printer_offset_y_mm")
+      print.raw.offset_y_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_y_mm)), 0.0f, 50.0f);
     else if (key == "printer_device")
       print.serial.device = value;
     else if (key == "printer_baud")
@@ -243,6 +257,13 @@ bool AppSettings::save(std::string &error) const {
          << "expiring_soon_days=" << expiring_soon_days << '\n'
          << "order_lead_days=" << order_lead_days << '\n'
          << "forecast_history_months=" << forecast_history_months << '\n'
+         << "printer_kind=" << printer_kind_id(print.kind) << '\n'
+         << "printer_address=" << print.raw.address << '\n'
+         << "printer_darkness=" << print.raw.darkness << '\n'
+         << "printer_ribbon=" << (print.raw.ribbon ? 1 : 0) << '\n'
+         << "printer_gap_mm=" << print.raw.gap_mm << '\n'
+         << "printer_offset_x_mm=" << print.raw.offset_x_mm << '\n'
+         << "printer_offset_y_mm=" << print.raw.offset_y_mm << '\n'
          << "printer_device=" << print.serial.device << '\n'
          << "printer_baud=" << print.serial.baud_rate << '\n'
          << "printer_density=" << print.density << '\n'

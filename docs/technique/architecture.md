@@ -21,7 +21,7 @@ QRProtec est fait de trois programmes qui partagent une seule base de données :
                    │ HTTP + WebSocket (boucle locale, sans clé)
 ┌──────────────────┴───────────────────────┐
 │ Front poste ImGui (app/), même machine   │
-│ douchette Inateck, imprimante Niimbot B1 │
+│ douchette Inateck, imprimante TSPL / ZPL │
 └──────────────────────────────────────────┘
 ```
 

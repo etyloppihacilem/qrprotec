@@ -48,5 +48,6 @@ Pour développer ou tester depuis les sources (sans paquet) : voir
 | Mini-PC x86_64 | Borne | 4 Go de RAM et 32 Go de disque suffisent largement |
 | Écran + clavier | Borne | Le clavier sert peu (saisie de dates, de noms) |
 | Douchette **Inateck** (Bluetooth) | Scans au poste | Toute douchette en **mode clavier (HID)** fonctionne aussi, sans retour d'erreur sur la douchette |
-| Imprimante **Niimbot B1** (USB) | Étiquettes | Rouleau conseillé 40 × 30 mm. Elle apparaît en `/dev/ttyACM0` |
+| Imprimante d'étiquettes **TSPL** (TSC, IDPRT, Munbyn…) ou **ZPL** (Zebra), en **203 dpi** | Étiquettes | Rouleau 40 × 30 mm. En USB elle apparaît en `/dev/usb/lp0` (groupe `lp`), en réseau par son adresse IP (port 9100). Transfert thermique (ruban) conseillé pour des étiquettes qui durent |
+| Imprimante **Niimbot B1** (USB) | Secours, debug | Rouleau 40 × 30 mm. Elle apparaît en `/dev/ttyACM0` (groupe `dialout`) |
 | Smartphones | Vérifs sur le terrain | Navigateur récent, appareil photo. HTTPS obligatoire |

@@ -140,7 +140,7 @@ private:
     std::vector<std::string> placeholder_names_;
     std::unordered_map<std::string, std::string> print_values_;
     PrintSettings print_settings_;
-    NiimbotB1Printer printer_;
+    AnyPrinter printer_;
     std::future<PrintResult> print_task_;
 
     std::string label_title_ = "PROTECTION CIVILE\nPARIS CENTRE";

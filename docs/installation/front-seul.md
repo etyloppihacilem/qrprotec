@@ -149,11 +149,11 @@ QRProtec est une application du menu, avec son icône.
 4. Scannez votre badge : vous êtes connecté au même inventaire que la borne.
 
 Réglages et modèles sont propres à l'utilisateur : `~/.config/qrprotec/app.conf` (`0600`, contient la
-clé) et `~/.local/share/qrprotec/templates`. Pour imprimer sur la Niimbot, l'utilisateur doit être
-dans le groupe `dialout` :
+clé) et `~/.local/share/qrprotec/templates`. Pour imprimer sur une imprimante TSPL / ZPL branchée en
+USB, l'utilisateur doit être dans le groupe `lp` ; sur la Niimbot, dans le groupe `dialout` :
 
 ```sh
-sudo usermod -aG dialout $USER     # puis se déconnecter / reconnecter
+sudo usermod -aG lp,dialout $USER     # puis se déconnecter / reconnecter
 ```
 
 Les variables d'environnement `QRPROTEC_API_URL`, `QRPROTEC_API_KEY`, `QRPROTEC_API_CA_FILE` (et
@@ -188,7 +188,7 @@ Ce qui change par rapport au paquet `qrprotec-front` :
 | Modèles d'étiquettes | `~/.var/app/io.github.etyloppihacilem.QRProtec/data/qrprotec/templates` |
 | Certificat de l'autorité | À placer dans `~/.config/qrprotec/` (par exemple `server-ca.crt`) : le Flatpak ne voit pas `/etc` |
 | Images des étiquettes | Dans le dossier des modèles (`images/`) ou dans `~/Images` |
-| Imprimante Niimbot | Toujours le groupe `dialout` (`sudo usermod -aG dialout $USER`) |
+| Imprimante | Toujours le groupe `lp` (TSPL / ZPL en USB) ou `dialout` (Niimbot) : `sudo usermod -aG lp,dialout $USER` |
 | Douchette Inateck (Bluetooth) | Fonctionne (accès à BlueZ). Une douchette en mode clavier fonctionne toujours |
 | Mises à jour | À la main : installer le `.flatpak` de la nouvelle release par-dessus |
 
