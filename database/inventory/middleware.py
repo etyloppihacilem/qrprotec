@@ -20,6 +20,20 @@ LOCAL_TOKEN_HEADER = 'HTTP_X_QRPROTEC_TOKEN'
 FRONT_KEY_HEADER = 'HTTP_X_QRPROTEC_KEY'
 
 
+class NoIndexMiddleware:
+    """Demande aux moteurs de recherche de n'indexer aucune reponse du serveur (pages, fiches, API) et de ne
+    suivre aucun lien : le site sert une equipe, pas le public. Complete robots.txt pour les robots qui
+    arrivent sur une URL de QR code sans passer par la racine."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        response.setdefault('X-Robots-Tag', 'noindex, nofollow')
+        return response
+
+
 class RoleWSGIHandler:
     """Enveloppe WSGI qui marque les requetes selon le serveur (port) qui les a recues."""
 

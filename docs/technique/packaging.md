@@ -87,6 +87,8 @@ l'ancien réglage `httpd_can_network_connect` ; à couper à la main : `sudo set
 
 En-têtes : le back envoie `Strict-Transport-Security` (un an, sur les requêtes HTTPS seulement) et une
 `Content-Security-Policy` sur les pages du front web (scripts, styles, images et WebSockets du site seulement).
+Le site n'est pas indexé par les moteurs de recherche : `/robots.txt` refuse tout (`Disallow: /`), et chaque
+réponse porte `X-Robots-Tag: noindex, nofollow` (back et Caddy), doublé d'une balise `<meta name="robots">`.
 
 ### Kiosk
 
