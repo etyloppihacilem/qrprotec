@@ -664,6 +664,7 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .return-bar i { display: block; height: 100%; background: var(--green); }
 #home-lists .return-progress p { margin: 0; color: var(--muted); font-size: .88rem; }
 #home-lists .return-title { display: flex; justify-content: space-between; }
+#home-lists .list-fold { flex: none; width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 6px; background: #eee; color: var(--text); font-size: .9rem; line-height: 28px; }
 #home-lists .return-title.ok { color: var(--green); }
 #home-lists .return-box { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; box-sizing: border-box;
   border: 2px dashed #8a8f94; border-radius: 7px; color: #fff; font-weight: 800; }

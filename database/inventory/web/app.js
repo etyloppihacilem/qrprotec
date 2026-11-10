@@ -7453,7 +7453,7 @@
       split.back += home.length;
       if (gone.length) split.pending.push({ line: line.id, name: line.type_name, count: `×${gone.length}`, scans: gone,
         sub: gone.length === total ? nb(total, 'sorti') : `${gone.length} sur ${nb(total, 'sorti')}` });
-      if (home.length) split.returned.push({ name: line.type_name, count: `×${home.length}`, scans: home,
+      if (home.length) split.returned.push({ line: line.id, name: line.type_name, count: `×${home.length}`, scans: home,
         sub: (home.length === total ? '' : `${home.length} sur ${total} · `) + 'remis en stock' });
     }
     return split;
@@ -7495,17 +7495,27 @@
   }
 
   function listReturnLists(split) {
-    const rows = (entries, home) => entries.flatMap((entry) => [
+    // detail item par item (peremption, iid) : gestion et admins seulement, comme ailleurs sur le web, replie
+    // derriere une fleche au bout de la ligne (comme les jauges de la fiche d'un lot)
+    const folds = lists.returnFolds || (lists.returnFolds = new Set());
+    const rows = (entries, home) => entries.flatMap((entry) => {
+      const key = `${home ? 'back' : 'out'}:${entry.line}`;
+      const foldable = detailed() && entry.scans.length > 0;
+      const open = foldable && folds.has(key);
+      const arrow = foldable ? el('button', { type: 'button', class: 'list-fold', 'aria-expanded': String(open),
+        'aria-label': open ? 'Replier les items' : 'Afficher les items',
+        onclick: () => { if (open) folds.delete(key); else folds.add(key); renderListsPage(); } }, open ? '▾' : '▸') : '';
+      return [
       el('li', { class: 'static' + (home ? ' ok' : '') },
         el('span', { class: 'list-box-wrap' }, returnBox(entry, home)),
         el('div', { class: 'main' }, el('div', { class: 'name' }, entry.name), el('div', { class: 'sub' }, entry.sub)),
-        el('b', { class: 'list-count' + (home ? ' done' : '') }, entry.count)),
-      // detail item par item (peremption, iid) : gestion et admins seulement, comme ailleurs sur le web
-      ...(detailed() ? entry.scans : []).map((scan) => el('li', { class: 'static list-scan-row' },
+        el('b', { class: 'list-count' + (home ? ' done' : '') }, entry.count), arrow),
+      ...(open ? entry.scans : []).map((scan) => el('li', { class: 'static list-scan-row' },
         el('div', { class: 'main' }, el('div', { class: 'sub' }, [idText(scan.iid),
           scan.peremption ? 'périme le ' + fmtDate(scan.peremption) : 'non périssable'].filter(Boolean).join(' · ')
           + (home ? ' · ↩ rentré' : ''))))),
-    ]);
+      ];
+    });
     const count = (entries) => entries.reduce((sum, entry) => sum + (entry.scans.length || 1), 0);
     const parts = [];
     if (split.pending.length) {
