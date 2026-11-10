@@ -824,6 +824,8 @@ body.home-mode:has(#home-depart.active.with-go) #toast { bottom: calc(96px + env
 .list-buttons button.navy { background: var(--navy); }
 #home-lists .list-box.by-hand { cursor: pointer; border-color: var(--navy); }
 dialog.ask-dialog .dialog-stack button { width: 100%; }
+dialog.ask-dialog .ask-input { width: 100%; box-sizing: border-box; margin: 4px 0 12px; padding: 10px 12px; font: inherit; font-size: 1.05rem;
+  border: 1px solid var(--line); border-radius: 10px; }
 /* Liste : case d'un lot, grande fenetre de scan de son etiquette (camera placee sur #lot-pick-cam, --gate-*) */
 #lot-pick { position: fixed; inset: 0; z-index: 46; display: flex; flex-direction: column; align-items: center; gap: 10px;
   padding: calc(18px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); background: var(--panel);

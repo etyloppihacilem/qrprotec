@@ -210,7 +210,7 @@ def create(user, name, note='', template=False, lines=None):
 
 
 def remove_part(checklist, user, lot_id):
-    """Croix d'un sac d'un B+ de referentiel (sans etiquette) dans la liste a preparer : le B+, choisi d'un bloc, est
+    """Croix d'un lot de la liste a preparer : la ligne du lot est retiree (son scan aussi). Croix d'un sac d'un B+ de referentiel (sans etiquette) dans la liste a preparer : le B+, choisi d'un bloc, est
     separe, ce sac retire et ses autres sacs gardes chacun sur sa ligne, a la place du B+ (on part avec un seul
     sac). Son scan eventuel est retire."""
     _require_edit(checklist, user)
@@ -222,14 +222,16 @@ def remove_part(checklist, user, lot_id):
         rows, removed, kept = [], None, []
         for line in lines:
             parts = lot_parts(line.lot) if line.lot_id else []
-            if removed is None and line.lot_id and line.lot_id != lot_id and any(part.id == lot_id for part in parts):
+            if removed is None and line.lot_id == lot_id:
+                removed = line.lot
+            elif removed is None and line.lot_id and line.lot_id != lot_id and any(part.id == lot_id for part in parts):
                 removed = next(part for part in parts if part.id == lot_id)
                 kept = [part for part in parts if part.id != lot_id]
                 rows += [{'lot': part.id} for part in kept]
             else:
                 rows.append(_line_data(line))
         if removed is None:
-            raise ValueError("Ce lot n'est pas un sac d'un lot de la liste")
+            raise ValueError("Ce lot n'est pas dans la liste")
         set_lines(checklist, rows)
         _drop_extra_scans(checklist)
         checklist.updated = timezone.now()

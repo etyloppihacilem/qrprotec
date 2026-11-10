@@ -5663,10 +5663,13 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual((code, body['message']), (200, 'Sac de soin Lot B+ 1 retiré de la liste : Sac O2 Lot B+ 1 part seul'))
         self.assertEqual([(line['lot'], line.get('part_of')) for line in body['lines']], [(o2.id, None)])
         self.assertEqual(body['done_count'], 0)  # le scan du sac retire est parti avec lui
-        code, body = self.as_(self.other, path + 'remove-part/', {'lot': o2.id})
-        self.assertEqual(code, 400)  # plus un sac d'un B+ de la liste
         code, body = self.as_(self.other, path + 'scan/', {'lot': o2.id})
         self.assertEqual((code, body['complete']), (200, True))
+        # la croix d'un lot simple le retire aussi, meme coche (on decoche en touchant sa case)
+        code, body = self.as_(self.other, path + 'remove-part/', {'lot': o2.id})
+        self.assertEqual((code, body['message'], body['lines']), (200, 'Sac O2 Lot B+ 1 retiré de la liste', []))
+        code, body = self.as_(self.other, path + 'remove-part/', {'lot': o2.id})
+        self.assertEqual(code, 400)  # plus dans la liste
 
     def test_any_reference_lot_bag_by_bag(self):
         """Ligne « n'importe quel B+ » : l'etiquette d'un sac prend son B+ (sans etiquette), complet avec ses deux
