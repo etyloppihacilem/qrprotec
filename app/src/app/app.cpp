@@ -1043,6 +1043,9 @@ void App::refresh_server_rules() {
       return;
     declared_identity = result.data["declared_identity"].boolean();
     web_barcodes      = result.data["web_barcodes"].boolean();
+    // ancien serveur sans le reglage : verif recommandee (comportement d'avant)
+    const Json &restock = result.data["restock_verif_recommended"];
+    restock_verif_recommended = !restock.is_bool() || restock.boolean();
     poste_key         = result.data["poste"].boolean();
     const Json &volume = result.data["scanner_volume_default"];
     scanner_volume_default = volume.is_number() ? volume.integer() : -1;
@@ -3657,7 +3660,7 @@ void App::restock_verif() {
         return;
       }
       notify("Réassort : " + nb(result.data["moved"].size(), "item ajouté", "items ajoutés") + " à " + name
-             + ". Vérif complète recommandée.");
+             + (restock_verif_recommended ? ". Vérif complète recommandée." : "."));
       if (result.data["unknown"].size() > 0)
         notify(nb(result.data["unknown"].size(), "item inconnu ignoré", "items inconnus ignorés") + ".", true);
       notify_refused(result.data["refused"], "Non ajouté");

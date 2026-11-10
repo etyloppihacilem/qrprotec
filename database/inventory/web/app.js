@@ -72,6 +72,7 @@
     pushDevices: null, // gestionnaire des notifications : {types, devices} de l'utilisateur connecte
     pushError: '',
     declaredAllowed: false, // reglage du serveur : verif et ajout possibles sans badge, sous un nom declare
+    restockRecommends: true, // reglage du serveur : un reassort passe le lot en verif recommandee (coche par defaut)
     declaredName: '',       // nom declare sur ce navigateur (non verifie)
     guest: null,            // vérif à plusieurs sans compte : prenom de l'invite ('' : « Invité »), null sinon
     expiredSession: false,  // vérif precedente oubliee au demarrage (SESSION_TIMEOUT_MS)
@@ -2207,7 +2208,7 @@
       if (partial) {
         const names = verified.filter((lot) => lot.items && (lot.requirements.length || lot.items.length)).map((lot) => lot.name);
         return confirm(`Vérif partielle : seuls ${names.join(', ') || 'les lots complets'} seront vérifiés.\n`
-          + 'Les autres items scannés sont ajoutés à leur lot (réassort, vérif recommandée). Continuer ?');
+          + `Les autres items scannés sont ajoutés à leur lot (réassort${state.restockRecommends ? ', vérif recommandée' : ''}). Continuer ?`);
       }
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const what = isMulti() ? 'les lots seront incomplets' : 'le lot sera incomplet';
@@ -2386,10 +2387,10 @@
     if (partial) {
       const names = verified.filter(ownContent).map((lot) => lot.name);
       if (!confirm(names.length ? `Vérif partielle : seuls ${names.join(', ')} seront vérifiés.\n`
-        + 'Les autres items scannés sont ajoutés à leur lot (réassort, vérif recommandée). Continuer ?'
+        + `Les autres items scannés sont ajoutés à leur lot (réassort${state.restockRecommends ? ', vérif recommandée' : ''}). Continuer ?`
         : top.storage ? `Ranger les items scannés dans ${top.name} et terminer la vérif ?`
         : `Ajouter les items scannés à ${top.name} sans faire de vérif complète (réassort) ?\n`
-          + 'Le lot sera signalé « vérif recommandée » pour la personne suivante.')) return;
+          + restockNote())) return;
     } else {
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const subs = lots.filter((lot) => lot.id !== top.id && ownContent(lot)).map((lot) => lot.name);
@@ -2589,7 +2590,7 @@
       feedback.good();
       // items laisses de cote par le serveur (perime, supprime, dans un autre lot sans badge...)
       const refused = (result.refused || []).map((row) => `${iidLabel(row.iid)} (${row.reason})`);
-      toast(`${nb(result.moved.length, 'item ajouté', 'items ajoutés')} au lot : vérif complète recommandée.`
+      toast(`${nb(result.moved.length, 'item ajouté', 'items ajoutés')} au lot${state.restockRecommends ? ' : vérif complète recommandée' : ''}.`
         + (refused.length ? ` Non ${pl(refused.length, 'ajouté', 'ajoutés')} : ${refused.join(', ')}.` : ''),
         refused.length > 0);
       await loadLot(state.lot.id);
@@ -2657,11 +2658,15 @@
 
   $('#report-close').addEventListener('click', () => $('#report').close());
   $('#validate').addEventListener('click', () => (takingOut() ? takeOut() : inCascade() ? validateStep(false) : validate(false)));
+  // Suite de la question du reassort : le lot passe en verif recommandee (reglage du serveur, coche par defaut)
+  const restockNote = () => (state.restockRecommends ? 'Le lot sera signalé « vérif recommandée » pour la personne suivante.'
+    : 'Le lot garde son état actuel (pas de vérif recommandée).');
+
   $('#restock').addEventListener('click', () => {
     if (inCascade()) { validateStep(true); return; }
     if (partialLots().length) { validate(true); return; }
     if (!confirm("Ajouter les items scannés sans faire de vérif complète (réassort) ?\n"
-      + 'Le lot sera signalé « vérif recommandée » pour la personne suivante.')) return;
+      + restockNote())) return;
     if (isMulti()) validate(true); else addToLot();
   });
   $('#more').addEventListener('click', () => $('#menu').showModal());
@@ -7590,6 +7595,7 @@
     api('health/').then((health) => {
       state.declaredAllowed = !!health.declared_identity;
       state.antennaName = health.antenna_name || ''; // case « Certifié par le TECH ... » des rapports d'etat
+      state.restockRecommends = health.restock_verif_recommended !== false;
       render();
       if (fiche.lot) renderFiche(); // encadre de l'etiquette cle
     }).catch(() => {});

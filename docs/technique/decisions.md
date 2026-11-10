@@ -145,7 +145,8 @@ plusieurs lots les garde, mais n'en accepte plus de nouveau.
 **Choix.** On peut ajouter des items à un lot sans le vérifier entièrement ; le lot passe orange
 jusqu'à la prochaine vérif, avec qui/quand/combien.
 **Raison.** Sur le terrain on complète un sac au retour d'intervention sans avoir le temps de tout
-recompter. Il fallait que ce soit possible **et** visible.
+recompter. Il fallait que ce soit possible **et** visible. Le réglage du serveur **Réassort : vérif
+recommandée pour les suivants** (coché par défaut) permet de s'en passer.
 
 ## Scellés
 

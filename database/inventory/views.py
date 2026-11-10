@@ -364,6 +364,8 @@ def health(request):
         'web_barcodes': ServerSettings.get().web_barcodes,
         # nom de l'antenne (case « Certifié par le TECH ... » des rapports d'etat de lot)
         'antenna_name': ServerSettings.get().antenna_name,
+        # reassort : le lot passe en verif recommandee (reglage du serveur, coche par defaut)
+        'restock_verif_recommended': ServerSettings.get().restock_verif_recommended,
     })
 
 
@@ -3317,6 +3319,10 @@ def server_settings(request):
             settings_row.departure_full_verif = bool(request.data['departure_full_verif'])
             changes.append('vérif complète à chaque départ ' + ('demandée' if settings_row.departure_full_verif
                                                                 else 'non demandée'))
+        if 'restock_verif_recommended' in request.data:
+            settings_row.restock_verif_recommended = bool(request.data['restock_verif_recommended'])
+            changes.append('réassort : lot ' + ('en vérif recommandée' if settings_row.restock_verif_recommended
+                                                else "laissé dans son état"))
         if 'antenna_name' in request.data:
             settings_row.antenna_name = ' '.join(str(request.data['antenna_name'] or '').split())[:64]
             changes.append(f"nom de l'antenne : {settings_row.antenna_name or '(vide)'}")
@@ -3327,7 +3333,8 @@ def server_settings(request):
                        pin_login_roles=settings_row.pin_login_roles,
                        scanner_volume_default=settings_row.scanner_volume_default,
                        web_barcodes=settings_row.web_barcodes,
-                       departure_full_verif=settings_row.departure_full_verif)
+                       departure_full_verif=settings_row.departure_full_verif,
+                       restock_verif_recommended=settings_row.restock_verif_recommended)
     return Response(ser.server_settings_dict(settings_row))
 
 

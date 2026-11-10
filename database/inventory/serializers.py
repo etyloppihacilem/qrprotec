@@ -795,6 +795,7 @@ def server_settings_dict(settings_row):
         'web_barcodes': settings_row.web_barcodes,
         'antenna_name': settings_row.antenna_name,
         'departure_full_verif': settings_row.departure_full_verif,
+        'restock_verif_recommended': settings_row.restock_verif_recommended,
     }
 
 
