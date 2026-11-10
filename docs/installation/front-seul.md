@@ -169,13 +169,16 @@ Le même front de bureau existe en **Flatpak**, pour un ordinateur qui n'est pas
 (Ubuntu, Debian, Mint…) ou pour ne rien installer dans le système. Il n'y a **pas de kiosk** en
 Flatpak : pour une borne dédiée, utilisez `qrprotec-kiosk`.
 
-1. Téléchargez `QRProtec-front.flatpak` dans les fichiers de la
-   [dernière release](https://github.com/etyloppihacilem/qrprotec/releases/latest) (x86_64).
-2. Installez-le (le runtime `org.freedesktop.Platform` est téléchargé depuis Flathub au passage) :
+1. Installez-le depuis le dépôt Flatpak de QRProtec (le runtime `org.freedesktop.Platform` est
+   téléchargé depuis Flathub au passage) :
 
    ```sh
-   flatpak install --user QRProtec-front.flatpak
+   flatpak install --user https://etyloppihacilem.github.io/qrprotec/qrprotec.flatpakref
    ```
+
+   Ou téléchargez `QRProtec-front.flatpak` dans les fichiers de la
+   [dernière release](https://github.com/etyloppihacilem/qrprotec/releases/latest) (x86_64) et
+   installez-le avec `flatpak install --user QRProtec-front.flatpak` : il est relié au même dépôt.
 
 3. Lancez **QRProtec** depuis le menu (ou `flatpak run io.github.etyloppihacilem.QRProtec`), puis
    configurez le serveur comme pour le [poste de bureau](#poste-de-bureau-sans-kiosk) (étapes 2 à 4).
@@ -190,10 +193,30 @@ Ce qui change par rapport au paquet `qrprotec-front` :
 | Images des étiquettes | Dans le dossier des modèles (`images/`) ou dans `~/Images` |
 | Imprimante | Toujours le groupe `lp` (TSPL / ZPL en USB) ou `dialout` (Niimbot) : `sudo usermod -aG lp,dialout $USER` |
 | Douchette Inateck (Bluetooth) | Fonctionne (accès à BlueZ). Une douchette en mode clavier fonctionne toujours |
-| Mises à jour | À la main : installer le `.flatpak` de la nouvelle release par-dessus |
+| Mises à jour | Automatiques : Logiciels (GNOME) ou Discover (KDE) installent les nouvelles versions, ou `flatpak update` |
 
 La fenêtre s'ouvre en X11 (XWayland sous un bureau Wayland), pour avoir la barre de titre du bureau
 et le SDK de la douchette.
+
+Un Flatpak installé avant la version qui a ouvert le dépôt (fichier `.flatpak` sans dépôt) ne se met pas
+à jour : réinstallez-le une fois avec la commande `flatpak install` ci-dessus.
+
+## Poste de bureau sur macOS (Apple Silicon)
+
+1. Téléchargez `QRProtec-macos-arm64.dmg` dans la
+   [dernière release](https://github.com/etyloppihacilem/qrprotec/releases/latest), ouvrez-le et
+   glissez **QRProtec** dans **Applications**.
+2. Premier lancement : clic droit sur QRProtec > **Ouvrir**, puis **Ouvrir** (l'application n'est
+   pas signée par un compte développeur Apple).
+3. Configurez le serveur comme pour le [poste de bureau](#poste-de-bureau-sans-kiosk) (étapes 2 à 4).
+
+**Mises à jour automatiques** : QRProtec cherche une nouvelle version au démarrage puis toutes les
+6 heures et la télécharge en arrière-plan. Elle s'installe à la fermeture de l'application, ou tout
+de suite avec **↑ Mise à jour X.Y.Z > Installer et redémarrer maintenant** dans la barre de menu. Si
+QRProtec n'est pas dans un dossier modifiable par l'utilisateur, le mot de passe d'un administrateur
+du Mac est demandé. Réglages > **Mises à jour** pour désactiver ou chercher tout de suite. macOS peut
+redemander l'accès au Bluetooth (douchette) après une mise à jour. Les versions antérieures à la
+mise à jour automatique se remplacent une dernière fois à la main (étape 1).
 
 ## Dépannage de la connexion
 

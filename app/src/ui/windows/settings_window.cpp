@@ -122,6 +122,49 @@ void draw_server_settings(App &app, bool save_on_success) {
 
 namespace {
 
+// macOS : mise a jour automatique de QRProtec.app (ailleurs : version et canal de mise a jour du paquet)
+void draw_update_settings(App &app) {
+  const Updater::Status update  = app.updater.status();
+  const std::string     version = Updater::current_version();
+  ImGui::Text("Version installée : %s", version.empty() ? "construction de développement" : version.c_str());
+  if (update.state == Updater::State::Unsupported) {
+    ImGui::TextWrapped("%s", update.message.c_str());
+    return;
+  }
+  ImGui::Checkbox("Mises à jour automatiques", &app.settings.auto_update);
+  help_marker("Toutes les 6 heures, QRProtec regarde s'il existe une nouvelle version sur GitHub et la télécharge "
+              "en arrière-plan. Elle s'installe à la fermeture de l'application, ou tout de suite depuis la barre "
+              "de menu (« ↑ Mise à jour »).\nPrend effet après « Enregistrer les réglages ».");
+  using State = Updater::State;
+  switch (update.state) {
+    case State::Checking: ImGui::TextDisabled("Recherche d'une nouvelle version..."); break;
+    case State::Downloading: ImGui::TextDisabled("Téléchargement de la version %s...", update.available.c_str()); break;
+    case State::UpToDate: ImGui::TextColored(colors::green, "À jour (vérifié à %s).", update.checked_at.c_str()); break;
+    case State::Ready:
+      ImGui::TextColored(colors::blue, "Version %s téléchargée : installée à la fermeture.", update.available.c_str());
+      break;
+    case State::Error: ImGui::TextColored(colors::red, "%s", update.message.c_str()); break;
+    default: break;
+  }
+  if (update.needs_admin)
+    ImGui::TextDisabled("Dossier de l'application protégé : le mot de passe d'un administrateur du Mac sera demandé.");
+  const bool busy = update.state == State::Checking || update.state == State::Downloading;
+  ImGui::BeginDisabled(busy);
+  if (ImGui::Button("Rechercher maintenant"))
+    app.updater.check_now();
+  ImGui::EndDisabled();
+  if (update.state == State::Ready && !update.launched) {
+    ImGui::SameLine();
+    if (ImGui::Button("Installer et redémarrer")) {
+      std::string error;
+      if (app.updater.install(true, error))
+        app.quit_requested = true;
+      else
+        app.notify("Mise à jour impossible : " + error, true);
+    }
+  }
+}
+
 class SettingsWindow final : public AppWindow {
   public:
     SettingsWindow() : AppWindow("settings", "Réglages", true, true) {
@@ -181,6 +224,9 @@ class SettingsWindow final : public AppWindow {
         ImGui::SliderFloat("Taille du texte", &settings.font_size, 12.0f, 32.0f, "%.0f px");
         ImGui::GetStyle().FontSizeBase = settings.font_size;
       }
+
+      if (ImGui::CollapsingHeader("Mises à jour"))
+        draw_update_settings(app);
 
       if (ImGui::CollapsingHeader("Débug")) {
         ImGui::Checkbox("Activer les options de débug", &settings.debug_options);

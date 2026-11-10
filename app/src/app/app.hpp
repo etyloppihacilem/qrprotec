@@ -18,6 +18,7 @@
 #include "print_queue.hpp"
 #include "scan_stack.hpp"
 #include "settings.hpp"
+#include "updater.hpp"
 
 #include "imgui.h"
 
@@ -529,6 +530,8 @@ class App {
     Date        today() const { return Date::today(); }
 
     AppSettings                  settings;
+    Updater                      updater;        // macOS : mise a jour automatique depuis les releases GitHub
+    bool                         quit_requested = false; // ferme l'application (main.cpp), ex. pour installer une mise a jour
     ApiClient                    api;
     ScanStack                    stack;
     PrintQueue                   printer;
@@ -578,6 +581,7 @@ class App {
     void scan_lot_seal_open(const ParsedScan &scan, ScanSource source);
     void entry_error(int entry_id, const std::string &message, ScanSource source);
     void draw_menu_bar();
+    void draw_update_menu(); // barre de menu : mise a jour prete a installer
     void window_menu_item(AppWindow &window);
     void handle_shortcuts();
     void assign_shortcuts();

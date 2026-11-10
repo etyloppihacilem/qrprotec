@@ -2,6 +2,7 @@
 #include "../src/core/placeholders.hpp"
 #include "../src/core/template.hpp"
 #include "../src/core/template_io.hpp"
+#include "../src/core/update_check.hpp"
 #include "../src/net/front_config.hpp"
 #include "../src/net/websocket.hpp"
 #include "../src/render/label_types.hpp"
@@ -15,6 +16,49 @@
 
 int main()
 {
+    // mise a jour automatique (macOS) : versions et derniere release GitHub
+    {
+        using qrprotec::compare_versions;
+        assert(compare_versions("1.2.10", "1.2.9") > 0);
+        assert(compare_versions("v1.2.4", "1.2.4") == 0);
+        assert(compare_versions("1.2", "1.2.0") == 0);
+        assert(compare_versions("1.3.0", "1.10.0") < 0);
+        assert(compare_versions("2.0.0", "1.99.99") > 0);
+        assert(qrprotec::is_release_version("1.2.4"));
+        assert(!qrprotec::is_release_version("0.0.0"));
+        assert(!qrprotec::is_release_version(""));
+        assert(!qrprotec::is_release_version("1.2.0^3.gabc1234"));
+        assert(!qrprotec::is_release_version("1..2"));
+
+        const std::string dmg_sha = "6cf464d7cb9c006ebbe0c9fecb90fb67b209ca45175e8bd4d21bd53ab88d2b8d";
+        const std::string release = R"({"tag_name": "v1.2.5", "draft": false, "prerelease": false, "assets": [
+          {"name": "QRProtec-front.flatpak", "size": 4171072, "digest": "sha256:9d5434a46dbb5cb442af72e058adc0647559fb47314c758202f862b38374e0d4",
+           "browser_download_url": "https://github.com/etyloppihacilem/qrprotec/releases/download/v1.2.5/QRProtec-front.flatpak"},
+          {"name": "QRProtec-macos-arm64.dmg", "size": 8094954, "digest": "sha256:)" + dmg_sha + R"(",
+           "browser_download_url": "https://github.com/etyloppihacilem/qrprotec/releases/download/v1.2.5/QRProtec-macos-arm64.dmg"}]})";
+        qrprotec::ReleaseAsset asset;
+        std::string            error;
+        assert(qrprotec::parse_latest_release(release, "QRProtec-macos-arm64.dmg", asset, error));
+        assert(asset.version == "1.2.5");
+        assert(asset.sha256 == dmg_sha);
+        assert(asset.size == 8094954);
+        assert(asset.url.find("/v1.2.5/QRProtec-macos-arm64.dmg") != std::string::npos);
+        assert(!qrprotec::parse_latest_release(release, "QRProtec-macos-x86_64.dmg", asset, error));
+        assert(error.find("Pas de QRProtec-macos-x86_64.dmg") == 0);
+        // sans empreinte : refuse (rien ne garantirait le fichier telecharge)
+        std::string no_digest = release;
+        no_digest.replace(no_digest.find("sha256:" + dmg_sha), 7 + 64, "");
+        assert(!qrprotec::parse_latest_release(no_digest, "QRProtec-macos-arm64.dmg", asset, error));
+        std::string pre = release;
+        pre.replace(pre.find("\"prerelease\": false"), 19, "\"prerelease\": true");
+        assert(!qrprotec::parse_latest_release(pre, "QRProtec-macos-arm64.dmg", asset, error));
+        std::string http = release;
+        http.replace(http.rfind("https://github.com"), 8, "http://");
+        assert(!qrprotec::parse_latest_release(http, "QRProtec-macos-arm64.dmg", asset, error));
+        assert(!qrprotec::parse_latest_release("<html>", "QRProtec-macos-arm64.dmg", asset, error));
+        assert(qrprotec::sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
+
     // fichier de configuration d'un front distant, chiffre par database/inventory/front_config.py
     {
         const std::string file = R"({

@@ -136,6 +136,8 @@ void AppSettings::load() {
       api_key = value;
     else if (key == "api_ca_file")
       api_ca_file = value;
+    else if (key == "auto_update")
+      auto_update = to_int(value, 1) != 0;
     else if (key == "font_size")
       font_size = std::clamp(to_float(value, font_size), 10.0f, 40.0f);
     else if (key == "inactivity_minutes")
@@ -256,6 +258,7 @@ bool AppSettings::save(std::string &error) const {
          << "shared_machine=" << (shared_machine ? 1 : 0) << '\n'
          << "print_here=" << (print_here ? 1 : 0) << '\n'
          << "debug_options=" << (debug_options ? 1 : 0) << '\n'
+         << "auto_update=" << (auto_update ? 1 : 0) << '\n'
          << "expiring_soon_days=" << expiring_soon_days << '\n'
          << "order_lead_days=" << order_lead_days << '\n'
          << "forecast_history_months=" << forecast_history_months << '\n'

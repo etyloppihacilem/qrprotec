@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: |
-          shellcheck bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
+          shellcheck bootstrap.sh packaging/*.sh packaging/macos/*.sh packaging/files/qrprotec-manage \
             packaging/files/qrprotec-setup packaging/files/qrprotec-backup packaging/files/qrprotec-kiosk-session \
             packaging/files/qrprotec-front
 
@@ -87,6 +87,10 @@ jobs:
     container: registry.fedoraproject.org/fedora:43
     permissions:
       contents: write
+    # flatpak.yml publie aussi sur gh-pages (depot Flatpak) : une publication a la fois
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
     env:
       PAGES_REPO: ${{ vars.RPM_PAGES_REPO || github.repository }}
       PAGES_URL: ${{ vars.RPM_PAGES_URL }}
@@ -156,7 +160,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "QRProtec $GITHUB_REF_NAME"
-          git push origin gh-pages
+          for attempt in 1 2 3 4 5; do
+            git push origin gh-pages && exit 0
+            sleep $((attempt * 5))
+            git pull --rebase origin gh-pages
+          done
+          exit 1
 
       - name: Nettoyage de la phrase de passe
         if: always()

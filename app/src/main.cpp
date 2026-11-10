@@ -295,6 +295,8 @@ int main(int argc, char** argv)
         qrprotec::new_frame();
         app->begin_frame();
         app->draw();
+        if (app->quit_requested)
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
 
         ImGui::Render();
 
@@ -311,6 +313,8 @@ int main(int argc, char** argv)
     }
 
     active_app = nullptr;
+    // mise a jour telechargee (macOS) : installee maintenant que l'application se ferme
+    app->updater.on_exit();
     app.reset();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
