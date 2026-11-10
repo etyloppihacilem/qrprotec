@@ -249,6 +249,28 @@ class SettingsWindow final : public AppWindow {
           }
         }
         ImGui::SeparatorText("Étiquettes chargées dans l'imprimante");
+        {
+          const std::string loaded  = settings.print.loaded_label_type;
+          const std::string preview = loaded.empty() ? std::string("(format libre, réglé ci-dessous)") : loaded;
+          ImGui::SetNextItemWidth(320.0f);
+          if (ImGui::BeginCombo("Type chargé", preview.c_str())) {
+            if (ImGui::Selectable("(format libre, réglé ci-dessous)", loaded.empty()))
+              app.set_loaded_label_type("");
+            for (const LabelType &type : label_types_) {
+              const std::string label = type.name + "  (" + type.summary() + ")";
+              if (ImGui::Selectable(label.c_str(), type.name == loaded))
+                app.set_loaded_label_type(type.name);
+            }
+            ImGui::EndCombo();
+          }
+          help_marker("Types d'étiquettes des modèles (Éditeur d'étiquettes > Types d'étiquettes). Un modèle d'un "
+                      "autre type met la file en pause jusqu'à ce que son rouleau soit chargé. Les modèles sans "
+                      "type s'impriment sur l'étiquette réglée ci-dessous.");
+          const bool known = loaded.empty() || std::any_of(label_types_.begin(), label_types_.end(),
+                                                           [&](const LabelType &type) { return type.name == loaded; });
+          if (!known)
+            ImGui::TextColored(colors::orange, "Aucun modèle n'utilise le type « %s ».", loaded.c_str());
+        }
         ImGui::SetNextItemWidth(150.0f);
         ImGui::InputFloat("Largeur (mm, sens de la tête)", &settings.label_width_mm, 1.0f, 5.0f, "%.1f");
         ImGui::SetNextItemWidth(150.0f);
@@ -330,7 +352,10 @@ class SettingsWindow final : public AppWindow {
           ImGui::Text("En cours : %s", status.current.c_str());
         if (status.paused) {
           ImGui::TextColored(colors::red, "Pause : %s", status.error.c_str());
-          if (button("Reprendre"))
+          if (!status.needed_label_type.empty()) {
+            if (button(("Les étiquettes « " + status.needed_label_type + " » sont chargées").c_str()))
+              app.set_loaded_label_type(status.needed_label_type);
+          } else if (button("Reprendre"))
             app.printer.resume();
           ImGui::SameLine();
         }
@@ -369,13 +394,17 @@ class SettingsWindow final : public AppWindow {
   private:
     void scan_templates() {
       templates_.clear();
+      std::vector< TemplateDocument > documents;
       for (const auto &path : glob_templates("*.qr")) {
         TemplateDocument document;
         std::string      error;
-        if (load_template(document, path.string(), error))
+        if (load_template(document, path.string(), error)) {
           templates_.emplace_back(path.filename().string(), document.category);
+          documents.push_back(std::move(document));
+        }
       }
       std::sort(templates_.begin(), templates_.end());
+      label_types_ = collect_label_types(documents);
     }
 
     // -----------------------------------------------------------------------------------------------------------
@@ -772,6 +801,7 @@ class SettingsWindow final : public AppWindow {
     }
 
     std::vector< std::pair< std::string, TemplateCategory > > templates_;
+    std::vector< LabelType >                                  label_types_; // types des modeles du dossier
     Json                                                      notifications_;
     Json                                                      server_rules_;
     int                                                       warning_days_ = 30;

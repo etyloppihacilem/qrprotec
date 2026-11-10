@@ -41,6 +41,19 @@ void PrintQueue::enqueue(std::vector< PrintJob > jobs, const PrintSettings &sett
   condition_.notify_one();
 }
 
+void PrintQueue::set_loaded_label_type(const std::string &name) {
+  {
+    std::lock_guard< std::mutex > lock(mutex_);
+    settings_.loaded_label_type = name;
+    if (status_.paused && !status_.needed_label_type.empty() && status_.needed_label_type == name) {
+      status_.paused = false;
+      status_.error.clear();
+      status_.needed_label_type.clear();
+    }
+  }
+  condition_.notify_one();
+}
+
 PrintQueueStatus PrintQueue::status() const {
   std::lock_guard< std::mutex > lock(mutex_);
   return status_;
@@ -51,6 +64,7 @@ void PrintQueue::resume() {
     std::lock_guard< std::mutex > lock(mutex_);
     status_.paused = false;
     status_.error.clear();
+    status_.needed_label_type.clear();
   }
   condition_.notify_one();
 }
@@ -92,6 +106,24 @@ void PrintQueue::run() {
     RasterImage   image;
     MediaSettings media;
     label.pixels_per_mm = job.document.media.pixels_per_mm;
+    if (const std::optional< LabelType > &type = job.document.label_type) {
+      // modele avec son type d'etiquette : il faut ce rouleau dans l'imprimante
+      if (type->name != settings.loaded_label_type) {
+        std::lock_guard< std::mutex > lock(mutex_);
+        status_.paused            = true;
+        status_.needed_label_type = type->name;
+        status_.error             = job.description + " : chargez les étiquettes « " + type->name + " » ("
+                      + type->summary() + "), puis confirmez dans la file d'impression.";
+        status_.pending           = jobs_.size();
+        if (connected) {
+          printer_.disconnect();
+          connected = false;
+        }
+        continue;
+      }
+      label = physical_label_for(*type, job.document.media.pixels_per_mm);
+      settings.raw.ribbon = type->support == LabelSupport::Transfer;
+    }
     bool ok = fit_to_label(job.image.width > 0 ? job.image : render_template(job.document), label, image, media, error);
     if (ok) {
       ok = connected || printer_.connect(settings, error);

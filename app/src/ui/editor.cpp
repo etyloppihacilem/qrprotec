@@ -4,6 +4,7 @@
 #include "../core/template_io.hpp"
 #include "../core/paths.hpp"
 #include "../core/placeholders.hpp"
+#include "../core/plural.hpp"
 #include "core/template.hpp"
 #include "imgui.h"
 #include "imgui_stdlib.h"
@@ -198,6 +199,250 @@ void Editor::reload_templates() {
       ; // TODO: faire un truc avec l'erreur
   }
   thumbnails_dirty_ = true;
+  rebuild_label_types();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Types d'etiquettes
+
+void Editor::rebuild_label_types() {
+  const std::string selected = selected_label_type_ >= 0 && selected_label_type_ < static_cast< int >(label_types_.size())
+                               ? label_types_[selected_label_type_].type.name
+                               : std::string();
+  std::vector< EditorLabelType > types;
+  for (const TemplateDocument &document : document_list_) {
+    if (!document.label_type || document.label_type->name.empty())
+      continue;
+    const LabelType &type  = *document.label_type;
+    auto             found = std::find_if(types.begin(), types.end(), [&](const EditorLabelType &entry) {
+      return entry.saved.name == type.name;
+    });
+    if (found == types.end()) {
+      types.push_back(EditorLabelType{ type, type, true, 1, false });
+    } else {
+      ++found->uses;
+      found->conflict = found->conflict || found->saved != type;
+    }
+  }
+  // modifications pas encore enregistrees dans les modeles : gardees a la relecture
+  for (const EditorLabelType &entry : label_types_) {
+    if (!entry.in_files || entry.type == entry.saved)
+      continue;
+    for (EditorLabelType &fresh : types)
+      if (fresh.saved == entry.saved)
+        fresh.type = entry.type;
+  }
+  // types crees ou renommes en memoire : gardes jusqu'a ce qu'un modele enregistre les porte
+  for (const EditorLabelType &entry : label_types_) {
+    const bool known = std::any_of(types.begin(), types.end(), [&](const EditorLabelType &other) {
+      return other.type.name == entry.type.name;
+    });
+    if (!entry.in_files && !known)
+      types.push_back(EditorLabelType{ entry.type, entry.type, false, 0, false });
+  }
+  std::sort(types.begin(), types.end(), [](const EditorLabelType &a, const EditorLabelType &b) {
+    return a.type.name < b.type.name;
+  });
+  label_types_         = std::move(types);
+  selected_label_type_ = find_label_type(selected);
+}
+
+int Editor::find_label_type(const std::string &name) const {
+  if (name.empty())
+    return -1;
+  for (std::size_t index = 0; index < label_types_.size(); ++index)
+    if (label_types_[index].type.name == name)
+      return static_cast< int >(index);
+  return -1;
+}
+
+bool Editor::apply_label_type_to_models(int index) {
+  if (index < 0 || index >= static_cast< int >(label_types_.size()))
+    return false;
+  const EditorLabelType entry = label_types_[index];
+  int                   saved = 0;
+  for (const TemplateDocument &listed : document_list_) {
+    if (!listed.label_type || listed.label_type->name != entry.saved.name)
+      continue;
+    const std::filesystem::path path = resolve_template_path(listed.path);
+    TemplateDocument            document;
+    std::string                 error;
+    if (!load_template(document, path.string(), error)) {
+      label_types_message_ = listed.path + " : " + error;
+      return false;
+    }
+    document.label_type = entry.type;
+    apply_label_type(document.media, entry.type);
+    if (!save_template(document, path.string(), error)) {
+      label_types_message_ = listed.path + " : " + error;
+      return false;
+    }
+    ++saved;
+  }
+  // l'etiquette ouverte suit le type (a enregistrer avec le modele)
+  if (document_.label_type && document_.label_type->name == entry.saved.name) {
+    const bool was_clean = !dirty_;
+    document_.label_type = entry.type;
+    apply_label_type(document_.media, entry.type);
+    preview_dirty_ = fit_pending_ = true;
+    if (was_clean && !template_path_.empty())
+      saved_serial_ = serialize_template(document_); // deja enregistre ci-dessus avec les autres modeles
+  }
+  label_types_message_ = "Type « " + entry.type.name + " » enregistré dans " + nb(saved, "modèle") + ".";
+  reload_templates();
+  selected_label_type_ = find_label_type(entry.type.name);
+  return true;
+}
+
+void Editor::draw_label_type_combo() {
+  const std::string current = document_.label_type ? document_.label_type->name : std::string("(format libre)");
+  if (ImGui::BeginCombo("Type d'étiquette", current.c_str())) {
+    if (ImGui::Selectable("(format libre)", !document_.label_type)) {
+      document_.label_type.reset();
+      preview_dirty_ = true;
+    }
+    for (const EditorLabelType &entry : label_types_) {
+      const std::string label = entry.type.name + "  (" + entry.type.summary() + ")";
+      if (ImGui::Selectable(label.c_str(), document_.label_type && document_.label_type->name == entry.type.name)) {
+        document_.label_type = entry.type;
+        apply_label_type(document_.media, entry.type);
+        preview_dirty_ = fit_pending_ = true;
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::SetItemTooltip("Rouleau sur lequel ce modèle s'imprime : format, orientation d'impression et support. "
+                        "Les types se créent dans l'onglet « Types d'étiquettes ».");
+  if (document_.label_type) {
+    ImGui::TextDisabled("%s", document_.label_type->summary().c_str());
+    const int index = find_label_type(document_.label_type->name);
+    if (index >= 0 && label_types_[index].type != *document_.label_type) {
+      ImGui::TextColored(colors::orange, "Le type a changé depuis.");
+      ImGui::SameLine();
+      if (small_button("Mettre à jour")) {
+        document_.label_type = label_types_[index].type;
+        apply_label_type(document_.media, *document_.label_type);
+        preview_dirty_ = fit_pending_ = true;
+      }
+    }
+  } else {
+    ImGui::TextDisabled("Imprimé sur les étiquettes réglées dans Administration > Réglages.");
+  }
+  if (small_button("Nouveau type d'étiquette...")) {
+    LabelType type;
+    type.name      = "Nouveau type";
+    for (int suffix = 2; find_label_type(type.name) >= 0; ++suffix)
+      type.name = "Nouveau type " + std::to_string(suffix);
+    type.width_mm  = document_.media.oriented_width_mm();
+    type.height_mm = document_.media.oriented_height_mm();
+    label_types_.push_back(EditorLabelType{ type, type, false, 0, false });
+    selected_label_type_ = static_cast< int >(label_types_.size()) - 1;
+    show_types_tab_      = true;
+  }
+}
+
+void Editor::draw_label_types() {
+  ImGui::TextWrapped("Un type d'étiquette décrit un rouleau : sa taille (largeur dans le sens de la tête d'impression), "
+                     "l'orientation d'impression du modèle et le support. Chaque modèle garde son type dans son "
+                     "fichier ; la liste est reconstruite à la lecture des modèles. Un type créé ici reste en mémoire "
+                     "jusqu'à ce qu'il soit enregistré dans un modèle (onglet Édition > Étiquette).");
+  if (button("Nouveau type")) {
+    LabelType type;
+    type.name = "Nouveau type";
+    for (int suffix = 2; find_label_type(type.name) >= 0; ++suffix)
+      type.name = "Nouveau type " + std::to_string(suffix);
+    label_types_.push_back(EditorLabelType{ type, type, false, 0, false });
+    selected_label_type_ = static_cast< int >(label_types_.size()) - 1;
+  }
+  if (!label_types_message_.empty()) {
+    ImGui::SameLine();
+    ImGui::TextUnformatted(label_types_message_.c_str());
+  }
+  if (!ImGui::BeginTable("label_types_columns", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV))
+    return;
+  ImGui::TableSetupColumn("Types", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+  ImGui::TableSetupColumn("Propriétés", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+  ImGui::TableNextColumn();
+  if (label_types_.empty())
+    ImGui::TextDisabled("Aucun type : les modèles sont en format libre.");
+  for (std::size_t index = 0; index < label_types_.size(); ++index) {
+    const EditorLabelType &entry = label_types_[index];
+    std::string            state = !entry.in_files ? "en mémoire" : nb(entry.uses, "modèle");
+    if (entry.in_files && entry.type != entry.saved)
+      state += ", modifié";
+    if (entry.conflict)
+      state += ", valeurs différentes";
+    ImGui::PushID(static_cast< int >(index));
+    if (ImGui::Selectable(entry.type.name.c_str(), selected_label_type_ == static_cast< int >(index)))
+      selected_label_type_ = static_cast< int >(index);
+    ImGui::TextDisabled("   %s - %s", entry.type.summary().c_str(), state.c_str());
+    ImGui::PopID();
+  }
+  ImGui::TableNextColumn();
+  if (selected_label_type_ < 0 || selected_label_type_ >= static_cast< int >(label_types_.size())) {
+    ImGui::TextDisabled("Choisissez un type à gauche, ou créez-en un.");
+    ImGui::EndTable();
+    return;
+  }
+  EditorLabelType &entry = label_types_[selected_label_type_];
+  LabelType       &type  = entry.type;
+  ImGui::PushID("label_type");
+  std::string name = type.name;
+  if (ImGui::InputText("Nom", &name) && !name.empty()) {
+    const int other = find_label_type(name);
+    if (other < 0 || other == selected_label_type_)
+      type.name = name;
+  }
+  ImGui::SetItemTooltip("Nom unique, choisi pour l'étiquette chargée dans Administration > Réglages.");
+  float width  = static_cast< float >(type.width_mm);
+  float height = static_cast< float >(type.height_mm);
+  if (ImGui::InputFloat("Largeur (mm)", &width, 1.0f, 5.0f, "%.1f"))
+    type.width_mm = std::clamp(width, 1.0f, 300.0f);
+  ImGui::SetItemTooltip("Dans le sens de la tête d'impression (largeur du rouleau, sans le support).");
+  if (ImGui::InputFloat("Hauteur (mm)", &height, 1.0f, 5.0f, "%.1f"))
+    type.height_mm = std::clamp(height, 1.0f, 500.0f);
+  ImGui::SetItemTooltip("Dans le sens du défilement, sans l'espace entre deux étiquettes.");
+  int rotation = normalize_rotation(type.rotation) / 90;
+  if (ImGui::Combo("Orientation d'impression", &rotation,
+                   "Droite\0Quart de tour horaire\0Retournée\0Quart de tour anti-horaire\0"))
+    type.rotation = rotation * 90;
+  ImGui::SetItemTooltip("Comment le modèle est posé sur l'étiquette qui sort de l'imprimante.");
+  int support = type.support == LabelSupport::Transfer ? 1 : 0;
+  if (ImGui::Combo("Support", &support, "Thermique direct (sans ruban)\0Transfert thermique (ruban)\0"))
+    type.support = support == 1 ? LabelSupport::Transfer : LabelSupport::Direct;
+  ImGui::SetItemTooltip("Imprimantes TSPL / ZPL : ruban ou non. La Niimbot B1 imprime toujours en thermique direct.");
+  ImGui::TextDisabled("Format des modèles de ce type : %.1f x %.1f mm", type.design_width_mm(), type.design_height_mm());
+  ImGui::Separator();
+  if (entry.in_files) {
+    ImGui::Text("Utilisé par %s.", nb(entry.uses, "modèle").c_str());
+    if (entry.conflict)
+      ImGui::TextColored(colors::orange, "Ces modèles n'ont pas tous les mêmes valeurs pour ce type.");
+    ImGui::BeginDisabled(entry.type == entry.saved && !entry.conflict);
+    if (primary_button(entry.uses == 1 ? "Enregistrer dans le modèle"
+                                       : ("Enregistrer dans les " + nb(entry.uses, "modèle")).c_str()))
+      apply_label_type_to_models(selected_label_type_);
+    ImGui::SameLine();
+    if (button("Annuler les changements")) {
+      entry.type = entry.saved;
+    }
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("Le format des modèles suit le type : vérifiez ensuite qu'aucun élément ne dépasse.");
+  } else {
+    ImGui::TextWrapped("En mémoire : choisissez ce type pour un modèle, puis enregistrez le modèle.");
+    if (button("Utiliser pour l'étiquette ouverte")) {
+      document_.label_type = type;
+      apply_label_type(document_.media, type);
+      preview_dirty_ = fit_pending_ = true;
+      show_editor_tab_ = true;
+    }
+    ImGui::SameLine();
+    if (danger_button("Supprimer")) {
+      label_types_.erase(label_types_.begin() + selected_label_type_);
+      selected_label_type_ = -1;
+    }
+  }
+  ImGui::PopID();
+  ImGui::EndTable();
 }
 
 void Editor::rebuild_preview() {
@@ -1310,6 +1555,8 @@ void Editor::draw_document_properties() {
   ImGui::TextDisabled("Fichier : %s", template_path_.empty() ? "pas encore enregistré" : template_path_.c_str());
 
   ImGui::SeparatorText("Format");
+  draw_label_type_combo();
+  ImGui::BeginDisabled(document_.label_type.has_value()); // format donne par le type
   float width  = static_cast< float >(document_.media.width_mm);
   float height = static_cast< float >(document_.media.height_mm);
   float ppmm   = static_cast< float >(document_.media.pixels_per_mm);
@@ -1326,6 +1573,7 @@ void Editor::draw_document_properties() {
     document_.media.orientation = orientation == 0 ? Orientation::Portrait : Orientation::Landscape;
     preview_dirty_ = fit_pending_ = true;
   }
+  ImGui::EndDisabled();
   if (ImGui::InputFloat("Pixels / mm", &ppmm, 1.0f, 1.0f, "%.1f")) {
     document_.media.pixels_per_mm = std::clamp(ppmm, 1.0f, 20.0f);
     preview_dirty_ = fit_pending_ = true;
@@ -1900,6 +2148,11 @@ void Editor::draw_contents() {
       ImGui::EndTabItem();
     }
     show_editor_tab_ = false;
+    if (tab_item("Types d'étiquettes", show_types_tab_ ? ImGuiTabItemFlags_SetSelected : 0)) {
+      draw_label_types();
+      ImGui::EndTabItem();
+    }
+    show_types_tab_ = false;
     ImGui::EndTabBar();
   }
   draw_open_popup();

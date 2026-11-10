@@ -35,6 +35,8 @@ struct PrintQueueStatus {
     std::string current;
     std::string error;
     bool        paused = false; // arretee sur une erreur, en attente de reprise
+    // pause parce que l'etiquette suivante est d'un autre type que celui charge : type a charger
+    std::string needed_label_type;
     bool        busy   = false;
 };
 
@@ -51,6 +53,9 @@ class PrintQueue {
     void             enqueue(std::vector< PrintJob > jobs, const PrintSettings &settings, const PhysicalLabel &label);
     PrintQueueStatus status() const;
     void             resume();
+    // Etiquettes chargees dans l'imprimante (Reglages ou « c'est charge » apres une pause) : reprend la file
+    // si elle attendait ce type
+    void             set_loaded_label_type(const std::string &name);
     void             cancel();
 
   private:

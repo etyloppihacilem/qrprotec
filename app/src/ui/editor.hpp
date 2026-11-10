@@ -74,6 +74,21 @@ private:
     void open_print_test();
     void poll_print_task();
 
+    // Types d'etiquettes : reconstruits a la lecture des modeles, un type cree reste en memoire jusqu'a ce qu'un
+    // modele qui l'utilise soit enregistre
+    struct EditorLabelType {
+        LabelType type;
+        LabelType saved;       // valeurs lues dans les modeles (pour savoir s'il est modifie)
+        bool in_files = false; // utilise par au moins un modele enregistre
+        int uses = 0;          // nombre de modeles enregistres qui l'utilisent
+        bool conflict = false; // meme nom, valeurs differentes selon les modeles
+    };
+    void rebuild_label_types();
+    void draw_label_types();
+    void draw_label_type_combo();
+    int find_label_type(const std::string &name) const;
+    bool apply_label_type_to_models(int index); // enregistre le type modifie dans les modeles qui l'utilisent
+
     // Navigateur d'etiquettes : grille de toutes les etiquettes du dossier avec leur apercu
     void draw_browser();
     void build_thumbnails();
@@ -158,6 +173,10 @@ private:
     std::string browser_filter_;
     int browser_show_ = 0;     // 0 : toutes, 1 : utilisees comme modele, 2 : a la main seulement
     bool show_editor_tab_ = false; // bascule sur l'onglet Edition (etiquette ouverte depuis le navigateur)
+    bool show_types_tab_ = false;  // bascule sur l'onglet Types d'etiquettes
+    std::vector<EditorLabelType> label_types_;
+    int selected_label_type_ = -1;
+    std::string label_types_message_;
 
     // Historique
     std::vector<TemplateDocument> undo_;

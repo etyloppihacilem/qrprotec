@@ -6351,6 +6351,28 @@ class LabelPrintTests(ApiTestCase):
         code, web = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
         self.assertEqual(web['prints'], [])
 
+    def test_labels_keep_their_label_type(self):
+        # type d'etiquette du modele (rouleau) : transmis au poste, qui attend que ce rouleau soit charge
+        _, key = FrontKey.create('Ordi du TECH')
+        remote = {'qrprotec.role': 'remote', 'HTTP_X_QRPROTEC_KEY': key}
+        send = lambda labels: self.client.post('/api/label-prints/send/', json.dumps({'title': 'Lot', 'labels': labels}),
+                                               content_type='application/json', **remote)
+        typed = self.label()
+        typed['label_type'] = {'name': ' PET 40x30 ', 'width_mm': 40, 'height_mm': 30, 'rotation': 90,
+                               'support': 'transfer', 'extra': 'ignore'}
+        bad = self.label()
+        bad['label_type'] = {'name': 'PET', 'width_mm': 40, 'height_mm': 30, 'rotation': 45}
+        self.assertEqual(send([bad]).status_code, 400)
+        bad['label_type'] = {'name': '', 'width_mm': 40, 'height_mm': 30}
+        self.assertEqual(send([bad]).status_code, 400)
+        response = send([typed, self.label()])
+        self.assertEqual(response.status_code, 201)
+        code, printed = self.call('POST', f"/api/label-prints/{response.json()['id']}/print/", {}, session=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(printed['labels'][0]['label_type'], {'name': 'PET 40x30', 'width_mm': 40.0, 'height_mm': 30.0,
+                                                              'rotation': 90, 'support': 'transfer'})
+        self.assertNotIn('label_type', printed['labels'][1])
+
 
 class LotStateReportTests(LotSheetTests.__base__):
     """Rapport d'etat d'un lot a une date donnee (PDF, admins, front web)."""

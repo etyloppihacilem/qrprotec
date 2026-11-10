@@ -132,8 +132,32 @@ def _check_label(label):
         raise PrintError('Étiquette : image illisible')
     if len(bits) != (width * height + 7) // 8:
         raise PrintError('Étiquette : taille de l\'image incohérente')
-    return {'description': str(label.get('description', ''))[:128], 'width': width, 'height': height, 'ppm': ppm,
-            'bits': str(label['bits'])}
+    checked = {'description': str(label.get('description', ''))[:128], 'width': width, 'height': height, 'ppm': ppm,
+               'bits': str(label['bits'])}
+    label_type = _check_label_type(label.get('label_type'))
+    if label_type:
+        checked['label_type'] = label_type
+    return checked
+
+
+def _check_label_type(label_type):
+    """Type d'etiquette du modele (rouleau) : le poste imprime sur ce rouleau et attend qu'il soit charge.
+    Absent ou vide : format libre."""
+    if label_type in (None, '', {}):
+        return None
+    if not isinstance(label_type, dict) or not str(label_type.get('name', '')).strip():
+        raise PrintError('Étiquette : type d\'étiquette invalide')
+    try:
+        width, height = float(label_type.get('width_mm')), float(label_type.get('height_mm'))
+        rotation = int(label_type.get('rotation', 0))
+    except (TypeError, ValueError):
+        raise PrintError('Étiquette : type d\'étiquette invalide')
+    support = label_type.get('support', 'direct')
+    if not (0 < width <= 300 and 0 < height <= 500 and rotation in (0, 90, 180, 270)
+            and support in ('direct', 'transfer')):
+        raise PrintError('Étiquette : type d\'étiquette hors limites')
+    return {'name': str(label_type['name']).strip()[:64], 'width_mm': width, 'height_mm': height,
+            'rotation': rotation, 'support': support}
 
 
 def create_labels(by, front, title, labels):

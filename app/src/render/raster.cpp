@@ -357,6 +357,16 @@ RasterImage render_template(const TemplateDocument& document)
     return image;
 }
 
+PhysicalLabel physical_label_for(const LabelType& type, double pixels_per_mm)
+{
+    PhysicalLabel label;
+    label.width_mm = type.width_mm;
+    label.height_mm = type.height_mm;
+    label.pixels_per_mm = pixels_per_mm > 0.0 ? pixels_per_mm : 8.0;
+    label.rotation = normalize_rotation(type.rotation);
+    return label;
+}
+
 bool fit_to_label(const RasterImage& image, const PhysicalLabel& label, RasterImage& out, MediaSettings& media,
                   std::string& error)
 {
@@ -369,6 +379,40 @@ bool fit_to_label(const RasterImage& image, const PhysicalLabel& label, RasterIm
     const auto fill_ratio = [&](int w, int h) {
         return static_cast<double>(std::min(w, width) * std::min(h, height)) / (static_cast<double>(width) * height);
     };
+    if (label.rotation >= 0) {
+        // type d'etiquette : orientation imposee
+        const int quarter = normalize_rotation(label.rotation);
+        RasterImage source = image;
+        for (int turns = quarter / 90; turns > 0; --turns) {
+            RasterImage turned{source.height, source.width, std::vector<std::uint8_t>(source.pixels.size(), 255)};
+            for (int y = 0; y < source.height; ++y)
+                for (int x = 0; x < source.width; ++x)
+                    turned.at(source.height - 1 - y, x) = source.at(x, y); // quart de tour horaire
+            source = std::move(turned);
+        }
+        if (source.width > width + tolerance || source.height > height + tolerance) {
+            error = "Le modèle (" + std::to_string(source.width) + "x" + std::to_string(source.height)
+                  + " px une fois tourné) est plus grand que son type d'étiquette (" + std::to_string(width) + "x"
+                  + std::to_string(height) + " px).";
+            return false;
+        }
+        out = RasterImage{width, height, std::vector<std::uint8_t>(static_cast<std::size_t>(width * height), 255)};
+        const int offset_x = (width - source.width) / 2;
+        const int offset_y = (height - source.height) / 2;
+        for (int y = 0; y < source.height; ++y)
+            for (int x = 0; x < source.width; ++x) {
+                const int tx = x + offset_x;
+                const int ty = y + offset_y;
+                if (tx >= 0 && ty >= 0 && tx < width && ty < height)
+                    out.at(tx, ty) = source.at(x, y);
+            }
+        media = MediaSettings{};
+        media.width_mm = static_cast<double>(width) / ppmm;
+        media.height_mm = static_cast<double>(height) / ppmm;
+        media.pixels_per_mm = ppmm;
+        media.orientation = Orientation::Landscape;
+        return true;
+    }
     // on garde le sens du modele s'il remplit l'etiquette, sinon on le tourne d'un quart de tour
     const bool straight_ok = fits(image.width, image.height);
     const bool rotated_ok = fits(image.height, image.width);

@@ -40,6 +40,10 @@ Menu **Administration > Réglages** (admin), section **Étiquettes et impression
    port de la Niimbot (`/dev/ttyACM0`). Cochez **Transfert thermique** si un ruban est chargé.
    Imprimez un test depuis l'éditeur ; si l'étiquette est décalée, réglez les décalages.
 2. **Étiquettes chargées dans l'imprimante** : largeur et hauteur du rouleau (40 × 30 mm).
+   Si vous utilisez plusieurs rouleaux (par exemple thermique direct pour les consommables et polyester
+   avec ruban pour les lots), créez un **type d'étiquette** par rouleau dans l'Éditeur d'étiquettes (onglet
+   « Types d'étiquettes »), choisissez-le pour chaque modèle, puis indiquez le **Type chargé** ici : le
+   poste attend le bon rouleau avant d'imprimer un modèle d'un autre type.
 3. **Titre des étiquettes** : le nom de votre structure, imprimé sur les étiquettes de lot et les
    badges (par défaut « PROTECTION CIVILE / PARIS CENTRE »).
 4. **Étiquettes** : le modèle utilisé pour chaque usage (item, paquet, lot public, lot clé, scellé,
