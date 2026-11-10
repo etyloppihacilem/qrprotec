@@ -6618,7 +6618,9 @@
       const result = await listCall(action, body);
       if (result.ask_add) { askAddLot(result.ask_add); return; }
       const picked = lotPick && lists.list && lists.list.lines.find((line) => line.id === lotPick.lineId);
-      if (lotPick && lotPick.back) {
+      if (lotPick && lotPick.refresh) {
+        lotPick.refresh();  // materiel : barre de progression, fermee quand tout est scanne
+      } else if (lotPick && lotPick.back) {
         // retour : fermee quand le lot est note rentre
         if ((lists.list.back || []).some((row) => row.lot === lotPick.back)) lotPick.close();
       } else if (picked && picked.scanned >= picked.quantity) lotPick.close();
@@ -6674,8 +6676,54 @@
   }
   window.addEventListener('resize', placeLotPickCamera);
 
+  // Case du materiel (depart ou retour) : meme grande fenetre que pour un lot, qui demande de scanner les items un
+  // par un, avec une barre de progression. Jamais coche a la main : un consommable n'est pris (ou remis en stock) que
+  // scanne. Fermee d'elle-meme quand tout est scanne.
+  function openItemPick(lineId, title, back = false) {
+    if (lotPick) lotPick.close();
+    const scanning = lists.mode;
+    const count = () => {
+      const line = lists.list && lists.list.lines.find((row) => row.id === lineId);
+      if (!line) return { done: 0, total: 0 };
+      return back ? { done: line.back, total: line.scanned } : { done: line.scanned, total: line.quantity };
+    };
+    const close = () => {
+      if (!lotPick || lotPick.close !== close) return;
+      lotPick = null;
+      overlay.remove();
+      document.body.classList.remove('lot-pick');
+      if (!scanning) stopListScan();
+      renderListsPage();
+    };
+    const bar = el('i', {});
+    const counter = el('b', {});
+    const refresh = () => {
+      const { done, total } = count();
+      bar.style.width = `${total ? Math.round(100 * done / total) : 100}%`;
+      counter.textContent = `${done}/${total}`;
+      if (total && done >= total) {
+        toast(back ? `${title} : tout est rentré` : `${title} : tout est pris`);
+        close();
+      }
+    };
+    const { total } = count();
+    const overlay = el('div', { id: 'lot-pick', role: 'dialog', 'aria-modal': 'true' },
+      el('h2', {}, back ? `Scannez ${total > 1 ? 'chaque' : "l'item"} « ${title} » qui rentre` : `Scannez ${total > 1 ? 'chaque' : "l'item"} « ${title} » pris`),
+      el('p', {}, back ? 'Chaque item scanné est remis en stock.' : (total > 1 ? 'Prenez-les dans le stock et scannez-les un par un.' : 'Prenez-le dans le stock et scannez-le.')),
+      el('div', { class: 'pick-progress' }, el('div', { class: 'return-bar' }, bar), counter),
+      el('div', { id: 'lot-pick-cam' }),
+      el('button', { type: 'button', class: 'secondary lot-pick-cancel', onclick: () => close() }, 'Fermer'));
+    lotPick = { lineId, close, refresh };
+    document.body.append(overlay);
+    document.body.classList.add('lot-pick');
+    if (!lists.mode) startListScan();
+    $('#scan-hint').textContent = back ? '↩ Scannez ce qui rentre' : 'Scannez le matériel';
+    refresh();
+    placeLotPickCamera();
+  }
+
   // back : retour d'une liste sortie, line = { kind: 'lot', lot } du lot pas encore rentre (meme fenetre, le scan ou
-  // « Rentré sans scanner » le note rentre)
+  // « Rentrer sans scanner » le note rentre)
   function openLotPick(line, title, back = false) {
     if (lotPick) lotPick.close();
     const scanning = lists.mode;
@@ -6696,7 +6744,7 @@
         : 'Disponibles : ' + line.available.map((row) => row.name + state(row)).join(', ') + '.'),
       el('div', { id: 'lot-pick-cam' }),
       el('div', { class: 'lot-pick-manual' }, ...(line.kind === 'lot'
-        ? [el('button', { type: 'button', class: 'text-link', onclick: () => byHand(line.lot) }, back ? 'Rentré sans scanner' : 'Cocher sans scanner')]
+        ? [el('button', { type: 'button', class: 'text-link', onclick: () => byHand(line.lot) }, back ? 'Rentrer sans scanner' : 'Cocher sans scanner')]
         : line.available.map((row) => el('button', { type: 'button', class: 'text-link', onclick: () => byHand(row.id) },
           `Prendre ${row.name} sans scanner`)))),
       el('button', { type: 'button', class: 'secondary lot-pick-cancel', onclick: () => close() }, 'Annuler'));
@@ -7236,6 +7284,7 @@
     const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : '') + (byHand ? ' by-hand' : ''), 'aria-label': text, onclick: async (event) => {
       event.stopPropagation();
       if (byHand) { openLotPick(line, title); return; }
+      if (line.kind === 'type' && !done && list.status === 'draft' && !list.template) { openItemPick(line.id, title); return; }
       document.querySelectorAll('#home-lists .list-bubble').forEach((node) => node.remove());
       const bubble = el('span', { class: 'list-bubble', role: 'status' }, text);
       box.parentNode.append(bubble);
@@ -7401,7 +7450,7 @@
       const home = line.scans.filter((scan) => backIids.has(scan.iid));
       split.out += total;
       split.back += home.length;
-      if (gone.length) split.pending.push({ name: line.type_name, count: `×${gone.length}`, scans: gone,
+      if (gone.length) split.pending.push({ line: line.id, name: line.type_name, count: `×${gone.length}`, scans: gone,
         sub: gone.length === total ? nb(total, 'sorti') : `${gone.length} sur ${nb(total, 'sorti')}` });
       if (home.length) split.returned.push({ name: line.type_name, count: `×${home.length}`, scans: home,
         sub: (home.length === total ? '' : `${home.length} sur ${total} · `) + 'remis en stock' });
@@ -7431,21 +7480,14 @@
   }
 
   // Case d'une ligne du retour. Un lot pas encore rentre se coche comme au depart : la case ouvre la fenetre du
-  // lecteur (scanner son etiquette, ou « Rentré sans scanner »). Le materiel se scanne toujours, un par un : un
+  // lecteur (scanner son etiquette, ou « Rentrer sans scanner »). Le materiel se scanne toujours, un par un : un
   // consommable ne se coche jamais a la main (il n'est remis en stock que si on le rescanne).
   function returnBox(entry, home) {
     if (home) return el('span', { class: 'return-box done', 'aria-hidden': 'true' }, '✓');
     if (!entry.lot) {
-      // materiel : la case explique qu'il faut le scanner (comme au depart)
-      const text = `Scannez ${entry.scans.length > 1 ? 'chaque item' : "l'item"} « ${entry.name} » qui rentre : le matériel ne se coche pas à la main.`;
-      const box = el('button', { type: 'button', class: 'return-box', 'aria-label': text, onclick: (event) => {
-        event.stopPropagation();
-        document.querySelectorAll('#home-lists .list-bubble').forEach((node) => node.remove());
-        const bubble = el('span', { class: 'list-bubble', role: 'status' }, text);
-        box.parentNode.append(bubble);
-        setTimeout(() => bubble.remove(), 3500);
-      } }, '');
-      return box;
+      // materiel : la case ouvre la fenetre de scan (jamais coche a la main)
+      return el('button', { type: 'button', class: 'return-box by-hand', 'aria-label': `Scannez « ${entry.name} » qui rentre`,
+        onclick: (event) => { event.stopPropagation(); openItemPick(entry.line, entry.name, true); } }, '');
     }
     return el('button', { type: 'button', class: 'return-box by-hand', 'aria-label': `Scannez l'étiquette de ${entry.name} ou touchez la case`,
       onclick: (event) => { event.stopPropagation(); openLotPick({ id: `back-${entry.lot}`, kind: 'lot', lot: entry.lot }, entry.name, true); } }, '');

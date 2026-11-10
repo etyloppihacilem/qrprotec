@@ -835,6 +835,10 @@ dialog.ask-dialog .dialog-stack button { width: 100%; }
 #lot-pick .lot-pick-manual { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 #lot-pick .lot-pick-manual .text-link { font-size: .9rem; padding: 4px 0; }
 #lot-pick .lot-pick-cancel { width: min(100%, 420px); padding: 12px; }
+#lot-pick .pick-progress { display: flex; align-items: center; gap: 10px; width: min(86vw, 360px); }
+#lot-pick .pick-progress .return-bar { flex: 1; height: 14px; border-radius: 7px; background: #e3e7ee; overflow: hidden; }
+#lot-pick .pick-progress .return-bar i { display: block; height: 100%; background: var(--green); transition: width .2s; }
+#lot-pick .pick-progress b { font-size: 1.4rem; color: var(--navy); min-width: 3em; text-align: right; }
 /* specificite au-dessus du lecteur en coin (:is(...).login-reader #camera) */
 body.lot-pick.lot-pick.lot-pick #camera { display: block !important; position: fixed; z-index: 47; left: var(--gate-left, 7vw);
   top: var(--gate-top, 120px); width: var(--gate-width, 86vw); height: var(--gate-height, 40dvh); border-radius: 18px;
