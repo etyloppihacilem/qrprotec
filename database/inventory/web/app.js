@@ -7361,7 +7361,8 @@
     // retour par la liste (anciennes listes : sortie, ou rentree avec des scans de retour) ; une liste validee
     // aujourd'hui est terminee sans retour a scanner
     const out = list.status === 'validated' || (list.status === 'returned' && !!(list.back || []).length);
-    const count = line.kind === 'lot' ? (line.scanned ? '✓' : '–') : `${line.scanned}/${line.quantity}`;
+    // un lot : sa case dit deja s'il est pris (pas de ✓ en double a droite)
+    const count = line.kind === 'lot' ? '' : `${line.scanned}/${line.quantity}`;
     const back = out && line.scanned ? (line.kind === 'lot' ? (line.back ? 'rentré' : 'pas rentré')
       : `${line.back}/${nb(line.scanned, 'rentré')}`) : '';
     const verifRow = (lot, name) => el('li', { class: 'static list-verif-row' },
@@ -7436,7 +7437,7 @@
     const lot = (id, name, sub, home) => {
       split.out += 1;
       if (home) split.back += 1;
-      (home ? split.returned : split.pending).push({ lot: id, name, sub, count: home ? '✓' : '', scans: [] });
+      (home ? split.returned : split.pending).push({ lot: id, name, sub, count: '', scans: [] });
     };
     for (const line of list.lines) {
       if (line.kind === 'task' || !line.scanned) continue;
