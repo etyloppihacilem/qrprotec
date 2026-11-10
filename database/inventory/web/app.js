@@ -3487,9 +3487,9 @@
     else openReader();
   });
   $('#home-settings').addEventListener('click', openNotifications);
-  // « Départ » : la fleche ramene toujours a l'accueil (apres une liste preparee, validee, rentree, l'historique
-  // repasserait par chacune de ses pages)
-  $('#home-back').addEventListener('click', () => (state.homePage === 'depart' ? showHome('menu') : history.back()));
+  // La fleche du haut ramene toujours a l'accueil, jamais a la page precedente (Hippolyte, 2026-11-10) : l'historique
+  // repasserait par chaque liste ouverte (meme supprimee). Pour revenir en arriere, « ← Toutes les listes » et autres.
+  $('#home-back').addEventListener('click', () => { lists.id = ''; lists.list = null; showHome('menu'); });
   $('#go-home').addEventListener('click', (event) => { event.stopPropagation(); showHome('menu'); });
   document.querySelectorAll('.tile').forEach((tile) => tile.addEventListener('click', () => {
     const page = tile.dataset.go;
