@@ -549,6 +549,11 @@ if lots_wanted:
             iids += [item.iid for item in ItemsPacks.objects.add_items(req.item_type, date, req.quantity, who)]
         services.perform_verif(lot, iids, who)
 user = Secouristes.objects.filter(matricule='BENCH').first() or Secouristes(matricule='BENCH', nom='Banc', prenom='Mesure', role='normal')
+# PIN desactive pour ce compte de mesure seulement : la base est une copie jetable, le reglage du serveur
+# (code obligatoire a la connexion par defaut) reste intact pour les vrais secouristes.
+user.role = 'normal'
+user.active = True
+user.set_pin_mode('disabled')
 key = user.renew_key()
 user.save()
 lots = {}
