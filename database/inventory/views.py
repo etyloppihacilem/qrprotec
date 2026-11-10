@@ -1001,7 +1001,9 @@ def label_error(lots):
     else:
         subs = sorted((lot.name for lot in lots[0].children.filter(active=True)), key=str.casefold)
         subs = '' if not subs else de_names(subs) if len(subs) <= 3 else "d'un des lots qu'il contient"
-        target = de_name(lots[0].name) + (f' (ou celle {subs})' if subs else '')
+        # lot de referentiel (B+) sans etiquette : seulement celles de ses sacs (comme labelTarget du web et le poste)
+        target = subs if subs and services.virtual_lot(lots[0]) else (
+            de_name(lots[0].name) + (f' (ou celle {subs})' if subs else ''))
     return f"Scannez l'étiquette {target} pour valider : c'est elle qui montre que la vérif est bien celle de ce lot."
 
 

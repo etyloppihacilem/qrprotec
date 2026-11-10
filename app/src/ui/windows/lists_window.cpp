@@ -678,7 +678,10 @@ class ListsWindow final : public AppWindow {
         const bool lot_type = line["kind"].str() == "lot_type"; // n'importe quel lot de ce type
         ImGui::TextUnformatted((lot ? line["lot_name"] : line["type_name"]).str().c_str());
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", lot ? ("lot · " + line["lot_type_name"].str()).c_str()
+        // sac d'un B+ de referentiel (sans etiquette) : chaque sac se coche par son etiquette
+        const std::string part_of = line["part_of_name"].str();
+        ImGui::TextDisabled("%s", lot ? (part_of.empty() ? "lot · " + line["lot_type_name"].str()
+                                                         : line["lot_type_name"].str() + " · dans " + part_of).c_str()
                                       : lot_type ? "lot au choix" : "matériel");
         if (lot && draft && line["verif_recommended"].boolean()) {
           ImGui::TextColored(colors::orange, "⚠ Vérif recommandée avant de partir");
@@ -723,10 +726,15 @@ class ListsWindow final : public AppWindow {
             bool              returned = false;
             for (const Json &row : list["back"].items())
               returned = returned || row["lot"].str() == lot_id;
+            if (scan.contains("returned")) // B+ de referentiel : rentre quand tous ses sacs le sont
+              returned = scan["returned"].boolean();
+            std::string missing; // B+ de referentiel commence : les sacs qui restent a scanner
+            for (const Json &name : scan["missing"].items())
+              missing += (missing.empty() ? " · reste à scanner : " : ", ") + name.str();
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::Indent();
-            ImGui::TextDisabled("%s · %s", scan["lot_name"].str().c_str(), scan["by"].str("?").c_str());
+            ImGui::TextDisabled("%s · %s%s", scan["lot_name"].str().c_str(), scan["by"].str("?").c_str(), missing.c_str());
             if (draft && scan["verif_recommended"].boolean()) {
               ImGui::SameLine();
               ImGui::TextColored(colors::orange, "⚠ vérif recommandée");
@@ -804,7 +812,16 @@ class ListsWindow final : public AppWindow {
             continue;
           }
           edit_started_ = edit_started_ || line["scanned"].integer() > 0;
-          if (line["kind"].str() == "lot") {
+          if (line["kind"].str() == "lot" && !line["part_of"].str().empty()) {
+            // sacs d'un B+ de referentiel : coches a part, mais choisis d'un bloc (le B+), une seule ligne
+            bool seen = false;
+            for (const Json &other : edit_lines_.items())
+              seen = seen || other["lot"].str() == line["part_of"].str();
+            if (seen)
+              continue;
+            row["lot"]   = line["part_of"].str();
+            row["label"] = line["part_of_name"].str() + " (" + line["part_of_type_name"].str() + ")";
+          } else if (line["kind"].str() == "lot") {
             row["lot"]   = line["lot"].str();
             row["label"] = line["lot_name"].str() + " (" + line["lot_type_name"].str() + ")";
           } else if (line["kind"].str() == "lot_type") {

@@ -6835,7 +6835,10 @@
       note: list ? list.note : '',
       template: list ? list.template : lists.show === 'templates',
       started: !!(list && list.lines.some((line) => line.scanned)),
-      lines: list ? list.lines.map((line) => line.kind === 'task' ? { task: line.task, label: line.task } : line.kind === 'lot'
+      // sacs d'un B+ de referentiel (sans etiquette) : coches a part dans la liste, mais choisis d'un bloc (le B+)
+      lines: list ? list.lines.filter((line, index) => !line.part_of || list.lines.findIndex((other) => other.part_of === line.part_of) === index)
+        .map((line) => line.kind === 'task' ? { task: line.task, label: line.task } : line.kind === 'lot' && line.part_of
+        ? { lot: line.part_of, label: line.part_of_name, sub: line.part_of_type_name } : line.kind === 'lot'
         ? { lot: line.lot, label: line.lot_name, sub: line.lot_type_name }
         : line.kind === 'lot_type' ? { lot_types: line.lot_types, label: line.type_name, sub: 'Lot au choix', quantity: line.quantity }
         : { type: line.type, label: line.type_name, quantity: line.quantity }) : [],
@@ -7261,7 +7264,8 @@
     }
     const done = line.scanned >= line.quantity;
     const title = line.kind === 'lot' ? line.lot_name : line.type_name;
-    const sub = line.kind === 'lot' ? `Lot · ${line.lot_type_name}`
+    // sac d'un B+ de referentiel (sans etiquette) : chaque sac se coche par son etiquette
+    const sub = line.kind === 'lot' ? (line.part_of ? `${line.lot_type_name} · dans ${line.part_of_name}` : `Lot · ${line.lot_type_name}`)
       : line.kind === 'lot_type' ? `${nb(line.quantity, 'lot')} au choix : scannez son étiquette` : nb(line.quantity, 'demandé');
     // retour par la liste (anciennes listes : sortie, ou rentree avec des scans de retour) ; une liste validee
     // aujourd'hui est terminee sans retour a scanner
@@ -7293,7 +7297,9 @@
       for (const scan of line.scans) {
         rows.push(el('li', { class: 'static list-scan-row' },
           el('div', { class: 'main' }, el('div', { class: 'sub' }, `${scan.lot_name} · ${scan.by || '?'}`
-            + (out ? (backLots.has(scan.lot) ? ' · ✓ rentré' : ' · pas rentré') : ''))),
+            // B+ de referentiel commence : les sacs qui restent a scanner
+            + ((scan.missing || []).length ? ` · reste à scanner : ${scan.missing.join(', ')}` : '')
+            + (out ? ((scan.returned !== undefined ? scan.returned : backLots.has(scan.lot)) ? ' · ✓ rentré' : ' · pas rentré') : ''))),
           list.status === 'draft' ? el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', title: 'Retirer de la liste',
             onclick: () => listAction('unscan', { lot: scan.lot }) }, '✕') : ''));
         if (listWantsVerif(list) && scan.verif_recommended) rows.push(verifRow(scan.lot, scan.lot_name));
