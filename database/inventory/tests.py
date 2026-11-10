@@ -5562,6 +5562,80 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, f'/api/lots/{sac.id}/return/')
         self.assertEqual(code, 400)
 
+    def reference_bplus(self, name):
+        """Lot de referentiel sans etiquette (B+ = sac de soin + sac O2), ses deux sacs avec leur etiquette."""
+        bplus_type = LotType.objects.get_or_create(type='bplusx', defaults={'name': 'B+', 'referentiel': True})[0]
+        soin_type = LotType.objects.get_or_create(type='sacsoi', defaults={'name': 'Sac de soin', 'part_of': bplus_type})[0]
+        o2_type = LotType.objects.get_or_create(type='saco2x', defaults={'name': 'Sac O2', 'part_of': bplus_type})[0]
+        bplus = Lots.objects.create(lot_type=bplus_type, name=name, name_short=name, created_by='M001')
+        soin = Lots.objects.create(lot_type=soin_type, name=f'Sac de soin {name}', name_short='S', created_by='M001',
+                                   parent=bplus)
+        o2 = Lots.objects.create(lot_type=o2_type, name=f'Sac O2 {name}', name_short='O', created_by='M001',
+                                 parent=bplus)
+        self.assertTrue(services.virtual_lot(bplus))
+        return bplus, soin, o2
+
+    def test_reference_lot_bag_by_bag(self):
+        """Lot B+ 1 (referentiel, sans etiquette) choisi d'un bloc : dans la liste, une ligne par sac, chacun coche par
+        son etiquette ; pris, en poste et rentre par ses sacs, aussi depuis la fiche du B+ (Hippolyte, 2026-11-10)."""
+        b1, soin, o2 = self.reference_bplus('Lot B+ 1')
+        code, depart = self.as_(self.other, '/api/checklists/departure/', {'lots': [b1.id]})
+        self.assertEqual(code, 201, depart)
+        self.assertEqual(list(Checklist.objects.get(id=depart['id']).lines.values_list('lot_id', flat=True)), [b1.id])
+        self.assertEqual([(line['lot'], line['part_of']) for line in depart['lines']], [(o2.id, b1.id), (soin.id, b1.id)])  # par nom
+        self.assertEqual((depart['line_count'], depart['done_count']), (2, 0))
+        path = f"/api/checklists/{depart['id']}/"
+        code, body = self.as_(self.other, path + 'scan/', {'lot': o2.id})
+        self.assertEqual((code, body['message']), (200, 'Sac O2 Lot B+ 1 : coché (Lot B+ 1 : reste Sac de soin Lot B+ 1) (⚠ Jamais vérifié)'))
+        self.assertEqual((body['done_count'], body['complete']), (1, False))
+        fiche = lambda lot: self.client.get(f'/api/lots/{lot.id}/').json()['departure']
+        self.assertEqual(fiche(b1)['list']['id'], depart['id'])  # le B+ est pris des qu'un sac l'est
+        code, body = self.as_(self.chief, '/api/checklists/departure/', {'blocked': True})
+        self.assertEqual({lot_id for lot_id in body['blocked']} >= {b1.id, soin.id, o2.id}, True)
+        code, body = self.as_(self.other, path + 'unscan/', {'lot': o2.id})
+        self.assertEqual(code, 200, body)
+        for lot in (soin, o2):
+            code, body = self.as_(self.other, path + 'scan/', {'lot': lot.id})
+            self.assertEqual(code, 200, body)
+        self.assertTrue(body['complete'])
+        self.assertIn('(Lot B+ 1 : complet)', body['message'])
+        code, body = self.as_(self.other, path + 'validate/')
+        self.assertEqual((code, body['status']), (200, 'validated'))
+        code, rows = self.call('POST', '/api/lots/summary/', {}, local=False)  # État des lots : en poste
+        out = {row['id']: row['out_with'] for row in rows}
+        self.assertEqual((out[b1.id], out[soin.id], out[o2.id]), (depart['name'],) * 3)
+        code, body = self.as_(self.other, f'/api/lots/{b1.id}/return/')  # « Retour de ce lot » sur la fiche du B+
+        self.assertEqual((code, body['message']),
+                         (200, 'Lot B+ 1 : rentré, vérif recommandée. Tout est rentré : liste close'))
+        self.assertTrue(Lots.objects.get(id=soin.id).verif_recommended)
+
+    def test_any_reference_lot_bag_by_bag(self):
+        """Ligne « n'importe quel B+ » : l'etiquette d'un sac prend son B+ (sans etiquette), complet avec ses deux
+        sacs ; pris sans scanner, tous ses sacs ; ✕ retire le B+ entier."""
+        b1, soin1, o21 = self.reference_bplus('Lot B+ 1')
+        b2, soin2, o22 = self.reference_bplus('Lot B+ 2')
+        code, created = self.as_(self.chief, '/api/checklists/', {
+            'name': 'Poste', 'lines': [{'lot_types': ['bplusx'], 'quantity': 1}]})
+        self.assertEqual(code, 201, created)
+        self.assertEqual({row['id'] for row in created['lines'][0]['available']}, {b1.id, b2.id})
+        path = f"/api/checklists/{created['id']}/"
+        code, body = self.as_(self.chief, path + 'scan/', {'lot': soin1.id})
+        self.assertEqual((code, body['message']),
+                         (200, 'Sac de soin Lot B+ 1 : pris pour Lot B+ 1, reste à scanner : Sac O2 Lot B+ 1'))
+        line = body['lines'][0]
+        self.assertEqual((line['scanned'], line['scans'][0]['lot'], line['scans'][0]['missing']),
+                         (0, b1.id, ['Sac O2 Lot B+ 1']))
+        code, body = self.as_(self.chief, path + 'scan/', {'lot': soin2.id})
+        self.assertEqual(code, 400)  # 1/1 : B+ 1 commence tient la place
+        code, body = self.as_(self.chief, path + 'scan/', {'lot': o21.id})
+        self.assertEqual((code, body['message'], body['complete']), (200, 'Lot B+ 1 : 1/1 (⚠ Jamais vérifié)', True))
+        code, body = self.as_(self.chief, path + 'unscan/', {'lot': b1.id})
+        self.assertEqual((code, body['lines'][0]['scans']), (200, []))
+        code, body = self.as_(self.chief, path + 'scan/', {'lot': b2.id})  # pris sans scanner
+        self.assertEqual((code, body['message'], body['complete']), (200, 'Lot B+ 2 : 1/1 (⚠ Jamais vérifié)', True))
+        self.assertEqual(set(models.ChecklistScan.objects.filter(checklist_id=created['id']).values_list('lot_id', flat=True)),
+                         {soin2.id, o22.id})
+
     def test_verif_recommended_lots(self):
         """Lots en vérif recommandée dans une liste à préparer (lot fixe pris ou non, lot au choix pris) : signalés pour
         le bouton « Lancer la vérif », jamais un lot scellé."""
@@ -6224,6 +6298,10 @@ class LabelErrorTests(TestCase):
         Lots.objects.create(lot_type=lot_type, name='Sac de soin', parent=bplus, created_by='test')
         self.assertTrue(views.label_error([bplus]).startswith(
             "Scannez l'étiquette de B+ (ou celle de Sac de soin ou de Sac O2) pour valider"))
+        # B+ de referentiel (agregat de sacs, sans etiquette) : seulement celles de ses sacs
+        lot_type.referentiel = True
+        lot_type.save()
+        self.assertTrue(views.label_error([bplus]).startswith("Scannez l'étiquette de Sac de soin ou de Sac O2 pour"))
 
 
 class LabelPrintTests(ApiTestCase):
