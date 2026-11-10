@@ -7796,7 +7796,11 @@
           el('div', { class: 'sub' }, line.task ? 'Tâche à cocher' : line.lot ? `Lot · ${line.sub || ''}`
             : line.lot_types ? "Lot au choix : n'importe lequel de ce type" : 'Matériel')),
         line.lot || line.task ? '' : el('input', { type: 'number', class: 'list-qty', min: '1', max: line.lot_types ? '99' : '999', value: String(line.quantity), 'aria-label': 'Quantité',
-          oninput: (event) => { line.quantity = Math.max(1, Math.min(999, parseInt(event.target.value, 10) || 1)); } }),
+          inputmode: 'numeric', enterkeyhint: 'done',
+          oninput: (event) => { line.quantity = Math.max(1, Math.min(999, parseInt(event.target.value, 10) || 1)); },
+          // Entree (ou « OK » du clavier du telephone) : le chiffre est garde et le clavier se ferme
+          onkeydown: (event) => { if (event.key === 'Enter') { event.preventDefault(); event.target.blur(); } },
+          onchange: (event) => { event.target.value = String(line.quantity); } }),
         el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', onclick: () => { edit.lines.splice(index, 1); redraw(); } }, '✕')))),
       options ? el('div', { class: 'list-add' }, addSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
       el('div', { class: 'list-add-task' }, taskInput, el('button', { type: 'button', onclick: addTask }, '＋ Tâche')),
