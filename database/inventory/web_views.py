@@ -127,6 +127,17 @@ def scanner_page(request):
     return response
 
 
+ROBOTS_TXT = 'User-agent: *\nDisallow: /\n'
+
+
+def robots_txt(request):
+    """Site prive (etiquettes, fiches de lots, connexion) : aucun moteur de recherche ne doit l'indexer. Les
+    robots honnetes lisent ce fichier ; l'en-tete X-Robots-Tag (NoIndexMiddleware) couvre les autres pages."""
+    response = HttpResponse(ROBOTS_TXT, content_type='text/plain; charset=utf-8')
+    response['Cache-Control'] = 'max-age=86400'
+    return response
+
+
 def favicon(request):
     # demande d'office par les navigateurs a la racine du site
     return _file(request, WEB_DIR / 'favicon.png', 'image/png', 'max-age=86400')

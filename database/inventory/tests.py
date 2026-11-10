@@ -1256,6 +1256,19 @@ class WebFrontTests(ApiTestCase):
             self.assertEqual(self.client.get(url).status_code, 200, url)
         self.assertEqual(self.client.get('/favicon.ico')['Content-Type'], 'image/png')
 
+    def test_robots_no_index(self):
+        from pathlib import Path
+        response = self.client.get('/robots.txt')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['Content-Type'].startswith('text/plain'))
+        self.assertEqual(response.content.decode(), 'User-agent: *\nDisallow: /\n')
+        # en-tete sur toutes les reponses : pages, fichiers du front, API, erreurs
+        for url in ('/', '/item?k=x', '/scanner', '/web/app.js', '/robots.txt', '/introuvable'):
+            self.assertEqual(self.client.get(url)['X-Robots-Tag'], 'noindex, nofollow', url)
+        for page in ('index.html', 'scanner.html'):
+            html = (Path(__file__).resolve().parent / 'web' / page).read_text(encoding='utf-8')
+            self.assertIn('<meta name="robots" content="noindex, nofollow">', html)
+
     def test_manifest_installable(self):
         import json
         response = self.client.get('/web/manifest.webmanifest')

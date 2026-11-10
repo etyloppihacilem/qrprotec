@@ -141,6 +141,7 @@ web_patterns = [
     path('pinreset', web_views.page),
     path('scanner', web_views.scanner_page),
     path('favicon.ico', web_views.favicon),
+    path('robots.txt', web_views.robots_txt),
     path('front-config/<str:token>', views.front_config_download),
     path('web/<path:name>', web_views.asset),
 ]

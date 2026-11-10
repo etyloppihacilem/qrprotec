@@ -66,4 +66,6 @@ https://{$QRPROTEC_DOMAIN:localhost} {
 	}
 
 	header -Server
+	# Site prive : aucun moteur de recherche ne l'indexe (le back sert aussi /robots.txt), certificat compris
+	header X-Robots-Tag "noindex, nofollow"
 }
