@@ -415,7 +415,74 @@ def _departure_hint(lot):
     return hint
 
 
-def _scan_any_lot(checklist, lines, scans, lot_id, identity):
+class NotInList(ValueError):
+    """Etiquette d'un lot pas demande dans la liste a preparer, scannee par qui peut la modifier : le front demande
+    « Ajouter ce lot à la liste ? » (action add-lot). proposal : {lot, lot_name, unit, unit_name, replaces}."""
+
+    def __init__(self, message, proposal):
+        super().__init__(message)
+        self.proposal = proposal
+
+
+def _replaceable_line(lines, scans, unit):
+    """Ligne d'un lot fixe du meme type que unit, pas encore coche (ni lui ni ses sacs) : le lot scanne le remplace
+    (« Sac PSE B » a la place de « Sac PSE A » encore au local)."""
+    scanned = {row.lot_id for row in scans}
+    for line in lines:
+        if not line.lot_id or line.lot_id == unit.id or line.lot.lot_type_id != unit.lot_type_id:
+            continue
+        if line.lot_id in scanned or any(part.id in scanned for part in lot_parts(line.lot)):
+            continue
+        return line
+    return None
+
+
+def _not_in_list(checklist, user, lines, scans, lot):
+    """Lot hors de la liste : la question d'ajout si l'utilisateur peut modifier la liste et que le lot peut partir,
+    sinon l'erreur habituelle."""
+    unit = lot_unit(lot)
+    message = f"{lot.name} : pas demandé dans cette liste"
+    if user is None or not can_edit(checklist, user) or checklist.is_template or unit.lot_type.storage:
+        return ValueError(message)
+    other = lot_taken_by(unit, checklist)
+    if other is not None:
+        return ValueError(f'{unit.name} : pas dans cette liste, et déjà pris pour la liste « {other.name} »')
+    line = _replaceable_line(lines, scans, unit)
+    return NotInList(message, {'lot': lot.id, 'lot_name': lot.name, 'unit': unit.id, 'unit_name': unit.name,
+                               'replaces': {'lot': line.lot_id, 'lot_name': line.lot.name} if line else None})
+
+
+def add_lot(checklist, user, lot_id):
+    """Reponse oui a « Ajouter ce lot à la liste ? » : le lot (le B+ entier pour un de ses sacs) remplace le lot du
+    meme type pas encore coche, sinon s'ajoute a la fin ; puis il est coche comme par un scan."""
+    _require_edit(checklist, user)
+    _require_open(checklist)
+    with transaction.atomic():
+        checklist = Checklist.objects.select_for_update().get(id=checklist.id)
+        _require_open(checklist)
+        lot = Lots.objects.select_related('lot_type', 'parent__lot_type').filter(id=lot_id, active=True).first()
+        if lot is None:
+            raise ValueError('Lot inconnu ou archivé')
+        unit = lot_unit(lot)
+        lines = list(checklist.lines.select_related('lot', 'item_type').order_by('position'))
+        replaced = None
+        if not any(line.lot_id == unit.id for line in lines):
+            other = lot_taken_by(unit, checklist)
+            if other is not None:
+                raise ValueError(f'{unit.name} : déjà pris pour la liste « {other.name} »')
+            replaced = _replaceable_line(lines, _out_scans(checklist), unit)
+            rows = [{'lot': unit.id} if line is replaced else _line_data(line) for line in lines]
+            if replaced is None:
+                rows.append({'lot': unit.id})
+            set_lines(checklist, rows)
+            _drop_extra_scans(checklist)
+    message = scan(checklist, user, lot_id=lot_id)
+    head = f'{unit.name} remplace {replaced.lot.name}' if replaced else f'{unit.name} ajouté à la liste'
+    done = f'{lot.name} : coché'
+    return head + (', coché' + message[len(done):] if message.startswith(done) else f' · {message}')
+
+
+def _scan_any_lot(checklist, lines, scans, lot_id, identity, user=None):
     """Etiquette d'un lot pour une ligne « n'importe quel lot de ce type » : jamais un lot fixe (le sac du VPS pour un
     lot A), ni un lot deja pris par une autre liste. Un lot de referentiel sans etiquette (B+) se prend par les
     etiquettes de ses sacs ; pris sans scanner (son nom dans « Disponibles »), tous ses sacs sont coches."""
@@ -425,7 +492,7 @@ def _scan_any_lot(checklist, lines, scans, lot_id, identity):
     unit = lot_unit(lot)
     accepting = [line for line in lines if line.lot_types and unit.lot_type_id in line.lot_types]
     if not accepting:
-        raise ValueError(f"{lot.name} : pas demandé dans cette liste")
+        raise _not_in_list(checklist, user, lines, scans, lot)
     parts = lot_parts(unit)
     wanted = parts if lot.id == unit.id else [lot]
     scanned = {row.lot_id for row in scans}
@@ -474,7 +541,7 @@ def scan(checklist, user, iid='', lot_id=''):
                         line = row
                         break
             if line is None:
-                message = _scan_any_lot(checklist, lines, scans, lot_id, identity)
+                message = _scan_any_lot(checklist, lines, scans, lot_id, identity, user)
             else:
                 # le B+ lui-meme (coche a la main par un ancien front) : tous ses sacs
                 wanted = parts if lot_id == line.lot_id else [part for part in parts if part.id == lot_id]

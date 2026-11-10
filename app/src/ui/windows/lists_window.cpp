@@ -314,9 +314,64 @@ class ListsWindow final : public AppWindow {
           message_bad_ = true;
           return;
         }
+        if (result.data.contains("ask_add") && !result.data["ask_add"].is_null()) {
+          // lot hors de la liste : « Ajouter ce lot à la liste ? » (ou a la place du lot du meme type pas coche)
+          app.feedback.notice(source, app.settings);
+          ask_add_      = result.data["ask_add"];
+          open_ask_add_ = true;
+          message_.clear();
+          return;
+        }
         message_     = result.data["message"].str("Scanné");
         message_bad_ = false;
       });
+    }
+
+    // Reponse a ask_add d'un scan (dessinee dans le detail de la liste, ou le popup est ouvert)
+    void draw_ask_add(App &app) {
+      if (open_ask_add_) {
+        ImGui::OpenPopup("Lot hors de la liste###ask_add");
+        open_ask_add_ = false;
+      }
+      // au centre de l'ecran (le scan vient de la douchette, pas d'un clic) : on ne la rate pas
+      ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+      if (!ImGui::BeginPopupModal("Lot hors de la liste###ask_add", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+      const Json       &ask      = ask_add_;
+      const std::string name     = ask["unit_name"].str();
+      const bool        replaces = !ask["replaces"].is_null();
+      const std::string scanned  = ask["lot_name"].str() != name ? " (étiquette de " + ask["lot_name"].str() + ")" : "";
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 460.0f);
+      if (replaces) {
+        const std::string old = ask["replaces"]["lot_name"].str();
+        ImGui::TextUnformatted(("Prendre " + name + " à la place de " + old + " ?").c_str());
+        ImGui::TextUnformatted((name + scanned + " n'est pas dans la liste. " + old + ", du même type, n'est pas encore "
+                                "coché : " + name + " le remplace et il est coché.").c_str());
+      } else {
+        ImGui::TextUnformatted(("Ajouter " + name + " à la liste ?").c_str());
+        ImGui::TextUnformatted((name + scanned + " n'est pas dans la liste. Il y est ajouté et coché.").c_str());
+      }
+      ImGui::PopTextWrapPos();
+      const std::string label = replaces ? "Remplacer " + ask["replaces"]["lot_name"].str() : std::string("Ajouter à la liste");
+      if (primary_button(label.c_str())) {
+        Json body;
+        body["lot"] = ask["lot"].str();
+        call(app, "add-lot", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            message_     = result.error;
+            message_bad_ = true;
+            app.notify("Liste : " + result.error, true);
+            return;
+          }
+          message_     = result.data["message"].str("Ajouté");
+          message_bad_ = false;
+        });
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::SameLine();
+      if (button("Annuler"))
+        ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
     }
 
     void draw_detail(App &app) {
@@ -356,6 +411,7 @@ class ListsWindow final : public AppWindow {
         draw_scan_toggle(app, "Scanner vers cette liste");
         ImGui::SameLine();
         draw_validate(app, list);
+        draw_ask_add(app);
       } else if (status == "validated") {
         // ecran du retour : bandeau marine, progression de ce qui est rentre (comme le front web)
         const std::string out = "Sortie " + display_on(list["validated"])
@@ -1401,6 +1457,8 @@ class ListsWindow final : public AppWindow {
     bool        scanning_ = false;
     std::string message_;
     bool        message_bad_ = false;
+    Json        ask_add_;              // lot hors liste scanne : question « Ajouter ce lot à la liste ? »
+    bool        open_ask_add_ = false;
     bool        loading_     = false;
     bool        busy_        = false;
     int         request_     = 0;

@@ -6616,6 +6616,7 @@
     const body = scan.kind === 'lot' ? { lot: scan.id } : { item: scan.id };
     try {
       const result = await listCall(action, body);
+      if (result.ask_add) { askAddLot(result.ask_add); return; }
       const picked = lotPick && lists.list && lists.list.lines.find((line) => line.id === lotPick.lineId);
       if (lotPick && lotPick.back) {
         // retour : fermee quand le lot est note rentre
@@ -6628,6 +6629,33 @@
       lists.message = { kind: 'bad', text: e.message };
     }
     renderListsPage();
+  }
+
+  // Etiquette d'un lot hors de la liste a preparer (qui peut la modifier) : « Ajouter ce lot à la liste ? ». Un lot du
+  // meme type pas encore coche est remplace (on prend le Sac PSE B, le A reste au local), sinon le lot s'ajoute.
+  let askingAdd = false;
+  async function askAddLot(ask) {
+    if (askingAdd) return;  // la camera relit l'etiquette pendant la question
+    askingAdd = true;
+    feedback.warn();
+    lists.message = null;
+    renderListsPage();
+    const name = ask.unit_name;
+    const scanned = ask.lot_name !== ask.unit_name ? ` (étiquette de ${ask.lot_name})` : '';
+    const ok = await askDialog({
+      title: ask.replaces ? `Prendre ${name} à la place de ${ask.replaces.lot_name} ?` : `Ajouter ${name} à la liste ?`,
+      text: ask.replaces
+        ? `${name}${scanned} n'est pas dans la liste. ${ask.replaces.lot_name}, du même type, n'est pas encore coché : ${name} le remplace et il est coché.`
+        : `${name}${scanned} n'est pas dans la liste. Il y est ajouté et coché.`,
+      choices: [{ label: ask.replaces ? `Remplacer ${ask.replaces.lot_name}` : 'Ajouter à la liste', value: true, cls: 'primary' }],
+    });
+    askingAdd = false;
+    if (!ok) return;
+    listAction('add-lot', { lot: ask.lot }, (result) => {
+      feedback.good();
+      lists.message = { kind: 'ok', text: result.message || 'Ajouté' };
+      if (lotPick) lotPick.close();
+    });
   }
 
   // Case d'un lot a prendre : grande fenetre avec la camera pour scanner son etiquette (ce qu'on veut encourager),
