@@ -505,6 +505,9 @@ class App {
     // Etiquettes du type `name` chargees dans l'imprimante (vide : format libre) : enregistre et reprend la file
     // si elle attendait ce rouleau
     void        set_loaded_label_type(const std::string &name);
+    // Modeles sans type d'etiquette : type construit (etiquettes reglees dans les Reglages, orientation qu'ils
+    // recevaient a l'impression) et fichier mis a jour. Sans rouleau charge, prend le type le plus courant.
+    void        add_missing_label_types();
     // Fichier de configuration chiffre cree sur le serveur (frontkey add NOM --config) : URL, cle et
     // certificat de l'autorite remplacent les reglages du serveur, enregistres aussitot, puis la connexion
     // est testee. Refuse sur une borne ou si l'environnement impose la connexion (front-api.conf).

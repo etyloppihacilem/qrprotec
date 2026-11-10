@@ -5,6 +5,7 @@
 #include "../core/paths.hpp"
 #include "../core/placeholders.hpp"
 #include "../core/plural.hpp"
+#include "../render/label_types.hpp"
 #include "core/template.hpp"
 #include "imgui.h"
 #include "imgui_stdlib.h"
@@ -163,6 +164,11 @@ void Editor::set_default_media(double width_mm, double height_mm) {
   default_height_mm_ = height_mm;
 }
 
+void Editor::set_default_label(const PhysicalLabel &label, LabelSupport support) {
+  default_label_   = label;
+  default_support_ = support;
+}
+
 void Editor::new_template() {
   document_                          = TemplateDocument{};
   document_.media.width_mm           = default_width_mm_;
@@ -187,6 +193,12 @@ void Editor::new_template() {
 void Editor::reload_templates() {
   image_files_ = label_images();
   loaded_templates_dir_ = templates_dir().string();
+  // modeles sans type d'etiquette : type construit et fichier mis a jour
+  std::vector< std::string > errors;
+  if (const int updated = add_missing_label_types(default_label_, default_support_, nullptr, &errors); updated > 0)
+    label_types_message_ = "Type d'étiquette ajouté à " + nb(updated, "modèle") + ".";
+  if (!errors.empty())
+    label_types_message_ = "Type d'étiquette non enregistré : " + errors.front();
   qr_files_             = glob_templates("*.qr");
   document_list_.clear();
   for (auto path : qr_files_) {
@@ -295,12 +307,8 @@ bool Editor::apply_label_type_to_models(int index) {
 }
 
 void Editor::draw_label_type_combo() {
-  const std::string current = document_.label_type ? document_.label_type->name : std::string("(format libre)");
+  const std::string current = document_.label_type ? document_.label_type->name : std::string("(choisi à l'enregistrement)");
   if (ImGui::BeginCombo("Type d'étiquette", current.c_str())) {
-    if (ImGui::Selectable("(format libre)", !document_.label_type)) {
-      document_.label_type.reset();
-      preview_dirty_ = true;
-    }
     for (const EditorLabelType &entry : label_types_) {
       const std::string label = entry.type.name + "  (" + entry.type.summary() + ")";
       if (ImGui::Selectable(label.c_str(), document_.label_type && document_.label_type->name == entry.type.name)) {
@@ -326,7 +334,8 @@ void Editor::draw_label_type_combo() {
       }
     }
   } else {
-    ImGui::TextDisabled("Imprimé sur les étiquettes réglées dans Administration > Réglages.");
+    ImGui::TextDisabled("Sans choix, le type est construit à l'enregistrement d'après les étiquettes\n"
+                        "réglées dans Administration > Réglages.");
   }
   if (small_button("Nouveau type d'étiquette...")) {
     LabelType type;
@@ -364,7 +373,7 @@ void Editor::draw_label_types() {
   ImGui::TableSetupColumn("Propriétés", ImGuiTableColumnFlags_WidthStretch, 1.2f);
   ImGui::TableNextColumn();
   if (label_types_.empty())
-    ImGui::TextDisabled("Aucun type : les modèles sont en format libre.");
+    ImGui::TextDisabled("Aucun type pour l'instant.");
   for (std::size_t index = 0; index < label_types_.size(); ++index) {
     const EditorLabelType &entry = label_types_[index];
     std::string            state = !entry.in_files ? "en mémoire" : nb(entry.uses, "modèle");
@@ -567,6 +576,10 @@ bool Editor::save_to(const std::string &name) {
   }
   std::string                 error;
   const std::filesystem::path path = resolve_template_path(file);
+  if (!document_.label_type) { // chaque modele enregistre a son type d'etiquette
+    document_.label_type = default_label_type(document_.media, default_label_, default_support_);
+    apply_label_type(document_.media, *document_.label_type);
+  }
   if (!save_template(document_, path.string(), error)) {
     message_ = error;
     return false;

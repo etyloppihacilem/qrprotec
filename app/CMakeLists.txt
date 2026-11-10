@@ -111,6 +111,7 @@ add_library(QRProtecCore STATIC
     src/net/websocket.cpp
     src/printer/logging.cpp
     src/render/image_loader.cpp
+    src/render/label_types.cpp
     src/render/raster.cpp
     third_party/qrcodegen/qrcodegen.cpp
 )

@@ -4,6 +4,7 @@
 #include "../src/core/template_io.hpp"
 #include "../src/net/front_config.hpp"
 #include "../src/net/websocket.hpp"
+#include "../src/render/label_types.hpp"
 #include "../src/render/raster.hpp"
 
 #include <cassert>
@@ -251,6 +252,19 @@ int main()
         // modele plus grand que son type : refuse
         type.width_mm = 20.0;
         assert(!qrprotec::fit_to_label(image, qrprotec::physical_label_for(type, 8.0), out, media, error));
+        // modele sans type : type construit d'apres les etiquettes reglees, meme orientation qu'avant
+        qrprotec::PhysicalLabel roll; // 40 x 30
+        qrprotec::MediaSettings landscape;
+        const qrprotec::LabelType straight = qrprotec::default_label_type(landscape, roll, qrprotec::LabelSupport::Direct);
+        assert(straight.name == "40 x 30 mm" && straight.rotation == 0 && straight.width_mm == 40.0);
+        qrprotec::MediaSettings portrait;
+        portrait.orientation = qrprotec::Orientation::Portrait; // 30 x 40 : tourne d'un quart de tour
+        roll.rotate_counterclockwise = true;
+        const qrprotec::LabelType turned = qrprotec::default_label_type(portrait, roll, qrprotec::LabelSupport::Transfer);
+        assert(turned.rotation == 270 && turned.support == qrprotec::LabelSupport::Transfer);
+        assert(turned.name == "40 x 30 mm, quart de tour anti-horaire, ruban");
+        roll.flip = true;
+        assert(qrprotec::default_label_type(landscape, roll, qrprotec::LabelSupport::Direct).rotation == 180);
     }
 
     // WebSocket : base64 (cle de la poignee de main) et trames masquees / non masquees
