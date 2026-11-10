@@ -1,8 +1,14 @@
 # Construit le front (application de bureau, sans kiosk) en Flatpak x86_64 :
 # packaging/flatpak/io.github.etyloppihacilem.QRProtec.yml, runtime org.freedesktop.Platform de Flathub.
 #
-# Artefact : QRProtec-front.flatpak, a installer avec `flatpak install --user QRProtec-front.flatpak`
-# (le runtime vient de Flathub). Sur un tag vX.Y.Z, il est aussi joint a la release GitHub.
+# Artefact : QRProtec-front.flatpak (CI). Sur un tag vX.Y.Z :
+#   - publication dans le depot Flatpak signe de GitHub Pages (flatpak/ de la branche gh-pages, a cote du
+#     depot dnf, packaging/publish-flatpak.sh) : les postes recoivent la mise a jour par `flatpak update`, et
+#     tout seuls par Logiciels (GNOME) ou Discover (KDE) ;
+#   - QRProtec-front.flatpak joint a la release, lie a ce depot : installe avec
+#     `flatpak install --user QRProtec-front.flatpak`, il se met ensuite a jour comme ci-dessus.
+# Variables et secrets : les memes que le depot dnf (rpm.yml) : RPM_PAGES_REPO, RPM_PAGES_URL, RPM_PAGES_TOKEN,
+# RPM_GPG_PRIVATE_KEY et RPM_GPG_PASSPHRASE (signature obligatoire).
 name: flatpak
 
 on:
@@ -10,10 +16,10 @@ on:
     tags: ['v*']
     branches: [main]
     paths: ['app/**', 'packaging/flatpak/**', 'packaging/files/qrprotec-front', 'packaging/files/qrprotec.desktop',
-            '.github/workflows/flatpak.yml']
+            'packaging/publish-flatpak.sh', '.github/workflows/flatpak.yml']
   pull_request:
     paths: ['app/**', 'packaging/flatpak/**', 'packaging/files/qrprotec-front', 'packaging/files/qrprotec.desktop',
-            '.github/workflows/flatpak.yml']
+            'packaging/publish-flatpak.sh', '.github/workflows/flatpak.yml']
   workflow_dispatch:
 
 permissions:
@@ -41,21 +47,94 @@ jobs:
           path: QRProtec-front.flatpak
           if-no-files-found: error
 
-  # Sur un tag vX.Y.Z : .flatpak joint a la release GitHub (creee ici ou par les workflows rpm / macos)
-  release:
+      # Sur un tag : depot OSTree construit, publie (signe) par le job publish
+      - name: Depot OSTree pour la publication
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: tar -cf flatpak-repo.tar repo
+      - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: qrprotec-front-flatpak-repo
+          path: flatpak-repo.tar
+          if-no-files-found: error
+
+  # Sur un tag vX.Y.Z : depot Flatpak signe sur GitHub Pages (mises a jour) et .flatpak lie a ce depot, joint a
+  # la release GitHub (creee ici ou par les workflows rpm / macos)
+  publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    container: registry.fedoraproject.org/fedora:43
     permissions:
       contents: write
+    # rpm.yml pousse aussi sur gh-pages : une publication a la fois
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
     env:
+      PAGES_REPO: ${{ vars.RPM_PAGES_REPO || github.repository }}
+      PAGES_URL: ${{ vars.RPM_PAGES_URL }}
+      PAGES_TOKEN: ${{ secrets.RPM_PAGES_TOKEN || github.token }}
+      GPG_PRIVATE_KEY: ${{ secrets.RPM_GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Outils
+        run: |
+          dnf -y --setopt=install_weak_deps=False install git-core flatpak ostree gnupg2 gh
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
         with:
-          name: qrprotec-front-flatpak-x86_64
+          name: qrprotec-front-flatpak-repo
+      - name: Cle de signature requise
+        if: env.GPG_PRIVATE_KEY == ''
+        run: |
+          echo "::error::Secret RPM_GPG_PRIVATE_KEY absent : le depot Flatpak doit etre signe"
+          exit 1
+      - name: Cle de signature
+        run: |
+          mkdir -p -m 700 ~/.gnupg
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          key_id=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
+          echo "GPG_KEY_ID=$key_id" >> "$GITHUB_ENV"
+          # flatpak signe par gpg-agent, sans pinentry : phrase de passe prechargee dans l'agent
+          if [ -n "$GPG_PASSPHRASE" ]; then
+            echo allow-preset-passphrase >> ~/.gnupg/gpg-agent.conf
+            gpg-connect-agent reloadagent /bye
+            preset="$(gpgconf --list-dirs libexecdir)/gpg-preset-passphrase"
+            for grip in $(gpg --list-secret-keys --with-colons --with-keygrip | awk -F: '/^grp/ {print $10}'); do
+              printf '%s' "$GPG_PASSPHRASE" | "$preset" --preset "$grip"
+            done
+          fi
+      - name: Depot Flatpak (gh-pages)
+        run: |
+          tar -xf flatpak-repo.tar
+          owner=${PAGES_REPO%%/*}
+          name=${PAGES_REPO#*/}
+          url=${PAGES_URL:-https://${owner}.github.io/${name}}
+          remote="https://x-access-token:${PAGES_TOKEN}@github.com/${PAGES_REPO}.git"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git clone --depth 1 --branch gh-pages "$remote" pages; then
+            git init -b gh-pages pages
+            git -C pages remote add origin "$remote"
+          fi
+          packaging/publish-flatpak.sh pages "$url" repo QRProtec-front.flatpak
+          cd pages
+          # caches locaux d'OSTree, recrees au besoin
+          rm -rf flatpak/tmp flatpak/state
+          git add -A
+          git commit -m "QRProtec $GITHUB_REF_NAME (Flatpak)"
+          # depot dnf publie en meme temps par rpm.yml : on reprend sa publication avant de pousser
+          for attempt in 1 2 3 4 5; do
+            git push origin gh-pages && exit 0
+            sleep $((attempt * 5))
+            git pull --rebase origin gh-pages
+          done
+          exit 1
       - name: Release GitHub
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           gh release upload "$GITHUB_REF_NAME" QRProtec-front.flatpak --repo "$GITHUB_REPOSITORY" --clobber \
             || gh release create "$GITHUB_REF_NAME" QRProtec-front.flatpak \
                  --repo "$GITHUB_REPOSITORY" --title "QRProtec $GITHUB_REF_NAME" --generate-notes \

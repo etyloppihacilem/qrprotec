@@ -6,15 +6,20 @@
 # dans Applications. Signature ad hoc seulement : au premier lancement, clic droit > Ouvrir (ou
 # `xattr -dr com.apple.quarantine /Applications/QRProtec.app`).
 # Sur un tag vX.Y.Z, le .dmg est aussi joint a la release GitHub.
+#
+# Mise a jour automatique : l'application construite sur un tag connait sa version (-DQRPROTEC_VERSION) et
+# cherche toutes les 6 h la derniere release (api.github.com) ; le .dmg plus recent est telecharge, verifie
+# (SHA-256 publie par GitHub) puis mis a la place du .app par Contents/Resources/qrprotec-update.sh
+# (packaging/macos), teste ici sur le .dmg construit. Hors tag : version 0.0.0, pas de mise a jour.
 name: macos
 
 on:
   push:
     tags: ['v*']
     branches: [main]
-    paths: ['app/**', '.github/workflows/macos.yml']
+    paths: ['app/**', 'packaging/macos/**', '.github/workflows/macos.yml']
   pull_request:
-    paths: ['app/**', '.github/workflows/macos.yml']
+    paths: ['app/**', 'packaging/macos/**', '.github/workflows/macos.yml']
   workflow_dispatch:
 
 permissions:
@@ -29,17 +34,21 @@ jobs:
           submodules: true
       - name: Dependances
         run: brew install glfw freetype libpng openssl@3 dylibbundler
+      - name: Version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF" == refs/tags/v* && "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || version=0.0.0
+          echo "VERSION=$version" >> "$GITHUB_ENV"
       - name: Construction
         run: |
           cmake -S app -B build -DCMAKE_BUILD_TYPE=Release \
-            -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+            -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" -DQRPROTEC_VERSION="$VERSION"
           cmake --build build -j "$(sysctl -n hw.ncpu)"
       - name: Tests
         run: ctest --test-dir build --output-on-failure
       - name: Application (.app) et image disque (.dmg)
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || version=0.0.0
+          version="$VERSION"
           app=dist/QRProtec.app
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
           cp build/QRProtecApp "$app/Contents/MacOS/"
@@ -61,6 +70,8 @@ jobs:
           exec "$contents/MacOS/QRProtecApp" "$@"
           SCRIPT
           chmod +x "$app/Contents/MacOS/qrprotec-front"
+          # Mise a jour automatique : remplacement du .app par celui d'un nouveau .dmg
+          install -m 755 packaging/macos/qrprotec-update.sh "$app/Contents/Resources/qrprotec-update.sh"
           # Icone : celle du site web
           iconset=build/QRProtec.iconset
           mkdir -p "$iconset"
@@ -98,6 +109,31 @@ jobs:
           cp -R "$app" dist/dmg/
           ln -s /Applications dist/dmg/Applications
           hdiutil create -volname QRProtec -srcfolder dist/dmg -format UDZO -ov QRProtec-macos-arm64.dmg
+      - name: Mise a jour automatique (script de remplacement)
+        run: |
+          # « ancienne » application installee, remplacee par celle du .dmg comme a la fermeture de QRProtec
+          apps="$RUNNER_TEMP/Applications dossier"
+          mkdir -p "$apps"
+          ditto dist/QRProtec.app "$apps/QRProtec.app"
+          touch "$apps/QRProtec.app/Contents/ancienne-version"
+          cp QRProtec-macos-arm64.dmg "$RUNNER_TEMP/update.dmg"
+          sleep 0 & pid=$!
+          wait $pid
+          sh packaging/macos/qrprotec-update.sh install "$pid" "$RUNNER_TEMP/update.dmg" "$apps/QRProtec.app" 0 0 \
+            "$RUNNER_TEMP/update.log" || { cat "$RUNNER_TEMP/update.log"; exit 1; }
+          cat "$RUNNER_TEMP/update.log"
+          test ! -e "$apps/QRProtec.app/Contents/ancienne-version"
+          test ! -e "$RUNNER_TEMP/update.dmg"
+          test -z "$(ls -A "$apps" | grep -v '^QRProtec.app$')"
+          codesign --verify --deep --strict "$apps/QRProtec.app"
+          # .dmg sans QRProtec.app : rien n'est touche
+          mkdir -p "$RUNNER_TEMP/vide" && echo x > "$RUNNER_TEMP/vide/x"
+          hdiutil create -volname Vide -srcfolder "$RUNNER_TEMP/vide" -format UDZO -ov "$RUNNER_TEMP/vide.dmg"
+          touch "$apps/QRProtec.app/Contents/temoin"
+          if sh packaging/macos/qrprotec-update.sh replace "$RUNNER_TEMP/vide.dmg" "$apps/QRProtec.app"; then
+            echo "::error::.dmg sans QRProtec.app accepte"; exit 1
+          fi
+          test -e "$apps/QRProtec.app/Contents/temoin"
       - uses: actions/upload-artifact@v7
         with:
           name: qrprotec-front-macos-arm64

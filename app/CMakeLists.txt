@@ -103,6 +103,7 @@ add_library(QRProtecCore STATIC
     src/core/search.cpp
     src/core/template.cpp
     src/core/template_io.cpp
+    src/core/update_check.cpp
     src/net/connection.cpp
     src/net/front_config.cpp
     src/net/http.cpp
@@ -170,6 +171,7 @@ add_executable(${PROJECT_NAME}
     src/app/print_queue.cpp
     src/app/scan_stack.cpp
     src/app/settings.cpp
+    src/app/updater.cpp
     src/inateck/hid_classifier.cpp
     src/inateck/inateck_worker.cpp
     src/inateck/scanner_settings.cpp
@@ -216,6 +218,20 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts $<TARGET_FILE_DIR:${PROJECT_NAME}>/fonts)
+
+# Mise a jour automatique (macOS) : version de cette construction (tag sans le v, passee par la CI sur un tag
+# vX.Y.Z) et fichier de la release GitHub a telecharger. Sans version (developpement), pas de mise a jour.
+set(QRPROTEC_VERSION "" CACHE STRING "Version de l'application (tag sans le v)")
+set(QRPROTEC_UPDATE_REPO "etyloppihacilem/qrprotec" CACHE STRING "Depot GitHub des releases (mises a jour macOS)")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    set(QRPROTEC_UPDATE_ASSET_DEFAULT "QRProtec-macos-arm64.dmg")
+else()
+    set(QRPROTEC_UPDATE_ASSET_DEFAULT "QRProtec-macos-x86_64.dmg")
+endif()
+set(QRPROTEC_UPDATE_ASSET "${QRPROTEC_UPDATE_ASSET_DEFAULT}" CACHE STRING "Fichier de la release (mises a jour macOS)")
+# sur ce seul fichier : changer de version ne recompile pas tout
+set_source_files_properties(src/app/updater.cpp PROPERTIES COMPILE_DEFINITIONS
+    "QRPROTEC_VERSION=\"${QRPROTEC_VERSION}\";QRPROTEC_UPDATE_REPO=\"${QRPROTEC_UPDATE_REPO}\";QRPROTEC_UPDATE_ASSET=\"${QRPROTEC_UPDATE_ASSET}\"")
 
 if(APPLE)
     # OpenGL est deprecie (mais toujours present) sur macOS

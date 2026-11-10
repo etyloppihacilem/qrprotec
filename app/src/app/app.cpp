@@ -94,6 +94,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   });
   settings = AppSettings::defaults();
   settings.load();
+  updater.start(settings.auto_update);
   apply_settings();
   // meme delai et meme defaut que swayidle dans qrprotec-kiosk-session
   if (std::getenv("QRPROTEC_KIOSK") != nullptr) {
@@ -136,6 +137,7 @@ App::~App() = default;
 void App::apply_settings() {
   api.configure(settings.api_endpoint());
   set_templates_dir(settings.templates_dir);
+  updater.set_enabled(settings.auto_update);
 }
 
 // Premiere installation (ou nouvel usage d'etiquette) : chaque usage qui n'a encore aucun modele dans les
@@ -610,6 +612,7 @@ void App::draw_menu_bar() {
       ImGui::PopStyleColor();
       ImGui::SetItemTooltip("Étiquettes d'items demandées par le TECH depuis le web : ouvrir pour les imprimer.");
     }
+    draw_update_menu();
     if (ImGui::BeginMenu("Douchette")) {
       if (ImGui::MenuItem("Téléphone comme douchette...", nullptr, remote.active))
         open_window("phone");
@@ -686,6 +689,34 @@ void App::draw_menu_bar() {
   }
   if (tinted)
     ImGui::PopStyleColor();
+}
+
+// Mise a jour telechargee (macOS) : installee a la fermeture, ou tout de suite d'ici (tout le monde, connecte ou non :
+// sur un poste personnel, l'utilisateur n'est pas forcement admin de QRProtec)
+void App::draw_update_menu() {
+  const Updater::Status update = updater.status();
+  if (update.state != Updater::State::Ready || update.launched)
+    return;
+  ImGui::PushStyleColor(ImGuiCol_Text, colors::blue);
+  const std::string label = "↑ Mise à jour " + update.available;
+  const bool        menu  = ImGui::BeginMenu(label.c_str());
+  ImGui::PopStyleColor();
+  if (!menu)
+    return;
+  ImGui::Text("QRProtec %s est téléchargée (version actuelle : %s).", update.available.c_str(),
+              Updater::current_version().c_str());
+  if (update.needs_admin)
+    ImGui::TextDisabled("Le mot de passe d'un administrateur du Mac sera demandé.");
+  else
+    ImGui::TextDisabled("Elle s'installe toute seule à la fermeture de QRProtec.");
+  if (ImGui::MenuItem("Installer et redémarrer maintenant")) {
+    std::string error;
+    if (updater.install(true, error))
+      quit_requested = true;
+    else
+      notify("Mise à jour impossible : " + error, true);
+  }
+  ImGui::EndMenu();
 }
 
 // Fenetre ouverte au premier plan : on la ferme (sauf la pile de scans, toujours ouverte). Ouverte mais derriere une autre (en plein ecran surtout) :

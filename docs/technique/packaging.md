@@ -145,8 +145,40 @@ make flatpak      # flatpak-builder -> dist/QRProtec-front.flatpak
 flatpak install --user dist/QRProtec-front.flatpak
 ```
 
-`.github/workflows/flatpak.yml` construit le `.flatpak` (image `flatpak-github-actions` de Flathub)
-et le joint à la release sur un tag `vX.Y.Z`.
+`.github/workflows/flatpak.yml` construit le `.flatpak` (image `flatpak-github-actions` de Flathub).
+Sur un tag `vX.Y.Z`, le job `publish` (`packaging/publish-flatpak.sh`) ajoute la version au **dépôt
+Flatpak** statique `flatpak/` de la branche `gh-pages` (à côté du dépôt dnf, même clé GPG, 3 derniers
+commits gardés, deltas statiques), écrit `qrprotec.flatpakrepo` et `qrprotec.flatpakref`, puis joint à la
+release un `.flatpak` **lié à ce dépôt** (`--repo-url`, clé GPG, runtime depuis Flathub). Un poste
+installé depuis la release ou le `.flatpakref` reçoit donc les versions suivantes par `flatpak update`,
+et sans rien faire par Logiciels (GNOME) ou Discover (KDE), qui mettent les Flatpak à jour d'office.
+Les publications dnf et Flatpak d'un même tag passent l'une après l'autre (`concurrency: gh-pages`).
+
+## Application macOS et mise à jour automatique
+
+`.github/workflows/macos.yml` construit `QRProtec.app` (runner Apple Silicon, signature ad hoc) dans
+`QRProtec-macos-arm64.dmg`, joint aux releases. Sur un tag, l'application est construite avec
+`-DQRPROTEC_VERSION=X.Y.Z` et se met à jour toute seule (`app/src/app/updater.cpp`) :
+
+1. Une minute après le démarrage puis toutes les 6 h, `GET api.github.com/repos/<dépôt>/releases/latest`
+   (curl du système, magasin de certificats de macOS). Les brouillons et pré-releases sont ignorés.
+2. Version plus récente : le `.dmg` est téléchargé dans `~/Library/Caches/QRProtec/updates` et son
+   SHA-256 comparé à l'empreinte que GitHub publie pour chaque fichier de release (champ `digest`).
+3. Prêt : **↑ Mise à jour X.Y.Z** dans la barre de menu (pour tous). Installé à la fermeture de
+   QRProtec, ou tout de suite par **Installer et redémarrer maintenant**. `Contents/Resources/qrprotec-update.sh`
+   (`packaging/macos`) attend la fin de l'application, monte le `.dmg`, vérifie le nouveau `.app`
+   (identifiant `fr.qrprotec.front`, `codesign --verify`), le met à la place de l'ancien (remis en place
+   en cas d'échec) et relance l'application. Journal : `~/Library/Caches/QRProtec/updates/update.log`.
+4. Application dans un dossier non modifiable par l'utilisateur : le mot de passe d'un administrateur du
+   Mac est demandé (`osascript ... with administrator privileges`), seulement après un clic sur
+   « Installer », jamais à la fermeture.
+
+Réglages > **Mises à jour** (admins) : version installée, case « Mises à jour automatiques » (cochée par
+défaut, `auto_update` dans `app.conf`), « Rechercher maintenant ». `QRPROTEC_NO_AUTO_UPDATE=1` désactive.
+Construction hors tag (version `0.0.0`), RPM et Flatpak : pas de mise à jour par l'application.
+
+Sans compte développeur Apple, la signature est ad hoc : macOS peut redemander l'autorisation Bluetooth
+(douchette) après une mise à jour. Le CI teste le script de remplacement sur le `.dmg` construit.
 
 ## Publication (CI)
 

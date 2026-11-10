@@ -49,6 +49,7 @@ struct AppSettings {
     // Options de debug (admins seulement, verifie aussi par le serveur) : lots inacceptables en vrai autorises
     // (items perimes, supprimes, remplaces, desactives... ranges dans un lot), pour tester l'affichage.
     bool  debug_options         = false;
+    bool  auto_update           = true; // macOS : mises a jour automatiques depuis les releases GitHub
     int   expiring_soon_days    = 30;
     int   order_lead_days       = 15; // previsions : delai de livraison d'une commande
     int   forecast_history_months = 6; // previsions : mois d'historique pour mesurer la consommation
