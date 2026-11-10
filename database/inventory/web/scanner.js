@@ -425,9 +425,27 @@
     } catch (e) { toast('Lampe indisponible', true); }
   });
   $('#undo').addEventListener('click', undoLast);
+  // Saisie a la main : popup du site (pas le prompt() du navigateur), Entree envoie
   $('#manual').addEventListener('click', () => {
-    const code = prompt('Code à envoyer au poste :');
-    if (code && code.trim()) sendCode(code.trim());
+    const dialog = el('dialog', { class: 'big-popup ask-dialog' });
+    const input = el('input', { type: 'text', class: 'ask-input', autocomplete: 'off', enterkeyhint: 'send',
+      placeholder: "Code imprimé sur l'étiquette" });
+    const close = (send) => {
+      const code = input.value.trim();
+      if (dialog.open) dialog.close();
+      dialog.remove();
+      if (send && code) sendCode(code);
+    };
+    input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); close(true); } });
+    const send = el('button', { type: 'button', class: 'primary' }, 'Envoyer');
+    const cancel = el('button', { type: 'button', class: 'secondary' }, 'Annuler');
+    send.addEventListener('click', () => close(true));
+    cancel.addEventListener('click', () => close(false));
+    dialog.append(el('h2', {}, 'Code à envoyer au poste'), input, el('div', { class: 'dialog-stack' }, send, cancel));
+    dialog.addEventListener('close', () => { if (dialog.isConnected) dialog.remove(); });
+    document.body.append(dialog);
+    dialog.showModal();
+    input.focus();
   });
 
   // ------------------------------------------------------------------------------------------------

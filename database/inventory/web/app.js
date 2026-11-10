@@ -1948,7 +1948,7 @@
 
   // Code oublie : le PIN est bloque comme apres trop d'essais, et l'ecran du lien de deblocage s'affiche
   async function forgotPin(matricule, key) {
-    if (!confirm("Votre code PIN sera bloqué jusqu'à ce que le TECH le réinitialise. Continuer ?")) return;
+    if (!await confirmDialog('Code PIN oublié ?', "Votre code PIN sera bloqué jusqu'à ce que le TECH le réinitialise.", 'Bloquer mon code', 'warning')) return;
     $('#pin').close();
     try {
       await api('pin-forgot/', { matricule, key });
@@ -2133,8 +2133,9 @@
   // partial : verif partielle, seuls les lots rendus complets par les scans sont verifies (les autres items
   // scannes sont ajoutes a leur lot comme un reassort)
   // Sans badge, si le serveur l'autorise : le nom est demande une fois et garde sur ce navigateur
-  function askDeclaredName() {
-    const name = (prompt('Sans badge : indiquez votre nom (prénom et nom).', state.declaredName) || '').trim();
+  async function askDeclaredName() {
+    const name = ((await promptDialog({ title: 'Sans badge', text: 'Indiquez votre nom (prénom et nom).',
+      value: state.declaredName, placeholder: 'Prénom Nom', maxlength: 30 })) || '').trim();
     if (!name) return false;
     state.declaredName = name.slice(0, 30);
     save(); render();
@@ -2143,7 +2144,7 @@
 
   // Valider une vérif : à plusieurs, sans compte, on est invite (prenom facultatif, « Invité » sinon), a condition
   // qu'un secouriste connecte participe (exige par le serveur, views.team_identity)
-  function ensureVerifIdentity() {
+  async function ensureVerifIdentity() {
     if (state.user || !live.inTeam()) return ensureIdentity();
     if (!live.others().some((row) => row.verified)) {
       feedback.warn();
@@ -2151,7 +2152,8 @@
       return false;
     }
     if (declared() || state.guest !== null) return true;
-    const name = prompt("Vous n'êtes pas connecté.\nVotre prénom (facultatif) : il sera noté sur la vérif comme invité.", '');
+    const name = await promptDialog({ title: "Vous n'êtes pas connecté",
+      text: 'Votre prénom (facultatif) : il sera noté sur la vérif comme invité.', placeholder: 'Prénom', maxlength: 20 });
     if (name === null) return false;
     state.guest = name.trim().slice(0, 20);
     live.identity();
@@ -2159,7 +2161,7 @@
     return true;
   }
 
-  function ensureIdentity() {
+  async function ensureIdentity() {
     return hasIdentity() || !state.declaredAllowed || askDeclaredName();
   }
 
@@ -2173,7 +2175,7 @@
   // auto : le serveur demande l'envoi (les autres participants sont partis), sans redemander de confirmation.
   async function validate(partial = false, auto = false) {
     if (state.busy) return;
-    if (!auto && !ensureVerifIdentity()) return;
+    if (!auto && !await ensureVerifIdentity()) return;
     const missing = blockers(false);
     if (missing.length) {
       if (auto) live.unvalidate();
@@ -2202,19 +2204,20 @@
     const verified = partial ? plan.lots.filter((row) => row.complete).map((row) => row.lot)
       : lots.filter((lot) => !plan.intact.has(lot.id));
     const sealed = verified.filter((lot) => lot.is_sealed).map((lot) => lot.name);
-    const confirmed = () => {
+    const confirmed = async () => {
       if (auto) return true;
-      if (sealed.length && !confirm(`${sealed.join(', ')} : scellé, valider une vérif brisera le scellé. Continuer ?`)) return false;
+      if (sealed.length && !await confirmBreakSeal(sealed)) return false;
       if (partial) {
         const names = verified.filter((lot) => lot.items && (lot.requirements.length || lot.items.length)).map((lot) => lot.name);
-        return confirm(`Vérif partielle : seuls ${names.join(', ') || 'les lots complets'} seront vérifiés.\n`
-          + `Les autres items scannés sont ajoutés à leur lot (réassort${state.restockRecommends ? ', vérif recommandée' : ''}). Continuer ?`);
+        return confirmDialog('Vérif partielle ?', `Seuls ${names.join(', ') || 'les lots complets'} seront vérifiés. `
+          + `Les autres items scannés sont ajoutés à leur lot (réassort${state.restockRecommends ? ', vérif recommandée' : ''}).`, 'Valider');
       }
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const what = isMulti() ? 'les lots seront incomplets' : 'le lot sera incomplet';
-      return !expected || confirm(`${nb(expected, 'item attendu', 'items attendus')} ${pl(expected, 'manque', 'manquent')} : ${what}. Valider quand même ?`);
+      return !expected || confirmDialog('Valider quand même ?',
+        `${nb(expected, 'item attendu', 'items attendus')} ${pl(expected, 'manque', 'manquent')} : ${what}.`, 'Valider incomplet', 'warning');
     };
-    if (!confirmed()) { if (team || auto) live.unvalidate(); return; }
+    if (!await confirmed()) { if (team || auto) live.unvalidate(); return; }
     state.busy = true;
     render();
     try {
@@ -2359,10 +2362,15 @@
     });
   }
 
+  // Lot scelle dans une vérif : la valider brise le scelle
+  function confirmBreakSeal(names) {
+    return confirmDialog('Briser le scellé ?', `${names.join(', ')} : scellé. Valider une vérif brisera le scellé.`, 'Valider et briser le scellé', 'warning');
+  }
+
   // confirmed : lot incomplet deja confirme (popup « Passer a … »)
   async function validateStep(partial = false, confirmed = false) {
     if (state.busy) return;
-    if (!ensureVerifIdentity()) return;
+    if (!await ensureVerifIdentity()) return;
     const top = levelLot();
     const atRoot = top.id === state.lotId;
     const exclude = excludedFor(top.id);
@@ -2383,19 +2391,18 @@
     const lots = sessionLots().filter((lot) => scope.has(lot.id) && !plan.intact.has(lot.id));
     const verified = partial ? plan.lots.filter((row) => row.complete && scope.has(row.lot.id)).map((row) => row.lot) : lots;
     const sealedNames = verified.filter((lot) => lot.is_sealed).map((lot) => lot.name);
-    if (sealedNames.length && !confirm(`${sealedNames.join(', ')} : scellé, valider une vérif brisera le scellé. Continuer ?`)) return;
+    if (sealedNames.length && !await confirmBreakSeal(sealedNames)) return;
     if (partial) {
       const names = verified.filter(ownContent).map((lot) => lot.name);
-      if (!confirm(names.length ? `Vérif partielle : seuls ${names.join(', ')} seront vérifiés.\n`
-        + `Les autres items scannés sont ajoutés à leur lot (réassort${state.restockRecommends ? ', vérif recommandée' : ''}). Continuer ?`
-        : top.storage ? `Ranger les items scannés dans ${top.name} et terminer la vérif ?`
-        : `Ajouter les items scannés à ${top.name} sans faire de vérif complète (réassort) ?\n`
-          + restockNote(top))) return;
+      if (!await (names.length ? confirmDialog('Vérif partielle ?', `Seuls ${names.join(', ')} seront vérifiés. `
+        + `Les autres items scannés sont ajoutés à leur lot (réassort${state.restockRecommends ? ', vérif recommandée' : ''}).`, 'Valider')
+        : top.storage ? confirmDialog(`Ranger dans ${top.name} ?`, `Les items scannés sont rangés dans ${top.name} et la vérif se termine.`, 'Ranger')
+        : confirmDialog(`Réassort de ${top.name} ?`, 'Les items scannés sont ajoutés au lot sans vérif complète. ' + restockNote(top), 'Ajouter au lot'))) return;
     } else {
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const subs = lots.filter((lot) => lot.id !== top.id && ownContent(lot)).map((lot) => lot.name);
-      if (expected && !confirmed && !confirm(`${nb(expected, 'item attendu', 'items attendus')} ${pl(expected, 'manque', 'manquent')} : ${top.name} sera incomplet`
-        + (subs.length ? ` (avec ${subs.join(', ')})` : '') + '. Valider quand même ?')) return;
+      if (expected && !confirmed && !await confirmDialog('Valider quand même ?', `${nb(expected, 'item attendu', 'items attendus')} ${pl(expected, 'manque', 'manquent')} : ${top.name} sera incomplet`
+        + (subs.length ? ` (avec ${subs.join(', ')})` : '') + '.', 'Valider incomplet', 'warning')) return;
     }
     const payload = entriesPayload(entries);
     state.busy = true;
@@ -2515,15 +2522,15 @@
   }
 
   async function takeOut() {
-    if (!ensureIdentity()) return;
+    if (!await ensureIdentity()) return;
     const iids = [...scannedIids()];
     const missing = [];
     if (!hasIdentity()) missing.push(state.declaredAllowed ? 'scannez votre badge ou indiquez votre nom' : 'scannez votre badge');
     if (!iids.length) missing.push('scannez au moins un item');
     if (missing.length) { feedback.warn(); toast('Pour sortir : ' + missing.join(', ') + '.', true); return; }
-    if (!confirm(`Sortir ${nb(iids.length, 'item')} du stock, sans lot ?\n`
+    if (!await confirmDialog(`Sortir ${nb(iids.length, 'item')} du stock ?`, 'Sans lot. '
       + "Ils redeviennent normaux s'ils sont scannés à une vérif ; sinon ils seront comptés comme utilisés "
-      + 'au bout d\'un mois (ou à leur péremption).')) return;
+      + 'au bout d\'un mois (ou à leur péremption).', 'Sortir du stock')) return;
     state.busy = true;
     render();
     try {
@@ -2576,7 +2583,7 @@
   }
 
   async function addToLot() {
-    if (!ensureIdentity()) return;
+    if (!await ensureIdentity()) return;
     const missing = blockers(true);
     if (missing.length) { feedback.warn(); toast('Pour ajouter : ' + missing.join(', ') + '.', true); return; }
     const credit = !!state.lot.restock_credit; // credit de confiance : le reassort laisse le lot au vert
@@ -2665,23 +2672,23 @@
     : `Le lot reste vérifié (crédit de confiance : ${nb(lot.restock_credit.outings_left, 'sortie')} sans vérif encore possible, `
       + `jusqu'au ${fmtDate(lot.restock_credit.until)}).`);
 
-  $('#restock').addEventListener('click', () => {
+  $('#restock').addEventListener('click', async () => {
     if (inCascade()) { validateStep(true); return; }
     if (partialLots().length) { validate(true); return; }
-    if (!confirm("Ajouter les items scannés sans faire de vérif complète (réassort) ?\n"
-      + restockNote(state.lot))) return;
+    if (!await confirmDialog('Réassort ?', 'Les items scannés sont ajoutés sans vérif complète. ' + restockNote(state.lot), 'Ajouter au lot')) return;
     if (isMulti()) validate(true); else addToLot();
   });
   $('#more').addEventListener('click', () => $('#menu').showModal());
   $('#notifications-close').addEventListener('click', () => $('#notifications').close());
   $('#notifications-x').addEventListener('click', () => $('#notifications').close());
-  $('#menu').addEventListener('click', (event) => {
+  $('#menu').addEventListener('click', async (event) => {
     const action = event.target.dataset && event.target.dataset.action;
     if (!action) return;
     $('#menu').close();
     if (action === 'add') addToLot();
     if (action === 'manual') {
-      const code = prompt(showIds() ? "Code de l'item, id du lot ou URL d'une étiquette :" : "Code imprimé sur l'étiquette :");
+      const code = await promptDialog({ title: 'Saisir un code à la main',
+        text: showIds() ? "Code de l'item, id du lot ou URL d'une étiquette." : "Code imprimé sur l'étiquette.", ok: 'Envoyer' });
       if (code && code.trim()) {
         const value = code.trim();
         // un identifiant de lot seul (sans URL) est accepte pour ouvrir un lot sans etiquette
@@ -2694,9 +2701,9 @@
 
   // « Quitter cette vérif » (menu ⋯) : rien n'est enregistre, retour a l'accueil. Les scans sont oublies (une vérif
   // commune continue sans nous).
-  function quitVerif() {
+  async function quitVerif() {
     const count = state.scanned.length;
-    if (count && !confirm(`Quitter cette vérif ? ${nb(count, 'scan')} ${pl(count, 'ne sera pas enregistré', 'ne seront pas enregistrés')}.`)) return;
+    if (count && !await confirmDialog('Quitter cette vérif ?', `${nb(count, 'scan')} ${pl(count, 'ne sera pas enregistré', 'ne seront pas enregistrés')}.`, 'Quitter', 'danger')) return;
     state.waitingTeam = false;
     if (live.inTeam()) live.leave();
     state.scanned = [];
@@ -2705,11 +2712,11 @@
     if (!backToList(false)) showHome('menu');
   }
 
-  $('#user-chip').addEventListener('click', () => {
-    if (state.user && confirm(`Déconnecter ${state.user.prenom} ?`)) {
-      logout();
+  $('#user-chip').addEventListener('click', async () => {
+    if (state.user) {
+      if (await confirmDialog(`Déconnecter ${state.user.prenom} ?`, '', 'Se déconnecter')) logout();
     } else if (declared()) {
-      if (confirm(`Oublier le nom « ${state.declaredName} » ? Scannez votre badge pour vous identifier.`)) {
+      if (await confirmDialog(`Oublier le nom « ${state.declaredName} » ?`, 'Scannez votre badge pour vous identifier.', 'Oublier')) {
         state.declaredName = '';
         save(); render();
       }
@@ -2739,8 +2746,8 @@
   $('#undo').addEventListener('click', undoLastScan);
   $('#undo-last').addEventListener('click', undoLastScan);
 
-  $('#clear').addEventListener('click', () => {
-    if (!state.scanned.length || !confirm('Vider la liste des items scannés ?')) return;
+  $('#clear').addEventListener('click', async () => {
+    if (!state.scanned.length || !await confirmDialog('Vider la liste des items scannés ?', '', 'Vider', 'danger')) return;
     scannedAgain();
     state.scanned = [];
     save(); render();
@@ -3151,8 +3158,8 @@
       // dernier scan dans ce sous-lot (ou ses sous-lots) : le plus recent monte, s'il n'est pas vert
       let last = -1;
       scansNow.forEach((entry, index) => { if (!entry.error && ids.includes(entry.place || state.lotId)) last = index; });
-      subRows.push({ rank: SUB_LOT_RANK[cls] ?? 2, last: cls === 'ok' ? -1 : last, row: el('li', { class: 'lot-head sub-lot ' + cls, onclick: () => {
-        if (done && !confirm(`${child.name} est déjà ${done.sealed ? 'constaté scellé' : 'validé'}. Le refaire ?`)) return;
+      subRows.push({ rank: SUB_LOT_RANK[cls] ?? 2, last: cls === 'ok' ? -1 : last, row: el('li', { class: 'lot-head sub-lot ' + cls, onclick: async () => {
+        if (done && !await confirmDialog(`Refaire ${child.name} ?`, `${child.name} est déjà ${done.sealed ? 'constaté scellé' : 'validé'}.`, 'Le refaire')) return;
         enterLevel(child.id);
         save();
         render();
@@ -3480,9 +3487,9 @@
     render();
   }
 
-  $('#home-user').addEventListener('click', () => {
+  $('#home-user').addEventListener('click', async () => {
     if (state.user) {
-      if (confirm(`Déconnecter ${state.user.prenom} ?`)) logout();
+      if (await confirmDialog(`Déconnecter ${state.user.prenom} ?`, '', 'Se déconnecter')) logout();
     } else if (readerOpen()) closeReader();
     else openReader();
   });
@@ -3585,7 +3592,7 @@
 
   async function chooseLot(id, tab = 'todo') {
     if (!(state.lot && lotById(id))) {
-      if (state.scanned.length && !confirm('Changer de lot ? Les items déjà scannés restent dans la liste.')) return;
+      if (state.scanned.length && !await confirmDialog('Changer de lot ?', 'Les items déjà scannés restent dans la liste.', 'Changer de lot')) return;
       state.lotKey = '';
       state.lastVerif = null;
       state.extra = [];
@@ -4011,11 +4018,11 @@
   }
 
   // Rejoindre une vérif en cours (page de suivi) : ses scans et ses lots arrivent par la connexion
-  function joinLiveVerif(row) {
+  async function joinLiveVerif(row) {
     if (!state.user) { openReader('live'); toast('Scannez votre badge pour rejoindre une vérif.'); return; }
     const lotId = row.lot && row.lot.id;
     if (state.scanned.length && state.lotId !== lotId
-      && !confirm('Rejoindre cette vérif ? Les items que vous avez déjà scannés sur un autre lot sont oubliés.')) return;
+      && !await confirmDialog('Rejoindre cette vérif ?', 'Les items que vous avez déjà scannés sur un autre lot sont oubliés.', 'Rejoindre')) return;
     if (state.lotId !== lotId) {
       state.scanned = [];
       state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = [];
@@ -4045,8 +4052,8 @@
         ...team.participants.map((row) => el('span', { class: (row.me ? 'who' : '') + (row.connected ? '' : ' off'),
           title: row.connected ? (row.validated ? 'A validé sa partie' : 'Connecté') : 'Déconnecté' },
         (row.me ? 'vous' : row.who || 'Invité') + (row.validated ? ' ✔' : ''))),
-        el('button', { type: 'button', class: 'text-link', onclick: () => {
-          if (!confirm('Quitter la vérif commune ? Vous continuez seul, avec vos propres scans.')) return;
+        el('button', { type: 'button', class: 'text-link', onclick: async () => {
+          if (!await confirmDialog('Quitter la vérif commune ?', 'Vous continuez seul, avec vos propres scans.', 'Quitter')) return;
           state.waitingTeam = false;
           live.leave();
           render();
@@ -4056,9 +4063,9 @@
     } else if (team && team.nearby.length && state.lot) {
       const other = team.nearby[0];
       parts.push(el('span', {}, `👥 ${other.who || 'Quelqu\'un'} vérifie aussi ${other.lot ? other.lot.name : 'ce lot'}.`),
-        el('button', { type: 'button', onclick: () => {
+        el('button', { type: 'button', onclick: async () => {
           if (!state.user) { toast('Scannez votre badge pour rejoindre sa vérif.', true); return; }
-          if (!confirm(`Rejoindre la vérif de ${other.who || 'cette personne'} ? Vos scans s'ajoutent à la sienne.`)) return;
+          if (!await confirmDialog(`Rejoindre la vérif de ${other.who || 'cette personne'} ?`, "Vos scans s'ajoutent à la sienne.", 'Rejoindre')) return;
           state.waitingTeam = false;
           state.askPlace = !state.scanned.length;
           live.join(other.id);
@@ -4589,7 +4596,7 @@
   // alertes ou desabonnement d'un appareil de la liste (ce telephone ou un autre)
   async function updateDevice(device, changes) {
     if (changes.delete && device.current) { disablePush(); return; }
-    if (changes.delete && !confirm(`Ne plus envoyer de notifications à « ${device.device} » ?`)) return;
+    if (changes.delete && !await confirmDialog('Arrêter les notifications ?', `Plus aucune notification ne sera envoyée à « ${device.device} ».`, 'Arrêter', 'danger')) return;
     state.pushBusy = true; renderNotifications();
     try {
       state.pushDevices = await api(`push/devices/${device.id}/`, { user: badge(), endpoint: currentEndpoint(), ...changes });
@@ -4868,8 +4875,8 @@
     const pin = value('#settings-pin-new');
     if (user.has_pin && !current) { error('Saisissez votre PIN actuel.'); return; }
     if (disable) {
-      const warning = user.key ? '' : '\nSans PIN, vous ne pourrez plus vous connecter sans badge.';
-      if (!confirm('Supprimer votre code PIN ? Le badge suffira pour vous connecter.' + warning)) return;
+      const warning = user.key ? '' : ' Sans PIN, vous ne pourrez plus vous connecter sans badge.';
+      if (!await confirmDialog('Supprimer votre code PIN ?', 'Le badge suffira pour vous connecter.' + warning, 'Supprimer', 'danger')) return;
     } else {
       if (!/^\d{4,8}$/.test(pin)) { error('Le PIN doit comporter 4 à 8 chiffres.'); return; }
       if (pin !== value('#settings-pin-confirm')) { error('Les deux PIN sont différents.'); return; }
@@ -5338,7 +5345,7 @@
   }
 
   async function cancelLabelPrint(row) {
-    if (!confirm(`Annuler l'impression de ${row.count} × ${row.type_name} ?`)) return;
+    if (!await confirmDialog("Annuler l'impression ?", `${row.count} × ${row.type_name} ne seront pas imprimées.`, "Annuler l'impression", 'danger')) return;
     try {
       await api(`label-prints/${row.id}/cancel/`, { user: badge() });
       loadStock();
@@ -5563,7 +5570,7 @@
       && await joinVerif({ kind: 'lot', code: label ? 'fiche' : '', id, key })) return;
     const same = !!state.lot && !!lotById(id);
     if (!same) {
-      if (state.scanned.length && !confirm('Changer de lot ? Les items déjà scannés restent dans la liste.')) return;
+      if (state.scanned.length && !await confirmDialog('Changer de lot ?', 'Les items déjà scannés restent dans la liste.', 'Changer de lot')) return;
       state.lotKey = '';
       state.lastVerif = null;
       state.extra = [];
@@ -6257,7 +6264,7 @@
   // « Retour de ce lot » : le lot en poste est scanne rentre sur sa liste (vérif recommandee) ; tout rentre, le
   // serveur clot le retour de la liste. La fiche revient au bouton « Partir avec ce lot »
   async function returnLot(lot, name) {
-    if (!confirm(`Retour de ${name} ?\nSon contenu a pu servir : il passe en « vérif recommandée » jusqu'à la prochaine vérif complète.`)) return;
+    if (!await confirmDialog(`Retour de ${name} ?`, "Son contenu a pu servir : il passe en « vérif recommandée » jusqu'à la prochaine vérif complète.", 'Noter le retour')) return;
     try {
       const result = await api(`lots/${encodeURIComponent(lot.id)}/return/`, { user: badge() });
       feedback.good();
@@ -6287,7 +6294,7 @@
 
   function markUsed(lot) {
     const run = async () => {
-      if (!confirm(`Marquer ${lot.name} comme utilisé ?\nLes suivants verront « vérif recommandée » jusqu'à la prochaine vérif complète.`)) return;
+      if (!await confirmDialog(`Marquer ${lot.name} comme utilisé ?`, "Les suivants verront « vérif recommandée » jusqu'à la prochaine vérif complète.", 'Marquer utilisé', 'warning')) return;
       try {
         const result = await api(`lots/${encodeURIComponent(lot.id)}/used/`, identity());
         toast(result.marked.length > 1 ? `Marqués utilisés : ${result.marked.join(', ')}.` : `${lot.name} marqué utilisé : vérif recommandée.`);
@@ -6439,11 +6446,11 @@
             // item non conforme : desactive (remplace a la prochaine verif comme un perime) ou deja retire
             el('button', { type: 'button', class: 'primary', onclick: () => resolve('ok') },
               icon('check'), 'Résolu · remis en service'),
-            el('button', { type: 'button', class: 'warning', onclick: () => {
-              if (confirm(`Désactiver ${row.item} ? Il devra être remplacé comme un périmé.`)) resolve('disabled');
+            el('button', { type: 'button', class: 'warning', onclick: async () => {
+              if (await confirmDialog(`Désactiver ${row.item} ?`, 'Il devra être remplacé comme un périmé.', 'Désactiver', 'warning')) resolve('disabled');
             } }, 'Résolu · item désactivé'),
-            el('button', { type: 'button', class: 'danger', onclick: () => {
-              if (confirm(`Retirer ${row.item} de l'inventaire (déjà jeté) ?`)) resolve('removed');
+            el('button', { type: 'button', class: 'danger', onclick: async () => {
+              if (await confirmDialog(`Retirer ${row.item} de l'inventaire ?`, "L'item a déjà été jeté.", 'Retirer', 'danger')) resolve('removed');
             } }, 'Résolu · item retiré'),
           ] : [el('button', { type: 'button', class: 'primary', onclick: () => resolve('') }, icon('check'), 'Résolu')]),
         ];
@@ -6756,6 +6763,37 @@
     placeLotPickCamera();
   }
 
+  // Popups du site a la place de confirm() / prompt() du navigateur (jamais de popup systeme)
+  // confirmDialog : true si le bouton ok est touche ; cls 'danger' ou 'warning' pour une action a risque
+  async function confirmDialog(title, text, ok = 'Continuer', cls = 'primary') {
+    return (await askDialog({ title, text, choices: [{ label: ok, value: true, cls }] })) === true;
+  }
+
+  // promptDialog : le texte saisi (Entree valide), null si annule
+  function promptDialog({ title, text = '', value = '', placeholder = '', ok = 'Valider', maxlength = 200 }) {
+    return new Promise((resolve) => {
+      const dialog = el('dialog', { class: 'big-popup ask-dialog' });
+      const input = el('input', { type: 'text', class: 'ask-input', value, placeholder, maxlength: String(maxlength),
+        autocomplete: 'off', enterkeyhint: 'done' });
+      let answered = false;
+      const close = (result) => {
+        if (answered) return;
+        answered = true;
+        if (dialog.open) dialog.close();
+        dialog.remove();
+        resolve(result);
+      };
+      input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); close(input.value); } });
+      dialog.append(el('h2', {}, title), text ? el('p', {}, text) : '', input,
+        el('div', { class: 'dialog-stack' }, el('button', { type: 'button', class: 'primary', onclick: () => close(input.value) }, ok),
+          el('button', { type: 'button', class: 'secondary', onclick: () => close(null) }, 'Annuler')));
+      dialog.addEventListener('close', () => close(null));
+      document.body.append(dialog);
+      dialog.showModal();
+      input.focus();
+    });
+  }
+
   // Popup de choix (au lieu d'un confirm du navigateur) : { title, text, body, choices: [{ label, value, cls }] } ;
   // body : elements sous le texte (ex : liste de ce qui va se passer). Renvoie la valeur choisie, null si fermee
   // (Echap, Annuler)
@@ -6869,9 +6907,10 @@
     });
   }
 
-  function duplicateList(asTemplate = false) {
+  async function duplicateList(asTemplate = false) {
     const list = lists.list;
-    const name = prompt(asTemplate ? 'Nom du modèle' : 'Nom de la nouvelle liste', list.name);
+    const name = await promptDialog({ title: asTemplate ? 'Nom du modèle' : 'Nom de la nouvelle liste', value: list.name,
+      ok: asTemplate ? 'Créer le modèle' : 'Créer la liste', maxlength: 80 });
     if (name === null) return;
     listAction('duplicate', { name: name || list.name, template: asTemplate }, (copy) => {
       toast(asTemplate ? 'Modèle créé.' : 'Liste créée : à vérifier.');
@@ -6880,8 +6919,8 @@
     });
   }
 
-  function deleteList() {
-    if (!confirm(`Supprimer la liste « ${lists.list.name} » ?`)) return;
+  async function deleteList() {
+    if (!await confirmDialog(`Supprimer la liste « ${lists.list.name} » ?`, '', 'Supprimer', 'danger')) return;
     listAction('delete', {}, () => { toast('Liste supprimée.'); openLists(); });
   }
 
@@ -7272,7 +7311,8 @@
 
   // Case d'un lot ou d'un materiel : pas cochable a la main, la toucher explique qu'il faut scanner
   function listBox(list, line, done, title) {
-    const text = done ? (line.kind === 'lot' ? 'Lot pris : son étiquette a été scannée.' : 'Quantité prise : les items ont été scannés.')
+    const text = done ? (line.kind === 'lot' ? 'Lot pris : son étiquette a été scannée.' : line.kind === 'lot_type' ? 'Lots pris : retirez-en un avec sa croix.'
+      : 'Quantité prise : retirez un item avec sa croix.')
       : list.template ? 'Modèle : dupliquez-le, puis scannez le matériel dans la nouvelle liste.'
         : list.status !== 'draft' ? 'Pas pris à la sortie.'
           : line.kind === 'lot' ? `Scannez l'étiquette du lot « ${title} » ou touchez sa case pour le cocher.`
@@ -7281,10 +7321,21 @@
     // lot a preparer : on peut le cocher sans scanner (le VPS dehors pendant qu'on prepare le materiel)
     const byHand = !done && !list.template && list.status === 'draft'
       && (line.kind === 'lot' || (line.kind === 'lot_type' && line.available && line.available.length));
-    const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : '') + (byHand ? ' by-hand' : ''), 'aria-label': text, onclick: async (event) => {
+    const unCheck = done && !list.template && list.status === 'draft'
+      && (line.kind === 'lot' || (line.kind === 'lot_type' && line.scans.length === 1));
+    const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : '') + (byHand || unCheck ? ' by-hand' : ''), 'aria-label': text, onclick: async (event) => {
       event.stopPropagation();
       if (byHand) { openLotPick(line, title); return; }
       if (line.kind === 'type' && !done && list.status === 'draft' && !list.template) { openItemPick(line.id, title); return; }
+      if (unCheck) {
+        // case cochee touchee a nouveau : decocher, apres confirmation
+        const lot = line.kind === 'lot' ? line.lot : line.scans[0].lot;
+        const name = line.kind === 'lot' ? title : line.scans[0].lot_name;
+        if (await confirmDialog(`Décocher ${name} ?`, `${name} n'est plus compté comme pris : il faudra rescanner son étiquette pour le cocher.`, 'Décocher', 'warning')) {
+          listAction('unscan', { lot });
+        }
+        return;
+      }
       document.querySelectorAll('#home-lists .list-bubble').forEach((node) => node.remove());
       const bubble = el('span', { class: 'list-bubble', role: 'status' }, text);
       box.parentNode.append(bubble);
@@ -7403,11 +7454,9 @@
             : 'Aucun lot disponible : tous sont pris ou rangés pour de bon dans un autre lot.'))));
       }
     } else if (line.kind === 'lot') {
-      if (line.scanned && list.status === 'draft') {
-        rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Décocher', title: 'Décocher',
-          onclick: () => listAction('unscan', { lot: line.lot }) }, '✕'));
-      } else if (line.part_of && list.status === 'draft' && list.can_edit) {
-        // sac d'un B+ choisi d'un bloc : la croix separe le B+ et retire ce sac de la liste
+      // la croix retire le lot de la liste (on decoche en touchant la case cochee) ; sac d'un B+ choisi d'un bloc :
+      // la croix separe le B+ et retire ce sac
+      if (list.status === 'draft' && !list.template && list.can_edit) {
         rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer de la liste', title: 'Retirer de la liste',
           onclick: (event) => { event.stopPropagation(); removeListPart(list, line); } }, '✕'));
       }
@@ -7417,11 +7466,12 @@
   }
 
   async function removeListPart(list, line) {
-    const others = list.lines.filter((row) => row.part_of === line.part_of && row.lot !== line.lot).map((row) => row.lot_name);
+    const others = line.part_of ? list.lines.filter((row) => row.part_of === line.part_of && row.lot !== line.lot).map((row) => row.lot_name) : [];
     const ok = await askDialog({
-      title: `Retirer ${line.lot_name} ?`,
-      text: `${line.part_of_name} est séparé : ${line.lot_name} sort de la liste`
-        + (others.length ? `, ${others.join(', ')} ${others.length > 1 ? 'partent seuls' : 'part seul'}.` : '.'),
+      title: `Retirer ${line.lot_name} de la liste ?`,
+      text: (line.part_of ? `${line.part_of_name} est séparé : ${line.lot_name} sort de la liste`
+        + (others.length ? `, ${others.join(', ')} ${others.length > 1 ? 'partent seuls' : 'part seul'}.` : '.')
+        : `${line.lot_name} ne fait plus partie de la liste.`) + (line.scanned ? ' Il était déjà coché.' : ''),
       choices: [{ label: 'Retirer de la liste', value: true, cls: 'danger' }],
     });
     if (ok) listAction('remove-part', { lot: line.lot }, (result) => toast(result.message || 'Retiré'));
