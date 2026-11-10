@@ -19,7 +19,7 @@ from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
 from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, compact_iid, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
-from .services import LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
+from .services import restock_credit, LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
 
 
 def public_url(path: str, **params) -> str:
@@ -277,6 +277,10 @@ def lot_state(data):
     return {'kind': kind, 'code': code, 'label': STATE_LABELS[code]}
 
 
+def _credit_dict(credit):
+    return None if credit is None else {'outings_left': credit['outings_left'], 'until': _date(credit['until'])}
+
+
 def _lot_core(lot, today, items=None, preload=None):
     """Champs communs a toutes les vues d'un lot (sans cles ni contenu detaille)."""
     if items is None:
@@ -325,6 +329,8 @@ def _lot_core(lot, today, items=None, preload=None):
         # marque « utilise » par un secouriste (bouton de la fiche)
         'marked_used': _date(lot.marked_used) if lot.verif_recommended else None,
         'marked_used_by': _who(lot.marked_used_by) if lot.verif_recommended and lot.marked_used else '',
+        # credit de confiance du reassort (reglage decoche) : sorties restantes et date limite, sinon None
+        'restock_credit': _credit_dict(restock_credit(lot, preload.settings if preload else None)),
         'item_count': len(items),
         'expired_count': len(expired),
         'expiring_soon_count': len(soon),
@@ -796,6 +802,8 @@ def server_settings_dict(settings_row):
         'antenna_name': settings_row.antenna_name,
         'departure_full_verif': settings_row.departure_full_verif,
         'restock_verif_recommended': settings_row.restock_verif_recommended,
+        'restock_credit_outings': settings_row.restock_credit_outings,
+        'restock_credit_days': settings_row.restock_credit_days,
     }
 
 

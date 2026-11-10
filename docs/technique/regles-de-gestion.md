@@ -146,8 +146,15 @@ recommandée »** (`verif_recommended`, orange) avec le nombre d'items, la date 
 prochaine vérif : la personne suivante sait qu'il faut tout recompter. Un lot incomplet reste rouge.
 C'est le cas pour **tout** réassort (« Ajouter au lot », vérif partielle, web comme poste) tant que le
 réglage **Réassort : vérif recommandée pour les suivants** (`ServerSettings.restock_verif_recommended`,
-coché par défaut, poste > Réglages > Règles du serveur) est coché ; décoché, le réassort range les
-items sans changer l'état du lot (`services.restock_recommends`).
+coché par défaut, poste > Réglages > Règles du serveur) est coché (`services.apply_restock`).
+
+Décoché, c'est le **crédit de confiance** (`services.restock_credit`) : un réassort remet le lot au
+vert (« réassorti »), même rentré d'une liste ou marqué utilisé, tant que le lot n'a pas eu plus de
+`restock_credit_outings` sorties (3 par défaut) ni plus de `restock_credit_days` jours (15 par
+défaut) depuis sa dernière vérif complète. Au-delà, le réassort le passe en vérif recommandée. Une
+sortie (`Lots.outings`, remis à 0 par une vérif complète) = une liste de départ validée avec le lot
+(et ses sous-lots ; « Rouvrir le départ » la retire) ou le lot marqué utilisé. Un scellé ouvert reste
+orange. La fiche web indique le crédit restant (`restock_credit` du lot).
 Ranger des items dans un **rangement** n'est pas un réassort (pas d'orange) : c'est l'usage normal
 d'une armoire.
 

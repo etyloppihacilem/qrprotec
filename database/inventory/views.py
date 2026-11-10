@@ -3322,7 +3322,17 @@ def server_settings(request):
         if 'restock_verif_recommended' in request.data:
             settings_row.restock_verif_recommended = bool(request.data['restock_verif_recommended'])
             changes.append('réassort : lot ' + ('en vérif recommandée' if settings_row.restock_verif_recommended
-                                                else "laissé dans son état"))
+                                                else 'au vert sous le crédit de confiance'))
+        for field, label, top in (('restock_credit_outings', 'sorties', 50), ('restock_credit_days', 'jours', 365)):
+            if field in request.data:
+                try:
+                    value = int(request.data[field])
+                except (TypeError, ValueError):
+                    return Response({'error': f'Crédit de confiance : nombre de {label} invalide'}, status=400)
+                if not 0 <= value <= top:
+                    return Response({'error': f'Crédit de confiance : de 0 à {top} {label}'}, status=400)
+                setattr(settings_row, field, value)
+                changes.append(f'crédit de confiance du réassort : {value} {label}')
         if 'antenna_name' in request.data:
             settings_row.antenna_name = ' '.join(str(request.data['antenna_name'] or '').split())[:64]
             changes.append(f"nom de l'antenne : {settings_row.antenna_name or '(vide)'}")
@@ -3334,7 +3344,9 @@ def server_settings(request):
                        scanner_volume_default=settings_row.scanner_volume_default,
                        web_barcodes=settings_row.web_barcodes,
                        departure_full_verif=settings_row.departure_full_verif,
-                       restock_verif_recommended=settings_row.restock_verif_recommended)
+                       restock_verif_recommended=settings_row.restock_verif_recommended,
+                       restock_credit_outings=settings_row.restock_credit_outings,
+                       restock_credit_days=settings_row.restock_credit_days)
     return Response(ser.server_settings_dict(settings_row))
 
 

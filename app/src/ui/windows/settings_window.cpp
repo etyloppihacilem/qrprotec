@@ -19,6 +19,7 @@
 #include "windows.hpp"
 
 #include <algorithm>
+#include <map>
 
 namespace qrprotec {
 
@@ -444,13 +445,50 @@ class SettingsWindow final : public AppWindow {
           app.restock_verif_recommended = server_rules_["restock_verif_recommended"].boolean();
           app.notify(app.restock_verif_recommended
                          ? "Après un réassort, le lot passe en vérif recommandée pour les suivants."
-                         : "Un réassort ne change plus l'état du lot.");
+                         : "Crédit de confiance : un réassort garde le lot au vert jusqu'à la limite.");
         });
       }
       help_marker("Coché (par défaut) : tout réassort (« Ajouter au lot », vérif partielle), sur le web comme au "
                   "poste, passe le lot en « Vérif recommandée » (orange) jusqu'à la prochaine vérif complète, "
-                  "pour que les suivants sachent qu'il faut tout recompter. Décoché : le réassort range les items "
-                  "sans changer l'état du lot. Jamais pour un rangement du stock.");
+                  "pour que les suivants sachent qu'il faut tout recompter. Décoché : crédit de confiance, le "
+                  "réassort remet le lot au vert (même rentré d'une liste ou marqué utilisé) tant qu'il n'a pas eu "
+                  "plus de sorties ni plus de jours que les limites ci-dessous depuis sa dernière vérif complète ; "
+                  "au-delà, vérif recommandée. Une sortie = liste de départ validée ou lot marqué utilisé. Jamais "
+                  "pour un rangement du stock.");
+      if (!restock_recommended) {
+        const auto credit_input = [this, &app](const char *label, const char *field, int top) {
+          // valeur en cours de saisie gardee d'une image a l'autre, envoyee a la fin de la saisie
+          static std::map<std::string, int> editing;
+          static std::string                active;
+          int                              &value = editing[field];
+          if (active != field)
+            value = server_rules_[field].integer(0);
+          ImGui::SetNextItemWidth(120.0f);
+          ImGui::InputInt(label, &value, 0, 0);
+          if (ImGui::IsItemActive())
+            active = field;
+          else if (active == field)
+            active.clear();
+          if (ImGui::IsItemDeactivatedAfterEdit()) {
+            Json body;
+            body[field] = std::clamp(value, 0, top);
+            app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+              if (!result.ok) {
+                app.notify("Règles du serveur : " + result.error, true);
+                return;
+              }
+              server_rules_ = result.data;
+              app.notify("Crédit de confiance : " + nb(server_rules_["restock_credit_outings"].integer(), "sortie")
+                         + ", " + nb(server_rules_["restock_credit_days"].integer(), "jour")
+                         + " depuis la dernière vérif complète.");
+            });
+          }
+        };
+        ImGui::Indent();
+        credit_input("Sorties sans vérif complète", "restock_credit_outings", 50);
+        credit_input("Jours depuis la dernière vérif complète", "restock_credit_days", 365);
+        ImGui::Unindent();
+      }
       const int volume = server_rules_["scanner_volume_default"].integer(4);
       const ScannerSettingInfo volume_info = scanner_setting_info(1001, "volume");
       std::string preview = "Valeur " + std::to_string(volume);

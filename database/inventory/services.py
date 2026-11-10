@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.utils import timezone
 
 from . import journal, movements, notifications, webpush
@@ -29,10 +29,51 @@ from .models import (
 )
 
 
-def restock_recommends(lot):
-    """Un reassort de ce lot le passe-t-il en verif recommandee ? Oui dans tous les cas (reglage du serveur
-    restock_verif_recommended, coche par defaut), sauf pour un rangement du stock (y ranger est l'usage normal)."""
-    return not lot.lot_type.storage and ServerSettings.get().restock_verif_recommended
+def restock_credit(lot, settings_row=None):
+    """Credit de confiance du reassort (reglage restock_verif_recommended decoche) : {'outings_left', 'until'} tant
+    que le lot n'a pas eu plus de restock_credit_outings sorties ni plus de restock_credit_days jours depuis sa
+    derniere verif complete, sinon None. None aussi quand le reglage est coche (tout reassort recommande la verif),
+    pour un rangement du stock ou un lot jamais verifie."""
+    settings_row = settings_row or ServerSettings.get()
+    if settings_row.restock_verif_recommended or lot.lot_type.storage or not lot.last_verif:
+        return None
+    until = lot.last_verif + timedelta(days=settings_row.restock_credit_days)
+    left = settings_row.restock_credit_outings - lot.outings
+    if left < 0 or timezone.now() > until:
+        return None
+    return {'outings_left': left, 'until': until}
+
+
+def apply_restock(lot, identity, now, count):
+    """Reassort de `count` items dans `lot` sans verif complete. Reglage du serveur coche (defaut) : verif
+    recommandee pour les suivants dans tous les cas. Decoche : sous le credit de confiance (restock_credit), le lot
+    revient au vert (« réassorti »), meme rentre d'une liste ou marque utilise ; credit epuise : verif recommandee.
+    Un scelle ouvert reste recommande. Rien pour un rangement du stock. Renvoie les champs modifies."""
+    if lot.lot_type.storage:
+        return []
+    lot.restocked = now
+    lot.restocked_by = identity
+    fields = ['restocked', 'restocked_by']
+    if restock_credit(lot) is None:
+        # la prochaine personne devra verifier tout le lot
+        lot.verif_recommended = True
+        lot.restocked_count += count
+        return fields + ['verif_recommended', 'restocked_count']
+    if lot.verif_recommended and (lot.back_from_list or lot.marked_used or lot.restocked_count):
+        lot.verif_recommended = False
+        lot.back_from_list = ''
+        lot.marked_used = None
+        lot.marked_used_by = ''
+        lot.restocked_count = 0
+        fields += ['verif_recommended', 'back_from_list', 'marked_used', 'marked_used_by', 'restocked_count']
+    return fields
+
+
+def count_outing(lots):
+    """Une sortie de plus (liste de depart validee, lot marque utilise) pour le credit de confiance du reassort."""
+    ids = [lot.id for lot in lots if not lot.is_sealed and not lot.lot_type.storage]
+    if ids:
+        Lots.objects.filter(id__in=ids).update(outings=F('outings') + 1)
 
 
 def display_name(identity):
@@ -145,11 +186,13 @@ def verify_hidden_parents(lots, identity, now):
         parent.last_verif_while = SeenWhile.VERIF
         parent.verif_recommended = False
         parent.restocked_count = 0
+        parent.outings = 0
         parent.back_from_list = ''
         parent.marked_used = None
         parent.marked_used_by = ''
         parent.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'verif_recommended',
-                                   'restocked_count', 'back_from_list', 'marked_used', 'marked_used_by'])
+                                   'restocked_count', 'outings', 'back_from_list', 'marked_used',
+                                   'marked_used_by'])
         journal.record(OperationKind.VERIF, identity,
                        ('complète' if verif.complete else 'incomplète') + ' : ses sous-lots sont vérifiés',
                        lot=parent, at=now, verif=verif.id, complete=verif.complete, hidden_in_verif=True)
@@ -341,6 +384,7 @@ class LotPreload:
 
     def __init__(self, lots):
         ids = [lot.id for lot in lots]
+        self.settings = ServerSettings.get()  # credit de confiance du reassort (restock_credit)
         self.items = defaultdict(list)
         for item in (Items.objects.select_related('pack__item_type')
                      .filter(location_id__in=ids, status=ItemStatus.ACTIVE).order_by('iid')):
@@ -928,6 +972,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 sub_lot.last_used_by = identity
                 sub_lot.verif_recommended = False
                 sub_lot.restocked_count = 0
+                sub_lot.outings = 0
                 sub_lot.back_from_list = ''
                 sub_lot.marked_used = None
                 sub_lot.marked_used_by = ''
@@ -936,7 +981,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                     sub_lot.unchecked = [type_id for type_id in checks_by_lot([sub_lot], strict)[sub_lot.id]
                                          if type_id not in ticked]
                 sub_lot.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'last_used',
-                                            'last_used_by', 'verif_recommended', 'restocked_count',
+                                            'last_used_by', 'verif_recommended', 'restocked_count', 'outings',
                                             'back_from_list', 'marked_used', 'marked_used_by', 'unchecked'])
                 requirements = requirements_status(sub_lot, today, strict=strict)
                 lot_expired = [iid for iid in report['expired'] if target.get(iid) == sub_lot.id]
@@ -963,14 +1008,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 if restocked.get(sub_lot.id):
                     sub_lot.last_used = now
                     sub_lot.last_used_by = identity
-                    fields = ['last_used', 'last_used_by']
-                    if restock_recommends(sub_lot):
-                        # reassort sans verif complete : la prochaine personne devra verifier tout le lot
-                        sub_lot.verif_recommended = True
-                        sub_lot.restocked = now
-                        sub_lot.restocked_by = identity
-                        sub_lot.restocked_count += restocked[sub_lot.id]
-                        fields += ['verif_recommended', 'restocked', 'restocked_by', 'restocked_count']
+                    fields = ['last_used', 'last_used_by'] + apply_restock(sub_lot, identity, now,
+                                                                           restocked[sub_lot.id])
                     sub_lot.save(update_fields=fields)
                     items = restocked_items[sub_lot.id]
                     journal.record(OperationKind.RESTOCK, identity, f"{journal.types_summary(items)} (vérif partielle)",
@@ -1259,7 +1298,9 @@ def mark_used(lot, identity):
         target.marked_used_by = identity
         target.last_used = now
         target.last_used_by = identity
-        target.save(update_fields=['verif_recommended', 'marked_used', 'marked_used_by', 'last_used', 'last_used_by'])
+        target.outings += 1  # une sortie de plus pour le credit de confiance du reassort
+        target.save(update_fields=['verif_recommended', 'marked_used', 'marked_used_by', 'last_used', 'last_used_by',
+                                   'outings'])
         marked.append(target)
     if not marked:
         raise ValueError('Rien à marquer : rangement du stock ou sous-lots scellés')
@@ -1353,14 +1394,10 @@ def move_items(iids, lot, identity, context, declared=False, debug=False):
             lot.last_used = now
             lot.last_used_by = identity
             fields = ['last_used', 'last_used_by']
-            if items and restock_recommends(lot):
-                # reassort sans verif complete : la prochaine personne devra verifier tout le lot
-                # (un rangement du stock n'a pas de contenu attendu : y ranger des items est l'usage normal)
-                lot.verif_recommended = True
-                lot.restocked = now
-                lot.restocked_by = identity
-                lot.restocked_count += len(items)
-                fields += ['verif_recommended', 'restocked', 'restocked_by', 'restocked_count']
+            if items:
+                # reassort sans verif complete (un rangement du stock n'a pas de contenu attendu : y ranger des items
+                # est l'usage normal)
+                fields += apply_restock(lot, identity, now, len(items))
             lot.save(update_fields=fields)
         notifications.check_stock_levels({item.pack.item_type_id for item in items})
     moved = {item.iid for item in items}

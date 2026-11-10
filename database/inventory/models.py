@@ -531,6 +531,9 @@ class Lots(models.Model):
     # Marque « utilise » par un secouriste (bouton de la fiche) : verif recommandee jusqu'a la prochaine verif
     marked_used = models.DateTimeField(blank=True, null=True)
     marked_used_by = models.CharField(max_length=64, blank=True, default='')
+    # Sorties depuis la derniere verif complete (liste de depart validee avec le lot, lot marque utilise) : credit de
+    # confiance du reassort quand le reglage restock_verif_recommended est decoche (ServerSettings.restock_credit_*)
+    outings = models.PositiveIntegerField(default=0)
     active = models.BooleanField(default=True)
     name = models.CharField(max_length=64)
     name_short = models.CharField(max_length=16)
@@ -1190,9 +1193,12 @@ class ServerSettings(models.Model):
     # (« Vérif recommandée »). Jamais pour un lot scelle.
     departure_full_verif = models.BooleanField(default=False)
     # Reassort (« Ajouter au lot », verif partielle) : le lot passe en « vérif recommandée » pour les suivants, dans
-    # tous les cas (coche par defaut). Decoche : le reassort ne change pas l'etat du lot (on fait confiance a celui
-    # qui reassortit). Jamais pour un rangement du stock (y ranger des items est l'usage normal).
+    # tous les cas (coche par defaut). Decoche : credit de confiance, le reassort remet le lot au vert (« réassorti »)
+    # tant qu'il n'a pas eu plus de restock_credit_outings sorties ni plus de restock_credit_days jours depuis sa
+    # derniere verif complete ; au-dela, verif recommandee. Jamais pour un rangement du stock.
     restock_verif_recommended = models.BooleanField(default=True)
+    restock_credit_outings = models.PositiveSmallIntegerField(default=3)
+    restock_credit_days = models.PositiveSmallIntegerField(default=15)
 
     @classmethod
     def get(cls):

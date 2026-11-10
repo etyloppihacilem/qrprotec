@@ -29,7 +29,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import journal, movements, notifications, services
-from django.db.models import Q
+from django.db.models import F, Q
 
 from .idendity import SOURCE_VERIFIED, _fold, format_identity_verified, identity_name
 from .models import (
@@ -473,6 +473,8 @@ def validate(checklist, user, partial=False):
             for scan_row in refused:
                 scan_row.delete()  # plus en stock entre-temps : pas sorti avec la liste
         went_out = bool(_out_scans(checklist))
+        # une sortie de plus pour chaque lot pris (et ses sous-lots) : credit de confiance du reassort
+        services.count_outing(_taken_lots(checklist))
         # quelque chose est sorti : la liste est « Sortie » jusqu'au retour (scans de ce qui rentre, puis « Clôturer le
         # retour ») ; les lots ne passent en vérif recommandee qu'au retour, pas pendant le poste (Hippolyte,
         # 2026-11-09). Rien de sorti (taches seulement) : terminee tout de suite
@@ -487,6 +489,15 @@ def validate(checklist, user, partial=False):
                        f'liste « {checklist.name} » ' + ('sortie' if went_out else 'faite')
                        + ('' if complete else ' (incomplète)'), at=now, checklist=checklist.id, items=iids)
     return checklist
+
+
+def _taken_lots(checklist):
+    """Lots pris avec la liste, avec leurs sous-lots (un B+ part avec ses sacs)."""
+    taken = {}
+    for scan in _out_scans(checklist):
+        if scan.lot_id:
+            taken.update({lot.id: lot for lot in scan.lot.descendants()})
+    return list(taken.values())
 
 
 REOPEN_MINUTES = 30
@@ -528,6 +539,9 @@ def reopen(checklist, user):
         for lot_id, iids in back.items():
             lot = Lots.objects.filter(id=lot_id, active=True).first() if lot_id else None
             services.move_items(iids, lot, identity, SeenWhile.CHECKLIST)
+        # depart annule : la sortie ne compte plus pour le credit de confiance du reassort
+        Lots.objects.filter(id__in=[lot.id for lot in _taken_lots(checklist)], outings__gt=0).update(
+            outings=F('outings') - 1)
         for lot in {scan.lot for scan in _out_scans(checklist) if scan.lot_id}:
             if lot.verif_recommended and lot.back_from_list == checklist.name and lot.restocked == checklist.validated:
                 lot.verif_recommended = False

@@ -93,7 +93,9 @@ Un item qui n'a pas été scanné n'est pas « perdu » tout de suite : il est s
 exemple). Le sac passe en **orange** « vérif recommandée » jusqu'à la prochaine vérif complète, pour
 que la personne suivante sache qu'il faut tout recompter. C'est le cas de tout réassort, sur le
 téléphone comme au poste, tant que le réglage **Réassort : vérif recommandée pour les suivants**
-(Règles du serveur, coché par défaut) est coché.
+(Règles du serveur, coché par défaut) est coché. Décoché, c'est le **crédit de confiance** : le
+réassort remet le sac au vert tant qu'il n'a pas eu plus de 3 sorties ni plus de 15 jours depuis sa
+dernière vérif complète (valeurs réglables) ; au-delà, vérif recommandée.
 
 ## Scellé
 

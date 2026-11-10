@@ -2390,7 +2390,7 @@
         + `Les autres items scannés sont ajoutés à leur lot (réassort${state.restockRecommends ? ', vérif recommandée' : ''}). Continuer ?`
         : top.storage ? `Ranger les items scannés dans ${top.name} et terminer la vérif ?`
         : `Ajouter les items scannés à ${top.name} sans faire de vérif complète (réassort) ?\n`
-          + restockNote())) return;
+          + restockNote(top))) return;
     } else {
       const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
       const subs = lots.filter((lot) => lot.id !== top.id && ownContent(lot)).map((lot) => lot.name);
@@ -2579,6 +2579,7 @@
     if (!ensureIdentity()) return;
     const missing = blockers(true);
     if (missing.length) { feedback.warn(); toast('Pour ajouter : ' + missing.join(', ') + '.', true); return; }
+    const credit = !!state.lot.restock_credit; // credit de confiance : le reassort laisse le lot au vert
     try {
       const result = await api(`lots/${encodeURIComponent(state.lot.id)}/add/`, {
         key: state.lotKey,
@@ -2590,7 +2591,7 @@
       feedback.good();
       // items laisses de cote par le serveur (perime, supprime, dans un autre lot sans badge...)
       const refused = (result.refused || []).map((row) => `${iidLabel(row.iid)} (${row.reason})`);
-      toast(`${nb(result.moved.length, 'item ajouté', 'items ajoutés')} au lot${state.restockRecommends ? ' : vérif complète recommandée' : ''}.`
+      toast(`${nb(result.moved.length, 'item ajouté', 'items ajoutés')} au lot${credit ? ' : lot réassorti, toujours vérifié' : ' : vérif complète recommandée'}.`
         + (refused.length ? ` Non ${pl(refused.length, 'ajouté', 'ajoutés')} : ${refused.join(', ')}.` : ''),
         refused.length > 0);
       await loadLot(state.lot.id);
@@ -2658,15 +2659,17 @@
 
   $('#report-close').addEventListener('click', () => $('#report').close());
   $('#validate').addEventListener('click', () => (takingOut() ? takeOut() : inCascade() ? validateStep(false) : validate(false)));
-  // Suite de la question du reassort : le lot passe en verif recommandee (reglage du serveur, coche par defaut)
-  const restockNote = () => (state.restockRecommends ? 'Le lot sera signalé « vérif recommandée » pour la personne suivante.'
-    : 'Le lot garde son état actuel (pas de vérif recommandée).');
+  // Suite de la question du reassort : le lot passe en verif recommandee (reglage du serveur, coche par defaut), sauf
+  // sous le credit de confiance (reglage decoche : N sorties / X jours depuis la derniere verif complete)
+  const restockNote = (lot) => (!lot || !lot.restock_credit ? 'Le lot sera signalé « vérif recommandée » pour la personne suivante.'
+    : `Le lot reste vérifié (crédit de confiance : ${nb(lot.restock_credit.outings_left, 'sortie')} sans vérif encore possible, `
+      + `jusqu'au ${fmtDate(lot.restock_credit.until)}).`);
 
   $('#restock').addEventListener('click', () => {
     if (inCascade()) { validateStep(true); return; }
     if (partialLots().length) { validate(true); return; }
     if (!confirm("Ajouter les items scannés sans faire de vérif complète (réassort) ?\n"
-      + restockNote())) return;
+      + restockNote(state.lot))) return;
     if (isMulti()) validate(true); else addToLot();
   });
   $('#more').addEventListener('click', () => $('#menu').showModal());
@@ -5713,6 +5716,10 @@
         + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
       !full ? '' : el('p', {}, 'Dernière vérif : ' + (lot.last_verif
         ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
+      // credit de confiance du reassort (reglage du serveur decoche) : reassorts sans vérif encore possibles
+      !full || !lot.restock_credit || lot.verif_recommended ? '' : el('p', { class: 'hint' },
+        `Réassort sans vérif complète : encore ${nb(lot.restock_credit.outings_left, 'sortie')}, `
+        + `jusqu'au ${fmtDate(lot.restock_credit.until)}.`),
       expiryLine(lot),
       full ? revisionLine(lot) : '',
       !lot.verif_recommended || !full ? '' : el('p', {}, lot.restocked_count
