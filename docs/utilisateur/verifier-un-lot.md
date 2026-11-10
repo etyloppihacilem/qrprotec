@@ -142,7 +142,8 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
 - **Scanner** : l'écran de vérif, caméra prête à scanner. Le bouton 🏠 y ramène à l'accueil.
 - **Suivi des vérifs** : les vérifs **en cours, en direct** (lot, qui vérifie, items scannés,
   reste à scanner) et les **dernières vérifs** enregistrées. Touchez une vérif terminée pour son
-  compte rendu, d'où les noms de lots ouvrent leur fiche. Pratique pour le chef de poste qui veut
+  compte rendu (chaque sous-lot vérifié sous son lot, avec son état), d'où les noms de lots ouvrent
+  leur fiche. Pratique pour le chef de poste qui veut
   confirmer que ses équipiers ont fait leur vérif. Badge demandé.
 - **Départ** (pour un poste de secours) : onglet **Ma liste**, les listes de matériel qui vous sont
   attribuées et pas encore rentrées (touchez-la pour scanner le matériel demandé) ; onglet **Lots**, tous
