@@ -6597,7 +6597,7 @@
   function startListScan() {
     lists.mode = true;
     document.body.classList.add('login-reader', 'list-scan');
-    $('#scan-hint').textContent = lists.list && lists.list.status === 'validated' ? 'Scannez ce qui rentre' : 'Scannez le matériel';
+    $('#scan-hint').textContent = lists.list && lists.list.status === 'validated' ? '↩ Retour : scannez ce qui rentre' : 'Scannez le matériel';
     startCamera();
     renderListsPage();
   }
@@ -7343,6 +7343,84 @@
     if (ok) listAction('remove-part', { lot: line.lot }, (result) => toast(result.message || 'Retiré'));
   }
 
+  // Liste sortie : l'ecran du retour ne montre plus les cases et compteurs du depart (tout vert, « 3/3 », on croyait
+  // tout fait). Ce qui est parti est compte un par un (un lot, un item) et range en « Pas encore rentré » (en haut)
+  // ou « Rentré ». Les taches et ce qui n'a pas ete pris au depart n'ont rien a rentrer.
+  function listReturnSplit(list) {
+    const backIids = new Set((list.back || []).filter((scan) => scan.iid).map((scan) => scan.iid));
+    const backLots = new Set((list.back || []).filter((scan) => scan.lot).map((scan) => scan.lot));
+    const split = { out: 0, back: 0, pending: [], returned: [] };
+    const lot = (name, sub, home) => {
+      split.out += 1;
+      if (home) split.back += 1;
+      (home ? split.returned : split.pending).push({ name, sub, count: home ? '✓' : '', scans: [] });
+    };
+    for (const line of list.lines) {
+      if (line.kind === 'task' || !line.scanned) continue;
+      if (line.kind === 'lot') { lot(line.lot_name, `Lot · ${line.lot_type_name}`, !!line.back); continue; }
+      if (line.kind === 'lot_type') {
+        for (const scan of line.scans) lot(scan.lot_name, `Lot · ${line.type_name}`, backLots.has(scan.lot));
+        continue;
+      }
+      const total = line.scans.length;
+      const gone = line.scans.filter((scan) => !backIids.has(scan.iid));
+      const home = line.scans.filter((scan) => backIids.has(scan.iid));
+      split.out += total;
+      split.back += home.length;
+      if (gone.length) split.pending.push({ name: line.type_name, count: `×${gone.length}`, scans: gone,
+        sub: gone.length === total ? nb(total, 'sorti') : `${gone.length} sur ${nb(total, 'sorti')}` });
+      if (home.length) split.returned.push({ name: line.type_name, count: `×${home.length}`, scans: home,
+        sub: (home.length === total ? '' : `${home.length} sur ${total} · `) + 'remis en stock' });
+    }
+    return split;
+  }
+
+  // Bandeau marine colle en haut de l'ecran du retour : on ne le confond pas avec la preparation du depart
+  function listReturnHead(list) {
+    const out = `Sortie ${fmtOn(list.validated)}${list.validated_by ? ' par ' + list.validated_by : ''}`;
+    return el('div', { class: 'return-head', role: 'status' },
+      el('span', { class: 'return-head-icon', 'aria-hidden': 'true' }, '↩'),
+      el('div', {}, el('b', {}, 'Retour de poste'),
+        el('small', {}, lists.mode ? 'Scannez ce qui rentre : il est remis en stock.'
+          : `${out}. Touchez « Retour : scanner » et scannez ce qui rentre.`)));
+  }
+
+  function listReturnProgress(split) {
+    const all = !split.pending.length;
+    const percent = split.out ? Math.round(100 * split.back / split.out) : 100;
+    return el('div', { class: 'return-progress' + (all ? ' done' : '') },
+      el('div', { class: 'return-progress-head' }, el('span', {}, all ? '✓ Tout est rentré' : '↩ Rentré'),
+        el('b', {}, `${split.back}/${split.out}`)),
+      el('div', { class: 'return-bar' }, el('i', { style: `width: ${percent}%` })),
+      el('p', {}, all ? 'Touchez « Clôturer le retour » pour terminer.'
+        : 'Ce qui rentre est remis en stock. À la clôture, les consommables pas rentrés sont comptés utilisés.'));
+  }
+
+  function listReturnLists(split) {
+    const rows = (entries, home) => entries.flatMap((entry) => [
+      el('li', { class: 'static' + (home ? ' ok' : '') },
+        el('span', { class: 'list-box-wrap' }, el('span', { class: 'return-box' + (home ? ' done' : ''), 'aria-hidden': 'true' }, home ? '✓' : '')),
+        el('div', { class: 'main' }, el('div', { class: 'name' }, entry.name), el('div', { class: 'sub' }, entry.sub)),
+        el('b', { class: 'list-count' + (home ? ' done' : '') }, entry.count)),
+      ...entry.scans.map((scan) => el('li', { class: 'static list-scan-row' },
+        el('div', { class: 'main' }, el('div', { class: 'sub' }, [idText(scan.iid),
+          scan.peremption ? 'périme le ' + fmtDate(scan.peremption) : 'non périssable'].filter(Boolean).join(' · ')
+          + (home ? ' · ↩ rentré' : ''))))),
+    ]);
+    const count = (entries) => entries.reduce((sum, entry) => sum + (entry.scans.length || 1), 0);
+    const parts = [];
+    if (split.pending.length) {
+      parts.push(el('h3', { class: 'return-title' }, el('span', {}, 'Pas encore rentré'), el('span', {}, count(split.pending))),
+        el('ul', { class: 'list' }, ...rows(split.pending, false)));
+    }
+    if (split.returned.length) {
+      parts.push(el('h3', { class: 'return-title ok' }, el('span', {}, '✓ Rentré'), el('span', {}, count(split.returned))),
+        el('ul', { class: 'list' }, ...rows(split.returned, true)));
+    }
+    if (!split.out) parts.push(el('p', { class: 'hint' }, 'Rien n\'est sorti avec cette liste.'));
+    return parts;
+  }
+
   function listDetail() {
     const list = lists.list;
     const back = [el('button', { type: 'button', class: 'text-link', onclick: () => openLists() }, '← Toutes les listes')];
@@ -7355,6 +7433,7 @@
       list.note ? el('p', { class: 'list-note' }, list.note) : ''];
     const buttons = [];
     const busy = lists.busy;
+    const returnSplit = list.status === 'validated' && !list.template ? listReturnSplit(list) : null;
     if (list.template) {
       parts.push(el('div', { class: 'banner info' }, 'Modèle : dupliquez-le pour faire une liste à vérifier.'));
       buttons.push(el('button', { type: 'button', class: 'primary', disabled: busy || null, onclick: () => duplicateList(false) }, icon('template'), 'Utiliser ce modèle'));
@@ -7368,8 +7447,9 @@
       buttons.push(el('button', { type: 'button', class: list.complete ? 'primary' : 'warning', disabled: busy || null, onclick: validateList },
         icon('check'), list.complete ? 'Prêt au départ' : 'Partir sans tout'));
     } else if (list.status === 'validated') {
-      parts.push(el('div', { class: 'banner warn' }, `Sortie ${fmtOn(list.validated)}${list.validated_by ? ' par ' + list.validated_by : ''}. `
-        + 'Au retour, scannez ce qui rentre (remis en stock), puis touchez « Clôturer le retour ».'));
+      // ecran du retour : bandeau « Retour de poste » colle en haut (avant le nom de la liste), progression
+      parts.splice(1, 0, listReturnHead(list));
+      parts.push(listReturnProgress(returnSplit));
       buttons.push(lists.mode
         ? el('button', { type: 'button', class: 'secondary', onclick: stopListScan }, 'Arrêter le scan')
         : el('button', { type: 'button', class: 'primary', onclick: startListScan }, '📷 Retour : scanner'));
@@ -7386,9 +7466,10 @@
     if (lists.message && listScanning()) parts.push(el('div', { class: 'banner ' + lists.message.kind }, lists.message.text));
     parts.push(el('div', { class: 'list-buttons' }, ...buttons));
     const backIids = new Set((list.back || []).filter((scan) => scan.iid).map((scan) => scan.iid));
-    parts.push(el('h3', {}, 'À prendre'));
-    if (!list.lines.length) parts.push(el('p', { class: 'hint' }, 'Liste vide.' + (list.can_edit ? ' Modifiez-la pour ajouter des lots et du matériel.' : '')));
-    parts.push(el('ul', { class: 'list' }, ...listLinesByAttention(list).flatMap((line) => listLineRows(list, line, backIids))));
+    if (returnSplit) parts.push(...listReturnLists(returnSplit));
+    else parts.push(el('h3', {}, 'À prendre'));
+    if (returnSplit) { /* liste sortie : ce qui rentre, plus les cases du depart */ } else if (!list.lines.length) parts.push(el('p', { class: 'hint' }, 'Liste vide.' + (list.can_edit ? ' Modifiez-la pour ajouter des lots et du matériel.' : '')));
+    if (!returnSplit) parts.push(el('ul', { class: 'list' }, ...listLinesByAttention(list).flatMap((line) => listLineRows(list, line, backIids))));
     if (list.status === 'draft' || list.template) {
       const src = listQr(list.url);
       // Partage replie : le bouton de partage, et le QR code qui deplie le reste (QR, explication, lien cliquable)

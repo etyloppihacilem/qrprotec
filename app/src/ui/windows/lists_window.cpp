@@ -357,9 +357,21 @@ class ListsWindow final : public AppWindow {
         ImGui::SameLine();
         draw_validate(app, list);
       } else if (status == "validated") {
-        ImGui::TextColored(colors::orange, "Sortie %s%s.", display_on(list["validated"]).c_str(),
-                           list["validated_by"].str().empty() ? "" : (" par " + list["validated_by"].str()).c_str());
-        ImGui::TextWrapped("Au retour, scannez ce qui rentre (remis en stock), puis cliquez « Clôturer le retour ».");
+        // ecran du retour : bandeau marine, progression de ce qui est rentre (comme le front web)
+        const std::string out = "Sortie " + display_on(list["validated"])
+                              + (list["validated_by"].str().empty() ? "" : " par " + list["validated_by"].str());
+        status_banner("RETOUR DE POSTE : " + (scanning_ ? std::string("scannez ce qui rentre, il est remis en stock.")
+                                                        : out + ". Scannez ce qui rentre."),
+                      return_color, 1.25f);
+        const ReturnSplit split = return_split(list);
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, colors::green);
+        const std::string progress = (split.pending.empty() ? "✓ Tout est rentré " : "Rentré ")
+                                   + std::to_string(split.back) + "/" + std::to_string(split.out);
+        ImGui::ProgressBar(split.out ? float(split.back) / float(split.out) : 1.0f, ImVec2(-1.0f, 0.0f), progress.c_str());
+        ImGui::PopStyleColor();
+        ImGui::TextDisabled(split.pending.empty() ? "Cliquez « Clôturer le retour » pour terminer."
+                                                  : "Ce qui rentre est remis en stock. À la clôture, les consommables pas "
+                                                    "rentrés sont comptés utilisés.");
         draw_scan_toggle(app, "Retour : scanner ce qui rentre");
         ImGui::SameLine();
         const Json &preview  = list["return_preview"];
@@ -429,7 +441,141 @@ class ListsWindow final : public AppWindow {
         ImGui::SetItemTooltip("%s", list["url"].str().c_str());
         ImGui::EndGroup();
       }
-      draw_lines(app, list);
+      if (status == "validated" && !list["template"].boolean())
+        draw_return_lines(list);
+      else
+        draw_lines(app, list);
+    }
+
+    // Liste sortie : ce qui est parti, compte un par un (un lot, un item), en « Pas encore rentré » ou « Rentré » ;
+    // plus les cases et compteurs du depart (tout vert, on croyait tout fait). Taches et lignes pas prises : rien a
+    // rentrer.
+    struct ReturnEntry {
+      std::string                name;
+      std::string                detail;
+      int                        count = 0; // items (0 : un lot)
+      std::vector< std::string > scans;     // une ligne par item (date de peremption)
+    };
+    struct ReturnSplit {
+      int                        out  = 0;
+      int                        back = 0;
+      std::vector< ReturnEntry > pending;
+      std::vector< ReturnEntry > returned;
+    };
+    static constexpr ImVec4 return_color = ImVec4(0.0f, 0.298f, 0.596f, 1.0f); // bleu de la marque #004c98
+
+    static ReturnSplit return_split(const Json &list) {
+      std::vector< std::string > back_iids, back_lots;
+      for (const Json &scan : list["back"].items()) {
+        if (!scan["iid"].str().empty())
+          back_iids.push_back(scan["iid"].str());
+        if (!scan["lot"].str().empty())
+          back_lots.push_back(scan["lot"].str());
+      }
+      const auto has = [](const std::vector< std::string > &ids, const std::string &id) {
+        return std::find(ids.begin(), ids.end(), id) != ids.end();
+      };
+      ReturnSplit split;
+      const auto  lot = [&](const std::string &name, const std::string &detail, bool home) {
+        split.out += 1;
+        split.back += home ? 1 : 0;
+        (home ? split.returned : split.pending).push_back({ name, detail, 0, {} });
+      };
+      for (const Json &line : list["lines"].items()) {
+        const std::string kind = line["kind"].str();
+        if (kind == "task" || line["scanned"].integer() == 0)
+          continue;
+        if (kind == "lot") {
+          lot(line["lot_name"].str(), "lot · " + line["lot_type_name"].str(), line["back"].boolean());
+          continue;
+        }
+        if (kind == "lot_type") {
+          for (const Json &scan : line["scans"].items())
+            lot(scan["lot_name"].str(), "lot · " + line["type_name"].str(), has(back_lots, scan["lot"].str()));
+          continue;
+        }
+        ReturnEntry gone{ line["type_name"].str(), "", 0, {} }, home{ line["type_name"].str(), "", 0, {} };
+        int         total = 0;
+        for (const Json &scan : line["scans"].items()) {
+          ReturnEntry &entry = has(back_iids, scan["iid"].str()) ? home : gone;
+          entry.count += 1;
+          total += 1;
+          entry.scans.push_back(scan["iid"].str()
+                                + (scan["peremption"].is_null() ? " · non périssable"
+                                                                : " · périme le " + display_date(scan["peremption"])));
+        }
+        split.out += total;
+        split.back += home.count;
+        if (gone.count) {
+          gone.detail = gone.count == total ? nb(total, "sorti") : std::to_string(gone.count) + " sur " + nb(total, "sorti");
+          split.pending.push_back(gone);
+        }
+        if (home.count) {
+          home.detail = (home.count == total ? std::string() : std::to_string(home.count) + " sur "
+                                                                   + std::to_string(total) + " · ")
+                      + "remis en stock";
+          split.returned.push_back(home);
+        }
+      }
+      return split;
+    }
+
+    void draw_return_lines(const Json &list) {
+      const ReturnSplit split = return_split(list);
+      if (!split.out) {
+        ImGui::TextDisabled("Rien n'est sorti avec cette liste.");
+        return;
+      }
+      if (!ImGui::BeginChild("return", ImVec2(0, 0)))
+        return ImGui::EndChild();
+      const auto count = [](const std::vector< ReturnEntry > &entries) {
+        int total = 0;
+        for (const ReturnEntry &entry : entries)
+          total += entry.count ? entry.count : 1;
+        return total;
+      };
+      const auto table = [&](const char *id, const std::vector< ReturnEntry > &entries, bool home) {
+        if (entries.empty())
+          return;
+        if (home)
+          ImGui::TextColored(colors::green, "✓ Rentré : %d", count(entries));
+        else
+          ImGui::SeparatorText(("Pas encore rentré : " + std::to_string(count(entries))).c_str());
+        if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH))
+          return;
+        ImGui::TableSetupColumn("nom", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("nombre", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        for (const ReturnEntry &entry : entries) {
+          ImGui::TableNextRow();
+          if (home)
+            row_color(colors::green, 0.20f);
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(entry.name.c_str());
+          ImGui::SameLine();
+          ImGui::TextDisabled("%s", entry.detail.c_str());
+          ImGui::TableNextColumn();
+          if (entry.count)
+            ImGui::Text("×%d", entry.count);
+          else if (home)
+            ImGui::TextColored(colors::green, "✓");
+          for (const std::string &scan : entry.scans) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Indent();
+            ImGui::TextDisabled("%s%s", scan.c_str(), home ? " · ✓ rentré" : "");
+            ImGui::Unindent();
+            ImGui::TableNextColumn();
+          }
+        }
+        ImGui::EndTable();
+      };
+      table("pending", split.pending, false);
+      if (!split.pending.empty() && !split.returned.empty())
+        ImGui::Spacing();
+      if (!split.returned.empty() && split.pending.empty())
+        ImGui::SeparatorText("Tout est rentré");
+      table("returned", split.returned, true);
+      ImGui::EndChild();
     }
 
     // Lots de la liste en vérif recommandee (rentres d'un poste, marques utilises, reassortis) : lots fixes (pris ou
