@@ -7499,7 +7499,8 @@
         el('span', { class: 'list-box-wrap' }, returnBox(entry, home)),
         el('div', { class: 'main' }, el('div', { class: 'name' }, entry.name), el('div', { class: 'sub' }, entry.sub)),
         el('b', { class: 'list-count' + (home ? ' done' : '') }, entry.count)),
-      ...entry.scans.map((scan) => el('li', { class: 'static list-scan-row' },
+      // detail item par item (peremption, iid) : gestion et admins seulement, comme ailleurs sur le web
+      ...(detailed() ? entry.scans : []).map((scan) => el('li', { class: 'static list-scan-row' },
         el('div', { class: 'main' }, el('div', { class: 'sub' }, [idText(scan.iid),
           scan.peremption ? 'périme le ' + fmtDate(scan.peremption) : 'non périssable'].filter(Boolean).join(' · ')
           + (home ? ' · ↩ rentré' : ''))))),
