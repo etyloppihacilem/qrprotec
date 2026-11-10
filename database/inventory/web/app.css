@@ -648,6 +648,26 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-count { font-size: .95rem; white-space: nowrap; color: var(--muted); }
 #home-lists .list-count.done { color: var(--green); }
 #home-lists .list-scan-row { padding: 2px 12px 2px 28px; background: var(--blue-bg); }
+/* liste sortie : ecran du retour (bandeau colle en haut, progression, pas encore rentre / rentre) */
+#home-lists .return-head { position: sticky; top: 0; z-index: 5; display: flex; gap: 12px; align-items: center; margin: 4px -12px 8px;
+  padding: 10px 14px; background: var(--navy); color: #fff; border-bottom: 4px solid var(--orange); }
+#home-lists .return-head-icon { font-size: 2rem; line-height: 1; }
+#home-lists .return-head b { display: block; font-size: 1.2rem; text-transform: uppercase; letter-spacing: .03em; }
+#home-lists .return-head small { display: block; opacity: .88; font-size: .9rem; }
+#home-lists .return-progress { margin: 8px 0; padding: 10px 14px; border-radius: 12px; background: #fff; border: 2px solid var(--navy); }
+#home-lists .return-progress.done { border-color: var(--green); }
+#home-lists .return-progress-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 800;
+  color: var(--navy); font-size: 1.1rem; }
+#home-lists .return-progress.done .return-progress-head { color: var(--green); }
+#home-lists .return-progress-head b { font-size: 1.6rem; }
+#home-lists .return-bar { height: 12px; border-radius: 6px; background: #e3e7ee; margin: 6px 0 4px; overflow: hidden; }
+#home-lists .return-bar i { display: block; height: 100%; background: var(--green); }
+#home-lists .return-progress p { margin: 0; color: var(--muted); font-size: .88rem; }
+#home-lists .return-title { display: flex; justify-content: space-between; }
+#home-lists .return-title.ok { color: var(--green); }
+#home-lists .return-box { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; box-sizing: border-box;
+  border: 2px dashed #8a8f94; border-radius: 7px; color: #fff; font-weight: 800; }
+#home-lists .return-box.done { border: 0; background: var(--green); }
 #home-lists .list-scan-row .sub { white-space: normal; }
 #home-lists .list-remove { flex: none; width: 30px; height: 30px; padding: 0; border-radius: 8px; background: #eee; color: var(--red); }
 #home-lists .list-verif-row { padding: 6px 12px 6px 28px; background: var(--orange-bg); }
