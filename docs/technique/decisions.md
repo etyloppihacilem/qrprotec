@@ -146,7 +146,10 @@ plusieurs lots les garde, mais n'en accepte plus de nouveau.
 jusqu'à la prochaine vérif, avec qui/quand/combien.
 **Raison.** Sur le terrain on complète un sac au retour d'intervention sans avoir le temps de tout
 recompter. Il fallait que ce soit possible **et** visible. Le réglage du serveur **Réassort : vérif
-recommandée pour les suivants** (coché par défaut) permet de s'en passer.
+recommandée pour les suivants** (coché par défaut) permet de passer au crédit de confiance :
+réassort au vert pendant 3 sorties / 15 jours depuis la dernière vérif complète (Hippolyte,
+2026-11-10, d'après la pratique : le chef sait si le sac est bon, mais il faut une vérif complète au
+bout d'un certain temps).
 
 ## Scellés
 

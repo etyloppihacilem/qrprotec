@@ -3650,8 +3650,10 @@ void App::restock_verif() {
       body["debug"] = true;
     const std::string lot   = verif.lot_id;
     const std::string name  = verif.lot["name"].str(lot);
+    // credit de confiance du reassort (reglage du serveur decoche) : le lot reste au vert
+    const bool credit       = verif.lot["restock_credit"].is_object();
     verif.submitting        = true;
-    api.post("/api/lots/" + url_encode(lot) + "/add/", body, [this, lot, name](const ApiResult &result) {
+    api.post("/api/lots/" + url_encode(lot) + "/add/", body, [this, lot, name, credit](const ApiResult &result) {
       if (verif.lot_id == lot)
         verif.submitting = false;
       if (!result.ok) {
@@ -3660,7 +3662,7 @@ void App::restock_verif() {
         return;
       }
       notify("Réassort : " + nb(result.data["moved"].size(), "item ajouté", "items ajoutés") + " à " + name
-             + (restock_verif_recommended ? ". Vérif complète recommandée." : "."));
+             + (credit ? ". Lot réassorti, toujours vérifié." : ". Vérif complète recommandée."));
       if (result.data["unknown"].size() > 0)
         notify(nb(result.data["unknown"].size(), "item inconnu ignoré", "items inconnus ignorés") + ".", true);
       notify_refused(result.data["refused"], "Non ajouté");

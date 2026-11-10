@@ -1776,28 +1776,50 @@ class RestockTests(ApiTestCase):
         self.assertEqual(lot['restocked_count'], 0)
 
     def test_restock_setting(self):
-        # reglage du serveur coche par defaut ; decoche par un admin, le reassort laisse le lot dans son etat
+        # reglage du serveur coche par defaut : tout reassort recommande la verif (test ci-dessus)
         code, body = self.call('GET', '/api/server-settings/')
         self.assertTrue(body['restock_verif_recommended'])
+        self.assertEqual((body['restock_credit_outings'], body['restock_credit_days']), (3, 15))
         self.assertTrue(self.call('GET', '/api/health/')[1]['restock_verif_recommended'])
+        self.assertEqual(self.call('PATCH', '/api/server-settings/', {'restock_credit_days': 'x'})[0], 400)
+        # decoche : credit de confiance (3 sorties / 15 jours depuis la derniere verif complete)
         code, body = self.call('PATCH', '/api/server-settings/', {'restock_verif_recommended': False})
         self.assertEqual(code, 200, body)
         self.assertFalse(body['restock_verif_recommended'])
-        new = self.create(self.compresses, self.today + timedelta(days=90), 2)
-        code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/',
-                               {'items': [item.iid for item in new], 'user': 'M001'})
-        self.assertEqual(code, 200, body)
-        self.assertEqual(len(body['moved']), 2)
-        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
-        self.assertFalse(lot['verif_recommended'])
-        self.assertEqual(lot['restocked_count'], 0)
-        # recoche : le reassort suivant repasse le lot en verif recommandee
-        self.call('PATCH', '/api/server-settings/', {'restock_verif_recommended': True})
-        more = self.create(self.compresses, self.today + timedelta(days=90), 1)
-        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in more], 'user': 'M001'})
-        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
-        self.assertTrue(lot['verif_recommended'])
-        self.assertEqual(lot['restocked_count'], 1)
+        Lots.objects.filter(id=self.lot.id).update(last_verif=timezone.now(), verif_recommended=False, outings=0)
+
+        def lot():
+            return self.call('GET', f'/api/lots/{self.lot.id}/', local=False)[1]
+
+        def used_then_restock():
+            code, body = self.call('POST', f'/api/lots/{self.lot.id}/used/', {'user': 'M001'})
+            self.assertEqual(code, 200, body)
+            self.assertTrue(lot()['verif_recommended'])  # rentre sans reassort : orange
+            new = self.create(self.compresses, self.today + timedelta(days=90), 1)
+            code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/',
+                                   {'items': [item.iid for item in new], 'user': 'M001'})
+            self.assertEqual(code, 200, body)
+            return lot()
+
+        self.assertEqual(lot()['restock_credit']['outings_left'], 3)
+        for left in (2, 1, 0):
+            row = used_then_restock()
+            self.assertFalse(row['verif_recommended'])  # reassorti sous le credit : vert
+            self.assertEqual(row['restock_credit']['outings_left'], left)
+        row = used_then_restock()  # 4e sortie : credit epuise
+        self.assertTrue(row['verif_recommended'])
+        self.assertEqual(row['restocked_count'], 1)
+        self.assertIsNone(row['restock_credit'])
+        # une verif complete remet le credit a zero sortie
+        items = [item.iid for item in Items.objects.filter(location=self.lot, status=ItemStatus.ACTIVE)]
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': items, 'user': 'M001'})
+        self.assertEqual(Lots.objects.get(id=self.lot.id).outings, 0)
+        # plus de 15 jours depuis la derniere verif : verif recommandee meme sans sortie
+        Lots.objects.filter(id=self.lot.id).update(last_verif=timezone.now() - timedelta(days=16),
+                                                   verif_recommended=False)
+        new = self.create(self.compresses, self.today + timedelta(days=90), 1)
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in new], 'user': 'M001'})
+        self.assertTrue(lot()['verif_recommended'])
 
 
 class MoveItemsRulesTests(ApiTestCase):
@@ -5401,6 +5423,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, path + 'validate/', {'partial': True})
         self.assertEqual(code, 200, body)
         self.assertFalse(Lots.objects.get(id=b1.id).verif_recommended)  # en poste : pas encore
+        self.assertEqual(Lots.objects.get(id=b1.id).outings, 1)  # une sortie (credit de confiance du reassort)
         code, body = self.as_(self.chief, f"/api/checklists/{other['id']}/scan/", {'lot': b1.id})
         self.assertEqual(code, 400)  # en poste avec la liste sortie
         code, body = self.as_(self.other, path + 'return-scan/', {'lot': b1.id})
