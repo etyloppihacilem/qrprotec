@@ -8,6 +8,11 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+// macOS (front de bureau) : ni SOCK_CLOEXEC ni MSG_NOSIGNAL, on passe par fcntl et SO_NOSIGPIPE
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 namespace qrprotec {
 
 RawTransport::~RawTransport()
@@ -59,7 +64,7 @@ bool RawTransport::open(const std::string& address, int timeout_ms, std::string&
         return false;
     }
     if (!is_network_address(address)) {
-        file_descriptor_ = ::open(address.c_str(), O_WRONLY | O_NOCTTY);
+        file_descriptor_ = ::open(address.c_str(), O_WRONLY | O_NOCTTY | O_CLOEXEC);
         if (file_descriptor_ < 0) {
             const int code = errno;
             error = address + " : " + std::strerror(code);
@@ -89,8 +94,13 @@ bool RawTransport::open(const std::string& address, int timeout_ms, std::string&
     }
     error = "Connexion impossible à " + host + ":" + port + ".";
     for (addrinfo* entry = results; entry != nullptr; entry = entry->ai_next) {
-        const int socket_fd = ::socket(entry->ai_family, entry->ai_socktype | SOCK_CLOEXEC, entry->ai_protocol);
+        const int socket_fd = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
         if (socket_fd < 0) continue;
+        ::fcntl(socket_fd, F_SETFD, FD_CLOEXEC);
+#ifdef SO_NOSIGPIPE
+        const int no_sigpipe = 1;
+        ::setsockopt(socket_fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#endif
         const int flags = ::fcntl(socket_fd, F_GETFL, 0);
         ::fcntl(socket_fd, F_SETFL, flags | O_NONBLOCK);
         int result = ::connect(socket_fd, entry->ai_addr, entry->ai_addrlen);
