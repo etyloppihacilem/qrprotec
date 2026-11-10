@@ -1,5 +1,5 @@
 :root {
-  /* identite Protection Civile, discrete : bleu #004c98 pour les barres et l'action principale, orange de la marque
+  /* identite Protection Civile, discrete : marine pour les barres et l'action principale, orange de la marque
      seulement en filet sous les barres ; tout orange du contenu reste un statut (--orange) */
   --bg: #f2f4f7;
   --panel: #ffffff;
@@ -12,11 +12,11 @@
   --red-bg: #fde3e3;
   --green: #1f8f3a;
   --green-bg: #e2f5e6;
-  --blue: #004c98;
-  --blue-bg: #e6edf5;
-  --dark: #004c98;
-  --navy: #004c98;
-  --navy-bg: #e6edf5;
+  --blue: #2463b3;
+  --blue-bg: #e3edf9;
+  --dark: #14284b;
+  --navy: #14284b;
+  --navy-bg: #e6ecf5;
   --pc-orange: #f39200;
   --button: #e7ebf1;
 }
@@ -75,7 +75,7 @@ dl.facts dd { margin: 0; }
 .chip { background: rgba(0, 0, 0, .55); color: #fff; border-radius: 999px; padding: 7px 12px; font-size: .9rem;
   max-width: 75vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* connecte : marine cerne de blanc, pas de vert (reserve a « c'est bon ») */
-.chip.ok { background: rgba(0, 76, 152, .85); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .4); }
+.chip.ok { background: rgba(20, 40, 75, .85); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .4); }
 .chip.icon.on { background: #f5c518; color: #000; }
 #topbar .chips { display: flex; gap: 8px; }
 #scan-hint { position: absolute; bottom: 10px; width: 100%; text-align: center; color: #fff;
@@ -172,7 +172,7 @@ body.cam-mini #toast { bottom: calc(80px + min(56vw, 240px) + env(safe-area-inse
 .chart .hit.active { fill: var(--line); fill-opacity: .35; }
 .chart-detail { margin: 2px 0 0; min-height: 1.3em; }
 .s-stock { fill: var(--blue); background: var(--blue); }
-.s-lots { fill: #80a6cc; background: #80a6cc; }
+.s-lots { fill: #7ea6dc; background: #7ea6dc; }
 .s-sealed { fill: var(--orange); background: var(--orange); }
 .s-lost { fill: var(--red); background: var(--red); }
 .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: .78rem; color: var(--muted); }
@@ -704,7 +704,7 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-share button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 #home-lists .list-share button:first-child { flex: 1; }
 #home-lists .list-share .icon-only { padding-left: 14px; padding-right: 14px; }
-#home-lists .list-share .icon-only[aria-expanded="true"] { background: var(--blue-bg, #e6edf5); }
+#home-lists .list-share .icon-only[aria-expanded="true"] { background: var(--blue-bg, #e8f0fe); }
 #home-lists .list-qr-panel { margin-top: 10px; text-align: center; }
 #home-lists .list-qr-panel[hidden] { display: none; }
 

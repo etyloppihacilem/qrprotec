@@ -28,7 +28,7 @@ ImVec4 status_color(const Json &list) {
   if (list["template"].boolean())
     return colors::grey;
   const std::string status = list["status"].str();
-  return status == "returned" ? colors::green : status == "validated" ? colors::orange : colors::blue;
+  return status == "returned" ? colors::green : status == "validated" ? colors::orange : ImVec4(0.14f, 0.39f, 0.70f, 1.0f);
 }
 
 // Bouton vert (ou orange) avec confirmation en deux temps : confirm_button est reserve aux actions dangereuses. La
