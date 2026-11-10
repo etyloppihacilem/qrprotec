@@ -108,9 +108,10 @@ il répond 404. Pas de CDN : fournir la bibliothèque dans `web/vendor/` avec sa
 
 ## Changer de modèle d'imprimante
 
-Implémenter `Printer` (`app/src/printer/printer.hpp`) pour le nouveau protocole et remplacer le membre
-`NiimbotB1Printer printer_` de `PrintQueue` (`app/src/app/print_queue.hpp`) et de l'éditeur
-(`app/src/ui/editor.hpp`, commandes directes). Le rendu (`render/raster.cpp`) produit une image 1 bit au pas de 8 px/mm (203 dpi) ;
+Les imprimantes TSPL (TSC, IDPRT, Munbyn…) et ZPL (Zebra) se choisissent déjà dans Réglages, la
+Niimbot B1 reste en secours. Pour un autre langage : implémenter `Printer` (`app/src/printer/printer.hpp`),
+ajouter une valeur à `PrinterKind` (identifiant du fichier de réglages dans `printer_kind_id`) et la
+brancher dans `AnyPrinter::select`, utilisé par `PrintQueue` et l'éditeur. Le rendu (`render/raster.cpp`) produit une image 1 bit au pas de 8 px/mm (203 dpi) ;
 adapter `pixels_per_mm` des modèles si l'imprimante a une autre résolution.
 
 ## Mettre à jour les dépendances

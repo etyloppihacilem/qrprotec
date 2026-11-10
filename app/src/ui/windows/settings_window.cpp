@@ -253,10 +253,12 @@ class SettingsWindow final : public AppWindow {
         ImGui::InputFloat("Largeur (mm, sens de la tête)", &settings.label_width_mm, 1.0f, 5.0f, "%.1f");
         ImGui::SetNextItemWidth(150.0f);
         ImGui::InputFloat("Hauteur (mm, sens du défilement)", &settings.label_height_mm, 1.0f, 5.0f, "%.1f");
-        settings.label_width_mm  = std::clamp(settings.label_width_mm, 5.0f, 48.0f);
+        settings.label_width_mm =
+            std::clamp(settings.label_width_mm, 5.0f, static_cast< float >(printer_max_width_mm(settings.print.kind)));
         settings.label_height_mm = std::clamp(settings.label_height_mm, 5.0f, 500.0f);
-        help_marker("La Niimbot B1 imprime au plus 48 mm de large. Un modèle dessiné dans l'autre sens (portrait / "
-                    "paysage) est tourné d'un quart de tour à l'impression pour tenir sur l'étiquette.");
+        help_marker("La Niimbot B1 imprime au plus 48 mm de large, une imprimante 4 pouces (TSPL / ZPL) 104 mm. Un "
+                    "modèle dessiné dans l'autre sens (portrait / paysage) est tourné d'un quart de tour à "
+                    "l'impression pour tenir sur l'étiquette.");
         int rotation = settings.rotate_counterclockwise ? 1 : 0;
         ImGui::SetNextItemWidth(200.0f);
         if (ImGui::Combo("Sens du quart de tour", &rotation, "Horaire\0Anti-horaire\0"))
@@ -266,7 +268,7 @@ class SettingsWindow final : public AppWindow {
         ImGui::TextUnformatted("Nom de l'antenne, imprimé par {{titre}} (bouton « Nom de l'antenne » de l'éditeur) :");
         ImGui::InputTextMultiline("##titre", &settings.label_title, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 3.5f));
 
-        ImGui::SeparatorText("Imprimante Niimbot B1");
+        ImGui::SeparatorText("Imprimante");
         if (app.main_poste() && !settings.api_endpoint().key.empty()) {
           ImGui::TextWrapped("Poste principal : les étiquettes s'impriment ici, avec celles demandées depuis le web "
                              "ou d'autres ordinateurs (« Impressions en attente »).");
@@ -278,13 +280,49 @@ class SettingsWindow final : public AppWindow {
                       "avec l'imprimante se déclare plutôt « poste principal » sur le serveur (Utilisateurs > "
                       "Ordinateurs connectés).");
         }
-        ImGui::InputText("Port série", &settings.print.serial.device);
-        ImGui::SetNextItemWidth(150.0f);
-        ImGui::InputInt("Débit", &settings.print.serial.baud_rate);
-        ImGui::SetNextItemWidth(150.0f);
-        ImGui::SliderInt("Densité", &settings.print.density, 1, 5);
-        ImGui::SetNextItemWidth(150.0f);
-        ImGui::SliderInt("Type d'étiquette", &settings.print.label_type, 1, 3);
+        int kind = static_cast< int >(settings.print.kind);
+        ImGui::SetNextItemWidth(320.0f);
+        if (ImGui::Combo("Modèle", &kind,
+                         "Niimbot B1 (secours, debug)\0TSPL (TSC, IDPRT, Munbyn, Phomemo...)\0ZPL (Zebra)\0"))
+          settings.print.kind = static_cast< PrinterKind >(kind);
+        help_marker("TSPL et ZPL : imprimantes d'étiquettes de bureau. Choisir une tête 203 dpi (8 points/mm), la "
+                    "résolution des modèles d'étiquettes ; en 300 dpi l'étiquette sortirait plus petite. La Niimbot "
+                    "B1 reste utilisable en secours.");
+        if (settings.print.kind == PrinterKind::NiimbotB1) {
+          ImGui::InputText("Port série", &settings.print.serial.device);
+          ImGui::SetNextItemWidth(150.0f);
+          ImGui::InputInt("Débit", &settings.print.serial.baud_rate);
+          ImGui::SetNextItemWidth(150.0f);
+          ImGui::SliderInt("Densité", &settings.print.density, 1, 5);
+          ImGui::SetNextItemWidth(150.0f);
+          ImGui::SliderInt("Type d'étiquette", &settings.print.label_type, 1, 3);
+        } else {
+          RawPrinterSettings &raw = settings.print.raw;
+          ImGui::InputTextWithHint("Adresse", "/dev/usb/lp0 ou 192.168.1.50", &raw.address);
+          help_marker("USB : /dev/usb/lp0 (l'utilisateur du poste doit être dans le groupe lp). Réseau : adresse IP "
+                      "de l'imprimante, port 9100 par défaut (192.168.1.50:9100) ; elle peut alors servir à "
+                      "plusieurs ordinateurs.");
+          ImGui::Checkbox("Transfert thermique (ruban)", &raw.ribbon);
+          help_marker("Décoché : thermique direct, sans ruban (étiquettes thermiques). Coché : ruban encreur, pour "
+                      "des étiquettes papier vélin ou synthétiques qui durent.");
+          ImGui::SetNextItemWidth(150.0f);
+          ImGui::SliderInt("Noirceur", &raw.darkness, 0, 15);
+          float gap = static_cast< float >(raw.gap_mm);
+          ImGui::SetNextItemWidth(150.0f);
+          if (ImGui::InputFloat("Espace entre étiquettes (mm)", &gap, 0.5f, 1.0f, "%.1f"))
+            raw.gap_mm = std::clamp(gap, 0.0f, 20.0f);
+          float offset_x = static_cast< float >(raw.offset_x_mm);
+          ImGui::SetNextItemWidth(150.0f);
+          if (ImGui::InputFloat("Décalage horizontal (mm)", &offset_x, 0.5f, 1.0f, "%.1f"))
+            raw.offset_x_mm = std::clamp(offset_x, 0.0f, 50.0f);
+          float offset_y = static_cast< float >(raw.offset_y_mm);
+          ImGui::SetNextItemWidth(150.0f);
+          if (ImGui::InputFloat("Décalage vertical (mm)", &offset_y, 0.5f, 1.0f, "%.1f"))
+            raw.offset_y_mm = std::clamp(offset_y, 0.0f, 50.0f);
+          help_marker("À régler seulement si l'impression est décalée sur l'étiquette (imprimante qui aligne le "
+                      "rouleau sur un bord au lieu de le centrer).");
+          ImGui::TextDisabled("Pas de retour d'état : une erreur papier ou ruban s'affiche sur l'imprimante.");
+        }
         const PrintQueueStatus status = app.printer.status();
         ImGui::Text("File : %zu en attente, %s%s", status.pending, nb(status.printed, "imprimée").c_str(),
                     status.busy ? " - en cours" : "");

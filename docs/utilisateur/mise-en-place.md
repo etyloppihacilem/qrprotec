@@ -12,7 +12,7 @@ des étapes, lui, compte.
 - une malle catastrophe qu'on n'ouvre presque jamais.
 
 **Matériel nécessaire** : le poste installé (voir le [guide d'installation](../installation/README.md)),
-la douchette, l'imprimante Niimbot B1 avec un rouleau d'étiquettes (40 × 30 mm conseillé), et des
+la douchette, l'imprimante d'étiquettes (TSPL ou ZPL, ou la Niimbot B1 en secours) avec un rouleau d'étiquettes (40 × 30 mm conseillé), et des
 scellés numérotés pour la malle.
 
 > **Conseil général** : ne pas tout faire le même jour. Compter une première session pour la
@@ -35,7 +35,10 @@ administrateur sur le serveur : `sudo qrprotec-manage createadmin M001 Nom Prén
 
 Menu **Administration > Réglages** (admin), section **Étiquettes et impression** :
 
-1. **Imprimante Niimbot B1** : port (`/dev/ttyACM0` en général), puis **Imprimer test**.
+1. **Imprimante** : le **Modèle** (TSPL pour TSC, IDPRT, Munbyn… ; ZPL pour Zebra ; Niimbot B1 en
+   secours), puis l'**Adresse** (`/dev/usb/lp0` en USB, ou l'adresse IP de l'imprimante réseau) ou le
+   port de la Niimbot (`/dev/ttyACM0`). Cochez **Transfert thermique** si un ruban est chargé.
+   Imprimez un test depuis l'éditeur ; si l'étiquette est décalée, réglez les décalages.
 2. **Étiquettes chargées dans l'imprimante** : largeur et hauteur du rouleau (40 × 30 mm).
 3. **Titre des étiquettes** : le nom de votre structure, imprimé sur les étiquettes de lot et les
    badges (par défaut « PROTECTION CIVILE / PARIS CENTRE »).

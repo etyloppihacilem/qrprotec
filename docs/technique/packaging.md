@@ -71,7 +71,7 @@ casser la borne. Les versions embarquées sont exactement celles testées.
 | `qrprotec-backup.timer` | Sauvegarde (quotidienne par défaut, réglable). |
 | `80-qrprotec.preset` | Active les unités à l'installation. |
 | `logind-qrprotec.conf`, `sleep-qrprotec.conf` | Pas de mise en veille de la borne. |
-| `qrprotec.sysusers`, `qrprotec.tmpfiles` | Utilisateurs système et dossiers. `qrprotec-kiosk` est dans `dialout` (imprimante série), `video`, `render`, `audio` ; pas dans `input` : Cage reçoit clavier, souris et douchette par sa session logind (tty1), le `%post` l'en retire sur une borne déjà installée. |
+| `qrprotec.sysusers`, `qrprotec.tmpfiles` | Utilisateurs système et dossiers. `qrprotec-kiosk` est dans `dialout` (Niimbot, port série), `lp` (imprimante TSPL / ZPL en USB), `video`, `render`, `audio` ; pas dans `input` : Cage reçoit clavier, souris et douchette par sa session logind (tty1), le `%post` l'en retire sur une borne déjà installée. |
 
 ### Réseau
 
@@ -130,7 +130,7 @@ Permissions (`finish-args`) et pourquoi :
 | Permission | Pour |
 |---|---|
 | `--socket=x11`, `--share=ipc` | Fenêtre en X11 (XWayland) : décorations du bureau (pas de libdecor dans le runtime) et `libxdo` du SDK Inateck |
-| `--device=all` | OpenGL (`/dev/dri`) et imprimante Niimbot (`/dev/ttyACM0`) : Flatpak n'a pas de permission propre aux ports série |
+| `--device=all` | OpenGL (`/dev/dri`) et imprimante (Niimbot `/dev/ttyACM0`, TSPL / ZPL `/dev/usb/lp0`) : Flatpak n'a pas de permission propre aux ports série |
 | `--share=network` | API du back |
 | `--socket=pulseaudio` | Bips (`aplay` passe par l'ALSA du runtime) |
 | `--system-talk-name=org.bluez`, `--allow=bluetooth` | Douchette Inateck en Bluetooth |

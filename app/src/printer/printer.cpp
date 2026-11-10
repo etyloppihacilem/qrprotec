@@ -1,9 +1,11 @@
 #include "printer.hpp"
 
+#include "label_languages.hpp"
 #include "logging.hpp"
 #include "niimbot_protocol.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
@@ -171,6 +173,124 @@ bool NiimbotB1Printer::print(const PrintRequest& request, const std::function<vo
         debug_log("Fin d'impression non confirmee : " + error);
     error.clear();
     return true;
+}
+
+const char* printer_kind_id(PrinterKind kind)
+{
+    switch (kind) {
+    case PrinterKind::Tspl: return "tspl";
+    case PrinterKind::Zpl: return "zpl";
+    case PrinterKind::NiimbotB1: break;
+    }
+    return "b1";
+}
+
+PrinterKind printer_kind_from_id(const std::string& id)
+{
+    if (id == "tspl") return PrinterKind::Tspl;
+    if (id == "zpl") return PrinterKind::Zpl;
+    return PrinterKind::NiimbotB1;
+}
+
+double printer_max_width_mm(PrinterKind kind)
+{
+    return kind == PrinterKind::NiimbotB1 ? 48.0 : 104.0;
+}
+
+bool RawLabelPrinter::connect(const PrintSettings& settings, std::string& error)
+{
+    return transport_.open(settings.raw.address, settings.raw.timeout_ms, error);
+}
+
+void RawLabelPrinter::disconnect()
+{
+    transport_.close();
+}
+
+bool RawLabelPrinter::send_command(const PrintSettings& settings, const std::string& command, std::string& error)
+{
+    if (!connect(settings, error)) return false;
+    const std::vector<std::uint8_t> bytes(command.begin(), command.end());
+    const bool sent = transport_.write_bytes(bytes, error);
+    disconnect();
+    return sent;
+}
+
+bool RawLabelPrinter::print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error)
+{
+    if (request.image.width != request.media.width_pixels() || request.image.height != request.media.height_pixels()) {
+        error = "La résolution du raster ne correspond pas au media.";
+        return false;
+    }
+    if (!transport_.is_open()) {
+        error = "Imprimante non connectée.";
+        return false;
+    }
+    if (request.image.width <= 0 || request.image.height <= 0) {
+        error = "Étiquette vide.";
+        return false;
+    }
+    const RawPrinterSettings& raw = request.settings.raw;
+    const double ppm = request.media.pixels_per_mm > 0 ? request.media.pixels_per_mm : 8.0;
+    labels::RawJob job;
+    job.width_dots = request.image.width;
+    job.height_dots = request.image.height;
+    job.dots_per_mm = ppm;
+    job.copies = std::max(1, request.settings.copies);
+    job.darkness = raw.darkness;
+    job.ribbon = raw.ribbon;
+    job.gap_mm = raw.gap_mm;
+    job.offset_x_dots = static_cast<int>(std::lround(std::max(0.0, raw.offset_x_mm) * ppm));
+    job.offset_y_dots = static_cast<int>(std::lround(std::max(0.0, raw.offset_y_mm) * ppm));
+    const std::vector<std::uint8_t> bytes = request.settings.kind == PrinterKind::Zpl
+                                                ? labels::encode_zpl(request.image, job)
+                                                : labels::encode_tspl(request.image, job);
+    if (progress) progress(0.0f);
+    debug_log(std::string(printer_kind_id(request.settings.kind)) + " : " + std::to_string(bytes.size()) + " octets");
+    if (!transport_.write_bytes(bytes, error)) return false;
+    if (progress) progress(1.0f);
+    return true;
+}
+
+Printer& AnyPrinter::select(PrinterKind kind)
+{
+    if (kind == PrinterKind::NiimbotB1) return b1_;
+    return raw_;
+}
+
+bool AnyPrinter::connect(const PrintSettings& settings, std::string& error)
+{
+    disconnect();
+    Printer& printer = select(settings.kind);
+    if (!printer.connect(settings, error)) return false;
+    active_ = &printer;
+    active_kind_ = settings.kind;
+    active_settings_ = settings;
+    return true;
+}
+
+void AnyPrinter::disconnect()
+{
+    if (active_ != nullptr) active_->disconnect();
+    active_ = nullptr;
+}
+
+bool AnyPrinter::print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error)
+{
+    // reglages changes pendant que la file etait connectee (autre modele ou autre adresse) : on se reconnecte
+    const bool same_link = active_ != nullptr && active_kind_ == request.settings.kind &&
+                           (request.settings.kind == PrinterKind::NiimbotB1
+                                ? active_settings_.serial.device == request.settings.serial.device &&
+                                      active_settings_.serial.baud_rate == request.settings.serial.baud_rate
+                                : active_settings_.raw.address == request.settings.raw.address);
+    if (!same_link && !connect(request.settings, error)) return false;
+    return active_->print(request, progress, error);
+}
+
+bool AnyPrinter::send_command(const PrintSettings& settings, const std::string& command, std::string& error)
+{
+    disconnect();
+    return select(settings.kind).send_command(settings, command, error);
 }
 
 } // namespace qrprotec

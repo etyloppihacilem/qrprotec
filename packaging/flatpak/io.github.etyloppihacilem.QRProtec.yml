@@ -14,8 +14,8 @@ finish-args:
   # libdecor dans le runtime) et libxdo, dont le SDK Inateck a besoin
   - --socket=x11
   - --share=ipc
-  # OpenGL (/dev/dri) et imprimante Niimbot (/dev/ttyACM0) : pas de permission plus fine pour un
-  # port serie. L'utilisateur doit toujours etre dans le groupe dialout de la machine.
+  # OpenGL (/dev/dri) et imprimante (Niimbot /dev/ttyACM0, TSPL / ZPL /dev/usb/lp0) : pas de permission
+  # plus fine pour un port serie. L'utilisateur doit toujours etre dans le groupe dialout (Niimbot) ou lp.
   - --device=all
   # Back distant (HTTPS) ou local (http://127.0.0.1:8001)
   - --share=network

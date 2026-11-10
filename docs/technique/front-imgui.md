@@ -20,7 +20,7 @@ Les dossiers suivent les dépendances : `core` ne dépend de rien, `ui` dépend 
 | `src/core/` | `QRProtecCore` | `json` (JSON minimal tolérant), `codes` (dates, **analyse des QR codes** `parse_scan`, saisie libre des dates), `template` / `template_io` (modèles d'étiquettes `.qr`), `placeholders` (variables par usage), `search` (recherche sans accents), `paths` (dossier des modèles), `fonts`. |
 | `src/net/` | `QRProtecCore` | `connection` (TCP, chiffré par OpenSSL si l'URL est en `https://`, certificat et nom d'hôte vérifiés), `http` (client HTTP/1.1), `api_client` (client asynchrone de l'API), `websocket` + `remote_scanner_link` (téléphone-douchette). |
 | `src/render/` | `QRProtecCore` | `raster` (rendu d'un modèle en image 1 bit, rotation vers l'étiquette physique, export PNG), `image_loader` (PNG/JPEG en niveaux de gris, cache). |
-| `src/printer/` | `QRProtecPrinter` | `serial` (port série POSIX), `niimbot_protocol` (paquets Niimbot), `printer` (`NiimbotB1Printer`). |
+| `src/printer/` | `QRProtecPrinter` | `serial` (port série POSIX), `niimbot_protocol` (paquets Niimbot), `label_languages` (commandes TSPL et ZPL), `raw_transport` (fichier `/dev/usb/lp0` ou TCP 9100), `printer` (`NiimbotB1Printer`, `RawLabelPrinter`, `AnyPrinter` qui choisit selon le réglage). |
 | `src/inateck/` | exécutable | `inateck_worker` (thread du SDK Bluetooth), `hid_classifier` (douchette en mode clavier), `sdk_json`, `scanner_settings` (modèles et libellés des paramètres du SDK : `get/set_setting_info` prennent le modèle, `INATECK_DEVICE_TYPE`, et la liste des paramètres vient de la douchette). |
 | `src/app/` | exécutable | `App` (état global, scans, vérifs, connexion), `scan_stack`, `settings`, `print_queue`, `feedback` (signal de mauvais scan), `labels` (objets API → placeholders). |
 | `src/ui/` | exécutable | `widgets` (champs de recherche, saisie de date…), `editor` (éditeur d'étiquettes), `label_preview`, `inateck` (fenêtre et menu Douchette), `windows/*` (une fenêtre par fichier). |
@@ -174,8 +174,15 @@ modèle .qr (TemplateDocument, JSON)  ── resolve_parameters
    │ render/raster.cpp : render_template                    -> image 1 bit au pas de 8 px/mm
    │ fit_to_label : quart de tour si le modèle est dans l'autre sens, retournement, centrage
    ▼
-PrintQueue (thread) ── NiimbotB1Printer ── SerialPort (/dev/ttyACM0, 115200 bauds)
+PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BITMAP) ou ZPL (^GFA) ── /dev/usb/lp0 ou IP:9100
+                                   └─ NiimbotB1Printer ── SerialPort (/dev/ttyACM0, 115200 bauds), secours
 ```
+
+- **Imprimantes TSPL / ZPL** : l'image 1 bit part d'un bloc (`BITMAP` en TSPL, 0 = point noir ;
+  `^GFA` en ZPL, 1 = point noir), avec la taille de l'étiquette, l'espace entre étiquettes, la noirceur
+  et le ruban (`SET RIBBON` / `^MT`). Pas de retour d'état : une erreur papier ou ruban s'affiche sur
+  l'imprimante, qui sort l'étiquette une fois le problème réglé. La tête doit être en 203 dpi
+  (8 points/mm), la résolution des modèles.
 
 - **Modèles** : fichiers JSON `.qr` (`version`, `category`, `media` en mm, `elements` texte / QR /
   image, positions en mm). La catégorie (item, paquet, lot public, lot clé, scellé, ouverture du scellé, badge) détermine

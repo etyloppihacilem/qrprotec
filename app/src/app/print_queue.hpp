@@ -63,7 +63,7 @@ class PrintQueue {
     PhysicalLabel           label_;
     PrintQueueStatus        status_;
     bool                    stopping_ = false;
-    NiimbotB1Printer        printer_;
+    AnyPrinter              printer_;
     std::thread             thread_;
 };
 

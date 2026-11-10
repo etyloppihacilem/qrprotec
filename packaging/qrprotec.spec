@@ -159,12 +159,13 @@ Provides:       bundled(qrcodegen)
 Provides:       bundled(stb_image) = 2.30
 
 %description front
-The QRProtec front (scan stack, checks, label printing on a Niimbot printer)
+The QRProtec front (scan stack, checks, label printing on a TSPL / ZPL or Niimbot printer)
 as a regular desktop application, for a machine that is not dedicated to
 QRProtec. It talks to the local API of the same machine, or to a remote
 QRProtec server over HTTPS with an API key (Settings > Server, or the
 QRPROTEC_API_URL and QRPROTEC_API_KEY environment variables).
-Printing needs the user to be in the dialout group.
+Printing needs the user to be in the lp group (USB TSPL / ZPL printer)
+or the dialout group (Niimbot printer).
 
 %package kiosk
 Summary:        QRProtec kiosk: front full screen in Cage on tty1
