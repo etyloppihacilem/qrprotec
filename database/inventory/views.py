@@ -3715,7 +3715,8 @@ def checklists_create(request):
 def checklist_action(request, checklist_id, action=''):
     """Une liste : {"user"} lit ; update {name, note, template, lines} ; duplicate {name, template} ; delete ;
     scan / unscan {item | lot} ; check {line, done} (tache libre) ; validate {partial} ; reopen (depart valide par
-    erreur, 30 min) ; return-scan {item | lot} ; close-return ; members {add: [matricules], remove: [matricules]}. A la lecture, {"open": true} (liste ouverte par
+    erreur, 30 min) ; return-scan {item | lot} ; close-return ; add-lot {lot} (lot hors liste ajoute, ou a la place
+    d'un lot du meme type pas encore coche : reponse a ask_add d'un scan) ; members {add: [matricules], remove: [matricules]}. A la lecture, {"open": true} (liste ouverte par
     son lien ou son QR code) l'ajoute aux listes d'un secouriste."""
     from . import checklists
     user = connected_user(request)
@@ -3743,11 +3744,19 @@ def checklist_action(request, checklist_id, action=''):
         if not iid and not lot:
             raise ApiError('Item ou lot attendu')
         if action == 'scan':
-            message = checklists.scan(checklist, user, iid, lot)
+            try:
+                message = checklists.scan(checklist, user, iid, lot)
+            except checklists.NotInList as exc:
+                # lot hors liste : le front demande « Ajouter ce lot à la liste ? » (add-lot)
+                message, extra = str(exc), {'ask_add': exc.proposal}
         elif action == 'unscan':
             checklists.unscan(checklist, user, iid, lot)
         else:
             message = checklists.return_scan(checklist, user, iid, lot)
+    elif action == 'add-lot':  # reponse oui a « Ajouter ce lot à la liste ? »
+        if not lot:
+            raise ApiError('Lot attendu')
+        message = _checklist_call(lambda: checklists.add_lot(checklist, user, lot))
     elif action == 'remove-part':  # croix d'un sac d'un B+ de referentiel : le B+ separe, ce sac retire
         if not lot:
             raise ApiError('Lot attendu')

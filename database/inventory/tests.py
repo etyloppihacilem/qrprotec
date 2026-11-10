@@ -5376,6 +5376,38 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual({row['type']: row['description'] for row in body['lot_types']}[self.lot.lot_type.type],
                          'Sac rouge de premiers secours')
 
+    def test_scan_lot_not_in_list_asks_to_add(self):
+        """Etiquette d'un lot hors liste a la preparation : qui peut modifier la liste se voit proposer de l'ajouter
+        (ask_add) ; un lot du meme type pas encore coche est remplace, sinon le lot s'ajoute. Un secouriste qui ne peut
+        pas la modifier garde l'erreur."""
+        spare = Lots.objects.create(lot_type=self.lot.lot_type, name='Sac B', name_short='Sac B', created_by='M001')
+        other_type = LotType.objects.create(type='kitacc', name='Kit accouchement')
+        kit = Lots.objects.create(lot_type=other_type, name='Kit 1', name_short='Kit 1', created_by='M001')
+        checklist = self.new_list()
+        path = f"/api/checklists/{checklist['id']}/"
+        code, body = self.as_(self.chief, path + 'scan/', {'lot': spare.id})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body['ask_add']['replaces'], {'lot': self.lot.id, 'lot_name': self.lot.name})
+        self.assertEqual([line.get('lot') for line in body['lines'] if line['kind'] == 'lot'], [self.lot.id])  # rien change
+        self.as_(self.chief, path + 'members/', {'add': [self.other.matricule]})
+        code, body = self.as_(self.other, path + 'scan/', {'lot': spare.id})
+        self.assertEqual(code, 400)  # le secouriste ne modifie pas la liste du chef
+        self.assertIn('pas demandé', body['error'])
+        code, body = self.as_(self.chief, path + 'add-lot/', {'lot': spare.id})
+        self.assertEqual(code, 200, body)
+        self.assertIn('Sac B remplace', body['message'])
+        lots = [line for line in body['lines'] if line['kind'] == 'lot']
+        self.assertEqual([(line['lot'], line['scanned']) for line in lots], [(spare.id, 1)])
+        code, body = self.as_(self.chief, path + 'scan/', {'lot': self.lot.id})
+        self.assertEqual(body['ask_add']['replaces'], None)  # Sac B deja coche : rien a remplacer
+        code, body = self.as_(self.chief, path + 'scan/', {'lot': kit.id})
+        self.assertIsNone(body['ask_add']['replaces'])
+        code, body = self.as_(self.chief, path + 'add-lot/', {'lot': kit.id})
+        self.assertEqual(code, 200, body)
+        self.assertIn('ajouté à la liste', body['message'])
+        lots = [line for line in body['lines'] if line['kind'] == 'lot']
+        self.assertEqual([(line['lot'], line['scanned']) for line in lots], [(spare.id, 1), (kit.id, 1)])
+
     def test_departure(self):
         """« Partir avec » : liste generee depuis un type de lot, ligne « n'importe quel lot de ce type » (jamais un
         lot fixe, ni un lot deja pris par une autre liste), reglage « vérif complète à chaque départ », retour."""
