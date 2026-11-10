@@ -502,6 +502,9 @@ class App {
     void        apply_settings();
     void        select_default_templates(); // modeles fournis choisis pour les usages sans modele
     bool        save_settings();
+    // Etiquettes du type `name` chargees dans l'imprimante (vide : format libre) : enregistre et reprend la file
+    // si elle attendait ce rouleau
+    void        set_loaded_label_type(const std::string &name);
     // Fichier de configuration chiffre cree sur le serveur (frontkey add NOM --config) : URL, cle et
     // certificat de l'autorite remplacent les reglages du serveur, enregistres aussitot, puis la connexion
     // est testee. Refuse sur une borne ou si l'environnement impose la connexion (front-api.conf).

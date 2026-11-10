@@ -208,6 +208,51 @@ int main()
         assert(qrprotec::serialize_template(flat).find("rotation") == std::string::npos);
     }
 
+    // Types d'etiquettes : enregistres dans le modele, format du modele, orientation d'impression imposee
+    {
+        qrprotec::TemplateDocument document;
+        document.name = "PET";
+        document.elements.push_back({"t", qrprotec::ElementKind::Text, qrprotec::TextElement{"A", 1.0f, 1.0f, 10.0f, 5.0f, 3.0f}});
+        // sans type, rien n'est ecrit : les modeles existants restent identiques
+        assert(qrprotec::serialize_template(document).find("label_type") == std::string::npos);
+        qrprotec::LabelType type;
+        type.name = "PET \"40x30\"";
+        type.width_mm = 30.0;
+        type.height_mm = 40.0;
+        type.rotation = 270;
+        type.support = qrprotec::LabelSupport::Transfer;
+        assert(type.design_width_mm() == 40.0 && type.design_height_mm() == 30.0);
+        document.label_type = type;
+        qrprotec::apply_label_type(document.media, type);
+        assert(document.media.oriented_width_mm() == 40.0 && document.media.oriented_height_mm() == 30.0);
+        assert(qrprotec::save_template(document, "/tmp/qrprotec-label-type.json", error));
+        qrprotec::TemplateDocument reloaded;
+        assert(qrprotec::load_template(reloaded, "/tmp/qrprotec-label-type.json", error));
+        std::remove("/tmp/qrprotec-label-type.json");
+        assert(reloaded.name == "PET" && reloaded.label_type && *reloaded.label_type == type);
+        assert(reloaded.media.width_mm == 40.0 && reloaded.media.height_mm == 30.0); // format, pas le type
+        assert(reloaded.elements.size() == 1);
+        // liste des types : un par nom, triee
+        qrprotec::TemplateDocument other = reloaded;
+        other.label_type->name = "B direct";
+        const std::vector<qrprotec::LabelType> types =
+            qrprotec::collect_label_types({reloaded, other, reloaded, qrprotec::TemplateDocument{}});
+        assert(types.size() == 2 && types[0].name == "B direct" && types[1].name == type.name);
+        // impression : 40 x 30 tourne d'un quart de tour anti-horaire sur une etiquette 30 x 40
+        const qrprotec::RasterImage image = qrprotec::render_template(reloaded);
+        assert(image.width == 320 && image.height == 240);
+        qrprotec::RasterImage out;
+        qrprotec::MediaSettings media;
+        assert(qrprotec::fit_to_label(image, qrprotec::physical_label_for(type, 8.0), out, media, error));
+        assert(out.width == 240 && out.height == 320);
+        for (int y = 0; y < image.height; ++y)
+            for (int x = 0; x < image.width; ++x)
+                assert(out.at(y, image.width - 1 - x) == image.at(x, y));
+        // modele plus grand que son type : refuse
+        type.width_mm = 20.0;
+        assert(!qrprotec::fit_to_label(image, qrprotec::physical_label_for(type, 8.0), out, media, error));
+    }
+
     // WebSocket : base64 (cle de la poignee de main) et trames masquees / non masquees
     assert(qrprotec::base64_encode("") == "");
     assert(qrprotec::base64_encode("f") == "Zg==");

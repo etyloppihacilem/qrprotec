@@ -686,6 +686,13 @@ possible) et centré. Sans modèle choisi pour un usage, seul le QR code est imp
 Imprimantes : **TSPL** (TSC, IDPRT, Munbyn…) ou **ZPL** (Zebra) en 203 dpi, par USB (`/dev/usb/lp0`)
 ou par le réseau (port 9100), avec ou sans ruban ; la **Niimbot B1** reste pour le secours et le debug.
 
+**Types d'étiquettes** : dans l'éditeur, onglet « Types d'étiquettes », un type décrit un rouleau (taille,
+orientation d'impression, thermique direct ou transfert). Chaque modèle garde son type dans son fichier et le
+front reconstruit la liste en lisant les modèles ; un type créé reste en mémoire jusqu'à ce qu'un modèle qui
+l'utilise soit enregistré. Le rouleau en place se choisit dans Réglages (« Type chargé ») : un modèle d'un autre
+type met la file en pause jusqu'à ce qu'on confirme avoir chargé le bon rouleau. Les modèles sans type
+s'impriment comme avant, sur l'étiquette réglée dans Réglages.
+
 **Saisie** : les types (items, lots) se cherchent en tapant une partie du nom ou du code, sans se
 soucier des accents ; les résultats s'affichent en direct (↑/↓, Tab ou Entrée pour valider). Les
 dates de péremption se tapent librement : `02/09/2026`, `2/9/26`, `020926`, ou seulement le mois

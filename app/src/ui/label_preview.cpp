@@ -57,7 +57,9 @@ void upload(App &app) {
   texture.width  = image.width;
   texture.height = image.height;
   // meme adaptation qu'a l'impression, pour prevenir si l'etiquette sera tournee ou ne tient pas
-  PhysicalLabel label   = app.settings.physical_label();
+  PhysicalLabel label   = job.document.label_type
+                          ? physical_label_for(*job.document.label_type, job.document.media.pixels_per_mm)
+                          : app.settings.physical_label();
   label.pixels_per_mm   = job.document.media.pixels_per_mm;
   RasterImage   fitted;
   MediaSettings media;

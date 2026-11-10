@@ -188,6 +188,14 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   image, positions en mm). La catégorie (item, paquet, lot public, lot clé, scellé, ouverture du scellé, badge) détermine
   les placeholders disponibles (`core/placeholders.cpp`, liste affichée dans l'onglet Placeholders de
   l'éditeur). Un modèle par usage se choisit dans les Réglages ; sans modèle, le QR seul est imprimé.
+- **Types d'étiquettes** : un modèle peut porter un `label_type` (nom, `width_mm` dans le sens de la tête,
+  `height_mm` dans le sens du défilement, `rotation` 0/90/180/270 sens horaire, `support` `direct` ou
+  `transfer`), écrit seulement s'il est choisi : les modèles en format libre ne changent pas. La liste des
+  types est reconstruite à la lecture des modèles (`collect_label_types`) ; un type créé dans l'éditeur
+  (onglet « Types d'étiquettes ») reste en mémoire jusqu'à ce qu'un modèle qui l'utilise soit enregistré.
+  À l'impression, `fit_to_label` impose l'orientation du type et la taille de son rouleau, le ruban suit le
+  support, et la file se met en pause si le type n'est pas celui chargé (Réglages > « Type chargé ») ; un
+  front d'un autre ordinateur envoie le type avec l'étiquette rendue (`label_prints._check_label_type`).
 - **Dossier des modèles** (`core/paths.cpp`) : réglage de l'application, sinon
   `$QRPROTEC_TEMPLATES_DIR`, sinon `app/templates` du dépôt (chemin compilé), sinon le dossier
   courant. Les images (logos) vont dans `images/`.

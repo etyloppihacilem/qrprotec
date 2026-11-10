@@ -123,7 +123,15 @@ std::string serialize_template(const TemplateDocument& document)
             << ", \"height_mm\": " << document.media.height_mm
             << ", \"pixels_per_mm\": " << document.media.pixels_per_mm
             << ", \"orientation\": \"" << (document.media.orientation == Orientation::Portrait ? "portrait" : "landscape")
-            << "\"},\n  \"parameters\": {";
+            << "\"},\n";
+    // type d'etiquette ecrit seulement s'il est choisi : les modeles en format libre restent identiques
+    if (document.label_type) {
+        const LabelType& type = *document.label_type;
+        output << "  \"label_type\": {\"name\": \"" << escape_json(type.name) << "\", \"width_mm\": " << type.width_mm
+               << ", \"height_mm\": " << type.height_mm << ", \"rotation\": " << normalize_rotation(type.rotation)
+               << ", \"support\": \"" << label_support_id(type.support) << "\"},\n";
+    }
+    output << "  \"parameters\": {";
     // ordre stable : deux documents egaux donnent le meme texte (detection des modifications)
     const std::map<std::string, std::string> parameters(document.parameters.begin(), document.parameters.end());
     bool first = true;
@@ -200,6 +208,17 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
     std::string orientation;
     if (find_value(json, "orientation", orientation))
         loaded.media.orientation = orientation.rfind("portrait", 0) == 0 ? Orientation::Portrait : Orientation::Landscape;
+    // type d'etiquette (apres "media" : les cles width_mm / height_mm lues plus haut sont celles du format)
+    const Json label_type = Json::parse(object_for_key(json, "label_type"));
+    if (label_type.is_object() && !label_type["name"].str().empty()) {
+        LabelType type;
+        type.name = label_type["name"].str();
+        type.width_mm = std::clamp(label_type["width_mm"].num(type.width_mm), 1.0, 300.0);
+        type.height_mm = std::clamp(label_type["height_mm"].num(type.height_mm), 1.0, 500.0);
+        type.rotation = normalize_rotation(static_cast<int>(std::lround(label_type["rotation"].num(0.0))));
+        type.support = label_support_from_id(label_type["support"].str());
+        loaded.label_type = type;
+    }
     // valeurs d'apercu des placeholders : objet JSON {"nom": "valeur", ...}
     const Json parameters = Json::parse(object_for_key(json, "parameters"));
     for (const auto& [key, value] : parameters.members())

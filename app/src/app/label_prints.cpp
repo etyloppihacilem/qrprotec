@@ -26,6 +26,7 @@
 #include "imgui.h"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 
 namespace qrprotec {
@@ -46,6 +47,16 @@ Json encode_label(const PrintJob &job) {
   label["height"]      = image.height;
   label["ppm"]         = static_cast< double >(job.document.media.pixels_per_mm);
   label["bits"]        = encode_raster_bits(image);
+  if (const std::optional< LabelType > &type = job.document.label_type) {
+    // le poste imprime l'etiquette sur le rouleau de son type (taille, orientation, ruban)
+    Json label_type          = Json::object();
+    label_type["name"]       = type->name;
+    label_type["width_mm"]   = type->width_mm;
+    label_type["height_mm"]  = type->height_mm;
+    label_type["rotation"]   = normalize_rotation(type->rotation);
+    label_type["support"]    = label_support_id(type->support);
+    label["label_type"]      = label_type;
+  }
   return label;
 }
 
@@ -54,6 +65,16 @@ bool decode_label(const Json &label, PrintJob &job) {
     return false;
   job.description                  = label["description"].str();
   job.document.media.pixels_per_mm = static_cast< float >(label["ppm"].num(8.0));
+  const Json &label_type           = label["label_type"];
+  if (label_type.is_object() && !label_type["name"].str().empty()) {
+    LabelType type;
+    type.name               = label_type["name"].str();
+    type.width_mm           = label_type["width_mm"].num(type.width_mm);
+    type.height_mm          = label_type["height_mm"].num(type.height_mm);
+    type.rotation           = normalize_rotation(static_cast< int >(std::lround(label_type["rotation"].num(0.0))));
+    type.support            = label_support_from_id(label_type["support"].str());
+    job.document.label_type = type;
+  }
   return true;
 }
 

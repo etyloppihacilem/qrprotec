@@ -170,6 +170,15 @@ bool App::save_settings() {
   return true;
 }
 
+void App::set_loaded_label_type(const std::string &name) {
+  settings.print.loaded_label_type = name;
+  std::string error;
+  if (!settings.save(error))
+    notify(error, true);
+  printer.set_loaded_label_type(name);
+  notify(name.empty() ? "Étiquettes chargées : format libre (Réglages)." : "Étiquettes chargées : « " + name + " ».");
+}
+
 bool App::import_front_config(const std::string &path, const std::string &password) {
   if (AppSettings::api_env("QRPROTEC_KIOSK") || AppSettings::api_env("QRPROTEC_API_URL")
       || AppSettings::api_env("QRPROTEC_API_KEY") || AppSettings::api_env("QRPROTEC_API_CA_FILE")) {
@@ -605,7 +614,10 @@ void App::draw_menu_bar() {
           ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", print.error.c_str());
         if (!print.current.empty())
           ImGui::Text("En cours : %s", print.current.c_str());
-        if (print.paused && ImGui::MenuItem("Reprendre l'impression"))
+        if (print.paused && !print.needed_label_type.empty()) {
+          if (ImGui::MenuItem(("Les étiquettes « " + print.needed_label_type + " » sont chargées").c_str()))
+            set_loaded_label_type(print.needed_label_type);
+        } else if (print.paused && ImGui::MenuItem("Reprendre l'impression"))
           printer.resume();
         if (ImGui::MenuItem("Annuler les impressions en attente"))
           printer.cancel();

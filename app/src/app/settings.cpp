@@ -152,6 +152,8 @@ void AppSettings::load() {
       print_here = to_int(value, 0) != 0;
     else if (key == "debug_options")
       debug_options = to_int(value, 0) != 0;
+    else if (key == "loaded_label_type")
+      print.loaded_label_type = value;
     else if (key == "printer_kind")
       print.kind = printer_kind_from_id(value);
     else if (key == "printer_address")
@@ -258,6 +260,7 @@ bool AppSettings::save(std::string &error) const {
          << "order_lead_days=" << order_lead_days << '\n'
          << "forecast_history_months=" << forecast_history_months << '\n'
          << "printer_kind=" << printer_kind_id(print.kind) << '\n'
+         << "loaded_label_type=" << print.loaded_label_type << '\n'
          << "printer_address=" << print.raw.address << '\n'
          << "printer_darkness=" << print.raw.darkness << '\n'
          << "printer_ribbon=" << (print.raw.ribbon ? 1 : 0) << '\n'

@@ -24,7 +24,13 @@ struct PhysicalLabel {
     double pixels_per_mm = 8.0;
     bool rotate_counterclockwise = false; // sens du quart de tour quand le modele est dans l'autre sens
     bool flip = false;                    // retournement a 180 degres
+    // Type d'etiquette du modele : quart de tour impose (0, 90, 180, 270, sens horaire) au lieu du choix
+    // automatique, rotate_counterclockwise et flip ignores. -1 : choix automatique (format libre).
+    int rotation = -1;
 };
+
+// Etiquette physique d'un type d'etiquette (resolution du modele)
+PhysicalLabel physical_label_for(const LabelType& type, double pixels_per_mm);
 
 RasterImage render_template(const TemplateDocument& document);
 

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <set>
 #include <string>
 #include <utility>
@@ -42,6 +43,56 @@ bool quarter_turned(const TemplateElement &element) {
   return rotation == 90 || rotation == 270;
 }
 
+const char *label_support_id(LabelSupport support) {
+  return support == LabelSupport::Transfer ? "transfer" : "direct";
+}
+
+const char *label_support_label(LabelSupport support) {
+  return support == LabelSupport::Transfer ? "transfert thermique (ruban)" : "thermique direct";
+}
+
+LabelSupport label_support_from_id(const std::string &id) {
+  return id == "transfer" ? LabelSupport::Transfer : LabelSupport::Direct;
+}
+
+const char *label_rotation_label(int rotation) {
+  switch (normalize_rotation(rotation)) {
+  case 90: return "quart de tour horaire";
+  case 180: return "retournée";
+  case 270: return "quart de tour anti-horaire";
+  default: return "droite";
+  }
+}
+
+bool LabelType::operator==(const LabelType &other) const {
+  return name == other.name && std::abs(width_mm - other.width_mm) < 1e-6 && std::abs(height_mm - other.height_mm) < 1e-6
+      && normalize_rotation(rotation) == normalize_rotation(other.rotation) && support == other.support;
+}
+
+double LabelType::design_width_mm() const {
+  return normalize_rotation(rotation) % 180 == 0 ? width_mm : height_mm;
+}
+
+double LabelType::design_height_mm() const {
+  return normalize_rotation(rotation) % 180 == 0 ? height_mm : width_mm;
+}
+
+std::string LabelType::summary() const {
+  const auto mm = [](double value) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "%g", std::round(value * 10.0) / 10.0);
+    return std::string(text);
+  };
+  return mm(width_mm) + " x " + mm(height_mm) + " mm, " + label_rotation_label(rotation) + ", "
+       + label_support_label(support);
+}
+
+void apply_label_type(MediaSettings &media, const LabelType &type) {
+  media.width_mm    = type.design_width_mm();
+  media.height_mm   = type.design_height_mm();
+  media.orientation = Orientation::Landscape; // largeur et hauteur deja dans le sens du modele
+}
+
 int MediaSettings::width_pixels() const {
   return pixels(oriented_width_mm(), pixels_per_mm);
 }
@@ -56,6 +107,21 @@ double MediaSettings::oriented_width_mm() const {
 
 double MediaSettings::oriented_height_mm() const {
   return orientation == Orientation::Portrait ? width_mm : height_mm;
+}
+
+std::vector< LabelType > collect_label_types(const std::vector< TemplateDocument > &documents) {
+  std::vector< LabelType > types;
+  for (const TemplateDocument &document : documents) {
+    if (!document.label_type || document.label_type->name.empty())
+      continue;
+    const bool known = std::any_of(types.begin(), types.end(), [&](const LabelType &type) {
+      return type.name == document.label_type->name;
+    });
+    if (!known)
+      types.push_back(*document.label_type);
+  }
+  std::sort(types.begin(), types.end(), [](const LabelType &a, const LabelType &b) { return a.name < b.name; });
+  return types;
 }
 
 std::vector< ValidationIssue > validate(const TemplateDocument &document) {

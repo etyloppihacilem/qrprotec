@@ -32,6 +32,8 @@ struct PrintSettings {
     PrinterKind kind = PrinterKind::NiimbotB1;
     SerialSettings serial;
     RawPrinterSettings raw;
+    // Type d'etiquette charge dans l'imprimante (nom) : un modele d'un autre type met la file en pause
+    std::string loaded_label_type;
     int copies = 1;
     int density = 3;
     int label_type = 1;
