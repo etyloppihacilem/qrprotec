@@ -65,7 +65,7 @@ lint:
 # Le maskable reduit le logo a ICON_SAFE pour qu'il tienne dans la zone sure (cercle de 80 %).
 WEB_DIR := database/inventory/web
 MAGICK ?= $(shell command -v magick 2>/dev/null || command -v convert 2>/dev/null)
-ICON_BG ?= \#1f2a33
+ICON_BG ?= \#004c98
 ICON_SAFE ?= 82%
 ICON_CORNERS := -draw "color 0,0 floodfill" -draw "color 511,0 floodfill" -draw "color 0,511 floodfill" \
 	-draw "color 511,511 floodfill"

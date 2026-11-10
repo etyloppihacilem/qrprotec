@@ -24,7 +24,7 @@ const ImVec4 orange(0.93f, 0.55f, 0.10f, 1.0f);
 const ImVec4 red(0.82f, 0.12f, 0.12f, 1.0f);
 const ImVec4 grey(0.5f, 0.5f, 0.5f, 1.0f);
 const ImVec4 yellow(0.95f, 0.80f, 0.20f, 1.0f);
-const ImVec4 blue(0.14f, 0.39f, 0.70f, 1.0f); // items en trop (« + x »), comme le front web
+const ImVec4 blue(0.0f, 0.298f, 0.596f, 1.0f); // #004c98, bleu de la marque : items en trop (« + x »), comme le front web
 } // namespace colors
 
 // Boutons a utiliser a la place d'ImGui::Button : raccourci Alt+lettre, lettre soulignee (voir widgets.cpp)

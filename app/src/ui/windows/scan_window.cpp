@@ -103,7 +103,7 @@ class ScanWindow final : public AppWindow {
           ImGui::TableNextRow();
           const bool highlighted = ImGui::GetTime() < entry->highlight_until;
           if (highlighted) {
-            row_color(ImVec4(0.25f, 0.55f, 0.95f, 1.0f), 0.45f); // rescanne : bref surlignage
+            row_color(colors::blue, 0.45f); // rescanne : bref surlignage
             ImGui::SetScrollHereY(0.5f);
           } else if (entry->expired || entry->state == EntryState::Error)
             row_color(colors::red, 0.55f);
