@@ -144,6 +144,10 @@ Ajouter des items à un lot **sans** vérifier tout le lot (`services.move_items
 `POST /api/lots/<id>/add/`). Les autres items du lot ne sont pas touchés. Le lot passe **« vérif
 recommandée »** (`verif_recommended`, orange) avec le nombre d'items, la date et l'auteur, jusqu'à la
 prochaine vérif : la personne suivante sait qu'il faut tout recompter. Un lot incomplet reste rouge.
+C'est le cas pour **tout** réassort (« Ajouter au lot », vérif partielle, web comme poste) tant que le
+réglage **Réassort : vérif recommandée pour les suivants** (`ServerSettings.restock_verif_recommended`,
+coché par défaut, poste > Réglages > Règles du serveur) est coché ; décoché, le réassort range les
+items sans changer l'état du lot (`services.restock_recommends`).
 Ranger des items dans un **rangement** n'est pas un réassort (pas d'orange) : c'est l'usage normal
 d'une armoire.
 

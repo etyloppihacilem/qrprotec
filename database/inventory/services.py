@@ -23,10 +23,16 @@ from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_
 from .models import (
     ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotContent, LotRequirements, Lots, LotType, LotTypeSlot, MovementKind,
     OperationKind, SlotMode,
-    ProblemReport, ReportStatus, STOCK_LOT_TYPE, SeenWhile, VerifItem, Operation, VerifResult,
+    ProblemReport, ReportStatus, STOCK_LOT_TYPE, SeenWhile, ServerSettings, VerifItem, Operation, VerifResult,
     Verifs, add_months, generate_key, name_key,
     qrprotec_setting, revision_blocked_q,
 )
+
+
+def restock_recommends(lot):
+    """Un reassort de ce lot le passe-t-il en verif recommandee ? Oui dans tous les cas (reglage du serveur
+    restock_verif_recommended, coche par defaut), sauf pour un rangement du stock (y ranger est l'usage normal)."""
+    return not lot.lot_type.storage and ServerSettings.get().restock_verif_recommended
 
 
 def display_name(identity):
@@ -958,7 +964,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                     sub_lot.last_used = now
                     sub_lot.last_used_by = identity
                     fields = ['last_used', 'last_used_by']
-                    if not sub_lot.lot_type.storage:
+                    if restock_recommends(sub_lot):
                         # reassort sans verif complete : la prochaine personne devra verifier tout le lot
                         sub_lot.verif_recommended = True
                         sub_lot.restocked = now
@@ -1347,7 +1353,7 @@ def move_items(iids, lot, identity, context, declared=False, debug=False):
             lot.last_used = now
             lot.last_used_by = identity
             fields = ['last_used', 'last_used_by']
-            if items and not lot.lot_type.storage:
+            if items and restock_recommends(lot):
                 # reassort sans verif complete : la prochaine personne devra verifier tout le lot
                 # (un rangement du stock n'a pas de contenu attendu : y ranger des items est l'usage normal)
                 lot.verif_recommended = True

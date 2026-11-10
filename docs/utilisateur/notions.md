@@ -91,7 +91,9 @@ Un item qui n'a pas été scanné n'est pas « perdu » tout de suite : il est s
 
 **Ajouter** du matériel dans un sac sans le vérifier entièrement (au retour d'une intervention, par
 exemple). Le sac passe en **orange** « vérif recommandée » jusqu'à la prochaine vérif complète, pour
-que la personne suivante sache qu'il faut tout recompter.
+que la personne suivante sache qu'il faut tout recompter. C'est le cas de tout réassort, sur le
+téléphone comme au poste, tant que le réglage **Réassort : vérif recommandée pour les suivants**
+(Règles du serveur, coché par défaut) est coché.
 
 ## Scellé
 

@@ -1775,6 +1775,30 @@ class RestockTests(ApiTestCase):
         self.assertFalse(lot['verif_recommended'])
         self.assertEqual(lot['restocked_count'], 0)
 
+    def test_restock_setting(self):
+        # reglage du serveur coche par defaut ; decoche par un admin, le reassort laisse le lot dans son etat
+        code, body = self.call('GET', '/api/server-settings/')
+        self.assertTrue(body['restock_verif_recommended'])
+        self.assertTrue(self.call('GET', '/api/health/')[1]['restock_verif_recommended'])
+        code, body = self.call('PATCH', '/api/server-settings/', {'restock_verif_recommended': False})
+        self.assertEqual(code, 200, body)
+        self.assertFalse(body['restock_verif_recommended'])
+        new = self.create(self.compresses, self.today + timedelta(days=90), 2)
+        code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/',
+                               {'items': [item.iid for item in new], 'user': 'M001'})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(len(body['moved']), 2)
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertFalse(lot['verif_recommended'])
+        self.assertEqual(lot['restocked_count'], 0)
+        # recoche : le reassort suivant repasse le lot en verif recommandee
+        self.call('PATCH', '/api/server-settings/', {'restock_verif_recommended': True})
+        more = self.create(self.compresses, self.today + timedelta(days=90), 1)
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in more], 'user': 'M001'})
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertTrue(lot['verif_recommended'])
+        self.assertEqual(lot['restocked_count'], 1)
+
 
 class MoveItemsRulesTests(ApiTestCase):
     """Reassort (move_items) : items supprimes, remplaces, perimes ou d'un autre lot refuses (audit, point 7), sauf

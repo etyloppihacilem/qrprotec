@@ -431,6 +431,26 @@ class SettingsWindow final : public AppWindow {
                   "l'étiquette de chaque lot suffit et on touche « Vérif recommandée » au retour sur ce qui a servi. "
                   "Coché, chaque lot non scellé pris doit être vérifié (complet) avant de valider le départ. Jamais "
                   "pour un lot scellé.");
+      bool restock_recommended = server_rules_["restock_verif_recommended"].boolean();
+      if (ImGui::Checkbox("Réassort : vérif recommandée pour les suivants", &restock_recommended)) {
+        Json body;
+        body["restock_verif_recommended"] = restock_recommended;
+        app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify("Règles du serveur : " + result.error, true);
+            return;
+          }
+          server_rules_                 = result.data;
+          app.restock_verif_recommended = server_rules_["restock_verif_recommended"].boolean();
+          app.notify(app.restock_verif_recommended
+                         ? "Après un réassort, le lot passe en vérif recommandée pour les suivants."
+                         : "Un réassort ne change plus l'état du lot.");
+        });
+      }
+      help_marker("Coché (par défaut) : tout réassort (« Ajouter au lot », vérif partielle), sur le web comme au "
+                  "poste, passe le lot en « Vérif recommandée » (orange) jusqu'à la prochaine vérif complète, "
+                  "pour que les suivants sachent qu'il faut tout recompter. Décoché : le réassort range les items "
+                  "sans changer l'état du lot. Jamais pour un rangement du stock.");
       const int volume = server_rules_["scanner_volume_default"].integer(4);
       const ScannerSettingInfo volume_info = scanner_setting_info(1001, "volume");
       std::string preview = "Valeur " + std::to_string(volume);

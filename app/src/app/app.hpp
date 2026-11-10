@@ -535,6 +535,7 @@ class App {
     bool                         poste_key         = false; // cle de ce front marquee poste principal (serveur)
     // lecture des codes-barres par le front web : activee par la premiere impression d'un code-barres
     bool                         web_barcodes = false;
+    bool                         restock_verif_recommended = true; // reglage du serveur : reassort → verif recommandee
     // reglage du serveur (/api/health/) : volume de la douchette des utilisateurs qui n'en ont pas choisi (-1 : inconnu)
     int                          scanner_volume_default = -1;
     VerifSession                 verif;

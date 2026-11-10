@@ -1189,6 +1189,10 @@ class ServerSettings(models.Model):
     # (defaut) : on fait confiance aux secouristes, l'etiquette du lot suffit, et la verif se fait au retour
     # (« Vérif recommandée »). Jamais pour un lot scelle.
     departure_full_verif = models.BooleanField(default=False)
+    # Reassort (« Ajouter au lot », verif partielle) : le lot passe en « vérif recommandée » pour les suivants, dans
+    # tous les cas (coche par defaut). Decoche : le reassort ne change pas l'etat du lot (on fait confiance a celui
+    # qui reassortit). Jamais pour un rangement du stock (y ranger des items est l'usage normal).
+    restock_verif_recommended = models.BooleanField(default=True)
 
     @classmethod
     def get(cls):
