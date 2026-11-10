@@ -7598,6 +7598,9 @@
       redraw();
     }, 12);
     return [
+      // retour en haut a gauche, comme « ← Toutes les listes » de la fiche d'une liste (= Annuler)
+      el('button', { type: 'button', class: 'text-link', onclick: () => { lists.edit = null; renderListsPage(); } },
+        edit.id ? '← Retour à la liste' : '← Toutes les listes'),
       el('h3', {}, edit.id ? 'Modifier la liste' : edit.template ? 'Nouveau modèle' : 'Nouvelle liste'),
       el('label', { class: 'field' }, 'Nom',
         el('input', { type: 'text', maxlength: '80', value: edit.name, placeholder: 'Ex : poste de secours du stade',
