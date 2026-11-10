@@ -4310,8 +4310,8 @@
   }
 
   // Compte rendu d'une vérif passée, compact : bandeau d'état, puis l'arbre des lots, une ligne par lot.
-  // Secouristes et chefs : l'état en un mot, les lots du haut et seulement ce qui est à faire (manque, à remplacer,
-  // à jeter). Gestion et admin : même présentation, avec les comptes, tous les sous-lots, les présents et non
+  // Secouristes et chefs : l'état en un mot, les lots et sous-lots vérifiés et seulement ce qui est à faire (manque,
+  // à remplacer, à jeter). Gestion et admin : même présentation, avec les comptes, les présents et non
   // scannés à déplier par lot ([+]) et les opérations faites pendant la vérif.
   // ids : une vérif, ou les étapes d'une vérif en cascade terminée (suivi en direct), réunies en un compte rendu
   const reportView = { report: null, open: new Set() };
@@ -4354,8 +4354,8 @@
     const walk = (parent, depth) => {
       for (const lot of [...(children.get(parent) || [])].sort((a, b) => rank(a) - rank(b))) {
         tree.push({ lot, depth });
-        // secouristes : rien sous un lot complet, il suffit à dire que tout ce qu'il contient l'est
-        if (full || !lot.complete) walk(lot.id, depth + 1);
+        // tous les sous-lots vérifiés, pour tout le monde : chacun sous son parent avec son état
+        walk(lot.id, depth + 1);
       }
     };
     walk(null, 0);
