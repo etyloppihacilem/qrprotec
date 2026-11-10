@@ -169,7 +169,7 @@ class LotsWindow final : public AppWindow {
         if (!lot["out_with"].str().empty()) {
           // parti avec une liste sortie, pas encore rentre (comme sur l'Etat des lots du web)
           ImGui::SameLine();
-          ImGui::TextColored(ImVec4(0.14f, 0.39f, 0.70f, 1.0f), "· En poste");
+          ImGui::TextColored(colors::blue, "· En poste");
           ImGui::SetItemTooltip("En poste avec la liste « %s » : retour à scanner dans la liste", lot["out_with"].str().c_str());
         }
         if (revisions > 0) {

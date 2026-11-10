@@ -1425,24 +1425,24 @@ void Editor::draw_canvas() {
   if (show_grid_) {
     const int step = scale >= 6.0f ? 1 : scale * 5.0f >= 6.0f ? 5 : 0; // pas de grille trop serree
     for (int mm = step; step > 0 && mm < static_cast< int >(std::ceil(width)); mm += step) {
-      const ImU32 color = mm % 5 == 0 ? IM_COL32(0, 110, 220, 60) : IM_COL32(0, 110, 220, 25);
+      const ImU32 color = mm % 5 == 0 ? IM_COL32(0, 76, 152, 60) : IM_COL32(0, 76, 152, 25);
       draw->AddLine(screen(static_cast< float >(mm), 0.0f), screen(static_cast< float >(mm), height), color);
     }
     for (int mm = step; step > 0 && mm < static_cast< int >(std::ceil(height)); mm += step) {
-      const ImU32 color = mm % 5 == 0 ? IM_COL32(0, 110, 220, 60) : IM_COL32(0, 110, 220, 25);
+      const ImU32 color = mm % 5 == 0 ? IM_COL32(0, 76, 152, 60) : IM_COL32(0, 76, 152, 25);
       draw->AddLine(screen(0.0f, static_cast< float >(mm)), screen(width, static_cast< float >(mm)), color);
     }
   }
   draw->AddRect(label, label_end, IM_COL32(120, 120, 120, 255));
-  const ImU32 accent = IM_COL32(0, 120, 215, 255);
+  const ImU32 accent = IM_COL32(0, 76, 152, 255);
   for (int index = 0; index < static_cast< int >(document_.elements.size()); ++index) {
     if (index == selected_element_)
       continue;
     const Box box = element_box(document_.elements[static_cast< std::size_t >(index)]);
     if (index == hover_element)
-      draw->AddRect(screen(box.x, box.y), screen(box.x + box.w, box.y + box.h), IM_COL32(0, 120, 215, 200), 0.0f, 0, 2.0f);
+      draw->AddRect(screen(box.x, box.y), screen(box.x + box.w, box.y + box.h), IM_COL32(0, 76, 152, 200), 0.0f, 0, 2.0f);
     else if (show_frames_)
-      draw->AddRect(screen(box.x, box.y), screen(box.x + box.w, box.y + box.h), IM_COL32(0, 120, 215, 70));
+      draw->AddRect(screen(box.x, box.y), screen(box.x + box.w, box.y + box.h), IM_COL32(0, 76, 152, 70));
   }
   if (has_selection()) {
     const Box box = element_box(*selected());

@@ -12,6 +12,7 @@
 #include "stb_image.h"
 #include "window_icon.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +21,32 @@
 #include <memory>
 #include <string>
 #include <utility>
+
+// Bleu de la marque (#004c98) a la place du bleu par defaut d'ImGui : memes transparences, mais les fonds sous du
+// texte noir (boutons, en-tetes, onglets, champs) restent assez clairs pour etre lus
+static void apply_brand_blue(ImGuiStyle& style)
+{
+    const ImVec4 brand(0.0f, 76.0f / 255.0f, 152.0f / 255.0f, 1.0f);
+    for (int i = 0; i < ImGuiCol_COUNT; ++i) {
+        ImVec4& c = style.Colors[i];
+        float h = 0.0f, s = 0.0f, v = 0.0f;
+        ImGui::ColorConvertRGBtoHSV(c.x, c.y, c.z, h, s, v);
+        if (s < 0.25f || h < 0.5f || h > 0.75f)
+            continue;  // pas un bleu (gris, orange des histogrammes...)
+        const std::string name = ImGui::GetStyleColorName(i);
+        const bool under_text = name.rfind("Button", 0) == 0 || name.rfind("Header", 0) == 0 ||
+                                name.rfind("Tab", 0) == 0 || name.rfind("FrameBg", 0) == 0 ||
+                                name == "TextSelectedBg";
+        float alpha = c.w;
+        if (under_text && name.find("Overline") == std::string::npos) {
+            if (c.w > 0.99f && s < 0.4f)
+                alpha = 0.30f;  // bleu pale opaque (onglet choisi) : teinte claire du bleu de la marque
+            else
+                alpha = std::min(alpha, name.find("Active") != std::string::npos ? 0.70f : 0.55f);
+        }
+        c = ImVec4(brand.x, brand.y, brand.z, alpha);
+    }
+}
 
 // Icone de la fenetre sous X11 (barre des taches, Alt+Tab). Sous Wayland, le bureau prend l'icone du
 // fichier qrprotec.desktop designe par l'app_id de la fenetre (GLFW_WAYLAND_APP_ID).
@@ -222,6 +249,7 @@ int main(int argc, char** argv)
     // la disposition est geree par l'application (disposition par defaut restauree apres inactivite)
     io.IniFilename = nullptr;
     ImGui::StyleColorsLight();
+    apply_brand_blue(ImGui::GetStyle());
     ImGui::GetStyle().FrameRounding = 3.0f;
 
     qrprotec::Inateck inateck;

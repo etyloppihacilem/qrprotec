@@ -202,7 +202,7 @@ void Feedback::draw_overlay() {
   ImGui::GetForegroundDrawList()->AddRectFilled(
     viewport->Pos,
     ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
-    ImGui::GetColorU32(flash_task_ ? ImVec4(0.12f, 0.40f, 0.85f, alpha) : ImVec4(0.9f, 0.05f, 0.05f, alpha))
+    ImGui::GetColorU32(flash_task_ ? ImVec4(0.0f, 0.298f, 0.596f, alpha) : ImVec4(0.9f, 0.05f, 0.05f, alpha))
   );
 }
 
