@@ -8484,10 +8484,20 @@
           icon('qr'), `${pack.type_name} ×${pack.count}`))));
     }
     parts.push(el('h3', {}, 'Listes de matériel'));
-    if (!data.lists.length) parts.push(el('p', { class: 'hint' }, 'Aucune liste.'));
-    else {
-      parts.push(el('div', { class: 'debug-chips' }, ...data.lists.map((list) => el('button', { type: 'button',
-        onclick: () => playDebug('Listes de matériel', data.lists.map(debugListEntry), list.code) }, icon('qr'), list.name))));
+    // listes en cours (a preparer, sorties) et modeles visibles ; les listes rentrees (terminees) sont repliees
+    // derriere un bouton, sinon elles s'accumulent. Une liste supprimee n'existe plus en base : jamais listee.
+    const listChips = (rows, title) => el('div', { class: 'debug-chips' }, ...rows.map((list) => el('button', { type: 'button',
+      onclick: () => playDebug(title, rows.map(debugListEntry), list.code) }, icon('qr'), list.name)));
+    const doneLists = data.lists.filter((list) => !list.template && list.status === 'returned');
+    const liveLists = data.lists.filter((list) => !doneLists.includes(list));
+    if (!liveLists.length) parts.push(el('p', { class: 'hint' }, doneLists.length ? 'Aucune liste en cours.' : 'Aucune liste.'));
+    else parts.push(listChips(liveLists, 'Listes de matériel'));
+    if (doneLists.length) {
+      const key = 'lists:done';
+      const open = debug.open.has(key);
+      parts.push(el('button', { type: 'button', class: 'debug-name', onclick: () => debugToggle(key) },
+        open ? '▾ ' : '▸ ', 'Listes terminées', el('span', { class: 'hint' }, ` ${nb(doneLists.length, 'liste rentrée', 'listes rentrées')}`)));
+      if (open) parts.push(listChips(doneLists, 'Listes terminées'));
     }
     // le reste : items sortis, hors lot, disparus, remplaces, supprimes ; lots desactives ; paquets ouverts
     const others = data.items.filter((item) => item.status !== 'active');
