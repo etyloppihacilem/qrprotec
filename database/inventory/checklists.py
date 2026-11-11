@@ -299,7 +299,8 @@ def lot_parts(lot):
     if lot is None or not services.virtual_lot(lot):
         return [lot] if lot is not None else []
     parts = []
-    for child in lot.children.select_related('lot_type', 'parent__lot_type').filter(active=True).order_by('name'):
+    for child in lot.children.select_related('lot_type', 'parent__lot_type').filter(active=True).order_by(
+            F('sort_order').asc(nulls_last=True), 'name'):
         if not services.optional_lot(child):
             parts += lot_parts(child)
     return parts or [lot]

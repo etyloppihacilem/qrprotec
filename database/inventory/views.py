@@ -58,7 +58,7 @@ from .models import (
     DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType, LotTypeSlot,
     SlotMode,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
-    SCANNER_VOLUMES, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, name_key, qrprotec_setting,
+    SCANNER_VOLUMES, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -1300,6 +1300,51 @@ def lots_summary(request):
     today = timezone.localdate()
     queryset = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     return Response(_with_out(ser.lot_list(queryset, today=today, attention=True)))  # lots a traiter en haut
+
+
+@api_view(['POST'])
+@handle_errors
+def lots_order(request):
+    """Ordre choisi des lots d'un meme niveau (onglet « Ordre des lots » de la Gestion des lots, au poste seulement :
+    c'est de la gestion des lots, Hippolyte 2026-11-11 ; gestion et admin) :
+    {"parent": id du lot (vide : les lots globaux), "lots": [ids dans l'ordre voulu]} ; les freres absents de la liste
+    passent apres, dans leur ordre actuel. {"parent", "reset": true} : ordre d'origine (type puis nom). Il departage
+    les lots de meme couleur, apres le tri rouge > orange > vert. Repond l'etat des lots, dans le nouvel ordre."""
+    user = require_front(request, GESTION)
+    data = request.data
+    parent_id = str(data.get('parent') or '')
+    parent = get_object_or_404(Lots, id=parent_id, active=True) if parent_id else None
+    siblings = list(Lots.objects.select_related('lot_type').filter(active=True, parent=parent)
+                    .order_by('lot_type__name', 'name'))
+    if parent is None:  # lot global : son parent est vide ou n'est plus actif
+        siblings = [lot for lot in Lots.objects.select_related('lot_type', 'parent').filter(active=True)
+                    .order_by('lot_type__name', 'name') if lot.parent is None or not lot.parent.active]
+    by_id = {lot.id: lot for lot in siblings}
+    if data.get('reset'):
+        ordered, sort_order = siblings, None
+    else:
+        wanted = data.get('lots')
+        if not isinstance(wanted, list):
+            raise ApiError("Liste des lots manquante")
+        unknown = [str(lot_id) for lot_id in wanted if str(lot_id) not in by_id]
+        if unknown:
+            raise ApiError("Ces lots ne sont pas au même niveau : " + ', '.join(unknown[:5]))
+        chosen = list(dict.fromkeys(str(lot_id) for lot_id in wanted))
+        rest = sorted((lot for lot in siblings if lot.id not in chosen), key=custom_order_key)
+        ordered, sort_order = [by_id[lot_id] for lot_id in chosen] + rest, True
+    with transaction.atomic():
+        for index, lot in enumerate(ordered):
+            value = index + 1 if sort_order else None
+            if lot.sort_order != value:
+                lot.sort_order = value
+                lot.save(update_fields=['sort_order'])
+    where = f'dans {parent.name}' if parent else 'globaux'
+    journal.record(OperationKind.LOT, f'{SOURCE_VERIFIED}:{user.matricule}',
+                   f"ordre des lots {where} " + ("remis par défaut" if not sort_order
+                                                 else ': ' + ', '.join(lot.name for lot in ordered))[:200],
+                   lot=parent)
+    queryset = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
+    return Response(_with_out(ser.lot_list(queryset, local=True)))  # meme liste que GET /api/lots/
 
 
 def _with_out(rows):

@@ -16,6 +16,7 @@
 #include "windows.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <set>
 
@@ -154,6 +155,10 @@ class LotAdminWindow final : public AppWindow {
         draw_lots(app);
         ImGui::EndTabItem();
       }
+      if (tab_item("Ordre des lots")) {
+        draw_lot_order(app);
+        ImGui::EndTabItem();
+      }
       if (tab_item("Types de lots")) {
         draw_lot_types(app);
         ImGui::EndTabItem();
@@ -231,6 +236,143 @@ class LotAdminWindow final : public AppWindow {
       else
         draw_lot_details(app);
       ImGui::EndChild();
+    }
+
+    // Ordre choisi des lots (POST /api/lots/order/) : departage les lots de meme couleur dans toutes les listes (etat des
+    // lots du web et du poste, fiches, vérif en cascade), apres le tri rouge > orange > vert. Chaque lot monte ou
+    // descend parmi ses freres : lots globaux entre eux, sous-lots d'un meme lot entre eux. Vraie arborescence (lots
+    // caches compris), dans l'ordre de l'arbre (tree_order). Au poste seulement : c'est de la gestion des lots.
+    void draw_lot_order(App &app) {
+      ImGui::TextWrapped("Rangez les lots dans l'ordre voulu avec les flèches. Les lots à traiter restent en haut des "
+                         "listes (rouge, puis orange) ; cet ordre range ensuite les lots de même couleur, sur le web "
+                         "comme au poste. Dépliez un lot pour ranger ses sous-lots entre eux.");
+      ImGui::Checkbox("Rangements du stock", &show_storage_);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(order_busy_);
+      if (button("Remettre l'ordre par défaut"))
+        send_lot_order(app, "", {}, true);
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      help_marker("Ordre par défaut des lots globaux : par type, puis par nom. Les sous-lots gardent leur ordre.");
+      ImGui::Separator();
+      std::vector< const Json * > rows;
+      std::set< std::string >     ids;
+      for (const Json &lot : app.catalog.lots.items())
+        if (lot["active"].boolean(true)) {
+          rows.push_back(&lot);
+          ids.insert(lot["id"].str());
+        }
+      std::stable_sort(rows.begin(), rows.end(), [](const Json *a, const Json *b) {
+        return (*a)["tree_order"].integer() < (*b)["tree_order"].integer();
+      });
+      const auto parent_of = [&](const Json &lot) {
+        const std::string parent = lot["parent"].str();
+        return ids.count(parent) ? parent : std::string();
+      };
+      std::map< std::string, std::vector< const Json * > > children;
+      for (const Json *lot : rows)
+        children[parent_of(*lot)].push_back(lot);
+      // freres d'un lot : sous-lots du meme parent, ou lots globaux du meme groupe (lots ou rangements du stock)
+      const auto level = [&](const Json &lot) {
+        std::vector< std::string > siblings;
+        const std::string          parent = parent_of(lot);
+        for (const Json *other : children[parent])
+          if (!parent.empty() || (*other)["storage"].boolean() == lot["storage"].boolean())
+            siblings.push_back((*other)["id"].str());
+        return siblings;
+      };
+      std::string                pending_parent;
+      std::vector< std::string > pending;
+      ImGui::BeginChild("order_scroll");
+      const std::function< void(const Json &) > row = [&](const Json &lot) {
+        const std::string id       = lot["id"].str();
+        const auto        siblings = level(lot);
+        const auto        index    = static_cast< std::size_t >(
+          std::find(siblings.begin(), siblings.end(), id) - siblings.begin());
+        const auto &subs  = children[id];
+        const bool  open  = order_open_.count(id) > 0;
+        const float shift = lot["depth"].integer() * 18.0f;
+        ImGui::PushID(id.c_str());
+        if (shift > 0)
+          ImGui::Indent(shift);
+        int step = 0;
+        ImGui::BeginDisabled(order_busy_ || index == 0);
+        if (ImGui::ArrowButton("up", ImGuiDir_Up))
+          step = -1;
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(order_busy_ || index + 1 >= siblings.size());
+        if (ImGui::ArrowButton("down", ImGuiDir_Down))
+          step = 1;
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (!subs.empty()) {
+          if (ImGui::ArrowButton("open", open ? ImGuiDir_Down : ImGuiDir_Right)) {
+            if (open)
+              order_open_.erase(id);
+            else
+              order_open_.insert(id);
+          }
+          if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", open ? "Replier les sous-lots" : "Ranger les sous-lots");
+        } else
+          ImGui::Dummy(ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()));
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(lot["name"].str().c_str());
+        ImGui::SameLine();
+        std::string detail = lot["lot_type_name"].str();
+        if (!subs.empty())
+          detail += " - " + nb(static_cast< long long >(subs.size()), "sous-lot");
+        if (lot["hidden"].boolean())
+          detail += " - caché dans la vérif";
+        ImGui::TextDisabled("%s", detail.c_str());
+        if (step != 0 && pending.empty()) {
+          pending = siblings;
+          std::swap(pending[index], pending[step < 0 ? index - 1 : index + 1]);
+          pending_parent = parent_of(lot);
+        }
+        if (shift > 0)
+          ImGui::Unindent(shift);
+        ImGui::PopID();
+        if (open)
+          for (const Json *sub : subs)
+            row(*sub);
+      };
+      for (const Json *lot : children[""])
+        if (!(*lot)["storage"].boolean())
+          row(*lot);
+      if (show_storage_) {
+        ImGui::SeparatorText("Rangements du stock");
+        for (const Json *lot : children[""])
+          if ((*lot)["storage"].boolean())
+            row(*lot);
+      }
+      ImGui::EndChild();
+      if (!pending.empty())
+        send_lot_order(app, pending_parent, pending, false);
+    }
+
+    void send_lot_order(App &app, const std::string &parent, const std::vector< std::string > &order, bool reset) {
+      Json body;
+      body["parent"] = parent;
+      if (reset)
+        body["reset"] = true;
+      else {
+        Json lots = Json::array();
+        for (const std::string &id : order)
+          lots.push_back(id);
+        body["lots"] = lots;
+      }
+      order_busy_ = true;
+      app.api.post("/api/lots/order/", body, [this, &app](const ApiResult &result) {
+        order_busy_ = false;
+        if (!result.ok) {
+          app.notify("Ordre des lots : " + result.error, true);
+          return;
+        }
+        app.refresh_lots();
+      });
     }
 
     // Une ligne de la liste des lots : pastille de l'etat, nom, type en gris. Les sous-lots sont decales sous leur
@@ -2204,6 +2346,10 @@ class LotAdminWindow final : public AppWindow {
         slots_.push_back(slot);
       }
     }
+
+    // Ordre des lots : lots deplies (sous-lots a ranger), envoi en cours
+    std::set< std::string > order_open_;
+    bool                    order_busy_ = false;
 
     // Lots
     std::string selected_lot_;

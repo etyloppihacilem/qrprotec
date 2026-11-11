@@ -27,6 +27,7 @@ public_patterns = [
     path('items/<str:iid>/revision/', views.item_revision),
     path('lots/summary/', views.lots_summary),
     path('lots/batch/', views.lots_batch),   # avant lots/<id>/
+    path('lots/order/', views.lots_order),   # ordre choisi des lots (gestion, admin)
     path('stock/summary/', views.stock_summary),
     path('stock/forecast/summary/', views.stock_forecast_summary),
     path('tasks/summary/', views.tasks_summary),
