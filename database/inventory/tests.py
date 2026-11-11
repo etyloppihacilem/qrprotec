@@ -6092,6 +6092,25 @@ class TasksTests(ApiTestCase):
         self.assertEqual(code, 400)
         self.assertIn("étiquette d'ouverture", body['error'])
 
+    def test_upcoming_expiries_not_tasks(self):
+        # lot valide dont des items periment dans les 30 jours : pas une tache, seulement « Peremptions a venir »
+        items = (self.create(self.compresses, self.today + timedelta(days=20), 1)
+                 + self.create(self.compresses, self.today + timedelta(days=1), 1))
+        self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
+        self.create(self.compresses, self.today + timedelta(days=5), 2)  # stock
+        self.create(self.compresses, self.today + timedelta(days=40), 1)  # trop loin
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertEqual(code, 200)
+        self.assertFalse([row for row in body['tasks'] if 'Péremption' in row['title']])
+        self.assertEqual(body['count'], len(body['tasks']))
+        upcoming = body['upcoming']
+        self.assertEqual([(row['days'], row['level'], row['title']) for row in upcoming],
+                         [(1, 'warn', '1 × Compresses'), (5, 'soon', '2 × Compresses'), (20, 'info', '1 × Compresses')])
+        self.assertEqual(upcoming[0]['lot'], self.lot.id)
+        self.assertIn('demain', upcoming[0]['detail'])
+        self.assertIn('stock', upcoming[1]['detail'])
+        self.assertIsNone(upcoming[1]['lot'])
+
     def test_web_access(self):
         code, _ = self.call('POST', '/api/tasks/summary/', {'user': self.badge(self.user)}, local=False)
         self.assertEqual(code, 403)
