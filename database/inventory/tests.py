@@ -4176,6 +4176,15 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(len(state['lots']), 20)
         self.assertIsNone(self.live.clean_state({'lot': None}))
 
+    def test_cascade_progress_is_public(self):
+        """Vérif en cascade : count/remaining sont l'avancement de tout le lot, la page de suivi le sait (Avancement)."""
+        session, participant = self.live.LiveSession(), self.live.Participant()
+        participant.state = self.live.clean_state({'lot': {'id': 'a', 'name': 'B+'}, 'cascade': True, 'count': 26, 'remaining': 4})
+        session.participants['x'] = participant
+        public = session.public()
+        self.assertTrue(public['cascade'])
+        self.assertEqual((public['count'], public['remaining']), (26, 4))
+
 
 class RawWebSocket:
     """Client WebSocket minimal pour les tests (trames texte masquees)."""

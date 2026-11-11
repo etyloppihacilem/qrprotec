@@ -336,6 +336,7 @@ class LiveSession:
             'scanned': state.get('scanned', []),
             'count': state.get('count', 0),
             'remaining': state.get('remaining', 0),
+            'cascade': bool(state.get('cascade')),  # count/remaining : avancement de tout le lot, sous-lots compris
             'done': self.done,
             'full': self.full,
             'full_by': self.full_by,

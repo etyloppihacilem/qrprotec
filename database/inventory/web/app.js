@@ -4479,6 +4479,45 @@
     box.replaceChildren(...parts);
   }
 
+  // Vérif en cascade : avancement de tout le lot verifie, sous-lots compris (barre du suivi en direct). Une unite par
+  // item attendu (une case a cocher compte pour une) ; un sous-lot valide ou constate scelle intact compte tout son
+  // contenu comme fait, un lot scelle en attente compte son contenu a faire ; un sous-lot facultatif pas commence ne
+  // compte pas. Le reste a scanner du lot en cours (renderTodo) melangeait items et sous-lots : « 0/1 » sans sens.
+  function cascadeProgress() {
+    const plan = planSession();
+    const lots = sessionLots();
+    const kids = (id) => lots.filter((lot) => realParentOf(lot) === id);
+    const skip = (lot) => lot.id !== state.lotId && lotOptional(lot) && !touched(lot.id) && !state.done[lot.id];
+    // contenu attendu d'un lot et de ses sous-lots, sans tenir compte des scans
+    const units = (lot) => {
+      if (skip(lot)) return 0;
+      const own = lot.storage ? (lot.items || []).filter((item) => !itemOptional(item)).length
+        : (lot.requirements || []).map(strictRow).reduce((sum, row) => sum + (row.optional ? 0 : row.check ? 1 : row.required || 0), 0);
+      return own + kids(lot.id).reduce((sum, sub) => sum + units(sub), 0);
+    };
+    let done = 0;
+    let total = 0;
+    const walk = (lot) => {
+      if (skip(lot)) return;
+      if (state.done[lot.id] || plan.intact.has(lot.id) || sealWaiting(lot)) {
+        const count = units(lot);
+        total += count;
+        if (!sealWaiting(lot)) done += count;
+        return;
+      }
+      if (lot.storage || ownContent(lot)) {
+        const { groups, others, remaining } = expectedGroups(lot, plan);
+        const count = groups.reduce((sum, group) => sum + (group.optional ? 0 : group.check ? 1 : group.row.required || 0), 0)
+          + others.filter((item) => !itemOptional(item)).length;
+        total += count;
+        done += Math.max(0, count - remaining);
+      }
+      for (const sub of kids(lot.id)) walk(sub);
+    };
+    if (state.lot) walk(state.lot);
+    return { done, total };
+  }
+
   // Etat publie : lot, lots de la vérif groupee, items scannes (nom, perime, inconnu, nouveau), reste a scanner.
   // entries (nos scans) et keys (cles des lots) ne vont qu'au serveur et aux autres participants de la vérif.
   function liveSnapshot(remaining) {
@@ -4506,8 +4545,8 @@
         error: !!entry.error,
         extra: entry.kind === 'item' && !expected.has(entry.iid),
       })),
-      count: scannedIids().size,
-      remaining,
+      ...(inCascade() ? (({ done, total }) => ({ count: done, remaining: total - done }))(cascadeProgress())
+        : { count: scannedIids().size, remaining }),
       entries: state.scanned.map(({ code, kind, iid, key, expired, error, items, info, place }) => ({
         code, kind, iid, key, expired, error, items, place,
         info: info ? { type: info.type, type_name: info.type_name, peremption: info.peremption, count: info.count,
@@ -4635,7 +4674,8 @@
         + (!done && person.level && person.level.id !== lot.id ? ` 📍 ${person.level.name}` : '')).join(', ')
         + ` · commencée à ${timeOf(row.started)}`),
       el('div', { class: 'sub' }, status),
-      done ? null : requirementRow('Scannés', row.count, row.count + row.remaining),
+      // vérif en cascade : avancement de tout le lot verifie (cascadeProgress), pas les scans du lot en cours
+      done ? null : requirementRow(row.cascade ? 'Avancement' : 'Scannés', row.count, row.count + row.remaining),
       // perime a jeter : gris, pas de rouge ; vérif terminée complète : plus de rouge du tout
       row.scanned.length ? el('ul', {}, shown.map((item) => el('li', {
         class: item.error ? 'error' : item.discard || (item.expired && done && done.complete) ? 'discard' : item.expired ? 'expired' : '' },
