@@ -602,6 +602,34 @@ class SettingsWindow final : public AppWindow {
         credit_input("Jours depuis la dernière vérif complète", "restock_credit_days", 365);
         ImGui::Unindent();
       }
+      {
+        // valeur en cours de saisie gardee d'une image a l'autre, envoyee a la fin de la saisie
+        static int  storage_outings = 10;
+        static bool storage_editing = false;
+        if (!storage_editing)
+          storage_outings = server_rules_["storage_verif_outings"].integer(10);
+        ImGui::SetNextItemWidth(120.0f);
+        ImGui::InputInt("Sorties avant de proposer la vérif d'un rangement", &storage_outings, 0, 0);
+        storage_editing = ImGui::IsItemActive();
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+          Json body;
+          body["storage_verif_outings"] = std::clamp(storage_outings, 1, 100);
+          app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+            if (!result.ok) {
+              app.notify("Règles du serveur : " + result.error, true);
+              return;
+            }
+            server_rules_ = result.data;
+            app.notify("Vérif d'un rangement du stock proposée au TECH toutes les "
+                       + nb(server_rules_["storage_verif_outings"].integer(10), "sortie") + ".");
+          });
+        }
+        help_marker("Au retour d'une liste, chaque item revient dans le rangement du stock d'où il est sorti (on fait "
+                    "confiance aux secouristes pour le remettre à sa place). La Gestion de la TECH propose une vérif "
+                    "d'un rangement (ou du stock sans rangement) au bout de ce nombre de sorties depuis sa dernière "
+                    "vérif, de 1 (à chaque sortie) à 100. Une sortie = les items sortis ensemble (liste ou sortie à "
+                    "la main).");
+      }
       const int volume = server_rules_["scanner_volume_default"].integer(4);
       const ScannerSettingInfo volume_info = scanner_setting_info(1001, "volume");
       std::string preview = "Valeur " + std::to_string(volume);

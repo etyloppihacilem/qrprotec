@@ -3335,6 +3335,15 @@ def server_settings(request):
                     return Response({'error': f'Crédit de confiance : de 0 à {top} {label}'}, status=400)
                 setattr(settings_row, field, value)
                 changes.append(f'crédit de confiance du réassort : {value} {label}')
+        if 'storage_verif_outings' in request.data:
+            try:
+                value = int(request.data['storage_verif_outings'])
+            except (TypeError, ValueError):
+                return Response({'error': 'Vérif des rangements : nombre de sorties invalide'}, status=400)
+            if not 1 <= value <= 100:
+                return Response({'error': 'Vérif des rangements : de 1 à 100 sorties'}, status=400)
+            settings_row.storage_verif_outings = value
+            changes.append(f'vérif d\'un rangement du stock proposée toutes les {value} sorties')
         if 'antenna_name' in request.data:
             settings_row.antenna_name = ' '.join(str(request.data['antenna_name'] or '').split())[:64]
             changes.append(f"nom de l'antenne : {settings_row.antenna_name or '(vide)'}")
@@ -3348,7 +3357,8 @@ def server_settings(request):
                        departure_full_verif=settings_row.departure_full_verif,
                        restock_verif_recommended=settings_row.restock_verif_recommended,
                        restock_credit_outings=settings_row.restock_credit_outings,
-                       restock_credit_days=settings_row.restock_credit_days)
+                       restock_credit_days=settings_row.restock_credit_days,
+                       storage_verif_outings=settings_row.storage_verif_outings)
     return Response(ser.server_settings_dict(settings_row))
 
 

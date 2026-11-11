@@ -223,8 +223,15 @@ quantité, ou une tâche libre `task` cochée avec `done` / `done_by`, 100 ligne
 - **Validation** : au moins un scan ou une tâche cochée ; incomplète, il faut `partial`. Sans aucun
   scan (que des tâches), la liste passe directement `returned` (« Terminée »). Les items scannés passent
   `out` (`services.mark_out`) ; opération `checklist` au journal.
-- **Retour** : un item sorti avec la liste revient en stock tout de suite (`services.move_items`,
-  `last_seen_while=list`). Un lot de la liste non scellé passe `verif_recommended` avec
+- **Retour** : un item sorti avec la liste revient tout de suite à sa place d'origine : le rangement du
+  stock d'où il est sorti (`from_lot` de son dernier mouvement `out`, s'il est toujours actif), sinon
+  le stock sans rangement (`services.return_to_origin`, `last_seen_while=list`) ; on fait confiance
+  aux secouristes pour le ranger au bon endroit. Le rangement ne passe pas orange : la Gestion de la
+  TECH propose sa vérif (« Vérifs du stock ») seulement au bout de
+  `ServerSettings.storage_verif_outings` sorties (10 par défaut, réglable au poste ; une sortie = les
+  items sortis ensemble) depuis sa dernière vérif. Les items du stock sans rangement sont « Sans
+  rangement » et leur rangement est la dernière tâche du TECH (catégorie `unsorted`, seulement s'il
+  existe des rangements). Un lot de la liste non scellé passe `verif_recommended` avec
   `back_from_list` (nom de la liste), effacé à sa prochaine vérif ou à l'ouverture de son scellé.
   `close-return` : les consommables non rentrés encore `out` passent `missing` avec un mouvement
   `used` ; le matériel non consommable reste `out` jusqu'à ce qu'on le revoie (il ne s'use pas).

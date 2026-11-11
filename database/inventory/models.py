@@ -1199,6 +1199,10 @@ class ServerSettings(models.Model):
     restock_verif_recommended = models.BooleanField(default=True)
     restock_credit_outings = models.PositiveSmallIntegerField(default=3)
     restock_credit_days = models.PositiveSmallIntegerField(default=15)
+    # Rangements du stock : au retour d'une liste, chaque item revient dans le rangement d'ou il est sorti (on fait
+    # confiance aux secouristes pour le remettre a sa place). Une vérif du rangement (ou du stock sans rangement) est
+    # proposee au TECH au bout de ce nombre de sorties depuis sa derniere vérif (1 : a chaque sortie).
+    storage_verif_outings = models.PositiveSmallIntegerField(default=10)
 
     @classmethod
     def get(cls):

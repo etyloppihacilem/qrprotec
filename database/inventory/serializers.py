@@ -805,6 +805,7 @@ def server_settings_dict(settings_row):
         'restock_verif_recommended': settings_row.restock_verif_recommended,
         'restock_credit_outings': settings_row.restock_credit_outings,
         'restock_credit_days': settings_row.restock_credit_days,
+        'storage_verif_outings': settings_row.storage_verif_outings,
     }
 
 

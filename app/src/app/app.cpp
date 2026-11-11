@@ -1899,7 +1899,7 @@ void App::resolve_item(int entry_id) {
     entry->data      = item;
     entry->title     = item["type_name"].str();
     std::string detail = item["peremption"].is_null() ? "Non périssable" : "Exp. " + display_date(item["peremption"]);
-    detail += item["status"].str() == "out" || item["status"].str() == "loose" ? "" : item["location"].is_null() ? " - en stock" : " - " + item["location_name"].str();
+    detail += item["status"].str() == "out" || item["status"].str() == "loose" ? "" : item["location"].is_null() ? " - en stock, sans rangement" : " - " + item["location_name"].str();
     const std::string status = item["status"].str();
     entry->warning           = status != "active";
     if (status == "missing")

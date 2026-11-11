@@ -732,16 +732,9 @@ def reopen(checklist, user):
         checklist = Checklist.objects.select_for_update().get(id=checklist.id)
         if not can_reopen(checklist, user):
             raise ValueError(f'Seul un départ validé depuis moins de {REOPEN_MINUTES} minutes peut être rouvert')
-        back = {}
-        for scan in _out_scans(checklist):
-            if not scan.item_id or scan.item.status != ItemStatus.OUT:
-                continue
-            last = (ItemMovement.objects.filter(item_id=scan.item_id, kind=MovementKind.OUT)
-                    .order_by('-at').first())
-            back.setdefault(last.from_lot_id if last else None, []).append(scan.item_id)
-        for lot_id, iids in back.items():
-            lot = Lots.objects.filter(id=lot_id, active=True).first() if lot_id else None
-            services.move_items(iids, lot, identity, SeenWhile.CHECKLIST)
+        out = [scan.item_id for scan in _out_scans(checklist) if scan.item_id and scan.item.status == ItemStatus.OUT]
+        if out:
+            services.return_to_origin(out, identity, SeenWhile.CHECKLIST)
         # depart annule : la sortie ne compte plus pour le credit de confiance du reassort
         Lots.objects.filter(id__in=[lot.id for lot in _taken_lots(checklist)], outings__gt=0).update(
             outings=F('outings') - 1)
@@ -769,8 +762,8 @@ def _require_return(checklist):
 
 
 def return_scan(checklist, user, iid='', lot_id=''):
-    """Retour : un item sorti avec la liste revient en stock tout de suite ; l'etiquette d'un lot de la liste le note
-    rentre."""
+    """Retour : un item sorti avec la liste revient tout de suite dans le rangement du stock d'ou il est sorti (le stock
+    sans rangement s'il n'etait pas range) ; l'etiquette d'un lot de la liste le note rentre."""
     _require_return(checklist)
     identity = identity_of(user)
     with transaction.atomic():
@@ -811,10 +804,12 @@ def return_scan(checklist, user, iid='', lot_id=''):
             if any(scan.item_id == iid for scan in back):
                 return f'{name} : déjà rentré'
             item = out.item
+            place = item.location
             if item.status in (ItemStatus.OUT, ItemStatus.MISSING) or item.location_id is None:
-                services.move_items([iid], None, identity, SeenWhile.CHECKLIST)  # retour en stock
+                # retour a sa place : le rangement d'ou il est sorti, ou le stock s'il n'etait pas range
+                place = services.return_to_origin([iid], identity, SeenWhile.CHECKLIST).get(iid)
             ChecklistScan.objects.create(checklist=checklist, item=item, phase=ChecklistScan.BACK, by=identity)
-            message = f'{name} : remis en stock'
+            message = f'{name} : à ranger dans {place.name}' if place else f'{name} : remis en stock'
         checklist.updated = timezone.now()
         checklist.save(update_fields=['updated'])
     return message
