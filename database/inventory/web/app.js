@@ -5145,11 +5145,8 @@
     }
     parts.push(el('p', { class: 'hint' }, 'Ce qu\'il y a à faire pour tenir le stock, le plus important en premier. '
       + 'Touchez une tâche pour l\'ouvrir.'));
-    if (!data.count) {
-      parts.push(el('div', { class: 'banner ok' }, '✔ Rien à faire pour l\'instant.'));
-      return;
-    }
-    data.categories.forEach((category, index) => {
+    if (!data.count) parts.push(el('div', { class: 'banner ok' }, '✔ Rien à faire pour l\'instant.'));
+    else data.categories.forEach((category, index) => {
       if (!category.count) return;
       const rows = data.tasks.filter((row) => row.category === category.key);
       parts.push(el('h3', { class: 'task-head' }, el('span', { class: 'task-rank' }, String(index + 1)),
@@ -5168,6 +5165,32 @@
         TASK_LINK_HINTS[row.link] ? el('div', { class: 'sub hint' }, TASK_LINK_HINTS[row.link]) : ''));
       }
     });
+    renderUpcoming(parts, data.upcoming || []);
+  }
+
+  // Péremptions à venir (30 jours) : pas des tâches (les secouristes remplacent les périmés pendant la vérif du lot
+  // rouge ; commandes et échanges à faire sont déjà des tâches). Repliées tout en bas, hors du compte, ce qui périme
+  // en premier en tête : 7 jours en jaune, 2 jours en orange.
+  function renderUpcoming(parts, rows) {
+    if (!rows.length) return;
+    const open = !!state.upcomingOpen;
+    parts.push(el('button', { type: 'button', class: 'upcoming-toggle', 'aria-expanded': open ? 'true' : 'false',
+      onclick: () => { state.upcomingOpen = !open; renderStock(); } },
+    el('span', { class: 'fold-box' }, open ? '−' : '+'), `Péremptions à venir (${rows.length})`));
+    if (!open) return;
+    parts.push(el('p', { class: 'hint' }, 'Pour information, ce ne sont pas des tâches : les secouristes remplacent '
+      + 'les items une fois périmés, pendant la vérif du lot. Les commandes et échanges à faire sont dans la liste '
+      + 'ci-dessus.'));
+    for (const row of rows) {
+      const clickable = row.link === 'lot' || row.link === 'stock';
+      parts.push(el(clickable ? 'button' : 'div', {
+        type: clickable ? 'button' : null,
+        class: 'task-row stock-row' + (row.level === 'info' ? '' : ' ' + row.level),
+        onclick: clickable ? () => openTask(row) : null,
+      },
+      el('div', { class: 'row-head' }, el('b', {}, row.title), clickable ? el('span', { class: 'hint' }, '›') : ''),
+      el('div', { class: 'sub' }, row.detail)));
+    }
   }
 
   // Gestion de la TECH : page de l'accueil (roles gestion et admin) : à faire, état des stocks, prévisions

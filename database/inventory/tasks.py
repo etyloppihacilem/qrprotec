@@ -16,6 +16,11 @@ revisions du materiel, verifs du stock, commandes et deplacements recommandes, p
 (etiquettes et badges qui expirent, perimes du stock, listes pas rentrees, materiel hors lot, verifs de routine), et
 en tout dernier le materiel du stock sans rangement a ranger.
 
+Les peremptions des 30 jours ne sont pas des taches (choix d'Hippolyte, 2026-11-11) : les secouristes remplacent les
+items une fois perimes, pendant la verif du lot rouge. Seuls comptent ce qu'elles demandent au TECH : une commande
+(categorie orders) ou un echange pour utiliser plus tot ce qui va perimer (transfers). Elles restent consultables dans
+`upcoming` (« Peremptions a venir », repliee en bas de la liste, hors du compte des taches).
+
 Chaque tache : {category, level ('bad' rouge, 'warn' orange, 'info'), title, detail, date, lot, item, report, link}.
 `link` dit ou la traiter : 'lot' (fiche du lot), 'item' (fiche de l'item), 'reports', 'forecast', 'lists', 'users',
 'inventory', 'lot_admin', 'label_prints' (fenetres du poste ou pages du web).
@@ -32,7 +37,7 @@ from . import label_prints
 from . import serializers as ser
 from . import services
 from .idendity import format_identity_verified, identity_name
-from .journal import pl, plural
+from .journal import plural
 from .models import (
     Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, ProblemReport, ReportStatus,
     STOCK_LOT_TYPE, Secouristes, ServerSettings, Verifs, lot_keys_expire, qrprotec_setting,
@@ -62,6 +67,9 @@ LIST_RETURN_DAYS = 2  # liste sortie depuis plus longtemps : retour a faire
 LEVEL_ORDER = {'bad': 0, 'warn': 1, 'info': 2}
 SEAL_ORDER = {'seal_opened': 0, 'must_seal': 1}
 INVALID_ORDER = {'unusable': 0, 'sealed_expired': 1, 'incomplete': 2, 'never': 3}
+UPCOMING_DAYS = 30  # « Peremptions a venir » : items qui periment dans les 30 jours
+UPCOMING_YELLOW_DAYS = 7  # jaune dans les 7 jours
+UPCOMING_ORANGE_DAYS = 2  # orange dans les 2 jours
 
 
 def _iso(value):
@@ -160,12 +168,6 @@ def _lot_tasks(rows, today):
                 tasks.append(task('periodic', 'info', f'Vérif de routine : {where}',
                                   f'dernière vérif il y a {(today - last).days} jours', row['last_verif'], **common,
                                   sort=(3, last.toordinal())))
-        if state['kind'] == 'ok' and not row['is_sealed'] and row['expiring_soon_count']:
-            # perimes dans les 30 jours d'un lot valide (un lot invalide les a deja dans sa tache)
-            soon = row['expiring_soon_count']
-            tasks.append(task('periodic', 'info', f'Péremptions proches : {where}',
-                              f"{plural(soon, 'item')} {pl(soon, 'périme', 'périment')} dans les 30 jours : à remplacer "
-                              'au prochain passage', None, **common, sort=(2, 0)))
     return tasks
 
 
@@ -331,6 +333,29 @@ def _unsorted_tasks():
                  f"{plural(len(items), 'item')} en stock sans rangement : {summary}", None, 'inventory')]
 
 
+def upcoming_expiries(rows, today):
+    """Peremptions a venir (pas des taches) : items actifs, non desactives, qui periment dans les 30 jours, une ligne
+    par lieu, type et date, ce qui perime en premier en tete. level : 'warn' (orange, 2 jours), 'soon' (jaune,
+    7 jours), 'info'."""
+    places = {row['id']: ' › '.join([part['name'] for part in row.get('path', [])] + [row['name']]) for row in rows}
+    items = (Items.objects.select_related('pack__item_type')
+             .filter(status=ItemStatus.ACTIVE, disabled=False, pack__peremption__gte=today,
+                     pack__peremption__lte=today + timedelta(days=UPCOMING_DAYS))
+             .exclude(location__active=False))
+    groups = Counter((item.pack.peremption, item.location_id or '', item.pack.item_type.name) for item in items)
+    result = []
+    for (date, lot, name), count in sorted(groups.items(), key=lambda pair: (pair[0][0], places.get(pair[0][1], ''),
+                                                                            pair[0][2])):
+        days = (date - today).days
+        when = ("aujourd'hui" if days == 0 else 'demain' if days == 1 else f'dans {days} jours')
+        level = ('warn' if days <= UPCOMING_ORANGE_DAYS else 'soon' if days <= UPCOMING_YELLOW_DAYS else 'info')
+        place = places.get(lot, '') if lot else 'stock'
+        result.append({'level': level, 'title': f'{count} × {name}', 'detail': f'périme {when} ({_day(date)}) · '
+                       + (place or 'lot'), 'date': _iso(date), 'days': days, 'link': 'lot' if lot else 'stock',
+                       'lot': lot or None})
+    return result
+
+
 def todo(today=None):
     """Taches a faire, par categorie dans l'ordre de priorite, la plus urgente en tete de chaque categorie."""
     today = today or timezone.localdate()
@@ -347,4 +372,6 @@ def todo(today=None):
         rows_of = [row for row in tasks if row['category'] == key]
         level = min((row['level'] for row in rows_of), key=LEVEL_ORDER.get, default='')
         categories.append({'key': key, 'title': title, 'help': help_text, 'count': len(rows_of), 'level': level})
-    return {'today': today, 'count': len(tasks), 'categories': categories, 'tasks': tasks}
+    # peremptions a venir : a part, repliees en bas, hors du compte des taches
+    return {'today': today, 'count': len(tasks), 'categories': categories, 'tasks': tasks,
+            'upcoming': upcoming_expiries(rows, today)}

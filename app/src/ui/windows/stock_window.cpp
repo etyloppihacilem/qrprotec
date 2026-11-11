@@ -150,10 +150,8 @@ class StockWindow final : public AppWindow {
         return;
       }
       ImGui::TextWrapped("Ce qu'il y a à faire pour tenir le stock, le plus important en premier.");
-      if (data["count"].integer() == 0) {
+      if (data["count"].integer() == 0)
         status_banner("✔ Rien à faire pour l'instant", colors::green);
-        return;
-      }
       ImGui::BeginChild("tasks_list");
       int rank = 0;
       for (const Json &category : data["categories"].items()) {
@@ -174,7 +172,45 @@ class StockWindow final : public AppWindow {
           ImGui::PopID();
         }
       }
+      draw_upcoming(app, data["upcoming"]);
       ImGui::EndChild();
+    }
+
+    // Peremptions a venir (30 jours) : pas des taches (les secouristes remplacent les perimes pendant la verif du lot
+    // rouge ; commandes et echanges sont deja des taches). Repliees tout en bas, hors du compte, ce qui perime en
+    // premier en tete : 7 jours en jaune, 2 jours en orange.
+    void draw_upcoming(App &app, const Json &rows) {
+      if (!rows.is_array() || rows.size() == 0)
+        return;
+      ImGui::Spacing();
+      ImGui::Separator();
+      const std::string label = "Péremptions à venir (" + std::to_string(rows.size()) + ")###upcoming";
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+      const bool open = ImGui::CollapsingHeader(label.c_str()); // replie par defaut
+      ImGui::PopStyleColor();
+      if (!open)
+        return;
+      ImGui::TextDisabled("Pour information, ce ne sont pas des tâches : les secouristes remplacent les items une "
+                          "fois périmés, pendant la vérif du lot.");
+      int index = 0;
+      for (const Json &row : rows.items()) {
+        ImGui::PushID(("upcoming" + std::to_string(index++)).c_str());
+        const std::string level = row["level"].str();
+        const ImVec4 color = level == "warn" ? colors::orange : level == "soon" ? colors::yellow : colors::grey;
+        ImGui::TextColored(color, "●");
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        ImGui::TextWrapped("%s", row["title"].str().c_str());
+        ImGui::PushStyleColor(ImGuiCol_Text, level == "info" ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : color);
+        ImGui::TextWrapped("%s", row["detail"].str().c_str());
+        ImGui::PopStyleColor();
+        const std::string lot = row["lot"].str();
+        if (!lot.empty() && small_button("Ouvrir le lot"))
+          app.show_lot(lot);
+        ImGui::EndGroup();
+        ImGui::Spacing();
+        ImGui::PopID();
+      }
     }
 
     void draw_task(App &app, const Json &row) {

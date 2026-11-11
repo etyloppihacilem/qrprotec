@@ -8,6 +8,8 @@
   --line: #dde2e9;
   --orange: #e8820c;
   --orange-bg: #fff1df;
+  --yellow: #e0b400;
+  --yellow-bg: #fff8d1;
   --red: #d11d1d;
   --red-bg: #fde3e3;
   --green: #1f8f3a;
@@ -538,6 +540,13 @@ button.task-row { display: block; width: 100%; text-align: left; border-radius: 
   font: inherit; border-width: 0 0 1px; border-bottom: 1px solid var(--line); }
 button.task-row.warn { border-left: 4px solid var(--orange); background: var(--orange-bg); }
 button.task-row.bad { border-left: 4px solid var(--red); background: var(--red-bg); }
+/* peremptions a venir : 7 jours en jaune (2 jours en orange, classe warn) */
+.stock-row.soon, button.task-row.soon { border-left: 4px solid var(--yellow); padding-left: 8px; background: var(--yellow-bg); }
+.upcoming-toggle { display: flex; align-items: center; gap: 8px; width: 100%; margin: 24px 0 6px; text-align: left;
+  background: transparent; color: var(--muted); font-weight: 600; border: 0; border-top: 1px solid var(--line);
+  padding: 12px 0 4px; border-radius: 0; }
+.upcoming-toggle .fold-box { display: inline-block; width: 18px; height: 18px; box-sizing: border-box; border: 1.5px solid var(--muted);
+  border-radius: 3px; font-size: 15px; font-weight: 700; line-height: 15px; text-align: center; }
 .revise-btn { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; }
 
 /* ---- Signalements de problemes ---- */
