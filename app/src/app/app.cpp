@@ -3188,13 +3188,64 @@ void App::enter_level(const std::string &target) {
     verif.path.insert(verif.path.begin(), current);
   verif.current = id;
   verif.entered.insert(id);
-  verif.done.erase(id);
+  if (const auto done = verif.done.find(id); done != verif.done.end()) {
+    verif.reopened[id] = done->second;
+    verif.done.erase(done);
+  }
 }
 
+// Retour au lot qui contient le lot en cours, sans le valider. Rien scanne dedans : il n'est pas « commence », et un lot
+// valide qu'on avait rouvert redevient valide (meme regle que le web, goUp).
 void App::leave_level() {
+  const std::string level = verif_level();
+  if (level != verif.lot_id && !verif.done.count(level)) { // pas juste apres sa validation (submit_step)
+    const std::set< std::string > scope   = verif_scope(level);
+    bool                          started = false;
+    for (const ScanEntry &entry : stack.entries())
+      if (entry.state != EntryState::Error && !entry.tasks_pending)
+        started = started || scope.count(entry.place.empty() ? verif.lot_id : entry.place) > 0;
+    bool below = false;
+    for (const std::string &other : verif.entered)
+      below = below || (other != level && verif_under(other, level));
+    if (!started && !below) {
+      verif.entered.erase(level);
+      if (const auto before = verif.reopened.find(level); before != verif.reopened.end())
+        verif.done[level] = before->second;
+    }
+  }
+  verif.reopened.erase(level);
   if (!verif.path.empty())
     verif.path.pop_back();
   verif.current = verif_level();
+}
+
+// Bouton « ← Revenir à … » de la vérif en cascade : le lot en cours est validé en le quittant, complet ou non (les non
+// scannés passent manquants), puis on remonte (submit_step). Sans scan dedans, on remonte simplement ; étiquette du lot
+// ou étiquette clé manquante : on remonte sans valider, scans gardés. Même règle que le web (leaveUp).
+void App::leave_level_validated() {
+  const std::string level = verif_level();
+  if (!verif_cascade() || verif.submitting || level == verif.lot_id)
+    return;
+  const std::set< std::string > scope   = verif_scope(level);
+  bool                          started = false;
+  for (const ScanEntry &entry : stack.entries())
+    if (entry.state != EntryState::Error && !entry.tasks_pending)
+      started = started || scope.count(entry.place.empty() ? verif.lot_id : entry.place) > 0;
+  if (!started) {
+    leave_level();
+    return;
+  }
+  const Json       *lot  = verif_lot(level);
+  const std::string name = lot ? (*lot)["name"].str(level) : level;
+  if (!verif_key_ok() || !verif_label_ok()) {
+    notify(name + " n'est pas validé ("
+             + (verif_key_ok() ? "scannez l'étiquette " + verif_label_missing() : std::string("étiquette clé manquante"))
+             + ") : scans gardés.",
+           true);
+    leave_level();
+    return;
+  }
+  submit_step(false);
 }
 
 void App::finish_cascade(const std::string &message) {

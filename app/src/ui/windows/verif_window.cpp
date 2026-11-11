@@ -655,10 +655,11 @@ class VerifWindow final : public AppWindow {
       const Json *parent = app.verif_lot(app.verif_parent(level));
       const std::string back = "← Revenir à " + (parent ? (*parent)["name"].str() : std::string("lot global"));
       if (button(back.c_str())) {
-        app.leave_level();
+        app.leave_level_validated();
         return true;
       }
-      ImGui::SetItemTooltip("Sans valider ce lot : ses scans sont gardés.");
+      ImGui::SetItemTooltip("Valide ce lot en le quittant, incomplet s'il manque des items (rien de scanné : on remonte "
+                            "sans valider).");
       ImGui::SameLine();
       ImGui::TextDisabled("Validez ce lot pour revenir au lot qui le contient.");
       return false;

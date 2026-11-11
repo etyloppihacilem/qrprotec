@@ -654,6 +654,12 @@ button.task-row.bad { border-left: 4px solid var(--red); background: var(--red-b
 .list li.sub-lot.ok { background: var(--green); border-left-color: var(--green); }
 .list li.sub-lot.bad { background: var(--red); border-left-color: var(--red); }
 .list li.sub-lot.ok .sub, .list li.sub-lot.bad .sub { color: #fff; }
+/* sous-lot a faire : son etat d'avant la vérif en pastille de couleur (la ligne reste grise tant qu'il n'est pas valide) */
+.list li.sub-lot .sub .state-ok, .list li.sub-lot .sub .state-warn, .list li.sub-lot .sub .state-bad {
+  color: #fff; padding: 0 6px; border-radius: 6px; }
+.list li.sub-lot .sub .state-ok { background: var(--green); }
+.list li.sub-lot .sub .state-warn { background: var(--orange); }
+.list li.sub-lot .sub .state-bad { background: var(--red); }
 
 /* Listes de materiel : page de l'accueil (index, liste, editeur), lecteur dans un coin pendant le scan */
 .banner.info { background: var(--blue); }
