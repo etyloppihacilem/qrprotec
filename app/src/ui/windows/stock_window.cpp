@@ -451,8 +451,9 @@ class StockWindow final : public AppWindow {
           return (*a)["below_min"].str() < (*b)["below_min"].str();
         return projected_ratio(*a) < projected_ratio(*b);
       });
-      if (selected_.empty() && !rows.empty())
-        selected_ = (*rows.front())["type"].str();
+      // rien de selectionne : graphe de tout le stock (types affiches) ; re-clic sur la ligne ou Echap pour y revenir
+      if (!selected_.empty() && escape_pressed() && !ImGui::GetIO().WantTextInput)
+        selected_.clear();
 
       const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
                                   | ImGuiTableFlags_Resizable;
@@ -476,7 +477,7 @@ class StockWindow final : public AppWindow {
             ImGui::TableNextColumn();
             ImGui::PushID(type.c_str());
             if (ImGui::Selectable(row["name"].str().c_str(), selected_ == type, ImGuiSelectableFlags_SpanAllColumns))
-              selected_ = type;
+              selected_ = selected_ == type ? std::string() : type; // re-clic : retour a tout le stock
             ImGui::PopID();
             ImGui::TextDisabled("%s", type.c_str());
             ImGui::TableNextColumn();
@@ -499,11 +500,42 @@ class StockWindow final : public AppWindow {
       ImGui::EndChild();
       ImGui::SameLine();
       if (ImGui::BeginChild("projection_detail", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
+        const Json *shown = nullptr;
         for (const Json &row : forecast["types"].items())
           if (row["type"].str() == selected_)
-            draw_type_detail(app, row);
+            shown = &row;
+        if (shown) {
+          if (small_button("← Tout le stock"))
+            selected_.clear();
+          ImGui::SameLine();
+          ImGui::TextDisabled("(ou re-cliquer sur la ligne, Échap)");
+          draw_type_detail(app, *shown);
+        }
+        else
+          draw_all_stock(rows);
       }
       ImGui::EndChild();
+    }
+
+    // Aucun type selectionne : peremptions de tous les types affiches (filtre et case « sous le minimum » compris)
+    void draw_all_stock(const std::vector< const Json * > &rows) {
+      ImGui::TextUnformatted("Tout le stock");
+      ImGui::SameLine();
+      ImGui::TextDisabled("· %s", nb(static_cast< int >(rows.size()), "type").c_str());
+      ImGui::TextDisabled("Cliquez sur une ligne pour le détail d'un type.");
+      int expired = 0, below = 0, orders = 0;
+      for (const Json *row : rows) {
+        expired += (*row)["expired_now"].integer();
+        below += (*row)["below_min"].is_null() ? 0 : 1;
+        orders += (*row)["order"].is_object() ? 1 : 0;
+      }
+      if (expired > 0)
+        ImGui::TextColored(colors::red, "%s aujourd'hui (stock et lots)", nb(expired, "périmé").c_str());
+      if (below > 0)
+        ImGui::TextColored(colors::orange, "%s sous le minimum d'ici 6 mois", nb(below, "type").c_str());
+      if (orders > 0)
+        ImGui::TextColored(colors::orange, "%s à commander", nb(orders, "type").c_str());
+      draw_expiry_plot(rows, 320.0f);
     }
 
     float projected_ratio(const Json &row) const {
@@ -530,7 +562,7 @@ class StockWindow final : public AppWindow {
         ImGui::TextColored(colors::red, "%s aujourd'hui (stock et lots)", nb(row["expired_now"].integer(), "périmé").c_str());
 
       draw_projection_plot(row);
-      draw_expiry_plot(row);
+      draw_expiry_plot({ &row });
 
       if (ImGui::CollapsingHeader("Dates de péremption et emplacements")) {
         const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH;
@@ -624,21 +656,29 @@ class StockWindow final : public AppWindow {
       ImPlot::EndPlot();
     }
 
-    void draw_expiry_plot(const Json &row) {
-      const Json &months = row["calendar"];
-      const int   n      = static_cast< int >(months.size());
-      std::vector< double >      xs, stock, lots, sealed, lost;
+    // Peremptions par mois, sommees sur les types donnes (un seul : detail du type ; tous : tout le stock)
+    void draw_expiry_plot(const std::vector< const Json * > &rows, float height = 200.0f) {
+      const int n = rows.empty() ? 0 : static_cast< int >((*rows.front())["calendar"].size());
+      std::vector< double >      xs(n), stock(n), lots(n), sealed(n), lost(n);
       std::vector< std::string > labels;
       for (int index = 0; index < n; ++index) {
-        const Json &month    = months[index];
-        const Json &expiring = month["expiring"];
-        xs.push_back(index);
-        stock.push_back(expiring["stock"].integer());
-        lots.push_back(stock.back() + expiring["lots"].integer());
-        sealed.push_back(lots.back() + expiring["sealed"].integer());
-        const Json &gone = month["lost"];
-        lost.push_back(gone["stock"].integer() + gone["lots"].integer() + gone["sealed"].integer());
-        labels.push_back(month_label(month["start"]));
+        xs[index] = index;
+        labels.push_back(month_label((*rows.front())["calendar"][index]["start"]));
+      }
+      for (const Json *row : rows) {
+        const Json &months = (*row)["calendar"];
+        for (int index = 0; index < n && index < static_cast< int >(months.size()); ++index) {
+          const Json &expiring = months[index]["expiring"];
+          const Json &gone     = months[index]["lost"];
+          stock[index] += expiring["stock"].integer();
+          lots[index] += expiring["lots"].integer();
+          sealed[index] += expiring["sealed"].integer();
+          lost[index] += gone["stock"].integer() + gone["lots"].integer() + gone["sealed"].integer();
+        }
+      }
+      for (int index = 0; index < n; ++index) { // cumuls pour les barres empilees
+        lots[index] += stock[index];
+        sealed[index] += lots[index];
       }
       std::vector< const char * > label_ptrs;
       for (const std::string &label : labels)
