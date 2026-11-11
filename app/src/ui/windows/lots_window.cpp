@@ -84,6 +84,9 @@ class LotsWindow final : public AppWindow {
         ImGui::TextDisabled("chargement...");
       }
 
+      // Echap (hors saisie du filtre) : ferme la fiche de droite
+      if (!selected_.empty() && escape_pressed() && !ImGui::GetIO().WantTextInput)
+        selected_.clear();
       const float details_width = selected_.empty() ? 0.0f : ImGui::GetContentRegionAvail().x * 0.45f;
       ImGui::BeginChild("list", ImVec2(selected_.empty() ? 0.0f : -details_width, 0));
       // rangements du stock dans leur propre tableau, sous celui des lots, seulement si la case est cochee
@@ -158,8 +161,12 @@ class LotsWindow final : public AppWindow {
         ImGui::TableNextColumn();
         ImGui::Indent(depth * 18.0f + 1.0f);
         const std::string label = (depth > 0 ? "└ " : "") + name + "##" + id;
-        if (ImGui::Selectable(label.c_str(), selected_ == id, ImGuiSelectableFlags_SpanAllColumns))
-          select(app, id);
+        if (ImGui::Selectable(label.c_str(), selected_ == id, ImGuiSelectableFlags_SpanAllColumns)) {
+          if (selected_ == id)
+            selected_.clear(); // re-clic sur le lot ouvert : la fiche de droite se ferme
+          else
+            select(app, id);
+        }
         ImGui::Unindent(depth * 18.0f + 1.0f);
         if (!compact) {
           ImGui::SameLine();
@@ -229,6 +236,16 @@ class LotsWindow final : public AppWindow {
     }
 
     void draw_details(App &app) {
+      // croix en haut a droite (comme re-cliquer sur le lot ou Echap) : ferme la fiche
+      const float close_width = ImGui::CalcTextSize("✕").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+      const float line_y      = ImGui::GetCursorPosY();
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - close_width);
+      if (small_button("✕##close")) {
+        selected_.clear();
+        return;
+      }
+      ImGui::SetItemTooltip("Fermer la fiche (ou re-cliquer sur le lot, Échap)");
+      ImGui::SetCursorPosY(line_y);
       if (details_.is_null()) {
         ImGui::TextDisabled("Chargement...");
         return;
