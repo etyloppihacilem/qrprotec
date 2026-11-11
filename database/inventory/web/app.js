@@ -5145,14 +5145,22 @@
     }
     parts.push(el('p', { class: 'hint' }, 'Ce qu\'il y a à faire pour tenir le stock, le plus important en premier. '
       + 'Touchez une tâche pour l\'ouvrir.'));
-    if (!data.count) parts.push(el('div', { class: 'banner ok' }, '✔ Rien à faire pour l\'instant.'));
-    else data.categories.forEach((category, index) => {
+    const placed = data.orders_placed || [];
+    if (!data.count) {
+      parts.push(el('div', { class: 'banner ok' }, '✔ Rien à faire pour l\'instant.'));
+      renderPlacedOrders(parts, placed);
+    } else data.categories.forEach((category, index) => {
+      if (category.key === 'orders' && !category.count) renderPlacedOrders(parts, placed);
       if (!category.count) return;
       const rows = data.tasks.filter((row) => row.category === category.key);
       parts.push(el('h3', { class: 'task-head' }, el('span', { class: 'task-rank' }, String(index + 1)),
         `${category.title} (${category.count})`));
       parts.push(el('p', { class: 'hint' }, category.help));
       for (const row of rows) {
+        if (row.type && row.quantity) {
+          parts.push(orderTaskRow(row));
+          continue;
+        }
         const clickable = ['lot', 'item', 'reports', 'lists', 'forecast', 'stock'].includes(row.link)
           || (row.link === 'label_prints' && isAdmin());
         parts.push(el(clickable ? 'button' : 'div', {
@@ -5164,8 +5172,64 @@
         row.detail ? el('div', { class: 'sub' }, row.detail) : '',
         TASK_LINK_HINTS[row.link] ? el('div', { class: 'sub hint' }, TASK_LINK_HINTS[row.link]) : ''));
       }
+      if (category.key === 'orders') renderPlacedOrders(parts, placed);
     });
     renderUpcoming(parts, data.upcoming || []);
+  }
+
+  // Commande suggeree : case « Commandé » (quantite modifiable) pour enregistrer qu'elle est passee. La suggestion
+  // disparait tant que la commande n'est pas livree (receptions de ce type) ou decochee.
+  function orderTaskRow(row) {
+    const quantity = el('input', { type: 'number', min: '1', step: '1', value: String(row.quantity), class: 'order-qty',
+      'aria-label': 'Quantité commandée' });
+    const box = el('input', { type: 'checkbox', class: 'order-box' });
+    box.addEventListener('change', async () => {
+      const count = parseInt(quantity.value, 10);
+      if (!(count > 0)) { box.checked = false; toast('Quantité commandée ?', true); return; }
+      box.disabled = true;
+      try {
+        state.tasks = await api('orders/', { user: badge(), type: row.type, quantity: count });
+        toast(`Commande de ${count} × ${row.name || ''} enregistrée : en attente de livraison.`);
+      } catch (e) {
+        box.checked = false;
+        toast('Commande : ' + e.message, true);
+      } finally {
+        renderStock();
+      }
+    });
+    return el('div', { class: 'task-row stock-row order-row' + (row.level === 'info' ? '' : ' ' + row.level) },
+      el('div', { class: 'row-head' }, el('b', {}, row.title),
+        el('button', { type: 'button', class: 'text-link', onclick: () => openTask(row) }, 'Prévisions ›')),
+      row.detail ? el('div', { class: 'sub' }, row.detail) : '',
+      el('label', { class: 'order-check' }, box, 'Commandé :', quantity));
+  }
+
+  // Commandes passees en attente de livraison : sous les commandes, hors du compte des taches (sauf en retard).
+  function renderPlacedOrders(parts, placed) {
+    if (!placed.length) return;
+    parts.push(el('p', { class: 'placed-head' }, `Commandes passées, en attente de livraison (${placed.length})`));
+    for (const order of placed) {
+      const got = order.received ? ` · reçu ${order.received}/${order.quantity}` : '';
+      const uncheck = el('input', { type: 'checkbox', class: 'order-box', checked: true,
+        title: 'Décocher : la commande ne viendra pas, ou erreur' });
+      uncheck.checked = true;
+      uncheck.addEventListener('change', async () => {
+        if (!await confirmDialog('Décocher la commande ?', `${order.quantity} × ${order.name} : la suggestion de `
+          + 'commande reviendra si elle tient toujours.', 'Décocher')) { uncheck.checked = true; return; }
+        try {
+          state.tasks = await api(`orders/${order.id}/cancel/`, { user: badge() });
+        } catch (e) {
+          toast('Commande : ' + e.message, true);
+        } finally {
+          renderStock();
+        }
+      });
+      parts.push(el('div', { class: 'task-row stock-row placed-row' + (order.late ? ' warn' : '') },
+        el('label', { class: 'order-check' }, uncheck, el('b', {}, `${order.quantity} × ${order.name}`)),
+        el('div', { class: 'sub hint' }, `commandé ${order.days ? `il y a ${nb(order.days, 'jour')}` : 'aujourd\'hui'}`
+          + (order.placed_by ? ` par ${order.placed_by}` : '') + got
+          + ' · se clôt toute seule à la réception')));
+    }
   }
 
   // Péremptions à venir (30 jours) : pas des tâches (les secouristes remplacent les périmés pendant la vérif du lot

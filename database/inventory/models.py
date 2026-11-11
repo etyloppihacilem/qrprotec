@@ -733,6 +733,7 @@ class OperationKind(models.TextChoices):
     CHECKLIST = 'checklist', 'Liste de matériel'
     LOT_USED = 'lot_used', 'Lot marqué utilisé'
     LOT_REPORT = 'lot_report', "Rapport d'état de lot"
+    ORDER = 'order', 'Commande'
 
 
 class Operation(models.Model):
@@ -1137,6 +1138,25 @@ class ItemMovement(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=['item', 'kind', 'cancelled'])]
+
+
+class StockOrder(models.Model):
+    """Commande passee (case « Commandé » d'une commande suggeree dans les taches du TECH).
+
+    Tant qu'elle est en cours, la suggestion de commande de ce type ne revient pas dans les taches : la commande
+    attend sa livraison. Elle se clot toute seule des que `quantity` items de ce type ont ete receptionnes depuis
+    `placed` (`delivered`), ou a la main (`cancelled` : decochee, ou livraison abandonnee).
+    """
+    item_type = models.ForeignKey(ItemType, on_delete=models.CASCADE, related_name='orders')
+    quantity = models.PositiveIntegerField()
+    placed = models.DateTimeField(default=timezone.now)
+    placed_by = models.CharField(max_length=64, blank=True, default='')
+    delivered = models.DateTimeField(blank=True, null=True)
+    cancelled = models.DateTimeField(blank=True, null=True)
+    cancelled_by = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        ordering = ['placed']
 
 
 class NotificationSettings(models.Model):

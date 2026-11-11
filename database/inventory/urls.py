@@ -31,6 +31,8 @@ public_patterns = [
     path('stock/summary/', views.stock_summary),
     path('stock/forecast/summary/', views.stock_forecast_summary),
     path('tasks/summary/', views.tasks_summary),
+    path('orders/', views.orders_create),
+    path('orders/<int:order_id>/cancel/', views.orders_cancel),
     path('debug/codes/', views.debug_codes_list),  # admins seulement
     path('debug/temp-login/', views.debug_temp_login),  # admins seulement
     path('lots/<str:lot_id>/', views.lot_detail),

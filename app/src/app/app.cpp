@@ -3937,6 +3937,38 @@ void App::refresh_tasks() {
   });
 }
 
+void App::place_order(const std::string &type, const std::string &name, int quantity) {
+  Json body = Json::object();
+  add_identity(body);
+  body["type"]     = Json(type);
+  body["quantity"] = Json(quantity);
+  api.post("/api/orders/", body, [this, name, quantity](const ApiResult &result) {
+    if (identity_refused(result))
+      return;
+    if (!result.ok) {
+      notify("Commande : " + result.error, true);
+      return;
+    }
+    catalog.tasks = result.data;
+    notify("Commande de " + std::to_string(quantity) + " × " + name + " enregistrée : en attente de livraison.");
+  });
+}
+
+void App::cancel_order(long long id, const std::string &name) {
+  Json body = Json::object();
+  add_identity(body);
+  api.post("/api/orders/" + std::to_string(id) + "/cancel/", body, [this, name](const ApiResult &result) {
+    if (identity_refused(result))
+      return;
+    if (!result.ok) {
+      notify("Commande : " + result.error, true);
+      return;
+    }
+    catalog.tasks = result.data;
+    notify("Commande de " + name + " décochée.");
+  });
+}
+
 void App::mark_lot_used(const std::string &lot_id, const std::string &name) {
   require_login("marquer ce lot comme utilisé", [this, lot_id, name]() {
     Json body = Json::object();

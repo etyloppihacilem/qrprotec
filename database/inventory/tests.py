@@ -6111,6 +6111,48 @@ class TasksTests(ApiTestCase):
         self.assertIn('stock', upcoming[1]['detail'])
         self.assertIsNone(upcoming[1]['lot'])
 
+    def test_order_placed(self):
+        orders = lambda body: [row for row in body['tasks'] if row['category'] == 'orders']
+        code, body = self.call('GET', '/api/tasks/')
+        suggestion = next(row for row in orders(body) if row['type'] == 'compre')
+        quantity = suggestion['quantity']
+        self.assertGreaterEqual(quantity, 10)
+        # secouriste : refuse
+        code, _ = self.call('POST', '/api/orders/', {'user': self.badge(self.user), 'type': 'compre',
+                                                     'quantity': quantity}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', '/api/orders/', {'type': 'compre', 'quantity': quantity})
+        self.assertEqual(code, 201)
+        self.assertFalse([row for row in orders(body) if row.get('type') == 'compre'])
+        count = body['count']
+        self.assertEqual([(row['type'], row['quantity'], row['received']) for row in body['orders_placed']],
+                         [('compre', quantity, 0)])
+        # livraison partielle puis complete : la commande se clot toute seule
+        self.create(self.compresses, self.today + timedelta(days=300), quantity - 1)
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertEqual(body['orders_placed'][0]['received'], quantity - 1)
+        self.assertEqual(body['count'], count)
+        self.create(self.compresses, self.today + timedelta(days=300), 1)
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertEqual(body['orders_placed'], [])
+        self.assertIsNotNone(models.StockOrder.objects.get().delivered)
+
+    def test_order_cancel_and_late(self):
+        code, body = self.call('POST', '/api/orders/', {'type': 'compre', 'quantity': 20})
+        order = body['orders_placed'][0]['id']
+        # pas livree au bout de 30 jours : de nouveau une tache
+        models.StockOrder.objects.filter(pk=order).update(placed=timezone.now() - timedelta(days=31))
+        code, body = self.call('GET', '/api/tasks/')
+        late = [row for row in body['tasks'] if row.get('order') == order]
+        self.assertEqual(len(late), 1)
+        self.assertIn('pas livrée', late[0]['title'])
+        self.assertTrue(body['orders_placed'][0]['late'])
+        # decochee : la suggestion revient
+        code, body = self.call('POST', f'/api/orders/{order}/cancel/', {})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['orders_placed'], [])
+        self.assertTrue([row for row in body['tasks'] if row.get('type') == 'compre' and 'quantity' in row])
+
     def test_web_access(self):
         code, _ = self.call('POST', '/api/tasks/summary/', {'user': self.badge(self.user)}, local=False)
         self.assertEqual(code, 403)
