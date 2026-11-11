@@ -136,6 +136,17 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   pour un regroupement la plus ancienne de ses sous-lots), la prochaine péremption et le contenu dans
   un `<details>` replié quand le lot est valide. Le bandeau du lecteur à l'étiquette d'un lot
   (`showLotInfo`, tous rôles) reprend le même état court, plus ce qu'il manque pour valider. Voir `inventory/live.py` et [WebSockets des vérifs](websockets.md).
+- **Cache de vérif** (`vcache`, voir [back.md](back.md), « Cache de vérif ») : chargé en
+  arrière-plan dès l'ouverture du scanner, au lancement d'une vérif et à chaque scan (au plus une fois par
+  minute), puis toutes les minutes tant que le scanner est ouvert ou qu'une vérif est en cours, et dès le
+  retour du réseau (`online`). Un item, un paquet ou une étiquette de lot scannés se traitent aussitôt depuis le
+  cache (bip, péremption, signalement, désactivation, tâches, lot où l'item est rangé, lot global) ; le serveur
+  confirme ensuite en arrière-plan (`confirmItem`, `confirmPack`, `GET items/<iid>/`, `packs/<id>/`) et seule une
+  différence qui compte (`itemFacts` : à remplacer, désactivé, statut, lot, signalements, tâches) est appliquée,
+  avec bip et popup pour un nouveau signalement ou un item devenu à remplacer. Une mise à jour du cache fait de
+  même pour les items déjà scannés et remplace le lot de la vérif en cours (`vcache.onChange`). Juste après une
+  écriture (étape validée, items ajoutés, signalement), `loadLot(id, '', true)` relit le serveur d'abord. Les
+  étiquettes clé et de scellé restent contrôlées par le serveur.
 - **Lampe et vibreur** : la lampe (🔦) n'est proposée que si la caméra l'expose (Chrome Android ;
   ni Safari iOS ni Firefox ne la donnent aux pages web) et se rallume quand la caméra redémarre.
   Le vibreur utilise `navigator.vibrate` (Android) ; sur iPhone, à défaut, le retour haptique d'un

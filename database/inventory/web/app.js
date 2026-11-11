@@ -272,6 +272,105 @@
     return data;
   }
 
+  // ------------------------------------------------------------------------------------------------
+  // Cache de vérif (verif_cache.py) : une partie de la reserve n'a ni reseau ni wifi. Des l'ouverture du scanner, le
+  // detail de tous les lots, de tous les items qu'on peut scanner, des paquets fermes et de tous les types d'items
+  // est charge en arriere-plan ; chaque scan se traite aussitot depuis ce cache (bip, signalement, desactivation, lot
+  // ou l'item est range), puis le serveur confirme en arriere-plan et seule une difference est signalee. Les
+  // enregistrements (« i:iid », « l:lot global », « p:paquet », « t:type ») sont repartis en seaux : on envoie
+  // l'empreinte de chaque seau, le serveur ne renvoie que les seaux changes. Jamais de cle de lot ni de code de scelle.
+  const vcache = (() => {
+    const records = new Map();
+    const hashes = {}; // seau -> empreinte
+    const keysOf = {}; // seau -> cles de ses enregistrements
+    let lotRoots = null; // id de lot -> id de son lot global, refait apres chaque mise a jour
+    let loading = null;
+    let syncedAt = 0;
+    const listeners = [];
+    const clone = (value) => (value == null ? null : JSON.parse(JSON.stringify(value)));
+
+    function apply(body) {
+      const changed = [];
+      for (const [index, bucket] of Object.entries(body.buckets || {})) {
+        const fresh = bucket.records || {};
+        for (const key of keysOf[index] || []) {
+          if (!(key in fresh)) { records.delete(key); changed.push(key); }
+        }
+        for (const [key, value] of Object.entries(fresh)) {
+          const before = records.get(key);
+          records.set(key, value);
+          if (before === undefined || JSON.stringify(before) !== JSON.stringify(value)) changed.push(key);
+        }
+        keysOf[index] = Object.keys(fresh);
+        hashes[index] = bucket.hash;
+      }
+      if (changed.some((key) => key.startsWith('l:'))) lotRoots = null;
+      return changed;
+    }
+
+    // Mise a jour : seulement les seaux changes depuis la derniere. Erreur (hors connexion) : le cache reste tel quel.
+    function sync() {
+      if (loading) return loading;
+      loading = (async () => {
+        const first = !syncedAt;
+        try {
+          const body = await api('verifs/cache/', { buckets: hashes });
+          syncedAt = Date.now();
+          const changed = apply(body);
+          if (!first && changed.length) for (const listener of listeners) listener(changed);
+          return true;
+        } catch (e) {
+          return false;
+        } finally {
+          loading = null;
+        }
+      })();
+      return loading;
+    }
+
+    function roots() {
+      if (lotRoots) return lotRoots;
+      lotRoots = new Map();
+      for (const [key, lot] of records) {
+        if (!key.startsWith('l:')) continue;
+        lotRoots.set(lot.id, lot.id);
+        for (const row of lot.descendants || []) lotRoots.set(row.id, lot.id);
+      }
+      return lotRoots;
+    }
+
+    // Lignes d'items d'un lot du cache (iids) remplacees par le detail de chaque item, comme lots/<id>/
+    function withItems(row) {
+      const optional = new Set(row.optional_items || []);
+      const expand = (iid) => Object.assign(clone(records.get('i:' + iid)) || { iid }, { optional: optional.has(iid) });
+      row.items = (row.items || []).map(expand);
+      row.missing_items = (row.missing_items || []).map(expand);
+      delete row.optional_items;
+      return row;
+    }
+
+    return {
+      sync,
+      // charge au plus toutes les `age` ms (0 : maintenant), sans attendre
+      refresh(age = 0) { if (!loading && Date.now() - syncedAt >= age) sync(); },
+      loaded: () => syncedAt > 0,
+      syncedAt: () => syncedAt,
+      onChange(listener) { listeners.push(listener); },
+      item: (iid) => clone(records.get('i:' + iid)),
+      pack: (id) => clone(records.get('p:' + id)),
+      type: (code) => clone(records.get('t:' + code)),
+      rootOf: (id) => roots().get(id) || '',
+      // detail du lot global, sous-lots compris, comme lots/<id>/ (sans « departure »)
+      lot(id) {
+        const lot = clone(records.get('l:' + id));
+        if (!lot) return null;
+        withItems(lot);
+        for (const row of lot.descendants || []) withItems(row);
+        return lot;
+      },
+    };
+  })();
+
   // Meme format que le front ordinateur (app/src/core/codes.cpp)
   function parseCode(raw) {
     const code = raw.trim();
@@ -599,6 +698,7 @@
   let scannedFiche = null; // item ou lot scanne dans le scanner qui a ouvert la fiche
   async function handleCode(raw) {
     unlockAudio();
+    vcache.refresh(55000); // cache de vérif a jour (sans attendre ; rien si charge il y a moins d'une minute)
     // popup « Passer a … » ignoree : le scan suivant vaut « Passer sans valider », puis il est traite
     if (leavePopup) { leavePopup('skip'); await new Promise((resolve) => setTimeout(resolve, 50)); }
     if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
@@ -679,30 +779,76 @@
     scannedAgain();
     state.lastVerif = null; // un nouveau scan commence une nouvelle verif
     const expired = !!(scan.peremption && scan.peremption < today());
-    const entry = { code: scan.code, kind: 'item', iid: scan.id, expired, info: null, error: '', place: state.lot ? currentPlace() : '' };
+    // cache de vérif : l'item est connu tout de suite, le serveur confirme ensuite (confirmItem)
+    const cached = vcache.item(scan.id);
+    const entry = { code: scan.code, kind: 'item', iid: scan.id, expired: expired || !!(cached && cached.expired), info: cached,
+                    error: '', place: state.lot ? currentPlace() : '' };
     if (scan.task) {
       // etiquette de taches : l'item n'est compte qu'une fois ses taches validees (fenetre des taches)
       feedback.task();
-      showInfo('task', 'Étiquette de tâches', 'Chargement des tâches…');
-      try {
-        entry.info = await api(`items/${encodeURIComponent(scan.id)}/`);
-        if (entry.info.expired) entry.expired = true;
-      } catch (e) {
-        if (e.status === 404) entry.error = 'Inconnu dans la base';
-      }
+      if (!cached) {
+        showInfo('task', 'Étiquette de tâches', 'Chargement des tâches…');
+        try {
+          entry.info = await api(`items/${encodeURIComponent(scan.id)}/`);
+          if (entry.info.expired) entry.expired = true;
+        } catch (e) {
+          if (e.status === 404) entry.error = 'Inconnu dans la base';
+        }
+      } else confirmItem(entry);
       if (entry.info && !entry.error && (entry.info.tasks || []).length) {
         if (entry.expired) feedback.bad();
         openTasks(entry);
         return;
       }
     }
-    await addItem(entry, scan);
+    await addItem(entry, scan, !!entry.info || !!entry.error);
+    if (cached && !scan.task) confirmItem(entry);
+  }
+
+  // Item scanne venu du cache de vérif : le serveur donne son etat actuel en arriere-plan. Seule une difference qui
+  // compte (nouveau signalement, desactivation, peremption, statut, lot) est appliquee et signalee. Hors connexion :
+  // rien, le cache fait foi jusqu'a l'envoi.
+  async function confirmItem(entry) {
+    let fresh;
+    try {
+      fresh = await api(`items/${encodeURIComponent(entry.iid)}/`);
+    } catch (e) {
+      if (e.status === 404) { entry.error = 'Inconnu dans la base'; feedback.bad(); showItemInfo(entry); save(); render(); }
+      return;
+    }
+    itemChanged(entry, fresh);
+  }
+
+  // Champs d'un item qui changent ce que la vérif en dit
+  const itemFacts = (info) => JSON.stringify(info ? [info.expired, info.disabled, info.unusable, info.status, info.location,
+    (info.reports || []).map((report) => [report.id, report.status, report.usable, report.comment, report.reply]),
+    info.tasks || []] : null);
+
+  // Etat d'un item scanne qui a change au serveur depuis le cache : nouvelle info appliquee, bip et popup s'il devient
+  // a remplacer ou qu'un signalement arrive. Renvoie true si quelque chose a change.
+  function itemChanged(entry, fresh) {
+    if (!fresh || itemFacts(entry.info) === itemFacts(fresh)) {
+      if (fresh) entry.info = fresh;
+      return false;
+    }
+    const before = entry.info;
+    entry.info = fresh;
+    if (fresh.expired && !entry.expired) { entry.expired = true; feedback.bad(); }
+    const known = new Set(((before && before.reports) || []).map((report) => report.id));
+    if (fresh.reported && (fresh.reports || []).some((report) => !known.has(report.id))) {
+      alertReports('item:' + fresh.iid, `Item signalé : ${fresh.type_name}`, fresh.reports);
+    } else if (state.scanned[state.scanned.length - 1] === entry) showItemInfo(entry);
+    save();
+    render();
+    return true;
   }
 
   // Item scanne ajoute a la vérif. Un item dont le type a des taches n'y entre qu'une fois ses taches validees.
   async function addItem(entry, scan, loaded = !!entry.info || !!entry.error) {
     state.scanned.push(entry);
-    if (entry.expired || entry.error) feedback.bad(); else if (!scan.task || entry.tasksDone) feedback.good();
+    // item a taches deja connu (cache de vérif) : bip des taches plus bas, pas celui d'un item valide
+    const tasksAhead = !scan.task && !entry.tasksDone && !!entry.info && (entry.info.tasks || []).length > 0;
+    if (entry.expired || entry.error) feedback.bad(); else if ((!scan.task || entry.tasksDone) && !tasksAhead) feedback.good();
     showInfo(entry.expired ? 'bad' : 'ok', entry.expired ? badLabel(entry.info) : 'Item scanné',
       scan.peremption ? 'Péremption : ' + fmtDate(scan.peremption) : 'Non périssable');
     render();
@@ -713,14 +859,14 @@
       } catch (e) {
         if (e.status === 404) { entry.error = 'Inconnu dans la base'; feedback.bad(); }
       }
-      // etiquette d'item d'un item a taches : retire des scans tant que ses taches ne sont pas validees
-      if (entry.info && !entry.error && !entry.tasksDone && (entry.info.tasks || []).length) {
-        const index = state.scanned.indexOf(entry);
-        if (index >= 0) state.scanned.splice(index, 1);
-        if (!entry.expired) feedback.task();
-        openTasks(entry);
-        return;
-      }
+    }
+    // etiquette d'item d'un item a taches : retire des scans tant que ses taches ne sont pas validees
+    if (!scan.task && entry.info && !entry.error && !entry.tasksDone && (entry.info.tasks || []).length) {
+      const index = state.scanned.indexOf(entry);
+      if (index >= 0) state.scanned.splice(index, 1);
+      if (!entry.expired) feedback.task();
+      openTasks(entry);
+      return;
     }
     const info = entry.info;
     if (info && info.reported) alertReports('item:' + info.iid, `Item signalé : ${info.type_name}`, info.reports);
@@ -906,7 +1052,9 @@
 
   async function scanPack(scan) {
     try {
-      const pack = await api(`packs/${encodeURIComponent(scan.id)}/`);
+      // cache de vérif : le paquet est connu tout de suite, le serveur confirme ensuite (confirmPack)
+      const cached = vcache.pack(scan.id);
+      const pack = cached || await api(`packs/${encodeURIComponent(scan.id)}/`);
       // perime, ou entierement desactive (rappel produit) : a remplacer
       const expired = !!(pack.peremption && parseDate(pack.peremption) < today()) || (pack.disabled > 0 && pack.disabled >= pack.count);
       if (allScanned().some((entry) => entry.kind === 'pack' && entry.code === scan.code)) {
@@ -915,8 +1063,10 @@
       }
       scannedAgain();
       state.lastVerif = null;
-      state.scanned.push({ code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items,
-                           place: state.lot ? currentPlace() : '' });
+      const entry = { code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items,
+                      place: state.lot ? currentPlace() : '' };
+      state.scanned.push(entry);
+      if (cached) confirmPack(entry, scan.id);
       if (expired) feedback.bad(); else feedback.good();
       alertReports('pack:' + pack.id, `Paquet signalé : ${pack.count} × ${pack.type_name}`, pack.reports);
       showInfo(expired ? 'bad' : 'ok', `Paquet : ${pack.count} × ${pack.type_name}`,
@@ -928,6 +1078,30 @@
       feedback.bad();
       showInfo('bad', 'Paquet inconnu', e.message);
     }
+  }
+
+  // Paquet scanne venu du cache de vérif : etat actuel demande au serveur, seule une difference est signalee
+  async function confirmPack(entry, id) {
+    let fresh;
+    try {
+      fresh = await api(`packs/${encodeURIComponent(id)}/`);
+    } catch (e) {
+      return;
+    }
+    const facts = (pack) => JSON.stringify([pack.disabled, pack.opened, pack.items,
+      (pack.reports || []).map((report) => [report.id, report.status, report.usable])]);
+    const before = entry.info;
+    entry.info = fresh;
+    entry.items = fresh.items;
+    if (facts(before) === facts(fresh)) return;
+    const expired = !!(fresh.peremption && parseDate(fresh.peremption) < today()) || (fresh.disabled > 0 && fresh.disabled >= fresh.count);
+    if (expired && !entry.expired) { entry.expired = true; feedback.bad(); }
+    const known = new Set((before.reports || []).map((report) => report.id));
+    if ((fresh.reports || []).some((report) => !known.has(report.id))) {
+      alertReports('pack:' + fresh.id, `Paquet signalé : ${fresh.count} × ${fresh.type_name}`, fresh.reports);
+    }
+    save();
+    render();
   }
 
   async function scanLot(scan) {
@@ -1013,6 +1187,9 @@
       render();
       return true;
     }
+    // cache de vérif : lot d'un autre lot global, c'est une autre vérif (sans attendre le serveur)
+    const cachedRoot = vcache.rootOf(scan.id);
+    if (cachedRoot && state.lotId && vcache.rootOf(state.lotId) && cachedRoot !== vcache.rootOf(state.lotId)) return false;
     let lot;
     try {
       lot = await api(`lots/${encodeURIComponent(scan.id)}/` + (scan.key ? `?key=${encodeURIComponent(scan.key)}` : ''));
@@ -1147,7 +1324,7 @@
       `🔓 ${result.result === 'opened' ? 'Scellé ouvert' : 'Scellé déjà ouvert'} – ${lot.name}`, opened);
     save();
     // lot de la vérif en cours : rechargé, son contenu est maintenant a verifier (plus scelle)
-    if (state.lot && lotById(lot.id)) loadLot(state.lotId);
+    if (state.lot && lotById(lot.id)) loadLot(state.lotId, '', true);
     // ecran en grand, pas de vérif : l'ouverture est enregistree, les responsables le voient
     showOpening(result, fromUrl);
   }
@@ -1231,11 +1408,31 @@
 
   // Un sous-lot d'un lot global se verifie dans la vérif en cascade du lot global : c'est lui qui est charge, et l'on
   // entre dans le sous-lot (state.path). seal : etiquette du scelle, le lot lui-meme est affiche.
-  async function loadLot(id, seal) {
+  // fresh : juste apres une ecriture (etape validee, items ajoutes...), le serveur d'abord, le cache seulement hors
+  // connexion ; sinon le cache de vérif d'abord, sans attendre le serveur
+  async function loadLot(id, seal, fresh = false) {
     try {
-      let lot = await api(`lots/${encodeURIComponent(id)}/` + (seal ? `?seal=${encodeURIComponent(seal)}` : ''));
-      const root = !seal && lot.global && lot.global.id !== id ? lot.global.id : '';
-      if (root) lot = await api(`lots/${encodeURIComponent(root)}/`);
+      // L'etiquette du scelle, elle, est toujours controlee par le serveur
+      const cachedRoot = seal ? '' : vcache.rootOf(id);
+      let lot = null;
+      let root = '';
+      if (!cachedRoot || fresh) {
+        try {
+          lot = await api(`lots/${encodeURIComponent(id)}/` + (seal ? `?seal=${encodeURIComponent(seal)}` : ''));
+          root = !seal && lot.global && lot.global.id !== id ? lot.global.id : '';
+          if (root) lot = await api(`lots/${encodeURIComponent(root)}/`);
+          if (fresh) vcache.refresh(0);
+        } catch (e) {
+          if (e.status !== 0 || !cachedRoot) throw e;
+          lot = null; // hors connexion : le cache
+        }
+      }
+      if (!lot) {
+        // cache de vérif : le lot global est deja la (mis a jour en arriere-plan, voir cacheChanged)
+        lot = vcache.lot(cachedRoot);
+        root = cachedRoot !== id ? cachedRoot : '';
+        vcache.refresh(15000);
+      }
       const target = root || id;
       if (state.lotId !== target) { state.extra = []; resetCascade(); state.startedIn = root ? id : ''; }
       state.lot = lot;
@@ -2470,7 +2667,7 @@
         finishCascade(report);
       } else {
         if (finished && !atRoot) { state.path.pop(); state.current = levelId(); }
-        await loadLot(state.lotId); // contenu et etat a jour des lots
+        await loadLot(state.lotId, '', true); // contenu et etat a jour des lots
       }
       loadLots();
     } catch (e) {
@@ -2620,7 +2817,7 @@
       toast(`${nb(result.moved.length, 'item ajouté', 'items ajoutés')} au lot${credit ? ' : lot réassorti, toujours vérifié' : ' : vérif complète recommandée'}.`
         + (refused.length ? ` Non ${pl(refused.length, 'ajouté', 'ajoutés')} : ${refused.join(', ')}.` : ''),
         refused.length > 0);
-      await loadLot(state.lot.id);
+      await loadLot(state.lot.id, '', true);
       loadLots();
     } catch (e) {
       identityRefused(e);
@@ -3408,8 +3605,27 @@
   window.addEventListener('pageshow', (event) => { if (event.persisted) refreshShownHome(); });
 
   // Scanner : l'ecran de vérif habituel, camera demarree (le geste de l'utilisateur debloque aussi le son)
+  // Cache de vérif mis a jour (seaux changes au serveur) : lot de la vérif en cours remplace par son nouveau detail,
+  // items et paquets deja scannes compares a leur nouvel etat (seule une difference est signalee)
+  vcache.onChange((keys) => {
+    const changed = new Set(keys);
+    let shown = false;
+    if (state.lot && changed.has('l:' + state.lotId)) {
+      const fresh = vcache.lot(state.lotId);
+      if (fresh) { state.lot = fresh; shown = true; }
+    }
+    for (const entry of [...state.scanned]) {
+      if (entry.kind === 'item' && changed.has('i:' + entry.iid) && itemChanged(entry, vcache.item(entry.iid))) shown = true;
+    }
+    if (shown) { save(); render(); }
+  });
+  // scanner ouvert ou vérif en cours : cache tenu a jour toutes les minutes, et des le retour du reseau
+  setInterval(() => { if (!inHome() || checkRunning()) vcache.refresh(55000); }, 60000);
+  window.addEventListener('online', () => { if (!inHome() || checkRunning()) vcache.refresh(0); });
+
   function enterScanner(start = true, push = true) {
     if (push) history.pushState(null, '', new URL('./#scan', document.baseURI).href);
+    vcache.refresh(55000); // tout pour la vérif, charge en arriere-plan (vérif possible hors connexion)
     watchStop();
     if (ficheOpen()) closeFiche();
     document.body.classList.remove('home-mode', 'login-reader');
@@ -4049,7 +4265,7 @@
     const names = (message.lots || []).filter((row) => !row.sealed || (message.lots || []).length === 1).map((row) => row.name);
     if (names.length) toast(`${message.by || 'Quelqu\'un'} a validé ${names.join(', ')}`);
     save();
-    loadLot(state.lotId);
+    loadLot(state.lotId, '', true);
   }
 
   // Compte rendu de la vérif commune, envoyee par un autre participant
@@ -5697,6 +5913,7 @@
   // ouverte par l'etiquette du lot (scanner, ou appareil photo du telephone), elle compte pour valider (labelMissing).
   async function launchVerif(id, key, label = false) {
     startCamera(); // pendant le clic : le navigateur peut exiger un geste de l'utilisateur
+    vcache.refresh(55000); // tout pour la vérif, charge en arriere-plan (vérif possible hors connexion)
     closeFiche();
     history.pushState({ inApp: true }, '', 'verif');
     // etiquette privee d'un autre lot du meme lot global pendant une vérif : elle rejoint la vérif en cours (vérif en
@@ -6500,7 +6717,7 @@
           item.expired ? 'Inutilisable : à remplacer, compté comme vu.' : 'Toujours utilisable : compté comme vu.');
       }
       save();
-      await loadLot(state.lotId); // etat a jour des items du lot (inutilisable : a remplacer)
+      await loadLot(state.lotId, '', true); // etat a jour des items du lot (inutilisable : a remplacer)
     }
     if (ficheOpen()) openFiche(fiche.kind, fiche.id, { key: fiche.key, seal: fiche.seal, push: false, label: fiche.label });
   }
