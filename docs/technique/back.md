@@ -145,6 +145,23 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
 - `Lots.descendants()` charge **tous** les lots actifs ayant un parent en une requête puis parcourt en
   mémoire : volontaire, le nombre de lots reste petit (centaines) et cela évite N requêtes.
 
+## Cache de vérif (`verif_cache.py`)
+
+Une partie de la réserve n'a ni réseau ni wifi : chaque scan d'une vérif doit se traiter sans attendre le
+serveur. `POST /api/verifs/cache/` (public comme le détail d'un lot ou d'un item ; un badge envoyé doit être
+valide) donne aux fronts tout ce qu'une vérif lit : le détail de **chaque lot global** (et lot seul) avec ses
+sous-lots, comme `lots/<id>/` mais sans clé ni départ, les items qu'on peut encore scanner (tous sauf les
+supprimés et remplacés vus il y a plus d'un an), les paquets fermés (et ouverts depuis moins de 6 mois) et
+**tous** les types d'items. Les items d'un lot n'y sont que par leur iid (`items`, `missing_items`,
+`optional_items`) : le front les reprend dans les enregistrements d'items.
+
+Les enregistrements (`i:<iid>`, `l:<lot global>`, `p:<paquet>`, `t:<type>`) sont répartis en 256 seaux selon
+le SHA-1 de leur clé. Le front envoie `{"buckets": {seau: empreinte}}` ; le serveur ne renvoie que les seaux
+dont l'empreinte a changé, avec tout leur contenu (un enregistrement absent d'un seau renvoyé a disparu) :
+tout au premier appel, presque rien ensuite. Rien n'est gardé côté serveur entre deux appels, si bien que
+l'API publique, locale et distante (processus distincts) répondent pareil. Le calcul (quelques secondes pour
+5 000 items) resert 10 s, séparément pour les noms courts de l'API publique et les noms complets des postes.
+
 ## Notifications
 
 ### Alertes (`notifications.py`)

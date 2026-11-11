@@ -2097,7 +2097,7 @@ class SealTests(ApiTestCase):
         self.assertEqual(lot['requirements'][0]['location'], 'Pochette bleue')
 
 
-class SubLotTests(ApiTestCase):
+class SubLotCase(ApiTestCase):
     """Lot global (B+) compose de sous-lots (sac de soin, sac d'O2), et rangements du stock."""
 
     def setUp(self):
@@ -2120,6 +2120,10 @@ class SubLotTests(ApiTestCase):
 
     def bottle(self):
         return self.create(self.o2, None, 1)[0].iid
+
+
+class SubLotTests(SubLotCase):
+    """Lot global (B+) compose de sous-lots (sac de soin, sac d'O2), et rangements du stock."""
 
     def test_lots_batch(self):
         """Creer N lots d'un coup : noms numerotes apres l'existant, sous-lots proposes d'apres les lots deja
@@ -6948,3 +6952,63 @@ class OptionalContentTests(ApiTestCase):
         self.assertEqual(sorted(report['loose']), sorted(casques))  # non consommables absents : hors lot
         row = next(row for row in report['requirements'] if row['type'] == 'casque')
         self.assertEqual((row['required'], row['optional']), (2, False))
+
+
+class VerifCacheTests(SubLotCase):
+    """Cache de vérif des fronts (verif_cache) : tout charge au debut de la vérif, puis seulement ce qui a change."""
+
+    def setUp(self):
+        super().setUp()  # lot global B+ avec un sac de soin et un sac O2
+        from . import verif_cache
+        self.cache = verif_cache
+        verif_cache.forget()
+
+    def load(self, known=None, local=False):
+        self.cache.forget()
+        code, body = self.call('POST', '/api/verifs/cache/', {'buckets': known or {}}, local=local)
+        self.assertEqual(code, 200)
+        return body
+
+    @staticmethod
+    def records(body):
+        return {key: value for bucket in body['buckets'].values() for key, value in bucket['records'].items()}
+
+    def test_full_then_only_changes(self):
+        soin = Lots.objects.get(id=self.soin['id'])
+        iids = self.fresh(2)
+        services.perform_verif(soin, iids, 'M:M001')
+        stock = self.fresh(1)[0]
+        body = self.load()
+        records = self.records(body)
+        self.assertEqual(body['count'], len(records))
+        # types d'items (meme hors des lots), items en lot et en stock, lot global avec ses sous-lots
+        self.assertIn('t:garrot', records)
+        self.assertIn(f'i:{stock}', records)
+        self.assertEqual(records[f'i:{iids[0]}']['location'], soin.id)
+        root = records[f"l:{self.bplus['id']}"]
+        self.assertNotIn(f"l:{self.soin['id']}", records)  # un sous-lot est dans l'arbre de son lot global
+        bag = next(row for row in root['descendants'] if row['id'] == soin.id)
+        self.assertEqual(sorted(bag['items']), sorted(iids))  # items par iid seulement
+        # jamais de cle ni de code de scelle
+        self.assertNotIn('verif_key', json.dumps(body))
+        known = {index: bucket['hash'] for index, bucket in body['buckets'].items()}
+        again = self.load(known)
+        self.assertEqual(again['buckets'], {})
+        self.assertEqual(again['version'], body['version'])
+        # nouveau signalement sur un item : son seau (et celui du lot dont l'etat change) revient, pas les autres
+        code, _ = self.call('POST', '/api/reports/', {'user': self.badge, 'item': iids[0], 'comment': 'Emballage percé',
+                                                      'usable': False}, local=False)
+        self.assertEqual(code, 201)
+        changed = self.load(known)
+        self.assertNotEqual(changed['version'], body['version'])
+        self.assertLess(len(changed['buckets']), 10)
+        item = self.records(changed)[f'i:{iids[0]}']
+        self.assertTrue(item['reported'])
+        self.assertTrue(item['unusable'])
+
+    def test_badge_checked_and_full_names_on_poste(self):
+        code, _ = self.call('POST', '/api/verifs/cache/', {'user': {'matricule': 'M001', 'key': 'faux'}}, local=False)
+        self.assertNotEqual(code, 200)
+        code, body = self.call('POST', '/api/verifs/cache/', {'user': self.badge}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(self.load(local=True)['count'], body['count'])

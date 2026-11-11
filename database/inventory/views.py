@@ -47,6 +47,7 @@ from . import reports
 from . import serializers as ser
 from . import services
 from . import tasks
+from . import verif_cache
 from . import webpush
 from .idendity import SOURCE_VERIFIED, format_identity_verified, guest_identity, identity_from_request, identity_name, short_name
 from .remote_scanner import hub as scanner_hub
@@ -1132,6 +1133,17 @@ RECENT_VERIFS = 30
 # etapes d'une meme verif en cascade (VPS > armoire > sac, chaque sous-lot valide a part) : meme personne, meme lot du
 # haut, chacune a moins de CASCADE_GAP de la precedente et sans revoir un lot deja valide
 CASCADE_GAP = timedelta(minutes=30)
+
+
+@api_view(['POST'])
+@handle_errors
+def verifs_cache(request):
+    """Cache de vérif des fronts (verif_cache) : {"buckets": {seau: empreinte deja connue}} -> seaux changes seulement
+    (tout au premier appel). Public comme le detail d'un lot ou d'un item ; un badge envoye doit etre valide. Ni
+    cles de lots ni codes de scelles."""
+    if request.data.get('user') is not None:
+        badge_user(request)
+    return Response(verif_cache.diff(request.data.get('buckets')))
 
 
 @api_view(['POST'])
