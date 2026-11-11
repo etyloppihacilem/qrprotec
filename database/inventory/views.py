@@ -57,7 +57,7 @@ from .sessions import (  # noqa: F401 (tests)
 from .models import (
     DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType, LotTypeSlot,
     SlotMode,
-    NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile,
+    NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
     SCANNER_VOLUMES, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
 )
 
@@ -1392,6 +1392,38 @@ def stock_forecast_summary(request):
 def tasks_summary(request):
     """Liste de taches de la gestion (« Gestion de la TECH » du front web), roles gestion et admin (badge)."""
     badge_user(request, GESTION)
+    return Response(tasks.todo())
+
+
+@api_view(['POST'])
+@handle_errors
+def orders_create(request):
+    """Case « Commandé » d'une commande suggeree (taches du TECH, web ou poste) : {"user", "type", "quantity"}. La
+    suggestion ne revient plus tant que la commande n'est pas livree (receptions de ce type) ou decochee."""
+    connected_user(request, GESTION)
+    identity = operation_identity(request)
+    item_type = get_object_or_404(ItemType, type=str(request.data.get('type', '')))
+    quantity = parse_int(request.data.get('quantity'), 'quantity', 1, 100000)
+    order = StockOrder.objects.create(item_type=item_type, quantity=quantity, placed_by=identity)
+    journal.record(OperationKind.ORDER, identity, f'Commande passée : {quantity} × {item_type.name}',
+                   type=item_type.type, quantity=quantity, order=order.id)
+    return Response(tasks.todo(), status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@handle_errors
+def orders_cancel(request, order_id):
+    """Decoche une commande passee (erreur, ou elle ne viendra pas) : la suggestion revient si elle tient toujours."""
+    connected_user(request, GESTION)
+    identity = operation_identity(request)
+    order = get_object_or_404(StockOrder.objects.select_related('item_type'), pk=order_id)
+    if order.cancelled is None and order.delivered is None:
+        order.cancelled = timezone.now()
+        order.cancelled_by = identity
+        order.save(update_fields=['cancelled', 'cancelled_by'])
+        journal.record(OperationKind.ORDER, identity,
+                       f'Commande décochée : {order.quantity} × {order.item_type.name}', type=order.item_type_id,
+                       quantity=order.quantity, order=order.id, cancelled=True)
     return Response(tasks.todo())
 
 

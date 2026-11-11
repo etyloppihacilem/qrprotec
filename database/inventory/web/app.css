@@ -545,6 +545,12 @@ button.task-row.bad { border-left: 4px solid var(--red); background: var(--red-b
 .upcoming-toggle { display: flex; align-items: center; gap: 8px; width: 100%; margin: 24px 0 6px; text-align: left;
   background: transparent; color: var(--muted); font-weight: 600; border: 0; border-top: 1px solid var(--line);
   padding: 12px 0 4px; border-radius: 0; }
+.order-row .row-head .text-link { font-size: .9rem; }
+.order-check { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-weight: 600; cursor: pointer; }
+.order-check .order-box { width: 22px; height: 22px; margin: 0; flex: none; }
+.order-check .order-qty { width: 80px; padding: 4px 6px; font: inherit; }
+.placed-head { margin: 10px 0 2px; color: var(--muted); font-weight: 600; font-size: .9rem; }
+.placed-row .order-check { margin-top: 0; font-weight: 400; }
 .upcoming-toggle .fold-box { display: inline-block; width: 18px; height: 18px; box-sizing: border-box; border: 1.5px solid var(--muted);
   border-radius: 3px; font-size: 15px; font-weight: 700; line-height: 15px; text-align: center; }
 .revise-btn { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; }

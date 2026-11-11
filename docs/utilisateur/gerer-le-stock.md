@@ -87,10 +87,22 @@ stock, du plus important au moins important :
 7. **Commandes** et **déplacements** recommandés par les prévisions dans les 30 jours ;
 8. **De temps en temps** : étiquettes clés et badges qui expirent, périmés restés dans le stock, listes de
    matériel sorties et pas rentrées, matériel hors lot à ranger, lots valides pas vérifiés depuis 90 jours
-   (`QRPROTEC_ROUTINE_VERIF_DAYS`), péremptions dans les 30 jours d'un lot valide.
+   (`QRPROTEC_ROUTINE_VERIF_DAYS`).
 
 Chaque tâche dit quoi faire ; la toucher (téléphone) ou son bouton (poste) ouvre la fiche du lot, les
 signalements, les prévisions ou la fenêtre où la traiter. Une tâche disparaît d'elle-même quand elle est faite.
+
+**Commande passée.** Une commande suggérée a une case **Commandé** et sa quantité (modifiable) : cochez-la une
+fois la commande passée. Elle quitte les tâches et attend sa livraison sous « Commandes passées, en attente de
+livraison » (qui l'a cochée, quand, ce qui est déjà reçu). Elle se clôt toute seule quand cette quantité d'items
+du type a été réceptionnée. Pas livrée au bout de 30 jours, elle redevient une tâche (relancer le fournisseur).
+Décochez-la si elle ne viendra pas : la suggestion revient si elle tient toujours.
+
+**Péremptions à venir.** Les péremptions des 30 jours ne sont pas des tâches : les secouristes remplacent les
+items une fois périmés, pendant la vérif du lot rouge. Seul compte ce qu'elles demandent au TECH : une commande,
+ou un déplacement pour utiliser plus tôt ce qui va périmer. Le bouton **Péremptions à venir**, tout en bas et
+replié, les liste quand même (hors du compte des tâches), ce qui périme en premier en tête : jaune dans les
+7 jours, orange dans les 2 jours.
 
 ## Consulter l'état des stocks
 

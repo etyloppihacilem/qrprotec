@@ -470,6 +470,9 @@ class App {
     void refresh_stock();
     void refresh_forecast();
     void refresh_tasks();
+    // Case « Commandé » d'une commande suggeree (taches du TECH) / decocher une commande passee
+    void place_order(const std::string &type, const std::string &name, int quantity);
+    void cancel_order(long long id, const std::string &name);
     // Etiquettes d'items demandees depuis le web par un admin : fenetre « Impressions en attente », ouverte d'elle-meme
     // a chaque nouvelle demande, meme sans personne de connecte (voir label_prints.cpp)
     void refresh_label_prints();

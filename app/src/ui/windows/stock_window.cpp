@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <map>
 #include <sstream>
 #include <vector>
 
@@ -140,6 +141,7 @@ class StockWindow final : public AppWindow {
     }
 
   private:
+    std::map< std::string, int > order_quantities_; // quantite de la case « Commandé », par type d'item
     std::string select_; // onglet a ouvrir (tache des commandes, des deplacements ou du stock ; tasks : vue par defaut)
 
     // ---- À faire : liste de taches de la gestion, par priorite ----
@@ -153,12 +155,17 @@ class StockWindow final : public AppWindow {
       if (data["count"].integer() == 0)
         status_banner("✔ Rien à faire pour l'instant", colors::green);
       ImGui::BeginChild("tasks_list");
+      if (data["count"].integer() == 0)
+        draw_placed_orders(app, data["orders_placed"]);
       int rank = 0;
       for (const Json &category : data["categories"].items()) {
         ++rank;
-        if (category["count"].integer() == 0)
+        const std::string key = category["key"].str();
+        if (category["count"].integer() == 0) {
+          if (key == "orders" && data["count"].integer() > 0)
+            draw_placed_orders(app, data["orders_placed"]);
           continue;
-        const std::string key   = category["key"].str();
+        }
         const std::string title = std::to_string(rank) + ". " + category["title"].str() + " ("
                                 + std::to_string(category["count"].integer()) + ")";
         ImGui::SeparatorText(title.c_str());
@@ -171,9 +178,47 @@ class StockWindow final : public AppWindow {
           draw_task(app, row);
           ImGui::PopID();
         }
+        if (key == "orders")
+          draw_placed_orders(app, data["orders_placed"]);
       }
       draw_upcoming(app, data["upcoming"]);
       ImGui::EndChild();
+    }
+
+    // Commandes passees en attente de livraison : sous les commandes, hors du compte des taches (sauf en retard).
+    // Decocher : la commande ne viendra pas (ou erreur), la suggestion revient si elle tient toujours.
+    void draw_placed_orders(App &app, const Json &rows) {
+      if (!rows.is_array() || rows.size() == 0)
+        return;
+      ImGui::Spacing();
+      ImGui::TextDisabled("Commandes passées, en attente de livraison (%d)", static_cast< int >(rows.size()));
+      for (const Json &row : rows.items()) {
+        const long long id   = static_cast< long long >(row["id"].num());
+        const std::string name = row["name"].str();
+        ImGui::PushID(("placed" + std::to_string(id)).c_str());
+        bool checked = true;
+        const std::string label = std::to_string(row["quantity"].integer()) + " × " + name;
+        if (row["late"].boolean())
+          ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
+        if (ImGui::Checkbox(label.c_str(), &checked) && !checked)
+          app.cancel_order(id, label);
+        if (row["late"].boolean())
+          ImGui::PopStyleColor();
+        const int days     = row["days"].integer();
+        std::string detail = days == 0 ? "commandé aujourd'hui"
+                                       : "commandé il y a " + std::to_string(days) + (days == 1 ? " jour" : " jours");
+        if (!row["placed_by"].str().empty())
+          detail += " par " + row["placed_by"].str();
+        if (row["received"].integer() > 0)
+          detail += " · reçu " + std::to_string(row["received"].integer()) + "/" + std::to_string(row["quantity"].integer());
+        detail += " · se clôt toute seule à la réception";
+        ImGui::Indent();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", detail.c_str());
+        ImGui::PopStyleColor();
+        ImGui::Unindent();
+        ImGui::PopID();
+      }
     }
 
     // Peremptions a venir (30 jours) : pas des taches (les secouristes remplacent les perimes pendant la verif du lot
@@ -239,6 +284,21 @@ class StockWindow final : public AppWindow {
       } else if (link == "forecast") {
         if (small_button(row["category"].str() == "orders" ? "Voir les commandes" : "Voir les transferts"))
           select_ = row["category"].str() == "orders" ? "orders" : "transfers";
+        // case « Commandé » d'une commande suggeree (quantite modifiable) : la suggestion attend la livraison
+        const std::string type = row["type"].str();
+        if (!type.empty() && row["quantity"].integer() > 0) {
+          auto found = order_quantities_.find(type);
+          if (found == order_quantities_.end())
+            found = order_quantities_.emplace(type, row["quantity"].integer()).first;
+          ImGui::SameLine();
+          bool ordered = false;
+          if (ImGui::Checkbox("Commandé :", &ordered) && ordered && found->second > 0)
+            app.place_order(type, row["name"].str(), found->second);
+          ImGui::SameLine();
+          ImGui::SetNextItemWidth(110.0f);
+          if (ImGui::InputInt("##qty", &found->second))
+            found->second = std::max(1, found->second);
+        }
       } else if (link == "stock") {
         if (small_button("Voir l'état actuel"))
           select_ = "stock";

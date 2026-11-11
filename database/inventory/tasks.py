@@ -40,7 +40,7 @@ from .idendity import format_identity_verified, identity_name
 from .journal import plural
 from .models import (
     Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, ProblemReport, ReportStatus,
-    STOCK_LOT_TYPE, Secouristes, ServerSettings, Verifs, lot_keys_expire, qrprotec_setting,
+    STOCK_LOT_TYPE, Secouristes, ServerSettings, StockOrder, Verifs, lot_keys_expire, qrprotec_setting,
 )
 from .reports import target_name
 
@@ -54,7 +54,8 @@ CATEGORIES = [
     ('stock_verif', 'Vérifs du stock', 'Beaucoup de sorties d\'un rangement (ou du stock sans rangement) depuis sa '
                                        'dernière vérif : au retour, chaque item est remis à sa place, une vérif de '
                                        'temps en temps contrôle qu\'il y est bien.'),
-    ('orders', 'Commandes', 'Commandes à passer dans les 30 jours pour ne pas passer sous le minimum (prévisions).'),
+    ('orders', 'Commandes', 'Commandes à passer dans les 30 jours pour ne pas passer sous le minimum (prévisions). '
+                            'Cochez « Commandé » une fois passée : elle attend sa livraison et se clôt à la réception.'),
     ('transfers', 'Déplacements', 'Échanges qui évitent de laisser périmer du matériel dans les 30 jours (prévisions).'),
     ('periodic', 'De temps en temps', 'Étiquettes à imprimer au poste, étiquettes et badges qui expirent, '
                                       'périmés du stock, listes pas rentrées, matériel hors lot, vérifs de routine.'),
@@ -67,6 +68,7 @@ LIST_RETURN_DAYS = 2  # liste sortie depuis plus longtemps : retour a faire
 LEVEL_ORDER = {'bad': 0, 'warn': 1, 'info': 2}
 SEAL_ORDER = {'seal_opened': 0, 'must_seal': 1}
 INVALID_ORDER = {'unusable': 0, 'sealed_expired': 1, 'incomplete': 2, 'never': 3}
+ORDER_DELIVERY_DAYS = 30  # commande passee pas livree au bout de 30 jours : de nouveau une tache
 UPCOMING_DAYS = 30  # « Peremptions a venir » : items qui periment dans les 30 jours
 UPCOMING_YELLOW_DAYS = 7  # jaune dans les 7 jours
 UPCOMING_ORANGE_DAYS = 2  # orange dans les 2 jours
@@ -233,20 +235,66 @@ def _stock_verif_tasks():
     return tasks
 
 
-def _forecast_tasks(today):
+def open_orders():
+    """Commandes passees en cours (case « Commandé »), par type d'item. Clot au passage celles qui sont livrees : les
+    items de ce type receptionnes depuis la commande la remplissent, les plus anciennes commandes d'abord."""
+    by_type = defaultdict(list)
+    for order in StockOrder.objects.select_related('item_type').filter(delivered__isnull=True, cancelled__isnull=True):
+        by_type[order.item_type_id].append(order)
+    now = timezone.now()
+    for type_id, orders in list(by_type.items()):
+        orders.sort(key=lambda order: order.placed)
+        received = Items.objects.filter(pack__item_type_id=type_id, added__gt=orders[0].placed).count()
+        still = []
+        for order in orders:
+            order.received = min(received, order.quantity)
+            received -= order.received
+            if order.received >= order.quantity:
+                order.delivered = now
+                order.save(update_fields=['delivered'])
+            else:
+                still.append(order)
+        by_type[type_id] = still
+    return {type_id: orders for type_id, orders in by_type.items() if orders}
+
+
+def order_dict(order, today):
+    days = (today - timezone.localtime(order.placed).date()).days
+    return {'id': order.id, 'type': order.item_type_id, 'name': order.item_type.name, 'quantity': order.quantity,
+            'received': order.received, 'placed': _iso(order.placed), 'placed_by': identity_name(order.placed_by),
+            'days': days, 'late': days >= ORDER_DELIVERY_DAYS}
+
+
+def _forecast_tasks(today, orders):
     data = stock_forecast.forecast(months=6)
     limit = today + timedelta(days=ORDER_WINDOW_DAYS)
     tasks = []
     for row in data['types']:
         order = row['order']
-        if not order or order['before'] > limit:
+        # deja commande (case « Commandé ») : la commande attend sa livraison, pas de nouvelle suggestion
+        if not order or order['before'] > limit or row['type'] in orders:
             continue
         detail = ('dès que possible' if order['urgent'] else f"avant le {_day(order['before'])}")
         if order['below_min']:
             detail += f" · sous le minimum le {_day(order['below_min'])}"
         detail += f" · stock {row['stock_now']}, minimum {row['min_quantity']}"
-        tasks.append(task('orders', 'warn' if order['urgent'] else 'info', f"Commander {order['quantity']} × {row['name']}",
-                          detail, order['before'], 'forecast', sort=order['before'].toordinal()))
+        row_task = task('orders', 'warn' if order['urgent'] else 'info', f"Commander {order['quantity']} × {row['name']}",
+                        detail, order['before'], 'forecast', sort=order['before'].toordinal())
+        row_task.update(type=row['type'], name=row['name'], quantity=order['quantity'])  # case « Commandé »
+        tasks.append(row_task)
+    # commandes passees pas livrees au bout de 30 jours : relancer le fournisseur, ou la decocher
+    for type_orders in orders.values():
+        for order in type_orders:
+            info = order_dict(order, today)
+            if not info['late']:
+                continue
+            got = f" (reçu {order.received}/{order.quantity})" if order.received else ''
+            row_task = task('orders', 'warn', f'Commande pas livrée : {order.quantity} × {order.item_type.name}',
+                            f"commandée le {_day(order.placed)} par {info['placed_by'] or '?'}{got} : relancer le "
+                            'fournisseur, ou la décocher si elle ne viendra pas', order.placed, 'forecast',
+                            sort=order.placed.toordinal() - 10 ** 6)
+            row_task.update(type=order.item_type_id, order=order.id)
+            tasks.append(row_task)
     for group in data['transfers']:
         if group['before'] > limit:
             continue
@@ -361,8 +409,9 @@ def todo(today=None):
     today = today or timezone.localdate()
     lots = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     rows = ser.lot_list(lots, today=today)
+    orders = open_orders()
     tasks = (_report_tasks() + _lot_tasks(rows, today) + _revision_tasks(today) + _stock_verif_tasks()
-             + _forecast_tasks(today) + _periodic_tasks(today) + _unsorted_tasks())
+             + _forecast_tasks(today, orders) + _periodic_tasks(today) + _unsorted_tasks())
     rank = {key: index for index, (key, _, _) in enumerate(CATEGORIES)}
     tasks.sort(key=lambda row: (rank[row['category']], LEVEL_ORDER[row['level']], row['_sort']))
     for row in tasks:
@@ -373,5 +422,8 @@ def todo(today=None):
         level = min((row['level'] for row in rows_of), key=LEVEL_ORDER.get, default='')
         categories.append({'key': key, 'title': title, 'help': help_text, 'count': len(rows_of), 'level': level})
     # peremptions a venir : a part, repliees en bas, hors du compte des taches
-    return {'today': today, 'count': len(tasks), 'categories': categories, 'tasks': tasks,
+    # commandes passees en attente de livraison : sous les commandes, hors du compte (sauf en retard : tache)
+    placed = sorted((order_dict(order, today) for type_orders in orders.values() for order in type_orders),
+                    key=lambda row: row['placed'])
+    return {'today': today, 'count': len(tasks), 'categories': categories, 'tasks': tasks, 'orders_placed': placed,
             'upcoming': upcoming_expiries(rows, today)}
