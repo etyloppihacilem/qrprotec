@@ -170,6 +170,7 @@ struct VerifSession {
     // lots dont l'etiquette (publique, cle ou du scelle) a ete scannee : la verif est bien celle de ces lots
     std::set< std::string >               labels;
     std::set< std::string >               entered; // lots ou l'on est entre : leurs sous-lots non faits restent tels quels
+    std::map< std::string, CascadeDone >  reopened; // lots valides rouverts : validation d'avant, rendue si l'on en ressort sans scan
     // scan d'un item, d'une etiquette ou d'un scelle d'un lot hors du lot en cours, alors que celui-ci est complet : il
     // est valide automatiquement, puis on continue vers ce lot (on y entre si after_enter)
     std::string                           started_in; // sous-lot dont on a lance la verif (ex : un kit du VPS)
@@ -433,6 +434,7 @@ class App {
     std::set< std::string >     verif_scope(const std::string &top) const; // lots verifies a la validation de top
     void                        enter_level(const std::string &target);
     void                        leave_level(); // retour au lot qui contient le lot en cours, sans le valider
+    void                        leave_level_validated(); // bouton « ← Revenir à » : valide le lot en cours (même incomplet), puis remonte
     // valide le lot en cours (partial : verif partielle ou reassort de ce lot) et revient au lot qui le contient
     void                        submit_step(bool partial = false);
     bool                        verif_level_complete() const; // lot en cours complet, validable sans question

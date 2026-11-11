@@ -90,6 +90,7 @@
     keys: {},               // etiquettes cles de sous-lots scannees pendant la vérif : {id: cle}
     labels: [],             // lots dont l'etiquette (publique ou cle) a ete scannee pendant la vérif (labelMissing)
     entered: [],            // lots ou l'on est entre : leurs sous-lots non faits sont laisses de cote, pas manquants
+    reopened: {},           // lots valides rouverts (« Le refaire ») : {id: validation d'avant}, rendue si l'on en ressort sans scan
     startedIn: '',          // sous-lot dont on a lance la vérif (ex : un kit dans le VPS)
     openSeals: [],          // lots scelles dont on a choisi de verifier le contenu (sealWaiting)
   };
@@ -122,7 +123,7 @@
         at: Date.now(), // derniere activite (SESSION_TIMEOUT_MS)
         lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
         launched: state.launched, current: state.current, full: state.full, fullHidden: state.fullHidden,
-        path: state.path, done: state.done, keys: state.keys, entered: state.entered, startedIn: state.startedIn,
+        path: state.path, done: state.done, keys: state.keys, entered: state.entered, reopened: state.reopened, startedIn: state.startedIn,
         labels: state.labels, openSeals: state.openSeals,
         extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place }) => ({ code, kind, iid, key, info, expired, error, items, place })),
@@ -158,6 +159,7 @@
         state.labels = Array.isArray(session.labels) ? session.labels : [];
         state.openSeals = Array.isArray(session.openSeals) ? session.openSeals : [];
         state.entered = Array.isArray(session.entered) ? session.entered : [];
+        state.reopened = session.reopened && typeof session.reopened === 'object' ? session.reopened : {};
         state.startedIn = typeof session.startedIn === 'string' ? session.startedIn : '';
         state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
         state.lastVerif = session.lastVerif || null;
@@ -1632,7 +1634,7 @@
     || Object.keys(state.done).length > 0 || Object.keys(state.keys).length > 0);
 
   function resetCascade() {
-    state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.startedIn = ''; state.labels = [];
+    state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.reopened = {}; state.startedIn = ''; state.labels = [];
     state.openSeals = []; state.full = false; state.fullBy = ''; state.fullHidden = false;
   }
 
@@ -1698,16 +1700,51 @@
     state.current = id;
     state.askPlace = false;
     if (!state.entered.includes(id)) state.entered.push(id);
+    if (state.done[id]) state.reopened[id] = state.done[id];
     delete state.done[id];
     switchTab('todo');
   }
 
-  // Revenir au lot qui contient le lot en cours, sans le valider (ses scans restent)
+  // Revenir au lot qui contient le lot en cours, sans le valider (ses scans restent). Rien scanne dedans : il n'est pas
+  // « commence », et un lot valide qu'on avait rouvert (« Le refaire ») redevient valide, comme chez les autres
+  // participants de la vérif commune.
   function goUp() {
+    const id = levelId();
+    if (id !== state.lotId && !state.done[id] && !scopeEntries(scopeOf(id)).length
+      && !state.entered.some((other) => other !== id && isUnder(other, id))) {
+      state.entered = state.entered.filter((other) => other !== id);
+      const before = state.reopened[id] || (live.team && live.team.done && live.team.done[id]);
+      if (before) state.done[id] = before;
+    }
+    delete state.reopened[id];
     state.path.pop();
     state.current = levelId();
     save();
     render();
+  }
+
+  // Bouton « ← parent » de la vérif en cascade : le lot en cours est validé en le quittant, complet ou non (les non
+  // scannés passent manquants). Sans rien scanné dedans, on remonte simplement. Incomplet alors qu'un autre
+  // participant y est encore, ou étiquette du lot manquante : on remonte sans valider, scans gardés.
+  async function leaveUp() {
+    if (state.busy || levelId() === state.lotId) return;
+    const level = levelLot();
+    const scope = scopeOf(level.id);
+    if (!scopeEntries(scope).length) { goUp(); return; }
+    const complete = levelComplete();
+    if (!complete && othersLevels()[level.id]) {
+      toast(`${level.name} n'est pas validé : un autre participant y est encore (scans gardés).`);
+      goUp();
+      return;
+    }
+    const missing = blockers(false);
+    if (missing.length) {
+      feedback.warn();
+      toast(`${level.name} n'est pas validé (${missing.join(', ')}) : scans gardés.`, true);
+      goUp();
+      return;
+    }
+    await validateStep(false, true);
   }
 
   // Lots ou se trouvent les autres participants de la vérif commune : {id du lot: [noms]}
@@ -3457,8 +3494,8 @@
           : sealNextLevel() ? `Validez ${level.name} : la vérif s'arrête là, le lot est ensuite à resceller.`
           : parent ? `Validez ${level.name} pour revenir à ${parent.name}.`
           : childrenOf(level.id).length ? `Scannez l'étiquette ${childrenDe(level.id)} pour y entrer.` : '')),
-      parent ? el('button', { type: 'button', class: 'secondary', title: `Revenir à ${parent.name} sans valider ${level.name} (ses scans sont gardés)`,
-        onclick: goUp }, '← ' + (parent.name_short || parent.name)) : null));
+      parent ? el('button', { type: 'button', class: 'secondary', title: `Revenir à ${parent.name} en validant ${level.name} (incomplet s'il manque des items)`,
+        onclick: leaveUp }, '← ' + (parent.name_short || parent.name)) : null));
     if (sealWaiting(level)) {
       rows.push(...sealRows(level));
       list.replaceChildren(...rows);
@@ -3492,7 +3529,7 @@
         if (who.length) { cls = 'partial'; sub = `En cours · ${who.join(', ')}`; }
         else if (touched(child.id)) { cls = 'partial'; sub = `Commencé · ${nb(scanned, 'scanné')}, pas encore validé`; }
         else if (sealWaiting(child)) { cls = 'todo'; sub = "🔒 Scellé : scannez l'étiquette du scellé"; }
-        else { cls = 'todo'; sub = 'À faire · état actuel : ' + childStatus(child).label; }
+        else { cls = 'todo'; const status = childStatus(child); sub = el('span', {}, 'À faire · état actuel : ', el('span', { class: 'state-' + (status.kind || (status.ok ? 'ok' : 'bad')) }, status.label)); }
       }
       // dernier scan dans ce sous-lot (ou ses sous-lots) : le plus recent monte, s'il n'est pas vert
       let last = -1;
@@ -3505,7 +3542,7 @@
       } },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, (child.is_sealed ? '🔒 ' : '📦 ') + child.name),
-        el('div', { class: 'sub' }, sub + (subs ? ` · ${nb(subs, 'sous-lot')}` : ''))),
+        el('div', { class: 'sub' }, sub, subs ? ` · ${nb(subs, 'sous-lot')}` : '')),
       el('span', { class: 'chevron' }, '›')) });
     }
     // ordre general des listes : rouge en haut, orange, a faire, facultatif, vert en bas ; a egalite, le dernier
@@ -4353,6 +4390,12 @@
     }
   }
 
+  // Lot de la cascade ou l'on travaille encore : on y est (ou plus bas), ou des scans pas encore valides y sont faits.
+  // Un lot valide par un autre participant n'y est pas note valide (on le refait peut-etre).
+  function working(id) {
+    return state.path.includes(id) || scopeEntries(new Set(subtreeIds(id))).length > 0;
+  }
+
   function teamChanged() {
     const me = live.me();
     if (me && !me.validated && state.waitingTeam) state.waitingTeam = false;
@@ -4360,7 +4403,7 @@
     const done = (live.team && live.team.done) || {};
     if (inCascade()) {
       for (const [id, row] of Object.entries(done)) {
-        if (!state.done[id] && !state.entered.includes(id) && lotById(id)) state.done[id] = row;
+        if (!state.done[id] && !working(id) && lotById(id)) state.done[id] = row;
       }
     }
     // « vérif complète » partagee : activee par un admin, ici ou depuis la page de suivi

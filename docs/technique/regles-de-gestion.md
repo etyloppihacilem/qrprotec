@@ -289,6 +289,15 @@ Décisions (prises avec le responsable du projet, voir [decisions.md](decisions.
     (`validateStep(false, true)` / `submit_step`), passer sans valider (le niveau reste à faire, ses
     scans gardés) ou rester. Popup ignorée : le scan suivant vaut
     « passer ». Niveau incomplet sans scan : on passe au lot scanné sans question.
+    Bouton « ← parent » (`leaveUp` / `App::leave_level_validated`) : le niveau est validé en le
+    quittant, complet ou incomplet sans question (`validateStep(false, true)` / `submit_step`) ; sans
+    scan dans le niveau, on remonte sans rien enregistrer ; étiquette du lot ou clé manquante (ou, au
+    web, niveau incomplet où un autre participant est encore), on remonte sans valider, scans gardés.
+    Le fil (noms des lots au-dessus) remonte toujours sans valider.
+    Remonter sans scan dans un niveau (`goUp` / `App::leave_level`) : il n'est plus « commencé », et
+    un lot validé rouvert par « Le refaire » (`state.reopened` / `verif.reopened`) redevient validé.
+    Vérif à plusieurs : un lot validé par un autre participant (`team.done`) est noté validé sauf si
+    l'on y est encore ou qu'on y a des scans pas encore validés (`working`).
   - Vérif lancée sur un sous-lot à scellé obligatoire (`started_in` / `state.startedIn`) : validé
     complet, la cascade se termine sur son compte rendu (raccourci « Sceller » au poste) au lieu de
     remonter au lot parent.

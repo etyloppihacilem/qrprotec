@@ -295,7 +295,10 @@ Chaque lot validé est une vérif à part, enregistrée dès sa validation : si 
 les armoires faites restent faites. Un lot où vous n'êtes pas entré n'est pas touché (pas de
 « manquants » pour une armoire que vous n'avez pas ouverte). Un item d'un lot déjà validé pendant
 cette vérif est refusé (« Déjà vérifié ») : rentrez dans le lot (touchez sa ligne) pour le refaire.
-**← Retour** remonte d'un niveau sans valider.
+**← Retour** (« ← Stock », « ← Armoire 1 »…) remonte d'un niveau en validant le lot où vous êtes : vert
+s'il est complet, rouge (incomplet, les non scannés passent manquants) sinon. Si rien n'y a été scanné,
+il remonte sans rien enregistrer (un lot vert rouvert pour le refaire redevient vert). Dans la liste, un lot pas encore validé reste gris ; son état d'avant
+la vérif est affiché en pastille de couleur après « état actuel ».
 
 **Changer de lot** : on passe à un autre lot en scannant son **étiquette** (ou son scellé). Un item
 scanné compte toujours dans le lot où vous êtes, là où vous l'avez trouvé, même si la base le croyait
