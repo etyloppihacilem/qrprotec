@@ -79,6 +79,8 @@ dl.facts dd { margin: 0; }
 /* connecte : marine cerne de blanc, pas de vert (reserve a « c'est bon ») */
 .chip.ok { background: rgba(20, 40, 75, .85); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .4); }
 .chip.icon.on { background: #f5c518; color: #000; }
+.chip.offline { background: rgba(70, 70, 70, .85); font-size: .8rem; padding: 5px 10px; align-self: center; }
+.chip.offline.pending { background: rgba(160, 90, 0, .9); }
 #topbar .chips { display: flex; gap: 8px; }
 #scan-hint { position: absolute; bottom: 10px; width: 100%; text-align: center; color: #fff;
   text-shadow: 0 1px 3px #000; font-size: .95rem; pointer-events: none; }

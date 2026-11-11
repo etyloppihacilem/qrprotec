@@ -250,6 +250,97 @@
     button.replaceChildren(...(name ? [icon(name)] : []), text);
   }
 
+  // ------------------------------------------------------------------------------------------------
+  // Hors connexion : une partie de la reserve n'a ni reseau ni wifi. La vérif se fait depuis le cache de vérif (vcache)
+  // et ce qui doit aller au serveur (vérif, etape de la vérif en cascade, scelle intact) attend dans une file gardee sur
+  // le telephone (outbox), renvoyee dans l'ordre des le retour du reseau. Une petite mention le dit en haut du scanner.
+  const STORAGE_OUTBOX = 'qrprotec.outbox';
+  let offline = false;
+  let outbox = [];
+  try { outbox = JSON.parse(localStorage.getItem(STORAGE_OUTBOX) || '[]') || []; } catch (e) { outbox = []; }
+  let outboxBusy = false;
+
+  function saveOutbox() {
+    try { localStorage.setItem(STORAGE_OUTBOX, JSON.stringify(outbox)); } catch (e) { /* stockage indisponible */ }
+  }
+
+  function showOffline() {
+    const chip = $('#offline-chip');
+    if (!chip) return;
+    const waiting = outbox.length;
+    chip.hidden = !offline && !waiting;
+    chip.classList.toggle('pending', !offline && waiting > 0);
+    chip.textContent = offline ? (waiting ? `Hors connexion · ${nb(waiting, 'envoi')} en attente` : 'Hors connexion')
+      : `Envoi en cours… (${waiting})`;
+  }
+
+  // Reponse (ou non) du serveur a une requete : la mention suit, et le retour du reseau vide la file d'attente
+  function setOffline(value) {
+    if (offline === value) return;
+    offline = value;
+    showOffline();
+    if (!value && outbox.length) setTimeout(flushOutbox, 0);
+  }
+
+  // Vérif (ou etape d'une vérif en cascade) envoyee au serveur. Hors connexion, ou si des envois attendent deja (l'ordre
+  // compte : etapes de la cascade), elle est mise en file. Renvoie le compte rendu du serveur, ou null si en attente.
+  async function sendVerif(body, label) {
+    if (!outbox.length) {
+      try {
+        return await api('verifs/', body);
+      } catch (e) {
+        if (e.status !== 0) throw e;
+      }
+    }
+    outbox.push({ body, label, at: new Date().toISOString() });
+    saveOutbox();
+    showOffline();
+    return null;
+  }
+
+  // File d'attente renvoyee dans l'ordre. Refusee par le serveur (etiquette cle perimee, scelle brise entre-temps...) :
+  // retiree de la file et signalee, a refaire.
+  async function flushOutbox() {
+    if (outboxBusy || !outbox.length) return;
+    outboxBusy = true;
+    showOffline();
+    let sent = 0;
+    try {
+      while (outbox.length) {
+        const next = outbox[0];
+        try {
+          await api('verifs/', next.body);
+          sent += 1;
+        } catch (e) {
+          if (e.status === 0) break; // toujours hors connexion : on reessaiera
+          feedback.bad();
+          showInfo('bad', `Vérif non enregistrée : ${next.label}`, e.message,
+            `Faite hors connexion ${fmtOn(next.at)}, refusée par le serveur : à refaire.`);
+          toast(`Vérif de ${next.label} refusée par le serveur : ${e.message}`, true);
+        }
+        outbox.shift();
+        saveOutbox();
+      }
+    } finally {
+      outboxBusy = false;
+      showOffline();
+    }
+    if (sent) {
+      toast(outbox.length ? `${nb(sent, 'vérif envoyée', 'vérifs envoyées')}, ${outbox.length} en attente.`
+        : `Réseau retrouvé : ${nb(sent, 'vérif hors connexion envoyée', 'vérifs hors connexion envoyées')}.`);
+      vcache.refresh(0);
+    }
+  }
+
+  // Hors connexion ou envois en attente : on reessaie regulierement (une requete reussie vide aussi la file)
+  setInterval(() => {
+    if (outbox.length) flushOutbox();
+    else if (offline) api('health/').catch(() => {});
+  }, 20000);
+  window.addEventListener('online', () => { if (outbox.length) flushOutbox(); else if (offline) api('health/').catch(() => {}); });
+  window.addEventListener('offline', () => setOffline(true));
+  setTimeout(() => { showOffline(); flushOutbox(); }, 1500);
+
   async function api(path, body) {
     const options = { headers: { Accept: 'application/json' } };
     if (body !== undefined) {
@@ -261,8 +352,10 @@
     try {
       response = await fetch(new URL(path, API), options);
     } catch (e) {
+      setOffline(true);
       throw Object.assign(new Error('Serveur injoignable, vérifiez le réseau.'), { status: 0 });
     }
+    setOffline(false);
     let data = null;
     try { data = await response.json(); } catch (e) { /* reponse vide */ }
     if (!response.ok) {
@@ -1263,9 +1356,13 @@
     try {
       lot = await api(`lots/${encodeURIComponent(scan.id)}/?seal=${encodeURIComponent(scan.key)}`);
     } catch (e) {
-      feedback.bad();
-      showInfo('bad', 'Lot introuvable', e.message);
-      return true;
+      // hors connexion : lot du cache de vérif, scelle accepte s'il est pose (le serveur controle son code a l'envoi)
+      lot = e.status === 0 ? cachedSealLot(scan.id) : null;
+      if (!lot) {
+        feedback.bad();
+        showInfo('bad', 'Lot introuvable', e.message);
+        return true;
+      }
     }
     if (rootOf(lot) !== rootOf(state.lot)) return false;
     if (lot.seal_check !== 'valid' || lot.expired_count) {
@@ -1299,6 +1396,18 @@
     await flushSeals();
     if (ends && state.done[lot.id]) finishCascade(null, `${lot.name} : scellé intact constaté, vérif terminée.`);
     return true;
+  }
+
+  // Lot du cache de vérif pour une etiquette de scelle lue hors connexion : 'valid' s'il est scelle (code controle par
+  // le serveur a l'envoi), avec son lot global (rootOf). Null s'il n'est pas dans le cache.
+  function cachedSealLot(id) {
+    const rootId = vcache.rootOf(id);
+    if (!rootId) return null;
+    const root = vcache.lot(rootId);
+    const row = rootId === id ? root : (root.descendants || []).find((sub) => sub.id === id);
+    if (!row) return null;
+    return Object.assign(row, { global: root.global || { id: rootId, name: root.name }, path: row.path || [{ id: rootId, name: root.name }],
+                               seal_check: row.is_sealed ? 'valid' : 'unsealed', seal_offline: true });
   }
 
   // Etiquette d'ouverture, rangee dans le lot scelle : la scanner ouvre le scelle, connecte ou non (pas de
@@ -1423,8 +1532,9 @@
           if (root) lot = await api(`lots/${encodeURIComponent(root)}/`);
           if (fresh) vcache.refresh(0);
         } catch (e) {
-          if (e.status !== 0 || !cachedRoot) throw e;
-          lot = null; // hors connexion : le cache
+          // hors connexion : le cache (etiquette du scelle : controlee par le serveur a l'envoi)
+          lot = e.status === 0 && seal ? cachedSealLot(id) : null;
+          if (e.status !== 0 || (!cachedRoot && !lot)) throw e;
         }
       }
       if (!lot) {
@@ -1661,7 +1771,8 @@
       showInfo('bad', 'Étiquette clé refusée', lot.key_error);
       return false;
     } catch (e) {
-      return true; // lot introuvable : signale ensuite par loadLot
+      // lot introuvable : signale ensuite par loadLot. Hors connexion : acceptee, le serveur la controle a l'envoi
+      return true;
     }
   }
 
@@ -2438,7 +2549,8 @@
     render();
     try {
       const credentials = live.credentials();
-      const report = await api('verifs/', {
+      const name = state.lot.name;
+      const report = await sendVerif({
         lots: sessionEntries(),
         labels: [...labeledIds()],
         ...identity(),
@@ -2450,12 +2562,13 @@
         partial,
         full: state.full,
         ...(credentials ? { live: credentials } : {}),
-      });
+      }, name);
       state.waitingTeam = false;
       state.scanned = [];
-      showReport(report);
+      if (report) showReport(report); else feedback.good();
       live.done(report);
-      forgetLot('Vérif enregistrée. Scannez un item ou l\'étiquette d\'un lot pour en commencer une autre.');
+      forgetLot(report ? 'Vérif enregistrée. Scannez un item ou l\'étiquette d\'un lot pour en commencer une autre.'
+        : `✔ Vérif de ${name} gardée sur ce téléphone (hors connexion) : elle sera envoyée dès le retour du réseau.`);
       loadLots();
       backToList();
     } catch (e) {
@@ -2625,7 +2738,7 @@
     render();
     try {
       const credentials = live.credentials();
-      const report = await api('verifs/', {
+      const report = (await sendVerif({
         lots: [{ id: top.id, key: top.id === state.lotId ? state.lotKey : state.keys[top.id] || '' }],
         keys: sessionEntries().filter((entry) => entry.key && entry.id !== top.id),
         labels: [...labeledIds()],
@@ -2637,7 +2750,7 @@
         step: true,
         finish: atRoot && !partial, // lot global valide : on quitte la vérif commune cote serveur aussi
         ...(credentials ? { live: credentials } : {}),
-      });
+      }, top.name)) || offlineReport(verified, plan, payload.sealed);
       stepDone(report, [...payload.items, ...payload.sealed.map((row) => row.id)]);
       state.scanned = state.scanned.filter((entry) => !(entry.kind === 'seal' && payload.sealed.some((row) => row.id === entry.iid)));
       const done = (report.lots || []).filter((row) => row.verified);
@@ -2653,13 +2766,14 @@
           + (incomplete.length ? ', incomplet' : ''),
         done.length > 1 ? `Lots vérifiés : ${done.map((row) => row.name).join(', ')}` : '',
         report.missing && report.missing.length ? `${nb(report.missing.length, 'item manquant', 'items manquants')}` : '',
-        atRoot && finished ? '' : finished ? `Retour à ${(lotById(parentIdOf(top)) || state.lot).name}.` : '');
-      if (incomplete.length || (report.unknown || []).length) showReport(report);
+        atRoot && finished ? '' : finished ? `Retour à ${(lotById(parentIdOf(top)) || state.lot).name}.` : '',
+        report.offline ? '📶 Hors connexion : gardé sur ce téléphone, envoyé dès le retour du réseau.' : '');
+      if (!report.offline && (incomplete.length || (report.unknown || []).length)) showReport(report);
       // kit a scelle obligatoire dont on a lance la vérif (scanne dans le VPS) : valide complet, la vérif s'arrete la,
       // sur le compte rendu ; le lot est a resceller (on n'a vu que l'etiquette exterieure des autres lots)
       const sealNext = !atRoot && finished && sealNextLevel() && done.some((row) => row.id === top.id && row.complete);
       if (sealNext) {
-        showReport(report);
+        if (!report.offline) showReport(report);
         finishCascade(report, `${top.name} validé complet : à resceller (le TECH le scelle depuis le poste).`);
       } else if (stored && (atRoot || top.id === state.startedIn)) {
         finishCascade(report, `${nb((report.restocked || []).length, 'item rangé', 'items rangés')} dans ${top.name} : vérif terminée.`);
@@ -2681,6 +2795,15 @@
     }
   }
 
+  // Compte rendu local d'une etape mise en attente (hors connexion) : les lots valides d'apres le plan de la vérif,
+  // complets ou non, et les lots scelles intacts. Le vrai compte rendu viendra du serveur a l'envoi.
+  function offlineReport(lots, plan, sealed = []) {
+    const rows = lots.map((lot) => ({ id: lot.id, name: lot.name, verified: true,
+      complete: !!plan && expectedGroups(lot, plan).remaining === 0 }));
+    for (const row of sealed) rows.push({ id: row.id, name: (lotById(row.id) || {}).name || '', sealed: true });
+    return { offline: true, lots: rows, missing: [], restocked: [], unknown: [] };
+  }
+
   // Etiquettes de scelle scannees dans la vérif en cascade : le lot scelle intact est enregistre tout de suite (s'il
   // manque l'etiquette cle ou l'identite, il le sera a la validation du lot ou il a ete scanne)
   let flushing = false;
@@ -2692,7 +2815,7 @@
     try {
       for (const entry of seals) {
         const credentials = live.credentials();
-        const report = await api('verifs/', {
+        const report = (await sendVerif({
           lots: [{ id: entry.iid, key: state.keys[entry.iid] || '' }],
           keys: sessionEntries().filter((row) => row.key && row.id !== entry.iid),
           ...identity(),
@@ -2700,7 +2823,7 @@
           sealed: [{ id: entry.iid, code: entry.key }],
           step: true,
           ...(credentials ? { live: credentials } : {}),
-        });
+        }, (lotById(entry.iid) || { name: 'lot scellé' }).name)) || offlineReport([], null, [{ id: entry.iid }]);
         stepDone(report, []);
         state.scanned = state.scanned.filter((other) => other !== entry);
       }
@@ -3806,7 +3929,7 @@
       // liste publique ; le badge, s'il y en a un, est verifie
       state.lots = withoutHidden(await api('lots/summary/', state.user ? { user: badge() } : {}));
     } catch (e) {
-      toast('Lots : ' + e.message, true);
+      if (e.status !== 0) toast('Lots : ' + e.message, true); // hors connexion : la mention du scanner le dit deja
       if (e.status === 403) { state.user = null; save(); }
     } finally {
       state.loading = '';

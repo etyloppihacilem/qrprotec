@@ -147,6 +147,17 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   même pour les items déjà scannés et remplace le lot de la vérif en cours (`vcache.onChange`). Juste après une
   écriture (étape validée, items ajoutés, signalement), `loadLot(id, '', true)` relit le serveur d'abord. Les
   étiquettes clé et de scellé restent contrôlées par le serveur.
+- **Hors connexion** (une partie de la réserve n'a ni réseau ni wifi) : de « Lancer la vérif » à l'envoi, la vérif
+  se fait depuis le cache de vérif. `api()` note chaque requête qui n'aboutit pas (`setOffline`) et la mention
+  « Hors connexion » s'affiche en haut du scanner (`#offline-chip`, avec le nombre d'envois en attente). La vérif
+  finale, chaque étape de la vérif en cascade et les scellés intacts passent par `sendVerif` : hors connexion, ou
+  si des envois attendent déjà (l'ordre des étapes compte), ils vont dans une file gardée sur le téléphone
+  (`localStorage` `qrprotec.outbox`) et la vérif continue avec un compte rendu local (`offlineReport`). La file est
+  renvoyée dans l'ordre au retour du réseau (événement `online`, toute requête réussie, essai toutes les 20 s,
+  rechargement de la page). Un envoi refusé par le serveur (étiquette clé périmée, scellé brisé entre-temps) sort
+  de la file et est signalé, à refaire. Hors connexion, l'étiquette clé et l'étiquette du scellé sont acceptées
+  sur place (`keyAccepted`, `cachedSealLot`) : le serveur les contrôle à l'envoi. La vérif est datée de son envoi.
+  La page elle-même doit avoir été ouverte avec du réseau (pas de cache hors ligne de l'application).
 - **Lampe et vibreur** : la lampe (🔦) n'est proposée que si la caméra l'expose (Chrome Android ;
   ni Safari iOS ni Firefox ne la donnent aux pages web) et se rallume quand la caméra redémarre.
   Le vibreur utilise `navigator.vibrate` (Android) ; sur iPhone, à défaut, le retour haptique d'un
