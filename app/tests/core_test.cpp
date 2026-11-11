@@ -3,12 +3,14 @@
 #include "../src/core/template.hpp"
 #include "../src/core/template_io.hpp"
 #include "../src/core/update_check.hpp"
+#include "../src/core/verif_cache.hpp"
 #include "../src/net/front_config.hpp"
 #include "../src/net/websocket.hpp"
 #include "../src/render/label_types.hpp"
 #include "../src/render/raster.hpp"
 
 #include <cassert>
+#include <filesystem>
 #include <cstdio>
 #include <string>
 #include <unordered_map>
@@ -328,5 +330,56 @@ int main()
     const std::string server_frame = std::string("\x81\x05", 2) + "hello"; // serveur : non masquee
     qrprotec::WebSocketFrame frame;
     assert(qrprotec::ws_decode_frame(server_frame + "rest", frame) == 7 && frame.payload == "hello");
+    // cache de vérif (inventory/verif_cache.py) : seaux complets puis seulement les seaux changes
+    {
+        qrprotec::VerifCache cache;
+        assert(!cache.loaded());
+        assert(cache.request()["buckets"].size() == 0);
+        const auto first = qrprotec::Json::parse(R"({"buckets": {
+          "3": {"hash": "aaa", "records": {"i:compre1": {"iid": "compre1", "type_name": "Compresses", "reported": false},
+                                          "i:compre2": {"iid": "compre2", "type_name": "Compresses"}}},
+          "7": {"hash": "bbb", "records": {"l:bplus1": {"id": "bplus1", "name": "B+ 1", "items": [], "missing_items": [],
+              "descendants": [{"id": "soin1", "name": "Sac de soin", "items": ["compre1", "compre2"], "missing_items": [],
+                               "optional_items": ["compre2"]}]},
+                                          "t:compre": {"type": "compre", "name": "Compresses"}}},
+          "9": {"hash": "ccc", "records": {}}}})");
+        assert(cache.apply(first).size() == 4);
+        assert(cache.loaded() && cache.size() == 4);
+        assert(cache.request()["buckets"]["3"].str() == "aaa");
+        assert(cache.root_of("soin1") == "bplus1" && cache.root_of("bplus1") == "bplus1" && cache.root_of("x").empty());
+        const qrprotec::Json lot = cache.lot("bplus1");
+        const qrprotec::Json &bag = lot["descendants"][0];
+        assert(bag["items"].size() == 2 && bag["items"][0]["type_name"].str() == "Compresses");
+        assert(!bag["items"][0]["optional"].boolean() && bag["items"][1]["optional"].boolean());
+        assert(cache.type("compre") && !cache.pack("x"));
+        // seau 3 change : compre1 signale, compre2 disparu ; seau 7 inchange (pas renvoye)
+        const auto changed = cache.apply(qrprotec::Json::parse(R"({"buckets": {
+          "3": {"hash": "ddd", "records": {"i:compre1": {"iid": "compre1", "type_name": "Compresses", "reported": true}}}}})"));
+        assert(changed.size() == 2);
+        assert((*cache.item("compre1"))["reported"].boolean() && !cache.item("compre2"));
+        assert(cache.request()["buckets"]["3"].str() == "ddd" && cache.request()["buckets"]["7"].str() == "bbb");
+        const qrprotec::Json after = cache.lot("bplus1");
+        assert(after["descendants"][0]["items"][1]["iid"].str() == "compre2"); // detail perdu, iid garde
+
+        // file d'attente des envois, gardee dans un fichier
+        const auto file = std::filesystem::temp_directory_path() / "qrprotec-outbox-test.json";
+        std::filesystem::remove(file);
+        {
+            qrprotec::VerifOutbox outbox;
+            outbox.load(file);
+            assert(outbox.empty());
+            outbox.push({ qrprotec::Json::parse(R"({"lots": [{"id": "soin1"}], "step": true})"), "Sac de soin", "13:02" });
+            outbox.push({ qrprotec::Json::parse(R"({"lots": [{"id": "bplus1"}]})"), "B+ 1", "13:05" });
+        }
+        qrprotec::VerifOutbox again;
+        again.load(file);
+        assert(again.size() == 2 && again.front().label == "Sac de soin" && again.front().body["step"].boolean());
+        again.pop_front();
+        qrprotec::VerifOutbox last;
+        last.load(file);
+        assert(last.size() == 1 && last.front().label == "B+ 1");
+        std::filesystem::remove(file);
+    }
+
     return 0;
 }

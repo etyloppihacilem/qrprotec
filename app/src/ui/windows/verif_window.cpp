@@ -113,6 +113,13 @@ class VerifWindow final : public AppWindow {
         ImGui::Text("Vérif : %s", app.verif_title().c_str());
       }
       ImGui::PopFont();
+      // vérif hors connexion : depuis le cache de vérif, envois gardes sur le poste jusqu'au retour du reseau
+      if (app.offline() || !app.outbox.empty())
+        ImGui::TextColored(ImVec4(0.75f, 0.45f, 0.0f, 1),
+                           app.offline() ? "Hors connexion : la vérif continue, elle sera envoyée au retour du réseau%s."
+                                         : "Envoi des vérifs faites hors connexion%s…",
+                           app.outbox.empty() ? ""
+                                              : (" (" + nb(static_cast< long long >(app.outbox.size()), "en attente", "en attente") + ")").c_str());
       if (verif.loading) {
         ImGui::TextDisabled("Chargement du contenu du lot...");
         return;
@@ -896,7 +903,9 @@ class VerifWindow final : public AppWindow {
       ImGui::Text("Compte rendu : %s", app.last_report_lot.c_str());
       ImGui::PopFont();
       const bool several = report["lots"].size() > 1;
-      if (report["complete"].boolean())
+      if (report["offline"].boolean())
+        status_banner("HORS CONNEXION : VÉRIF GARDÉE SUR CE POSTE, ENVOYÉE AU RETOUR DU RÉSEAU", colors::orange, 1.2f);
+      else if (report["complete"].boolean())
         status_banner(several ? "✔ VÉRIF ENREGISTRÉE : LOTS COMPLETS" : "✔ VÉRIF ENREGISTRÉE : LOT COMPLET", colors::green,
                       1.4f);
       else if (report["partial"].boolean())
