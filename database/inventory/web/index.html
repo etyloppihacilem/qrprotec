@@ -61,6 +61,8 @@
       <div class="chips">
         <button id="go-home" class="chip icon" type="button" aria-label="Accueil" title="Accueil">🏠</button>
         <button id="user-chip" class="chip" type="button">Non connecté</button>
+        <!-- vérif hors connexion : scans traites depuis le cache de vérif, envois mis en attente (app.js, outbox) -->
+        <span id="offline-chip" class="chip offline" role="status" hidden>Hors connexion</span>
       </div>
       <div class="chips">
         <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>
