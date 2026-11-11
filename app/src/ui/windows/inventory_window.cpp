@@ -738,10 +738,15 @@ class InventoryWindow final : public AppWindow {
       if (button("Rechercher") || changed)
         search(app);
 
+      // la liste prend la hauteur restante moins celle du bas (item choisi, actions avancees) mesuree a l'image
+      // precedente : deplier les actions avancees retrecit la liste au lieu de faire defiler toute la fenetre.
+      // Au moins quelques lignes de liste : sur un ecran trop petit, c'est la fenetre qui defile.
+      const float min_list = ImGui::GetTextLineHeightWithSpacing() * 6;
+      const float list_h   = std::max(min_list, ImGui::GetContentRegionAvail().y - items_bottom_h_);
       if (ImGui::BeginTable("items", 6,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
                               | ImGuiTableFlags_Resizable,
-                            ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 5))) {
+                            ImVec2(0, list_h))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 230.0f);
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
@@ -787,6 +792,13 @@ class InventoryWindow final : public AppWindow {
         }
         ImGui::EndTable();
       }
+      const float bottom_start = ImGui::GetCursorPosY();
+      draw_item_actions(app);
+      items_bottom_h_ = ImGui::GetCursorPosY() - bottom_start;
+    }
+
+    // Sous la liste des items : item selectionne et actions avancees
+    void draw_item_actions(App &app) {
       if (selected_item_.is_null()) {
         ImGui::TextDisabled("Sélectionnez un item pour les actions avancées.");
         return;
@@ -1165,6 +1177,7 @@ class InventoryWindow final : public AppWindow {
     int         search_status_     = 0;
     bool        search_stock_only_ = false;
     Json        items_ = Json::array();
+    float       items_bottom_h_ = 0.0f; // hauteur du bas de l'onglet Items, image precedente
     Json        selected_item_;
     std::string delete_reason_;
     std::string disable_reason_;
