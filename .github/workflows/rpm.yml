@@ -66,7 +66,8 @@ jobs:
       - name: Outils
         run: |
           dnf -y --setopt=install_weak_deps=False install \
-            git-core rpm-build rpmlint dnf-plugins-core python3-pip tar gzip findutils
+            git-core rpm-build rpmlint dnf-plugins-core python3-pip tar gzip findutils \
+            glibc-langpack-en  # rpmlint lance rpm avec LC_ALL=en_US.UTF-8
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # tags : la version du RPM vient de `git describe`

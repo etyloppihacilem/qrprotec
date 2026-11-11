@@ -36,8 +36,19 @@ Filters = [
     'dangerous-command-in-%post chmod',
     # Desinstallation : drop-in de frequence des sauvegardes genere par qrprotec-backup
     'dangerous-command-in-%postun rm',
-    # Termes techniques absents du dictionnaire anglais
-    "spelling-error \\('(backend|systemd)'",
+    # Termes techniques absents du dictionnaire anglais : groupes Unix (lp, dialout), commandes et
+    # options citees dans les descriptions (sudo, frontkey, --poste, --api-url)
+    "spelling-error \\('(backend|systemd|lp|dialout|sudo|frontkey|poste|api|url)'",
     # Version de qrcodegen inconnue (fichiers copies sans numero de version)
     'unversioned-explicit-provides bundled\(qrcodegen\)',
+    # Provides des dependances Python embarquees : la macro, lue telle quelle dans le spec, donne des
+    # bundled(python3dist(...)) = VERSION une fois developpee (qrprotec-vendor.macros)
+    'unversioned-explicit-provides %\{vendor_provides\}',
+    # Sauvegardes dans /var/backups/qrprotec (convention Debian, absente du FHS) : chemin documente et
+    # deja utilise par les installations existantes
+    'non-standard-dir-in-var backups',
+    # Code de QRProtec sans licence publiee ; LicenseRef-* n'est pas dans la liste SPDX de Fedora
+    'invalid-license LicenseRef-Proprietary',
+    # %post kiosk : supprime le marqueur kiosk-existing pose par %pre (rpm-state du paquet)
+    'dangerous-command-in-%post rm',
 ]
