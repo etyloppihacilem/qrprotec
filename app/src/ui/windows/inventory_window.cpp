@@ -768,7 +768,7 @@ class InventoryWindow final : public AppWindow {
           ImGui::TextUnformatted(display_date(item["peremption"]).c_str());
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item["status"].str() == "loose" ? "Hors lot"
-                                 : item["location"].is_null() ? "Stock" : item["location_name"].str().c_str());
+                                 : item["location"].is_null() ? "Sans rangement" : item["location_name"].str().c_str());
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(item["status"].str().c_str());
           if (item["disabled"].boolean()) {

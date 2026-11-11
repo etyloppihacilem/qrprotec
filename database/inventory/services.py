@@ -105,6 +105,34 @@ def last_storage(item_type):
     return latest[1] if latest else None
 
 
+def storage_of_origin(iids):
+    """Rangement du stock d'ou chaque item est sorti (sa derniere sortie), s'il est toujours actif : {iid: lot}, None
+    pour un item sorti du stock sans rangement (ou d'un rangement supprime depuis). Au retour d'une liste, chaque item
+    y est remis : on fait confiance aux secouristes pour le ranger a sa place."""
+    origin = {}
+    for move in (ItemMovement.objects.select_related('from_lot__lot_type').filter(item_id__in=list(iids),
+                                                                                 kind=MovementKind.OUT)
+                 .order_by('at', 'id')):
+        lot = move.from_lot
+        origin[move.item_id] = lot if lot is not None and lot.active and lot.lot_type.storage else None
+    return {iid: origin.get(iid) for iid in iids}
+
+
+def return_to_origin(iids, identity, context):
+    """Remet des items rentres dans le rangement d'ou ils sont sortis (ou dans le stock sans rangement), voir
+    storage_of_origin. Rend {iid: lot ou None} de ce qui a ete range."""
+    by_place = defaultdict(list)
+    places = {}
+    for iid, lot in storage_of_origin(iids).items():
+        by_place[lot.id if lot else None].append(iid)
+        places[lot.id if lot else None] = lot
+    done = {}
+    for key, group in by_place.items():
+        result = move_items(group, places[key], identity, context)
+        done.update({iid: places[key] for iid in result['moved']})
+    return done
+
+
 def clean_location(location):
     return ' '.join(str(location or '').split())[:64]
 

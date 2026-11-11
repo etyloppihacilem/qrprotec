@@ -868,8 +868,8 @@
     if (!info) return;
     const inLot = info.location && sessionLots().some((lot) => lot.id === info.location);
     const where = inLot ? 'Dans ' + (isMulti() ? 'le lot ' + info.location_name : 'ce lot')
-      : info.status === 'out' || info.status === 'loose' ? 'Hors du stock' : info.in_stock ? 'En stock' + (info.location ? ' · ' + info.location_name : '')
-        : info.location ? 'Rangé dans : ' + info.location_name : 'En stock';
+      : info.status === 'out' || info.status === 'loose' ? 'Hors du stock' : info.in_stock ? 'En stock · ' + (info.location ? info.location_name : 'sans rangement')
+        : info.location ? 'Rangé dans : ' + info.location_name : 'En stock · sans rangement';
     const status = info.status === 'out' ? (info.out_until
       ? `Sorti du stock, compté utilisé le ${fmtDate(info.out_until)} s'il ne revient pas` : 'Sorti du stock (non consommable)')
       : { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé',
@@ -5975,7 +5975,7 @@
     const place = where
       ? [...where.path.flatMap((parent) => [lotLink(parent), ' › ']), lotLink(where),
         where.current ? '' : el('div', { class: 'sub' }, 'Dernier emplacement connu' + (where.at ? `, quitté ${fmtOn(where.at, { long: true })}` : ''))]
-      : [item.status === 'active' ? 'En stock' : 'Inconnu'];
+      : [item.status === 'active' ? 'En stock · sans rangement' : 'Inconnu'];
     body.replaceChildren(
       el('h2', {}, item.type_name),
       showIds() ? el('div', { class: 'sub' }, item.iid) : '',
@@ -7495,7 +7495,7 @@
       if (gone.length) split.pending.push({ line: line.id, name: line.type_name, count: `×${gone.length}`, scans: gone,
         sub: gone.length === total ? nb(total, 'sorti') : `${gone.length} sur ${nb(total, 'sorti')}` });
       if (home.length) split.returned.push({ line: line.id, name: line.type_name, count: `×${home.length}`, scans: home,
-        sub: (home.length === total ? '' : `${home.length} sur ${total} · `) + 'remis en stock' });
+        sub: (home.length === total ? '' : `${home.length} sur ${total} · `) + 'remis à sa place' });
     }
     return split;
   }

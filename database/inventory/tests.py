@@ -5841,6 +5841,58 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 200, body)
 
 
+    def test_return_to_original_storage(self):
+        """Retour d'une liste : chaque item revient dans le rangement d'ou il est sorti (ou le stock sans rangement),
+        sans vérif recommandee du rangement avant storage_verif_outings sorties."""
+        storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
+        armoire = Lots(lot_type=storage_type, name='Armoire 1', name_short='A1', created_by='test', parent=Lots.stock())
+        armoire.save()
+        tiroir = Lots(lot_type=storage_type, name='Tiroir', name_short='T', created_by='test', parent=Lots.stock())
+        tiroir.save()
+        Items.objects.filter(iid=self.fresh[0].iid).update(location=armoire)
+        Items.objects.filter(iid=self.fresh[1].iid).update(location=tiroir)
+        checklist = self.new_list()
+        path = f"/api/checklists/{checklist['id']}/"
+        for data in ({'item': self.fresh[0].iid}, {'item': self.fresh[1].iid}, {'item': self.garrots[0].iid},
+                     {'lot': self.lot.id}):
+            code, body = self.as_(self.chief, path + 'scan/', data)
+            self.assertEqual(code, 200, body)
+        code, body = self.as_(self.chief, path + 'validate/')
+        self.assertEqual(body['status'], 'validated')
+        self.assertIsNone(Items.objects.get(iid=self.fresh[0].iid).location_id)
+        code, body = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[0].iid})
+        self.assertEqual((code, body['message']), (200, 'Compresses : à ranger dans Armoire 1'))
+        code, body = self.as_(self.chief, path + 'return-scan/', {'item': self.fresh[1].iid})
+        self.assertEqual(body['message'], 'Compresses : à ranger dans Tiroir')
+        code, body = self.as_(self.chief, path + 'return-scan/', {'item': self.garrots[0].iid})
+        self.assertEqual(body['message'], 'Garrot : remis en stock')  # sorti du stock sans rangement
+        items = {item.iid: item for item in Items.objects.filter(iid__in=[self.fresh[0].iid, self.fresh[1].iid,
+                                                                           self.garrots[0].iid])}
+        self.assertEqual([(items[item.iid].location_id, items[item.iid].status)
+                          for item in (self.fresh[0], self.fresh[1], self.garrots[0])],
+                         [(armoire.id, ItemStatus.ACTIVE), (tiroir.id, ItemStatus.ACTIVE), (None, ItemStatus.ACTIVE)])
+        # rangements ni orange ni en vérif dans les taches : une seule sortie
+        self.assertFalse(Lots.objects.get(id=armoire.id).verif_recommended)
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertNotIn('stock_verif', [row['category'] for row in body['tasks']])
+
+    def test_reopen_back_to_storage(self):
+        storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
+        armoire = Lots(lot_type=storage_type, name='Armoire 1', name_short='A1', created_by='test', parent=Lots.stock())
+        armoire.save()
+        Items.objects.filter(iid=self.fresh[0].iid).update(location=armoire)
+        checklist = self.new_list()
+        path = f"/api/checklists/{checklist['id']}/"
+        for data in ({'item': self.fresh[0].iid}, {'item': self.fresh[1].iid}, {'item': self.garrots[0].iid},
+                     {'lot': self.lot.id}):
+            self.as_(self.chief, path + 'scan/', data)
+        self.as_(self.chief, path + 'validate/')
+        code, body = self.as_(self.chief, path + 'reopen/')
+        self.assertEqual(code, 200, body)
+        self.assertEqual(Items.objects.get(iid=self.fresh[0].iid).location_id, armoire.id)
+        self.assertEqual((Items.objects.get(iid=self.fresh[1].iid).location_id,
+                          Items.objects.get(iid=self.fresh[1].iid).status), (None, ItemStatus.ACTIVE))
+
     def test_legacy_close_return(self):
         """Ancienne liste sortie (retour a scanner) : la fenetre « Clôturer le retour ? » montre ce qui n'est pas
         rentre ; clore met le lot pas rescanne en vérif recommandee et compte le consommable pas rentre utilise."""
@@ -5952,17 +6004,45 @@ class TasksTests(ApiTestCase):
         code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
         self.assertEqual(lot['state']['code'], 'verified')
         self.assertIsNone(lot['marked_used'])
-        # sortie du stock : vérif du stock recommandée, jusqu'a la prochaine verif du stock
-        out = self.create(self.garrot, None, 3)
+        # sorties du stock : vérif du stock proposee au bout de storage_verif_outings sorties (10 par defaut), jusqu'a
+        # la prochaine verif du stock
+        self.assertEqual(models.ServerSettings.get().storage_verif_outings, 10)
+        models.ServerSettings.objects.filter(pk=1).update(storage_verif_outings=2)
+        out = self.create(self.garrot, None, 4)
         code, _ = self.call('POST', '/api/items/out/', {'items': [out[0].iid], 'user': 'M001'})
         self.assertEqual(code, 200)
         code, body = self.call('GET', '/api/tasks/')
+        self.assertNotIn('stock_verif', self.categories(body))  # une seule sortie : pas encore
+        code, _ = self.call('POST', '/api/items/out/', {'items': [out[1].iid, out[2].iid], 'user': 'M001'})
+        code, body = self.call('GET', '/api/tasks/')
         stock = [row for row in body['tasks'] if row['category'] == 'stock_verif']
         self.assertEqual(len(stock), 1)
-        self.assertIn('1 × Garrot', stock[0]['detail'])
+        self.assertIn('2 sorties', stock[0]['detail'])
+        self.assertIn('3 × Garrot', stock[0]['detail'])
+        out = [out[0], out[3]]
         self.call('POST', '/api/stock/verif/', {'items': [item.iid for item in out[1:]], 'user': 'M001'})
         code, body = self.call('GET', '/api/tasks/')
         self.assertNotIn('stock_verif', self.categories(body))
+
+    def test_unsorted_last_priority(self):
+        """Items du stock sans rangement : a ranger, en toute derniere priorite, seulement s'il y a des rangements."""
+        self.create(self.compresses, self.today + timedelta(days=200), 2)
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertNotIn('unsorted', self.categories(body))  # pas de rangement : stock en vrac
+        storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
+        Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test', parent=Lots.stock()).save()
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertEqual(body['categories'][-1]['key'], 'unsorted')
+        self.assertEqual(self.categories(body)[-1], 'unsorted')
+        row = body['tasks'][-1]
+        self.assertEqual((row['level'], row['link']), ('info', 'inventory'))
+        self.assertIn('2 × Compresses', row['detail'])
+
+    def test_storage_verif_outings_setting(self):
+        code, body = self.call('PATCH', '/api/server-settings/', {'storage_verif_outings': 5})
+        self.assertEqual((code, body['storage_verif_outings']), (200, 5))
+        code, _ = self.call('PATCH', '/api/server-settings/', {'storage_verif_outings': 0})
+        self.assertEqual(code, 400)
 
     def test_mark_used_sealed_refused(self):
         self.fill_lot()

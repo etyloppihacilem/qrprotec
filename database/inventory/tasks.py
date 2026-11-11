@@ -13,7 +13,8 @@ par priorite, pour qu'une personne qui reprend la gestion ne soit pas perdue.
 
 Ordre des categories (choix d'Hippolyte) : signalements, lots a sceller, lots invalides, verifs recommandees,
 revisions du materiel, verifs du stock, commandes et deplacements recommandes, puis les taches de temps en temps
-(etiquettes et badges qui expirent, perimes du stock, listes pas rentrees, materiel hors lot, verifs de routine).
+(etiquettes et badges qui expirent, perimes du stock, listes pas rentrees, materiel hors lot, verifs de routine), et
+en tout dernier le materiel du stock sans rangement a ranger.
 
 Chaque tache : {category, level ('bad' rouge, 'warn' orange, 'info'), title, detail, date, lot, item, report, link}.
 `link` dit ou la traiter : 'lot' (fiche du lot), 'item' (fiche de l'item), 'reports', 'forecast', 'lists', 'users',
@@ -34,7 +35,7 @@ from .idendity import format_identity_verified, identity_name
 from .journal import pl, plural
 from .models import (
     Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, ProblemReport, ReportStatus,
-    Secouristes, Verifs, lot_keys_expire, qrprotec_setting,
+    STOCK_LOT_TYPE, Secouristes, ServerSettings, Verifs, lot_keys_expire, qrprotec_setting,
 )
 from .reports import target_name
 
@@ -45,12 +46,15 @@ CATEGORIES = [
     ('recommended', 'Vérifs recommandées', 'Lots réassortis, ouverts, rentrés d\'une liste ou marqués utilisés : une '
                                           'vérif complète les remet au vert.'),
     ('revisions', 'Révisions du matériel', 'Matériel à réviser en retard ou dans les 30 jours.'),
-    ('stock_verif', 'Vérifs du stock', 'Du matériel est sorti du stock depuis sa dernière vérif (sortie à la main ou '
-                                       'liste de matériel) : recompter.'),
+    ('stock_verif', 'Vérifs du stock', 'Beaucoup de sorties d\'un rangement (ou du stock sans rangement) depuis sa '
+                                       'dernière vérif : au retour, chaque item est remis à sa place, une vérif de '
+                                       'temps en temps contrôle qu\'il y est bien.'),
     ('orders', 'Commandes', 'Commandes à passer dans les 30 jours pour ne pas passer sous le minimum (prévisions).'),
     ('transfers', 'Déplacements', 'Échanges qui évitent de laisser périmer du matériel dans les 30 jours (prévisions).'),
     ('periodic', 'De temps en temps', 'Étiquettes à imprimer au poste, étiquettes et badges qui expirent, '
                                       'périmés du stock, listes pas rentrées, matériel hors lot, vérifs de routine.'),
+    ('unsorted', 'Sans rangement', 'Matériel en stock rangé nulle part : le ranger dans un rangement du stock quand '
+                                   'il y a le temps.'),
 ]
 ORDER_WINDOW_DAYS = 30
 REVISION_WINDOW_DAYS = 30
@@ -186,7 +190,11 @@ def _revision_tasks(today):
 
 def _stock_verif_tasks():
     """Sorties du stock (a la main ou par une liste de materiel) depuis la derniere verif du stock, par lieu : le
-    stock hors rangement, ou chaque rangement (sa propre verif compte aussi)."""
+    stock hors rangement, ou chaque rangement (sa propre verif compte aussi). Au retour d'une liste, chaque item est
+    remis dans le rangement d'ou il est sorti (on fait confiance aux secouristes) : la vérif n'est proposee qu'au bout
+    de ServerSettings.storage_verif_outings sorties (une sortie : les items sortis ensemble, liste ou sortie a la
+    main), sinon c'est beaucoup de travail pour le TECH (Hippolyte, 2026-11-11)."""
+    threshold = max(1, ServerSettings.get().storage_verif_outings)
     last_stock = Verifs.objects.filter(lot__isnull=True).aggregate(last=Max('datetime'))['last']
     outs = ItemMovement.objects.select_related('item_type', 'from_lot__lot_type').filter(kind=MovementKind.OUT)
     if last_stock:
@@ -202,6 +210,9 @@ def _stock_verif_tasks():
     lots = {lot.id: lot for lot in Lots.objects.filter(id__in=[key for key in by_place if key])}
     tasks = []
     for place, moves in by_place.items():
+        outings = len({move.at for move in moves})
+        if outings < threshold:
+            continue
         lot = lots.get(place)
         counts = Counter(move.item_type.name for move in moves)
         summary = ', '.join(f'{count} × {name}' for name, count in counts.most_common(4))
@@ -211,11 +222,12 @@ def _stock_verif_tasks():
         last = (lot.last_verif if lot and lot.last_verif and (not last_stock or lot.last_verif > last_stock)
                 else last_stock)
         since = f'depuis la dernière vérif ({_day(last)})' if last else 'et jamais vérifié'
-        detail = f"{plural(len(moves), 'item sorti', 'items sortis')} {since} : {summary}"
+        detail = (f"{plural(outings, 'sortie')} {since}, {plural(len(moves), 'item sorti', 'items sortis')} : "
+                  f"{summary}")
         if people:
             detail += ' · par ' + ', '.join(people[:3]) + ('…' if len(people) > 3 else '')
         tasks.append(task('stock_verif', 'warn', f'Vérifier {lot.name}' if lot else 'Vérifier le stock', detail,
-                          moves[-1].at, 'lot' if lot else 'stock', lot=place, sort=-len(moves)))
+                          moves[-1].at, 'lot' if lot else 'stock', lot=place, sort=-outings))
     return tasks
 
 
@@ -303,13 +315,29 @@ def _periodic_tasks(today):
     return tasks
 
 
+def _unsorted_tasks():
+    """Items en stock sans rangement, quand il y a des rangements ou les mettre : derniere priorite du TECH."""
+    if not Lots.objects.filter(active=True, lot_type__storage=True).exclude(lot_type_id=STOCK_LOT_TYPE).exists():
+        return []  # pas de rangements : le stock est en vrac, rien a ranger
+    items = list(Items.objects.select_related('pack__item_type').filter(location__isnull=True,
+                                                                       status=ItemStatus.ACTIVE))
+    if not items:
+        return []
+    counts = Counter(item.pack.item_type.name for item in items)
+    summary = ', '.join(f'{count} × {name}' for name, count in counts.most_common(5))
+    if len(counts) > 5:
+        summary += f" et {plural(len(counts) - 5, 'autre type', 'autres types')}"
+    return [task('unsorted', 'info', 'Ranger le matériel sans rangement',
+                 f"{plural(len(items), 'item')} en stock sans rangement : {summary}", None, 'inventory')]
+
+
 def todo(today=None):
     """Taches a faire, par categorie dans l'ordre de priorite, la plus urgente en tete de chaque categorie."""
     today = today or timezone.localdate()
     lots = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     rows = ser.lot_list(lots, today=today)
     tasks = (_report_tasks() + _lot_tasks(rows, today) + _revision_tasks(today) + _stock_verif_tasks()
-             + _forecast_tasks(today) + _periodic_tasks(today))
+             + _forecast_tasks(today) + _periodic_tasks(today) + _unsorted_tasks())
     rank = {key: index for index, (key, _, _) in enumerate(CATEGORIES)}
     tasks.sort(key=lambda row: (rank[row['category']], LEVEL_ORDER[row['level']], row['_sort']))
     for row in tasks:

@@ -569,7 +569,7 @@ class ListsWindow final : public AppWindow {
         if (home.count) {
           home.detail = (home.count == total ? std::string() : std::to_string(home.count) + " sur "
                                                                    + std::to_string(total) + " · ")
-                      + "remis en stock";
+                      + "remis à sa place";
           split.returned.push_back(home);
         }
       }
