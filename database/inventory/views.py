@@ -3655,6 +3655,12 @@ def checklists_options(request):
             .order_by('name'))
     types = ItemType.objects.filter(archived=False).order_by('name')
     lot_types = LotType.objects.filter(archived=False, storage=False).order_by('name')
+    # « Lot au choix » : seulement s'il y a un choix. Un type de lot unique (un VPS, meme referentiel) ou qui n'a
+    # qu'un lot n'est pas propose : on ajoute son lot, propose comme lot.
+    counts = {}
+    for code in Lots.objects.filter(active=True, lot_type__storage=False).values_list('lot_type_id', flat=True):
+        counts[code] = counts.get(code, 0) + 1
+    lot_types = [row for row in lot_types if not row.unique and counts.get(row.type, 0) != 1]
     return Response({
         # description : cherchee aussi, apres les noms (marques, autres noms) ; un lot prend celle de son type
         'lots': [_option_lot(lot) for lot in lots],

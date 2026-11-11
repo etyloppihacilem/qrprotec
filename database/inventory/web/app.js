@@ -6964,7 +6964,9 @@
       // sacs d'un B+ de referentiel (sans etiquette) : coches a part dans la liste, mais choisis d'un bloc (le B+)
       lines: list ? list.lines.filter((line, index) => !line.part_of || list.lines.findIndex((other) => other.part_of === line.part_of) === index)
         .map((line) => line.kind === 'task' ? { task: line.task, label: line.task } : line.kind === 'lot' && line.part_of
-        ? { lot: line.part_of, label: line.part_of_name, sub: line.part_of_type_name } : line.kind === 'lot'
+        ? { lot: line.part_of, label: line.part_of_name, sub: line.part_of_type_name,
+          parts: list.lines.filter((other) => other.part_of === line.part_of)
+            .map((other) => ({ lot: other.lot, label: other.lot_name, sub: other.lot_type_name })) } : line.kind === 'lot'
         ? { lot: line.lot, label: line.lot_name, sub: line.lot_type_name }
         : line.kind === 'lot_type' ? { lot_types: line.lot_types, label: line.type_name, sub: 'Lot au choix', quantity: line.quantity }
         : { type: line.type, label: line.type_name, quantity: line.quantity }) : [],
@@ -7459,27 +7461,11 @@
             : 'Aucun lot disponible : tous sont pris ou rangés pour de bon dans un autre lot.'))));
       }
     } else if (line.kind === 'lot') {
-      // la croix retire le lot de la liste (on decoche en touchant la case cochee) ; sac d'un B+ choisi d'un bloc :
-      // la croix separe le B+ et retire ce sac
-      if (list.status === 'draft' && !list.template && list.can_edit) {
-        rows[0].append(el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer de la liste', title: 'Retirer de la liste',
-          onclick: (event) => { event.stopPropagation(); removeListPart(list, line); } }, '✕'));
-      }
+      // pas de croix ici : on retire un lot (ou un sac d'un B+) dans « Modifier la liste » ; on decoche en touchant
+      // la case cochee
       if (listWantsVerif(list) && line.verif_recommended) rows.push(verifRow(line.lot, line.lot_name));
     }
     return rows;
-  }
-
-  async function removeListPart(list, line) {
-    const others = line.part_of ? list.lines.filter((row) => row.part_of === line.part_of && row.lot !== line.lot).map((row) => row.lot_name) : [];
-    const ok = await askDialog({
-      title: `Retirer ${line.lot_name} de la liste ?`,
-      text: (line.part_of ? `${line.part_of_name} est séparé : ${line.lot_name} sort de la liste`
-        + (others.length ? `, ${others.join(', ')} ${others.length > 1 ? 'partent seuls' : 'part seul'}.` : '.')
-        : `${line.lot_name} ne fait plus partie de la liste.`) + (line.scanned ? ' Il était déjà coché.' : ''),
-      choices: [{ label: 'Retirer de la liste', value: true, cls: 'danger' }],
-    });
-    if (ok) listAction('remove-part', { lot: line.lot }, (result) => toast(result.message || 'Retiré'));
   }
 
   // Liste sortie : l'ecran du retour ne montre plus les cases et compteurs du depart (tout vert, « 3/3 », on croyait
@@ -7631,7 +7617,12 @@
     parts.push(el('div', { class: 'list-buttons' }, ...buttons));
     const backIids = new Set((list.back || []).filter((scan) => scan.iid).map((scan) => scan.iid));
     if (returnSplit) parts.push(...listReturnLists(returnSplit));
-    else parts.push(el('h3', {}, 'À prendre'));
+    else {
+      // « Modifier la liste » discret a cote du titre, au-dessus de la liste (ajouter, retirer un lot ou un sac)
+      parts.push(el('div', { class: 'list-take-head' }, el('h3', {}, 'À prendre'),
+        list.can_edit && list.status === 'draft' ? el('button', { type: 'button', class: 'text-link', onclick: () => editList(list) },
+          icon('pencil'), 'Modifier la liste') : ''));
+    }
     if (returnSplit) { /* liste sortie : ce qui rentre, plus les cases du depart */ } else if (!list.lines.length) parts.push(el('p', { class: 'hint' }, 'Liste vide.' + (list.can_edit ? ' Modifiez-la pour ajouter des lots et du matériel.' : '')));
     if (!returnSplit) parts.push(el('ul', { class: 'list' }, ...listLinesByAttention(list).flatMap((line) => listLineRows(list, line, backIids))));
     if (list.status === 'draft' || list.template) {
@@ -7686,6 +7677,64 @@
     return parts;
   }
 
+  // Recherche avec suggestions sur telephone : le clavier cachait le champ et ses suggestions. Au focus, le champ
+  // remonte en haut de la partie visible (visualViewport) et la liste des suggestions s'arrete au-dessus du clavier.
+  // Une suggestion se choisit au relache du doigt sans glisser : on fait defiler la liste au doigt sans rien choisir
+  // ni fermer le clavier (avant, le simple appui choisissait ce qu'on touchait pour faire defiler).
+  function pickerTouch(input, results) {
+    const viewport = window.visualViewport;
+    const fit = () => {
+      const box = input.parentElement;
+      if (document.activeElement !== input || !box) return;
+      const top = viewport ? viewport.offsetTop : 0;
+      const height = viewport ? viewport.height : window.innerHeight;
+      const keyboard = window.innerHeight - height > 80;
+      // place sous le champ pour pouvoir le remonter meme en bas de page (cachee sous le clavier)
+      box.classList.toggle('picker-open', keyboard);
+      if (keyboard) {
+        const rect = input.getBoundingClientRect();
+        // la page defile dans un conteneur (#home-pages), pas dans la fenetre
+        let scroller = box.parentElement;
+        while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+        // juste sous le haut visible : celui de la partie visible, ou du conteneur (sous la barre du haut)
+        const goal = Math.max(top, scroller ? scroller.getBoundingClientRect().top : 0) + 8;
+        if (Math.abs(rect.top - goal) > 4) (scroller || window).scrollBy(0, rect.top - goal);
+      }
+      const bottom = input.getBoundingClientRect().bottom;
+      results.style.maxHeight = keyboard ? `${Math.max(120, top + height - bottom - 10)}px` : '';
+    };
+    input.addEventListener('focus', () => {
+      fit();
+      setTimeout(fit, 300);
+      setTimeout(fit, 700);
+    });
+    input.addEventListener('blur', () => {
+      if (input.parentElement) input.parentElement.classList.remove('picker-open');
+      results.style.maxHeight = '';
+    });
+    if (viewport) viewport.addEventListener('resize', fit);
+  }
+
+  // Element d'une liste de suggestions : choisi au « click » (souris ou doigt), que le navigateur n'envoie pas quand
+  // le doigt a fait defiler la liste ; choisir au relache aurait laisse le click tomber sur ce qui est dessous apres le
+  // nouveau rendu (une croix). L'appui ne vole pas le focus du champ : le clavier reste ouvert pendant le defilement.
+  function pickerRow(attrs, onPick, ...children) {
+    let start = null;
+    return el('li', {
+      ...attrs,
+      onpointerdown: (event) => { start = { x: event.clientX, y: event.clientY, scroll: event.currentTarget.parentElement.scrollTop }; },
+      onmousedown: (event) => event.preventDefault(),
+      onclick: (event) => {
+        const begin = start;
+        start = null;
+        event.preventDefault();
+        if (begin && (Math.hypot(event.clientX - begin.x, event.clientY - begin.y) > 10
+          || Math.abs(event.currentTarget.parentElement.scrollTop - begin.scroll) > 4)) return;
+        onPick();
+      },
+    }, ...children);
+  }
+
   // Recherche d'un secouriste par prenom sur le serveur (chefs, gestion, admins), resultats en direct
   function memberPicker(taken, onPick) {
     const input = el('input', { type: 'search', class: 'picker-input', placeholder: '＋ Ajouter un secouriste : prénom…', autocomplete: 'off' });
@@ -7697,10 +7746,9 @@
     const draw = (rows, empty) => {
       shown = rows;
       highlighted = Math.min(highlighted, Math.max(0, shown.length - 1));
-      results.replaceChildren(...(shown.length ? shown.map((user, index) => el('li', {
-        class: index === highlighted ? 'active' : '',
-        onpointerdown: (event) => { event.preventDefault(); pick(user); },
-      }, el('span', {}, user.name))) : empty ? [el('li', { class: 'empty' }, empty)] : []));
+      results.replaceChildren(...(shown.length ? shown.map((user, index) => pickerRow({
+        class: index === highlighted ? 'active' : '' }, () => pick(user), el('span', {}, user.name)))
+        : empty ? [el('li', { class: 'empty' }, empty)] : []));
       results.hidden = document.activeElement !== input || (!shown.length && !empty);
     };
     const pick = (user) => { input.value = ''; draw([], ''); input.blur(); onPick(user); };
@@ -7718,6 +7766,7 @@
     };
     input.addEventListener('input', () => { highlighted = 0; clearTimeout(timer); timer = setTimeout(search, 200); });
     input.addEventListener('blur', () => { results.hidden = true; });
+    pickerTouch(input, results);
     input.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -7777,10 +7826,8 @@
         .sort((a, b) => b.score - a.score || (a.item.kind ? a.item.kind.order : 0) - (b.item.kind ? b.item.kind.order : 0)
           || a.item.label.localeCompare(b.item.label, 'fr')).slice(0, limit).map((row) => row.item);
       highlighted = Math.min(highlighted, Math.max(0, shown.length - 1));
-      results.replaceChildren(...(shown.length ? shown.map((item, index) => el('li', {
-        class: index === highlighted ? 'active' : '',
-        onpointerdown: (event) => { event.preventDefault(); onPick(item); },
-      }, ...(item.kind ? [el('span', {}, item.label, item.sub ? el('small', {}, ' · ' + item.sub) : '',
+      results.replaceChildren(...(shown.length ? shown.map((item, index) => pickerRow({
+        class: index === highlighted ? 'active' : '' }, () => onPick(item), ...(item.kind ? [el('span', {}, item.label, item.sub ? el('small', {}, ' · ' + item.sub) : '',
         fromDescription.has(item) ? el('small', { class: 'picker-note' }, excerpt(item.description)) : ''),
         el('span', { class: 'picker-kind picker-kind-' + item.kind.id }, item.kind.label)]
         : [el('span', {}, item.label, fromDescription.has(item) ? el('small', { class: 'picker-note' }, excerpt(item.description)) : ''),
@@ -7790,6 +7837,7 @@
     input.addEventListener('input', () => { highlighted = 0; update(); });
     input.addEventListener('focus', update);
     input.addEventListener('blur', () => { results.hidden = true; });
+    pickerTouch(input, results);
     input.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -7804,6 +7852,23 @@
       }
     });
     return el('div', { class: 'picker' }, input, results);
+  }
+
+  // Quantite d'une ligne de l'editeur : petits − et + de part et d'autre du chiffre, qui reste modifiable au clavier
+  function qtyStepper(line) {
+    const max = line.lot_types ? 99 : 999;
+    const clamp = (value) => Math.max(1, Math.min(max, value));
+    const input = el('input', { type: 'number', class: 'list-qty', min: '1', max: String(max), value: String(line.quantity), 'aria-label': 'Quantité',
+      inputmode: 'numeric', enterkeyhint: 'done',
+      oninput: (event) => { line.quantity = clamp(parseInt(event.target.value, 10) || 1); },
+      // Entree (ou « OK » du clavier du telephone) : le chiffre est garde et le clavier se ferme
+      onkeydown: (event) => { if (event.key === 'Enter') { event.preventDefault(); event.target.blur(); } },
+      onchange: (event) => { event.target.value = String(line.quantity); } });
+    const step = (delta, label) => el('button', { type: 'button', class: 'list-qty-step', 'aria-label': label, tabindex: '-1',
+      // l'appui ne ferme pas le clavier ouvert sur un autre champ
+      onmousedown: (event) => event.preventDefault(),
+      onclick: () => { line.quantity = clamp((line.quantity || 1) + delta); input.value = String(line.quantity); } }, delta < 0 ? '−' : '+');
+    return el('div', { class: 'list-qty-box' }, step(-1, 'Un de moins'), input, step(1, 'Un de plus'));
   }
 
   function listEditor(edit) {
@@ -7836,7 +7901,10 @@
         // sac d'un B+ de referentiel (sans etiquette) : le B+ entier (un sac se retire ensuite par sa croix dans la liste)
         const lot = pick.row.unit || pick.row;
         if (pick.row.unit) toast(`${pick.row.name} fait partie de ${lot.name} : ${lot.name} entier est ajouté.`);
-        if (!edit.lines.some((line) => line.lot === lot.id)) edit.lines.push({ lot: lot.id, label: lot.name, sub: lot.lot_type_name });
+        // ses sacs, pour en retirer un ici (le B+ est alors separe, comme la croix d'un sac le faisait dans la liste)
+        const parts = (options ? options.lots : []).filter((row) => row.unit && row.unit.id === lot.id)
+          .map((row) => ({ lot: row.id, label: row.name, sub: row.lot_type_name }));
+        if (!edit.lines.some((line) => line.lot === lot.id)) edit.lines.push({ lot: lot.id, label: lot.name, sub: lot.lot_type_name, parts });
       }
       else if (pick.kind === KIND_LOT_TYPE) edit.lines.push({ lot_types: [pick.row.type], label: pick.row.name, sub: 'Lot au choix', quantity: 1 });
       else edit.lines.push({ type: pick.row.type, label: pick.row.name, quantity: 1 });
@@ -7858,17 +7926,22 @@
       edit.started ? 'Modèle (impossible : liste déjà commencée)' : 'Modèle (se duplique, ne se vérifie pas)'),
       el('h3', {}, 'À prendre'),
       edit.lines.length ? '' : el('p', { class: 'hint' }, 'Ajoutez des lots (sacs, armoires), du matériel avec sa quantité et des tâches à cocher.'),
-      el('ul', { class: 'list' }, ...edit.lines.map((line, index) => el('li', { class: 'static' },
+      el('ul', { class: 'list' }, ...edit.lines.flatMap((line, index) => [el('li', { class: 'static' },
         el('div', { class: 'main' }, el('div', { class: 'name' }, line.label),
           el('div', { class: 'sub' }, line.task ? 'Tâche à cocher' : line.lot ? `Lot · ${line.sub || ''}`
             : line.lot_types ? "Lot au choix : n'importe lequel de ce type" : 'Matériel')),
-        line.lot || line.task ? '' : el('input', { type: 'number', class: 'list-qty', min: '1', max: line.lot_types ? '99' : '999', value: String(line.quantity), 'aria-label': 'Quantité',
-          inputmode: 'numeric', enterkeyhint: 'done',
-          oninput: (event) => { line.quantity = Math.max(1, Math.min(999, parseInt(event.target.value, 10) || 1)); },
-          // Entree (ou « OK » du clavier du telephone) : le chiffre est garde et le clavier se ferme
-          onkeydown: (event) => { if (event.key === 'Enter') { event.preventDefault(); event.target.blur(); } },
-          onchange: (event) => { event.target.value = String(line.quantity); } }),
-        el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', onclick: () => { edit.lines.splice(index, 1); redraw(); } }, '✕')))),
+        line.lot || line.task ? '' : qtyStepper(line),
+        el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', onclick: () => { edit.lines.splice(index, 1); redraw(); } }, '✕')),
+        // sacs d'un B+ de referentiel : la croix d'un sac separe le B+, les autres sacs restent chacun sur sa ligne
+        ...(line.parts && line.parts.length > 1 ? line.parts.map((part) => el('li', { class: 'static list-scan-row' },
+          el('div', { class: 'main' }, el('div', { class: 'sub' }, `${part.label} · dans ${line.label}`)),
+          el('button', { type: 'button', class: 'list-remove', 'aria-label': `Retirer ${part.label}`, title: `Retirer ${part.label} (${line.label} séparé)`,
+            onclick: () => {
+              edit.lines.splice(index, 1, ...line.parts.filter((other) => other.lot !== part.lot && !edit.lines.some((row) => row.lot === other.lot))
+                .map((other) => ({ lot: other.lot, label: other.label, sub: other.sub })));
+              toast(`${line.label} séparé : ${part.label} retiré.`);
+              redraw();
+            } }, '✕'))) : [])])),
       options ? el('div', { class: 'list-add' }, addSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
       el('div', { class: 'list-add-task' }, taskInput, el('button', { type: 'button', onclick: addTask }, '＋ Tâche')),
       el('p', { class: 'hint' }, 'Une tâche se coche pendant la vérif de la liste (ni lot ni matériel).'),
