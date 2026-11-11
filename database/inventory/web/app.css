@@ -600,8 +600,15 @@ button.task-row.bad { border-left: 4px solid var(--red); background: var(--red-b
 .report-card .comment { white-space: pre-wrap; background: var(--bg); padding: 6px 8px; border-radius: 8px; }
 .report-card .note { white-space: pre-wrap; color: var(--blue); }
 .report-manage { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.report-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.report-actions button { flex: 1 1 auto; padding: 8px 10px; font-size: .9rem; }
+.report-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.report-choice { display: flex; flex-direction: column; gap: 3px; }
+.report-choice button { width: 100%; padding: 8px 10px; font-size: .9rem; }
+.report-choice .hint { font-size: .78rem; line-height: 1.25; }
+/* « En cours » (mise a jour) et « Résolu » (clot le signalement) : deux blocs bien separes */
+.report-group { display: flex; flex-direction: column; gap: 6px; }
+.report-group-title { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--muted); }
+.report-group.close { margin-top: 4px; padding-top: 8px; border-top: 2px dashed var(--line); }
 
 /* Ouverture d'un scelle (etiquette d'ouverture) : plein ecran par-dessus tout le reste, rassurant */
 #opening { position: fixed; inset: 0; z-index: 45; display: flex; flex-direction: column; background: var(--panel); }
