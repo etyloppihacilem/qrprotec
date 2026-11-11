@@ -5382,12 +5382,28 @@ class ChecklistTests(ApiTestCase):
         self.compresses.save(update_fields=['description'])
         self.lot.lot_type.description = 'Sac rouge de premiers secours'
         self.lot.lot_type.save(update_fields=['description'])
+        Lots.objects.create(lot_type=self.lot.lot_type, name='Sac B', name_short='Sac B', created_by='M001')
         code, body = self.as_(self.chief, '/api/checklists/options/')
         self.assertEqual(code, 200, body)
         self.assertEqual({row['type']: row['description'] for row in body['types']}['compre'], 'Marque Hartmann, gazes')
         self.assertEqual({row['id']: row['description'] for row in body['lots']}[self.lot.id], 'Sac rouge de premiers secours')
         self.assertEqual({row['type']: row['description'] for row in body['lot_types']}[self.lot.lot_type.type],
                          'Sac rouge de premiers secours')
+
+    def test_options_single_lot_not_a_choice(self):
+        """Un type de lot unique (un VPS, meme referentiel) ou qui n'a qu'un lot n'est pas propose en « lot au choix » :
+        seulement son lot (Hippolyte, 2026-11-11)."""
+        vps_type = LotType.objects.create(type='vps', name='VPS', unique=True, referentiel=True)
+        vps = Lots.objects.create(lot_type=vps_type, name='VPS', name_short='VPS', created_by='M001')
+        code, body = self.as_(self.chief, '/api/checklists/options/')
+        self.assertEqual(code, 200, body)
+        choices = {row['type'] for row in body['lot_types']}
+        self.assertNotIn('vps', choices)
+        self.assertNotIn(self.lot.lot_type.type, choices)  # un seul sac de ce type
+        self.assertIn(vps.id, {row['id'] for row in body['lots']})
+        Lots.objects.create(lot_type=self.lot.lot_type, name='Sac B', name_short='Sac B', created_by='M001')
+        code, body = self.as_(self.chief, '/api/checklists/options/')
+        self.assertIn(self.lot.lot_type.type, {row['type'] for row in body['lot_types']})
 
     def test_scan_lot_not_in_list_asks_to_add(self):
         """Etiquette d'un lot hors liste a la preparation : qui peut modifier la liste se voit proposer de l'ajouter

@@ -676,7 +676,14 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-verif-row { padding: 6px 12px 6px 28px; background: var(--orange-bg); }
 #home-lists .list-verif-row .sub { white-space: normal; color: #9a5300; font-weight: 500; }
 #home-lists .list-verif { flex: none; width: auto; margin: 0; padding: 8px 12px; white-space: nowrap; }
-#home-lists .list-qty { width: 64px; padding: 6px; font: inherit; border: 1px solid var(--line); border-radius: 8px; }
+#home-lists .list-qty { width: 52px; padding: 6px 2px; font: inherit; text-align: center; border: 1px solid var(--line); border-radius: 8px; -moz-appearance: textfield; }
+#home-lists .list-qty::-webkit-inner-spin-button, #home-lists .list-qty::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+/* petits − et + de part et d'autre du chiffre */
+#home-lists .list-qty-box { flex: none; display: flex; align-items: center; gap: 4px; }
+#home-lists .list-qty-step { flex: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: #eee; color: var(--text);
+  font-size: 1.1rem; font-weight: 600; line-height: 1; }
+#home-lists .list-take-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+#home-lists .list-take-head button.text-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; font-size: .85rem; }
 #home-lists .list-add { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
 #home-lists select, #home-lists .field input, #home-lists .field textarea { width: 100%; box-sizing: border-box; font: inherit;
   padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
@@ -710,6 +717,9 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .picker-results, #label-prints .picker-results { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 0; list-style: none;
   background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .15); max-height: 50vh; overflow-y: auto; }
 #home-lists .picker-results[hidden], #label-prints .picker-results[hidden] { display: none; }
+/* telephone, clavier ouvert : place sous le champ pour le remonter en haut, liste defilable au doigt */
+#home-lists .picker.picker-open, #label-prints .picker.picker-open { margin-bottom: 100vh; }
+#home-lists .picker-results, #label-prints .picker-results { overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
 #home-lists .picker-results li, #label-prints .picker-results li { display: flex; justify-content: space-between; gap: 8px; padding: 9px 10px; cursor: pointer; }
 #home-lists .picker-results li small, #label-prints .picker-results li small { color: var(--muted); }
 /* extrait de la description quand c'est elle qui correspond a la recherche */
