@@ -2387,6 +2387,46 @@ class SubLotTests(ApiTestCase):
         self.assertEqual([row['name'] for row in sorted(lots, key=lambda row: row['attention_order'])
                           if not row['storage']], names)
 
+    def test_custom_lot_order(self):
+        """Ordre choisi (ecran « Ordre des lots ») : departage les lots de meme couleur, apres rouge > orange > vert,
+        a chaque niveau (lots globaux entre eux, sous-lots d'un lot entre eux)."""
+        names = lambda lots: [row['name'] for row in lots if not row['storage']]
+        code, lots = self.call('POST', '/api/lots/summary/', {}, local=False)
+        self.assertEqual(names(lots), ['B+ 1', 'Sac de soin', 'Sac O2', 'Sac A'])  # tous rouges : type puis nom
+        # B+ apres le sac A, sac O2 avant le sac de soin
+        code, lots = self.call('POST', '/api/lots/order/', {'lots': [self.lot.id, self.bplus['id']]})
+        self.assertEqual(code, 200)
+        self.assertEqual(names(lots), ['Sac A', 'B+ 1', 'Sac de soin', 'Sac O2'])
+        code, lots = self.call('POST', '/api/lots/order/', {'parent': self.bplus['id'], 'lots': [self.sac_o2['id']]})
+        self.assertEqual(names(lots), ['Sac A', 'B+ 1', 'Sac O2', 'Sac de soin'])
+        code, lots = self.call('POST', '/api/lots/summary/', {}, local=False)
+        self.assertEqual(names(lots), ['Sac A', 'B+ 1', 'Sac O2', 'Sac de soin'])
+        self.assertEqual(Lots.objects.get(id=self.soin['id']).sort_order, 2)  # absent de la liste : range apres
+        code, lots = self.call('GET', '/api/lots/')
+        self.assertEqual(names(lots), ['Sac A', 'B+ 1', 'Sac O2', 'Sac de soin'])
+        self.assertEqual([row['tree_order'] for row in lots], list(range(len(lots))))
+        code, lot = self.call('GET', f"/api/lots/{self.bplus['id']}/", local=False)
+        self.assertEqual([row['name'] for row in lot['global']['lots']], ['B+ 1', 'Sac O2', 'Sac de soin'])
+        # la couleur passe avant : le B+ verifie (vert) descend sous le sac A (rouge) malgre l'ordre choisi
+        self.call('POST', '/api/lots/order/', {'lots': [self.bplus['id']]})
+        code, lots = self.call('POST', '/api/lots/summary/', {}, local=False)
+        self.assertEqual(names(lots)[:2], ['B+ 1', 'Sac O2'])
+        self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        self.call('POST', f"/api/lots/{self.sac_o2['id']}/verif/", {'items': [self.bottle()], 'user': 'M001'})
+        code, lots = self.call('POST', '/api/lots/summary/', {}, local=False)
+        self.assertEqual(names(lots), ['Sac A', 'B+ 1', 'Sac O2', 'Sac de soin'])
+        # sous-lot propose a un autre niveau : refuse ; remise a l'ordre d'origine
+        code, body = self.call('POST', '/api/lots/order/', {'lots': [self.soin['id']]})
+        self.assertEqual(code, 400)
+        code, lots = self.call('POST', '/api/lots/order/', {'parent': self.bplus['id'], 'reset': True})
+        self.assertEqual(names(lots), ['B+ 1', 'Sac de soin', 'Sac O2', 'Sac A'])  # ordre de l'arbre, B+ range en tete
+        self.assertIsNone(Lots.objects.get(id=self.soin['id']).sort_order)
+        # au poste seulement (gestion des lots) : refuse depuis le web, meme en gestion
+        self.user.role = 'gestion'
+        self.user.save()
+        code, _ = self.call('POST', '/api/lots/order/', {'user': self.badge, 'lots': [self.bplus['id']]}, local=False)
+        self.assertEqual(code, 403)
+
     def test_global_verif_covers_sub_lots(self):
         bottle = self.bottle()
         code, report = self.call('POST', f"/api/lots/{self.bplus['id']}/verif/",

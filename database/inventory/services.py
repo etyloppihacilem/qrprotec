@@ -549,7 +549,8 @@ def lot_coverage(lot, referentiel):
             placed[type_id] += requirement.quantity
             places[type_id].append({'lot': node.id, 'lot_name': node.name, 'location': requirement.location,
                                     'quantity': requirement.quantity})
-        stack.extend(reversed(list(node.children.select_related('lot_type').filter(active=True).order_by('name'))))
+        stack.extend(reversed(list(node.children.select_related('lot_type').filter(active=True).order_by(
+            F('sort_order').asc(nulls_last=True), 'name'))))
     lines = []
     wanted = set()
     for requirement in ordered_requirements(referentiel):

@@ -493,6 +493,12 @@ def default_lot_key_expiration():
     return timezone.localdate() + timedelta(days=qrprotec_setting('LOT_KEY_VALIDITY_DAYS'))
 
 
+def custom_order_key(lot):
+    """Cle de tri de l'ordre choisi (Lots.sort_order) : les lots ranges d'abord, dans leur ordre, les autres apres.
+    A combiner avec l'ordre d'origine, ou dans un tri stable."""
+    return (lot.sort_order is None, lot.sort_order or 0)
+
+
 class Lots(models.Model):
     id = models.CharField(max_length=16, primary_key=True, editable=False)
     lot_type = models.ForeignKey(LotType, on_delete=models.PROTECT, db_column='type', to_field='type')
@@ -564,6 +570,10 @@ class Lots(models.Model):
     # etaient directement dans son parent. Sans effet sur un lot qui attend ou contient des items lui-meme
     # (services.hidden_in_verif). La gestion affiche toujours la vraie hierarchie.
     hidden_in_verif = models.BooleanField(default=False)
+    # Ordre choisi par la TECH parmi les lots du meme niveau (lots globaux entre eux, sous-lots d'un meme lot entre
+    # eux), ecran « Ordre des lots » : departage les lots de meme couleur apres le tri rouge > orange > vert. Vide :
+    # apres les lots ranges, dans l'ordre d'origine (type puis nom pour les lots globaux, nom pour les sous-lots).
+    sort_order = models.PositiveIntegerField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if not self.version:
@@ -660,7 +670,7 @@ class Lots(models.Model):
         for lot in Lots.objects.select_related('lot_type').filter(active=True, parent__isnull=False):
             by_parent.setdefault(lot.parent_id, []).append(lot)
         for children in by_parent.values():
-            children.sort(key=lambda child: (child.name.lower(), child.id))
+            children.sort(key=lambda child: (*custom_order_key(child), child.name.lower(), child.id))
         result = []
         seen = set()
 

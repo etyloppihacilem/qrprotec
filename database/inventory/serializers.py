@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
-from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, compact_iid, qrprotec_setting
+from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, compact_iid, custom_order_key, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import restock_credit, LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
 
@@ -654,7 +654,7 @@ def lot_list(lots, local=False, today=None, attention=False):
         if lot.parent_id in ids:
             children.setdefault(lot.parent_id, []).append(lot)
     for siblings in children.values():
-        siblings.sort(key=lambda child: (child.name.lower(), child.id))  # meme ordre que Lots.descendants
+        siblings.sort(key=lambda child: (*custom_order_key(child), child.name.lower(), child.id))  # comme Lots.descendants
     ordered = []
     seen = set()
 
@@ -666,9 +666,9 @@ def lot_list(lots, local=False, today=None, attention=False):
         for child in children.get(lot.id, []):
             walk(child, depth + 1, root)
 
-    for lot in lots:
-        if lot.parent_id not in ids:
-            walk(lot, 0, lot)
+    # lots globaux dans l'ordre choisi, puis dans celui de la requete (tri stable)
+    for lot in sorted((lot for lot in lots if lot.parent_id not in ids), key=custom_order_key):
+        walk(lot, 0, lot)
     for lot in lots:  # cycle eventuel (ne devrait pas exister)
         walk(lot, 0, lot)
     rows = []
@@ -681,6 +681,8 @@ def lot_list(lots, local=False, today=None, attention=False):
         row['hidden'] = hidden_in_verif(lot, row)  # cache dans la hierarchie : saute par l'Etat des lots du web
         row['virtual'] = virtual_lot(lot)  # B+ de referentiel : un de ses sacs coche au « Départ » coche le B+
         row['description'] = lot.lot_type.description  # recherche de la page « Départ » (autres noms, marques)
+        row['sort_order'] = lot.sort_order  # ordre choisi parmi ses freres (ecran « Ordre des lots »), None : pas range
+        row['tree_order'] = len(rows)  # place dans l'arborescence sans le tri par couleur (ecran « Ordre des lots »)
         rows.append(row)
         trees.setdefault(root.id, []).append(row)
     for root_id, tree in trees.items():
