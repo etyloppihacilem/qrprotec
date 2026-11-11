@@ -29,9 +29,9 @@
   const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
   const STORAGE_NAME = 'qrprotec.declared-name';   // nom declare (sans badge), si le serveur l'autorise
   const STORAGE_FICHE_KEY = 'qrprotec.fiche-key';
-  // « Bulle de connexion » du dernier connecte sur ce telephone (reglage web login_bubble) : vaut aussi avant la
-  // connexion, pour choisir entre la petite bulle et la grande fenetre « Scannez votre carte »
-  const STORAGE_BUBBLE = 'qrprotec.login-bubble';  // etiquette privee ouverte (fiche du lot), gardee au rechargement
+  // « Bulle de scan » du dernier connecte sur ce telephone (reglage web scan_bubble) : vaut aussi avant la connexion,
+  // pour montrer ou non le bouton ↘ qui reduit la camera de l'ecran de scan dans un coin
+  const STORAGE_SCAN_BUBBLE = 'qrprotec.scan-bubble';
   // Vérif en cours oubliee au rechargement de la page (ou a l'ouverture d'une etiquette hors du lecteur) apres
   // 20 minutes sans activite : on ne retombe pas sur le lot d'une vérif commencee il y a une heure.
   const SESSION_TIMEOUT_MS = 20 * 60 * 1000;
@@ -388,7 +388,7 @@
 
   // Reglages du web de l'utilisateur (models.WEB_PREFS, modifiables aussi par un admin au poste) : valeur par defaut
   // sans utilisateur connecte, ou si la session date d'avant le reglage
-  const WEB_PREF_DEFAULTS = { verif_help_hidden: false, login_bubble: false };
+  const WEB_PREF_DEFAULTS = { verif_help_hidden: false, scan_bubble: false };
   function webPref(name) {
     const prefs = state.user && state.user.web_prefs;
     return prefs && name in prefs ? !!prefs[name] : WEB_PREF_DEFAULTS[name];
@@ -538,13 +538,32 @@
   $('#start-button').addEventListener('click', startCamera);
 
   // Camera reduite en vignette flottante (comme en appel video) : la liste prend tout l'ecran, le scan continue.
-  // Toucher la vignette remet la camera en haut. Retenu sur ce navigateur.
+  // Toucher la vignette remet la camera en haut. Retenu sur ce navigateur. Seulement avec le reglage « Bulle de
+  // scan » (decoche par defaut) : sans lui, pas de bouton ↘ et la camera reste en haut.
   const STORAGE_CAM_MINI = 'qrprotec.camera-mini';
   function setCameraMini(mini) {
     document.body.classList.toggle('cam-mini', mini);
     try { localStorage.setItem(STORAGE_CAM_MINI, mini ? '1' : ''); } catch (e) { /* stockage indisponible */ }
   }
+
+  // reglage de l'utilisateur connecte, sinon celui du dernier connecte sur ce telephone (decoche par defaut)
+  function scanBubbleOn() {
+    if (state.user) return webPref('scan_bubble');
+    try { return localStorage.getItem(STORAGE_SCAN_BUBBLE) === '1'; } catch (e) { return false; }
+  }
+
+  function rememberScanBubble() {
+    try { localStorage.setItem(STORAGE_SCAN_BUBBLE, scanBubbleOn() ? '1' : '0'); } catch (e) { /* ignore */ }
+  }
+
+  // bouton ↘ seulement avec la bulle de scan ; reglage decoche : la camera reduite revient en haut
+  function syncScanBubble() {
+    const allowed = scanBubbleOn();
+    $('#cam-mini').hidden = !allowed;
+    if (!allowed && document.body.classList.contains('cam-mini')) setCameraMini(false);
+  }
   try { setCameraMini(localStorage.getItem(STORAGE_CAM_MINI) === '1'); } catch (e) { /* stockage indisponible */ }
+  syncScanBubble();
   $('#cam-mini').addEventListener('click', () => setCameraMini(true));
   $('#camera').addEventListener('click', (event) => {
     if (!document.body.classList.contains('cam-mini') || document.body.classList.contains('home-mode')) return;
@@ -1921,7 +1940,7 @@
     const action = takeLoginAction(); // action qui attendait la connexion (signalement)
     state.user = user;
     state.guest = null; // connecte : plus invite
-    rememberBubble();
+    rememberScanBubble();
     state.lots = null;
     state.stock = null;
     state.push = null;
@@ -3376,13 +3395,7 @@
   // after : page a ouvrir une fois connecte ; action : ce qui attendait la connexion (requireLogin). Chaque demande
   // de connexion remplace la precedente : une action annulee ne ressurgit jamais a une connexion lancee pour autre chose
   function openReader(after = '', action = null) {
-    if (!bubbleOn()) { openGate(after, action); return; }
-    pendingAfterLogin = after;
-    setLoginAction(action);
-    document.body.classList.add('login-reader');
-    $('#scan-hint').textContent = 'Scannez votre badge';
-    startCamera();
-    renderHomePage();
+    openGate(after, action);
   }
 
   function closeReader() {
@@ -3394,19 +3407,9 @@
     renderHomePage();
   }
   // ------------------------------------------------------------------------------------------------
-  // Grande fenetre de connexion (« Bulle de connexion » decochee, le reglage par defaut) : pour les secouristes qui
-  // ne font pas encore le lien entre leur carte et le telephone. Elle prend tout l'ecran au debut d'une vérif (et a la
-  // place de la petite bulle de l'accueil) : la camera au milieu, « Scannez votre carte », et la connexion par nom.
-
-  // reglage de l'utilisateur connecte, sinon celui du dernier connecte sur ce telephone (decoche par defaut)
-  function bubbleOn() {
-    if (state.user) return webPref('login_bubble');
-    try { return localStorage.getItem(STORAGE_BUBBLE) === '1'; } catch (e) { return false; }
-  }
-
-  function rememberBubble() {
-    try { localStorage.setItem(STORAGE_BUBBLE, bubbleOn() ? '1' : '0'); } catch (e) { /* ignore */ }
-  }
+  // Grande fenetre de connexion : pour les secouristes qui ne font pas encore le lien entre leur carte et le
+  // telephone. Elle prend tout l'ecran au debut d'une vérif (et pour toute connexion depuis l'accueil) : la camera au
+  // milieu, « Scannez votre carte », et la connexion par nom.
 
   const gateOpen = () => document.body.classList.contains('login-gate');
 
@@ -4616,7 +4619,7 @@
   function openNotifications() {
     installGuideShown = false;
     renderInstallSettings();
-    renderLoginSettings();
+    renderScanSettings();
     $('#settings-pin').hidden = !state.user;
     renderPinSettings();
     $('#settings-verif').hidden = !state.user;
@@ -4748,31 +4751,32 @@
   const pinCanDisable = (user) => (user.pin_can_disable !== undefined ? !!user.pin_can_disable
     : user.role !== 'admin' && user.pin_mode !== 'required');
 
-  // « Bulle de connexion » : la petite camera dans un coin (connexion discrete) au lieu de la grande fenetre
-  // « Scannez votre carte ». Reglage du compte (web_prefs, modifiable aussi par un admin) ; sans connexion, celui
-  // de ce telephone.
-  function renderLoginSettings() {
-    const box = $('#settings-login');
+  // « Bulle de scan » : le bouton ↘ de l'ecran de scan, qui reduit la camera dans un coin (la liste prend tout
+  // l'ecran). Reglage du compte (web_prefs, modifiable aussi par un admin) ; sans connexion, celui de ce telephone.
+  function renderScanSettings() {
+    const box = $('#settings-scan');
     if (!box) return;
-    const input = el('input', { type: 'checkbox', checked: bubbleOn() ? '' : null, onchange: () => saveBubble(input) });
-    box.replaceChildren(el('h3', {}, 'Connexion'),
-      el('label', { class: 'check' }, input, 'Bulle de connexion'),
-      el('p', { class: 'hint' }, 'Cochée : la connexion se fait dans une petite fenêtre en bas de l\'écran. Décochée : '
-        + 'une grande fenêtre « Scannez votre carte » s\'ouvre au début de chaque vérif, tant que vous n\'êtes pas '
-        + 'connecté.' + (state.user ? '' : ' Connectez-vous pour l\'enregistrer sur votre compte.')));
+    const input = el('input', { type: 'checkbox', checked: scanBubbleOn() ? '' : null, onchange: () => saveScanBubble(input) });
+    box.replaceChildren(el('h3', {}, 'Écran de scan'),
+      el('label', { class: 'check' }, input, 'Bulle de scan'),
+      el('p', { class: 'hint' }, 'Cochée : le bouton ↘ de l\'écran de scan réduit la caméra dans une petite fenêtre en '
+        + 'bas de l\'écran, la liste prend toute la place. Décochée : la caméra reste en haut de l\'écran.'
+        + (state.user ? '' : ' Connectez-vous pour l\'enregistrer sur votre compte.')));
   }
 
-  async function saveBubble(input) {
+  async function saveScanBubble(input) {
     const value = input.checked;
     if (!state.user) {
-      try { localStorage.setItem(STORAGE_BUBBLE, value ? '1' : '0'); } catch (e) { /* ignore */ }
+      try { localStorage.setItem(STORAGE_SCAN_BUBBLE, value ? '1' : '0'); } catch (e) { /* ignore */ }
+      syncScanBubble();
       return;
     }
     input.disabled = true;
     try {
-      await setWebPrefs({ login_bubble: value });
-      rememberBubble();
-      toast(value ? 'Bulle de connexion activée.' : 'Grande fenêtre de connexion activée.');
+      await setWebPrefs({ scan_bubble: value });
+      rememberScanBubble();
+      syncScanBubble();
+      toast(value ? 'Bulle de scan activée.' : 'Bulle de scan désactivée.');
     } catch (e) {
       feedback.bad();
       input.checked = !value;
@@ -5377,6 +5381,7 @@
     doneTab.hidden = !canSeeStock();
     if (doneTab.hidden && state.tab === 'done') switchTab('todo');
     $('#menu-quit').hidden = !state.lot;
+    syncScanBubble();
     if ($('#label-needed').open && labelOk()) { $('#label-needed').close(); toast('Étiquette scannée : vous pouvez valider.'); }
     if (!state.user) { state.stock = null; state.tasks = null; state.push = null; state.pushDevices = null; debug.data = null; }
     renderHomePage();
@@ -5588,8 +5593,8 @@
     switchTab('todo');
     // nouvelle demande : une action qui attendait encore la connexion (signalement, lot utilise...) est oubliee
     loginAction = null;
-    // pas encore connecte : grande fenetre « Scannez votre carte » (sauf « Bulle de connexion » cochee)
-    if (!hasIdentity() && !bubbleOn()) openGate('verif');
+    // pas encore connecte : grande fenetre « Scannez votre carte »
+    if (!hasIdentity()) openGate('verif');
   }
 
   async function launchFromFiche() {
