@@ -86,9 +86,22 @@ Tous les scans (SDK, clavier HID, saisie manuelle, téléphone) arrivent dans
    - **scellé** → fiche du lot avec le résultat du contrôle du scellé ;
    - **ouverture de scellé** → le scellé est ouvert (signé par l'utilisateur connecté, sinon anonyme) ;
    - **item** → ajouté à la pile ; s'il est périmé (date lue dans l'iid), signal d'erreur
-     **immédiat** ; puis `GET /api/items/<iid>/` pour le détail ;
+     **immédiat** ; son détail vient tout de suite du cache de vérif s'il y est (`item_resolved`), puis
+     `GET /api/items/<iid>/` le confirme (`item_confirmed` : seule une différence est signalée) ;
    - **paquet** → ajouté à la pile (compte pour tous ses items) ; en mode privilégié, ouvre sa fiche ;
    - **inconnu** → ligne rouge et signal d'erreur.
+
+**Vérif hors connexion** (une partie de la réserve n'a ni réseau ni wifi) : `VerifCache`
+(`core/verif_cache.cpp`, voir [back.md](back.md), « Cache de vérif ») garde tout ce qu'une vérif lit au
+serveur ; `sync_cache` le tient à jour toutes les minutes depuis le lancement (seuls les seaux changés
+reviennent) et `cache_changed` applique les différences au lot de la vérif en cours et aux items déjà
+scannés. Item, paquet, lot de la vérif (`start_verif`), étiquette clé et étiquette du scellé se traitent
+depuis le cache sans le serveur. Les envois de vérif (`post_verif` : vérif, étapes de la cascade, scellés
+intacts) partent dans `VerifOutbox` hors connexion, ou si des envois attendent déjà, gardés dans
+`verif-outbox.json` à côté des réglages et renvoyés dans l'ordre (`flush_outbox`, essai toutes les 20 s et
+dès que le cache se recharge) ; la vérif continue avec un compte rendu local (`offline_report`). Un envoi
+refusé par le serveur est retiré de la file et signalé. La barre de menu affiche « Hors connexion » et le
+nombre de vérifs en attente, la fenêtre Vérif le rappelle.
 
 Le signal d'erreur (`Feedback`) : bip et LED orange de la douchette via le SDK, ou bip de
 l'ordinateur et clignotement rouge de l'écran en mode HID, et retour au téléphone s'il vient de là.

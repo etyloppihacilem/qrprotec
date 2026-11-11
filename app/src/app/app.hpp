@@ -12,6 +12,7 @@
 
 #include "../core/json.hpp"
 #include "../core/placeholders.hpp"
+#include "../core/verif_cache.hpp"
 #include "../net/api_client.hpp"
 #include "../net/remote_scanner_link.hpp"
 #include "feedback.hpp"
@@ -552,6 +553,13 @@ class App {
     int                          scanner_volume_default = -1;
     VerifSession                 verif;
     Json                         last_report; // dernier compte rendu de verif
+    // Vérif hors connexion (une partie de la reserve n'a ni reseau ni wifi) : cache de tout ce qu'une verif lit au
+    // serveur, tenu a jour en arriere-plan, et envois de verif en attente renvoyes au retour du reseau
+    VerifCache                   vcache;
+    VerifOutbox                  outbox;
+    bool                         offline() const { return offline_; }
+    // cache de vérif mis a jour si plus vieux que max_age secondes (0 : maintenant)
+    void                         sync_cache(double max_age = 0.0);
     std::string                  last_report_lot;
     LabelPreviewState            preview;
     RemoteSession                remote;
@@ -566,6 +574,21 @@ class App {
     void resolve_item(int entry_id);
     void adopt_prescans();
     void resolve_pack(int entry_id);
+    void item_resolved(int entry_id, const Json &item, ScanSource source);
+    void item_confirmed(int entry_id, const Json &fresh, ScanSource source);
+    void pack_resolved(int entry_id, const Json &pack, ScanSource source);
+    Json cached_seal_lot(const std::string &id) const;
+    void cache_changed(const std::vector< std::string > &keys);
+    // POST /api/verifs/ : hors connexion (ou envois deja en attente), mis en file et `done` recoit le compte rendu
+    // local `offline` (data["offline"] vrai)
+    void post_verif(const Json &body, const std::string &label, Json offline, ApiClient::Callback done);
+    Json offline_report(const std::set< std::string > &lots, bool partial, const std::set< std::string > &sealed) const;
+    void flush_outbox();
+    bool   offline_         = false;
+    bool   cache_syncing_   = false;
+    double cache_synced_at_ = -1.0e9;
+    bool   outbox_busy_     = false;
+    double next_outbox_try_ = 0.0;
     void login_with_badge(const ParsedScan &scan, ScanSource source);
     void send_auth(const std::string &matricule, const std::string &key, const std::string &pin,
                    const std::string &new_pin, ScanSource source);

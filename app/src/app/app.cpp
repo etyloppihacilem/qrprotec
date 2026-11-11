@@ -94,6 +94,8 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   });
   settings = AppSettings::defaults();
   settings.load();
+  // envois de verif faits hors connexion avant un redemarrage : renvoyes au retour du reseau
+  outbox.load(AppSettings::file_path().parent_path() / "verif-outbox.json");
   updater.start(settings.auto_update);
   apply_settings();
   // meme delai et meme defaut que swayidle dans qrprotec-kiosk-session
@@ -440,12 +442,155 @@ void App::begin_frame() {
   // poste principal seulement (API locale, ou cle marquee poste sur un back sans kiosk)
   if (main_poste() && !label_prints_.loading && ImGui::GetTime() >= label_prints_.next_poll)
     refresh_label_prints();
+  // cache de vérif tenu a jour toutes les minutes (vérif possible hors connexion), envois en attente reessayes
+  sync_cache(60.0);
+  if (!outbox.empty() && !outbox_busy_ && ImGui::GetTime() >= next_outbox_try_)
+    flush_outbox();
   // voyant des lots a traiter : liste tenue a jour meme fenetre Lots fermee (pas pendant une verif)
   if (!verif.active && !catalog.loading_lots && ImGui::GetTime() >= next_lots_poll_) {
     next_lots_poll_ = ImGui::GetTime() + 120.0;
     if (catalog.lots_version > 0)
       refresh_lots(true);
   }
+}
+
+namespace {
+std::string now_hhmm(); // plus bas, avec les verifs
+} // namespace
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Vérif hors connexion : cache de vérif (inventory/verif_cache.py) et file des envois en attente
+
+void App::sync_cache(double max_age) {
+  if (cache_syncing_ || ImGui::GetTime() - cache_synced_at_ < max_age)
+    return;
+  cache_syncing_ = true;
+  api.post("/api/verifs/cache/", vcache.request(), [this](const ApiResult &result) {
+    cache_syncing_   = false;
+    cache_synced_at_ = ImGui::GetTime();
+    offline_         = !result.ok && result.status == 0;
+    if (!result.ok)
+      return;
+    const bool                       first   = !vcache.loaded();
+    const std::vector< std::string > changed = vcache.apply(result.data);
+    if (!first && !changed.empty())
+      cache_changed(changed);
+    if (!outbox.empty())
+      next_outbox_try_ = 0.0; // reseau retrouve : on renvoie tout de suite
+  });
+}
+
+// Cache de vérif mis a jour : lot de la verif en cours remplace par son nouveau detail, items deja scannes compares a
+// leur nouvel etat (seule une difference est signalee)
+void App::cache_changed(const std::vector< std::string > &keys) {
+  const std::set< std::string > changed(keys.begin(), keys.end());
+  if (verif.active && !verif.loading && changed.count("l:" + verif.lot_id)) {
+    Json fresh = vcache.lot(verif.lot_id);
+    if (!fresh.is_null())
+      verif.lot = fresh;
+  }
+  for (const ScanEntry &entry : stack.entries()) {
+    if (entry.scan.kind != ScanKind::Item || entry.state != EntryState::Ok || !changed.count("i:" + entry.scan.id))
+      continue;
+    if (const Json *item = vcache.item(entry.scan.id))
+      item_confirmed(entry.id, *item, entry.source);
+  }
+}
+
+void App::post_verif(const Json &body, const std::string &label, Json offline, ApiClient::Callback done) {
+  const auto queue = [this, body, label, offline, done]() {
+    outbox.push({ body, label, now_hhmm() });
+    offline_ = true;
+    ApiResult local;
+    local.ok              = true;
+    local.status          = 200;
+    local.data            = offline;
+    local.data["offline"] = true;
+    done(local);
+  };
+  if (!outbox.empty()) { // l'ordre compte (etapes de la verif en cascade) : derriere ceux qui attendent
+    queue();
+    return;
+  }
+  api.post("/api/verifs/", body, [this, queue, done](const ApiResult &result) {
+    if (!result.ok && result.status == 0) {
+      queue();
+      return;
+    }
+    offline_ = false;
+    done(result);
+  });
+}
+
+// Compte rendu local d'une verif mise en attente : les lots valides d'apres la repartition des scans (complets ou
+// non) et les lots scelles intacts. Le vrai compte rendu viendra du serveur a l'envoi.
+Json App::offline_report(const std::set< std::string > &lots, bool partial, const std::set< std::string > &sealed) const {
+  Json report;
+  report["lots"]  = Json::array();
+  bool complete   = true;
+  for (const VerifPlanLot &row : plan_verif()) {
+    const std::string id = (*row.lot)["id"].str();
+    if (!lots.count(id) || (partial && !row.complete))
+      continue;
+    Json line;
+    line["id"]       = id;
+    line["name"]     = (*row.lot)["name"].str();
+    line["depth"]    = row.depth;
+    line["verified"] = true;
+    line["complete"] = row.complete;
+    complete         = complete && row.complete;
+    report["lots"].push_back(line);
+  }
+  Json names = Json::array();
+  for (const std::string &id : sealed) {
+    Json        line;
+    const Json *lot = verif_lot(id);
+    line["id"]     = id;
+    line["name"]   = lot ? (*lot)["name"].str() : id;
+    line["sealed"] = true;
+    names.push_back(line["name"]);
+    report["lots"].push_back(line);
+  }
+  report["sealed_lots"] = names;
+  report["complete"]    = complete;
+  report["partial"]     = partial;
+  report["present"]     = Json::array();
+  for (const std::string &iid : stack.iids())
+    report["present"].push_back(iid);
+  return report;
+}
+
+// Envois en attente renvoyes dans l'ordre. Refuse par le serveur (etiquette cle perimee, scelle brise entre-temps) :
+// retire de la file et signale, a refaire.
+void App::flush_outbox() {
+  if (outbox.empty() || outbox_busy_)
+    return;
+  outbox_busy_ = true;
+  api.post("/api/verifs/", outbox.front().body, [this](const ApiResult &result) {
+    outbox_busy_ = false;
+    if (outbox.empty())
+      return;
+    if (!result.ok && result.status == 0) {
+      offline_         = true;
+      next_outbox_try_ = ImGui::GetTime() + 20.0;
+      return;
+    }
+    offline_                = false;
+    const OutboxEntry entry = outbox.front();
+    outbox.pop_front();
+    if (!result.ok)
+      notify("Vérif de " + entry.label + " (faite hors connexion à " + entry.at + ") refusée par le serveur : "
+               + result.error + ". À refaire.",
+             true);
+    else if (outbox.empty())
+      notify("Réseau retrouvé : vérifs faites hors connexion envoyées (dernière : " + entry.label + ").");
+    if (!outbox.empty())
+      flush_outbox();
+    else {
+      sync_cache();
+      refresh_lots(true);
+    }
+  });
 }
 
 void App::check_inactivity() {
@@ -628,7 +773,11 @@ void App::draw_menu_bar() {
       printing = "Impression en pause";
     else if (print.pending > 0)
       printing = "Impression : " + std::to_string(print.pending) + " en attente";
-    const std::string status = api.online() ? "API en ligne" : "API hors ligne";
+    // vérif hors connexion : envois gardes sur le poste, renvoyes au retour du reseau
+    const std::string waiting = outbox.empty() ? std::string()
+                              : " · " + nb(static_cast< int >(outbox.size()), "vérif en attente", "vérifs en attente");
+    const std::string status  = api.online() ? (outbox.empty() ? "API en ligne" : "Envoi en cours" + waiting)
+                                             : "Hors connexion" + waiting;
     const std::string phone  = !remote.active          ? ""
                              : remote.phone_connected ? "Téléphone connecté"
                              : remote.phone_seen      ? "Téléphone déconnecté"
@@ -1876,12 +2025,44 @@ void App::entry_error(int entry_id, const std::string &message, ScanSource sourc
   notify(describe_scan(entry->scan) + " : " + message, true);
 }
 
+// Ligne de detail d'un item scanne (peremption, lot, statut, desactivation, signalement)
+static std::string item_detail_text(const Json &item) {
+  std::string detail = item["peremption"].is_null() ? "Non périssable" : "Exp. " + display_date(item["peremption"]);
+  detail += item["status"].str() == "out" || item["status"].str() == "loose" ? "" : item["location"].is_null() ? " - en stock, sans rangement" : " - " + item["location_name"].str();
+  const std::string status = item["status"].str();
+  if (status == "missing")
+    detail += " - signalé disparu";
+  else if (status == "deleted")
+    detail += " - marqué supprimé";
+  else if (status == "replaced")
+    detail += " - déjà remplacé";
+  else if (status == "loose")
+    detail += " - hors lot (retiré de son lot), pas encore en stock";
+  else if (status == "out")
+    detail += item["out_until"].is_null()
+                ? std::string(" - sorti du stock (non consommable)")
+                : " - sorti du stock, compté utilisé le " + display_date(item["out_until"]) + " s'il ne revient pas";
+  if (item["disabled"].boolean())
+    detail += " - désactivé (" + item["disabled_reason"].str() + ") : à remplacer";
+  else if (item["unusable"].boolean())
+    detail += " - signalé inutilisable : à remplacer";
+  else if (item["reported"].boolean())
+    detail += " - problème signalé";
+  return detail;
+}
+
 void App::resolve_item(int entry_id) {
   const ScanEntry *entry = stack.find(entry_id);
   if (!entry)
     return;
   const ScanSource source = entry->source;
-  api.get("/api/items/" + url_encode(entry->scan.id) + "/", [this, entry_id, source](const ApiResult &result) {
+  // cache de vérif : l'item est connu tout de suite (signalement, desactivation, lot), le serveur confirme ensuite et
+  // seule une difference est signalee (item_confirmed). Hors connexion, le cache fait foi.
+  const Json *cached = vcache.item(entry->scan.id);
+  const bool  had    = cached != nullptr;
+  if (had)
+    item_resolved(entry_id, *cached, source);
+  api.get("/api/items/" + url_encode(entry->scan.id) + "/", [this, entry_id, source, had](const ApiResult &result) {
     ScanEntry *entry = stack.find(entry_id);
     if (!entry)
       return;
@@ -1890,85 +2071,119 @@ void App::resolve_item(int entry_id) {
       return;
     }
     if (!result.ok) {
-      entry->state  = EntryState::Pending;
-      entry->detail = "Non vérifié : " + result.error;
-      return;
-    }
-    const Json &item = result.data;
-    entry->state     = EntryState::Ok;
-    entry->data      = item;
-    entry->title     = item["type_name"].str();
-    std::string detail = item["peremption"].is_null() ? "Non périssable" : "Exp. " + display_date(item["peremption"]);
-    detail += item["status"].str() == "out" || item["status"].str() == "loose" ? "" : item["location"].is_null() ? " - en stock, sans rangement" : " - " + item["location_name"].str();
-    const std::string status = item["status"].str();
-    entry->warning           = status != "active";
-    if (status == "missing")
-      detail += " - signalé disparu";
-    else if (status == "deleted")
-      detail += " - marqué supprimé";
-    else if (status == "replaced")
-      detail += " - déjà remplacé";
-    else if (status == "loose")
-      detail += " - hors lot (retiré de son lot), pas encore en stock";
-    else if (status == "out")
-      detail += item["out_until"].is_null()
-                  ? std::string(" - sorti du stock (non consommable)")
-                  : " - sorti du stock, compté utilisé le " + display_date(item["out_until"]) + " s'il ne revient pas";
-    if (item["disabled"].boolean())
-      detail += " - désactivé (" + item["disabled_reason"].str() + ") : à remplacer";
-    else if (item["unusable"].boolean())
-      detail += " - signalé inutilisable : à remplacer";
-    else if (item["reported"].boolean())
-      detail += " - problème signalé";
-    entry->detail = detail;
-    // verif en cascade : un item est compte dans le lot ou l'on est (on l'y a trouve), meme range ailleurs dans la verif ;
-    // on ne change de lot qu'en scannant son etiquette. Seul un item d'un sous-lot du lot en cours fait entrer dans ce
-    // sous-lot (on n'est encore dans aucun d'eux), sauf s'il a deja ete valide.
-    if (verif_cascade() && !item["location"].str().empty() && verif_lot(item["location"].str())) {
-      const std::string where = item["location"].str();
-      const std::string level = verif_level();
-      const std::string name  = (*verif_lot(where))["name"].str();
-      if (!verif_under(where, level)) {
-        notify(item["type_name"].str() + " : rangé dans " + name + ", compté dans " + (*verif_lot(level))["name"].str()
-               + " où vous l'avez trouvé (il y sera déplacé).");
-      } else if (verif.done.count(where)) {
-        stack.remove(entry_id);
-        feedback.notice(source, settings);
-        notify(item["type_name"].str() + " : " + name + " a déjà été validé, item non recompté (scannez l'étiquette de "
-                 + name + " pour le refaire).",
-               true);
-        return;
-      } else if (where != level) {
-        entry->place = where;
-        enter_level(where);
-        const std::string parent = verif_parent(where);
-        notify("Entrée dans " + name + " : scannez son contenu, puis validez-le"
-               + (verif_lot(parent) ? " pour revenir à " + (*verif_lot(parent))["name"].str() : "") + ".");
+      if (!had) {
+        entry->state  = EntryState::Pending;
+        entry->detail = "Non vérifié : " + result.error;
       }
-    }
-    if (item["expired"].boolean() && !entry->expired) {
-      entry->expired = true;
-      feedback.error(source, settings);
-    }
-    if (entry->expired && verif.active) {
-      const std::string advice = discard_advice(item);
-      if (!advice.empty())
-        notify(advice, true);
-    }
-    if (item["reported"].boolean())
-      alert_reports("item:" + item["iid"].str(), "Item signalé : " + item["type_name"].str(), item["reports"], source);
-    // item a taches perime ou desactive : a remplacer, ses taches n'ont plus de sens. L'ecran clignote en rouge
-    // (deja fait au scan ou plus haut), sans fenetre des taches, et l'item compte comme un perime.
-    if (item["tasks"].size() > 0 && entry->expired)
       return;
-    // item a taches : compte comme vu seulement une fois ses taches cochees et validees
-    if (item["tasks"].size() > 0 && !entry->tasks_done) {
-      entry->tasks_pending = true;
-      if (!entry->scan.task && !entry->expired)
-        feedback.task(source, settings);
-      open_tasks(entry_id);
     }
+    if (had)
+      item_confirmed(entry_id, result.data, source);
+    else
+      item_resolved(entry_id, result.data, source);
   });
+}
+
+// Faits d'un item qui changent ce que la verif en dit (meme liste que itemFacts du front web)
+static std::string item_facts(const Json &item) {
+  std::string facts = std::string(item["expired"].boolean() ? "E" : "-") + (item["disabled"].boolean() ? "D" : "-")
+                    + (item["unusable"].boolean() ? "U" : "-") + "|" + item["status"].str() + "|" + item["location"].str();
+  for (const Json &report : item["reports"].items())
+    facts += "|" + report["id"].str() + ":" + report["status"].str() + ":" + (report["usable"].boolean() ? "1" : "0") + ":"
+           + report["comment"].str() + ":" + report["reply"].str();
+  for (const Json &task : item["tasks"].items())
+    facts += "|t:" + task.str();
+  return facts;
+}
+
+// Etat actuel (serveur) d'un item scanne traite depuis le cache de vérif : une difference qui compte est appliquee, avec
+// le bip d'erreur s'il devient a remplacer et la fenetre des signalements si un signalement est arrive.
+void App::item_confirmed(int entry_id, const Json &fresh, ScanSource source) {
+  ScanEntry *entry = stack.find(entry_id);
+  if (!entry)
+    return;
+  if (item_facts(entry->data) == item_facts(fresh)) {
+    entry->data = fresh;
+    return;
+  }
+  std::set< std::string > known;
+  for (const Json &report : entry->data["reports"].items())
+    known.insert(report["id"].str());
+  entry->data    = fresh;
+  entry->title   = fresh["type_name"].str();
+  entry->warning = fresh["status"].str() != "active";
+  entry->detail  = (entry->tasks_done ? "Tâches faites - " : "") + item_detail_text(fresh);
+  if (fresh["expired"].boolean() && !entry->expired) {
+    entry->expired = true;
+    feedback.error(source, settings);
+    notify(fresh["type_name"].str() + " : à remplacer (" + item_detail_text(fresh) + ").", true);
+  }
+  bool added = false;
+  for (const Json &report : fresh["reports"].items())
+    added = added || !known.count(report["id"].str());
+  if (fresh["reported"].boolean() && added) {
+    reports_alert_.last_key.clear(); // nouveau signalement : la fenetre s'ouvre meme juste apres la precedente
+    alert_reports("item:" + fresh["iid"].str(), "Item signalé : " + fresh["type_name"].str(), fresh["reports"], source);
+  }
+}
+
+void App::item_resolved(int entry_id, const Json &resolved, ScanSource source) {
+  ScanEntry *entry = stack.find(entry_id);
+  if (!entry)
+    return;
+  const Json item  = resolved; // copie : `resolved` peut etre dans le cache de vérif
+  entry->state     = EntryState::Ok;
+  entry->data      = item;
+  entry->title     = item["type_name"].str();
+  entry->warning   = item["status"].str() != "active";
+  entry->detail    = item_detail_text(item);
+  // verif en cascade : un item est compte dans le lot ou l'on est (on l'y a trouve), meme range ailleurs dans la verif ;
+  // on ne change de lot qu'en scannant son etiquette. Seul un item d'un sous-lot du lot en cours fait entrer dans ce
+  // sous-lot (on n'est encore dans aucun d'eux), sauf s'il a deja ete valide.
+  if (verif_cascade() && !item["location"].str().empty() && verif_lot(item["location"].str())) {
+    const std::string where = item["location"].str();
+    const std::string level = verif_level();
+    const std::string name  = (*verif_lot(where))["name"].str();
+    if (!verif_under(where, level)) {
+      notify(item["type_name"].str() + " : rangé dans " + name + ", compté dans " + (*verif_lot(level))["name"].str()
+             + " où vous l'avez trouvé (il y sera déplacé).");
+    } else if (verif.done.count(where)) {
+      stack.remove(entry_id);
+      feedback.notice(source, settings);
+      notify(item["type_name"].str() + " : " + name + " a déjà été validé, item non recompté (scannez l'étiquette de "
+               + name + " pour le refaire).",
+             true);
+      return;
+    } else if (where != level) {
+      entry->place = where;
+      enter_level(where);
+      const std::string parent = verif_parent(where);
+      notify("Entrée dans " + name + " : scannez son contenu, puis validez-le"
+             + (verif_lot(parent) ? " pour revenir à " + (*verif_lot(parent))["name"].str() : "") + ".");
+    }
+  }
+  if (item["expired"].boolean() && !entry->expired) {
+    entry->expired = true;
+    feedback.error(source, settings);
+  }
+  if (entry->expired && verif.active) {
+    const std::string advice = discard_advice(item);
+    if (!advice.empty())
+      notify(advice, true);
+  }
+  if (item["reported"].boolean())
+    alert_reports("item:" + item["iid"].str(), "Item signalé : " + item["type_name"].str(), item["reports"], source);
+  // item a taches perime ou desactive : a remplacer, ses taches n'ont plus de sens. L'ecran clignote en rouge
+  // (deja fait au scan ou plus haut), sans fenetre des taches, et l'item compte comme un perime.
+  if (item["tasks"].size() > 0 && entry->expired)
+    return;
+  // item a taches : compte comme vu seulement une fois ses taches cochees et validees
+  if (item["tasks"].size() > 0 && !entry->tasks_done) {
+    entry->tasks_pending = true;
+    if (!entry->scan.task && !entry->expired)
+      feedback.task(source, settings);
+    open_tasks(entry_id);
+  }
 }
 
 void App::open_tasks(int entry_id) {
@@ -2058,41 +2273,65 @@ void App::resolve_pack(int entry_id) {
   if (!entry)
     return;
   const ScanSource source = entry->source;
-  api.get("/api/packs/" + url_encode(entry->scan.id) + "/", [this, entry_id, source](const ApiResult &result) {
+  // cache de vérif : le paquet est connu tout de suite, le serveur confirme ensuite (seule une difference compte)
+  const Json *cached = vcache.pack(entry->scan.id);
+  const bool  had    = cached != nullptr;
+  if (had)
+    pack_resolved(entry_id, *cached, source);
+  api.get("/api/packs/" + url_encode(entry->scan.id) + "/", [this, entry_id, source, had](const ApiResult &result) {
     ScanEntry *entry = stack.find(entry_id);
     if (!entry)
       return;
     if (!result.ok) {
-      entry_error(entry_id, result.status == 404 ? "Paquet inconnu" : result.error, source);
+      if (!had || result.status == 404)
+        entry_error(entry_id, result.status == 404 ? "Paquet inconnu" : result.error, source);
       return;
     }
-    entry->state = EntryState::Ok;
-    entry->data  = result.data;
-    entry->pack_items.clear();
-    for (const Json &iid : result.data["items"].items())
-      entry->pack_items.push_back(iid.str());
-    entry->title  = "Paquet : " + result.data["count"].str() + " x " + result.data["type_name"].str();
-    entry->detail = result.data["peremption"].is_null() ? "Non périssable"
-                                                        : "Exp. " + display_date(result.data["peremption"]);
-    if (!result.data["opened"].is_null())
-      entry->detail += " - déjà ouvert";
-    const auto date = Date::parse(result.data["peremption"].str());
-    if (date && *date < today()) {
+    const auto facts = [](const Json &pack) {
+      std::string text = pack["disabled"].str() + "|" + pack["opened"].str() + "|" + pack["items"].dump();
+      for (const Json &report : pack["reports"].items())
+        text += "|" + report["id"].str() + ":" + report["status"].str() + ":" + (report["usable"].boolean() ? "1" : "0");
+      return text;
+    };
+    if (had && facts(entry->data) == facts(result.data)) {
+      entry->data = result.data;
+      return;
+    }
+    if (had)
+      reports_alert_.last_key.clear(); // difference : la fenetre des signalements se rouvre s'il y en a
+    pack_resolved(entry_id, result.data, source);
+  });
+}
+
+void App::pack_resolved(int entry_id, const Json &resolved, ScanSource source) {
+  ScanEntry *entry = stack.find(entry_id);
+  if (!entry)
+    return;
+  const Json pack = resolved; // copie : `resolved` peut etre dans le cache de vérif
+  entry->state = EntryState::Ok;
+  entry->data  = pack;
+  entry->pack_items.clear();
+  for (const Json &iid : pack["items"].items())
+    entry->pack_items.push_back(iid.str());
+  entry->title  = "Paquet : " + pack["count"].str() + " x " + pack["type_name"].str();
+  entry->detail = pack["peremption"].is_null() ? "Non périssable" : "Exp. " + display_date(pack["peremption"]);
+  if (!pack["opened"].is_null())
+    entry->detail += " - déjà ouvert";
+  const auto date = Date::parse(pack["peremption"].str());
+  if (date && *date < today() && !entry->expired) {
+    entry->expired = true;
+    feedback.error(source, settings);
+  }
+  if (pack["disabled"].integer() > 0) {
+    // items desactives (rappel produit) : a remplacer comme des perimes
+    entry->detail += " - " + nb(pack["disabled"].integer(), "item désactivé", "items désactivés");
+    if (!entry->expired) {
       entry->expired = true;
       feedback.error(source, settings);
     }
-    if (result.data["disabled"].integer() > 0) {
-      // items desactives (rappel produit) : a remplacer comme des perimes
-      entry->detail += " - " + nb(result.data["disabled"].integer(), "item désactivé", "items désactivés");
-      if (!entry->expired) {
-        entry->expired = true;
-        feedback.error(source, settings);
-      }
-    }
-    alert_reports("pack:" + result.data["id"].str(),
-                  "Paquet signalé : " + result.data["count"].str() + " x " + result.data["type_name"].str(),
-                  result.data["reports"], source);
-  });
+  }
+  alert_reports("pack:" + pack["id"].str(), "Paquet signalé : " + pack["count"].str() + " x " + pack["type_name"].str(),
+                pack["reports"], source);
 }
 
 // QR code d'un scelle : le lot est valide sans verif tant que le scelle est intact.
@@ -2116,15 +2355,17 @@ void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
     show_lot(scan.id, scan.key);
   api.get("/api/lots/" + url_encode(scan.id) + "/?seal=" + url_encode(scan.key),
           [this, id = scan.id, code = scan.key, source, during_verif](const ApiResult &result) {
-            if (!result.ok) {
+            // hors connexion : lot du cache de vérif, scelle accepte s'il est pose (code controle a l'envoi)
+            const Json data = result.ok ? result.data : result.status == 0 ? cached_seal_lot(id) : Json();
+            if (data.is_null()) {
               feedback.error(source, settings);
               notify("Lot inconnu : " + id, true);
               return;
             }
-            const std::string check = result.data["seal_check"].str();
-            const std::string name  = result.data["name"].str();
-            if (during_verif && verif.active && root_of(result.data) == root_of(verif.lot)) {
-              if (check != "valid" || result.data["expired_count"].integer() > 0) {
+            const std::string check = data["seal_check"].str();
+            const std::string name  = data["name"].str();
+            if (during_verif && verif.active && root_of(data) == root_of(verif.lot)) {
+              if (check != "valid" || data["expired_count"].integer() > 0) {
                 feedback.error(source, settings);
                 notify(name + (check != "valid" ? " : scellé brisé ou étiquette d'un ancien scellé"
                                                 : " : scellé intact mais contient des périmés")
@@ -2163,13 +2404,37 @@ void App::scan_lot_seal(const ParsedScan &scan, ScanSource source) {
               notify(check == "wrong" ? name + " : étiquette d'un ancien scellé, vérif nécessaire."
                                       : name + " : scellé brisé, vérif nécessaire.",
                      true);
-            } else if (result.data["expired_count"].integer() > 0) {
+            } else if (data["expired_count"].integer() > 0) {
               feedback.error(source, settings);
               notify(name + " : scellé intact mais contient des périmés, à ouvrir.", true);
             } else {
               notify(name + " : scellé intact, lot valide.");
             }
           });
+}
+
+// Lot du cache de vérif pour une etiquette de scelle lue hors connexion : 'valid' s'il est scelle (le serveur controle
+// son code a l'envoi), avec son lot global (root_of). Nul s'il n'est pas dans le cache.
+Json App::cached_seal_lot(const std::string &id) const {
+  const std::string root = vcache.root_of(id);
+  if (root.empty())
+    return Json();
+  const Json lot = vcache.lot(root);
+  Json       row = lot;
+  if (root != id) {
+    row = Json();
+    for (const Json &sub : lot["descendants"].items())
+      if (sub["id"].str() == id)
+        row = sub;
+    if (row.is_null())
+      return Json();
+  }
+  Json global;
+  global["id"]   = root;
+  global["name"] = lot["name"].str();
+  row["global"]  = global;
+  row["seal_check"] = row["is_sealed"].boolean() ? "valid" : "unsealed";
+  return row;
 }
 
 // Etiquette d'ouverture (rangee dans le lot scelle) : son scan ouvre le scelle, que quelqu'un soit connecte ou non.
@@ -2363,6 +2628,9 @@ void App::scan_lot(const ParsedScan &scan, ScanSource source) {
     // le serveur compare la cle : sans connexion (ou role normal) il ne la renvoie pas
     const std::string path = "/api/lots/" + url_encode(scan.id) + "/?key=" + url_encode(scan.key);
     api.get(path, [this, id = scan.id, source](const ApiResult &result) {
+      // hors connexion : etiquette cle acceptee si le lot est dans le cache de vérif (controlee a l'envoi)
+      if (!result.ok && result.status == 0 && !vcache.root_of(id).empty())
+        return;
       if (!result.ok) {
         if (stack.target.id == id)
           stack.target = {};
@@ -2548,6 +2816,23 @@ void App::start_verif(const std::string &lot_id, const std::string &key, bool la
       verif.labels.insert(lot_id);
     label_shown_.clear();
     open_window("verif");
+    // cache de vérif : le lot global est deja la, la verif commence sans attendre le serveur
+    const std::string cached_root = vcache.root_of(lot_id);
+    if (!cached_root.empty()) {
+      verif.loading = false;
+      verif.lot     = vcache.lot(cached_root);
+      if (cached_root != lot_id) {
+        verif.lot_id     = cached_root;
+        verif.started_in = lot_id;
+        if (!verif.key.empty())
+          verif.keys[lot_id] = verif.key;
+        verif.key.clear();
+        enter_level(lot_id);
+      }
+      adopt_prescans();
+      sync_cache(30.0);
+      return;
+    }
     api.get("/api/lots/" + url_encode(lot_id) + "/", [this, lot_id](const ApiResult &result) {
       if (!verif.active || verif.lot_id != lot_id)
         return;
@@ -3297,7 +3582,14 @@ void App::submit_step(bool partial) {
     verif.submitting = true;
     const std::string root = verif.lot_id;
     const std::string name = (*lot)["name"].str(top);
-    api.post("/api/verifs/", body, [this, root, top, name, at_root, partial, sent, sent_seals](const ApiResult &result) {
+    // compte rendu local (hors connexion) : les lots de l'etape, sans les sous-lots laisses de cote ni les scelles
+    std::set< std::string > verified = scope;
+    for (const std::string &id : exclude)
+      verified.erase(id);
+    for (const std::string &id : verif_intact())
+      verified.erase(id);
+    post_verif(body, name, offline_report(verified, partial, sent_seals),
+               [this, root, top, name, at_root, partial, sent, sent_seals](const ApiResult &result) {
       if (!verif.active || verif.lot_id != root)
         return;
       verif.submitting = false;
@@ -3556,8 +3848,13 @@ void App::flush_cascade_seals() {
   body["labels"]   = verif_labels();
   body["step"]     = true;
   verif.submitting = true;
-  const std::string root = verif.lot_id;
-  api.post("/api/verifs/", body, [this, root](const ApiResult &result) {
+  const std::string       root = verif.lot_id;
+  std::set< std::string > seals;
+  for (const VerifSealed &sealed : verif.sealed)
+    seals.insert(sealed.id);
+  const Json *first = verif_lot(verif.sealed.front().id);
+  post_verif(body, first ? (*first)["name"].str() : verif.sealed.front().id, offline_report({}, false, seals),
+             [this, root](const ApiResult &result) {
     if (!verif.active || verif.lot_id != root)
       return;
     verif.submitting = false;
@@ -3646,8 +3943,13 @@ void App::submit_verif(bool partial) {
     body["checked"]  = verif_checked_body();
     body["partial"]  = partial;
     verif.submitting  = true;
-    const std::string title = verif_title();
-    api.post("/api/verifs/", body, [this, title](const ApiResult &result) {
+    const std::string       title = verif_title();
+    std::set< std::string > lots, seals;
+    for (const VerifPlanLot &row : plan_verif())
+      lots.insert((*row.lot)["id"].str());
+    for (const VerifSealed &sealed : verif.sealed)
+      seals.insert(sealed.id);
+    post_verif(body, title, offline_report(lots, partial, seals), [this, title](const ApiResult &result) {
       verif.submitting = false;
       if (!result.ok) {
         identity_refused(result);
@@ -3661,7 +3963,9 @@ void App::submit_verif(bool partial) {
       open_window("verif");
       const bool complete = result.data["complete"].boolean();
       const bool several  = result.data["lots"].size() > 1;
-      if (result.data["partial"].boolean())
+      if (result.data["offline"].boolean())
+        notify("Hors connexion : vérif gardée sur ce poste, envoyée dès le retour du réseau.");
+      else if (result.data["partial"].boolean())
         notify("Vérif partielle enregistrée : seuls les lots complets ont été vérifiés.");
       else
         notify(complete ? (several ? "Vérif enregistrée : lots complets." : "Vérif enregistrée : lot complet.")

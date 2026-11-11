@@ -104,6 +104,7 @@ add_library(QRProtecCore STATIC
     src/core/template.cpp
     src/core/template_io.cpp
     src/core/update_check.cpp
+    src/core/verif_cache.cpp
     src/net/connection.cpp
     src/net/front_config.cpp
     src/net/http.cpp
