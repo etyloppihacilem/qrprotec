@@ -3369,9 +3369,7 @@
     state.homePage = page;
     if (!readerOpen()) { cameraWanted = false; syncCamera(); }
     document.body.classList.add('home-mode');
-    if (page === 'lots' && !state.lots && state.loading !== 'lots') loadLots();
-    if (page === 'stock' && canSeeStock() && !state.stock && state.loading !== 'stock') loadStock();
-    if (page === 'reports' && state.user) loadReports();
+    refreshHome(page);
     if (page === 'debug' && isAdmin() && !debug.data) loadDebug();
     if (page === 'live') watchStart(); else watchStop();
     if (page === 'lists') listsShown(); else { clearInterval(lists.timer); lists.timer = 0; }
@@ -3379,6 +3377,35 @@
     renderHomePage();
     $('#home-pages').scrollTop = 0;
   }
+
+  // Retour sur une page de l'accueil (← Accueil, retour arriere, retour sur l'onglet) : ses infos sont rechargees,
+  // sans vider ce qui est deja affiche. Le menu recharge les compteurs de ses tuiles (tâches de la Gestion de la TECH,
+  // signalements). Les listes, le départ et le suivi rechargent deja a chaque ouverture.
+  let homeRefreshedAt = 0;
+  function refreshHome(page = state.homePage || 'menu') {
+    homeRefreshedAt = Date.now();
+    if (page === 'lots' && state.loading !== 'lots') loadLots();
+    if (page === 'stock' && canSeeStock() && state.loading !== 'stock') loadStock();
+    if (page === 'reports' && state.user) loadReports();
+    if (page === 'menu') {
+      if (canSeeStock() && state.loading !== 'stock') loadTasks();
+      if (state.user) loadReports(true);
+    }
+  }
+
+  // retour sur l'onglet ou l'appli (telephone deverrouille, autre appli quittee) : la page affichee est rechargee.
+  // pageshow et visibilitychange arrivent ensemble au retour d'une page gardee en cache : un seul rechargement
+  function refreshShownHome() {
+    if (document.hidden || !inHome() || ficheOpen() || gateOpen() || Date.now() - homeRefreshedAt < 3000) return;
+    const page = state.homePage || 'menu';
+    homeRefreshedAt = Date.now();
+    if (page === 'lists') { if (!lists.edit) listsShown(); } else if (page === 'depart') { // sans changer d'onglet
+      if (state.loading !== 'lots') loadLots();
+      if (state.user) { loadDepartLists(); loadDepartBlocked(); }
+    } else refreshHome(page);
+  }
+  document.addEventListener('visibilitychange', refreshShownHome);
+  window.addEventListener('pageshow', (event) => { if (event.persisted) refreshShownHome(); });
 
   // Scanner : l'ecran de vérif habituel, camera demarree (le geste de l'utilisateur debloque aussi le son)
   function enterScanner(start = true, push = true) {
@@ -3590,6 +3617,22 @@
     } finally {
       state.loading = '';
       render();
+    }
+  }
+
+  // tâches seules (compteur de la tuile « Gestion de la TECH » du menu), sans « Chargement… » ni message d'erreur
+  let tasksBusy = false;
+  async function loadTasks() {
+    if (!canSeeStock() || tasksBusy) return;
+    tasksBusy = true;
+    try {
+      const tasks = await api('tasks/summary/', { user: badge() });
+      if (canSeeStock()) state.tasks = tasks;
+    } catch (e) {
+      // pas de toast : la tuile garde l'ancien compteur
+    } finally {
+      tasksBusy = false;
+      if (inHome()) renderHomePage();
     }
   }
 
