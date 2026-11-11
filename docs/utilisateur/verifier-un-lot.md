@@ -101,9 +101,9 @@ tape toujours `@`, `#` ou `{`.
 **Quitter cette vérif** (menu **⋯**) abandonne la vérif sans rien enregistrer et revient à l'accueil.
 Les réglages ⚙ et la déconnexion sont sur l'accueil (ou touchez votre prénom en haut).
 
-La caméra occupe le tiers haut de l'écran. Le bouton **↘** la réduit en vignette dans un coin, comme
-pendant un appel vidéo : la liste prend tout l'écran et le scan continue. Touchez la vignette pour
-la remettre en haut.
+La caméra occupe le tiers haut de l'écran. Avec **Bulle de scan** cochée dans les réglages ⚙ (décochée
+par défaut), le bouton **↘** la réduit en vignette dans un coin, comme pendant un appel vidéo : la liste
+prend tout l'écran et le scan continue. Touchez la vignette pour la remettre en haut.
 
 La liste en cours est conservée si la page se recharge ou si le téléphone se met en veille. Après
 **20 minutes sans scan**, une vérif en cours est oubliée au rechargement de la page ou à l'ouverture
@@ -137,8 +137,7 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
 - **Se connecter** (en haut à droite) ouvre une grande fenêtre « Scannez votre carte » : montrez le QR
   code de votre carte à la caméra, ou touchez « Pas de carte ? Connexion avec nom et prénom ». La même
   fenêtre s'ouvre quand vous lancez une vérif sans être connecté ; sans compte (secouriste d'une autre
-  antenne), touchez « Continuer sans compte (invité) ». Habitués : cochez **Bulle de
-  connexion** dans les réglages ⚙ pour un petit lecteur discret dans un coin à la place.
+  antenne), touchez « Continuer sans compte (invité) ».
 - **Scanner** : l'écran de vérif, caméra prête à scanner. Le bouton 🏠 y ramène à l'accueil.
 - **Suivi des vérifs** : les vérifs **en cours, en direct** (lot, qui vérifie, items scannés,
   reste à scanner) et les **dernières vérifs** enregistrées. Touchez une vérif terminée pour son

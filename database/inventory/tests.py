@@ -572,24 +572,26 @@ class WebPrefsTests(ApiTestCase):
 
     def test_defaults_user_and_admin(self):
         code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
-        self.assertEqual(body['web_prefs'], {'verif_help_hidden': False, 'login_bubble': False})
+        self.assertEqual(body['web_prefs'], {'verif_help_hidden': False, 'scan_bubble': False})
         # l'utilisateur coche « ne plus afficher ce message » : les autres reglages restent tels quels
         code, body = self.my_prefs({'verif_help_hidden': True})
-        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': True, 'login_bubble': False}))
-        code, body = self.my_prefs({'login_bubble': True})
-        self.assertEqual(body['web_prefs'], {'verif_help_hidden': True, 'login_bubble': True})
+        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': True, 'scan_bubble': False}))
+        code, body = self.my_prefs({'scan_bubble': True})
+        self.assertEqual(body['web_prefs'], {'verif_help_hidden': True, 'scan_bubble': True})
         # l'ancien reglage « ligne d'info pendant la vérif » n'existe plus : refuse, et ignore s'il est deja en base
         self.assertEqual(self.my_prefs({'verif_info_line': True})[0], 400)
+        # l'ancien reglage « Bulle de connexion » non plus (la grande fenetre de connexion est toujours utilisee)
+        self.assertEqual(self.my_prefs({'login_bubble': True})[0], 400)
         self.user.refresh_from_db()
         self.user.web_prefs = {**self.user.web_prefs, 'verif_info_line': True}
         self.user.save(update_fields=['web_prefs'])
         # reglage inconnu ou valeur non booleenne : refuse
         self.assertEqual(self.my_prefs({'inconnu': True})[0], 400)
-        self.assertEqual(self.my_prefs({'login_bubble': 'oui'})[0], 400)
-        self.assertEqual(self.call('POST', '/api/me/prefs/', {'web_prefs': {'login_bubble': True}}, local=False)[0], 403)
+        self.assertEqual(self.my_prefs({'scan_bubble': 'oui'})[0], 400)
+        self.assertEqual(self.call('POST', '/api/me/prefs/', {'web_prefs': {'scan_bubble': True}}, local=False)[0], 403)
         # un admin reaffiche l'explication depuis le poste (fenetre Utilisateurs), journalise
         code, body = self.call('PATCH', '/api/users/M001/', {'web_prefs': {'verif_help_hidden': False}})
-        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': False, 'login_bubble': True}))
+        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': False, 'scan_bubble': True}))
         self.assertEqual(self.call('PATCH', '/api/users/M001/', {'web_prefs': ['x']})[0], 400)
 
 
@@ -6040,7 +6042,7 @@ class TempLoginTests(ApiTestCase):
         self.assertNotIn('nom', user)
         # la session sert d'identifiant (comme apres une connexion par nom et PIN), pendant 24 h et pas plus
         credentials = {'matricule': 'M001', 'session': user['session']}
-        code, _ = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'login_bubble': True}},
+        code, _ = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'scan_bubble': True}},
                             local=False)
         self.assertEqual(code, 200)
         self.assertIsNotNone(views.credentials_user(credentials))
@@ -6070,20 +6072,20 @@ class TempLoginTests(ApiTestCase):
         self.assertEqual(code, 403)
 
 
-class LoginBubblePrefTests(ApiTestCase):
-    """Reglages du front web (WEB_PREFS) : « Bulle de connexion » decochee par defaut."""
+class ScanBubblePrefTests(ApiTestCase):
+    """Reglages du front web (WEB_PREFS) : « Bulle de scan » (bouton ↘ de l'ecran de scan) decochee par defaut."""
 
-    def test_login_bubble_default_and_change(self):
+    def test_scan_bubble_default_and_change(self):
         credentials = {'matricule': 'M001', 'key': self.user.new_key}
         code, body = self.call('POST', '/api/auth/', credentials, local=False)
-        self.assertEqual(body['web_prefs']['login_bubble'], False)
-        code, body = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'login_bubble': True}},
+        self.assertEqual(body['web_prefs']['scan_bubble'], False)
+        code, body = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'scan_bubble': True}},
                                local=False)
         self.assertEqual(code, 200)
-        self.assertTrue(body['web_prefs']['login_bubble'])
+        self.assertTrue(body['web_prefs']['scan_bubble'])
         self.user.refresh_from_db()
-        self.assertTrue(self.user.web_pref('login_bubble'))
-        code, _ = self.call('POST', '/api/me/prefs/', {'web_prefs': {'login_bubble': False}}, local=False)
+        self.assertTrue(self.user.web_pref('scan_bubble'))
+        code, _ = self.call('POST', '/api/me/prefs/', {'web_prefs': {'scan_bubble': False}}, local=False)
         self.assertEqual(code, 403)
 
 

@@ -97,10 +97,11 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   État des lots et, tout en bas, **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, état des stocks, prévisions ; badge gestion/admin, grisée sinon).
   Chaque page a son ancre (`#lots`, `#suivi`, `#depart`, `#stock`, `#scan`) : le bouton retour du téléphone
   ramène à l'accueil. Le bouton ⚙ (**réglages**, dès qu'un utilisateur est connecté)
-  ouvre la case **Bulle de connexion** (`renderLoginSettings`, réglage `login_bubble` de `web_prefs` ;
-  sans connexion, gardée sur le téléphone, et le dernier connecté la fixe pour le téléphone). Décochée (le
-  défaut), la **grande fenêtre de connexion** (`#login-gate`, `openGate`) remplace la petite bulle et
-  s'ouvre au début d'une vérif sans connexion : la caméra (`#camera`, placée par `placeGateCamera`) au
+  ouvre la case **Bulle de scan** (`renderScanSettings`, réglage `scan_bubble` de `web_prefs` ;
+  sans connexion, gardée sur le téléphone, et le dernier connecté la fixe pour le téléphone). Cochée, le
+  bouton ↘ de l'écran de scan (`#cam-mini`) réduit la caméra dans un coin (`body.cam-mini`) ; décochée (le
+  défaut), le bouton est caché et la caméra reste en haut (`syncScanBubble`). Toute connexion passe par la
+  **grande fenêtre de connexion** (`#login-gate`, `openGate`), qui s'ouvre aussi au début d'une vérif sans connexion : la caméra (`#camera`, placée par `placeGateCamera`) au
   milieu, « Scannez votre carte », connexion nom + PIN ; seule une carte y est acceptée. À une vérif, la
   connexion n'est pas imposée : « Continuer sans compte (invité) » ferme la fenêtre. Puis son **code
   PIN** (`renderPinSettings`, `POST api/me/pin/`), ses **réglages de la vérif**
