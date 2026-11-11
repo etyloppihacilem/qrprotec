@@ -6570,27 +6570,40 @@
       const progress = (usable) => updateReport(row, { status: 'progress', usable, note: note.value });
       const resolve = (resolution) => updateReport(row, { status: 'resolved', resolution_note: note.value,
         ...(resolution ? { resolution } : {}) });
-      const buttons = row.status === 'resolved'
-        ? [el('button', { type: 'button', onclick: () => updateReport(row, { status: 'progress' }) }, icon('undo'), 'Rouvrir')]
+      // chaque choix : son bouton et, dessous, une petite ligne grise sur ce qu'il fait
+      const choice = (button, hint) => el('div', { class: 'report-choice' }, button, el('div', { class: 'hint' }, hint));
+      // deux blocs bien separes : « En cours » met seulement a jour, « Résolu » clot le signalement
+      const group = (title, cls, ...choices) => el('div', { class: 'report-group ' + cls },
+        el('div', { class: 'report-group-title' }, title), el('div', { class: 'report-actions' }, ...choices));
+      const blocks = row.status === 'resolved'
+        ? [group('Signalement clos', 'reopen',
+          choice(el('button', { type: 'button', onclick: () => updateReport(row, { status: 'progress' }) }, icon('undo'), 'Rouvrir'),
+            'Le signalement repasse en cours, à traiter de nouveau.'))]
         : [
-          el('button', { type: 'button', class: 'primary', onclick: () => progress(true) },
-            row.status === 'progress' && row.usable ? '✔ En cours · utilisable' : 'En cours · utilisable'),
-          el('button', { type: 'button', class: 'warning', onclick: () => progress(false) },
-            row.status === 'progress' && !row.usable ? '✔ En cours · inutilisable' : 'En cours · inutilisable'),
-          ...(row.item ? [
+          group('Mettre à jour · le signalement reste ouvert', 'update',
+            choice(el('button', { type: 'button', class: 'primary', onclick: () => progress(true) },
+              row.status === 'progress' && row.usable ? '✔ En cours · utilisable' : 'En cours · utilisable'),
+            'Pris en charge, l\'objet reste disponible (vert).'),
+            choice(el('button', { type: 'button', class: 'warning', onclick: () => progress(false) },
+              row.status === 'progress' && !row.usable ? '✔ En cours · inutilisable' : 'En cours · inutilisable'),
+            'Pris en charge, l\'objet ne doit pas être utilisé (orange).')),
+          group('Clore le signalement', 'close', ...(row.item ? [
             // item non conforme : desactive (remplace a la prochaine verif comme un perime) ou deja retire
-            el('button', { type: 'button', class: 'primary', onclick: () => resolve('ok') },
+            choice(el('button', { type: 'button', class: 'primary', onclick: () => resolve('ok') },
               icon('check'), 'Résolu · remis en service'),
-            el('button', { type: 'button', class: 'warning', onclick: async () => {
+            'L\'item est conforme ou réparé : il redevient utilisable.'),
+            choice(el('button', { type: 'button', class: 'warning', onclick: async () => {
               if (await confirmDialog(`Désactiver ${row.item} ?`, 'Il devra être remplacé comme un périmé.', 'Désactiver', 'warning')) resolve('disabled');
             } }, 'Résolu · item désactivé'),
-            el('button', { type: 'button', class: 'danger', onclick: async () => {
+            'Item non conforme : compté comme périmé, remplacé à la prochaine vérif.'),
+            choice(el('button', { type: 'button', class: 'danger', onclick: async () => {
               if (await confirmDialog(`Retirer ${row.item} de l'inventaire ?`, "L'item a déjà été jeté.", 'Retirer', 'danger')) resolve('removed');
             } }, 'Résolu · item retiré'),
-          ] : [el('button', { type: 'button', class: 'primary', onclick: () => resolve('') }, icon('check'), 'Résolu')]),
+            'L\'item a déjà été jeté : il sort de l\'inventaire.'),
+          ] : [choice(el('button', { type: 'button', class: 'primary', onclick: () => resolve('') }, icon('check'), 'Résolu'),
+            'Problème réglé : l\'objet redevient utilisable.')])),
         ];
-      parts.push(el('div', { class: 'report-manage' }, row.status === 'resolved' ? '' : note,
-        el('div', { class: 'report-actions' }, ...buttons)));
+      parts.push(el('div', { class: 'report-manage' }, row.status === 'resolved' ? '' : note, ...blocks));
     }
     return el('div', { class: 'report-card ' + row.color }, ...parts);
   }

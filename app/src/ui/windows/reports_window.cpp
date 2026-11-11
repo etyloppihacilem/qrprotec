@@ -145,6 +145,47 @@ class ReportsWindow final : public AppWindow {
       return nullptr;
     }
 
+    enum class Kind { Plain, Primary, Warning, Disable, Remove };
+
+    // Un choix : son bouton sur 1/columns de la largeur, et dessous une petite ligne grise qui dit ce qu'il fait.
+    // last : dernier de la rangee (sinon le suivant se met a cote).
+    bool choice_button(Kind kind, const char *label, const char *hint, int columns, bool last) {
+      if (row_width_ < 0.0f)
+        row_width_ = ImGui::GetContentRegionAvail().x;
+      const float width   = (row_width_ - static_cast<float>(columns - 1) * ImGui::GetStyle().ItemSpacing.x) /
+                            static_cast<float>(columns);
+      const ImVec2 size(width, 0.0f);
+      bool         pressed = false;
+      ImGui::BeginGroup();
+      switch (kind) {
+      case Kind::Primary:
+        pressed = primary_button(label, size);
+        break;
+      case Kind::Warning:
+        pressed = warning_button(label, size);
+        break;
+      case Kind::Disable:
+        pressed = confirm_button(label, "Désactiver l'item ? Il devra être remplacé comme un périmé.",
+                                 "confirm_disable", size);
+        break;
+      case Kind::Remove:
+        pressed = confirm_button(label, "Retirer l'item de l'inventaire (déjà jeté) ?", "confirm_remove", size);
+        break;
+      case Kind::Plain:
+        pressed = button(label, size);
+        break;
+      }
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+      ImGui::TextDisabled("%s", hint);
+      ImGui::PopTextWrapPos();
+      ImGui::EndGroup();
+      if (last)
+        row_width_ = -1.0f;
+      else
+        ImGui::SameLine();
+      return pressed;
+    }
+
     void draw_detail(App &app) {
       const Json *found = selected();
       if (!found)
@@ -170,54 +211,54 @@ class ReportsWindow final : public AppWindow {
         ImGui::InputTextWithHint("##note", "Réponse visible de tous (facultatif), enregistrée avec le bouton choisi",
                                  &note_);
       }
-      const float third = (ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x) / 3.0f;
+      // deux blocs bien separes : « En cours » met seulement a jour, « Résolu » clot le signalement ; sous chaque
+      // bouton, une petite ligne grise sur ce qu'il fait
       if (report["status"].str() == "resolved") {
-        if (button("Rouvrir", ImVec2(-1, 0)))
+        ImGui::SeparatorText("Signalement clos");
+        if (choice_button(Kind::Plain, "Rouvrir", "Le signalement repasse en cours, à traiter de nouveau.", 1, true))
           changes["status"] = "progress";
       } else {
-        if (primary_button("En cours · utilisable", ImVec2(third, 0))) {
+        ImGui::SeparatorText("Mettre à jour · le signalement reste ouvert");
+        if (choice_button(Kind::Primary, "En cours · utilisable", "Pris en charge, l'objet reste disponible (vert).", 2,
+                          false)) {
           changes["status"] = "progress";
           changes["usable"] = true;
           text_key          = "note";
         }
-        ImGui::SetItemTooltip("Pris en charge, l'objet reste disponible (vert).");
-        ImGui::SameLine();
-        if (warning_button("En cours · inutilisable", ImVec2(third, 0))) {
+        if (choice_button(Kind::Warning, "En cours · inutilisable",
+                          "Pris en charge, l'objet ne doit pas être utilisé (orange).", 2, true)) {
           changes["status"] = "progress";
           changes["usable"] = false;
           text_key          = "note";
         }
-        ImGui::SetItemTooltip("Pris en charge, l'objet n'est pas disponible (orange) : un item est à remplacer.");
+        ImGui::Spacing();
+        ImGui::SeparatorText("Clore le signalement");
         if (report["item"].str().empty()) {
-          ImGui::SameLine();
-          if (primary_button("Résolu", ImVec2(-1, 0))) {
+          if (choice_button(Kind::Primary, "Résolu", "Problème réglé : l'objet redevient utilisable.", 1, true)) {
             changes["status"] = "resolved";
             text_key          = "resolution_note";
           }
         } else {
           // item non conforme : desactive (remplace a la prochaine verif comme un perime) ou deja retire (jete)
-          if (primary_button("Résolu · remis en service", ImVec2(third, 0))) {
+          if (choice_button(Kind::Primary, "Résolu · remis en service",
+                            "L'item est conforme ou réparé : il redevient utilisable.", 3, false)) {
             changes["status"]     = "resolved";
             changes["resolution"] = "ok";
             text_key              = "resolution_note";
           }
-          ImGui::SetItemTooltip("L'item est conforme ou réparé : il redevient normal.");
-          ImGui::SameLine();
-          if (confirm_button("Résolu · item désactivé", "Désactiver l'item ? Il devra être remplacé comme un périmé.",
-                             "confirm_disable", ImVec2(third, 0))) {
+          if (choice_button(Kind::Disable, "Résolu · item désactivé",
+                            "Item non conforme : compté comme périmé, remplacé à la prochaine vérif.", 3,
+                            false)) {
             changes["status"]     = "resolved";
             changes["resolution"] = "disabled";
             text_key              = "resolution_note";
           }
-          ImGui::SetItemTooltip("Item non conforme : invalide comme un périmé, remplacé à la prochaine vérif.");
-          ImGui::SameLine();
-          if (confirm_button("Résolu · item retiré", "Retirer l'item de l'inventaire (déjà jeté) ?", "confirm_remove",
-                             ImVec2(-1, 0))) {
+          if (choice_button(Kind::Remove, "Résolu · item retiré", "L'item a déjà été jeté : il sort de l'inventaire.",
+                            3, true)) {
             changes["status"]     = "resolved";
             changes["resolution"] = "removed";
             text_key              = "resolution_note";
           }
-          ImGui::SetItemTooltip("L'item a déjà été jeté : il est marqué supprimé.");
         }
       }
       if (!changes.is_null()) {
@@ -261,6 +302,7 @@ class ReportsWindow final : public AppWindow {
     Json        reports_ = Json::array();
     int   selected_ = 0;
     std::string note_;
+    float       row_width_ = -1.0f; // largeur de la rangee de choix en cours (choice_button)
     bool        all_     = false;
     bool        loading_ = false;
     int         request_ = 0;
