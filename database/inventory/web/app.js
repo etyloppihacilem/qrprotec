@@ -8019,7 +8019,7 @@
     const options = lists.options;
     const taken = new Set(edit.lines.map((line) => line.task ? 'task:' + line.task : line.lot_types ? 'lots:' + line.lot_types.join('+')
       : line.lot || 'type:' + line.type));
-    const taskInput = el('input', { type: 'text', maxlength: '200', placeholder: "Ex : vérifier le niveau d'eau dans le sous-sol",
+    const taskInput = el('input', { type: 'text', maxlength: '200', placeholder: "Ex : prendre des bonbons",
       onkeydown: (event) => { if (event.key === 'Enter') { event.preventDefault(); addTask(); } } });
     const addTask = () => {
       const task = taskInput.value.trim().replace(/\s+/g, ' ');

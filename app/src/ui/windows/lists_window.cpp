@@ -1132,12 +1132,12 @@ class ListsWindow final : public AppWindow {
         help_marker("Lot : ce lot-là précisément. Lot au choix : n'importe quel lot de ce type, choisi en scannant "
                     "son étiquette. Matériel : un type d'item, la quantité se règle dans le tableau.");
       }
-      // tache libre : ni lot ni item, cochee a la verif (ex : verifier le niveau d'eau dans le sous-sol)
+      // tache libre : ni lot ni item, cochee a la verif (ex : prendre des bonbons)
       ImGui::AlignTextToFramePadding();
       ImGui::TextUnformatted("Ajouter une tâche");
       ImGui::SameLine(185.0f);
       ImGui::SetNextItemWidth(360.0f);
-      const bool enter = input_limited("##add_task", add_task_, 200, "Ex : vérifier le niveau d'eau dans le sous-sol",
+      const bool enter = input_limited("##add_task", add_task_, 200, "Ex : prendre des bonbons",
                                        ImGuiInputTextFlags_EnterReturnsTrue);
       ImGui::SameLine();
       ImGui::BeginDisabled(add_task_.empty());

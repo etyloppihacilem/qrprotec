@@ -11,7 +11,7 @@
 """Listes de materiel a prendre (ex : un chef demande du materiel a ses equipiers).
 
 Une liste a des lignes : des lots, des types d'items avec une quantite, et des taches libres a cocher (ni lot ni item,
-ex : « vérifier le niveau d'eau dans le sous-sol »). Elle se partage par lien et QR code
+ex : « prendre des bonbons »). Elle se partage par lien et QR code
 (`<base>/liste?id=ID`) et se verifie en direct, a plusieurs : chaque scan est enregistre tout de suite sur le serveur
 (ChecklistScan, phase out), les pages relisent la liste. Validee, ses items sont sortis du stock (statut « sorti », sans
 lot) et elle ne peut plus etre verifiee. Au retour, on scanne ce qui rentre (phase back) : l'item revient en stock tout

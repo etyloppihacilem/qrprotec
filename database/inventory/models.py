@@ -1468,7 +1468,7 @@ class Checklist(models.Model):
 
 class ChecklistLine(models.Model):
     """Ligne d'une liste : un lot, un type d'item avec une quantite, ou une tache libre a cocher (ni lot ni item, ex :
-    « vérifier le niveau d'eau dans le sous-sol »)."""
+    « prendre des bonbons »)."""
     checklist = models.ForeignKey(Checklist, on_delete=models.CASCADE, related_name='lines')
     position = models.PositiveIntegerField(default=0)
     lot = models.ForeignKey('Lots', on_delete=models.CASCADE, null=True, blank=True)
