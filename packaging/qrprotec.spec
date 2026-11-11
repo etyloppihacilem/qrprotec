@@ -33,6 +33,8 @@
 %global tar_version %{lua: print((rpm.expand("%{qrprotec_version}"):gsub("%^", "_")))}
 # Marqueurs passes d'un scriptlet a l'autre (premiere installation...)
 %global rpmstate %{_localstatedir}/lib/rpm-state/%{name}
+# Suffixe des dependances sur un soname, comme celles generees automatiquement (vide en 32 bits)
+%global soname_suffix %{lua: if rpm.expand("%{?__isa_bits}") == "64" then print("()(64bit)") end}
 
 # Bibliotheque privee du SDK Inateck (douchette Bluetooth) : elle ne doit rien fournir au systeme
 %global __provides_exclude_from ^%{_libdir}/%{name}/.*$
@@ -61,8 +63,8 @@ Source4:        %{name}-vendor.macros
 %{!?vendor_provides:%global vendor_provides bundled(python3dist(django))}
 
 BuildRequires:  python3-devel
-# notifications web (chiffrement Web Push, VAPID) : tests du %check
-BuildRequires:  python3-cryptography
+# notifications web (chiffrement Web Push, VAPID) : tests du %%check
+BuildRequires:  python3dist(cryptography)
 BuildRequires:  systemd-rpm-macros
 %if %{with kiosk}
 BuildRequires:  cmake
@@ -124,7 +126,7 @@ Requires:       %{name}-common = %{version}-%{release}
 Requires:       caddy
 Requires:       python(abi) = %{python3_version}
 # notifications web (Web Push) ; non embarque : module compile, fourni par Fedora
-Requires:       python3-cryptography
+Requires:       python3dist(cryptography)
 Requires:       util-linux
 Requires(post): coreutils
 Requires(post): systemd
@@ -159,11 +161,11 @@ Provides:       bundled(qrcodegen)
 Provides:       bundled(stb_image) = 2.30
 
 %description front
-The QRProtec front (scan stack, checks, label printing on a TSPL / ZPL or Niimbot printer)
-as a regular desktop application, for a machine that is not dedicated to
-QRProtec. It talks to the local API of the same machine, or to a remote
-QRProtec server over HTTPS with an API key (Settings > Server, or the
-QRPROTEC_API_URL and QRPROTEC_API_KEY environment variables).
+The QRProtec front (scan stack, checks, label printing on a TSPL / ZPL or
+Niimbot printer) as a regular desktop application, for a machine that is
+not dedicated to QRProtec. It talks to the local API of the same machine, or
+to a remote QRProtec server over HTTPS with an API key (Settings > Server, or
+the QRPROTEC_API_URL and QRPROTEC_API_KEY environment variables).
 Printing needs the user to be in the lp group (USB TSPL / ZPL printer)
 or the dialout group (Niimbot printer).
 
@@ -174,13 +176,14 @@ Requires:       %{name}-front%{?_isa} = %{version}-%{release}
 Requires:       %{name}-common = %{version}-%{release}
 Requires:       cage
 # sudo qrprotec-setup --front-config FICHIER : dechiffre le fichier .qrprotec cree sur le serveur (back distant)
-Requires:       python3-cryptography
+Requires:       python3dist(cryptography)
 # Charges par GLFW avec dlopen (pas de dependance automatique) : sans eux, GLFW ne peut pas
-# ouvrir de fenetre Wayland et Cage reste sur un ecran noir
-Requires:       libwayland-client
-Requires:       libwayland-cursor
-Requires:       libwayland-egl
-Requires:       libxkbcommon
+# ouvrir de fenetre Wayland et Cage reste sur un ecran noir. Dependances sur les sonames ouverts
+# par GLFW (plutot que sur les noms de paquets lib*), avec le suffixe ()(64bit) de l'architecture.
+Requires:       libwayland-client.so.0%{?soname_suffix}
+Requires:       libwayland-cursor.so.0%{?soname_suffix}
+Requires:       libwayland-egl.so.1%{?soname_suffix}
+Requires:       libxkbcommon.so.0%{?soname_suffix}
 Requires:       mesa-libEGL
 Requires:       mesa-dri-drivers
 Requires(post): systemd
@@ -484,6 +487,7 @@ fi
 %dir %attr(0700,root,root) %{_localstatedir}/backups/%{name}
 
 %files server
+%doc README.md
 %license database/inventory/web/vendor/jsQR-LICENSE
 %license database/inventory/web/vendor/qrcode-LICENSE
 %{_bindir}/qrprotec-manage
@@ -522,6 +526,7 @@ fi
 %{_datadir}/icons/hicolor/32x32/apps/%{name}.png
 
 %files kiosk
+%doc README.md
 %dir %{_libexecdir}/%{name}
 %{_libexecdir}/%{name}/qrprotec-kiosk-session
 %dir %{_sysconfdir}/%{name}

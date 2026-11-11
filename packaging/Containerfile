@@ -2,8 +2,10 @@
 ARG FEDORA_VERSION=43
 FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
 
+# glibc-langpack-en : rpmlint lance rpm avec LC_ALL=en_US.UTF-8 (sinon un avertissement setlocale par macro)
 RUN dnf -y --setopt=install_weak_deps=False install \
         rpm-build rpmlint dnf-plugins-core git-core python3-pip createrepo_c tar gzip findutils \
+        glibc-langpack-en \
     && dnf clean all
 
 # Dependances de build du spec, en cache dans l'image
