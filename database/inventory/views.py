@@ -34,6 +34,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from . import datacache
 from . import debug_codes
 from . import forecast
 from . import front_config
@@ -1313,7 +1314,9 @@ def lots_summary(request):
         badge_user(request)
     today = timezone.localdate()
     queryset = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
-    return Response(_with_out(ser.lot_list(queryset, today=today, attention=True)))  # lots a traiter en haut
+    # lots a traiter en haut ; garde tant que la base n'a pas change (voir datacache)
+    return Response(datacache.cached(('lots_summary', today), lambda: _with_out(
+        ser.lot_list(queryset, today=today, attention=True))))
 
 
 @api_view(['POST'])
@@ -2756,10 +2759,13 @@ def lots(request):
         require_front(request, GESTION)
     if request.method == 'GET':
         queryset = Lots.objects.select_related('lot_type').order_by('lot_type__name', 'name')
-        if request.query_params.get('all') != '1':
+        everything = request.query_params.get('all') == '1'
+        if not everything:
             queryset = queryset.filter(active=True)
         # cles des lots (etiquettes privees) : roles gestion et admin seulement
-        return Response(_with_out(ser.lot_list(queryset, local=is_privileged(request))))
+        local = is_privileged(request)
+        return Response(datacache.cached(('lots', everything, local, timezone.localdate()),
+                                         lambda: _with_out(ser.lot_list(queryset, local=local))))
     data = request.data
     lot_type = get_object_or_404(LotType, type=str(data.get('lot_type', '')))
     if lot_type.archived:

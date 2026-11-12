@@ -703,7 +703,18 @@ bool input_suggest(const char *id, std::string &value, const std::vector< std::s
 
 namespace {
 bool escape_closed_popup = false;
+bool texture_was_changed = false;
 } // namespace
+
+void texture_changed() {
+  texture_was_changed = true;
+}
+
+bool take_texture_changed() {
+  const bool changed  = texture_was_changed;
+  texture_was_changed = false;
+  return changed;
+}
 
 void new_frame() {
   const ImGuiContext &context = *ImGui::GetCurrentContext();

@@ -115,6 +115,10 @@ bool confirm_button(const char *label, const char *question, const char *popup_i
 
 // Remplace ImGui::NewFrame() : note si Echap vient de fermer un popup (ImGui ferme seul les popups non modaux)
 void new_frame();
+// Contenu d'une texture OpenGL remplace (apercu d'etiquette) : la boucle principale ne redessine pas une image dont
+// les sommets n'ont pas change, il faut donc la prevenir. take_texture_changed() remet l'indicateur a faux.
+void texture_changed();
+bool take_texture_changed();
 // Echap pour annuler le dialogue en cours (fenetre ou popup modal qui a le focus). Faux si la touche vient de
 // fermer un popup ouvert par-dessus : un seul Echap ne ferme qu'un niveau.
 bool escape_pressed();

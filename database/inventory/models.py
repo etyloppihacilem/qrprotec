@@ -16,6 +16,7 @@ import secrets
 import string
 import unicodedata
 from datetime import timedelta
+from functools import lru_cache
 
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
@@ -83,6 +84,7 @@ def qrprotec_setting(name):
     return settings.QRPROTEC[name]
 
 
+@lru_cache(maxsize=4096)  # appelee des milliers de fois par « État des lots » sur les memes noms
 def name_key(name: str) -> str:
     """Forme d'un nom pour detecter les doublons : sans accents ni casse, espaces reduits (meme regle que
     normalize_search dans l'app : « Sac PSE » et « sac pse » sont le meme nom)."""

@@ -21,7 +21,7 @@ from django.utils import timezone
 from . import journal, movements, notifications, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_identity_name
 from .models import (
-    ItemMovement, ItemRevision, ItemStatus, Items, ItemType, LotContent, LotRequirements, Lots, LotType, LotTypeSlot, MovementKind,
+    ItemMovement, ItemRevision, ItemStatus, Items, ItemsPacks, ItemType, LotContent, LotRequirements, Lots, LotType, LotTypeSlot, MovementKind,
     OperationKind, SlotMode,
     ProblemReport, ReportStatus, STOCK_LOT_TYPE, SeenWhile, ServerSettings, VerifItem, Operation, VerifResult,
     Verifs, add_months, generate_key, name_key,
@@ -82,6 +82,21 @@ def display_name(identity):
 
 def _items_queryset():
     return Items.objects.select_related('pack__item_type', 'location__lot_type')
+
+
+def save_items(items, fields):
+    """Enregistre `fields` de chaque item, comme Items.objects.bulk_update, en un UPDATE par groupe d'items qui
+    prennent les memes valeurs. bulk_update ecrit un CASE WHEN par champ et par item : pour une verif de 30 items, sa
+    construction coutait plus cher que la verif elle-meme (processeur de portable, Python sur un coeur). Les items
+    d'une verif partagent presque tous les memes valeurs (statut, lot, date et auteur du passage) : quelques UPDATE
+    courts. Pas de signaux, comme bulk_update."""
+    attnames = [Items._meta.get_field(field).attname for field in fields]
+    groups = defaultdict(list)
+    for item in items:
+        groups[tuple(getattr(item, name) for name in attnames)].append(item.pk)
+    for values, pks in groups.items():
+        for start in range(0, len(pks), 500):  # limite de variables d'une requete SQLite
+            Items.objects.filter(pk__in=pks[start:start + 500]).update(**dict(zip(attnames, values)))
 
 
 def _location_filter(lot):
@@ -405,6 +420,21 @@ def carried_by_rangements(lot_type, preload=None) -> bool:
     return LotType.objects.filter(part_of=lot_type).exists()
 
 
+def share_packs(items):
+    """Items (lus sans select_related) dont chaque pack et chaque type d'item sont lus une fois et partages :
+    select_related('pack__item_type') construit un pack et un ItemType complet (en decodant ses champs JSON) pour
+    chaque item, ce qui dominait le temps de l'« État des lots » (2 400 items pour 600 packs et 40 types). Les items
+    ne sont que lus."""
+    items = list(items)
+    packs = ItemsPacks.objects.in_bulk({item.pack_id for item in items})
+    types = ItemType.objects.in_bulk({pack.item_type_id for pack in packs.values()})
+    for pack in packs.values():
+        pack.item_type = types[pack.item_type_id]
+    for item in items:
+        item.pack = packs[item.pack_id]
+    return items
+
+
 class LotPreload:
     """Ce que l'etat d'une liste de lots demande, lu en quelques requetes pour tous les lots a la fois (pages
     « État des lots », Gestion de la TECH, liste des lots du poste) au lieu de cinq requetes par lot : items actifs
@@ -414,8 +444,8 @@ class LotPreload:
         ids = [lot.id for lot in lots]
         self.settings = ServerSettings.get()  # credit de confiance du reassort (restock_credit)
         self.items = defaultdict(list)
-        for item in (Items.objects.select_related('pack__item_type')
-                     .filter(location_id__in=ids, status=ItemStatus.ACTIVE).order_by('iid')):
+        for item in share_packs(Items.objects
+                                .filter(location_id__in=ids, status=ItemStatus.ACTIVE).order_by('iid')):
             self.items[item.location_id].append(item)
         self.requirements = defaultdict(list)
         for row in (LotRequirements.objects.select_related('item_type')
@@ -963,10 +993,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
             counts[item.location_id]['missing'] += 1
             entries.append(VerifItem(verif=verif, item=item, result=VerifResult.MISSING, expired=expired))
 
-        Items.objects.bulk_update(
-            scanned, ['status', 'location', 'missed_verifs', 'last_seen', 'last_seen_by', 'last_seen_while']
-        )
-        Items.objects.bulk_update(not_seen, ['status', 'missed_verifs'])
+        save_items(scanned, ['status', 'location', 'missed_verifs', 'last_seen', 'last_seen_by', 'last_seen_while'])
+        save_items(not_seen, ['status', 'missed_verifs'])
         _set_loose(loose, identity, now)
         for item in scanned:
             if item.status == ItemStatus.REPLACED:
@@ -1115,7 +1143,7 @@ def _set_loose(items, identity, now):
         item.location = None
         item.status = ItemStatus.LOOSE
         item.missed_verifs = 0
-    Items.objects.bulk_update(items, ['location', 'status', 'missed_verifs'])
+    save_items(items, ['location', 'status', 'missed_verifs'])
 
 
 def _record_verif(lot, identity, now, verif, requirements, partial, missing, expired):
@@ -1418,7 +1446,7 @@ def move_items(iids, lot, identity, context, declared=False, debug=False):
             item.status = ItemStatus.ACTIVE
             item.missed_verifs = 0
             item.touch(identity, context, now)
-        Items.objects.bulk_update(items, ['location', 'status', 'missed_verifs', 'last_seen', 'last_seen_by', 'last_seen_while'])
+        save_items(items, ['location', 'status', 'missed_verifs', 'last_seen', 'last_seen_by', 'last_seen_while'])
         if lot is not None:
             lot.last_used = now
             lot.last_used_by = identity
@@ -1490,7 +1518,7 @@ def mark_out(iids, identity):
             item.status = ItemStatus.OUT
             item.missed_verifs = 0
             item.touch(identity, SeenWhile.OUT, now)
-        Items.objects.bulk_update(out, ['location', 'status', 'missed_verifs', 'last_seen', 'last_seen_by',
+        save_items(out, ['location', 'status', 'missed_verifs', 'last_seen', 'last_seen_by',
                                         'last_seen_while'])
         notifications.check_stock_levels({item.pack.item_type_id for item in out})
     return {
@@ -1535,7 +1563,7 @@ def expire_out_items(now=None):
             item.status = ItemStatus.MISSING
             item.missed_verifs = 1  # absence deja comptee : une verif du stock n'en ajoute pas une autre
         ItemMovement.objects.bulk_create(moves)
-        Items.objects.bulk_update(expired, ['status', 'missed_verifs'])
+        save_items(expired, ['status', 'missed_verifs'])
         journal.record(OperationKind.ITEM_OUT_USED, '',
                        f"{journal.types_summary(expired)} : {journal.pl(len(expired), 'non revu', 'non revus')} après la sortie, "
                        f"{journal.pl(len(expired), 'compté utilisé', 'comptés utilisés')}",

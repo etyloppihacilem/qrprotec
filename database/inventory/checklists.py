@@ -879,7 +879,7 @@ def close_return(checklist, user):
             for item in used:
                 item.status = ItemStatus.MISSING
                 item.missed_verifs = 1  # absence deja comptee : une verif du stock n'en ajoute pas une autre
-            Items.objects.bulk_update(used, ['status', 'missed_verifs'])
+            services.save_items(used, ['status', 'missed_verifs'])
             notifications.check_stock_levels({item.pack.item_type_id for item in used})
         checklist.status = ChecklistStatus.RETURNED
         checklist.returned = now

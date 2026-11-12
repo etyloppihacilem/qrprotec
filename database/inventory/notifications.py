@@ -17,7 +17,7 @@ reglages (NotificationSettings) et les destinataires (SmsRecipient) restent en b
 
 from datetime import timedelta
 
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from . import forecast, webpush
@@ -126,11 +126,17 @@ def check_stock_levels(type_ids=None):
     if type_ids is not None:
         queryset = queryset.filter(type__in=set(type_ids))
     low, empty = [], []
-    for item_type in queryset:
-        in_stock = Q(location__isnull=True) | Q(location__lot_type__storage=True)  # rangements du stock compris
-        count = Items.objects.filter(
-            in_stock, pack__item_type=item_type, status=ItemStatus.ACTIVE
-        ).exclude(pack__peremption__lt=today).exclude(disabled=True).exclude(revision_blocked_q(today)).count()
+    item_types = list(queryset)
+    # une seule requete groupee par type au lieu d'un COUNT par type (appele a chaque verif)
+    in_stock = Q(location__isnull=True) | Q(location__lot_type__storage=True)  # rangements du stock compris
+    counts = dict(
+        Items.objects.filter(in_stock, pack__item_type__in=[item_type.type for item_type in item_types],
+                             status=ItemStatus.ACTIVE)
+        .exclude(pack__peremption__lt=today).exclude(disabled=True).exclude(revision_blocked_q(today))
+        .order_by().values_list('pack__item_type').annotate(count=Count('iid'))
+    )
+    for item_type in item_types:
+        count = counts.get(item_type.type, 0)
         changed = []
         if count < item_type.min_quantity and not item_type.low_notified:
             low.append((item_type.name, count, item_type.min_quantity))

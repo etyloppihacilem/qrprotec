@@ -20,6 +20,7 @@
 #include <thread>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 // Bleu de la marque (#004c98) a la place du bleu par defaut d'ImGui : memes transparences, mais les fonds sous du
@@ -96,6 +97,56 @@ static frame_clock::time_point last_input_time{};
 static void note_input()
 {
     last_input_time = frame_clock::now();
+}
+
+// Image deja a l'ecran : au repos, l'interface est redessinee ~10 fois par seconde (scans du SDK, minuteries) mais
+// presque toujours a l'identique. On ne l'envoie a la carte graphique (et a l'ecran) que si ses sommets, ses
+// textures, sa taille ou son fond ont change : sur un portable 15 W le processeur graphique integre partage
+// l'enveloppe de chauffe du processeur, et sans acceleration (llvmpipe) chaque image coutait ~13 % d'un coeur.
+static bool redraw_forced = true;
+
+static void force_redraw()
+{
+    redraw_forced = true;
+}
+
+static std::size_t frame_signature(const ImDrawData* data, int width, int height, const ImVec4& background)
+{
+    std::size_t signature = 1469598103934665603ULL;
+    const auto mix = [&signature](const void* bytes, std::size_t size) {
+        const std::size_t value = std::hash<std::string_view>{}(std::string_view(static_cast<const char*>(bytes), size));
+        signature ^= value + 0x9e3779b97f4a7c15ULL + (signature << 6) + (signature >> 2);
+    };
+    mix(&width, sizeof(width));
+    mix(&height, sizeof(height));
+    mix(&background, sizeof(background));
+    mix(&data->DisplayPos, sizeof(data->DisplayPos));
+    mix(&data->FramebufferScale, sizeof(data->FramebufferScale));
+    for (const ImDrawList* list : data->CmdLists) {
+        mix(list->VtxBuffer.Data, static_cast<std::size_t>(list->VtxBuffer.size_in_bytes()));
+        mix(list->IdxBuffer.Data, static_cast<std::size_t>(list->IdxBuffer.size_in_bytes()));
+        for (const ImDrawCmd& command : list->CmdBuffer) {
+            const ImTextureID texture = command.GetTexID();
+            mix(&command.ClipRect, sizeof(command.ClipRect));
+            mix(&texture, sizeof(texture));
+            mix(&command.VtxOffset, sizeof(command.VtxOffset));
+            mix(&command.IdxOffset, sizeof(command.IdxOffset));
+            mix(&command.ElemCount, sizeof(command.ElemCount));
+            if (command.UserCallback != nullptr)
+                return 0; // rappel utilisateur : toujours redessine
+        }
+    }
+    return signature;
+}
+
+static bool textures_pending(const ImDrawData* data)
+{
+    if (data->Textures == nullptr)
+        return false;
+    for (const ImTextureData* texture : *data->Textures)
+        if (texture->Status != ImTextureStatus_OK)
+            return true;
+    return false;
 }
 
 static void note_activity()
@@ -268,8 +319,9 @@ int main(int argc, char** argv)
     auto app = std::make_unique<qrprotec::App>(inateck);
     active_app = app.get();
     load_font(app->settings.font_size);
-    glfwSetWindowSizeCallback(window, [](GLFWwindow*, int, int) { note_input(); });
-    glfwSetWindowRefreshCallback(window, [](GLFWwindow*) { note_input(); });
+    glfwSetWindowSizeCallback(window, [](GLFWwindow*, int, int) { note_input(); force_redraw(); });
+    glfwSetWindowRefreshCallback(window, [](GLFWwindow*) { note_input(); force_redraw(); });
+    glfwSetFramebufferSizeCallback(window, [](GLFWwindow*, int, int) { force_redraw(); });
     // fichier de configuration d'un front (.qrprotec) depose sur la fenetre : propose a l'import
     glfwSetDropCallback(window, [](GLFWwindow*, int count, const char** paths) {
         note_input();
@@ -277,6 +329,7 @@ int main(int argc, char** argv)
             active_app->file_dropped(paths[0]);
     });
     frame_clock::time_point frame_start = frame_clock::now();
+    std::size_t shown_signature = 0;
     while (!glfwWindowShouldClose(window)) {
         inateck.begin_poll();
         if (frame_clock::now() - last_input_time < active_duration) {
@@ -303,12 +356,20 @@ int main(int argc, char** argv)
         int display_width = 0;
         int display_height = 0;
         glfwGetFramebufferSize(window, &display_width, &display_height);
-        glViewport(0, 0, display_width, display_height);
         // fond orange en mode privilegie
         const ImVec4 background = app->background_color();
+        ImDrawData* draw_data = ImGui::GetDrawData();
+        const std::size_t signature = frame_signature(draw_data, display_width, display_height, background);
+        const bool texture_changed = qrprotec::take_texture_changed();
+        if (!redraw_forced && !texture_changed && signature != 0 && signature == shown_signature
+            && !textures_pending(draw_data))
+            continue; // image identique a celle de l'ecran
+        redraw_forced = false;
+        shown_signature = signature;
+        glViewport(0, 0, display_width, display_height);
         glClearColor(background.x, background.y, background.z, background.w);
         glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        ImGui_ImplOpenGL3_RenderDrawData(draw_data);
         glfwSwapBuffers(window);
     }
 

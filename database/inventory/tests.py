@@ -6376,6 +6376,29 @@ class ConcurrencyTests(TransactionTestCase):
         for lot in lots:
             self.assertEqual(Items.objects.filter(location=lot.id, status=ItemStatus.ACTIVE).count(), 2)
 
+    def test_lots_summary_cached_until_database_changes(self):
+        """« État des lots » garde son calcul tant que la base ne change pas (datacache), et le refait des qu'une autre
+        connexion (ici une verif dans un autre thread) a ecrit."""
+        from . import datacache
+        datacache.clear()
+        self.assertIsNotNone(datacache.data_version())  # base dans un fichier : cache actif
+        summary = lambda: self.parallel([('POST', '/api/lots/summary/', {}, {})])[0]
+        summary()  # premier appel : cree la ligne des reglages du serveur (une ecriture)
+        with mock.patch.object(ser, 'lot_list', wraps=ser.lot_list) as lot_list:
+            first, second, third = summary(), summary(), summary()
+            self.assertEqual(lot_list.call_count, 1)
+        self.assertEqual(second, third)
+        self.assertEqual(first, second)
+        count = lambda body: next(row['item_count'] for row in body if row['id'] == self.lot.id)
+        self.assertEqual(count(first[1]), 0)
+        items = self.create(self.compresses, self.today + timedelta(days=100), 2)
+        code, _ = self.parallel([('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items]},
+                                  {**LOCAL, 'HTTP_X_QRPROTEC_SESSION': self.operator_session})])[0]
+        self.assertEqual(code, 200)
+        code, body = summary()
+        self.assertEqual((code, count(body)), (200, 2))
+        datacache.clear()
+
     def test_parallel_wrong_pins_are_all_counted(self):
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
         admin.renew_key()
