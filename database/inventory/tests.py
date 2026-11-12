@@ -3718,11 +3718,23 @@ class LiveHubTests(ApiTestCase):
         watching.join(5)
         self.assertFalse(self.hub.watchers)
 
+    def test_full_verif_roles(self):
+        """« Rendre la vérif complète » : badge des roles gestion et admin seulement."""
+        badge = {'matricule': 'M001', 'key': self.user.new_key}
+        for role, allowed in (('normal', False), ('chef', False), ('gestion', True), ('admin', True)):
+            self.user.role = role
+            self.user.save()
+            self.assertEqual(self.live.is_gestion(badge), allowed, role)
+        self.user.active = False
+        self.user.save()
+        self.assertFalse(self.live.is_gestion(badge))
+
     def test_full_verif_shared_by_admin(self):
-        """« Rendre la vérif complète » : un admin l'active depuis la page de suivi, tous les participants le voient,
-        un secouriste ne peut pas."""
+        """« Rendre la vérif complète » : la gestion ou un admin l'active depuis la page de suivi, tous les participants
+        le voient, un secouriste ne peut pas."""
         from unittest import mock
-        admins = mock.patch.object(self.live, 'is_admin', side_effect=lambda credentials: isinstance(credentials, dict)
+        admins = mock.patch.object(self.live, 'is_gestion',
+                                   side_effect=lambda credentials: isinstance(credentials, dict)
                                    and credentials.get('matricule') == 'P001')
         admins.start()
         self.addCleanup(admins.stop)
@@ -6624,14 +6636,25 @@ class LabelPrintTests(ApiTestCase):
     def ask(self, **data):
         return self.call('POST', '/api/label-prints/', {'user': self.admin(), **data}, local=False)
 
-    def test_admins_only_on_the_web(self):
+    def test_gestion_and_admins_only_on_the_web(self):
         code, _ = self.call('POST', '/api/label-prints/', {'type': 'garrot', 'count': 2}, local=False)
         self.assertEqual(code, 403)
+        secouriste = {'matricule': 'M001', 'key': self.user.new_key}
+        for role in ('normal', 'chef'):
+            self.user.role = role
+            self.user.save()
+            code, _ = self.call('POST', '/api/label-prints/list/', {'user': secouriste}, local=False)
+            self.assertEqual(code, 403)
         self.user.role = 'gestion'
         self.user.save()
-        code, _ = self.call('POST', '/api/label-prints/list/', {'user': {'matricule': 'M001', 'key': self.user.new_key}},
-                            local=False)
-        self.assertEqual(code, 403)
+        gestion = secouriste
+        code, body = self.call('POST', '/api/label-prints/list/', {'user': gestion}, local=False)
+        self.assertEqual(code, 200)
+        code, asked = self.call('POST', '/api/label-prints/', {'user': gestion, 'type': 'garrot', 'count': 2},
+                                local=False)
+        self.assertEqual(code, 201)
+        code, _ = self.call('POST', f"/api/label-prints/{asked['id']}/cancel/", {'user': gestion}, local=False)
+        self.assertEqual(code, 200)
         code, body = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
         self.assertEqual(code, 200)
         self.assertEqual([row['type'] for row in body['types']], ['compre', 'garrot'])

@@ -163,10 +163,10 @@ quel que soit son contenu (case **Sous-lot facultatif à la vérif** dans **Gest
 ex : la caisse des lampes du VPS) : le lot qui le contient se valide sans lui, il ne compte pas dans
 l'état du lot global, et on peut y entrer pendant la vérif pour scanner ce qu'il contient.
 
-Pendant une vérif sur le front web, un admin peut toucher **Rendre la vérif complète** : pour cette
+Pendant une vérif sur le front web, la gestion ou un admin peut toucher **Rendre la vérif complète** : pour cette
 vérif, tous les items et sous-lots facultatifs deviennent obligatoires (manquants s'ils ne sont pas
 scannés). **Revenir au facultatif** annule. Dans une vérif à plusieurs, le réglage vaut pour tous les
-participants ; un admin peut aussi l'activer depuis **Suivi des vérifs**, sur la carte de la vérif en cours.
+participants ; la gestion ou un admin peut aussi l'activer depuis **Suivi des vérifs**, sur la carte de la vérif en cours.
 
 **Sac O2** (`saco2x`) : masques O2 adulte et enfant, lunettes, etc.
 
