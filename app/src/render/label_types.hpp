@@ -18,4 +18,10 @@ LabelType default_label_type(const MediaSettings& media, const PhysicalLabel& la
 int add_missing_label_types(const PhysicalLabel& label, LabelSupport support, std::vector<LabelType>* types = nullptr,
                             std::vector<std::string>* errors = nullptr);
 
+// Etiquette du code d'action « rouleau » (codes.hpp, kPosteActionPrefix) : QR qui declare le rouleau `roll` en place
+// quand on le scanne a la douchette d'un poste, avec son nom et son format en clair. Imprimee sur le rouleau
+// `print_on` (choisi a la main), mise en page selon son format (QR a gauche, ou en haut si l'etiquette est haute).
+std::string      roll_action_code(const LabelType& roll);
+TemplateDocument roll_code_document(const LabelType& roll, const LabelType& print_on);
+
 } // namespace qrprotec

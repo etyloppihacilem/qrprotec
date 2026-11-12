@@ -1954,6 +1954,11 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     douchette_pending_        = true;
     return;
   }
+  // code d'action rapide du poste (rouleau en place...) : execute tout de suite, sans toucher a la verif ni a la pile
+  if (const ParsedScan action = parse_scan(code); action.kind == ScanKind::PosteAction) {
+    handle_poste_action(action, source);
+    return;
+  }
   // popup « Passer a … ? » ignoree : le scan suivant vaut « Passer » (on passe au lot scanne, scans gardes)
   if (verif.leave_prompt.open)
     answer_leave(1);
@@ -2036,6 +2041,7 @@ void App::handle_scan(const std::string &code, ScanSource source) {
       return;
     }
     case ScanKind::Checklist: return;
+    case ScanKind::PosteAction: return; // deja traite plus haut
     case ScanKind::Unknown: {
       stack.add(scan, source);
       feedback.error(source, settings);
@@ -4927,6 +4933,8 @@ void App::draw_roll_change_modal() {
                         print.pending > 1 ? (" (et " + nb(static_cast< int >(print.pending) - 1, "autre étiquette",
                                                            "autres étiquettes") + ")").c_str()
                                           : "");
+  ImGui::Spacing();
+  ImGui::TextUnformatted("Puis confirmez ci-dessous, ou scannez à la douchette le QR de ce rouleau.");
   ImGui::PopTextWrapPos();
   ImGui::Spacing();
   ImGui::Separator();

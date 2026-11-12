@@ -125,8 +125,65 @@ class PrintCountsWindow final : public AppWindow {
       ImGui::SameLine();
       help_marker("Le rouleau réellement chargé dans l'imprimante. Changez-le ici quand vous remettez un rouleau "
                   "(par exemple les étiquettes consommables) : pas d'avertissement. Une impression d'un autre type "
-                  "s'arrête et demande de changer de rouleau.");
+                  "s'arrête et demande de changer de rouleau. Plus rapide : scannez à la douchette le QR du rouleau "
+                  "(collé sur l'imprimante ou sur la boîte), à imprimer avec le bouton à côté.");
+      ImGui::SameLine();
+      if (button("Imprimer le QR d'un rouleau...")) {
+        code_roll_  = loaded;
+        code_on_    = loaded;
+        ImGui::OpenPopup("Imprimer le QR d'un rouleau");
+      }
+      draw_roll_code_popup(app);
       ImGui::Separator();
+    }
+
+    // QR « rouleau en place » : scanne a la douchette, il declare ce rouleau charge (codes d'action du poste)
+    void draw_roll_code_popup(App &app) {
+      if (!ImGui::BeginPopupModal("Imprimer le QR d'un rouleau", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+      const float width = ImGui::GetFontSize() * 26.0f;
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+      ImGui::TextUnformatted("Scanné à la douchette d'un poste, ce QR déclare le rouleau en place, sans "
+                             "avertissement. Le téléphone l'ignore. Collez-le sur l'imprimante ou sur la boîte des "
+                             "bobines.");
+      ImGui::PopTextWrapPos();
+      const auto type_combo = [this](const char *label, std::string &value) {
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
+        if (ImGui::BeginCombo(label, value.empty() ? "choisir..." : value.c_str())) {
+          for (const LabelType &type : label_types_) {
+            if (ImGui::Selectable(type.name.c_str(), type.name == value))
+              value = type.name;
+            if (ImGui::IsItemHovered())
+              ImGui::SetTooltip("%s", type.summary().c_str());
+          }
+          ImGui::EndCombo();
+        }
+      };
+      type_combo("Rouleau du QR", code_roll_);
+      type_combo("Imprimé sur le rouleau", code_on_);
+      const LabelType *roll = find_type(code_roll_);
+      const LabelType *on   = find_type(code_on_);
+      if (on && on->name != app.settings.print.loaded_label_type)
+        ImGui::TextColored(colors::orange, "Pas le rouleau en place : l'impression demandera de changer de rouleau.");
+      if (!roll || !on)
+        ImGui::BeginDisabled();
+      if (primary_button("Imprimer")) {
+        app.print_roll_code(*roll, *on);
+        ImGui::CloseCurrentPopup();
+      }
+      if (!roll || !on)
+        ImGui::EndDisabled();
+      ImGui::SameLine();
+      if (button("Annuler##roll_code") || escape_pressed())
+        ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
+
+    const LabelType *find_type(const std::string &name) const {
+      for (const LabelType &type : label_types_)
+        if (type.name == name)
+          return &type;
+      return nullptr;
     }
 
     void draw_counts(App &app) {
@@ -717,6 +774,8 @@ class PrintCountsWindow final : public AppWindow {
     Json                     edit_; // reference en cours de creation ou de modification (null : aucune)
     std::string              price_;
     bool                     show_archived_ = false;
+    std::string              code_roll_; // QR d'un rouleau : rouleau du code et rouleau sur lequel il est imprime
+    std::string              code_on_;
     std::vector< LabelType > label_types_;
     std::string              error_;
     int                      year_    = 0; // 0 : annee en cours

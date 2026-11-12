@@ -253,6 +253,16 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
 - **Changement de rouleau** : file en pause sur un modèle d'un autre type → `App::draw_roll_change_modal`
   (« Impression en pause ») ; le rouleau en place se choisit aussi en haut de la fenêtre des
   consommables (`App::set_loaded_label_type`, sans avertissement).
+- **Codes d'action rapide des postes** (`app/poste_actions.cpp`) : QR « `qrprotec:poste/ACTION?param=valeur` »,
+  pas une URL web. `parse_scan` les reconnaît (`ScanKind::PosteAction`, `id` = action, `params`) et
+  `App::handle_scan` les exécute tout de suite par `App::handle_poste_action`, sans toucher à la vérif ni à
+  la pile, qu'ils viennent de la douchette ou du téléphone utilisé comme douchette. Le front web les
+  ignore (`handleCode` d'`app.js`). Chaque action est une ligne de `kActions` : nom, droits (`Anyone`,
+  `Privileged`, `Admin` : personne connectée), fonction. Une action inconnue (poste pas à jour) est
+  signalée sans rien faire. Une action doit rester sans danger si le code est scanné par erreur.
+  Première action : `rouleau?t=NOM&w=&h=&s=` déclare le rouleau en place (par son nom, sinon par taille et
+  support parmi les types des modèles du poste). Son étiquette (`roll_code_document`,
+  `render/label_types.cpp`) s'imprime depuis « Imprimer le QR d'un rouleau... », sur un rouleau choisi.
 
 Changer d'imprimante : implémenter l'interface `Printer` (`printer/printer.hpp`) et l'utiliser dans
 `PrintQueue` et dans l'éditeur (voir [maintenance.md](maintenance.md#changer-de-modèle-dimprimante)). Le reste (rendu, rotation) est indépendant du modèle d'imprimante.

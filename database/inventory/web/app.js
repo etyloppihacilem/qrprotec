@@ -797,6 +797,8 @@
     // popup « Passer a … » ignoree : le scan suivant vaut « Passer sans valider », puis il est traite
     if (leavePopup) { leavePopup('skip'); await new Promise((resolve) => setTimeout(resolve, 50)); }
     if (window.douchette && window.douchette.matches(raw)) { window.douchette.show(); return; }
+    // code d'action rapide des postes (qrprotec:poste/..., ex. rouleau en place) : sans effet sur le telephone
+    if (/^\s*qrprotec:poste\//i.test(raw)) return;
     const scan = parseCode(raw);
     // grande fenetre de connexion : seulement la carte (ou le lien de deblocage du PIN)
     if (gateOpen() && scan.kind !== 'user' && scan.kind !== 'pinreset') {

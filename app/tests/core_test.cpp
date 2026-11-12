@@ -3,6 +3,7 @@
 #include "../src/core/template.hpp"
 #include "../src/core/template_io.hpp"
 #include "../src/core/update_check.hpp"
+#include "../src/core/codes.hpp"
 #include "../src/core/print_counter.hpp"
 #include "../src/core/verif_cache.hpp"
 #include "../src/net/front_config.hpp"
@@ -11,6 +12,7 @@
 #include "../src/render/raster.hpp"
 
 #include <cassert>
+#include <cstdlib>
 #include <filesystem>
 #include <cstdio>
 #include <string>
@@ -416,6 +418,38 @@ int main()
         assert(again.pending() == 0 && again.next_batch().is_null());
         assert(qrprotec::local_day_iso().size() == 10);
         std::filesystem::remove(file);
+    }
+
+    {
+        // codes d'action rapide des postes : rouleau en place, ignores par le web (pas une URL)
+        qrprotec::LabelType roll;
+        roll.name      = "60 x 40 mm, transfert";
+        roll.width_mm  = 60.0;
+        roll.height_mm = 40.0;
+        roll.support   = qrprotec::LabelSupport::Transfer;
+        const std::string code = qrprotec::roll_action_code(roll);
+        assert(code == "qrprotec:poste/rouleau?t=60%20x%2040%20mm%2C%20transfert&w=60&h=40&s=transfer");
+        const qrprotec::ParsedScan scan = qrprotec::parse_scan(code);
+        assert(scan.kind == qrprotec::ScanKind::PosteAction && scan.id == "rouleau");
+        assert(scan.params.at("t") == roll.name && scan.params.at("s") == "transfer" && scan.params.at("w") == "60");
+        assert(qrprotec::describe_scan(scan) == "Rouleau en place : « 60 x 40 mm, transfert »");
+        assert(qrprotec::parse_scan("QRPROTEC:Poste/Rouleau").id == "rouleau");
+        assert(qrprotec::parse_scan("qrprotec:poste/").kind == qrprotec::ScanKind::Unknown);
+        // etiquette du code, imprimee sur un autre rouleau choisi a la main
+        qrprotec::LabelType small;
+        small.name      = "40 x 30 mm";
+        const qrprotec::TemplateDocument document = qrprotec::roll_code_document(roll, small);
+        assert(document.label_type && document.label_type->name == "40 x 30 mm");
+        assert(std::get< qrprotec::QrElement >(document.elements[0].content).payload == code);
+        assert(qrprotec::validate(document).empty());
+        const qrprotec::RasterImage image = qrprotec::render_template(document);
+        assert(image.width == 320 && image.height == 240);
+        if (const char *out = std::getenv("QRPROTEC_ROLL_PNG")) {
+            std::string error;
+            qrprotec::write_png(image, std::string(out) + "-40x30.png", error);
+            qrprotec::write_png(qrprotec::render_template(qrprotec::roll_code_document(small, roll)),
+                                std::string(out) + "-60x40.png", error);
+        }
     }
 
     return 0;
