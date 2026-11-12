@@ -1192,6 +1192,57 @@ class PrintCountBatch(models.Model):
     front = models.CharField(max_length=64, blank=True, default='')
 
 
+class ConsumableKind(models.TextChoices):
+    LABELS = 'labels', 'Bobines d\'étiquettes'
+    RIBBON = 'ribbon', 'Rubans de transfert'
+
+
+class ConsumableRef(models.Model):
+    """Reference de consommable achetee : bobines d'etiquettes ou rubans de transfert, par boites.
+
+    Bobines : categorie d'etiquette (largeur x hauteur, support, comme PrintCount), `per_roll` etiquettes par bobine.
+    Rubans : `length_m` metres par rouleau (un rouleau fait plusieurs bobines : le ruban s'use a la longueur des
+    etiquettes de transfert imprimees). `per_box` bobines ou rouleaux par boite, `box_price` prix d'une boite (euros,
+    facultatif) pour estimer les couts. Plusieurs references (fournisseurs) peuvent avoir la meme categorie : elles
+    remplissent le meme stock."""
+    kind = models.CharField(max_length=8, choices=ConsumableKind.choices)
+    name = models.CharField(max_length=80)
+    supplier = models.CharField(max_length=80, blank=True, default='')
+    width_mm = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    height_mm = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    support = models.CharField(max_length=8, choices=LabelSupport.choices, blank=True, default='')
+    per_roll = models.PositiveIntegerField(default=0)  # bobines : etiquettes par bobine
+    length_m = models.DecimalField(max_digits=7, decimal_places=1, null=True, blank=True)  # rubans : metres
+    per_box = models.PositiveIntegerField(default=1)
+    box_price = models.DecimalField(max_digits=9, decimal_places=2, null=True, blank=True)
+    archived = models.BooleanField(default=False)
+    created = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['kind', 'name']
+
+
+class ConsumableMoveKind(models.TextChoices):
+    RECEPTION = 'reception', 'Réception'
+    INVENTORY = 'inventory', 'Inventaire'
+
+
+class ConsumableMove(models.Model):
+    """Reception de consommables (le stock augmente) ou inventaire (le stock compte devient le stock, toutes
+    references de la meme categorie confondues). `units` : etiquettes (bobines) ou millimetres (rubans)."""
+    ref = models.ForeignKey(ConsumableRef, on_delete=models.PROTECT, related_name='moves')
+    kind = models.CharField(max_length=10, choices=ConsumableMoveKind.choices)
+    boxes = models.PositiveIntegerField(default=0)
+    rolls = models.PositiveIntegerField(default=0)
+    loose = models.PositiveIntegerField(default=0)  # etiquettes ou metres hors bobines entieres (inventaire)
+    units = models.PositiveBigIntegerField(default=0)
+    created = models.DateTimeField(default=timezone.now, db_index=True)
+    by = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        ordering = ['created']
+
+
 class NotificationSettings(models.Model):
     """Reglages des notifications (une seule ligne, pk=1).
 
@@ -1266,6 +1317,9 @@ class ServerSettings(models.Model):
     # confiance aux secouristes pour le remettre a sa place). Une vérif du rangement (ou du stock sans rangement) est
     # proposee au TECH au bout de ce nombre de sorties depuis sa derniere vérif (1 : a chaque sortie).
     storage_verif_outings = models.PositiveSmallIntegerField(default=10)
+    # Consommables d'etiquettes (bobines, rubans) : tache « Commander » au poste quand le stock estime tient moins de
+    # ce nombre de jours au rythme des impressions (delai de commande et de livraison compris)
+    consumable_alert_days = models.PositiveSmallIntegerField(default=60)
 
     @classmethod
     def get(cls):

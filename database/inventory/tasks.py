@@ -23,7 +23,7 @@ items une fois perimes, pendant la verif du lot rouge. Seuls comptent ce qu'elle
 
 Chaque tache : {category, level ('bad' rouge, 'warn' orange, 'info'), title, detail, date, lot, item, report, link}.
 `link` dit ou la traiter : 'lot' (fiche du lot), 'item' (fiche de l'item), 'reports', 'forecast', 'lists', 'users',
-'inventory', 'lot_admin', 'label_prints' (fenetres du poste ou pages du web).
+'inventory', 'lot_admin', 'label_prints' (fenetres du poste ou pages du web), 'consumables' (poste seulement).
 """
 
 from collections import Counter, defaultdict
@@ -32,6 +32,7 @@ from datetime import datetime, timedelta
 from django.db.models import Max
 from django.utils import timezone
 
+from . import consumables
 from . import forecast as stock_forecast
 from . import label_prints
 from . import serializers as ser
@@ -404,14 +405,22 @@ def upcoming_expiries(rows, today):
     return result
 
 
-def todo(today=None):
-    """Taches a faire, par categorie dans l'ordre de priorite, la plus urgente en tete de chaque categorie."""
+def _consumable_tasks(today):
+    """Bobines ou rubans a commander (poste seulement : le web ne montre pas les consommables)."""
+    return [task('orders', row['level'], row['title'], row['detail'], None, 'consumables', sort=row['autonomy'])
+            for row in consumables.order_tasks(today)]
+
+
+def todo(today=None, consumables_tasks=False):
+    """Taches a faire, par categorie dans l'ordre de priorite, la plus urgente en tete de chaque categorie.
+    consumables_tasks : bobines et rubans a commander (fronts du poste, pas le web)."""
     today = today or timezone.localdate()
     lots = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     rows = ser.lot_list(lots, today=today)
     orders = open_orders()
     tasks = (_report_tasks() + _lot_tasks(rows, today) + _revision_tasks(today) + _stock_verif_tasks()
-             + _forecast_tasks(today, orders) + _periodic_tasks(today) + _unsorted_tasks())
+             + _forecast_tasks(today, orders) + (_consumable_tasks(today) if consumables_tasks else [])
+             + _periodic_tasks(today) + _unsorted_tasks())
     rank = {key: index for index, (key, _, _) in enumerate(CATEGORIES)}
     tasks.sort(key=lambda row: (rank[row['category']], LEVEL_ORDER[row['level']], row['_sort']))
     for row in tasks:

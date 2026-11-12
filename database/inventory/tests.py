@@ -4,6 +4,7 @@ import math
 import time
 from unittest import mock
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from io import StringIO
 
 from django.apps import apps as django_apps
@@ -22,7 +23,7 @@ from . import idendity
 from . import lot_sheet
 from . import services
 from .models import (
-    ABSENCE_KINDS, PrintCount, PrintCountBatch, Checklist, ChecklistStatus, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType,
+    ABSENCE_KINDS, ConsumableMove, ConsumableRef, PrintCount, PrintCountBatch, Checklist, ChecklistStatus, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType,
     LotRequirements, Lots, LotType, MovementKind, Operation, Secouristes, STOCK_LOT_TYPE, Verifs, compact_iid, expand_iid,
 )
 
@@ -7089,3 +7090,103 @@ class PrintCountTests(ApiTestCase):
         self.assertEqual(self.call('GET', '/api/print-counts/', session=False)[0], 403)
         self.assertEqual(self.call('GET', '/api/print-counts/', session=views.session_token(self.user))[0], 403)
         self.assertEqual(self.call('GET', '/api/print-counts/')[0], 200)
+
+
+class ConsumableTests(ApiTestCase):
+    """Consommables d'etiquettes : references, receptions, inventaires, stock estime d'apres les impressions."""
+
+    def setUp(self):
+        super().setUp()
+        self.vellum = self.ref({'kind': 'labels', 'name': 'Vélin 40x30', 'supplier': 'Fournisseur', 'width_mm': 40,
+                                'height_mm': 30, 'support': 'direct', 'per_roll': 2000, 'per_box': 12,
+                                'box_price': '57.00'})
+        self.ribbon = self.ref({'kind': 'ribbon', 'name': 'Cire-résine 57 mm', 'length_m': 74, 'per_box': 25,
+                                'box_price': '62.50'})
+
+    def ref(self, data):
+        code, body = self.call('POST', '/api/consumables/refs/', data)
+        self.assertEqual(code, 201, body)
+        return next(ref for ref in body['refs'] if ref['name'] == data['name'])
+
+    def move(self, ref, kind, boxes=0, rolls=0, loose=0, days_ago=0):
+        code, body = self.call('POST', '/api/consumables/moves/', {'ref': ref['id'], 'kind': kind, 'boxes': boxes,
+                                                                   'rolls': rolls, 'loose': loose})
+        self.assertEqual(code, 201, body)
+        if days_ago:
+            ConsumableMove.objects.filter(id=body['moves'][0]['id']).update(
+                created=timezone.now() - timedelta(days=days_ago))
+        return body
+
+    def printed(self, days_ago, count, width=40, height=30, support='direct'):
+        PrintCount.objects.create(day=self.today - timedelta(days=days_ago), width_mm=width, height_mm=height,
+                                  support=support, count=count)
+
+    def pool(self, key):
+        return next(pool for pool in self.call('GET', '/api/consumables/')[1]['pools'] if pool['key'] == key)
+
+    def test_stock_from_reception_minus_prints(self):
+        self.assertEqual(self.pool('40x30-direct')['level'], 'unknown')
+        self.move(self.vellum, 'reception', boxes=1, days_ago=30)  # 24 000 etiquettes
+        self.printed(31, 500)  # avant la reception : pas comptee
+        self.printed(30, 100)  # le jour de la reception : pas comptee non plus (a partir du lendemain)
+        self.printed(10, 3000)
+        self.printed(1, 1500, 60, 40, 'transfer')  # autre categorie
+        pool = self.pool('40x30-direct')
+        self.assertEqual(pool['stock'], 21000)
+        self.assertEqual(pool['level'], 'ok')
+        self.assertIn('21 000 étiquettes', pool['stock_text'])
+        # 3 600 etiquettes sur 32 jours de compteur (depuis le premier jour imprime)
+        self.assertEqual(pool['monthly'], int(Decimal(3600) / 32 * Decimal('30.44')))
+        self.assertEqual(pool['autonomy_days'], int(21000 / (Decimal(3600) / 32)))
+        self.assertAlmostEqual(pool['monthly_cost'], round(float(Decimal(3600) / 32 * Decimal('30.44')) * 57 / 24000, 2),
+                               places=2)
+
+    def test_inventory_resets_stock_and_alert_task(self):
+        self.move(self.vellum, 'reception', boxes=2, days_ago=60)
+        self.move(self.vellum, 'inventory', rolls=1, loose=500, days_ago=5)  # 2 500 etiquettes comptees
+        self.printed(3, 900)
+        pool = self.pool('40x30-direct')
+        self.assertEqual(pool['stock'], 1600)
+        self.assertEqual(pool['level'], 'warn')  # 1 600 / (900 / 4 jours) = 7 jours < 60
+        poste = self.call('GET', '/api/tasks/')[1]
+        titles = [task['title'] for task in poste['tasks']]
+        self.assertIn('Commander : 40 × 30 mm, thermique direct', titles)
+        task = next(task for task in poste['tasks'] if task['title'].startswith('Commander :'))
+        self.assertEqual((task['category'], task['link']), ('orders', 'consumables'))
+        # pas sur le web (Gestion de la TECH du telephone)
+        self.assertNotIn('Commander : 40 × 30 mm, thermique direct',
+                         [task['title'] for task in views.tasks.todo()['tasks']])
+        # seuil abaisse : plus d'alerte
+        self.assertEqual(self.call('PATCH', '/api/consumables/', {'alert_days': 5})[0], 200)
+        self.assertEqual(self.pool('40x30-direct')['level'], 'ok')
+
+    def test_ribbon_used_by_transfer_labels_length(self):
+        self.move(self.ribbon, 'reception', rolls=2, days_ago=20)  # 148 m
+        self.printed(5, 1000, 60, 40, 'transfer')  # 1 000 x (40 + 3) mm = 43 m
+        self.printed(5, 5000)  # thermique direct : pas de ruban
+        pool = self.pool('ribbon')
+        self.assertEqual(pool['stock'], 148000 - 43000)
+        self.assertIn('105 m', pool['stock_text'])
+
+    def test_refs_moves_and_errors(self):
+        code, _ = self.call('POST', '/api/consumables/refs/', {'kind': 'labels', 'name': 'X', 'width_mm': 40})
+        self.assertEqual(code, 400)
+        code, body = self.call('PATCH', f"/api/consumables/refs/{self.vellum['id']}/", {'box_price': '', 'per_box': 6})
+        self.assertEqual(code, 200)
+        ref = next(ref for ref in body['refs'] if ref['id'] == self.vellum['id'])
+        self.assertEqual((ref['box_price'], ref['per_box']), (None, 6))
+        self.assertEqual(self.call('POST', '/api/consumables/moves/', {'ref': self.vellum['id'],
+                                                                       'kind': 'reception'})[0], 400)
+        body = self.move(self.vellum, 'reception', boxes=1)
+        self.assertEqual(body['moves'][0]['what'], '1 boîte')
+        self.assertEqual(body['moves'][0]['units'], 12000)
+        code, body = self.call('POST', f"/api/consumables/moves/{body['moves'][0]['id']}/delete/")
+        self.assertEqual((code, body['moves']), (200, []))
+        self.call('PATCH', f"/api/consumables/refs/{self.vellum['id']}/", {'archived': True})
+        self.assertEqual(self.call('POST', '/api/consumables/moves/', {'ref': self.vellum['id'], 'kind': 'reception',
+                                                                       'boxes': 1})[0], 400)
+
+    def test_access(self):
+        self.assertEqual(self.call('GET', '/api/consumables/', local=False)[0], 404)
+        self.assertEqual(self.call('GET', '/api/consumables/', session=False)[0], 403)
+        self.assertEqual(self.call('GET', '/api/consumables/', session=views.session_token(self.user))[0], 403)

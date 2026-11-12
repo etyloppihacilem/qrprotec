@@ -122,6 +122,11 @@ local_patterns = [
     path('server-settings/', views.server_settings),
     path('barcodes-printed/', views.barcodes_printed),
     path('print-counts/', views.print_counts_view),  # compteur d'impressions (consommables)
+    path('consumables/', views.consumables_view),
+    path('consumables/refs/', views.consumable_refs),
+    path('consumables/refs/<int:ref_id>/', views.consumable_ref_detail),
+    path('consumables/moves/', views.consumable_moves),
+    path('consumables/moves/<int:move_id>/delete/', views.consumable_move_delete),
     path('me/scanner-volume/', views.my_scanner_volume),
     path('notifications/', views.notification_settings),
     # API SMS plus maintenue (voir notifications.py)

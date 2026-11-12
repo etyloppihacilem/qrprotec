@@ -38,6 +38,8 @@ struct PrintQueueStatus {
     bool        paused = false; // arretee sur une erreur, en attente de reprise
     // pause parce que l'etiquette suivante est d'un autre type que celui charge : type a charger
     std::string needed_label_type;
+    std::string needed_label_summary; // « 40 x 30 mm, droite, thermique direct »
+    std::string needed_for;           // etiquette qui attend ce rouleau
     bool        busy   = false;
 };
 

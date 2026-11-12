@@ -42,6 +42,7 @@ from . import label_prints
 from . import lot_report
 from . import lot_sheet
 from . import live
+from . import consumables
 from . import notifications
 from . import print_counts
 from . import reports
@@ -60,7 +61,7 @@ from .models import (
     DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType, LotTypeSlot,
     SlotMode,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
-    SCANNER_VOLUMES, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
+    SCANNER_VOLUMES, ConsumableRef, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -1477,7 +1478,7 @@ def debug_temp_login(request):
 def tasks_list(request):
     """Liste de taches de la gestion pour le poste (fenetre Gestion de la TECH), roles gestion et admin."""
     require_front(request, GESTION)
-    return Response(tasks.todo())
+    return Response(tasks.todo(consumables_tasks=True))
 
 
 # Notifications web (roles gestion et admin, depuis le front web)
@@ -3482,6 +3483,62 @@ def print_counts_view(request):
     require_front(request, GESTION)
     year = request.query_params.get('year')
     return Response(print_counts.summary(parse_int(year, 'year', 2000, 2200) if year else None))
+
+
+def _consumables_call(function, *args):
+    try:
+        return function(*args)
+    except consumables.ConsumableError as exc:
+        raise ApiError(str(exc))
+
+
+@api_view(['GET', 'PATCH'])
+@handle_errors
+def consumables_view(request):
+    """Consommables d'etiquettes (fronts, roles gestion et admin) : stock estime par categorie, references, derniers
+    mouvements. PATCH {"alert_days"} : seuil de la tache « Commander »."""
+    require_front(request, GESTION)
+    if request.method == 'PATCH':
+        _consumables_call(consumables.set_alert_days, request.data.get('alert_days'))
+    return Response(consumables.summary())
+
+
+@api_view(['POST'])
+@handle_errors
+def consumable_refs(request):
+    """Nouvelle reference : {"kind": "labels" | "ribbon", "name", "supplier", "width_mm", "height_mm", "support",
+    "per_roll" | "length_m", "per_box", "box_price"}."""
+    require_front(request, GESTION)
+    _consumables_call(consumables.save_ref, request.data)
+    return Response(consumables.summary(), status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH'])
+@handle_errors
+def consumable_ref_detail(request, ref_id):
+    """Modifier une reference (memes champs, sauf le type), ou l'archiver ({"archived": true})."""
+    require_front(request, GESTION)
+    ref = get_object_or_404(ConsumableRef, id=ref_id)
+    _consumables_call(consumables.save_ref, request.data, ref)
+    return Response(consumables.summary())
+
+
+@api_view(['POST'])
+@handle_errors
+def consumable_moves(request):
+    """Reception ou inventaire : {"ref", "kind": "reception" | "inventory", "boxes", "rolls", "loose"}."""
+    require_front(request, GESTION)
+    _consumables_call(consumables.add_move, request.data, front_identity(request))
+    return Response(consumables.summary(), status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@handle_errors
+def consumable_move_delete(request, move_id):
+    """Annuler une reception ou un inventaire saisi par erreur."""
+    require_front(request, GESTION)
+    _consumables_call(consumables.delete_move, move_id)
+    return Response(consumables.summary())
 
 
 @api_view(['POST'])
