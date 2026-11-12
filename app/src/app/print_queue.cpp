@@ -51,6 +51,8 @@ void PrintQueue::set_loaded_label_type(const std::string &name) {
       status_.paused = false;
       status_.error.clear();
       status_.needed_label_type.clear();
+      status_.needed_label_summary.clear();
+      status_.needed_for.clear();
     }
   }
   condition_.notify_one();
@@ -67,6 +69,8 @@ void PrintQueue::resume() {
     status_.paused = false;
     status_.error.clear();
     status_.needed_label_type.clear();
+    status_.needed_label_summary.clear();
+    status_.needed_for.clear();
   }
   condition_.notify_one();
 }
@@ -77,6 +81,9 @@ void PrintQueue::cancel() {
   status_.pending = 0;
   status_.paused  = false;
   status_.error.clear();
+  status_.needed_label_type.clear();
+  status_.needed_label_summary.clear();
+  status_.needed_for.clear();
 }
 
 void PrintQueue::set_counter(PrintCounter *counter) {
@@ -125,7 +132,9 @@ void PrintQueue::run() {
       if (type->name != settings.loaded_label_type) {
         std::lock_guard< std::mutex > lock(mutex_);
         status_.paused            = true;
-        status_.needed_label_type = type->name;
+        status_.needed_label_type    = type->name;
+        status_.needed_label_summary = type->summary();
+        status_.needed_for           = job.description;
         status_.error             = job.description + " : chargez les étiquettes « " + type->name + " » ("
                       + type->summary() + "), puis confirmez dans la file d'impression.";
         status_.pending           = jobs_.size();

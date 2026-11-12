@@ -281,6 +281,11 @@ class StockWindow final : public AppWindow {
           app.show_lot(lot);
         else if (lot.empty())
           ImGui::TextDisabled("Item %s : scannez-le pour le réviser", row["item"].str().c_str());
+      } else if (link == "consumables") {
+        if (small_button("Voir les consommables")) {
+          app.show_consumables = true;
+          app.open_window("print_counts");
+        }
       } else if (link == "forecast") {
         if (small_button(row["category"].str() == "orders" ? "Voir les commandes" : "Voir les transferts"))
           select_ = row["category"].str() == "orders" ? "orders" : "transfers";

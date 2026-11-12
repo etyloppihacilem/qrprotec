@@ -72,9 +72,9 @@ devient **Envoyer au poste** : les étiquettes partent dans la même fenêtre du
 telles quelles. Si une imprimante est branchée sur cet ordinateur, cochez **Imprimante branchée sur
 cet ordinateur** (Réglages, partie Imprimante).
 
-## Compteur d'impressions
+## Compteur d'impressions et consommables
 
-Menu **Gestion > Impressions d'étiquettes** au poste et sur les autres ordinateurs (gestion et admin) :
+Menu **Gestion > Impressions et consommables** au poste et sur les autres ordinateurs (gestion et admin) :
 nombre d'étiquettes imprimées **par mois** et **par catégorie d'étiquette** (taille et support :
 thermique direct ou transfert thermique), avec le **total de l'année** et la **moyenne par mois**
 (mois finis), pour suivre la consommation de bobines et de ruban et prévoir les commandes. Le choix
@@ -86,6 +86,29 @@ pause (mauvais rouleau chargé) ou annulée ne compte pas ; une réimpression ou
 compte, puisqu'il consomme une étiquette. Tous les ordinateurs qui impriment sont additionnés. Hors
 connexion, l'ordinateur garde ses compteurs et les envoie au retour du réseau. Le compteur part de
 zéro à la mise à jour : les étiquettes imprimées avant ne sont pas comptées.
+
+En haut de la fenêtre, **Rouleau en place sur cet ordinateur** dit quel rouleau est dans l'imprimante.
+Changez-le ici quand vous remettez un rouleau (par exemple les étiquettes consommables après une série
+d'étiquettes durables) : pas d'avertissement. Quand une impression demande un autre type d'étiquette
+que le rouleau en place, elle s'arrête et la fenêtre **Changez de rouleau** s'ouvre (même sans personne
+de connecté) : elle dit quel rouleau mettre, puis **C'est fait** reprend l'impression. **Plus tard**
+laisse l'impression en pause (en rouge dans la barre de menu).
+
+**Consommables** : on ne suit pas chaque bobine. Chaque catégorie d'étiquette a un **stock estimé** :
+le dernier inventaire (ou la première réception), plus les réceptions, moins les étiquettes imprimées
+depuis le lendemain. Les rubans de transfert sont suivis en mètres : chaque étiquette de transfert
+imprimée use sa hauteur + 3 mm de ruban (un rouleau de ruban fait donc plusieurs bobines). Le tableau
+donne la consommation par mois (moyenne des 90 derniers jours), l'autonomie, le coût par mois et
+depuis janvier. Sous le seuil d'alerte (60 jours par défaut, réglable), une tâche **Commander** apparaît
+dans la Gestion de la TECH du poste (pas sur le téléphone).
+
+- **Références** : ajoutez chaque produit acheté : bobines (taille, direct ou transfert, étiquettes
+  par bobine, bobines par boîte) ou rubans (mètres par rouleau, rouleaux par boîte), avec le prix d'une
+  boîte pour les coûts. Plusieurs fournisseurs d'une même taille remplissent le même stock.
+- **Réception** : à l'arrivée d'une commande, la référence et le nombre de boîtes ou de bobines.
+- **Inventaire** : de temps en temps, comptez ce qui reste de la catégorie (boîtes, bobines, et
+  à peu près ce qui reste sur la bobine entamée) : le stock estimé repart de ce compte.
+- Un mouvement saisi par erreur s'annule dans **Derniers mouvements**.
 
 ## Gestion de la TECH : la liste de tâches
 

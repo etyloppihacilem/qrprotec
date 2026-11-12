@@ -245,6 +245,14 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   le serveur ne l'a pas acquitté, le serveur ignore un lot déjà reçu (`PrintCountBatch`). Un lot refusé
   (400) est abandonné et journalisé. La fenêtre lit `GET /api/print-counts/?year=` (gestion et admin) :
   12 mois par catégorie, totaux. Voir `database/inventory/print_counts.py`.
+- **Consommables** (onglets Consommables et Références de la même fenêtre) : `GET/PATCH
+  /api/consumables/`, `POST /api/consumables/refs/`, `PATCH /api/consumables/refs/<id>/`,
+  `POST /api/consumables/moves/` (réception ou inventaire), `POST /api/consumables/moves/<id>/delete/`.
+  Stock estimé, autonomie et coûts calculés par `database/inventory/consumables.py`. La tâche
+  « Commander » (lien `consumables`) n'est ajoutée qu'à `GET /api/tasks/` (poste), pas au web.
+- **Changement de rouleau** : file en pause sur un modèle d'un autre type → `App::draw_roll_change_modal`
+  (« Impression en pause ») ; le rouleau en place se choisit aussi en haut de la fenêtre des
+  consommables (`App::set_loaded_label_type`, sans avertissement).
 
 Changer d'imprimante : implémenter l'interface `Printer` (`printer/printer.hpp`) et l'utiliser dans
 `PrintQueue` et dans l'éditeur (voir [maintenance.md](maintenance.md#changer-de-modèle-dimprimante)). Le reste (rendu, rotation) est indépendant du modèle d'imprimante.

@@ -512,6 +512,9 @@ class App {
     // Etiquettes du type `name` chargees dans l'imprimante (vide : format libre) : enregistre et reprend la file
     // si elle attendait ce rouleau
     void        set_loaded_label_type(const std::string &name);
+    // Gestion de la TECH, tache « Commander » d'un consommable : la fenetre Impressions et consommables s'ouvre sur
+    // l'onglet Consommables
+    bool        show_consumables = false;
     // Modeles sans type d'etiquette : type construit (etiquettes reglees dans les Reglages, orientation qu'ils
     // recevaient a l'impression) et fichier mis a jour. Sans rouleau charge, prend le type le plus courant.
     void        add_missing_label_types();
@@ -640,6 +643,10 @@ class App {
     void draw_reports_alert();
     void draw_seal_opening_modal();
     void draw_label_prints();
+    // file en pause sur une etiquette d'un autre rouleau : fenetre « Changez de rouleau » (meme sans personne de
+    // connecte), « Plus tard » la laisse dans la barre de menu jusqu'au prochain rouleau demande
+    void        draw_roll_change_modal();
+    std::string roll_change_dismissed_;
     void launch_label_prints(std::vector< int > ids);
     void print_label_request(const Json &request); // etiquettes d'une demande (items crees ou images)
     void send_problem();

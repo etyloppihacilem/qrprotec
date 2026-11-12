@@ -668,6 +668,7 @@ void App::draw() {
   if (tint)
     ImGui::PopStyleColor(4);
   draw_label_prints();
+  draw_roll_change_modal();
   inateck.draw_window();
   draw_setup_modal();
   draw_server_modal();
@@ -4883,6 +4884,67 @@ void App::alert_reports(const std::string &key, const std::string &title, const 
   reports_alert_.reports      = reports;
   reports_alert_.open_pending = true;
   feedback.notice(source, settings);
+}
+
+void App::draw_roll_change_modal() {
+  static const char     *kTitle = "Impression en pause###roll_change";
+  const PrintQueueStatus print  = printer.status();
+  const std::string     &needed = print.needed_label_type;
+  if (!print.paused || needed.empty())
+    roll_change_dismissed_.clear();
+  else if (needed != roll_change_dismissed_ && !ImGui::IsPopupOpen(kTitle)
+           && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
+    ImGui::OpenPopup(kTitle);
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  if (needed.empty()) { // reprise ou annulation ailleurs (menu, Reglages, fenetre des consommables)
+    ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return;
+  }
+  const float width = ImGui::GetFontSize() * 30.0f;
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
+  ImGui::TextColored(colors::orange, "Changez de rouleau");
+  ImGui::PopFont();
+  ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+  ImGui::TextUnformatted("L'impression est en pause : l'étiquette suivante n'est pas du même type que le rouleau en "
+                         "place.");
+  ImGui::Spacing();
+  ImGui::TextUnformatted("Mettez le rouleau :");
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.25f);
+  ImGui::TextUnformatted(("« " + needed + " »").c_str());
+  ImGui::PopFont();
+  if (!print.needed_label_summary.empty())
+    ImGui::TextDisabled("%s", print.needed_label_summary.c_str());
+  if (print.needed_label_summary.find("transfert") != std::string::npos)
+    ImGui::TextUnformatted("Avec le ruban de transfert.");
+  const std::string &loaded = settings.print.loaded_label_type;
+  ImGui::TextDisabled("En place : %s", loaded.empty() ? "format libre" : ("« " + loaded + " »").c_str());
+  if (!print.needed_for.empty())
+    ImGui::TextDisabled("Pour : %s%s", print.needed_for.c_str(),
+                        print.pending > 1 ? (" (et " + nb(static_cast< int >(print.pending) - 1, "autre étiquette",
+                                                           "autres étiquettes") + ")").c_str()
+                                          : "");
+  ImGui::PopTextWrapPos();
+  ImGui::Spacing();
+  ImGui::Separator();
+  // pas de validation par Entree : la douchette en mode clavier en envoie une a chaque scan
+  if (primary_button(("C'est fait : « " + needed + " » est en place").c_str(), ImVec2(width, 0))) {
+    set_loaded_label_type(needed);
+    ImGui::CloseCurrentPopup();
+  }
+  if (button("Plus tard (l'impression reste en pause)")) {
+    roll_change_dismissed_ = needed;
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::SameLine();
+  if (danger_button("Annuler ces impressions")) {
+    printer.cancel();
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::EndPopup();
 }
 
 void App::draw_reports_alert() {
