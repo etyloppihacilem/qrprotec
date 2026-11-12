@@ -100,6 +100,7 @@ void upload_texture(const RasterImage &image, unsigned int &texture, bool smooth
     rgba[index * 4 + 3]                                          = 255;
   }
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+  texture_changed();
 }
 
 // Texte sur une ligne, coupe avec "..." s'il depasse la largeur disponible (cartes du navigateur)
