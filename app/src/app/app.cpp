@@ -96,6 +96,9 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   settings.load();
   // envois de verif faits hors connexion avant un redemarrage : renvoyes au retour du reseau
   outbox.load(AppSettings::file_path().parent_path() / "verif-outbox.json");
+  // etiquettes imprimees pas encore comptees par le serveur (hors connexion, redemarrage)
+  print_counter.load(AppSettings::file_path().parent_path() / "print-counts.json");
+  printer.set_counter(&print_counter);
   updater.start(settings.auto_update);
   apply_settings();
   // meme delai et meme defaut que swayidle dans qrprotec-kiosk-session
@@ -115,6 +118,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_journal_window());
   windows.push_back(make_users_window());
   windows.push_back(make_editor_window());
+  windows.push_back(make_print_counts_window());
   windows.push_back(make_reports_window());
   windows.push_back(make_settings_window()); // derniere du menu Administration : toujours F12
   windows.push_back(make_phone_window());
@@ -333,7 +337,7 @@ void App::assign_shortcuts() {
     if (AppWindow *target = window(id))
       ordered.push_back(target);
   for (auto &target : windows)
-    if (target->privileged && target->id != "pack")
+    if (target->privileged && target->id != "pack" && target->id != "print_counts") // F1 a F12 deja pris
       ordered.push_back(target.get());
   for (std::size_t index = 0; index < ordered.size() && index < 12; ++index) {
     const ImGuiKey key         = static_cast< ImGuiKey >(ImGuiKey_F1 + index);
@@ -446,6 +450,8 @@ void App::begin_frame() {
   sync_cache(60.0);
   if (!outbox.empty() && !outbox_busy_ && ImGui::GetTime() >= next_outbox_try_)
     flush_outbox();
+  if (!print_counts_busy_ && ImGui::GetTime() >= next_print_counts_try_)
+    flush_print_counts();
   // voyant des lots a traiter : liste tenue a jour meme fenetre Lots fermee (pas pendant une verif)
   if (!verif.active && !catalog.loading_lots && ImGui::GetTime() >= next_lots_poll_) {
     next_lots_poll_ = ImGui::GetTime() + 120.0;
@@ -590,6 +596,29 @@ void App::flush_outbox() {
       sync_cache();
       refresh_lots(true);
     }
+  });
+}
+
+// Compteur d'impressions (inventory/print_counts.py) : envoye toutes les 30 s s'il y a des etiquettes a compter, le
+// meme lot renvoye tant que le serveur ne l'a pas recu. Refuse comme invalide : retire (ne passerait jamais).
+void App::flush_print_counts() {
+  next_print_counts_try_ = ImGui::GetTime() + 30.0;
+  const Json body        = print_counter.next_batch();
+  if (body.is_null())
+    return;
+  print_counts_busy_ = true;
+  const std::string id = body["batch"].str();
+  api.post("/api/print-counts/", body, [this, id](const ApiResult &result) {
+    print_counts_busy_ = false;
+    if (result.ok || result.status == 400) {
+      if (!result.ok)
+        error_log("Compteur d'impressions refusé par le serveur : " + result.error, "imprimante");
+      print_counter.batch_done(id);
+      return;
+    }
+    // hors connexion : reessaye a 30 s ; serveur pas encore a jour (404) ou autre refus : plus tard
+    if (result.status != 0)
+      next_print_counts_try_ = ImGui::GetTime() + 600.0;
   });
 }
 

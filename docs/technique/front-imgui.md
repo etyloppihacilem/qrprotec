@@ -236,6 +236,15 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   1,5 Mo au plus. Le poste la reçoit comme une demande (`kind` labels) et l'imprime telle quelle
   (`PrintJob::image`, recadrée à son étiquette physique par `fit_to_label`). Seul le poste (sans clé
   de front) interroge la file. Une demande pas imprimée expire en 24 h.
+- **Compteur d'impressions** (`core/print_counter.cpp`, fenêtre `print_counts_window.cpp`) : le fil
+  de `PrintQueue` ajoute chaque étiquette acceptée par l'imprimante (`print` réussi) au `PrintCounter`
+  de `App`, par jour et par catégorie : largeur × hauteur du type d'étiquette du modèle (sinon étiquette
+  des Réglages) et support (direct / transfert, sans l'orientation). Gardé dans `print-counts.json`
+  (à côté de `app.conf`) et envoyé toutes les 30 s par `POST /api/print-counts/` (tout front, sans
+  session) en lots identifiés : un lot en cours d'envoi ne change plus et est renvoyé tel quel tant que
+  le serveur ne l'a pas acquitté, le serveur ignore un lot déjà reçu (`PrintCountBatch`). Un lot refusé
+  (400) est abandonné et journalisé. La fenêtre lit `GET /api/print-counts/?year=` (gestion et admin) :
+  12 mois par catégorie, totaux. Voir `database/inventory/print_counts.py`.
 
 Changer d'imprimante : implémenter l'interface `Printer` (`printer/printer.hpp`) et l'utiliser dans
 `PrintQueue` et dans l'éditeur (voir [maintenance.md](maintenance.md#changer-de-modèle-dimprimante)). Le reste (rendu, rotation) est indépendant du modèle d'imprimante.

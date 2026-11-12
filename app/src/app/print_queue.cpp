@@ -13,6 +13,8 @@
 
 #include "../render/raster.hpp"
 
+#include <algorithm>
+
 namespace qrprotec {
 
 PrintQueue::PrintQueue() : thread_(&PrintQueue::run, this) {}
@@ -77,12 +79,18 @@ void PrintQueue::cancel() {
   status_.error.clear();
 }
 
+void PrintQueue::set_counter(PrintCounter *counter) {
+  std::lock_guard< std::mutex > lock(mutex_);
+  counter_ = counter;
+}
+
 void PrintQueue::run() {
   bool connected = false;
   for (;;) {
     PrintJob      job;
     PrintSettings settings;
     PhysicalLabel label;
+    PrintCounter *counter = nullptr;
     {
       std::unique_lock< std::mutex > lock(mutex_);
       if (jobs_.empty() || status_.paused) {
@@ -99,6 +107,7 @@ void PrintQueue::run() {
       job             = jobs_.front();
       settings        = settings_;
       label           = label_;
+      counter         = counter_;
       status_.busy    = true;
       status_.current = job.description;
     }
@@ -106,6 +115,11 @@ void PrintQueue::run() {
     RasterImage   image;
     MediaSettings media;
     label.pixels_per_mm = job.document.media.pixels_per_mm;
+    // categorie comptee : rouleau du type du modele, sinon etiquette des Reglages et ruban de l'imprimante
+    double       counted_width  = label.width_mm;
+    double       counted_height = label.height_mm;
+    LabelSupport counted_support =
+      settings.kind != PrinterKind::NiimbotB1 && settings.raw.ribbon ? LabelSupport::Transfer : LabelSupport::Direct;
     if (const std::optional< LabelType > &type = job.document.label_type) {
       // modele avec son type d'etiquette : il faut ce rouleau dans l'imprimante
       if (type->name != settings.loaded_label_type) {
@@ -123,6 +137,9 @@ void PrintQueue::run() {
       }
       label = physical_label_for(*type, job.document.media.pixels_per_mm);
       settings.raw.ribbon = type->support == LabelSupport::Transfer;
+      counted_width       = type->width_mm;
+      counted_height      = type->height_mm;
+      counted_support     = type->support;
     }
     bool ok = fit_to_label(job.image.width > 0 ? job.image : render_template(job.document), label, image, media, error);
     if (ok) {
@@ -131,6 +148,9 @@ void PrintQueue::run() {
         connected = true;
         const PrintRequest request{ image, media, settings };
         ok = printer_.print(request, {}, error);
+        // compte des que l'imprimante a accepte l'envoi (erreur, pause, annulation : pas comptees)
+        if (ok && counter != nullptr)
+          counter->add(local_day_iso(), counted_width, counted_height, counted_support, std::max(1, settings.copies));
       } else {
         error = "Connexion imprimante : " + error;
       }

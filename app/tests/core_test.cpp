@@ -3,6 +3,7 @@
 #include "../src/core/template.hpp"
 #include "../src/core/template_io.hpp"
 #include "../src/core/update_check.hpp"
+#include "../src/core/print_counter.hpp"
 #include "../src/core/verif_cache.hpp"
 #include "../src/net/front_config.hpp"
 #include "../src/net/websocket.hpp"
@@ -378,6 +379,42 @@ int main()
         qrprotec::VerifOutbox last;
         last.load(file);
         assert(last.size() == 1 && last.front().label == "B+ 1");
+        std::filesystem::remove(file);
+    }
+
+    {
+        // compteur d'impressions : par jour et categorie, lot fige pendant l'envoi, garde dans un fichier
+        const auto file = std::filesystem::temp_directory_path() / "qrprotec-print-counts-test.json";
+        std::filesystem::remove(file);
+        using qrprotec::LabelSupport;
+        std::string id;
+        {
+            qrprotec::PrintCounter counter;
+            counter.load(file);
+            assert(counter.pending() == 0 && counter.next_batch().is_null());
+            counter.add("2026-11-12", 40.0, 30.0, LabelSupport::Direct);
+            counter.add("2026-11-12", 40.04, 30.0, LabelSupport::Direct, 2); // meme categorie (au dixieme)
+            counter.add("2026-11-12", 60.0, 40.0, LabelSupport::Transfer);
+            assert(counter.pending() == 4);
+            const qrprotec::Json batch = counter.next_batch();
+            id                         = batch["batch"].str();
+            assert(id.size() == 32 && batch["counts"].size() == 2);
+            assert(batch["counts"][0]["count"].integer() == 3 && batch["counts"][1]["support"].str() == "transfer");
+            counter.add("2026-11-13", 40.0, 30.0, LabelSupport::Direct); // pendant l'envoi : lot suivant
+            assert(counter.next_batch()["batch"].str() == id && counter.next_batch()["counts"].size() == 2);
+        }
+        qrprotec::PrintCounter again; // redemarrage : meme lot a renvoyer, impression d'apres gardee
+        again.load(file);
+        assert(again.pending() == 5 && again.next_batch()["batch"].str() == id);
+        again.batch_done("autre");
+        assert(again.pending() == 5);
+        again.batch_done(id);
+        assert(again.pending() == 1);
+        const qrprotec::Json next = again.next_batch();
+        assert(next["batch"].str() != id && next["counts"][0]["day"].str() == "2026-11-13");
+        again.batch_done(next["batch"].str());
+        assert(again.pending() == 0 && again.next_batch().is_null());
+        assert(qrprotec::local_day_iso().size() == 10);
         std::filesystem::remove(file);
     }
 

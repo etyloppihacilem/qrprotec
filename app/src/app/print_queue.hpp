@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "../core/print_counter.hpp"
 #include "../core/template.hpp"
 #include "../printer/printer.hpp"
 #include "../render/raster.hpp"
@@ -57,6 +58,8 @@ class PrintQueue {
     // si elle attendait ce type
     void             set_loaded_label_type(const std::string &name);
     void             cancel();
+    // Compteur d'impressions : chaque etiquette acceptee par l'imprimante y est ajoutee (avant la premiere impression)
+    void             set_counter(PrintCounter *counter);
 
   private:
     void run();
@@ -69,6 +72,7 @@ class PrintQueue {
     PrintQueueStatus        status_;
     bool                    stopping_ = false;
     AnyPrinter              printer_;
+    PrintCounter           *counter_ = nullptr;
     std::thread             thread_;
 };
 

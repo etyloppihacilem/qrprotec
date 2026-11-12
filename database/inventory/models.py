@@ -1159,6 +1159,39 @@ class StockOrder(models.Model):
         ordering = ['placed']
 
 
+class LabelSupport(models.TextChoices):
+    DIRECT = 'direct', 'thermique direct'
+    TRANSFER = 'transfer', 'transfert thermique'
+
+
+class PrintCount(models.Model):
+    """Etiquettes envoyees a l'imprimante par les fronts (compteur des consommables), par jour et par categorie.
+
+    Une etiquette compte quand l'imprimante a accepte l'envoi : erreur, file en pause (mauvais rouleau) ou annulation
+    ne comptent pas ; reimpressions et tests de l'editeur comptent (ils consomment). Categorie : largeur x hauteur de
+    l'etiquette physique (mm, sens de la tete x sens du defilement, sans l'orientation du modele) et support (direct ou
+    transfert). `front` : nom de la cle du front qui a imprime, vide pour le poste local. Comptees seulement a partir
+    de cette version (rien avant)."""
+    day = models.DateField(db_index=True)
+    width_mm = models.DecimalField(max_digits=5, decimal_places=1)
+    height_mm = models.DecimalField(max_digits=5, decimal_places=1)
+    support = models.CharField(max_length=8, choices=LabelSupport.choices)
+    front = models.CharField(max_length=64, blank=True, default='')
+    count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['day', 'width_mm', 'height_mm', 'support', 'front'],
+                                               name='print_count_day_category_front')]
+
+
+class PrintCountBatch(models.Model):
+    """Envoi de compteurs d'un front, identifie par le front : renvoye apres une reponse perdue, il n'est pas compte
+    deux fois."""
+    id = models.CharField(max_length=64, primary_key=True)
+    received = models.DateTimeField(default=timezone.now)
+    front = models.CharField(max_length=64, blank=True, default='')
+
+
 class NotificationSettings(models.Model):
     """Reglages des notifications (une seule ligne, pk=1).
 

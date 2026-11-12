@@ -58,6 +58,7 @@ AppSettings AppSettings::defaults() {
   settings.layout["lists"]     = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["settings"]  = { false, 0.20f, 0.05f, 0.45f, 0.85f };
   settings.layout["editor"]    = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["print_counts"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   return settings;
 }
 
