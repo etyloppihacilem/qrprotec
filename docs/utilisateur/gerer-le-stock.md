@@ -94,6 +94,11 @@ que le rouleau en place, elle s'arrête et la fenêtre **Changez de rouleau** s'
 de connecté) : elle dit quel rouleau mettre, puis **C'est fait** reprend l'impression. **Plus tard**
 laisse l'impression en pause (en rouge dans la barre de menu).
 
+Plus rapide : **Imprimer le QR d'un rouleau...** (à côté du rouleau en place) imprime un QR pour chaque
+rouleau, sur le rouleau de votre choix. Collez-le sur l'imprimante ou sur la boîte des bobines :
+scanné à la douchette d'un poste, il déclare ce rouleau en place (et reprend une impression qui
+l'attendait), sans connexion. Le téléphone l'ignore.
+
 **Consommables** : on ne suit pas chaque bobine. Chaque catégorie d'étiquette a un **stock estimé** :
 le dernier inventaire (ou la première réception), plus les réceptions, moins les étiquettes imprimées
 depuis le lendemain. Les rubans de transfert sont suivis en mètres : chaque étiquette de transfert

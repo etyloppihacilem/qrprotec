@@ -169,6 +169,7 @@ add_executable(${PROJECT_NAME}
     src/app/app.cpp
     src/app/feedback.cpp
     src/app/label_prints.cpp
+    src/app/poste_actions.cpp
     src/app/labels.cpp
     src/app/print_queue.cpp
     src/app/scan_stack.cpp

@@ -366,10 +366,60 @@ void set_item(ParsedScan &scan, const std::string &iid) {
 
 } // namespace
 
+namespace {
+std::string encode_param(const std::string &value) {
+  std::string output;
+  for (const unsigned char character : value) {
+    if (std::isalnum(character) || character == '-' || character == '_' || character == '.' || character == '~') {
+      output += static_cast< char >(character);
+    } else {
+      char buffer[4];
+      std::snprintf(buffer, sizeof(buffer), "%%%02X", character);
+      output += buffer;
+    }
+  }
+  return output;
+}
+
+bool starts_with_nocase(const std::string &text, const std::string &prefix) {
+  if (text.size() < prefix.size())
+    return false;
+  for (std::size_t i = 0; i < prefix.size(); ++i)
+    if (std::tolower(static_cast< unsigned char >(text[i])) != std::tolower(static_cast< unsigned char >(prefix[i])))
+      return false;
+  return true;
+}
+} // namespace
+
+std::string poste_action_code(const std::string &action, const std::vector< std::pair< std::string, std::string > > &params) {
+  std::string code = std::string(kPosteActionPrefix) + action;
+  char        separator = '?';
+  for (const auto &[key, value] : params) {
+    code += separator + key + "=" + encode_param(value);
+    separator = '&';
+  }
+  return code;
+}
+
 ParsedScan parse_scan(const std::string &input) {
   ParsedScan scan;
   scan.raw               = trim(input);
   const std::string code = scan.raw;
+  // code d'action rapide des postes (pas une URL : ignore par le telephone)
+  if (starts_with_nocase(code, kPosteActionPrefix)) {
+    const std::string rest     = code.substr(std::string(kPosteActionPrefix).size());
+    const std::size_t question = rest.find('?');
+    std::string       action   = rest.substr(0, question);
+    for (char &c : action)
+      c = static_cast< char >(std::tolower(static_cast< unsigned char >(c)));
+    if (!action.empty()) {
+      scan.kind   = ScanKind::PosteAction;
+      scan.id     = action;
+      scan.params = question == std::string::npos ? std::map< std::string, std::string >()
+                                                  : parse_query(rest.substr(question + 1));
+    }
+    return scan;
+  }
   // etiquette d'item : l'iid seul (ancien format, code-barres et petit QR, eventuellement en forme courte) ou
   // l'URL <base>/item?id=IID
   if (const std::string iid = expand_iid(code); !iid.empty()) {
@@ -430,6 +480,7 @@ const char *scan_kind_name(ScanKind kind) {
     case ScanKind::LotSeal: return "Scellé";
     case ScanKind::LotSealOpen: return "Ouverture de scellé";
     case ScanKind::Checklist: return "Liste de matériel";
+    case ScanKind::PosteAction: return "Code d'action du poste";
     case ScanKind::Unknown: break;
   }
   return "Inconnu";
@@ -444,6 +495,13 @@ std::string describe_scan(const ParsedScan &scan) {
     case ScanKind::LotSeal: return "Scellé du lot " + scan.id;
     case ScanKind::LotSealOpen: return "Ouverture du scellé du lot " + scan.id;
     case ScanKind::Checklist: return "Liste de matériel " + scan.id;
+    case ScanKind::PosteAction: {
+      if (scan.id == "rouleau") {
+        const auto name = scan.params.find("t");
+        return "Rouleau en place : « " + (name != scan.params.end() ? name->second : std::string("?")) + " »";
+      }
+      return "Code d'action du poste : " + scan.id;
+    }
     case ScanKind::Unknown: break;
   }
   const std::string &code   = scan.raw;

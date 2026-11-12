@@ -49,7 +49,7 @@ std::string relative_datetime(const std::string &timestamp, const Date &today, b
 // Les annees sur 2 chiffres sont en 20xx.
 std::optional< Date > parse_user_date(const std::string &text);
 
-enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Checklist, Unknown };
+enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Checklist, PosteAction, Unknown };
 
 // Contenu d'un QR code interprete localement (sans appel reseau).
 //   item      : iid seul (TYPE 6 + AAAAMMJJ + compteur base62 8), complet ou en forme courte (compact_iid)
@@ -60,6 +60,7 @@ enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Checkli
 //   lot seal  : <base>/seal?lot=ID&s=CODE (lot scelle : valide sans verif)
 //   seal open : <base>/unseal?lot=ID&c=CODE (etiquette d'ouverture, dans le lot : son scan ouvre le scelle)
 //   checklist : <base>/liste?id=ID (liste de materiel partagee par QR code)
+//   action    : qrprotec:poste/ACTION?param=valeur&... (code d'action rapide des postes, voir poste_action_code)
 // La base (https://example.com/ par defaut) n'est pas verifiee : changer de domaine ne casse pas
 // les etiquettes deja imprimees.
 struct ParsedScan {
@@ -70,7 +71,16 @@ struct ParsedScan {
     std::string           item_type;
     std::optional< Date > peremption; // items dates uniquement
     bool                  task = false; // item scanne par son etiquette de taches (TaskItem)
+    std::map< std::string, std::string > params; // code d'action : parametres (id = nom de l'action)
 };
+
+// Codes d'action rapide des postes : « qrprotec:poste/ACTION?param=valeur&... ». Pas une URL web : le telephone
+// (front web, appareil photo) les ignore ; seuls les postes les executent, scannes a la douchette (ou au telephone
+// utilise comme douchette du poste). Chaque action est declaree dans app/poste_actions.cpp (nom, droits, effet) ;
+// une action inconnue (poste pas a jour) est signalee sans rien faire. Actions :
+//   rouleau?t=NOM&w=LARGEUR&h=HAUTEUR&s=direct|transfer : rouleau d'etiquettes en place dans l'imprimante
+inline constexpr const char *kPosteActionPrefix = "qrprotec:poste/";
+std::string poste_action_code(const std::string &action, const std::vector< std::pair< std::string, std::string > > &params);
 
 constexpr std::size_t kTypeLength    = 6;
 constexpr std::size_t kDateLength    = 8;

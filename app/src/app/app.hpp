@@ -515,6 +515,10 @@ class App {
     // Gestion de la TECH, tache « Commander » d'un consommable : la fenetre Impressions et consommables s'ouvre sur
     // l'onglet Consommables
     bool        show_consumables = false;
+    // Codes d'action rapide des postes (poste_actions.cpp) : scan d'un code « qrprotec:poste/... »
+    void        handle_poste_action(const ParsedScan &scan, ScanSource source);
+    // Etiquette du code « rouleau en place » de `roll`, imprimee sur le rouleau `print_on`
+    void        print_roll_code(const LabelType &roll, const LabelType &print_on);
     // Modeles sans type d'etiquette : type construit (etiquettes reglees dans les Reglages, orientation qu'ils
     // recevaient a l'impression) et fichier mis a jour. Sans rouleau charge, prend le type le plus courant.
     void        add_missing_label_types();

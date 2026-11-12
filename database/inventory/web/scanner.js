@@ -107,6 +107,12 @@
       const date = code.slice(6, 14);
       return `Item ${code.slice(0, 6)} · ` + (date === '00000000' ? 'sans date' : `${date.slice(6, 8)}/${date.slice(4, 6)}/${date.slice(0, 4)}`);
     }
+    // code d'action rapide du poste (qrprotec:poste/ACTION?...) : envoye au poste, qui l'execute
+    const action = /^qrprotec:poste\/([^?]*)(?:\?(.*))?$/i.exec(code);
+    if (action) {
+      const params = new URLSearchParams(action[2] || '');
+      return action[1].toLowerCase() === 'rouleau' ? `Rouleau en place : ${params.get('t') || '?'}` : `Code du poste : ${action[1]}`;
+    }
     let url;
     try { url = new URL(code); } catch (e) { return code.length > 24 ? code.slice(0, 24) + '…' : code; }
     const route = url.pathname.replace(/\/+$/, '').split('/').pop();
