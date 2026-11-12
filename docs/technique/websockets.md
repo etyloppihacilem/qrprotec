@@ -340,9 +340,9 @@ participant désigné disparaît lui-même plus de `GRACE`, un autre est désign
 
 ### « Vérif complète » partagée
 
-`LiveSession.full` (et `full_by`) : un admin rend la vérif complète, depuis sa page de scan (message
+`LiveSession.full` (et `full_by`) : la gestion ou un admin rend la vérif complète, depuis sa page de scan (message
 `{"type": "full", "on", "user"}`) ou depuis la page de suivi (même message avec `"id"` de la vérif sur
-`/ws/live/watch`). `LiveHub.set_full` vérifie le badge admin (`is_admin`), puis le réglage part à tous
+`/ws/live/watch`). `LiveHub.set_full` vérifie le badge gestion ou admin (`is_gestion`), puis le réglage part à tous
 les participants dans `team` (`full`, `full_by`) et aux pages de suivi dans la carte (`full`, plus
 `optional` publié par les pages de scan pour afficher le bouton). La vérif envoyée (`POST verifs`
 avec `live`, ou `save_unattended`) est alors faite en `strict` : rien n'est facultatif.

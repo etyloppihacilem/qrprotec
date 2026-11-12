@@ -81,8 +81,8 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    est compté et placé comme les autres. Un attendu facultatif a `required` 0 (`expected` donne le
    nombre prévu, `optional` vrai) : toutes les règles de complétude restent les mêmes. Un sous-lot
    facultatif ne compte pas dans l'état du lot global (`counted` faux), jamais vérifié il est
-   `optional` (vert) et pas `never`. « Vérif complète » (`full` dans POST verifs, bouton des admins du
-   front web) : `perform_verif(strict=True)`, rien n'est facultatif pour cette vérif.
+   `optional` (vert) et pas `never`. « Vérif complète » (`full` dans POST verifs, bouton de la gestion et
+   des admins du front web) : `perform_verif(strict=True)`, rien n'est facultatif pour cette vérif.
    **Révision** (`ItemType.revision_months` > 0, non consommable seulement : `has_revision`) : chaque
    item a `revision_due`, posée à la réception (`add_items`) et à l'activation sur le type, à
    aujourd'hui + la périodicité (`add_months`, dernier jour du mois s'il n'existe pas). Une révision
@@ -413,7 +413,7 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
 |---|---|---|
 | `normal` (Secouriste) | vérifs, pile de scans, réassort | vérifs, liste des lots, listes de matériel attribuées |
 | `chef` | + listes de matériel : créer, toutes les voir, modèles | idem |
-| `gestion` | + mode privilégié : stocks, inventaire, paquets, gestion des lots | + État des stocks de l'accueil (lecture), notifications web (stock, étiquettes de lot) |
+| `gestion` | + mode privilégié : stocks, inventaire, paquets, gestion des lots | + Gestion de la TECH (lecture), demandes d'étiquettes au poste, « Rendre la vérif complète », notifications web (stock, étiquettes de lot) |
 | `admin` | + Réglages, Utilisateurs, éditeur d'étiquettes | + notifications web (aussi PIN bloqué, badges) |
 
 - Le **rôle dans l'équipe** (`fonction` : l'autorité, l'OPÉ, le TECH...) est un texte libre de

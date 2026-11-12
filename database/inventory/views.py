@@ -1103,7 +1103,7 @@ def verifs(request):
     "keys" : [{"id", "key"}], etiquettes cles d'autres lots du meme lot global scannees plus tot (key_holders) ;
     "step" : avec "live", la vérif commune continue (les autres participants voient le lot valide) au lieu de se
     terminer.
-    "full" : « vérif complète » (bouton des admins du front web) : les items et sous-lots facultatifs sont
+    "full" : « vérif complète » (bouton gestion et admins du front web) : les items et sous-lots facultatifs sont
     obligatoires pour cette verif (services.perform_verif strict)."""
     entries = request.data.get('lots')
     iids = iid_list(request.data)
@@ -3985,9 +3985,9 @@ def _label_print_call(function, *args):
 @api_view(['POST'])
 @handle_errors
 def label_prints_create(request):
-    """Web, admins : {"user", "type", "count", "peremption"} → demande envoyee aux postes (fenetre « Impressions en
-    attente »). Les items ne sont crees qu'a l'impression."""
-    user = connected_user(request, ADMIN)
+    """Web, roles gestion et admin : {"user", "type", "count", "peremption"} → demande envoyee aux postes (fenetre
+    « Impressions en attente »). Les items ne sont crees qu'a l'impression."""
+    user = connected_user(request, GESTION)
     data = request.data
     count = parse_int(data.get('count', 1), 'count', 1, label_prints.MAX_COUNT)
     row = _label_print_call(label_prints.create, f'{SOURCE_VERIFIED}:{user.matricule}', str(data.get('type', '')),
@@ -3998,16 +3998,17 @@ def label_prints_create(request):
 @api_view(['POST'])
 @handle_errors
 def label_prints_list(request):
-    """Web, admins : types d'items proposes et demandes d'impression (en attente, puis des 7 derniers jours)."""
-    connected_user(request, ADMIN)
+    """Web, roles gestion et admin : types d'items proposes et demandes d'impression (en attente, puis des 7 derniers
+    jours)."""
+    connected_user(request, GESTION)
     return Response(label_prints.web_list())
 
 
 @api_view(['POST'])
 @handle_errors
 def label_print_cancel(request, print_id):
-    """Web, admins : annule une demande pas encore imprimee."""
-    user = connected_user(request, ADMIN)
+    """Web, roles gestion et admin : annule une demande pas encore imprimee."""
+    user = connected_user(request, GESTION)
     row = _label_print_call(label_prints.cancel, print_id, f'{SOURCE_VERIFIED}:{user.matricule}')
     return Response(label_prints.print_dict(row))
 

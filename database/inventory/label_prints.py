@@ -11,8 +11,9 @@
 """Impressions demandees au poste depuis ailleurs, lancees dans sa fenetre « Impressions en attente » (voir
 models.LabelPrint).
 
-- Web (admins, Gestion de la TECH, bouton +) : nouvelles etiquettes d'items d'un type existant, nombre, peremption si
-  le type est perissable. « Lancer l'impression » cree les items (reception au nom de l'admin) puis imprime.
+- Web (gestion et admins, Gestion de la TECH, bouton +) : nouvelles etiquettes d'items d'un type existant, nombre,
+  peremption si le type est perissable. « Lancer l'impression » cree les items (reception au nom de qui les a
+  demandes) puis imprime.
 - Front d'un autre ordinateur (API distante) : « Imprimer » envoie les etiquettes deja rendues (images 1 bit), que le
   poste imprime telles quelles. Le poste est le poste principal : front de l'API locale du
   serveur, ou kiosk d'une autre machine dont la cle est marquee poste (FrontKey.poste, back sans kiosk).
@@ -215,7 +216,7 @@ def detail(print_id):
 
 
 def print_now(print_id, front_name=''):
-    """« Lancer l'impression » au poste. Etiquettes d'items : cree les items (reception au nom de l'admin qui les a
+    """« Lancer l'impression » au poste. Etiquettes d'items : cree les items (reception au nom de qui les a
     demandes, au stock). Repond la demande complete, dont le poste imprime les etiquettes. Une seule fois : un second
     poste qui lance la meme demande est refuse, comme une demande annulee ou expiree."""
     with transaction.atomic():

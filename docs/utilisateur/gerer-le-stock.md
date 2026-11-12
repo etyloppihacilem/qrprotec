@@ -54,8 +54,8 @@ Une boîte fermée reçoit **une seule étiquette** de paquet ; ses items existe
 ## Imprimer des étiquettes depuis le téléphone
 
 Pour du matériel d'un type déjà connu qui arrive sans passer par le poste (réassort des pompiers, dons),
-un administrateur peut demander les étiquettes depuis le téléphone : page **Gestion de la TECH**,
-bouton **+ Étiquettes**. Il choisit le type, le nombre d'étiquettes et, si le type est périssable, la
+la gestion ou un administrateur peut demander les étiquettes depuis le téléphone : page **Gestion de
+la TECH**, bouton **+ Étiquettes**. On choisit le type, le nombre d'étiquettes et, si le type est périssable, la
 date de péremption, puis **Envoyer au poste**. Les demandes en attente sont listées dessous et peuvent
 être annulées tant qu'elles ne sont pas imprimées.
 

@@ -133,15 +133,16 @@ def badge_identity(credentials):
         close_old_connections()
 
 
-def is_admin(credentials):
-    """Badge (ou jeton de connexion) valide d'un administrateur actif. Acces base : appele hors verrou."""
+def is_gestion(credentials):
+    """Badge (ou jeton de connexion) valide d'un utilisateur actif des roles gestion ou admin. Acces base : appele hors
+    verrou."""
     from .models import Role
     from .sessions import credentials_user
     if not isinstance(credentials, dict):
         return False
     try:
         user = credentials_user(credentials)
-        return bool(user and user.active and user.role == Role.ADMIN)
+        return bool(user and user.active and user.role in (Role.GESTION, Role.ADMIN))
     finally:
         close_old_connections()
 
@@ -280,7 +281,7 @@ class LiveSession:
         self.solo = False          # « Quitter » la verif commune : pas de fusion automatique
         self.finished = 0          # fin de la verif (time.monotonic), pour DONE_KEEP
         self.steps = {}            # vérif en cascade : lot id -> {"at", "by", "complete", "sealed"}, lots deja valides
-        # « vérif complète » activee par un admin (scanner ou page de suivi) : items et sous-lots facultatifs
+        # « vérif complète » activee par la gestion ou un admin (scanner ou suivi) : items et sous-lots facultatifs
         # obligatoires pour tous les participants (services.perform_verif strict)
         self.full = False
         self.full_by = ''
@@ -873,9 +874,9 @@ class LiveHub:
         self._changed(session)
 
     def set_full(self, session_id, on, credentials):
-        """« Rendre la vérif complète » (ou revenir au facultatif) pour tous les participants : admins seulement,
+        """« Rendre la vérif complète » (ou revenir au facultatif) pour tous les participants : roles gestion et admin,
         depuis la page de scan d'un participant ou la page de suivi. Renvoie False si refuse."""
-        if not is_admin(credentials):
+        if not is_gestion(credentials):
             return False
         who = public_name(badge_identity(credentials) or '')
         with self.lock:
@@ -901,10 +902,10 @@ class LiveHub:
                 self.watchers.add(websocket)
             websocket.send_json({'type': 'snapshot', 'sessions': self.visible()})
             while True:
-                message = self._parse(websocket.receive())  # pings du client, ou « vérif complète » d'un admin
+                message = self._parse(websocket.receive())  # pings du client, ou « vérif complète » (gestion, admin)
                 if message.get('type') == 'full' and not self.set_full(message.get('id'), message.get('on'),
                                                                       hello.get('user')):
-                    websocket.send_json({'type': 'error', 'message': 'Réservé aux administrateurs.'})
+                    websocket.send_json({'type': 'error', 'message': 'Réservé aux rôles gestion et admin.'})
         except WebSocketClosed:
             pass
         finally:

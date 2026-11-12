@@ -1654,12 +1654,12 @@
     return scope.some((lot) => lot.optional || (lot.requirements || []).some((row) => row.optional));
   }
 
-  // Bouton des admins en vérif : « Rendre la vérif complète » (le facultatif devient obligatoire), ou l'annuler
+  // Bouton de la gestion et des admins en vérif : « Rendre la vérif complète » (le facultatif devient obligatoire), ou l'annuler
   function fullVerifRow() {
-    if (!state.lot || state.fullHidden || !sessionHasOptional() || !(isAdmin() || state.full)) return null;
+    if (!state.lot || state.fullHidden || !sessionHasOptional() || !(canSeeStock() || state.full)) return null;
     // vérif commune : partage avec tous les participants (le serveur garde le reglage)
     const toggle = () => { state.full = !state.full; state.fullBy = ''; state.fullLocal = true; live.setFull(state.full); save(); render(); };
-    // « x » des admins : ferme le bandeau pour cette vérif seulement (sur cette page, le reglage ne change pas)
+    // « x » de la gestion et des admins : ferme le bandeau pour cette vérif seulement (sur cette page, le reglage ne change pas)
     const hide = () => { state.fullHidden = true; save(); render(); };
     return el('li', { class: 'full-verif' + (state.full ? ' on' : '') },
       el('div', { class: 'main' },
@@ -1667,9 +1667,9 @@
           : 'Matériel facultatif dans cette vérif'),
         el('div', { class: 'sub' }, state.full ? 'Le facultatif est obligatoire.'
           : 'Validable sans lui.')),
-      isAdmin() ? el('button', { type: 'button', class: state.full ? 'secondary' : 'warning', onclick: toggle },
+      canSeeStock() ? el('button', { type: 'button', class: state.full ? 'secondary' : 'warning', onclick: toggle },
         state.full ? 'Revenir au facultatif' : 'Rendre la vérif complète') : null,
-      isAdmin() ? el('button', { type: 'button', class: 'full-verif-close', 'aria-label': 'Fermer', title: 'Fermer pour cette vérif',
+      canSeeStock() ? el('button', { type: 'button', class: 'full-verif-close', 'aria-label': 'Fermer', title: 'Fermer pour cette vérif',
         onclick: hide }, '✕') : null);
   }
 
@@ -4408,10 +4408,10 @@
         if (!state.done[id] && !working(id) && lotById(id)) state.done[id] = row;
       }
     }
-    // « vérif complète » partagee : activee par un admin, ici ou depuis la page de suivi
+    // « vérif complète » partagee : activee par la gestion ou un admin, ici ou depuis la page de suivi
     // (un changement fait ici avant la connexion est renvoye au serveur au lieu d'etre ecrase)
     if (live.team && 'full' in live.team) {
-      if (state.fullLocal && !!live.team.full !== state.full && isAdmin()) live.setFull(state.full);
+      if (state.fullLocal && !!live.team.full !== state.full && canSeeStock()) live.setFull(state.full);
       else { state.full = !!live.team.full; state.fullBy = live.team.full_by || ''; state.fullLocal = false; }
     }
     syncTeamLots();
@@ -4736,10 +4736,10 @@
       !done && row.lot && !mine ? el('div', { class: 'join' },
         el('button', { type: 'button', onclick: () => joinLiveVerif(row) }, '👥 Rejoindre cette vérif')) : null,
       mine && !done ? el('div', { class: 'sub' }, 'Vous participez à cette vérif.') : null,
-      // « vérif complète » : items et sous-lots facultatifs obligatoires pour tous les participants (admins)
+      // « vérif complète » : items et sous-lots facultatifs obligatoires pour tous les participants (gestion et admins)
       !done && row.full ? el('div', { class: 'sub' }, '✔ Vérif complète : le facultatif est obligatoire'
         + (row.full_by ? ` (par ${row.full_by})` : '')) : null,
-      !done && isAdmin() && (row.optional || row.full) ? el('div', { class: 'join' },
+      !done && canSeeStock() && (row.optional || row.full) ? el('div', { class: 'join' },
         el('button', { type: 'button', class: row.full ? 'secondary' : 'warning', onclick: () => {
           if (!watch.socket || watch.socket.readyState !== WebSocket.OPEN) { toast('Suivi déconnecté, réessayez.', true); return; }
           watch.socket.send(JSON.stringify({ type: 'full', id: row.id, on: !row.full }));
@@ -5629,7 +5629,7 @@
           continue;
         }
         const clickable = ['lot', 'item', 'reports', 'lists', 'forecast', 'stock'].includes(row.link)
-          || (row.link === 'label_prints' && isAdmin());
+          || row.link === 'label_prints';
         parts.push(el(clickable ? 'button' : 'div', {
           type: clickable ? 'button' : null,
           class: 'task-row stock-row' + (row.level === 'info' ? '' : ' ' + row.level),
@@ -5738,7 +5738,7 @@
     const head = el('div', { class: 'row-head' },
       el('h3', {}, view === 'tasks' ? 'À faire' : forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
       el('div', { class: 'buttons' },
-        isAdmin() ? el('button', { type: 'button', onclick: openLabelPrints, title: 'Nouvelles étiquettes d\'items' },
+        canSeeStock() ? el('button', { type: 'button', onclick: openLabelPrints, title: 'Nouvelles étiquettes d\'items' },
           icon('plus'), 'Étiquettes') : null,
         el('button', { type: 'button', onclick: loadStock }, icon('refresh'), state.loading === 'stock' ? 'Chargement…' : 'Actualiser')));
     const parts = [toggle, head];
@@ -5782,7 +5782,7 @@
   const labelPrints = { data: null, busy: false, type: '', picker: '' };
 
   function openLabelPrints() {
-    if (!isAdmin()) return;
+    if (!canSeeStock()) return;
     $('#label-print-error').textContent = '';
     renderLabelPrints();
     const dialog = $('#label-prints');
