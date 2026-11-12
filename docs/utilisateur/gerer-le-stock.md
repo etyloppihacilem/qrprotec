@@ -72,6 +72,21 @@ devient **Envoyer au poste** : les étiquettes partent dans la même fenêtre du
 telles quelles. Si une imprimante est branchée sur cet ordinateur, cochez **Imprimante branchée sur
 cet ordinateur** (Réglages, partie Imprimante).
 
+## Compteur d'impressions
+
+Menu **Gestion > Impressions d'étiquettes** au poste et sur les autres ordinateurs (gestion et admin) :
+nombre d'étiquettes imprimées **par mois** et **par catégorie d'étiquette** (taille et support :
+thermique direct ou transfert thermique), avec le **total de l'année** et la **moyenne par mois**
+(mois finis), pour suivre la consommation de bobines et de ruban et prévoir les commandes. Le choix
+de l'année permet de remonter les années précédentes ; survoler une colonne montre les types
+d'étiquettes des modèles qui utilisent cette catégorie.
+
+Une étiquette compte **quand elle est envoyée à l'imprimante** : une impression en erreur, mise en
+pause (mauvais rouleau chargé) ou annulée ne compte pas ; une réimpression ou un test de l'éditeur
+compte, puisqu'il consomme une étiquette. Tous les ordinateurs qui impriment sont additionnés. Hors
+connexion, l'ordinateur garde ses compteurs et les envoie au retour du réseau. Le compteur part de
+zéro à la mise à jour : les étiquettes imprimées avant ne sont pas comptées.
+
 ## Gestion de la TECH : la liste de tâches
 
 Menu **Gestion > Gestion de la TECH** au poste, tuile **Gestion de la TECH** de l'accueil sur le téléphone

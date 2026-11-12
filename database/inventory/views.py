@@ -43,6 +43,7 @@ from . import lot_report
 from . import lot_sheet
 from . import live
 from . import notifications
+from . import print_counts
 from . import reports
 from . import serializers as ser
 from . import services
@@ -3457,6 +3458,30 @@ def parse_pin_roles(value, name='Code obligatoire'):
     if not isinstance(value, list) or any(role not in PIN_OPTIONAL_ROLES + (Role.ADMIN,) for role in value):
         raise ApiError(name + ' : liste de rôles parmi ' + ', '.join(PIN_OPTIONAL_ROLES))
     return [role for role in PIN_OPTIONAL_ROLES if role in value]
+
+
+@api_view(['GET', 'POST'])
+@handle_errors
+def print_counts_view(request):
+    """Compteur d'impressions (etiquettes envoyees a l'imprimante, par categorie d'etiquette).
+
+    POST, tout front meme sans personne de connecte : {"batch": "<id unique de l'envoi>", "counts": [{"day":
+    "AAAA-MM-JJ", "width_mm", "height_mm", "support": "direct" | "transfer", "count"}]}. Un envoi deja recu (reponse
+    perdue, renvoye) n'est pas recompte : {"counted": 0, "duplicate": true}.
+    GET ?year=AAAA, roles gestion et admin : tableau des 12 mois par categorie et total de l'annee."""
+    if request.method == 'POST':
+        if not is_front(request):
+            raise ApiError("Réservé aux postes", status.HTTP_403_FORBIDDEN)
+        try:
+            counted, duplicate = print_counts.record(request.data.get('batch'), getattr(request, 'qrprotec_front', ''),
+                                                     request.data.get('counts'))
+        except print_counts.CountError as exc:
+            raise ApiError(str(exc))
+        return Response({'counted': counted, 'duplicate': duplicate},
+                        status=status.HTTP_200_OK if duplicate else status.HTTP_201_CREATED)
+    require_front(request, GESTION)
+    year = request.query_params.get('year')
+    return Response(print_counts.summary(parse_int(year, 'year', 2000, 2200) if year else None))
 
 
 @api_view(['POST'])

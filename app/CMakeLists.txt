@@ -105,6 +105,7 @@ add_library(QRProtecCore STATIC
     src/core/template_io.cpp
     src/core/update_check.cpp
     src/core/verif_cache.cpp
+    src/core/print_counter.cpp
     src/net/connection.cpp
     src/net/front_config.cpp
     src/net/http.cpp
@@ -187,6 +188,7 @@ add_executable(${PROJECT_NAME}
     src/ui/windows/pack_window.cpp
     src/ui/windows/phone_window.cpp
     src/ui/windows/reports_window.cpp
+    src/ui/windows/print_counts_window.cpp
     src/ui/windows/lists_window.cpp
     src/ui/windows/lot_admin_window.cpp
     src/ui/windows/lots_window.cpp

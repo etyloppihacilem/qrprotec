@@ -540,6 +540,8 @@ class App {
     bool                         quit_requested = false; // ferme l'application (main.cpp), ex. pour installer une mise a jour
     ApiClient                    api;
     ScanStack                    stack;
+    // etiquettes envoyees a l'imprimante pas encore recues par le serveur (avant `printer`, qui l'utilise)
+    PrintCounter                 print_counter;
     PrintQueue                   printer;
     Feedback                     feedback;
     Inateck                     &inateck;
@@ -586,6 +588,10 @@ class App {
     void post_verif(const Json &body, const std::string &label, Json offline, ApiClient::Callback done);
     Json offline_report(const std::set< std::string > &lots, bool partial, const std::set< std::string > &sealed) const;
     void flush_outbox();
+    // compteur d'impressions envoye au serveur (fenetre Gestion > Impressions d'étiquettes)
+    void   flush_print_counts();
+    bool   print_counts_busy_     = false;
+    double next_print_counts_try_ = 0.0;
     bool   offline_         = false;
     bool   cache_syncing_   = false;
     double cache_synced_at_ = -1.0e9;

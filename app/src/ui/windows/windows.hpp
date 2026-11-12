@@ -32,6 +32,7 @@ std::unique_ptr< AppWindow > make_users_window();
 std::unique_ptr< AppWindow > make_journal_window(); // journal des operations (qui fait quoi et quand)
 std::unique_ptr< AppWindow > make_reports_window(); // signalements de problemes (admins)
 std::unique_ptr< AppWindow > make_editor_window();
+std::unique_ptr< AppWindow > make_print_counts_window(); // compteur d'impressions par mois et categorie d'etiquette
 std::unique_ptr< AppWindow > make_settings_window();
 
 // Connexion au back (URL, cle de front, autorite HTTPS, jeton) avec bouton de test : fenetre Reglages, et

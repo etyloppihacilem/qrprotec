@@ -22,7 +22,7 @@ from . import idendity
 from . import lot_sheet
 from . import services
 from .models import (
-    ABSENCE_KINDS, Checklist, ChecklistStatus, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType,
+    ABSENCE_KINDS, PrintCount, PrintCountBatch, Checklist, ChecklistStatus, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType,
     LotRequirements, Lots, LotType, MovementKind, Operation, Secouristes, STOCK_LOT_TYPE, Verifs, compact_iid, expand_iid,
 )
 
@@ -7021,3 +7021,71 @@ class VerifCacheTests(SubLotCase):
         code, body = self.call('POST', '/api/verifs/cache/', {'user': self.badge}, local=False)
         self.assertEqual(code, 200)
         self.assertEqual(self.load(local=True)['count'], body['count'])
+
+
+class PrintCountTests(ApiTestCase):
+    """Compteur d'impressions : etiquettes envoyees a l'imprimante, par mois et par categorie d'etiquette."""
+
+    def send(self, batch, counts, session=False):
+        return self.call('POST', '/api/print-counts/', {'batch': batch, 'counts': counts}, session=session)
+
+    def row(self, day, count, width=40, height=30, support='direct'):
+        return {'day': day.isoformat(), 'width_mm': width, 'height_mm': height, 'support': support, 'count': count}
+
+    def test_counts_by_month_and_category(self):
+        first = self.today.replace(day=1)
+        last_month = first - timedelta(days=1)
+        code, body = self.send('batch-0001', [self.row(self.today, 12), self.row(first, 3),
+                                              self.row(self.today, 5, 60, 40, 'transfer')])
+        self.assertEqual(code, 201)
+        self.assertEqual(body['counted'], 20)
+        self.send('batch-0002', [self.row(self.today, 1), self.row(last_month, 7)])
+        code, body = self.call('GET', f'/api/print-counts/?year={self.today.year}')
+        self.assertEqual(code, 200)
+        month = self.today.month - 1
+        direct, transfer = body['categories']  # les plus imprimees d'abord
+        self.assertEqual(direct['label'], '40 × 30 mm, thermique direct')
+        self.assertEqual(direct['months'][month], 16)
+        self.assertEqual(transfer['label'], '60 × 40 mm, transfert thermique')
+        self.assertEqual(transfer['total'], 5)
+        self.assertEqual(body['months_total'][month], 21)
+        if last_month.year == self.today.year:
+            self.assertEqual(direct['months'][month - 1], 7)
+            self.assertEqual(body['total'], 28)
+        self.assertEqual(body['current_month'], self.today.month)
+        self.assertIn(self.today.year, body['years'])
+
+    def test_resent_batch_not_counted_twice(self):
+        self.assertEqual(self.send('batch-0001', [self.row(self.today, 4)])[0], 201)
+        code, body = self.send('batch-0001', [self.row(self.today, 4)])
+        self.assertEqual(code, 200)
+        self.assertTrue(body['duplicate'])
+        self.assertEqual(PrintCount.objects.get().count, 4)
+
+    def test_fronts_counted_apart_then_summed(self):
+        self.send('batch-0001', [self.row(self.today, 2)])
+        key = FrontKey.create('Bureau')[1]
+        response = self.client.post('/api/print-counts/', json.dumps({'batch': 'batch-0002',
+                                                                      'counts': [self.row(self.today, 3)]}),
+                                    content_type='application/json', HTTP_X_QRPROTEC_KEY=key,
+                                    HTTP_X_FORWARDED_FOR='192.0.2.7', REMOTE_ADDR='127.0.0.1',
+                                    **{'qrprotec.role': 'remote'})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(sorted(PrintCount.objects.values_list('front', 'count')), [('', 2), ('Bureau', 3)])
+        self.assertEqual(self.call('GET', '/api/print-counts/')[1]['total'], 5)
+
+    def test_invalid_counts_refused(self):
+        for counts in ([], [self.row(self.today, 0)], [self.row(self.today, 1, support='laser')],
+                       [self.row(self.today, 1, width=1000)], [self.row(self.today + timedelta(days=5), 1)],
+                       [{'day': 'hier', 'width_mm': 40, 'height_mm': 30, 'support': 'direct', 'count': 1}]):
+            self.assertEqual(self.send('batch-0001', counts)[0], 400, counts)
+        self.assertEqual(self.send('court', [self.row(self.today, 1)])[0], 400)
+        self.assertFalse(PrintCount.objects.exists())
+        self.assertFalse(PrintCountBatch.objects.exists())
+
+    def test_access(self):
+        # envoi : tout poste, pas l'API publique ; lecture : gestion et admin connectes au poste
+        self.assertEqual(self.call('POST', '/api/print-counts/', {}, local=False)[0], 404)
+        self.assertEqual(self.call('GET', '/api/print-counts/', session=False)[0], 403)
+        self.assertEqual(self.call('GET', '/api/print-counts/', session=views.session_token(self.user))[0], 403)
+        self.assertEqual(self.call('GET', '/api/print-counts/')[0], 200)
