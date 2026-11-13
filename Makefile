@@ -130,12 +130,24 @@ $(DOC_PDFS): $(DOC_DEPS)
 	weasyprint $(WEASYPRINT_FLAGS) $(@:.pdf=.html) $@
 
 # Flatpak du front (pas de kiosk), avec le runtime Flathub installe pour l'utilisateur au besoin.
-# Dependances : sudo dnf install flatpak flatpak-builder
+# Dependances : flatpak, et flatpak-builder (sudo dnf install flatpak-builder) ; sans lui, org.flatpak.Builder de
+# Flathub est installe et utilise (cas de Fedora Atomic : Silverblue, Kinoite...).
 # --disable-rofiles-fuse : fusermount3 refuse de monter dans dist/ sur certaines machines (Fedora Atomic,
 # SELinux), « Failure spawning rofiles-fuse ». Ce montage ne sert qu a proteger le cache.
 FLATPAK_ID := io.github.etyloppihacilem.QRProtec
 FLATPAK_MANIFEST := packaging/flatpak/$(FLATPAK_ID).yml
 FLATHUB := https://dl.flathub.org/repo/flathub.flatpakrepo
+
+# Lance depuis un conteneur (toolbox, distrobox, podman) : bwrap y echoue des le premier module sur
+# « Can't bind mount /etc/resolv.conf on /etc/resolv.conf: Unable to mount source on destination », car
+# /etc/resolv.conf du conteneur est un lien vers le systeme hote. flatpak-builder et flatpak sont alors lances
+# sur l'hote (meme dossier, /var/home est partage), par flatpak-spawn --host (toolbox) ou distrobox-host-exec.
+FLATPAK_IN_CONTAINER := $(shell { [ -e /run/.containerenv ] || [ -e /run/.toolboxenv ] || [ -e /.dockerenv ]; } && echo 1)
+ifeq ($(FLATPAK_IN_CONTAINER),1)
+FLATPAK_HOST := $(shell if command -v flatpak-spawn >/dev/null 2>&1; then echo "flatpak-spawn --host --directory=$(CURDIR)"; \
+	elif command -v distrobox-host-exec >/dev/null 2>&1; then echo distrobox-host-exec; \
+	elif command -v host-spawn >/dev/null 2>&1; then echo host-spawn; fi)
+endif
 
 # Montages rofiles-fuse laisses par un flatpak-builder interrompu (sinon rm : « Device or resource busy »)
 flatpak-umount:
@@ -146,16 +158,30 @@ flatpak-umount:
 	done
 
 flatpak: flatpak-umount
-	@command -v flatpak-builder >/dev/null || { echo "flatpak-builder requis (sudo dnf install flatpak-builder)"; exit 1; }
-	@# bwrap monte /etc/resolv.conf de la machine dans chaque bac a sable : absent ou lien casse, le build
-	@# echoue (« bwrap: Can't bind mount /etc/resolv.conf »). Voir packaging/flatpak/build-front.sh.
-	@[ -e /etc/resolv.conf ] || { echo "/etc/resolv.conf absent ou lien symbolique casse ($$(readlink /etc/resolv.conf)) :"; \
-		echo "  verifier le reseau (systemctl status systemd-resolved NetworkManager), puis relancer make flatpak"; exit 1; }
+	@if [ "$(FLATPAK_IN_CONTAINER)" = 1 ]; then \
+		if [ -z "$(FLATPAK_HOST)" ]; then \
+			echo "make flatpak lance dans un conteneur sans flatpak-spawn ni distrobox-host-exec :"; \
+			echo "  le lancer depuis un terminal de l'hote (hors toolbox / distrobox)"; exit 1; \
+		fi; \
+		echo "Conteneur detecte : flatpak-builder lance sur l'hote ($(FLATPAK_HOST))"; \
+	fi
 	git submodule update --init app/imgui app/implot app/scanner_lib
-	flatpak remote-add --user --if-not-exists flathub $(FLATHUB)
-	flatpak-builder --user --install-deps-from=flathub --force-clean --ccache --disable-rofiles-fuse \
+	$(FLATPAK_HOST) flatpak remote-add --user --if-not-exists flathub $(FLATHUB)
+	@# bwrap monte /etc/resolv.conf dans chaque bac a sable : absent ou lien casse sur la machine qui construit,
+	@# le build echoue. Voir aussi packaging/flatpak/build-front.sh.
+	@$(FLATPAK_HOST) sh -c '[ -e /etc/resolv.conf ]' || { \
+		echo "/etc/resolv.conf absent ou lien symbolique casse ($$($(FLATPAK_HOST) readlink /etc/resolv.conf)) :"; \
+		echo "  verifier le reseau (systemctl status systemd-resolved NetworkManager), puis relancer make flatpak"; exit 1; }
+	@builder=flatpak-builder; \
+	if ! $(FLATPAK_HOST) sh -c 'command -v flatpak-builder' >/dev/null 2>&1; then \
+		echo "flatpak-builder absent : org.flatpak.Builder (Flathub)"; \
+		$(FLATPAK_HOST) flatpak install --user --noninteractive flathub org.flatpak.Builder || exit 1; \
+		builder="flatpak run org.flatpak.Builder"; \
+	fi; \
+	set -x; \
+	$(FLATPAK_HOST) $$builder --user --install-deps-from=flathub --force-clean --ccache --disable-rofiles-fuse \
 		--state-dir=dist/flatpak/state --repo=dist/flatpak/repo dist/flatpak/build $(FLATPAK_MANIFEST)
-	flatpak build-bundle --runtime-repo=$(FLATHUB) dist/flatpak/repo dist/QRProtec-front.flatpak $(FLATPAK_ID)
+	$(FLATPAK_HOST) flatpak build-bundle --runtime-repo=$(FLATHUB) dist/flatpak/repo dist/QRProtec-front.flatpak $(FLATPAK_ID)
 
 clean: flatpak-umount
 	rm -rf dist
