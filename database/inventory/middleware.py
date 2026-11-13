@@ -9,6 +9,7 @@
 # ######################################################################################################################
 
 import hmac
+from pathlib import Path
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -18,6 +19,7 @@ from .idendity import anonymized, names_cache
 ROLE_ENVIRON_KEY = 'qrprotec.role'
 LOCAL_TOKEN_HEADER = 'HTTP_X_QRPROTEC_TOKEN'
 FRONT_KEY_HEADER = 'HTTP_X_QRPROTEC_KEY'
+MAINTENANCE_MESSAGE = "Maintenance en cours, QRprotec n'est pas accessible pour le moment."
 
 
 class NoIndexMiddleware:
@@ -80,6 +82,25 @@ def authenticate_front(key, address):
     return front, None
 
 
+def maintenance_refusal(front_name):
+    """Message de maintenance si le site est en maintenance et que ce front distant n'y est pas admis, None sinon.
+
+    Pendant la maintenance, Caddy ne laisse passer jusqu'a l'API distante que les requetes a cle de front, et
+    seulement si `qrprotec-manage maintenance on --front NOM` a ecrit le fichier « fronts » (un nom par ligne, « * »
+    pour tous) : c'est ici que les autres cles valides sont refusees. Lu a chaque requete (petit fichier)."""
+    folder = Path(settings.QRPROTEC['MAINTENANCE_DIR'])
+    if not (folder / 'index.html').is_file():
+        return None
+    try:
+        lines = (folder / 'fronts').read_text(encoding='utf-8').splitlines()
+    except OSError:
+        lines = []
+    allowed = {line.strip() for line in lines if line.strip() and not line.lstrip().startswith('#')}
+    if '*' in allowed or front_name in allowed:
+        return None
+    return MAINTENANCE_MESSAGE
+
+
 class ApiRoleMiddleware:
     """Choisit le jeu d'URLs (public ou local) et protege l'API locale.
 
@@ -116,6 +137,9 @@ class ApiRoleMiddleware:
             front, problem = authenticate_front(request.META.get(FRONT_KEY_HEADER, ''), address)
             if problem:
                 return JsonResponse({'error': problem}, status=401)
+            refusal = maintenance_refusal(front.name)
+            if refusal:
+                return JsonResponse({'error': refusal, 'maintenance': True}, status=503)
             request.qrprotec_local = True
             request.qrprotec_front = front.name
             # poste principal (kiosk sur une autre machine) : memes droits que le front de l'API locale

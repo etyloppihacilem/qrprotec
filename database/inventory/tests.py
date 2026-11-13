@@ -288,6 +288,32 @@ class PublicApiTests(ApiTestCase):
         # le front local fonctionne toujours sans cle, en meme temps qu'un front distant
         self.assertEqual(self.call('GET', '/api/stock/')[0], 200)
 
+    def test_remote_front_maintenance(self):
+        import tempfile
+        from pathlib import Path
+
+        remote = {'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1', 'HTTP_X_QRPROTEC_SESSION': self.operator_session}
+        _, accueil = FrontKey.create('accueil')
+        _, borne = FrontKey.create('borne')
+        with tempfile.TemporaryDirectory() as folder, override_settings(
+                QRPROTEC={**settings.QRPROTEC, 'MAINTENANCE_DIR': folder}):
+            # hors maintenance (pas de page) : le fichier des fronts admis ne change rien
+            (Path(folder) / 'fronts').write_text('borne\n')
+            self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=accueil, **remote).status_code, 200)
+            (Path(folder) / 'index.html').write_text('maintenance')
+            response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=accueil, **remote)
+            self.assertEqual(response.status_code, 503)
+            self.assertTrue(response.json()['maintenance'])
+            self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=borne, **remote).status_code, 200)
+            # une cle invalide reste refusee comme avant, maintenance ou pas
+            self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY='qrpf_faux', **remote).status_code, 401)
+            (Path(folder) / 'fronts').write_text('*\n')
+            self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=accueil, **remote).status_code, 200)
+            (Path(folder) / 'fronts').unlink()
+            self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=borne, **remote).status_code, 503)
+            # l'API locale du poste ne passe jamais par la maintenance
+            self.assertEqual(self.call('GET', '/api/stock/')[0], 200)
+
     def test_frontkey_command(self):
         from io import StringIO
 
