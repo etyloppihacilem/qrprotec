@@ -64,6 +64,9 @@ public:
     virtual bool print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error) = 0;
     virtual bool send_command(const PrintSettings& settings, const std::string& command, std::string& error) = 0;
     virtual PrinterStatus query_status(const PrintSettings& settings);
+    // Envoie une commande et rend la reponse de l'imprimante (vide : pas de reponse, liaison a sens unique)
+    virtual bool exchange(const PrintSettings& settings, const std::string& command, std::string& reply,
+                          std::string& error);
 };
 
 class NiimbotB1Printer final : public Printer {
@@ -87,6 +90,8 @@ public:
     bool print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error) override;
     bool send_command(const PrintSettings& settings, const std::string& command, std::string& error) override;
     PrinterStatus query_status(const PrintSettings& settings) override;
+    bool exchange(const PrintSettings& settings, const std::string& command, std::string& reply,
+                  std::string& error) override;
 
 private:
     PrinterStatus read_status(PrinterKind kind, int timeout_ms);
@@ -103,6 +108,8 @@ public:
     bool print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error) override;
     bool send_command(const PrintSettings& settings, const std::string& command, std::string& error) override;
     PrinterStatus query_status(const PrintSettings& settings) override;
+    bool exchange(const PrintSettings& settings, const std::string& command, std::string& reply,
+                  std::string& error) override;
 
 private:
     Printer& select(PrinterKind kind);

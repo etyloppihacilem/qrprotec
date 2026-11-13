@@ -204,6 +204,38 @@ PrinterStatus Printer::query_status(const PrintSettings&)
     return status;
 }
 
+bool Printer::exchange(const PrintSettings&, const std::string&, std::string& reply, std::string& error)
+{
+    reply.clear();
+    error = "Pas de lecture des réglages pour ce modèle.";
+    return false;
+}
+
+bool RawLabelPrinter::exchange(const PrintSettings& settings, const std::string& command, std::string& reply,
+                               std::string& error)
+{
+    reply.clear();
+    if (!connect(settings, error)) return false;
+    if (!transport_.readable()) {
+        disconnect();
+        error = "Liaison en écriture seule : l'imprimante ne peut pas répondre.";
+        return false;
+    }
+    const std::vector<std::uint8_t> bytes(command.begin(), command.end());
+    if (!transport_.write_bytes(bytes, error)) {
+        disconnect();
+        return false;
+    }
+    const std::vector<std::uint8_t> answer = transport_.read_reply(4000, 600);
+    disconnect();
+    reply.assign(answer.begin(), answer.end());
+    if (reply.empty()) {
+        error = "Pas de réponse de l'imprimante.";
+        return false;
+    }
+    return true;
+}
+
 bool RawLabelPrinter::connect(const PrintSettings& settings, std::string& error)
 {
     silent_ = false;
@@ -347,6 +379,13 @@ PrinterStatus AnyPrinter::query_status(const PrintSettings& settings)
 {
     disconnect();
     return select(settings.kind).query_status(settings);
+}
+
+bool AnyPrinter::exchange(const PrintSettings& settings, const std::string& command, std::string& reply,
+                          std::string& error)
+{
+    disconnect();
+    return select(settings.kind).exchange(settings, command, reply, error);
 }
 
 } // namespace qrprotec

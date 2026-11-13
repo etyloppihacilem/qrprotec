@@ -89,6 +89,13 @@ les étiquettes en attente, même quand la file est arrêtée sur une erreur.
 - **Avancer d'une étiquette** : une étiquette vierge sort, comme un appui bref sur le bouton.
   ZPL : `~PH` ; TSPL : `FORMFEED`.
 - **Page de configuration** : imprime les réglages de l'imprimante. ZPL : `~WC` ; TSPL : `SELFTEST`.
+- **Envoyer les réglages et relire** (ZPL) : envoie le format de l'étiquette chargée (support,
+  largeur, longueur, décalages, découpe, noirceur) sans rien imprimer, puis demande à l'imprimante
+  sa configuration (`^HH`) et l'affiche à côté de ce qui a été envoyé : « identique », « différent »
+  ou « non relu » pour le mode d'impression, le type de support, la largeur, la longueur (mesurée
+  par le calibrage), la position gauche (`^LS`), le haut d'étiquette (`^LT`), la découpe (`~TA`) et
+  la noirceur. La configuration complète se déplie en dessous. Rien n'est enregistré dans
+  l'imprimante.
 - **Étiquette d'étalonnage** : voir plus bas.
 - **Diagnostic des décalages** (ZPL) : quatre étiquettes dessinées par l'imprimante elle-même
   (cadre au bord et texte, sans image) : **1** sans décalage, **2** origine déplacée de 5 mm vers

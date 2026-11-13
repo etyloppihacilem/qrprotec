@@ -180,6 +180,51 @@ std::string maintenance_command(bool zpl, Maintenance action, const RawJob& job)
     return {};
 }
 
+std::string zpl_send_settings_and_read(const RawJob& job)
+{
+    char darkness[8];
+    std::snprintf(darkness, sizeof(darkness), "%02d", std::clamp(job.darkness * 2, 0, 30));
+    return std::string("~SD") + darkness + "\n" + zpl_tear_off(job) + "^XA\n" + zpl_media(job) + "^XZ\n^XA^HH^XZ\n";
+}
+
+std::vector<ConfigEntry> parse_zpl_config(const std::string& reply)
+{
+    std::vector<ConfigEntry> entries;
+    std::string line;
+    const auto flush = [&] {
+        // « valeur.......... NOM » : la valeur avant la suite de points, le nom apres
+        const std::size_t dots = line.find("..");
+        if (dots != std::string::npos) {
+            std::size_t end = line.find_first_not_of('.', dots);
+            ConfigEntry entry;
+            entry.value = line.substr(0, dots);
+            if (end != std::string::npos) entry.name = line.substr(end);
+            const auto trim = [](std::string& text) {
+                const std::size_t first = text.find_first_not_of(" \t");
+                const std::size_t last = text.find_last_not_of(" \t");
+                text = first == std::string::npos ? std::string() : text.substr(first, last - first + 1);
+            };
+            trim(entry.value);
+            trim(entry.name);
+            if (!entry.name.empty()) entries.push_back(entry);
+        }
+        line.clear();
+    };
+    for (const char c : reply) {
+        if (c == '\r' || c == '\n' || c == 0x02 || c == 0x03) flush();
+        else line += c;
+    }
+    flush();
+    return entries;
+}
+
+std::string config_value(const std::vector<ConfigEntry>& entries, const std::string& name)
+{
+    for (const ConfigEntry& entry : entries)
+        if (entry.name.rfind(name, 0) == 0) return entry.value;
+    return {};
+}
+
 std::vector<std::uint8_t> status_request(bool zpl)
 {
     if (zpl) return {'~', 'H', 'S', '\n'};

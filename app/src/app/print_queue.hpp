@@ -30,6 +30,7 @@ struct PrintJob {
     RasterImage      image;       // deja rendue (etiquette envoyee par un autre ordinateur) : imprimee telle quelle
     std::string      command;     // non vide : commande brute de maintenance (calibrage...), pas d'etiquette
     bool             status_query = false; // lecture de l'etat de l'imprimante, pas d'etiquette
+    bool             read_reply   = false; // command : reponse de l'imprimante gardee dans printer_reply
 };
 
 struct PrintQueueStatus {
@@ -47,6 +48,10 @@ struct PrintQueueStatus {
     std::string printer_state;
     bool        printer_state_known    = false;
     bool        printer_state_blocking = false;
+    // reponse a la derniere commande avec retour (configuration relue par ^HH), ou erreur
+    std::string printer_reply;
+    std::string printer_reply_error;
+    int         printer_reply_count = 0; // augmente a chaque reponse : l'interface sait qu'elle est nouvelle
 };
 
 // Imprime les etiquettes les unes apres les autres dans un thread dedie. En cas d'erreur (papier,
@@ -68,6 +73,8 @@ class PrintQueue {
     void             cancel();
     // Commande de maintenance (TSPL / ZPL brut) : passe avant les etiquettes en attente, meme file en pause
     void             send_command(const std::string &description, const std::string &command, const PrintSettings &settings);
+    // Commande dont la reponse est lue (^HH...) ; resultat dans status().printer_reply
+    void             send_command_read(const std::string &description, const std::string &command, const PrintSettings &settings);
     // Lecture de l'etat de l'imprimante, dans la file ; resultat dans status().printer_state
     void             request_printer_state(const PrintSettings &settings);
     // Compteur d'impressions : chaque etiquette acceptee par l'imprimante y est ajoutee (avant la premiere impression)
