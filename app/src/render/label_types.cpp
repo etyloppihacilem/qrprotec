@@ -234,7 +234,7 @@ TemplateDocument calibration_document(const LabelType& type, bool with_type) {
     add_text(document, "format", format, margin, margin + size + 0.4f, quarter, size * 0.85f, false, TextAlign::Left);
 
     // chiffres 1..n mm depuis chaque bord, au bout des axes (impairs d'un cote, pairs de l'autre pour avoir la
-    // place), et signe a ajouter au decalage
+    // place), et signe a ajouter au decalage avec la fleche du sens dans lequel il deplace l'impression
     const float digit = 1.7f;
     const float gap = 1.1f; // entre l'axe et les chiffres (au-dela des graduations)
     const int marks_x = calibration_edge_marks(width);
@@ -252,17 +252,17 @@ TemplateDocument calibration_document(const LabelType& type, bool with_type) {
         add_text(document, "bottom" + value, value, x, height - k - digit / 2 - 0.2f, 1.2f, digit, true,
                  TextAlign::Center);
     }
-    const float sign = 1.6f;
+    const float sign = 2.0f;
     const float sign_w = 5.5f;
     if (marks_x > 0) {
         const float y = cy - 1.7f - sign - 0.4f;
-        add_text(document, "left_sign", "+ mm", marks_x + 0.8f, y, sign_w, sign, true, TextAlign::Left);
-        add_text(document, "right_sign", "− mm", width - marks_x - 0.8f - sign_w, y, sign_w, sign, true,
+        add_text(document, "left_sign", "+ →", marks_x + 0.8f, y, sign_w, sign, true, TextAlign::Left);
+        add_text(document, "right_sign", "← −", width - marks_x - 0.8f - sign_w, y, sign_w, sign, true,
                  TextAlign::Right);
     }
     if (marks_y > 0) {
-        add_text(document, "top_sign", "+ mm", cx + 1.7f, marks_y + 0.6f, sign_w, sign, true, TextAlign::Left);
-        add_text(document, "bottom_sign", "− mm", cx + 1.7f, height - marks_y - 0.6f - sign - 0.4f, sign_w, sign,
+        add_text(document, "top_sign", "+ ↓", cx + 1.7f, marks_y + 0.6f, sign_w, sign, true, TextAlign::Left);
+        add_text(document, "bottom_sign", "− ↑", cx + 1.7f, height - marks_y - 0.6f - sign - 0.4f, sign_w, sign,
                  true, TextAlign::Left);
     }
     // mode d'emploi dans le quart bas-gauche s'il y a la place
