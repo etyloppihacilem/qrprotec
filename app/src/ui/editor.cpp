@@ -421,6 +421,12 @@ void Editor::draw_label_types() {
   if (ImGui::Combo("Support", &support, "Thermique direct (sans ruban)\0Transfert thermique (ruban)\0"))
     type.support = support == 1 ? LabelSupport::Transfer : LabelSupport::Direct;
   ImGui::SetItemTooltip("Imprimantes TSPL / ZPL : ruban ou non. La Niimbot B1 imprime toujours en thermique direct.");
+  float margin = static_cast< float >(type.margin_mm);
+  if (ImGui::InputFloat("Marge de chaque côté (mm)", &margin, 0.1f, 0.5f, "%.1f"))
+    type.margin_mm = std::clamp(std::round(margin * 10.0f) / 10.0f, 0.0f, 10.0f);
+  ImGui::SetItemTooltip("Cadre pointillé orange dans l'éditeur : rien n'est imprimé en dehors, et l'étiquette "
+                        "d'étalonnage trace son cadre plein dessus. 0,5 mm par défaut : l'imprimante peut se "
+                        "décaler de quelques dixièmes sans rien couper.");
   ImGui::TextDisabled("Format des modèles de ce type : %.1f x %.1f mm", type.design_width_mm(), type.design_height_mm());
   ImGui::Separator();
   if (entry.in_files) {
@@ -1435,6 +1441,33 @@ void Editor::draw_canvas() {
     }
   }
   draw->AddRect(label, label_end, IM_COL32(120, 120, 120, 255));
+  // cadre des marges du type d'etiquette : rien n'est imprime en dehors (bande grisee), le modele est centre dessus
+  if (document_.label_type) {
+    const float margin = static_cast< float >(document_.label_type->effective_margin_mm());
+    if (margin > 0.0f) {
+      const ImU32  shade = IM_COL32(120, 120, 120, 70);
+      const ImVec2 in_min = screen(margin, margin);
+      const ImVec2 in_max = screen(width - margin, height - margin);
+      draw->AddRectFilled(label, ImVec2(label_end.x, in_min.y), shade);
+      draw->AddRectFilled(ImVec2(label.x, in_max.y), label_end, shade);
+      draw->AddRectFilled(ImVec2(label.x, in_min.y), ImVec2(in_min.x, in_max.y), shade);
+      draw->AddRectFilled(ImVec2(in_max.x, in_min.y), ImVec2(label_end.x, in_max.y), shade);
+      const ImU32 dash_color = IM_COL32(232, 110, 20, 230);
+      const float dash       = 6.0f;
+      const auto  dashed     = [&](ImVec2 a, ImVec2 b) {
+        const float length = std::hypot(b.x - a.x, b.y - a.y);
+        for (float t = 0.0f; t < length; t += 2.0f * dash) {
+          const float u = t / length, v = std::min(t + dash, length) / length;
+          draw->AddLine(ImVec2(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u),
+                        ImVec2(a.x + (b.x - a.x) * v, a.y + (b.y - a.y) * v), dash_color, 1.5f);
+        }
+      };
+      dashed(in_min, ImVec2(in_max.x, in_min.y));
+      dashed(ImVec2(in_max.x, in_min.y), in_max);
+      dashed(in_max, ImVec2(in_min.x, in_max.y));
+      dashed(ImVec2(in_min.x, in_max.y), in_min);
+    }
+  }
   const ImU32 accent = IM_COL32(0, 76, 152, 255);
   for (int index = 0; index < static_cast< int >(document_.elements.size()); ++index) {
     if (index == selected_element_)

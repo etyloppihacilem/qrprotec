@@ -66,7 +66,12 @@ const char *label_rotation_label(int rotation) {
 
 bool LabelType::operator==(const LabelType &other) const {
   return name == other.name && std::abs(width_mm - other.width_mm) < 1e-6 && std::abs(height_mm - other.height_mm) < 1e-6
-      && normalize_rotation(rotation) == normalize_rotation(other.rotation) && support == other.support;
+      && normalize_rotation(rotation) == normalize_rotation(other.rotation) && support == other.support
+      && std::abs(margin_mm - other.margin_mm) < 1e-6;
+}
+
+double LabelType::effective_margin_mm() const {
+  return std::clamp(margin_mm, 0.0, std::min(width_mm, height_mm) / 3.0);
 }
 
 double LabelType::design_width_mm() const {
@@ -84,7 +89,7 @@ std::string LabelType::summary() const {
     return std::string(text);
   };
   return mm(width_mm) + " x " + mm(height_mm) + " mm, " + label_rotation_label(rotation) + ", "
-       + label_support_label(support);
+       + label_support_label(support) + (margin_mm > 0.0 ? ", marges " + mm(margin_mm) + " mm" : ", sans marge");
 }
 
 void apply_label_type(MediaSettings &media, const LabelType &type) {

@@ -223,7 +223,7 @@ TemplateDocument calibration_document(const LabelType& type, bool with_type) {
     // centre de la croix tel que calibration_image le trace
     const float cx = static_cast<float>(document.media.width_pixels() / 2) / ppm;
     const float cy = static_cast<float>(document.media.height_pixels() / 2) / ppm;
-    const float margin = 1.5f;
+    const float margin = 1.5f + static_cast<float>(type.effective_margin_mm());
     // titre et format dans le quart haut-gauche, entre le cadre et la croix ; taille telle que le titre tienne
     const float quarter = std::max(1.0f, cx - margin - 3.0f);
     const float size = std::clamp(std::min({std::min(width, height) / 12.0f, quarter / 7.6f}), 1.2f, 3.0f);
@@ -277,7 +277,7 @@ TemplateDocument calibration_document(const LabelType& type, bool with_type) {
     return document;
 }
 
-RasterImage calibration_image(const TemplateDocument& document) {
+RasterImage calibration_image(const TemplateDocument& document, double margin_mm) {
     RasterImage image = render_template(document);
     const int width = image.width;
     const int height = image.height;
@@ -289,21 +289,24 @@ RasterImage calibration_image(const TemplateDocument& document) {
             image.at(x, y) = 0;
     };
     const int mm1 = std::max(1, static_cast<int>(std::lround(ppm)));
-    // cadre plein au ras du bord (2 points) et cadre pointille a 1 mm
-    for (int x = 0; x < width; ++x) {
-        for (const int y : {0, 1, height - 2, height - 1})
+    // cadre plein (2 points) au bord du cadre des marges, pointille 1 mm a l'interieur : l'etalonnage consiste a
+    // faire rentrer le cadre plein entier, avec autant de blanc de chaque cote
+    const int m = std::clamp(static_cast<int>(std::lround(std::max(0.0, margin_mm) * ppm)), 0, std::min(width, height) / 3);
+    const int inner = m + mm1;
+    for (int x = m; x < width - m; ++x) {
+        for (const int y : {m, m + 1, height - 2 - m, height - 1 - m})
             dot(x, y);
-        if (x % 4 == 0) {
-            dot(x, mm1);
-            dot(x, height - 1 - mm1);
+        if (x % 4 == 0 && x >= inner && x < width - inner) {
+            dot(x, inner);
+            dot(x, height - 1 - inner);
         }
     }
-    for (int y = 0; y < height; ++y) {
-        for (const int x : {0, 1, width - 2, width - 1})
+    for (int y = m; y < height - m; ++y) {
+        for (const int x : {m, m + 1, width - 2 - m, width - 1 - m})
             dot(x, y);
-        if (y % 4 == 0) {
-            dot(mm1, y);
-            dot(width - 1 - mm1, y);
+        if (y % 4 == 0 && y >= inner && y < height - inner) {
+            dot(inner, y);
+            dot(width - 1 - inner, y);
         }
     }
     // croix au centre (2 points d'epaisseur), graduee tous les millimetres depuis le centre

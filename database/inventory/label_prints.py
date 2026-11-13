@@ -157,8 +157,18 @@ def _check_label_type(label_type):
     if not (0 < width <= 300 and 0 < height <= 500 and rotation in (0, 90, 180, 270)
             and support in ('direct', 'transfer')):
         raise PrintError('Étiquette : type d\'étiquette hors limites')
-    return {'name': str(label_type['name']).strip()[:64], 'width_mm': width, 'height_mm': height,
-            'rotation': rotation, 'support': support}
+    checked = {'name': str(label_type['name']).strip()[:64], 'width_mm': width, 'height_mm': height,
+               'rotation': rotation, 'support': support}
+    # marge de chaque cote (mm) : rien n'est imprime en dehors ; absente, le poste prend sa valeur par defaut
+    if label_type.get('margin_mm') is not None:
+        try:
+            margin = float(label_type['margin_mm'])
+        except (TypeError, ValueError):
+            raise PrintError('Étiquette : type d\'étiquette invalide')
+        if not 0 <= margin <= 10:
+            raise PrintError('Étiquette : type d\'étiquette hors limites')
+        checked['margin_mm'] = margin
+    return checked
 
 
 def create_labels(by, front, title, labels):

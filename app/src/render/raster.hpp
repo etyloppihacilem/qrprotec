@@ -27,6 +27,9 @@ struct PhysicalLabel {
     // Type d'etiquette du modele : quart de tour impose (0, 90, 180, 270, sens horaire) au lieu du choix
     // automatique, rotate_counterclockwise et flip ignores. -1 : choix automatique (format libre).
     int rotation = -1;
+    // Marge de chaque cote (mm, type d'etiquette) : rien n'est imprime en dehors du cadre ainsi forme,
+    // centre sur l'etiquette comme le modele.
+    double margin_mm = 0.0;
 };
 
 // Etiquette physique d'un type d'etiquette (resolution du modele)

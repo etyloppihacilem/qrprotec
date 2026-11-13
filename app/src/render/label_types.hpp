@@ -24,11 +24,11 @@ int add_missing_label_types(const PhysicalLabel& label, LabelSupport support, st
 std::string      roll_action_code(const LabelType& roll);
 TemplateDocument roll_code_document(const LabelType& roll, const LabelType& print_on);
 
-// Etiquette d'etalonnage du rouleau `type` (Reglages > Maintenance de l'imprimante) : cadre au ras du bord, cadre
-// pointille a 1 mm, croix au centre graduee tous les millimetres (traits plus longs tous les 5 et 10 mm), format
+// Etiquette d'etalonnage du rouleau `type` (Reglages > Maintenance de l'imprimante) : cadre plein sur le cadre des
+// marges (`margin_mm` de chaque cote, LabelType::margin_mm), cadre pointille 1 mm a l'interieur, croix au centre graduee tous les millimetres (traits plus longs tous les 5 et 10 mm), format
 // en clair. Tout est calcule sur la taille de l'etiquette : un bord coupe ou une croix decentree donne le
 // decalage a regler. `with_type` : le document porte le type (rouleau charge), sinon format libre.
 TemplateDocument calibration_document(const LabelType& type, bool with_type);
-RasterImage      calibration_image(const TemplateDocument& document);
+RasterImage      calibration_image(const TemplateDocument& document, double margin_mm);
 
 } // namespace qrprotec

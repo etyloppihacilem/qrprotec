@@ -626,7 +626,7 @@ class SettingsWindow final : public AppWindow {
         PrintJob calibration;
         calibration.description = "Étiquette d'étalonnage";
         calibration.document    = calibration_document(loaded, typed);
-        calibration.image       = calibration_image(calibration.document);
+        calibration.image       = calibration_image(calibration.document, loaded.effective_margin_mm());
         app.print_documents({ calibration });
         printer_message_ = "Étiquette d'étalonnage : envoyée à l'imprimante.";
       }

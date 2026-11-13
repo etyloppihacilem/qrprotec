@@ -46,12 +46,19 @@ struct LabelType {
     // 0, 90, 180 ou 270. A 90 et 270, le modele est dessine en largeur = hauteur de l'etiquette.
     int rotation = 0;
     LabelSupport support = LabelSupport::Direct;
+    // Marge d'impression de chaque cote (mm) : cadre dans lequel le modele est imprime, centre sur l'etiquette.
+    // Ce qui depasse du cadre n'est pas imprime : l'imprimante peut se decaler de quelques dixiemes de mm
+    // sans rien couper. Ecrite dans le .qr seulement si elle differe de la valeur par defaut.
+    static constexpr double kDefaultMarginMm = 0.5;
+    double margin_mm = kDefaultMarginMm;
 
     bool operator==(const LabelType& other) const;
     bool operator!=(const LabelType& other) const { return !(*this == other); }
     // Format du modele (canevas de l'editeur) qui correspond a ce type
     double design_width_mm() const;
     double design_height_mm() const;
+    // Marge utilisable : jamais plus du tiers du plus petit cote
+    double effective_margin_mm() const;
     std::string summary() const; // ex : « 40 x 30 mm, droite, thermique direct »
 };
 
