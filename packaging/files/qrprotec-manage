@@ -20,19 +20,38 @@ readonly SERVICE_USER=qrprotec
 readonly STATE_DIR=/var/lib/qrprotec
 readonly MAINTENANCE_DIR=/etc/qrprotec/maintenance
 readonly MAINTENANCE_PAGE=$MAINTENANCE_DIR/index.html
+readonly MAINTENANCE_BYPASS_DIR=$MAINTENANCE_DIR/bypass
 readonly MAINTENANCE_TEMPLATE=$APP_DIR/maintenance.html
 readonly CADDY_FRAGMENT=/etc/caddy/Caddyfile.d/qrprotec.caddyfile
 
 maintenance_usage() {
     cat <<'USAGE'
-Usage : sudo qrprotec-manage maintenance on [MESSAGE]   site remplace par la page de maintenance
-        sudo qrprotec-manage maintenance off            site de nouveau accessible
-        qrprotec-manage maintenance status              etat actuel
+Usage : sudo qrprotec-manage maintenance on [--code[=CODE]] [MESSAGE]   page de maintenance a la place du site
+        sudo qrprotec-manage maintenance off                             site de nouveau accessible
+        qrprotec-manage maintenance status                               etat actuel
 
 Pendant la maintenance, Caddy repond 503 a tout le site (pages, API, WebSockets, fronts distants) sans
-joindre le back, qui peut etre arrete. MESSAGE (facultatif) s'ajoute a la page, ex. :
+joindre le back, qui peut etre arrete. L'API locale du poste (127.0.0.1:8001) ne passe pas par Caddy et reste
+accessible. MESSAGE (facultatif) s'ajoute a la page, ex. :
     sudo qrprotec-manage maintenance on "Retour prevu vers 14 h."
+
+--code : code de contournement pour tester le web pendant la maintenance (demande au clavier, ou --code=CODE,
+6 caracteres au moins). Sur la page, 5 appuis rapides sur le logo « QRprotec » ouvrent sa saisie ; le navigateur
+qui l'a donne voit le vrai site pendant 12 h. Sans --code, pas de contournement ; relancer « on » sans --code
+le desactive.
 USAGE
+}
+
+# Code de contournement lu au clavier, deux fois, sans echo
+maintenance_read_code() {
+    local first second
+    read -rsp "Code de contournement : " first </dev/tty && echo >&2
+    read -rsp "Confirmez le code : " second </dev/tty && echo >&2
+    if [[ $first != "$second" ]]; then
+        echo "qrprotec-manage : les deux codes different." >&2
+        exit 1
+    fi
+    printf '%s' "$first"
 }
 
 # Avertit si le fragment Caddy installe ne connait pas encore le mode maintenance (fragment modifie a la main,
@@ -61,7 +80,26 @@ maintenance() {
     case $action in
         on)
             shift
-            local message=${*:-} html='' tmp
+            local code='' want_code=no args=()
+            while (($#)); do
+                case $1 in
+                    --code) want_code=yes ;;
+                    --code=*) want_code=yes; code=${1#--code=} ;;
+                    --) shift; args+=("$@"); break ;;
+                    -*) maintenance_usage >&2; exit 2 ;;
+                    *) args+=("$1") ;;
+                esac
+                shift
+            done
+            if [[ $want_code == yes && -z $code ]]; then
+                code=$(maintenance_read_code)
+            fi
+            code=$(printf '%s' "$code" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            if [[ $want_code == yes && ${#code} -lt 6 ]]; then
+                echo "qrprotec-manage : code trop court (6 caracteres au moins, plus long = plus sur)." >&2
+                exit 1
+            fi
+            local message=${args[*]:-} html='' tmp salt=''
             if [[ ! -r $MAINTENANCE_TEMPLATE ]]; then
                 echo "qrprotec-manage : modele $MAINTENANCE_TEMPLATE introuvable (qrprotec-server installe ?)" >&2
                 exit 1
@@ -77,9 +115,18 @@ maintenance() {
             local already=no
             [[ -e $MAINTENANCE_PAGE ]] && already=yes
             install -d -m 0755 "$MAINTENANCE_DIR"
+            # Contournement : seul le hachage SHA-256(sel:code) est garde, comme nom de fichier ; dossier 0711 (Caddy
+            # teste un nom precis, personne ne liste les hachages, qui valent le cookie). Nouveau sel a chaque « on ».
+            rm -rf "$MAINTENANCE_BYPASS_DIR"
+            if [[ -n $code ]]; then
+                salt=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+                install -d -m 0711 "$MAINTENANCE_BYPASS_DIR"
+                : >"$MAINTENANCE_BYPASS_DIR/$(printf '%s' "$salt:$code" | sha256sum | cut -d' ' -f1).ok"
+            fi
             tmp=$(mktemp "$MAINTENANCE_DIR/.index.XXXXXX")
             local line
             while IFS= read -r line || [[ -n $line ]]; do
+                line=${line//@SALT@/"$salt"}
                 printf '%s\n' "${line//@MESSAGE@/"$html"}"
             done <"$MAINTENANCE_TEMPLATE" >"$tmp"
             chmod 0644 "$tmp"
@@ -92,12 +139,18 @@ maintenance() {
                 systemctl reload caddy.service 2>/dev/null || :
                 echo "Maintenance activee : le site affiche « Maintenance en cours, QRprotec n'est pas accessible pour le moment. »"
             fi
+            if [[ -n $code ]]; then
+                echo "Contournement par code active : 5 appuis sur le logo de la page, puis le code."
+            else
+                echo "Contournement desactive (sudo qrprotec-manage maintenance on --code pour en definir un)."
+            fi
             echo "Le back peut etre arrete sans erreur visible (sudo systemctl stop qrprotec). Fin : sudo qrprotec-manage maintenance off"
             maintenance_check_caddy
             ;;
         off)
             if [[ -e $MAINTENANCE_PAGE ]]; then
                 rm -f "$MAINTENANCE_PAGE"
+                rm -rf "$MAINTENANCE_BYPASS_DIR"
                 echo "Maintenance terminee : le site est de nouveau accessible."
             else
                 echo "Maintenance deja desactivee."
@@ -109,6 +162,11 @@ maintenance() {
         status)
             if [[ -e $MAINTENANCE_PAGE ]]; then
                 echo "Maintenance : activee depuis le $(date -r "$MAINTENANCE_PAGE" '+%d/%m/%Y a %H:%M')"
+                if [[ -d $MAINTENANCE_BYPASS_DIR ]]; then
+                    echo "Contournement par code : active (5 appuis sur le logo de la page)"
+                else
+                    echo "Contournement par code : desactive"
+                fi
             else
                 echo "Maintenance : desactivee"
             fi

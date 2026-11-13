@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- Page servie par Caddy, sans le back, pendant une maintenance (sudo qrprotec-manage maintenance on).
      Copiee dans /etc/qrprotec/maintenance/index.html a l'activation ; aucune ressource externe (CSP : styles en
-     ligne seulement). Le marqueur MESSAGE entre arobases recoit le message facultatif de la commande. -->
+     ligne, script du contournement servi a part). Les marqueurs MESSAGE et SALT entre arobases recoivent le message
+     facultatif et le sel du code de contournement (vide : contournement desactive). -->
 <html lang="fr">
 <head>
   <meta charset="utf-8">
@@ -25,10 +26,19 @@
     h1 { font-size: 24px; margin: 14px 0 8px; }
     p { margin: 8px 0; }
     .muted { color: var(--muted); font-size: 15px; margin-top: 18px; }
+    #logo { cursor: default; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+    form { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+    form[hidden] { display: none; }
+    input { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--muted); background: var(--bg);
+      color: var(--text); text-align: center; }
+    button { font: inherit; font-weight: 600; padding: 10px 12px; border: 0; border-radius: 8px; background: var(--navy);
+      color: #fff; }
+    @media (prefers-color-scheme: dark) { button { background: #2463b3; } }
+    #bypass-error { color: #d93025; font-size: 15px; min-height: 1.5em; margin: 0; }
   </style>
 </head>
-<body>
-  <header>QRprotec</header>
+<body data-salt="@SALT@">
+  <header><span id="logo">QRprotec</span></header>
   <main>
     <div class="card">
       <div class="icon" aria-hidden="true">🛠️</div>
@@ -36,7 +46,13 @@
       <p>QRprotec n'est pas accessible pour le moment.</p>
       @MESSAGE@
       <p class="muted">Réessayez un peu plus tard.</p>
+      <form id="bypass" hidden>
+        <input id="bypass-code" type="password" autocomplete="off" aria-label="Code de maintenance" placeholder="Code de maintenance">
+        <button type="submit">Entrer</button>
+        <p id="bypass-error" role="alert"></p>
+      </form>
     </div>
   </main>
+  <script src="/qrprotec-maintenance.js"></script>
 </body>
 </html>
