@@ -16,6 +16,7 @@
 #include "../net/api_client.hpp"
 #include "../net/remote_scanner_link.hpp"
 #include "feedback.hpp"
+#include "../printer/label_languages.hpp"
 #include "print_queue.hpp"
 #include "scan_stack.hpp"
 #include "settings.hpp"
@@ -32,6 +33,11 @@
 #include <vector>
 
 namespace qrprotec {
+
+// Format a envoyer a une imprimante TSPL / ZPL pour un rouleau (maintenance : calibrage...) : taille, support et
+// positions des Reglages
+labels::RawJob printer_media_job(const PrintSettings &print, double width_mm, double height_mm, bool ribbon,
+                                 double dots_per_mm);
 
 class App;
 class Inateck;
@@ -500,6 +506,9 @@ class App {
     bool build_label_jobs(TemplateCategory category, const std::vector< Parameters > &labels, const std::string &what,
                           std::vector< PrintJob > &jobs);
     void print_documents(std::vector< PrintJob > jobs); // documents deja remplis (test de l'editeur)
+    // Assistant « Changer de rouleau » : gestes pas a pas puis commandes a l'imprimante (calibrage...) ;
+    // type_name : rouleau attendu (vide = rouleau en place)
+    void open_roll_wizard(const std::string &type_name = "");
     TemplateDocument qr_only_template(TemplateCategory category) const;
 
     // Interface
@@ -651,6 +660,17 @@ class App {
     // connecte), « Plus tard » la laisse dans la barre de menu jusqu'au prochain rouleau demande
     void        draw_roll_change_modal();
     std::string roll_change_dismissed_;
+    // assistant « Changer de rouleau » (roll_change.cpp)
+    struct RollWizard {
+      bool                     open_pending = false;
+      int                      step         = 0;
+      std::vector< LabelType > types;
+      std::string              chosen;
+      bool                     calibrate = false;
+      bool                     factory   = false;
+    };
+    RollWizard roll_wizard_;
+    void       draw_roll_wizard();
     void launch_label_prints(std::vector< int > ids);
     void print_label_request(const Json &request); // etiquettes d'une demande (items crees ou images)
     void send_problem();

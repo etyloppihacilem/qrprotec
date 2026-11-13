@@ -494,16 +494,7 @@ class SettingsWindow final : public AppWindow {
         loaded.rotation  = 0;
         loaded.support   = ribbon ? LabelSupport::Transfer : LabelSupport::Direct;
       }
-      const RawPrinterSettings &raw = settings.print.raw;
-      labels::RawJob            job;
-      job.dots_per_mm   = label.pixels_per_mm > 0 ? label.pixels_per_mm : 8.0;
-      job.width_dots    = static_cast< int >(std::lround(width * job.dots_per_mm));
-      job.height_dots   = static_cast< int >(std::lround(height * job.dots_per_mm));
-      job.gap_mm        = raw.gap_mm;
-      job.ribbon        = ribbon;
-      job.offset_x_dots = static_cast< int >(std::lround(raw.offset_x_mm * job.dots_per_mm));
-      job.offset_y_dots = static_cast< int >(std::lround(raw.offset_y_mm * job.dots_per_mm));
-      job.tear_off_dots = static_cast< int >(std::lround(raw.tear_off_mm * job.dots_per_mm));
+      const labels::RawJob job = printer_media_job(settings.print, width, height, ribbon, label.pixels_per_mm);
       const bool zpl    = settings.print.kind == PrinterKind::Zpl;
       const auto send   = [&](labels::Maintenance action, const char *description) {
         app.printer.send_command(description, labels::maintenance_command(zpl, action, job), settings.print);
@@ -511,6 +502,11 @@ class SettingsWindow final : public AppWindow {
       };
       ImGui::TextDisabled("Étiquette chargée : %.0f x %.0f mm, %s", width, height,
                           ribbon ? "transfert (ruban)" : "thermique direct");
+
+      if (primary_button("Changer de rouleau..."))
+        app.open_roll_wizard();
+      help_marker("Assistant pas à pas : retirer l'ancien rouleau, mettre le nouveau, le ruban, puis à la fin il envoie "
+                  "les commandes (calibrage si le format change, lecture de l'état) et note le rouleau en place.");
 
       const PrintQueueStatus status = app.printer.status();
       if (button("Lire l'état"))

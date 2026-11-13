@@ -172,6 +172,7 @@ add_executable(${PROJECT_NAME}
     src/app/poste_actions.cpp
     src/app/labels.cpp
     src/app/print_queue.cpp
+    src/app/roll_change.cpp
     src/app/scan_stack.cpp
     src/app/settings.cpp
     src/app/updater.cpp

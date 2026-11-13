@@ -102,9 +102,23 @@ recaler.
 
 ## Changer de rouleau
 
-À suivre dans l'ordre, à chaque rouleau. Les étapes 10 à 13 ne servent que pour un **nouveau
-format** (autre taille, autre matière, passage du thermique direct au transfert ou l'inverse) ou
-la première fois.
+Le bouton **Changer de rouleau...** ouvre un assistant qui montre ces gestes un écran à la fois,
+puis, à la fin (**Terminer**), envoie lui-même les commandes à l'imprimante : réglages d'usine si
+vous l'avez coché, calibrage si le format change (coché d'office), lecture de l'état. Il note
+aussi le rouleau en place, et les étiquettes qui l'attendaient repartent. Le dernier écran
+affiche l'état de l'imprimante et propose l'étiquette d'étalonnage.
+
+Le bouton est là où on en a besoin :
+
+- dans la fenêtre **Changez de rouleau** qui s'ouvre quand l'impression attend un autre rouleau
+  (**Me guider pas à pas**) ;
+- dans le menu de l'impression, dans la barre du haut, quand la file est en pause ;
+- dans **Gestion > Impressions et consommables**, à côté du rouleau en place ;
+- dans **Réglages > Étiquettes et impression > Maintenance de l'imprimante**.
+
+Le détail des étapes, pour le faire à la main. À suivre dans l'ordre, à chaque rouleau. Les
+étapes 11 à 13 ne servent que pour un **nouveau format** (autre taille, autre matière, passage du
+thermique direct au transfert ou l'inverse) ou la première fois.
 
 **Avant d'ouvrir**
 
@@ -126,8 +140,8 @@ la première fois.
 6. Tirez le papier vers l'avant, faites-le passer **sous les deux guides** et réglez les guides
    pour qu'ils touchent le bord du papier sans le serrer.
 7. Tirez le papier jusqu'à dépasser de quelques centimètres à l'avant de l'imprimante.
-8. **Ruban** (seulement avec des étiquettes à transfert thermique) : s'il est fini ou si vous
-   changez de type de ruban, suivez le schéma collé à l'intérieur du capot (rouleau neuf et
+8. **Ruban** : en thermique direct, retirez-le s'il y en a un (il s'userait pour rien). Avec des
+   étiquettes à transfert thermique, s'il est fini ou si vous changez de type de ruban, suivez le schéma collé à l'intérieur du capot (rouleau neuf et
    mandrin vide sur leurs axes, ruban passé sous la tête, scotché sur le mandrin vide, tendu en
    tournant la molette). Le ruban doit être au moins aussi large que l'étiquette, **encrage
    extérieur**. Profitez-en pour nettoyer la tête (voir Entretien).
