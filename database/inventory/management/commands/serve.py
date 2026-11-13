@@ -43,7 +43,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.core.servers.basehttp import WSGIRequestHandler, WSGIServer, get_internal_wsgi_application
 
-from inventory.middleware import RoleWSGIHandler, local_access_error, authenticate_front, remote_client_address
+from inventory.middleware import (RoleWSGIHandler, authenticate_front, local_access_error, maintenance_refusal,
+                                  remote_client_address)
 from inventory.live import hub as live_hub
 from inventory.remote_scanner import RECEIVE_TIMEOUT, WebSocket, accept_key, hub
 
@@ -194,9 +195,12 @@ class QRProtecRequestHandler(WSGIRequestHandler):
                     return self.refuse(403, problem)
             elif role == 'remote':
                 address = remote_client_address(self.client_address[0], self.headers.get('X-Forwarded-For', ''))
-                _, problem = authenticate_front(self.headers.get('X-QRProtec-Key', ''), address)
+                front, problem = authenticate_front(self.headers.get('X-QRProtec-Key', ''), address)
                 if problem:
                     return self.refuse(401, problem)
+                refusal = maintenance_refusal(front.name)
+                if refusal:
+                    return self.refuse(503, refusal)
             else:
                 return self.refuse(404, 'Inconnu')
             session = hub.get(params.get('s', ''))

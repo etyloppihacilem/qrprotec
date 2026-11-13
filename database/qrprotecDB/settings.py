@@ -113,6 +113,9 @@ QRPROTEC = {
     # par front (en-tete X-QRProtec-Key, `manage.py frontkey`). A placer derriere un reverse proxy HTTPS.
     'REMOTE_API_ADDRESS': os.environ.get('QRPROTEC_REMOTE_API_ADDRESS', '127.0.0.1'),
     'REMOTE_API_PORT': int(os.environ.get('QRPROTEC_REMOTE_API_PORT', '8002')),
+    # Mode maintenance (qrprotec-manage maintenance on) : Caddy sert la page de maintenance tant que index.html
+    # existe dans ce dossier ; le fichier « fronts » y liste les fronts distants (noms de cle) encore admis.
+    'MAINTENANCE_DIR': os.environ.get('QRPROTEC_MAINTENANCE_DIR', '/etc/qrprotec/maintenance'),
     # Role des requetes qui n'ont pas ete recues par `manage.py serve` (runserver, wsgi par defaut)
     'DEFAULT_API_ROLE': os.environ.get('QRPROTEC_DEFAULT_API_ROLE', 'public'),
     'USER_KEY_VALIDITY_DAYS': 365,

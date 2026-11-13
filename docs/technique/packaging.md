@@ -99,7 +99,11 @@ distants (`X-QRProtec-Key`) et les requêtes `Accept: application/json`, la page
 et `Retry-After`. `/qrprotec-ca.crt` (matcher de chemin, trié avant) reste servi. Contournement (`on --code`) :
 la page porte un sel aléatoire, le script pose le cookie `qrprotec_maintenance` = SHA-256(`sel:code`), et le
 matcher `not file` laisse passer au back si `/etc/qrprotec/maintenance/bypass/<cookie>.ok` existe (chemin
-assaini par Caddy, dossier 0711 non listable, code jamais stocké en clair). `on` recharge Caddy pour
+assaini par Caddy, dossier 0711 non listable, code jamais stocké en clair). Postes en réseau (`on --front NOM`, `--all-fronts`) : tant que
+`/etc/qrprotec/maintenance/fronts` existe (un nom de clé par ligne, `*` pour toutes), Caddy laisse passer les
+requêtes à en-tête `X-QRProtec-Key` vers l'API distante, et le back (`middleware.maintenance_refusal`, aussi
+sur le WebSocket `/ws/scanner/front`) répond 503 `{"error", "maintenance": true}` aux clés valides absentes de
+la liste ; dossier lu via `QRPROTEC_MAINTENANCE_DIR`. `on` recharge Caddy pour
 couper les WebSockets ouverts ; `off` n'a rien à recharger. Le dossier est un sous-dossier de `/etc/qrprotec` :
 `qrprotec-backup` ne copie que les fichiers du premier niveau, une restauration ne remet donc jamais le site en
 maintenance. Le front web traite 502, 503 et 504 comme une absence de réseau (vérifs gardées en file d'attente).

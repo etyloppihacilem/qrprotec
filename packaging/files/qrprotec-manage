@@ -21,12 +21,14 @@ readonly STATE_DIR=/var/lib/qrprotec
 readonly MAINTENANCE_DIR=/etc/qrprotec/maintenance
 readonly MAINTENANCE_PAGE=$MAINTENANCE_DIR/index.html
 readonly MAINTENANCE_BYPASS_DIR=$MAINTENANCE_DIR/bypass
+readonly MAINTENANCE_FRONTS=$MAINTENANCE_DIR/fronts
 readonly MAINTENANCE_TEMPLATE=$APP_DIR/maintenance.html
 readonly CADDY_FRAGMENT=/etc/caddy/Caddyfile.d/qrprotec.caddyfile
 
 maintenance_usage() {
     cat <<'USAGE'
-Usage : sudo qrprotec-manage maintenance on [--code[=CODE]] [MESSAGE]   page de maintenance a la place du site
+Usage : sudo qrprotec-manage maintenance on [--code[=CODE]] [--front NOM]... [--all-fronts] [MESSAGE]
+                                                                         page de maintenance a la place du site
         sudo qrprotec-manage maintenance off                             site de nouveau accessible
         qrprotec-manage maintenance status                               etat actuel
 
@@ -39,6 +41,10 @@ accessible. MESSAGE (facultatif) s'ajoute a la page, ex. :
 6 caracteres au moins). Sur la page, 5 appuis rapides sur le logo « QRprotec » ouvrent sa saisie ; le navigateur
 qui l'a donne voit le vrai site pendant 12 h. Sans --code, pas de contournement ; relancer « on » sans --code
 le desactive.
+
+--front NOM : le poste en reseau dont la cle de front s'appelle NOM (sudo qrprotec-manage frontkey list) garde
+l'acces a l'API pendant la maintenance ; a repeter pour plusieurs postes. --all-fronts : tous les postes a cle
+valide. Les autres cles recoivent l'erreur de maintenance. Le back doit tourner pour ces postes.
 USAGE
 }
 
@@ -57,7 +63,7 @@ maintenance_read_code() {
 # Avertit si le fragment Caddy installe ne connait pas encore le mode maintenance (fragment modifie a la main,
 # nouvelle version laissee en .rpmnew par la mise a jour) : la page ne serait alors jamais servie.
 maintenance_check_caddy() {
-    if [[ -r $CADDY_FRAGMENT ]] && ! grep -q "$MAINTENANCE_DIR" "$CADDY_FRAGMENT"; then
+    if [[ -r $CADDY_FRAGMENT ]] && ! grep -q "try_files /fronts" "$CADDY_FRAGMENT"; then
         echo "ATTENTION : $CADDY_FRAGMENT ne gere pas le mode maintenance (fichier modifie localement ?)." >&2
         echo "            Reportez le bloc @maintenance de $CADDY_FRAGMENT.rpmnew, puis : sudo systemctl reload caddy" >&2
     fi
@@ -80,11 +86,19 @@ maintenance() {
     case $action in
         on)
             shift
-            local code='' want_code=no args=()
+            local code='' want_code=no args=() fronts=()
             while (($#)); do
                 case $1 in
                     --code) want_code=yes ;;
                     --code=*) want_code=yes; code=${1#--code=} ;;
+                    --front)
+                        if [[ -z ${2:-} || $2 == -* ]]; then
+                            echo "qrprotec-manage : --front attend le nom d'une cle de front (frontkey list)." >&2
+                            exit 2
+                        fi
+                        fronts+=("$2"); shift ;;
+                    --front=*) fronts+=("${1#--front=}") ;;
+                    --all-fronts) fronts+=('*') ;;
                     --) shift; args+=("$@"); break ;;
                     -*) maintenance_usage >&2; exit 2 ;;
                     *) args+=("$1") ;;
@@ -123,6 +137,15 @@ maintenance() {
                 install -d -m 0711 "$MAINTENANCE_BYPASS_DIR"
                 : >"$MAINTENANCE_BYPASS_DIR/$(printf '%s' "$salt:$code" | sha256sum | cut -d' ' -f1).ok"
             fi
+            # Postes en reseau admis : un nom de cle par ligne (« * » : tous), relu par l'API distante a chaque requete
+            if ((${#fronts[@]})); then
+                tmp=$(mktemp "$MAINTENANCE_DIR/.fronts.XXXXXX")
+                printf '%s\n' "${fronts[@]}" >"$tmp"
+                chmod 0644 "$tmp"
+                mv -f "$tmp" "$MAINTENANCE_FRONTS"
+            else
+                rm -f "$MAINTENANCE_FRONTS"
+            fi
             tmp=$(mktemp "$MAINTENANCE_DIR/.index.XXXXXX")
             local line
             while IFS= read -r line || [[ -n $line ]]; do
@@ -144,13 +167,19 @@ maintenance() {
             else
                 echo "Contournement desactive (sudo qrprotec-manage maintenance on --code pour en definir un)."
             fi
-            echo "Le back peut etre arrete sans erreur visible (sudo systemctl stop qrprotec). Fin : sudo qrprotec-manage maintenance off"
+            if ((${#fronts[@]})); then
+                echo "Postes en reseau admis : ${fronts[*]} (le back doit tourner pour eux)."
+            else
+                echo "Le back peut etre arrete sans erreur visible (sudo systemctl stop qrprotec)."
+            fi
+            echo "Fin : sudo qrprotec-manage maintenance off"
             maintenance_check_caddy
             ;;
         off)
             if [[ -e $MAINTENANCE_PAGE ]]; then
                 rm -f "$MAINTENANCE_PAGE"
                 rm -rf "$MAINTENANCE_BYPASS_DIR"
+                rm -f "$MAINTENANCE_FRONTS"
                 echo "Maintenance terminee : le site est de nouveau accessible."
             else
                 echo "Maintenance deja desactivee."
@@ -166,6 +195,11 @@ maintenance() {
                     echo "Contournement par code : active (5 appuis sur le logo de la page)"
                 else
                     echo "Contournement par code : desactive"
+                fi
+                if [[ -s $MAINTENANCE_FRONTS ]]; then
+                    echo "Postes en reseau admis : $(paste -sd' ' "$MAINTENANCE_FRONTS")"
+                else
+                    echo "Postes en reseau admis : aucun"
                 fi
             else
                 echo "Maintenance : desactivee"
