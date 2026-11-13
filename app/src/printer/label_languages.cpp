@@ -79,12 +79,19 @@ std::string zpl_signed(int value)
     return text;
 }
 
-// Reglages de position, dans le format : ^LS (decalage horizontal, positif = vers la gauche), ^LT (vertical,
-// positif = vers le bas). Les deux doivent preceder le premier ^FS.
+// Reglages de position, dans le format (avant le premier ^FS) :
+// - horizontal : ^LS (« Left Position »), positif = vers la gauche, d'ou ^LS = -decalage ;
+// - vertical vers le bas : ^LH0,y (origine du format, « Label Home »), ^LT0. ^LT seul n'a aucun effet a
+//   l'impression sur une GK420t (firmware V61.17.17Z, essai du 13/11/2026) bien qu'il soit enregistre, alors que
+//   ^LH deplace le dessin ;
+// - vertical vers le haut : ^LT negatif (« Label Top »), seule commande prevue pour remonter le dessin (^LH ne
+//   prend pas de valeur negative), borne a 120 points.
 std::string zpl_position(const RawJob& job)
 {
-    return "^LS" + std::to_string(-job.offset_x_dots) + "\n^LT" +
-           std::to_string(std::clamp(job.offset_y_dots, -kZplMaxShiftRows, kZplMaxShiftRows)) + "\n";
+    const int down = std::max(0, job.offset_y_dots);
+    const int up = std::clamp(std::min(0, job.offset_y_dots), -kZplMaxShiftRows, 0);
+    return "^LH0," + std::to_string(down) + "\n^LS" + std::to_string(-job.offset_x_dots) + "\n^LT" +
+           std::to_string(up) + "\n";
 }
 
 // ~TA : position d'arret apres impression (barre de decoupe), commande immediate hors format
@@ -97,7 +104,7 @@ std::string zpl_tear_off(const RawJob& job)
 std::string zpl_media(const RawJob& job)
 {
     return std::string("^MT") + (job.ribbon ? "T" : "D") + "\n^MNY\n^PW" + std::to_string(job.width_dots) +
-           "\n^LL" + std::to_string(job.height_dots) + "\n^LH0,0\n" + zpl_position(job);
+           "\n^LL" + std::to_string(job.height_dots) + "\n" + zpl_position(job);
 }
 }
 

@@ -395,8 +395,9 @@ class SettingsWindow final : public AppWindow {
           if (ImGui::InputFloat("Décalage vertical (mm)", &offset_y, 0.5f, 1.0f, "%.1f"))
             raw.offset_y_mm = std::clamp(offset_y, -15.0f, 15.0f);
           help_marker("Déplace toute l'impression sur l'étiquette. Positif : vers le bas (loin du haut de "
-                      "l'étiquette) ; négatif : vers le haut. ZPL : ^LT (« Label Top »), 120 points au plus soit "
-                      "15 mm ; TSPL : SHIFT y. Une impression qui déborde de plusieurs millimètres sur l'étiquette "
+                      "l'étiquette) ; négatif : vers le haut. ZPL : vers le bas par ^LH (origine du format), vers "
+                      "le haut par ^LT (« Label Top »), 120 points au plus ; la GK420t ignore ^LT à l'impression, "
+                      "le vers-le-haut n'y a donc pas d'effet. TSPL : SHIFT y. Une impression qui déborde de plusieurs millimètres sur l'étiquette "
                       "suivante ne se règle pas ici : calibrer.");
           float tear_off = static_cast< float >(raw.tear_off_mm);
           ImGui::SetNextItemWidth(150.0f);
@@ -510,7 +511,7 @@ class SettingsWindow final : public AppWindow {
         { "PRINT WIDTH", std::to_string(job.width_dots), true },
         { "LABEL LENGTH", std::to_string(job.height_dots), true },
         { "LEFT POSITION", std::to_string(-job.offset_x_dots), true },
-        { "LABEL TOP", std::to_string(std::clamp(job.offset_y_dots, -120, 120)), true },
+        { "LABEL TOP", std::to_string(std::clamp(std::min(0, job.offset_y_dots), -120, 0)), true }, // bas : ^LH
         { "TEAR OFF", std::to_string(std::clamp(job.tear_off_dots, -120, 120)), true },
         { "DARKNESS", std::to_string(std::clamp(job.darkness * 2, 0, 30)), true },
       };
