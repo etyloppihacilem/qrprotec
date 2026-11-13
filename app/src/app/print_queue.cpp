@@ -43,6 +43,20 @@ void PrintQueue::enqueue(std::vector< PrintJob > jobs, const PrintSettings &sett
   condition_.notify_one();
 }
 
+void PrintQueue::send_command(const std::string &description, const std::string &command,
+                              const PrintSettings &settings) {
+  PrintJob job;
+  job.description = description;
+  job.command     = command;
+  {
+    std::lock_guard< std::mutex > lock(mutex_);
+    settings_ = settings;
+    jobs_.push_back(std::move(job));
+    status_.pending = jobs_.size();
+  }
+  condition_.notify_one();
+}
+
 void PrintQueue::set_loaded_label_type(const std::string &name) {
   {
     std::lock_guard< std::mutex > lock(mutex_);
@@ -118,7 +132,24 @@ void PrintQueue::run() {
       status_.busy    = true;
       status_.current = job.description;
     }
-    std::string   error;
+    std::string error;
+    if (!job.command.empty()) {
+      if (connected) {
+        printer_.disconnect();
+        connected = false;
+      }
+      const bool sent = printer_.send_command(settings, job.command, error);
+      std::lock_guard< std::mutex > lock(mutex_);
+      if (!jobs_.empty())
+        jobs_.pop_front();
+      if (!sent) {
+        status_.paused = true;
+        status_.error  = job.description + " : " + error;
+        error_log("Commande imprimante refusée : " + status_.error, "imprimante");
+      }
+      status_.pending = jobs_.size();
+      continue;
+    }
     RasterImage   image;
     MediaSettings media;
     label.pixels_per_mm = job.document.media.pixels_per_mm;

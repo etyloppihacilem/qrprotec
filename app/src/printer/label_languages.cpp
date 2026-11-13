@@ -93,4 +93,30 @@ std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job
     return out;
 }
 
+std::string maintenance_command(bool zpl, Maintenance action, const RawJob& job)
+{
+    const double ppm = job.dots_per_mm > 0 ? job.dots_per_mm : 8.0;
+    if (zpl) {
+        switch (action) {
+        case Maintenance::Calibrate:
+            // format de l'etiquette chargee enregistre (^JUS), puis ~JC : l'imprimante avance quelques
+            // etiquettes et mesure l'interstice ; ^JUS final garde la mesure apres extinction
+            return std::string("^XA^MNY^MT") + (job.ribbon ? "T" : "D") + "^PW" + std::to_string(job.width_dots) +
+                   "^LL" + std::to_string(job.height_dots) + "^JUS^XZ\n~JC\n^XA^JUS^XZ\n";
+        case Maintenance::Config: return "~WC\n";
+        case Maintenance::Feed: return "^XA^MNY^LL" + std::to_string(job.height_dots) + "^XZ\n";
+        }
+        return {};
+    }
+    switch (action) {
+    case Maintenance::Calibrate:
+        return "SIZE " + mm(job.width_dots / ppm) + " mm," + mm(job.height_dots / ppm) + " mm\r\nGAP " +
+               mm(std::max(0.0, job.gap_mm)) + " mm,0 mm\r\nSET RIBBON " + (job.ribbon ? "ON" : "OFF") +
+               "\r\nGAPDETECT\r\n";
+    case Maintenance::Config: return "SELFTEST\r\n";
+    case Maintenance::Feed: return "FORMFEED\r\n";
+    }
+    return {};
+}
+
 } // namespace qrprotec::labels

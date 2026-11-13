@@ -28,6 +28,7 @@ struct PrintJob {
     std::string      description; // ex: "Item compre20271231000000A1"
     TemplateDocument document;    // parametres deja renseignes
     RasterImage      image;       // deja rendue (etiquette envoyee par un autre ordinateur) : imprimee telle quelle
+    std::string      command;     // non vide : commande brute de maintenance (calibrage...), pas d'etiquette
 };
 
 struct PrintQueueStatus {
@@ -60,6 +61,8 @@ class PrintQueue {
     // si elle attendait ce type
     void             set_loaded_label_type(const std::string &name);
     void             cancel();
+    // Commande de maintenance (TSPL / ZPL brut) passee dans la file, apres les etiquettes en attente
+    void             send_command(const std::string &description, const std::string &command, const PrintSettings &settings);
     // Compteur d'impressions : chaque etiquette acceptee par l'imprimante y est ajoutee (avant la premiere impression)
     void             set_counter(PrintCounter *counter);
 

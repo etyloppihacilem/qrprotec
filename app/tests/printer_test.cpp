@@ -65,6 +65,21 @@ int main()
     assert(zpl.find("^FO16,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
     assert(zpl.find("^PQ2\n^XZ\n") != std::string::npos);
 
+    // maintenance : calibrage sur l'etiquette chargee (40 x 30 mm, thermique direct)
+    using qrprotec::labels::Maintenance;
+    qrprotec::labels::RawJob media;
+    media.width_dots = 320;
+    media.height_dots = 240;
+    media.ribbon = false;
+    media.gap_mm = 3.0;
+    assert(qrprotec::labels::maintenance_command(true, Maintenance::Calibrate, media) ==
+           "^XA^MNY^MTD^PW320^LL240^JUS^XZ\n~JC\n^XA^JUS^XZ\n");
+    assert(qrprotec::labels::maintenance_command(true, Maintenance::Config, media) == "~WC\n");
+    assert(qrprotec::labels::maintenance_command(true, Maintenance::Feed, media) == "^XA^MNY^LL240^XZ\n");
+    assert(qrprotec::labels::maintenance_command(false, Maintenance::Calibrate, media) ==
+           "SIZE 40 mm,30 mm\r\nGAP 3 mm,0 mm\r\nSET RIBBON OFF\r\nGAPDETECT\r\n");
+    assert(qrprotec::labels::maintenance_command(false, Maintenance::Feed, media) == "FORMFEED\r\n");
+
     // adresse de l'imprimante : fichier ou reseau
     using qrprotec::RawTransport;
     assert(!RawTransport::is_network_address("/dev/usb/lp0"));
