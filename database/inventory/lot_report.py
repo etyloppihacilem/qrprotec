@@ -159,10 +159,15 @@ def state_at(root, at):
         for row in state.items:
             if not (row.absent or row.expired or row.disabled):
                 good[row.item.pack.item_type_id] += 1
-        state.lacking = [(requirement, requirement.quantity - good[requirement.item_type_id])
-                         for requirement in state.requirements
-                         # item a cocher : sans etiquette ni historique, il n'est pas suivi dans le rapport
-                         if requirement.item_type.physical and good[requirement.item_type_id] < requirement.quantity]
+        state.lacking = []
+        for requirement in state.requirements:
+            # item a cocher : sans etiquette ni historique, il n'est pas suivi dans le rapport
+            if not requirement.item_type.physical:
+                continue
+            # type a unites (200 mL de serum phy) : ses sous-types comptent leurs unites
+            have = good[requirement.item_type_id] + sum(good[code] * units for code, units in requirement.fills.items())
+            if have < requirement.quantity:
+                state.lacking.append((requirement, requirement.quantity - have))
     return [states[lot.id] for lot in lots]
 
 
@@ -293,7 +298,9 @@ class ReportWriter:
                          f'{who(seal.by)}, intact à cette date', size=9.5, step=13)
         for requirement, count in state.lacking:
             self.need(13)
-            self.text(x, f'Manque {count} × {requirement.item_type.name}', size=9.5, bold=True, step=13)
+            what = (f'{count} {requirement.unit} de {requirement.item_type.name}' if requirement.unit
+                    else f'{count} × {requirement.item_type.name}')
+            self.text(x, f'Manque {what}', size=9.5, bold=True, step=13)
         self.items_table(state, x, width)
 
     def items_table(self, state, x, width):

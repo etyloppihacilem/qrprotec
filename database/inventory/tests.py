@@ -7361,3 +7361,54 @@ class UnitGroupTests(ApiTestCase):
                            {'items': [i.iid for i in compresses + old + flacon], 'user': 'M001'})[1]
         self.assertEqual(report['replaced'], [old[0].iid])
         self.assertTrue(report['complete'])
+
+    def test_stock_in_units(self):
+        """Etat des stocks : le type a unites additionne les mL de ses sous-types ; son minimum (en mL) et celui de
+        chaque sous-type (en items) alertent chacun ; la commande proposee porte sur le sous-type par defaut."""
+        ItemType.objects.filter(type='serphy').update(min_quantity=200)
+        ItemType.objects.filter(type='sersac').update(min_quantity=1, default_pack_size=4)
+        self.create(self.sachet, self.later, 2)
+        self.create(self.flacon, self.later, 1)
+        rows = {row['type']: row for row in services.stock_status()}
+        self.assertEqual((rows['serphy']['stock_fresh'], rows['serphy']['unit']), (100, 'mL'))
+        self.assertEqual(rows['sersac']['stock_fresh'], 2)
+        from . import notifications
+        low = notifications.check_stock_levels(['serfla'])
+        self.assertEqual(low, ['Sérum phy 100/200 mL'])
+        row = next(row for row in forecast.forecast(months=6)['types'] if row['type'] == 'serphy')
+        self.assertEqual(row['stock_now'], 100)
+        self.assertEqual(row['order']['subtype'], 'sersac')
+        self.assertEqual(row['order']['quantity'] % 4, 0)
+        self.assertGreaterEqual(row['order']['quantity'] * 25, row['order']['units'])
+
+    def test_checklist_line_in_units(self):
+        """Liste de matériel « 100 mL de sérum phy » : n'importe quel sous-type, compté en mL."""
+        code, body = self.call('POST', '/api/checklists/', {'user': 'M001', 'name': 'Poste', 'lines': [
+            {'type': 'serphy', 'quantity': 100}]})
+        self.assertEqual(code, 201, body)
+        url = f"/api/checklists/{body['id']}/"
+        flacon = self.create(self.flacon, self.later, 1)[0]
+        sachets = self.create(self.sachet, self.later, 3)
+        code, body = self.call('POST', f'{url}scan/', {'user': 'M001', 'item': flacon.iid})
+        self.assertEqual(code, 200, body)
+        self.assertIn('50/100 mL', body['message'])
+        self.call('POST', f'{url}scan/', {'user': 'M001', 'item': sachets[0].iid})
+        self.call('POST', f'{url}scan/', {'user': 'M001', 'item': sachets[1].iid})
+        code, body = self.call('POST', f'{url}scan/', {'user': 'M001', 'item': sachets[2].iid})
+        self.assertEqual(code, 400)
+        body = self.call('POST', url, {'user': 'M001'})[1]
+        line = body['lines'][0]
+        self.assertEqual((line['scanned'], line['quantity'], line['unit']), (100, 100, 'mL'))
+        self.assertTrue(body['complete'])
+
+    def test_coverage_in_units(self):
+        """Couverture d'un referentiel en mL : 8 sachets ranges dans un sac couvrent 200 mL."""
+        referentiel = LotType.objects.create(type='refbpl', name='B+', referentiel=True)
+        LotRequirements.objects.create(lot_type=referentiel, item_type=self.serphy, quantity=200)
+        LotType.objects.filter(type='sacpse').update(part_of=referentiel)
+        LotRequirements.objects.filter(lot_type=self.lot_type).delete()
+        LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.sachet, quantity=8)
+        line = services.lot_coverage(self.lot, referentiel)
+        self.assertTrue(line['complete'])
+        self.assertEqual(line['lines'][0]['placed'], 200)
+        self.assertEqual(line['extra'], [])

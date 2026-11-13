@@ -39,6 +39,7 @@ from .models import (
 from .serializers import _date, _lot_core, public_url
 
 MAX_LINES = 100
+MAX_UNITS = 100_000
 MAX_QUANTITY = 999
 MAX_MEMBERS = 100
 LIST_ROLES = (Role.CHEF, Role.GESTION, Role.ADMIN)  # creent des listes, voient toutes les listes et les modeles
@@ -180,10 +181,12 @@ def set_lines(checklist, lines):
                 quantity = int(line.get('quantity', 1))
             except (TypeError, ValueError):
                 raise ValueError('quantity : entier attendu')
-            if quantity < 1 or quantity > MAX_QUANTITY:
-                raise ValueError(f'Quantité entre 1 et {MAX_QUANTITY}')
+            # type a unites (« 200 mL de sérum phy ») : quantite en unites
+            limit = MAX_UNITS if item_type.unit else MAX_QUANTITY
+            if quantity < 1 or quantity > limit:
+                raise ValueError(f'Quantité entre 1 et {limit}')
             if item_type.type in types:
-                types[item_type.type].quantity = min(MAX_QUANTITY, types[item_type.type].quantity + quantity)
+                types[item_type.type].quantity = min(limit, types[item_type.type].quantity + quantity)
             else:
                 types[item_type.type] = ChecklistLine(checklist=checklist, item_type=item_type, quantity=quantity)
                 rows.append(types[item_type.type])
@@ -364,9 +367,34 @@ def lot_type_units(lines, scans):
     return result
 
 
+def line_weight(line, item_type):
+    """Ce que compte un item de ce type sur une ligne de matériel : 1 pour son type, ses unites sur une ligne d'un type
+    a unites dont il est un sous-type (« 200 mL de sérum phy » : un flacon de 50 mL compte 50), 0 sinon."""
+    if not line.item_type_id:
+        return 0
+    if line.item_type_id == item_type.type:
+        return 1
+    if line.item_type.unit and item_type.group_id == line.item_type_id:
+        return max(1, item_type.fills)
+    return 0
+
+
+def item_line(lines, item_type):
+    """Ligne de matériel ou va un item : celle de son type, sinon celle de son type a unites."""
+    return (next((line for line in lines if line.item_type_id == item_type.type), None)
+            or next((line for line in lines if line_weight(line, item_type)), None))
+
+
+def line_amount(line, done):
+    """Avancement d'une ligne : items scannes, en unites pour une ligne d'un type a unites."""
+    if line.item_type_id and not line.task:
+        return sum(line_weight(line, scan.item.pack.item_type) for scan in done)
+    return len(done)
+
+
 def _drop_extra_scans(checklist):
-    lines = list(checklist.lines.all())
-    wanted = {line.item_type_id: line.quantity for line in lines if line.item_type_id}
+    lines = list(checklist.lines.select_related('item_type'))
+    wanted = {line.id: line.quantity for line in lines if line.item_type_id}
     lots = {line.lot_id for line in lines if line.lot_id}
     lots |= {part.id for line in lines if line.lot_id for part in lot_parts(line.lot)}
     scans = _out_scans(checklist)
@@ -378,10 +406,11 @@ def _drop_extra_scans(checklist):
             if scan.lot_id not in lots:
                 scan.delete()
             continue
-        type_id = scan.item.pack.item_type_id
-        counts[type_id] = counts.get(type_id, 0) + 1
-        if counts[type_id] > wanted.get(type_id, 0):
+        line = item_line(lines, scan.item.pack.item_type)
+        if line is None or counts.get(line.id, 0) >= wanted[line.id]:
             scan.delete()
+            continue
+        counts[line.id] = counts.get(line.id, 0) + line_weight(line, scan.item.pack.item_type)
 
 
 def _require_open(checklist):
@@ -565,7 +594,7 @@ def scan(checklist, user, iid='', lot_id=''):
             if item is None:
                 raise ValueError('Item inconnu')
             name = item.pack.item_type.name
-            line = next((line for line in lines if line.item_type_id == item.pack.item_type_id), None)
+            line = item_line(lines, item.pack.item_type)
             if line is None:
                 raise ValueError(f"{name} : pas demandé dans cette liste")
             if any(row.item_id == item.iid for row in scans):
@@ -580,11 +609,12 @@ def scan(checklist, user, iid='', lot_id=''):
                      .exclude(checklist=checklist).select_related('checklist').first())
             if other is not None:
                 raise ValueError(f'{name} : déjà pris pour la liste « {other.checklist.name} »')
-            taken = sum(1 for row in scans if row.item_id and row.item.pack.item_type_id == line.item_type_id)
+            taken = sum(line_weight(line, row.item.pack.item_type) for row in scans if row.item_id)
+            unit = f' {line.item_type.unit}' if line.item_type.unit else ''
             if taken >= line.quantity:
-                raise ValueError(f'{name} : déjà {line.quantity}/{line.quantity}, rien de plus à prendre')
+                raise ValueError(f'{name} : déjà {line.quantity}/{line.quantity}{unit}, rien de plus à prendre')
             ChecklistScan.objects.create(checklist=checklist, item=item, by=identity)
-            message = f'{name} : {taken + 1}/{line.quantity}'
+            message = f'{name} : {taken + line_weight(line, item.pack.item_type)}/{line.quantity}{unit}'
         checklist.updated = timezone.now()
         checklist.save(update_fields=['updated'])
     return message
@@ -625,7 +655,7 @@ def progress(checklist):
     etiquette (B+) : une ligne par sac (_lot_rows)."""
     scans = _out_scans(checklist)
     rows = []
-    lines = list(checklist.lines.all())
+    lines = list(checklist.lines.select_related('item_type'))
     by_type = lot_type_units(lines, scans)
     for line in lines:
         if line.task:
@@ -637,9 +667,9 @@ def progress(checklist):
                 rows.append((row, [scan for scan in scans if scan.lot_id in (row.lot_id, line.lot_id)]))
             continue
         else:
-            done = [scan for scan in scans if scan.item_id and scan.item.pack.item_type_id == line.item_type_id]
+            done = [scan for scan in scans if scan.item_id and item_line(lines, scan.item.pack.item_type) is line]
         rows.append((line, done))
-    complete = bool(rows) and all(len(done) >= line.quantity for line, done in rows)
+    complete = bool(rows) and all(line_amount(line, done) >= line.quantity for line, done in rows)
     return rows, complete
 
 
@@ -1142,7 +1172,7 @@ def checklist_dict(checklist, user=None, full=True):
     }
     rows, complete = progress(checklist)
     data['line_count'] = len(rows)
-    data['done_count'] = sum(1 for line, done in rows if len(done) >= line.quantity)
+    data['done_count'] = sum(1 for line, done in rows if line_amount(line, done) >= line.quantity)
     data['complete'] = complete
     if not full:
         return data
@@ -1151,7 +1181,7 @@ def checklist_dict(checklist, user=None, full=True):
     units = lot_type_units([line for line in checklist.lines.all()], _out_scans(checklist))
     lines = []
     for line, done in rows:
-        row = {'id': line.id, 'quantity': line.quantity, 'scanned': len(done)}
+        row = {'id': line.id, 'quantity': line.quantity, 'scanned': line_amount(line, done)}
         if line.task:
             row.update({'kind': 'task', 'task': line.task, 'scans': [], 'done': _date(line.done),
                         'done_by': identity_name(line.done_by), 'back': 0})
@@ -1180,8 +1210,13 @@ def checklist_dict(checklist, user=None, full=True):
                             'part_of_type_name': part_of.lot_type.name})
         else:
             row.update({'kind': 'type', 'type': line.item_type_id, 'type_name': line.item_type.name,
-                        'back': sum(1 for scan in back if scan.item_id
-                                    and scan.item.pack.item_type_id == line.item_type_id)})
+                        'back': line_amount(line, [scan for scan in back if scan.item_id and any(
+                            scan.item_id == out.item_id for out in done)])})
+            if line.item_type.unit:
+                # ligne d'un type a unites (« 200 mL de sérum phy ») : quantites en unites, n'importe quel sous-type
+                row.update({'unit': line.item_type.unit, 'subtypes': [
+                    {'type': sub.type, 'type_name': sub.name, 'fills': sub.fills}
+                    for sub in line.item_type.subtypes.filter(archived=False).order_by('-fills', 'name')]})
         lines.append(row)
     data['lines'] = lines
     data['members'] = sorted(({'matricule': member.matricule,

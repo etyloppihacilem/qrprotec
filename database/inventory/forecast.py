@@ -216,12 +216,17 @@ def forecast(months=6, lead_days=None, history_months=None):
     points = [add_months(today, k) for k in range(months + 1)]
     types = []
     transfers = []
-    for item_type in ItemType.objects.filter(archived=False).order_by('name'):
+    item_types = list(ItemType.objects.filter(archived=False).order_by('name'))
+    _add_unit_groups(item_types, units, rates, unconfirmed)
+    for item_type in item_types:
         by_place = units.get(item_type.type, {})
         for held in by_place.values():
             held.sort(key=lambda unit: (unit[0], unit[1].iid))
-        types.append(_type_forecast(item_type, by_place, rates, places, today, horizon, month_starts, points,
-                                    lead_days, unconfirmed[item_type.type]))
+        row = _type_forecast(item_type, by_place, rates, places, today, horizon, month_starts, points, lead_days,
+                             unconfirmed[item_type.type])
+        if item_type.unit:
+            _unit_order(row, item_type, item_types)
+        types.append(row)
         if item_type.perissable:
             transfers += _transfers(item_type, by_place, rates, places, today, horizon)
 
@@ -234,6 +239,38 @@ def forecast(months=6, lead_days=None, history_months=None):
         'types': types,
         'transfers': _group_transfers(transfers),
     }
+
+
+def _add_unit_groups(item_types, units, rates, unconfirmed):
+    """Type a unites (« Sérum phy », mL) : ses sous-types prevus ensemble, en unites. Chaque item d'un sous-type
+    compte pour ses unites (un flacon de 50 mL : 50 unites de meme peremption), sa consommation aussi."""
+    groups = {item_type.type for item_type in item_types if item_type.unit}
+    for item_type in item_types:
+        if item_type.group_id not in groups:
+            continue
+        fills = max(1, item_type.fills)
+        for place, held in units.get(item_type.type, {}).items():
+            units[item_type.group_id][place].extend(unit for unit in held for _ in range(fills))
+        for (place, type_id), rate in list(rates.items()):
+            if type_id == item_type.type:
+                rates[(place, item_type.group_id)] = rates.get((place, item_type.group_id), 0.0) + rate * fills
+        unconfirmed[item_type.group_id] += unconfirmed[item_type.type] * fills
+
+
+def _unit_order(row, item_type, item_types):
+    """Commande d'un type a unites : en items de son sous-type par defaut (sinon celui qui en remplit le plus),
+    arrondie a sa taille de paquet. La quantite en unites reste dans `units`."""
+    row['unit'] = item_type.unit
+    order = row['order']
+    subtypes = [other for other in item_types if other.group_id == item_type.type]
+    if order is None or not subtypes:
+        return
+    subtype = next((other for other in subtypes if other.type == item_type.default_subtype_id),
+                   max(subtypes, key=lambda other: other.fills))
+    count = math.ceil(order['quantity'] / max(1, subtype.fills))
+    pack = max(1, subtype.default_pack_size)
+    order.update({'units': order['quantity'], 'quantity': math.ceil(count / pack) * pack,
+                  'subtype': subtype.type, 'subtype_name': subtype.name})
 
 
 def _lot_rates(rates, type_id, places):
@@ -328,7 +365,7 @@ def _type_forecast(item_type, by_place, rates, places, today, horizon, month_sta
         rate_month = stock_rate * DAYS_PER_MONTH
         left = sum(1 for limit, fate in zip(stock_limits, stock_fates) if present_at(fate, limit, below))
         quantity = max(1, minimum + math.ceil(2 * rate_month) - left)
-        pack = max(1, item_type.default_pack_size)
+        pack = 1 if item_type.unit else max(1, item_type.default_pack_size)  # type a unites : voir _unit_order
         quantity = math.ceil(quantity / pack) * pack
         deadline = max(today, below_day - timedelta(days=lead_days))
         order = {'quantity': quantity, 'before': deadline, 'urgent': deadline <= today, 'below_min': below_day}

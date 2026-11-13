@@ -286,7 +286,8 @@ class SheetWriter:
             text(MARGIN, y + 8, "FICHE D'INVENTAIRE", size=8, bold=True, grey=GREY_TEXT)
             text(PAGE_WIDTH - MARGIN, y + 8, edited, size=8, grey=GREY_TEXT, align='right')
         y += 28
-        count = sum(requirement.quantity for _, rows in self.groups(lot) for requirement in rows)
+        # items a cocher sur la fiche (un attendu en unites, ex : 200 mL de serum phy, n'est pas un nombre d'items)
+        count = sum(requirement.quantity for _, rows in self.groups(lot) for requirement in rows if not requirement.unit)
         title = lot.name + (' (suite)' if continued else '')
         text(MARGIN, y, fit(title, width, 18, True), size=18, bold=True)
         y += 15
@@ -331,6 +332,13 @@ class SheetWriter:
             result.append(('location', location, band + 3))
             for requirement in rows:
                 name = requirement.item_type.name + (' (facultatif)' if requirement.optional else '')
+                if requirement.unit:
+                    # type a unites : « 200 × Sérum phy (mL, sachets ou flacons) »
+                    name += f" ({requirement.unit}, {' ou '.join(sorted(requirement.names.values()))})" \
+                        if requirement.names else f' ({requirement.unit})'
+                elif requirement.item_type.group_id and any(
+                        row.item_type_id == requirement.item_type.group_id for _, other in groups for row in other):
+                    name = 'dont ' + name  # minimum d'un sous-type compris dans son type a unites
                 lines = wrap(name, name_width(size), size, max_lines=2)
                 result.append(('item', (requirement, lines), line_height + (len(lines) - 1) * (size + 1)))
         return result
