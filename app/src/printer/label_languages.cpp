@@ -79,19 +79,31 @@ std::string zpl_signed(int value)
     return text;
 }
 
+// Marge de chaque cote de l'etiquette dans la zone d'impression : les imprimantes de bureau Zebra (GK420t)
+// centrent la zone ^PW sur la tete, comme le rouleau ; une zone a la largeur exacte de l'etiquette ne laisse pas
+// aller a gauche du 0 (« les objets s'arretent a la position 0 »). Zone elargie de cette marge de chaque cote,
+// sans depasser la tete (104 mm), 15 mm au plus : l'image y est placee au milieu, decalage compris.
+int zpl_side_margin(const RawJob& job)
+{
+    const double ppm = job.dots_per_mm > 0 ? job.dots_per_mm : 8.0;
+    const int head = static_cast<int>(std::lround(104.0 * ppm));
+    const int most = static_cast<int>(std::lround(15.0 * ppm));
+    return std::clamp((head - job.width_dots) / 2, 0, most);
+}
+
 // Reglages de position, dans le format (avant le premier ^FS) :
-// - horizontal : ^LS (« Left Position »), positif = vers la gauche, d'ou ^LS = -decalage ;
-// - vertical vers le bas : ^LH0,y (origine du format, « Label Home »), ^LT0. ^LT seul n'a aucun effet a
-//   l'impression sur une GK420t (firmware V61.17.17Z, essai du 13/11/2026) bien qu'il soit enregistre, alors que
-//   ^LH deplace le dessin ;
+// - horizontal : ^LHx (origine du format, « Label Home ») = marge + decalage, dans la zone elargie ; ^LS0 ;
+// - vertical vers le bas : ^LH x,y. ^LT seul n'a aucun effet a l'impression sur une GK420t (firmware V61.17.17Z,
+//   essai du 13/11/2026) bien qu'il soit enregistre, alors que ^LH deplace le dessin ;
 // - vertical vers le haut : ^LT negatif (« Label Top »), seule commande prevue pour remonter le dessin (^LH ne
 //   prend pas de valeur negative), borne a 120 points.
 std::string zpl_position(const RawJob& job)
 {
+    const int side = zpl_side_margin(job);
+    const int left = std::clamp(side + job.offset_x_dots, 0, 2 * side);
     const int down = std::max(0, job.offset_y_dots);
     const int up = std::clamp(std::min(0, job.offset_y_dots), -kZplMaxShiftRows, 0);
-    return "^LH0," + std::to_string(down) + "\n^LS" + std::to_string(-job.offset_x_dots) + "\n^LT" +
-           std::to_string(up) + "\n";
+    return "^LH" + std::to_string(left) + "," + std::to_string(down) + "\n^LS0\n^LT" + std::to_string(up) + "\n";
 }
 
 // ~TA : position d'arret apres impression (barre de decoupe), commande immediate hors format
@@ -103,9 +115,14 @@ std::string zpl_tear_off(const RawJob& job)
 // Format de l'etiquette chargee : support, type de suivi, largeur d'impression, longueur, position
 std::string zpl_media(const RawJob& job)
 {
-    return std::string("^MT") + (job.ribbon ? "T" : "D") + "\n^MNY\n^PW" + std::to_string(job.width_dots) +
+    return std::string("^MT") + (job.ribbon ? "T" : "D") + "\n^MNY\n^PW" + std::to_string(zpl_print_width(job)) +
            "\n^LL" + std::to_string(job.height_dots) + "\n" + zpl_position(job);
 }
+}
+
+int zpl_print_width(const RawJob& job)
+{
+    return job.width_dots + 2 * zpl_side_margin(job);
 }
 
 std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job)
