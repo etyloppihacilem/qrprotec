@@ -205,6 +205,17 @@ def with_units(rows, preload=None):
     return rows
 
 
+def lacking_text(row, times=' × '):
+    """Ce qui manque sur une ligne de requirements_status : « 3 × Compresses », ou pour un type a unites
+    « 50 mL de Sérum phy (2 × Sachet…) » avec le sous-type a prendre."""
+    lacking = row['required'] - row['present']
+    if not row.get('unit') or row.get('within'):
+        return f"{lacking}{times}{row['type_name']}"
+    text = f"{lacking} {row['unit']} de {row['type_name']}"
+    suggest = row.get('suggest')
+    return text + (f" ({suggest['count']} × {suggest['type_name']})" if suggest else '')
+
+
 def row_weights(fills, required, type_id):
     """Attendus d'un lot que remplit un item de ce type et combien d'unites il y compte : [(attendu, unites)].
     `required` : {attendu: quantite} du lot, `fills` : {attendu a unites: {sous-type: unites}}. Un item compte pour
@@ -616,6 +627,7 @@ def lot_coverage(lot, referentiel):
     placed = defaultdict(int)
     places = defaultdict(list)
     names = {}
+    converted = {}  # sous-type -> type a unites dans lequel il est compte
     stack = [lot]
     while stack:
         node = stack.pop()
@@ -625,8 +637,19 @@ def lot_coverage(lot, referentiel):
                 (node.lot_type.referentiel and node.lot_type_id != referentiel.type)
                 or (node.lot_type.part_of_id not in (None, referentiel.type))):
             continue
-        for requirement in lot_requirements(node, strict=True):
+        node_rows = lot_requirements(node, strict=True)
+        node_types = {requirement.item_type_id for requirement in node_rows}
+        for requirement in node_rows:
             type_id = requirement.item_type_id
+            group = requirement.item_type.group
+            if group is not None and group.unit and group.type not in node_types:
+                # sous-type range sans attendu de son type a unites dans ce sac (8 sachets de 25 mL) : il couvre
+                # la ligne du type a unites (200 mL de serum phy)
+                converted[type_id] = group.type
+                names[group.type] = group.name
+                placed[group.type] += requirement.quantity * max(1, requirement.item_type.fills)
+                places[group.type].append({'lot': node.id, 'lot_name': node.name, 'location': requirement.location,
+                                           'quantity': requirement.quantity * max(1, requirement.item_type.fills)})
             names[type_id] = requirement.item_type.name
             placed[type_id] += requirement.quantity
             places[type_id].append({'lot': node.id, 'lot_name': node.name, 'location': requirement.location,
@@ -639,10 +662,13 @@ def lot_coverage(lot, referentiel):
         type_id = requirement.item_type_id
         wanted.add(type_id)
         lines.append({'type': type_id, 'type_name': requirement.item_type.name, 'required': requirement.quantity,
-                      'placed': placed.get(type_id, 0), 'places': places.get(type_id, [])})
+                      'placed': placed.get(type_id, 0), 'places': places.get(type_id, []),
+                      'unit': requirement.item_type.unit})
+    wanted_groups = {line['type'] for line in lines if line['unit']}
     extra = [{'type': type_id, 'type_name': names[type_id], 'required': 0, 'placed': placed[type_id],
               'places': places[type_id]}
-             for type_id in sorted(set(placed) - wanted, key=lambda key: (name_key(names[key]), key))]
+             for type_id in sorted(set(placed) - wanted, key=lambda key: (name_key(names[key]), key))
+             if converted.get(type_id) not in wanted_groups]
     missing = [line for line in lines if line['placed'] < line['required']]
     return {'id': lot.id, 'name': lot.name, 'type': lot.lot_type_id, 'type_name': lot.lot_type.name,
             'complete': not missing, 'missing': len(missing), 'lines': lines, 'extra': extra}
@@ -1309,8 +1335,7 @@ def _complete_lots(group, scanned, not_seen, target, today, strict=False, checke
 def notify_verif_problem(lot, identity, requirements, report, newly_missing):
     """Vérif incomplète : notification web (type verif_problem, désactivé par défaut), qui ouvre la fiche du lot."""
     parts = []
-    lacking = [f"{row['required'] - row['present']} {row['type_name']}"
-               for row in requirements if row['present'] < row['required']]
+    lacking = [lacking_text(row, ' ') for row in requirements if row['present'] < row['required']]
     if lacking:
         parts.append('manque ' + ', '.join(lacking))
     if report['expired']:
@@ -1810,7 +1835,7 @@ def stock_status(soon_days=30):
         out=Count(items, filter=Q(**{f'{items}__status': ItemStatus.OUT})),
         loose=Count(items, filter=Q(**{f'{items}__status': ItemStatus.LOOSE})),
     )
-    return [
+    rows = [
         {
             'type': row.type,
             'name': row.name,
@@ -1826,6 +1851,30 @@ def stock_status(soon_days=30):
             'missing': row.missing,
             'out': row.out,
             'loose': row.loose,
+            # attentes en quantite : un type a unites compte en unites ce que ses sous-types remplissent
+            'unit': row.unit,
+            'group': row.group_id or '',
+            'fills': row.fills,
+            'default_subtype': row.default_subtype_id or '',
         }
         for row in queryset
     ]
+    return with_unit_totals(rows)
+
+
+STOCK_COUNTS = ('stock_fresh', 'stock_expired', 'lots_fresh', 'lots_expired', 'expiring_soon', 'stock_expiring_soon',
+                'lots_expiring_soon', 'missing', 'out', 'loose')
+
+
+def with_unit_totals(rows):
+    """Lignes de l'etat des stocks : celle d'un type a unites (« Sérum phy », mL) additionne les unites de ses
+    sous-types (2 sachets de 25 mL + 1 flacon de 50 mL : 100 mL) ; son minimum est en unites, celui de chaque
+    sous-type en items."""
+    by_type = {row['type']: row for row in rows}
+    for row in rows:
+        group = by_type.get(row['group'])
+        if group is None or not group['unit']:
+            continue
+        for key in STOCK_COUNTS:
+            group[key] += row[key] * max(1, row['fills'])
+    return rows

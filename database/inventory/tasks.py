@@ -111,9 +111,7 @@ def _report_tasks():
 
 
 def _missing_text(row):
-    parts = [f"{needed - present} × {name}" for name, needed, present in
-             ((req['type_name'], req['required'], req['present']) for req in row['requirements'])
-             if present < needed]
+    parts = [services.lacking_text(req) for req in row['requirements'] if req['present'] < req['required']]
     text = ', '.join(parts[:4]) + (f" et {plural(len(parts) - 4, 'autre')}" if len(parts) > 4 else '')
     return f'manque {text}' if parts else ''
 

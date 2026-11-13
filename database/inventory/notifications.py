@@ -15,6 +15,7 @@ remplacent. Son code est garde en commentaire ci-dessous, sans garantie qu'il fo
 reglages (NotificationSettings) et les destinataires (SmsRecipient) restent en base mais ne servent plus.
 """
 
+from collections import defaultdict
 from datetime import timedelta
 
 from django.db.models import Count, Q
@@ -124,22 +125,30 @@ def check_stock_levels(type_ids=None):
     today = timezone.localdate()
     queryset = ItemType.objects.filter(min_quantity__gt=0, archived=False)
     if type_ids is not None:
-        queryset = queryset.filter(type__in=set(type_ids))
+        type_ids = set(type_ids)
+        # un sous-type change aussi le stock de son type a unites (en mL)
+        type_ids |= set(ItemType.objects.filter(type__in=type_ids, group__isnull=False).values_list('group_id', flat=True))
+        queryset = queryset.filter(type__in=type_ids)
     low, empty = [], []
     item_types = list(queryset)
+    subtypes = {row[0]: (row[1], row[2]) for row in ItemType.objects.filter(
+        group__in=[item_type.type for item_type in item_types if item_type.unit]).values_list('type', 'group_id', 'fills')}
     # une seule requete groupee par type au lieu d'un COUNT par type (appele a chaque verif)
     in_stock = Q(location__isnull=True) | Q(location__lot_type__storage=True)  # rangements du stock compris
-    counts = dict(
-        Items.objects.filter(in_stock, pack__item_type__in=[item_type.type for item_type in item_types],
+    counts = defaultdict(int, dict(
+        Items.objects.filter(in_stock, pack__item_type__in=[item_type.type for item_type in item_types] + list(subtypes),
                              status=ItemStatus.ACTIVE)
         .exclude(pack__peremption__lt=today).exclude(disabled=True).exclude(revision_blocked_q(today))
         .order_by().values_list('pack__item_type').annotate(count=Count('iid'))
-    )
+    ))
+    for code, (group, fills) in subtypes.items():
+        counts[group] += counts.get(code, 0) * max(1, fills)  # stock d'un type a unites : en unites
     for item_type in item_types:
         count = counts.get(item_type.type, 0)
         changed = []
         if count < item_type.min_quantity and not item_type.low_notified:
-            low.append((item_type.name, count, item_type.min_quantity))
+            low.append((item_type.name, count,
+                        f'{item_type.min_quantity} {item_type.unit}' if item_type.unit else item_type.min_quantity))
             item_type.low_notified = True
             changed.append('low_notified')
         elif count >= item_type.min_quantity and item_type.low_notified:
@@ -258,8 +267,8 @@ def check_orders(today=None):
     if not due:
         return []
     ItemType.objects.filter(type__in=[row['type'] for row in due]).update(order_notified=True)
-    lines = [f'{row["name"]} : {row["order"]["quantity"]} (sous le minimum le {_day(row["order"]["below_min"])})'
-             for row in due]
+    lines = [f'{row["order"].get("subtype_name") or row["name"]} : {row["order"]["quantity"]} '
+             f'(sous le minimum le {_day(row["order"]["below_min"])})' for row in due]
     notify_admins('order_due', 'commande à passer', 'commande à passer : ' + ', '.join(lines))
     return lines
 
