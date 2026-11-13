@@ -23,8 +23,9 @@ struct RawPrinterSettings {
     int darkness = 8;                     // 0-15
     bool ribbon = true;                   // transfert thermique ; decoche = thermique direct
     double gap_mm = 2.0;                  // espace entre deux etiquettes
-    double offset_x_mm = 0.0;             // decalage de l'image sur l'etiquette
-    double offset_y_mm = 0.0;
+    double offset_x_mm = 0.0;             // decalage horizontal : positif = vers la droite
+    double offset_y_mm = 0.0;             // decalage vertical : positif = vers le bas
+    double tear_off_mm = 0.0;             // position d'arret (decoupe) : positif = l'etiquette sort plus loin
     int timeout_ms = 5000;
 };
 
@@ -48,6 +49,13 @@ struct PrintRequest {
     PrintSettings settings;
 };
 
+// Etat lu aupres de l'imprimante (TSPL / ZPL) ; la Niimbot B1 signale ses erreurs pendant l'impression
+struct PrinterStatus {
+    bool known = false;    // l'imprimante a repondu
+    bool blocking = false; // tete ouverte, plus d'etiquettes, plus de ruban, pause...
+    std::string text;      // en clair, pour l'interface
+};
+
 class Printer {
 public:
     virtual ~Printer() = default;
@@ -55,6 +63,7 @@ public:
     virtual void disconnect() = 0;
     virtual bool print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error) = 0;
     virtual bool send_command(const PrintSettings& settings, const std::string& command, std::string& error) = 0;
+    virtual PrinterStatus query_status(const PrintSettings& settings);
 };
 
 class NiimbotB1Printer final : public Printer {
@@ -68,17 +77,22 @@ private:
     SerialPort serial_;
 };
 
-// Imprimante TSPL ou ZPL : l'etiquette part d'un bloc. Pas de retour d'etat : une erreur papier ou
-// ruban s'affiche sur l'imprimante, qui garde l'etiquette et la sort une fois le probleme regle.
+// Imprimante TSPL ou ZPL : l'etiquette part d'un bloc. Avant chaque etiquette, l'etat est demande
+// (~HS en ZPL, <ESC>!? en TSPL) : tete ouverte, plus d'etiquettes ou de ruban, pause arretent la file
+// avec la raison. Une imprimante qui ne repond pas (liaison a sens unique) imprime sans verification.
 class RawLabelPrinter final : public Printer {
 public:
     bool connect(const PrintSettings& settings, std::string& error) override;
     void disconnect() override;
     bool print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error) override;
     bool send_command(const PrintSettings& settings, const std::string& command, std::string& error) override;
+    PrinterStatus query_status(const PrintSettings& settings) override;
 
 private:
+    PrinterStatus read_status(PrinterKind kind, int timeout_ms);
+
     RawTransport transport_;
+    bool silent_ = false; // pas de reponse a la premiere demande d'etat sur cette connexion : on ne redemande pas
 };
 
 // Imprimante choisie dans les reglages (PrintSettings::kind)
@@ -88,6 +102,7 @@ public:
     void disconnect() override;
     bool print(const PrintRequest& request, const std::function<void(float)>& progress, std::string& error) override;
     bool send_command(const PrintSettings& settings, const std::string& command, std::string& error) override;
+    PrinterStatus query_status(const PrintSettings& settings) override;
 
 private:
     Printer& select(PrinterKind kind);

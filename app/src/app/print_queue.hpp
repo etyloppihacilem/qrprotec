@@ -29,6 +29,7 @@ struct PrintJob {
     TemplateDocument document;    // parametres deja renseignes
     RasterImage      image;       // deja rendue (etiquette envoyee par un autre ordinateur) : imprimee telle quelle
     std::string      command;     // non vide : commande brute de maintenance (calibrage...), pas d'etiquette
+    bool             status_query = false; // lecture de l'etat de l'imprimante, pas d'etiquette
 };
 
 struct PrintQueueStatus {
@@ -42,6 +43,10 @@ struct PrintQueueStatus {
     std::string needed_label_summary; // « 40 x 30 mm, droite, thermique direct »
     std::string needed_for;           // etiquette qui attend ce rouleau
     bool        busy   = false;
+    // dernier etat lu aupres de l'imprimante TSPL / ZPL (bouton « Lire l'état » des Reglages)
+    std::string printer_state;
+    bool        printer_state_known    = false;
+    bool        printer_state_blocking = false;
 };
 
 // Imprime les etiquettes les unes apres les autres dans un thread dedie. En cas d'erreur (papier,
@@ -61,13 +66,17 @@ class PrintQueue {
     // si elle attendait ce type
     void             set_loaded_label_type(const std::string &name);
     void             cancel();
-    // Commande de maintenance (TSPL / ZPL brut) passee dans la file, apres les etiquettes en attente
+    // Commande de maintenance (TSPL / ZPL brut) : passe avant les etiquettes en attente, meme file en pause
     void             send_command(const std::string &description, const std::string &command, const PrintSettings &settings);
+    // Lecture de l'etat de l'imprimante, dans la file ; resultat dans status().printer_state
+    void             request_printer_state(const PrintSettings &settings);
     // Compteur d'impressions : chaque etiquette acceptee par l'imprimante y est ajoutee (avant la premiere impression)
     void             set_counter(PrintCounter *counter);
 
   private:
-    void run();
+    void        run();
+    static bool is_maintenance(const PrintJob &job) { return job.status_query || !job.command.empty(); }
+    void        push_maintenance(PrintJob job); // mutex_ tenu
 
     mutable std::mutex      mutex_;
     std::condition_variable condition_;

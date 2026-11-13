@@ -191,11 +191,26 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
                                    └─ NiimbotB1Printer ── SerialPort (/dev/ttyACM0, 115200 bauds), secours
 ```
 
-- **Imprimantes TSPL / ZPL** : l'image 1 bit part d'un bloc (`BITMAP` en TSPL, 0 = point noir ;
-  `^GFA` en ZPL, 1 = point noir), avec la taille de l'étiquette, l'espace entre étiquettes, la noirceur
-  et le ruban (`SET RIBBON` / `^MT`). Pas de retour d'état : une erreur papier ou ruban s'affiche sur
-  l'imprimante, qui sort l'étiquette une fois le problème réglé. La tête doit être en 203 dpi
-  (8 points/mm), la résolution des modèles.
+- **Imprimantes TSPL / ZPL** (`printer/label_languages.cpp`) : l'image 1 bit part d'un bloc
+  (`BITMAP` en TSPL, 0 = point noir ; `^GFA` en ZPL, 1 = point noir). La tête doit être en 203 dpi
+  (8 points/mm), la résolution des modèles. Chaque impression porte tout le format, chaque réglage
+  par la commande que la documentation du langage prévoit (rien n'est simulé dans le dessin) :
+  - ZPL : `~SD` (noirceur), `~TA` (position de découpe), puis dans `^XA … ^XZ` : `^MT` (ruban),
+    `^MNY` (étiquettes à interstice), `^PW` = largeur de l'étiquette, `^LL` = hauteur, `^LH0,0`,
+    `^LS` (décalage horizontal ; **positif = vers la gauche**, d'où `^LS` = −décalage), `^LT`
+    (décalage vertical, positif = vers le bas, borné à ±120 points), `^FO0,0^GFA`, `^PQ` ;
+  - TSPL : `SIZE`, `GAP`, `DIRECTION`, `REFERENCE 0,0`, `DENSITY`, `SET RIBBON`, `SET TEAR ON`,
+    `SHIFT x,y` (borné à ±1 pouce), `OFFSET` (position de découpe), `CLS`, `BITMAP`, `PRINT`.
+  - Maintenance (`maintenance_command`) : calibrage ZPL = format sans champ + `~JC` + `^JUS`, TSPL
+    `SIZE`/`GAP`/`SET RIBBON`/`GAPDETECT` ; avance `~PH` / `FORMFEED` ; configuration `~WC` /
+    `SELFTEST` ; réglages d'usine `^JUF` + `^JUS` / `INITIALPRINTER`. Ces commandes passent dans la
+    file (`PrintQueue::send_command`) avant les étiquettes, même file en pause, et ne sont pas
+    comptées comme impressions.
+  - État : `~HS` (ZPL, trois chaînes `STX … ETX` : papier, pause, tête ouverte, ruban…) ou
+    `<ESC>!?` (TSPL, un octet de drapeaux), lu par `RawTransport::read_reply` (socket, ou
+    `/dev/usb/lp0` ouvert en lecture-écriture). `RawLabelPrinter::print` le demande avant chaque
+    étiquette : un état bloquant met la file en pause avec la raison. Sans réponse (liaison à sens
+    unique), la connexion est marquée muette et l'impression continue sans contrôle.
 
 - **Modèles** : fichiers JSON `.qr` (`version`, `category`, `media` en mm, `elements` texte / QR /
   image, positions en mm). La catégorie (item, paquet, lot public, lot clé, scellé, ouverture du scellé, badge) détermine
