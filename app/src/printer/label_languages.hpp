@@ -30,4 +30,15 @@ std::vector<std::uint8_t> pack_rows(const RasterImage& image, bool one_is_black)
 std::vector<std::uint8_t> encode_tspl(const RasterImage& image, const RawJob& job);
 std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job);
 
+// Operations de maintenance lancees depuis les Reglages du poste
+enum class Maintenance {
+    Calibrate, // envoie le format (largeur, longueur, interstice, support) puis mesure l'interstice ; enregistre
+    Config,    // imprime l'etiquette de configuration de l'imprimante
+    Feed,      // avance d'une etiquette
+};
+
+// Commande brute pour l'operation. Seuls width_dots, height_dots, dots_per_mm, gap_mm et ribbon du job
+// servent (etiquette chargee).
+std::string maintenance_command(bool zpl, Maintenance action, const RawJob& job);
+
 } // namespace qrprotec::labels
