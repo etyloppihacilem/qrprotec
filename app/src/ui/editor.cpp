@@ -425,7 +425,7 @@ void Editor::draw_label_types() {
   if (ImGui::InputFloat("Marge de chaque côté (mm)", &margin, 0.1f, 0.5f, "%.1f"))
     type.margin_mm = std::clamp(std::round(margin * 10.0f) / 10.0f, 0.0f, 10.0f);
   ImGui::SetItemTooltip("Cadre pointillé orange dans l'éditeur : rien n'est imprimé en dehors, et l'étiquette "
-                        "d'étalonnage trace son cadre plein dessus. 0,5 mm par défaut : l'imprimante peut se "
+                        "d'étalonnage trace son cadre plein dessus. 1 mm par défaut : l'imprimante peut se "
                         "décaler de quelques dixièmes sans rien couper.");
   ImGui::TextDisabled("Format des modèles de ce type : %.1f x %.1f mm", type.design_width_mm(), type.design_height_mm());
   ImGui::Separator();

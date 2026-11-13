@@ -285,12 +285,12 @@ int main()
         assert(qrprotec::serialize_template(document).find("margin_mm") == std::string::npos);
         {
             qrprotec::TemplateDocument wide = document;
-            wide.label_type->margin_mm = 1.0;
+            wide.label_type->margin_mm = 1.5;
             qrprotec::TemplateDocument back;
             assert(qrprotec::save_template(wide, "/tmp/qrprotec-label-margin.json", error));
             assert(qrprotec::load_template(back, "/tmp/qrprotec-label-margin.json", error));
             std::remove("/tmp/qrprotec-label-margin.json");
-            assert(back.label_type && back.label_type->margin_mm == 1.0 && *back.label_type == *wide.label_type);
+            assert(back.label_type && back.label_type->margin_mm == 1.5 && *back.label_type == *wide.label_type);
         }
         assert(reloaded.elements.size() == 1);
         // liste des types : un par nom, triee
@@ -475,9 +475,9 @@ int main()
         assert(qrprotec::validate(typed).empty());
         const qrprotec::RasterImage image = qrprotec::calibration_image(typed, roll.effective_margin_mm());
         assert(image.width == 480 && image.height == 320);
-        // marge de 0,5 mm par defaut : bord blanc, cadre plein a 4 points du bord
-        assert(roll.margin_mm == 0.5 && image.at(0, 0) >= 128 && image.at(2, 80) >= 128);
-        assert(image.at(4, 4) < 128 && image.at(475, 315) < 128 && image.at(475, 4) < 128 && image.at(4, 315) < 128);
+        // marge de 1 mm par defaut : bord blanc, cadre plein a 8 points du bord
+        assert(roll.margin_mm == 1.0 && image.at(0, 0) >= 128 && image.at(5, 80) >= 128);
+        assert(image.at(8, 8) < 128 && image.at(471, 311) < 128 && image.at(471, 8) < 128 && image.at(8, 311) < 128);
         // sans marge : cadre au ras du bord
         const qrprotec::RasterImage edge = qrprotec::calibration_image(typed, 0.0);
         assert(edge.at(0, 0) < 128 && edge.at(479, 319) < 128);
@@ -488,8 +488,8 @@ int main()
             qrprotec::MediaSettings media;
             std::string error;
             assert(qrprotec::fit_to_label(black, qrprotec::physical_label_for(roll, 8.0), out, media, error));
-            assert(out.at(0, 0) == 255 && out.at(3, 160) == 255 && out.at(476, 160) == 255 && out.at(240, 319) == 255);
-            assert(out.at(4, 4) == 0 && out.at(475, 315) == 0);
+            assert(out.at(0, 0) == 255 && out.at(7, 160) == 255 && out.at(472, 160) == 255 && out.at(240, 312) == 255);
+            assert(out.at(8, 8) == 0 && out.at(471, 311) == 0);
             qrprotec::LabelType none = roll;
             none.margin_mm = 0.0;
             assert(qrprotec::fit_to_label(black, qrprotec::physical_label_for(none, 8.0), out, media, error));
@@ -498,14 +498,14 @@ int main()
         assert(image.at(240, 160) < 128 && image.at(240, 5) < 128 && image.at(5, 160) < 128); // croix
         assert(image.at(360, 80) >= 128 && image.at(420, 240) >= 128); // quarts vides (mode d'emploi en bas a gauche)
         roll.rotation = 90; // rouleau imprime en portrait : croix au centre du modele tourne
-        const qrprotec::RasterImage turned = qrprotec::calibration_image(qrprotec::calibration_document(roll, true), 0.5);
+        const qrprotec::RasterImage turned = qrprotec::calibration_image(qrprotec::calibration_document(roll, true), 1.0);
         assert(turned.width == 320 && turned.height == 480 && turned.at(160, 240) < 128);
         if (const char *out = std::getenv("QRPROTEC_CALIBRATION_PNG")) {
             std::string error;
             qrprotec::write_png(image, std::string(out) + "-60x40.png", error);
             qrprotec::LabelType small;
             small.name = "40 x 30 mm";
-            qrprotec::write_png(qrprotec::calibration_image(qrprotec::calibration_document(small, true), 0.5),
+            qrprotec::write_png(qrprotec::calibration_image(qrprotec::calibration_document(small, true), 1.0),
                                 std::string(out) + "-40x30.png", error);
         }
     }

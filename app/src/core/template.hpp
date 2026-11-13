@@ -49,7 +49,7 @@ struct LabelType {
     // Marge d'impression de chaque cote (mm) : cadre dans lequel le modele est imprime, centre sur l'etiquette.
     // Ce qui depasse du cadre n'est pas imprime : l'imprimante peut se decaler de quelques dixiemes de mm
     // sans rien couper. Ecrite dans le .qr seulement si elle differe de la valeur par defaut.
-    static constexpr double kDefaultMarginMm = 0.5;
+    static constexpr double kDefaultMarginMm = 1.0;
     double margin_mm = kDefaultMarginMm;
 
     bool operator==(const LabelType& other) const;
