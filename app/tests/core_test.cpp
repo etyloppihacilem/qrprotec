@@ -466,13 +466,17 @@ int main()
         assert(image.width == 480 && image.height == 320);
         assert(image.at(0, 0) < 128 && image.at(479, 319) < 128 && image.at(479, 0) < 128 && image.at(0, 319) < 128);
         assert(image.at(240, 160) < 128 && image.at(240, 5) < 128 && image.at(5, 160) < 128); // croix
-        assert(image.at(360, 80) >= 128 && image.at(360, 240) >= 128 && image.at(120, 240) >= 128); // quarts vides
+        assert(image.at(360, 80) >= 128 && image.at(420, 240) >= 128); // quarts vides (mode d'emploi en bas a gauche)
         roll.rotation = 90; // rouleau imprime en portrait : croix au centre du modele tourne
         const qrprotec::RasterImage turned = qrprotec::calibration_image(qrprotec::calibration_document(roll, true));
         assert(turned.width == 320 && turned.height == 480 && turned.at(160, 240) < 128);
         if (const char *out = std::getenv("QRPROTEC_CALIBRATION_PNG")) {
             std::string error;
-            qrprotec::write_png(image, out, error);
+            qrprotec::write_png(image, std::string(out) + "-60x40.png", error);
+            qrprotec::LabelType small;
+            small.name = "40 x 30 mm";
+            qrprotec::write_png(qrprotec::calibration_image(qrprotec::calibration_document(small, true)),
+                                std::string(out) + "-40x30.png", error);
         }
     }
 
