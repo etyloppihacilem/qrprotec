@@ -61,6 +61,12 @@ def item_type_dict(item_type):
         'revision_tasks': list(item_type.revision_tasks or []),
         'revision_usable': item_type.revision_usable,
         'archived': item_type.archived,
+        # attentes en quantite : type a unites (unit, ex : mL) rempli par ses sous-types, ou sous-type (group) qui en
+        # remplit fills unites ; default_subtype : sous-type propose par defaut (reception, commande, reassort)
+        'unit': item_type.unit,
+        'group': item_type.group_id or '',
+        'fills': item_type.fills,
+        'default_subtype': item_type.default_subtype_id or '',
     }
 
 
