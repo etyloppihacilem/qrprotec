@@ -1114,7 +1114,7 @@ class LotAdminWindow final : public AppWindow {
           ImGui::TableNextColumn();
           if (titles)
             ImGui::Indent(14.0f);
-          ImGui::TextUnformatted((*row)["type_name"].str().c_str());
+          ImGui::TextUnformatted(requirement_name(*row).c_str());
           if ((*row)["extra"].integer() > 0) {
             ImGui::SameLine();
             ImGui::TextDisabled("(dont %d propre à ce lot)", static_cast< int >((*row)["extra"].integer()));
@@ -1226,7 +1226,7 @@ class LotAdminWindow final : public AppWindow {
               DistributionCell &cell = distribution_[referentiel + "|" + type + "|" + sac["id"].str()];
               ImGui::SetNextItemWidth(-FLT_MIN);
               if (ImGui::InputInt("##quantity", &cell.quantity, 1, 1))
-                cell.quantity = std::clamp(cell.quantity, 0, 999);
+                cell.quantity = std::clamp(cell.quantity, 0, 100000); // en unites pour un type a unites (mL)
               if (cell.quantity > 0) {
                 std::vector< std::string > places;
                 for (const Json &location : sac["locations"].items())
@@ -1963,6 +1963,16 @@ class LotAdminWindow final : public AppWindow {
         ImGui::InputInt("##qty", &row.quantity);
         row.quantity = std::max(1, row.quantity);
         ImGui::SameLine();
+        // type a unites (serum phy en mL) : la quantite est en unites, remplie par n'importe lequel de ses sous-types
+        for (const Json &item_type : item_types.items())
+          if (item_type["type"].str() == row.type && !item_type["unit"].str().empty()) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", item_type["unit"].str().c_str());
+            ImGui::SetItemTooltip("Quantité en %s : n'importe lequel de ses sous-types la remplit (chacun pour ses %s). "
+                                  "Ajoutez aussi un sous-type pour en exiger un minimum compris dedans (« dont »).",
+                                  item_type["unit"].str().c_str(), item_type["unit"].str().c_str());
+            ImGui::SameLine();
+          }
         // facultatif : seulement du materiel non consommable sans taches (ex : les casques du VPS)
         const bool optional_ok = can_be_optional(item_types, row.type);
         row.optional           = row.optional && optional_ok;
