@@ -669,6 +669,7 @@ void App::draw() {
     ImGui::PopStyleColor(4);
   draw_label_prints();
   draw_roll_change_modal();
+  draw_roll_wizard();
   inateck.draw_window();
   draw_setup_modal();
   draw_server_modal();
@@ -826,10 +827,16 @@ void App::draw_menu_bar() {
         if (!print.current.empty())
           ImGui::Text("En cours : %s", print.current.c_str());
         if (print.paused && !print.needed_label_type.empty()) {
+          if (ImGui::MenuItem("Changer de rouleau (pas à pas)..."))
+            open_roll_wizard(print.needed_label_type);
           if (ImGui::MenuItem(("Les étiquettes « " + print.needed_label_type + " » sont chargées").c_str()))
             set_loaded_label_type(print.needed_label_type);
-        } else if (print.paused && ImGui::MenuItem("Reprendre l'impression"))
-          printer.resume();
+        } else if (print.paused) {
+          if (ImGui::MenuItem("Reprendre l'impression"))
+            printer.resume();
+          if (ImGui::MenuItem("Changer de rouleau (pas à pas)..."))
+            open_roll_wizard();
+        }
         if (ImGui::MenuItem("Annuler les impressions en attente"))
           printer.cancel();
         ImGui::EndMenu();
@@ -5035,7 +5042,12 @@ void App::draw_roll_change_modal() {
   ImGui::Spacing();
   ImGui::Separator();
   // pas de validation par Entree : la douchette en mode clavier en envoie une a chaque scan
-  if (primary_button(("C'est fait : « " + needed + " » est en place").c_str(), ImVec2(width, 0))) {
+  if (primary_button("Me guider pas à pas", ImVec2(width, 0))) {
+    roll_change_dismissed_ = needed; // l'assistant prend le relais ; il declare le rouleau a la fin
+    open_roll_wizard(needed);
+    ImGui::CloseCurrentPopup();
+  }
+  if (button(("C'est fait : « " + needed + " » est en place").c_str(), ImVec2(width, 0))) {
     set_loaded_label_type(needed);
     ImGui::CloseCurrentPopup();
   }

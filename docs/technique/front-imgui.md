@@ -211,6 +211,11 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
     `/dev/usb/lp0` ouvert en lecture-écriture). `RawLabelPrinter::print` le demande avant chaque
     étiquette : un état bloquant met la file en pause avec la raison. Sans réponse (liaison à sens
     unique), la connexion est marquée muette et l'impression continue sans contrôle.
+  - Assistant **Changer de rouleau** (`app/roll_change.cpp`, `App::open_roll_wizard`) : écrans des
+    gestes, puis `send_command` (réglages d'usine, calibrage au format du rouleau choisi via
+    `printer_media_job`), `request_printer_state` et `set_loaded_label_type`. Ouvert depuis la
+    fenêtre « Changez de rouleau » de la file en pause, le menu de l'impression, Impressions et
+    consommables et les Réglages.
 
 - **Modèles** : fichiers JSON `.qr` (`version`, `category`, `media` en mm, `elements` texte / QR /
   image, positions en mm). La catégorie (item, paquet, lot public, lot clé, scellé, ouverture du scellé, badge) détermine
