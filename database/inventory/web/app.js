@@ -26,6 +26,12 @@
   const STORAGE_USER = 'qrprotec.user';
   const NAME_SESSION_MS = 11.5 * 3600 * 1000;  // connexion par nom et PIN : jeton de session valable 12 h
   const STORAGE_SESSION = 'qrprotec.session';
+  // « Web partagé » (tablettes de l'antenne) : reglage de cet appareil, coche par la gestion ou un admin, garde dans les
+  // donnees persistantes du site (localStorage, protege par navigator.storage.persist). Coche : la connexion n'est
+  // gardee que dans l'onglet (sessionStorage, perdue a la fermeture de l'appli) et finit apres 1 h sans activite.
+  const STORAGE_SHARED_WEB = 'qrprotec.shared-web';
+  const STORAGE_ACTIVITY = 'qrprotec.activity'; // derniere activite de la personne connectee (web partage)
+  const SHARED_IDLE_MS = 60 * 60 * 1000;
   const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
   const STORAGE_NAME = 'qrprotec.declared-name';   // nom declare (sans badge), si le serveur l'autorise
   const STORAGE_FICHE_KEY = 'qrprotec.fiche-key';
@@ -117,6 +123,21 @@
   const identity = () => (state.user ? { user: credentials() }
     : guestInTeam() ? { guest: true, name: state.guest } : { name: state.declaredName });
 
+  function sharedWeb() {
+    try { return localStorage.getItem(STORAGE_SHARED_WEB) === '1'; } catch (e) { return false; }
+  }
+  function lastActivity() {
+    try { return Number(sessionStorage.getItem(STORAGE_ACTIVITY)) || 0; } catch (e) { return 0; }
+  }
+  // Activite de la personne connectee (toucher, clavier, douchette) : retient l'heure, au plus une fois par minute
+  let activityAt = 0;
+  function noteActivity() {
+    const now = Date.now();
+    if (now - activityAt < 60 * 1000) return;
+    activityAt = now;
+    try { sessionStorage.setItem(STORAGE_ACTIVITY, String(now)); } catch (e) { /* ignore */ }
+  }
+
   function save() {
     try {
       localStorage.setItem(STORAGE_SESSION, JSON.stringify({
@@ -128,8 +149,12 @@
         extra: state.extra.map(({ id, key }) => ({ id, key })),
         scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place }) => ({ code, kind, iid, key, info, expired, error, items, place })),
       }));
-      if (state.user) localStorage.setItem(STORAGE_USER, JSON.stringify(state.user));
-      else localStorage.removeItem(STORAGE_USER);
+      // web partage : la connexion reste dans l'onglet, jamais dans les donnees gardees de l'appareil
+      const kept = sharedWeb() ? sessionStorage : localStorage;
+      const other = kept === localStorage ? sessionStorage : localStorage;
+      other.removeItem(STORAGE_USER);
+      if (state.user) kept.setItem(STORAGE_USER, JSON.stringify(state.user));
+      else kept.removeItem(STORAGE_USER);
       if (state.declaredName) localStorage.setItem(STORAGE_NAME, state.declaredName);
       else localStorage.removeItem(STORAGE_NAME);
     } catch (e) { /* stockage indisponible (navigation privee) : la page fonctionne sans */ }
@@ -137,11 +162,14 @@
 
   function restore() {
     try {
-      const user = JSON.parse(localStorage.getItem(STORAGE_USER) || 'null');
+      const shared = sharedWeb();
+      const user = JSON.parse((shared ? sessionStorage : localStorage).getItem(STORAGE_USER) || 'null');
+      // web partage : connexion oubliee apres 1 h sans activite, meme si l'onglet est reste ouvert
+      const idle = shared && user && Date.now() - lastActivity() >= SHARED_IDLE_MS;
       // connexion par nom et PIN : pas de cle de badge, le jeton de session (12 h) est le seul identifiant
       // connexion de depannage (QR code temporaire d'un admin) : 24 h (sessionMs donne par le serveur)
       const sessionOk = user && (user.key || (user.loginAt && Date.now() - user.loginAt < (user.sessionMs || NAME_SESSION_MS)));
-      if (user && sessionOk && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
+      if (user && sessionOk && !idle && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
       state.declaredName = localStorage.getItem(STORAGE_NAME) || '';
       const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
       const fresh = session && session.at && Date.now() - session.at < SESSION_TIMEOUT_MS;
@@ -713,6 +741,7 @@
     const camera = $('#camera');
     camera.classList.add('hit');
     setTimeout(() => camera.classList.remove('hit'), 300);
+    userActive();
     handleCode(code);
   }
 
@@ -2285,6 +2314,8 @@
 
   function loggedIn(user) {
     const action = takeLoginAction(); // action qui attendait la connexion (signalement)
+    activityAt = 0;
+    noteActivity(); // web partage : l'heure d'inactivite part de la connexion
     state.user = user;
     state.guest = null; // connecte : plus invite
     rememberScanBubble();
@@ -3882,9 +3913,9 @@
     else if (inHome()) showHome(state.homePage || 'menu', false);
   }
 
-  function logout() {
+  function logout(message) {
     state.user = null;
-    toast('Déconnecté.');
+    toast(message || 'Déconnecté.');
     save();
     live.identity();
     state.reports = null;
@@ -3894,6 +3925,20 @@
     if (inHome() && ['live', 'stock', 'reports', 'lists'].includes(state.homePage)) showHome('menu', false);
     render();
   }
+
+  // Web partage : deconnexion apres 1 h sans activite, verifiee chaque minute et avant de compter un nouveau geste
+  // (la tablette en veille suspend les minuteries : le premier toucher au reveil deconnecte d'abord)
+  function checkSharedIdle() {
+    if (!state.user || !sharedWeb() || Date.now() - lastActivity() < SHARED_IDLE_MS) return;
+    logout('Déconnecté après 1 h sans activité.');
+  }
+  function userActive() {
+    checkSharedIdle();
+    noteActivity();
+  }
+  for (const type of ['pointerdown', 'keydown']) document.addEventListener(type, userActive, { capture: true, passive: true });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSharedIdle(); });
+  setInterval(checkSharedIdle, 60 * 1000);
 
   $('#home-user').addEventListener('click', async () => {
     if (state.user) {
@@ -5095,6 +5140,7 @@
     $('#notifications-title').hidden = !notifications;
     $('#notifications-body').hidden = !notifications;
     if (notifications) renderNotifications();
+    renderSharedSettings();
     $('#notifications').showModal();
     if (notifications) loadPush();
   }
@@ -5292,6 +5338,47 @@
         ? 'Le code PIN est obligatoire pour les administrateurs.' : 'Le TECH a rendu le code PIN obligatoire.'));
     }
     box.replaceChildren(...parts);
+  }
+
+  // « Web partagé » : reglage de cet appareil (tablette de l'antenne), tout en bas des reglages. Coche ou decoche par
+  // la gestion et les admins seulement ; les autres le voient (grise) seulement quand il est coche, pour comprendre
+  // pourquoi ils sont deconnectes.
+  function renderSharedSettings() {
+    const box = $('#settings-shared');
+    if (!box) return;
+    const on = sharedWeb();
+    const editable = canSeeStock();
+    box.hidden = !on && !editable;
+    if (box.hidden) { box.replaceChildren(); return; }
+    const input = el('input', { type: 'checkbox' });
+    input.checked = on;
+    input.disabled = !editable;
+    input.addEventListener('change', () => saveSharedWeb(input.checked));
+    box.replaceChildren(el('h3', {}, 'Appareil'),
+      el('label', { class: 'settings-check' }, input, el('span', {}, 'Web partagé', el('br'),
+        el('small', { class: 'hint' }, 'Pour les tablettes de l\'antenne : la connexion n\'est pas gardée comme sur un '
+          + 'téléphone personnel (elle s\'arrête à la fermeture de l\'appli) et finit après 1 h sans activité. '
+          + 'Réglage de cet appareil seulement.'
+          + (editable ? '' : ' Modifiable par la gestion ou le TECH.')))));
+  }
+
+  function saveSharedWeb(on) {
+    if (!canSeeStock()) return;
+    try {
+      if (on) localStorage.setItem(STORAGE_SHARED_WEB, '1');
+      else localStorage.removeItem(STORAGE_SHARED_WEB);
+    } catch (e) {
+      toast('Stockage du site indisponible sur cet appareil : réglage non enregistré.', true);
+      renderSharedSettings();
+      return;
+    }
+    // le navigateur peut vider les donnees d'un site peu visite : on demande a les garder
+    if (on && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    activityAt = 0;
+    noteActivity();
+    save(); // la connexion en cours passe dans l'onglet (ou en revient)
+    toast(on ? 'Web partagé activé sur cet appareil.' : 'Web partagé désactivé sur cet appareil.');
+    renderSharedSettings();
   }
 
   // Reglages de la vérif (models.WEB_PREFS) : ligne d'info sous la camera, explication apres la connexion

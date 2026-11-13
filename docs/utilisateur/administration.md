@@ -310,6 +310,14 @@ retire (un téléphone perdu, par exemple).
 - Sur iPhone (iOS 16.4 ou plus), installer d'abord l'appli sur l'écran d'accueil (Réglages ⚙ > Installer l'appli).
 - La borne doit avoir un certificat HTTPS reconnu par le téléphone, et un accès Internet sortant.
 
+### Tablettes de l'antenne : Web partagé
+
+Sur une tablette laissée à l'antenne, connectez-vous en gestion ou en admin et cochez **Web partagé**
+tout en bas des réglages ⚙ (décoché par défaut). Le réglage vaut pour cet appareil seulement et reste
+enregistré dans les données du site. Sur cet appareil, une connexion n'est plus gardée comme sur un
+téléphone personnel : elle s'arrête à la fermeture de l'appli et après **1 h sans activité**. Les
+secouristes voient la case grisée ; seuls la gestion et les admins peuvent la décocher.
+
 ## Sauvegardes
 
 La borne fait une sauvegarde automatique chaque jour (base, configuration, réglages et modèles
