@@ -65,6 +65,13 @@ int main()
     assert(zpl.find("^FO16,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
     assert(zpl.find("^PQ2\n^XZ\n") != std::string::npos);
 
+    // decalage negatif : ^LS / ^LT en ZPL, SHIFT en TSPL
+    job.offset_x_dots = -8;
+    job.offset_y_dots = -16;
+    const std::string shifted = as_text(qrprotec::labels::encode_zpl(label, job));
+    assert(shifted.find("^LS8\n^LT-16\n^FO0,0^GFA") != std::string::npos);
+    assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT -8,-16\r\nCLS\r\nBITMAP 0,0,") != std::string::npos);
+
     // maintenance : calibrage sur l'etiquette chargee (40 x 30 mm, thermique direct)
     using qrprotec::labels::Maintenance;
     qrprotec::labels::RawJob media;

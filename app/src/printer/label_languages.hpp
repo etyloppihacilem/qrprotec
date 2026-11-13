@@ -19,7 +19,7 @@ struct RawJob {
     int darkness = 8;      // TSPL DENSITY 0-15 ; ZPL ~SD 0-30 (double de la valeur)
     bool ribbon = true;    // transfert thermique (ruban) ; sinon thermique direct
     double gap_mm = 2.0;   // espace entre deux etiquettes (TSPL GAP)
-    int offset_x_dots = 0; // decalage de l'image sur l'etiquette (>= 0)
+    int offset_x_dots = 0; // decalage de l'image sur l'etiquette ; negatif : vers la gauche / le haut
     int offset_y_dots = 0;
 };
 

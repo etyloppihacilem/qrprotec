@@ -13,6 +13,7 @@
 #include "../../core/template_io.hpp"
 #include "../../inateck/scanner_settings.hpp"
 #include "../../printer/label_languages.hpp"
+#include "../../render/label_types.hpp"
 #include "../editor.hpp"
 #include "../file_picker.hpp"
 #include "../widgets.hpp"
@@ -384,13 +385,14 @@ class SettingsWindow final : public AppWindow {
           float offset_x = static_cast< float >(raw.offset_x_mm);
           ImGui::SetNextItemWidth(150.0f);
           if (ImGui::InputFloat("Décalage horizontal (mm)", &offset_x, 0.5f, 1.0f, "%.1f"))
-            raw.offset_x_mm = std::clamp(offset_x, 0.0f, 50.0f);
+            raw.offset_x_mm = std::clamp(offset_x, -15.0f, 50.0f);
           float offset_y = static_cast< float >(raw.offset_y_mm);
           ImGui::SetNextItemWidth(150.0f);
           if (ImGui::InputFloat("Décalage vertical (mm)", &offset_y, 0.5f, 1.0f, "%.1f"))
-            raw.offset_y_mm = std::clamp(offset_y, 0.0f, 50.0f);
+            raw.offset_y_mm = std::clamp(offset_y, -15.0f, 50.0f);
           help_marker("À régler seulement si l'impression est décalée sur l'étiquette (imprimante qui aligne le "
-                      "rouleau sur un bord au lieu de le centrer).");
+                      "rouleau sur un bord au lieu de le centrer) : imprimer l'étiquette d'étalonnage ci-dessous. "
+                      "Positif : vers la droite / le bas ; négatif : vers la gauche / le haut.");
           ImGui::TextDisabled("Pas de retour d'état : une erreur papier ou ruban s'affiche sur l'imprimante.");
           draw_printer_maintenance(app, settings);
         }
@@ -465,12 +467,22 @@ class SettingsWindow final : public AppWindow {
       double              width  = label.width_mm;
       double              height = label.height_mm;
       bool                ribbon = settings.print.raw.ribbon;
+      LabelType           loaded;
+      bool                typed = false;
       for (const LabelType &type : label_types_)
         if (!settings.print.loaded_label_type.empty() && type.name == settings.print.loaded_label_type) {
           width  = type.width_mm;
           height = type.height_mm;
           ribbon = type.support == LabelSupport::Transfer;
+          loaded = type;
+          typed  = true;
         }
+      if (!typed) { // format libre : etiquette des Reglages, droite
+        loaded.width_mm  = width;
+        loaded.height_mm = height;
+        loaded.rotation  = 0;
+        loaded.support   = ribbon ? LabelSupport::Transfer : LabelSupport::Direct;
+      }
       labels::RawJob job;
       job.dots_per_mm = label.pixels_per_mm > 0 ? label.pixels_per_mm : 8.0;
       job.width_dots  = static_cast< int >(std::lround(width * job.dots_per_mm));
@@ -496,6 +508,18 @@ class SettingsWindow final : public AppWindow {
         send(labels::Maintenance::Config, "Page de configuration");
       help_marker("Imprime les réglages de l'imprimante (taille, capteur, résolution, réseau) : utile pour vérifier "
                   "un calibrage ou retrouver son adresse IP. Elle sort sur une ou plusieurs étiquettes.");
+      if (button("Étiquette d'étalonnage")) {
+        PrintJob job;
+        job.description = "Étiquette d'étalonnage";
+        job.document    = calibration_document(loaded, typed);
+        job.image       = calibration_image(job.document);
+        app.print_documents({ job });
+        printer_message_ = "Étiquette d'étalonnage : envoyée à l'imprimante.";
+      }
+      help_marker("Cadre au ras du bord, cadre pointillé à 1 mm et croix au centre graduée en millimètres, à la "
+                  "taille de l'étiquette chargée. Un cadre coupé d'un côté ou une croix décentrée de N traits : "
+                  "décaler de N mm (Décalage horizontal / vertical), ou recalibrer si l'impression déborde sur "
+                  "l'étiquette suivante.");
       ImGui::TextDisabled("Étiquette : %.0f x %.0f mm, %s", width, height, ribbon ? "transfert (ruban)" : "thermique direct");
       if (!printer_message_.empty())
         ImGui::TextUnformatted(printer_message_.c_str());

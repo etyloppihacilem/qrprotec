@@ -184,4 +184,99 @@ TemplateDocument roll_code_document(const LabelType& roll, const LabelType& prin
     return document;
 }
 
+TemplateDocument calibration_document(const LabelType& type, bool with_type) {
+    TemplateDocument document;
+    document.name = "Étalonnage " + type.summary();
+    document.category = TemplateCategory::Generic;
+    if (with_type)
+        document.label_type = type;
+    apply_label_type(document.media, type);
+    const float width = static_cast<float>(type.design_width_mm());
+    const float height = static_cast<float>(type.design_height_mm());
+    // texte dans le quart haut-gauche, entre le cadre et la croix
+    const float margin = 1.5f;
+    const float size = std::clamp(std::min(width, height) / 12.0f, 1.4f, 3.0f);
+    char format[64];
+    std::snprintf(format, sizeof(format), "%g × %g mm", std::round(type.width_mm * 10.0) / 10.0,
+                  std::round(type.height_mm * 10.0) / 10.0);
+    const std::vector<std::pair<std::string, bool>> lines = {{"ÉTALONNAGE", true}, {format, false}};
+    float y = margin;
+    for (std::size_t index = 0; index < lines.size(); ++index) {
+        TextElement text;
+        text.text = lines[index].first;
+        text.bold = lines[index].second;
+        text.x_mm = margin;
+        text.y_mm = y;
+        text.width_mm = std::max(1.0f, width / 2.0f - margin - 1.0f);
+        text.height_mm = size + 0.4f;
+        text.font_size_mm = size;
+        y += text.height_mm;
+        TemplateElement element;
+        element.id = index == 0 ? "title" : "format";
+        element.kind = ElementKind::Text;
+        element.content = text;
+        document.elements.push_back(element);
+    }
+    return document;
+}
+
+RasterImage calibration_image(const TemplateDocument& document) {
+    RasterImage image = render_template(document);
+    const int width = image.width;
+    const int height = image.height;
+    if (width <= 0 || height <= 0)
+        return image;
+    const double ppm = document.media.pixels_per_mm > 0 ? document.media.pixels_per_mm : 8.0;
+    const auto dot = [&](int x, int y) {
+        if (x >= 0 && y >= 0 && x < width && y < height)
+            image.at(x, y) = 0;
+    };
+    const int mm1 = std::max(1, static_cast<int>(std::lround(ppm)));
+    // cadre plein au ras du bord (2 points) et cadre pointille a 1 mm
+    for (int x = 0; x < width; ++x) {
+        for (const int y : {0, 1, height - 2, height - 1})
+            dot(x, y);
+        if (x % 4 == 0) {
+            dot(x, mm1);
+            dot(x, height - 1 - mm1);
+        }
+    }
+    for (int y = 0; y < height; ++y) {
+        for (const int x : {0, 1, width - 2, width - 1})
+            dot(x, y);
+        if (y % 4 == 0) {
+            dot(mm1, y);
+            dot(width - 1 - mm1, y);
+        }
+    }
+    // croix au centre (2 points d'epaisseur), graduee tous les millimetres depuis le centre
+    const int cx = width / 2;
+    const int cy = height / 2;
+    for (int x = 0; x < width; ++x) {
+        dot(x, cy - 1);
+        dot(x, cy);
+    }
+    for (int y = 0; y < height; ++y) {
+        dot(cx - 1, y);
+        dot(cx, y);
+    }
+    const auto tick = [&](int step) {
+        const int length = step % 10 == 0 ? 3 * mm1 / 2 : step % 5 == 0 ? mm1 : mm1 / 2;
+        return std::max(2, length);
+    };
+    for (int step = 1;; ++step) {
+        const int offset = static_cast<int>(std::lround(step * ppm));
+        if (offset > cx && offset > cy && offset > width - cx && offset > height - cy)
+            break;
+        const int length = tick(step);
+        for (int d = -length; d <= length; ++d) {
+            for (const int x : {cx - offset, cx + offset - 1}) // horizontale
+                dot(x, cy + d);
+            for (const int y : {cy - offset, cy + offset - 1}) // verticale
+                dot(cx + d, y);
+        }
+    }
+    return image;
+}
+
 } // namespace qrprotec
