@@ -95,7 +95,7 @@ WEASYPRINT_FLAGS ?=
 DOC_DIR := dist/doc
 DOC_DEPS := $(wildcard docs/*.md docs/*/*.md) docs/pdf/assemble.lua docs/pdf/template.html docs/pdf/print.css
 DOC_UTILISATEUR := $(addprefix docs/utilisateur/,README.md notions.md mise-en-place.md verifier-un-lot.md \
-                   gerer-le-stock.md administration.md depannage.md)
+                   gerer-le-stock.md administration.md imprimante.md depannage.md)
 DOC_INSTALLATION := $(addprefix docs/installation/,README.md borne-complete.md back-seul.md front-seul.md \
                     exploitation.md)
 DOC_TECHNIQUE := $(addprefix docs/technique/,README.md architecture.md donnees.md regles-de-gestion.md back.md websockets.md \

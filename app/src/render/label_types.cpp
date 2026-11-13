@@ -184,6 +184,32 @@ TemplateDocument roll_code_document(const LabelType& roll, const LabelType& prin
     return document;
 }
 
+namespace {
+// Graduations chiffrees depuis chaque bord, au bout des axes de la croix (decalage a lire au ras du bord)
+int calibration_edge_marks(double length_mm) {
+    return std::clamp(static_cast<int>(length_mm / 2.0 - 4.0), 0, 4);
+}
+
+void add_text(TemplateDocument& document, const std::string& id, const std::string& value, float x, float y,
+              float width, float size, bool bold, TextAlign align) {
+    TextElement text;
+    text.text = value;
+    text.bold = bold;
+    text.width_mm = std::max(0.5f, width);
+    text.height_mm = size + 0.4f;
+    // reste dans l'etiquette (chiffres au ras du bord)
+    text.x_mm = std::clamp(x, 0.0f, std::max(0.0f, static_cast<float>(document.media.width_mm) - text.width_mm - 0.01f));
+    text.y_mm = std::clamp(y, 0.0f, std::max(0.0f, static_cast<float>(document.media.height_mm) - text.height_mm - 0.01f));
+    text.font_size_mm = size;
+    text.align = align;
+    TemplateElement element;
+    element.id = id;
+    element.kind = ElementKind::Text;
+    element.content = text;
+    document.elements.push_back(element);
+}
+} // namespace
+
 TemplateDocument calibration_document(const LabelType& type, bool with_type) {
     TemplateDocument document;
     document.name = "Étalonnage " + type.summary();
@@ -193,30 +219,61 @@ TemplateDocument calibration_document(const LabelType& type, bool with_type) {
     apply_label_type(document.media, type);
     const float width = static_cast<float>(type.design_width_mm());
     const float height = static_cast<float>(type.design_height_mm());
-    // texte dans le quart haut-gauche, entre le cadre et la croix
+    const float ppm = static_cast<float>(document.media.pixels_per_mm > 0 ? document.media.pixels_per_mm : 8.0);
+    // centre de la croix tel que calibration_image le trace
+    const float cx = static_cast<float>(document.media.width_pixels() / 2) / ppm;
+    const float cy = static_cast<float>(document.media.height_pixels() / 2) / ppm;
     const float margin = 1.5f;
-    const float size = std::clamp(std::min(width, height) / 12.0f, 1.4f, 3.0f);
+    // titre et format dans le quart haut-gauche, entre le cadre et la croix ; taille telle que le titre tienne
+    const float quarter = std::max(1.0f, cx - margin - 3.0f);
+    const float size = std::clamp(std::min({std::min(width, height) / 12.0f, quarter / 7.6f}), 1.2f, 3.0f);
     char format[64];
     std::snprintf(format, sizeof(format), "%g × %g mm", std::round(type.width_mm * 10.0) / 10.0,
                   std::round(type.height_mm * 10.0) / 10.0);
-    const std::vector<std::pair<std::string, bool>> lines = {{"ÉTALONNAGE", true}, {format, false}};
-    float y = margin;
-    for (std::size_t index = 0; index < lines.size(); ++index) {
-        TextElement text;
-        text.text = lines[index].first;
-        text.bold = lines[index].second;
-        text.x_mm = margin;
-        text.y_mm = y;
-        text.width_mm = std::max(1.0f, width / 2.0f - margin - 1.0f);
-        text.height_mm = size + 0.4f;
-        text.font_size_mm = size;
-        y += text.height_mm;
-        TemplateElement element;
-        element.id = index == 0 ? "title" : "format";
-        element.kind = ElementKind::Text;
-        element.content = text;
-        document.elements.push_back(element);
+    add_text(document, "title", "ÉTALONNAGE", margin, margin, quarter, size, true, TextAlign::Left);
+    add_text(document, "format", format, margin, margin + size + 0.4f, quarter, size * 0.85f, false, TextAlign::Left);
+
+    // chiffres 1..n mm depuis chaque bord, au bout des axes (impairs d'un cote, pairs de l'autre pour avoir la
+    // place), et signe a ajouter au decalage
+    const float digit = 1.7f;
+    const float gap = 1.1f; // entre l'axe et les chiffres (au-dela des graduations)
+    const int marks_x = calibration_edge_marks(width);
+    const int marks_y = calibration_edge_marks(height);
+    for (int k = 1; k <= marks_x; ++k) {
+        const std::string value = std::to_string(k);
+        const float y = k % 2 == 1 ? cy - gap - digit - 0.3f : cy + gap;
+        add_text(document, "left" + value, value, k - 0.8f, y, 1.6f, digit, true, TextAlign::Center);
+        add_text(document, "right" + value, value, width - k - 0.8f, y, 1.6f, digit, true, TextAlign::Center);
     }
+    for (int k = 1; k <= marks_y; ++k) {
+        const std::string value = std::to_string(k);
+        const float x = k % 2 == 1 ? cx + gap : cx - gap - 1.2f;
+        add_text(document, "top" + value, value, x, k - digit / 2 - 0.2f, 1.2f, digit, true, TextAlign::Center);
+        add_text(document, "bottom" + value, value, x, height - k - digit / 2 - 0.2f, 1.2f, digit, true,
+                 TextAlign::Center);
+    }
+    const float sign = 1.6f;
+    const float sign_w = 5.5f;
+    if (marks_x > 0) {
+        const float y = cy - 1.7f - sign - 0.4f;
+        add_text(document, "left_sign", "+ mm", marks_x + 0.8f, y, sign_w, sign, true, TextAlign::Left);
+        add_text(document, "right_sign", "− mm", width - marks_x - 0.8f - sign_w, y, sign_w, sign, true,
+                 TextAlign::Right);
+    }
+    if (marks_y > 0) {
+        add_text(document, "top_sign", "+ mm", cx + 1.7f, marks_y + 0.6f, sign_w, sign, true, TextAlign::Left);
+        add_text(document, "bottom_sign", "− mm", cx + 1.7f, height - marks_y - 0.6f - sign - 0.4f, sign_w, sign,
+                 true, TextAlign::Left);
+    }
+    // mode d'emploi dans le quart bas-gauche s'il y a la place
+    const float legend_y = cy + gap + digit + 1.0f;
+    const std::vector<std::string> legend = {"Bord coupé : lire", "le chiffre au bord,", "l'ajouter (signe)",
+                                             "au décalage (mm)."};
+    const float legend_size = std::min(1.6f, (quarter + 2.0f) / (0.55f * 19.0f));
+    if (legend_y + legend.size() * (legend_size + 0.4f) < height - 1.5f && legend_size >= 1.0f)
+        for (std::size_t index = 0; index < legend.size(); ++index)
+            add_text(document, "legend" + std::to_string(index), legend[index], margin,
+                     legend_y + index * (legend_size + 0.4f), quarter + 2.0f, legend_size, false, TextAlign::Left);
     return document;
 }
 
@@ -274,6 +331,28 @@ RasterImage calibration_image(const TemplateDocument& document) {
                 dot(x, cy + d);
             for (const int y : {cy - offset, cy + offset - 1}) // verticale
                 dot(cx + d, y);
+        }
+    }
+    // graduations depuis chaque bord (chiffrees par calibration_document) : un decalage se lit au ras du bord
+    const int marks_x = calibration_edge_marks(width / ppm);
+    const int marks_y = calibration_edge_marks(height / ppm);
+    const int half = std::max(2, mm1 / 2);
+    for (int k = 1; k <= marks_x; ++k) {
+        const int offset = static_cast<int>(std::lround(k * ppm));
+        for (int d = -half; d <= half; ++d) {
+            dot(offset, cy + d);
+            dot(offset - 1, cy + d);
+            dot(width - offset, cy + d);
+            dot(width - 1 - offset, cy + d);
+        }
+    }
+    for (int k = 1; k <= marks_y; ++k) {
+        const int offset = static_cast<int>(std::lround(k * ppm));
+        for (int d = -half; d <= half; ++d) {
+            dot(cx + d, offset);
+            dot(cx + d, offset - 1);
+            dot(cx + d, height - offset);
+            dot(cx + d, height - 1 - offset);
         }
     }
     return image;
