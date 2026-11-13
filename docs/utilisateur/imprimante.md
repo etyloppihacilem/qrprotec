@@ -69,20 +69,22 @@ L'étiquette d'étalonnage est dessinée à la taille du rouleau chargé :
 - un cadre plein **au ras du bord**, et un cadre pointillé à 1 mm du bord ;
 - une croix au centre, graduée tous les millimètres (traits plus longs tous les 5 et 10 mm) ;
 - au bout de chaque axe, des graduations numérotées **1, 2, 3, 4 mm depuis le bord**, avec le
-  signe à appliquer : **+ mm** à gauche et en haut, **− mm** à droite et en bas.
+  signe à appliquer et une flèche qui montre dans quel sens ce signe déplace l'impression :
+  **+ →** à gauche, **← −** à droite, **+ ↓** en haut, **− ↑** en bas.
 
 Lecture : si un bord est coupé, regardez le chiffre qui tombe **au ras de ce bord** et ajoutez-le,
 avec son signe, au décalage correspondant :
 
 | Ce que vous voyez | Réglage |
 |---|---|
-| bord droit coupé, le « 1 » côté « − mm » au ras du bord | Décalage horizontal −1 mm |
-| bord gauche coupé, le « 2 » côté « + mm » au ras du bord | Décalage horizontal +2 mm |
-| bord du bas coupé, le « 1 » côté « − mm » au ras du bord | Décalage vertical −1 mm |
+| bord droit coupé, le « 1 » côté « ← − » au ras du bord | Décalage horizontal −1 mm |
+| bord gauche coupé, le « 2 » côté « + → » au ras du bord | Décalage horizontal +2 mm |
+| bord du bas coupé, le « 1 » côté « − ↑ » au ras du bord | Décalage vertical −1 mm |
 | bord du haut coupé | Décalage vertical +N mm |
 
 Un bord coupé s'accompagne d'une marge blanche du côté opposé : c'est normal, tout le dessin s'est
-déplacé. Les décalages acceptent les demi-millimètres et vont de −15 à +50 mm. Réimprimez
+déplacé. Un décalage déjà réglé s'additionne : si l'étiquette sort encore coupée, ajoutez le
+chiffre lu à la valeur actuelle. Les décalages acceptent les demi-millimètres et vont de −15 à +50 mm. Réimprimez
 l'étiquette d'étalonnage après chaque réglage : les quatre cadres pleins doivent apparaître.
 
 Si l'impression déborde de plusieurs millimètres sur l'étiquette suivante, ou si des étiquettes
