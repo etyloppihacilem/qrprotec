@@ -78,7 +78,7 @@ int main()
     job.offset_y_dots = 200;
     job.tear_off_dots = 400;
     const std::string bounded = as_text(qrprotec::labels::encode_zpl(label, job));
-    assert(bounded.find("~TA120\n") != std::string::npos && bounded.find("^LS40\n^LT120\n") != std::string::npos);
+    assert(bounded.find("~TA120\n") != std::string::npos && bounded.find("^LH0,200\n^LS40\n^LT0\n") != std::string::npos);
     assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT -40,200\r\nOFFSET 25.4 mm\r\n") != std::string::npos);
 
     // maintenance : calibrage sur l'etiquette chargee (40 x 30 mm, thermique direct)

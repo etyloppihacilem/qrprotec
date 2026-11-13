@@ -61,11 +61,19 @@ ZPL) ou TSC (TSPL) prévoit pour cet usage :
 | Hauteur de l'étiquette | `^LL` (longueur d'étiquette) | `SIZE` | longueur d'une étiquette |
 | Noirceur | `~SD` | `DENSITY` | chauffe de la tête |
 | **Décalage horizontal** | `^LS` (« Left Position ») | `SHIFT x` | toute l'impression vers la droite (+) ou la gauche (−) |
-| **Décalage vertical** | `^LT` (« Label Top ») | `SHIFT y` | toute l'impression vers le bas (+) ou le haut (−) |
+| **Décalage vertical** | vers le bas : `^LH0,y` (« Label Home », origine du format) ; vers le haut : `^LT` (« Label Top ») | `SHIFT y` | toute l'impression vers le bas (+) ou le haut (−) |
 | **Position de découpe** | `~TA` (« Tear Off ») | `OFFSET` | où l'étiquette s'arrête après impression : plus sortie (+) ou moins (−) ; l'impression ne bouge pas sur l'étiquette |
 
 Les trois réglages de position vont de −15 à +15 mm, par demi-millimètre. En ZPL, `^LT` et `~TA`
 sont limités par Zebra à 120 points, soit 15 mm sur une tête 203 dpi.
+
+**GK420t : `^LT` sans effet à l'impression.** Essai du 13/11/2026 (firmware V61.17.17Z) avec le
+**Diagnostic des décalages** : `^LH` et `^LS` déplacent le dessin, `^LT` non, même renvoyé deux
+fois, alors que la configuration relue montre bien la valeur reçue (LABEL TOP). Le décalage vers
+le bas passe donc par `^LH`, l'origine du format, prévue par Zebra pour placer tout le dessin.
+Vers le haut, seul `^LT` existe (`^LH` ne prend pas de valeur négative) : sur la GK420t, un
+décalage vertical négatif reste sans effet. Si l'impression est trop basse, réglez plutôt le
+calibrage, ou laissez le décalage à 0.
 
 Le décalage et la position de découpe sont deux choses différentes : le décalage déplace le
 dessin **sur** l'étiquette, la position de découpe déplace le **papier** une fois l'étiquette

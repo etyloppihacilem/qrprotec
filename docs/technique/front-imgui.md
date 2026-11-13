@@ -196,9 +196,11 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   (8 points/mm), la résolution des modèles. Chaque impression porte tout le format, chaque réglage
   par la commande que la documentation du langage prévoit (rien n'est simulé dans le dessin) :
   - ZPL : `~SD` (noirceur), `~TA` (position de découpe), puis dans `^XA … ^XZ` : `^MT` (ruban),
-    `^MNY` (étiquettes à interstice), `^PW` = largeur de l'étiquette, `^LL` = hauteur, `^LH0,0`,
-    `^LS` (décalage horizontal ; **positif = vers la gauche**, d'où `^LS` = −décalage), `^LT`
-    (décalage vertical, positif = vers le bas, borné à ±120 points), `^FO0,0^GFA`, `^PQ` ;
+    `^MNY` (étiquettes à interstice), `^PW` = largeur de l'étiquette, `^LL` = hauteur,
+    `^LH0,y` (décalage vertical vers le bas), `^LS` (décalage horizontal ; **positif = vers la
+    gauche**, d'où `^LS` = −décalage), `^LT` (décalage vertical vers le haut seulement, ≥ −120
+    points ; la GK420t V61.17.17Z l'enregistre mais ne l'applique pas à l'impression, d'où `^LH`
+    vers le bas), `^FO0,0^GFA`, `^PQ` ;
   - TSPL : `SIZE`, `GAP`, `DIRECTION`, `REFERENCE 0,0`, `DENSITY`, `SET RIBBON`, `SET TEAR ON`,
     `SHIFT x,y` (borné à ±1 pouce), `OFFSET` (position de découpe), `CLS`, `BITMAP`, `PRINT`.
   - Maintenance (`maintenance_command`) : calibrage ZPL = format sans champ + `~JC` + `^JUS`, TSPL
