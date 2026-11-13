@@ -66,6 +66,18 @@ std::vector<std::uint8_t> encode_tspl(const RasterImage& image, const RawJob& jo
     return out;
 }
 
+namespace {
+// Les Zebra de bureau centrent le rouleau et la zone d'impression (^PW) sur la tete : une zone juste a la taille de
+// l'etiquette ne bouge pas avec ^FO / ^LS, le decalage horizontal serait coupe par le bord de la zone. On l'elargit
+// de `zpl_side_margin` points de chaque cote (sans depasser une tete 4 pouces) et l'image y est placee au milieu,
+// decalage compris : sans decalage, elle tombe exactement au meme endroit.
+constexpr int kZplHeadDots = 832; // 104 mm a 8 points/mm
+int zpl_side_margin(int width_dots)
+{
+    return std::clamp((kZplHeadDots - width_dots) / 2, 0, 64);
+}
+}
+
 std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job)
 {
     const int bytes_per_row = (image.width + 7) / 8;
@@ -78,13 +90,13 @@ std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job
     append(out, "^XA\n");
     append(out, std::string("^MT") + (job.ribbon ? "T" : "D") + "\n");
     append(out, "^MNY\n"); // etiquettes separees par un espace (capteur d'interstice)
-    append(out, "^PW" + std::to_string(job.width_dots) + "\n");
+    const int side = zpl_side_margin(job.width_dots);
+    append(out, "^PW" + std::to_string(job.width_dots + 2 * side) + "\n");
     append(out, "^LL" + std::to_string(job.height_dots) + "\n");
     append(out, "^LH0,0\n");
-    // decalage negatif : ^LS decale tout vers la gauche (valeur positive), ^LT remonte l'etiquette (-120 a 120)
-    if (job.offset_x_dots < 0) append(out, "^LS" + std::to_string(-job.offset_x_dots) + "\n");
+    // decalage vertical negatif : ^LT remonte l'etiquette (-120 a 120)
     if (job.offset_y_dots < 0) append(out, "^LT" + std::to_string(std::max(-120, job.offset_y_dots)) + "\n");
-    append(out, "^FO" + std::to_string(std::max(0, job.offset_x_dots)) + "," +
+    append(out, "^FO" + std::to_string(std::clamp(side + job.offset_x_dots, 0, 2 * side)) + "," +
                     std::to_string(std::max(0, job.offset_y_dots)));
     append(out, "^GFA," + std::to_string(bits.size()) + "," + std::to_string(bits.size()) + "," +
                     std::to_string(bytes_per_row) + ",");
@@ -108,7 +120,8 @@ std::string maintenance_command(bool zpl, Maintenance action, const RawJob& job)
         case Maintenance::Calibrate:
             // format de l'etiquette chargee enregistre (^JUS), puis ~JC : l'imprimante avance quelques
             // etiquettes et mesure l'interstice ; ^JUS final garde la mesure apres extinction
-            return std::string("^XA^MNY^MT") + (job.ribbon ? "T" : "D") + "^PW" + std::to_string(job.width_dots) +
+            return std::string("^XA^MNY^MT") + (job.ribbon ? "T" : "D") + "^PW" +
+                   std::to_string(job.width_dots + 2 * zpl_side_margin(job.width_dots)) +
                    "^LL" + std::to_string(job.height_dots) + "^JUS^XZ\n~JC\n^XA^JUS^XZ\n";
         case Maintenance::Config: return "~WC\n";
         case Maintenance::Feed: return "^XA^MNY^LL" + std::to_string(job.height_dots) + "^XZ\n";

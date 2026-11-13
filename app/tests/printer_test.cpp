@@ -61,15 +61,15 @@ int main()
     job.offset_x_dots = 16;
     const std::string zpl = as_text(qrprotec::labels::encode_zpl(label, job));
     assert(zpl.rfind("~SD20\n^XA\n^MTD\n", 0) == 0);
-    assert(zpl.find("^PW320\n^LL240\n") != std::string::npos);
-    assert(zpl.find("^FO16,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
+    assert(zpl.find("^PW448\n^LL240\n") != std::string::npos);
+    assert(zpl.find("^FO80,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
     assert(zpl.find("^PQ2\n^XZ\n") != std::string::npos);
 
-    // decalage negatif : ^LS / ^LT en ZPL, SHIFT en TSPL
+    // decalage negatif : zone ^PW elargie et ^LT en ZPL, SHIFT en TSPL
     job.offset_x_dots = -8;
     job.offset_y_dots = -16;
     const std::string shifted = as_text(qrprotec::labels::encode_zpl(label, job));
-    assert(shifted.find("^LS8\n^LT-16\n^FO0,0^GFA") != std::string::npos);
+    assert(shifted.find("^LT-16\n^FO56,0^GFA") != std::string::npos);
     assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT -8,-16\r\nCLS\r\nBITMAP 0,0,") != std::string::npos);
 
     // maintenance : calibrage sur l'etiquette chargee (40 x 30 mm, thermique direct)
@@ -80,7 +80,7 @@ int main()
     media.ribbon = false;
     media.gap_mm = 3.0;
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Calibrate, media) ==
-           "^XA^MNY^MTD^PW320^LL240^JUS^XZ\n~JC\n^XA^JUS^XZ\n");
+           "^XA^MNY^MTD^PW448^LL240^JUS^XZ\n~JC\n^XA^JUS^XZ\n");
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Config, media) == "~WC\n");
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Feed, media) == "^XA^MNY^LL240^XZ\n");
     assert(qrprotec::labels::maintenance_command(false, Maintenance::Calibrate, media) ==
