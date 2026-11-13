@@ -3906,7 +3906,8 @@ def checklists_options(request):
     return Response({
         # description : cherchee aussi, apres les noms (marques, autres noms) ; un lot prend celle de son type
         'lots': [_option_lot(lot) for lot in lots],
-        'types': [{'type': row.type, 'name': row.name, 'consumable': row.consumable, 'description': row.description}
+        'types': [{'type': row.type, 'name': row.name, 'consumable': row.consumable, 'description': row.description,
+                   'unit': row.unit}  # type a unites (serum phy en mL) : quantite en unites
                   for row in types],
         # lignes « n'importe quel lot de ce type »
         'lot_types': [{'type': row.type, 'name': row.name, 'description': row.description} for row in lot_types],

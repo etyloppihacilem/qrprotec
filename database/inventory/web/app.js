@@ -1171,7 +1171,9 @@
     if (!entry.expired || (info && !info.outdated && !info.unusable && !info.disabled)) return '';
     const plan = planSession();
     const row = plan.lots.find((candidate) => candidate.lot.id === plan.target[entry.iid]);
-    const type = entry.iid.slice(0, 6);
+    // type a unites : besoin et frais en unites de l'attendu (200 mL de serum phy)
+    const type = row ? mainRow(rowWeights(row.lot.requirements, entry.iid.slice(0, 6)), entry.iid.slice(0, 6))[0]
+      : entry.iid.slice(0, 6);
     const need = row ? row.required[type] || 0 : 0;
     const have = row ? row.fresh[type] || 0 : 0;
     const inLot = row && [...(row.lot.items || []), ...(row.lot.missing_items || [])].some((item) => item.iid === entry.iid);
@@ -1982,8 +1984,9 @@
   }
 
   // Scannes (ou coches, pour un item a cocher) d'un attendu pendant la vérif
-  const scannedOf = (lot, row, fresh) => (row.check ? (checkEntry(lot.id, row.type) ? row.expected || row.required : 0)
-    : fresh[row.type] || 0);
+  // (type a unites : ses sous-types comptent leurs unites, sauf si fresh compte deja par attendu, planSession)
+  const scannedOf = (lot, row, fresh, byRow = false) => (row.check ? (checkEntry(lot.id, row.type) ? row.expected || row.required : 0)
+    : (fresh[row.type] || 0) + (byRow ? 0 : Object.entries(row.fills || {}).reduce((sum, [type, units]) => sum + (fresh[type] || 0) * units, 0)));
 
   const checkEntry = (lotId, type) => allScanned().find((entry) => entry.kind === 'check' && entry.iid === lotId
     && entry.info && entry.info.type === type);
@@ -2007,6 +2010,46 @@
   // un item deja dans un des lots y reste, un nouvel item va dans le lot de la derniere etiquette scannee avant lui
   // (ou un de ses sous-lots) qui en attend encore, sinon dans le premier lot qui en attend encore.
   // complete : le lot serait complet avec ces scans (verif partielle possible).
+  // Attendus d'un lot que remplit un item de ce type, avec ses unites : [[attendu, unites]]. Un item compte pour son
+  // type (1) et pour le type a unites dont il est un sous-type (« 200 mL de sérum phy » : un flacon de 50 mL en
+  // compte 50) : meme regle que le serveur (services.row_weights)
+  function rowWeights(rows, type) {
+    const result = [];
+    for (const row of rows || []) {
+      if (row.check) continue;
+      if (row.type === type) result.push([row.type, 1]);
+      else if (row.fills && row.fills[type]) result.push([row.type, row.fills[type]]);
+    }
+    return result;
+  }
+  // Attendu principal d'un item : celui de son type a unites s'il y en a un, sinon son type (services.main_row)
+  const mainRow = (weights, type) => weights.find(([row]) => row !== type) || [type, 1];
+  // Attendu du lot sous lequel ranger un item de ce type a l'affichage : son type s'il est attendu, sinon son type a
+  // unites
+  const displayRow = (rows, type) => {
+    const weights = rowWeights(rows, type);
+    return weights.some(([row]) => row === type) ? type : mainRow(weights, type)[0];
+  };
+  // Nom d'un attendu : « Sérum phy (mL) » pour un type a unites, « dont Sachet… » pour le minimum d'un de ses
+  // sous-types compris dedans
+  const reqName = (row) => (row.within ? 'dont ' : '') + row.type_name + (row.unit && !row.within ? ` (${row.unit})` : '');
+  // Items a scanner pour un attendu : sa quantite, ou pour un type a unites le moins d'items qui la remplissent
+  const rowItems = (row) => (row.unit && !row.within
+    ? Math.ceil((row.required || 0) / Math.max(1, ...Object.values(row.fills || {}))) : row.required || 0);
+  // Ce qui manque : « 3 × Compresses », ou « 50 mL de Sérum phy (2 × Sachet…) » (services.lacking_text)
+  function lackingText(row, lacking = row.required - row.present) {
+    if (!row.unit || row.within) return `${lacking} × ${row.type_name}`;
+    const suggest = suggestFor(row, lacking);
+    return `${lacking} ${row.unit} de ${row.type_name}` + (suggest ? ` (${suggest.count} × ${suggest.type_name})` : '');
+  }
+  // Sous-type a prendre pour combler un manque en unites : le sous-type par defaut (suggest du serveur), sinon celui
+  // qui en remplit le plus
+  function suggestFor(row, lacking) {
+    const subtypes = row.subtypes || [];
+    const pick = (row.suggest && subtypes.find((sub) => sub.type === row.suggest.type)) || subtypes[0];
+    return lacking > 0 && pick ? { type: pick.type, type_name: pick.type_name, count: Math.ceil(lacking / pick.fills) } : null;
+  }
+
   function planSession() {
     const intact = intactLots();
     // vérif en cascade : les lots deja valides ne sont plus attendus
@@ -2034,6 +2077,15 @@
     }
     const ticked = checkedMap(allScanned());
     const deficit = Object.fromEntries(lots.map((lot) => [lot.id, { ...required[lot.id] }]));
+    const rowsOf = Object.fromEntries(lots.map((lot) => [lot.id, lot.requirements || []]));
+    // l'item remplit un manque du lot (en unites pour un type a unites) : il y est compte
+    const weightsIn = (id, type) => rowWeights(rowsOf[id], type).filter(([row]) => row in required[id]);
+    const take = (id, type) => {
+      const weights = weightsIn(id, type);
+      if (!weights.some(([row]) => deficit[id][row] > 0)) return false;
+      for (const [row, units] of weights) deficit[id][row] -= units;
+      return true;
+    };
     const scanned = [];
     const typeNames = {};
     for (const entry of allScanned()) {
@@ -2062,29 +2114,29 @@
       // vérif en cascade : un item scanne dans un lot qui ne le contient pas y a ete trouve, il y va
       if (where && (!cascade || !(item.place in parentOf) || under(where, item.place))) {
         target[item.iid] = where;
-        if (!item.expired && deficit[where][item.type] > 0) deficit[where][item.type] -= 1;
+        if (!item.expired) take(where, item.type);
       } else newcomers.push(item);
     }
     newcomers.sort((a, b) => (a.expired - b.expired) || (a.iid < b.iid ? -1 : a.iid > b.iid ? 1 : 0));
     for (const item of newcomers) {
       const scope = lots.map((lot) => lot.id).filter((id) => !(item.place in parentOf) || under(id, item.place));
-      const candidates = scope.filter((id) => item.type in required[id]);
+      const candidates = scope.filter((id) => weightsIn(id, item.type).length > 0);
       let choice = null;
-      if (!item.expired) {
-        choice = candidates.find((id) => deficit[id][item.type] > 0) || null;
-        if (choice) deficit[choice][item.type] -= 1;
-      }
+      if (!item.expired) choice = candidates.find((id) => take(id, item.type)) || null;
       target[item.iid] = choice || candidates[0] || scope[0];
     }
-    // added : items frais qui n'etaient dans aucun lot de la verif (stock, autre lot), par type, pour les « + x »
+    // added : items frais qui n'etaient dans aucun lot de la verif (stock, autre lot), par type, pour les « + x ».
+    // fresh et added comptent par attendu, en unites pour un type a unites (le sous-type compte aussi pour lui-meme)
     const plan = Object.fromEntries(lots.map((lot) => [lot.id, { lot, required: required[lot.id], fresh: {}, added: {}, touched: 0 }]));
     for (const item of scanned) {
       const row = plan[target[item.iid]];
       if (!row) continue;
       row.touched += 1;
       if (item.expired) continue;
-      row.fresh[item.type] = (row.fresh[item.type] || 0) + 1;
-      if (locationOf[item.iid] !== row.lot.id) row.added[item.type] = (row.added[item.type] || 0) + 1;
+      const weights = weightsIn(row.lot.id, item.type);
+      for (const [type, units] of weights.length ? weights : [[item.type, 1]]) row.fresh[type] = (row.fresh[type] || 0) + units;
+      const [main, units] = mainRow(weights, item.type);
+      if (locationOf[item.iid] !== row.lot.id) row.added[main] = (row.added[main] || 0) + units;
     }
     for (const row of Object.values(plan)) {
       // seul compte le minimum d'items frais : un perime en trop ne retient pas le lot (il est retire, a jeter)
@@ -2098,7 +2150,10 @@
     for (const item of scanned) {
       const row = plan[target[item.iid]];
       if (!row || !item.discardable) continue;
-      if (locationOf[item.iid] !== row.lot.id || (row.fresh[item.type] || 0) >= (row.required[item.type] || 0)) discard.add(item.iid);
+      const weights = weightsIn(row.lot.id, item.type);
+      const covered = (weights.length ? weights : [[item.type, 1]])
+        .every(([type]) => (row.fresh[type] || 0) >= (row.required[type] || 0));
+      if (locationOf[item.iid] !== row.lot.id || covered) discard.add(item.iid);
     }
     return { lots: lots.map((lot) => plan[lot.id]), target, intact, typeNames, discard };
   }
@@ -3058,7 +3113,7 @@
             : row.verified ? (row.complete ? '✔ ' : '✘ ') + row.name + (row.complete ? ' : complet' : ' : incomplet')
             : `↷ ${row.name} : non vérifié` + (row.restocked ? `, ${nb(row.restocked, 'item ajouté', 'items ajoutés')} (réassort)` : '')))))] : []),
       ...(report.requirements || []).map((row) => requirementLine(
-        (row.lot_name ? row.lot_name + ' · ' : '') + row.type_name, row.present, row)),
+        (row.lot_name ? row.lot_name + ' · ' : '') + reqName(row), row.present, row)),
       ...section('Périmés ou inutilisables encore dans le lot : à remplacer', report.expired),
       ...section('Périmés retirés du lot : à jeter', report.replaced),
       // etiquette a dechirer absente : l'ensemble a ete entame, il compte comme utilise
@@ -3248,7 +3303,8 @@
     const known = {};
     for (const item of lot.items || []) {
       if (done.has(item.iid)) continue;
-      (known[item.type] = known[item.type] || []).push(item);
+      const type = displayRow(lot.requirements, item.type); // sous-type : sous son type a unites
+      (known[type] = known[type] || []).push(item);
     }
     let remaining = 0;
     const groups = (lot.requirements || []).map(strictRow).map((requirement) => {
@@ -3269,6 +3325,21 @@
         const expected = requirement.expected || 0;
         return { row: requirement, items, scanned: Math.min(scanned, expected), missing: 0, optional: true, expected,
           pending: Math.max(0, expected - scanned), extra: Math.max(0, scanned - expected), fromStock: 0 };
+      }
+      if (requirement.unit && !requirement.within) {
+        // type a unites (200 mL de serum phy) : comptes en unites a l'affichage (units) ; pour les totaux, une
+        // ligne vaut 1 et ce qui reste a scanner se compte en items (du sous-type qui en remplit le plus)
+        const fills = Object.values(requirement.fills || {});
+        const most = Math.max(1, ...fills);
+        const missingUnits = Math.max(0, requirement.required - scanned);
+        const knownUnits = items.filter((item) => !item.expired)
+          .reduce((sum, item) => sum + ((requirement.fills || {})[item.type] || 0), 0);
+        const missing = Math.ceil(missingUnits / most);
+        remaining += missing;
+        return { row: requirement, items, unit: requirement.unit, scanned: missingUnits ? 0 : 1, missing, extra: 0,
+          fromStock: 0, units: { scanned: Math.min(scanned, requirement.required), required: requirement.required,
+            missing: missingUnits, extra: Math.max(0, scanned - requirement.required),
+            fromStock: Math.max(0, missingUnits - knownUnits) } };
       }
       const missing = Math.max(0, requirement.required - scanned);
       const knownFresh = items.filter((item) => !item.expired).length;
@@ -3367,10 +3438,11 @@
   // l'emplacement complet replie sur son titre, et les autres items du lot a la fin.
   function lotGroupRows(lot, groups, others, lastScan) {
     const rows = [];
-    const lastScanOf = (group) => (group.row.type in lastScan ? lastScan[group.row.type] : -1);
+    const lastScanOf = (group) => Math.max(-1, ...[group.row.type, ...Object.keys(group.row.fills || {})]
+      .map((type) => (type in lastScan ? lastScan[type] : -1)));
     // facultatif pas encore tout scanne : ni a faire ni un probleme, juste au-dessus des complets
     const rank = (group) => (group.missing === 0 ? (group.pending > 0 ? 1.5 : 2) : group.scanned === 0 ? 1 : 0);
-    const need = (group) => (group.optional ? group.expected : group.row.required);
+    const need = (group) => (group.unit ? 1 : group.optional ? group.expected : group.row.required);
     const places = byPlace(groups, (group) => group.row.location);
     const placed = places.some((entry) => entry.place);
     const groupRows = (group) => {
@@ -3388,10 +3460,25 @@
         el('span', { class: 'count' }, ...countText(group.scanned, need(group), 0)))];
       }
       const expired = group.items.filter((item) => item.expired).length;
+      if (group.unit) {
+        // type a unites : « 150/200 mL », ce qui manque en mL et le sous-type a prendre
+        const units = group.units;
+        const cls = units.missing ? (units.scanned ? 'partial' : 'bad') : 'ok';
+        const suggest = suggestFor(group.row, units.fromStock);
+        return groupHead(`${lot.id}:${group.row.type}`, cls, group.items,
+          el('div', { class: 'main' },
+            el('div', { class: 'name' }, reqName(group.row)),
+            el('div', { class: 'sub' }, [!placed && group.row.location ? '📍 ' + group.row.location : '',
+              units.missing > 0 ? `encore ${units.missing} ${group.unit} à scanner` : 'complet',
+              units.extra ? `${units.extra} ${group.unit} en plus` : '',
+              expired ? nb(expired, 'périmé') : '',
+              suggest ? `stock : ${suggest.count} × ${suggest.type_name}` : ''].filter(Boolean).join(' · '))),
+          el('span', { class: 'count' }, ...countText(units.scanned, units.required, units.extra), ` ${group.unit}`));
+      }
       const cls = { 2: 'ok', 1.5: 'optional', 1: 'bad', 0: 'partial' }[rank(group)];
       return groupHead(`${lot.id}:${group.row.type}`, cls, group.items,
         el('div', { class: 'main' },
-          el('div', { class: 'name' }, group.row.type_name, group.optional ? el('span', { class: 'tag optional',
+          el('div', { class: 'name' }, reqName(group.row), group.optional ? el('span', { class: 'tag optional',
             title: 'Facultatif : le lot se valide sans, mais scannez-les pour savoir où ils sont' }, 'facultatif') : null),
           el('div', { class: 'sub' }, [!placed && group.row.location ? '📍 ' + group.row.location : '',
             group.pending > 0 ? (group.scanned ? `${group.pending} de plus si vous les voyez` : 'validable sans, scannez ceux que vous voyez')
@@ -3689,9 +3776,9 @@
       // types incomplets en haut
       el('h3', {}, 'Scannés / attendus'),
       ...incompleteFirst((lot.requirements || []).map(strictRow), (row) => scannedOf(lot, row, fresh)).map((row) => requirementLine(
-        row.type_name + (row.location ? ` (${row.location})` : ''), scannedOf(lot, row, fresh), row)),
+        reqName(row) + (row.location ? ` (${row.location})` : ''), scannedOf(lot, row, fresh), row)),
       el('h3', {}, 'État enregistré du lot'),
-      ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => requirementLine(row.type_name, row.present, row)),
+      ...incompleteFirst(lot.requirements, (row) => row.present).map((row) => requirementLine(reqName(row), row.present, row)),
     );
   }
 
@@ -4592,7 +4679,7 @@
     const units = (lot) => {
       if (skip(lot)) return 0;
       const own = lot.storage ? (lot.items || []).filter((item) => !itemOptional(item)).length
-        : (lot.requirements || []).map(strictRow).reduce((sum, row) => sum + (row.optional ? 0 : row.check ? 1 : row.required || 0), 0);
+        : (lot.requirements || []).map(strictRow).reduce((sum, row) => sum + (row.optional ? 0 : row.check ? 1 : rowItems(row)), 0);
       return own + kids(lot.id).reduce((sum, sub) => sum + units(sub), 0);
     };
     let done = 0;
@@ -4607,7 +4694,7 @@
       }
       if (lot.storage || ownContent(lot)) {
         const { groups, others, remaining } = expectedGroups(lot, plan);
-        const count = groups.reduce((sum, group) => sum + (group.optional ? 0 : group.check ? 1 : group.row.required || 0), 0)
+        const count = groups.reduce((sum, group) => sum + (group.optional ? 0 : group.check ? 1 : rowItems(group.row)), 0)
           + others.filter((item) => !itemOptional(item)).length;
         total += count;
         done += Math.max(0, count - remaining);
@@ -4908,8 +4995,8 @@
     // ce qui reste à faire sur le lot, toujours visible
     const issues = (lot) => [
       ...(lot.lacking || []).map((row) => el('div', { class: 'vr-issue bad' },
-        `Manque ${Math.max(0, row.required - row.present)} × ${row.type_name}`,
-        full ? el('span', { class: 'vr-ratio' }, ` (${row.present}/${row.required})`) : null)),
+        `Manque ${lackingText(row, Math.max(0, row.required - row.present))}`,
+        full ? el('span', { class: 'vr-ratio' }, ` (${row.present}/${row.required}${row.unit && !row.within ? ' ' + row.unit : ''})`) : null)),
       ...lot.expired.map((row) => el('div', { class: 'vr-issue bad' }, 'À remplacer : ' + typeText(row))),
       ...lot.replaced.map((row) => el('div', { class: 'vr-issue gray' }, 'À jeter : ' + typeText(row))),
     ];
@@ -5663,11 +5750,11 @@
       const point = at(type);
       const details = [];
       if (point.expiring) details.push(`${point.expiring} ${pl(point.expiring, 'périme', 'périment')}` + (point.lost ? ` dont ${point.lost} à jeter` : ''));
-      if (type.order) details.push(`commander ${type.order.quantity} avant le ${fmtDate(type.order.before)}`);
+      if (type.order) details.push(`commander ${type.order.quantity}${type.order.subtype_name ? ' × ' + type.order.subtype_name : ''} avant le ${fmtDate(type.order.before)}`);
       else if (!details.length) details.push(type.per_month ? `${nb(Math.round(type.per_month * 10) / 10, 'utilisé')} par mois` : 'rien à signaler');
       const kind = type.order && type.order.urgent ? 'bad' : type.below_min ? 'warn' : '';
       parts.push(el('div', { class: 'stock-row ' + kind },
-        requirementRow(type.name, point.stock, type.min_quantity),
+        requirementRow(type.name + (type.unit ? ` (${type.unit})` : ''), point.stock, type.min_quantity),
         el('div', { class: 'sub hint' }, details.join(' · '))));
     }
     const transfers = forecast.transfers || [];
@@ -5859,14 +5946,18 @@
       const order = (row) => stockOrder(row.stock_fresh, row.min_quantity, row.stock_expiring_soon || 0);
       const rows = [...state.stock].sort((a, b) => order(a) - order(b));
       for (const row of rows) {
-        const details = [`${row.lots_fresh} dans les lots`];
+        const unit = row.unit ? ' ' + row.unit : ''; // type a unites (serum phy en mL) : ses sous-types en unites
+        const details = [`${row.lots_fresh}${unit} dans les lots`];
+        const group = row.group && state.stock.find((other) => other.type === row.group);
+        if (group) details.push(`${row.fills} ${group.unit} de ${group.name}`);
+        if (unit) details.push('compte ses sous-types');
         if (row.stock_expired + row.lots_expired) details.push(nb(row.stock_expired + row.lots_expired, 'périmé'));
         if (row.expiring_soon) details.push(`${row.expiring_soon} bientôt ${pl(row.expiring_soon, 'périmé')}`);
         if (row.missing) details.push(nb(row.missing, 'disparu'));
         if (row.out) details.push(`${nb(row.out, 'sorti')} sans lot`);
         if (row.loose) details.push(`${row.loose} hors lot`);
         parts.push(el('div', { class: 'stock-row' },
-          requirementRow(row.name, row.stock_fresh, row.min_quantity),
+          requirementRow(row.name + (row.unit ? ` (${row.unit})` : ''), row.stock_fresh, row.min_quantity),
           el('div', { class: 'sub hint' }, details.join(' · '))));
       }
     }
@@ -6443,7 +6534,9 @@
       }
       // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption (a remplacer en haut)
       const pairs = [...items.map((item) => [item, '']), ...missing.map((item) => [item, 'disparu'])];
-      const ofType = (type) => pairs.filter(([item]) => item.type === type).sort((a, b) => iidAttention(a) - iidAttention(b));
+      // un item d'un sous-type va sous son type a unites (200 mL de serum phy) quand son type n'est pas attendu
+      const ofType = (type) => pairs.filter(([item]) => displayRow(requirements, item.type) === type)
+        .sort((a, b) => iidAttention(a) - iidAttention(b));
       const flagged = (rows) => rows.some((pair) => iidAttention(pair) < 3);
       if (pairs.some((pair) => iidAttention(pair) < 2) || requirements.some((row) => row.present < row.required)) shortage = true;
       // types incomplets en haut, puis ceux qui ont un item a remplacer ou signale, puis 0/0, puis les complets
@@ -6455,11 +6548,11 @@
         const none = row.present <= 0 && row.required <= 0 && !row.optional;
         lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : row.optional && row.present < row.expected ? 2.5 : 3,
           row, rows: ficheFold(`${sub.id}:${row.type}`, rows,
-            (arrow) => requirementLine(row.type_name + (!placed && row.location ? ` (${row.location})` : ''), row.present, row, arrow)) });
+            (arrow) => requirementLine(reqName(row) + (!placed && row.location ? ` (${row.location})` : ''), row.present, row, arrow)) });
       }
       // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
       const known = new Set(requirements.map((row) => row.type));
-      const extra = [...new Set(pairs.filter(([item]) => !known.has(item.type)).map(([item]) => item.type))];
+      const extra = [...new Set(pairs.filter(([item]) => !known.has(displayRow(requirements, item.type))).map(([item]) => item.type))];
       const extraLines = [];
       for (const type of extra) {
         const rows = ofType(type);
@@ -6474,8 +6567,10 @@
           .map((entry) => ({ ...entry, rank: Math.min(...entry.rows.map((line) => line.rank)) }))
           .sort((a, b) => a.rank - b.rank);
         for (const { place, rows: list } of placeGroups) {
-          const need = (row) => (row.optional ? row.expected || 0 : row.required);
-          const present = list.reduce((sum, line) => sum + Math.min(line.row.present, need(line.row)), 0);
+          // type a unites (200 mL) : compte pour une ligne, faite ou non
+          const need = (row) => (row.unit && !row.within ? 1 : row.optional ? row.expected || 0 : row.required);
+          const done = (row) => (row.unit && !row.within ? Number(row.present >= row.required) : row.present);
+          const present = list.reduce((sum, line) => sum + Math.min(done(line.row), need(line.row)), 0);
           const required = list.reduce((sum, line) => sum + need(line.row), 0);
           const lacking = list.some((line) => line.row.present < line.row.required);
           content.push(el('div', { class: 'place-title' + (lacking ? ' incomplete' : '') },
@@ -7361,8 +7456,9 @@
     const scanning = lists.mode;
     const count = () => {
       const line = lists.list && lists.list.lines.find((row) => row.id === lineId);
-      if (!line) return { done: 0, total: 0 };
-      return back ? { done: line.back, total: line.scanned } : { done: line.scanned, total: line.quantity };
+      if (!line) return { done: 0, total: 0, unit: '' };
+      const unit = line.unit ? ' ' + line.unit : ''; // type a unites : en mL, n'importe quel sous-type
+      return back ? { done: line.back, total: line.scanned, unit } : { done: line.scanned, total: line.quantity, unit };
     };
     const close = () => {
       if (!lotPick || lotPick.close !== close) return;
@@ -7375,9 +7471,9 @@
     const bar = el('i', {});
     const counter = el('b', {});
     const refresh = () => {
-      const { done, total } = count();
+      const { done, total, unit } = count();
       bar.style.width = `${total ? Math.round(100 * done / total) : 100}%`;
-      counter.textContent = `${done}/${total}`;
+      counter.textContent = `${done}/${total}${unit}`;
       if (total && done >= total) {
         toast(back ? `${title} : tout est rentré` : `${title} : tout est pris`);
         close();
@@ -7634,7 +7730,7 @@
             .map((other) => ({ lot: other.lot, label: other.lot_name, sub: other.lot_type_name })) } : line.kind === 'lot'
         ? { lot: line.lot, label: line.lot_name, sub: line.lot_type_name }
         : line.kind === 'lot_type' ? { lot_types: line.lot_types, label: line.type_name, sub: 'Lot au choix', quantity: line.quantity }
-        : { type: line.type, label: line.type_name, quantity: line.quantity }) : [],
+        : { type: line.type, label: line.type_name, quantity: line.quantity, unit: line.unit || '' }) : [],
     };
     renderListsPage(true);
     if (!lists.options) {
@@ -7989,6 +8085,7 @@
         : list.status !== 'draft' ? 'Pas pris à la sortie.'
           : line.kind === 'lot' ? `Scannez l'étiquette du lot « ${title} » ou touchez sa case pour le cocher.`
             : line.kind === 'lot_type' ? `Scannez l'étiquette d'un lot ${title} disponible ou touchez la case pour le choisir.`
+            : line.unit ? `Scannez de quoi faire ${line.quantity} ${line.unit} de « ${title} » pris dans le stock pour la cocher.`
             : `Scannez ${line.quantity > 1 ? `${line.quantity} items` : 'un item'} « ${title} » pris dans le stock pour la cocher.`;
     // lot a preparer : on peut le cocher sans scanner (le VPS dehors pendant qu'on prepare le materiel)
     const byHand = !done && !list.template && list.status === 'draft'
@@ -8080,14 +8177,18 @@
     const title = line.kind === 'lot' ? line.lot_name : line.type_name;
     // sac d'un B+ de referentiel (sans etiquette) : chaque sac se coche par son etiquette
     const sub = line.kind === 'lot' ? (line.part_of ? `${line.lot_type_name} · dans ${line.part_of_name}` : `Lot · ${line.lot_type_name}`)
-      : line.kind === 'lot_type' ? `${nb(line.quantity, 'lot')} au choix : scannez son étiquette` : nb(line.quantity, 'demandé');
+      : line.kind === 'lot_type' ? `${nb(line.quantity, 'lot')} au choix : scannez son étiquette`
+        // type a unites (200 mL de serum phy) : n'importe lequel de ses sous-types, compte en unites
+        : line.unit ? `${line.quantity} ${line.unit} demandés` + ((line.subtypes || []).length
+          ? ' : ' + line.subtypes.map((row) => `${row.type_name} (${row.fills} ${line.unit})`).join(' ou ') : '')
+          : nb(line.quantity, 'demandé');
     // retour par la liste (anciennes listes : sortie, ou rentree avec des scans de retour) ; une liste validee
     // aujourd'hui est terminee sans retour a scanner
     const out = list.status === 'validated' || (list.status === 'returned' && !!(list.back || []).length);
     // un lot : sa case dit deja s'il est pris (pas de ✓ en double a droite)
-    const count = line.kind === 'lot' ? '' : `${line.scanned}/${line.quantity}`;
+    const count = line.kind === 'lot' ? '' : `${line.scanned}/${line.quantity}` + (line.unit ? ' ' + line.unit : '');
     const back = out && line.scanned ? (line.kind === 'lot' ? (line.back ? 'rentré' : 'pas rentré')
-      : `${line.back}/${nb(line.scanned, 'rentré')}`) : '';
+      : line.unit ? `${line.back}/${line.scanned} ${line.unit} rentrés` : `${line.back}/${nb(line.scanned, 'rentré')}`) : '';
     const verifRow = (lot, name) => el('li', { class: 'static list-verif-row' },
       el('div', { class: 'main' }, el('div', { class: 'sub' }, `⚠ ${name} : vérif recommandée avant de partir`)),
       listVerifButton(lot, name));
@@ -8521,7 +8622,7 @@
 
   // Quantite d'une ligne de l'editeur : petits − et + de part et d'autre du chiffre, qui reste modifiable au clavier
   function qtyStepper(line) {
-    const max = line.lot_types ? 99 : 999;
+    const max = line.lot_types ? 99 : line.unit ? 100000 : 999; // type a unites : en mL
     const clamp = (value) => Math.max(1, Math.min(max, value));
     const input = el('input', { type: 'number', class: 'list-qty', min: '1', max: String(max), value: String(line.quantity), 'aria-label': 'Quantité',
       inputmode: 'numeric', enterkeyhint: 'done',
@@ -8533,7 +8634,8 @@
       // l'appui ne ferme pas le clavier ouvert sur un autre champ
       onmousedown: (event) => event.preventDefault(),
       onclick: () => { line.quantity = clamp((line.quantity || 1) + delta); input.value = String(line.quantity); } }, delta < 0 ? '−' : '+');
-    return el('div', { class: 'list-qty-box' }, step(-1, 'Un de moins'), input, step(1, 'Un de plus'));
+    return el('div', { class: 'list-qty-box' }, step(-1, 'Un de moins'), input, step(1, 'Un de plus'),
+      line.unit ? el('span', { class: 'list-qty-unit' }, line.unit) : '');
   }
 
   function listEditor(edit) {
@@ -8560,7 +8662,8 @@
       ...(options ? options.lots : []).filter((lot) => !taken.has(lot.id))
         .map((lot) => ({ key: lot.id, label: lot.name, sub: lot.lot_type_name, kind: KIND_LOT, description: lot.description, row: lot })),
       ...(options ? options.types : []).filter((type) => !taken.has('type:' + type.type))
-        .map((type) => ({ key: type.type, label: type.name, sub: type.type, kind: KIND_TYPE, description: type.description, row: type })),
+        .map((type) => ({ key: type.type, label: type.name + (type.unit ? ` (${type.unit})` : ''), sub: type.type, kind: KIND_TYPE,
+          description: type.description, row: type })),
     ], (pick) => {
       if (pick.kind === KIND_LOT) {
         // sac d'un B+ de referentiel (sans etiquette) : le B+ entier (un sac se retire ensuite par sa croix dans la liste)
@@ -8572,7 +8675,7 @@
         if (!edit.lines.some((line) => line.lot === lot.id)) edit.lines.push({ lot: lot.id, label: lot.name, sub: lot.lot_type_name, parts });
       }
       else if (pick.kind === KIND_LOT_TYPE) edit.lines.push({ lot_types: [pick.row.type], label: pick.row.name, sub: 'Lot au choix', quantity: 1 });
-      else edit.lines.push({ type: pick.row.type, label: pick.row.name, quantity: 1 });
+      else edit.lines.push({ type: pick.row.type, label: pick.row.name, quantity: 1, unit: pick.row.unit || '' });
       redraw();
     }, 12);
     return [

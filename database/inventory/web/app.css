@@ -710,6 +710,7 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-qty::-webkit-inner-spin-button, #home-lists .list-qty::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 /* petits − et + de part et d'autre du chiffre */
 #home-lists .list-qty-box { flex: none; display: flex; align-items: center; gap: 4px; }
+#home-lists .list-qty-unit { color: var(--muted); font-size: .85em; }
 #home-lists .list-qty-step { flex: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: #eee; color: var(--text);
   font-size: 1.1rem; font-weight: 600; line-height: 1; }
 #home-lists .list-take-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
