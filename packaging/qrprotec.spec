@@ -247,6 +247,10 @@ install -Dpm 0755 packaging/files/qrprotec-manage %{buildroot}%{_bindir}/qrprote
 sed -i 's|@APPDIR@|%{appdir}|g' %{buildroot}%{_bindir}/qrprotec-manage
 
 install -Dpm 0640 packaging/files/qrprotec.conf %{buildroot}%{_sysconfdir}/%{name}/qrprotec.conf
+# Mode maintenance (qrprotec-manage maintenance on) : modele de la page, copie dans /etc/qrprotec/maintenance/
+# (servie par Caddy, hors des sauvegardes qui ne prennent que les fichiers de /etc/qrprotec)
+install -Dpm 0644 packaging/files/maintenance.html %{buildroot}%{appdir}/maintenance.html
+install -d -m 0755 %{buildroot}%{_sysconfdir}/%{name}/maintenance
 install -Dpm 0644 packaging/files/qrprotec.caddyfile \
     %{buildroot}%{_sysconfdir}/caddy/Caddyfile.d/%{name}.caddyfile
 
@@ -494,7 +498,9 @@ fi
 %dir %{appdir}
 %{appdir}/backend/
 %{appdir}/vendor/
+%{appdir}/maintenance.html
 %config(noreplace) %attr(0640,root,qrprotec) %{_sysconfdir}/%{name}/qrprotec.conf
+%dir %{_sysconfdir}/%{name}/maintenance
 %dir %{_sysconfdir}/caddy/Caddyfile.d
 %config(noreplace) %{_sysconfdir}/caddy/Caddyfile.d/%{name}.caddyfile
 %{_unitdir}/qrprotec.service

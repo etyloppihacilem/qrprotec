@@ -3,6 +3,10 @@
 #
 #   sudo qrprotec-manage createadmin M001 Nom Prenom --pin 4821
 #   sudo qrprotec-manage check_alerts
+#   sudo qrprotec-manage maintenance on|off|status [MESSAGE]
+#
+# `maintenance` ne passe pas par Django (le back peut etre arrete) : Caddy sert une page de maintenance a la
+# place de tout le site tant que /etc/qrprotec/maintenance/index.html existe (voir qrprotec.caddyfile).
 #
 # Lance par root, charge la configuration et la cle secrete puis repasse sous l'utilisateur
 # `qrprotec` (proprietaire de la base). Sous systemd (qrprotec.service), la configuration vient
@@ -14,6 +18,114 @@ readonly CONF_FILE=/etc/qrprotec/qrprotec.conf
 readonly SECRET_FILE=/etc/qrprotec/secret_key
 readonly SERVICE_USER=qrprotec
 readonly STATE_DIR=/var/lib/qrprotec
+readonly MAINTENANCE_DIR=/etc/qrprotec/maintenance
+readonly MAINTENANCE_PAGE=$MAINTENANCE_DIR/index.html
+readonly MAINTENANCE_TEMPLATE=$APP_DIR/maintenance.html
+readonly CADDY_FRAGMENT=/etc/caddy/Caddyfile.d/qrprotec.caddyfile
+
+maintenance_usage() {
+    cat <<'USAGE'
+Usage : sudo qrprotec-manage maintenance on [MESSAGE]   site remplace par la page de maintenance
+        sudo qrprotec-manage maintenance off            site de nouveau accessible
+        qrprotec-manage maintenance status              etat actuel
+
+Pendant la maintenance, Caddy repond 503 a tout le site (pages, API, WebSockets, fronts distants) sans
+joindre le back, qui peut etre arrete. MESSAGE (facultatif) s'ajoute a la page, ex. :
+    sudo qrprotec-manage maintenance on "Retour prevu vers 14 h."
+USAGE
+}
+
+# Avertit si le fragment Caddy installe ne connait pas encore le mode maintenance (fragment modifie a la main,
+# nouvelle version laissee en .rpmnew par la mise a jour) : la page ne serait alors jamais servie.
+maintenance_check_caddy() {
+    if [[ -r $CADDY_FRAGMENT ]] && ! grep -q "$MAINTENANCE_DIR" "$CADDY_FRAGMENT"; then
+        echo "ATTENTION : $CADDY_FRAGMENT ne gere pas le mode maintenance (fichier modifie localement ?)." >&2
+        echo "            Reportez le bloc @maintenance de $CADDY_FRAGMENT.rpmnew, puis : sudo systemctl reload caddy" >&2
+    fi
+}
+
+maintenance() {
+    local action=${1:-status}
+    case $action in
+        on | off)
+            if [[ $(id -u) -ne 0 ]]; then
+                echo "qrprotec-manage maintenance $action : a lancer en root (sudo)." >&2
+                exit 1
+            fi
+            ;;
+        status) ;;
+        -h | --help | help) maintenance_usage; return 0 ;;
+        *) maintenance_usage >&2; exit 2 ;;
+    esac
+
+    case $action in
+        on)
+            shift
+            local message=${*:-} html='' tmp
+            if [[ ! -r $MAINTENANCE_TEMPLATE ]]; then
+                echo "qrprotec-manage : modele $MAINTENANCE_TEMPLATE introuvable (qrprotec-server installe ?)" >&2
+                exit 1
+            fi
+            if [[ -n $message ]]; then
+                # Remplacements entre guillemets : sinon bash >= 5.2 (patsub_replacement) lit « & » comme le motif
+                message=${message//'&'/'&amp;'}
+                message=${message//'<'/'&lt;'}
+                message=${message//'>'/'&gt;'}
+                message=${message//'"'/'&quot;'}
+                html="<p><strong>${message}</strong></p>"
+            fi
+            local already=no
+            [[ -e $MAINTENANCE_PAGE ]] && already=yes
+            install -d -m 0755 "$MAINTENANCE_DIR"
+            tmp=$(mktemp "$MAINTENANCE_DIR/.index.XXXXXX")
+            local line
+            while IFS= read -r line || [[ -n $line ]]; do
+                printf '%s\n' "${line//@MESSAGE@/"$html"}"
+            done <"$MAINTENANCE_TEMPLATE" >"$tmp"
+            chmod 0644 "$tmp"
+            mv -f "$tmp" "$MAINTENANCE_PAGE"
+            if [[ $already == yes ]]; then
+                echo "Maintenance deja activee : page mise a jour."
+            else
+                # Le fichier suffit pour les nouvelles requetes ; recharger Caddy coupe aussi les WebSockets deja
+                # ouverts (suivi en direct, telephones-douchettes), qui se reconnectent sur la page de maintenance.
+                systemctl reload caddy.service 2>/dev/null || :
+                echo "Maintenance activee : le site affiche « Maintenance en cours, QRprotec n'est pas accessible pour le moment. »"
+            fi
+            echo "Le back peut etre arrete sans erreur visible (sudo systemctl stop qrprotec). Fin : sudo qrprotec-manage maintenance off"
+            maintenance_check_caddy
+            ;;
+        off)
+            if [[ -e $MAINTENANCE_PAGE ]]; then
+                rm -f "$MAINTENANCE_PAGE"
+                echo "Maintenance terminee : le site est de nouveau accessible."
+            else
+                echo "Maintenance deja desactivee."
+            fi
+            if ! systemctl is-active --quiet qrprotec.service 2>/dev/null; then
+                echo "ATTENTION : le back (qrprotec.service) est arrete ; relancez-le : sudo systemctl start qrprotec" >&2
+            fi
+            ;;
+        status)
+            if [[ -e $MAINTENANCE_PAGE ]]; then
+                echo "Maintenance : activee depuis le $(date -r "$MAINTENANCE_PAGE" '+%d/%m/%Y a %H:%M')"
+            else
+                echo "Maintenance : desactivee"
+            fi
+            local service
+            for service in caddy qrprotec; do
+                echo "$service.service : $(systemctl is-active "$service.service" 2>/dev/null || :)"
+            done
+            maintenance_check_caddy
+            ;;
+    esac
+}
+
+if [[ ${1:-} == maintenance ]]; then
+    shift
+    maintenance "$@"
+    exit 0
+fi
 
 if [[ -z ${INVOCATION_ID:-} && -r $CONF_FILE ]]; then
     set -a

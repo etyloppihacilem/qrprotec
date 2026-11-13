@@ -167,6 +167,9 @@ les modèles d'étiquettes dans `/var/lib/qrprotec-kiosk/templates/` (images dan
 
 **Administrateur** : `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821` (toute commande
 `manage.py` passe par `qrprotec-manage`, exécutée sous l'utilisateur `qrprotec`).
+**Maintenance** : `sudo qrprotec-manage maintenance on` (puis `off`) fait afficher par Caddy une page
+« Maintenance en cours » à la place du site, de l'API et des WebSockets, même back arrêté
+(voir [exploitation](docs/installation/exploitation.md#maintenance)).
 
 **Pare-feu** : rien n'est ouvert automatiquement. `qrprotec-setup --open-firewall` ouvre http/https
 dans firewalld s'il est actif, sinon dans UFW (`ufw allow 80/tcp`, `ufw allow 443/tcp`).

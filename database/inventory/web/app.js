@@ -286,6 +286,7 @@
   // le telephone (outbox), renvoyee dans l'ordre des le retour du reseau. Une petite mention le dit en haut du scanner.
   const STORAGE_OUTBOX = 'qrprotec.outbox';
   let offline = false;
+  let maintenance = false; // derniere reponse : 503 de la maintenance (mention « Maintenance en cours »)
   let outbox = [];
   try { outbox = JSON.parse(localStorage.getItem(STORAGE_OUTBOX) || '[]') || []; } catch (e) { outbox = []; }
   let outboxBusy = false;
@@ -300,7 +301,8 @@
     const waiting = outbox.length;
     chip.hidden = !offline && !waiting;
     chip.classList.toggle('pending', !offline && waiting > 0);
-    chip.textContent = offline ? (waiting ? `Hors connexion · ${nb(waiting, 'envoi')} en attente` : 'Hors connexion')
+    const state = maintenance ? 'Maintenance en cours' : 'Hors connexion';
+    chip.textContent = offline ? (waiting ? `${state} · ${nb(waiting, 'envoi')} en attente` : state)
       : `Envoi en cours… (${waiting})`;
   }
 
@@ -385,9 +387,17 @@
       setOffline(true);
       throw Object.assign(new Error('Serveur injoignable, vérifiez le réseau.'), { status: 0 });
     }
-    setOffline(false);
     let data = null;
     try { data = await response.json(); } catch (e) { /* reponse vide */ }
+    // Back arrete ou injoignable derriere Caddy (502, 504), ou maintenance (503, `qrprotec-manage maintenance on`) :
+    // comme hors connexion, pour que les vérifs en attente soient gardees et renvoyees plus tard, pas refusees.
+    if ([502, 503, 504].includes(response.status)) {
+      maintenance = !!(data && data.maintenance);
+      if (offline) showOffline(); else setOffline(true);
+      throw Object.assign(new Error((data && data.error) || 'Serveur injoignable, réessayez plus tard.'), { status: 0 });
+    }
+    maintenance = false;
+    setOffline(false);
     if (!response.ok) {
       const message = (data && (data.error || data.detail)) || `Erreur ${response.status}`;
       throw Object.assign(new Error(message), { status: response.status, data: data || {} });
