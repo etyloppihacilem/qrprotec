@@ -64,6 +64,11 @@ class Json {
     std::size_t                size() const;
     const Json                &operator[](std::size_t index) const;
     const Json                &operator[](int index) const { return (*this)[static_cast< std::size_t >(index)]; }
+    // Memes lectures sur un Json non const : sans elles, json[std::size_t{ 0 }] hesite entre l'index const
+    // (conversion de *this) et la cle non const (0 converti en pointeur nul), ambigu pour ISO C++. Lecture
+    // seule (pas de tableau agrandi), comme les versions const.
+    const Json &operator[](std::size_t index) { return std::as_const(*this)[index]; }
+    const Json &operator[](int index) { return std::as_const(*this)[index]; }
     void                       push_back(Json value);
     const std::vector< Json > &items() const { return array_; }
     std::vector< Json >       &items() { return array_; }

@@ -147,6 +147,10 @@ flatpak-umount:
 
 flatpak: flatpak-umount
 	@command -v flatpak-builder >/dev/null || { echo "flatpak-builder requis (sudo dnf install flatpak-builder)"; exit 1; }
+	@# bwrap monte /etc/resolv.conf de la machine dans chaque bac a sable : absent ou lien casse, le build
+	@# echoue (« bwrap: Can't bind mount /etc/resolv.conf »). Voir packaging/flatpak/build-front.sh.
+	@[ -e /etc/resolv.conf ] || { echo "/etc/resolv.conf absent ou lien symbolique casse ($$(readlink /etc/resolv.conf)) :"; \
+		echo "  verifier le reseau (systemctl status systemd-resolved NetworkManager), puis relancer make flatpak"; exit 1; }
 	git submodule update --init app/imgui app/implot app/scanner_lib
 	flatpak remote-add --user --if-not-exists flathub $(FLATHUB)
 	flatpak-builder --user --install-deps-from=flathub --force-clean --ccache --disable-rofiles-fuse \
