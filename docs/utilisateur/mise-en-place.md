@@ -38,15 +38,11 @@ Menu **Administration > Réglages** (admin), section **Étiquettes et impression
 1. **Imprimante** : le **Modèle** (TSPL pour TSC, IDPRT, Munbyn… ; ZPL pour Zebra ; Niimbot B1 en
    secours), puis l'**Adresse** (`/dev/usb/lp0` en USB, ou l'adresse IP de l'imprimante réseau) ou le
    port de la Niimbot (`/dev/ttyACM0`). Cochez **Transfert thermique** si un ruban est chargé.
-   À la mise en route et à chaque nouveau format de rouleau, cliquez sur **Calibrer sur les étiquettes
-   chargées** (Maintenance de l'imprimante) : l'imprimante apprend la taille de l'étiquette et mesure
-   l'interstice (elle fait défiler 2 à 4 étiquettes). Sans cela, une imprimante d'occasion réglée pour des
-   étiquettes colis sort plusieurs étiquettes blanches entre deux impressions et le texte déborde sur la
-   suivante. **Page de configuration** imprime ses réglages (et son adresse IP).
-   Imprimez ensuite l'**Étiquette d'étalonnage** : cadre au ras du bord et croix au centre graduée en
-   millimètres, à la taille du rouleau chargé. Cadre coupé d'un côté ou croix décalée de N traits : réglez
-   le décalage de N mm (négatif = vers la gauche / le haut). Détails dans
-   [L'imprimante d'étiquettes](imprimante.md).
+   Pour une imprimante TSPL ou ZPL, suivez ensuite la [procédure de changement de
+   rouleau](imprimante.md#changer-de-rouleau) : **Calibrer sur les étiquettes chargées**,
+   **Lire l'état**, puis **Étiquette d'étalonnage** pour régler les **décalages** (−15 à +15 mm :
+   positif vers la droite / le bas). Imprimante d'occasion : **Réglages d'usine** d'abord. Détails
+   dans [L'imprimante d'étiquettes](imprimante.md).
 2. **Étiquettes chargées dans l'imprimante** : largeur et hauteur du rouleau (40 × 30 mm).
    Si vous utilisez plusieurs rouleaux (par exemple thermique direct pour les consommables et polyester
    avec ruban pour les lots), créez un **type d'étiquette** par rouleau dans l'Éditeur d'étiquettes (onglet

@@ -197,9 +197,50 @@ double printer_max_width_mm(PrinterKind kind)
     return kind == PrinterKind::NiimbotB1 ? 48.0 : 104.0;
 }
 
+PrinterStatus Printer::query_status(const PrintSettings&)
+{
+    PrinterStatus status;
+    status.text = "pas de lecture d'état pour ce modèle";
+    return status;
+}
+
 bool RawLabelPrinter::connect(const PrintSettings& settings, std::string& error)
 {
+    silent_ = false;
     return transport_.open(settings.raw.address, settings.raw.timeout_ms, error);
+}
+
+PrinterStatus RawLabelPrinter::read_status(PrinterKind kind, int timeout_ms)
+{
+    PrinterStatus status;
+    const bool zpl = kind == PrinterKind::Zpl;
+    std::string error;
+    if (!transport_.readable()) {
+        status.text = "état non lisible (liaison en écriture seule)";
+        return status;
+    }
+    if (!transport_.write_bytes(labels::status_request(zpl), error)) {
+        status.text = error;
+        return status;
+    }
+    const labels::PrinterState state = labels::parse_status(zpl, transport_.read_reply(timeout_ms));
+    status.known = state.known;
+    status.blocking = state.blocking();
+    status.text = state.description();
+    return status;
+}
+
+PrinterStatus RawLabelPrinter::query_status(const PrintSettings& settings)
+{
+    std::string error;
+    if (!connect(settings, error)) {
+        PrinterStatus status;
+        status.text = error;
+        return status;
+    }
+    const PrinterStatus status = read_status(settings.kind, 2000);
+    disconnect();
+    return status;
 }
 
 void RawLabelPrinter::disconnect()
@@ -245,6 +286,15 @@ bool RawLabelPrinter::print(const PrintRequest& request, const std::function<voi
     const std::vector<std::uint8_t> bytes = request.settings.kind == PrinterKind::Zpl
                                                 ? labels::encode_zpl(request.image, job)
                                                 : labels::encode_tspl(request.image, job);
+    job.tear_off_dots = static_cast<int>(std::lround(raw.tear_off_mm * ppm));
+    if (!silent_) {
+        const PrinterStatus status = read_status(request.settings.kind, 1000);
+        if (status.blocking) {
+            error = "Imprimante : " + status.text + ".";
+            return false;
+        }
+        silent_ = !status.known;
+    }
     if (progress) progress(0.0f);
     debug_log(std::string(printer_kind_id(request.settings.kind)) + " : " + std::to_string(bytes.size()) + " octets");
     if (!transport_.write_bytes(bytes, error)) return false;
@@ -291,6 +341,12 @@ bool AnyPrinter::send_command(const PrintSettings& settings, const std::string& 
 {
     disconnect();
     return select(settings.kind).send_command(settings, command, error);
+}
+
+PrinterStatus AnyPrinter::query_status(const PrintSettings& settings)
+{
+    disconnect();
+    return select(settings.kind).query_status(settings);
 }
 
 } // namespace qrprotec

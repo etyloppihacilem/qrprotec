@@ -58,24 +58,28 @@ int main()
     assert(tspl.size() >= 13 && tspl.compare(tspl.size() - 13, 13, "\r\nPRINT 1,2\r\n") == 0);
 
     job.ribbon = false;
-    job.offset_x_dots = 16;
     const std::string zpl = as_text(qrprotec::labels::encode_zpl(label, job));
-    assert(zpl.rfind("~SD20\n^XA\n^MTD\n", 0) == 0);
-    assert(zpl.find("^PW448\n^LL240\n") != std::string::npos);
-    assert(zpl.find("^FO80,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
+    // format de l'etiquette : largeur d'impression = largeur de l'etiquette, positions explicites
+    assert(zpl.rfind("~SD20\n~TA000\n^XA\n^MTD\n^MNY\n^PW320\n^LL240\n^LH0,0\n^LS0\n^LT0\n", 0) == 0);
+    assert(zpl.find("^FO0,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
     assert(zpl.find("^PQ2\n^XZ\n") != std::string::npos);
+    assert(tspl.find("SHIFT 0,0\r\nOFFSET 0 mm\r\nCLS\r\n") != std::string::npos);
 
-    // decalage negatif : zone ^PW elargie et lignes du haut retirees en ZPL, SHIFT en TSPL
-    job.offset_x_dots = -8;
+    // decalages : ^LS positif = vers la gauche (donc oppose), ^LT positif = vers le bas, ~TA ; borne ±120 points
+    job.offset_x_dots = 16;
     job.offset_y_dots = -16;
+    job.tear_off_dots = -8;
     const std::string shifted = as_text(qrprotec::labels::encode_zpl(label, job));
-    assert(shifted.find("^LL240\n^LH0,0\n^FO56,0^GFA,0,0,2,") != std::string::npos);
-    assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT -8,-16\r\nCLS\r\nBITMAP 0,0,") != std::string::npos);
-    // vers le bas : image plus bas et ^LL allonge d'autant (pas de bas coupe) ; vers le haut : lignes du haut retirees
-    job.offset_x_dots = 0;
-    job.offset_y_dots = 16;
-    assert(as_text(qrprotec::labels::encode_zpl(label, job)).find("^LL256\n^LH0,0\n^FO64,16^GFA,4,4,2,") != std::string::npos);
-    assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT 0,16\r\nCLS\r\nBITMAP 0,0,") != std::string::npos);
+    assert(shifted.find("~TA-08\n^XA\n") != std::string::npos);
+    assert(shifted.find("^PW320\n^LL240\n^LH0,0\n^LS-16\n^LT-16\n^FO0,0^GFA,4,4,2,") != std::string::npos);
+    assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT 16,-16\r\nOFFSET -1 mm\r\nCLS\r\nBITMAP 0,0,") !=
+           std::string::npos);
+    job.offset_x_dots = -40;
+    job.offset_y_dots = 200;
+    job.tear_off_dots = 400;
+    const std::string bounded = as_text(qrprotec::labels::encode_zpl(label, job));
+    assert(bounded.find("~TA120\n") != std::string::npos && bounded.find("^LS40\n^LT120\n") != std::string::npos);
+    assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT -40,200\r\nOFFSET 25.4 mm\r\n") != std::string::npos);
 
     // maintenance : calibrage sur l'etiquette chargee (40 x 30 mm, thermique direct)
     using qrprotec::labels::Maintenance;
@@ -84,13 +88,36 @@ int main()
     media.height_dots = 240;
     media.ribbon = false;
     media.gap_mm = 3.0;
+    media.offset_x_dots = 8;
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Calibrate, media) ==
-           "^XA^MNY^MTD^PW448^LL240^JUS^XZ\n~JC\n^XA^JUS^XZ\n");
+           "~TA000\n^XA\n^MTD\n^MNY\n^PW320\n^LL240\n^LH0,0\n^LS-8\n^LT0\n^XZ\n~JC\n^XA^JUS^XZ\n");
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Config, media) == "~WC\n");
-    assert(qrprotec::labels::maintenance_command(true, Maintenance::Feed, media) == "^XA^MNY^LL240^XZ\n");
+    assert(qrprotec::labels::maintenance_command(true, Maintenance::Feed, media) == "~PH\n");
+    assert(qrprotec::labels::maintenance_command(true, Maintenance::Factory, media) == "^XA^JUF^XZ\n^XA^JUS^XZ\n");
     assert(qrprotec::labels::maintenance_command(false, Maintenance::Calibrate, media) ==
            "SIZE 40 mm,30 mm\r\nGAP 3 mm,0 mm\r\nSET RIBBON OFF\r\nGAPDETECT\r\n");
     assert(qrprotec::labels::maintenance_command(false, Maintenance::Feed, media) == "FORMFEED\r\n");
+    assert(qrprotec::labels::maintenance_command(false, Maintenance::Factory, media) == "INITIALPRINTER\r\n");
+
+    // etat de l'imprimante : ~HS (ZPL), <ESC>!? (TSPL)
+    using qrprotec::labels::parse_status;
+    const auto host_status = [](const std::string& first, const std::string& second) {
+        const std::string text = "\x02" + first + "\x03\r\n\x02" + second + "\x03\r\n\x02" "1234,0\x03\r\n";
+        return std::vector<std::uint8_t>(text.begin(), text.end());
+    };
+    const auto ready = parse_status(true, host_status("030,0,0,0240,000,0,0,0,000,0,0,0", "001,0,0,0,1,2,6,0,00000000,1,000"));
+    assert(ready.known && !ready.blocking() && ready.description() == "prête");
+    const auto out = parse_status(true, host_status("030,1,0,0240,000,0,0,0,000,0,0,0", "001,0,1,0,1,2,6,0,00000000,1,000"));
+    assert(out.known && out.paper_out && out.head_open && !out.ribbon_out && out.blocking());
+    const auto paused = parse_status(true, host_status("030,0,1,0240,001,0,0,0,000,0,0,0", "001,0,0,1,1,2,6,0,00000002,1,000"));
+    assert(paused.paused && paused.ribbon_out && paused.formats_waiting == 1 && paused.labels_remaining == 2);
+    assert(!parse_status(true, {}).known && !parse_status(true, {}).blocking());
+    assert(parse_status(false, {0x00}).known && !parse_status(false, {0x00}).blocking());
+    const auto tspl_state = parse_status(false, {0x05});
+    assert(tspl_state.head_open && tspl_state.paper_out && !tspl_state.ribbon_out && tspl_state.blocking());
+    assert(parse_status(false, {0x20}).printing && !parse_status(false, {0x20}).blocking());
+    assert((qrprotec::labels::status_request(true) == std::vector<std::uint8_t>{'~', 'H', 'S', '\n'}));
+    assert((qrprotec::labels::status_request(false) == std::vector<std::uint8_t>{0x1b, '!', '?'}));
 
     // adresse de l'imprimante : fichier ou reseau
     using qrprotec::RawTransport;

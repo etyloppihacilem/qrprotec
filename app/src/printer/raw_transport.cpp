@@ -64,7 +64,11 @@ bool RawTransport::open(const std::string& address, int timeout_ms, std::string&
         return false;
     }
     if (!is_network_address(address)) {
-        file_descriptor_ = ::open(address.c_str(), O_WRONLY | O_NOCTTY | O_CLOEXEC);
+        // lecture + ecriture pour lire l'etat (~HS, <ESC>!?) ; ecriture seule si le peripherique la refuse
+        file_descriptor_ = ::open(address.c_str(), O_RDWR | O_NOCTTY | O_CLOEXEC);
+        readable_ = file_descriptor_ >= 0;
+        if (file_descriptor_ < 0)
+            file_descriptor_ = ::open(address.c_str(), O_WRONLY | O_NOCTTY | O_CLOEXEC);
         if (file_descriptor_ < 0) {
             const int code = errno;
             error = address + " : " + std::strerror(code);
@@ -123,6 +127,7 @@ bool RawTransport::open(const std::string& address, int timeout_ms, std::string&
         if (result == 0) {
             ::fcntl(socket_fd, F_SETFL, flags);
             file_descriptor_ = socket_fd;
+            readable_ = true;
             break;
         }
         ::close(socket_fd);
@@ -139,6 +144,27 @@ void RawTransport::close()
         ::close(file_descriptor_);
         file_descriptor_ = -1;
     }
+    readable_ = false;
+}
+
+std::vector<std::uint8_t> RawTransport::read_reply(int timeout_ms)
+{
+    std::vector<std::uint8_t> reply;
+    if (!is_open() || !readable_) return reply;
+    int wait = timeout_ms;
+    for (;;) {
+        pollfd descriptor{file_descriptor_, POLLIN, 0};
+        const int ready = ::poll(&descriptor, 1, wait);
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready <= 0 || (descriptor.revents & POLLIN) == 0) break;
+        std::uint8_t buffer[256];
+        const ssize_t count = ::read(file_descriptor_, buffer, sizeof(buffer));
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        reply.insert(reply.end(), buffer, buffer + count);
+        wait = 150;
+    }
+    return reply;
 }
 
 bool RawTransport::write_bytes(const std::vector<std::uint8_t>& bytes, std::string& error)

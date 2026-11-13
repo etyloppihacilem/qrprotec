@@ -168,9 +168,11 @@ void AppSettings::load() {
     else if (key == "printer_gap_mm")
       print.raw.gap_mm = std::clamp(to_float(value, static_cast< float >(print.raw.gap_mm)), 0.0f, 20.0f);
     else if (key == "printer_offset_x_mm")
-      print.raw.offset_x_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_x_mm)), -15.0f, 50.0f);
+      print.raw.offset_x_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_x_mm)), -15.0f, 15.0f);
     else if (key == "printer_offset_y_mm")
-      print.raw.offset_y_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_y_mm)), -15.0f, 50.0f);
+      print.raw.offset_y_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_y_mm)), -15.0f, 15.0f);
+    else if (key == "printer_tear_off_mm")
+      print.raw.tear_off_mm = std::clamp(to_float(value, static_cast< float >(print.raw.tear_off_mm)), -15.0f, 15.0f);
     else if (key == "printer_device")
       print.serial.device = value;
     else if (key == "printer_baud")
@@ -271,6 +273,7 @@ bool AppSettings::save(std::string &error) const {
          << "printer_gap_mm=" << print.raw.gap_mm << '\n'
          << "printer_offset_x_mm=" << print.raw.offset_x_mm << '\n'
          << "printer_offset_y_mm=" << print.raw.offset_y_mm << '\n'
+         << "printer_tear_off_mm=" << print.raw.tear_off_mm << '\n'
          << "printer_device=" << print.serial.device << '\n'
          << "printer_baud=" << print.serial.baud_rate << '\n'
          << "printer_density=" << print.density << '\n'

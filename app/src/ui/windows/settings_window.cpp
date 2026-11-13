@@ -382,18 +382,29 @@ class SettingsWindow final : public AppWindow {
           ImGui::SetNextItemWidth(150.0f);
           if (ImGui::InputFloat("Espace entre étiquettes (mm)", &gap, 0.5f, 1.0f, "%.1f"))
             raw.gap_mm = std::clamp(gap, 0.0f, 20.0f);
+          ImGui::SeparatorText("Position de l'impression");
           float offset_x = static_cast< float >(raw.offset_x_mm);
           ImGui::SetNextItemWidth(150.0f);
           if (ImGui::InputFloat("Décalage horizontal (mm)", &offset_x, 0.5f, 1.0f, "%.1f"))
-            raw.offset_x_mm = std::clamp(offset_x, -15.0f, 50.0f);
+            raw.offset_x_mm = std::clamp(offset_x, -15.0f, 15.0f);
+          help_marker("Déplace toute l'impression sur l'étiquette. Positif : vers la droite ; négatif : vers la "
+                      "gauche. ZPL : ^LS (« Left Position » de l'imprimante) ; TSPL : SHIFT x.");
           float offset_y = static_cast< float >(raw.offset_y_mm);
           ImGui::SetNextItemWidth(150.0f);
           if (ImGui::InputFloat("Décalage vertical (mm)", &offset_y, 0.5f, 1.0f, "%.1f"))
-            raw.offset_y_mm = std::clamp(offset_y, -15.0f, 50.0f);
-          help_marker("À régler seulement si l'impression est décalée sur l'étiquette (imprimante qui aligne le "
-                      "rouleau sur un bord au lieu de le centrer) : imprimer l'étiquette d'étalonnage ci-dessous. "
-                      "Positif : vers la droite / le bas ; négatif : vers la gauche / le haut.");
-          ImGui::TextDisabled("Pas de retour d'état : une erreur papier ou ruban s'affiche sur l'imprimante.");
+            raw.offset_y_mm = std::clamp(offset_y, -15.0f, 15.0f);
+          help_marker("Déplace toute l'impression sur l'étiquette. Positif : vers le bas (loin du haut de "
+                      "l'étiquette) ; négatif : vers le haut. ZPL : ^LT (« Label Top »), 120 points au plus soit "
+                      "15 mm ; TSPL : SHIFT y. Une impression qui déborde de plusieurs millimètres sur l'étiquette "
+                      "suivante ne se règle pas ici : calibrer.");
+          float tear_off = static_cast< float >(raw.tear_off_mm);
+          ImGui::SetNextItemWidth(150.0f);
+          if (ImGui::InputFloat("Position de découpe (mm)", &tear_off, 0.5f, 1.0f, "%.1f"))
+            raw.tear_off_mm = std::clamp(tear_off, -15.0f, 15.0f);
+          help_marker("Où l'étiquette s'arrête après impression, pour la détacher sur la barre de découpe. Positif : "
+                      "elle sort plus loin ; négatif : elle s'arrête plus tôt. Ne déplace pas l'impression sur "
+                      "l'étiquette. ZPL : ~TA (« Tear Off ») ; TSPL : OFFSET.");
+          ImGui::TextDisabled("Imprimer l'étiquette d'étalonnage (ci-dessous) pour lire les valeurs à régler.");
           draw_printer_maintenance(app, settings);
         }
         const PrintQueueStatus status = app.printer.status();
@@ -483,44 +494,83 @@ class SettingsWindow final : public AppWindow {
         loaded.rotation  = 0;
         loaded.support   = ribbon ? LabelSupport::Transfer : LabelSupport::Direct;
       }
-      labels::RawJob job;
-      job.dots_per_mm = label.pixels_per_mm > 0 ? label.pixels_per_mm : 8.0;
-      job.width_dots  = static_cast< int >(std::lround(width * job.dots_per_mm));
-      job.height_dots = static_cast< int >(std::lround(height * job.dots_per_mm));
-      job.gap_mm      = settings.print.raw.gap_mm;
-      job.ribbon      = ribbon;
-      const bool zpl  = settings.print.kind == PrinterKind::Zpl;
-      const auto send = [&](labels::Maintenance action, const char *description) {
+      const RawPrinterSettings &raw = settings.print.raw;
+      labels::RawJob            job;
+      job.dots_per_mm   = label.pixels_per_mm > 0 ? label.pixels_per_mm : 8.0;
+      job.width_dots    = static_cast< int >(std::lround(width * job.dots_per_mm));
+      job.height_dots   = static_cast< int >(std::lround(height * job.dots_per_mm));
+      job.gap_mm        = raw.gap_mm;
+      job.ribbon        = ribbon;
+      job.offset_x_dots = static_cast< int >(std::lround(raw.offset_x_mm * job.dots_per_mm));
+      job.offset_y_dots = static_cast< int >(std::lround(raw.offset_y_mm * job.dots_per_mm));
+      job.tear_off_dots = static_cast< int >(std::lround(raw.tear_off_mm * job.dots_per_mm));
+      const bool zpl    = settings.print.kind == PrinterKind::Zpl;
+      const auto send   = [&](labels::Maintenance action, const char *description) {
         app.printer.send_command(description, labels::maintenance_command(zpl, action, job), settings.print);
         printer_message_ = std::string(description) + " : envoyé à l'imprimante.";
       };
+      ImGui::TextDisabled("Étiquette chargée : %.0f x %.0f mm, %s", width, height,
+                          ribbon ? "transfert (ruban)" : "thermique direct");
+
+      const PrintQueueStatus status = app.printer.status();
+      if (button("Lire l'état"))
+        app.printer.request_printer_state(settings.print);
+      help_marker("Demande à l'imprimante si elle est prête : tête ouverte, plus d'étiquettes, plus de ruban, pause. "
+                  "Le même contrôle est fait avant chaque étiquette : la file s'arrête avec la raison. Une imprimante "
+                  "qui ne répond pas (liaison USB à sens unique) imprime sans contrôle.");
+      if (!status.printer_state.empty()) {
+        ImGui::SameLine();
+        if (status.printer_state_blocking)
+          ImGui::TextColored(ImVec4(0.85f, 0.2f, 0.2f, 1.0f), "%s", status.printer_state.c_str());
+        else if (status.printer_state_known)
+          ImGui::TextColored(ImVec4(0.2f, 0.65f, 0.3f, 1.0f), "%s", status.printer_state.c_str());
+        else
+          ImGui::TextDisabled("%s", status.printer_state.c_str());
+      }
+
       if (button("Calibrer sur les étiquettes chargées"))
         send(labels::Maintenance::Calibrate, "Calibrage");
-      help_marker("À faire à chaque nouveau type de rouleau, ou si des étiquettes blanches sortent entre deux "
-                  "impressions / si l'impression déborde sur l'étiquette suivante. L'imprimante reçoit la taille "
-                  "de l'étiquette chargée (Type chargé, sinon l'étiquette réglée plus haut) et le support, puis "
-                  "avance quelques étiquettes pour mesurer l'interstice, et garde le tout après extinction.");
+      help_marker("À chaque nouveau format de rouleau, après un retour aux réglages d'usine, ou si des étiquettes "
+                  "blanches sortent entre deux impressions. L'imprimante reçoit le format (support, largeur, "
+                  "longueur, positions), mesure la longueur d'étiquette et règle ses capteurs en avançant quelques "
+                  "étiquettes, puis enregistre le tout (gardé après extinction). ZPL : ^MT ^MNY ^PW ^LL ^LS ^LT ~TA, "
+                  "~JC, ^JUS ; TSPL : SIZE, GAP, SET RIBBON, GAPDETECT.");
       ImGui::SameLine();
       if (button("Avancer d'une étiquette"))
         send(labels::Maintenance::Feed, "Avance");
       ImGui::SameLine();
       if (button("Page de configuration"))
         send(labels::Maintenance::Config, "Page de configuration");
-      help_marker("Imprime les réglages de l'imprimante (taille, capteur, résolution, réseau) : utile pour vérifier "
-                  "un calibrage ou retrouver son adresse IP. Elle sort sur une ou plusieurs étiquettes.");
+      help_marker("Imprime les réglages de l'imprimante (largeur d'impression, longueur, capteur, décalages, réseau) : "
+                  "utile pour vérifier un calibrage ou retrouver son adresse IP. ZPL : ~WC ; TSPL : SELFTEST.");
       if (button("Étiquette d'étalonnage")) {
-        PrintJob job;
-        job.description = "Étiquette d'étalonnage";
-        job.document    = calibration_document(loaded, typed);
-        job.image       = calibration_image(job.document);
-        app.print_documents({ job });
+        PrintJob calibration;
+        calibration.description = "Étiquette d'étalonnage";
+        calibration.document    = calibration_document(loaded, typed);
+        calibration.image       = calibration_image(calibration.document);
+        app.print_documents({ calibration });
         printer_message_ = "Étiquette d'étalonnage : envoyée à l'imprimante.";
       }
       help_marker("Cadre au ras du bord, cadre pointillé à 1 mm et croix graduée, à la taille de l'étiquette "
                   "chargée. Au bout des axes, chiffres en mm depuis chaque bord : si un bord est coupé, le chiffre "
-                  "au ras de ce bord, avec son signe (la flèche montre le sens du déplacement), s'ajoute au "
-                  "Décalage horizontal / vertical. Impression qui déborde sur l'étiquette suivante : recalibrer.");
-      ImGui::TextDisabled("Étiquette : %.0f x %.0f mm, %s", width, height, ribbon ? "transfert (ruban)" : "thermique direct");
+                  "au ras de ce bord, avec son signe, s'ajoute au Décalage horizontal / vertical.");
+      ImGui::SameLine();
+      if (!confirm_factory_) {
+        if (button("Réglages d'usine"))
+          confirm_factory_ = true;
+      } else {
+        if (button("Confirmer : tout remettre à zéro")) {
+          send(labels::Maintenance::Factory, "Réglages d'usine");
+          confirm_factory_ = false;
+        }
+        ImGui::SameLine();
+        if (button("Annuler"))
+          confirm_factory_ = false;
+      }
+      help_marker("Efface tous les réglages enregistrés dans l'imprimante (largeur, longueur, capteur, décalages, "
+                  "noirceur...) et remet ceux de l'usine ; le réseau n'est pas touché. À faire si l'imprimante a été "
+                  "réglée pour autre chose. Ensuite, toujours Calibrer. ZPL : ^JUF puis ^JUS ; TSPL : "
+                  "INITIALPRINTER.");
       if (!printer_message_.empty())
         ImGui::TextUnformatted(printer_message_.c_str());
     }
@@ -949,6 +999,7 @@ class SettingsWindow final : public AppWindow {
     std::vector< std::pair< std::string, TemplateCategory > > templates_;
     std::vector< LabelType >                                  label_types_; // types des modeles du dossier
     std::string                                               printer_message_; // derniere commande de maintenance envoyee
+    bool                                                      confirm_factory_ = false; // « Réglages d'usine » cliqué une fois
     Json                                                      notifications_;
     Json                                                      server_rules_;
     int                                                       warning_days_ = 30;

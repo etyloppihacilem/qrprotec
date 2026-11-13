@@ -43,6 +43,16 @@ void PrintQueue::enqueue(std::vector< PrintJob > jobs, const PrintSettings &sett
   condition_.notify_one();
 }
 
+// commandes et lectures d'etat : avant les etiquettes en attente (apres les autres commandes), et passees meme
+// quand la file est en pause sur une erreur, pour pouvoir la diagnostiquer et la regler
+void PrintQueue::push_maintenance(PrintJob job) {
+  auto position = jobs_.begin();
+  while (position != jobs_.end() && is_maintenance(*position))
+    ++position;
+  jobs_.insert(position, std::move(job));
+  status_.pending = jobs_.size();
+}
+
 void PrintQueue::send_command(const std::string &description, const std::string &command,
                               const PrintSettings &settings) {
   PrintJob job;
@@ -51,8 +61,20 @@ void PrintQueue::send_command(const std::string &description, const std::string 
   {
     std::lock_guard< std::mutex > lock(mutex_);
     settings_ = settings;
-    jobs_.push_back(std::move(job));
-    status_.pending = jobs_.size();
+    push_maintenance(std::move(job));
+  }
+  condition_.notify_one();
+}
+
+void PrintQueue::request_printer_state(const PrintSettings &settings) {
+  PrintJob job;
+  job.description  = "Lecture de l'état de l'imprimante";
+  job.status_query = true;
+  {
+    std::lock_guard< std::mutex > lock(mutex_);
+    settings_ = settings;
+    status_.printer_state = "lecture…";
+    push_maintenance(std::move(job));
   }
   condition_.notify_one();
 }
@@ -122,7 +144,9 @@ void PrintQueue::run() {
         status_.busy = false;
         status_.current.clear();
       }
-      condition_.wait(lock, [this] { return stopping_ || (!jobs_.empty() && !status_.paused); });
+      condition_.wait(lock, [this] {
+        return stopping_ || (!jobs_.empty() && (!status_.paused || is_maintenance(jobs_.front())));
+      });
       if (stopping_)
         break;
       job             = jobs_.front();
@@ -133,6 +157,21 @@ void PrintQueue::run() {
       status_.current = job.description;
     }
     std::string error;
+    if (job.status_query) {
+      if (connected) {
+        printer_.disconnect();
+        connected = false;
+      }
+      const PrinterStatus state = printer_.query_status(settings);
+      std::lock_guard< std::mutex > lock(mutex_);
+      if (!jobs_.empty())
+        jobs_.pop_front();
+      status_.printer_state          = state.text;
+      status_.printer_state_known    = state.known;
+      status_.printer_state_blocking = state.blocking;
+      status_.pending                = jobs_.size();
+      continue;
+    }
     if (!job.command.empty()) {
       if (connected) {
         printer_.disconnect();

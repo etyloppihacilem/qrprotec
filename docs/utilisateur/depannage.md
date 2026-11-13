@@ -85,13 +85,16 @@ Vérifiez qu'elle est allumée, branchée en USB, avec un rouleau et le capot fe
 file d'impression se met en pause et l'indicateur d'impression passe en rouge dans la barre du haut :
 cliquez dessus, puis **Reprendre l'impression** une fois le problème réglé, ou **Annuler les
 impressions en attente**. Dans les Réglages,
-**Imprimer test** vérifie la liaison. Voyants, calibrage et alignement : voir
+**Imprimer test** vérifie la liaison. Avec une imprimante TSPL ou ZPL, la file s'arrête d'elle-même
+avec la raison (capot ouvert, plus d'étiquettes, plus de ruban, pause) ; **Maintenance de
+l'imprimante > Lire l'état** la redemande. Voyants, calibrage et alignement : voir
 [L'imprimante d'étiquettes](imprimante.md).
 
 **Des étiquettes blanches sortent entre deux impressions, ou le texte déborde sur la suivante.**
 L'imprimante ne connaît pas la taille du rouleau : **Réglages > Maintenance de l'imprimante >
-Calibrer sur les étiquettes chargées**. Si l'impression est seulement décalée de 1 ou 2 mm, imprimez
-l'**étiquette d'étalonnage** et réglez les décalages.
+Calibrer sur les étiquettes chargées**. Si cela ne suffit pas (imprimante réglée pour autre chose
+auparavant) : **Réglages d'usine**, puis calibrer. Si l'impression est seulement décalée de 1 ou 2
+mm, imprimez l'**étiquette d'étalonnage** et réglez les décalages.
 
 **Les étiquettes sortent tournées ou à l'envers.**
 Réglez la taille du rouleau dans **Réglages > Étiquettes et impression** (largeur dans le sens de la
