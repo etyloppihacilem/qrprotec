@@ -51,13 +51,11 @@ std::vector<std::uint8_t> encode_tspl(const RasterImage& image, const RawJob& jo
     append(out, "DENSITY " + std::to_string(std::clamp(job.darkness, 0, 15)) + "\r\n");
     append(out, std::string("SET RIBBON ") + (job.ribbon ? "ON" : "OFF") + "\r\n");
     append(out, "SET TEAR ON\r\n");
-    // decalage negatif (impression trop a droite / trop bas) : SHIFT, les positifs passent par la position du BITMAP
-    if (job.offset_x_dots < 0 || job.offset_y_dots < 0)
-        append(out, "SHIFT " + std::to_string(std::min(0, job.offset_x_dots)) + "," +
-                        std::to_string(std::min(0, job.offset_y_dots)) + "\r\n");
+    // decalage : SHIFT deplace l'impression par rapport a l'etiquette detectee, sans couper l'image a la taille SIZE
+    if (job.offset_x_dots != 0 || job.offset_y_dots != 0)
+        append(out, "SHIFT " + std::to_string(job.offset_x_dots) + "," + std::to_string(job.offset_y_dots) + "\r\n");
     append(out, "CLS\r\n");
-    append(out, "BITMAP " + std::to_string(std::max(0, job.offset_x_dots)) + "," +
-                    std::to_string(std::max(0, job.offset_y_dots)) + "," + std::to_string(bytes_per_row) + "," +
+    append(out, "BITMAP 0,0," + std::to_string(bytes_per_row) + "," +
                     std::to_string(image.height) + ",0,");
     const std::vector<std::uint8_t> bits = pack_rows(image, false);
     out.insert(out.end(), bits.begin(), bits.end());
@@ -94,10 +92,11 @@ std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job
     append(out, "^PW" + std::to_string(job.width_dots + 2 * side) + "\n");
     append(out, "^LL" + std::to_string(job.height_dots) + "\n");
     append(out, "^LH0,0\n");
-    // decalage vertical negatif : ^LT remonte l'etiquette (-120 a 120)
-    if (job.offset_y_dots < 0) append(out, "^LT" + std::to_string(std::max(-120, job.offset_y_dots)) + "\n");
-    append(out, "^FO" + std::to_string(std::clamp(side + job.offset_x_dots, 0, 2 * side)) + "," +
-                    std::to_string(std::max(0, job.offset_y_dots)));
+    // decalage vertical : ^LT deplace toute l'etiquette par rapport au haut detecte (-120 a 120 points), sans
+    // couper le bas comme le ferait ^FO (l'image resterait limitee a ^LL)
+    if (job.offset_y_dots != 0)
+        append(out, "^LT" + std::to_string(std::clamp(job.offset_y_dots, -120, 120)) + "\n");
+    append(out, "^FO" + std::to_string(std::clamp(side + job.offset_x_dots, 0, 2 * side)) + ",0");
     append(out, "^GFA," + std::to_string(bits.size()) + "," + std::to_string(bits.size()) + "," +
                     std::to_string(bytes_per_row) + ",");
     static const char* digits = "0123456789ABCDEF";
