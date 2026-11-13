@@ -71,6 +71,11 @@ int main()
     const std::string shifted = as_text(qrprotec::labels::encode_zpl(label, job));
     assert(shifted.find("^LT-16\n^FO56,0^GFA") != std::string::npos);
     assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT -8,-16\r\nCLS\r\nBITMAP 0,0,") != std::string::npos);
+    // vers le bas : toute l'etiquette descend (^LT / SHIFT), l'image n'est pas coupee par ^LL
+    job.offset_x_dots = 0;
+    job.offset_y_dots = 16;
+    assert(as_text(qrprotec::labels::encode_zpl(label, job)).find("^LT16\n^FO64,0^GFA") != std::string::npos);
+    assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT 0,16\r\nCLS\r\nBITMAP 0,0,") != std::string::npos);
 
     // maintenance : calibrage sur l'etiquette chargee (40 x 30 mm, thermique direct)
     using qrprotec::labels::Maintenance;
