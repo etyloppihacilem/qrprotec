@@ -45,6 +45,40 @@ https://{$QRPROTEC_DOMAIN:localhost} {
 		max_size 5MB
 	}
 
+	# Mode maintenance (sudo qrprotec-manage maintenance on|off|status) : tant que
+	# /etc/qrprotec/maintenance/index.html existe, Caddy repond lui-meme 503 a tout le site (pages, API,
+	# WebSockets, fronts distants), sans jamais joindre le back, qui peut donc etre arrete. Le fichier est
+	# teste a chaque requete : aucun rechargement necessaire. Le certificat racine (/qrprotec-ca.crt, plus
+	# haut : les chemins passent avant les matchers nommes) reste servi. Les appels d'API (et les fronts)
+	# recoivent du JSON avec "error" (message affiche par le web et le poste), les pages la page de maintenance.
+	@maintenance file {
+		root /etc/qrprotec/maintenance
+		try_files /index.html
+	}
+	@maintenance_api `path('/api/*', '/ws/*') || header({'X-QRProtec-Key': '*'}) || header({'Accept': '*application/json*'})`
+	handle @maintenance {
+		# Memes protections que les pages du back (HSTS de QRPROTEC_HSTS_SECONDS, CSP stricte : la page n'a
+		# que des styles en ligne), et jamais mise en cache : le site revient des la fin de la maintenance.
+		header {
+			Strict-Transport-Security "max-age={$QRPROTEC_HSTS_SECONDS:31536000}"
+			Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			X-Content-Type-Options nosniff
+			Cache-Control no-store
+			Retry-After 300
+		}
+		handle @maintenance_api {
+			header Content-Type "application/json; charset=utf-8"
+			respond `{"error": "Maintenance en cours, QRprotec n'est pas accessible pour le moment.", "maintenance": true}` 503
+		}
+		handle {
+			root * /etc/qrprotec/maintenance
+			rewrite * /index.html
+			file_server {
+				status 503
+			}
+		}
+	}
+
 	@front header X-QRProtec-Key *
 	handle @front {
 		reverse_proxy 127.0.0.1:{$QRPROTEC_REMOTE_API_PORT:8002} {

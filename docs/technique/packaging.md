@@ -90,6 +90,17 @@ En-têtes : le back envoie `Strict-Transport-Security` (un an, sur les requêtes
 Le site n'est pas indexé par les moteurs de recherche : `/robots.txt` refuse tout (`Disallow: /`), et chaque
 réponse porte `X-Robots-Tag: noindex, nofollow` (back et Caddy), doublé d'une balise `<meta name="robots">`.
 
+Mode maintenance (`qrprotec-manage maintenance on|off|status`) : le fragment Caddy teste à chaque requête
+(matcher `file`) la présence de `/etc/qrprotec/maintenance/index.html`, copié depuis
+`/usr/share/qrprotec/maintenance.html` (page autonome, styles en ligne). S'il existe, Caddy répond 503 à
+tout le site sans joindre le back : JSON `{"error": …, "maintenance": true}` pour `/api/`, `/ws/`, les fronts
+distants (`X-QRProtec-Key`) et les requêtes `Accept: application/json`, la page sinon, avec HSTS
+(`QRPROTEC_HSTS_SECONDS`), une CSP `default-src 'none'; style-src 'unsafe-inline'`, `Cache-Control: no-store`
+et `Retry-After`. `/qrprotec-ca.crt` (matcher de chemin, trié avant) reste servi. `on` recharge Caddy pour
+couper les WebSockets ouverts ; `off` n'a rien à recharger. Le dossier est un sous-dossier de `/etc/qrprotec` :
+`qrprotec-backup` ne copie que les fichiers du premier niveau, une restauration ne remet donc jamais le site en
+maintenance. Le front web traite 502, 503 et 504 comme une absence de réseau (vérifs gardées en file d'attente).
+
 ### Kiosk
 
 `qrprotec-kiosk-session` : copie les modèles fournis dans `~qrprotec-kiosk/templates` **sans écraser**
@@ -102,7 +113,7 @@ d'écran noir), puis lance le front. `Ctrl+Alt+F2` donne une console de maintena
 
 | Script | Rôle |
 |---|---|
-| `qrprotec-manage` | `manage.py` avec l'environnement de la borne, exécuté sous l'utilisateur `qrprotec`. |
+| `qrprotec-manage` | `manage.py` avec l'environnement de la borne, exécuté sous l'utilisateur `qrprotec`. Sauf `maintenance on\|off\|status`, traité par le script lui-même (root, sans Django) : page de maintenance servie par Caddy. |
 | `qrprotec-setup` | Assistant idempotent : nom d'hôte, TLS, clavier, écran, sauvegardes, pare-feu, premier admin, restauration. Interactif ou par options (`--help`). |
 | `qrprotec-backup` | Sauvegarde (instantané SQLite cohérent via l'API de sauvegarde de SQLite, sans arrêter le back, intégrité vérifiée) + `/etc/qrprotec` + réglages et modèles du kiosk + `MANIFEST`, en `tar.xz`, rotation, copie sur une autre machine par rsync sur SSH (`QRPROTEC_BACKUP_SYNC_TARGET`, `--sync`) ; un échec lance `qrprotec-manage server_problem` (notification « Problème de serveur » des admins), ou `POST /api/server-problem/` sur un kiosk distant. `--list`, `--apply-schedule`, restauration via `qrprotec-setup --restore`. |
 | `bootstrap.sh` (racine) | Installation en une commande : ajoute le dépôt, `dnf install`, propose l'assistant. |
