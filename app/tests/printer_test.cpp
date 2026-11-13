@@ -60,25 +60,26 @@ int main()
     job.ribbon = false;
     const std::string zpl = as_text(qrprotec::labels::encode_zpl(label, job));
     // format de l'etiquette : largeur d'impression = largeur de l'etiquette, positions explicites
-    assert(zpl.rfind("~SD20\n~TA000\n^XA\n^MTD\n^MNY\n^PW320\n^LL240\n^LH0,0\n^LS0\n^LT0\n", 0) == 0);
+    assert(zpl.rfind("~SD20\n~TA000\n^XA\n^MTD\n^MNY\n^PW560\n^LL240\n^LH120,0\n^LS0\n^LT0\n", 0) == 0);
     assert(zpl.find("^FO0,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
     assert(zpl.find("^PQ2\n^XZ\n") != std::string::npos);
     assert(tspl.find("SHIFT 0,0\r\nOFFSET 0 mm\r\nCLS\r\n") != std::string::npos);
 
-    // decalages : ^LS positif = vers la gauche (donc oppose), ^LT positif = vers le bas, ~TA ; borne ±120 points
+    // zone ^PW elargie de 15 mm de chaque cote (tete 104 mm), image au milieu : decalage horizontal par ^LH x,
+    // vers le bas par ^LH y, vers le haut par ^LT (borne -120), ~TA borne ±120
     job.offset_x_dots = 16;
     job.offset_y_dots = -16;
     job.tear_off_dots = -8;
     const std::string shifted = as_text(qrprotec::labels::encode_zpl(label, job));
     assert(shifted.find("~TA-08\n^XA\n") != std::string::npos);
-    assert(shifted.find("^PW320\n^LL240\n^LH0,0\n^LS-16\n^LT-16\n^FO0,0^GFA,4,4,2,") != std::string::npos);
+    assert(shifted.find("^PW560\n^LL240\n^LH136,0\n^LS0\n^LT-16\n^FO0,0^GFA,4,4,2,") != std::string::npos);
     assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT 16,-16\r\nOFFSET -1 mm\r\nCLS\r\nBITMAP 0,0,") !=
            std::string::npos);
     job.offset_x_dots = -40;
     job.offset_y_dots = 200;
     job.tear_off_dots = 400;
     const std::string bounded = as_text(qrprotec::labels::encode_zpl(label, job));
-    assert(bounded.find("~TA120\n") != std::string::npos && bounded.find("^LH0,200\n^LS40\n^LT0\n") != std::string::npos);
+    assert(bounded.find("~TA120\n") != std::string::npos && bounded.find("^PW560\n^LL240\n^LH80,200\n^LS0\n^LT0\n") != std::string::npos);
     assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT -40,200\r\nOFFSET 25.4 mm\r\n") != std::string::npos);
 
     // maintenance : calibrage sur l'etiquette chargee (40 x 30 mm, thermique direct)
@@ -90,7 +91,7 @@ int main()
     media.gap_mm = 3.0;
     media.offset_x_dots = 8;
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Calibrate, media) ==
-           "~TA000\n^XA\n^MTD\n^MNY\n^PW320\n^LL240\n^LH0,0\n^LS-8\n^LT0\n^XZ\n~JC\n^XA^JUS^XZ\n");
+           "~TA000\n^XA\n^MTD\n^MNY\n^PW560\n^LL240\n^LH128,0\n^LS0\n^LT0\n^XZ\n~JC\n^XA^JUS^XZ\n");
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Config, media) == "~WC\n");
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Feed, media) == "~PH\n");
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Factory, media) == "^XA^JUF^XZ\n^XA^JUS^XZ\n");
@@ -106,7 +107,7 @@ int main()
 
     // envoi des reglages puis ^HH, et lecture de la configuration renvoyee
     const std::string readback = qrprotec::labels::zpl_send_settings_and_read(media);
-    assert(readback.find("^PW320\n^LL240\n^LH0,0\n^LS-8\n^LT0\n^XZ\n^XA^HH^XZ\n") != std::string::npos);
+    assert(readback.find("^PW560\n^LL240\n^LH128,0\n^LS0\n^LT0\n^XZ\n^XA^HH^XZ\n") != std::string::npos);
     const std::string config = "\x02  16.0............... DARKNESS\r\n  +000............... TEAR OFF\r\n"
                                "  DIRECT-THERMAL..... PRINT METHOD\r\n  320................ PRINT WIDTH\r\n"
                                "  +120............... LABEL TOP\r\n  +0005.............. LEFT POSITION\r\n\x03";

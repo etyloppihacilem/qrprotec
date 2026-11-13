@@ -57,10 +57,10 @@ ZPL) ou TSC (TSPL) prévoit pour cet usage :
 |---|---|---|---|
 | Transfert thermique (ruban) | `^MTT` / `^MTD` | `SET RIBBON ON` / `OFF` | avec ou sans ruban |
 | Étiquettes séparées par un espace | `^MNY` | `GAP` | l'imprimante se cale sur l'interstice entre deux étiquettes |
-| Largeur de l'étiquette | `^PW` (largeur d'impression) | `SIZE` | zone imprimable = largeur de l'étiquette |
+| Largeur de l'étiquette | `^PW` (largeur d'impression) | `SIZE` | ZPL : zone d'impression = largeur de l'étiquette + 15 mm de chaque côté (sans dépasser la tête de 104 mm), l'image au milieu |
 | Hauteur de l'étiquette | `^LL` (longueur d'étiquette) | `SIZE` | longueur d'une étiquette |
 | Noirceur | `~SD` | `DENSITY` | chauffe de la tête |
-| **Décalage horizontal** | `^LS` (« Left Position ») | `SHIFT x` | toute l'impression vers la droite (+) ou la gauche (−) |
+| **Décalage horizontal** | `^LH x` (« Label Home », origine du format) dans la zone élargie | `SHIFT x` | toute l'impression vers la droite (+) ou la gauche (−) |
 | **Décalage vertical** | vers le bas : `^LH0,y` (« Label Home », origine du format) ; vers le haut : `^LT` (« Label Top ») | `SHIFT y` | toute l'impression vers le bas (+) ou le haut (−) |
 | **Position de découpe** | `~TA` (« Tear Off ») | `OFFSET` | où l'étiquette s'arrête après impression : plus sortie (+) ou moins (−) ; l'impression ne bouge pas sur l'étiquette |
 
@@ -71,6 +71,12 @@ sont limités par Zebra à 120 points, soit 15 mm sur une tête 203 dpi.
 **Diagnostic des décalages** : `^LH` et `^LS` déplacent le dessin, `^LT` non, même renvoyé deux
 fois, alors que la configuration relue montre bien la valeur reçue (LABEL TOP). Le décalage vers
 le bas passe donc par `^LH`, l'origine du format, prévue par Zebra pour placer tout le dessin.
+**Décalage vers la gauche.** Zebra précise que les objets « s'arrêtent à la position 0 » de la
+zone d'impression, et la GK420t centre cette zone (`^PW`) sur la tête, comme le rouleau. Avec une
+zone juste à la largeur de l'étiquette, l'image ne peut donc pas aller plus à gauche. Le poste
+élargit la zone de 15 mm de chaque côté et place l'image au milieu avec `^LH` : sans décalage,
+elle tombe au même endroit, et elle peut aller à gauche comme à droite.
+
 Vers le haut, seul `^LT` existe (`^LH` ne prend pas de valeur négative) : sur la GK420t, un
 décalage vertical négatif reste sans effet. Si l'impression est trop basse, réglez plutôt le
 calibrage, ou laissez le décalage à 0.
@@ -101,7 +107,7 @@ les étiquettes en attente, même quand la file est arrêtée sur une erreur.
   largeur, longueur, décalages, découpe, noirceur) sans rien imprimer, puis demande à l'imprimante
   sa configuration (`^HH`) et l'affiche à côté de ce qui a été envoyé : « identique », « différent »
   ou « non relu » pour le mode d'impression, le type de support, la largeur, la longueur (mesurée
-  par le calibrage), la position gauche (`^LS`), le haut d'étiquette (`^LT`), la découpe (`~TA`) et
+  par le calibrage), la position gauche (`^LS`, toujours 0), le haut d'étiquette (`^LT`), la découpe (`~TA`) et
   la noirceur. La configuration complète se déplie en dessous. Rien n'est enregistré dans
   l'imprimante.
 - **Étiquette d'étalonnage** : voir plus bas.

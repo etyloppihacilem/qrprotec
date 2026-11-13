@@ -389,7 +389,7 @@ class SettingsWindow final : public AppWindow {
           if (ImGui::InputFloat("Décalage horizontal (mm)", &offset_x, 0.5f, 1.0f, "%.1f"))
             raw.offset_x_mm = std::clamp(offset_x, -15.0f, 15.0f);
           help_marker("Déplace toute l'impression sur l'étiquette. Positif : vers la droite ; négatif : vers la "
-                      "gauche. ZPL : ^LS (« Left Position » de l'imprimante) ; TSPL : SHIFT x.");
+                      "gauche. ZPL : origine du format ^LH dans une zone d'impression (^PW) élargie de chaque côté ; TSPL : SHIFT x.");
           float offset_y = static_cast< float >(raw.offset_y_mm);
           ImGui::SetNextItemWidth(150.0f);
           if (ImGui::InputFloat("Décalage vertical (mm)", &offset_y, 0.5f, 1.0f, "%.1f"))
@@ -508,9 +508,9 @@ class SettingsWindow final : public AppWindow {
       const std::vector< Row > rows = {
         { "PRINT METHOD", job.ribbon ? "THERMAL-TRANS." : "DIRECT-THERMAL", false },
         { "MEDIA TYPE", "GAP/NOTCH", false },
-        { "PRINT WIDTH", std::to_string(job.width_dots), true },
+        { "PRINT WIDTH", std::to_string(labels::zpl_print_width(job)), true },
         { "LABEL LENGTH", std::to_string(job.height_dots), true },
-        { "LEFT POSITION", std::to_string(-job.offset_x_dots), true },
+        { "LEFT POSITION", "0", true }, // decalage horizontal par ^LH
         { "LABEL TOP", std::to_string(std::clamp(std::min(0, job.offset_y_dots), -120, 0)), true }, // bas : ^LH
         { "TEAR OFF", std::to_string(std::clamp(job.tear_off_dots, -120, 120)), true },
         { "DARKNESS", std::to_string(std::clamp(job.darkness * 2, 0, 30)), true },

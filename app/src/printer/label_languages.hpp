@@ -30,6 +30,8 @@ std::vector<std::uint8_t> pack_rows(const RasterImage& image, bool one_is_black)
 
 std::vector<std::uint8_t> encode_tspl(const RasterImage& image, const RawJob& job);
 std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job);
+// ZPL : largeur de la zone d'impression (^PW) = etiquette + marge de chaque cote (zone centree sur la tete)
+int zpl_print_width(const RawJob& job);
 
 // Operations de maintenance lancees depuis les Reglages du poste
 enum class Maintenance {
