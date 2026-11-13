@@ -452,5 +452,29 @@ int main()
         }
     }
 
+    // etiquette d'etalonnage : cadre au bord et croix au centre, a la taille du rouleau
+    {
+        qrprotec::LabelType roll;
+        roll.name = "60 x 40 mm";
+        roll.width_mm = 60.0;
+        roll.height_mm = 40.0;
+        const qrprotec::TemplateDocument typed = qrprotec::calibration_document(roll, true);
+        assert(typed.label_type && typed.label_type->name == "60 x 40 mm");
+        assert(!qrprotec::calibration_document(roll, false).label_type);
+        assert(qrprotec::validate(typed).empty());
+        const qrprotec::RasterImage image = qrprotec::calibration_image(typed);
+        assert(image.width == 480 && image.height == 320);
+        assert(image.at(0, 0) < 128 && image.at(479, 319) < 128 && image.at(479, 0) < 128 && image.at(0, 319) < 128);
+        assert(image.at(240, 160) < 128 && image.at(240, 5) < 128 && image.at(5, 160) < 128); // croix
+        assert(image.at(360, 80) >= 128 && image.at(360, 240) >= 128 && image.at(120, 240) >= 128); // quarts vides
+        roll.rotation = 90; // rouleau imprime en portrait : croix au centre du modele tourne
+        const qrprotec::RasterImage turned = qrprotec::calibration_image(qrprotec::calibration_document(roll, true));
+        assert(turned.width == 320 && turned.height == 480 && turned.at(160, 240) < 128);
+        if (const char *out = std::getenv("QRPROTEC_CALIBRATION_PNG")) {
+            std::string error;
+            qrprotec::write_png(image, out, error);
+        }
+    }
+
     return 0;
 }

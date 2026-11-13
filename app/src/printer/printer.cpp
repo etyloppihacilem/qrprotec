@@ -240,8 +240,8 @@ bool RawLabelPrinter::print(const PrintRequest& request, const std::function<voi
     job.darkness = raw.darkness;
     job.ribbon = raw.ribbon;
     job.gap_mm = raw.gap_mm;
-    job.offset_x_dots = static_cast<int>(std::lround(std::max(0.0, raw.offset_x_mm) * ppm));
-    job.offset_y_dots = static_cast<int>(std::lround(std::max(0.0, raw.offset_y_mm) * ppm));
+    job.offset_x_dots = static_cast<int>(std::lround(raw.offset_x_mm * ppm));
+    job.offset_y_dots = static_cast<int>(std::lround(raw.offset_y_mm * ppm));
     const std::vector<std::uint8_t> bytes = request.settings.kind == PrinterKind::Zpl
                                                 ? labels::encode_zpl(request.image, job)
                                                 : labels::encode_tspl(request.image, job);

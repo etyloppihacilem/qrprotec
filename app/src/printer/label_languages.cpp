@@ -51,6 +51,10 @@ std::vector<std::uint8_t> encode_tspl(const RasterImage& image, const RawJob& jo
     append(out, "DENSITY " + std::to_string(std::clamp(job.darkness, 0, 15)) + "\r\n");
     append(out, std::string("SET RIBBON ") + (job.ribbon ? "ON" : "OFF") + "\r\n");
     append(out, "SET TEAR ON\r\n");
+    // decalage negatif (impression trop a droite / trop bas) : SHIFT, les positifs passent par la position du BITMAP
+    if (job.offset_x_dots < 0 || job.offset_y_dots < 0)
+        append(out, "SHIFT " + std::to_string(std::min(0, job.offset_x_dots)) + "," +
+                        std::to_string(std::min(0, job.offset_y_dots)) + "\r\n");
     append(out, "CLS\r\n");
     append(out, "BITMAP " + std::to_string(std::max(0, job.offset_x_dots)) + "," +
                     std::to_string(std::max(0, job.offset_y_dots)) + "," + std::to_string(bytes_per_row) + "," +
@@ -77,6 +81,9 @@ std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job
     append(out, "^PW" + std::to_string(job.width_dots) + "\n");
     append(out, "^LL" + std::to_string(job.height_dots) + "\n");
     append(out, "^LH0,0\n");
+    // decalage negatif : ^LS decale tout vers la gauche (valeur positive), ^LT remonte l'etiquette (-120 a 120)
+    if (job.offset_x_dots < 0) append(out, "^LS" + std::to_string(-job.offset_x_dots) + "\n");
+    if (job.offset_y_dots < 0) append(out, "^LT" + std::to_string(std::max(-120, job.offset_y_dots)) + "\n");
     append(out, "^FO" + std::to_string(std::max(0, job.offset_x_dots)) + "," +
                     std::to_string(std::max(0, job.offset_y_dots)));
     append(out, "^GFA," + std::to_string(bits.size()) + "," + std::to_string(bits.size()) + "," +
