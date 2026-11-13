@@ -45,7 +45,8 @@ Menu **Administration > Réglages** (admin), section **Étiquettes et impression
    suivante. **Page de configuration** imprime ses réglages (et son adresse IP).
    Imprimez ensuite l'**Étiquette d'étalonnage** : cadre au ras du bord et croix au centre graduée en
    millimètres, à la taille du rouleau chargé. Cadre coupé d'un côté ou croix décalée de N traits : réglez
-   le décalage de N mm (négatif = vers la gauche / le haut).
+   le décalage de N mm (négatif = vers la gauche / le haut). Détails dans
+   [L'imprimante d'étiquettes](imprimante.md).
 2. **Étiquettes chargées dans l'imprimante** : largeur et hauteur du rouleau (40 × 30 mm).
    Si vous utilisez plusieurs rouleaux (par exemple thermique direct pour les consommables et polyester
    avec ruban pour les lots), créez un **type d'étiquette** par rouleau dans l'Éditeur d'étiquettes (onglet

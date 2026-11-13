@@ -516,10 +516,10 @@ class SettingsWindow final : public AppWindow {
         app.print_documents({ job });
         printer_message_ = "Étiquette d'étalonnage : envoyée à l'imprimante.";
       }
-      help_marker("Cadre au ras du bord, cadre pointillé à 1 mm et croix au centre graduée en millimètres, à la "
-                  "taille de l'étiquette chargée. Un cadre coupé d'un côté ou une croix décentrée de N traits : "
-                  "décaler de N mm (Décalage horizontal / vertical), ou recalibrer si l'impression déborde sur "
-                  "l'étiquette suivante.");
+      help_marker("Cadre au ras du bord, cadre pointillé à 1 mm et croix graduée, à la taille de l'étiquette "
+                  "chargée. Au bout des axes, chiffres en mm depuis chaque bord : si un bord est coupé, le chiffre "
+                  "au ras de ce bord, avec son signe (+ à gauche et en haut, − à droite et en bas), s'ajoute au "
+                  "Décalage horizontal / vertical. Impression qui déborde sur l'étiquette suivante : recalibrer.");
       ImGui::TextDisabled("Étiquette : %.0f x %.0f mm, %s", width, height, ribbon ? "transfert (ruban)" : "thermique direct");
       if (!printer_message_.empty())
         ImGui::TextUnformatted(printer_message_.c_str());

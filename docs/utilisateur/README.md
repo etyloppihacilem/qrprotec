@@ -10,6 +10,7 @@ structure qui gère aujourd'hui son matériel sur papier ou sur tableur.
 | [Vérifier un lot](verifier-un-lot.md) | secouristes | Vérif au poste et au téléphone, réassort, vérif groupée et partielle, signaler un problème, comprendre le compte rendu. |
 | [Gérer le stock](gerer-le-stock.md) | rôle gestion | Réception d'une commande, paquets fermés, rangements, état des stocks, listes de matériel, révisions, périmés, alertes. |
 | [Administration](administration.md) | rôle admin | Utilisateurs et badges, PIN, lots et étiquettes, scellés, signalements, réglages, notifications, sauvegardes. |
+| [L'imprimante d'étiquettes](imprimante.md) | responsables | Choisir (Zebra GK420t), brancher, calibrer, aligner avec l'étiquette d'étalonnage, voyants et entretien. |
 | [Questions fréquentes et dépannage](depannage.md) | tout le monde | Ce qu'il faut faire quand quelque chose ne se passe pas comme prévu. |
 
 Le logiciel s'utilise de deux façons :
