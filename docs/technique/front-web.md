@@ -110,6 +110,13 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   qui lit `web_prefs_list` [{name, label, value}]) puis le **gestionnaire des
   notifications** (`renderNotifications`), affiché seulement pour les utilisateurs qui peuvent en
   recevoir (`notifications` dans la réponse de `api/auth/`).
+  Tout en bas, **Web partagé** (`renderSharedSettings`, tablettes de l'antenne) : réglage de l'appareil,
+  pas du compte, dans `localStorage` (`qrprotec.shared-web`, `navigator.storage.persist()` à l'activation),
+  coché ou décoché par gestion/admin seulement (grisé et visible des autres quand il est coché). Coché,
+  `save()` range l'utilisateur connecté dans `sessionStorage` (perdu à la fermeture de l'appli) et
+  `checkSharedIdle` déconnecte après 1 h sans activité (`SHARED_IDLE_MS`, dernière activité
+  `qrprotec.activity` : toucher, clavier, douchette, scan caméra), vérifié chaque minute, au retour sur
+  la page et avant de compter un nouveau geste. Aucun changement côté serveur.
 - **Outil de debug des codes** (admins) : page cachée `#debug`, ouverte par 5 appuis rapides sur
   « État des stocks » (`debugTap`). `POST api/debug/codes/` (`debug_codes.py`, refusé à tout autre rôle
   par le serveur) rend le contenu de toutes les étiquettes imprimables : items (QR de l'URL, ou iid court
