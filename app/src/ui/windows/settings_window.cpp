@@ -12,6 +12,7 @@
 #include "../../core/plural.hpp"
 #include "../../core/template_io.hpp"
 #include "../../inateck/scanner_settings.hpp"
+#include "../../printer/label_languages.hpp"
 #include "../editor.hpp"
 #include "../file_picker.hpp"
 #include "../widgets.hpp"
@@ -19,6 +20,7 @@
 #include "windows.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 namespace qrprotec {
@@ -390,6 +392,7 @@ class SettingsWindow final : public AppWindow {
           help_marker("À régler seulement si l'impression est décalée sur l'étiquette (imprimante qui aligne le "
                       "rouleau sur un bord au lieu de le centrer).");
           ImGui::TextDisabled("Pas de retour d'état : une erreur papier ou ruban s'affiche sur l'imprimante.");
+          draw_printer_maintenance(app, settings);
         }
         const PrintQueueStatus status = app.printer.status();
         ImGui::Text("File : %zu en attente, %s%s", status.pending, nb(status.printed, "imprimée").c_str(),
@@ -451,6 +454,51 @@ class SettingsWindow final : public AppWindow {
       }
       std::sort(templates_.begin(), templates_.end());
       label_types_ = collect_label_types(documents);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------
+    // Maintenance d'une imprimante TSPL / ZPL : calibrage sur l'etiquette chargee, page de configuration, avance.
+    // Les commandes passent par la file d'impression, apres les etiquettes en attente.
+    void draw_printer_maintenance(App &app, AppSettings &settings) {
+      ImGui::SeparatorText("Maintenance de l'imprimante");
+      const PhysicalLabel label  = settings.physical_label();
+      double              width  = label.width_mm;
+      double              height = label.height_mm;
+      bool                ribbon = settings.print.raw.ribbon;
+      for (const LabelType &type : label_types_)
+        if (!settings.print.loaded_label_type.empty() && type.name == settings.print.loaded_label_type) {
+          width  = type.width_mm;
+          height = type.height_mm;
+          ribbon = type.support == LabelSupport::Transfer;
+        }
+      labels::RawJob job;
+      job.dots_per_mm = label.pixels_per_mm > 0 ? label.pixels_per_mm : 8.0;
+      job.width_dots  = static_cast< int >(std::lround(width * job.dots_per_mm));
+      job.height_dots = static_cast< int >(std::lround(height * job.dots_per_mm));
+      job.gap_mm      = settings.print.raw.gap_mm;
+      job.ribbon      = ribbon;
+      const bool zpl  = settings.print.kind == PrinterKind::Zpl;
+      const auto send = [&](labels::Maintenance action, const char *description) {
+        app.printer.send_command(description, labels::maintenance_command(zpl, action, job), settings.print);
+        printer_message_ = std::string(description) + " : envoyé à l'imprimante.";
+      };
+      if (button("Calibrer sur les étiquettes chargées"))
+        send(labels::Maintenance::Calibrate, "Calibrage");
+      help_marker("À faire à chaque nouveau type de rouleau, ou si des étiquettes blanches sortent entre deux "
+                  "impressions / si l'impression déborde sur l'étiquette suivante. L'imprimante reçoit la taille "
+                  "de l'étiquette chargée (Type chargé, sinon l'étiquette réglée plus haut) et le support, puis "
+                  "avance quelques étiquettes pour mesurer l'interstice, et garde le tout après extinction.");
+      ImGui::SameLine();
+      if (button("Avancer d'une étiquette"))
+        send(labels::Maintenance::Feed, "Avance");
+      ImGui::SameLine();
+      if (button("Page de configuration"))
+        send(labels::Maintenance::Config, "Page de configuration");
+      help_marker("Imprime les réglages de l'imprimante (taille, capteur, résolution, réseau) : utile pour vérifier "
+                  "un calibrage ou retrouver son adresse IP. Elle sort sur une ou plusieurs étiquettes.");
+      ImGui::TextDisabled("Étiquette : %.0f x %.0f mm, %s", width, height, ribbon ? "transfert (ruban)" : "thermique direct");
+      if (!printer_message_.empty())
+        ImGui::TextUnformatted(printer_message_.c_str());
     }
 
     // -----------------------------------------------------------------------------------------------------------
@@ -876,6 +924,7 @@ class SettingsWindow final : public AppWindow {
 
     std::vector< std::pair< std::string, TemplateCategory > > templates_;
     std::vector< LabelType >                                  label_types_; // types des modeles du dossier
+    std::string                                               printer_message_; // derniere commande de maintenance envoyee
     Json                                                      notifications_;
     Json                                                      server_rules_;
     int                                                       warning_days_ = 30;
