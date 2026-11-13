@@ -65,16 +65,16 @@ int main()
     assert(zpl.find("^FO80,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
     assert(zpl.find("^PQ2\n^XZ\n") != std::string::npos);
 
-    // decalage negatif : zone ^PW elargie et ^LT en ZPL, SHIFT en TSPL
+    // decalage negatif : zone ^PW elargie et lignes du haut retirees en ZPL, SHIFT en TSPL
     job.offset_x_dots = -8;
     job.offset_y_dots = -16;
     const std::string shifted = as_text(qrprotec::labels::encode_zpl(label, job));
-    assert(shifted.find("^LT-16\n^FO56,0^GFA") != std::string::npos);
+    assert(shifted.find("^LL240\n^LH0,0\n^FO56,0^GFA,0,0,2,") != std::string::npos);
     assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT -8,-16\r\nCLS\r\nBITMAP 0,0,") != std::string::npos);
-    // vers le bas : toute l'etiquette descend (^LT / SHIFT), l'image n'est pas coupee par ^LL
+    // vers le bas : image plus bas et ^LL allonge d'autant (pas de bas coupe) ; vers le haut : lignes du haut retirees
     job.offset_x_dots = 0;
     job.offset_y_dots = 16;
-    assert(as_text(qrprotec::labels::encode_zpl(label, job)).find("^LT16\n^FO64,0^GFA") != std::string::npos);
+    assert(as_text(qrprotec::labels::encode_zpl(label, job)).find("^LL256\n^LH0,0\n^FO64,16^GFA,4,4,2,") != std::string::npos);
     assert(as_text(qrprotec::labels::encode_tspl(label, job)).find("SHIFT 0,16\r\nCLS\r\nBITMAP 0,0,") != std::string::npos);
 
     // maintenance : calibrage sur l'etiquette chargee (40 x 30 mm, thermique direct)
