@@ -189,32 +189,41 @@ std::string zpl_send_settings_and_read(const RawJob& job)
 
 std::vector<ConfigEntry> parse_zpl_config(const std::string& reply)
 {
-    std::vector<ConfigEntry> entries;
-    std::string line;
-    const auto flush = [&] {
-        // « valeur.......... NOM » : la valeur avant la suite de points, le nom apres
-        const std::size_t dots = line.find("..");
-        if (dots != std::string::npos) {
-            std::size_t end = line.find_first_not_of('.', dots);
-            ConfigEntry entry;
-            entry.value = line.substr(0, dots);
-            if (end != std::string::npos) entry.name = line.substr(end);
-            const auto trim = [](std::string& text) {
-                const std::size_t first = text.find_first_not_of(" \t");
-                const std::size_t last = text.find_last_not_of(" \t");
-                text = first == std::string::npos ? std::string() : text.substr(first, last - first + 1);
-            };
-            trim(entry.value);
-            trim(entry.name);
-            if (!entry.name.empty()) entries.push_back(entry);
-        }
-        line.clear();
-    };
-    for (const char c : reply) {
-        if (c == '\r' || c == '\n' || c == 0x02 || c == 0x03) flush();
-        else line += c;
+    // derniere reponse <STX>...<ETX> seulement (une reponse plus ancienne a pu rester en attente)
+    std::string text = reply;
+    const std::size_t end = text.rfind('\x03');
+    if (end != std::string::npos) {
+        const std::size_t start = text.rfind('\x02', end);
+        text = text.substr(start == std::string::npos ? 0 : start + 1, end - (start == std::string::npos ? 0 : start + 1));
     }
-    flush();
+    const auto trim = [](std::string value) {
+        const std::size_t first = value.find_first_not_of(" \t");
+        const std::size_t last = value.find_last_not_of(" \t");
+        return first == std::string::npos ? std::string() : value.substr(first, last - first + 1);
+    };
+    std::vector<ConfigEntry> entries;
+    std::size_t position = 0;
+    while (position <= text.size()) {
+        std::size_t next = text.find_first_of("\r\n", position);
+        if (next == std::string::npos) next = text.size();
+        const std::string line = trim(text.substr(position, next - position));
+        position = next + 1;
+        if (line.empty()) continue;
+        // « valeur      NOM » : colonnes separees par au moins deux espaces (la derniere separation, la valeur
+        // peut en contenir : « 39.0IN   989MM ») ; « 2104k......R: RAM » : separees par des points
+        ConfigEntry entry;
+        const std::size_t gap = line.rfind("  ");
+        const std::size_t dots = line.find("..");
+        if (gap != std::string::npos) {
+            entry.value = trim(line.substr(0, gap));
+            entry.name = trim(line.substr(gap));
+        } else if (dots != std::string::npos) {
+            const std::size_t name = line.find_first_not_of('.', dots);
+            entry.value = trim(line.substr(0, dots));
+            if (name != std::string::npos) entry.name = trim(line.substr(name));
+        }
+        if (!entry.name.empty() && !entry.value.empty()) entries.push_back(entry);
+    }
     return entries;
 }
 

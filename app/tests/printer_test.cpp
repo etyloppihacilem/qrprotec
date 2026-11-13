@@ -116,6 +116,17 @@ int main()
     assert(qrprotec::labels::config_value(entries, "LEFT POSITION") == "+0005");
     assert(qrprotec::labels::config_value(entries, "PRINT METHOD") == "DIRECT-THERMAL");
     assert(qrprotec::labels::config_value(entries, "MEDIA TYPE").empty());
+    // reponse reelle de ^HH (GK420t) : colonnes separees par des espaces, une reponse ancienne restee devant
+    const std::string spaced = "\x02  +120                LABEL TOP\r\n\x03\r\n"
+                               "\x02  16.0                DARKNESS\r\n  39.0IN   989MM      MAXIMUM LENGTH\r\n"
+                               "  <~>  7EH            CONTROL CHAR\r\n  -005                LABEL TOP\r\n"
+                               "  +0000               LEFT POSITION\r\n  2104k............R: RAM\r\n\x03\r\n";
+    const auto real = qrprotec::labels::parse_zpl_config(spaced);
+    assert(qrprotec::labels::config_value(real, "LABEL TOP") == "-005");
+    assert(qrprotec::labels::config_value(real, "LEFT POSITION") == "+0000");
+    assert(qrprotec::labels::config_value(real, "MAXIMUM LENGTH") == "39.0IN   989MM");
+    assert(qrprotec::labels::config_value(real, "CONTROL CHAR") == "<~>  7EH");
+    assert(qrprotec::labels::config_value(real, "R: RAM") == "2104k");
 
     // etat de l'imprimante : ~HS (ZPL), <ESC>!? (TSPL)
     using qrprotec::labels::parse_status;

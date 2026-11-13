@@ -1,6 +1,8 @@
 #include "raw_transport.hpp"
 
+#include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <fcntl.h>
 #include <netdb.h>
@@ -147,24 +149,47 @@ void RawTransport::close()
     readable_ = false;
 }
 
-std::vector<std::uint8_t> RawTransport::read_reply(int timeout_ms, int idle_ms)
+std::vector<std::uint8_t> RawTransport::read_reply(int timeout_ms, std::size_t blocks, int idle_ms)
 {
     std::vector<std::uint8_t> reply;
     if (!is_open() || !readable_) return reply;
-    int wait = timeout_ms;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    std::size_t ends = 0;
     for (;;) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) break;
+        int wait = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
+        // sans nombre de blocs attendu : on s'arrete quand plus rien n'arrive apres le premier octet
+        if (blocks == 0 && !reply.empty()) wait = std::min(wait, idle_ms);
         pollfd descriptor{file_descriptor_, POLLIN, 0};
         const int ready = ::poll(&descriptor, 1, wait);
         if (ready < 0 && errno == EINTR) continue;
-        if (ready <= 0 || (descriptor.revents & POLLIN) == 0) break;
-        std::uint8_t buffer[256];
+        if (ready <= 0 || (descriptor.revents & POLLIN) == 0) {
+            if (blocks == 0 && !reply.empty()) break;
+            if (ready <= 0) continue; // delai : la boucle verifie l'echeance
+            break;
+        }
+        std::uint8_t buffer[512];
         const ssize_t count = ::read(file_descriptor_, buffer, sizeof(buffer));
         if (count < 0 && errno == EINTR) continue;
         if (count <= 0) break;
         reply.insert(reply.end(), buffer, buffer + count);
-        wait = idle_ms;
+        for (ssize_t index = 0; index < count; ++index)
+            if (buffer[index] == 0x03) ++ends;
+        if (blocks > 0 && ends >= blocks) break;
     }
     return reply;
+}
+
+void RawTransport::drain()
+{
+    if (!is_open() || !readable_) return;
+    for (int round = 0; round < 64; ++round) {
+        pollfd descriptor{file_descriptor_, POLLIN, 0};
+        if (::poll(&descriptor, 1, 30) <= 0 || (descriptor.revents & POLLIN) == 0) return;
+        std::uint8_t buffer[512];
+        if (::read(file_descriptor_, buffer, sizeof(buffer)) <= 0) return;
+    }
 }
 
 bool RawTransport::write_bytes(const std::vector<std::uint8_t>& bytes, std::string& error)

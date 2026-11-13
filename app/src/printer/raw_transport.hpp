@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -19,9 +20,12 @@ public:
     void close();
     bool is_open() const { return file_descriptor_ >= 0; }
     bool write_bytes(const std::vector<std::uint8_t>& bytes, std::string& error);
-    // Lit la reponse de l'imprimante : attend le premier octet jusqu'a `timeout_ms`, puis tant qu'il en arrive
-    // (pause de `idle_ms` au plus). Vide si la liaison est a sens unique ou si l'imprimante ne repond pas.
-    std::vector<std::uint8_t> read_reply(int timeout_ms, int idle_ms = 150);
+    // Lit la reponse de l'imprimante, `timeout_ms` au plus : jusqu'a `blocks` fins de bloc ETX (reponses ZPL
+    // <STX>...<ETX>), ou, avec blocks = 0, jusqu'a une pause de `idle_ms` apres le premier octet. Vide si la liaison
+    // est a sens unique ou si l'imprimante ne repond pas.
+    std::vector<std::uint8_t> read_reply(int timeout_ms, std::size_t blocks = 0, int idle_ms = 150);
+    // Jette une reponse restee en attente (demande precedente lue trop tot ou pas lue) avant une nouvelle demande
+    void drain();
     bool readable() const { return readable_; }
 
     // true si l'adresse designe l'imprimante par le reseau (pas un chemin de fichier)

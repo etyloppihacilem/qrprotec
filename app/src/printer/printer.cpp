@@ -221,12 +221,15 @@ bool RawLabelPrinter::exchange(const PrintSettings& settings, const std::string&
         error = "Liaison en écriture seule : l'imprimante ne peut pas répondre.";
         return false;
     }
+    transport_.drain();
     const std::vector<std::uint8_t> bytes(command.begin(), command.end());
     if (!transport_.write_bytes(bytes, error)) {
         disconnect();
         return false;
     }
-    const std::vector<std::uint8_t> answer = transport_.read_reply(4000, 600);
+    // ZPL (^HH...) : un bloc <STX>...<ETX>
+    const std::vector<std::uint8_t> answer =
+        transport_.read_reply(5000, settings.kind == PrinterKind::Zpl ? 1 : 0, 600);
     disconnect();
     reply.assign(answer.begin(), answer.end());
     if (reply.empty()) {
@@ -251,11 +254,13 @@ PrinterStatus RawLabelPrinter::read_status(PrinterKind kind, int timeout_ms)
         status.text = "état non lisible (liaison en écriture seule)";
         return status;
     }
+    transport_.drain();
     if (!transport_.write_bytes(labels::status_request(zpl), error)) {
         status.text = error;
         return status;
     }
-    const labels::PrinterState state = labels::parse_status(zpl, transport_.read_reply(timeout_ms));
+    // ~HS : trois blocs <STX>...<ETX> ; <ESC>!? : un octet
+    const labels::PrinterState state = labels::parse_status(zpl, transport_.read_reply(timeout_ms, zpl ? 3 : 0));
     status.known = state.known;
     status.blocking = state.blocking();
     status.text = state.description();
