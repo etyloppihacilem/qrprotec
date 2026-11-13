@@ -79,7 +79,12 @@ int zpl_side_margin(int width_dots)
 std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job)
 {
     const int bytes_per_row = (image.width + 7) / 8;
-    const std::vector<std::uint8_t> bits = pack_rows(image, true);
+    // decalage vertical sans ^LT (ignore par des GK420t) : vers le bas, l'image part plus bas et l'etiquette
+    // s'allonge d'autant (^LL) pour ne pas couper le bas ; vers le haut, les premieres lignes sont retirees
+    const int skipped_rows = std::clamp(-job.offset_y_dots, 0, image.height);
+    const int top = std::max(0, job.offset_y_dots);
+    std::vector<std::uint8_t> bits = pack_rows(image, true);
+    bits.erase(bits.begin(), bits.begin() + static_cast<std::ptrdiff_t>(skipped_rows) * bytes_per_row);
     std::vector<std::uint8_t> out;
     // ~SD : noirceur 0-30, commande immediate (avant ^XA)
     char darkness[8];
@@ -90,13 +95,9 @@ std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job
     append(out, "^MNY\n"); // etiquettes separees par un espace (capteur d'interstice)
     const int side = zpl_side_margin(job.width_dots);
     append(out, "^PW" + std::to_string(job.width_dots + 2 * side) + "\n");
-    append(out, "^LL" + std::to_string(job.height_dots) + "\n");
+    append(out, "^LL" + std::to_string(job.height_dots + top) + "\n");
     append(out, "^LH0,0\n");
-    // decalage vertical : ^LT deplace toute l'etiquette par rapport au haut detecte (-120 a 120 points), sans
-    // couper le bas comme le ferait ^FO (l'image resterait limitee a ^LL)
-    if (job.offset_y_dots != 0)
-        append(out, "^LT" + std::to_string(std::clamp(job.offset_y_dots, -120, 120)) + "\n");
-    append(out, "^FO" + std::to_string(std::clamp(side + job.offset_x_dots, 0, 2 * side)) + ",0");
+    append(out, "^FO" + std::to_string(std::clamp(side + job.offset_x_dots, 0, 2 * side)) + "," + std::to_string(top));
     append(out, "^GFA," + std::to_string(bits.size()) + "," + std::to_string(bits.size()) + "," +
                     std::to_string(bytes_per_row) + ",");
     static const char* digits = "0123456789ABCDEF";
