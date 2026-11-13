@@ -209,7 +209,7 @@ taille de son rouleau.
 
 ### Les marges
 
-Chaque type d'étiquette a une **marge de chaque côté**, de **0,5 mm** par défaut (éditeur
+Chaque type d'étiquette a une **marge de chaque côté**, de **1 mm** par défaut (éditeur
 d'étiquettes, onglet **Types d'étiquettes**, « Marge de chaque côté »). Elle forme un cadre
 centré sur l'étiquette :
 
@@ -220,7 +220,7 @@ centré sur l'étiquette :
   millimètre (la GK420t mesure par exemple 30,5 mm pour une étiquette de 30 mm) sans rien couper.
 
 Une marge à 0 imprime jusqu'au bord, comme avant. La valeur n'est écrite dans les modèles que si
-elle diffère de 0,5 mm.
+elle diffère de 1 mm.
 
 ### L'étiquette d'étalonnage
 

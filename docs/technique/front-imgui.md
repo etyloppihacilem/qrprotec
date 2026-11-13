@@ -230,7 +230,7 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   l'éditeur). Un modèle par usage se choisit dans les Réglages ; sans modèle, le QR seul est imprimé.
 - **Types d'étiquettes** : un modèle peut porter un `label_type` (nom, `width_mm` dans le sens de la tête,
   `height_mm` dans le sens du défilement, `rotation` 0/90/180/270 sens horaire, `support` `direct` ou
-  `transfer`, `margin_mm` de chaque côté, écrit seulement s'il diffère de 0,5 mm). Un modèle qui n'en a pas en reçoit un à la lecture (`render/label_types.cpp` :
+  `transfer`, `margin_mm` de chaque côté, écrit seulement s'il diffère de 1 mm). Un modèle qui n'en a pas en reçoit un à la lecture (`render/label_types.cpp` :
   `default_label_type` d'après l'étiquette réglée et le quart de tour qu'il recevait, au démarrage et à chaque
   relecture de l'éditeur) et son fichier est réenregistré ; un dossier en lecture seule le laisse en format
   libre, imprimé comme avant. La liste des
