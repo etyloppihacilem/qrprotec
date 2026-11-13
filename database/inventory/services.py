@@ -1284,7 +1284,10 @@ def _record_verif(lot, identity, now, verif, requirements, partial, missing, exp
               (verif.replaced_count, 'remplacé')]
     parts = [journal.plural(count, word) for count, word in counts if count]
     lacking = [{'type': row['type'], 'type_name': row['type_name'], 'required': row['required'],
-                'present': row['present']} for row in requirements if row['present'] < row['required']]
+                'present': row['present'],
+                # type a unites : unite et sous-type a prendre (compte rendu « Manque 50 mL de Sérum phy »)
+                **{key: row[key] for key in ('unit', 'within', 'suggest', 'subtypes') if key in row}}
+               for row in requirements if row['present'] < row['required']]
     if lot is None:
         summary = ', '.join(parts) or 'aucun item'
     else:

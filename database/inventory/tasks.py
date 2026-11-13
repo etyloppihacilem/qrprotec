@@ -271,15 +271,21 @@ def _forecast_tasks(today, orders):
     for row in data['types']:
         order = row['order']
         # deja commande (case « Commandé ») : la commande attend sa livraison, pas de nouvelle suggestion
-        if not order or order['before'] > limit or row['type'] in orders:
+        # type a unites (serum phy en mL) : la commande porte sur un sous-type (sachets), c'est lui qui est commande
+        if not order:
+            continue
+        ordered_type, ordered_name = order.get('subtype') or row['type'], order.get('subtype_name') or row['name']
+        if order['before'] > limit or ordered_type in orders:
             continue
         detail = ('dès que possible' if order['urgent'] else f"avant le {_day(order['before'])}")
         if order['below_min']:
             detail += f" · sous le minimum le {_day(order['below_min'])}"
-        detail += f" · stock {row['stock_now']}, minimum {row['min_quantity']}"
-        row_task = task('orders', 'warn' if order['urgent'] else 'info', f"Commander {order['quantity']} × {row['name']}",
+        unit = f" {row['unit']}" if row.get('unit') else ''
+        detail += f" · {row['name']} : stock {row['stock_now']}{unit}, minimum {row['min_quantity']}{unit}" if unit \
+            else f" · stock {row['stock_now']}, minimum {row['min_quantity']}"
+        row_task = task('orders', 'warn' if order['urgent'] else 'info', f"Commander {order['quantity']} × {ordered_name}",
                         detail, order['before'], 'forecast', sort=order['before'].toordinal())
-        row_task.update(type=row['type'], name=row['name'], quantity=order['quantity'])  # case « Commandé »
+        row_task.update(type=ordered_type, name=ordered_name, quantity=order['quantity'])  # case « Commandé »
         tasks.append(row_task)
     # commandes passees pas livrees au bout de 30 jours : relancer le fournisseur, ou la decocher
     for type_orders in orders.values():
