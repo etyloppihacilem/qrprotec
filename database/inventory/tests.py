@@ -1098,7 +1098,7 @@ class ManagementTests(ApiTestCase):
         # les autres lots du type ne changent pas
         code, body = self.call('GET', f'/api/lots/{other.id}/')
         self.assertEqual([(row['type'], row['required']) for row in body['requirements']], [('compre', 2), ('serphy', 1)])
-        self.assertEqual(services._required_by_lot([self.lot])[self.lot.id], {'garrot': 1, 'serphy': 1, 'compre': 5})
+        self.assertEqual(services._required_by_lot([self.lot])[0][self.lot.id], {'garrot': 1, 'serphy': 1, 'compre': 5})
         self.assertEqual([location for location, _ in lot_sheet.requirement_groups(self.lot)], ['Poche avant', 'Pochette rouge'])
         # meme emplacement que le type : le suit ; meme ordre que le type : le lot n'a pas d'ordre a lui
         code, body = self.call('PUT', url, {'content': [{'type': 'compre', 'extra': 0, 'location': 'pochette rouge'},
@@ -7262,3 +7262,102 @@ class ConsumableTests(ApiTestCase):
         self.assertEqual(self.call('GET', '/api/consumables/', local=False)[0], 404)
         self.assertEqual(self.call('GET', '/api/consumables/', session=False)[0], 403)
         self.assertEqual(self.call('GET', '/api/consumables/', session=views.session_token(self.user))[0], 403)
+
+
+class UnitGroupTests(ApiTestCase):
+    """Attentes en quantite (« 200 mL de sérum phy ») : un type a unites rempli par des sous-types interchangeables
+    (sachet de 5 dosettes de 5 mL : 25 mL, flacon : 50 mL), avec un minimum d'un sous-type compris dedans."""
+
+    def setUp(self):
+        super().setUp()
+        code, body = self.call('POST', '/api/item-types/', {'type': 'serphy', 'name': 'Sérum phy', 'unit': 'mL'})
+        self.assertEqual(code, 201)
+        self.assertEqual(body['unit'], 'mL')
+        code, body = self.call('POST', '/api/item-types/', {'type': 'sersac', 'name': 'Sachet 5 dosettes sérum',
+                                                            'perissable': True, 'tear_off': True,
+                                                            'group': 'serphy', 'fills': 25})
+        self.assertEqual(code, 201)
+        self.assertEqual((body['group'], body['fills']), ('serphy', 25))
+        self.call('POST', '/api/item-types/', {'type': 'serfla', 'name': 'Flacon sérum 50 mL', 'perissable': True,
+                                               'group': 'serphy', 'fills': 50})
+        code, body = self.call('PATCH', '/api/item-types/serphy/', {'default_subtype': 'sersac'})
+        self.assertEqual(body['default_subtype'], 'sersac')
+        self.serphy = ItemType.objects.get(type='serphy')
+        self.sachet = ItemType.objects.get(type='sersac')
+        self.flacon = ItemType.objects.get(type='serfla')
+        self.later = self.today + timedelta(days=200)
+
+    def require(self, rows):
+        code, body = self.call('PUT', '/api/lot-types/sacpse/requirements/', {'requirements': rows})
+        self.assertEqual(code, 200, body)
+
+    def row(self, body, type_id):
+        return next(row for row in body['requirements'] if row['type'] == type_id)
+
+    def test_rules(self):
+        # un type a unites n'a pas d'etiquette : ni reception, ni peremption, ni sous-type d'un autre
+        with self.assertRaises(ValueError):
+            self.create(self.serphy, None, 1)
+        self.assertEqual(self.call('PATCH', '/api/item-types/serphy/', {'perissable': True})[0], 400)
+        self.assertEqual(self.call('PATCH', '/api/item-types/serphy/', {'group': 'serphy'})[0], 400)
+        self.assertEqual(self.call('POST', '/api/item-types/', {'type': 'autre1', 'name': 'Autre', 'unit': 'mL',
+                                                                 'group': 'serphy'})[0], 400)
+        self.assertFalse(ItemType.objects.filter(type='autre1').exists())
+        # sous-type d'un type sans unite, ou sous-type par defaut qui n'en est pas un : refuses
+        self.assertEqual(self.call('PATCH', '/api/item-types/garrot/', {'group': 'compre'})[0], 400)
+        self.assertEqual(self.call('PATCH', '/api/item-types/serphy/', {'default_subtype': 'garrot'})[0], 400)
+        # un type qui a des sous-types garde son unite ; un type deja etiquete ne devient pas un type a unites
+        self.assertEqual(self.call('PATCH', '/api/item-types/serphy/', {'unit': ''})[0], 400)
+        self.create(self.garrot, None, 1)
+        self.assertEqual(self.call('PATCH', '/api/item-types/garrot/', {'unit': 'u'})[0], 400)
+
+    def test_requirement_in_units(self):
+        """200 mL dont 2 sachets : les sachets comptent dans les 200 mL, un flacon ne remplit que le reste."""
+        self.require([{'type': 'compre', 'quantity': 2}, {'type': 'serphy', 'quantity': 200},
+                      {'type': 'sersac', 'quantity': 2}])
+        compresses = self.create(self.compresses, self.later, 2)
+        sachets = self.create(self.sachet, self.later, 2)
+        flacons = self.create(self.flacon, self.later, 3)
+        url = f'/api/lots/{self.lot.id}/'
+        code, body = self.call('GET', url)
+        row = self.row(body, 'serphy')
+        self.assertEqual((row['unit'], row['required'], row['present']), ('mL', 200, 0))
+        self.assertEqual(row['fills'], {'sersac': 25, 'serfla': 50})
+        self.assertEqual(row['suggest'], {'type': 'sersac', 'type_name': 'Sachet 5 dosettes sérum', 'count': 8})
+        self.assertEqual(self.row(body, 'sersac')['within'], 'serphy')
+        # 4 flacons de 50 mL : 200 mL, mais pas les 2 sachets exiges
+        flacons += self.create(self.flacon, self.later, 1)
+        report = self.call('POST', f'{url}verif/', {'items': [i.iid for i in compresses + flacons], 'user': 'M001'})[1]
+        self.assertFalse(report['complete'])
+        self.assertEqual(self.row(report, 'serphy')['present'], 200)
+        self.assertEqual(self.row(report, 'sersac')['present'], 0)
+        # 2 sachets (50 mL) + 3 flacons (150 mL) : complet ; le 4e flacon est en trop (300 mL en tout)
+        report = self.call('POST', f'{url}verif/', {'items': [i.iid for i in compresses + sachets + flacons[:3]],
+                                                    'user': 'M001'})[1]
+        self.assertTrue(report['complete'])
+        self.assertEqual(self.row(report, 'serphy')['present'], 200)
+        self.assertNotIn('suggest', self.row(report, 'serphy'))
+
+    def test_newcomers_fill_units(self):
+        """Verif groupee de deux lots : les items venus du stock vont la ou il manque des unites."""
+        self.require([{'type': 'compre', 'quantity': 2}, {'type': 'serphy', 'quantity': 50}])
+        other = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test')
+        other.save()
+        flacons = self.create(self.flacon, self.later, 1)
+        sachets = self.create(self.sachet, self.later, 2)
+        target = services.assign_items([self.lot, other], list(Items.objects.filter(
+            iid__in=[i.iid for i in flacons + sachets]).select_related('pack__item_type')), self.today)
+        self.assertEqual(target[flacons[0].iid], self.lot.id)
+        self.assertEqual({target[i.iid] for i in sachets}, {other.id})
+
+    def test_expired_replaced_by_units(self):
+        """Un sachet perime est remplace (jete) des que le lot a ses mL frais, meme en flacons."""
+        self.require([{'type': 'compre', 'quantity': 2}, {'type': 'serphy', 'quantity': 50}])
+        compresses = self.create(self.compresses, self.later, 2)
+        old = self.create(self.sachet, self.today - timedelta(days=1), 1)
+        Items.objects.filter(iid__in=[i.iid for i in compresses + old]).update(location=self.lot)
+        flacon = self.create(self.flacon, self.later, 1)
+        report = self.call('POST', f'/api/lots/{self.lot.id}/verif/',
+                           {'items': [i.iid for i in compresses + old + flacon], 'user': 'M001'})[1]
+        self.assertEqual(report['replaced'], [old[0].iid])
+        self.assertTrue(report['complete'])

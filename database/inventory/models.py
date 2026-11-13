@@ -145,6 +145,9 @@ class ItemsPacksManager(models.Manager):
             raise ValueError("La quantite doit etre positive")
         if not item_type.physical:
             raise ValueError(f"{item_type.name} est un item à cocher : il n'a pas d'étiquette, rien à réceptionner")
+        if item_type.unit:
+            raise ValueError(f"{item_type.name} se compte en {item_type.unit} : réceptionnez un de ses sous-types "
+                             "(sachet, flacon…), c'est lui qui a une étiquette")
         if item_type.perissable and peremption is None:
             raise ValueError(f"Le type {item_type.type} est perissable : une date de peremption est obligatoire")
         if not item_type.perissable:
@@ -235,6 +238,21 @@ class ItemType(models.Model):
     # Item physique (par defaut), avec une etiquette. Faux : item « a cocher » (ex : 5 gobelets, 15 sucres, « piles
     # verifiees ») : pas d'etiquette, pas de stock, pas de peremption ; dans un lot, la vérif le coche a la main.
     physical = models.BooleanField(default=True)
+    # Attentes en quantite (ex : « 200 mL de serum phy » des recommandations) : un type a unites (unit non vide,
+    # ex : « Sérum phy », mL) ne s'imprime pas et n'a pas d'items a lui. Ses sous-types (group) sont des types d'items
+    # ordinaires, interchangeables, qui remplissent chacun `fills` unites de ses attentes (sachet de 5 dosettes de
+    # 5 mL : 25, flacon : 50). Un attendu du type a unites se compte en unites ; un attendu d'un sous-type dans le
+    # meme lot est un minimum de ce sous-type compris dedans (« 200 mL, dont 2 sachets »). Un seul niveau.
+    unit = models.CharField(max_length=16, blank=True, default='')
+    group = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True, related_name='subtypes')
+    fills = models.PositiveIntegerField(default=1)
+    # sous-type propose par defaut (reception, commande, reassort) d'un type a unites
+    default_subtype = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+
+    @property
+    def is_unit_group(self) -> bool:
+        """Type a unites (attentes en mL...) : ni etiquette ni item a lui, rempli par ses sous-types."""
+        return bool(self.unit)
 
     @property
     def has_revision(self) -> bool:

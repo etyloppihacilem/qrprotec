@@ -240,6 +240,51 @@ def check_physical(physical, perissable, tear_off, revision_months):
         raise ApiError("Un item à cocher n'a pas d'étiquette : ni péremption, ni étiquette à déchirer, ni révision")
 
 
+MAX_FILLS = 1_000_000
+
+
+def apply_units(item_type, data):
+    """Attentes en quantite (ItemType.unit, group, fills, default_subtype) d'un type d'item, depuis les champs
+    presents dans data. Un type a unites (unit, ex : mL) n'a ni etiquette ni item a lui : ce sont ses sous-types qu'on
+    receptionne et qu'on imprime ; un seul niveau (un type a unites n'est le sous-type de personne)."""
+    if 'unit' in data:
+        unit = ' '.join(str(data['unit'] or '').split())[:16]
+        if unit and not item_type.unit and item_type.pk and ItemsPacks.objects.filter(item_type=item_type).exists():
+            raise ApiError("Des items de ce type ont déjà des étiquettes : créez un nouveau type pour l'unité "
+                           "(ex : « Sérum phy » en mL) et faites de celui-ci un de ses sous-types")
+        if not unit and item_type.unit and item_type.pk and ItemType.objects.filter(group=item_type).exists():
+            raise ApiError("Ce type a des sous-types : retirez-les d'abord")
+        item_type.unit = unit
+    if 'group' in data:
+        code = str(data['group'] or '')
+        if not code:
+            item_type.group = None
+        else:
+            group = ItemType.objects.filter(type=code).first()
+            if group is None or not group.unit:
+                raise ApiError("Le type parent doit être un type à unités (ex : « Sérum phy » en mL)")
+            if group.pk == item_type.pk:
+                raise ApiError("Un type ne peut pas être son propre sous-type")
+            item_type.group = group
+    if 'fills' in data:
+        item_type.fills = parse_int(data['fills'], 'fills', 1, MAX_FILLS)
+    if 'default_subtype' in data:
+        code = str(data['default_subtype'] or '')
+        if code and not (item_type.pk and ItemType.objects.filter(type=code, group=item_type).exists()):
+            raise ApiError("Le sous-type par défaut doit être un sous-type de ce type")
+        item_type.default_subtype_id = code or None
+    if item_type.unit:
+        if item_type.group_id:
+            raise ApiError("Un type à unités ne peut pas être lui-même un sous-type (un seul niveau)")
+        if not item_type.physical or item_type.tear_off or item_type.tasks or item_type.perissable:
+            raise ApiError("Un type à unités n'a pas d'étiquette : ni item à cocher, ni péremption, ni étiquette à "
+                           "déchirer, ni tâches (réglez-les sur ses sous-types)")
+    else:
+        item_type.default_subtype_id = None
+    if item_type.group_id and not item_type.physical:
+        raise ApiError("Un item à cocher ne peut pas être le sous-type d'un type à unités")
+
+
 def parse_tasks(value):
     """Taches d'un type d'item (etiquette de taches) : liste de libelles, sans vides ni doublons."""
     if value is None:
@@ -1720,6 +1765,11 @@ def item_types(request):
     check_tear_off_tasks(bool(data.get('tear_off', False)), parse_tasks(data.get('tasks')))
     check_physical(bool(data.get('physical', True)), bool(data.get('perissable', False)),
                    bool(data.get('tear_off', False)), parse_int(data.get('revision_months', 0), 'revision_months'))
+    with transaction.atomic():
+        return _create_item_type(request, data, code, name)
+
+
+def _create_item_type(request, data, code, name):
     item_type = ItemType.objects.create(
         type=code,
         name=name,
@@ -1736,6 +1786,9 @@ def item_types(request):
         revision_tasks=parse_tasks(data.get('revision_tasks')),
         revision_usable=bool(data.get('revision_usable', True)),
     )
+    if any(key in data for key in ('unit', 'group', 'fills', 'default_subtype')):
+        apply_units(item_type, data)
+        item_type.save()
     journal.record(OperationKind.CATALOG, front_identity(request), f"type d'item créé : {item_type}", type=code)
     return Response(ser.item_type_dict(item_type), status=status.HTTP_201_CREATED)
 
@@ -1801,6 +1854,7 @@ def item_type_detail(request, type_code):
                     raise ApiError("Ce type est encore en plus dans le contenu des lots : " + ', '.join(lots)
                                    + ". Retirez-le de ces lots d'abord.")
             item_type.archived = archived
+        apply_units(item_type, data)
         item_type.save()
         if item_type.has_revision and not had_revision:
             # revision activee : premiere revision des items deja la dans la periodicite, sauf date deja prevue
@@ -1818,7 +1872,8 @@ ITEM_TYPE_FIELDS = {
     'label_style': "style d'étiquette",
     'consumable': 'consommable', 'physical': 'à cocher', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
     'revision_tasks': 'tâches de révision', 'revision_usable': 'utilisable en retard de révision',
-    'archived': 'archivage',
+    'archived': 'archivage', 'unit': 'unité', 'group': 'sous-type de', 'fills': 'unités remplies',
+    'default_subtype': 'sous-type par défaut',
 }
 LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',
                    'seal_required': 'scellé obligatoire', 'archived': 'archivage', 'referentiel': 'référentiel',

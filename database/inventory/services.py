@@ -11,7 +11,7 @@
 """Logique metier de l'inventaire : verifs, mouvements d'items, etat des stocks."""
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from django.db import transaction
@@ -162,6 +162,14 @@ class Requirement:
     # facultatif a la verif (voir LotRequirements.optional) : le lot se valide sans, ses items non scannes restent
     # ou ils etaient
     optional: bool = False
+    # attendu d'un type a unites (ItemType.unit, ex : 200 mL de serum phy) : quantity est en unites, et chaque item
+    # d'un sous-type en remplit fills[sous-type] (noms des sous-types dans names)
+    fills: dict = field(default_factory=dict)
+    names: dict = field(default_factory=dict)
+
+    @property
+    def unit(self):
+        return self.item_type.unit
 
     @property
     def item_type_id(self):
@@ -171,6 +179,49 @@ class Requirement:
     def required(self):
         """Minimum qui retient le lot : 0 pour un attendu facultatif (quantity reste le nombre prevu)."""
         return 0 if self.optional else self.quantity
+
+
+def unit_members(preload=None):
+    """Sous-types des types a unites : {type a unites: {sous-type: (unites remplies, nom)}} (ItemType.group)."""
+    if preload is not None:
+        return preload.unit_members
+    result = defaultdict(dict)
+    for group_id, type_id, fills, name in (ItemType.objects.filter(group__isnull=False)
+                                           .values_list('group_id', 'type', 'fills', 'name')):
+        result[group_id][type_id] = (max(1, fills), name)
+    return dict(result)
+
+
+def with_units(rows, preload=None):
+    """Complete les attendus d'un type a unites avec ses sous-types (Requirement.fills et names)."""
+    if not any(row.item_type.unit for row in rows):
+        return rows
+    members = unit_members(preload)
+    for row in rows:
+        if row.item_type.unit:
+            subtypes = members.get(row.item_type_id, {})
+            row.fills = {code: value[0] for code, value in subtypes.items()}
+            row.names = {code: value[1] for code, value in subtypes.items()}
+    return rows
+
+
+def row_weights(fills, required, type_id):
+    """Attendus d'un lot que remplit un item de ce type et combien d'unites il y compte : [(attendu, unites)].
+    `required` : {attendu: quantite} du lot, `fills` : {attendu a unites: {sous-type: unites}}. Un item compte pour
+    son propre type (1) et pour le type a unites dont il est un sous-type (ses unites) : « 200 mL, dont 2 sachets »."""
+    result = [(type_id, 1)] if type_id in required else []
+    for row, members in fills.items():
+        if row in required and type_id in members:
+            result.append((row, members[type_id]))
+    return result
+
+
+def main_row(weights, type_id):
+    """Attendu principal d'un item parmi ses row_weights : celui du type a unites s'il y en a un, sinon son type."""
+    for row, units in weights:
+        if row != type_id:
+            return row, units
+    return type_id, 1
 
 
 def optional_lot(lot) -> bool:
@@ -353,7 +404,7 @@ def lot_requirements(lot, preload=None, strict=False):
         if custom.extra > 0:
             rows.append(Requirement(custom.item_type, custom.extra, custom.location or '', custom.extra,
                                     not strict and optional_in_lot(lot, custom.item_type)))
-    return sort_requirements(rows, lot_locations(lot))
+    return with_units(sort_requirements(rows, lot_locations(lot)), preload)
 
 
 def distribution_sacs(lot):
@@ -470,6 +521,7 @@ class LotPreload:
         self.slots = defaultdict(list)
         for slot in LotTypeSlot.objects.all():
             self.slots[slot.lot_type_id].append(slot)
+        self.unit_members = unit_members()  # sous-types des types a unites (attentes en mL)
         self.children = defaultdict(list)
         for lot in self.tree.values():
             if lot.active and lot.parent_id is not None:
@@ -639,7 +691,15 @@ def requirements_status(lot, today=None, items=None, preload=None, strict=False)
             fresh[item.pack.item_type_id] += 1
     rows = []
     unchecked = set(lot.unchecked or [])
-    for requirement in lot_requirements(lot, preload, strict):
+    requirements = lot_requirements(lot, preload, strict)
+    unit_rows = {row.item_type_id: row for row in requirements if row.fills}
+    within = {code: row.item_type_id for row in unit_rows.values() for code in row.fills}
+
+    def units(counts, requirement):
+        """Items d'un attendu : son type, plus les unites de ses sous-types pour un type a unites."""
+        return counts.get(requirement.item_type_id, 0) + sum(
+            counts.get(code, 0) * value for code, value in requirement.fills.items())
+    for requirement in requirements:
         type_id = requirement.item_type_id
         if not requirement.item_type.physical:
             # item a cocher : la a moins d'avoir ete laisse non coche a la derniere vérif
@@ -659,10 +719,32 @@ def requirements_status(lot, today=None, items=None, preload=None, strict=False)
             'expected': requirement.quantity,
             'optional': requirement.optional,
             'extra': requirement.extra,  # dont en plus du type de lot (contenu propre du lot)
-            'present': fresh.get(type_id, 0),
-            'expired': expired.get(type_id, 0),
-            'unconfirmed': unconfirmed.get(type_id, 0),
+            'present': units(fresh, requirement),
+            'expired': units(expired, requirement),
+            'unconfirmed': units(unconfirmed, requirement),
         })
+        if requirement.fills:
+            # type a unites : quantites en unites (unit), ce que remplit chaque sous-type, et le sous-type a proposer
+            # pour ce qui manque (sous-type par defaut, sinon celui qui en remplit le plus)
+            row = rows[-1]
+            row['unit'] = requirement.unit
+            row['fills'] = dict(requirement.fills)
+            row['subtypes'] = [{'type': code, 'type_name': requirement.names.get(code, code), 'fills': value,
+                                'present': fresh.get(code, 0)}
+                               for code, value in sorted(requirement.fills.items(), key=lambda pair: (-pair[1], pair[0]))]
+            lacking = row['required'] - row['present']
+            if lacking > 0:
+                default = requirement.item_type.default_subtype_id
+                code = default if default in requirement.fills else row['subtypes'][0]['type']
+                row['suggest'] = {'type': code, 'type_name': requirement.names.get(code, code),
+                                  'count': -(-lacking // requirement.fills[code])}
+        elif type_id in within:
+            # sous-type d'un type a unites aussi attendu dans ce lot : minimum compris dedans (« dont 2 sachets »)
+            parent = unit_rows[within[type_id]]
+            rows[-1]['within'] = parent.item_type_id
+            rows[-1]['within_name'] = parent.item_type.name
+            rows[-1]['within_units'] = parent.fills[type_id]
+            rows[-1]['unit'] = parent.unit
     return rows
 
 
@@ -680,9 +762,14 @@ def verif_lots(lots):
 
 def _required_by_lot(group, strict=False):
     """{lot id: {type d'item: quantite}} d'apres le contenu attendu de chaque lot (son type et son contenu propre) ;
-    0 pour un attendu facultatif, sauf en vérif complete (strict)."""
-    return {lot.id: {row.item_type_id: row.required for row in lot_requirements(lot, strict=strict)
-                     if row.item_type.physical} for lot in group}
+    0 pour un attendu facultatif, sauf en vérif complete (strict). Et {lot id: {attendu a unites: {sous-type:
+    unites}}} : un attendu d'un type a unites se compte en unites (voir row_weights)."""
+    required, fills = {}, {}
+    for lot in group:
+        rows = [row for row in lot_requirements(lot, strict=strict) if row.item_type.physical]
+        required[lot.id] = {row.item_type_id: row.required for row in rows}
+        fills[lot.id] = {row.item_type_id: row.fills for row in rows if row.fills}
+    return required, fills
 
 
 def checks_by_lot(group, strict=False):
@@ -714,17 +801,28 @@ def assign_items(group, scanned, today, places=None, cascade=False, strict=False
             lot_id = parent.get(lot_id)
         return False
 
-    required = _required_by_lot(group, strict)
+    required, fills = _required_by_lot(group, strict)
     deficit = {lot_id: dict(rows) for lot_id, rows in required.items()}
+
+    def weights(lot_id, type_id):
+        return row_weights(fills[lot_id], required[lot_id], type_id)
+
+    def take(lot_id, type_id):
+        """L'item remplit un manque de ce lot (en unites pour un type a unites) : il y est compte."""
+        rows = weights(lot_id, type_id)
+        if not any(deficit[lot_id][row] > 0 for row, _ in rows):
+            return False
+        for row, units in rows:
+            deficit[lot_id][row] -= units
+        return True
     target = {}
     newcomers = []
     for item in scanned:
         place = places.get(item.iid)
         if item.location_id in ids and (not cascade or place not in ids or under(item.location_id, place)):
             target[item.iid] = item.location_id
-            type_id = item.pack.item_type_id
-            if not item.needs_replacement(today) and deficit[item.location_id].get(type_id, 0) > 0:
-                deficit[item.location_id][type_id] -= 1
+            if not item.needs_replacement(today):
+                take(item.location_id, item.pack.item_type_id)
         else:
             newcomers.append(item)
     # items frais d'abord : ce sont eux qui remplissent les manques
@@ -733,12 +831,10 @@ def assign_items(group, scanned, today, places=None, cascade=False, strict=False
         type_id = item.pack.item_type_id
         place = places.get(item.iid)
         scope = [lot.id for lot in group if place not in ids or under(lot.id, place)]
-        candidates = [lot_id for lot_id in scope if type_id in required[lot_id]]
+        candidates = [lot_id for lot_id in scope if weights(lot_id, type_id)]
         choice = None
         if not item.needs_replacement(today):
-            choice = next((lot_id for lot_id in candidates if deficit[lot_id].get(type_id, 0) > 0), None)
-            if choice is not None:
-                deficit[choice][type_id] -= 1
+            choice = next((lot_id for lot_id in candidates if take(lot_id, type_id)), None)
         if choice is None:
             choice = candidates[0] if candidates else scope[0]
         target[item.iid] = choice
@@ -856,29 +952,39 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         # sinon il reste a remplacer. Un perime scanne qui n'etait pas dans ce lot (stock, autre lot, hors lot) n'y
         # entre jamais : il est a jeter. Un item a la revision en retard n'est pas jete : seulement remplace par un
         # item frais nouvellement arrive. Meme regle dans les fronts (planSession, App::plan_verif).
-        required = _required_by_lot(group, strict) if group is not None else {}
+        # Type a unites (attentes en mL) : les comptes se font en unites de chaque attendu (row_weights), et un
+        # perime est remplace par des unites fraiches de son attendu principal (main_row).
+        required, fills = _required_by_lot(group, strict) if group is not None else ({}, {})
+
+        def weights(lot_id, type_id):
+            return row_weights(fills.get(lot_id, {}), required.get(lot_id, {}), type_id)
         fresh = defaultdict(int)
         new_fresh = defaultdict(int)
         expired_by_key = defaultdict(list)
         for item in scanned:
-            key = (target[item.iid], item.pack.item_type_id)
+            lot_id, type_id = target[item.iid], item.pack.item_type_id
             if item.needs_replacement(today):
-                expired_by_key[key].append(item)
-            else:
-                fresh[key] += 1
-                if item.location_id != target[item.iid] or item.status != ItemStatus.ACTIVE:
-                    new_fresh[key] += 1
+                expired_by_key[(lot_id, type_id)].append(item)
+                continue
+            fresh_new = item.location_id != lot_id or item.status != ItemStatus.ACTIVE
+            rows = weights(lot_id, type_id) or [(type_id, 1)]
+            for row, units in rows:
+                fresh[(lot_id, row)] += units
+            row, units = main_row(rows, type_id)
+            if fresh_new:
+                new_fresh[(lot_id, row)] += units
         replaced = set()
         for key, expired_items in expired_by_key.items():
             lot_id, type_id = key
-            covered = fresh[key] >= required.get(lot_id, {}).get(type_id, 0)
-            slots = new_fresh.get(key, 0)
+            rows = weights(lot_id, type_id) or [(type_id, 1)]
+            covered = all(fresh[(lot_id, row)] >= required.get(lot_id, {}).get(row, 0) for row, _ in rows)
+            main, units = main_row(rows, type_id)
             for item in expired_items:
                 if discardable(item, today) and (covered or item.location_id != lot_id):
                     replaced.add(item.iid)
-                elif slots > 0:
+                elif new_fresh.get((lot_id, main), 0) >= units:
                     replaced.add(item.iid)
-                    slots -= 1
+                    new_fresh[(lot_id, main)] -= units
 
         # Lots verifies : tous, ou seulement ceux que la verif partielle rend complets
         if group is None:
@@ -1174,14 +1280,17 @@ def _complete_lots(group, scanned, not_seen, target, today, strict=False, checke
     contenu attendu : ses items sont ses attendus, il n'est complet que si tous ont ete scannes. Un item a
     etiquette a dechirer (utilise) ou non consommable (passe hors lot) non scanne ne compte pas. Meme regle dans
     les fronts (planSession, App::plan_verif)."""
-    required = _required_by_lot(group, strict)
+    required, fills = _required_by_lot(group, strict)
     fresh = defaultdict(lambda: defaultdict(int))
     touched = set()
     for item in scanned:
         destination = target[item.iid]
         touched.add(destination)
         if not item.needs_replacement(today):
-            fresh[destination][item.pack.item_type_id] += 1
+            type_id = item.pack.item_type_id
+            for row, units in (row_weights(fills.get(destination, {}), required.get(destination, {}), type_id)
+                               or [(type_id, 1)]):
+                fresh[destination][row] += units
     # un item a dechirer ou non consommable (passe hors lot) non scanne ne retient pas son lot
     holding = {item.location_id for item in not_seen if not item.pack.item_type.tear_off and not leaves_lot(item)}
     checks = checks_by_lot(group, strict) if checked is not None else {}
