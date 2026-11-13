@@ -168,9 +168,9 @@ void AppSettings::load() {
     else if (key == "printer_gap_mm")
       print.raw.gap_mm = std::clamp(to_float(value, static_cast< float >(print.raw.gap_mm)), 0.0f, 20.0f);
     else if (key == "printer_offset_x_mm")
-      print.raw.offset_x_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_x_mm)), 0.0f, 50.0f);
+      print.raw.offset_x_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_x_mm)), -15.0f, 50.0f);
     else if (key == "printer_offset_y_mm")
-      print.raw.offset_y_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_y_mm)), 0.0f, 50.0f);
+      print.raw.offset_y_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_y_mm)), -15.0f, 50.0f);
     else if (key == "printer_device")
       print.serial.device = value;
     else if (key == "printer_baud")
