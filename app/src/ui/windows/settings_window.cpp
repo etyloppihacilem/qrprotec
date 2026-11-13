@@ -518,7 +518,7 @@ class SettingsWindow final : public AppWindow {
       }
       help_marker("Cadre au ras du bord, cadre pointillé à 1 mm et croix graduée, à la taille de l'étiquette "
                   "chargée. Au bout des axes, chiffres en mm depuis chaque bord : si un bord est coupé, le chiffre "
-                  "au ras de ce bord, avec son signe (+ à gauche et en haut, − à droite et en bas), s'ajoute au "
+                  "au ras de ce bord, avec son signe (la flèche montre le sens du déplacement), s'ajoute au "
                   "Décalage horizontal / vertical. Impression qui déborde sur l'étiquette suivante : recalibrer.");
       ImGui::TextDisabled("Étiquette : %.0f x %.0f mm, %s", width, height, ribbon ? "transfert (ruban)" : "thermique direct");
       if (!printer_message_.empty())
