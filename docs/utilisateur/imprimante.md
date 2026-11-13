@@ -90,10 +90,11 @@ les étiquettes en attente, même quand la file est arrêtée sur une erreur.
   ZPL : `~PH` ; TSPL : `FORMFEED`.
 - **Page de configuration** : imprime les réglages de l'imprimante. ZPL : `~WC` ; TSPL : `SELFTEST`.
 - **Étiquette d'étalonnage** : voir plus bas.
-- **Diagnostic des décalages** (ZPL) : trois étiquettes dessinées par l'imprimante elle-même
+- **Diagnostic des décalages** (ZPL) : quatre étiquettes dessinées par l'imprimante elle-même
   (cadre au bord et texte, sans image) : **1** sans décalage, **2** origine déplacée de 5 mm vers
-  la droite et le bas par `^LH`, **3** même déplacement par `^LS` et `^LT`. Une étiquette identique
-  à la 1 montre que l'imprimante ignore cette commande : à joindre à un signalement de problème,
+  la droite et le bas par `^LH`, **3** et **4** même déplacement par `^LS` et `^LT`. Une étiquette
+  identique à la 1 montre que l'imprimante ignore cette commande ; si seule la 4 bouge, la commande
+  ne s'applique qu'à l'étiquette suivante : à joindre à un signalement de problème,
   avec la page de configuration.
 - **Réglages d'usine** (deux clics, le second pour confirmer) : efface tout ce qui a été réglé dans
   l'imprimante (largeur, longueur, capteur, positions, noirceur, mode) et remet les valeurs de

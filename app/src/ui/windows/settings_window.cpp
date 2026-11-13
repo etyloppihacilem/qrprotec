@@ -554,9 +554,10 @@ class SettingsWindow final : public AppWindow {
         ImGui::SameLine();
         if (button("Diagnostic des décalages"))
           send(labels::Maintenance::Diagnostic, "Diagnostic des décalages");
-        help_marker("Trois étiquettes dessinées par l'imprimante elle-même (cadre au bord et texte, sans image) : "
-                    "1 sans décalage, 2 origine déplacée par ^LH, 3 décalage par ^LS et ^LT, de 5 mm vers la droite "
-                    "et vers le bas. Une étiquette identique à la 1 montre que l'imprimante ignore cette commande.");
+        help_marker("Quatre étiquettes dessinées par l'imprimante elle-même (cadre au bord et texte, sans image) : "
+                    "1 sans décalage, 2 origine déplacée par ^LH, 3 et 4 décalage par ^LS et ^LT, de 5 mm vers la "
+                    "droite et vers le bas. Une étiquette identique à la 1 montre que l'imprimante ignore cette "
+                    "commande ; la 4 montre si elle ne s'applique qu'à l'étiquette suivante.");
       }
       ImGui::SameLine();
       if (!confirm_factory_) {
