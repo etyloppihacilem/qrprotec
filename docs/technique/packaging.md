@@ -92,11 +92,14 @@ réponse porte `X-Robots-Tag: noindex, nofollow` (back et Caddy), doublé d'une 
 
 Mode maintenance (`qrprotec-manage maintenance on|off|status`) : le fragment Caddy teste à chaque requête
 (matcher `file`) la présence de `/etc/qrprotec/maintenance/index.html`, copié depuis
-`/usr/share/qrprotec/maintenance.html` (page autonome, styles en ligne). S'il existe, Caddy répond 503 à
-tout le site sans joindre le back : JSON `{"error": …, "maintenance": true}` pour `/api/`, `/ws/`, les fronts
+`/usr/share/qrprotec/maintenance.html` (page autonome, styles en ligne, script `maintenance.js` servi en
+`/qrprotec-maintenance.js`). S'il existe, Caddy répond 503 à tout le site sans joindre le back : JSON `{"error": …, "maintenance": true}` pour `/api/`, `/ws/`, les fronts
 distants (`X-QRProtec-Key`) et les requêtes `Accept: application/json`, la page sinon, avec HSTS
-(`QRPROTEC_HSTS_SECONDS`), une CSP `default-src 'none'; style-src 'unsafe-inline'`, `Cache-Control: no-store`
-et `Retry-After`. `/qrprotec-ca.crt` (matcher de chemin, trié avant) reste servi. `on` recharge Caddy pour
+(`QRPROTEC_HSTS_SECONDS`), une CSP `default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'`, `Cache-Control: no-store`
+et `Retry-After`. `/qrprotec-ca.crt` (matcher de chemin, trié avant) reste servi. Contournement (`on --code`) :
+la page porte un sel aléatoire, le script pose le cookie `qrprotec_maintenance` = SHA-256(`sel:code`), et le
+matcher `not file` laisse passer au back si `/etc/qrprotec/maintenance/bypass/<cookie>.ok` existe (chemin
+assaini par Caddy, dossier 0711 non listable, code jamais stocké en clair). `on` recharge Caddy pour
 couper les WebSockets ouverts ; `off` n'a rien à recharger. Le dossier est un sous-dossier de `/etc/qrprotec` :
 `qrprotec-backup` ne copie que les fichiers du premier niveau, une restauration ne remet donc jamais le site en
 maintenance. Le front web traite 502, 503 et 504 comme une absence de réseau (vérifs gardées en file d'attente).

@@ -51,20 +51,35 @@ https://{$QRPROTEC_DOMAIN:localhost} {
 	# teste a chaque requete : aucun rechargement necessaire. Le certificat racine (/qrprotec-ca.crt, plus
 	# haut : les chemins passent avant les matchers nommes) reste servi. Les appels d'API (et les fronts)
 	# recoivent du JSON avec "error" (message affiche par le web et le poste), les pages la page de maintenance.
-	@maintenance file {
-		root /etc/qrprotec/maintenance
-		try_files /index.html
+	# Contournement pour tester le web (maintenance on --code) : 5 appuis sur le logo de la page, saisie du code ;
+	# la page pose le cookie qrprotec_maintenance = SHA-256(sel:code), et le navigateur qui le presente passe au
+	# back si /etc/qrprotec/maintenance/bypass/<ce hachage>.ok existe (chemin assaini par Caddy, limite a ce
+	# dossier ; cookie absent ou faux : aucun fichier). Le code n'est jamais stocke en clair.
+	@maintenance {
+		file {
+			root /etc/qrprotec/maintenance
+			try_files /index.html
+		}
+		not file {
+			root /etc/qrprotec/maintenance/bypass
+			try_files /{http.request.cookie.qrprotec_maintenance}.ok
+		}
 	}
 	@maintenance_api `path('/api/*', '/ws/*') || header({'X-QRProtec-Key': '*'}) || header({'Accept': '*application/json*'})`
 	handle @maintenance {
-		# Memes protections que les pages du back (HSTS de QRPROTEC_HSTS_SECONDS, CSP stricte : la page n'a
-		# que des styles en ligne), et jamais mise en cache : le site revient des la fin de la maintenance.
+		# Memes protections que les pages du back (HSTS de QRPROTEC_HSTS_SECONDS, CSP stricte : styles en ligne et
+		# script du contournement seulement), et jamais mise en cache : le site revient des la fin de la maintenance.
 		header {
 			Strict-Transport-Security "max-age={$QRPROTEC_HSTS_SECONDS:31536000}"
-			Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			Content-Security-Policy "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 			X-Content-Type-Options nosniff
 			Cache-Control no-store
 			Retry-After 300
+		}
+		handle /qrprotec-maintenance.js {
+			root * /usr/share/qrprotec
+			rewrite * /maintenance.js
+			file_server
 		}
 		handle @maintenance_api {
 			header Content-Type "application/json; charset=utf-8"
