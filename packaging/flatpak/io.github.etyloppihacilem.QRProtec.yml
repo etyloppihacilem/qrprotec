@@ -85,31 +85,10 @@ modules:
 
   - name: qrprotec-front
     buildsystem: simple
+    # Build, tests C++ et installation en une seule commande : voir packaging/flatpak/build-front.sh
+    # (un bac a sable par commande, et chacun peut echouer sur « bwrap: Can't bind mount /etc/resolv.conf »)
     build-commands:
-      - cmake -S app -B _build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/app
-        -DCMAKE_SKIP_BUILD_RPATH=ON
-      - cmake --build _build
-      - ctest --test-dir _build --output-on-failure
-      # Memes emplacements que le RPM, sous /app, pour reprendre le lanceur packaging/files/qrprotec-front
-      - install -Dm755 _build/QRProtecApp /app/libexec/qrprotec/qrprotec-front
-      # polices a cote de l'executable (fonts.cpp les cherche la)
-      - install -Dm644 -t /app/libexec/qrprotec/fonts app/third_party/fonts/*.ttf
-      - install -Dm755 packaging/files/qrprotec-front /app/bin/qrprotec-front
-      - sed -i -e 's|@LIBEXECDIR@|/app/libexec|g' -e 's|@LIBDIR@|/app/lib|g' -e 's|@DATADIR@|/app/share|g'
-        /app/bin/qrprotec-front
-      # SDK de la douchette : x86_64 seulement (sinon, front en mode clavier seul, comme le RPM)
-      - if [ "$FLATPAK_ARCH" = x86_64 ]; then install -Dm755
-        app/scanner_lib/ble/linux/x86_64-unknown-linux-gnu/libinateck_scanner_ble.so
-        /app/lib/qrprotec/libinateck_scanner_ble.so; fi
-      # Modeles d'etiquettes fournis, copies au premier lancement dans ~/.var/app/<id>/data/qrprotec/templates
-      - install -Dm644 -t /app/share/qrprotec/templates app/templates/*.qr
-      - install -Dm644 -t /app/share/qrprotec/templates/images app/templates/images/*
-      # Menu et icone (celle du site web). StartupWMClass=qrprotec relie la fenetre X11 a l'entree.
-      - install -Dm644 packaging/files/qrprotec.desktop /app/share/applications/${FLATPAK_ID}.desktop
-      - sed -i "s|^Icon=qrprotec$|Icon=${FLATPAK_ID}|" /app/share/applications/${FLATPAK_ID}.desktop
-      - install -Dm644 database/inventory/web/icon-512.png /app/share/icons/hicolor/512x512/apps/${FLATPAK_ID}.png
-      - install -Dm644 database/inventory/web/icon-192.png /app/share/icons/hicolor/192x192/apps/${FLATPAK_ID}.png
-      - install -Dm644 database/inventory/web/favicon.png /app/share/icons/hicolor/32x32/apps/${FLATPAK_ID}.png
+      - sh packaging/flatpak/build-front.sh
     sources:
       - type: dir
         path: ../..
