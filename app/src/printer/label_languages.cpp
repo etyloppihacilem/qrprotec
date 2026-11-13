@@ -157,9 +157,11 @@ std::string maintenance_command(bool zpl, Maintenance action, const RawJob& job)
                        std::to_string(font) + "," + std::to_string(font) + "^FD" + second + "^FS^XZ\n";
             };
             const std::string s = std::to_string(shift);
+            // 4 = 3 renvoyee telle quelle : montre si ^LT ne prend effet qu'a l'etiquette suivante
             return label("^LH0,0^LS0^LT0", "1 REFERENCE", "cadre au bord") +
                    label("^LH" + s + "," + s + "^LS0^LT0", "2 ^LH" + s + "," + s, "5 mm droite+bas ?") +
                    label("^LH0,0^LS-" + s + "^LT" + s, "3 ^LS-" + s + " ^LT" + s, "5 mm droite+bas ?") +
+                   label("^LH0,0^LS-" + s + "^LT" + s, "4 = 3 une 2e fois", "5 mm droite+bas ?") +
                    "^XA^LS0^LT0^XZ\n";
         }
         }
