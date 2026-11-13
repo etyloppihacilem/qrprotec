@@ -37,6 +37,7 @@ enum class Maintenance {
     Config,    // imprime l'etiquette de configuration de l'imprimante
     Feed,      // avance d'une etiquette
     Factory,   // reglages d'usine (hors reseau) enregistres ; a faire suivre d'un calibrage
+    Diagnostic, // ZPL : 3 etiquettes en commandes natives (cadre, texte) : reference, ^LH, ^LS + ^LT
 };
 
 // Commande brute pour l'operation. Le calibrage se sert de la taille, du support, de l'interstice (TSPL) et, en

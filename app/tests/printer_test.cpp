@@ -98,6 +98,11 @@ int main()
            "SIZE 40 mm,30 mm\r\nGAP 3 mm,0 mm\r\nSET RIBBON OFF\r\nGAPDETECT\r\n");
     assert(qrprotec::labels::maintenance_command(false, Maintenance::Feed, media) == "FORMFEED\r\n");
     assert(qrprotec::labels::maintenance_command(false, Maintenance::Factory, media) == "INITIALPRINTER\r\n");
+    const std::string diagnostic = qrprotec::labels::maintenance_command(true, Maintenance::Diagnostic, media);
+    assert(diagnostic.find("^PW320^LL240^LH0,0^LS0^LT0^FO0,0^GB320,240,4^FS") != std::string::npos);
+    assert(diagnostic.find("^LH40,40^LS0^LT0^FO0,0^GB320,240,4^FS") != std::string::npos);
+    assert(diagnostic.find("^LH0,0^LS-40^LT40^FO0,0^GB320,240,4^FS") != std::string::npos);
+    assert(diagnostic.size() > 20 && diagnostic.compare(diagnostic.size() - 15, 15, "^XA^LS0^LT0^XZ\n") == 0);
 
     // etat de l'imprimante : ~HS (ZPL), <ESC>!? (TSPL)
     using qrprotec::labels::parse_status;

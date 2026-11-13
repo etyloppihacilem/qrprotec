@@ -550,6 +550,14 @@ class SettingsWindow final : public AppWindow {
       help_marker("Cadre au ras du bord, cadre pointillé à 1 mm et croix graduée, à la taille de l'étiquette "
                   "chargée. Au bout des axes, chiffres en mm depuis chaque bord : si un bord est coupé, le chiffre "
                   "au ras de ce bord, avec son signe, s'ajoute au Décalage horizontal / vertical.");
+      if (zpl) {
+        ImGui::SameLine();
+        if (button("Diagnostic des décalages"))
+          send(labels::Maintenance::Diagnostic, "Diagnostic des décalages");
+        help_marker("Trois étiquettes dessinées par l'imprimante elle-même (cadre au bord et texte, sans image) : "
+                    "1 sans décalage, 2 origine déplacée par ^LH, 3 décalage par ^LS et ^LT, de 5 mm vers la droite "
+                    "et vers le bas. Une étiquette identique à la 1 montre que l'imprimante ignore cette commande.");
+      }
       ImGui::SameLine();
       if (!confirm_factory_) {
         if (button("Réglages d'usine"))

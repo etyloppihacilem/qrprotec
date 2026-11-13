@@ -141,6 +141,27 @@ std::string maintenance_command(bool zpl, Maintenance action, const RawJob& job)
         case Maintenance::Feed: return "~PH\n";
         // ^JUF : reglages d'usine (le reseau n'est pas touche), ^JUS : enregistres
         case Maintenance::Factory: return "^XA^JUF^XZ\n^XA^JUS^XZ\n";
+        case Maintenance::Diagnostic: {
+            // trois etiquettes au format charge, dessinees par l'imprimante (^GB, ^A0) : on voit directement si
+            // ^LH (origine), ^LS et ^LT deplacent le dessin ; 5 mm dans chaque cas
+            const int shift = static_cast<int>(std::lround(5.0 * ppm));
+            const int border = std::max(2, static_cast<int>(std::lround(0.5 * ppm)));
+            const int font = std::max(16, static_cast<int>(std::lround(3.0 * ppm)));
+            const auto label = [&](const std::string& position, const std::string& first, const std::string& second) {
+                return "^XA^CI28^MNY^PW" + std::to_string(job.width_dots) + "^LL" + std::to_string(job.height_dots) +
+                       position + "^FO0,0^GB" + std::to_string(job.width_dots) + "," +
+                       std::to_string(job.height_dots) + "," + std::to_string(border) + "^FS^FO" +
+                       std::to_string(2 * border + font / 2) + "," + std::to_string(2 * border + font / 2) + "^A0N," +
+                       std::to_string(font) + "," + std::to_string(font) + "^FD" + first + "^FS^FO" +
+                       std::to_string(2 * border + font / 2) + "," + std::to_string(2 * border + font * 2) + "^A0N," +
+                       std::to_string(font) + "," + std::to_string(font) + "^FD" + second + "^FS^XZ\n";
+            };
+            const std::string s = std::to_string(shift);
+            return label("^LH0,0^LS0^LT0", "1 REFERENCE", "cadre au bord") +
+                   label("^LH" + s + "," + s + "^LS0^LT0", "2 ^LH" + s + "," + s, "5 mm droite+bas ?") +
+                   label("^LH0,0^LS-" + s + "^LT" + s, "3 ^LS-" + s + " ^LT" + s, "5 mm droite+bas ?") +
+                   "^XA^LS0^LT0^XZ\n";
+        }
         }
         return {};
     }
@@ -152,6 +173,7 @@ std::string maintenance_command(bool zpl, Maintenance action, const RawJob& job)
     case Maintenance::Config: return "SELFTEST\r\n";
     case Maintenance::Feed: return "FORMFEED\r\n";
     case Maintenance::Factory: return "INITIALPRINTER\r\n";
+    case Maintenance::Diagnostic: return {}; // ZPL seulement
     }
     return {};
 }
