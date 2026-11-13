@@ -129,7 +129,11 @@ std::string serialize_template(const TemplateDocument& document)
         const LabelType& type = *document.label_type;
         output << "  \"label_type\": {\"name\": \"" << escape_json(type.name) << "\", \"width_mm\": " << type.width_mm
                << ", \"height_mm\": " << type.height_mm << ", \"rotation\": " << normalize_rotation(type.rotation)
-               << ", \"support\": \"" << label_support_id(type.support) << "\"},\n";
+               << ", \"support\": \"" << label_support_id(type.support) << "\"";
+        // marge ecrite seulement si elle differe du defaut : les modeles fournis restent identiques
+        if (std::abs(type.margin_mm - LabelType::kDefaultMarginMm) > 1e-6)
+            output << ", \"margin_mm\": " << type.margin_mm;
+        output << "},\n";
     }
     output << "  \"parameters\": {";
     // ordre stable : deux documents egaux donnent le meme texte (detection des modifications)
@@ -217,6 +221,7 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
         type.height_mm = std::clamp(label_type["height_mm"].num(type.height_mm), 1.0, 500.0);
         type.rotation = normalize_rotation(static_cast<int>(std::lround(label_type["rotation"].num(0.0))));
         type.support = label_support_from_id(label_type["support"].str());
+        type.margin_mm = std::clamp(label_type["margin_mm"].num(LabelType::kDefaultMarginMm), 0.0, 10.0);
         loaded.label_type = type;
     }
     // valeurs d'apercu des placeholders : objet JSON {"nom": "valeur", ...}

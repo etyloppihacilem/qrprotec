@@ -6810,6 +6810,13 @@ class LabelPrintTests(ApiTestCase):
         self.assertEqual(printed['labels'][0]['label_type'], {'name': 'PET 40x30', 'width_mm': 40.0, 'height_mm': 30.0,
                                                               'rotation': 90, 'support': 'transfer'})
         self.assertNotIn('label_type', printed['labels'][1])
+        # marge du type transmise si elle est donnee, bornee a 0..10 mm
+        bad['label_type'] = {'name': 'PET', 'width_mm': 40, 'height_mm': 30, 'margin_mm': 12}
+        self.assertEqual(send([bad]).status_code, 400)
+        typed['label_type']['margin_mm'] = 1
+        response = send([typed])
+        code, printed = self.call('POST', f"/api/label-prints/{response.json()['id']}/print/", {}, session=False)
+        self.assertEqual(printed['labels'][0]['label_type']['margin_mm'], 1.0)
 
 
 class LotStateReportTests(LotSheetTests.__base__):

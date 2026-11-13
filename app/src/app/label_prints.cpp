@@ -55,6 +55,7 @@ Json encode_label(const PrintJob &job) {
     label_type["height_mm"]  = type->height_mm;
     label_type["rotation"]   = normalize_rotation(type->rotation);
     label_type["support"]    = label_support_id(type->support);
+    label_type["margin_mm"]  = type->margin_mm;
     label["label_type"]      = label_type;
   }
   return label;
@@ -73,6 +74,7 @@ bool decode_label(const Json &label, PrintJob &job) {
     type.height_mm          = label_type["height_mm"].num(type.height_mm);
     type.rotation           = normalize_rotation(static_cast< int >(std::lround(label_type["rotation"].num(0.0))));
     type.support            = label_support_from_id(label_type["support"].str());
+    type.margin_mm          = std::clamp(label_type["margin_mm"].num(LabelType::kDefaultMarginMm), 0.0, 10.0);
     job.document.label_type = type;
   }
   return true;

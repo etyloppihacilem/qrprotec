@@ -240,7 +240,7 @@ void App::draw_roll_wizard() {
         PrintJob job;
         job.description = "Étiquette d'étalonnage";
         job.document    = calibration_document(*chosen, true);
-        job.image       = calibration_image(job.document);
+        job.image       = calibration_image(job.document, chosen->effective_margin_mm());
         print_documents({ job });
       }
       ImGui::SameLine();

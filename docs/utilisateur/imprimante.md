@@ -188,8 +188,9 @@ thermique direct au transfert ou l'inverse) ou la première fois.
     imprimée le mode d'impression (thermique direct ou transfert), la largeur d'impression et la
     longueur d'étiquette en points (8 points par mm : 40 mm = 320), et le type de support
     (interstice, « GAP/NOTCH »).
-13. **Étiquette d'étalonnage** : les quatre cadres pleins doivent apparaître. Sinon, réglez le
-    décalage (section suivante) et réimprimez-la jusqu'à ce qu'ils y soient.
+13. **Étiquette d'étalonnage** : le cadre plein doit apparaître en entier, avec un liseré blanc
+    de même largeur des quatre côtés. Sinon, réglez le décalage (section suivante) et
+    réimprimez-la jusqu'à ce qu'il y soit.
 
 **À chaque fois**
 
@@ -206,9 +207,29 @@ thermique direct au transfert ou l'inverse) ou la première fois.
 À faire **après** un calibrage : un décalage ne corrige pas une imprimante qui ne connaît pas la
 taille de son rouleau.
 
-L'étiquette d'étalonnage est dessinée à la taille du rouleau chargé :
+### Les marges
 
-- un cadre plein **au ras du bord**, et un cadre pointillé à 1 mm du bord ;
+Chaque type d'étiquette a une **marge de chaque côté**, de **0,5 mm** par défaut (éditeur
+d'étiquettes, onglet **Types d'étiquettes**, « Marge de chaque côté »). Elle forme un cadre
+centré sur l'étiquette :
+
+- dans l'éditeur, le cadre est tracé en **pointillé orange** et la bande en dehors est grisée ;
+  placez le contenu à l'intérieur ;
+- à l'impression, **rien n'est imprimé en dehors du cadre** : l'image utile est plus petite que
+  l'étiquette et centrée dessus. L'imprimante peut avancer ou se décaler de quelques dixièmes de
+  millimètre (la GK420t mesure par exemple 30,5 mm pour une étiquette de 30 mm) sans rien couper.
+
+Une marge à 0 imprime jusqu'au bord, comme avant. La valeur n'est écrite dans les modèles que si
+elle diffère de 0,5 mm.
+
+### L'étiquette d'étalonnage
+
+Elle est dessinée à la taille du rouleau chargé :
+
+- un cadre plein **sur le cadre des marges**, et un cadre pointillé 1 mm à l'intérieur. Le but :
+  faire rentrer le cadre plein **en entier**, avec autant de blanc des quatre côtés. Plus de
+  blanc à gauche qu'à droite : décalez vers la gauche (signe −) de la moitié de la différence ;
+  plus de blanc en haut qu'en bas : décalez vers le haut (signe −) de la moitié de la différence ;
 - une croix au centre, graduée tous les millimètres (traits plus longs tous les 5 et 10 mm) ;
 - au bout de chaque axe, des graduations numérotées **1, 2, 3, 4 mm depuis le bord**, avec le
   signe à appliquer et une flèche qui montre dans quel sens ce signe déplace l'impression :
