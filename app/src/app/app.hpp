@@ -739,4 +739,23 @@ void draw_report_replies(const Json &report);
 // Explication de l'etiquette privee d'un lot (QR code dans le lot) et son emplacement s'il est renseigne
 std::string key_hint(const Json &lot);
 
+// Types a unites (attentes en mL, ItemType.unit) : un attendu « Sérum phy » de 200 mL est rempli par ses sous-types
+// (sachet de 25 mL, flacon de 50 mL), chacun pour ses unites (ligne de requirements : unit, fills {sous-type: unites}).
+// Attendus d'un lot que remplit un item de ce type, avec ses unites (services.row_weights) : son propre type (1), et
+// le type a unites dont il est un sous-type.
+std::vector< std::pair< std::string, int > > row_weights(const Json &requirements, const std::string &type);
+// Attendu principal parmi row_weights : le type a unites s'il y en a un, sinon le type lui-meme (services.main_row)
+std::pair< std::string, int >                main_row(const std::vector< std::pair< std::string, int > > &weights,
+                                                      const std::string                                &type);
+// Attendu sous lequel afficher un item de ce type : son type s'il est attendu, sinon son type a unites
+std::string                                  display_row(const Json &requirements, const std::string &type);
+// Ligne d'un type a unites (pas le minimum d'un sous-type « dont ») : compte en unites
+bool                                         unit_row(const Json &row);
+// Items a scanner pour `units` unites d'une ligne : le moins d'items qui les remplissent (sinon `units` lui-meme)
+int                                          row_items(const Json &row, int units);
+// Nom affiche d'un attendu : « Sérum phy (mL) », « dont Sachet… »
+std::string                                  requirement_name(const Json &row);
+// Ce qui manque : « 3 × Compresses », « 50 mL de Sérum phy (2 × Sachet…) » (services.lacking_text)
+std::string                                  lacking_text(const Json &row, int lacking);
+
 } // namespace qrprotec

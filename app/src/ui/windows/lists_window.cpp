@@ -878,7 +878,17 @@ class ListsWindow final : public AppWindow {
           row_color(colors::green, 0.20f);
         ImGui::TableNextColumn();
         const bool lot_type = line["kind"].str() == "lot_type"; // n'importe quel lot de ce type
-        ImGui::TextUnformatted((lot ? line["lot_name"] : line["type_name"]).str().c_str());
+        // type a unites (200 mL de serum phy) : n'importe lequel de ses sous-types, compte en unites
+        const std::string unit = line["unit"].str();
+        ImGui::TextUnformatted(lot ? line["lot_name"].str().c_str()
+                                   : (line["type_name"].str() + (unit.empty() ? "" : " (" + unit + ")")).c_str());
+        if (!unit.empty() && line["subtypes"].size() > 0) {
+          std::string subtypes;
+          for (const Json &sub : line["subtypes"].items())
+            subtypes += (subtypes.empty() ? "" : " ou ") + sub["type_name"].str() + " ("
+                        + std::to_string(sub["fills"].integer(1)) + " " + unit + ")";
+          ImGui::SetItemTooltip("%s", subtypes.c_str());
+        }
         ImGui::SameLine();
         // sac d'un B+ de referentiel (sans etiquette) : chaque sac se coche par son etiquette
         const std::string part_of = line["part_of_name"].str();
@@ -899,12 +909,12 @@ class ListsWindow final : public AppWindow {
           ImGui::TextDisabled("  disponibles : %s", available.c_str());
         }
         ImGui::TableNextColumn();
-        ImGui::Text("%d", line["quantity"].integer());
+        ImGui::Text("%d%s", line["quantity"].integer(), unit.empty() ? "" : (" " + unit).c_str());
         ImGui::TableNextColumn();
         if (lot)
           ImGui::TextUnformatted(took ? "✓ coché" : "–");
         else
-          ImGui::Text("%d/%d", took, line["quantity"].integer());
+          ImGui::Text("%d/%d%s", took, line["quantity"].integer(), unit.empty() ? "" : (" " + unit).c_str());
         if (lot && took && draft) {
           ImGui::SameLine();
           if (small_button("Décocher")) {
@@ -1042,7 +1052,8 @@ class ListsWindow final : public AppWindow {
             row["quantity"]  = line["quantity"].integer();
           } else {
             row["type"]     = line["type"].str();
-            row["label"]    = line["type_name"].str();
+            row["unit"]     = line["unit"].str();
+            row["label"]    = line["type_name"].str() + (line["unit"].str().empty() ? "" : " (" + line["unit"].str() + ")");
             row["quantity"] = line["quantity"].integer();
           }
           edit_lines_.push_back(row);
@@ -1093,8 +1104,8 @@ class ListsWindow final : public AppWindow {
           if (!line.contains("lot") && !line.contains("task")) {
             int quantity = line["quantity"].integer(1);
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::InputInt("##quantity", &quantity))
-              line["quantity"] = std::clamp(quantity, 1, 999);
+            if (ImGui::InputInt("##quantity", &quantity)) // type a unites : en unites (mL)
+              line["quantity"] = std::clamp(quantity, 1, line["unit"].str().empty() ? 999 : 100000);
           }
           ImGui::TableNextColumn();
           if (small_button("Retirer"))
@@ -1210,7 +1221,7 @@ class ListsWindow final : public AppWindow {
       for (Json &line : edit_lines_.items())
         if (line[lot ? "lot" : "type"].str() == key) {
           if (!lot)
-            line["quantity"] = std::min(999, line["quantity"].integer() + quantity);
+            line["quantity"] = std::min(line["unit"].str().empty() ? 999 : 100000, line["quantity"].integer() + quantity);
           return;
         }
       for (const Json &option : options_[lot ? "lots" : "types"].items()) {
@@ -1230,9 +1241,12 @@ class ListsWindow final : public AppWindow {
         }
         Json row;
         row[lot ? "lot" : "type"] = key;
-        row["label"] = lot ? option["name"].str() + " (" + option["lot_type_name"].str() + ")" : option["name"].str();
-        if (!lot)
+        row["label"] = lot ? option["name"].str() + " (" + option["lot_type_name"].str() + ")"
+                           : option["name"].str() + (option["unit"].str().empty() ? "" : " (" + option["unit"].str() + ")");
+        if (!lot) {
           row["quantity"] = quantity;
+          row["unit"]     = option["unit"].str();
+        }
         edit_lines_.push_back(row);
         return;
       }

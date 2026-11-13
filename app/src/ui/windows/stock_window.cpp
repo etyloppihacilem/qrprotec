@@ -366,7 +366,7 @@ class StockWindow final : public AppWindow {
           continue;
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(row["name"].str().c_str());
+        ImGui::TextUnformatted(stock_name(row).c_str());
         ImGui::TextDisabled("%s", row["type"].str().c_str());
         ImGui::TableNextColumn();
         stock_bar(quantity, minimum, ImVec2(-1, ImGui::GetFrameHeight() * 1.3f));
@@ -481,7 +481,7 @@ class StockWindow final : public AppWindow {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::PushID(type.c_str());
-            if (ImGui::Selectable(row["name"].str().c_str(), selected_ == type, ImGuiSelectableFlags_SpanAllColumns))
+            if (ImGui::Selectable(stock_name(row).c_str(), selected_ == type, ImGuiSelectableFlags_SpanAllColumns))
               selected_ = selected_ == type ? std::string() : type; // re-clic : retour a tout le stock
             ImGui::PopID();
             ImGui::TextDisabled("%s", type.c_str());
@@ -547,8 +547,21 @@ class StockWindow final : public AppWindow {
       return stock_order(projected(row), row["min_quantity"].integer());
     }
 
+    // Nom d'une ligne de stock : « Sérum phy (mL) » pour un type a unites (ses sous-types comptes en unites)
+    static std::string stock_name(const Json &row) {
+      return row["name"].str() + (row["unit"].str().empty() ? std::string() : " (" + row["unit"].str() + ")");
+    }
+
+    // Commande d'un type a unites : en items de son sous-type par defaut (« 8 × Sachet… »)
+    static std::string order_text(const Json &row) {
+      const Json &order = row["order"];
+      return order["subtype_name"].str().empty()
+               ? std::to_string(order["quantity"].integer())
+               : std::to_string(order["quantity"].integer()) + " × " + order["subtype_name"].str();
+    }
+
     void draw_type_detail(App &app, const Json &row) {
-      ImGui::TextUnformatted(row["name"].str().c_str());
+      ImGui::TextUnformatted(stock_name(row).c_str());
       ImGui::SameLine();
       ImGui::TextDisabled("· conso %s / mois", rate_text(row["per_month"].num()).c_str());
       if (row["unconfirmed"].integer() > 0) {
@@ -560,7 +573,7 @@ class StockWindow final : public AppWindow {
       const Json &order = row["order"];
       if (order.is_object()) {
         const ImVec4 color = order["urgent"].boolean() ? colors::red : colors::orange;
-        ImGui::TextColored(color, "Commander %d avant le %s (sous le minimum le %s)", order["quantity"].integer(),
+        ImGui::TextColored(color, "Commander %s avant le %s (sous le minimum le %s)", order_text(row).c_str(),
                            date_text(order["before"]).c_str(), date_text(order["below_min"]).c_str());
       }
       if (row["expired_now"].integer() > 0)
@@ -728,7 +741,7 @@ class StockWindow final : public AppWindow {
         if (button("Copier la liste")) {
           std::ostringstream text;
           for (const Json *row : rows)
-            text << (*row)["name"].str() << " : " << (*row)["order"]["quantity"].integer() << " (avant le "
+            text << (*row)["name"].str() << " : " << order_text(*row) << " (avant le "
                  << date_text((*row)["order"]["before"]) << ")\n";
           ImGui::SetClipboardText(text.str().c_str());
           app.notify("Liste des commandes copiée.");
@@ -750,10 +763,10 @@ class StockWindow final : public AppWindow {
         const Json &order = row["order"];
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(row["name"].str().c_str());
+        ImGui::TextUnformatted(stock_name(row).c_str());
         ImGui::TableNextColumn();
-        ImGui::Text("%d", order["quantity"].integer());
-        if (row["pack_size"].integer() > 1) {
+        ImGui::TextUnformatted(order_text(row).c_str());
+        if (row["pack_size"].integer() > 1 && row["unit"].str().empty()) {
           ImGui::SameLine();
           ImGui::TextDisabled("(%d paquets)", order["quantity"].integer() / row["pack_size"].integer());
         }

@@ -2943,6 +2943,72 @@ std::string key_hint(const Json &lot) {
          (location.empty() ? std::string(".") : " (" + location + ").");
 }
 
+std::vector< std::pair< std::string, int > > row_weights(const Json &requirements, const std::string &type) {
+  std::vector< std::pair< std::string, int > > result;
+  for (const Json &row : requirements.items()) {
+    if (row["check"].boolean())
+      continue;
+    if (row["type"].str() == type)
+      result.emplace_back(type, 1);
+    else if (row["fills"].contains(type))
+      result.emplace_back(row["type"].str(), std::max(1, row["fills"][type].integer(1)));
+  }
+  return result;
+}
+
+std::pair< std::string, int > main_row(const std::vector< std::pair< std::string, int > > &weights,
+                                       const std::string                                &type) {
+  for (const auto &weight : weights)
+    if (weight.first != type)
+      return weight;
+  return { type, 1 };
+}
+
+std::string display_row(const Json &requirements, const std::string &type) {
+  const auto weights = row_weights(requirements, type);
+  for (const auto &weight : weights)
+    if (weight.first == type)
+      return type;
+  return main_row(weights, type).first;
+}
+
+bool unit_row(const Json &row) {
+  return !row["unit"].str().empty() && row["within"].str().empty();
+}
+
+int row_items(const Json &row, int units) {
+  if (!unit_row(row) || units <= 0)
+    return units;
+  int most = 1;
+  for (const auto &member : row["fills"].members())
+    most = std::max(most, member.second.integer(1));
+  return (units + most - 1) / most;
+}
+
+std::string requirement_name(const Json &row) {
+  if (!row["within"].str().empty())
+    return "dont " + row["type_name"].str();
+  if (unit_row(row))
+    return row["type_name"].str() + " (" + row["unit"].str() + ")";
+  return row["type_name"].str();
+}
+
+std::string lacking_text(const Json &row, int lacking) {
+  if (!unit_row(row))
+    return std::to_string(lacking) + " × " + row["type_name"].str();
+  std::string text = std::to_string(lacking) + " " + row["unit"].str() + " de " + row["type_name"].str();
+  // sous-type a prendre : celui propose par le serveur (sous-type par defaut), sinon celui qui en remplit le plus
+  const Json *pick = nullptr;
+  for (const Json &sub : row["subtypes"].items())
+    if (!pick || sub["type"].str() == row["suggest"]["type"].str())
+      pick = &sub;
+  if (pick && lacking > 0) {
+    const int fills = std::max(1, (*pick)["fills"].integer(1));
+    text += " (" + std::to_string((lacking + fills - 1) / fills) + " × " + (*pick)["type_name"].str() + ")";
+  }
+  return text;
+}
+
 // Une seule etiquette cle d'un lot de la verif suffit : celle du lot global couvre ses sous-lots, et celle d'un
 // sous-lot (ajoute a la verif en la scannant) valide la verif de tout le lot global.
 bool App::verif_key_ok() const {
@@ -3146,8 +3212,10 @@ std::vector< VerifPlanLot > App::plan_verif() const {
   std::set< std::string >              unticked;       // lots dont un item a cocher ne l'est pas
   const std::vector< std::string >     scanned = stack.iids();
   const std::set< std::string >        done(scanned.begin(), scanned.end());
+  std::map< std::string, const Json * > rows_of; // attendus de chaque lot (types a unites : row_weights)
   for (const Json *lot : lots) {
     const std::string id = (*lot)["id"].str();
+    rows_of[id]          = &(*lot)["requirements"];
     index[id]            = plan.size();
     plan.push_back({ lot, (*lot)["depth"].integer() });
     for (const char *list : { "items", "missing_items" })
@@ -3172,6 +3240,26 @@ std::vector< VerifPlanLot > App::plan_verif() const {
   }
   if (plan.empty())
     return plan;
+  // attendus du lot que remplit un item de ce type, en unites pour un type a unites (200 mL de serum phy)
+  const auto weights_in = [&](const std::string &id, const std::string &type) {
+    std::vector< std::pair< std::string, int > > result;
+    for (const auto &weight : row_weights(*rows_of[id], type))
+      if (required[id].count(weight.first))
+        result.push_back(weight);
+    return result;
+  };
+  // l'item remplit un manque du lot : il y est compte
+  const auto take = [&](const std::string &id, const std::string &type) {
+    const auto weights = weights_in(id, type);
+    bool       useful  = false;
+    for (const auto &weight : weights)
+      useful = useful || deficit[id][weight.first] > 0;
+    if (!useful)
+      return false;
+    for (const auto &weight : weights)
+      deficit[id][weight.first] -= weight.second;
+    return true;
+  };
   struct Scanned {
       std::string iid, type, place;
       bool        expired = false;
@@ -3231,8 +3319,8 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     if (const auto found = location_of.find(iid);
         found != location_of.end() && (!cascade || item.place.empty() || under(found->second, item.place))) {
       target[iid] = found->second;
-      if (!item.expired && deficit[found->second][item.type] > 0)
-        --deficit[found->second][item.type];
+      if (!item.expired)
+        take(found->second, item.type);
     } else {
       newcomers.push_back(item);
     }
@@ -3248,15 +3336,14 @@ std::vector< VerifPlanLot > App::plan_verif() const {
       if (placed && !under(id, item.place))
         continue;
       scope.push_back(id);
-      if (required[id].count(item.type))
+      if (!weights_in(id, item.type).empty())
         candidates.push_back(id);
     }
     std::string choice;
     if (!item.expired)
       for (const std::string &id : candidates)
-        if (deficit[id][item.type] > 0) {
+        if (take(id, item.type)) {
           choice = id;
-          --deficit[id][item.type];
           break;
         }
     if (choice.empty())
@@ -3275,9 +3362,16 @@ std::vector< VerifPlanLot > App::plan_verif() const {
         row.outsiders.insert(item.iid);
       continue;
     }
-    ++row.fresh[item.type];
-    if (!inside)
-      ++row.added[item.type];
+    // par attendu, en unites pour un type a unites (le sous-type compte aussi pour lui-meme)
+    auto weights = weights_in(id, item.type);
+    if (weights.empty())
+      weights.emplace_back(item.type, 1);
+    for (const auto &weight : weights)
+      row.fresh[weight.first] += weight.second;
+    if (!inside) {
+      const auto main = main_row(weights, item.type);
+      row.added[main.first] += main.second;
+    }
   }
   for (VerifPlanLot &row : plan) {
     const std::string id = (*row.lot)["id"].str();
@@ -3300,12 +3394,14 @@ std::string App::discard_advice(const Json &item) const {
   if (!item["outdated"].boolean() && !item["unusable"].boolean() && !item["disabled"].boolean())
     return {};
   const std::string iid  = item["iid"].str();
-  const std::string type = parse_scan(iid).item_type;
+  std::string       type = parse_scan(iid).item_type;
   int               need = 0, have = 0;
   for (const VerifPlanLot &row : plan_verif())
     if (row.iids.count(iid)) {
       if (row.outsiders.count(iid))
         return item["type_name"].str() + " : ne le mettez pas dans le lot, jetez-le.";
+      // type a unites : besoin et frais en unites de son attendu (200 mL de serum phy)
+      type                = main_row(row_weights((*row.lot)["requirements"], type), type).first;
       const auto required = row.required.find(type);
       const auto fresh    = row.fresh.find(type);
       need                = required == row.required.end() ? 0 : required->second;
@@ -3858,8 +3954,8 @@ bool App::ask_leave(const std::string &target, int entry_id) {
         continue;
       }
       const auto found = row.fresh.find(requirement["type"].str());
-      missing += std::max< int >(0, static_cast< int >(requirement["required"].integer())
-                                       - (found == row.fresh.end() ? 0 : found->second));
+      missing += row_items(requirement, std::max< int >(0, static_cast< int >(requirement["required"].integer())
+                                                              - (found == row.fresh.end() ? 0 : found->second)));
     }
   }
   verif.leave_prompt = { true, level, target, entry_id, missing };

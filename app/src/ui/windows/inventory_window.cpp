@@ -178,7 +178,12 @@ class InventoryWindow final : public AppWindow {
       ImGui::TextWrapped("Réception d'une commande : choisissez le type, la date de péremption et la quantité. "
                          "Chaque item recoit un identifiant unique et sa propre étiquette.");
       ImGui::TextUnformatted("Type d'item");
-      if (search_select("reception_type", without_archived(app.catalog.item_types), "type", "name", reception_type_,
+      // un type a unites (serum phy en mL) n'a pas d'etiquette : on receptionne ses sous-types
+      Json receivable = Json::array();
+      for (const Json &item_type : without_archived(app.catalog.item_types).items())
+        if (item_type["unit"].str().empty())
+          receivable.push_back(item_type);
+      if (search_select("reception_type", receivable, "type", "name", reception_type_,
                         "Tapez le nom ou le code du type…")) {
         if (const Json *type = find_type(app, reception_type_))
           quantity_ = std::max(1, (*type)["default_pack_size"].integer(1));
@@ -407,7 +412,7 @@ class InventoryWindow final : public AppWindow {
           ImGui::SetCursorPosX(start);
           ImGui::TextUnformatted(item_type["name"].str().c_str());
           ImGui::SameLine();
-          ImGui::TextDisabled("%s%s", code.c_str(), archived ? " - archivé" : "");
+          ImGui::TextDisabled("%s%s%s", code.c_str(), archived ? " - archivé" : "", unit_summary(app, item_type).c_str());
           ImGui::TableNextColumn();
           ImGui::Text("%d", item_type["min_quantity"].integer());
           ImGui::TableNextColumn();
@@ -456,10 +461,16 @@ class InventoryWindow final : public AppWindow {
                   "péremption. Dans un lot, la vérif affiche une case à cocher : on compte à la main, puis on coche. "
                   "Non coché, il manque jusqu'à la vérif suivante. Un type qui a déjà des étiquettes ne peut pas "
                   "le devenir.");
-      // item a cocher : rien de ce qui suit ne le concerne (sauf les taches, affichees sous la case)
+      draw_unit_fields(app);
+      // item a cocher : rien de ce qui suit ne le concerne (sauf les taches, affichees sous la case) ; type a unites :
+      // seulement son minimum (en unites)
       ImGui::BeginDisabled(form_to_check_);
       ImGui::SetNextItemWidth(150.0f);
-      ImGui::InputInt("Quantité minimale en stock", &form_min_);
+      ImGui::InputInt(form_unit_on_ ? ("Quantité minimale en stock (" + form_unit_ + ")").c_str()
+                                    : "Quantité minimale en stock",
+                      &form_min_);
+      ImGui::EndDisabled();
+      ImGui::BeginDisabled(form_to_check_ || form_unit_on_);
       ImGui::SetNextItemWidth(150.0f);
       ImGui::InputInt("Items par paquet (réception)", &form_pack_size_);
       ImGui::Checkbox("Périssable (date de péremption obligatoire)", &form_perishable_);
@@ -476,7 +487,7 @@ class InventoryWindow final : public AppWindow {
                   "l'étiquette manquante compte l'ensemble comme utilisé tout de suite : il faut remettre un "
                   "ensemble complet, les restes de l'ancien sont considérés comme perdus.");
       ImGui::EndDisabled();
-      ImGui::BeginDisabled(form_to_check_);
+      ImGui::BeginDisabled(form_to_check_ || form_unit_on_);
       ImGui::Checkbox("Non consommable (matériel réutilisable)", &form_non_consumable_);
       help_marker("Ex : lecteur de glycémie, oxymètre. Un item non consommable ne s'use pas : s'il manque à la vérif "
                   "d'un lot, il a été retiré du lot : il passe « hors lot » au lieu d'être compté comme utilisé ou "
@@ -488,7 +499,9 @@ class InventoryWindow final : public AppWindow {
                   "étiquette de tâches : la scanner pendant une vérif ouvre la liste à cocher, et l'item n'est "
                   "compté qu'une fois toutes ses tâches cochées et validées. Un administrateur peut scanner deux "
                   "fois de suite l'étiquette pour toutes les valider. Vide : item ordinaire.");
+      ImGui::BeginDisabled(form_unit_on_);
       ImGui::InputTextMultiline("##tasks", &form_tasks_, ImVec2(-FLT_MIN, 70));
+      ImGui::EndDisabled();
       // l'etiquette a dechirer disparait a l'ouverture : elle ne peut pas porter la liste des taches
       const bool tear_and_tasks = form_tear_off_ && !form_task_list().empty();
       if (tear_and_tasks)
@@ -532,8 +545,21 @@ class InventoryWindow final : public AppWindow {
       body["revision_tasks"]  = Json::array();
       for (const std::string &task : task_lines(form_revision_tasks_))
         body["revision_tasks"].push_back(task);
+      // type a unites : ni etiquette ni item (pas de peremption, de taches, d'etiquette a dechirer)
+      const bool unit_type = form_unit_on_ && !form_to_check_;
+      body["unit"]         = unit_type ? form_unit_ : std::string();
+      body["group"]        = unit_type || form_to_check_ ? std::string() : form_group_;
+      body["fills"]        = form_fills_;
+      if (!editing_type_.empty())
+        body["default_subtype"] = unit_type ? form_default_subtype_ : std::string();
+      if (unit_type) {
+        body["perissable"] = false;
+        body["tear_off"]   = false;
+        body["tasks"]      = Json::array();
+      }
       if (editing_type_.empty()) {
-        ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty() || name_taken || code_taken || tear_and_tasks);
+        ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty() || name_taken || code_taken || tear_and_tasks
+                             || (form_unit_on_ && form_unit_.empty()));
         if (primary_button("Créer le type")) {
           body["type"] = form_code_;
           app.api.post("/api/item-types/", body, [this, &app](const ApiResult &result) {
@@ -554,7 +580,7 @@ class InventoryWindow final : public AppWindow {
         }
         ImGui::EndDisabled();
       } else {
-        ImGui::BeginDisabled(form_name_.empty() || name_taken || tear_and_tasks);
+        ImGui::BeginDisabled(form_name_.empty() || name_taken || tear_and_tasks || (form_unit_on_ && form_unit_.empty()));
         if (primary_button("Enregistrer")) {
           app.api.patch("/api/item-types/" + url_encode(editing_type_) + "/", body, [&app](const ApiResult &result) {
             app.notify(result.ok ? "Type enregistré." : result.error, !result.ok);
@@ -576,6 +602,65 @@ class InventoryWindow final : public AppWindow {
       ImGui::EndDisabled();
       if (!editing_type_.empty())
         draw_archive_type(app);
+    }
+
+    // Attentes en quantite (« 200 mL de sérum phy » des recommandations) : type a unites, ou sous-type d'un type a
+    // unites qui en remplit un nombre d'unites (sachet de 5 dosettes de 5 mL : 25)
+    void draw_unit_fields(App &app) {
+      ImGui::BeginDisabled(form_to_check_);
+      ImGui::Checkbox("Type à unités (attente en quantité, sans étiquette)", &form_unit_on_);
+      help_marker("Pour une attente en quantité des recommandations, ex : « 200 mL de sérum phy ». Ce type ne "
+                  "s'imprime pas et n'a pas d'items : ce sont ses sous-types (sachet de 5 dosettes de 5 mL, flacon "
+                  "de 50 mL…) qu'on réceptionne et qu'on scanne. Dans un lot, sa quantité est en unités et "
+                  "n'importe lequel de ses sous-types la remplit, chacun pour ses unités. Ajoutez aussi un sous-type "
+                  "dans le lot pour en exiger un minimum compris dedans (« 200 mL, dont 2 sachets »).");
+      if (form_unit_on_) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80.0f);
+        input_limited("Unité", form_unit_, 16);
+        // sous-type par defaut : propose a la reception, a la commande et au reassort
+        Json subtypes = Json::array();
+        for (const Json &other : app.catalog.item_types.items())
+          if (!editing_type_.empty() && other["group"].str() == editing_type_ && !other["archived"].boolean())
+            subtypes.push_back(other);
+        if (subtypes.size() > 0) {
+          ImGui::TextUnformatted("Sous-type par défaut");
+          search_select("default_subtype", subtypes, "type", "name", form_default_subtype_, "Tapez le nom…",
+                        "Aucun (celui qui en remplit le plus)", 320.0f);
+          help_marker("Proposé pour compléter un lot (« il manque 50 mL : 2 sachets ») et pour la commande quand "
+                      "le stock passe sous le minimum.");
+          std::string list;
+          for (const Json &sub : subtypes.items())
+            list += (list.empty() ? "" : ", ") + sub["name"].str() + " (" + std::to_string(sub["fills"].integer(1))
+                    + " " + form_unit_ + ")";
+          ImGui::TextDisabled("Sous-types : %s", list.c_str());
+        } else if (!editing_type_.empty())
+          ImGui::TextDisabled("Aucun sous-type : choisissez ce type comme « Sous-type de » sur ses conditionnements.");
+      } else {
+        Json groups = Json::array();
+        for (const Json &other : app.catalog.item_types.items())
+          if (!other["unit"].str().empty() && !other["archived"].boolean() && other["type"].str() != editing_type_)
+            groups.push_back(other);
+        if (groups.size() > 0 || !form_group_.empty()) {
+          ImGui::TextUnformatted("Sous-type de");
+          search_select("group", groups, "type", "name", form_group_, "Tapez le nom du type à unités…", "Aucun",
+                        320.0f);
+          std::string unit;
+          for (const Json &group : groups.items())
+            if (group["type"].str() == form_group_)
+              unit = group["unit"].str();
+          if (!form_group_.empty()) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(110.0f);
+            ImGui::InputInt(("Remplit (" + unit + ")").c_str(), &form_fills_);
+            form_fills_ = std::clamp(form_fills_, 1, 1000000);
+            help_marker("Unités qu'un item de ce type remplit dans les attentes de son type à unités, ex : 25 pour un "
+                        "sachet de 5 dosettes de 5 mL, 50 pour un flacon de 50 mL. Il s'imprime et se réceptionne "
+                        "comme un type ordinaire.");
+          }
+        }
+      }
+      ImGui::EndDisabled();
     }
 
     // Archivage : le type n'est plus propose (reception, contenu des lots, stock), ses items restent en base
@@ -624,6 +709,16 @@ class InventoryWindow final : public AppWindow {
       });
     }
 
+    // « - en mL » pour un type a unites, « - 25 mL de Sérum phy » pour un de ses sous-types
+    static std::string unit_summary(const App &app, const Json &item_type) {
+      if (!item_type["unit"].str().empty())
+        return " - en " + item_type["unit"].str() + ", sans étiquette";
+      if (const Json *group = item_type["group"].str().empty() ? nullptr : find_type(app, item_type["group"].str()))
+        return " - " + std::to_string(item_type["fills"].integer(1)) + " " + (*group)["unit"].str() + " de "
+               + (*group)["name"].str();
+      return "";
+    }
+
     // Nom du type qui a deja ce code (vide si libre)
     static std::string name_taken_code(const App &app, const std::string &code) {
       const Json *type = find_type(app, code);
@@ -651,6 +746,11 @@ class InventoryWindow final : public AppWindow {
       for (const Json &task : item_type["revision_tasks"].items())
         form_revision_tasks_ += (form_revision_tasks_.empty() ? "" : "\n") + task.str();
       editing_type_archived_ = item_type["archived"].boolean();
+      form_unit_             = item_type["unit"].str();
+      form_unit_on_          = !form_unit_.empty();
+      form_group_            = item_type["group"].str();
+      form_fills_            = std::max(1, item_type["fills"].integer(1));
+      form_default_subtype_  = item_type["default_subtype"].str();
     }
 
     void clear_type_form() {
@@ -670,6 +770,11 @@ class InventoryWindow final : public AppWindow {
       form_revision_usable_ = true;
       form_revision_tasks_.clear();
       editing_type_archived_ = false;
+      form_unit_on_          = false;
+      form_unit_.clear();
+      form_group_.clear();
+      form_fills_ = 1;
+      form_default_subtype_.clear();
     }
 
     // Taches saisies, une par ligne (lignes vides ignorees)
@@ -1169,6 +1274,13 @@ class InventoryWindow final : public AppWindow {
     bool        form_revision_usable_ = true;
     std::string form_revision_tasks_;
     bool        editing_type_archived_ = false;
+    // attentes en quantite (ItemType.unit, group, fills, default_subtype) : type a unites (« Sérum phy » en mL, sans
+    // etiquette) ou sous-type qui en remplit `form_fills_` unites
+    bool        form_unit_on_ = false;
+    std::string form_unit_;
+    std::string form_group_;
+    int         form_fills_ = 1;
+    std::string form_default_subtype_;
     bool        show_archived_   = false;
     std::string type_search_;
     // Items

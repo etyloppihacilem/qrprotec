@@ -305,8 +305,8 @@ class VerifWindow final : public AppWindow {
           // items du lot pas encore scannes, par type
           std::map< std::string, std::vector< const Json * > > known_by_type;
           for (const Json &item : lot["items"].items())
-            if (!scanned.count(item["iid"].str()))
-              known_by_type[item["type"].str()].push_back(&item);
+            if (!scanned.count(item["iid"].str())) // sous-type : sous son type a unites (200 mL de serum phy)
+              known_by_type[display_row(lot["requirements"], item["type"].str())].push_back(&item);
           // verif groupee : titre de chaque lot (un lot qui ne contient rien et n'attend rien n'est qu'un regroupement)
           if (multi) {
             if (lot["requirements"].size() == 0 && lot["items"].size() == 0)
@@ -331,21 +331,26 @@ class VerifWindow final : public AppWindow {
               int         extra; // items en trop : « + x »
               bool        optional = false; // facultatif (casques du VPS) : rien ne manque, required = nombre prevu
               bool        check    = false; // item a cocher (gobelets) : une case, comptee a la main
+              const Json *row      = nullptr; // type a unites (unit_row) : required, done, missing en unites
           };
           std::vector< TypeRow >  type_rows;
           std::set< std::string > required_types;
           // rangs : 0 en cours, 1 rien de scanne, 2 facultatif pas tout vu (ni a faire ni un probleme), 3 complet
           const auto add_type = [&](const std::string &type, const std::string &type_name,
                                     const std::string &location, int required, int done, bool storage, int extra,
-                                    bool optional = false, bool check = false) {
-            const int  missing = optional ? 0 : std::max(0, required - done);
-            const auto last    = last_scan.find(type);
+                                    bool optional = false, bool check = false, const Json *unit = nullptr) {
+            const int missing = optional ? 0 : std::max(0, required - done);
+            int       last    = -1; // dernier scan du type, ou d'un de ses sous-types pour un type a unites
+            for (const auto &[scan_type, rank] : last_scan)
+              if (scan_type == type || (unit && (*unit)["fills"].contains(scan_type)))
+                last = std::max(last, rank);
             required_types.insert(type);
-            remaining += check ? (missing > 0 ? 1 : 0) : missing; // une case a cocher, pas `required` scans
+            // une case a cocher, pas `required` scans ; un type a unites : les items qui remplissent ce qui manque
+            remaining += check ? (missing > 0 ? 1 : 0) : unit ? row_items(*unit, missing) : missing;
             const int rank = missing == 0 ? (optional && done < required ? 2 : 3) : done == 0 ? 1 : 0;
-            type_rows.push_back({ type, type_name, location, required, done, missing, rank,
-                                  last == last_scan.end() ? -1 : last->second, storage,
-                                  optional && !check && done > 0 && done < required ? 0 : rank, extra, optional, check });
+            type_rows.push_back({ type, type_name, location, required, done, missing, rank, last, storage,
+                                  optional && !check && done > 0 && done < required ? 0 : rank, extra, optional, check,
+                                  unit });
           };
           // types ajoutes au lot pendant la verif sans y etre attendus : une ligne « + x » chacun (ses items connus
           // non scannes restent a scanner, ils sont listes sous cette ligne)
@@ -392,8 +397,8 @@ class VerifWindow final : public AppWindow {
               // facultatif : compte sur le nombre prevu, sans jamais manquer (le lot se valide sans)
               const bool        optional = row["optional"].boolean();
               const int required = optional ? static_cast< int >(row["expected"].integer()) : row["required"].integer();
-              add_type(type, row["type_name"].str(), row["location"].str(), required, std::min(fresh, required), false,
-                       std::max(0, fresh - required), optional);
+              add_type(type, requirement_name(row), row["location"].str(), required, std::min(fresh, required), false,
+                       std::max(0, fresh - required), optional, false, unit_row(row) ? &row : nullptr);
             }
             add_added(false);
           }
@@ -447,6 +452,9 @@ class VerifWindow final : public AppWindow {
             } else if (entry.check)
               ImGui::TextColored(entry.missing > 0 ? colors::red : colors::green,
                                  entry.missing > 0 ? "à compter, puis cocher" : "coché");
+            else if (entry.missing > 0 && entry.row)
+              ImGui::TextColored(entry.done == 0 ? colors::red : colors::orange, "encore %d %s", entry.missing,
+                                 (*entry.row)["unit"].str().c_str());
             else if (entry.missing > 0)
               ImGui::TextColored(entry.done == 0 ? colors::red : colors::orange, "encore %d", entry.missing);
             else if (entry.required > 0)
@@ -454,7 +462,10 @@ class VerifWindow final : public AppWindow {
             if (entry.extra > 0) {
               if (entry.missing > 0 || entry.required > 0)
                 ImGui::SameLine();
-              ImGui::TextColored(colors::blue, "%d en plus", entry.extra);
+              if (entry.row)
+                ImGui::TextColored(colors::blue, "%d %s en plus", entry.extra, (*entry.row)["unit"].str().c_str());
+              else
+                ImGui::TextColored(colors::blue, "%d en plus", entry.extra);
             }
             ImGui::TableNextColumn();
             if (entry.optional)
@@ -462,16 +473,22 @@ class VerifWindow final : public AppWindow {
             else
               stock_bar(entry.done, entry.required, ImVec2(-1, 0), entry.extra);
             // items connus du lot pour ce type, puis ce qu'il faut ajouter depuis le stock
-            int known_fresh = 0;
+            int known_fresh = 0; // en unites pour un type a unites
             for (const Json *item : known_by_type[type]) {
               item_row(*item);
-              known_fresh += (*item)["expired"].boolean() ? 0 : 1;
+              const std::string item_type = (*item)["type"].str();
+              const int units = entry.row && item_type != type ? (*entry.row)["fills"][item_type].integer(1) : 1;
+              known_fresh += (*item)["expired"].boolean() ? 0 : units;
             }
             if (!entry.storage && !entry.check && entry.missing > known_fresh) {
               ImGui::TableNextRow();
               ImGui::TableNextColumn();
               ImGui::Indent();
-              ImGui::TextColored(colors::orange, "+ %d à prendre dans le stock", entry.missing - known_fresh);
+              if (entry.row) // type a unites : ce qui manque en mL, et le sous-type a prendre
+                ImGui::TextColored(colors::orange, "+ %s à prendre dans le stock",
+                                   lacking_text(*entry.row, entry.missing - known_fresh).c_str());
+              else
+                ImGui::TextColored(colors::orange, "+ %d à prendre dans le stock", entry.missing - known_fresh);
               ImGui::Unindent();
             }
           };
@@ -518,12 +535,13 @@ class VerifWindow final : public AppWindow {
             PlaceRow row{ place };
             for (const TypeRow &entry : type_rows)
               if (entry.location == place) {
-                row.done += std::min(entry.done, entry.required);
-                row.required += entry.required;
-                row.missing += entry.missing;
+                // type a unites (200 mL) : compte pour une ligne, faite ou non
+                row.done += entry.row ? (entry.missing == 0 ? 1 : 0) : std::min(entry.done, entry.required);
+                row.required += entry.row ? 1 : entry.required;
+                row.missing += entry.row ? row_items(*entry.row, entry.missing) : entry.missing;
                 row.pending += entry.optional ? entry.required - entry.done : 0;
                 row.only_optional = row.only_optional && entry.optional;
-                row.extra += entry.extra;
+                row.extra += entry.row ? 0 : entry.extra;
                 row.last_scan = std::max(row.last_scan, entry.last_scan);
               }
             row.rank  = row.missing == 0 ? (row.pending > 0 ? 2 : 3) : row.done == 0 ? 1 : 0;
@@ -947,8 +965,8 @@ class VerifWindow final : public AppWindow {
           ImGui::Unindent(row["depth"].integer() * 16.0f + 1.0f);
         }
       for (const Json &row : report["requirements"].items()) {
-        const std::string label = row["lot_name"].str().empty() ? row["type_name"].str()
-                                                                : row["lot_name"].str() + " · " + row["type_name"].str();
+        const std::string label = row["lot_name"].str().empty() ? requirement_name(row)
+                                                                : row["lot_name"].str() + " · " + requirement_name(row);
         ImGui::TextUnformatted(label.c_str());
         ImGui::SameLine(320.0f);
         requirement_bar(row, row["present"].integer(), ImVec2(200.0f, 0));

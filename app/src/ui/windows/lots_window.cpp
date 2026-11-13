@@ -371,8 +371,13 @@ class LotsWindow final : public AppWindow {
             int present = 0, required = 0;
             for (const Json *requirement : requirements)
               if ((*requirement)["location"].str() == place) {
-                present += std::min((*requirement)["present"].integer(), (*requirement)["required"].integer());
-                required += (*requirement)["required"].integer();
+                // type a unites (200 mL) : compte pour une ligne, faite ou non
+                const bool units = unit_row(*requirement);
+                const int  need  = units ? 1 : (*requirement)["required"].integer();
+                const int  have  = units ? ((*requirement)["present"].integer() >= (*requirement)["required"].integer())
+                                         : (*requirement)["present"].integer();
+                present += std::min(have, need);
+                required += need;
               }
             ImGui::TableNextRow();
             row_color(present < required ? colors::orange : colors::green, 0.15f);
@@ -390,7 +395,7 @@ class LotsWindow final : public AppWindow {
             ImGui::TableNextColumn();
             if (grouped)
               ImGui::Indent(12.0f);
-            ImGui::TextUnformatted(row["type_name"].str().c_str());
+            ImGui::TextUnformatted(requirement_name(row).c_str());
             if (grouped)
               ImGui::Unindent(12.0f);
             ImGui::TableNextColumn();
