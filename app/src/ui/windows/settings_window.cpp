@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <map>
 
 namespace qrprotec {
@@ -472,6 +473,87 @@ class SettingsWindow final : public AppWindow {
     // -----------------------------------------------------------------------------------------------------------
     // Maintenance d'une imprimante TSPL / ZPL : calibrage sur l'etiquette chargee, page de configuration, avance.
     // Les commandes passent par la file d'impression, apres les etiquettes en attente.
+    // ZPL : envoie le format de l'etiquette chargee (sans imprimer) puis ^HH, et compare la configuration relue
+    // aux valeurs envoyees : montre ce que l'imprimante a vraiment pris en compte
+    void draw_printer_readback(App &app, AppSettings &settings, const labels::RawJob &job) {
+      if (button("Envoyer les réglages et relire"))
+        app.printer.send_command_read("Envoi et relecture des réglages", labels::zpl_send_settings_and_read(job),
+                                      settings.print);
+      help_marker("Envoie à l'imprimante le format de l'étiquette chargée (support, largeur, longueur, décalages, "
+                  "découpe, noirceur) sans rien imprimer, puis lui demande sa configuration (^HH) et la compare à ce "
+                  "qui a été envoyé. Rien n'est enregistré dans l'imprimante (le calibrage le fait).");
+      const PrintQueueStatus status = app.printer.status();
+      if (!status.printer_reply_error.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", status.printer_reply_error.c_str());
+      }
+      if (status.printer_reply.empty())
+        return;
+      const std::vector< labels::ConfigEntry > entries = labels::parse_zpl_config(status.printer_reply);
+      const auto number = [](const std::string &text, int &value) {
+        try {
+          std::size_t used = 0;
+          value            = std::stoi(text, &used);
+          return used > 0;
+        } catch (...) {
+          return false;
+        }
+      };
+      struct Row {
+        const char *name;
+        std::string expected; // vide : information seulement
+        bool        numeric;
+      };
+      const std::vector< Row > rows = {
+        { "PRINT METHOD", job.ribbon ? "THERMAL-TRANS." : "DIRECT-THERMAL", false },
+        { "MEDIA TYPE", "GAP/NOTCH", false },
+        { "PRINT WIDTH", std::to_string(job.width_dots), true },
+        { "LABEL LENGTH", std::to_string(job.height_dots), true },
+        { "LEFT POSITION", std::to_string(-job.offset_x_dots), true },
+        { "LABEL TOP", std::to_string(std::clamp(job.offset_y_dots, -120, 120)), true },
+        { "TEAR OFF", std::to_string(std::clamp(job.tear_off_dots, -120, 120)), true },
+        { "DARKNESS", std::to_string(std::clamp(job.darkness * 2, 0, 30)), true },
+      };
+      if (ImGui::BeginTable("##readback", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("Réglage");
+        ImGui::TableSetupColumn("Envoyé");
+        ImGui::TableSetupColumn("Relu dans l'imprimante");
+        ImGui::TableSetupColumn("");
+        ImGui::TableHeadersRow();
+        for (const Row &row : rows) {
+          const std::string read = labels::config_value(entries, row.name);
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row.name);
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row.expected.c_str());
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(read.empty() ? "absent" : read.c_str());
+          ImGui::TableNextColumn();
+          int        sent = 0;
+          int        got  = 0;
+          const bool same = row.numeric ? number(row.expected, sent) && number(read, got) && sent == got
+                                        : read.find(row.expected) != std::string::npos;
+          // la longueur relue est celle que l'imprimante a mesuree : un ecart de quelques points est normal
+          const bool close = row.numeric && std::string(row.name) == "LABEL LENGTH" && number(read, got)
+                             && std::abs(got - sent) <= 16;
+          if (same)
+            ImGui::TextColored(colors::green, "identique");
+          else if (close)
+            ImGui::TextColored(colors::grey, "mesurée");
+          else
+            ImGui::TextColored(colors::red, read.empty() ? "non relu" : "différent");
+        }
+        ImGui::EndTable();
+      }
+      if (ImGui::TreeNode("Configuration complète renvoyée"))
+      {
+        for (const labels::ConfigEntry &entry : entries)
+          ImGui::Text("%-28s %s", entry.name.c_str(), entry.value.c_str());
+        ImGui::TreePop();
+      }
+    }
+
     void draw_printer_maintenance(App &app, AppSettings &settings) {
       ImGui::SeparatorText("Maintenance de l'imprimante");
       const PhysicalLabel label  = settings.physical_label();
@@ -550,6 +632,8 @@ class SettingsWindow final : public AppWindow {
       help_marker("Cadre au ras du bord, cadre pointillé à 1 mm et croix graduée, à la taille de l'étiquette "
                   "chargée. Au bout des axes, chiffres en mm depuis chaque bord : si un bord est coupé, le chiffre "
                   "au ras de ce bord, avec son signe, s'ajoute au Décalage horizontal / vertical.");
+      if (zpl)
+        draw_printer_readback(app, settings, job);
       if (zpl) {
         ImGui::SameLine();
         if (button("Diagnostic des décalages"))

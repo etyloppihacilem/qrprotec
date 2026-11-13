@@ -66,6 +66,19 @@ struct PrinterState {
 };
 
 std::vector<std::uint8_t> status_request(bool zpl);
+
+// ZPL : format de l'etiquette chargee (support, largeur, longueur, positions, noirceur, decoupe) sans rien
+// imprimer, puis ^HH : l'imprimante renvoie sa configuration (le texte de la page de configuration)
+std::string zpl_send_settings_and_read(const RawJob& job);
+
+// Ligne de la configuration renvoyee par ^HH : « valeur....... NOM »
+struct ConfigEntry {
+    std::string name;
+    std::string value;
+};
+std::vector<ConfigEntry> parse_zpl_config(const std::string& reply);
+// valeur de la premiere ligne dont le nom commence par `name` (« LEFT POSITION »), vide sinon
+std::string config_value(const std::vector<ConfigEntry>& entries, const std::string& name);
 PrinterState parse_status(bool zpl, const std::vector<std::uint8_t>& reply);
 
 } // namespace qrprotec::labels

@@ -66,6 +66,21 @@ void PrintQueue::send_command(const std::string &description, const std::string 
   condition_.notify_one();
 }
 
+void PrintQueue::send_command_read(const std::string &description, const std::string &command,
+                                   const PrintSettings &settings) {
+  PrintJob job;
+  job.description = description;
+  job.command     = command;
+  job.read_reply  = true;
+  {
+    std::lock_guard< std::mutex > lock(mutex_);
+    settings_                   = settings;
+    status_.printer_reply_error = "lecture…";
+    push_maintenance(std::move(job));
+  }
+  condition_.notify_one();
+}
+
 void PrintQueue::request_printer_state(const PrintSettings &settings) {
   PrintJob job;
   job.description  = "Lecture de l'état de l'imprimante";
@@ -177,8 +192,20 @@ void PrintQueue::run() {
         printer_.disconnect();
         connected = false;
       }
-      const bool sent = printer_.send_command(settings, job.command, error);
+      std::string reply;
+      const bool  sent = job.read_reply ? printer_.exchange(settings, job.command, reply, error)
+                                        : printer_.send_command(settings, job.command, error);
       std::lock_guard< std::mutex > lock(mutex_);
+      if (job.read_reply) {
+        // pas de reponse : rien a mettre en pause, l'interface affiche l'erreur
+        status_.printer_reply       = reply;
+        status_.printer_reply_error = sent ? std::string() : error;
+        ++status_.printer_reply_count;
+        if (!jobs_.empty())
+          jobs_.pop_front();
+        status_.pending = jobs_.size();
+        continue;
+      }
       if (!jobs_.empty())
         jobs_.pop_front();
       if (!sent) {

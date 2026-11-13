@@ -147,7 +147,7 @@ void RawTransport::close()
     readable_ = false;
 }
 
-std::vector<std::uint8_t> RawTransport::read_reply(int timeout_ms)
+std::vector<std::uint8_t> RawTransport::read_reply(int timeout_ms, int idle_ms)
 {
     std::vector<std::uint8_t> reply;
     if (!is_open() || !readable_) return reply;
@@ -162,7 +162,7 @@ std::vector<std::uint8_t> RawTransport::read_reply(int timeout_ms)
         if (count < 0 && errno == EINTR) continue;
         if (count <= 0) break;
         reply.insert(reply.end(), buffer, buffer + count);
-        wait = 150;
+        wait = idle_ms;
     }
     return reply;
 }

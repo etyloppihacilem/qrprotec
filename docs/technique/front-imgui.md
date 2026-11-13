@@ -211,6 +211,9 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
     `/dev/usb/lp0` ouvert en lecture-écriture). `RawLabelPrinter::print` le demande avant chaque
     étiquette : un état bloquant met la file en pause avec la raison. Sans réponse (liaison à sens
     unique), la connexion est marquée muette et l'impression continue sans contrôle.
+  - **Envoyer les réglages et relire** (ZPL) : `zpl_send_settings_and_read` (format sans champ puis
+    `^XA^HH^XZ`), passé par `PrintQueue::send_command_read` / `Printer::exchange` ; la réponse est
+    découpée par `parse_zpl_config` (« valeur..... NOM ») et comparée aux valeurs envoyées.
   - Assistant **Changer de rouleau** (`app/roll_change.cpp`, `App::open_roll_wizard`) : écrans des
     gestes, puis `send_command` (réglages d'usine, calibrage au format du rouleau choisi via
     `printer_media_job`), `request_printer_state` et `set_loaded_label_type`. Ouvert depuis la

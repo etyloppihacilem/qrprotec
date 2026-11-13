@@ -104,6 +104,19 @@ int main()
     assert(diagnostic.find("^LH0,0^LS-40^LT40^FO0,0^GB320,240,4^FS") != std::string::npos);
     assert(diagnostic.size() > 20 && diagnostic.compare(diagnostic.size() - 15, 15, "^XA^LS0^LT0^XZ\n") == 0);
 
+    // envoi des reglages puis ^HH, et lecture de la configuration renvoyee
+    const std::string readback = qrprotec::labels::zpl_send_settings_and_read(media);
+    assert(readback.find("^PW320\n^LL240\n^LH0,0\n^LS-8\n^LT0\n^XZ\n^XA^HH^XZ\n") != std::string::npos);
+    const std::string config = "\x02  16.0............... DARKNESS\r\n  +000............... TEAR OFF\r\n"
+                               "  DIRECT-THERMAL..... PRINT METHOD\r\n  320................ PRINT WIDTH\r\n"
+                               "  +120............... LABEL TOP\r\n  +0005.............. LEFT POSITION\r\n\x03";
+    const auto entries = qrprotec::labels::parse_zpl_config(config);
+    assert(entries.size() == 6);
+    assert(qrprotec::labels::config_value(entries, "LABEL TOP") == "+120");
+    assert(qrprotec::labels::config_value(entries, "LEFT POSITION") == "+0005");
+    assert(qrprotec::labels::config_value(entries, "PRINT METHOD") == "DIRECT-THERMAL");
+    assert(qrprotec::labels::config_value(entries, "MEDIA TYPE").empty());
+
     // etat de l'imprimante : ~HS (ZPL), <ESC>!? (TSPL)
     using qrprotec::labels::parse_status;
     const auto host_status = [](const std::string& first, const std::string& second) {
