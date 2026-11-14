@@ -26,6 +26,7 @@ struct RawPrinterSettings {
     double offset_x_mm = 0.0;             // decalage horizontal : positif = vers la droite
     double offset_y_mm = 0.0;             // decalage vertical : positif = vers le bas
     double tear_off_mm = 0.0;             // position d'arret (decoupe) : positif = l'etiquette sort plus loin
+    int speed_ips = 2;                    // vitesse (pouces/s, 2 a 6) : la plus lente par defaut
     int timeout_ms = 5000;
 };
 

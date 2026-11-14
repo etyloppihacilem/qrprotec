@@ -22,6 +22,11 @@ struct RawJob {
     int offset_x_dots = 0; // decalage horizontal : positif = vers la droite (ZPL ^LS, TSPL SHIFT x)
     int offset_y_dots = 0; // decalage vertical : positif = vers le bas (ZPL ^LT, TSPL SHIFT y)
     int tear_off_dots = 0; // position d'arret apres impression : positif = plus sorti (ZPL ~TA, TSPL OFFSET)
+    // vitesse en pouces par seconde (25,4 mm/s), 2 a 6 : impression, avance et recul (ZPL ^PR, TSPL SPEED).
+    // Plus lent = etiquette mieux reperee d'une impression a l'autre.
+    int speed_ips = kMinSpeedIps;
+    static constexpr int kMinSpeedIps = 2; // le plus lent que les imprimantes de bureau acceptent (GK420t : 2)
+    static constexpr int kMaxSpeedIps = 6;
 };
 
 // Lignes de l'image en octets, bit de poids fort a gauche. `one_is_black` : ZPL (1 = point noir) ;

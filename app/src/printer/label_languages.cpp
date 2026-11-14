@@ -40,6 +40,13 @@ std::vector<std::uint8_t> pack_rows(const RasterImage& image, bool one_is_black)
     return out;
 }
 
+namespace {
+int zpl_speed(const RawJob& job)
+{
+    return std::clamp(job.speed_ips, RawJob::kMinSpeedIps, RawJob::kMaxSpeedIps);
+}
+}
+
 std::vector<std::uint8_t> encode_tspl(const RasterImage& image, const RawJob& job)
 {
     const double ppm = job.dots_per_mm > 0 ? job.dots_per_mm : 8.0;
@@ -49,6 +56,7 @@ std::vector<std::uint8_t> encode_tspl(const RasterImage& image, const RawJob& jo
     append(out, "GAP " + mm(std::max(0.0, job.gap_mm)) + " mm,0 mm\r\n");
     append(out, "DIRECTION 0,0\r\n");
     append(out, "REFERENCE 0,0\r\n");
+    append(out, "SPEED " + std::to_string(zpl_speed(job)) + "\r\n");
     append(out, "DENSITY " + std::to_string(std::clamp(job.darkness, 0, 15)) + "\r\n");
     append(out, std::string("SET RIBBON ") + (job.ribbon ? "ON" : "OFF") + "\r\n");
     append(out, "SET TEAR ON\r\n");
@@ -112,10 +120,13 @@ std::string zpl_tear_off(const RawJob& job)
     return "~TA" + zpl_signed(std::clamp(job.tear_off_dots, -kZplMaxShiftRows, kZplMaxShiftRows)) + "\n";
 }
 
-// Format de l'etiquette chargee : support, type de suivi, largeur d'impression, longueur, position
+// Format de l'etiquette chargee : support, type de suivi, vitesse, largeur d'impression, longueur, position.
+// ^PRa,b,c : vitesse d'impression, d'avance (« slew ») et de recul (« backfeed »), toutes les trois a la vitesse
+// reglee : le recul avant chaque etiquette en mode decoupe est ce qui place le haut de l'etiquette sous la tete.
 std::string zpl_media(const RawJob& job)
 {
-    return std::string("^MT") + (job.ribbon ? "T" : "D") + "\n^MNY\n^PW" + std::to_string(zpl_print_width(job)) +
+    const std::string speed = std::to_string(zpl_speed(job));
+    return std::string("^MT") + (job.ribbon ? "T" : "D") + "\n^MNY\n^PR" + speed + "," + speed + "," + speed + "\n^PW" + std::to_string(zpl_print_width(job)) +
            "\n^LL" + std::to_string(job.height_dots) + "\n" + zpl_position(job);
 }
 }
@@ -193,7 +204,8 @@ std::string maintenance_command(bool zpl, Maintenance action, const RawJob& job)
     }
     switch (action) {
     case Maintenance::Calibrate:
-        return "SIZE " + mm(job.width_dots / ppm) + " mm," + mm(job.height_dots / ppm) + " mm\r\nGAP " +
+        return "SIZE " + mm(job.width_dots / ppm) + " mm," + mm(job.height_dots / ppm) + " mm\r\nSPEED " +
+               std::to_string(zpl_speed(job)) + "\r\nGAP " +
                mm(std::max(0.0, job.gap_mm)) + " mm,0 mm\r\nSET RIBBON " + (job.ribbon ? "ON" : "OFF") +
                "\r\nGAPDETECT\r\n";
     case Maintenance::Config: return "SELFTEST\r\n";

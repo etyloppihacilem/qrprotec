@@ -386,6 +386,12 @@ class SettingsWindow final : public AppWindow {
                       "des étiquettes papier vélin ou synthétiques qui durent.");
           ImGui::SetNextItemWidth(150.0f);
           ImGui::SliderInt("Noirceur", &raw.darkness, 0, 15);
+          ImGui::SetNextItemWidth(150.0f);
+          ImGui::SliderInt("Vitesse (pouces/s)", &raw.speed_ips, 2, 6);
+          help_marker("Vitesse d'impression, d'avance et de recul : 2 = 51 mm/s (la plus lente, par défaut), "
+                      "6 = 152 mm/s. Plus lent, l'étiquette est mieux repérée : moins d'impressions coupées en haut "
+                      "dans une série. La GK420t va de 2 à 5. Enregistrée dans l'imprimante au calibrage. "
+                      "ZPL : ^PR ; TSPL : SPEED.");
           float gap = static_cast< float >(raw.gap_mm);
           ImGui::SetNextItemWidth(150.0f);
           if (ImGui::InputFloat("Espace entre étiquettes (mm)", &gap, 0.5f, 1.0f, "%.1f"))

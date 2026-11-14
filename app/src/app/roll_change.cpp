@@ -49,6 +49,7 @@ labels::RawJob printer_media_job(const PrintSettings &print, double width_mm, do
   job.offset_x_dots = static_cast< int >(std::lround(print.raw.offset_x_mm * job.dots_per_mm));
   job.offset_y_dots = static_cast< int >(std::lround(print.raw.offset_y_mm * job.dots_per_mm));
   job.tear_off_dots = static_cast< int >(std::lround(print.raw.tear_off_mm * job.dots_per_mm));
+  job.speed_ips     = print.raw.speed_ips;
   return job;
 }
 
