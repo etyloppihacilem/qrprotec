@@ -738,7 +738,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextWrapped("Pour le désarchiver : cochez « Afficher les types archivés » au-dessus de la liste, "
                            "sélectionnez-le puis cliquez sur « Désarchiver le type ».");
         ImGui::PopTextWrapPos();
-        if (danger_button("Archiver")) {
+        if (danger_button("Archiver") || enter_pressed()) {
           archive_type(app, true);
           ImGui::CloseCurrentPopup();
         }

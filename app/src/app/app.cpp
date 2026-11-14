@@ -1147,8 +1147,7 @@ void App::draw_douchette_modal() {
   ImGui::PopTextWrapPos();
   ImGui::PopFont();
   ImGui::Spacing();
-  if (button("Pardon", ImVec2(-FLT_MIN, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)
-      || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) || escape_pressed())
+  if (button("Pardon", ImVec2(-FLT_MIN, 0)) || enter_pressed() || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
@@ -1376,7 +1375,7 @@ void App::draw_server_modal() {
       draw_server_settings(*this, true);
   }
   ImGui::Separator();
-  if (editable && primary_button("Enregistrer")) {
+  if (editable && (primary_button("Enregistrer") || enter_pressed())) {
     apply_settings();
     save_settings();
     refresh_item_types();
@@ -1384,7 +1383,7 @@ void App::draw_server_modal() {
   }
   if (editable)
     ImGui::SameLine();
-  if (button("Fermer") || escape_pressed())
+  if (button("Fermer") || (!editable && enter_pressed()) || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
@@ -1415,7 +1414,7 @@ void App::draw_setup_modal() {
     ImGui::TextDisabled("Le PIN sera demandé à chaque connexion, après le badge.");
     ImGui::PopStyleColor();
     ImGui::BeginDisabled(setup_busy_ || setup_matricule_.empty() || setup_nom_.empty() || setup_prenom_.empty() || !pin_ok);
-    if (button("Créer l'administrateur", ImVec2(-1, 0)))
+    if (button("Créer l'administrateur", ImVec2(-1, 0)) || enter_pressed())
       create_first_admin();
     ImGui::EndDisabled();
     ImGui::TextDisabled("Alternative : python manage.py createadmin MATRICULE NOM PRENOM sur le serveur.");
@@ -1441,7 +1440,7 @@ void App::draw_setup_modal() {
       ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (button("Terminer")) {
+    if (button("Terminer") || enter_pressed()) {
       setup_created_ = Json();
       ImGui::CloseCurrentPopup();
     }
@@ -1809,7 +1808,8 @@ void App::draw_pin_modal() {
   if (pin_.setup && !pin_.confirm.empty() && pin_.confirm != pin_.pin)
     ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.0f, 1.0f), "Les deux PIN sont différents.");
   ImGui::BeginDisabled(!valid || pin_.busy);
-  if (button(pin_.busy ? "Vérification..." : "Valider", ImVec2(150, 0)) || (submit && valid && !pin_.busy)) {
+  if (button(pin_.busy ? "Vérification..." : "Valider", ImVec2(150, 0)) || enter_pressed()
+      || (submit && valid && !pin_.busy)) {
     const ScanSource source = static_cast< ScanSource >(pin_.source);
     if (pin_.setup)
       send_auth(pin_.matricule, pin_.key, "", pin_.pin, source);
@@ -1833,7 +1833,7 @@ void App::draw_pin_modal() {
     ImGui::PopStyleColor(2);
     if (ImGui::BeginPopup("pin_forgot")) {
       ImGui::TextUnformatted("Votre code PIN sera bloqué jusqu'à ce que le TECH le réinitialise.");
-      if (danger_button("Confirmer")) {
+      if (danger_button("Confirmer") || enter_pressed()) {
         forgot_pin();
         ImGui::CloseCurrentPopup();
       }
@@ -2298,7 +2298,7 @@ void App::draw_tasks_modal() {
   ImGui::PopTextWrapPos();
   bool close = false, done = false;
   ImGui::BeginDisabled(!all);
-  if (button("Valider", ImVec2(ImGui::GetFontSize() * 10.0f, 0)))
+  if (button("Valider", ImVec2(ImGui::GetFontSize() * 10.0f, 0)) || enter_pressed())
     close = done = true;
   ImGui::EndDisabled();
   ImGui::SameLine();
@@ -2658,9 +2658,9 @@ void App::draw_seal_opening_modal() {
   ImGui::EndChild();
 
   ImGui::Separator();
-  // pas de fermeture par Entree : la douchette en mode clavier en envoie une a chaque scan
-  if (primary_button("J'ai compris", ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.6f)) ||
-      ImGui::IsKeyPressed(ImGuiKey_Escape))
+  // Entree : jamais celle d'un scan (douchette en mode clavier), voir enter_pressed()
+  if (primary_button("J'ai compris", ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.6f)) || enter_pressed()
+      || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
@@ -4796,7 +4796,7 @@ void App::draw_problem_modal() {
   ImGui::Spacing();
   ImGui::BeginDisabled(problem_.busy);
   const ImVec2 action(width * 0.5f - ImGui::GetStyle().ItemSpacing.x * 0.5f, ImGui::GetFrameHeight() * 1.6f);
-  if (primary_button(problem_.busy ? "Envoi..." : "Envoyer au TECH", action)) {
+  if (primary_button(problem_.busy ? "Envoi..." : "Envoyer au TECH", action) || enter_pressed()) {
     if (problem_.usable < 0)
       problem_.error = object ? "Indiquez si l'objet est toujours utilisable." : "Indiquez si le lot est toujours utilisable.";
     else
@@ -4940,7 +4940,7 @@ void App::draw_revision_modal() {
   ImGui::PopTextWrapPos();
   ImGui::Spacing();
   ImGui::BeginDisabled(revision_.busy || !all || !next_ok);
-  if (primary_button(revision_.busy ? "Envoi..." : "Enregistrer la révision", ImVec2(width * 0.6f, 0)))
+  if (primary_button(revision_.busy ? "Envoi..." : "Enregistrer la révision", ImVec2(width * 0.6f, 0)) || enter_pressed())
     send_revision();
   ImGui::EndDisabled();
   ImGui::SameLine();
@@ -5041,17 +5041,17 @@ void App::draw_roll_change_modal() {
   ImGui::PopTextWrapPos();
   ImGui::Spacing();
   ImGui::Separator();
-  // pas de validation par Entree : la douchette en mode clavier en envoie une a chaque scan
+  // Entree : « C'est fait » (jamais l'Entree d'un scan, voir enter_pressed()), Echap : plus tard
   if (primary_button("Me guider pas à pas", ImVec2(width, 0))) {
     roll_change_dismissed_ = needed; // l'assistant prend le relais ; il declare le rouleau a la fin
     open_roll_wizard(needed);
     ImGui::CloseCurrentPopup();
   }
-  if (button(("C'est fait : « " + needed + " » est en place").c_str(), ImVec2(width, 0))) {
+  if (button(("C'est fait : « " + needed + " » est en place").c_str(), ImVec2(width, 0)) || enter_pressed()) {
     set_loaded_label_type(needed);
     ImGui::CloseCurrentPopup();
   }
-  if (button("Plus tard (l'impression reste en pause)")) {
+  if (button("Plus tard (l'impression reste en pause)") || escape_pressed()) {
     roll_change_dismissed_ = needed;
     ImGui::CloseCurrentPopup();
   }
@@ -5093,8 +5093,8 @@ void App::draw_reports_alert() {
   }
   ImGui::PopTextWrapPos();
   ImGui::Separator();
-  // pas de fermeture par Entree : la douchette en mode clavier en envoie une a chaque scan
-  if (primary_button("J'ai compris", ImVec2(width, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+  // Entree : jamais celle d'un scan (douchette en mode clavier), voir enter_pressed()
+  if (primary_button("J'ai compris", ImVec2(width, 0)) || enter_pressed() || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }

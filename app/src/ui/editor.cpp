@@ -674,6 +674,7 @@ void Editor::draw_open_popup() {
   if (ImGui::IsWindowAppearing())
     ImGui::SetKeyboardFocusHere();
   ImGui::InputTextWithHint("##filtre", "Rechercher un modèle (nom ou fichier)", &open_filter_);
+  int first_match = -1; // Entree ouvre le premier modele de la liste filtree
   ImGui::BeginChild("modeles", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), ImGuiChildFlags_Borders);
   if (ImGui::BeginTable("liste", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
     ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch, 1.4f);
@@ -681,11 +682,14 @@ void Editor::draw_open_popup() {
     ImGui::TableSetupColumn("Usage", ImGuiTableColumnFlags_WidthStretch, 1.0f);
     ImGui::TableHeadersRow();
     const std::string filter = lowercase(open_filter_);
+    first_match = -1;
     for (int index = 0; index < static_cast< int >(document_list_.size()); ++index) {
       const TemplateDocument &candidate = document_list_[static_cast< std::size_t >(index)];
       if (!filter.empty() && lowercase(candidate.name).find(filter) == std::string::npos
           && lowercase(candidate.path).find(filter) == std::string::npos)
         continue;
+      if (first_match < 0)
+        first_match = index;
       ImGui::PushID(index);
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
@@ -704,6 +708,10 @@ void Editor::draw_open_popup() {
   if (document_list_.empty())
     ImGui::TextDisabled("Aucun modèle (*.qr) dans ce dossier.");
   ImGui::EndChild();
+  if (first_match >= 0 && enter_pressed(false)) {
+    ImGui::CloseCurrentPopup();
+    request(PendingAction::Open, first_match);
+  }
   if (button("Annuler") || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::SameLine();
@@ -735,7 +743,7 @@ void Editor::draw_save_as_popup() {
   if (exists)
     ImGui::TextColored(ImVec4(0.85f, 0.45f, 0.0f, 1.0f), "%s existe déjà : il sera remplacé.", file.c_str());
   ImGui::BeginDisabled(file.empty());
-  if ((button(exists ? "Remplacer" : "Enregistrer") || enter) && !file.empty() && save_to(file)) {
+  if ((button(exists ? "Remplacer" : "Enregistrer") || enter_pressed() || enter) && !file.empty() && save_to(file)) {
     ImGui::CloseCurrentPopup();
     if (pending_ != PendingAction::None)
       run_pending(); // "Enregistrer" depuis le dialogue des modifications non enregistrees
@@ -760,7 +768,7 @@ void Editor::draw_unsaved_popup() {
   ImGui::Text("Le modèle « %s » a été modifié.", document_.name.c_str());
   ImGui::TextUnformatted("Enregistrer les modifications avant de continuer ?");
   ImGui::Spacing();
-  if (button(template_path_.empty() ? "Enregistrer sous..." : "Enregistrer")) {
+  if (button(template_path_.empty() ? "Enregistrer sous..." : "Enregistrer") || enter_pressed()) {
     ImGui::CloseCurrentPopup();
     if (template_path_.empty())
       save_as_requested_ = true; // l'action en attente suivra l'enregistrement
@@ -795,7 +803,7 @@ void Editor::draw_export_popup() {
     ImGui::SetKeyboardFocusHere();
   ImGui::SetNextItemWidth(ImGui::GetFontSize() * 24.0f);
   const bool enter = ImGui::InputText("##png", &export_path_, ImGuiInputTextFlags_EnterReturnsTrue);
-  if (button("Exporter") || enter) {
+  if (button("Exporter") || enter_pressed() || enter) {
     std::string error;
     if (write_png(preview_, export_path_, error))
       message_ = "PNG exporté : " + export_path_;
@@ -1983,7 +1991,7 @@ void Editor::draw_print_test_popup() {
     if (print_callback_) {
       // impression par la file de l'application (reglages d'imprimante et d'etiquette communs)
       ImGui::TextDisabled("Imprimante et taille d'étiquette : Administration > Réglages.");
-      if (button("Imprimer")) {
+      if (button("Imprimer") || enter_pressed()) {
         TemplateDocument test_document = document_;
         test_document.parameters       = print_values_;
         print_callback_(test_document);
@@ -1999,7 +2007,7 @@ void Editor::draw_print_test_popup() {
         print_settings_.density = density;
       if (print_task_.valid()) {
         ImGui::TextUnformatted("Impression en cours...");
-      } else if (button("Imprimer")) {
+      } else if (button("Imprimer") || enter_pressed()) {
         TemplateDocument test_document = document_;
         test_document.parameters       = print_values_;
         const RasterImage   test_image = render_template(test_document);

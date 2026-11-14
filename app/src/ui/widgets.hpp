@@ -122,6 +122,22 @@ bool take_texture_changed();
 // Echap pour annuler le dialogue en cours (fenetre ou popup modal qui a le focus). Faux si la touche vient de
 // fermer un popup ouvert par-dessus : un seul Echap ne ferme qu'un niveau.
 bool escape_pressed();
+// Entree (ou Entree du pave numerique) pour valider le dialogue en cours : a placer juste apres son bouton principal,
+// `button("Imprimer") || enter_pressed()`, comme escape_pressed() a cote d'Annuler. Le bouton est entoure d'un
+// liseré qui le signale. Faux :
+// - si le bouton est desactive (BeginDisabled) ou si le dialogue n'a pas le focus (popup ouvert par-dessus) ;
+// - pendant la saisie d'un texte sur plusieurs lignes (Entree = nouvelle ligne ; Ctrl+Entree valide) ;
+// - si la navigation clavier est sur un autre element (Tab, fleches) : Entree active cet element ;
+// - si un champ a deja utilise cette Entree (choix d'une suggestion, voir consume_enter()) ;
+// - a l'ouverture du dialogue, et pour l'Entree qui termine un scan de douchette en mode clavier (caracteres
+//   arrives en rafale juste avant) : un scan ne valide jamais un dialogue.
+// `outline` faux quand l'appel ne suit pas le bouton de l'action (Entree sans bouton dedie).
+bool enter_pressed(bool outline = true);
+// Un champ qui se sert d'Entree (choix d'une suggestion) : enter_pressed() reste faux pour cette frame.
+void consume_enter();
+// Caractere tape (appele par les callbacks GLFW de main.cpp) et appui sur Entree : reperent l'Entree d'un scan.
+void note_typed_character();
+void note_enter_key();
 
 void help_marker(const char *text);
 
