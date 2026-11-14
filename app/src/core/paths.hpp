@@ -22,6 +22,9 @@ namespace qrprotec {
 std::string                  default_templates_dir();
 void                         set_templates_dir(const std::string &directory); // vide = defaut
 const std::filesystem::path &templates_dir();
+// Probleme d'acces au dossier des modeles (non partage avec le Flatpak, absent, en lecture seule...), vide si
+// aucun. Mis a jour par set_templates_dir, aussi ecrit dans le journal systeme.
+std::string templates_dir_problem();
 
 // Chemin relatif -> dans le dossier des modeles ; chemin absolu -> inchange.
 std::filesystem::path resolve_template_path(const std::string &path);

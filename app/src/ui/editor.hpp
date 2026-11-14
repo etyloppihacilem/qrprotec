@@ -148,6 +148,8 @@ private:
     int selected_element_ = -1;
     bool preview_dirty_ = true;
     std::string message_;
+    std::string error_message_; // message_ affiche en rouge tant qu'il vaut celui-ci
+    void        show_error(const std::string &message, bool log = true); // message_ en rouge (+ journal systeme)
     std::string export_path_ = "label.png";
     std::string template_path_ = "";
     unsigned int texture_ = 0;

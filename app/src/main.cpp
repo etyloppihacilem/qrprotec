@@ -79,7 +79,7 @@ static void set_window_icon(GLFWwindow* window)
 
 static void glfw_error_callback(int error, const char* description)
 {
-    std::fprintf(stderr, "GLFW Error %d: %s\n", error, description);
+    qrprotec::error_log("GLFW " + std::to_string(error) + " : " + (description ? description : "?"), "fenêtre");
 }
 
 static qrprotec::Inateck* active_inateck = nullptr;
@@ -162,7 +162,8 @@ static void load_font(float size)
     ImGuiIO& io = ImGui::GetIO();
     const std::string& path = qrprotec::ui_font_path();
     if (path.empty() || !io.Fonts->AddFontFromFileTTF(path.c_str(), size))
-        std::fprintf(stderr, "Aucune police avec accents trouvee (installez DejaVu Sans ou definissez QRPROTEC_FONT)\n");
+        qrprotec::error_log("Aucune police avec accents chargée" + (path.empty() ? std::string() : " (" + path + ")")
+                            + " : installez DejaVu Sans ou définissez QRPROTEC_FONT", "polices");
     else
         qrprotec::debug_log("Police : " + path);
     // police grasse pour le texte des boutons de signalement (gras synthetique a defaut)
@@ -250,8 +251,10 @@ int main(int argc, char** argv)
     if (kiosk)
         glfwInitHint(GLFW_WAYLAND_LIBDECOR, GLFW_WAYLAND_DISABLE_LIBDECOR);
 #endif
-    if (!glfwInit())
+    if (!glfwInit()) {
+        qrprotec::error_log("Initialisation de la fenêtre impossible (GLFW) : pas d'affichage X11 / Wayland ?", "fenêtre");
         return 1;
+    }
 
 #ifdef __APPLE__
     // macOS ne fournit OpenGL 3 qu'en profil core (GLSL 150, choisi par ImGui_ImplOpenGL3_Init)
@@ -285,6 +288,7 @@ int main(int argc, char** argv)
     }
     GLFWwindow* window = glfwCreateWindow(window_width, window_height, "QRProtec", nullptr, nullptr);
     if (window == nullptr) {
+        qrprotec::error_log("Création de la fenêtre impossible (OpenGL 3 indisponible ?)", "fenêtre");
         glfwTerminate();
         return 1;
     }

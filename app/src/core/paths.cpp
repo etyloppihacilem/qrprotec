@@ -10,6 +10,9 @@
 
 #include "paths.hpp"
 
+#include "../printer/logging.hpp"
+#include "system.hpp"
+
 #include <algorithm>
 #include <cstdlib>
 #include <mutex>
@@ -22,6 +25,7 @@ namespace {
 std::mutex            mutex;
 std::filesystem::path current;
 bool                  initialized = false;
+std::string           problem;
 
 std::regex glob_regex(const std::string &pattern) {
   std::string expression = "^";
@@ -53,10 +57,33 @@ std::string default_templates_dir() {
 
 void set_templates_dir(const std::string &directory) {
   std::lock_guard< std::mutex > lock(mutex);
-  current     = directory.empty() ? std::filesystem::path(default_templates_dir()) : std::filesystem::path(directory);
+  const std::filesystem::path wanted =
+      directory.empty() ? std::filesystem::path(default_templates_dir()) : std::filesystem::path(directory);
+  current     = sandbox_visible_path(wanted);
   initialized = true;
+  if (current != wanted)
+    info_log("Dossier des modèles : " + wanted.string() + " remplacé par " + current.string()
+             + " (même dossier, seul chemin partagé avec le Flatpak)");
+  // dossier absent : cree (sous Flatpak, un dossier non partage est cree dans le bac a sable : signale ci-dessous)
   std::error_code error;
-  std::filesystem::create_directories(current, error);
+  if (!std::filesystem::exists(current, error)) {
+    error.clear();
+    if (std::filesystem::create_directories(current, error))
+      info_log("Dossier des modèles créé : " + current.string());
+    else if (error)
+      error_log("Impossible de créer le dossier des modèles " + current.string() + " : " + system_error_text(error),
+                "modèles");
+  }
+  problem = directory_access_problem(current, true);
+  if (!problem.empty())
+    error_log(problem, "modèles");
+  else
+    info_log("Dossier des modèles : " + current.string());
+}
+
+std::string templates_dir_problem() {
+  std::lock_guard< std::mutex > lock(mutex);
+  return problem;
 }
 
 const std::filesystem::path &templates_dir() {
@@ -80,9 +107,19 @@ std::vector< std::filesystem::path > glob_templates(const std::string &pattern, 
   const std::regex                     expression = glob_regex(pattern);
   std::error_code                      error;
   const std::filesystem::path          directory = subdirectory.empty() ? templates_dir() : templates_dir() / subdirectory;
-  for (const auto &entry : std::filesystem::directory_iterator(directory, error))
-    if (entry.is_regular_file(error) && std::regex_match(entry.path().filename().string(), expression))
-      matches.push_back(entry.path());
+  std::filesystem::directory_iterator iterator(directory, error);
+  if (error) {
+    if (error != std::errc::no_such_file_or_directory) // images/ absent : normal ; dossier absent : deja signale
+      error_log("Lecture du dossier " + directory.string() + " impossible : " + system_error_text(error), "modèles");
+    return matches;
+  }
+  for (; iterator != std::filesystem::directory_iterator(); iterator.increment(error)) {
+    std::error_code entry_error;
+    if (iterator->is_regular_file(entry_error) && std::regex_match(iterator->path().filename().string(), expression))
+      matches.push_back(iterator->path());
+  }
+  if (error)
+    error_log("Lecture du dossier " + directory.string() + " interrompue : " + system_error_text(error), "modèles");
   std::sort(matches.begin(), matches.end());
   return matches;
 }

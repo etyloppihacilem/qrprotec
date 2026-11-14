@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "fonts.hpp"
+#include "../printer/logging.hpp"
 
 #include <array>
 #include <cstdio>
@@ -87,12 +88,23 @@ std::string find_font(bool bold) {
 } // namespace
 
 const std::string &ui_font_path() {
-  static const std::string path = find_font(false);
+  static const std::string path = [] {
+    std::string found = find_font(false);
+    if (found.empty())
+      error_log("Aucune police trouvée (DejaVu Sans, Liberation, Noto ; ni fc-match) : textes des étiquettes non dessinés",
+                "polices");
+    return found;
+  }();
   return path;
 }
 
 const std::string &bold_font_path() {
-  static const std::string path = find_font(true);
+  static const std::string path = [] {
+    std::string found = find_font(true);
+    if (found.empty())
+      info_log("Police DejaVu Sans Bold introuvable : gras simulé");
+    return found;
+  }();
   return path;
 }
 

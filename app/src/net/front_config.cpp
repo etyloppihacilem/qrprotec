@@ -9,6 +9,9 @@
 ##################################################################################################################### */
 
 #include "front_config.hpp"
+#include "../core/system.hpp"
+#include "../printer/logging.hpp"
+#include <cerrno>
 
 #include "../core/json.hpp"
 
@@ -179,9 +182,11 @@ bool read_front_config(const std::filesystem::path &path, const std::string &pas
     error = "Ce n'est pas un fichier de configuration QRProtec (trop gros).";
     return false;
   }
+  errno = 0;
   std::ifstream input(path, std::ios::binary);
   if (!input) {
-    error = "Impossible de lire " + path.string();
+    error = "Impossible de lire " + path.string() + " : " + errno_text();
+    error_log(error, "configuration du front");
     return false;
   }
   std::ostringstream text;
@@ -191,12 +196,18 @@ bool read_front_config(const std::filesystem::path &path, const std::string &pas
 
 bool write_server_ca(const std::filesystem::path &path, const std::string &pem, std::string &error) {
   std::error_code code;
-  if (path.has_parent_path())
-    std::filesystem::create_directories(path.parent_path(), code);
+  if (path.has_parent_path() && !std::filesystem::create_directories(path.parent_path(), code) && code) {
+    error = "Impossible de créer le dossier " + path.parent_path().string() + " : " + system_error_text(code);
+    error_log(error, "configuration du front");
+    return false;
+  }
+  errno = 0;
   std::ofstream output(path, std::ios::binary | std::ios::trunc);
   output << pem;
+  output.close();
   if (!output) {
-    error = "Impossible d'écrire " + path.string();
+    error = "Impossible d'écrire " + path.string() + " : " + errno_text();
+    error_log(error, "configuration du front");
     return false;
   }
   return true;

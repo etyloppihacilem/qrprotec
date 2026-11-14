@@ -1,9 +1,13 @@
 #include "template_io.hpp"
 #include "json.hpp"
 #include "placeholders.hpp"
+#include "system.hpp"
+#include "../printer/logging.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <filesystem>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -185,17 +189,46 @@ std::string serialize_template(const TemplateDocument& document)
 
 bool save_template(const TemplateDocument& document, const std::string& path, std::string& error)
 {
-    std::ofstream output(path);
-    if (!output) { error = "Impossible d'ouvrir le fichier template."; return false; }
+    // Sous Flatpak, un dossier non partage accepte l'ecriture sans erreur (bac a sable) : refuse avant
+    const std::filesystem::path directory = std::filesystem::path(path).parent_path();
+    if (const std::string problem = directory_access_problem(directory, true); !problem.empty()) {
+        error = problem;
+        error_log("Modèle " + path + " non enregistré : " + problem, "modèles");
+        return false;
+    }
+    errno = 0;
+    std::ofstream output(path, std::ios::trunc);
+    if (!output) {
+        error = "Impossible d'ouvrir " + path + " en écriture : " + errno_text() + ".";
+        error_log(error, "modèles");
+        return false;
+    }
     output << serialize_template(document);
-    if (!output) { error = "Erreur d'écriture du template."; return false; }
+    output.flush();
+    if (!output) {
+        error = "Erreur d'écriture de " + path + " : " + errno_text() + ".";
+        error_log(error, "modèles");
+        return false;
+    }
+    output.close();
+    if (output.fail()) {
+        error = "Erreur à la fermeture de " + path + " : " + errno_text() + ".";
+        error_log(error, "modèles");
+        return false;
+    }
+    info_log("Modèle enregistré : " + path);
     return true;
 }
 
 bool load_template(TemplateDocument& document, const std::string& path, std::string& error)
 {
+    errno = 0;
     std::ifstream input(path);
-    if (!input) { error = "Impossible d'ouvrir le template."; return false; }
+    if (!input) {
+        error = "Impossible d'ouvrir " + path + " : " + errno_text() + ".";
+        error_log(error, "modèles");
+        return false;
+    }
     const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     TemplateDocument loaded;
     if (!find_value(json, "name", loaded.name)) { error = "Template invalide : nom absent."; return false; }

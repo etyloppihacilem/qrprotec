@@ -5,6 +5,7 @@
 #include "../core/paths.hpp"
 #include "../core/placeholders.hpp"
 #include "../core/plural.hpp"
+#include "../printer/logging.hpp"
 #include "../render/label_types.hpp"
 #include "core/template.hpp"
 #include "imgui.h"
@@ -33,6 +34,16 @@ constexpr float       kMinZoom      = 0.2f;
 constexpr float       kMaxZoom      = 40.0f;
 constexpr float       kHandleSize   = 4.0f; // demi-cote des poignees, en pixels ecran
 constexpr float       kHandleGrab   = 7.0f; // distance de prise des poignees
+
+// Dossier des modeles inaccessible (non partage avec le Flatpak...) : en rouge, la ou l'on cherche les modeles
+void draw_templates_dir_problem() {
+  const std::string problem = templates_dir_problem();
+  if (problem.empty())
+    return;
+  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.2f, 0.1f, 1.0f));
+  ImGui::TextWrapped("%s", problem.c_str());
+  ImGui::PopStyleColor();
+}
 
 std::string lowercase(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast< char >(std::tolower(c)); });
@@ -191,6 +202,13 @@ void Editor::new_template() {
   reset_history();
 }
 
+void Editor::show_error(const std::string &message, bool log) {
+  message_       = message;
+  error_message_ = message;
+  if (log)
+    error_log(message, "éditeur d'étiquettes");
+}
+
 void Editor::reload_templates() {
   image_files_ = label_images();
   loaded_templates_dir_ = templates_dir().string();
@@ -198,8 +216,10 @@ void Editor::reload_templates() {
   std::vector< std::string > errors;
   if (const int updated = add_missing_label_types(default_label_, default_support_, nullptr, &errors); updated > 0)
     label_types_message_ = "Type d'étiquette ajouté à " + nb(updated, "modèle") + ".";
-  if (!errors.empty())
+  if (!errors.empty()) {
     label_types_message_ = "Type d'étiquette non enregistré : " + errors.front();
+    error_log(label_types_message_, "éditeur d'étiquettes");
+  }
   qr_files_             = glob_templates("*.qr");
   document_list_.clear();
   for (auto path : qr_files_) {
@@ -208,8 +228,9 @@ void Editor::reload_templates() {
     if (load_template(new_template, path, error)) {
       new_template.path = path.filename().string(); // relatif au dossier des modeles
       document_list_.push_back(new_template);
-    } else
-      ; // TODO: faire un truc avec l'erreur
+    } else {
+      error_log(path.string() + " ignoré : " + error, "modèle " + path.filename().string());
+    }
   }
   thumbnails_dirty_ = true;
   rebuild_label_types();
@@ -282,12 +303,14 @@ bool Editor::apply_label_type_to_models(int index) {
     std::string                 error;
     if (!load_template(document, path.string(), error)) {
       label_types_message_ = listed.path + " : " + error;
+      error_log(label_types_message_, "éditeur d'étiquettes");
       return false;
     }
     document.label_type = entry.type;
     apply_label_type(document.media, entry.type);
     if (!save_template(document, path.string(), error)) {
       label_types_message_ = listed.path + " : " + error;
+      error_log(label_types_message_, "éditeur d'étiquettes");
       return false;
     }
     ++saved;
@@ -588,7 +611,7 @@ bool Editor::save_to(const std::string &name) {
     apply_label_type(document_.media, *document_.label_type);
   }
   if (!save_template(document_, path.string(), error)) {
-    message_ = error;
+    show_error("Modèle non enregistré : " + error, false); // deja journalise par save_template
     return false;
   }
   template_path_ = file;
@@ -613,6 +636,7 @@ void Editor::draw_open_popup() {
   if (!ImGui::BeginPopupModal(title, nullptr))
     return;
   ImGui::TextDisabled("Dossier des modèles : %s", templates_dir().string().c_str());
+  draw_templates_dir_problem();
   ImGui::SetNextItemWidth(-FLT_MIN);
   if (ImGui::IsWindowAppearing())
     ImGui::SetKeyboardFocusHere();
@@ -666,6 +690,7 @@ void Editor::draw_save_as_popup() {
     return;
   ImGui::TextUnformatted("Nom du fichier, dans le dossier des modèles :");
   ImGui::TextDisabled("%s", templates_dir().string().c_str());
+  draw_templates_dir_problem();
   if (ImGui::IsWindowAppearing())
     ImGui::SetKeyboardFocusHere();
   ImGui::SetNextItemWidth(ImGui::GetFontSize() * 24.0f);
@@ -739,7 +764,10 @@ void Editor::draw_export_popup() {
   const bool enter = ImGui::InputText("##png", &export_path_, ImGuiInputTextFlags_EnterReturnsTrue);
   if (button("Exporter") || enter) {
     std::string error;
-    message_ = write_png(preview_, export_path_, error) ? "PNG exporté : " + export_path_ : error;
+    if (write_png(preview_, export_path_, error))
+      message_ = "PNG exporté : " + export_path_;
+    else
+      show_error("PNG non exporté : " + error, false); // deja journalise par write_png
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();
@@ -1063,7 +1091,10 @@ void Editor::draw_toolbar() {
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();
-    ImGui::TextUnformatted(message_.c_str());
+    if (!error_message_.empty() && message_ == error_message_)
+      ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.1f, 1.0f), "%s", message_.c_str());
+    else
+      ImGui::TextUnformatted(message_.c_str());
   }
 }
 
@@ -1894,7 +1925,10 @@ void Editor::poll_print_task() {
     return;
 
   const PrintResult result = print_task_.get();
-  message_                 = result.success ? "Test imprimé." : "Impression: " + result.error;
+  if (result.success)
+    message_ = "Test imprimé.";
+  else
+    show_error("Impression : " + result.error);
   if (result.success)
     print_test_open_ = false;
 }
@@ -2150,6 +2184,7 @@ void Editor::draw_browser() {
     ImGui::EndChild();
     ImGui::PopID();
   }
+  draw_templates_dir_problem();
   if (document_list_.empty())
     ImGui::TextDisabled("Aucune étiquette (*.qr) dans %s.", templates_dir().string().c_str());
   else if (shown == 0)

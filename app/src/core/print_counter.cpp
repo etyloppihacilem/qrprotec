@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "print_counter.hpp"
+#include "system.hpp"
 
 #include <cmath>
 #include <ctime>
@@ -98,12 +99,10 @@ void PrintCounter::load(const std::filesystem::path &file) {
   open_.clear();
   batch_.clear();
   batch_id_.clear();
-  std::ifstream input(file);
-  if (!input)
+  std::string text;
+  if (!read_file(file, text, "imprimante"))
     return;
-  std::stringstream buffer;
-  buffer << input.rdbuf();
-  const Json data = Json::parse(buffer.str());
+  const Json data = Json::parse(text);
   open_           = tallies_from(data["open"]);
   batch_          = tallies_from(data["batch"]["counts"]);
   batch_id_       = batch_.empty() ? std::string() : data["batch"]["id"].str();
@@ -160,19 +159,8 @@ bool PrintCounter::save() const {
   batch["id"]     = batch_id_;
   batch["counts"] = tallies_json(batch_);
   data["batch"]   = batch;
-  std::error_code error;
-  std::filesystem::create_directories(file_.parent_path(), error);
-  const std::filesystem::path temp = file_.string() + ".tmp";
-  {
-    std::ofstream output(temp, std::ios::trunc);
-    if (!output)
-      return false;
-    output << data.dump();
-    if (!output)
-      return false;
-  }
-  std::filesystem::rename(temp, file_, error);
-  return !error;
+  std::string error;
+  return write_file_atomic(file_, data.dump(), "imprimante", error);
 }
 
 } // namespace qrprotec
