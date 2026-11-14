@@ -5746,17 +5746,23 @@
       if (a.below_min) return a.below_min < b.below_min ? -1 : 1;
       return stockOrder(at(a).stock, a.min_quantity) - stockOrder(at(b).stock, b.min_quantity);
     });
-    for (const type of sorted) {
+    // types sans minimum attendu (x/0, 0/0) replies sous un bouton en bas, sauf commande a passer
+    const zero = (type) => type.min_quantity <= 0 && !type.order && !type.below_min;
+    const shown = sorted.filter((type) => !zero(type));
+    const hidden = sorted.filter(zero);
+    const forecastRow = (type) => {
       const point = at(type);
       const details = [];
       if (point.expiring) details.push(`${point.expiring} ${pl(point.expiring, 'périme', 'périment')}` + (point.lost ? ` dont ${point.lost} à jeter` : ''));
       if (type.order) details.push(`commander ${type.order.quantity}${type.order.subtype_name ? ' × ' + type.order.subtype_name : ''} avant le ${fmtDate(type.order.before)}`);
       else if (!details.length) details.push(type.per_month ? `${nb(Math.round(type.per_month * 10) / 10, 'utilisé')} par mois` : 'rien à signaler');
       const kind = type.order && type.order.urgent ? 'bad' : type.below_min ? 'warn' : '';
-      parts.push(el('div', { class: 'stock-row ' + kind },
+      return el('div', { class: 'stock-row ' + kind },
         requirementRow(type.name + (type.unit ? ` (${type.unit})` : ''), point.stock, type.min_quantity),
-        el('div', { class: 'sub hint' }, details.join(' · '))));
-    }
+        el('div', { class: 'sub hint' }, details.join(' · ')));
+    };
+    parts.push(...shown.map(forecastRow));
+    zeroExpectedFold(parts, hidden, forecastRow);
     const transfers = forecast.transfers || [];
     if (transfers.length) {
       parts.push(el('h3', {}, 'Échanges à faire'));
@@ -5945,7 +5951,7 @@
       // sous le minimum, puis bientot sous le minimum ou vide, puis 0/0, puis complets, puis x/0 tout en bas
       const order = (row) => stockOrder(row.stock_fresh, row.min_quantity, row.stock_expiring_soon || 0);
       const rows = [...state.stock].sort((a, b) => order(a) - order(b));
-      for (const row of rows) {
+      const stockRow = (row) => {
         const unit = row.unit ? ' ' + row.unit : ''; // type a unites (serum phy en mL) : ses sous-types en unites
         const details = [`${row.lots_fresh}${unit} dans les lots`];
         const group = row.group && state.stock.find((other) => other.type === row.group);
@@ -5956,12 +5962,27 @@
         if (row.missing) details.push(nb(row.missing, 'disparu'));
         if (row.out) details.push(`${nb(row.out, 'sorti')} sans lot`);
         if (row.loose) details.push(`${row.loose} hors lot`);
-        parts.push(el('div', { class: 'stock-row' },
+        return el('div', { class: 'stock-row' },
           requirementRow(row.name + (row.unit ? ` (${row.unit})` : ''), row.stock_fresh, row.min_quantity),
-          el('div', { class: 'sub hint' }, details.join(' · '))));
-      }
+          el('div', { class: 'sub hint' }, details.join(' · ')));
+      };
+      // types sans minimum attendu (x/0, 0/0) replies sous un bouton tout en bas
+      parts.push(...rows.filter((row) => row.min_quantity > 0).map(stockRow));
+      zeroExpectedFold(parts, rows.filter((row) => row.min_quantity <= 0), stockRow);
     }
     return parts;
+  }
+
+  // Types d'items a 0 attendu (minimum 0) dans une vue du stock : replies derriere un bouton [+] en bas de la liste,
+  // fermes par defaut, ouverts ou fermes ensemble pour l'etat des stocks et les previsions le temps de la session.
+  function zeroExpectedFold(parts, rows, render) {
+    if (!rows.length) return;
+    const open = !!state.zeroExpectedOpen;
+    parts.push(el('button', { type: 'button', class: 'upcoming-toggle', 'aria-expanded': open ? 'true' : 'false',
+      onclick: () => { state.zeroExpectedOpen = !open; renderStock(); } },
+    el('span', { class: 'fold-box' }, open ? '−' : '+'),
+    `${pl(rows.length, 'Type', 'Types')} sans minimum attendu (${rows.length})`));
+    if (open) parts.push(...rows.map(render));
   }
 
   // Nouvelles etiquettes d'items d'un type existant (admins, Gestion de la TECH, bouton +). La demande part au poste,
