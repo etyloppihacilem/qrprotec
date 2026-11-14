@@ -222,6 +222,15 @@ centré sur l'étiquette :
 Une marge à 0 imprime jusqu'au bord, comme avant. La valeur n'est écrite dans les modèles que si
 elle diffère de 1 mm.
 
+**Une marge par côté** : décochez « Même marge des quatre côtés » pour régler à part la marge
+**en haut, en bas, à gauche et à droite** (par exemple 2 mm en haut et 0,5 mm en bas si
+l'imprimante commence un peu trop tôt). Les côtés sont ceux de l'étiquette **telle qu'elle sort de
+l'imprimante**, vue de face (haut = bord qui sort en premier), comme les décalages ; pour un type
+imprimé en quart de tour, le cadre orange de l'éditeur les montre sur le modèle tourné. Chaque
+marge est limitée au tiers de la largeur (gauche, droite) ou de la hauteur (haut, bas). Le cadre
+plein de l'étiquette d'étalonnage suit ces marges : avec des marges différentes, il n'est plus
+centré, c'est voulu.
+
 ### L'étiquette d'étalonnage
 
 Elle est dessinée à la taille du rouleau chargé :

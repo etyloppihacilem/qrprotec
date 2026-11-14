@@ -286,12 +286,30 @@ int main()
         assert(qrprotec::serialize_template(document).find("margin_mm") == std::string::npos);
         {
             qrprotec::TemplateDocument wide = document;
-            wide.label_type->margin_mm = 1.5;
+            wide.label_type->margins = qrprotec::LabelMargins::all(1.5);
             qrprotec::TemplateDocument back;
             assert(qrprotec::save_template(wide, "/tmp/qrprotec-label-margin.json", error));
+            assert(qrprotec::serialize_template(wide).find("margin_top_mm") == std::string::npos);
             assert(qrprotec::load_template(back, "/tmp/qrprotec-label-margin.json", error));
             std::remove("/tmp/qrprotec-label-margin.json");
-            assert(back.label_type && back.label_type->margin_mm == 1.5 && *back.label_type == *wide.label_type);
+            assert(back.label_type && back.label_type->margins == qrprotec::LabelMargins::all(1.5)
+                   && *back.label_type == *wide.label_type);
+            // une marge par cote : quatre cles, relues telles quelles
+            qrprotec::TemplateDocument sides = document;
+            sides.label_type->margins = {2.0, 0.5, 1.0, 1.5};
+            const std::string text = qrprotec::serialize_template(sides);
+            assert(text.find("\"margin_top_mm\": 2") != std::string::npos
+                   && text.find("\"margin_right_mm\": 1.5") != std::string::npos);
+            assert(qrprotec::save_template(sides, "/tmp/qrprotec-label-margin.json", error));
+            assert(qrprotec::load_template(back, "/tmp/qrprotec-label-margin.json", error));
+            std::remove("/tmp/qrprotec-label-margin.json");
+            assert(back.label_type && *back.label_type == *sides.label_type);
+            assert(back.label_type->summary().find("2/0.5/1/1.5 mm") != std::string::npos);
+            // cotes du modele pour une etiquette imprimee d'un quart de tour horaire : haut du modele = droite
+            const qrprotec::LabelMargins design = sides.label_type->margins.rotated_to_design(90);
+            assert(design.top == 1.5 && design.bottom == 1.0 && design.left == 2.0 && design.right == 0.5);
+            const qrprotec::LabelMargins back_turn = sides.label_type->margins.rotated_to_design(270);
+            assert(back_turn.top == 1.0 && back_turn.bottom == 1.5 && back_turn.left == 0.5 && back_turn.right == 2.0);
         }
         assert(reloaded.elements.size() == 1);
         // liste des types : un par nom, triee
@@ -474,13 +492,13 @@ int main()
         assert(typed.label_type && typed.label_type->name == "60 x 40 mm");
         assert(!qrprotec::calibration_document(roll, false).label_type);
         assert(qrprotec::validate(typed).empty());
-        const qrprotec::RasterImage image = qrprotec::calibration_image(typed, roll.effective_margin_mm());
+        const qrprotec::RasterImage image = qrprotec::calibration_image(typed, roll.design_margins());
         assert(image.width == 480 && image.height == 320);
         // marge de 1 mm par defaut : bord blanc, cadre plein a 8 points du bord
-        assert(roll.margin_mm == 1.0 && image.at(0, 0) >= 128 && image.at(5, 80) >= 128);
+        assert(roll.margins == qrprotec::LabelMargins::all(1.0) && image.at(0, 0) >= 128 && image.at(5, 80) >= 128);
         assert(image.at(8, 8) < 128 && image.at(471, 311) < 128 && image.at(471, 8) < 128 && image.at(8, 311) < 128);
         // sans marge : cadre au ras du bord
-        const qrprotec::RasterImage edge = qrprotec::calibration_image(typed, 0.0);
+        const qrprotec::RasterImage edge = qrprotec::calibration_image(typed, qrprotec::LabelMargins{});
         assert(edge.at(0, 0) < 128 && edge.at(479, 319) < 128);
         // impression sur le type : rien en dehors du cadre des marges, meme un modele noir jusqu'au bord
         {
@@ -492,21 +510,33 @@ int main()
             assert(out.at(0, 0) == 255 && out.at(7, 160) == 255 && out.at(472, 160) == 255 && out.at(240, 312) == 255);
             assert(out.at(8, 8) == 0 && out.at(471, 311) == 0);
             qrprotec::LabelType none = roll;
-            none.margin_mm = 0.0;
+            none.margins = qrprotec::LabelMargins{};
             assert(qrprotec::fit_to_label(black, qrprotec::physical_label_for(none, 8.0), out, media, error));
             assert(out.at(0, 0) == 0);
+            // une marge par cote : haut 2 mm, bas 0, gauche 0,5 mm, droite 3 mm (16, 0, 4 et 24 points)
+            qrprotec::LabelType sides = roll;
+            sides.margins = {2.0, 0.0, 0.5, 3.0};
+            assert(qrprotec::fit_to_label(black, qrprotec::physical_label_for(sides, 8.0), out, media, error));
+            assert(out.at(240, 15) == 255 && out.at(240, 16) == 0 && out.at(240, 319) == 0);
+            assert(out.at(3, 160) == 255 && out.at(4, 160) == 0 && out.at(455, 160) == 0 && out.at(456, 160) == 255);
+            const qrprotec::RasterImage framed = qrprotec::calibration_image(typed, sides.design_margins());
+            assert(framed.at(100, 16) < 128 && framed.at(100, 15) >= 128 && framed.at(100, 319) < 128);
+            assert(framed.at(4, 100) < 128 && framed.at(455, 100) < 128 && framed.at(460, 100) >= 128);
+            // marge plus grande que le tiers de l'etiquette : bornee
+            sides.margins.top = 20.0;
+            assert(std::abs(sides.effective_margins().top - 40.0 / 3.0) < 1e-9 && sides.effective_margins().right == 3.0);
         }
         assert(image.at(240, 160) < 128 && image.at(240, 5) < 128 && image.at(5, 160) < 128); // croix
         assert(image.at(360, 80) >= 128 && image.at(420, 240) >= 128); // quarts vides (mode d'emploi en bas a gauche)
         roll.rotation = 90; // rouleau imprime en portrait : croix au centre du modele tourne
-        const qrprotec::RasterImage turned = qrprotec::calibration_image(qrprotec::calibration_document(roll, true), 1.0);
+        const qrprotec::RasterImage turned = qrprotec::calibration_image(qrprotec::calibration_document(roll, true), roll.design_margins());
         assert(turned.width == 320 && turned.height == 480 && turned.at(160, 240) < 128);
         if (const char *out = std::getenv("QRPROTEC_CALIBRATION_PNG")) {
             std::string error;
             qrprotec::write_png(image, std::string(out) + "-60x40.png", error);
             qrprotec::LabelType small;
             small.name = "40 x 30 mm";
-            qrprotec::write_png(qrprotec::calibration_image(qrprotec::calibration_document(small, true), 1.0),
+            qrprotec::write_png(qrprotec::calibration_image(qrprotec::calibration_document(small, true), small.design_margins()),
                                 std::string(out) + "-40x30.png", error);
         }
     }
