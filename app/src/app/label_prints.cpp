@@ -258,18 +258,18 @@ void App::draw_label_prints() {
   }
   ImGui::Spacing();
   if (ids.empty() && !label_prints_.busy) {
-    if (button("Fermer"))
+    if (button("Fermer") || enter_pressed() || escape_pressed())
       label_prints_.open = false;
   } else {
     ImGui::BeginDisabled(label_prints_.busy);
     const std::string launch = label_prints_.busy ? std::string("Impression en cours...")
                                                   : "Lancer l'impression (" + nb(labels, "étiquette") + ")";
     ImGui::PushFont(nullptr, base * 1.3f);
-    if (primary_button(launch.c_str(), ImVec2(-1, ImGui::GetFrameHeight() * 1.6f)))
+    if (primary_button(launch.c_str(), ImVec2(-1, ImGui::GetFrameHeight() * 1.6f)) || enter_pressed())
       launch_label_prints(ids);
     ImGui::PopFont();
     ImGui::EndDisabled();
-    if (button("Plus tard"))
+    if (button("Plus tard") || escape_pressed())
       label_prints_.open = false;
     ImGui::SameLine();
     ImGui::TextDisabled("La demande reste en attente (bouton bleu de la barre de menu).");

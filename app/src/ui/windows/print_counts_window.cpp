@@ -170,7 +170,7 @@ class PrintCountsWindow final : public AppWindow {
         ImGui::TextColored(colors::orange, "Pas le rouleau en place : l'impression demandera de changer de rouleau.");
       if (!roll || !on)
         ImGui::BeginDisabled();
-      if (primary_button("Imprimer")) {
+      if (primary_button("Imprimer") || enter_pressed()) {
         app.print_roll_code(*roll, *on);
         ImGui::CloseCurrentPopup();
       }

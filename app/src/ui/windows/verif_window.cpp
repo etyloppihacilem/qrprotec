@@ -83,11 +83,12 @@ class VerifWindow final : public AppWindow {
       ImGui::Spacing();
       const ImVec2 size(ImGui::GetFontSize() * 30.0f, 0.0f);
       int          choice = -1;
-      if (primary_button(("Valider " + level + " incomplet (les non scannés passent manquants)").c_str(), size))
+      if (primary_button(("Valider " + level + " incomplet (les non scannés passent manquants)").c_str(), size)
+          || enter_pressed())
         choice = 0;
       if (button(("Passer sans valider (" + level + " reste à faire, scans gardés)").c_str(), size))
         choice = 1;
-      if (button(("Rester dans " + level).c_str(), size) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+      if (button(("Rester dans " + level).c_str(), size) || escape_pressed())
         choice = 2;
       ImGui::TextDisabled("Scanner autre chose vaut « Passer sans valider ».");
       if (choice >= 0) {

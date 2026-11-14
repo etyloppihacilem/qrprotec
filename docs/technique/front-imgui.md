@@ -158,6 +158,16 @@ décorations : sinon libdecor réserve une barre de titre que Cage n'affiche pas
   (`AppWindow::shortcut`, rappelé dans les menus). `App::handle_shortcuts` les traite hors fenêtre
   modale ; la touche d'une fenêtre déjà au premier plan la ferme. `Ctrl+W` ferme la fenêtre active, `Ctrl+Espace` remet les fenêtres en place (`request_layout_reset`), `Super+L` déconnecte (même pendant une fenêtre modale),
   `Ctrl+Tab` est celui d'ImGui (`NavEnableKeyboard`).
+- **Dialogues** : `escape_pressed()` à côté du bouton Annuler, `enter_pressed()` juste après le
+  bouton principal (`button("Imprimer") || enter_pressed()`), qui l'entoure d'un liseré. `enter_pressed()`
+  est faux si le bouton est désactivé, si le dialogue n'a pas le focus, à son ouverture, pendant un texte
+  multiligne (`Ctrl+Entrée` y valide), quand la navigation clavier montre un autre élément (Entrée
+  l'active), quand un champ a pris l'Entrée (`consume_enter()` : choix d'une suggestion dans
+  `search_select` / `input_suggest`), et pour l'Entrée d'un scan en mode clavier : `main.cpp` appelle
+  `note_typed_character()` à l'arrivée de chaque caractère et `note_enter_key()` sur Entrée ; une Entrée
+  moins de 40 ms (plus la durée d'une frame) après un caractère est celle d'une douchette. Exprès sans
+  Entrée : réglages d'usine de la douchette, vidage de sa mémoire (définitifs), Première configuration
+  sans Échap.
 - **Plein écran** (`Ctrl+F11`, `App::fullscreen_`) : `draw_windows` force chaque fenêtre ouverte sur
   toute la zone de travail sans la laisser déplacer ; `last_pos`/`last_size` ne sont plus mis à jour,
   ce qui rend sa place à chaque fenêtre à la sortie. Quitté par « Remettre les fenêtres en place » et

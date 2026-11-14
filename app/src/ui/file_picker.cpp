@@ -327,11 +327,19 @@ bool FilePicker::draw_browser(std::string &path) {
                     && std::any_of(entries_.begin(), entries_.end(),
                                    [this](const Entry &entry) { return entry.name == selected_ && !entry.directory; });
   ImGui::BeginDisabled(!is_file);
-  if (primary_button("Ouvrir")) {
+  if (primary_button("Ouvrir") || enter_pressed()) {
     path   = (dir_ / selected_).string();
     chosen = true;
   }
   ImGui::EndDisabled();
+  // Entree sur un dossier choisi : y entrer
+  const bool is_dir = !selected_.empty()
+                   && std::any_of(entries_.begin(), entries_.end(),
+                                  [this](const Entry &entry) { return entry.name == selected_ && entry.directory; });
+  if (is_dir && enter_pressed(false)) {
+    const fs::path next = dir_ / selected_;
+    change_dir(next);
+  }
   ImGui::SameLine();
   if (button("Annuler") || escape_pressed() || chosen)
     ImGui::CloseCurrentPopup();

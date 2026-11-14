@@ -651,6 +651,10 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   `Alt` + cette lettre l'actionne (les lettres sont attribuées par fenêtre, les boutons des tableaux
   n'en ont pas). Les flèches déplacent le focus dans une fenêtre et `Entrée` ou `Espace` valide
   l'élément choisi.
+- **Fenêtres de dialogue** (impression, code PIN, signalement, changement de rouleau…) : `Entrée` fait
+  l'action principale (bouton entouré d'un liseré : Imprimer, Valider, Enregistrer…), `Échap` annule.
+  Dans un texte sur plusieurs lignes, `Entrée` va à la ligne et `Ctrl+Entrée` valide. Le scan d'une
+  douchette en mode clavier, qui finit aussi par `Entrée`, ne valide jamais un dialogue.
 - **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté, le plein
   écran quitté et les fenêtres remises à leur place par défaut.
 

@@ -133,14 +133,14 @@ void draw_label_preview(App &app) {
     const bool        poste = app.prints_to_poste();
     if (count > 1) {
       const std::string all = (poste ? "Envoyer au poste les " : "Imprimer les ") + std::to_string(count) + " étiquettes";
-      if (primary_button(all.c_str())) {
+      if (primary_button(all.c_str()) || enter_pressed()) {
         app.print_documents(preview.jobs);
         open = false;
       }
       ImGui::SameLine();
       if (button(poste ? "Envoyer celle-ci" : "Imprimer celle-ci"))
         app.print_documents({ job });
-    } else if (primary_button(poste ? "Envoyer au poste" : "Imprimer")) {
+    } else if (primary_button(poste ? "Envoyer au poste" : "Imprimer") || enter_pressed()) {
       app.print_documents(preview.jobs);
       open = false;
     }

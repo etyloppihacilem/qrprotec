@@ -1422,7 +1422,7 @@ class LotAdminWindow final : public AppWindow {
         ImGui::TextWrapped("Pour le désarchiver : cochez « Afficher les lots archivés » au-dessus de la liste, "
                            "sélectionnez-le puis cliquez sur « Désarchiver le lot ».");
         ImGui::PopTextWrapPos();
-        if (danger_button("Archiver")) {
+        if (danger_button("Archiver") || enter_pressed()) {
           Json body;
           body["active"] = false;
           show_archived_lots_ = true; // le lot reste visible et selectionne
@@ -1481,7 +1481,7 @@ class LotAdminWindow final : public AppWindow {
               search_select("replace_by", slot["candidates"], "id", "name", slot_pick_, "Tapez le nom du lot…",
                             nullptr, 320.0f);
               ImGui::BeginDisabled(slot_pick_.empty());
-              if (primary_button("Remplacer")) {
+              if (primary_button("Remplacer") || enter_pressed()) {
                 slot_action(app, "replace", slot_id, slot_pick_, child["id"].str());
                 ImGui::CloseCurrentPopup();
               }
@@ -2288,7 +2288,7 @@ class LotAdminWindow final : public AppWindow {
         ImGui::TextWrapped("Pour le désarchiver : cochez « Afficher les types archivés » au-dessus de la liste, "
                            "sélectionnez-le puis cliquez sur « Désarchiver le type ».");
         ImGui::PopTextWrapPos();
-        if (danger_button("Archiver")) {
+        if (danger_button("Archiver") || enter_pressed()) {
           archive_lot_type(app, true);
           ImGui::CloseCurrentPopup();
         }

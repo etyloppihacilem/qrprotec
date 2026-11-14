@@ -19,6 +19,7 @@
 #include "qrcodegen.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <limits>
@@ -566,6 +567,8 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
     state.highlighted += state.move;
     state.highlighted = matches.empty() ? 0 : std::clamp(state.highlighted, 0, static_cast< int >(matches.size()) - 1);
   }
+  if (entered)
+    consume_enter(); // Entree choisit le resultat, elle ne valide pas le dialogue
   if ((entered || state.accept) && !matches.empty())
     accept(matches[static_cast< std::size_t >(state.highlighted)]);
   state.accept = false;
@@ -668,8 +671,10 @@ bool input_suggest(const char *id, std::string &value, const std::vector< std::s
   // Tab : la suggestion choisie, sinon la premiere ; Entree : la suggestion choisie s'il y en a une
   if (state.accept && !matches.empty())
     accept(matches[static_cast< std::size_t >(std::max(0, state.highlighted))]);
-  else if (entered && state.highlighted >= 0)
+  else if (entered && state.highlighted >= 0) {
     accept(matches[static_cast< std::size_t >(state.highlighted)]);
+    consume_enter(); // Entree choisit la suggestion, elle ne valide pas le dialogue
+  }
   state.accept = false;
 
   if (!accepted && !matches.empty() && (active || state.popup_hovered)) {
@@ -702,9 +707,37 @@ bool input_suggest(const char *id, std::string &value, const std::vector< std::s
 }
 
 namespace {
+using EnterClock = std::chrono::steady_clock;
+
 bool escape_closed_popup = false;
 bool texture_was_changed = false;
+// Entree de la frame : a qui elle revient
+bool enter_from_scan     = false; // fin d'une rafale de caracteres (douchette en mode clavier)
+bool enter_in_multiline  = false; // saisie sur plusieurs lignes en cours (Ctrl+Entree valide quand meme)
+bool enter_for_nav       = false; // la navigation clavier est sur un element : Entree l'active
+bool enter_consumed      = false; // consume_enter()
+bool enter_burst_pending = false; // note_enter_key() : Entree arrivee juste apres des caracteres
+EnterClock::time_point last_character{};
+EnterClock::time_point last_frame{};
+EnterClock::duration   frame_slack{};
+// Une douchette tape ses caracteres a quelques millisecondes d'intervalle puis Entree ; a la main, il faut bien plus
+// entre la derniere lettre et Entree. Les evenements sont lus une fois par frame : la duree de la frame precedente
+// s'ajoute au delai.
+constexpr auto kScanEnterDelay = std::chrono::milliseconds(40);
 } // namespace
+
+void note_typed_character() {
+  last_character = EnterClock::now();
+}
+
+void note_enter_key() {
+  const auto now = EnterClock::now();
+  enter_burst_pending = last_character != EnterClock::time_point{} && now - last_character < kScanEnterDelay + frame_slack;
+}
+
+void consume_enter() {
+  enter_consumed = true;
+}
 
 void texture_changed() {
   texture_was_changed = true;
@@ -719,8 +752,23 @@ bool take_texture_changed() {
 void new_frame() {
   const ImGuiContext &context = *ImGui::GetCurrentContext();
   const int           popups  = context.OpenPopupStack.Size;
+  // champ en cours de saisie a la fin de la frame precedente, quand Entree a ete tapee
+  const bool text_active = context.ActiveId != 0 && context.InputTextState.ID == context.ActiveId;
+  const bool multiline   = text_active && (context.InputTextState.Flags & ImGuiInputTextFlags_Multiline) != 0;
   ImGui::NewFrame();
   escape_closed_popup = ImGui::IsKeyPressed(ImGuiKey_Escape, false) && context.OpenPopupStack.Size < popups;
+  const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+  enter_in_multiline = enter && multiline;
+  // dans un champ d'une ligne, Entree valide le dialogue (comme un formulaire) ; ailleurs, si la navigation clavier
+  // montre un element (bouton choisi au Tab ou aux fleches), c'est lui qu'Entree active
+  enter_for_nav   = enter && !text_active && context.NavActivatePressedId != 0;
+  enter_from_scan = enter && enter_burst_pending;
+  if (enter)
+    enter_burst_pending = false;
+  enter_consumed = false;
+  const auto now = EnterClock::now();
+  frame_slack    = last_frame == EnterClock::time_point{} ? EnterClock::duration::zero() : now - last_frame;
+  last_frame     = now;
 }
 
 bool escape_pressed() {
@@ -729,13 +777,39 @@ bool escape_pressed() {
       && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
+bool enter_pressed(bool outline) {
+  if (enter_from_scan || enter_for_nav || enter_consumed)
+    return false;
+  if ((GImGui->CurrentItemFlags & ImGuiItemFlags_Disabled) != 0)
+    return false;
+  if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows | ImGuiFocusedFlags_NoPopupHierarchy))
+    return false;
+  // bouton principal du dialogue (dernier element dessine) : liseré discret, Entree le declenche
+  if (outline && GImGui->LastItemData.ID != 0) {
+    const float pad = 2.0f;
+    ImGui::GetWindowDrawList()->AddRect(
+      ImVec2(GImGui->LastItemData.Rect.Min.x - pad, GImGui->LastItemData.Rect.Min.y - pad),
+      ImVec2(GImGui->LastItemData.Rect.Max.x + pad, GImGui->LastItemData.Rect.Max.y + pad),
+      ImGui::GetColorU32(ImGuiCol_Text, 0.45f), ImGui::GetStyle().FrameRounding + pad, 0, 1.5f);
+  }
+  if (ImGui::IsWindowAppearing()) // l'Entree qui a ouvert le dialogue (scan, champ) ne le valide pas
+    return false;
+  const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+  if (!enter)
+    return false;
+  const ImGuiKeyChord mods = ImGui::GetIO().KeyMods;
+  if (enter_in_multiline)
+    return mods == ImGuiMod_Ctrl;
+  return mods == ImGuiMod_None;
+}
+
 bool confirm_button(const char *label, const char *question, const char *popup_id, const ImVec2 &size) {
   if (danger_button(label, size))
     ImGui::OpenPopup(popup_id);
   bool confirmed = false;
   if (ImGui::BeginPopup(popup_id)) {
     ImGui::TextUnformatted(question);
-    if (danger_button("Confirmer")) {
+    if (danger_button("Confirmer") || enter_pressed()) {
       confirmed = true;
       ImGui::CloseCurrentPopup();
     }

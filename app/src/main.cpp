@@ -173,16 +173,25 @@ static void load_font(float size)
     ImGui::GetStyle().FontSizeBase = size;
 }
 
+// Entree transmise a ImGui : si des caracteres viennent d'arriver en rafale, c'est la fin d'un scan de douchette en
+// mode clavier, qui ne doit pas valider un dialogue (enter_pressed() de widgets.hpp)
+static void imgui_key(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (action == GLFW_PRESS && (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER))
+        qrprotec::note_enter_key();
+    ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+}
+
 static void hid_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     note_activity();
     if (!active_inateck)
-        return ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+        return imgui_key(window, key, scancode, action, mods);
     const qrprotec::Inateck::HidKeyResult result = active_inateck->handle_hid_key(key, action);
     for (const unsigned int character : result.replay)
         ImGui_ImplGlfw_CharCallback(window, character);
     if (!result.consume)
-        ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+        imgui_key(window, key, scancode, action, mods);
 }
 
 static void hid_char_callback(GLFWwindow* window, unsigned int character)
@@ -193,6 +202,7 @@ static void hid_char_callback(GLFWwindow* window, unsigned int character)
     if (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS && glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) != GLFW_PRESS
         && glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) != GLFW_PRESS)
         return;
+    qrprotec::note_typed_character(); // a l'arrivee, meme si la douchette retient le caractere un instant
     if (!active_inateck)
         return ImGui_ImplGlfw_CharCallback(window, character);
     for (const unsigned int replay : active_inateck->handle_hid_character(character))

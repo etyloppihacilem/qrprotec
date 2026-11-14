@@ -249,7 +249,7 @@ void App::draw_roll_wizard() {
       printer.resume();
     if (print.paused && print.needed_label_type.empty())
       ImGui::SameLine();
-    if (primary_button("Fermer"))
+    if (primary_button("Fermer") || enter_pressed() || escape_pressed())
       ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
     return;
@@ -265,10 +265,10 @@ void App::draw_roll_wizard() {
   }
   if (wizard.step < Send) {
     ImGui::BeginDisabled(chosen == nullptr);
-    if (primary_button("Suivant"))
+    if (primary_button("Suivant") || enter_pressed())
       wizard.step = next(wizard.step + 1);
     ImGui::EndDisabled();
-  } else if (primary_button("Terminer") && chosen != nullptr) {
+  } else if ((primary_button("Terminer") || enter_pressed()) && chosen != nullptr) {
     if (raw) {
       PrintSettings print = settings.print;
       print.raw.ribbon    = ribbon;
@@ -288,7 +288,7 @@ void App::draw_roll_wizard() {
     wizard.step = Done;
   }
   ImGui::SameLine();
-  if (button("Annuler"))
+  if (button("Annuler") || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }

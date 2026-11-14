@@ -610,7 +610,7 @@ void Inateck::draw_inventory_qr(const InateckSnapshot& state) {
         open = false;
       }
       ImGui::SameLine();
-      if (button("Annuler"))
+      if (button("Annuler") || escape_pressed()) // pas d'Entree : suppression definitive
         open = false;
     } else {
       // Les commandes d'envoi du SDK n'envoient que sur le cable USB : en Bluetooth, seul le QR marche
@@ -628,7 +628,7 @@ void Inateck::draw_inventory_qr(const InateckSnapshot& state) {
         ImGui::TextColored(colors::green, "%s", state.message.c_str());
       if (inventory_qr_ == InventoryQr::Upload)
         draw_inventory_codes(state);
-      if (button("Fermer"))
+      if (button("Fermer") || enter_pressed() || escape_pressed())
         open = false;
     }
   }

@@ -42,7 +42,7 @@ bool confirm_action(const char *label, const std::string &question, const char *
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 460.0f);
     ImGui::TextUnformatted(question.c_str());
     ImGui::PopTextWrapPos();
-    if (warning ? warning_button(confirm_label) : primary_button(confirm_label)) {
+    if ((warning ? warning_button(confirm_label) : primary_button(confirm_label)) || enter_pressed()) {
       confirmed = true;
       ImGui::CloseCurrentPopup();
     }
@@ -353,7 +353,7 @@ class ListsWindow final : public AppWindow {
       }
       ImGui::PopTextWrapPos();
       const std::string label = replaces ? "Remplacer " + ask["replaces"]["lot_name"].str() : std::string("Ajouter à la liste");
-      if (primary_button(label.c_str())) {
+      if (primary_button(label.c_str()) || enter_pressed()) {
         Json body;
         body["lot"] = ask["lot"].str();
         call(app, "add-lot", body, [this, &app](const ApiResult &result) {
@@ -369,7 +369,7 @@ class ListsWindow final : public AppWindow {
         ImGui::CloseCurrentPopup();
       }
       ImGui::SameLine();
-      if (button("Annuler"))
+      if (button("Annuler") || escape_pressed())
         ImGui::CloseCurrentPopup();
       ImGui::EndPopup();
     }
@@ -682,7 +682,9 @@ class ListsWindow final : public AppWindow {
       ImGui::PopTextWrapPos();
       for (const auto &[id, name] : verifs) {
         ImGui::PushID(id.c_str());
-        if (primary_button(verifs.size() > 1 ? ("Lancer la vérif de " + name).c_str() : "Lancer la vérif")) {
+        // une seule vérif recommandée : Entree la lance
+        if (primary_button(verifs.size() > 1 ? ("Lancer la vérif de " + name).c_str() : "Lancer la vérif")
+            || (verifs.size() == 1 && enter_pressed())) {
           ImGui::CloseCurrentPopup();
           verif_from_list(app, id);
         }
@@ -690,7 +692,8 @@ class ListsWindow final : public AppWindow {
       }
       const char *go      = !verifs.empty() ? (complete ? "Partir sans la vérif" : "Partir sans tout ni la vérif")
                                             : "Confirmer";
-      const bool  pressed = complete && verifs.empty() ? primary_button(go) : warning_button(go);
+      bool        pressed = complete && verifs.empty() ? primary_button(go) : warning_button(go);
+      pressed             = pressed || (verifs.empty() && enter_pressed());
       if (pressed) {
         ImGui::CloseCurrentPopup();
         validate(app, !complete);
@@ -1341,7 +1344,7 @@ class ListsWindow final : public AppWindow {
         ImGui::TextUnformatted("Rouvrir le départ ? Le matériel sorti revient où il était. La liste redevient à "
                                "préparer, avec ce qui est déjà coché.");
         ImGui::PopTextWrapPos();
-        if (primary_button("Rouvrir le départ")) {
+        if (primary_button("Rouvrir le départ") || enter_pressed()) {
           reopen(app);
           ImGui::CloseCurrentPopup();
         }
