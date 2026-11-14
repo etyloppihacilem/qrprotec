@@ -118,6 +118,26 @@ std::vector<std::string> array_objects(const std::string& json, std::size_t arra
 }
 }
 
+LabelMargins read_label_margins(const Json& label_type)
+{
+    const auto side = [&](const char* key, double fallback) {
+        return std::clamp(label_type[key].num(fallback), 0.0, 10.0);
+    };
+    const double all = side("margin_mm", LabelType::kDefaultMarginMm);
+    return {side("margin_top_mm", all), side("margin_bottom_mm", all), side("margin_left_mm", all),
+            side("margin_right_mm", all)};
+}
+
+void write_label_margins(Json& label_type, const LabelMargins& margins)
+{
+    label_type["margin_mm"] = margins.top;
+    if (margins.uniform()) return;
+    label_type["margin_top_mm"] = margins.top;
+    label_type["margin_bottom_mm"] = margins.bottom;
+    label_type["margin_left_mm"] = margins.left;
+    label_type["margin_right_mm"] = margins.right;
+}
+
 std::string serialize_template(const TemplateDocument& document)
 {
     std::ostringstream output;
@@ -134,9 +154,16 @@ std::string serialize_template(const TemplateDocument& document)
         output << "  \"label_type\": {\"name\": \"" << escape_json(type.name) << "\", \"width_mm\": " << type.width_mm
                << ", \"height_mm\": " << type.height_mm << ", \"rotation\": " << normalize_rotation(type.rotation)
                << ", \"support\": \"" << label_support_id(type.support) << "\"";
-        // marge ecrite seulement si elle differe du defaut : les modeles fournis restent identiques
-        if (std::abs(type.margin_mm - LabelType::kDefaultMarginMm) > 1e-6)
-            output << ", \"margin_mm\": " << type.margin_mm;
+        // marges ecrites seulement si elles different du defaut : les modeles fournis restent identiques ; une
+        // seule valeur si les quatre sont egales, sinon une par cote
+        const LabelMargins& margins = type.margins;
+        if (margins.uniform()) {
+            if (std::abs(margins.top - LabelType::kDefaultMarginMm) > 1e-6)
+                output << ", \"margin_mm\": " << margins.top;
+        } else {
+            output << ", \"margin_top_mm\": " << margins.top << ", \"margin_bottom_mm\": " << margins.bottom
+                   << ", \"margin_left_mm\": " << margins.left << ", \"margin_right_mm\": " << margins.right;
+        }
         output << "},\n";
     }
     output << "  \"parameters\": {";
@@ -254,7 +281,7 @@ bool load_template(TemplateDocument& document, const std::string& path, std::str
         type.height_mm = std::clamp(label_type["height_mm"].num(type.height_mm), 1.0, 500.0);
         type.rotation = normalize_rotation(static_cast<int>(std::lround(label_type["rotation"].num(0.0))));
         type.support = label_support_from_id(label_type["support"].str());
-        type.margin_mm = std::clamp(label_type["margin_mm"].num(LabelType::kDefaultMarginMm), 0.0, 10.0);
+        type.margins = read_label_margins(label_type);
         loaded.label_type = type;
     }
     // valeurs d'apercu des placeholders : objet JSON {"nom": "valeur", ...}

@@ -372,7 +372,7 @@ PhysicalLabel physical_label_for(const LabelType& type, double pixels_per_mm)
     label.height_mm = type.height_mm;
     label.pixels_per_mm = pixels_per_mm > 0.0 ? pixels_per_mm : 8.0;
     label.rotation = normalize_rotation(type.rotation);
-    label.margin_mm = type.effective_margin_mm();
+    label.margins = type.effective_margins();
     return label;
 }
 
@@ -415,12 +415,18 @@ bool fit_to_label(const RasterImage& image, const PhysicalLabel& label, RasterIm
                 if (tx >= 0 && ty >= 0 && tx < width && ty < height)
                     out.at(tx, ty) = source.at(x, y);
             }
-        // cadre des marges : blanc en dehors, l'image utile est plus petite que l'etiquette et centree dessus
-        const int margin = std::clamp(static_cast<int>(std::lround(label.margin_mm * ppmm)), 0, std::min(width, height) / 3);
-        if (margin > 0)
+        // cadre des marges : blanc en dehors (une marge par cote, chacune au plus le tiers de l'etiquette)
+        const auto dots = [&](double mm, int side) {
+            return std::clamp(static_cast<int>(std::lround(std::max(0.0, mm) * ppmm)), 0, side / 3);
+        };
+        const int top = dots(label.margins.top, height);
+        const int bottom = dots(label.margins.bottom, height);
+        const int left = dots(label.margins.left, width);
+        const int right = dots(label.margins.right, width);
+        if (top > 0 || bottom > 0 || left > 0 || right > 0)
             for (int y = 0; y < height; ++y)
                 for (int x = 0; x < width; ++x)
-                    if (x < margin || y < margin || x >= width - margin || y >= height - margin)
+                    if (x < left || y < top || x >= width - right || y >= height - bottom)
                         out.at(x, y) = 255;
         media = MediaSettings{};
         media.width_mm = static_cast<double>(width) / ppmm;

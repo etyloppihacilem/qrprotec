@@ -17,7 +17,9 @@
 // Sur le poste (le seul front branche sur l'API locale), la fenetre « Impressions en attente » s'ouvre d'elle-meme a
 // chaque nouvelle demande, meme sans personne de connecte. Une demande pas imprimee expire en 24 h (serveur).
 
+#include "../core/json.hpp"
 #include "../core/plural.hpp"
+#include "../core/template_io.hpp"
 #include "../render/raster.hpp"
 #include "../ui/widgets.hpp"
 #include "app.hpp"
@@ -55,7 +57,7 @@ Json encode_label(const PrintJob &job) {
     label_type["height_mm"]  = type->height_mm;
     label_type["rotation"]   = normalize_rotation(type->rotation);
     label_type["support"]    = label_support_id(type->support);
-    label_type["margin_mm"]  = type->margin_mm;
+    write_label_margins(label_type, type->margins);
     label["label_type"]      = label_type;
   }
   return label;
@@ -74,7 +76,7 @@ bool decode_label(const Json &label, PrintJob &job) {
     type.height_mm          = label_type["height_mm"].num(type.height_mm);
     type.rotation           = normalize_rotation(static_cast< int >(std::lround(label_type["rotation"].num(0.0))));
     type.support            = label_support_from_id(label_type["support"].str());
-    type.margin_mm          = std::clamp(label_type["margin_mm"].num(LabelType::kDefaultMarginMm), 0.0, 10.0);
+    type.margins            = read_label_margins(label_type);
     job.document.label_type = type;
   }
   return true;

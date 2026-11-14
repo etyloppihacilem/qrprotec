@@ -159,15 +159,18 @@ def _check_label_type(label_type):
         raise PrintError('Étiquette : type d\'étiquette hors limites')
     checked = {'name': str(label_type['name']).strip()[:64], 'width_mm': width, 'height_mm': height,
                'rotation': rotation, 'support': support}
-    # marge de chaque cote (mm) : rien n'est imprime en dehors ; absente, le poste prend sa valeur par defaut
-    if label_type.get('margin_mm') is not None:
+    # marges (mm) : rien n'est imprime en dehors ; margin_mm pour les quatre cotes, puis une cle par cote si
+    # elles different ; absentes, le poste prend sa valeur par defaut
+    for key in ('margin_mm', 'margin_top_mm', 'margin_bottom_mm', 'margin_left_mm', 'margin_right_mm'):
+        if label_type.get(key) is None:
+            continue
         try:
-            margin = float(label_type['margin_mm'])
+            margin = float(label_type[key])
         except (TypeError, ValueError):
             raise PrintError('Étiquette : type d\'étiquette invalide')
         if not 0 <= margin <= 10:
             raise PrintError('Étiquette : type d\'étiquette hors limites')
-        checked['margin_mm'] = margin
+        checked[key] = margin
     return checked
 
 

@@ -223,7 +223,8 @@ TemplateDocument calibration_document(const LabelType& type, bool with_type) {
     // centre de la croix tel que calibration_image le trace
     const float cx = static_cast<float>(document.media.width_pixels() / 2) / ppm;
     const float cy = static_cast<float>(document.media.height_pixels() / 2) / ppm;
-    const float margin = 1.5f + static_cast<float>(type.effective_margin_mm());
+    const LabelMargins frame = type.design_margins();
+    const float margin = 1.5f + static_cast<float>(std::max(frame.top, frame.left));
     // titre et format dans le quart haut-gauche, entre le cadre et la croix ; taille telle que le titre tienne
     const float quarter = std::max(1.0f, cx - margin - 3.0f);
     const float size = std::clamp(std::min({std::min(width, height) / 12.0f, quarter / 7.6f}), 1.2f, 3.0f);
@@ -277,7 +278,7 @@ TemplateDocument calibration_document(const LabelType& type, bool with_type) {
     return document;
 }
 
-RasterImage calibration_image(const TemplateDocument& document, double margin_mm) {
+RasterImage calibration_image(const TemplateDocument& document, const LabelMargins& margins) {
     RasterImage image = render_template(document);
     const int width = image.width;
     const int height = image.height;
@@ -291,22 +292,28 @@ RasterImage calibration_image(const TemplateDocument& document, double margin_mm
     const int mm1 = std::max(1, static_cast<int>(std::lround(ppm)));
     // cadre plein (2 points) au bord du cadre des marges, pointille 1 mm a l'interieur : l'etalonnage consiste a
     // faire rentrer le cadre plein entier, avec autant de blanc de chaque cote
-    const int m = std::clamp(static_cast<int>(std::lround(std::max(0.0, margin_mm) * ppm)), 0, std::min(width, height) / 3);
-    const int inner = m + mm1;
-    for (int x = m; x < width - m; ++x) {
-        for (const int y : {m, m + 1, height - 2 - m, height - 1 - m})
+    // (une marge par cote, chacune au plus le tiers de l'etiquette, comme fit_to_label)
+    const auto dots = [&](double mm, int side) {
+        return std::clamp(static_cast<int>(std::lround(std::max(0.0, mm) * ppm)), 0, side / 3);
+    };
+    const int top = dots(margins.top, height);
+    const int bottom = dots(margins.bottom, height);
+    const int left = dots(margins.left, width);
+    const int right = dots(margins.right, width);
+    for (int x = left; x < width - right; ++x) {
+        for (const int y : {top, top + 1, height - 2 - bottom, height - 1 - bottom})
             dot(x, y);
-        if (x % 4 == 0 && x >= inner && x < width - inner) {
-            dot(x, inner);
-            dot(x, height - 1 - inner);
+        if (x % 4 == 0 && x >= left + mm1 && x < width - right - mm1) {
+            dot(x, top + mm1);
+            dot(x, height - 1 - bottom - mm1);
         }
     }
-    for (int y = m; y < height - m; ++y) {
-        for (const int x : {m, m + 1, width - 2 - m, width - 1 - m})
+    for (int y = top; y < height - bottom; ++y) {
+        for (const int x : {left, left + 1, width - 2 - right, width - 1 - right})
             dot(x, y);
-        if (y % 4 == 0 && y >= inner && y < height - inner) {
-            dot(inner, y);
-            dot(width - 1 - inner, y);
+        if (y % 4 == 0 && y >= top + mm1 && y < height - bottom - mm1) {
+            dot(left + mm1, y);
+            dot(width - 1 - right - mm1, y);
         }
     }
     // croix au centre (2 points d'epaisseur), graduee tous les millimetres depuis le centre

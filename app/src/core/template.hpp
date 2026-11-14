@@ -36,6 +36,23 @@ const char*  label_support_id(LabelSupport support);    // "direct", "transfer" 
 const char*  label_support_label(LabelSupport support); // texte affiche
 LabelSupport label_support_from_id(const std::string& id);
 
+// Marges d'une etiquette (mm), une par cote. Celles d'un type d'etiquette sont donnees sur l'etiquette telle qu'elle
+// sort de l'imprimante (haut = premier bord sorti, gauche/droite dans le sens de la tete), comme les decalages.
+struct LabelMargins {
+    double top = 0.0;
+    double bottom = 0.0;
+    double left = 0.0;
+    double right = 0.0;
+
+    static LabelMargins all(double value) { return {value, value, value, value}; }
+    bool uniform() const; // les quatre egales (a 0,01 mm pres)
+    bool operator==(const LabelMargins& other) const;
+    bool operator!=(const LabelMargins& other) const { return !(*this == other); }
+    // Memes marges vues sur un modele pose sur l'etiquette apres un quart de tour horaire `rotation` (0, 90, 180,
+    // 270) : marges du modele a partir de celles de l'etiquette.
+    LabelMargins rotated_to_design(int rotation) const;
+};
+
 // Type d'etiquette (rouleau) : enregistre dans chaque modele qui l'utilise, la liste des types est reconstruite
 // a la lecture des modeles. Largeur dans le sens de la tete d'impression, hauteur dans le sens du defilement.
 struct LabelType {
@@ -46,19 +63,24 @@ struct LabelType {
     // 0, 90, 180 ou 270. A 90 et 270, le modele est dessine en largeur = hauteur de l'etiquette.
     int rotation = 0;
     LabelSupport support = LabelSupport::Direct;
-    // Marge d'impression de chaque cote (mm) : cadre dans lequel le modele est imprime, centre sur l'etiquette.
-    // Ce qui depasse du cadre n'est pas imprime : l'imprimante peut se decaler de quelques dixiemes de mm
-    // sans rien couper. Ecrite dans le .qr seulement si elle differe de la valeur par defaut.
+    // Marges d'impression (mm, une par cote, sur l'etiquette qui sort de l'imprimante) : cadre dans lequel le
+    // modele est imprime. Ce qui depasse du cadre n'est pas imprime : l'imprimante peut se decaler de quelques
+    // dixiemes de mm sans rien couper. Ecrites dans le .qr seulement si elles different de la valeur par defaut
+    // (« margin_mm » si les quatre sont egales, sinon une cle par cote).
     static constexpr double kDefaultMarginMm = 1.0;
-    double margin_mm = kDefaultMarginMm;
+    LabelMargins margins = LabelMargins::all(kDefaultMarginMm);
 
     bool operator==(const LabelType& other) const;
     bool operator!=(const LabelType& other) const { return !(*this == other); }
     // Format du modele (canevas de l'editeur) qui correspond a ce type
     double design_width_mm() const;
     double design_height_mm() const;
-    // Marge utilisable : jamais plus du tiers du plus petit cote
-    double effective_margin_mm() const;
+    // Marges utilisables, sur l'etiquette : chacune au plus le tiers de la largeur (gauche, droite) ou de la
+    // hauteur (haut, bas)
+    LabelMargins effective_margins() const;
+    // Marges utilisables vues sur le modele (orientation d'impression appliquee) : cadre de l'editeur et de
+    // l'etiquette d'etalonnage
+    LabelMargins design_margins() const;
     std::string summary() const; // ex : « 40 x 30 mm, droite, thermique direct »
 };
 

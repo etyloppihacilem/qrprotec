@@ -67,11 +67,38 @@ const char *label_rotation_label(int rotation) {
 bool LabelType::operator==(const LabelType &other) const {
   return name == other.name && std::abs(width_mm - other.width_mm) < 1e-6 && std::abs(height_mm - other.height_mm) < 1e-6
       && normalize_rotation(rotation) == normalize_rotation(other.rotation) && support == other.support
-      && std::abs(margin_mm - other.margin_mm) < 1e-6;
+      && margins == other.margins;
 }
 
-double LabelType::effective_margin_mm() const {
-  return std::clamp(margin_mm, 0.0, std::min(width_mm, height_mm) / 3.0);
+bool LabelMargins::operator==(const LabelMargins &other) const {
+  return std::abs(top - other.top) < 1e-6 && std::abs(bottom - other.bottom) < 1e-6
+      && std::abs(left - other.left) < 1e-6 && std::abs(right - other.right) < 1e-6;
+}
+
+bool LabelMargins::uniform() const {
+  return std::abs(top - bottom) < 0.005 && std::abs(top - left) < 0.005 && std::abs(top - right) < 0.005;
+}
+
+LabelMargins LabelMargins::rotated_to_design(int rotation) const {
+  // le modele est tourne d'un quart de tour horaire pour aller sur l'etiquette : son haut devient la droite de
+  // l'etiquette, sa droite le bas, son bas la gauche, sa gauche le haut
+  switch (normalize_rotation(rotation)) {
+  case 90: return { right, left, top, bottom };
+  case 180: return { bottom, top, right, left };
+  case 270: return { left, right, bottom, top };
+  default: return *this;
+  }
+}
+
+LabelMargins LabelType::effective_margins() const {
+  const double across = std::max(0.0, width_mm / 3.0);
+  const double along  = std::max(0.0, height_mm / 3.0);
+  return { std::clamp(margins.top, 0.0, along), std::clamp(margins.bottom, 0.0, along),
+           std::clamp(margins.left, 0.0, across), std::clamp(margins.right, 0.0, across) };
+}
+
+LabelMargins LabelType::design_margins() const {
+  return effective_margins().rotated_to_design(rotation);
 }
 
 double LabelType::design_width_mm() const {
@@ -88,8 +115,14 @@ std::string LabelType::summary() const {
     std::snprintf(text, sizeof(text), "%g", std::round(value * 10.0) / 10.0);
     return std::string(text);
   };
+  std::string margin_text;
+  if (margins.uniform())
+    margin_text = margins.top > 0.0 ? ", marges " + mm(margins.top) + " mm" : ", sans marge";
+  else // haut / bas / gauche / droite, comme les champs de l'editeur
+    margin_text = ", marges " + mm(margins.top) + "/" + mm(margins.bottom) + "/" + mm(margins.left) + "/"
+                + mm(margins.right) + " mm (h/b/g/d)";
   return mm(width_mm) + " x " + mm(height_mm) + " mm, " + label_rotation_label(rotation) + ", "
-       + label_support_label(support) + (margin_mm > 0.0 ? ", marges " + mm(margin_mm) + " mm" : ", sans marge");
+       + label_support_label(support) + margin_text;
 }
 
 void apply_label_type(MediaSettings &media, const LabelType &type) {

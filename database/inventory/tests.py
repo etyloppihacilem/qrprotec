@@ -6851,6 +6851,16 @@ class LabelPrintTests(ApiTestCase):
         response = send([typed])
         code, printed = self.call('POST', f"/api/label-prints/{response.json()['id']}/print/", {}, session=False)
         self.assertEqual(printed['labels'][0]['label_type']['margin_mm'], 1.0)
+        # une marge par cote : transmises telles quelles, bornees de meme
+        typed['label_type'].update({'margin_top_mm': 2, 'margin_bottom_mm': 0, 'margin_left_mm': 0.5,
+                                    'margin_right_mm': 1.5})
+        response = send([typed])
+        code, printed = self.call('POST', f"/api/label-prints/{response.json()['id']}/print/", {}, session=False)
+        sent = printed['labels'][0]['label_type']
+        self.assertEqual((sent['margin_top_mm'], sent['margin_bottom_mm'], sent['margin_left_mm'],
+                          sent['margin_right_mm']), (2.0, 0.0, 0.5, 1.5))
+        bad['label_type'] = {'name': 'PET', 'width_mm': 40, 'height_mm': 30, 'margin_left_mm': -1}
+        self.assertEqual(send([bad]).status_code, 400)
 
 
 class LotStateReportTests(LotSheetTests.__base__):

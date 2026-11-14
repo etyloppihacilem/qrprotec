@@ -444,12 +444,45 @@ void Editor::draw_label_types() {
   if (ImGui::Combo("Support", &support, "Thermique direct (sans ruban)\0Transfert thermique (ruban)\0"))
     type.support = support == 1 ? LabelSupport::Transfer : LabelSupport::Direct;
   ImGui::SetItemTooltip("Imprimantes TSPL / ZPL : ruban ou non. La Niimbot B1 imprime toujours en thermique direct.");
-  float margin = static_cast< float >(type.margin_mm);
-  if (ImGui::InputFloat("Marge de chaque côté (mm)", &margin, 0.1f, 0.5f, "%.1f"))
-    type.margin_mm = std::clamp(std::round(margin * 10.0f) / 10.0f, 0.0f, 10.0f);
-  ImGui::SetItemTooltip("Cadre pointillé orange dans l'éditeur : rien n'est imprimé en dehors, et l'étiquette "
-                        "d'étalonnage trace son cadre plein dessus. 1 mm par défaut : l'imprimante peut se "
-                        "décaler de quelques dixièmes sans rien couper.");
+  const auto margin_field = [](const char *label, double &value) {
+    float margin = static_cast< float >(value);
+    const bool changed = ImGui::InputFloat(label, &margin, 0.1f, 0.5f, "%.1f");
+    if (changed)
+      value = std::clamp(std::round(margin * 10.0f) / 10.0f, 0.0f, 10.0f);
+    return changed;
+  };
+  const char *margin_help = "Cadre pointillé orange dans l'éditeur : rien n'est imprimé en dehors, et l'étiquette "
+                            "d'étalonnage trace son cadre plein dessus. 1 mm par défaut : l'imprimante peut se "
+                            "décaler de quelques dixièmes sans rien couper.";
+  bool same_margins = type.margins.uniform() && margins_per_side_type_ != selected_label_type_;
+  if (ImGui::Checkbox("Même marge des quatre côtés", &same_margins)) {
+    if (same_margins) {
+      type.margins           = LabelMargins::all(type.margins.top);
+      margins_per_side_type_ = -1;
+    } else {
+      margins_per_side_type_ = selected_label_type_;
+    }
+  }
+  ImGui::SetItemTooltip("Décochée : une marge pour chaque côté (haut, bas, gauche, droite), par exemple pour garder "
+                        "plus de blanc du côté où l'imprimante déborde.");
+  if (same_margins) {
+    double all = type.margins.top;
+    if (margin_field("Marge de chaque côté (mm)", all))
+      type.margins = LabelMargins::all(all);
+    ImGui::SetItemTooltip("%s", margin_help);
+  } else {
+    // cotes de l'etiquette qui sort de l'imprimante, comme les decalages des Reglages
+    margin_field("Marge en haut (mm)", type.margins.top);
+    ImGui::SetItemTooltip("Bord de l'étiquette qui sort en premier de l'imprimante. %s", margin_help);
+    margin_field("Marge en bas (mm)", type.margins.bottom);
+    ImGui::SetItemTooltip("Bord de l'étiquette qui sort en dernier de l'imprimante. %s", margin_help);
+    margin_field("Marge à gauche (mm)", type.margins.left);
+    ImGui::SetItemTooltip("À gauche de l'étiquette qui sort de l'imprimante, vue de face. %s", margin_help);
+    margin_field("Marge à droite (mm)", type.margins.right);
+    ImGui::SetItemTooltip("À droite de l'étiquette qui sort de l'imprimante, vue de face. %s", margin_help);
+    if (normalize_rotation(type.rotation) != 0)
+      ImGui::TextDisabled("Côtés de l'étiquette imprimée : le cadre orange les montre sur le modèle tourné.");
+  }
   ImGui::TextDisabled("Format des modèles de ce type : %.1f x %.1f mm", type.design_width_mm(), type.design_height_mm());
   ImGui::Separator();
   if (entry.in_files) {
@@ -1474,11 +1507,11 @@ void Editor::draw_canvas() {
   draw->AddRect(label, label_end, IM_COL32(120, 120, 120, 255));
   // cadre des marges du type d'etiquette : rien n'est imprime en dehors (bande grisee), le modele est centre dessus
   if (document_.label_type) {
-    const float margin = static_cast< float >(document_.label_type->effective_margin_mm());
-    if (margin > 0.0f) {
+    const LabelMargins margins = document_.label_type->design_margins(); // cotes du modele (orientation appliquee)
+    if (margins.top > 0.0 || margins.bottom > 0.0 || margins.left > 0.0 || margins.right > 0.0) {
       const ImU32  shade = IM_COL32(120, 120, 120, 70);
-      const ImVec2 in_min = screen(margin, margin);
-      const ImVec2 in_max = screen(width - margin, height - margin);
+      const ImVec2 in_min = screen(static_cast< float >(margins.left), static_cast< float >(margins.top));
+      const ImVec2 in_max = screen(width - static_cast< float >(margins.right), height - static_cast< float >(margins.bottom));
       draw->AddRectFilled(label, ImVec2(label_end.x, in_min.y), shade);
       draw->AddRectFilled(ImVec2(label.x, in_max.y), label_end, shade);
       draw->AddRectFilled(ImVec2(label.x, in_min.y), ImVec2(in_min.x, in_max.y), shade);

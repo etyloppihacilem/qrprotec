@@ -183,6 +183,8 @@ private:
     bool show_types_tab_ = false;  // bascule sur l'onglet Types d'etiquettes
     std::vector<EditorLabelType> label_types_;
     int selected_label_type_ = -1;
+    // type dont les marges sont affichees cote par cote alors qu'elles sont encore egales (case decochee)
+    int margins_per_side_type_ = -1;
     std::string label_types_message_;
 
     // Historique
