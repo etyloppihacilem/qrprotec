@@ -122,7 +122,7 @@ jobs:
           packaging/publish-flatpak.sh pages "$url" repo QRProtec-front.flatpak
           cd pages
           # caches locaux d'OSTree, recrees au besoin
-          rm -rf flatpak/tmp flatpak/state
+          rm -rf flatpak/tmp flatpak/state flatpak/.lock
           git add -A
           git commit -m "QRProtec $GITHUB_REF_NAME (Flatpak)"
           # depot dnf publie en meme temps par rpm.yml : on reprend sa publication avant de pousser

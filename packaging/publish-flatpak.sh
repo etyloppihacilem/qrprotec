@@ -38,6 +38,9 @@ repo=$pages/flatpak
 if [[ ! -f $repo/config ]]; then
     ostree init --mode=archive-z2 --repo="$repo"
 fi
+# git ne garde pas les dossiers vides : un depot deja publie sur gh-pages revient sans refs/remotes,
+# refs/mirrors, tmp... et ostree / flatpak build-update-repo echouent (opendir(refs/remotes)). On les recree.
+mkdir -p "$repo"/{objects,refs/heads,refs/remotes,refs/mirrors,tmp,state,extensions}
 
 # L'application et ses extensions (.Debug, .Locale) construites par flatpak-builder
 mapfile -t refs < <(ostree refs --repo="$source_repo" | grep -E "^(app|runtime)/${app_id//./\\.}([./]|$)")

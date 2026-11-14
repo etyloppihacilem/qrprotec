@@ -43,3 +43,5 @@ sed -i "s|^Icon=qrprotec$|Icon=$FLATPAK_ID|" "$PREFIX/share/applications/$FLATPA
 install -Dm644 database/inventory/web/icon-512.png "$PREFIX/share/icons/hicolor/512x512/apps/$FLATPAK_ID.png"
 install -Dm644 database/inventory/web/icon-192.png "$PREFIX/share/icons/hicolor/192x192/apps/$FLATPAK_ID.png"
 install -Dm644 database/inventory/web/favicon.png "$PREFIX/share/icons/hicolor/32x32/apps/$FLATPAK_ID.png"
+# Donnees AppStream : branche appstream du depot Flatpak (Logiciels / Discover)
+install -Dm644 packaging/flatpak/$FLATPAK_ID.metainfo.xml "$PREFIX/share/metainfo/$FLATPAK_ID.metainfo.xml"
