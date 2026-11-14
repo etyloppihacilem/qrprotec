@@ -6407,6 +6407,11 @@
     launch.hidden = false;
     $('#fiche-actions').hidden = false;
     launch.disabled = false;
+    // Retour / Accueil : caches sur la fiche d'un objet perdu pour qui n'est pas connecte (la personne qui l'a
+    // trouve), et pendant le chargement d'un item, tant qu'on ne sait pas si c'en est un
+    const noNav = !hasIdentity() && !fiche.error && fiche.kind === 'item' && (!fiche.item || fiche.item.lost_object);
+    $('#fiche-back').hidden = noNav;
+    $('#fiche-home').hidden = noNav;
     if (fiche.error) {
       body.replaceChildren(el('div', { class: 'banner bad' }, fiche.error), showIds() ? el('p', { class: 'sub' }, fiche.id) : '');
       launch.disabled = true;
