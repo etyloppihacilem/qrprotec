@@ -248,6 +248,10 @@ class ItemType(models.Model):
     fills = models.PositiveIntegerField(default=1)
     # sous-type propose par defaut (reception, commande, reassort) d'un type a unites
     default_subtype = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    # Objet qu'on peut perdre (ex : ordinateur) : la fiche ouverte par le scan de son etiquette affiche le message
+    # « objet perdu » (ServerSettings.lost_object_message, le meme pour tous), sans etat vert, sans lot et sans
+    # informations de verif (ces objets ne sont souvent dans aucune verif).
+    lost_object = models.BooleanField(default=False)
 
     @property
     def is_unit_group(self) -> bool:
@@ -1299,6 +1303,11 @@ class NotificationSettings(models.Model):
 SCANNER_VOLUMES = (0, 2, 4, 8)
 
 
+DEFAULT_LOST_OBJECT_MESSAGE = ("Cet objet appartient à une équipe de secouristes. Vous l'avez trouvé ? Merci de "
+                               "le rapporter ou de nous contacter.")
+LOST_OBJECT_MESSAGE_MAX = 2000
+
+
 class ServerSettings(models.Model):
     """Reglages du serveur communs a tous les fronts (une seule ligne, pk=1)."""
     # Operations sur un lot (verif, ajout d'items, ouverture du scelle) sans badge, sous un nom declare et non
@@ -1340,6 +1349,9 @@ class ServerSettings(models.Model):
     # Consommables d'etiquettes (bobines, rubans) : tache « Commander » au poste quand le stock estime tient moins de
     # ce nombre de jours au rythme des impressions (delai de commande et de livraison compris)
     consumable_alert_days = models.PositiveSmallIntegerField(default=60)
+    # Message « objet perdu », le meme pour tous les types d'items coches ItemType.lost_object : affiche sur la fiche
+    # ouverte par le scan de l'etiquette (appareil photo de la personne qui l'a trouve). Modifiable par la gestion.
+    lost_object_message = models.TextField(blank=True, default=DEFAULT_LOST_OBJECT_MESSAGE)
 
     @classmethod
     def get(cls):

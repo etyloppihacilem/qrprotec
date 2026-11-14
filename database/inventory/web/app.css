@@ -62,6 +62,11 @@ dl.facts dd { margin: 0; }
 #reported .reported-item p, .fiche-reports .reported-item p { margin: 4px 0; }
 /* signalements en cours sur la fiche d'un lot ou d'un item : toujours visibles, sous l'etat */
 .fiche-reports { margin: 10px 0; }
+/* fiche d'un objet qu'on peut perdre (ordinateur...) : message commun, pour la personne qui l'a trouve */
+.lost-message { margin: 10px 0; padding: 14px 16px; border-radius: 10px; background: var(--navy-bg);
+  border-left: 5px solid var(--navy); color: var(--text); }
+.lost-message b { display: block; font-size: 1.15em; margin-bottom: 6px; }
+.lost-message p { margin: 0; white-space: pre-wrap; font-size: 1.05em; line-height: 1.45; }
 .fiche-reports h3 { margin: 0 0 4px; }
 .fiche-reports .reported-item.bad { background: var(--red-bg); }
 

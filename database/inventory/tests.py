@@ -1797,6 +1797,40 @@ class BadgeKeyTests(ApiTestCase):
         self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M002', 'key': None}, local=False)[0], 403)
 
 
+class LostObjectTests(ApiTestCase):
+    def test_lost_object_fiche(self):
+        laptop = ItemType.objects.create(type='ordina', name='Ordinateur', consumable=False)
+        item = self.create(laptop, None, 1)[0]
+        Items.objects.filter(iid=item.iid).update(location=self.lot)
+        # type ordinaire : dernier emplacement, pas de message
+        code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertFalse(body['lost_object'])
+        self.assertNotIn('lost_message', body)
+        self.assertEqual(body['last_location']['id'], self.lot.id)
+        # case cochee sur le type (gestion) : message commun, pas de lot
+        code, body = self.call('PATCH', '/api/item-types/ordina/', {'lost_object': True})
+        self.assertEqual(code, 200, body)
+        self.assertTrue(body['lost_object'])
+        code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertTrue(body['lost_object'])
+        self.assertIsNone(body['last_location'])
+        self.assertIn('secouristes', body['lost_message'])  # message par defaut
+        # message modifie (le meme pour tous les objets)
+        code, body = self.call('PATCH', '/api/lost-object-message/', {'message': '  Appelez le 01 23 45 67 89  '})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body['message'], 'Appelez le 01 23 45 67 89')
+        self.assertEqual(self.call('GET', '/api/lost-object-message/')[1]['message'], 'Appelez le 01 23 45 67 89')
+        code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertEqual(body['lost_message'], 'Appelez le 01 23 45 67 89')
+        self.assertEqual(self.call('PATCH', '/api/lost-object-message/', {'message': 'x' * 2001})[0], 400)
+        # modification reservee a la gestion
+        self.assertEqual(self.call('PATCH', '/api/lost-object-message/', {'message': 'a'}, session=False)[0], 403)
+        # creation directe avec la case
+        code, body = self.call('POST', '/api/item-types/', {'type': 'tablet', 'name': 'Tablette', 'lost_object': True})
+        self.assertEqual(code, 201, body)
+        self.assertTrue(body['lost_object'])
+
+
 class RestockTests(ApiTestCase):
     def test_restock_recommends_verif(self):
         new = self.create(self.compresses, self.today + timedelta(days=90), 2)

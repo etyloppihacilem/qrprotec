@@ -95,6 +95,11 @@ Conseils :
   ni en stock) au lieu d'être compté comme utilisé ou perdu. Il rejoint le stock quand il est scanné
   à une vérif du stock, ou avec « Remettre en stock » dans l'Inventaire. Sorti du stock sans lot, il
   reste « sorti » jusqu'à son retour.
+- **Message objet perdu sur sa fiche** (ex : ordinateur, tablette) : scanner l'étiquette d'un objet
+  de ce type avec l'appareil photo d'un téléphone ouvre une fiche avec le **message objet perdu**,
+  pour la personne qui l'a trouvé : pas d'état vert, pas de lot, pas d'informations sur les vérifs.
+  Le message est **le même pour tous les objets** : il se modifie sous la case cochée (**Enregistrer
+  le message**, rôles gestion et admin). Mettez-y de quoi vous joindre.
 - **Révision tous les (mois)** (matériel non consommable, ex : aspirateur de mucosités tous les
   3 mois) : 0 pour pas de révision. Chaque item a une date de prochaine révision : à la réception,
   puis à chaque révision, elle vaut la date du jour + ce nombre de mois (modifiable au moment de la

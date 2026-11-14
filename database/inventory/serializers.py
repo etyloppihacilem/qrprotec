@@ -67,6 +67,8 @@ def item_type_dict(item_type):
         'group': item_type.group_id or '',
         'fills': item_type.fills,
         'default_subtype': item_type.default_subtype_id or '',
+        # objet qu'on peut perdre (ordinateur...) : fiche avec le message « objet perdu », sans etat, lot ni verifs
+        'lost_object': item_type.lost_object,
     }
 
 
@@ -86,6 +88,9 @@ def item_dict(item, today=None):
         'label_style': item.pack.item_type.label_style,
         # non consommable : absent a la verif d'un lot, il passe hors lot (ni utilise, ni disparu)
         'consumable': item.pack.item_type.consumable,
+        # objet qu'on peut perdre : la fiche affiche le message « objet perdu » (item_detail), sans etat vert, sans
+        # lot et sans informations de verif
+        'lost_object': item.pack.item_type.lost_object,
         # taches a cocher a la verif (etiquette de taches) : l'item ne compte qu'une fois toutes validees
         'tasks': list(item.pack.item_type.tasks or []),
         'task_url': public_url('task', id=compact_iid(item.iid)),
@@ -814,6 +819,7 @@ def server_settings_dict(settings_row):
         'restock_credit_outings': settings_row.restock_credit_outings,
         'restock_credit_days': settings_row.restock_credit_days,
         'storage_verif_outings': settings_row.storage_verif_outings,
+        'lost_object_message': settings_row.lost_object_message,
     }
 
 

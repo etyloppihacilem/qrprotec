@@ -6304,7 +6304,8 @@
         const item = await api(`items/${encodeURIComponent(id)}/`);
         if (fiche.token !== token) return;
         fiche.item = item;
-        if (item.reported) alertReports('item:' + item.iid, `Item signalé : ${item.type_name}`, item.reports);
+        // objet perdu scanne par la personne qui l'a trouve : pas de popup des signalements
+        if (item.reported && (!item.lost_object || hasIdentity())) alertReports('item:' + item.iid, `Item signalé : ${item.type_name}`, item.reports);
       }
     } catch (e) {
       if (fiche.token !== token) return;
@@ -6723,7 +6724,39 @@
 
   const ITEM_STATUS = { out: 'Sorti du stock', loose: 'Hors lot, pas encore en stock', missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Remplacé (périmé)' };
 
+  // Objet qu'on peut perdre (type coche « message objet perdu », ex : ordinateur) : la fiche est d'abord pour la
+  // personne qui l'a trouve et scanne son etiquette. Le message commun, sans etat vert, sans lot ni informations de
+  // verif (ces objets ne sont souvent dans aucune verif). Gestion/admin gardent un etat a remplacer et les dates utiles.
+  function renderLostObjectFiche(body, item) {
+    $('#fiche-launch').hidden = true;
+    const add = $('#fiche-add');
+    add.hidden = !verifInProgress();
+    add.textContent = `Ajouter aux scans de la vérif en cours (${state.lot ? state.lot.name : ''})`;
+    $('#fiche-actions').hidden = add.hidden;
+    const bad = item.disabled ? '✘ Désactivé : à remplacer' : item.unusable ? '✘ Signalé inutilisable : à remplacer'
+      : item.outdated ? '✘ Périmé' : item.expired ? '✘ À remplacer' : '';
+    const fact = (label, ...value) => [el('dt', {}, label), el('dd', {}, ...value)];
+    const message = (item.lost_message || '').trim();
+    body.replaceChildren(
+      el('h2', {}, item.type_name),
+      showIds() ? el('div', { class: 'sub' }, item.iid) : '',
+      el('div', { class: 'lost-message' }, el('b', {}, 'Objet perdu ?'),
+        message ? el('p', {}, message) : el('p', { class: 'sub' }, 'Aucun message défini.')),
+      detailed() && bad ? el('div', { class: 'banner bad' }, bad) : '',
+      hasIdentity() ? reportsBlock((item.reports || []).map((report) => ({ report }))) : '',
+      hasIdentity() && item.revision && !['deleted', 'replaced'].includes(item.status)
+        ? el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(item) }, icon('wrench'), 'Réviser') : '',
+      hasIdentity() ? reportButton({ item: item.iid, label: withId(item.type_name, item.iid), lot: item.location, lotName: item.location_name }) : '',
+      detailed() ? el('dl', { class: 'facts' },
+        item.peremption ? fact('Péremption', fmtDate(item.peremption)) : [],
+        item.revision ? fact('Révision', item.revision_due ? `prochaine le ${fmtDate(item.revision_due)}` : 'pas encore prévue') : [],
+        fact('Ajouté', item.added ? cap(fmtDateTime(item.added, { long: true })) + (item.added_by ? ' par ' + item.added_by : '') : '–'),
+        item.deleted_reason ? fact('Raison', item.deleted_reason) : []) : '',
+    );
+  }
+
   function renderItemFiche(body, item) {
+    if (item.lost_object) { renderLostObjectFiche(body, item); return; }
     const where = item.last_location;
     const launch = $('#fiche-launch');
     setLabel(launch, 'verif', where ? `Lancer une vérif de ${where.name}` : 'Lancer une vérif');

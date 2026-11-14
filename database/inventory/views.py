@@ -62,7 +62,7 @@ from .models import (
     DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType, LotTypeSlot,
     SlotMode,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
-    SCANNER_VOLUMES, ConsumableRef, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
+    SCANNER_VOLUMES, LOST_OBJECT_MESSAGE_MAX, ConsumableRef, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -774,6 +774,12 @@ def pin_reset(request):
 @handle_errors
 def item_detail(request, iid):
     item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location__lot_type'), iid=iid)
+    if item.pack.item_type.lost_object:
+        # objet qu'on peut perdre (ordinateur...) : fiche ouverte par la personne qui l'a trouve, avec le message
+        # « objet perdu » ; ni lot ni verif (pas de dernier emplacement, la fiche ne propose pas de vérif)
+        return Response({**ser.item_dict(item), 'last_location': None,
+                         'lost_message': ServerSettings.get().lost_object_message,
+                         'revisions': [ser.revision_dict(revision) for revision in item.revisions.all()[:5]]})
     # fiche de l'item (front web) : dernier emplacement connu, pour ouvrir son lot ou lancer sa verif
     return Response({**ser.item_dict(item), 'last_location': ser.item_last_location(item),
                      'revisions': [ser.revision_dict(revision) for revision in item.revisions.all()[:5]]})
@@ -1785,6 +1791,7 @@ def _create_item_type(request, data, code, name):
         revision_months=parse_int(data.get('revision_months', 0), 'revision_months', 0, MAX_REVISION_MONTHS),
         revision_tasks=parse_tasks(data.get('revision_tasks')),
         revision_usable=bool(data.get('revision_usable', True)),
+        lost_object=bool(data.get('lost_object', False)),
     )
     if any(key in data for key in ('unit', 'group', 'fills', 'default_subtype')):
         apply_units(item_type, data)
@@ -1826,6 +1833,8 @@ def item_type_detail(request, type_code):
             item_type.consumable = bool(data['consumable'])
         if 'tasks' in data:
             item_type.tasks = parse_tasks(data['tasks'])
+        if 'lost_object' in data:
+            item_type.lost_object = bool(data['lost_object'])
         check_tear_off_tasks(item_type.tear_off, item_type.tasks)
         if 'physical' in data and bool(data['physical']) != item_type.physical:
             if not data['physical'] and ItemsPacks.objects.filter(item_type=item_type).exists():
@@ -1873,7 +1882,7 @@ ITEM_TYPE_FIELDS = {
     'consumable': 'consommable', 'physical': 'à cocher', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
     'revision_tasks': 'tâches de révision', 'revision_usable': 'utilisable en retard de révision',
     'archived': 'archivage', 'unit': 'unité', 'group': 'sous-type de', 'fills': 'unités remplies',
-    'default_subtype': 'sous-type par défaut',
+    'default_subtype': 'sous-type par défaut', 'lost_object': 'message objet perdu',
 }
 LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',
                    'seal_required': 'scellé obligatoire', 'archived': 'archivage', 'referentiel': 'référentiel',
@@ -3512,6 +3521,23 @@ def server_settings(request):
                        restock_credit_days=settings_row.restock_credit_days,
                        storage_verif_outings=settings_row.storage_verif_outings)
     return Response(ser.server_settings_dict(settings_row))
+
+
+@api_view(['GET', 'PATCH'])
+@handle_errors
+def lost_object_message(request):
+    """Message « objet perdu », le meme pour tous les types d'items coches lost_object : {"message"}. Lecture par
+    tous (il s'affiche sur la fiche publique de ces objets), modification par la gestion (comme les types d'items)."""
+    if request.method == 'PATCH':
+        require_front(request, GESTION)
+        settings_row = ServerSettings.get()
+        message = str(request.data.get('message') or '').strip()
+        if len(message) > LOST_OBJECT_MESSAGE_MAX:
+            raise ApiError(f'Message objet perdu : {LOST_OBJECT_MESSAGE_MAX} caractères au plus')
+        settings_row.lost_object_message = message
+        settings_row.save(update_fields=['lost_object_message'])
+        journal.record(OperationKind.SETTINGS, front_identity(request), 'message objet perdu modifié')
+    return Response({'message': ServerSettings.get().lost_object_message})
 
 
 def parse_pin_roles(value, name='Code obligatoire'):
