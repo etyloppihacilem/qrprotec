@@ -149,7 +149,16 @@ fs::path real_path(const fs::path &path) {
 bool shared_with_host(const fs::path &path) {
   if (!in_flatpak())
     return true;
-  const std::string mount = mount_point_of(real_path(path));
+  const fs::path    real = real_path(path);
+  const std::string text = real.generic_string();
+  // dossiers temporaires : ephemeres par nature (et /tmp de flatpak-builder, ou passent les tests)
+  std::error_code temp_error;
+  const fs::path  temp = fs::temp_directory_path(temp_error);
+  for (const std::string &root : { std::string("/tmp"), std::string("/var/tmp"),
+                                   temp_error ? std::string() : real_path(temp).generic_string() })
+    if (!root.empty() && root != "/" && has_prefix(text, root))
+      return true;
+  const std::string mount = mount_point_of(real);
   return !mount.empty() && mount != "/";
 }
 
