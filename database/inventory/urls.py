@@ -120,6 +120,7 @@ local_patterns = [
     path('users/<str:matricule>/', views.user_detail),
     path('users/<str:matricule>/renew-key/', views.user_renew_key),
     path('server-settings/', views.server_settings),
+    path('lost-object-message/', views.lost_object_message),
     path('barcodes-printed/', views.barcodes_printed),
     path('print-counts/', views.print_counts_view),  # compteur d'impressions (consommables)
     path('consumables/', views.consumables_view),

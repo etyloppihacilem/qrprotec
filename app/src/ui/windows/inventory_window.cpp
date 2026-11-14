@@ -494,6 +494,7 @@ class InventoryWindow final : public AppWindow {
                   "perdu, et rejoint le stock quand il y est scanné ou remis en stock à la main. Sorti du stock sans lot, il reste « sorti » jusqu'à son retour. Dans un rangement du "
                   "stock, il manque comme les autres items.");
       ImGui::EndDisabled();
+      draw_lost_object(app);
       ImGui::TextUnformatted("Tâches à la vérif (une par ligne)");
       help_marker("Ex : DAE « Voyant vert allumé », « Électrodes dans leur date ». Les items de ce type ont une "
                   "étiquette de tâches : la scanner pendant une vérif ouvre la liste à cocher, et l'item n'est "
@@ -537,6 +538,7 @@ class InventoryWindow final : public AppWindow {
       body["physical"]          = !form_to_check_;
       body["label_style"]       = kLabelStyles[form_label_style_];
       body["consumable"]        = !form_non_consumable_;
+      body["lost_object"]       = form_lost_object_ && !form_to_check_;
       body["tasks"]             = Json::array();
       for (const std::string &task : form_task_list())
         body["tasks"].push_back(task);
@@ -602,6 +604,60 @@ class InventoryWindow final : public AppWindow {
       ImGui::EndDisabled();
       if (!editing_type_.empty())
         draw_archive_type(app);
+    }
+
+    // Objet qu'on peut perdre (ex : ordinateur) : la fiche ouverte par le scan de son etiquette affiche le message
+    // « objet perdu », sans etat vert, sans lot ni verifs. Le message est commun a tous les types coches : il se
+    // modifie ici, sous la case, et s'enregistre a part du type.
+    void draw_lost_object(App &app) {
+      ImGui::BeginDisabled(form_to_check_);
+      ImGui::Checkbox("Message objet perdu sur sa fiche", &form_lost_object_);
+      ImGui::EndDisabled();
+      help_marker("Ex : ordinateur, tablette. Scanner l'étiquette d'un objet de ce type (appareil photo d'un "
+                  "téléphone) ouvre une fiche avec le message « objet perdu » ci-dessous, pour la personne qui l'a "
+                  "trouvé : pas d'état vert, pas de lot, pas d'informations sur les vérifs. Le message est le même "
+                  "pour tous les objets.");
+      if (!form_lost_object_ || form_to_check_)
+        return;
+      if (!lost_message_loaded_ && !lost_message_loading_) {
+        lost_message_loading_ = true;
+        app.api.get("/api/lost-object-message/", [this](const ApiResult &result) {
+          lost_message_loading_ = false;
+          if (!result.ok)
+            return;
+          lost_message_loaded_ = true;
+          lost_message_       = result.data["message"].str();
+          lost_message_saved_ = lost_message_;
+        });
+      }
+      // limite du serveur en caracteres, pas en octets (accents)
+      const size_t length = static_cast<size_t>(std::count_if(lost_message_.begin(), lost_message_.end(),
+                                                              [](char c) { return (c & 0xC0) != 0x80; }));
+      ImGui::Indent();
+      ImGui::TextUnformatted("Message objet perdu (commun à tous les objets)");
+      ImGui::BeginDisabled(!lost_message_loaded_);
+      ImGui::InputTextMultiline("##lost_message", &lost_message_, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 4.5f));
+      ImGui::BeginDisabled(lost_message_ == lost_message_saved_ || length > 2000);
+      if (button("Enregistrer le message")) {
+        Json body;
+        body["message"] = lost_message_;
+        app.api.patch("/api/lost-object-message/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          lost_message_       = result.data["message"].str();
+          lost_message_saved_ = lost_message_;
+          app.notify("Message objet perdu enregistré.");
+        });
+      }
+      ImGui::EndDisabled();
+      ImGui::EndDisabled();
+      if (length > 2000)
+        ImGui::TextColored(colors::red, "2000 caractères au plus.");
+      else if (lost_message_loaded_ && lost_message_ != lost_message_saved_)
+        ImGui::TextColored(colors::orange, "Message pas encore enregistré.");
+      ImGui::Unindent();
     }
 
     // Attentes en quantite (« 200 mL de sérum phy » des recommandations) : type a unites, ou sous-type d'un type a
@@ -736,6 +792,7 @@ class InventoryWindow final : public AppWindow {
       form_tear_off_    = item_type["tear_off"].boolean();
       form_label_style_ = label_style_index(item_type["label_style"].str());
       form_non_consumable_ = !item_type["consumable"].boolean(true);
+      form_lost_object_    = item_type["lost_object"].boolean();
       form_to_check_       = !item_type["physical"].boolean(true);
       form_tasks_.clear();
       for (const std::string &task : tasks_of(item_type))
@@ -764,6 +821,7 @@ class InventoryWindow final : public AppWindow {
       form_tear_off_   = false;
       form_label_style_ = 0;
       form_non_consumable_ = false;
+      form_lost_object_    = false;
       form_to_check_       = false;
       form_tasks_.clear();
       form_revision_months_ = 0;
@@ -1268,7 +1326,13 @@ class InventoryWindow final : public AppWindow {
     bool        form_tear_off_   = false;
     int         form_label_style_ = 0; // index dans kLabelStyles
     bool        form_non_consumable_ = false;
+    bool        form_lost_object_    = false; // message « objet perdu » sur la fiche (ItemType.lost_object)
     bool        form_to_check_       = false; // item a cocher (ItemType.physical faux)
+    // message « objet perdu », le meme pour tous les types coches (charge a la premiere case cochee affichee)
+    std::string lost_message_;
+    std::string lost_message_saved_;
+    bool        lost_message_loaded_  = false;
+    bool        lost_message_loading_ = false;
     std::string form_tasks_;
     int         form_revision_months_ = 0;
     bool        form_revision_usable_ = true;
