@@ -9,8 +9,10 @@
 ##################################################################################################################### */
 
 #include "updater.hpp"
+#include "../printer/logging.hpp"
 
 #include <cerrno>
+#include <cstring>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -198,6 +200,8 @@ void Updater::set_state(State state, const std::string &message) {
   std::lock_guard< std::mutex > lock(mutex_);
   status_.state   = state;
   status_.message = message;
+  if (state == State::Error)
+    error_log(message, "mise à jour");
 }
 
 void Updater::run() {
@@ -242,8 +246,8 @@ bool Updater::run_curl(const std::string &url, const std::string &output, int ma
     argv.push_back(arg.data());
   argv.push_back(nullptr);
   pid_t pid = 0;
-  if (posix_spawnp(&pid, kCurl, nullptr, nullptr, argv.data(), environ) != 0) {
-    error = "curl introuvable";
+  if (const int spawned = posix_spawnp(&pid, kCurl, nullptr, nullptr, argv.data(), environ); spawned != 0) {
+    error = std::string("curl non lancé : ") + std::strerror(spawned);
     return false;
   }
   child_ = pid;
@@ -271,7 +275,7 @@ void Updater::check() {
   std::error_code fs_error;
   fs::create_directories(cache_dir_, fs_error);
   if (fs_error) {
-    set_state(State::Error, "Dossier " + cache_dir_ + " impossible à créer");
+    set_state(State::Error, "Dossier " + cache_dir_ + " impossible à créer : " + fs_error.message());
     return;
   }
   const std::string latest = cache_dir_ + "/latest.json";
@@ -320,7 +324,7 @@ void Updater::check() {
     }
     fs::rename(part, file, fs_error);
     if (fs_error) {
-      set_state(State::Error, "Enregistrement de la mise à jour impossible");
+      set_state(State::Error, "Enregistrement de la mise à jour impossible (" + file + ") : " + fs_error.message());
       return;
     }
   }
@@ -349,14 +353,16 @@ bool Updater::install(bool restart, std::string &error) {
   std::error_code   fs_error;
   fs::copy_file(source, script, fs::copy_options::overwrite_existing, fs_error);
   if (fs_error) {
-    error = "Script de mise à jour introuvable : " + source;
+    error = "Script de mise à jour non copié (" + source + " → " + script + ") : " + fs_error.message();
+    error_log(error, "mise à jour");
     return false;
   }
   const std::string pid = std::to_string(::getpid());
   const std::string log = cache_dir_ + "/update.log";
   const pid_t       child = ::fork();
   if (child < 0) {
-    error = "Lancement de la mise à jour impossible";
+    error = std::string("Lancement de la mise à jour impossible : ") + std::strerror(errno);
+    error_log(error, "mise à jour");
     return false;
   }
   if (child == 0) {

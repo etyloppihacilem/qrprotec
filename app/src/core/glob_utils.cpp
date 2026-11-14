@@ -9,6 +9,10 @@
 ##################################################################################################################### */
 
 
+#include "glob_utils.hpp"
+#include "system.hpp"
+#include "../printer/logging.hpp"
+
 #include <filesystem>
 #include <regex>
 #include <string>
@@ -44,10 +48,13 @@ std::vector< fs::path > glob_current_dir(const std::string &pattern) {
   std::vector< fs::path > matches;
   std::regex              reg = glob_to_regex(pattern);
 
-  for (const auto &entry : fs::directory_iterator(".")) {
-    std::string filename = entry.path().filename().string();
+  std::error_code error;
+  for (fs::directory_iterator entry(".", error); !error && entry != fs::directory_iterator(); entry.increment(error)) {
+    std::string filename = entry->path().filename().string();
     if (std::regex_match(filename, reg))
-      matches.push_back(entry.path());
+      matches.push_back(entry->path());
   }
+  if (error)
+    qrprotec::error_log("Lecture du dossier courant impossible : " + qrprotec::system_error_text(error), "modèles");
   return matches;
 }

@@ -198,6 +198,19 @@ Ce qui change par rapport au paquet `qrprotec-front` :
 La fenêtre s'ouvre en X11 (XWayland sous un bureau Wayland), pour avoir la barre de titre du bureau
 et le SDK de la douchette.
 
+**Autre dossier des modèles** (par exemple `app/templates` d'un clone du dépôt, pour les commiter) : le
+Flatpak ne voit que les dossiers qu'on lui ouvre. Donnez-lui accès, puis relancez-le :
+
+```
+flatpak override --user --filesystem=~/chemin/vers/qrprotec io.github.etyloppihacilem.QRProtec
+```
+
+Sur une Fedora atomique (Silverblue, Kinoite…), `/home` est un lien vers `/var/home` : dans le bac à sable,
+seul le chemin réel `/var/home/<vous>/…` est partagé. L'application remplace d'elle-même `/home/…` par
+`/var/home/…`. Un dossier encore inaccessible est signalé en rouge dans les Réglages et l'Éditeur
+d'étiquettes, et dans le journal (`journalctl -t qrprotec-front`). Avant cette vérification, ce
+qu'on y enregistrait restait dans le bac à sable et disparaissait sans erreur à la fermeture.
+
 Un Flatpak installé avant la version qui a ouvert le dépôt (fichier `.flatpak` sans dépôt) ne se met pas
 à jour : réinstallez-le une fois avec la commande `flatpak install` ci-dessus.
 

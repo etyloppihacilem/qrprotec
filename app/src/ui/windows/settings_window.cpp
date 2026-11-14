@@ -270,12 +270,19 @@ class SettingsWindow final : public AppWindow {
       if (ImGui::CollapsingHeader("Étiquettes et impression")) {
         ImGui::TextUnformatted("Dossier des modèles (fichiers .qr et images, à commiter avec le dépôt) :");
         ImGui::SetNextItemWidth(-FLT_MIN);
-        if (ImGui::InputTextWithHint("##templates_dir", default_templates_dir().c_str(), &settings.templates_dir,
-                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
+        // applique a Entree comme en quittant le champ (sinon le dossier tape n'etait jamais pris en compte)
+        const bool entered = ImGui::InputTextWithHint("##templates_dir", default_templates_dir().c_str(),
+                                                      &settings.templates_dir, ImGuiInputTextFlags_EnterReturnsTrue);
+        if (entered || ImGui::IsItemDeactivatedAfterEdit()) {
           set_templates_dir(settings.templates_dir);
           scan_templates();
         }
         ImGui::TextDisabled("Utilisé : %s (vide = app/templates du dépôt)", templates_dir().string().c_str());
+        if (const std::string problem = templates_dir_problem(); !problem.empty()) {
+          ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.2f, 0.1f, 1.0f));
+          ImGui::TextWrapped("%s", problem.c_str());
+          ImGui::PopStyleColor();
+        }
         if (button("Relire les modèles"))
           scan_templates();
         ImGui::SameLine();

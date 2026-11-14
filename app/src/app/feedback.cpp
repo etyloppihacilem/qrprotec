@@ -9,6 +9,10 @@
 ##################################################################################################################### */
 
 #include "feedback.hpp"
+#include "../core/system.hpp"
+#include "../printer/logging.hpp"
+#include <cerrno>
+#include <cstring>
 
 #include "../ui/inateck.hpp"
 #include "imgui.h"
@@ -44,10 +48,19 @@ void run_detached(const std::string &command) {
   std::thread([command]() {
     pid_t       pid     = 0;
     const char *argv[]  = { "/bin/sh", "-c", command.c_str(), nullptr };
-    if (posix_spawn(&pid, "/bin/sh", nullptr, nullptr, const_cast< char *const * >(argv), environ) == 0) {
-      int status = 0;
-      waitpid(pid, &status, 0);
+    const int   spawned = posix_spawn(&pid, "/bin/sh", nullptr, nullptr, const_cast< char *const * >(argv), environ);
+    if (spawned != 0) {
+      error_log("Commande du bip non lancée (" + command + ") : " + std::strerror(spawned), "son");
+      return;
     }
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0)
+      error_log("Commande du bip (" + command + ") : " + errno_text(), "son");
+    else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+      error_log("Commande du bip en échec (" + command + ") : "
+                    + (WIFEXITED(status) ? "code " + std::to_string(WEXITSTATUS(status))
+                                         : "arrêtée par le signal " + std::to_string(WTERMSIG(status))),
+                "son");
   }).detach();
 }
 
@@ -70,9 +83,12 @@ bool write_tones_wav(const std::string &path, const std::vector< double > &tones
     for (int index = 0; index < rate / 25; ++index)
       samples.push_back(0);
   }
+  errno = 0;
   std::ofstream output(path, std::ios::binary);
-  if (!output)
+  if (!output) {
+    error_log("Son " + path + " non écrit : " + errno_text(), "son");
     return false;
+  }
   const std::uint32_t data_size = static_cast< std::uint32_t >(samples.size() * 2);
   output.write("RIFF", 4);
   write_u32(output, 36 + data_size);
@@ -87,6 +103,9 @@ bool write_tones_wav(const std::string &path, const std::vector< double > &tones
   output.write("data", 4);
   write_u32(output, data_size);
   output.write(reinterpret_cast< const char * >(samples.data()), static_cast< std::streamsize >(data_size));
+  output.close();
+  if (!output)
+    error_log("Son " + path + " mal écrit : " + errno_text(), "son");
   return static_cast< bool >(output);
 }
 

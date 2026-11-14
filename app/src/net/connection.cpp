@@ -10,6 +10,7 @@
 
 #include "connection.hpp"
 
+#include <cstring>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <map>
@@ -62,7 +63,7 @@ SSL_CTX *tls_context(const std::string &ca_file, std::string &error) {
 #endif
   SSL_CTX_set_default_verify_paths(context);
   if (!ca_file.empty() && SSL_CTX_load_verify_locations(context, ca_file.c_str(), nullptr) != 1) {
-    error = "Certificat d'autorité illisible : " + ca_file;
+    error = "Certificat d'autorité illisible : " + ca_file + " (" + ssl_error_text() + ")";
     ERR_clear_error();
     SSL_CTX_free(context);
     return nullptr;
@@ -89,29 +90,35 @@ bool Connection::open(const HttpUrl &url, int timeout_ms, std::string &error) {
   hints.ai_socktype = SOCK_STREAM;
   addrinfo         *addresses = nullptr;
   const std::string port      = std::to_string(url.port);
-  if (getaddrinfo(url.host.c_str(), port.c_str(), &hints, &addresses) != 0 || !addresses) {
-    error = "Hôte introuvable : " + url.host;
+  if (const int resolved = getaddrinfo(url.host.c_str(), port.c_str(), &hints, &addresses); resolved != 0 || !addresses) {
+    error = "Hôte introuvable : " + url.host + (resolved != 0 ? std::string(" (") + gai_strerror(resolved) + ")" : std::string());
     return false;
   }
   timeval timeout{ timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
+  int     last_errno = 0;
   for (addrinfo *address = addresses; address && fd_ < 0; address = address->ai_next) {
     const int fd = ::socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-    if (fd < 0)
+    if (fd < 0) {
+      last_errno = errno;
       continue;
+    }
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 #ifdef SO_NOSIGPIPE
     const int no_sigpipe = 1;
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
 #endif
-    if (::connect(fd, address->ai_addr, address->ai_addrlen) == 0)
+    if (::connect(fd, address->ai_addr, address->ai_addrlen) == 0) {
       fd_ = fd;
-    else
+    } else {
+      last_errno = errno;
       ::close(fd);
+    }
   }
   freeaddrinfo(addresses);
   if (fd_ < 0) {
-    error = "Connexion impossible à " + url.host + ":" + port;
+    error = "Connexion impossible à " + url.host + ":" + port
+          + (last_errno != 0 ? std::string(" (") + std::strerror(last_errno) + ")" : std::string());
     return false;
   }
   if (!url.tls)

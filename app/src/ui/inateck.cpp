@@ -9,6 +9,9 @@
 ##################################################################################################################### */
 
 #include "inateck.hpp"
+#include "../core/system.hpp"
+#include "../printer/logging.hpp"
+#include <cerrno>
 #include "../core/plural.hpp"
 #include "widgets.hpp"
 #include "imgui.h"
@@ -59,7 +62,10 @@ Inateck::Inateck() {
 Inateck::~Inateck() { save_hid_settings(); }
 
 void Inateck::load_hid_settings() {
+  errno = 0;
   std::ifstream settings(hid_settings_path());
+  if (!settings && errno != ENOENT) // absent au premier lancement : normal
+    error_log("Réglages de la douchette illisibles (" + hid_settings_path().string() + ") : " + errno_text(), "douchette");
   std::string line;
   while (std::getline(settings, line)) {
     const std::size_t separator = line.find('=');
@@ -87,16 +93,22 @@ void Inateck::load_hid_settings() {
 void Inateck::save_hid_settings() const {
   const std::filesystem::path path = hid_settings_path();
   std::error_code error;
-  if (path.has_parent_path())
-    std::filesystem::create_directories(path.parent_path(), error);
+  if (path.has_parent_path() && !std::filesystem::create_directories(path.parent_path(), error) && error)
+    error_log("Impossible de créer " + path.parent_path().string() + " : " + system_error_text(error), "douchette");
+  errno = 0;
   std::ofstream settings(path);
-  if (!settings)
+  if (!settings) {
+    error_log("Réglages de la douchette non enregistrés (" + path.string() + ") : " + errno_text(), "douchette");
     return;
+  }
   settings << "enabled=" << (hid_enabled_ ? 1 : 0) << '\n'
            << "timeout_ms=" << hid_timeout_ms_ << '\n'
            << "minimum_length=" << hid_minimum_length_ << '\n'
            << "device_id=" << saved_device_id_ << '\n'
            << "model=" << scanner_model_ << '\n';
+  settings.close();
+  if (!settings)
+    error_log("Réglages de la douchette mal écrits (" + path.string() + ") : " + errno_text(), "douchette");
 }
 
 void Inateck::update() {

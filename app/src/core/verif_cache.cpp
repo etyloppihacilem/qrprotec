@@ -7,6 +7,7 @@
 ##################################################################################################################### */
 
 #include "verif_cache.hpp"
+#include "system.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -109,12 +110,10 @@ Json VerifCache::lot(const std::string &root) const {
 void VerifOutbox::load(const std::filesystem::path &file) {
   file_ = file;
   entries_.clear();
-  std::ifstream input(file);
-  if (!input)
+  std::string text;
+  if (!read_file(file, text, "vérifs hors ligne"))
     return;
-  std::stringstream buffer;
-  buffer << input.rdbuf();
-  const Json data = Json::parse(buffer.str());
+  const Json data = Json::parse(text);
   for (const Json &row : data.items())
     entries_.push_back({ row["body"], row["label"].str(), row["at"].str() });
 }
@@ -130,19 +129,8 @@ bool VerifOutbox::save() const {
     row["at"]    = entry.at;
     data.push_back(row);
   }
-  std::error_code error;
-  std::filesystem::create_directories(file_.parent_path(), error);
-  const std::filesystem::path temp = file_.string() + ".tmp";
-  {
-    std::ofstream output(temp, std::ios::trunc);
-    if (!output)
-      return false;
-    output << data.dump();
-    if (!output)
-      return false;
-  }
-  std::filesystem::rename(temp, file_, error);
-  return !error;
+  std::string error;
+  return write_file_atomic(file_, data.dump(), "vérifs hors ligne", error);
 }
 
 void VerifOutbox::push(OutboxEntry entry) {

@@ -9,6 +9,9 @@
 ##################################################################################################################### */
 
 #include "settings.hpp"
+#include "../core/system.hpp"
+#include "../printer/logging.hpp"
+#include <cerrno>
 
 #include <algorithm>
 #include <cstdio>
@@ -119,7 +122,10 @@ ApiEndpoint AppSettings::api_endpoint() const {
 }
 
 void AppSettings::load() {
+  errno = 0;
   std::ifstream input(file_path());
+  if (!input && errno != ENOENT) // absent au premier lancement : normal
+    error_log("Réglages illisibles (" + file_path().string() + ") : " + errno_text() + " ; valeurs par défaut", "réglages");
   std::string   line;
   int           layout_version = 0;
   std::map< std::string, WindowLayout > saved_layout;
@@ -241,16 +247,21 @@ void AppSettings::load() {
 bool AppSettings::save(std::string &error) const {
   const std::filesystem::path path = file_path();
   std::error_code             code;
-  if (path.has_parent_path())
-    std::filesystem::create_directories(path.parent_path(), code);
+  if (path.has_parent_path() && !std::filesystem::create_directories(path.parent_path(), code) && code) {
+    error = "Impossible de créer le dossier " + path.parent_path().string() + " : " + system_error_text(code);
+    return false;
+  }
+  errno = 0;
   std::ofstream output(path);
   if (!output) {
-    error = "Impossible d'écrire " + path.string();
+    error = "Impossible d'écrire " + path.string() + " : " + errno_text();
     return false;
   }
   // le fichier peut contenir la cle API du front
   std::filesystem::permissions(path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
                                std::filesystem::perm_options::replace, code);
+  if (code)
+    error_log("Droits de " + path.string() + " non restreints au propriétaire : " + system_error_text(code), "réglages");
   output << "# Réglages QRProtec (édités depuis la fenêtre Réglages)\n"
          << "api_url=" << api_url << '\n'
          << "api_token=" << api_token << '\n'
@@ -302,8 +313,9 @@ bool AppSettings::save(std::string &error) const {
   for (const auto &[id, window] : layout)
     output << "layout." << id << '=' << (window.open ? 1 : 0) << ',' << window.x << ',' << window.y << ','
            << window.w << ',' << window.h << '\n';
+  output.close();
   if (!output) {
-    error = "Erreur d'écriture des réglages";
+    error = "Erreur d'écriture des réglages (" + path.string() + ") : " + errno_text();
     return false;
   }
   return true;
@@ -315,7 +327,10 @@ std::filesystem::path StoredLogin::file_path() {
 
 StoredLogin StoredLogin::load() {
   StoredLogin   login;
+  errno = 0;
   std::ifstream input(file_path());
+  if (!input && errno != ENOENT)
+    error_log("Session illisible (" + file_path().string() + ") : " + errno_text(), "session");
   std::string   line;
   while (std::getline(input, line)) {
     const std::size_t separator = line.find('=');
@@ -338,24 +353,31 @@ StoredLogin StoredLogin::load() {
 bool StoredLogin::save(std::string &error) const {
   const std::filesystem::path path = file_path();
   std::error_code             code;
-  if (path.has_parent_path())
-    std::filesystem::create_directories(path.parent_path(), code);
-  std::filesystem::remove(path, code);
+  if (path.has_parent_path() && !std::filesystem::create_directories(path.parent_path(), code) && code) {
+    error = "Impossible de créer le dossier " + path.parent_path().string() + " : " + system_error_text(code);
+    return false;
+  }
+  if (!std::filesystem::remove(path, code) && code)
+    error_log("Ancienne session " + path.string() + " non supprimée : " + system_error_text(code), "session");
   // cree vide puis restreint au proprietaire avant d'y ecrire la cle du badge
+  errno = 0;
   std::ofstream output(path);
   if (!output) {
-    error = "Impossible d'écrire " + path.string();
+    error = "Impossible d'écrire " + path.string() + " : " + errno_text();
     return false;
   }
   std::filesystem::permissions(path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
                                std::filesystem::perm_options::replace, code);
+  if (code)
+    error_log("Droits de " + path.string() + " non restreints au propriétaire : " + system_error_text(code), "session");
   output << "# Session QRProtec de cette machine (non partagée), effacée par « Se déconnecter »\n";
   if (badge())
     output << "matricule=" << matricule << '\n' << "key=" << key << '\n';
   else
     output << "nom=" << escape_line(nom) << '\n' << "prenom=" << escape_line(prenom) << '\n';
+  output.close();
   if (!output) {
-    error = "Erreur d'écriture de la session";
+    error = "Erreur d'écriture de la session (" + path.string() + ") : " + errno_text();
     return false;
   }
   return true;
@@ -363,7 +385,8 @@ bool StoredLogin::save(std::string &error) const {
 
 void StoredLogin::clear() {
   std::error_code code;
-  std::filesystem::remove(file_path(), code);
+  if (!std::filesystem::remove(file_path(), code) && code)
+    error_log("Session " + file_path().string() + " non effacée : " + system_error_text(code), "session");
 }
 
 } // namespace qrprotec

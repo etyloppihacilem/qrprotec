@@ -4,6 +4,9 @@
 #include "image_loader.hpp"
 #include "../core/fonts.hpp"
 #include "../core/paths.hpp"
+#include "../core/system.hpp"
+#include "../printer/logging.hpp"
+#include <cerrno>
 #include <filesystem>
 
 #include "qrcodegen.hpp"
@@ -214,7 +217,12 @@ void draw_image(RasterImage& image, const ImageElement& element, double scale)
             break;
         }
     const std::shared_ptr<const GrayImage> source = load_gray_image(image_path, error);
-    if (!source || source->width <= 0 || source->height <= 0) return;
+    if (!source || source->width <= 0 || source->height <= 0) {
+        if (!element.path.empty())
+            error_log((error.empty() ? "Image vide : " + image_path : error) + " (non dessinée sur l'étiquette)",
+                      "image " + element.path);
+        return;
+    }
     const int box_left = static_cast<int>(element.x_mm * scale);
     const int box_top = static_cast<int>(element.y_mm * scale);
     const int box_width = std::max(1, static_cast<int>(element.width_mm * scale));
@@ -469,9 +477,11 @@ bool fit_to_label(const RasterImage& image, const PhysicalLabel& label, RasterIm
 
 bool write_png(const RasterImage& image, const std::string& path, std::string& error)
 {
+    errno = 0;
     FILE* file = std::fopen(path.c_str(), "wb");
     if (!file) {
-        error = "Impossible d'ouvrir le fichier PNG.";
+        error = "Impossible d'ouvrir " + path + " : " + errno_text() + ".";
+        error_log(error, "export PNG");
         return false;
     }
     png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
@@ -482,7 +492,8 @@ bool write_png(const RasterImage& image, const std::string& path, std::string& e
         return false;
     }
     if (setjmp(png_jmpbuf(png))) {
-        error = "Erreur d'écriture PNG.";
+        error = "Erreur d'écriture PNG (" + path + ") : " + errno_text() + ".";
+        error_log(error, "export PNG");
         png_destroy_write_struct(&png, &info);
         std::fclose(file);
         return false;
@@ -497,7 +508,11 @@ bool write_png(const RasterImage& image, const std::string& path, std::string& e
     png_write_image(png, rows.data());
     png_write_end(png, nullptr);
     png_destroy_write_struct(&png, &info);
-    std::fclose(file);
+    if (std::fclose(file) != 0) {
+        error = "Erreur d'écriture PNG (" + path + ") : " + errno_text() + ".";
+        error_log(error, "export PNG");
+        return false;
+    }
     return true;
 }
 

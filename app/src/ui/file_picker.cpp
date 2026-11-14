@@ -9,6 +9,8 @@
 ##################################################################################################################### */
 
 #include "file_picker.hpp"
+#include "../core/system.hpp"
+#include "../printer/logging.hpp"
 
 #include "widgets.hpp"
 #include "imgui.h"
@@ -151,6 +153,14 @@ bool FilePicker::draw(const char *label, std::string &path) {
           const int status = pclose(pipe);
           // zenity / kdialog / osascript : 1 = annule par l'utilisateur, autre code = outil inutilisable
           failed = status == -1 || (WIFEXITED(status) && WEXITSTATUS(status) > 1) || !WIFEXITED(status);
+          if (failed)
+            error_log("Boîte de dialogue du système en échec (" + command + ") : "
+                          + (status == -1 ? errno_text()
+                             : WIFEXITED(status) ? "code " + std::to_string(WEXITSTATUS(status))
+                                                 : std::string("arrêtée")) + " ; navigateur intégré à la place",
+                      "choix de fichier");
+        } else {
+          error_log("Boîte de dialogue du système non lancée (" + command + ") : " + errno_text(), "choix de fichier");
         }
         while (!output.empty() && (output.back() == '\n' || output.back() == '\r'))
           output.pop_back();
@@ -196,13 +206,16 @@ void FilePicker::change_dir(const fs::path &dir) {
   selected_.clear();
   fs::directory_iterator iterator(dir, fs::directory_options::skip_permission_denied, code);
   if (code) {
-    error_ = "Dossier illisible : " + dir.string();
+    error_ = "Dossier illisible : " + dir.string() + " (" + system_error_text(code) + ")";
+    error_log(error_, "choix de fichier");
     return;
   }
   dir_ = dir;
   for (; iterator != fs::directory_iterator(); iterator.increment(code)) {
-    if (code)
+    if (code) {
+      error_log("Lecture de " + dir.string() + " interrompue : " + system_error_text(code), "choix de fichier");
       break;
+    }
     const std::string name = iterator->path().filename().string();
     if (name.empty() || name[0] == '.')
       continue;

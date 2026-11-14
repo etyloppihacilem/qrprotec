@@ -5,6 +5,7 @@
 #include "../src/core/update_check.hpp"
 #include "../src/core/codes.hpp"
 #include "../src/core/print_counter.hpp"
+#include "../src/core/system.hpp"
 #include "../src/core/verif_cache.hpp"
 #include "../src/net/front_config.hpp"
 #include "../src/net/websocket.hpp"
@@ -508,6 +509,36 @@ int main()
             qrprotec::write_png(qrprotec::calibration_image(qrprotec::calibration_document(small, true), 1.0),
                                 std::string(out) + "-40x30.png", error);
         }
+    }
+
+    // interactions systeme : erreurs remontees avec le chemin et la cause (journal + ecran)
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::temp_directory_path() / "qrprotec-system-test";
+        std::error_code code;
+        fs::remove_all(dir, code);
+        std::string error;
+        std::string content;
+        assert(!qrprotec::read_file(dir / "absent.json", content, "test")); // absent : false, rien de journalise
+        assert(qrprotec::write_file_atomic(dir / "sous" / "f.json", "{\"a\": 1}", "test", error));
+        assert(qrprotec::read_file(dir / "sous" / "f.json", content, "test") && content == "{\"a\": 1}");
+        assert(!fs::exists(dir / "sous" / "f.json.tmp"));
+        assert(qrprotec::directory_access_problem(dir / "sous", true).empty());
+        const std::string missing = qrprotec::directory_access_problem(dir / "nulle-part", false);
+        assert(missing.find("n'existe pas") != std::string::npos && missing.find("nulle-part") != std::string::npos);
+        assert(qrprotec::directory_access_problem(dir / "sous" / "f.json", false).find("pas un dossier") != std::string::npos);
+        // fichier a la place du dossier parent : ecriture refusee avec la cause
+        assert(!qrprotec::write_file_atomic(dir / "sous" / "f.json" / "x", "", "test", error));
+        assert(error.find("f.json") != std::string::npos);
+        // modele enregistre dans un dossier absent : refuse avec un message clair (avant : aucune erreur visible)
+        qrprotec::TemplateDocument document;
+        document.name = "Test";
+        assert(!qrprotec::save_template(document, (dir / "nulle-part" / "m.qr").string(), error));
+        assert(error.find("n'existe pas") != std::string::npos);
+        assert(qrprotec::save_template(document, (dir / "sous" / "m.qr").string(), error));
+        assert(qrprotec::sandbox_visible_path(dir) == dir); // hors Flatpak : inchange
+        assert(!qrprotec::system_error_text(std::make_error_code(std::errc::permission_denied)).empty());
+        fs::remove_all(dir, code);
     }
 
     return 0;
