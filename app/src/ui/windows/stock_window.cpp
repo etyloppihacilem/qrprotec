@@ -82,6 +82,7 @@ class StockWindow final : public AppWindow {
       filter_.clear();
       selected_.clear();
       only_low_         = false;
+      zero_open_        = false;
       include_lots_     = false;
       with_consumption_ = true;
       horizon_          = 1;
@@ -356,6 +357,8 @@ class StockWindow final : public AppWindow {
       ImGui::TableSetupColumn("Disparus", ImGuiTableColumnFlags_WidthFixed, 80.0f);
       ImGui::TableSetupColumn("Sortis / hors lot", ImGuiTableColumnFlags_WidthFixed, 140.0f);
       ImGui::TableHeadersRow();
+      // types sans minimum attendu (x/0, 0/0) replies sous une ligne en bas, sauf pendant une recherche
+      std::vector< const Json * > shown, zero;
       for (const Json *row_ptr : rows) {
         const Json &row      = *row_ptr;
         const int   quantity = count(row);
@@ -364,30 +367,59 @@ class StockWindow final : public AppWindow {
           continue;
         if (only_low_ && quantity >= minimum && (quantity > 0 || minimum == 0))
           continue;
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(stock_name(row).c_str());
-        ImGui::TextDisabled("%s", row["type"].str().c_str());
-        ImGui::TableNextColumn();
-        stock_bar(quantity, minimum, ImVec2(-1, ImGui::GetFrameHeight() * 1.3f));
-        ImGui::TableNextColumn();
-        ImGui::Text("%d", row["lots_fresh"].integer());
-        ImGui::TableNextColumn();
-        colored_count(row["stock_expired"].integer() + row["lots_expired"].integer(), colors::red);
-        ImGui::TableNextColumn();
-        colored_count(row["expiring_soon"].integer(), colors::orange);
-        ImGui::TableNextColumn();
-        ImGui::Text("%d", row["missing"].integer());
-        ImGui::TableNextColumn();
-        ImGui::Text("%d", row["out"].integer());
-        ImGui::SetItemTooltip("Sortis du stock sans lot : comptés utilisés s'ils ne reviennent pas à une vérif.");
-        if (row["loose"].integer() > 0) {
-          ImGui::SameLine();
-          ImGui::TextColored(colors::orange, "+%d hors lot", row["loose"].integer());
-          ImGui::SetItemTooltip("Non consommables retirés de leur lot, pas encore remis en stock.");
-        }
+        (minimum <= 0 && filter_.empty() ? zero : shown).push_back(row_ptr);
       }
+      for (const Json *row_ptr : shown)
+        draw_current_row(*row_ptr);
+      if (zero_fold_row(zero.size(), 7))
+        for (const Json *row_ptr : zero)
+          draw_current_row(*row_ptr);
       ImGui::EndTable();
+    }
+
+    // Ligne repliable des types sans minimum attendu, fermee par defaut ; vrai si depliee
+    bool zero_fold_row(std::size_t hidden, int columns) {
+      if (hidden == 0)
+        return false;
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      const int         n     = static_cast< int >(hidden);
+      const std::string label = std::string(zero_open_ ? "[−] " : "[+] ") + (n > 1 ? "Types" : "Type")
+                              + " sans minimum attendu (" + std::to_string(n) + ")##zero_fold";
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+      if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns))
+        zero_open_ = !zero_open_;
+      ImGui::PopStyleColor();
+      for (int column = 1; column < columns; ++column)
+        ImGui::TableNextColumn();
+      return zero_open_;
+    }
+
+    void draw_current_row(const Json &row) {
+      const int quantity = count(row);
+      const int minimum  = row["min_quantity"].integer();
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::TextUnformatted(stock_name(row).c_str());
+      ImGui::TextDisabled("%s", row["type"].str().c_str());
+      ImGui::TableNextColumn();
+      stock_bar(quantity, minimum, ImVec2(-1, ImGui::GetFrameHeight() * 1.3f));
+      ImGui::TableNextColumn();
+      ImGui::Text("%d", row["lots_fresh"].integer());
+      ImGui::TableNextColumn();
+      colored_count(row["stock_expired"].integer() + row["lots_expired"].integer(), colors::red);
+      ImGui::TableNextColumn();
+      colored_count(row["expiring_soon"].integer(), colors::orange);
+      ImGui::TableNextColumn();
+      ImGui::Text("%d", row["missing"].integer());
+      ImGui::TableNextColumn();
+      ImGui::Text("%d", row["out"].integer());
+      ImGui::SetItemTooltip("Sortis du stock sans lot : comptés utilisés s'ils ne reviennent pas à une vérif.");
+      if (row["loose"].integer() > 0) {
+        ImGui::SameLine();
+        ImGui::TextColored(colors::orange, "+%d hors lot", row["loose"].integer());
+        ImGui::SetItemTooltip("Non consommables retirés de leur lot, pas encore remis en stock.");
+      }
     }
 
     int count(const Json &row) const {
@@ -474,8 +506,15 @@ class StockWindow final : public AppWindow {
           ImGui::TableSetupColumn("Conso / mois", ImGuiTableColumnFlags_WidthFixed, 90.0f);
           ImGui::TableSetupColumn("Sous le min.", ImGuiTableColumnFlags_WidthFixed, 95.0f);
           ImGui::TableHeadersRow();
+          // types sans minimum attendu replies en bas, sauf commande a passer, sous le minimum ou recherche
+          std::vector< const Json * > shown, zero;
           for (const Json *row_ptr : rows) {
-            const Json       &row  = *row_ptr;
+            const Json &row  = *row_ptr;
+            const bool  fold = row["min_quantity"].integer() <= 0 && row["below_min"].is_null()
+                           && !row["order"].is_object() && filter_.empty() && selected_ != row["type"].str();
+            (fold ? zero : shown).push_back(row_ptr);
+          }
+          auto draw_row = [&](const Json &row) {
             const Json       &at   = point(row);
             const std::string type = row["type"].str();
             ImGui::TableNextRow();
@@ -498,7 +537,12 @@ class StockWindow final : public AppWindow {
               ImGui::TextColored(colors::green, "non");
             else
               ImGui::TextColored(colors::orange, "%s", date_text(row["below_min"]).c_str());
-          }
+          };
+          for (const Json *row_ptr : shown)
+            draw_row(*row_ptr);
+          if (zero_fold_row(zero.size(), 6))
+            for (const Json *row_ptr : zero)
+              draw_row(*row_ptr);
           ImGui::EndTable();
         }
       }
@@ -862,6 +906,7 @@ class StockWindow final : public AppWindow {
     std::string filter_;
     std::string selected_;
     bool        only_low_         = false;
+    bool        zero_open_        = false; // types sans minimum attendu deplies (actuel et projection)
     bool        include_lots_     = false;
     bool        with_consumption_ = true;
     int         horizon_          = 1;
