@@ -179,6 +179,8 @@ void AppSettings::load() {
       print.raw.offset_y_mm = std::clamp(to_float(value, static_cast< float >(print.raw.offset_y_mm)), -15.0f, 15.0f);
     else if (key == "printer_tear_off_mm")
       print.raw.tear_off_mm = std::clamp(to_float(value, static_cast< float >(print.raw.tear_off_mm)), -15.0f, 15.0f);
+    else if (key == "printer_speed_ips")
+      print.raw.speed_ips = std::clamp(to_int(value, print.raw.speed_ips), 2, 6);
     else if (key == "printer_device")
       print.serial.device = value;
     else if (key == "printer_baud")
@@ -285,6 +287,7 @@ bool AppSettings::save(std::string &error) const {
          << "printer_offset_x_mm=" << print.raw.offset_x_mm << '\n'
          << "printer_offset_y_mm=" << print.raw.offset_y_mm << '\n'
          << "printer_tear_off_mm=" << print.raw.tear_off_mm << '\n'
+         << "printer_speed_ips=" << print.raw.speed_ips << '\n'
          << "printer_device=" << print.serial.device << '\n'
          << "printer_baud=" << print.serial.baud_rate << '\n'
          << "printer_density=" << print.density << '\n'

@@ -196,7 +196,7 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   (8 points/mm), la résolution des modèles. Chaque impression porte tout le format, chaque réglage
   par la commande que la documentation du langage prévoit (rien n'est simulé dans le dessin) :
   - ZPL : `~SD` (noirceur), `~TA` (position de découpe), puis dans `^XA … ^XZ` : `^MT` (ruban),
-    `^MNY` (étiquettes à interstice), `^PW` = largeur de l'étiquette + 2 × marge
+    `^MNY` (étiquettes à interstice), `^PRv,v,v` (vitesse réglée, 2 pouces/s par défaut, impression + avance + recul), `^PW` = largeur de l'étiquette + 2 × marge
     (`zpl_side_margin` : 15 mm au plus, sans dépasser 104 mm de tête ; la zone est centrée sur la
     tête des Zebra de bureau et rien ne passe à gauche de son 0), `^LL` = hauteur,
     `^LHx,y` (x = marge + décalage horizontal, y = décalage vertical vers le bas), `^LS0`,

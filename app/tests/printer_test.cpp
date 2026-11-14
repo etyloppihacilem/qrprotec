@@ -60,7 +60,7 @@ int main()
     job.ribbon = false;
     const std::string zpl = as_text(qrprotec::labels::encode_zpl(label, job));
     // format de l'etiquette : largeur d'impression = largeur de l'etiquette, positions explicites
-    assert(zpl.rfind("~SD20\n~TA000\n^XA\n^MTD\n^MNY\n^PW560\n^LL240\n^LH120,0\n^LS0\n^LT0\n", 0) == 0);
+    assert(zpl.rfind("~SD20\n~TA000\n^XA\n^MTD\n^MNY\n^PR2,2,2\n^PW560\n^LL240\n^LH120,0\n^LS0\n^LT0\n", 0) == 0);
     assert(zpl.find("^FO0,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
     assert(zpl.find("^PQ2\n^XZ\n") != std::string::npos);
     assert(tspl.find("SHIFT 0,0\r\nOFFSET 0 mm\r\nCLS\r\n") != std::string::npos);
@@ -91,12 +91,23 @@ int main()
     media.gap_mm = 3.0;
     media.offset_x_dots = 8;
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Calibrate, media) ==
-           "~TA000\n^XA\n^MTD\n^MNY\n^PW560\n^LL240\n^LH128,0\n^LS0\n^LT0\n^XZ\n~JC\n^XA^JUS^XZ\n");
+           "~TA000\n^XA\n^MTD\n^MNY\n^PR2,2,2\n^PW560\n^LL240\n^LH128,0\n^LS0\n^LT0\n^XZ\n~JC\n^XA^JUS^XZ\n");
+    // vitesse : la plus lente par defaut, bornee a 2..6 pouces/s, impression + avance + recul
+    {
+        qrprotec::labels::RawJob fast = media;
+        fast.speed_ips = 4;
+        assert(qrprotec::labels::maintenance_command(true, Maintenance::Calibrate, fast).find("^PR4,4,4\n") !=
+               std::string::npos);
+        fast.speed_ips = 12;
+        assert(as_text(qrprotec::labels::encode_tspl(label, fast)).find("SPEED 6\r\n") != std::string::npos);
+        fast.speed_ips = 0;
+        assert(as_text(qrprotec::labels::encode_zpl(label, fast)).find("^PR2,2,2\n") != std::string::npos);
+    }
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Config, media) == "~WC\n");
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Feed, media) == "~PH\n");
     assert(qrprotec::labels::maintenance_command(true, Maintenance::Factory, media) == "^XA^JUF^XZ\n^XA^JUS^XZ\n");
     assert(qrprotec::labels::maintenance_command(false, Maintenance::Calibrate, media) ==
-           "SIZE 40 mm,30 mm\r\nGAP 3 mm,0 mm\r\nSET RIBBON OFF\r\nGAPDETECT\r\n");
+           "SIZE 40 mm,30 mm\r\nSPEED 2\r\nGAP 3 mm,0 mm\r\nSET RIBBON OFF\r\nGAPDETECT\r\n");
     assert(qrprotec::labels::maintenance_command(false, Maintenance::Feed, media) == "FORMFEED\r\n");
     assert(qrprotec::labels::maintenance_command(false, Maintenance::Factory, media) == "INITIALPRINTER\r\n");
     const std::string diagnostic = qrprotec::labels::maintenance_command(true, Maintenance::Diagnostic, media);

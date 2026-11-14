@@ -60,6 +60,7 @@ ZPL) ou TSC (TSPL) prévoit pour cet usage :
 | Largeur de l'étiquette | `^PW` (largeur d'impression) | `SIZE` | ZPL : zone d'impression = largeur de l'étiquette + 15 mm de chaque côté (sans dépasser la tête de 104 mm), l'image au milieu |
 | Hauteur de l'étiquette | `^LL` (longueur d'étiquette) | `SIZE` | longueur d'une étiquette |
 | Noirceur | `~SD` | `DENSITY` | chauffe de la tête |
+| Vitesse (2 à 6 pouces/s, **2 par défaut**, la plus lente) | `^PR` (impression, avance, recul) | `SPEED` | plus lent = étiquette mieux repérée, moins d'impressions coupées en haut dans une série ; enregistrée au calibrage |
 | **Décalage horizontal** | `^LH x` (« Label Home », origine du format) dans la zone élargie | `SHIFT x` | toute l'impression vers la droite (+) ou la gauche (−) |
 | **Décalage vertical** | vers le bas : `^LH0,y` (« Label Home », origine du format) ; vers le haut : `^LT` (« Label Top ») | `SHIFT y` | toute l'impression vers le bas (+) ou le haut (−) |
 | **Position de découpe** | `~TA` (« Tear Off ») | `OFFSET` | où l'étiquette s'arrête après impression : plus sortie (+) ou moins (−) ; l'impression ne bouge pas sur l'étiquette |
