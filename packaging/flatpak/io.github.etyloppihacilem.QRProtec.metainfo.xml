@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Donnees AppStream du Flatpak (installees par build-front.sh dans /app/share/metainfo) : flatpak-builder
+     en tire la branche appstream du depot, lue par Logiciels (GNOME) et Discover (KDE). -->
+<component type="desktop-application">
+  <id>io.github.etyloppihacilem.QRProtec</id>
+  <name>QRProtec</name>
+  <summary>Inventaire du matériel de secours par QR codes</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <developer id="io.github.etyloppihacilem">
+    <name>etyloppihacilem</name>
+  </developer>
+  <description>
+    <p>
+      Poste de bureau QRProtec : vérification des lots et sous-lots de matériel de secours par lecture des
+      étiquettes QR, gestion du stock et impression des étiquettes.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.etyloppihacilem.QRProtec.desktop</launchable>
+  <url type="homepage">https://github.com/etyloppihacilem/qrprotec</url>
+  <categories>
+    <category>Office</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+</component>
