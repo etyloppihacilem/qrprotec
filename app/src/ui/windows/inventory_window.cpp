@@ -57,7 +57,8 @@ Json storage_places(const App &app) {
 }
 
 std::string place_label(const App &app, const std::string &id) {
-  for (const Json &place : storage_places(app).items())
+  const Json places = storage_places(app); // la boucle ne prolonge pas la vie d'un temporaire dont on prend items()
+  for (const Json &place : places.items())
     if (place["id"].str() == id)
       return place["label"].str();
   return id;
@@ -180,7 +181,8 @@ class InventoryWindow final : public AppWindow {
       ImGui::TextUnformatted("Type d'item");
       // un type a unites (serum phy en mL) n'a pas d'etiquette : on receptionne ses sous-types
       Json receivable = Json::array();
-      for (const Json &item_type : without_archived(app.catalog.item_types).items())
+      const Json types = without_archived(app.catalog.item_types); // temporaire detruit avant la boucle sinon
+      for (const Json &item_type : types.items())
         if (item_type["unit"].str().empty())
           receivable.push_back(item_type);
       if (search_select("reception_type", receivable, "type", "name", reception_type_,
