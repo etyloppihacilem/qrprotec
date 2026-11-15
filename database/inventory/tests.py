@@ -2842,6 +2842,34 @@ class SubLotTests(SubLotCase):
         self.call('POST', f"/api/lots/{tiroir['id']}/add/", {'items': loose, 'user': 'M001'})
         self.assertFalse(Lots.objects.get(id=tiroir['id']).verif_recommended)
 
+    def test_storage_hierarchy_and_kind(self):
+        # piece > armoire > tiroir, chacun avec son genre (« rangement » par defaut)
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'piece1', 'name': 'La TECH', 'storage': True,
+                                                           'storage_kind': '  pièce '})
+        self.assertEqual(code, 201)
+        piece = body['created_lot']
+        self.assertEqual(piece['storage_kind'], 'pièce')
+        self.assertEqual(piece['parent'], Lots.stock().id)
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True,
+                                                           'storage_kind': 'armoire', 'parent': piece['id']})
+        armoire = body['created_lot']
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'tiroi1', 'name': 'Tiroir 1', 'storage': True,
+                                                           'parent': armoire['id']})
+        tiroir = body['created_lot']
+        self.assertEqual(tiroir['storage_kind'], 'rangement')
+        self.assertEqual([p['name'] for p in tiroir['path']], [Lots.stock().name, 'La TECH', 'Armoire 1'])
+        code, body = self.call('PATCH', f"/api/lots/{tiroir['id']}/update/", {'storage_kind': 'tiroir'})
+        self.assertEqual(body['storage_kind'], 'tiroir')
+        code, body = self.call('PATCH', f"/api/lots/{tiroir['id']}/update/", {'storage_kind': ''})
+        self.assertEqual(body['storage_kind'], 'rangement')
+        # un lot ordinaire n'a pas de genre, le stock non plus
+        self.assertEqual(self.call('GET', f"/api/lots/{self.soin['id']}/")[1]['storage_kind'], '')
+        self.assertEqual(self.call('GET', f'/api/lots/{Lots.stock().id}/')[1]['storage_kind'], '')
+        # arbre de la piece : genre de chaque rangement
+        code, body = self.call('GET', f"/api/lots/{piece['id']}/")
+        kinds = {row['name']: row['storage_kind'] for row in body['global']['lots']}
+        self.assertEqual(kinds['Armoire 1'], 'armoire')
+
     def test_storage_is_unique_without_requirements_nor_expiry(self):
         code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True})
         self.assertTrue(body['unique'])

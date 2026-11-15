@@ -209,6 +209,11 @@ std::vector< CategoryInfo > build_categories() {
     { "lot_private_url", "URL de vérif avec la clé (contenu du QR code)",
       "https://example.com/verif?lot=tiroi300000001&key=a1B2c3D4e5F6g7H8i9J0k1L2" }
   );
+  // genre du rangement (Lots.storage_kind), ex : « {{rangement}} du stock » → « armoire du stock »
+  lot_storage.placeholders.push_back(
+    { "rangement", "Genre du rangement (pièce, armoire, tiroir... « rangement » par défaut)", "armoire" });
+  lot_storage.placeholders.push_back({ "Rangement", "Genre du rangement, avec une majuscule", "Armoire" });
+  lot_storage.placeholders.push_back({ "RANGEMENT", "Genre du rangement, en majuscules", "ARMOIRE" });
   categories.push_back(lot_storage);
 
   CategoryInfo user{ TemplateCategory::User, "user", "Badge utilisateur",

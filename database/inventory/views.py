@@ -63,6 +63,7 @@ from .models import (
     SlotMode,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
     SCANNER_VOLUMES, LOST_OBJECT_MESSAGE_MAX, ConsumableRef, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
+    storage_kind_value,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -2399,6 +2400,8 @@ def lot_types(request):
         if unique:
             ensure_name_free(Lots.objects.filter(active=True), name, 'Le lot')
             lot = Lots(lot_type=lot_type, name=name, name_short=name[:16], created_by=identity)
+            if storage:
+                lot.storage_kind = storage_kind_value(data.get('storage_kind'))
             lot.parent = parse_parent(lot, data.get('parent'))
             lot.save()
         journal.record(OperationKind.CATALOG, identity, f'type de lot créé : {lot_type}' + (' (lot unique)' if unique else ''),
@@ -3141,6 +3144,8 @@ def lot_update(request, lot_id):
         lot.parent = parse_parent(lot, data['parent'])
     if 'key_location' in data:
         lot.key_location = str(data['key_location']).strip()[:128]
+    if 'storage_kind' in data and lot.lot_type.storage and not lot.is_stock:
+        lot.storage_kind = storage_kind_value(data['storage_kind'])
     if 'spare' in data:
         lot.spare = bool(data['spare']) and lot.lot_type.part_of_id is not None
     if 'parent' in data or 'spare' in data:
@@ -3176,6 +3181,8 @@ def lot_update(request, lot_id):
         changes.append(f'rangé dans {lot.parent.name}' if lot.parent else 'lot indépendant')
     if 'key_location' in data:
         changes.append("emplacement de l'étiquette clé")
+    if 'storage_kind' in data and lot.lot_type.storage and not lot.is_stock:
+        changes.append(f'genre : {lot.storage_kind}')
     if 'optional' in data:
         changes.append('facultatif à la vérif' if lot.optional else 'obligatoire à la vérif')
     if 'hidden_in_verif' in data:

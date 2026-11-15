@@ -94,6 +94,10 @@ bool        is_iid(const std::string &code);
 // La base garde l'iid complet ; chaque front deplie la forme courte (meme regle que expandIid de app.js et
 // scanner.js). Sans ambiguite : un iid complet a 22 caracteres et 8 chiffres de date.
 std::string compact_iid(const std::string &iid);
+// Majuscules d'un texte UTF-8, lettres accentuees du francais comprises (« pièce » → « PIÈCE ») : placeholders
+// d'etiquette ecrits en majuscules ({{RANGEMENT}})
+std::string utf8_upper(const std::string &text);
+std::string utf8_capitalize(const std::string &text); // premiere lettre seulement (« armoire » → « Armoire »)
 std::string expand_iid(const std::string &code); // iid complet, vide si ce n'est un iid sous aucune forme
 ParsedScan  parse_scan(const std::string &raw);
 const char *scan_kind_name(ScanKind kind);

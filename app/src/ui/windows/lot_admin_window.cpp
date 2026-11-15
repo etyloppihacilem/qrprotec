@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../../app/labels.hpp"
+#include "../../core/codes.hpp"
 #include "../../core/plural.hpp"
 #include "../../core/search.hpp"
 #include "../widgets.hpp"
@@ -375,6 +376,48 @@ class LotAdminWindow final : public AppWindow {
       });
     }
 
+    // Nature d'un lot sous son nom : genre d'un rangement du stock (« Pièce », « Armoire »), type de lot sinon
+    static std::string lot_kind(const Json &lot) {
+      const std::string kind = lot["storage_kind"].str();
+      return kind.empty() ? lot["lot_type_name"].str() : utf8_capitalize(kind);
+    }
+
+    // Lots ou ranger un rangement du stock : le stock et les autres rangements actifs, sauf lui-meme et ce qu'il
+    // contient (le serveur refuse les boucles)
+    static Json storage_parents(const App &app, const std::string &self) {
+      std::set< std::string > excluded;
+      if (!self.empty()) {
+        excluded.insert(self);
+        for (bool grew = true; grew;) {
+          grew = false;
+          for (const Json &lot : app.catalog.lots.items())
+            if (excluded.count(lot["parent"].str()) && excluded.insert(lot["id"].str()).second)
+              grew = true;
+        }
+      }
+      Json result = Json::array();
+      for (const Json &lot : app.catalog.lots.items())
+        if (lot["storage"].boolean() && lot["active"].boolean(true) && !excluded.count(lot["id"].str()))
+          result.push_back(lot);
+      return result;
+    }
+
+    // Genre d'un rangement (texte libre, « rangement » par defaut), avec les genres deja donnes en suggestions
+    void storage_kind_field(const App &app, const char *id, std::string &value) {
+      ImGui::TextUnformatted("Genre du rangement");
+      ImGui::SameLine();
+      help_marker("Pièce, armoire, tiroir, carton... (« rangement » si vide). Affiché sous son nom et imprimé sur son "
+                  "étiquette avec {{rangement}} (ex : « {{rangement}} du stock » donne « armoire du stock »).");
+      std::vector< std::string > kinds = { "rangement", "pièce", "armoire", "tiroir", "étagère", "carton" };
+      for (const Json &lot : app.catalog.lots.items()) {
+        const std::string kind = lot["storage_kind"].str();
+        if (!kind.empty() && std::find(kinds.begin(), kinds.end(), kind) == kinds.end())
+          kinds.push_back(kind);
+      }
+      ImGui::SetNextItemWidth(-FLT_MIN);
+      input_suggest(id, value, kinds, 32);
+    }
+
     // Une ligne de la liste des lots : pastille de l'etat, nom, type en gris. Les sous-lots sont decales sous leur
     // lot global ; a plat (recherche), le lot global est rappele en gris.
     void draw_lot_row(App &app, const Json &lot, bool flat) {
@@ -408,7 +451,7 @@ class LotAdminWindow final : public AppWindow {
       else
         ImGui::TextUnformatted(lot["name"].str().c_str());
       ImGui::SameLine();
-      std::string detail = lot["lot_type_name"].str();
+      std::string detail = lot_kind(lot);
       if (lot["spare"].boolean() && lot["parent"].str().empty())
         detail += " - rechange";
       if (flat && !lot["parent"].str().empty())
@@ -767,6 +810,7 @@ class LotAdminWindow final : public AppWindow {
           edit_short_  = lot_["name_short"].str();
           edit_parent_ = lot_["parent"].str();
           edit_key_location_ = lot_["key_location"].str();
+          edit_storage_kind_ = lot_["storage_kind"].str();
           edit_optional_     = lot_["optional"].boolean();
           edit_hidden_       = lot_["hidden_in_verif"].boolean();
           edit_spare_        = lot_["spare"].boolean();
@@ -1384,8 +1428,15 @@ class LotAdminWindow final : public AppWindow {
       ImGui::SameLine();
       help_marker("Un sous-lot (ex : le sac d'O2 d'un B+, une armoire d'un VPS) a ses propres étiquettes et se vérifie "
                   "seul, ou avec les autres lots du même lot global. Le lot global est valide si tous ses lots le sont.");
-      search_select("edit_lot_parent", app.catalog.lots, "id", "name", edit_parent_, "Aucun : lot indépendant",
-                    "Aucun : lot indépendant");
+      const bool storage = lot_["storage"].boolean();
+      if (storage) // rangement du stock : dans le stock ou dans un autre rangement (piece > armoire > tiroir)
+        search_select("edit_lot_parent", storage_parents(app, selected_lot_), "id", "name", edit_parent_,
+                      "Aucun : directement dans le stock", "Aucun : directement dans le stock");
+      else
+        search_select("edit_lot_parent", app.catalog.lots, "id", "name", edit_parent_, "Aucun : lot indépendant",
+                      "Aucun : lot indépendant");
+      if (storage && !lot_["storage_kind"].str().empty()) // pas le stock lui-meme
+        storage_kind_field(app, "##storage_kind", edit_storage_kind_);
       if (!lot_["virtual"].boolean()) { // lot de referentiel : pas d'etiquette
         ImGui::TextUnformatted("Emplacement de l'étiquette clé");
         ImGui::SameLine();
@@ -1417,6 +1468,8 @@ class LotAdminWindow final : public AppWindow {
         body["name_short"] = edit_short_;
         body["parent"]       = edit_parent_;
         body["key_location"] = edit_key_location_;
+        if (storage && !lot_["storage_kind"].str().empty())
+          body["storage_kind"] = edit_storage_kind_;
         if (!lot_["storage"].boolean()) {
           body["optional"]        = edit_optional_ && !edit_parent_.empty();
           body["hidden_in_verif"] = edit_hidden_ && !edit_parent_.empty();
@@ -1864,9 +1917,20 @@ class LotAdminWindow final : public AppWindow {
         if (type_unique_) {
           ImGui::Indent();
           ImGui::TextDisabled("Nom court du lot : le nom du type (tronqué à 16 caractères)");
-          ImGui::TextUnformatted("Dans le lot (sous-lot)");
-          search_select("new_type_lot_parent", app.catalog.lots, "id", "name", type_lot_parent_, "Aucun : lot indépendant",
-                        "Aucun : lot indépendant");
+          if (type_storage_) {
+            storage_kind_field(app, "##new_storage_kind", type_storage_kind_);
+            ImGui::TextUnformatted("Rangé dans");
+            ImGui::SameLine();
+            help_marker("Un rangement se range dans un autre : une pièce (la TECH, la réserve), ses armoires, leurs "
+                        "tiroirs. Vérifier une pièce vérifie à la suite tous les rangements qu'elle contient, chacun "
+                        "validé à part.");
+            search_select("new_type_lot_parent", storage_parents(app, ""), "id", "name", type_lot_parent_,
+                          "Aucun : directement dans le stock", "Aucun : directement dans le stock");
+          } else {
+            ImGui::TextUnformatted("Dans le lot (sous-lot)");
+            search_select("new_type_lot_parent", app.catalog.lots, "id", "name", type_lot_parent_,
+                          "Aucun : lot indépendant", "Aucun : lot indépendant");
+          }
           ImGui::Checkbox("Voir les étiquettes du lot après création", &print_new_);
           ImGui::Unindent();
         }
@@ -1885,6 +1949,8 @@ class LotAdminWindow final : public AppWindow {
           if (type_unique_) {
             body["parent"] = type_lot_parent_;
           }
+          if (type_storage_)
+            body["storage_kind"] = type_storage_kind_;
           const bool print = type_unique_ && print_new_;
           app.api.post("/api/lot-types/", body, [this, &app, print](const ApiResult &result) {
             if (!result.ok) {
@@ -2354,6 +2420,7 @@ class LotAdminWindow final : public AppWindow {
         type_rangements_ += (type_rangements_.empty() ? "" : ", ") + row["name"].str();
       coverage_type_.clear(); // couverture rechargee a l'affichage
       type_lot_parent_.clear();
+      type_storage_kind_ = "rangement";
       requirements_.clear();
       locations_.clear();
       for (const Json &location : lot_type["locations"].items())
@@ -2387,6 +2454,7 @@ class LotAdminWindow final : public AppWindow {
     std::string edit_short_;
     std::string edit_parent_;
     std::string edit_key_location_;
+    std::string edit_storage_kind_;
     bool        edit_optional_ = false;
     bool        edit_hidden_   = false; // cache dans la hierarchie de la verif en cascade
     bool        edit_spare_    = false; // sac de rechange (rangement libre)
@@ -2450,6 +2518,7 @@ class LotAdminWindow final : public AppWindow {
     Json                          coverage_;
     std::string                   type_lot_;        // lot d'un type unique
     std::string                   type_lot_parent_; // creation d'un type unique : parent de son lot
+    std::string                   type_storage_kind_ = "rangement"; // creation d'un rangement : son genre
     bool                          show_archived_types_ = false;
     std::string                   lot_type_search_;
     std::vector< RequirementRow > requirements_;
