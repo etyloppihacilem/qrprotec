@@ -13,6 +13,8 @@
 
 #include "imgui_stdlib.h"
 
+#include <algorithm>
+
 namespace qrprotec {
 
 namespace {
@@ -80,7 +82,15 @@ class ReportsWindow final : public AppWindow {
       ImGui::TextDisabled("Rouge : nouveau. Orange : en cours, objet inutilisable (à remplacer). Vert : en cours et "
                           "toujours utilisable, ou résolu.");
 
-      const float detail = selected() ? ImGui::GetFrameHeightWithSpacing() * 10.0f : 0.0f;
+      // le detail (commentaire, reponse, boutons) reste visible en entier sous la liste : c'est la liste qui
+      // retrecit et defile. Hauteur du detail mesuree a la frame precedente (estimee avant la premiere mesure),
+      // en gardant quelques lignes de liste si la fenetre est vraiment petite.
+      float detail = 0.0f;
+      if (selected()) {
+        detail = detail_height_ > 0.0f ? detail_height_ : ImGui::GetFrameHeightWithSpacing() * 14.0f;
+        const float min_list = ImGui::GetFrameHeightWithSpacing() * 4.0f;
+        detail = std::min(detail, std::max(0.0f, ImGui::GetContentRegionAvail().y - min_list));
+      }
       // fenetre etroite (a cote des Lots) : date et auteur seulement dans le detail
       const bool compact = ImGui::GetContentRegionAvail().x < 800.0f;
       if (ImGui::BeginTable(compact ? "reports_compact" : "reports", compact ? 3 : 5,
@@ -129,7 +139,11 @@ class ReportsWindow final : public AppWindow {
       }
       if (reports_.size() == 0 && !loading_)
         ImGui::TextDisabled(all_ ? "Aucun signalement." : "Aucun signalement en cours.");
+      // hauteur prise sous la liste = du bas du tableau au bas du dernier element (les deux ItemSpacing s'annulent)
+      const float detail_top = ImGui::GetCursorPosY();
       draw_detail(app);
+      if (selected())
+        detail_height_ = ImGui::GetCursorPosY() - detail_top;
     }
 
   private:
@@ -302,6 +316,7 @@ class ReportsWindow final : public AppWindow {
     Json        reports_ = Json::array();
     int   selected_ = 0;
     std::string note_;
+    float       detail_height_ = 0.0f; // hauteur du detail du signalement choisi (frame precedente)
     float       row_width_ = -1.0f; // largeur de la rangee de choix en cours (choice_button)
     bool        all_     = false;
     bool        loading_ = false;
