@@ -171,7 +171,9 @@ décorations : sinon libdecor réserve une barre de titre que Cage n'affiche pas
 - **Plein écran** (`Ctrl+F11`, `App::fullscreen_`) : `draw_windows` force chaque fenêtre ouverte sur
   toute la zone de travail sans la laisser déplacer ; `last_pos`/`last_size` ne sont plus mis à jour,
   ce qui rend sa place à chaque fenêtre à la sortie. Quitté par « Remettre les fenêtres en place » et
-  après inactivité.
+  après inactivité. Un double-clic sur la barre de titre d'une fenêtre entre en plein écran (ou en sort)
+  avec cette fenêtre au premier plan, au lieu de la replier comme ImGui le ferait
+  (`title_bar_double_clicked` prend le clic avant `Begin`) ; le repli reste sur la flèche.
 - **Boutons** : `button()` et `small_button()` (`ui/widgets.hpp`) remplacent `ImGui::Button` et
   `ImGui::SmallButton`. Chaque bouton prend, dans l'ordre de dessin, la première lettre libre de sa
   fenêtre racine (initiales des mots d'abord), la souligne et répond à `Alt` gauche + lettre quand la
