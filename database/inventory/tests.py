@@ -30,6 +30,30 @@ from .models import (
 LOCAL = {'qrprotec.role': 'local'}
 
 
+class quiet_stderr:
+    """Journaux attendus d'un test (erreur provoquee expres) : retire le handler stderr de LOGGING des loggers
+    django et inventory le temps du bloc, sans toucher aux autres (server_problem, que certains tests verifient).
+    Pour un simple message attendu, preferer assertLogs, qui le verifie en plus."""
+
+    LOGGERS = ('django', 'inventory')
+
+    def __enter__(self):
+        import logging
+        self.removed = []
+        for name in self.LOGGERS:
+            logger = logging.getLogger(name)
+            for handler in list(logger.handlers):
+                if type(handler) is logging.StreamHandler:
+                    logger.removeHandler(handler)
+                    self.removed.append((logger, handler))
+        return self
+
+    def __exit__(self, *exc):
+        for logger, handler in self.removed:
+            logger.addHandler(handler)
+        return False
+
+
 # Code PIN obligatoire par defaut pour tous les roles (ServerSettings.pin_required_roles) : les tests sont ecrits
 # pour un code facultatif, sauf ceux qui reglent pin_required_roles eux-memes ou qui verifient le vrai defaut
 # (PinLoginRolesTests.test_defaults, avec real_pin_default).
@@ -301,7 +325,8 @@ class PublicApiTests(ApiTestCase):
             (Path(folder) / 'fronts').write_text('borne\n')
             self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=accueil, **remote).status_code, 200)
             (Path(folder) / 'index.html').write_text('maintenance')
-            response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=accueil, **remote)
+            with self.assertLogs('django.request', 'ERROR'):  # 503 journalise par Django
+                response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=accueil, **remote)
             self.assertEqual(response.status_code, 503)
             self.assertTrue(response.json()['maintenance'])
             self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=borne, **remote).status_code, 200)
@@ -310,7 +335,8 @@ class PublicApiTests(ApiTestCase):
             (Path(folder) / 'fronts').write_text('*\n')
             self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=accueil, **remote).status_code, 200)
             (Path(folder) / 'fronts').unlink()
-            self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=borne, **remote).status_code, 503)
+            with self.assertLogs('django.request', 'ERROR'):
+                self.assertEqual(self.client.get('/api/stock/', HTTP_X_QRPROTEC_KEY=borne, **remote).status_code, 503)
             # l'API locale du poste ne passe jamais par la maintenance
             self.assertEqual(self.call('GET', '/api/stock/')[0], 200)
 
@@ -3267,7 +3293,8 @@ class WebPushTests(ApiTestCase):
     def test_server_errors_in_the_log_notify(self):
         import logging
         self.subscribe(server_problem=True)
-        with self.captureOnCommitCallbacks(execute=True):
+        # erreurs provoquees : pas de traces dans la sortie des tests, le handler server_problem reste branche
+        with quiet_stderr(), self.captureOnCommitCallbacks(execute=True):
             try:
                 raise RuntimeError('database is locked')
             except RuntimeError:
@@ -3348,8 +3375,10 @@ class WebPushTests(ApiTestCase):
         self.sent.clear()
         self.reply = 410
         ItemType.objects.update(low_notified=False)
-        with self.captureOnCommitCallbacks(execute=True):
+        # envoi a la validation (sortie de captureOnCommitCallbacks) : assertLogs l'englobe
+        with self.assertLogs('inventory.webpush', 'WARNING') as logs, self.captureOnCommitCallbacks(execute=True):
             self.call('GET', '/api/stock/')
+        self.assertIn('Abonnement expiré', logs.output[0])
         self.assertEqual(len(self.sent), 1)
         self.assertFalse(self.webpush.PushSubscription.objects.exists())
 
@@ -3822,6 +3851,14 @@ class LiveHubTests(ApiTestCase):
                                   .get(identity, identity.partition(':')[2]))
         names.start()
         self.addCleanup(names.stop)
+        # noms de la carte terminee (services.VerifTitles) : lus dans le thread de la WebSocket, qui ne peut pas lire
+        # les lots ecrits par la transaction du test (« database table is locked » de la base de test en memoire
+        # partagee, impossible sur le fichier en WAL de la prod) ; la vraie lecture : test_done_card_names
+        self.name_done = live.LiveHub._name_done
+        titles = mock.patch.object(live.LiveHub, '_name_done', staticmethod(
+            lambda session: session.done and session.done.get('verifs') and session.done.setdefault('names', ['Sac A'])))
+        titles.start()
+        self.addCleanup(titles.stop)
         self.badge = {'matricule': 'M001', 'key': self.user.new_key}
 
     def run_socket(self, target, socket):
@@ -3880,6 +3917,18 @@ class LiveHubTests(ApiTestCase):
         watcher.push(None)
         watching.join(5)
         self.assertFalse(self.hub.watchers)
+
+    def test_done_card_names(self):
+        """Carte terminee du suivi : noms de services.VerifTitles (vraie base, lue ici dans le thread du test)."""
+        from unittest import mock
+        verif = Verifs.objects.create(lot=self.lot, by='test', complete=True, present_count=2)
+        session = self.live.LiveSession()
+        session.done = {'complete': True, 'lots': 3, 'verifs': [verif.id]}
+        with mock.patch.object(self.live, 'close_old_connections') as close:
+            self.name_done(session)  # le vrai, remplace dans setUp pour les threads
+        self.assertEqual(session.done['names'], [self.lot.name])
+        self.assertEqual(session.done['lots'], 1)
+        close.assert_called_once()
 
     def test_full_verif_roles(self):
         """« Rendre la vérif complète » : badge des roles gestion et admin seulement."""

@@ -446,6 +446,8 @@ class LiveHub:
         except Exception:  # le suivi ne doit pas tomber pour un titre
             logger.exception('Suivi : noms de la vérif terminée')
             return
+        finally:  # thread de la WebSocket, hors requete : connexion fermee comme pour badge_identity
+            close_old_connections()
         if done.get('lots') is not None and counted:
             done['lots'] = counted
         done['names'] = [name['name'] for name in names]
