@@ -22,6 +22,20 @@
 
 int main()
 {
+    // formulaire : un champ numerique laisse a sa valeur par defaut est quand meme envoye (ruban ajoute avec
+    // 74 m par rouleau sans toucher au champ : le serveur recevait length_m: null, « nombre attendu »)
+    {
+        qrprotec::Json form = qrprotec::Json::object();
+        form["kind"] = "ribbon";
+        (void)form["length_m"].num(74.0); // piege : la lecture non const cree la cle a null
+        assert(form.contains("length_m") && form["length_m"].is_null());
+        assert(qrprotec::form_number(form, "length_m", 74.0) == 74.0);
+        assert(form.dump().find("\"length_m\":74") != std::string::npos);
+        form["per_box"] = 25;
+        assert(qrprotec::form_number(form, "per_box", 1.0) == 25.0); // valeur saisie gardee
+        assert(form["per_box"].integer() == 25);
+    }
+
     // mise a jour automatique (macOS) : versions et derniere release GitHub
     {
         using qrprotec::compare_versions;
