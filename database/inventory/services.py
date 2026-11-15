@@ -544,7 +544,9 @@ def unplaced_lines(lot):
 def lot_distribution(lot):
     """Repartition du contenu d'un referentiel entre les sacs d'un lot global : pour chaque ligne du referentiel, la
     quantite et l'emplacement dans chaque sac (contenu attendu du sac : son type, puis ce que ce lot y change), et ce
-    qui est place en tout. Le type de chaque rangement donne la repartition par defaut."""
+    qui est place en tout. Le type de chaque rangement donne la repartition par defaut. Une ligne d'un type a unites
+    (20 mL de serum phy) est aussi placee par ses sous-types attendus dans un sac (4 dosettes de 5 mL : 20 mL) :
+    'units' et 'subtypes' de chaque sac, 'quantity' reste ce que le sac attend du type a unites lui-meme."""
     result = []
     for referentiel, sacs in sorted(distribution_sacs(lot).items(), key=lambda pair: pair[0].name.lower()):
         placed = {sac.id: {row.item_type_id: row for row in lot_requirements(sac, strict=True)} for sac in sacs}
@@ -554,13 +556,24 @@ def lot_distribution(lot):
         lines = []
         for requirement in ordered_requirements(referentiel):
             type_id = requirement.item_type_id
+            unit = requirement.item_type.unit
             places = []
             for sac in sacs:
                 row = placed[sac.id].get(type_id)
-                places.append({'lot': sac.id, 'quantity': row.quantity if row else 0,
-                               'location': row.location if row else defaults.get((sac.lot_type_id, type_id), '')})
+                place = {'lot': sac.id, 'quantity': row.quantity if row else 0,
+                         'location': row.location if row else defaults.get((sac.lot_type_id, type_id), '')}
+                if unit:
+                    # type a unites (20 mL de serum phy) : les sous-types attendus dans le sac (4 dosettes de 5 mL)
+                    # le remplissent ; avec une ligne du type a unites dans le meme sac, ils sont compris dedans
+                    subtypes = [{'type': sub.item_type_id, 'type_name': sub.item_type.name, 'quantity': sub.quantity,
+                                 'fills': max(1, sub.item_type.fills)}
+                                for sub in placed[sac.id].values() if sub.item_type.group_id == type_id]
+                    place['units'] = sum(sub['quantity'] * sub['fills'] for sub in subtypes)
+                    place['subtypes'] = subtypes
+                places.append(place)
             lines.append({'type': type_id, 'type_name': requirement.item_type.name, 'required': requirement.quantity,
-                          'placed': sum(place['quantity'] for place in places), 'places': places})
+                          'unit': unit, 'places': places,
+                          'placed': sum(max(place['quantity'], place.get('units', 0)) for place in places)})
         result.append({
             'referentiel': referentiel.type, 'referentiel_name': referentiel.name,
             'sacs': [{'id': sac.id, 'name': sac.name, 'lot_type': sac.lot_type_id, 'lot_type_name': sac.lot_type.name,

@@ -1218,7 +1218,11 @@ class LotAdminWindow final : public AppWindow {
             ImGui::TextWrapped("%s", line["type_name"].str().c_str());
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
-            ImGui::Text("%d", static_cast< int >(line["required"].integer()));
+            const std::string unit = line["unit"].str();
+            if (unit.empty())
+              ImGui::Text("%d", static_cast< int >(line["required"].integer()));
+            else
+              ImGui::Text("%d %s", static_cast< int >(line["required"].integer()), unit.c_str());
             int placed = 0;
             for (const Json &sac : group["sacs"].items()) {
               ImGui::TableNextColumn();
@@ -1227,13 +1231,26 @@ class LotAdminWindow final : public AppWindow {
               ImGui::SetNextItemWidth(-FLT_MIN);
               if (ImGui::InputInt("##quantity", &cell.quantity, 1, 1))
                 cell.quantity = std::clamp(cell.quantity, 0, 100000); // en unites pour un type a unites (mL)
+              // type a unites : les sous-types attendus dans ce sac (4 dosettes de 5 mL) le remplissent, compris
+              // dans ce que le sac attend du type a unites lui-meme s'il en attend
+              int units = 0;
+              for (const Json &place : line["places"].items()) {
+                if (place["lot"].str() != sac["id"].str())
+                  continue;
+                units = static_cast< int >(place["units"].integer());
+                for (const Json &sub : place["subtypes"].items())
+                  ImGui::TextDisabled("%s%d × %s (%d %s)", cell.quantity > 0 ? "dont " : "",
+                                      static_cast< int >(sub["quantity"].integer()), sub["type_name"].str().c_str(),
+                                      static_cast< int >(sub["quantity"].integer() * sub["fills"].integer()),
+                                      unit.c_str());
+              }
               if (cell.quantity > 0) {
                 std::vector< std::string > places;
                 for (const Json &location : sac["locations"].items())
                   places.push_back(location.str());
                 input_suggest("location", cell.location, places, 64, "Sans emplacement");
               }
-              placed += cell.quantity;
+              placed += std::max(cell.quantity, units);
               ImGui::PopID();
             }
             ImGui::TableNextColumn();

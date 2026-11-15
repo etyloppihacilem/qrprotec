@@ -7546,3 +7546,34 @@ class UnitGroupTests(ApiTestCase):
         self.assertTrue(line['complete'])
         self.assertEqual(line['lines'][0]['placed'], 200)
         self.assertEqual(line['extra'], [])
+
+    def test_distribution_in_units(self):
+        """Repartition d'un referentiel en mL : 20 mL de serum phy dans la liste, 4 dosettes de 5 mL attendues dans
+        un sac valident la ligne ; 3 seulement (15 mL) la laissent dans aucun sac."""
+        dosette = ItemType.objects.create(type='serdos', name='Dosette sérum 5 mL', perissable=True, group=self.serphy,
+                                          fills=5)
+        referentiel = LotType.objects.create(type='refbpl', name='B+', referentiel=True)
+        LotRequirements.objects.create(lot_type=referentiel, item_type=self.serphy, quantity=20)
+        LotType.objects.filter(type='sacpse').update(part_of=referentiel)
+        LotRequirements.objects.filter(lot_type=self.lot_type).delete()
+        LotRequirements.objects.create(lot_type=self.lot_type, item_type=dosette, quantity=4, location='Pochette')
+        bplus = Lots.objects.create(lot_type=referentiel, name='B+ 1', name_short='B+ 1', created_by='M001')
+        Lots.objects.filter(id=self.lot.id).update(parent=bplus)
+        bplus.refresh_from_db()
+        group = services.lot_distribution(bplus)[0]
+        line = group['lines'][0]
+        self.assertEqual((line['required'], line['placed'], line['unit']), (20, 20, 'mL'))
+        place = line['places'][0]
+        self.assertEqual((place['quantity'], place['units']), (0, 20))
+        self.assertEqual(place['subtypes'], [{'type': 'serdos', 'type_name': 'Dosette sérum 5 mL', 'quantity': 4,
+                                              'fills': 5}])
+        self.assertEqual(services.unplaced_lines(bplus), [])
+        code, body = self.call('GET', f'/api/lots/{bplus.id}/')
+        self.assertEqual(body['unplaced'], [])
+        self.assertNotEqual(body['state']['code'], 'unplaced')
+        # 3 dosettes : 15 mL sur 20, il manque 5 mL
+        LotRequirements.objects.filter(lot_type=self.lot_type, item_type=dosette).update(quantity=3)
+        self.assertEqual(services.unplaced_lines(bplus), [{'type': 'serphy', 'type_name': 'Sérum phy', 'missing': 5}])
+        # le sac attend aussi 20 mL du type a unites : les dosettes sont comprises dedans, pas ajoutees
+        LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.serphy, quantity=20)
+        self.assertEqual(services.lot_distribution(bplus)[0]['lines'][0]['placed'], 20)
