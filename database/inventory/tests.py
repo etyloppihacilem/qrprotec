@@ -3676,6 +3676,16 @@ class RecentVerifsTests(ApiTestCase):
         # un sac seul avec le lot sans contenu à lui : le sac ; avec du contenu à lui : les deux
         self.assertEqual(names((self.lot, 0), (sacs[0], 5)), ['Sac de soin'])
         self.assertEqual(set(names((self.lot, 4), (sacs[0], 5))), {self.lot.name, 'Sac de soin'})
+        # carte terminée du suivi en direct (cascade : une vérif par étape) : nom et compte sans le Stock cadre
+        Verifs.objects.all().delete()
+        first = Verifs.objects.create(lot=armoires[0], by='test', complete=True, present_count=15)
+        second = Verifs.objects.create(lot=stock, by='test', complete=True,
+                                       datetime=timezone.now() + timedelta(seconds=5))
+        self.assertEqual(services.VerifTitles().for_verifs([first.id, second.id]), (
+            [{'id': armoires[0].id, 'name': 'Armoire serum', 'complete': True, 'parent': stock.id}], 1))
+        # compte rendu : sous-lots attendus de chaque lot, pour que le front écarte le Stock cadre
+        _, report = self.call('POST', f'/api/verifs/{second.id}/report/', {'user': badge}, local=False)
+        self.assertEqual(set(report['lots'][0]['children']), {armoires[0].id, armoires[1].id})
 
     def test_verif_report_lists_each_lot_of_a_grouped_verif(self):
         sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
