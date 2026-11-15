@@ -500,6 +500,13 @@ class KeyExpiry(models.IntegerChoices):
 # toujours (cree par la migration 0024) et ne peut etre ni cree ni archive par les utilisateurs.
 STOCK_LOT_TYPE = 'stock0'
 STOCK_LOT_NAME = 'Stock'
+# Genre d'un rangement du stock par defaut (Lots.storage_kind)
+STORAGE_KIND_DEFAULT = 'rangement'
+
+
+def storage_kind_value(value) -> str:
+    """Genre de rangement saisi : texte libre, 32 caracteres, « rangement » s'il est vide."""
+    return ' '.join(str(value or '').split())[:32] or STORAGE_KIND_DEFAULT
 
 
 def stock_lot_name(taken):
@@ -603,6 +610,10 @@ class Lots(models.Model):
     # eux), ecran « Ordre des lots » : departage les lots de meme couleur apres le tri rouge > orange > vert. Vide :
     # apres les lots ranges, dans l'ordre d'origine (type puis nom pour les lots globaux, nom pour les sous-lots).
     sort_order = models.PositiveIntegerField(null=True, blank=True)
+    # Genre d'un rangement du stock (ex : pièce, armoire, tiroir, carton), texte libre : affiche a cote de son nom
+    # et placeholder {{rangement}} de son etiquette (« {{rangement}} du stock » → « armoire du stock »). Sans effet
+    # sur un lot ordinaire.
+    storage_kind = models.CharField(max_length=32, blank=True, default=STORAGE_KIND_DEFAULT)
 
     def save(self, *args, **kwargs):
         if not self.version:

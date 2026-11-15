@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
-from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, compact_iid, custom_order_key, qrprotec_setting
+from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, STOCK_LOT_TYPE, STORAGE_KIND_DEFAULT, compact_iid, custom_order_key, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import restock_credit, LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
 
@@ -140,6 +140,13 @@ def revision_dict(revision):
             'next_due': _date(revision.next_due), 'note': revision.note}
 
 
+def storage_kind(lot):
+    """Genre d'un rangement du stock (Lots.storage_kind), vide pour un lot ordinaire et pour le stock."""
+    if not lot.lot_type.storage or lot.lot_type_id == STOCK_LOT_TYPE:
+        return ''
+    return lot.storage_kind or STORAGE_KIND_DEFAULT
+
+
 def item_last_location(item):
     """Dernier emplacement connu d'un item (fiche d'item du front web) : son lot actuel, ou pour un item qui n'est
     plus actif (sorti, disparu, utilise...) le lot qu'il a quitte en dernier. None : en stock, ou jamais range."""
@@ -158,6 +165,7 @@ def item_last_location(item):
         'name': lot.name,
         'lot_type_name': lot.lot_type.name,
         'storage': lot.lot_type.storage,
+        'storage_kind': storage_kind(lot),
         'path': [{'id': parent.id, 'name': parent.name} for parent in reversed(lot.ancestors())],
         'current': item.location_id == lot.id,
         'at': _date(at),
@@ -306,6 +314,8 @@ def _lot_core(lot, today, items=None, preload=None):
         'lot_type': lot.lot_type_id,
         'lot_type_name': lot.lot_type.name,
         'storage': lot.lot_type.storage,
+        # genre d'un rangement du stock (pièce, armoire...), vide pour un lot ordinaire et pour le stock lui-meme
+        'storage_kind': storage_kind(lot),
         'seal_required': lot.lot_type.seal_required,
         'name': lot.name,
         'name_short': lot.name_short,
@@ -505,7 +515,7 @@ def lot_global(lot, today):
         row['hidden'] = hidden_in_verif(sub_lot, row)
     summary = aggregate_tree(rows)
     rows = attention_order(rows)  # sous-lots a traiter en haut, sous leur parent
-    keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'seal_required', 'parent', 'depth', 'is_sealed', 'sealed',
+    keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'storage_kind', 'seal_required', 'parent', 'depth', 'is_sealed', 'sealed',
             'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
             'counted', 'optional', 'unusable', 'slots_missing', 'assembled', 'replaces_name', 'hidden', 'unplaced')
     summary.update({

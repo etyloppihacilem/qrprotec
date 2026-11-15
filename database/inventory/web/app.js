@@ -111,6 +111,9 @@
   const detailed = canSeeStock;
   const idText = (id) => (showIds() && id ? id : '');
   const withId = (name, id) => (showIds() && id ? `${name} (${id})` : name);
+  // nature d'un lot sous son nom : genre d'un rangement du stock (« Pièce », « Armoire », « Rangement »), type sinon
+  const lotKind = (lot) => (lot.storage_kind ? lot.storage_kind.charAt(0).toUpperCase() + lot.storage_kind.slice(1)
+    : lot.lot_type_name);
   const ROLE_LABELS = { normal: 'Secouriste', chef: 'Chef', gestion: 'Gestion', admin: 'Administrateur' };
   // identite des operations sur un lot : le badge, sinon le nom declare (si le serveur l'autorise)
   const declared = () => !state.user && state.declaredAllowed && !!state.declaredName;
@@ -3753,7 +3756,7 @@
     const lots = sessionLots();
     view.replaceChildren(
       el('h2', {}, lot.name),
-      el('div', { class: 'sub' }, withId(lot.lot_type_name, lot.id)),
+      el('div', { class: 'sub' }, withId(lotKind(lot), lot.id)),
       (lot.path || []).length ? el('div', { class: 'sub' }, 'Dans : ',
         ...lot.path.filter((parent) => !parent.hidden) // lot cache dans la hierarchie (B+ du VPS) : saute
           .flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
@@ -3814,8 +3817,8 @@
       el('div', { class: 'main' },
         el('div', { class: 'name' }, (row.depth ? '└ ' : '') + row.name + (row.id === lot.id ? ' (ce lot)' : '')),
         el('div', { class: 'sub' }, row.counted
-          ? `${row.lot_type_name} · vérif : ${row.last_verif ? fmtDateTime(row.last_verif) : 'jamais'}`
-          : `${row.lot_type_name} · regroupement`)),
+          ? `${lotKind(row)} · vérif : ${row.last_verif ? fmtDateTime(row.last_verif) : 'jamais'}`
+          : `${lotKind(row)} · regroupement`)),
       row.counted ? el('span', { class: 'tag ' + tags[row.effective.kind] }, row.effective.label.replace(/^[✔✘⚠] /, '').split(',')[0]) : null))),
     ];
   }
@@ -4253,7 +4256,7 @@
         pick ? pick.lead(lot) : null,
         el('div', { class: 'main' },
           el('div', { class: 'name' }, (indent ? '└ ' : '') + lot.name + (lot.id === state.lotId ? ' (en cours)' : '')),
-          el('div', { class: 'sub' }, `${flat && lot.parent_name ? `dans ${lot.parent_name} · ` : ''}${lot.lot_type_name}`
+          el('div', { class: 'sub' }, `${flat && lot.parent_name ? `dans ${lot.parent_name} · ` : ''}${lotKind(lot)}`
             + `${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : ` + (verif ? fmtDateTime(verif) : 'jamais')),
           lot.out_with ? el('div', { class: 'sub out-with', title: `Liste « ${lot.out_with} »` }, '🚑 En poste') : null,
           note ? el('div', { class: 'sub pick-note' }, note) : null),
@@ -6493,7 +6496,7 @@
     $('#fiche-actions').hidden = launch.hidden && $('#fiche-add').hidden;
     const parts = [
       el('div', { class: 'title-row' },
-        el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, withId(lot.lot_type_name, lot.id))),
+        el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, withId(lotKind(lot), lot.id))),
         el('div', { class: 'pdf-links' },
           el('a', { class: 'pdf-link', href: new URL(`lots/${encodeURIComponent(lot.id)}/sheet.pdf`, API).href,
             target: '_blank', rel: 'noopener', title: "Fiche d'inventaire papier (PDF)" }, '📄 Fiche PDF'),
@@ -6575,7 +6578,7 @@
         content.push(el('ul', { class: 'list' }, el('li', { class: 'lot-head ' + subStatus.kind,
           style: `padding-left:${12 + Math.max(0, (sub.depth || 1) - 1) * 14}px`, onclick: () => openFiche('lot', sub.id) },
         el('div', { class: 'main' }, el('div', { class: 'name' }, '📦 ', ficheLink('lot', sub.id, sub.name)),
-          el('div', { class: 'sub' }, full ? `${sub.lot_type_name} · ${nb(sub.item_count, 'item')}` : sub.lot_type_name)),
+          el('div', { class: 'sub' }, full ? `${lotKind(sub)} · ${nb(sub.item_count, 'item')}` : lotKind(sub))),
         el('span', { class: 'tag ' + tags[subStatus.kind] }, subStatus.label.replace(/^[✔✘⚠] /, '').split(',')[0]))));
       }
       // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption (a remplacer en haut)

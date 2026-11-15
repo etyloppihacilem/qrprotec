@@ -9,6 +9,7 @@
 ##################################################################################################################### */
 
 #include "../widgets.hpp"
+#include "../../core/codes.hpp"
 #include "../../core/plural.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
@@ -170,8 +171,13 @@ class LotsWindow final : public AppWindow {
         ImGui::Unindent(depth * 18.0f + 1.0f);
         if (!compact) {
           ImGui::SameLine();
-          ImGui::TextDisabled("%s%s", lot["lot_type_name"].str().c_str(),
-                              top ? " · lot global" : lot["storage"].boolean() ? " · rangement" : "");
+          // rangement du stock : son genre (« Pièce », « Armoire »...) a la place du type
+          const std::string kind = lot["storage_kind"].str();
+          if (!kind.empty())
+            ImGui::TextDisabled("%s", utf8_capitalize(kind).c_str());
+          else
+            ImGui::TextDisabled("%s%s", lot["lot_type_name"].str().c_str(),
+                                top ? " · lot global" : lot["storage"].boolean() ? " · rangement" : "");
         }
         if (!lot["out_with"].str().empty()) {
           // parti avec une liste sortie, pas encore rentre (comme sur l'Etat des lots du web)
@@ -253,8 +259,12 @@ class LotsWindow final : public AppWindow {
       ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.3f);
       ImGui::TextUnformatted(details_["name"].str().c_str());
       ImGui::PopFont();
-      ImGui::TextDisabled("%s - %s%s", details_["lot_type_name"].str().c_str(), details_["id"].str().c_str(),
-                          details_["storage"].boolean() ? " - rangement du stock" : "");
+      if (!details_["storage_kind"].str().empty()) // rangement : « Armoire du stock »
+        ImGui::TextDisabled("%s du stock - %s", utf8_capitalize(details_["storage_kind"].str()).c_str(),
+                            details_["id"].str().c_str());
+      else
+        ImGui::TextDisabled("%s - %s%s", details_["lot_type_name"].str().c_str(), details_["id"].str().c_str(),
+                            details_["storage"].boolean() ? " - rangement du stock" : "");
       if (details_["path"].size() > 0) {
         std::string path;
         for (const Json &parent : details_["path"].items())

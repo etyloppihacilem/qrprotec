@@ -105,6 +105,12 @@ Parameters lot_parameters(const Json &lot) {
   parameters["seal_number"]     = lot["seal_number"].str();
   parameters["sealed_date"]     = label_date(lot["sealed"]);
   parameters["valid_until"]     = label_date(lot["valid_until"]);
+  // genre d'un rangement du stock (pièce, armoire...) : « {{rangement}} du stock », {{Rangement}} et {{RANGEMENT}}
+  // en debut de phrase ou en majuscules. Vide pour un lot ordinaire.
+  const std::string kind        = lot["storage_kind"].str();
+  parameters["rangement"]       = kind;
+  parameters["Rangement"]       = utf8_capitalize(kind);
+  parameters["RANGEMENT"]       = utf8_upper(kind);
   return parameters;
 }
 

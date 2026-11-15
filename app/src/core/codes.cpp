@@ -10,6 +10,7 @@
 
 #include "codes.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <ctime>
@@ -239,6 +240,51 @@ bool is_iid(const std::string &code) {
     if (!std::isalnum(static_cast< unsigned char >(character)))
       return false;
   return all_digits(code.substr(kTypeLength, kDateLength));
+}
+
+namespace {
+
+// Longueur du caractere UTF-8 qui commence a text[i], mis en majuscule dans out : ASCII, latin-1 (U+00E0-U+00FE sauf
+// ÷) et œ / æ. Les autres caracteres sont recopies tels quels.
+std::size_t upper_char(const std::string &text, std::size_t i, std::string &out) {
+  const auto byte = static_cast< unsigned char >(text[i]);
+  if (byte < 0x80) {
+    out += static_cast< char >(std::toupper(byte));
+    return 1;
+  }
+  if (i + 1 < text.size()) {
+    const auto next = static_cast< unsigned char >(text[i + 1]);
+    if (byte == 0xC3 && next >= 0xA0 && next <= 0xBE && next != 0xB7) {
+      out += static_cast< char >(byte);
+      out += static_cast< char >(next - 0x20);
+      return 2;
+    }
+    if (byte == 0xC5 && next == 0x93) { // œ → Œ
+      out += "\xC5\x92";
+      return 2;
+    }
+  }
+  std::size_t length = byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : byte >= 0xC0 ? 2 : 1;
+  length = std::min(length, text.size() - i);
+  out.append(text, i, length);
+  return length;
+}
+
+} // namespace
+
+std::string utf8_upper(const std::string &text) {
+  std::string out;
+  for (std::size_t i = 0; i < text.size();)
+    i += upper_char(text, i, out);
+  return out;
+}
+
+std::string utf8_capitalize(const std::string &text) {
+  if (text.empty())
+    return text;
+  std::string out;
+  const std::size_t first = upper_char(text, 0, out);
+  return out + text.substr(first);
 }
 
 std::string compact_iid(const std::string &iid) {

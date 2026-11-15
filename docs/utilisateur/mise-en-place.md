@@ -241,6 +241,12 @@ Créez aussi :
   contenu attendu (on y range ce qu'on veut) et n'a qu'**une étiquette**, l'étiquette de rangement
   (modèle `rangement.qr`) : elle contient sa clé, qui **n'expire pas**, reste à l'intérieur, dans une
   salle fermée, et se renouvelle seulement en cas de problème.
+  Les rangements se rangent les uns dans les autres (**Rangé dans**) : une pièce (la TECH, la
+  réserve, le vestiaire), ses armoires et ses cartons, les tiroirs d'une armoire. Vérifier une pièce
+  vérifie à la suite tout ce qu'elle contient, chaque rangement validé à part. Le **genre du
+  rangement** (pièce, armoire, tiroir, carton… « rangement » par défaut) s'affiche sous son nom et
+  s'imprime sur son étiquette avec `{{rangement}}` (`{{Rangement}}` avec une majuscule,
+  `{{RANGEMENT}}` en majuscules) : « {{rangement}} du stock » donne « armoire du stock ».
 
 Un lot qui n'existe qu'en un exemplaire (le VPS, une armoire du VPS) n'a pas besoin d'un type puis
 d'un lot : cochez **Lot unique** à la création du type. Le lot, du même nom (nom court compris,

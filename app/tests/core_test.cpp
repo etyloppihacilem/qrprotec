@@ -157,6 +157,13 @@ int main()
         assert(qrprotec::resolve_parameters("{{vide}!}", values) == "{{vide}!}");
         assert(qrprotec::resolve_parameters("{{vide[a]}[b]}", values) == "{{vide[a]}[b]}");
         assert(qrprotec::resolve_parameters("Attention ! {{peremption}}!", values) == "Attention ! 31/12/2027!");
+        // genre d'un rangement : {{rangement}}, {{Rangement}}, {{RANGEMENT}} (labels.cpp)
+        assert(qrprotec::utf8_upper("pièce œuf ça") == "PIÈCE ŒUF ÇA");
+        assert(qrprotec::utf8_capitalize("étagère") == "Étagère");
+        assert(qrprotec::utf8_capitalize("armoire") == "Armoire");
+        assert(qrprotec::utf8_capitalize("").empty());
+        values["rangement"] = "pièce";
+        assert(qrprotec::resolve_parameters("{{rangement}} du stock", values) == "pièce du stock");
         values["peremption"] = "{{vide}}"; // une valeur n'est jamais re-substituee
         assert(qrprotec::resolve_parameters("{{peremption}}", values) == "{{vide}}");
         qrprotec::TemplateDocument conditional;
