@@ -917,10 +917,32 @@ void App::window_menu_item(AppWindow &target) {
     open_window(target.id);
 }
 
+namespace {
+
+// Double-clic sur la barre de titre d'une fenetre (hors boutons) : ImGui la replierait. Detecte avant Begin() avec
+// les memes conditions qu'ImGui, et le clic est pris (comme le fait ImGui) pour qu'il ne la replie pas : le poste
+// passe en plein ecran a la place. Le repli reste sur la fleche.
+bool title_bar_double_clicked(const char *label) {
+  ImGuiContext &g      = *GImGui;
+  ImGuiWindow  *window = ImGui::FindWindowByName(label);
+  if (window == nullptr || window->Hidden || (window->Flags & ImGuiWindowFlags_NoTitleBar) || g.HoveredWindow != window
+      || g.HoveredIdPreviousFrame != 0 || g.ActiveId != 0 || g.IO.MouseClickedCount[0] != 2
+      || ImGui::GetKeyOwner(ImGuiKey_MouseLeft) != ImGuiKeyOwner_NoOwner)
+    return false;
+  const ImRect bar = window->TitleBarRect();
+  if (!ImGui::IsMouseHoveringRect(bar.Min, bar.Max))
+    return false;
+  ImGui::SetKeyOwner(ImGuiKey_MouseLeft, window->MoveId);
+  return true;
+}
+
+} // namespace
+
 void App::draw_windows() {
   ImVec2 origin, size;
   work_area(origin, size);
   AppWindow *moving_window = nullptr; // fenetre glissee a la souris
+  AppWindow *fullscreen_toggled = nullptr; // barre de titre double-cliquee a cette frame
   // ecran redimensionne (kiosk : Cage agrandit la fenetre a la taille de l'ecran apres la premiere
   // image, dessinee en 1280x800) : les fenetres deja placees gardent leur place en proportion
   if (last_work_size_.x > 0.0f && last_work_size_.y > 0.0f && size.x > 0.0f && size.y > 0.0f
@@ -990,6 +1012,8 @@ void App::draw_windows() {
     bool              open  = true;
     bool             *p_open = window->can_close(*this) ? &open : nullptr;
     const std::string label = window->title + "###" + window->id;
+    if (title_bar_double_clicked(label.c_str()))
+      fullscreen_toggled = window.get();
     const bool        visible = ImGui::Begin(label.c_str(), p_open, flags);
     if (const ImGuiWindow *moving = GImGui->MovingWindow;
         moving != nullptr && moving->RootWindow == ImGui::GetCurrentWindow())
@@ -1009,6 +1033,12 @@ void App::draw_windows() {
     window->was_open = window->open;
   }
   layout_pending_ = false;
+  // double-clic sur une barre de titre : plein ecran (ou sortie), applique a toutes les fenetres a la frame suivante,
+  // celle double-cliquee au premier plan
+  if (fullscreen_toggled != nullptr) {
+    toggle_fullscreen();
+    fullscreen_toggled->focus_pending = true;
+  }
   update_snap_drag(moving_window);
 }
 
