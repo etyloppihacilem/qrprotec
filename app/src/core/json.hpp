@@ -88,4 +88,9 @@ class Json {
 
 std::string json_escape(const std::string &value);
 
+// Champ numerique d'un formulaire : sa valeur si c'est un nombre, sinon `fallback`, ecrit dans le formulaire pour
+// qu'il soit envoye meme si on ne touche pas au champ. (Lire form[key] sur un Json non const cree la cle a null :
+// un test `contains(key)` juste apres ne voit donc jamais la cle manquante.)
+double form_number(Json &form, const std::string &key, double fallback);
+
 } // namespace qrprotec

@@ -614,8 +614,8 @@ class PrintCountsWindow final : public AppWindow {
             ImGui::EndCombo();
           }
         }
-        float label_w = static_cast< float >(edit_["width_mm"].num(40.0));
-        float label_h = static_cast< float >(edit_["height_mm"].num(30.0));
+        float label_w = static_cast< float >(form_number(edit_, "width_mm", 40.0));
+        float label_h = static_cast< float >(form_number(edit_, "height_mm", 30.0));
         ImGui::SetNextItemWidth(width);
         if (ImGui::InputFloat("largeur (mm)", &label_w, 0.0f, 0.0f, "%g"))
           edit_["width_mm"] = static_cast< double >(label_w);
@@ -623,31 +623,24 @@ class PrintCountsWindow final : public AppWindow {
         ImGui::SetNextItemWidth(width);
         if (ImGui::InputFloat("hauteur (mm)", &label_h, 0.0f, 0.0f, "%g"))
           edit_["height_mm"] = static_cast< double >(label_h);
-        if (!edit_.contains("width_mm"))
-          edit_["width_mm"] = static_cast< double >(label_w);
-        if (!edit_.contains("height_mm"))
-          edit_["height_mm"] = static_cast< double >(label_h);
         ImGui::SameLine();
         if (ImGui::RadioButton("thermique direct", edit_["support"].str() != "transfer"))
           edit_["support"] = "direct";
         ImGui::SameLine();
         if (ImGui::RadioButton("transfert thermique", edit_["support"].str() == "transfer"))
           edit_["support"] = "transfer";
-        int per_roll = edit_["per_roll"].integer(1000);
+        int per_roll = static_cast< int >(form_number(edit_, "per_roll", 1000.0));
         ImGui::SetNextItemWidth(width);
         if (ImGui::InputInt("étiquettes par bobine", &per_roll, 100))
           edit_["per_roll"] = std::max(1, per_roll);
-        if (!edit_.contains("per_roll"))
-          edit_["per_roll"] = per_roll;
       } else {
-        float length = static_cast< float >(edit_["length_m"].num(74.0));
+        // 74 m par defaut, envoye meme si on ne touche pas au champ (taper 74 par-dessus ne le modifie pas)
+        float length = static_cast< float >(form_number(edit_, "length_m", 74.0));
         ImGui::SetNextItemWidth(width);
         if (ImGui::InputFloat("mètres par rouleau", &length, 0.0f, 0.0f, "%g"))
           edit_["length_m"] = static_cast< double >(length);
-        if (!edit_.contains("length_m"))
-          edit_["length_m"] = static_cast< double >(length);
       }
-      int per_box = edit_["per_box"].integer(1);
+      int per_box = static_cast< int >(form_number(edit_, "per_box", 1.0));
       ImGui::SetNextItemWidth(width);
       if (ImGui::InputInt(ribbon ? "rouleaux par boîte" : "bobines par boîte", &per_box))
         edit_["per_box"] = std::max(1, per_box);

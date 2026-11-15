@@ -436,4 +436,12 @@ std::string Json::dump() const {
   return output;
 }
 
+double form_number(Json &form, const std::string &key, double fallback) {
+  const Json &current = form;
+  if (current[key].is_number())
+    return current[key].num(fallback);
+  form[key] = fallback;
+  return fallback;
+}
+
 } // namespace qrprotec
