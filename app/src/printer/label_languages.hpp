@@ -22,6 +22,10 @@ struct RawJob {
     int offset_x_dots = 0; // decalage horizontal : positif = vers la droite (ZPL ^LS, TSPL SHIFT x)
     int offset_y_dots = 0; // decalage vertical : positif = vers le bas (ZPL ^LT, TSPL SHIFT y)
     int tear_off_dots = 0; // position d'arret apres impression : positif = plus sorti (ZPL ~TA, TSPL OFFSET)
+    // ZPL : une autre etiquette est envoyee juste derriere. ^XB (« Suppress Backfeed ») : pas d'arret a la barre
+    // de decoupe ni de recul avant la suivante, imprimee dans la foulee (le recul avec l'etiquette precedente
+    // encore pendue devant decale la suivante vers le haut).
+    bool next_follows = false;
     // vitesse en pouces par seconde (25,4 mm/s), 2 a 6 : impression, avance et recul (ZPL ^PR, TSPL SPEED).
     // Plus lent = etiquette mieux reperee d'une impression a l'autre.
     int speed_ips = kMinSpeedIps;

@@ -147,6 +147,7 @@ std::vector<std::uint8_t> encode_zpl(const RasterImage& image, const RawJob& job
     append(out, std::string("~SD") + darkness + "\n");
     append(out, zpl_tear_off(job));
     append(out, "^XA\n");
+    if (job.next_follows) append(out, "^XB\n");
     append(out, zpl_media(job));
     append(out, "^FO0,0");
     append(out, "^GFA," + std::to_string(bits.size()) + "," + std::to_string(bits.size()) + "," +

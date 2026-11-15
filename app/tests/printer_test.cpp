@@ -64,6 +64,13 @@ int main()
     assert(zpl.find("^FO0,0^GFA,4,4,2,8040\n4000^FS\n") != std::string::npos);
     assert(zpl.find("^PQ2\n^XZ\n") != std::string::npos);
     assert(tspl.find("SHIFT 0,0\r\nOFFSET 0 mm\r\nCLS\r\n") != std::string::npos);
+    // etiquette suivante deja envoyee : ^XB, pas d'arret a la decoupe ni de recul entre les deux
+    assert(zpl.find("^XB") == std::string::npos);
+    {
+        qrprotec::labels::RawJob chained = job;
+        chained.next_follows = true;
+        assert(as_text(qrprotec::labels::encode_zpl(label, chained)).find("^XA\n^XB\n^MTD\n") != std::string::npos);
+    }
 
     // zone ^PW elargie de 15 mm de chaque cote (tete 104 mm), image au milieu : decalage horizontal par ^LH x,
     // vers le bas par ^LH y, vers le haut par ^LT (borne -120), ~TA borne ±120

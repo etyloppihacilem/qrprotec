@@ -321,10 +321,13 @@ bool RawLabelPrinter::print(const PrintRequest& request, const std::function<voi
     job.offset_x_dots = static_cast<int>(std::lround(raw.offset_x_mm * ppm));
     job.offset_y_dots = static_cast<int>(std::lround(raw.offset_y_mm * ppm));
     job.speed_ips = raw.speed_ips;
+    // avant l'encodage : sinon chaque etiquette renvoyait ~TA000 / OFFSET 0 et la position de decoupe reglee
+    // n'etait appliquee qu'au calibrage
+    job.tear_off_dots = static_cast<int>(std::lround(raw.tear_off_mm * ppm));
+    job.next_follows = request.next_follows;
     const std::vector<std::uint8_t> bytes = request.settings.kind == PrinterKind::Zpl
                                                 ? labels::encode_zpl(request.image, job)
                                                 : labels::encode_tspl(request.image, job);
-    job.tear_off_dots = static_cast<int>(std::lround(raw.tear_off_mm * ppm));
     if (!silent_) {
         const PrinterStatus status = read_status(request.settings.kind, 1000);
         if (status.blocking) {
