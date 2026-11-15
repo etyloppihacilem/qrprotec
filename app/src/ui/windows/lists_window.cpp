@@ -116,7 +116,8 @@ class ListsWindow final : public AppWindow {
 
     void reset_view(App &app) override {
       select(app, ""); // plus de liste ouverte ni de scan dirige vers elle
-      show_ = "mine";
+      show_      = "mine";
+      done_open_ = false;
       member_query_.clear();
       member_results_ = Json::array();
     }
@@ -238,7 +239,7 @@ class ListsWindow final : public AppWindow {
         ImGui::TableSetupColumn("Par", ImGuiTableColumnFlags_WidthFixed, 160.0f);
         ImGui::TableSetupColumn("Lignes", ImGuiTableColumnFlags_WidthFixed, 150.0f);
         ImGui::TableHeadersRow();
-        for (const Json &row : lists_.items()) {
+        const auto draw_row = [&](const Json &row) {
           const std::string id = row["id"].str();
           ImGui::TableNextRow();
           ImGui::TableNextColumn();
@@ -256,6 +257,31 @@ class ListsWindow final : public AppWindow {
           else
             ImGui::Text("%d/%d %s", row["done_count"].integer(), row["line_count"].integer(),
                         pl(row["line_count"].integer(), "prête").c_str());
+        };
+        // listes rentrees (Rentrée, Validée, Terminée : la liste ne sert plus) repliees sous une ligne [+] en bas,
+        // fermee par defaut, comme les types a 0 attendu du stock ; la liste ouverte reste visible au-dessus
+        std::vector< const Json * > done;
+        for (const Json &row : lists_.items()) {
+          if (!row["template"].boolean() && row["status"].str() == "returned" && row["id"].str() != list_id_)
+            done.push_back(&row);
+          else
+            draw_row(row);
+        }
+        if (!done.empty()) {
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          const int         n     = static_cast< int >(done.size());
+          const std::string label = std::string(done_open_ ? "[−] " : "[+] ")
+                                  + (n > 1 ? "Listes rentrées" : "Liste rentrée") + " (" + std::to_string(n) + ")##done_fold";
+          ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+          if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns))
+            done_open_ = !done_open_;
+          ImGui::PopStyleColor();
+          for (int column = 1; column < 4; ++column)
+            ImGui::TableNextColumn();
+          if (done_open_)
+            for (const Json *row : done)
+              draw_row(*row);
         }
         ImGui::EndTable();
       }
@@ -1459,6 +1485,7 @@ class ListsWindow final : public AppWindow {
 
     Json        lists_ = Json::array();
     std::string show_  = "mine";
+    bool        done_open_   = false; // listes rentrees depliees (ligne [+] en bas du tableau)
     bool        can_create_  = false; // chef, gestion, admin (reponse de /api/checklists/list/)
     bool        can_see_all_ = false;
     std::string opened_;              // derniere liste ouverte (lue une premiere fois avec "open")
