@@ -95,6 +95,7 @@ local_patterns = [
     path('items/to-stock/', views.items_to_stock),
     path('items/<str:iid>/delete/', views.item_delete),
     path('items/<str:iid>/restore/', views.item_restore),
+    path('items/<str:iid>/split/', views.item_split),
     path('stock/', views.stock),
     path('stock/forecast/', views.stock_forecast),
     path('stock/verif/', views.stock_verif),

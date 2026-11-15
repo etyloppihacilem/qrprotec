@@ -108,6 +108,7 @@ class SeenWhile(models.TextChoices):
     OPEN = 'open', 'Ouverture de paquet'
     OUT = 'out', 'Sortie du stock'
     CHECKLIST = 'list', 'Liste de matériel'
+    SPLIT = 'split', 'Découpage'
 
 
 class LabelStyle(models.TextChoices):
@@ -116,6 +117,9 @@ class LabelStyle(models.TextChoices):
     QR = 'qr', 'QR code'                   # QR de l'URL de l'item : ouvre le front web a l'appareil photo
     SMALL = 'small', 'QR code réduit'      # petit QR de l'iid seul (moins deforme sur un objet rond)
     BARCODE = 'barcode', 'Code-barres'     # Code 128 de l'iid seul (objets ronds)
+    # planche : une etiquette qui se decoupe en plusieurs petites etiquettes d'items (ex : 5 dosettes de serum phy),
+    # chacune avec le petit QR de son iid seul. Le poste remplit le modele (placeholders numerotes {{code1}}...).
+    SHEET = 'sheet', 'Planche (plusieurs items par étiquette)'
 
 
 class ItemStatus(models.TextChoices):
@@ -743,6 +747,7 @@ class OperationKind(models.TextChoices):
     ITEM_RESTORE = 'item_restore', "Restauration d'item"
     ITEM_DISABLE = 'item_disable', "Désactivation d'item"
     ITEM_ENABLE = 'item_enable', "Réactivation d'item"
+    ITEM_SPLIT = 'item_split', "Découpage d'item"
     ITEM_OUT = 'item_out', 'Sortie du stock'
     ITEM_OUT_USED = 'item_out_used', 'Sortie non revenue'
     PACK_OPEN = 'pack_open', 'Ouverture de paquet'

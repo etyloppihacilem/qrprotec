@@ -2007,6 +2007,25 @@ def item_delete(request, iid):
     return Response(ser.item_dict(item))
 
 
+@api_view(['GET', 'POST'])
+@handle_errors
+def item_split(request, iid):
+    """Decoupe d'un item en plus petits sous-types du meme type a unites (sachet de 5 serums phy → 5 dosettes).
+    GET : sous-types possibles {"targets": [{"type", "name", "count"}]}. POST {"user", "type"} : decoupe, renvoie
+    {"source": item, "items": [nouveaux items, a etiqueter]}."""
+    require_front(request, GESTION)
+    item = get_object_or_404(Items.objects.select_related('pack__item_type__group', 'location'), iid=iid)
+    if request.method == 'GET':
+        return Response({'targets': [{'type': target.type, 'name': target.name, 'count': count}
+                                     for target, count in services.split_targets(item.pack.item_type)]})
+    target = get_object_or_404(ItemType, type=str(request.data.get('type', '')))
+    created = services.split_item(item, target, operation_identity(request))
+    today = timezone.localdate()
+    items = Items.objects.select_related('pack__item_type', 'location').filter(iid__in=[new.iid for new in created])
+    return Response({'source': ser.item_dict(item, today),
+                     'items': [ser.item_dict(new, today) for new in items.order_by('iid')]})
+
+
 @api_view(['POST'])
 @handle_errors
 def items_disable(request):

@@ -4512,7 +4512,8 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::TaskItemSmall:
     case TemplateCategory::ItemBarcode:
     case TemplateCategory::ItemBarcodeTear:
-    case TemplateCategory::TaskItemBarcode: return "{{iid}}";
+    case TemplateCategory::TaskItemBarcode:
+    case TemplateCategory::ItemSheet: return "{{iid}}";
     case TemplateCategory::Generic: break;
   }
   return "{{iid}}";
@@ -4575,7 +4576,9 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
       return found == label.end() ? std::string() : found->second;
     };
     const std::string style = value("label_style");
-    const int         index = style == "small" ? 1 : style == "barcode" ? 2 : 0;
+    // planche : plusieurs petits QR de l'iid par etiquette ; un item a taches ou a dechirer garde une etiquette a
+    // lui, au style QR reduit (comme sans modele de planche)
+    const int         index = style == "small" || style == "sheet" ? 1 : style == "barcode" ? 2 : 0;
     static const TemplateCategory plain[] = { TemplateCategory::Item, TemplateCategory::ItemSmall,
                                               TemplateCategory::ItemBarcode };
     static const TemplateCategory tasks[] = { TemplateCategory::TaskItem, TemplateCategory::TaskItemSmall,
@@ -4587,6 +4590,8 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
       chain.push_back(tasks[index]);
     else if (!value("tear_notice").empty())
       chain.push_back(torn[index]);
+    else if (style == "sheet")
+      chain.push_back(TemplateCategory::ItemSheet);
     chain.push_back(plain[index]);
     if (index != 0)
       chain.push_back(TemplateCategory::Item);
@@ -4623,14 +4628,29 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
       return false;
     chosen.push_back(model);
   }
-  for (std::size_t index = 0; index < labels.size(); ++index) {
+  // une etiquette par item, sauf sur une planche : les items qui se suivent avec le meme modele de planche la
+  // remplissent dans l'ordre ({{code1}}, {{code2}}...), la derniere garde des places vides
+  std::vector< std::pair< const TemplateDocument *, Parameters > > printed;
+  for (std::size_t index = 0; index < labels.size();) {
+    const TemplateDocument *model = chosen[index];
+    if (model->category != TemplateCategory::ItemSheet) {
+      printed.emplace_back(model, labels[index++]);
+      continue;
+    }
+    const std::size_t         slots = static_cast< std::size_t >(sheet_slots(*model, labels[index]));
+    std::vector< Parameters > items;
+    while (index < labels.size() && chosen[index] == model && items.size() < slots)
+      items.push_back(labels[index++]);
+    printed.emplace_back(model, sheet_parameters(*model, items, static_cast< int >(slots)));
+  }
+  for (std::size_t index = 0; index < printed.size(); ++index) {
     PrintJob job;
-    job.description = what + (labels.size() > 1 ? " " + std::to_string(index + 1) + "/" + std::to_string(labels.size()) : "");
-    job.document    = *chosen[index];
+    job.description = what + (printed.size() > 1 ? " " + std::to_string(index + 1) + "/" + std::to_string(printed.size()) : "");
+    job.document    = *printed[index].first;
     job.document.parameters["today"]      = today().display();
     job.document.parameters["printed_by"] = user_name();
     job.document.parameters["titre"]      = settings.label_title;
-    for (const auto &[name, value] : labels[index])
+    for (const auto &[name, value] : printed[index].second)
       job.document.parameters[name] = value;
     jobs.push_back(std::move(job));
   }

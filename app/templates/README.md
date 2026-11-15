@@ -39,8 +39,13 @@ après chaque clone.
   Sans modèle pour une version, l'impression prend la version normale du style, puis `item.qr`. Dans
   l'éditeur, l'élément **Code-barres** garde des barres de largeur entière de pixels : sur 40 mm à
   8 points/mm, un iid tient à 1 point par barre fine, d'où le code sur toute la largeur.
+- `item_planche.qr` (usage « Item - planche ») : une étiquette qui se découpe en 5 petites étiquettes
+  d'items (ex : 5 dosettes de sérum phy), pour les types au style **Planche**. Chaque placeholder d'item
+  porte le numéro de l'item sur la planche (`{{code1}}`, `{{type_name1}}`, `{{exp1}}`… `{{code5}}`) :
+  le plus grand numéro donne le nombre d'items par planche, et la dernière planche d'une impression
+  garde des places vides. `{{code}}` est l'iid court (petit QR), `{{exp}}` la péremption JJ/MM/AAAA.
 - `scelle_ouverture.qr` est l'étiquette d'ouverture, imprimée avec celle du scellé et rangée **à
   l'intérieur** du lot : la scanner ouvre le scellé, même sans être connecté.
 
-Modèles fournis (40 × 30 mm) : les 9 étiquettes d'items ci-dessus, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
+Modèles fournis (40 × 30 mm) : les 9 étiquettes d'items ci-dessus, `item_planche.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
 `scelle_ouverture.qr`, `rangement.qr`, `badge.qr`.
