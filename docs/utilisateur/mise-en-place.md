@@ -120,6 +120,17 @@ Conseils :
     bouteille) où un QR code déformé par la courbure se lit mal. Collez l'étiquette avec les barres qui
     font le tour de l'objet (le code se lit dans la longueur). Au téléphone, tenez-le à plat ou debout
     dans le viseur, assez près.
+  - **Planche (plusieurs par étiquette)** : pour les petits items étiquetés un par un (ex : dosettes de
+    sérum phy), une seule étiquette qui se découpe en plusieurs, chaque morceau avec le petit QR de son
+    item (modèle « Item - planche », `item_planche.qr` : 5 items). Une impression de 7 dosettes sort 2
+    planches, la deuxième avec 3 items et des places vides. Un item à tâches ou à déchirer garde une
+    étiquette à lui (style QR code réduit).
+
+  Un item d'un sous-type (sachet de 5 dosettes d'un type à unités) se **découpe** en items d'un
+  sous-type plus petit du même type (5 dosettes) : **Gestion > Inventaire > Items**, choisir l'item puis
+  **Découper**. Les nouveaux items gardent sa péremption et sa place (lot ou rangement), leurs étiquettes
+  s'ouvrent en aperçu à imprimer ; l'étiquette du sachet est à jeter. Le découpage est proposé quand le
+  sous-type plus petit remplit une part entière du gros (25 mL = 5 × 5 mL).
 
   Chaque style existe en trois versions, chacune avec son modèle dans les Réglages : normale, **liste
   de tâches** (types qui ont des tâches à la vérif, la liste reste imprimée en clair) et **à déchirer**.

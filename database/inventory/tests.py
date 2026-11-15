@@ -24,7 +24,7 @@ from . import lot_sheet
 from . import services
 from .models import (
     ABSENCE_KINDS, ConsumableMove, ConsumableRef, PrintCount, PrintCountBatch, Checklist, ChecklistStatus, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType,
-    LotRequirements, Lots, LotType, MovementKind, Operation, Secouristes, STOCK_LOT_TYPE, Verifs, compact_iid, expand_iid,
+    LotRequirements, Lots, LotType, MovementKind, Operation, OperationKind, Secouristes, STOCK_LOT_TYPE, Verifs, compact_iid, expand_iid,
 )
 
 LOCAL = {'qrprotec.role': 'local'}
@@ -7388,6 +7388,39 @@ class UnitGroupTests(ApiTestCase):
         self.assertTrue(report['complete'])
         self.assertEqual(self.row(report, 'serphy')['present'], 200)
         self.assertNotIn('suggest', self.row(report, 'serphy'))
+
+    def test_split_sachet_into_dosettes(self):
+        """Un sachet de 5 dosettes (25 mL) se decoupe en 5 dosettes (5 mL) etiquetees une par une : meme peremption,
+        meme lot ; le sachet est remplace et ne revient plus."""
+        code, body = self.call('POST', '/api/item-types/', {'type': 'serdos', 'name': 'Dosette sérum 5 mL',
+                                                            'perissable': True, 'group': 'serphy', 'fills': 5,
+                                                            'label_style': 'sheet'})
+        self.assertEqual((code, body['label_style']), (201, 'sheet'))
+        sachet = self.create(self.sachet, self.later, 1)[0]
+        Items.objects.filter(iid=sachet.iid).update(location=self.lot)
+        url = f'/api/items/{sachet.iid}/split/'
+        code, body = self.call('GET', url)
+        self.assertEqual(body['targets'], [{'type': 'serdos', 'name': 'Dosette sérum 5 mL', 'count': 5}])
+        # le flacon (50 mL) n'est pas une part du sachet ; un type hors du groupe non plus
+        self.assertEqual(self.call('POST', url, {'type': 'serfla'})[0], 400)
+        self.assertEqual(self.call('POST', url, {'type': 'compre'})[0], 400)
+        code, body = self.call('POST', url, {'type': 'serdos'})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(len(body['items']), 5)
+        self.assertEqual({item['type'] for item in body['items']}, {'serdos'})
+        self.assertEqual({item['peremption'] for item in body['items']}, {self.later.isoformat()})
+        self.assertEqual(Items.objects.filter(pack__item_type=self.dosette(), location=self.lot,
+                                              status=ItemStatus.ACTIVE).count(), 5)
+        old = Items.objects.get(iid=sachet.iid)
+        self.assertEqual((old.status, old.location_id), (ItemStatus.REPLACED, None))
+        self.assertEqual(old.deleted_reason, 'Découpé en 5 × Dosette sérum 5 mL')
+        self.assertTrue(Operation.objects.filter(kind=OperationKind.ITEM_SPLIT, details__source=sachet.iid).exists())
+        # deja decoupe : plus rien a decouper ; une dosette ne se decoupe pas
+        self.assertEqual(self.call('POST', url, {'type': 'serdos'})[0], 400)
+        self.assertEqual(self.call('GET', f"/api/items/{body['items'][0]['iid']}/split/")[1]['targets'], [])
+
+    def dosette(self):
+        return ItemType.objects.get(type='serdos')
 
     def test_newcomers_fill_units(self):
         """Verif groupee de deux lots : les items venus du stock vont la ou il manque des unites."""

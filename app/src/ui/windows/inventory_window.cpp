@@ -87,11 +87,11 @@ Json sample_item(const std::string &type, const std::string &name, bool perishab
 }
 
 // Styles d'etiquette d'un type d'item (ItemType.label_style) : chacun a sa version liste de taches et a dechirer
-const char *const kLabelStyles[]     = { "qr", "small", "barcode" };
-const char *const kLabelStyleNames[] = { "QR code", "QR code réduit", "Code-barres" };
+const char *const kLabelStyles[]     = { "qr", "small", "barcode", "sheet" };
+const char *const kLabelStyleNames[] = { "QR code", "QR code réduit", "Code-barres", "Planche (plusieurs par étiquette)" };
 
 int label_style_index(const std::string &style) {
-  return style == "small" ? 1 : style == "barcode" ? 2 : 0;
+  return style == "small" ? 1 : style == "barcode" ? 2 : style == "sheet" ? 3 : 0;
 }
 
 std::vector< std::string > tasks_of(const Json &item_type) {
@@ -479,7 +479,9 @@ class InventoryWindow final : public AppWindow {
       help_marker("QR code : contient l'URL de l'item, l'appareil photo d'un téléphone ouvre sa fiche web.\n"
                   "QR code réduit : petit QR de l'identifiant seul, moins déformé sur un objet rond.\n"
                   "Code-barres : identifiant seul, pour les objets ronds (flacon, tube) : collez-le avec les barres "
-                  "qui font le tour de l'objet.\n\n"
+                  "qui font le tour de l'objet.\n"
+                  "Planche : plusieurs petits items sur une même étiquette qui se découpe (ex : 5 dosettes de sérum "
+                  "phy), chacun avec le petit QR de son identifiant (modèle « Item - planche » des Réglages).\n\n"
                   "Chaque style a sa version liste de tâches et à déchirer (modèles « Item - ... » des Réglages).");
       ImGui::Checkbox("Étiquette à déchirer avant utilisation", &form_tear_off_);
       help_marker("Pour un ensemble étiqueté une seule fois (ex : sachet de plusieurs sérums phy). L'étiquette porte "
@@ -969,6 +971,7 @@ class InventoryWindow final : public AppWindow {
       const std::string iid = selected_item_["iid"].str();
       ImGui::Text("%s - %s - vu %s par %s", iid.c_str(), selected_item_["type_name"].str().c_str(),
                   display_on(selected_item_["last_seen"], true).c_str(), selected_item_["last_seen_by"].str().c_str());
+      draw_split(app, iid);
       if (ImGui::CollapsingHeader("Actions avancées")) {
         ImGui::TextWrapped("Les items ne sont normalement pas supprimés : ils sont détectés comme disparus par les "
                            "vérifs. N'utilisez la suppression que pour un cas exceptionnel (casse, erreur de saisie).");
@@ -1018,6 +1021,67 @@ class InventoryWindow final : public AppWindow {
         if (selected_item_["status"].str() != "deleted" && selected_item_["status"].str() != "replaced")
           draw_disable(app, iid);
       }
+    }
+
+    // Decoupage d'un item en plus petits sous-types du meme type a unites (sachet de 5 serums phy → 5 dosettes) :
+    // les nouveaux items prennent sa place (lot ou stock) et leurs etiquettes s'ouvrent en apercu, a imprimer.
+    void draw_split(App &app, const std::string &iid) {
+      if (selected_item_["status"].str() != "active")
+        return;
+      if (split_iid_ != iid) {
+        split_iid_     = iid;
+        split_targets_ = Json();
+        split_choice_  = 0;
+        app.api.get("/api/items/" + url_encode(iid) + "/split/", [this, iid](const ApiResult &result) {
+          if (result.ok && split_iid_ == iid)
+            split_targets_ = result.data["targets"];
+        });
+      }
+      if (split_targets_.size() == 0)
+        return;
+      split_choice_ = std::clamp(split_choice_, 0, static_cast< int >(split_targets_.size()) - 1);
+      const Json &target = split_targets_[split_choice_];
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted("Découper en");
+      ImGui::SameLine();
+      if (split_targets_.size() > 1) {
+        ImGui::SetNextItemWidth(260.0f);
+        const std::string current = target["count"].str() + " × " + target["name"].str();
+        if (ImGui::BeginCombo("##split", current.c_str())) {
+          for (int index = 0; index < static_cast< int >(split_targets_.size()); ++index) {
+            const Json       &option = split_targets_[index];
+            const std::string label  = option["count"].str() + " × " + option["name"].str();
+            if (ImGui::Selectable(label.c_str(), index == split_choice_))
+              split_choice_ = index;
+          }
+          ImGui::EndCombo();
+        }
+      } else
+        ImGui::Text("%s × %s", target["count"].str().c_str(), target["name"].str().c_str());
+      ImGui::SameLine();
+      const std::string question = "Découper " + selected_item_["type_name"].str() + " en " + target["count"].str()
+                                   + " × " + target["name"].str() + " ?\nSon étiquette est à jeter : les nouveaux "
+                                   "items ont chacun la leur, à imprimer et coller.";
+      if (confirm_button("Découper", question.c_str(), "confirm_split")) {
+        Json body;
+        body["user"] = app.user_ref();
+        body["type"] = target["type"].str();
+        app.api.post("/api/items/" + url_encode(iid) + "/split/", body, [this, &app](const ApiResult &result) {
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          const Json &items = result.data["items"];
+          app.notify(nb(static_cast< long long >(items.size()), "item créé", "items créés") + " : imprimez leurs étiquettes.");
+          app.preview_labels(TemplateCategory::Item, item_labels(items), "Découpage");
+          selected_item_ = Json();
+          split_iid_.clear();
+          search(app);
+        });
+      }
+      help_marker("Le conditionnement est ouvert pour être rangé à l'unité (ex : un sachet de 5 dosettes de sérum phy "
+                  "en 5 dosettes étiquetées une par une) : même péremption, même lot ou rangement. L'item découpé "
+                  "est retiré.");
     }
 
     // Desactivation (rappel produit, non-conformite), par un admin : l'item est invalide comme un perime et doit etre
@@ -1358,6 +1422,9 @@ class InventoryWindow final : public AppWindow {
     std::string delete_reason_;
     std::string disable_reason_;
     bool        disable_reception_ = false;
+    std::string split_iid_;           // item dont les decoupages possibles sont charges
+    Json        split_targets_;       // [{type, name, count}]
+    int         split_choice_ = 0;
     std::string item_reception_iid_; // reception de l'item selectionne (actions avancees)
     Json        item_reception_;
     Json        receptions_ = Json::array();

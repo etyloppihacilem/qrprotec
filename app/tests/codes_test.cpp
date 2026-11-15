@@ -335,11 +335,47 @@ static void test_barcode() {
   }
   assert((item_categories == std::set< std::string >{ "item", "item_small", "item_barcode", "task_item", "task_item_small",
                                                       "task_item_barcode", "item_tear", "item_small_tear",
-                                                      "item_barcode_tear" }));
+                                                      "item_barcode_tear", "item_sheet" }));
 
   // trop etroit ou contenu non encodable : signale
   document.parameters["iid_short"] = "https://example.com/item?id=compre20271231000000A1";
   assert(!validate(document).empty());
+}
+
+// Planche (item_planche.qr) : plusieurs items par etiquette, autant que le plus grand numero de ses placeholders ;
+// les places vides de la derniere planche ne gardent jamais les valeurs d'exemple du modele
+static void test_item_sheet() {
+  TemplateDocument document;
+  std::string      error;
+  assert(load_template(document, std::string(QRPROTEC_TEMPLATES_SOURCE) + "/item_planche.qr", error));
+  assert(document.category == TemplateCategory::ItemSheet);
+  int expected = 0; // nombre d'items lu dans le modele : plus grand numero de {{codeN}}
+  for (const std::string &name : find_placeholders(document))
+    if (name.rfind("code", 0) == 0 && name.size() > 4)
+      expected = std::max(expected, std::stoi(name.substr(4)));
+  assert(expected > 1);
+  const auto item = [](const std::string &iid, const std::string &date) {
+    return Parameters{ { "code", compact_iid(iid) }, { "iid", iid }, { "type_name", "Dosette" }, { "exp", date } };
+  };
+  assert(sheet_slots(document, item("serdos2028091200000001", "12/09/2028")) == expected);
+  std::vector< Parameters > items;
+  for (int index = 1; index < expected; ++index) // une place vide
+    items.push_back(item("serdos202809120000000" + std::to_string(index), "12/09/2028"));
+  const Parameters filled = sheet_parameters(document, items, expected);
+  assert(filled.at("code1") == compact_iid("serdos2028091200000001"));
+  assert(filled.at("type_name1") == "Dosette" && filled.at("exp1") == "12/09/2028");
+  const std::string last = std::to_string(expected);
+  assert(filled.at("code" + last).empty() && filled.at("type_name" + last).empty() && filled.at("exp" + last).empty());
+  assert(filled.at("type_name") == "Dosette" && filled.at("sheet_count") == std::to_string(expected - 1));
+  // rendu : la place vide n'a ni QR ni texte, le modele reste valide avec de vrais iid
+  TemplateDocument printed = document;
+  for (const auto &[name, value] : filled)
+    printed.parameters[name] = value;
+  assert(validate(printed).empty());
+  // modele sans numero : un item par etiquette
+  TemplateDocument plain;
+  plain.elements.push_back({ "qr", ElementKind::QrCode, QrElement{ "{{code}}" } });
+  assert(sheet_slots(plain, item("serdos2028091200000001", "")) == 1);
 }
 
 static void test_text_and_label_fit() {
@@ -479,6 +515,7 @@ int main() {
   test_bare_matricule();
   test_barcode();
   test_qr_and_categories();
+  test_item_sheet();
   test_text_and_label_fit();
   test_templates_dir();
   test_search();

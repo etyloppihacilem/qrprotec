@@ -61,6 +61,12 @@ Parameters item_parameters(const Json &item, int index, int count) {
   // style d'etiquette du type (qr, small, barcode) : choisit le modele a l'impression (App::build_label_jobs)
   parameters["label_style"] = item["label_style"].str("qr");
   add_peremption(parameters, item["peremption"]);
+  // contenu du code de l'etiquette selon le style : URL (des taches ou de l'item) pour le QR, iid court sinon (QR
+  // reduit, code-barres, planche ou chaque petit QR doit rester lisible)
+  const bool url = parameters["label_style"] == "qr";
+  parameters["code"] = !url ? parameters["iid_short"] : item["tasks"].size() > 0 ? parameters["task_url"]
+                                                                              : parameters["item_url"];
+  parameters["exp"]  = parameters["peremption"];
   return parameters;
 }
 

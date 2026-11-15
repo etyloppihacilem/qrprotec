@@ -12,6 +12,9 @@
 
 #include "codes.hpp"
 
+#include <algorithm>
+#include <cctype>
+
 namespace qrprotec {
 
 namespace {
@@ -39,6 +42,19 @@ std::vector< PlaceholderInfo > lot_placeholders() {
     { "lot_global_name", "Lot global (le lot lui-même s'il n'est dans aucun lot)", "VPS 1" },
     { "lot_path", "Chemin du lot, du lot global au lot", "VPS 1 › B+ n°1 › Sac O2" },
     { "lot_url", "URL publique de vérif (QR de l'étiquette publique)", "https://example.com/verif?lot=sacpse00000001" },
+  };
+}
+
+// Placeholders de chaque item d'une planche, sans leur numero
+std::vector< PlaceholderInfo > sheet_item_placeholders() {
+  return {
+    { "code", "Contenu du QR code (iid court)", "serphy20271231N1" },
+    { "type_name", "Nom du type d'item", "Sérum phy" },
+    { "exp", "Date de péremption JJ/MM/AAAA (vide si non périssable)", "31/12/2027" },
+    { "peremption_short", "Date de péremption MM/AAAA", "12/2027" },
+    { "iid", "Identifiant unique de l'item", "serphy20271231000000A1" },
+    { "iid_short", "Identifiant en forme courte", "serphy20271231N1" },
+    { "type", "Code du type d'item", "serphy" },
   };
 }
 
@@ -114,6 +130,22 @@ std::vector< CategoryInfo > build_categories() {
     item_common(tear_item, "serphy20271231000000A1");
     categories.push_back(tear_item);
   }
+
+  // planche : une etiquette qui se decoupe en plusieurs petites etiquettes d'items (ex : 5 dosettes de serum phy).
+  // Chaque placeholder d'item prend le numero de l'item sur la planche ({{code1}}, {{type_name2}}...) ; le plus
+  // grand numero utilise donne le nombre d'items par planche, la derniere est completee par des champs vides.
+  CategoryInfo sheet{ TemplateCategory::ItemSheet, "item_sheet", "Item - planche (plusieurs items)",
+                      "Étiquette qui se découpe en plusieurs petites étiquettes d'items (ex : 5 dosettes de sérum "
+                      "phy), pour les types d'items au style « Planche ». Numérotez les placeholders de chaque item "
+                      ": {{code1}}, {{type_name1}}, {{exp1}} pour le 1er, {{code2}} pour le 2e... Le plus grand "
+                      "numéro donne le nombre d'items par planche ; sur la dernière, les items manquants restent "
+                      "vides. Le QR code de chaque item doit contenir {{codeN}} (son iid court).",
+                      {} };
+  for (const PlaceholderInfo &placeholder : sheet_item_placeholders())
+    sheet.placeholders.push_back({ placeholder.name + "1",
+                                   placeholder.description + ", 1er item ({{" + placeholder.name + "2}} pour le 2e...)",
+                                   placeholder.example });
+  categories.push_back(sheet);
 
   CategoryInfo pack{ TemplateCategory::ItemPack, "itempack", "Paquet fermé (ItemPack)",
                      "Étiquette d'un paquet fermé : les étiquettes individuelles seront imprimées à l'ouverture. "
@@ -235,6 +267,55 @@ Parameters example_parameters(TemplateCategory category) {
     parameters[info.name] = info.example;
   for (const PlaceholderInfo &info : category_info(category).placeholders)
     parameters[info.name] = info.example;
+  if (category == TemplateCategory::ItemSheet) // exemples pour les items suivants de la planche
+    for (int slot = 2; slot <= 6; ++slot)
+      for (const PlaceholderInfo &info : sheet_item_placeholders())
+        parameters[info.name + std::to_string(slot)] = info.example;
+  return parameters;
+}
+
+namespace {
+// Numero d'item d'un placeholder de planche (« code3 » → 3, base « code »), 0 s'il n'en a pas
+int sheet_slot(const std::string &name, std::string &base) {
+  std::size_t digits = name.size();
+  while (digits > 0 && std::isdigit(static_cast< unsigned char >(name[digits - 1])))
+    --digits;
+  if (digits == 0 || digits == name.size() || name.size() - digits > 2 || name[digits] == '0')
+    return 0;
+  base = name.substr(0, digits);
+  return std::stoi(name.substr(digits));
+}
+} // namespace
+
+int sheet_slots(const TemplateDocument &document, const Parameters &item) {
+  int slots = 0;
+  for (const std::string &name : find_placeholders(document)) {
+    std::string base;
+    const int   slot = sheet_slot(name, base);
+    if (slot > 0 && item.count(base))
+      slots = std::max(slots, slot);
+  }
+  return std::max(slots, 1);
+}
+
+Parameters sheet_parameters(const TemplateDocument &document, const std::vector< Parameters > &items, int slots) {
+  Parameters parameters;
+  if (items.empty())
+    return parameters;
+  parameters = items.front(); // sans numero : le 1er item (ex : un titre commun {{type_name}})
+  for (int slot = 1; slot <= slots; ++slot) {
+    const std::string suffix = std::to_string(slot);
+    const bool  filled = slot <= static_cast< int >(items.size());
+    for (const auto &[name, value] : filled ? items[slot - 1] : items.front())
+      parameters[name + suffix] = filled ? value : std::string();
+  }
+  // placeholder numerote inconnu (ou au-dela du nombre d'items) : vide, jamais la valeur d'exemple du modele
+  for (const std::string &name : find_placeholders(document)) {
+    std::string base;
+    if (sheet_slot(name, base) > 0 && !parameters.count(name))
+      parameters[name] = "";
+  }
+  parameters["sheet_count"] = std::to_string(items.size());
   return parameters;
 }
 

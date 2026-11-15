@@ -15,7 +15,8 @@ enum class ElementKind { Text, QrCode, Image, Barcode };
 
 // Usage d'un modele : determine les placeholders disponibles (voir placeholders.hpp).
 enum class TemplateCategory { Generic, Item, ItemPack, LotPublic, LotPrivate, LotSeal, LotSealOpen, LotStorage, User, TaskItem, ItemBarcode,
-                              ItemSmall, ItemTear, ItemSmallTear, ItemBarcodeTear, TaskItemSmall, TaskItemBarcode };
+                              ItemSmall, ItemTear, ItemSmallTear, ItemBarcodeTear, TaskItemSmall, TaskItemBarcode,
+                              ItemSheet };
 
 struct MediaSettings {
     double width_mm = 40.0;

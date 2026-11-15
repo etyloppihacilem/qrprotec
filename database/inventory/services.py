@@ -1725,6 +1725,57 @@ def mark_deleted(item, identity, reason):
     notifications.check_stock_levels([item.pack.item_type_id])
 
 
+def split_targets(item_type):
+    """Sous-types en lesquels un item de `item_type` peut etre decoupe, avec le nombre d'items obtenus : les autres
+    sous-types du meme type a unites qui en remplissent une part entiere (sachet de 5 dosettes de 5 mL, fills 25 →
+    5 dosettes, fills 5). Liste de (type, nombre), du plus petit conditionnement au plus gros."""
+    if not item_type.group_id or item_type.fills < 2:
+        return []
+    targets = []
+    for target in ItemType.objects.filter(group_id=item_type.group_id, archived=False, physical=True, unit='') \
+            .exclude(type=item_type.type):
+        if 0 < target.fills < item_type.fills and item_type.fills % target.fills == 0:
+            targets.append((target, item_type.fills // target.fills))
+    return sorted(targets, key=lambda pair: (pair[0].fills, pair[0].name))
+
+
+def split_item(item, target_type, identity):
+    """Decoupe un item en plusieurs items d'un sous-type plus petit du meme type a unites (ex : un sachet de 5
+    serums phy en 5 dosettes etiquetees chacune) : meme peremption, meme place (lot ou stock). L'item decoupe est
+    « remplace » (son etiquette est jetee, il ne revient jamais) ; les nouveaux items sont renvoyes, a etiqueter."""
+    source_type = item.pack.item_type
+    if item.status != ItemStatus.ACTIVE:
+        raise ValueError(f"{item.iid} n'est pas présent ({item.get_status_display().lower()}) : rien à découper")
+    if item.needs_replacement():
+        raise ValueError(f"{item.iid} est à jeter (périmé, désactivé ou inutilisable) : pas de découpage")
+    count = dict((target.type, number) for target, number in split_targets(source_type)).get(target_type.type)
+    if not count:
+        if not source_type.group_id:
+            raise ValueError(f"{source_type.name} n'est le sous-type d'aucun type à unités : rien à découper")
+        raise ValueError(f"{source_type.name} ({source_type.fills} {source_type.group.unit}) ne se découpe pas en "
+                         f"{target_type.name} ({target_type.fills} {source_type.group.unit})")
+    now = timezone.now()
+    with transaction.atomic():
+        created = ItemsPacks.objects.add_items(target_type, item.pack.peremption, count, identity[:64],
+                                               location=item.location, context=SeenWhile.SPLIT)
+        reason = f'Découpé en {count} × {target_type.name}'
+        ItemMovement.objects.create(item=item, item_type_id=source_type.type, kind=MovementKind.DELETED, at=now,
+                                    by=identity[:64], from_lot_id=item.location_id)
+        item.status = ItemStatus.REPLACED
+        item.deleted = now
+        item.deleted_by = identity[:32]
+        item.deleted_reason = reason[:128]
+        lot = item.location
+        item.location = None
+        item.touch(identity[:64], SeenWhile.SPLIT, now)
+        item.save()
+        journal.record(OperationKind.ITEM_SPLIT, identity, f'{source_type.name} {item.iid} : {reason[0].lower()}{reason[1:]}',
+                       lot=lot, at=now, items=[item.iid] + [new.iid for new in created],
+                       source=item.iid, type=target_type.type, count=count)
+    notifications.check_stock_levels([source_type.type, target_type.type])
+    return created
+
+
 def set_disabled(items, identity, disabled, reason=''):
     """Desactive (rappel produit, non-conformite) ou reactive des items. Desactive, un item est invalide comme un
     perime : il ne compte plus dans son lot et doit etre remplace (le remplacant le sort du lot a la verif)."""
