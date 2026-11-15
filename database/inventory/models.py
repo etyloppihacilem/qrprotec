@@ -144,7 +144,8 @@ def add_months(day, months):
 
 
 class ItemsPacksManager(models.Manager):
-    def add_items(self, item_type, peremption, count, user, location=None, context=SeenWhile.CREATE, sealed_pack=None):
+    def add_items(self, item_type, peremption, count, user, location=None, context=SeenWhile.CREATE, sealed_pack=None,
+                  now=None):
         if count <= 0:
             raise ValueError("La quantite doit etre positive")
         if not item_type.physical:
@@ -156,7 +157,7 @@ class ItemsPacksManager(models.Manager):
             raise ValueError(f"Le type {item_type.type} est perissable : une date de peremption est obligatoire")
         if not item_type.perissable:
             peremption = None
-        now = timezone.now()
+        now = now or timezone.now()  # meme instant pour plusieurs paquets fermes : une seule reception
         pack_id = f"{item_type.type}{peremption_code(peremption)}"
         # materiel a reviser : premiere revision a la reception + la periodicite du type
         revision_due = add_months(timezone.localdate(now), item_type.revision_months) if item_type.has_revision else None

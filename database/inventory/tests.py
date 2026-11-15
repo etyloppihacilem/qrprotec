@@ -968,6 +968,31 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(row['stock_fresh'], 5)
         self.assertEqual(row['min_quantity'], 10)
 
+    def test_batch_several_sealed_packs(self):
+        date = (self.today + timedelta(days=200)).isoformat()
+        code, body = self.call('POST', '/api/items/batch/', {'type': 'compre', 'peremption': date, 'count': 4,
+                                                             'sealed_pack': True, 'packs': 3, 'user': 'M001'})
+        self.assertEqual(code, 201)
+        self.assertEqual(len(body['items']), 12)
+        self.assertEqual(len(body['sealed_packs']), 3)
+        self.assertEqual(body['sealed_pack']['id'], body['sealed_packs'][0]['id'])
+        for pack in body['sealed_packs']:
+            self.assertEqual(pack['count'], 4)
+            self.assertEqual(Items.objects.filter(sealed_pack_id=pack['id']).count(), 4)
+        # une seule reception dans les receptions passees, avec ses 3 paquets
+        code, receptions = self.call('GET', f"/api/receptions/?item={body['items'][0]['iid']}")
+        self.assertEqual(len(receptions), 1)
+        self.assertEqual(receptions[0]['count'], 12)
+        self.assertEqual(receptions[0]['sealed_packs'], 3)
+        # sans paquet ferme, le nombre de paquets est ignore
+        code, body = self.call('POST', '/api/items/batch/', {'type': 'compre', 'peremption': date, 'count': 2,
+                                                             'packs': 5})
+        self.assertEqual(len(body['items']), 2)
+        self.assertNotIn('sealed_packs', body)
+        code, _ = self.call('POST', '/api/items/batch/', {'type': 'compre', 'peremption': date, 'count': 100,
+                                                          'sealed_pack': True, 'packs': 101})
+        self.assertEqual(code, 400)
+
     def test_batch_into_storage(self):
         storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
         armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test', parent=Lots.stock())

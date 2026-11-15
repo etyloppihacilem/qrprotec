@@ -1961,41 +1961,54 @@ def storage_target(lot_id):
 @api_view(['POST'])
 @handle_errors
 def items_batch(request):
-    """Reception : cree `count` items (et optionnellement un paquet scelle qui les contient)."""
+    """Reception : cree `count` items, ou `packs` paquets scelles de `count` items chacun (sealed_pack)."""
     require_front(request, GESTION)
     data = request.data
     item_type = get_object_or_404(ItemType, type=str(data.get('type', '')))
     peremption = parse_date(data.get('peremption'), 'peremption')
     count = parse_int(data.get('count', 1), 'count', 1, 10000)
+    sealed = bool(data.get('sealed_pack'))
+    packs = parse_int(data.get('packs', 1), 'packs', 1, 500) if sealed else 1
+    if count * packs > 10000:
+        raise ApiError('10 000 items au plus par réception')
     identity = operation_identity(request, data)
     location = storage_target(data.get('location'))
+    now = timezone.now()
     with transaction.atomic():
-        sealed_pack = None
-        if data.get('sealed_pack'):
-            sealed_pack = SealedPacks.objects.create(
-                item_type=item_type,
-                peremption=peremption if item_type.perissable else None,
-                count=count,
-                created_by=identity[:32],
+        sealed_packs, created = [], []
+        for _ in range(packs):
+            sealed_pack = None
+            if sealed:
+                sealed_pack = SealedPacks.objects.create(
+                    item_type=item_type,
+                    peremption=peremption if item_type.perissable else None,
+                    count=count,
+                    created_by=identity[:32],
+                )
+                sealed_packs.append(sealed_pack)
+            created += ItemsPacks.objects.add_items(
+                item_type, peremption, count, identity[:32], location=location, sealed_pack=sealed_pack, now=now
             )
-        created = ItemsPacks.objects.add_items(
-            item_type, peremption, count, identity[:32], location=location, sealed_pack=sealed_pack
-        )
-        summary = f'{count} × {item_type.name}'
+        summary = f'{count} × {item_type.name}' if packs == 1 else f'{packs} paquets de {count} × {item_type.name}'
         if item_type.perissable and peremption:
             summary += f", péremption {peremption.strftime('%d/%m/%Y')}"
-        if sealed_pack is not None:
-            summary += f' (paquet fermé {sealed_pack.id})'
+        if len(sealed_packs) == 1:
+            summary += f' (paquet fermé {sealed_packs[0].id})'
+        elif sealed_packs:
+            summary += f' (paquets fermés {sealed_packs[0].id} à {sealed_packs[-1].id})'
         if location is not None:
             summary += f', rangés dans {location.name}'
-        journal.record(OperationKind.RECEPTION, identity, summary, lot=location, type=item_type.type, count=count,
-                       peremption=peremption.isoformat() if peremption else None,
-                       sealed_pack=sealed_pack.id if sealed_pack else None, items=journal.item_ids(created))
+        journal.record(OperationKind.RECEPTION, identity, summary, lot=location, type=item_type.type,
+                       count=count * packs, peremption=peremption.isoformat() if peremption else None,
+                       sealed_pack=sealed_packs[0].id if sealed_packs else None,
+                       **({'sealed_packs': [pack.id for pack in sealed_packs]} if len(sealed_packs) > 1 else {}),
+                       items=journal.item_ids(created))
         notifications.check_stock_levels([item_type.type])
     today = timezone.localdate()
     response = {'items': [ser.item_dict(item, today) for item in created]}
-    if sealed_pack is not None:
-        response['sealed_pack'] = ser.sealed_pack_dict(sealed_pack)
+    if sealed_packs:
+        response['sealed_pack'] = ser.sealed_pack_dict(sealed_packs[0])  # premier paquet (anciens postes)
+        response['sealed_packs'] = [ser.sealed_pack_dict(pack) for pack in sealed_packs]
     return Response(response, status=status.HTTP_201_CREATED)
 
 
@@ -2195,6 +2208,7 @@ def receptions(request):
     rows = (queryset.values('pack_id', 'pack__item_type_id', 'pack__item_type__name', 'pack__peremption', 'added',
                             'added_by')
             .annotate(count=Count('iid'), first=Min('iid'), last=Max('iid'), sealed_pack=Max('sealed_pack_id'),
+                      sealed_packs=Count('sealed_pack_id', distinct=True),
                       active=Count('iid', filter=Q(status=ItemStatus.ACTIVE)),
                       in_stock=Count('iid', filter=services.in_stock_q() & Q(status=ItemStatus.ACTIVE)),
                       disabled=Count('iid', filter=Q(disabled=True)))
@@ -2212,6 +2226,7 @@ def receptions(request):
         'in_stock': row['in_stock'],
         'disabled': row['disabled'],
         'sealed_pack': row['sealed_pack'],
+        'sealed_packs': row['sealed_packs'],
     } for row in rows])
 
 
