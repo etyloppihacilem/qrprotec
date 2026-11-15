@@ -7332,6 +7332,7 @@
     qr: { url: '', src: '' },
     qrOpen: '',
     verifBack: null, // « Lancer la vérif » depuis une liste : {id, name}, le compte rendu propose d'y revenir
+    doneOpen: false, // listes rentrees depliees (bouton [+] en bas de l'index)
   };
 
   const listUrl = (id) => new URL(`liste?id=${encodeURIComponent(id)}`, document.baseURI).href;
@@ -8127,12 +8128,26 @@
     }
     if (!data.lists.length) parts.push(el('p', { class: 'hint' }, lists.show === 'templates' ? 'Aucun modèle.'
       : canCreate ? 'Aucune liste.' : 'Aucune liste pour vous pour l\'instant.'));
-    parts.push(el('ul', { class: 'list' }, ...data.lists.map((row) => el('li', { onclick: () => openList(row.id) },
+    const listRow = (row) => el('li', { onclick: () => openList(row.id) },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, row.name),
         el('div', { class: 'sub' }, [row.owner_name, row.template ? nb(row.line_count, 'ligne')
           : `${row.done_count}/${nb(row.line_count, 'ligne prête', 'lignes prêtes')}`, 'modifiée ' + fmtDateTime(row.updated)].join(' · '))),
-      el('span', { class: 'tag ' + (row.template ? 'gray' : LIST_TAGS[row.status] || 'blue') }, row.status_label)))));
+      el('span', { class: 'tag ' + (row.template ? 'gray' : LIST_TAGS[row.status] || 'blue') }, row.status_label));
+    // listes rentrees (Rentrée, Validée, Terminée : la liste ne sert plus) repliees derriere un bouton [+] en bas,
+    // fermees par defaut, comme les types a 0 attendu du stock : ce qui reste a faire d'abord
+    const done = data.lists.filter((row) => !row.template && row.status === 'returned');
+    const open = data.lists.filter((row) => !done.includes(row));
+    if (open.length) parts.push(el('ul', { class: 'list' }, ...open.map(listRow)));
+    else if (done.length) parts.push(el('p', { class: 'hint' }, 'Aucune liste en cours.'));
+    if (done.length) {
+      const unfolded = !!lists.doneOpen;
+      parts.push(el('button', { type: 'button', class: 'upcoming-toggle', 'aria-expanded': unfolded ? 'true' : 'false',
+        onclick: () => { lists.doneOpen = !unfolded; renderListsPage(true); } },
+      el('span', { class: 'fold-box' }, unfolded ? '−' : '+'),
+      `${pl(done.length, 'Liste rentrée', 'Listes rentrées')} (${done.length})`));
+      if (unfolded) parts.push(el('ul', { class: 'list' }, ...done.map(listRow)));
+    }
     return parts;
   }
 
