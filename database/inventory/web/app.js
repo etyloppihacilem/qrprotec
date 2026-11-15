@@ -4854,7 +4854,10 @@
       title: verifs.length ? 'Voir le compte rendu' : null, onclick: verifs.length ? (event) => {
         if (!event.target.closest('a, button')) openVerifReport(verifs);
       } : null },
-      el('div', { class: 'name' }, '📦 ', verifs.length ? lot.name : lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : ''),
+      // vérif terminée : les lots qui la nomment (serveur, comme « Vérifs récentes ») : un seul rangement du Stock
+      // → son nom, pas « Stock »
+      el('div', { class: 'name' }, '📦 ', done && (done.names || []).length ? done.names.join(', ')
+        : [verifs.length ? lot.name : lotLink(lot), row.lots.length ? ' + ' + row.lots.join(', ') : '']),
       el('div', { class: 'sub' }, (people.length > 1 ? '👥 ' : '') + people.map((person) => (person.who || 'Invité')
         + (person.who && !person.verified && !/invité/i.test(person.who) ? ' (nom déclaré)' : '') + (people.length > 1 && !done && person.validated ? ' ✔' : '')
         + (people.length > 1 && !done && !person.connected ? ' (déconnecté)' : '')
@@ -4946,9 +4949,26 @@
     // un lot revu à plusieurs étapes d'une cascade : sa dernière vérif compte
     const byId = new Map();
     for (const lot of reports.flatMap((one) => one.lots)) { byId.delete(lot.id); byId.set(lot.id, lot); }
+    // lot cadre : vérifié sans contenu à lui, ses sous-lots pas tous là, avec un sous-lot vérifié (le Stock dont on
+    // n'a fait qu'un rangement) : ni ligne ni compte, comme dans « Vérifs récentes »
+    const verified = new Set(byId.keys());
+    const covered = (id, seen = new Set()) => {
+      if (seen.has(id) || !verified.has(id)) return false;
+      seen.add(id);
+      return (byId.get(id).children || []).every((kid) => covered(kid, seen));
+    };
+    const hasVerifiedUnder = (id) => [...byId.values()].some((lot) => {
+      for (let up = lot.parent, guard = 0; up && guard < 50; up = (byId.get(up) || {}).parent, guard += 1) {
+        if (up === id) return true;
+      }
+      return false;
+    });
+    const frame = (lot) => byId.size > 1 && !covered(lot.id) && hasVerifiedUnder(lot.id)
+      && !(lot.present_count + lot.missing_count + lot.expired_count);
+    const lots = [...byId.values()].filter((lot) => !frame(lot));
     reportView.report = { ...last, complete: reports.every((one) => one.complete),
       participants: [...new Set(reports.flatMap((one) => [one.by, ...(one.participants || [])]))].filter((who) => who !== last.by),
-      lots: [...byId.values()], sealed: reports.flatMap((one) => one.sealed),
+      lots, sealed: reports.flatMap((one) => one.sealed),
       operations: reports.flatMap((one) => one.operations) };
     reportView.open = new Set();
     renderVerifReport();

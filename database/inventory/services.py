@@ -29,6 +29,105 @@ from .models import (
 )
 
 
+class VerifTitles:
+    """Noms qui resument une verif (ligne de « Vérifs récentes », carte terminee du suivi en direct) : les lots
+    verifies, un lot parent remplacant ses sous-lots seulement s'ils y sont tous (les 2 sacs du B+ → « B+ ») ; un ou
+    deux rangements du Stock gardent leur nom, pas « Stock » (Hippolyte, 2026-11-15). Sous-lots comptes : actifs et
+    non facultatifs. Un lot verifie dont les sous-lots n'y sont pas tous, sans contenu a lui (le Stock, 0 item) et
+    avec un sous-lot nomme n'est qu'un cadre : ni nomme ni compte."""
+
+    def __init__(self, parents=None):
+        self.parents = dict(Lots.objects.values_list('id', 'parent_id')) if parents is None else parents
+        self.children = defaultdict(list)
+        self.lots = {}
+        for lot in Lots.objects.select_related('lot_type').filter(active=True, parent__isnull=False):
+            if not optional_lot(lot):
+                self.children[lot.parent_id].append(lot.id)
+        self.no_own = {}
+
+    def _lot(self, lot_id):
+        if lot_id not in self.lots:
+            self.lots[lot_id] = Lots.objects.select_related('lot_type').filter(id=lot_id).first()
+        return self.lots[lot_id]
+
+    def _without_content(self, lot_id):
+        # lot sans contenu a lui (B+ de referentiel, lot cache) : verifie par ses sous-lots, pas d'etape a lui
+        if lot_id not in self.no_own:
+            lot = self._lot(lot_id)
+            self.no_own[lot_id] = bool(lot) and (virtual_lot(lot) or hidden_in_verif(lot))
+        return self.no_own[lot_id]
+
+    def _ancestors(self, lot_id):
+        seen = set()
+        while self.parents.get(lot_id) and lot_id not in seen:
+            seen.add(lot_id)
+            lot_id = self.parents[lot_id]
+            yield lot_id
+
+    def names(self, lots):
+        """lots : [{'id', 'name', 'complete', 'parent', '_own' (contenu a lui compte)}] -> (lots qui nomment la
+        verif, ids des lots cadres a ne pas compter)."""
+        verified = {lot['id'] for lot in lots}
+        memo = {}
+
+        def covered(lot_id):
+            if lot_id not in memo:
+                memo[lot_id] = False  # garde contre une boucle
+                kids = self.children.get(lot_id, [])
+                memo[lot_id] = bool((lot_id in verified or (kids and self._without_content(lot_id)))
+                                    and all(covered(kid) for kid in kids))
+            return memo[lot_id]
+
+        def top_covered(lot_id):
+            while self.parents.get(lot_id) and covered(self.parents[lot_id]):
+                lot_id = self.parents[lot_id]
+            return lot_id
+
+        by_id = {lot['id']: lot for lot in lots}
+        chosen = []
+        for lot in lots:
+            lot_id = top_covered(lot['id']) if covered(lot['id']) else lot['id']
+            if lot_id not in chosen:
+                chosen.append(lot_id)
+        named_under = {parent for lot_id in chosen for parent in self._ancestors(lot_id)}
+        frames = {lot_id for lot_id in chosen
+                  if not covered(lot_id) and lot_id in named_under and not by_id[lot_id].get('_own')}
+        result = []
+        for lot_id in chosen:
+            if lot_id in frames:
+                continue
+            if lot_id in by_id:
+                result.append({key: value for key, value in by_id[lot_id].items() if key != '_own'})
+            else:
+                lot = self._lot(lot_id)
+                result.append({'id': lot_id, 'name': lot.name if lot else '?', 'parent': self.parents.get(lot_id),
+                               'complete': all(under['complete'] for under in lots
+                                               if lot_id in self._ancestors(under['id']))})
+        return result, frames
+
+    @staticmethod
+    def row(verif):
+        return {'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete, 'parent': verif.lot.parent_id,
+                '_own': verif.present_count + verif.missing_count + verif.expired_count > 0}
+
+    def for_verifs(self, verif_ids):
+        """Verifs enregistrees (une par etape d'une cascade, chacune avec sa verif groupee : meme instant, meme
+        personne) -> (noms, nombre de lots verifies sans les cadres)."""
+        heads = list(Verifs.objects.filter(id__in=verif_ids, lot__isnull=False))
+        if not heads:
+            return [], 0
+        query = Q()
+        for head in heads:
+            query |= Q(datetime=head.datetime, by=head.by)
+        by_lot = {}
+        for verif in Verifs.objects.select_related('lot').filter(query, lot__isnull=False).order_by('datetime', 'id'):
+            by_lot.pop(verif.lot_id, None)
+            by_lot[verif.lot_id] = self.row(verif)  # lot revu a plusieurs etapes : sa derniere verif
+        lots = list(by_lot.values())
+        names, frames = self.names(lots)
+        return names, len(lots) - len(frames)
+
+
 def restock_credit(lot, settings_row=None):
     """Credit de confiance du reassort (reglage restock_verif_recommended decoche) : {'outings_left', 'until'} tant
     que le lot n'a pas eu plus de restock_credit_outings sorties ni plus de restock_credit_days jours depuis sa

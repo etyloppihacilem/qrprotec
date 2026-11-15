@@ -393,6 +393,7 @@ class LiveHub:
 
     def _changed(self, session):
         """Une verif a change : pages de suivi, participants, et participants des verifs du meme lot global."""
+        self._name_done(session)
         with self.lock:
             alive = self.sessions.get(session.id) is session
             root = (session.state or {}).get('root')
@@ -431,6 +432,23 @@ class LiveHub:
             else:
                 self.sessions.pop(session.id, None)
         self._changed(session)
+
+    @staticmethod
+    def _name_done(session):
+        """Verif terminee : les lots qui la nomment sur sa carte (services.VerifTitles, comme « Vérifs récentes ») et,
+        pour une cascade, le nombre de lots valides sans les cadres (le Stock dont on n'a fait qu'un rangement)."""
+        done = session.done
+        if not done or 'names' in done or not done.get('verifs'):
+            return
+        from . import services  # import tardif : live est charge par les vues
+        try:
+            names, counted = services.VerifTitles().for_verifs(done['verifs'])
+        except Exception:  # le suivi ne doit pas tomber pour un titre
+            logger.exception('Suivi : noms de la vérif terminée')
+            return
+        if done.get('lots') is not None and counted:
+            done['lots'] = counted
+        done['names'] = [name['name'] for name in names]
 
     @staticmethod
     def _close_cascade(session):

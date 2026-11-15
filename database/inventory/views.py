@@ -1244,100 +1244,22 @@ def verifs_recent(request):
         last['ids'].append(head.id)
         last['participants'] = list(dict.fromkeys(last['participants'] + [ser._who(value) for value in head.participants]))
         for verif in step:
-            last['lots'].append({'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete,
-                                 'parent': verif.lot.parent_id,
-                                 '_own': verif.present_count + verif.missing_count + verif.expired_count > 0})
+            last['lots'].append(services.VerifTitles.row(verif))
             last['complete'] = last['complete'] and verif.complete
             last['present'] += verif.present_count
             last['missing'] += verif.missing_count
             last['expired'] += verif.expired_count
             last['replaced'] += verif.replaced_count
-    names = _recent_names(rows, parents)
+    titles = services.VerifTitles(parents)
     for row in rows:
         for key in ('_root', '_oldest', 'by_raw'):
             del row[key]
         # les lots qui nomment la ligne, leurs sous-lots sont dans le compte rendu
-        row['top'] = names(row['lots'])
+        row['top'], _ = titles.names(row['lots'])
         for lot in row['lots']:
             del lot['_own']
         row['participants'] = [who for who in row['participants'] if who != row['by']]
     return Response(rows)
-
-
-def _recent_names(rows, parents):
-    """Noms d'une ligne de « Vérifs récentes » : les lots vérifiés, un lot parent remplaçant ses sous-lots seulement
-    s'ils y sont tous (les 2 sacs du B+ → « B+ ») ; un ou deux rangements du Stock gardent leur nom, pas « Stock »
-    (Hippolyte, 2026-11-15). Sous-lots comptés : actifs et non facultatifs. Renvoie une fonction lots -> [lot]."""
-    children = defaultdict(list)
-    for lot in Lots.objects.select_related('lot_type').filter(active=True, parent__isnull=False):
-        if not services.optional_lot(lot):
-            children[lot.parent_id].append(lot.id)
-    needed = set()
-    for row in rows:
-        for lot in row['lots']:
-            lot_id = lot['id']
-            while parents.get(lot_id) and parents[lot_id] not in needed:
-                lot_id = parents[lot_id]
-                needed.add(lot_id)
-    info = {lot.id: lot for lot in Lots.objects.select_related('lot_type').filter(id__in=needed)}
-    no_own = {}
-
-    def without_content(lot_id):
-        # lot sans contenu a lui (B+ de referentiel, lot cache) : verifie par ses sous-lots, pas d'etape a lui
-        if lot_id not in no_own:
-            lot = info.get(lot_id)
-            no_own[lot_id] = bool(lot) and (services.virtual_lot(lot) or services.hidden_in_verif(lot))
-        return no_own[lot_id]
-
-    def names(lots):
-        verified = {lot['id'] for lot in lots}
-        memo = {}
-
-        def covered(lot_id):
-            if lot_id not in memo:
-                memo[lot_id] = False  # garde contre une boucle
-                kids = children.get(lot_id, [])
-                memo[lot_id] = ((lot_id in verified or (kids and without_content(lot_id)))
-                                and all(covered(kid) for kid in kids))
-            return memo[lot_id]
-
-        def top_covered(lot_id):
-            while parents.get(lot_id) and covered(parents[lot_id]):
-                lot_id = parents[lot_id]
-            return lot_id
-
-        by_id = {lot['id']: lot for lot in lots}
-        chosen = []
-        for lot in lots:
-            lot_id = top_covered(lot['id']) if covered(lot['id']) else lot['id']
-            if lot_id not in chosen:
-                chosen.append(lot_id)
-
-        def ancestors(lot_id):
-            seen = set()
-            while parents.get(lot_id) and lot_id not in seen:
-                seen.add(lot_id)
-                lot_id = parents[lot_id]
-                yield lot_id
-
-        # un lot vérifié incomplet (Stock dont on n'a fait qu'un rangement) : nommé seulement si rien en dessous ne
-        # l'est ou s'il avait du contenu à lui
-        named_under = {parent for lot_id in chosen for parent in ancestors(lot_id)}
-        chosen = [lot_id for lot_id in chosen
-                  if covered(lot_id) or lot_id not in named_under or by_id[lot_id]['_own']]
-        result = []
-        for lot_id in chosen:
-            if lot_id in by_id:
-                lot = by_id[lot_id]
-                result.append({key: value for key, value in lot.items() if key != '_own'})
-            else:
-                lot = info.get(lot_id)
-                result.append({'id': lot_id, 'name': lot.name if lot else '?', 'parent': parents.get(lot_id),
-                               'complete': all(under['complete'] for under in lots
-                                               if lot_id in ancestors(under['id']))})
-        return result
-
-    return names
 
 
 # Operations du journal enregistrees au meme instant qu'une verif, citees dans son compte rendu
@@ -1380,10 +1302,14 @@ def verif_report(request, verif_id):
         ordered.append(verif)
         pending.extend(reversed(children[verif.lot_id]))
 
+    titles = services.VerifTitles()
     lots = []
     for verif in ordered:
         info = details.get(verif.id, {})
         lots.append({
+            # sous-lots attendus (actifs, non facultatifs) : le front ecarte un lot cadre (le Stock dont on n'a fait
+            # qu'un rangement), voir services.VerifTitles
+            'children': titles.children.get(verif.lot_id, []),
             # parent : les etapes d'une verif en cascade sont reunies en un seul arbre par le front
             'id': verif.lot_id, 'name': verif.lot.name, 'parent': verif.lot.parent_id, 'depth': depth(verif.lot),
             'complete': verif.complete,
