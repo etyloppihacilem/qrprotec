@@ -142,13 +142,39 @@ void PrintQueue::set_counter(PrintCounter *counter) {
   counter_ = counter;
 }
 
+// ZPL : la derniere etiquette a ete envoyee avec ^XB (suivante dans la foulee), elle est encore sous la tete. Si
+// la suivante ne part pas (annulation, pause, commande de maintenance passee devant), ~PH la fait sortir jusqu'a
+// la barre de decoupe (avance d'une etiquette blanche).
+static constexpr const char *kZplReleaseHeld = "~PH\n";
+
 void PrintQueue::run() {
   bool connected = false;
+  bool held      = false; // derniere etiquette envoyee avec ^XB, en attente de la suivante
   for (;;) {
     PrintJob      job;
     PrintSettings settings;
     PhysicalLabel label;
-    PrintCounter *counter = nullptr;
+    PrintCounter *counter      = nullptr;
+    bool          next_follows = false;
+    if (held) {
+      bool          release = false;
+      PrintSettings current;
+      {
+        std::lock_guard< std::mutex > lock(mutex_);
+        release = stopping_ || jobs_.empty() || status_.paused || is_maintenance(jobs_.front());
+        current = settings_;
+      }
+      if (release) {
+        if (connected) {
+          printer_.disconnect();
+          connected = false;
+        }
+        std::string error;
+        if (!printer_.send_command(current, kZplReleaseHeld, error))
+          error_log("Sortie de la dernière étiquette impossible : " + error, "imprimante");
+        held = false;
+      }
+    }
     {
       std::unique_lock< std::mutex > lock(mutex_);
       if (jobs_.empty() || status_.paused) {
@@ -170,6 +196,14 @@ void PrintQueue::run() {
       counter         = counter_;
       status_.busy    = true;
       status_.current = job.description;
+      // ZPL, autre etiquette juste derriere sur le rouleau charge : imprimee dans la foulee, sans arret a la
+      // decoupe ni recul entre les deux (^XB). Le recul avec l'etiquette precedente encore pendue devant la
+      // barre de decoupe est ce qui decalait la suivante.
+      if (settings.kind == PrinterKind::Zpl && jobs_.size() >= 2 && !is_maintenance(job)) {
+        const PrintJob &next = jobs_[1];
+        next_follows         = !is_maintenance(next)
+                       && (!next.document.label_type || next.document.label_type->name == settings.loaded_label_type);
+      }
     }
     std::string error;
     if (job.status_query) {
@@ -252,8 +286,9 @@ void PrintQueue::run() {
       ok = connected || printer_.connect(settings, error);
       if (ok) {
         connected = true;
-        const PrintRequest request{ image, media, settings };
-        ok = printer_.print(request, {}, error);
+        const PrintRequest request{ image, media, settings, next_follows };
+        ok   = printer_.print(request, {}, error);
+        held = ok && next_follows;
         // compte des que l'imprimante a accepte l'envoi (erreur, pause, annulation : pas comptees)
         if (ok && counter != nullptr)
           counter->add(local_day_iso(), counted_width, counted_height, counted_support, std::max(1, settings.copies));

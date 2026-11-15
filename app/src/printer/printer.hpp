@@ -48,6 +48,8 @@ struct PrintRequest {
     RasterImage image;
     MediaSettings media;
     PrintSettings settings;
+    // ZPL : etiquette suivante envoyee juste apres (pas d'arret a la decoupe ni de recul entre les deux)
+    bool next_follows = false;
 };
 
 // Etat lu aupres de l'imprimante (TSPL / ZPL) ; la Niimbot B1 signale ses erreurs pendant l'impression

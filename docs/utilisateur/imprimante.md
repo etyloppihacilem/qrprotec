@@ -86,6 +86,20 @@ Le décalage et la position de découpe sont deux choses différentes : le déca
 dessin **sur** l'étiquette, la position de découpe déplace le **papier** une fois l'étiquette
 imprimée, pour que l'interstice tombe sur la barre de découpe.
 
+## Plusieurs étiquettes de suite : arrachez la précédente
+
+En mode découpe, l'imprimante fait sortir chaque étiquette jusqu'à la barre de découpe, puis
+**recule** le rouleau avant la suivante pour remettre le haut de l'étiquette sous la tête. Si
+l'étiquette précédente pend encore devant la barre, elle freine ce recul et la suivante est
+imprimée décalée, coupée en haut.
+
+- **Étiquettes envoyées ensemble** (une série, plusieurs badges d'un coup) : le poste les
+  enchaîne sans arrêt ni recul entre elles (ZPL `^XB`, « Suppress Backfeed », sur toutes sauf la
+  dernière). La bande sort d'un bloc, la dernière s'arrête sur la barre de découpe. Si la série
+  est interrompue (annulation, file en pause, commande de maintenance), le poste fait sortir
+  l'étiquette restée sous la tête avec `~PH` (une étiquette blanche suit).
+- **Impressions séparées** : arrachez l'étiquette (ou la bande) avant de lancer la suivante.
+
 ## Maintenance depuis le logiciel
 
 Section **Maintenance de l'imprimante** des Réglages (TSPL et ZPL). Ces commandes passent **avant**
