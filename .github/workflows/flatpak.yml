@@ -35,6 +35,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: true
+      # Le SDK 25.08 preinstalle dans l'image est mis a jour depuis Flathub au debut du build. Sur une partie des
+      # runners (image ubuntu26 20261111.82), /var/lib/flatpak vient des couches de l'image (overlayfs) et la
+      # mise a jour echoue : « Invalid cross-device link » (renommage d'un dossier d'une couche inferieure), puis
+      # segfault de xvfb-run. On copie l'installation systeme sur le disque du runner et on la monte a sa place.
+      - name: Installation Flatpak hors overlayfs
+        run: |
+          findmnt -T /var/lib/flatpak || true
+          dest="$RUNNER_TEMP/flatpak-system"
+          mkdir -p "$dest"
+          cp -a /var/lib/flatpak/. "$dest/"
+          mount --bind "$dest" /var/lib/flatpak
+          findmnt -T /var/lib/flatpak
+          flatpak --system list
       - uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
         with:
           manifest-path: packaging/flatpak/io.github.etyloppihacilem.QRProtec.yml
