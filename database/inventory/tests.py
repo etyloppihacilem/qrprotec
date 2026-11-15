@@ -3637,6 +3637,46 @@ class RecentVerifsTests(ApiTestCase):
         self.assertEqual([row['ids'] for row in rows][-1], [first_step.id])
         self.assertEqual(len(rows), 4)
 
+    def test_recent_verifs_name_sub_lots_unless_all_there(self):
+        storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
+        stock = Lots.stock()
+        armoires = []
+        for name in ('Armoire serum', 'Armoire bandes'):
+            armoire = Lots(lot_type=storage_type, name=name, name_short=name[-3:], created_by='test', parent=stock)
+            armoire.save()
+            armoires.append(armoire)
+        sacs = []
+        for name in ('Sac de soin', 'Sac O2'):
+            sac = Lots(lot_type=self.lot_type, name=name, name_short=name[-2:], created_by='test', parent=self.lot)
+            sac.save()
+            sacs.append(sac)
+        casque = Lots(lot_type=self.lot_type, name='Casques', name_short='C', created_by='test', parent=self.lot,
+                      optional=True)
+        casque.save()
+        badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
+
+        def names(*lots, minutes=0):
+            Verifs.objects.all().delete()
+            at = timezone.now() - timedelta(minutes=minutes)
+            for lot, present in lots:
+                Verifs.objects.create(lot=lot, by='test', datetime=at, complete=True, present_count=present)
+            _, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
+            return [lot['name'] for lot in rows[0]['top']]
+
+        # Stock et un seul de ses rangements : le nom du rangement, pas « Stock + 1 sous-lot »
+        self.assertEqual(names((stock, 0), (armoires[0], 18)), ['Armoire serum'])
+        # les deux rangements : « Stock »
+        self.assertEqual(names((stock, 0), (armoires[0], 18), (armoires[1], 3)), ['Stock'])
+        # deux rangements sans le Stock : leurs noms
+        self.assertEqual(set(names((armoires[0], 18), (armoires[1], 3))), {'Armoire serum', 'Armoire bandes'})
+        # le Stock seul
+        self.assertEqual(names((stock, 0)), ['Stock'])
+        # les deux sacs (le facultatif n'est pas exigé) avec le lot : le lot
+        self.assertEqual(names((self.lot, 0), (sacs[0], 5), (sacs[1], 2)), [self.lot.name])
+        # un sac seul avec le lot sans contenu à lui : le sac ; avec du contenu à lui : les deux
+        self.assertEqual(names((self.lot, 0), (sacs[0], 5)), ['Sac de soin'])
+        self.assertEqual(set(names((self.lot, 4), (sacs[0], 5))), {self.lot.name, 'Sac de soin'})
+
     def test_verif_report_lists_each_lot_of_a_grouped_verif(self):
         sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
         sub.save()

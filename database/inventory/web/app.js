@@ -4917,9 +4917,8 @@
       parts.push(el('ul', { class: 'list' }, ...watch.recent.map((row) => el('li', { class: row.complete ? 'ok' : 'bad',
         title: 'Voir le compte rendu', onclick: () => openVerifReport(row.ids || row.id) },
         el('div', { class: 'main' },
-          el('div', { class: 'name' }, (row.top || row.lots).map((lot) => lot.name).join(', '),
-            detailed() && row.top && row.lots.length > row.top.length
-              ? el('span', { class: 'sublots' }, ` + ${nb(row.lots.length - row.top.length, 'sous-lot')}`) : null),
+          // noms des lots vérifiés ; un lot remplace ses sous-lots seulement s'ils y sont tous (serveur)
+          el('div', { class: 'name' }, (row.top || row.lots).map((lot) => lot.name).join(', ')),
           el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${nb(row.present, 'présent')}`
             + (row.missing ? ` · ${nb(row.missing, 'manquant')}` : '') + (row.expired ? ` · ${nb(row.expired, 'périmé')}` : '')
             + (row.replaced ? ` · ${row.replaced} à jeter` : ''))),
