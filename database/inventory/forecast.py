@@ -487,6 +487,39 @@ def _transfers(item_type, by_place, rates, places, today, horizon):
     return suggestions
 
 
+def _place_words(place):
+    """(« dans le stock », « du stock ») ou (« dans « Sac de soin » », « de « Sac de soin » »)."""
+    if place['id'] is None:
+        return 'dans le stock', 'du stock'
+    return f"dans « {place['name']} »", f"de « {place['name']} »"
+
+
+def _transfer_wording(source, move):
+    """Un echange en clair, dans l'ordre des gestes, avec sa raison : l'item qui perimerait sans servir dans son lieu
+    part la ou il sera utilise avant (le stock sert toujours les dates les plus proches d'abord), et le plus frais de
+    ce lieu prend sa place pour que le lot reste complet."""
+    count = len(move['take'])
+    name = move['type_name']
+    in_source, from_source = _place_words(source)
+    in_target, from_target = _place_words(move['target'])
+
+    def day(value):
+        return value.strftime('%d/%m/%Y') if value else 'sans date'
+
+    many = count > 1
+    return {
+        'steps': [
+            f"Sortir {from_source} {count} {name} (périme le {day(move['take_peremption'])}), "
+            f"à ranger {in_target}.",
+            f"Prendre {from_target} {count} {name} (périme le {day(move['back_peremption'])}), "
+            f"à mettre {in_source} à la place.",
+        ],
+        'reason': (f"Pourquoi : {in_source}, {'ces items périmeraient' if many else 'cet item périmerait'} sans servir ; "
+                   f"{in_target}, {'ils seront utilisés avant leur date' if many else 'il sera utilisé avant sa date'}. "
+                   f"Le plus récent prend sa place, le contenu reste complet."),
+    }
+
+
 def _group_transfers(suggestions):
     """Echanges regroupes par lieu a ouvrir, puis par (type, lieu d'arrivee, dates)."""
     groups = {}
@@ -509,6 +542,8 @@ def _group_transfers(suggestions):
     result = []
     for group in sorted(groups.values(), key=lambda group: (group['before'], group['source']['path'])):
         group['moves'] = sorted(group['moves'].values(), key=lambda move: (move['before'], move['type_name']))
+        for move in group['moves']:
+            move.update(_transfer_wording(group['source'], move))
         group['count'] = sum(len(move['take']) for move in group['moves'])
         result.append(group)
     return result
