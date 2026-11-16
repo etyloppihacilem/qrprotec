@@ -8,7 +8,7 @@ affiché d'un lot est calculé dans `database/inventory/serializers.py`.
 > lots et le calcul « quels lots seraient complets » existent :
 > - côté serveur : `services.assign_items` et `services._complete_lots` (font foi) ;
 > - côté poste : `App::plan_verif` et `App::partial_verif_lots` (`app/src/app/app.cpp`) ;
-> - côté téléphone : `planSession` et `partialLots` (`database/inventory/web/app.js`).
+> - côté téléphone : `planSession` (`database/inventory/web/app/cascade.js`) et `partialLots` (`web/app/actions.js`).
 >
 > Les fronts ne s'en servent que pour l'aperçu et pour proposer les bons boutons, mais un écart
 > donnerait un aperçu faux. Toute modification de ces règles se fait aux trois endroits.

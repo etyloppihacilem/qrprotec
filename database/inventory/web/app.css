@@ -403,7 +403,7 @@ a.field, button.field { color: var(--blue); text-decoration: underline; backgrou
 #reader-name { display: none; }
 :is(body.home-mode, body.fiche-open).login-reader #reader-name { display: block; position: absolute; top: 6px; left: 6px; z-index: 2;
   padding: 3px 7px; border-radius: 10px; background: rgba(0, 0, 0, .55); color: #fff; font-size: .7rem; }
-/* fenetre de connexion par nom (et du PIN) : calee en haut de la partie visible quand le clavier est ouvert (app.js),
+/* fenetre de connexion par nom (et du PIN) : calee en haut de la partie visible quand le clavier est ouvert (web/app/cascade.js, keepAboveKeyboard),
    et en haut de l'ecran sur un telephone pour que les champs restent au-dessus du clavier qui s'ouvre */
 dialog.above-keyboard { margin-top: 0; margin-bottom: auto; bottom: auto; overflow-y: auto; }
 @media (max-width: 600px) { #name-login, #pin { margin-top: calc(12px + env(safe-area-inset-top)); } }
@@ -414,7 +414,7 @@ dialog.above-keyboard { margin-top: 0; margin-bottom: auto; bottom: auto; overfl
 :is(body.home-mode, body.fiche-open).login-reader #toast { bottom: calc(24px + min(56vw, 240px) + env(safe-area-inset-bottom)); }
 
 /* Grande fenetre de connexion (« Bulle de connexion » decochee) : tout l'ecran, la camera au milieu, placee par
-   app.js sur #login-gate-cam (--gate-*) */
+   web/app/login.js sur #login-gate-cam (--gate-*) */
 #login-gate { position: fixed; inset: 0; z-index: 46; display: flex; flex-direction: column; align-items: center;
   gap: 10px; padding: calc(18px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
   background: var(--panel); border-top: 4px solid var(--pc-orange); overflow-y: auto; text-align: center; }

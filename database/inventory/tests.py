@@ -1250,26 +1250,38 @@ class WebFrontTests(ApiTestCase):
                     '/item?id=compre20271231000000A1', '/task?id=compre20271231000000A1'):
             response = self.client.get(url)
             self.assertEqual(response.status_code, 200, url)
-            self.assertIn(b'web/app.js', response.content)
+            self.assertIn(b'web/app/boot.js', response.content)
             self.assertEqual(response['Referrer-Policy'], 'no-referrer')
 
     def test_assets_whitelist(self):
-        self.assertEqual(self.client.get('/web/app.js').status_code, 200)
+        self.assertEqual(self.client.get('/web/app/boot.js').status_code, 200)
         self.assertEqual(self.client.get('/web/vendor/jsQR.js').status_code, 200)
         self.assertEqual(self.client.get('/web/../views.py').status_code, 404)
         self.assertEqual(self.client.get('/web/index.html').status_code, 404)
 
+    def test_app_scripts_all_loaded(self):
+        """Chaque script du front (web/app/*.js) est servi et charge par index.html, boot.js en dernier : il lance
+        la page une fois toutes les fonctions declarees."""
+        import re
+        from pathlib import Path
+        web = Path(__file__).resolve().parent / 'web'
+        loaded = re.findall(r'<script src="web/app/([\w-]+\.js)" defer></script>', (web / 'index.html').read_text(encoding='utf-8'))
+        self.assertEqual(sorted(loaded), sorted(path.name for path in (web / 'app').glob('*.js')))
+        self.assertEqual(loaded[-1], 'boot.js')
+        for name in loaded:
+            self.assertEqual(self.client.get(f'/web/app/{name}').status_code, 200, name)
+
     def test_assets_revalidated_with_etag(self):
         """Ressources en cache revalidees (304 sans corps) au lieu d'etre retelechargees a chaque ouverture."""
-        response = self.client.get('/web/app.js')
+        response = self.client.get('/web/app/boot.js')
         etag, modified = response['ETag'], response['Last-Modified']
-        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_NONE_MATCH=etag).status_code, 304)
+        self.assertEqual(self.client.get('/web/app/boot.js', HTTP_IF_NONE_MATCH=etag).status_code, 304)
         # ETag suffixe par la compression de Caddy
-        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_NONE_MATCH=etag[:-1] + '-zstd"').status_code, 304)
-        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_MODIFIED_SINCE=modified).status_code, 304)
-        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_NONE_MATCH='"autre"').status_code, 200)
+        self.assertEqual(self.client.get('/web/app/boot.js', HTTP_IF_NONE_MATCH=etag[:-1] + '-zstd"').status_code, 304)
+        self.assertEqual(self.client.get('/web/app/boot.js', HTTP_IF_MODIFIED_SINCE=modified).status_code, 304)
+        self.assertEqual(self.client.get('/web/app/boot.js', HTTP_IF_NONE_MATCH='"autre"').status_code, 200)
         # une autre date (nouvelle version, meme plus ancienne) : fichier renvoye
-        self.assertEqual(self.client.get('/web/app.js', HTTP_IF_MODIFIED_SINCE='Mon, 01 Jan 2035 00:00:00 GMT').status_code, 200)
+        self.assertEqual(self.client.get('/web/app/boot.js', HTTP_IF_MODIFIED_SINCE='Mon, 01 Jan 2035 00:00:00 GMT').status_code, 200)
 
     def test_pages_have_content_security_policy(self):
         for url in ('/', '/scanner?s=x&k=y'):
@@ -1343,7 +1355,7 @@ class WebFrontTests(ApiTestCase):
         self.assertTrue(response['Content-Type'].startswith('text/plain'))
         self.assertEqual(response.content.decode(), 'User-agent: *\nDisallow: /\n')
         # en-tete sur toutes les reponses : pages, fichiers du front, API, erreurs
-        for url in ('/', '/item?k=x', '/scanner', '/web/app.js', '/robots.txt', '/introuvable'):
+        for url in ('/', '/item?k=x', '/scanner', '/web/app/boot.js', '/robots.txt', '/introuvable'):
             self.assertEqual(self.client.get(url)['X-Robots-Tag'], 'noindex, nofollow', url)
         for page in ('index.html', 'scanner.html'):
             html = (Path(__file__).resolve().parent / 'web' / page).read_text(encoding='utf-8')

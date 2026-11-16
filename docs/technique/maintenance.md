@@ -41,7 +41,7 @@ refuse aussi la clé de développement du dépôt (le paquet génère la sienne 
    `lot_dict(local=False)` est ce que voit un téléphone.
 4. `inventory/views.py` : l'accepter en écriture si besoin (valider le format, message d'erreur en
    français).
-5. Fronts : `app/src/ui/windows/…` (lecture tolérante `json["champ"].str()`), `web/app.js`.
+5. Fronts : `app/src/ui/windows/…` (lecture tolérante `json["champ"].str()`), `web/app/*.js`.
 6. Si c'est une valeur d'étiquette : voir « Ajouter un placeholder ».
 7. Test dans `inventory/tests.py`, puis README racine si c'est visible de l'utilisateur.
 
@@ -64,7 +64,7 @@ refuse aussi la clé de développement du dépôt (le paquet génère la sienne 
 
 1. `services.py` (`perform_verif`, `assign_items`, `_complete_lots`, `requirements_status`).
 2. **Les deux aperçus** : `App::plan_verif` / `App::partial_verif_lots` dans `app/src/app/app.cpp`,
-   et `planSession` / `partialLots` dans `database/inventory/web/app.js`.
+   et `planSession` / `partialLots` dans `database/inventory/web/app/cascade.js` et `actions.js`.
 3. Si l'état d'un lot change : `serializers.lot_state` / `aggregate_tree` (les fronts affichent
    `state` et `effective` tels quels).
 4. Tests (`VerifTests`, `SubLotTests`…), puis [regles-de-gestion.md](regles-de-gestion.md) et le

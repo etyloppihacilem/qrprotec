@@ -15,7 +15,7 @@ Fichiers concernés :
 | `database/inventory/management/commands/serve.py` | `QRProtecRequestHandler` : intercepte l'`Upgrade: websocket` et aiguille vers `live.hub`. |
 | `database/inventory/views.py` | `verifs` (`POST /api/verifs/`) : envoi d'une vérif avec `live`, appels à `hub.verif_team`, `hub.step`, `hub.finish` ; `verif_lots`, `key_holders`, `require_label`. |
 | `database/inventory/idendity.py` | `anonymized()`, `identity_name()` : noms courts affichés aux téléphones. |
-| `database/inventory/web/app.js` | Client : module `live` (page de scan), `watch*` (page de suivi), `validate`, `teamStep`, `teamReport`, `liveSnapshot`, `allScanned`. |
+| `database/inventory/web/app/live.js` (et `actions.js`) | Client : module `live` (page de scan), `watch*` (page de suivi), `validate`, `teamStep`, `teamReport`, `liveSnapshot`, `allScanned`. |
 | `database/inventory/tests.py` | `LiveHubTests` avec un `FakeSocket`. |
 
 Le **front poste (ImGui) n'utilise pas ces WebSockets** : sa vérif, y compris en cascade, reste
@@ -244,7 +244,7 @@ voient « déconnecté ». Il reste participant : il peut revenir avec son jeton
 
 ### Ce que reçoit la page de scan
 
-| Message | Quand | Ce qu'en fait `app.js` |
+| Message | Quand | Ce qu'en fait le front web |
 |---|---|---|
 | `hello` `{id, pid, token, merged?, who?}` | connexion, fusion, nouvelle vérif après la fin | range les identifiants ; `merged` : bandeau « 👥 Vérif commune avec … ». |
 | `error` `{message, join}` | refus de `hello` | toast si c'était un `join`. |
@@ -272,7 +272,7 @@ Le message `team` :
 Chaque participant n'envoie que **ses propres scans** (`entries`) ; le serveur renvoie à chacun ceux
 **des autres** (`team.entries`). Côté web, `allScanned()` assemble les deux (un même code compté une
 seule fois) et alimente les attendus, le reste à scanner et le plan de la vérif : tout le monde voit
-les mêmes manques. **Tout nouveau code de `app.js` qui lit les scans d'une vérif doit passer par
+les mêmes manques. **Tout nouveau code du front web (`web/app/`) qui lit les scans d'une vérif doit passer par
 `allScanned()`**, pas par `state.scanned` (qui ne contient que les scans de ce téléphone).
 
 Les **clés** des lots restent sur le serveur. La personne qui a scanné l'étiquette clé du sac les
@@ -484,7 +484,7 @@ libre) est testé avec le téléphone-douchette.
 ## Modifier le protocole
 
 - Un nouveau champ publié par la page de scan doit être ajouté **à la fois** à `liveSnapshot`
-  (`app.js`) et à `clean_state` ou `clean_entries` (`live.py`), borné ; sinon il est silencieusement
+  (`web/app/`) et à `clean_state` ou `clean_entries` (`live.py`), borné ; sinon il est silencieusement
   perdu.
 - Un nouveau message : l'ajouter au docstring de `live.py` (qui fait référence), à la boucle de
   `run_scanner` et au `onmessage` du module `live` ; mettre à jour cette page.

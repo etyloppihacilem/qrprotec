@@ -1,6 +1,6 @@
 /* QRProtec - easter egg : un code contenant « douchette » n'est pas un scan, une phrase s'affiche.
  *
- * Partage par le front web (app.js) et la page du telephone-douchette (scanner.js). La liste des
+ * Partage par le front web (web/app/) et la page du telephone-douchette (scanner.js). La liste des
  * phrases est la meme que douchette_phrases() dans app/src/core/codes.cpp (verifie par les tests).
  */
 'use strict';

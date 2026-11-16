@@ -48,7 +48,7 @@
     void node.offsetWidth;
     node.className = kind;
   }
-  // Vibreur : API Vibration (Android) ; a defaut, retour haptique d'un interrupteur sur iOS 18+ (comme app.js)
+  // Vibreur : API Vibration (Android) ; a defaut, retour haptique d'un interrupteur sur iOS 18+ (comme web/app/feedback.js)
   let haptic = null;
   function vibrate(pattern) {
     if (navigator.vibrate) { navigator.vibrate(pattern); return; }

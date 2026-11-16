@@ -1,6 +1,6 @@
 /* QRProtec - lecture des codes a la camera, limitee au viseur.
  *
- * Partage par le front web (app.js) et la page du telephone-douchette (scanner.js). BarcodeDetector natif quand il
+ * Partage par le front web (web/app/) et la page du telephone-douchette (scanner.js). BarcodeDetector natif quand il
  * lit les QR codes (Chrome Android) ; sinon zxing-cpp en WebAssembly dans un worker (decoder.js : Firefox, Safari
  * iOS), aussi efficace que le lecteur natif, avec jsQR et code128.js le temps qu'il se charge ou s'il ne se charge
  * pas. Dans tous les cas, seul un code dont le centre est dans le viseur est rendu : une autre etiquette visible a
