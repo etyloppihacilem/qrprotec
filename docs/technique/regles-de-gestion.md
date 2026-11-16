@@ -8,7 +8,7 @@ affiché d'un lot est calculé dans `database/inventory/serializers.py`.
 > lots et le calcul « quels lots seraient complets » existent :
 > - côté serveur : `services.assign_items` et `services._complete_lots` (font foi) ;
 > - côté poste : `plan_verif` (`app/src/core/verif_plan.cpp`, appelé par `App::plan_verif`) et
->   `App::partial_verif_lots` (`app/src/app/app.cpp`) ;
+>   `App::partial_verif_lots` (`app/src/app/app_verifs.cpp`) ;
 > - côté téléphone : `planVerif` (`database/inventory/web/app/verif-plan.js`, appelé par `planSession`) et
 >   `partialLots` (`web/app/actions.js`).
 >
