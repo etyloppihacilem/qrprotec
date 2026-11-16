@@ -35,7 +35,7 @@ class ScanWindow final : public AppWindow {
   private:
     void draw_user(App &app) {
       if (app.logged_in()) {
-        ImGui::TextColored(app.privileged() ? colors::orange : colors::green, "Connecté : %s%s",
+        ImGui::TextColored(colors::green, "Connecté : %s%s",
                            app.user_name().c_str(), app.user ? app.user->role_suffix().c_str() : "");
         if (app.user && !app.user->fonction.empty())
           ImGui::TextDisabled("%s", app.user->fonction.c_str());

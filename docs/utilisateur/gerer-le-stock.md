@@ -1,7 +1,7 @@
 # Gérer le stock
 
-Cette page concerne les rôles **gestion** et **admin**. Scannez votre badge au poste : l'écran passe
-en orange et le menu **Gestion** apparaît.
+Cette page concerne les rôles **gestion** et **admin**. Scannez votre badge au poste : la barre des menus
+en haut de l'écran passe en bleu foncé et le menu **Gestion** apparaît.
 
 ## Recevoir une commande
 

@@ -40,8 +40,63 @@
 namespace qrprotec {
 
 namespace {
-const ImVec4 kPrivilegedOrange(0.93f, 0.49f, 0.13f, 1.0f);
 const ImVec4 kNormalBackground(0.12f, 0.14f, 0.16f, 1.0f);
+// gestion / admin connecte : seule la barre des menus generale passe en bleu fonce (marine du web), le reste garde
+// le theme de base pour que les couleurs d'alerte et les voyants de la barre ressortent
+const ImVec4 kPrivilegedMenuBar(0.08f, 0.16f, 0.29f, 1.0f); // #14284b
+
+// Couleurs des elements poses directement sur la barre des menus : claires sur le bleu fonce, celles du theme sinon.
+// Poussees seulement autour de l'element de la barre, jamais pendant le contenu d'un menu (fond clair).
+struct BarColors {
+    bool   dark;
+    ImVec4 text, red, orange, blue, green, grey;
+};
+
+BarColors bar_colors(bool dark) {
+  if (dark)
+    return { true,
+             ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
+             ImVec4(1.0f, 0.47f, 0.47f, 1.0f),
+             ImVec4(1.0f, 0.72f, 0.32f, 1.0f),
+             ImVec4(0.58f, 0.78f, 1.0f, 1.0f),
+             ImVec4(0.50f, 0.88f, 0.50f, 1.0f),
+             ImVec4(0.82f, 0.85f, 0.90f, 1.0f) };
+  return { false, ImGui::GetStyleColorVec4(ImGuiCol_Text), ImVec4(0.8f, 0.1f, 0.1f, 1), colors::orange, colors::blue,
+           ImVec4(0.1f, 0.55f, 0.1f, 1), ImVec4(0.2f, 0.2f, 0.2f, 1) };
+}
+
+int push_bar_item(const BarColors &bar, const ImVec4 &text) {
+  ImGui::PushStyleColor(ImGuiCol_Text, text);
+  if (!bar.dark)
+    return 1;
+  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.16f));
+  ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(1.0f, 1.0f, 1.0f, 0.26f));
+  ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(1.0f, 1.0f, 1.0f, 0.22f));
+  ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(1.0f, 1.0f, 1.0f, 0.35f));
+  return 5;
+}
+
+bool bar_menu(const BarColors &bar, const char *label, const ImVec4 &text) {
+  const int  pushed = push_bar_item(bar, text);
+  const bool open   = ImGui::BeginMenu(label);
+  ImGui::PopStyleColor(pushed);
+  return open;
+}
+
+bool bar_menu(const BarColors &bar, const char *label) { return bar_menu(bar, label, bar.text); }
+
+bool bar_item(const BarColors &bar, const char *label, const ImVec4 &text) {
+  const int  pushed  = push_bar_item(bar, text);
+  const bool clicked = ImGui::MenuItem(label);
+  ImGui::PopStyleColor(pushed);
+  return clicked;
+}
+
+void bar_separator(const BarColors &bar) {
+  const int pushed = push_bar_item(bar, bar.text);
+  ImGui::Separator();
+  ImGui::PopStyleColor(pushed);
+}
 } // namespace
 
 std::string display_date(const Json &value) {
@@ -650,23 +705,13 @@ void App::reset_session() {
 }
 
 ImVec4 App::background_color() const {
-  return privileged() ? kPrivilegedOrange : kNormalBackground;
+  return kNormalBackground;
 }
 
 void App::draw() {
   handle_shortcuts();
   draw_menu_bar();
-  // mode privilegie : fenetres teintees d'orange en plus du fond, pour qu'il soit impossible a manquer
-  const bool tint = privileged();
-  if (tint) {
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(1.0f, 0.91f, 0.80f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1.0f, 0.94f, 0.86f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.96f, 0.70f, 0.42f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, kPrivilegedOrange);
-  }
   draw_windows();
-  if (tint)
-    ImGui::PopStyleColor(4);
   draw_label_prints();
   draw_roll_change_modal();
   draw_roll_wizard();
@@ -690,10 +735,11 @@ void App::draw_menu_bar() {
   // memorise : un clic sur "Se deconnecter" change privileged() pendant le dessin de la barre
   const bool tinted = privileged();
   if (tinted)
-    ImGui::PushStyleColor(ImGuiCol_MenuBarBg, kPrivilegedOrange);
+    ImGui::PushStyleColor(ImGuiCol_MenuBarBg, kPrivilegedMenuBar);
   if (ImGui::BeginMainMenuBar()) {
-    menu_bar_height_ = ImGui::GetWindowSize().y;
-    if (ImGui::BeginMenu("Fenêtres")) {
+    const BarColors bar = bar_colors(tinted);
+    menu_bar_height_    = ImGui::GetWindowSize().y;
+    if (bar_menu(bar, "Fenêtres")) {
       for (auto &window : windows)
         if (!window->privileged)
           window_menu_item(*window);
@@ -739,13 +785,13 @@ void App::draw_menu_bar() {
       ImGui::EndMenu();
     }
     // Gestion : le stock (roles gestion et admin) ; Administration : ce qui est reserve aux admins
-    if (privileged() && ImGui::BeginMenu("Gestion")) {
+    if (privileged() && bar_menu(bar, "Gestion")) {
       for (auto &window : windows)
         if (window->privileged && !window->admin_only && can_open(*window))
           window_menu_item(*window);
       ImGui::EndMenu();
     }
-    if (admin() && ImGui::BeginMenu("Administration")) {
+    if (admin() && bar_menu(bar, "Administration")) {
       for (auto &window : windows)
         if (window->privileged && window->admin_only && can_open(*window))
           window_menu_item(*window);
@@ -753,11 +799,9 @@ void App::draw_menu_bar() {
     }
     // voyant : lots qui demandent de l'attention (rouge s'il y en a d'incomplets ou perimes, orange sinon)
     if (const LotsAttention lots = lots_attention(); lots.total > 0) {
-      ImGui::PushStyleColor(ImGuiCol_Text, lots.red > 0 ? colors::red : colors::orange);
       const std::string label = "● " + std::to_string(lots.total) + " lot" + (lots.total > 1 ? "s" : "") + " à traiter";
-      if (ImGui::MenuItem(label.c_str()))
+      if (bar_item(bar, label.c_str(), lots.red > 0 ? bar.red : bar.orange))
         show_lots_to_treat();
-      ImGui::PopStyleColor();
       if (ImGui::BeginItemTooltip()) {
         if (lots.red > 0)
           ImGui::Text("%d %s, %s ou à sceller", lots.red, pl(lots.red, "incomplet").c_str(), pl(lots.red, "jamais vérifié").c_str());
@@ -772,24 +816,20 @@ void App::draw_menu_bar() {
     // admins : signalements pas encore pris en charge
     const int fresh_reports = admin() ? report_counts["new"].integer() : 0;
     if (fresh_reports > 0) {
-      ImGui::PushStyleColor(ImGuiCol_Text, colors::red);
       const std::string label = "⚠ " + std::to_string(fresh_reports) + " signalement" + (fresh_reports > 1 ? "s" : "");
-      if (ImGui::MenuItem(label.c_str()))
+      if (bar_item(bar, label.c_str(), bar.red))
         open_window("reports");
-      ImGui::PopStyleColor();
       ImGui::SetItemTooltip("Problèmes signalés pas encore pris en charge : ouvrir la gestion des signalements.");
     }
     // etiquettes demandees depuis le web pas encore imprimees (tout le monde, connecte ou non)
     if (const int requests = static_cast< int >(label_prints_.data["pending"].size()); requests > 0) {
-      ImGui::PushStyleColor(ImGuiCol_Text, colors::blue);
       const std::string label = "● " + nb(requests, "impression") + " en attente";
-      if (ImGui::MenuItem(label.c_str()))
+      if (bar_item(bar, label.c_str(), bar.blue))
         open_label_prints();
-      ImGui::PopStyleColor();
       ImGui::SetItemTooltip("Étiquettes d'items demandées par le TECH depuis le web : ouvrir pour les imprimer.");
     }
-    draw_update_menu();
-    if (ImGui::BeginMenu("Douchette")) {
+    draw_update_menu(tinted);
+    if (bar_menu(bar, "Douchette")) {
       if (ImGui::MenuItem("Téléphone comme douchette...", nullptr, remote.active))
         open_window("phone");
       ImGui::Separator();
@@ -818,10 +858,7 @@ void App::draw_menu_bar() {
     const float       width  = ImGui::CalcTextSize((printing + phone + status + who).c_str()).x + button + 100.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - width));
     if (!printing.empty()) {
-      ImGui::PushStyleColor(ImGuiCol_Text, print.paused ? ImVec4(0.8f, 0.1f, 0.1f, 1) : ImVec4(0.2f, 0.2f, 0.2f, 1));
-      const bool menu = ImGui::BeginMenu(printing.c_str());
-      ImGui::PopStyleColor();
-      if (menu) {
+      if (bar_menu(bar, printing.c_str(), print.paused ? bar.red : bar.grey)) {
         if (print.paused)
           ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", print.error.c_str());
         if (!print.current.empty())
@@ -841,29 +878,25 @@ void App::draw_menu_bar() {
           printer.cancel();
         ImGui::EndMenu();
       }
-      ImGui::Separator();
+      bar_separator(bar);
     }
     if (!phone.empty()) {
-      ImGui::PushStyleColor(ImGuiCol_Text, remote.phone_connected ? ImVec4(0.1f, 0.55f, 0.1f, 1) : ImVec4(0.8f, 0.1f, 0.1f, 1));
-      if (ImGui::MenuItem(phone.c_str()))
+      if (bar_item(bar, phone.c_str(), remote.phone_connected ? bar.green : bar.red))
         open_window("phone");
-      ImGui::PopStyleColor();
-      ImGui::Separator();
+      bar_separator(bar);
     }
     if (api.online()) {
-      ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.1f, 1), "%s", status.c_str());
+      ImGui::TextColored(bar.green, "%s", status.c_str());
     } else {
       // sans API, personne ne peut se connecter pour ouvrir les Reglages : la connexion se regle d'ici
-      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.1f, 0.1f, 1));
-      if (ImGui::MenuItem(status.c_str()))
+      if (bar_item(bar, status.c_str(), bar.red))
         server_modal_requested_ = true;
-      ImGui::PopStyleColor();
       if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s\nCliquer pour régler la connexion au serveur.", api.last_error().c_str());
     }
-    ImGui::Separator();
+    bar_separator(bar);
     if (logged_in()) {
-      ImGui::TextUnformatted(who.c_str());
+      ImGui::TextColored(bar.text, "%s", who.c_str());
       const bool clicked = danger_button("Se déconnecter", ImVec2(0, 0), false);
       ImGui::SetItemTooltip("Super+L");
       if (clicked)
@@ -879,15 +912,13 @@ void App::draw_menu_bar() {
 
 // Mise a jour telechargee (macOS) : installee a la fermeture, ou tout de suite d'ici (tout le monde, connecte ou non :
 // sur un poste personnel, l'utilisateur n'est pas forcement admin de QRProtec)
-void App::draw_update_menu() {
+void App::draw_update_menu(bool dark_bar) {
   const Updater::Status update = updater.status();
   if (update.state != Updater::State::Ready || update.launched)
     return;
-  ImGui::PushStyleColor(ImGuiCol_Text, colors::blue);
+  const BarColors   bar   = bar_colors(dark_bar);
   const std::string label = "↑ Mise à jour " + update.available;
-  const bool        menu  = ImGui::BeginMenu(label.c_str());
-  ImGui::PopStyleColor();
-  if (!menu)
+  if (!bar_menu(bar, label.c_str(), bar.blue))
     return;
   ImGui::Text("QRProtec %s est téléchargée (version actuelle : %s).", update.available.c_str(),
               Updater::current_version().c_str());
