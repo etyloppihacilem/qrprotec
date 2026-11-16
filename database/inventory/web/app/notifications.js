@@ -12,9 +12,11 @@ function base64UrlToBytes(text) {
 }
 
 async function currentPushSubscription() {
-  // getRegistration n'installe rien : aucun service worker tant que l'admin n'a rien active
+  // getRegistration n'installe rien : aucun service worker des notifications tant que l'admin n'a rien active.
+  // Sans lui, getRegistration renverrait celui de l'appli (portee ./, app-sw.js) : on ne garde que celui de web/.
   const registration = await navigator.serviceWorker.getRegistration('web/');
-  return registration ? registration.pushManager.getSubscription() : null;
+  if (!registration || !registration.scope.endsWith('/web/')) return null;
+  return registration.pushManager.getSubscription();
 }
 
 // serviceWorker.ready ne se resout jamais ici : la portee web/ ne couvre pas la page

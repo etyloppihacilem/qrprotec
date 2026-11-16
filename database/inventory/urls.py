@@ -140,18 +140,9 @@ local_patterns = [
 ]
 
 # Front web mobile : repond aux URLs des QR codes (a la racine du domaine public)
-web_patterns = [
-    path('', web_views.page),
-    path('verif', web_views.page),
-    path('badge', web_views.page),
-    path('item', web_views.page),
-    path('task', web_views.page),
-    path('liste', web_views.page),
-    path('pack', web_views.page),
-    path('seal', web_views.page),
-    path('unseal', web_views.page),
-    path('pinreset', web_views.page),
+web_patterns = [path(name, web_views.page) for name in web_views.PAGES] + [
     path('scanner', web_views.scanner_page),
+    path('app-sw.js', web_views.app_service_worker),  # appli ouverte sans reseau (a la racine : portee = tout le site)
     path('favicon.ico', web_views.favicon),
     path('robots.txt', web_views.robots_txt),
     path('front-config/<str:token>', views.front_config_download),

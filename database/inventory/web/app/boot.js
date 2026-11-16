@@ -77,6 +77,16 @@ async function boot() {
   render();
   if (state.user && canSeeStock()) loadStock();
   if (state.user) loadReports(true);
+  registerAppWorker();
+}
+
+// Appli ouverte sans reseau : le service worker app-sw.js garde la page et ses fichiers (toujours le reseau d'abord,
+// la copie seulement sans reseau), et le cache de vérif est mis a jour en arriere-plan pour qu'une vérif lancee
+// hors connexion le trouve. Il faut une connexion securisee (HTTPS avec un certificat reconnu par le telephone).
+function registerAppWorker() {
+  if (!window.isSecureContext || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('app-sw.js', { scope: './' }).catch(() => { /* certificat refuse, navigation privee */ });
+  setTimeout(() => vcache.refresh(APP_CACHE_AGE), 3000);
 }
 
 boot();

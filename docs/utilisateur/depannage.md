@@ -29,6 +29,12 @@ navigateur a le droit d'utiliser la caméra.
 
 ## Vérifs
 
+**Il n'y a pas de réseau dans la réserve.**
+La vérif se fait quand même sur le téléphone : la mention « Hors connexion » s'affiche et la vérif est
+envoyée dès le retour du réseau. L'appli s'ouvre même sans réseau (étiquette scannée avec l'appareil photo,
+ou icône de l'écran d'accueil), à condition de l'avoir ouverte une fois avec du réseau sur ce téléphone et
+de s'être connecté avant d'entrer dans la réserve. La fiche affichée est celle de la dernière mise à jour.
+
 **Le sac est rouge alors que je viens de le vérifier.**
 Lisez le compte rendu : il manque quelque chose, ou un périmé est resté dans le sac sans
 remplaçant. Le contenu attendu a peut-être aussi été modifié par la logistique.

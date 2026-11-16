@@ -7,7 +7,8 @@ JavaScript **sans framework ni étape de construction** : on modifie le fichier,
 |---|---|
 | `index.html`, `app/*.js`, `app.css` | Page unique de vérif et de consultation (scripts décrits plus bas) |
 | `scanner.html`, `scanner.js` | Page « téléphone comme douchette du poste » |
-| `sw.js` | Service worker, uniquement pour afficher les notifications web |
+| `sw.js` | Service worker des notifications web (portée `web/`) |
+| `app-sw.js` | Service worker de l'appli (servi à la racine) : l'ouvrir sans réseau |
 | `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`, `favicon.png` | Installation de l'appli « QRprotec » sur l'écran d'accueil (tuto dans Réglages ⚙ > Installer l'appli) ; icônes `any` à coins transparents, `maskable` plein cadre pour les icônes rondes d'Android, `apple-touch-icon` plein cadre pour iOS (`make icon`) |
 | `camera-scan.js` | Lecture à la caméra limitée au viseur, partagée par `app/` et `scanner.js` |
 | `decoder.js`, `vendor/zxing-reader.js`, `vendor/zxing-reader-*.wasm` | Worker zxing-cpp en WebAssembly (zxing-wasm, MIT ; zxing-cpp, Apache 2.0), quand `BarcodeDetector` manque |
@@ -202,7 +203,15 @@ Deux règles :
   sur place (`keyAccepted`, `cachedSealLot`) : le serveur les contrôle à l'envoi. Chaque envoi porte deux heures du téléphone, `done_at` (validation, juste
   après les scans, gardée dans la file) et `sent_at` (envoi) : le serveur date la vérif à l'heure des scans et
   garde l'heure de réception à côté (voir [back.md](back.md), « Vérif faite hors connexion »).
-  La page elle-même doit avoir été ouverte avec du réseau (pas de cache hors ligne de l'application).
+- **Appli ouverte sans réseau** : le service worker `app-sw.js` garde la page et ses fichiers (voir plus bas), et
+  le cache de vérif est gardé sur le téléphone (IndexedDB `qrprotec`, `savedCache`), relu à l'ouverture
+  (`vcache.ready()`) puis mis à jour en arrière-plan (à l'ouverture de l'appli s'il a plus de 10 min, et comme
+  plus haut). Une étiquette de lot ou d'item ouverte hors connexion (appareil photo, scanner au repos) affiche
+  sa fiche tirée de ce cache, avec le bandeau « Hors connexion » et la date de la dernière mise à jour
+  (`offlineFiche`) ; « Lancer une vérif » y marche. L'étiquette du scellé et la connexion par badge restent en
+  ligne : la personne doit s'être connectée avant (session gardée sur le téléphone). Il faut avoir ouvert l'appli
+  une fois avec du réseau sur ce téléphone, en HTTPS avec un certificat reconnu (sinon le navigateur refuse le
+  service worker et rien n'est gardé).
 - **Lampe et vibreur** : la lampe (🔦) n'est proposée que si la caméra l'expose (Chrome Android ;
   ni Safari iOS ni Firefox ne la donnent aux pages web) et se rallume quand la caméra redémarre.
   Le vibreur utilise `navigator.vibrate` (Android) ; sur iPhone, à défaut, le retour haptique d'un
@@ -211,12 +220,32 @@ Deux règles :
 Toutes les écritures passent par l'**API publique** : la vérif exige la clé du lot (étiquette
 clé) et un badge.
 
-## Service worker
+## Service workers
 
-`sw.js` est enregistré **seulement** quand un admin active les notifications. Sa portée est `web/` :
-il ne contrôle aucune page et n'intercepte aucune requête (pas de cache hors ligne, pas de risque de
-servir une vieille version de l'application). Il affiche la notification et, au clic, ouvre ou
-ramène la page sur l'état des stocks de l'accueil.
+Deux service workers indépendants :
+
+- `sw.js` (notifications) est enregistré **seulement** quand un admin active les notifications. Sa
+  portée est `web/` : il ne contrôle aucune page et n'intercepte aucune requête. Il affiche la
+  notification et, au clic, ouvre ou ramène la page sur l'état des stocks de l'accueil. Ses abonnements
+  ne dépendent pas de l'autre (`currentPushSubscription` ne lit que l'enregistrement de portée `web/`).
+- `app-sw.js` (appli sans réseau) est enregistré à chaque ouverture (`registerAppWorker`). Il est servi
+  à la racine (`/app-sw.js`, `web_views.app_service_worker`) pour que sa portée couvre toutes les pages ;
+  le back écrit dedans la version du front et la liste des fichiers :
+  - **Liste des fichiers** (`offline_files`) : la page (`./`) et tout `ASSETS` de `web_views.py`, sauf
+    `sw.js`. Un nouveau script `web/app/*.js` y entre tout seul (liste blanche par dossier) ; tout autre
+    nouveau fichier du front n'a qu'à être ajouté à `ASSETS`, comme avant pour être servi : il est gardé
+    automatiquement.
+  - **Version** (`offline_version`) : empreinte de la date et de la taille de chaque fichier (comme l'ETag)
+    et du réglage des codes-barres (qui change la page). Le navigateur relit `app-sw.js` à chaque ouverture ;
+    après une mise à jour du paquet il change, le nouveau worker recharge tous les fichiers d'un coup dans un
+    cache neuf (`qrprotec-app-<version>`, tout ou rien) et efface l'ancien.
+  - **Toujours le réseau d'abord** : chaque page et chaque fichier sont demandés au serveur (revalidés par
+    l'ETag, 304 sans corps) et la copie est mise à jour. La copie ne sert que sans réponse : pas de réseau,
+    plus de 4 s pour la page (8 s pour un fichier), ou 502/503/504 (back arrêté, maintenance). Une page
+    ouverte depuis la copie charge aussi ses scripts depuis la copie, pour ne pas mélanger deux versions.
+  - Toutes les pages de l'appli (`web_views.PAGES` : `/`, `verif`, `item`, `badge`…) répondent avec la
+    copie de la page. L'API (`api/`), les WebSockets et la page de la douchette (`scanner`) ne passent
+    jamais par lui.
 
 ## Page « douchette du poste »
 
