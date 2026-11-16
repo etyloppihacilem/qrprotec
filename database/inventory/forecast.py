@@ -224,7 +224,7 @@ def forecast(months=6, lead_days=None, history_months=None):
             held.sort(key=lambda unit: (unit[0], unit[1].iid))
         row = _type_forecast(item_type, by_place, rates, places, today, horizon, month_starts, points, lead_days,
                              unconfirmed[item_type.type])
-        if item_type.unit:
+        if item_type.is_unit_group:
             _unit_order(row, item_type, item_types)
         types.append(row)
         if item_type.perissable:
@@ -244,7 +244,7 @@ def forecast(months=6, lead_days=None, history_months=None):
 def _add_unit_groups(item_types, units, rates, unconfirmed):
     """Type a unites (« Sérum phy », mL) : ses sous-types prevus ensemble, en unites. Chaque item d'un sous-type
     compte pour ses unites (un flacon de 50 mL : 50 unites de meme peremption), sa consommation aussi."""
-    groups = {item_type.type for item_type in item_types if item_type.unit}
+    groups = {item_type.type for item_type in item_types if item_type.is_unit_group}
     for item_type in item_types:
         if item_type.group_id not in groups:
             continue
@@ -261,6 +261,7 @@ def _unit_order(row, item_type, item_types):
     """Commande d'un type a unites : en items de son sous-type par defaut (sinon celui qui en remplit le plus),
     arrondie a sa taille de paquet. La quantite en unites reste dans `units`."""
     row['unit'] = item_type.unit
+    row['is_group'] = True
     order = row['order']
     subtypes = [other for other in item_types if other.group_id == item_type.type]
     if order is None or not subtypes:
@@ -365,7 +366,7 @@ def _type_forecast(item_type, by_place, rates, places, today, horizon, month_sta
         rate_month = stock_rate * DAYS_PER_MONTH
         left = sum(1 for limit, fate in zip(stock_limits, stock_fates) if present_at(fate, limit, below))
         quantity = max(1, minimum + math.ceil(2 * rate_month) - left)
-        pack = 1 if item_type.unit else max(1, item_type.default_pack_size)  # type a unites : voir _unit_order
+        pack = 1 if item_type.is_unit_group else max(1, item_type.default_pack_size)  # type a unites : voir _unit_order
         quantity = math.ceil(quantity / pack) * pack
         deadline = max(today, below_day - timedelta(days=lead_days))
         order = {'quantity': quantity, 'before': deadline, 'urgent': deadline <= today, 'below_min': below_day}

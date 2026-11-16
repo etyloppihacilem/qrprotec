@@ -397,7 +397,7 @@ def line_weight(line, item_type):
         return 0
     if line.item_type_id == item_type.type:
         return 1
-    if line.item_type.unit and item_type.group_id == line.item_type_id:
+    if line.item_type.is_unit_group and item_type.group_id == line.item_type_id:
         return max(1, item_type.fills)
     return 0
 
@@ -1330,9 +1330,10 @@ def checklist_dict(checklist, user=None, full=True):
             row.update({'kind': 'type', 'type': line.item_type_id, 'type_name': line.item_type.name,
                         'back': line_amount(line, [scan for scan in back if scan.item_id and any(
                             scan.item_id == out.item_id for out in done)])})
-            if line.item_type.unit:
-                # ligne d'un type a unites (« 200 mL de sérum phy ») : quantites en unites, n'importe quel sous-type
-                row.update({'unit': line.item_type.unit, 'subtypes': [
+            if line.item_type.is_unit_group:
+                # ligne d'un type parent (« 200 mL de sérum phy », « 4 bandes ») : quantites en unites (en items sans
+                # unite), n'importe quel sous-type
+                row.update({'is_group': True, 'unit': line.item_type.unit, 'subtypes': [
                     {'type': sub.type, 'type_name': sub.name, 'fills': sub.fills}
                     for sub in line.item_type.subtypes.filter(archived=False).order_by('-fills', 'name')]})
         lines.append(row)

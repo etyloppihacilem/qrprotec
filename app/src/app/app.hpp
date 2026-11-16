@@ -747,8 +747,13 @@ std::string key_hint(const Json &lot);
 
 // Attendu sous lequel afficher un item de ce type : son type s'il est attendu, sinon son type a unites
 std::string                                  display_row(const Json &requirements, const std::string &type);
-// Ligne d'un type a unites (pas le minimum d'un sous-type « dont ») : compte en unites
+// Ligne d'un type parent (pas le minimum d'un sous-type « dont ») : compte en unites (is_group), a unites (« Sérum
+// phy » en mL) ou sans unite (« Bandes » remplies par Bandes L ou S, un item = 1)
 bool                                         unit_row(const Json &row);
+// « 50 mL de Sérum phy » pour un type a unites, « 3 × Bandes » sinon (services.amount_text)
+std::string                                  amount_text(int count, const std::string &unit, const std::string &name);
+// « mL » precede d'une espace, vide pour un type sans unite
+std::string                                  unit_suffix(const Json &row);
 // Items a scanner pour `units` unites d'une ligne : le moins d'items qui les remplissent (sinon `units` lui-meme)
 int                                          row_items(const Json &row, int units);
 // Nom affiche d'un attendu : « Sérum phy (mL) », « dont Sachet… »

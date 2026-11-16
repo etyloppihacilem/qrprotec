@@ -286,7 +286,8 @@ class SheetWriter:
             text(MARGIN, y + 8, "FICHE D'INVENTAIRE", size=8, bold=True, grey=GREY_TEXT)
             text(PAGE_WIDTH - MARGIN, y + 8, edited, size=8, grey=GREY_TEXT, align='right')
         y += 28
-        # items a cocher sur la fiche (un attendu en unites, ex : 200 mL de serum phy, n'est pas un nombre d'items)
+        # items a cocher sur la fiche (un attendu en unites, ex : 200 mL de serum phy, n'est pas un nombre d'items ;
+        # un type parent sans unite, ex : 4 bandes, si)
         count = sum(requirement.quantity for _, rows in self.groups(lot) for requirement in rows if not requirement.unit)
         title = lot.name + (' (suite)' if continued else '')
         text(MARGIN, y, fit(title, width, 18, True), size=18, bold=True)
@@ -336,6 +337,9 @@ class SheetWriter:
                     # type a unites : « 200 × Sérum phy (mL, sachets ou flacons) »
                     name += f" ({requirement.unit}, {' ou '.join(sorted(requirement.names.values()))})" \
                         if requirement.names else f' ({requirement.unit})'
+                elif requirement.is_group and requirement.names:
+                    # type parent sans unite : « 4 × Bandes (Bandes L ou Bandes S) »
+                    name += f" ({' ou '.join(sorted(requirement.names.values()))})"
                 elif requirement.item_type.group_id and any(
                         row.item_type_id == requirement.item_type.group_id for _, other in groups for row in other):
                     name = 'dont ' + name  # minimum d'un sous-type compris dans son type a unites

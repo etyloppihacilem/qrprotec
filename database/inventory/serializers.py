@@ -63,6 +63,8 @@ def item_type_dict(item_type):
         'archived': item_type.archived,
         # attentes en quantite : type a unites (unit, ex : mL) rempli par ses sous-types, ou sous-type (group) qui en
         # remplit fills unites ; default_subtype : sous-type propose par defaut (reception, commande, reassort)
+        # type parent (is_group), a unites (unit) ou sans unite (« Bandes » rempli par « Bandes L » et « Bandes S »)
+        'is_group': item_type.is_unit_group,
         'unit': item_type.unit,
         'group': item_type.group_id or '',
         'fills': item_type.fills,

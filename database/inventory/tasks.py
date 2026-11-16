@@ -281,7 +281,8 @@ def _forecast_tasks(today, orders):
         if order['below_min']:
             detail += f" · sous le minimum le {_day(order['below_min'])}"
         unit = f" {row['unit']}" if row.get('unit') else ''
-        detail += f" · {row['name']} : stock {row['stock_now']}{unit}, minimum {row['min_quantity']}{unit}" if unit \
+        detail += f" · {row['name']} : stock {row['stock_now']}{unit}, minimum {row['min_quantity']}{unit}" \
+            if row.get('is_group') \
             else f" · stock {row['stock_now']}, minimum {row['min_quantity']}"
         row_task = task('orders', 'warn' if order['urgent'] else 'info', f"Commander {order['quantity']} × {ordered_name}",
                         detail, order['before'], 'forecast', sort=order['before'].toordinal())

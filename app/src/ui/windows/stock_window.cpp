@@ -810,7 +810,7 @@ class StockWindow final : public AppWindow {
         ImGui::TextUnformatted(stock_name(row).c_str());
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(order_text(row).c_str());
-        if (row["pack_size"].integer() > 1 && row["unit"].str().empty()) {
+        if (row["pack_size"].integer() > 1 && !row["is_group"].boolean()) {
           ImGui::SameLine();
           ImGui::TextDisabled("(%d paquets)", order["quantity"].integer() / row["pack_size"].integer());
         }

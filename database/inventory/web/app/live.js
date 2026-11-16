@@ -723,7 +723,7 @@ function renderVerifReport() {
   const issues = (lot) => [
     ...(lot.lacking || []).map((row) => el('div', { class: 'vr-issue bad' },
       `Manque ${lackingText(row, Math.max(0, row.required - row.present))}`,
-      full ? el('span', { class: 'vr-ratio' }, ` (${row.present}/${row.required}${row.unit && !row.within ? ' ' + row.unit : ''})`) : null)),
+      full ? el('span', { class: 'vr-ratio' }, ` (${row.present}/${row.required}${row.unit && isGroupRow(row) ? ' ' + row.unit : ''})`) : null)),
     ...lot.expired.map((row) => el('div', { class: 'vr-issue bad' }, 'À remplacer : ' + typeText(row))),
     ...lot.replaced.map((row) => el('div', { class: 'vr-issue gray' }, 'À jeter : ' + typeText(row))),
   ];

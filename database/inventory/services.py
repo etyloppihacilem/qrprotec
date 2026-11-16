@@ -271,6 +271,11 @@ class Requirement:
         return self.item_type.unit
 
     @property
+    def is_group(self):
+        """Attendu d'un type parent (a unites, ou sans unite comme « Bandes ») rempli par ses sous-types."""
+        return self.item_type.is_unit_group
+
+    @property
     def item_type_id(self):
         return self.item_type.pk
 
@@ -293,24 +298,29 @@ def unit_members(preload=None):
 
 def with_units(rows, preload=None):
     """Complete les attendus d'un type a unites avec ses sous-types (Requirement.fills et names)."""
-    if not any(row.item_type.unit for row in rows):
+    if not any(row.item_type.is_unit_group for row in rows):
         return rows
     members = unit_members(preload)
     for row in rows:
-        if row.item_type.unit:
+        if row.item_type.is_unit_group:
             subtypes = members.get(row.item_type_id, {})
             row.fills = {code: value[0] for code, value in subtypes.items()}
             row.names = {code: value[1] for code, value in subtypes.items()}
     return rows
 
 
+def amount_text(count, unit, name, times=' × '):
+    """Quantite d'un type : « 50 mL de Sérum phy » pour un type a unites, « 3 × Bandes » sinon."""
+    return f"{count} {unit} de {name}" if unit else f"{count}{times}{name}"
+
+
 def lacking_text(row, times=' × '):
-    """Ce qui manque sur une ligne de requirements_status : « 3 × Compresses », ou pour un type a unites
-    « 50 mL de Sérum phy (2 × Sachet…) » avec le sous-type a prendre."""
+    """Ce qui manque sur une ligne de requirements_status : « 3 × Compresses », ou pour un type parent
+    « 50 mL de Sérum phy (2 × Sachet…) » / « 3 × Bandes (3 × Bandes L) » avec le sous-type a prendre."""
     lacking = row['required'] - row['present']
-    if not row.get('unit') or row.get('within'):
+    if not row.get('is_group') or row.get('within'):
         return f"{lacking}{times}{row['type_name']}"
-    text = f"{lacking} {row['unit']} de {row['type_name']}"
+    text = amount_text(lacking, row.get('unit'), row['type_name'], times)
     suggest = row.get('suggest')
     return text + (f" ({suggest['count']} × {suggest['type_name']})" if suggest else '')
 
@@ -557,13 +567,14 @@ def lot_distribution(lot):
         for requirement in ordered_requirements(referentiel):
             type_id = requirement.item_type_id
             unit = requirement.item_type.unit
+            is_group = requirement.item_type.is_unit_group
             places = []
             for sac in sacs:
                 row = placed[sac.id].get(type_id)
                 place = {'lot': sac.id, 'quantity': row.quantity if row else 0,
                          'location': row.location if row else defaults.get((sac.lot_type_id, type_id), '')}
-                if unit:
-                    # type a unites (20 mL de serum phy) : les sous-types attendus dans le sac (4 dosettes de 5 mL)
+                if is_group:
+                    # type parent (20 mL de serum phy, ou 4 bandes) : les sous-types attendus dans le sac (4 dosettes de 5 mL)
                     # le remplissent ; avec une ligne du type a unites dans le meme sac, ils sont compris dedans
                     subtypes = [{'type': sub.item_type_id, 'type_name': sub.item_type.name, 'quantity': sub.quantity,
                                  'fills': max(1, sub.item_type.fills)}
@@ -572,7 +583,7 @@ def lot_distribution(lot):
                     place['subtypes'] = subtypes
                 places.append(place)
             lines.append({'type': type_id, 'type_name': requirement.item_type.name, 'required': requirement.quantity,
-                          'unit': unit, 'places': places,
+                          'unit': unit, 'is_group': is_group, 'places': places,
                           'placed': sum(max(place['quantity'], place.get('units', 0)) for place in places)})
         result.append({
             'referentiel': referentiel.type, 'referentiel_name': referentiel.name,
@@ -754,7 +765,7 @@ def lot_coverage(lot, referentiel):
         for requirement in node_rows:
             type_id = requirement.item_type_id
             group = requirement.item_type.group
-            if group is not None and group.unit and group.type not in node_types:
+            if group is not None and group.is_unit_group and group.type not in node_types:
                 # sous-type range sans attendu de son type a unites dans ce sac (8 sachets de 25 mL) : il couvre
                 # la ligne du type a unites (200 mL de serum phy)
                 converted[type_id] = group.type
@@ -775,8 +786,8 @@ def lot_coverage(lot, referentiel):
         wanted.add(type_id)
         lines.append({'type': type_id, 'type_name': requirement.item_type.name, 'required': requirement.quantity,
                       'placed': placed.get(type_id, 0), 'places': places.get(type_id, []),
-                      'unit': requirement.item_type.unit})
-    wanted_groups = {line['type'] for line in lines if line['unit']}
+                      'unit': requirement.item_type.unit, 'is_group': requirement.item_type.is_unit_group})
+    wanted_groups = {line['type'] for line in lines if line['is_group']}
     extra = [{'type': type_id, 'type_name': names[type_id], 'required': 0, 'placed': placed[type_id],
               'places': places[type_id]}
              for type_id in sorted(set(placed) - wanted, key=lambda key: (name_key(names[key]), key))
@@ -865,6 +876,7 @@ def requirements_status(lot, today=None, items=None, preload=None, strict=False)
             # type a unites : quantites en unites (unit), ce que remplit chaque sous-type, et le sous-type a proposer
             # pour ce qui manque (sous-type par defaut, sinon celui qui en remplit le plus)
             row = rows[-1]
+            row['is_group'] = True  # type parent, a unites (unit) ou sans unite (unit vide : compte en items)
             row['unit'] = requirement.unit
             row['fills'] = dict(requirement.fills)
             row['subtypes'] = [{'type': code, 'type_name': requirement.names.get(code, code), 'fills': value,
@@ -1405,7 +1417,7 @@ def _record_verif(lot, identity, now, verif, requirements, partial, missing, exp
     lacking = [{'type': row['type'], 'type_name': row['type_name'], 'required': row['required'],
                 'present': row['present'],
                 # type a unites : unite et sous-type a prendre (compte rendu « Manque 50 mL de Sérum phy »)
-                **{key: row[key] for key in ('unit', 'within', 'suggest', 'subtypes') if key in row}}
+                **{key: row[key] for key in ('is_group', 'unit', 'within', 'suggest', 'subtypes') if key in row}}
                for row in requirements if row['present'] < row['required']]
     if lot is None:
         summary = ', '.join(parts) or 'aucun item'
@@ -1851,7 +1863,7 @@ def split_targets(item_type):
     if not item_type.group_id or item_type.fills < 2:
         return []
     targets = []
-    for target in ItemType.objects.filter(group_id=item_type.group_id, archived=False, physical=True, unit='') \
+    for target in ItemType.objects.filter(group_id=item_type.group_id, archived=False, physical=True, unit='', is_group=False) \
             .exclude(type=item_type.type):
         if 0 < target.fills < item_type.fills and item_type.fills % target.fills == 0:
             targets.append((target, item_type.fills // target.fills))
@@ -2025,6 +2037,7 @@ def stock_status(soon_days=30):
             'out': row.out,
             'loose': row.loose,
             # attentes en quantite : un type a unites compte en unites ce que ses sous-types remplissent
+            'is_group': row.is_unit_group,
             'unit': row.unit,
             'group': row.group_id or '',
             'fills': row.fills,
@@ -2046,7 +2059,7 @@ def with_unit_totals(rows):
     by_type = {row['type']: row for row in rows}
     for row in rows:
         group = by_type.get(row['group'])
-        if group is None or not group['unit']:
+        if group is None or not group['is_group']:
             continue
         for key in STOCK_COUNTS:
             group[key] += row[key] * max(1, row['fills'])
