@@ -174,8 +174,9 @@ juge les péremptions ce jour-là ; si le lot a eu une vérif plus récente entr
 va avec : vérif recommandée, réassorts) n'est pas ramenée en arrière.
 
 L'heure de réception reste sur la vérif (`Verifs.received`, vide pour les vérifs d'avant ce champ) et
-`ser.verif_sent` la donne (`sent`) dans « Vérifs récentes », le compte rendu et `lots/<id>/verifs/` quand elle
-s'écarte de plus de 2 minutes : « 📶 Faite hors connexion · reçue par le serveur le … ». Un écart inattendu
+`Verifs.sent_late()` la donne quand elle s'écarte de plus de 2 minutes : `sent` dans « Vérifs récentes », le
+compte rendu et `lots/<id>/verifs/` (« 📶 Faite hors connexion · reçue par le serveur le … »), et sur la ligne
+« Dernière vérif » du rapport d'état PDF (« faite hors connexion, reçue par le serveur le … »). Un écart inattendu
 (heure de l'appareil modifiée entre la vérif et l'envoi) se voit ainsi d'un coup d'œil.
 
 ## Notifications

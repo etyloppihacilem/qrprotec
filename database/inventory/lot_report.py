@@ -288,6 +288,8 @@ class ReportWriter:
                     + (' · complète' if verif.complete else ' · incomplète')
                     + f' ({verif.present_count} présent' + ('s' if verif.present_count > 1 else '')
                     + f', {verif.missing_count} manquant' + ('s' if verif.missing_count > 1 else '') + ')')
+            if verif.sent_late():  # faite hors connexion : datee aux scans, heure de reception a cote (antidatage)
+                line += f' · faite hors connexion, reçue par le serveur le {long_datetime(verif.sent_late())}'
         if line:  # noms complets : la ligne peut deborder, elle passe a la ligne au lieu d'etre coupee
             for part in wrap(line, PAGE_WIDTH - MARGIN - x, 9.5, max_lines=3):
                 self.text(x, part, size=9.5, step=13)

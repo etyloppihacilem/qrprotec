@@ -7158,8 +7158,8 @@ class LotStateReportTests(LotSheetTests.__base__):
         move(i1, 3, self.lot, None)  # i1 ressorti vers le stock il y a 3 jours
         # i2 note absent il y a 4 jours, retrouve il y a 2 jours
         move(i2, 4, self.lot, None, kind=MovementKind.USED, cancelled=self.ago(2))
-        Verifs.objects.create(lot=self.lot, datetime=self.ago(7), by='M:M001', complete=True, present_count=2,
-                              participants=['M:M001', 'M:P001'])
+        Verifs.objects.create(lot=self.lot, datetime=self.ago(7), received=self.ago(7), by='M:M001', complete=True,
+                              present_count=2, participants=['M:M001', 'M:P001'])
 
     def report(self, days=None, **extra):
         at = '' if days is None else timezone.localtime(self.ago(days)).strftime('%Y-%m-%dT%H:%M')
@@ -7182,6 +7182,7 @@ class LotStateReportTests(LotSheetTests.__base__):
         self.assertIn('(Complet \xe0 cette date \\(tous les sous-lots\\))', text)
         self.assertIn('Derni\xe8re v\xe9rif : ', text)
         self.assertIn('par Jeanne Dupont, M001 \\(avec Admin Poste, P001\\)', text)
+        self.assertNotIn('hors connexion', text)
         self.assertIn('Sous-lot \xb7 Sac A', text)
         self.assertIn('Sous-lot \xb7 Sac O2 1', text)
         self.assertIn('(Certifi\xe9 par le TECH Paris 15)', text)
@@ -7190,6 +7191,12 @@ class LotStateReportTests(LotSheetTests.__base__):
         self.assertEqual(models.ServerSettings.get().antenna_name, 'Paris 15')
         op = Operation.objects.get(kind='lot_report')
         self.assertEqual((op.lot_id, op.by), (self.root.id, 'M:P001'))
+
+    def test_offline_verif_shows_reception_time(self):
+        # vérif faite hors connexion il y a 7 jours, reçue par le serveur il y a 6 jours
+        Verifs.objects.filter(lot=self.lot).update(received=self.ago(6))
+        text = self.text(self.report(5))
+        self.assertIn('faite hors connexion, re\xe7ue par le serveur le', ' '.join(text.split()))
 
     def test_absent_and_moved_items(self):
         i1, i2, i3 = self.items
