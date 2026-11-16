@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
-from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, STOCK_LOT_TYPE, STORAGE_KIND_DEFAULT, compact_iid, custom_order_key, qrprotec_setting
+from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, STOCK_LOT_TYPE, STORAGE_KIND_DEFAULT, Verifs, compact_iid, custom_order_key, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import restock_credit, LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
 
@@ -769,15 +769,13 @@ def user_dict(user, local=False):
 
 
 # Verif envoyee plus de VERIF_SENT_GAP apres son heure (faite hors connexion) : l'heure d'envoi est montree a cote
-VERIF_SENT_GAP = timedelta(minutes=2)
+VERIF_SENT_GAP = Verifs.SENT_GAP
 
 
 def verif_sent(verif):
-    """Heure de reception d'une verif faite hors connexion et envoyee plus tard (montree a cote de l'heure des scans
-    pour reperer un antidatage), None si elle a ete envoyee tout de suite."""
-    if verif.received is None or verif.received - verif.datetime < VERIF_SENT_GAP:
-        return None
-    return _date(verif.received)
+    """Heure de reception d'une verif faite hors connexion et envoyee plus tard (Verifs.sent_late), None si elle a ete
+    envoyee tout de suite."""
+    return _date(verif.sent_late())
 
 
 def verif_dict(verif):

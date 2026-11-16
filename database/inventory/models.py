@@ -1141,6 +1141,17 @@ class Verifs(models.Model):
     lot_type_version = models.PositiveIntegerField(null=True, blank=True)
     lot_version = models.PositiveIntegerField(null=True, blank=True)
 
+    # recue plus de SENT_GAP apres son heure : faite hors connexion, envoyee plus tard
+    SENT_GAP = timedelta(minutes=2)
+
+    def sent_late(self):
+        """Heure de reception d'une verif faite hors connexion et envoyee plus tard (montree a cote de l'heure des
+        scans pour reperer un antidatage : compte rendu, vérifs récentes, rapport d'état), None si envoyee tout de
+        suite."""
+        if self.received is None or self.received - self.datetime < self.SENT_GAP:
+            return None
+        return self.received
+
 
 class VerifItem(models.Model):
     verif = models.ForeignKey(Verifs, on_delete=models.CASCADE, related_name='entries')
