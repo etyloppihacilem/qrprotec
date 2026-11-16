@@ -631,7 +631,7 @@ class App {
     void scan_lot_seal_open(const ParsedScan &scan, ScanSource source);
     void entry_error(int entry_id, const std::string &message, ScanSource source);
     void draw_menu_bar();
-    void draw_update_menu(); // barre de menu : mise a jour prete a installer
+    void draw_update_menu(bool dark_bar); // barre de menu : mise a jour prete a installer
     void window_menu_item(AppWindow &window);
     void handle_shortcuts();
     void assign_shortcuts();
