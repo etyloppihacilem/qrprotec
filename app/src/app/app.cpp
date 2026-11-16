@@ -929,8 +929,9 @@ bool title_bar_double_clicked(const char *label) {
       || g.HoveredIdPreviousFrame != 0 || g.ActiveId != 0 || g.IO.MouseClickedCount[0] != 2
       || ImGui::GetKeyOwner(ImGuiKey_MouseLeft) != ImGuiKeyOwner_NoOwner)
     return false;
+  // clip = false : avant Begin(), la fenetre courante est une autre, son rectangle de dessin couperait le test
   const ImRect bar = window->TitleBarRect();
-  if (!ImGui::IsMouseHoveringRect(bar.Min, bar.Max))
+  if (!ImGui::IsMouseHoveringRect(bar.Min, bar.Max, false))
     return false;
   ImGui::SetKeyOwner(ImGuiKey_MouseLeft, window->MoveId);
   return true;
