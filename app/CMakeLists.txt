@@ -73,23 +73,46 @@ endif()
 # -----------------------------------------------------------------------------
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 
-set(IMGUI_SOURCES
-    ${IMGUI_DIR}/misc/cpp/imgui_stdlib.cpp
+# ImPlot et ImGui en bibliotheques a part, declarees avant les autres cibles et sans dependance entre
+# cibles : sous make -j comme sous Ninja, leurs objets (les plus longs a compiler) partent des le debut de
+# la construction, en parallele du reste, au lieu de finir seuls en queue.
+#
+# Graphes (previsions de stock). implot_items.cpp instancie chaque fonction Plot* pour tous les types
+# numeriques (10 par defaut) : plus de deux minutes de compilation en Release. Le poste ne trace que des
+# double : seuls float et double sont instancies (un autre type donnerait une erreur d'edition de liens,
+# a ajouter ici).
+set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/implot)
+add_library(QRProtecImPlot STATIC
+    ${IMPLOT_DIR}/implot_items.cpp
+    ${IMPLOT_DIR}/implot.cpp
+)
+# en-tetes d'ImGui seulement, sans target_link_libraries(QRProtecImGui) : sous make, une dependance entre
+# cibles ferait attendre la fin d'ImGui avant de commencer implot_items.cpp
+target_include_directories(QRProtecImPlot PUBLIC ${IMPLOT_DIR} PRIVATE ${IMGUI_DIR})
+target_compile_definitions(QRProtecImPlot PUBLIC "IMPLOT_CUSTOM_NUMERIC_TYPES=(float)(double)")
+
+# ImGui, juste apres ImPlot, pour la meme raison. Sources de la plus longue a la plus courte.
+add_library(QRProtecImGui STATIC
     ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_demo.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+    ${IMGUI_DIR}/misc/cpp/imgui_stdlib.cpp
 )
+target_include_directories(QRProtecImGui PUBLIC
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+    ${IMGUI_DIR}/misc/cpp
+)
+target_link_libraries(QRProtecImGui PUBLIC glfw OpenGL::GL)
 
-# Graphes (previsions de stock)
-set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/implot)
-set(IMPLOT_SOURCES
-    ${IMPLOT_DIR}/implot.cpp
-    ${IMPLOT_DIR}/implot_items.cpp
-)
+if(APPLE)
+    # OpenGL est deprecie (mais toujours present) sur macOS
+    target_compile_definitions(QRProtecImGui PUBLIC GL_SILENCE_DEPRECATION)
+endif()
 
 # Coeur sans interface (teste unitairement) : modeles d'etiquettes, rendu, QR codes, JSON, API
 add_library(QRProtecCore STATIC
@@ -211,24 +234,18 @@ add_executable(${PROJECT_NAME}
     src/ui/windows/stock_window.cpp
     src/ui/windows/users_window.cpp
     src/ui/windows/verif_window.cpp
-    ${IMGUI_SOURCES}
-    ${IMPLOT_SOURCES}
 )
 
 # Inclusion des dossiers d'en-têtes (headers)
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends
-    ${IMGUI_DIR}/misc/cpp
-    ${IMPLOT_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 # Édition de liens avec OpenGL et GLFW
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    glfw
-    OpenGL::GL
+    QRProtecImPlot
+    QRProtecImGui
     QRProtecCore
     QRProtecPrinter
 )
@@ -249,11 +266,6 @@ set(QRPROTEC_UPDATE_ASSET "${QRPROTEC_UPDATE_ASSET_DEFAULT}" CACHE STRING "Fichi
 # sur ce seul fichier : changer de version ne recompile pas tout
 set_source_files_properties(src/app/updater.cpp PROPERTIES COMPILE_DEFINITIONS
     "QRPROTEC_VERSION=\"${QRPROTEC_VERSION}\";QRPROTEC_UPDATE_REPO=\"${QRPROTEC_UPDATE_REPO}\";QRPROTEC_UPDATE_ASSET=\"${QRPROTEC_UPDATE_ASSET}\"")
-
-if(APPLE)
-    # OpenGL est deprecie (mais toujours present) sur macOS
-    target_compile_definitions(${PROJECT_NAME} PRIVATE GL_SILENCE_DEPRECATION)
-endif()
 
 if(TARGET InateckScannerBle)
     if(APPLE)
