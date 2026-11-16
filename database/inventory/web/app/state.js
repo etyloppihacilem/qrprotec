@@ -19,7 +19,7 @@ const API = new URL('api/', document.baseURI);
 // iid complet d'un iid eventuellement en forme courte (D : sans date, N : zeros de tete du compteur), '' sinon.
 // serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006 (meme regle que expand_iid de
 // app/src/core/codes.cpp et de models.py)
-// matricule seul accepte comme badge (meme format que MATRICULE_RE de views.py et is_matricule de codes.cpp)
+// matricule seul accepte comme badge (meme format que MATRICULE_RE de views/common.py et is_matricule de codes.cpp)
 const MATRICULE_RE = /^[A-Za-z0-9_-]{1,16}$/;
 
 function expandIid(code) {

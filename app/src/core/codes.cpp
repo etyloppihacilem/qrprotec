@@ -391,7 +391,7 @@ const std::vector< std::string > &douchette_phrases() {
 
 namespace {
 
-// Meme format que MATRICULE_RE (database/inventory/views.py) et MATRICULE_RE de web/app/state.js
+// Meme format que MATRICULE_RE (database/inventory/views/common.py) et MATRICULE_RE de web/app/state.js
 bool is_matricule(const std::string &code) {
   if (code.empty() || code.size() > 16)
     return false;

@@ -8,7 +8,7 @@ function pl(n, word, plural) { return n > 1 ? (plural || word + 's') : word; }
 // « 3 items », « 1 item », « 0 item ».
 function nb(n, word, plural) { return `${n} ${pl(n, word, plural)}`; }
 // « de » devant un nom de lot : « de Sac de soin », « d'Armoire 1 », « du Sac O2 » (pour « Le Sac O2 »), « des … »,
-// « de la … », « de l'… ». Meme regle que de_name (french.hpp, views.py).
+// « de la … », « de l'… ». Meme regle que de_name (french.hpp, views/public.py).
 function deName(name) {
   const lower = name.toLowerCase();
   if (lower.startsWith('les ')) return 'des ' + name.slice(4);

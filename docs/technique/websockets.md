@@ -13,7 +13,7 @@ Fichiers concernés :
 | `database/inventory/live.py` | Tout le serveur : `LiveHub` (instance unique `hub`), `LiveSession`, `Participant`, nettoyage des messages, faucheur. Le protocole est rappelé en tête du fichier. |
 | `database/inventory/remote_scanner.py` | Implémentation WebSocket (classe `WebSocket`, RFC 6455), partagée avec le téléphone-douchette. |
 | `database/inventory/management/commands/serve.py` | `QRProtecRequestHandler` : intercepte l'`Upgrade: websocket` et aiguille vers `live.hub`. |
-| `database/inventory/views.py` | `verifs` (`POST /api/verifs/`) : envoi d'une vérif avec `live`, appels à `hub.verif_team`, `hub.step`, `hub.finish` ; `verif_lots`, `key_holders`, `require_label`. |
+| `database/inventory/views/public.py` | `verifs` (`POST /api/verifs/`) : envoi d'une vérif avec `live`, appels à `hub.verif_team`, `hub.step`, `hub.finish` ; `verif_lots`, `key_holders`, `require_label`. |
 | `database/inventory/idendity.py` | `anonymized()`, `identity_name()` : noms courts affichés aux téléphones. |
 | `database/inventory/web/app/live.js` (et `actions.js`) | Client : module `live` (page de scan), `watch*` (page de suivi), `validate`, `teamStep`, `teamReport`, `liveSnapshot`, `allScanned`. |
 | `database/inventory/tests.py` | `LiveHubTests` avec un `FakeSocket`. |

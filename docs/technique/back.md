@@ -10,7 +10,7 @@ Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la
 | `qrprotecDB/settings.py` | Réglages Django et dictionnaire `QRPROTEC` (toute la configuration propre au projet, lue depuis l'environnement) | Toute nouvelle option passe par une variable `QRPROTEC_*` ici, documentée dans le README racine et dans `packaging/files/qrprotec.conf`. |
 | `qrprotecDB/urls.py`, `urls_local.py` | Jeux d'URLs de l'API publique et de l'API locale | Ne contiennent que des `include` des listes de `inventory/urls.py`. |
 | `inventory/urls.py` | `public_patterns`, `local_patterns`, `web_patterns` | Voir « Routes ». |
-| `inventory/views.py` | Vues DRF (`@api_view`) | Fines : parser, contrôler l'accès, appeler `services`, sérialiser. |
+| `inventory/views/` | Vues DRF (`@api_view`) | Fines : parser, contrôler l'accès, appeler `services`, sérialiser. `common.py` (erreurs, droits, identité), `public.py` (vues des deux API), `local.py` (gestion), `notif_settings.py`, `douchette.py`, `lists.py`, `prints.py` ; `__init__.py` réexporte tout (`views.<nom>`). Une nouvelle vue s'ajoute au fichier de sa famille. |
 | `inventory/services.py` | Logique métier | Tout ce qui modifie plusieurs objets, dans une transaction. |
 | `inventory/serializers.py` | Modèles → `dict` JSON, états des lots | Fonctions simples, pas de `Serializer` DRF (plus lisible, et les sorties ne sont pas symétriques des entrées). |
 | `inventory/middleware.py` | `ApiRoleMiddleware`, `RoleWSGIHandler` | Sépare les trois API (publique, locale, distante). |
@@ -192,7 +192,7 @@ bloqué ou oublié : une fois par blocage (`notify_pin_blocked`). Les expiration
 
 **SMS Free Mobile : plus maintenus.** L'API (`smsapi.free-mobile.fr/sendmsg`) n'était pas utilisée ;
 son code est en commentaire en tête de `notifications.py`, ses routes (`notifications/recipients/`,
-`notifications/test/`) dans `urls.py` et `views.py`. `NotificationSettings` (hors
+`notifications/test/`) dans `urls.py` et `views/notif_settings.py`. `NotificationSettings` (hors
 `key_expiry_warning_days`) et `SmsRecipient` restent en base, inutilisés. `GET/PATCH /api/notifications/`
 ne porte plus que `key_expiry_warning_days`. Les évènements qui n'existaient qu'en SMS sont devenus des types
 web : `expired_daily` (résumé des lots contenant des périmés, `check_alerts`, actif par défaut) et

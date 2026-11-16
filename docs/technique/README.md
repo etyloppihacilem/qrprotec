@@ -36,7 +36,7 @@ qrprotec/
 │   └── inventory/            l'application unique
 │       ├── models.py         tables
 │       ├── services.py       logique métier (vérifs, mouvements, stock)
-│       ├── views.py          routes de l'API (fines : valident puis appellent services)
+│       ├── views/            routes de l'API (fines : valident puis appellent services)
 │       ├── serializers.py    modèles -> JSON, état des lots et des lots globaux
 │       ├── middleware.py     choix API publique / locale selon le port
 │       ├── idendity.py       format des identités (« M:matricule » / « D:nom »)
