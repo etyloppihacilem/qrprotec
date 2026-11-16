@@ -1589,6 +1589,11 @@ class Checklist(models.Model):
     validated_by = models.CharField(max_length=64, blank=True, default='')
     returned = models.DateTimeField(blank=True, null=True)
     returned_by = models.CharField(max_length=64, blank=True, default='')
+    # date du depart ou de l'evenement (aujourd'hui par defaut) : les listes sont rangees la date la plus proche en haut
+    date = models.DateField(default=timezone.localdate)
+    # lots de la liste (ou leurs sous-lots) vus en vérif recommandee pendant la preparation : une case « Vérif <lot> »
+    # chacun, en haut de la liste, cochee quand le lot redevient vert (checklists.verif_rows), meme apres sa vérif
+    verif_lots = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ['-updated']

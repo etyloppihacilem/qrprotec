@@ -25,6 +25,8 @@ ouvre son lien ou son QR code (il peut toujours participer a une liste dont il a
 pas les modeles. Un modele (is_template) ne se verifie pas : on le duplique, et il n'a pas de secouristes attribues.
 """
 
+import datetime
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -200,14 +202,33 @@ def set_lines(checklist, lines):
     ChecklistLine.objects.bulk_create(rows)
 
 
-def create(user, name, note='', template=False, lines=None):
+def parse_date(value):
+    """Date d'une liste (« 2026-11-16 ») ; vide : aujourd'hui."""
+    if value in (None, ''):
+        return timezone.localdate()
+    try:
+        return datetime.date.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise ValueError(f'Date invalide : {value}') from None
+
+
+def date_distance(value):
+    """Cle de tri des listes : ecart en jours a aujourd'hui, puis la date a venir avant la date passee."""
+    try:
+        days = (datetime.date.fromisoformat(value) - timezone.localdate()).days
+    except (TypeError, ValueError):
+        return (10 ** 6, 1)
+    return (abs(days), 0 if days >= 0 else 1)
+
+
+def create(user, name, note='', template=False, lines=None, date=None):
     _require_make(user)
     name = _clean_text(name, 80)
     if not name:
         raise ValueError('Nom de la liste obligatoire')
     with transaction.atomic():
         checklist = Checklist.objects.create(name=name, note=str(note or '').strip()[:500], owner=user,
-                                             is_template=bool(template))
+                                             is_template=bool(template), date=parse_date(date))
         set_lines(checklist, lines or [])
     return checklist
 
@@ -255,6 +276,8 @@ def update(checklist, user, data):
             checklist.name = name
         if 'note' in data:
             checklist.note = str(data['note'] or '').strip()[:500]
+        if 'date' in data:
+            checklist.date = parse_date(data['date'])
         if 'template' in data:
             template = bool(data['template'])
             if template and checklist.scans.exists():
@@ -962,6 +985,100 @@ def needs_verif(lot):
     return bool(lot.verif_recommended and not lot.is_sealed)
 
 
+# etats d'un lot qu'une vérif remet au vert : vérif recommandee (reassort, ouvert, rentre d'un poste, marque utilise),
+# scelle ouvert (vérif complete avant le nouveau scelle) ; jamais verifie ou incomplet seulement pour un lot sans
+# sous-lot (un sac) : un VPS jamais verifie a son niveau ne cache pas les sacs a verifier
+VERIF_STATES = {'recommended', 'opened', 'list_back', 'used', 'seal_opened'}
+LEAF_VERIF_STATES = {'never', 'incomplete'}
+
+
+def _verif_skipped(lot):
+    """Lot qu'on ne verifie pas a part : lot de referentiel sans etiquette (B+) ou cache dans la cascade, valide par
+    ses sacs ; on regarde ses sous-lots."""
+    return services.virtual_lot(lot) or services.hidden_in_verif(lot)
+
+
+def _verif_targets(lot, states):
+    """Lots a verifier avant de partir avec `lot` : lui-meme s'il a besoin d'une vérif (une seule vérif complete,
+    sous-lots compris), sinon ceux de ses sous-lots qui en ont besoin (sac de soin et sac O2 marques utilises d'un VPS).
+    Jamais un lot scelle ni ce qu'il contient : son scelle intact suffit."""
+    if not lot.active or lot.is_sealed or lot.lot_type.storage:
+        return []
+    code = states[lot.id]['code']
+    if not _verif_skipped(lot) and (code in VERIF_STATES or (code in LEAF_VERIF_STATES and not lot.children_in_order)):
+        return [lot]
+    targets = []
+    for child in lot.children_in_order:
+        targets += _verif_targets(child, states)
+    return targets
+
+
+def _list_roots(checklist, lines, scans):
+    """Lots qu'on prend avec la liste, dans son ordre : les lots fixes (pris ou non) et les lots au choix deja pris,
+    avec `taken` (etiquette scannee, ou tous ses sacs pour un B+)."""
+    scanned = {scan.lot_id for scan in scans if scan.lot_id}
+    units = lot_type_units(lines, scans)
+    roots = []
+    for line in lines:
+        if line.lot_id and line.lot.active:
+            parts = lot_parts(line.lot)
+            roots.append((line.lot, line.lot_id in scanned or all(part.id in scanned for part in parts)))
+        for unit, unit_scans in units.get(line.id, []):
+            roots.append((unit, unit_complete(unit, unit_scans)))
+    return roots
+
+
+def verif_rows(checklist, save=True):
+    """Cases « Vérif <lot> » d'une liste a preparer, en haut, avant « Prendre <lot> » : pour chaque lot de la liste,
+    lui-meme s'il a besoin d'une vérif complete, sinon chacun de ses sous-lots qui en a besoin (Hippolyte,
+    2026-11-16). Une case se coche quand son lot redevient vert apres sa vérif : les lots vus sont retenus
+    (Checklist.verif_lots) pour que la case reste, cochee, une fois la vérif faite. Rien pour un modele ou une liste
+    sortie."""
+    if checklist.is_template or checklist.status != ChecklistStatus.DRAFT:
+        return []
+    lines = list(checklist.lines.select_related('lot__lot_type', 'lot__parent__lot_type', 'item_type').order_by('position'))
+    roots = _list_roots(checklist, lines, _out_scans(checklist))
+    if not roots:
+        return []
+    today = timezone.localdate()
+    seen = set(checklist.verif_lots or [])
+    rows, added, listed = [], [], set()
+    for root, taken in roots:
+        tree = root.descendants()
+        by_parent = {}
+        for lot in tree:
+            by_parent.setdefault(lot.parent_id, []).append(lot)
+        for lot in tree:
+            lot.children_in_order = by_parent.get(lot.id, [])
+        states = {lot.id: _lot_core(lot, today)['state'] for lot in tree}
+        needed = {lot.id for lot in _verif_targets(root, states)}
+        chosen, checked = [], []
+        for lot in tree:
+            if lot.id in listed or not (lot.id in needed or lot.id in seen):
+                continue
+            # un lot au-dessus a sa case (vérif complete du VPS) : pas de case pour ses sacs, sauf un sac a verifier
+            # de nouveau sous un VPS deja verifie
+            above = {parent.id for parent in lot.ancestors()}
+            if above & set(chosen):
+                continue
+            state = states[lot.id]
+            # deja vu : sa case reste, cochee, une fois le lot vert (verifie, ou a sceller apres sa vérif) ; ni a
+            # verifier ni vert (signale inutilisable...), elle s'en va
+            done = lot.id not in needed and (state['kind'] == 'ok' or state['code'] == 'must_seal')
+            if lot.id not in needed and (not done or _verif_skipped(lot) or above & set(checked)):
+                continue
+            (checked if done else chosen).append(lot.id)
+            listed.add(lot.id)
+            if lot.id not in seen:
+                added.append(lot.id)
+            rows.append({'lot': lot.id, 'lot_name': lot.name, 'lot_type_name': lot.lot_type.name,
+                         'root': root.id, 'root_name': root.name, 'taken': taken, 'done': done, 'state': state})
+    if added and save:
+        Checklist.objects.filter(id=checklist.id).update(verif_lots=[*(checklist.verif_lots or []), *added])
+        checklist.verif_lots = [*(checklist.verif_lots or []), *added]
+    return rows
+
+
 def available_lots(codes, checklist=None, limit=8):
     """Lots qu'on peut prendre pour une ligne « n'importe quel lot de ce type » : ni fixes ailleurs, ni pris par une
     autre liste, les valides en premier (nom, etat)."""
@@ -1158,6 +1275,7 @@ def checklist_dict(checklist, user=None, full=True):
             checklist.status == ChecklistStatus.RETURNED
             and not any(scan.phase == ChecklistScan.BACK for scan in checklist.scans.all())) else checklist.get_status_display(),
         'went_out': bool(_out_scans(checklist)),
+        'date': checklist.date.isoformat() if checklist.date else '',
         'created': _date(checklist.created),
         'updated': _date(checklist.updated),
         'validated': _date(checklist.validated),
@@ -1219,6 +1337,7 @@ def checklist_dict(checklist, user=None, full=True):
                     for sub in line.item_type.subtypes.filter(archived=False).order_by('-fills', 'name')]})
         lines.append(row)
     data['lines'] = lines
+    data['verifs'] = verif_rows(checklist)
     data['members'] = sorted(({'matricule': member.matricule,
                                'name': identity_name(format_identity_verified(member.matricule))}
                               for member in checklist.members.all()), key=lambda row: _fold(row['name']))

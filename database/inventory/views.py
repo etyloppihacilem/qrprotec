@@ -3929,9 +3929,10 @@ def checklists_list(request):
     user = connected_user(request)
     show = str(request.data.get('show') or 'mine')
     rows = [checklists.checklist_dict(row, user, full=False) for row in checklists.visible(user, show)[:300]]
-    # a traiter en haut : listes sorties (retour a faire), puis a preparer, et les listes rentrees
+    # a traiter en haut : listes sorties (retour a faire), puis a preparer, et les listes rentrees ; dans chaque groupe,
+    # la date la plus proche d'aujourd'hui en haut (a egalite, la date a venir avant la date passee)
     rank = {'validated': 0, 'draft': 1}
-    rows.sort(key=lambda row: rank.get(row['status'], 2))
+    rows.sort(key=lambda row: (rank.get(row['status'], 2), *checklists.date_distance(row['date'])))
     can_make = checklists.can_make_lists(user)
     return Response({'lists': rows, 'can_see_all': can_make, 'can_create': can_make})
 
@@ -4022,19 +4023,21 @@ def checklists_departure(request):
 @api_view(['POST'])
 @handle_errors
 def checklists_create(request):
-    """Nouvelle liste : {"user", "name", "note", "template", "lines": [{"lot"} | {"type", "quantity"} | {"task"}]}."""
+    """Nouvelle liste : {"user", "name", "note", "template", "date" (AAAA-MM-JJ, aujourd'hui par defaut),
+    "lines": [{"lot"} | {"type", "quantity"} | {"task"}]}."""
     from . import checklists
     user = connected_user(request)
     data = request.data
     checklist = _checklist_call(lambda: checklists.create(user, data.get('name'), data.get('note', ''),
-                                                          data.get('template', False), data.get('lines') or []))
+                                                          data.get('template', False), data.get('lines') or [],
+                                                          data.get('date')))
     return Response(checklists.checklist_dict(_checklist(checklist.id), user), status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
 @handle_errors
 def checklist_action(request, checklist_id, action=''):
-    """Une liste : {"user"} lit ; update {name, note, template, lines} ; duplicate {name, template} ; delete ;
+    """Une liste : {"user"} lit ; update {name, note, date, template, lines} ; duplicate {name, template} ; delete ;
     scan / unscan {item | lot} ; check {line, done} (tache libre) ; validate {partial} ; reopen (depart valide par
     erreur, 30 min) ; return-scan {item | lot} ; close-return ; add-lot {lot} (lot hors liste ajoute, ou a la place
     d'un lot du meme type pas encore coche : reponse a ask_add d'un scan) ; members {add: [matricules], remove: [matricules]}. A la lecture, {"open": true} (liste ouverte par

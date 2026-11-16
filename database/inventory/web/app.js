@@ -253,6 +253,22 @@
     return (on ? 'le ' : '') + date + time;
   }
 
+  // Date d'une liste de materiel (jour du poste) : « 📅 aujourd'hui », « demain », « hier », sinon « lun. 23/11/2026 »
+  function fmtListDate(value) {
+    const d = parseDate(value);
+    if (!d) return '';
+    const diff = Math.round((d - today()) / 86400000);
+    const day = diff === 0 ? "aujourd'hui" : diff === 1 ? 'demain' : diff === -1 ? 'hier'
+      : d.toLocaleDateString('fr-FR', { weekday: 'short' }) + ' ' + d.toLocaleDateString('fr-FR');
+    return '📅 ' + day;
+  }
+
+  // Valeur d'un champ date (AAAA-MM-JJ) pour aujourd'hui, dans le fuseau du navigateur
+  function isoToday() {
+    const d = today();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   // Meme chose apres un verbe : « scellé le 12/10/2026 à 9:00 », « scellé aujourd'hui à 9:00 »
   const fmtOn = (value, opts = {}) => fmtDateTime(value, { ...opts, on: true });
 
@@ -7802,6 +7818,7 @@
       id: list ? list.id : '',
       name: list ? list.name : '',
       note: list ? list.note : '',
+      date: list && list.date ? list.date : isoToday(), // jour du poste, aujourd'hui par defaut
       template: list ? list.template : lists.show === 'templates',
       started: !!(list && list.lines.some((line) => line.scanned)),
       // sacs d'un B+ de referentiel (sans etiquette) : coches a part dans la liste, mais choisis d'un bloc (le B+)
@@ -7828,7 +7845,7 @@
   async function saveList() {
     const edit = lists.edit;
     if (!edit.name.trim()) { toast('Donnez un nom à la liste.', true); return; }
-    const body = { user: badge(), name: edit.name, note: edit.note, template: edit.template,
+    const body = { user: badge(), name: edit.name, note: edit.note, date: edit.date || isoToday(), template: edit.template,
       lines: edit.lines.map((line) => line.task ? { task: line.task } : line.lot ? { lot: line.lot }
         : line.lot_types ? { lot_types: line.lot_types, quantity: line.quantity }
         : { type: line.type, quantity: line.quantity }) };
@@ -8034,8 +8051,8 @@
       el('ul', { class: 'list' }, ...depart.lists.map((row) => el('li', { onclick: () => openList(row.id) },
         el('div', { class: 'main' },
           el('div', { class: 'name' }, row.name),
-          el('div', { class: 'sub' }, [row.owner_name, `${row.done_count}/${nb(row.line_count, 'ligne prête', 'lignes prêtes')}`,
-            'modifiée ' + fmtDateTime(row.updated)].join(' · '))),
+          el('div', { class: 'sub' }, [fmtListDate(row.date), row.owner_name, `${row.done_count}/${nb(row.line_count, 'ligne prête', 'lignes prêtes')}`,
+            'modifiée ' + fmtDateTime(row.updated)].filter(Boolean).join(' · '))),
         el('span', { class: 'tag ' + (LIST_TAGS[row.status] || 'blue') }, row.status_label)))),
     ];
   }
@@ -8153,8 +8170,8 @@
     const listRow = (row) => el('li', { onclick: () => openList(row.id) },
       el('div', { class: 'main' },
         el('div', { class: 'name' }, row.name),
-        el('div', { class: 'sub' }, [row.owner_name, row.template ? nb(row.line_count, 'ligne')
-          : `${row.done_count}/${nb(row.line_count, 'ligne prête', 'lignes prêtes')}`, 'modifiée ' + fmtDateTime(row.updated)].join(' · '))),
+        el('div', { class: 'sub' }, [row.template ? '' : fmtListDate(row.date), row.owner_name, row.template ? nb(row.line_count, 'ligne')
+          : `${row.done_count}/${nb(row.line_count, 'ligne prête', 'lignes prêtes')}`, 'modifiée ' + fmtDateTime(row.updated)].filter(Boolean).join(' · '))),
       el('span', { class: 'tag ' + (row.template ? 'gray' : LIST_TAGS[row.status] || 'blue') }, row.status_label));
     // listes rentrees (Rentrée, Validée, Terminée : la liste ne sert plus) repliees derriere un bouton [+] en bas,
     // fermees par defaut, comme les types a 0 attendu du stock : ce qui reste a faire d'abord
@@ -8213,23 +8230,37 @@
   // preparer, un bouton « Lancer la vérif » incite a la faire avant de partir, dans la liste et dans « Prêt au départ ? »
   const listWantsVerif = (list) => list.status === 'draft' && !list.template;
 
-  // lots de la liste en vérif recommandee : lots fixes (pris ou non) et lots au choix deja pris
+  // vérifs pas encore faites (cases « Vérif <lot> » du serveur : le lot pris, ou ses sous-lots qui en ont besoin) ;
+  // takenOnly : seulement pour les lots deja pris (« Prêt au départ ? » : ce qui n'est pas pris ne part pas)
   function listVerifLots(list, takenOnly = false) {
-    const rows = [];
-    for (const line of list.lines) {
-      if (line.kind === 'lot' && line.verif_recommended && (!takenOnly || line.scanned)) rows.push({ id: line.lot, name: line.lot_name });
-      if (line.kind === 'lot_type') {
-        for (const scan of line.scans) if (scan.verif_recommended) rows.push({ id: scan.lot, name: scan.lot_name });
-      }
-    }
-    return rows;
+    return (list.verifs || []).filter((row) => !row.done && (!takenOnly || row.taken))
+      .map((row) => ({ id: row.lot, name: row.lot_name }));
   }
 
-  function listVerifButton(lot, name) {
-    return el('button', { type: 'button', class: 'primary list-verif', onclick: (event) => {
-      event.stopPropagation();
-      verifFromList(lot, name);
-    } }, icon('verif'), 'Lancer la vérif');
+  // Case « Vérif <lot> » en haut de la liste, avant « Prendre <lot> » : cochee d'office quand le lot redevient vert
+  // apres sa vérif ; la toucher propose de lancer la vérif (Hippolyte, 2026-11-16)
+  function listVerifRow(list, row) {
+    const done = !!row.done;
+    const ask = async () => {
+      if (done || !listWantsVerif(list)) return;
+      const ok = await askDialog({
+        title: `Vérif de ${row.lot_name}`,
+        text: `La case se coche toute seule quand ${row.lot_name} redevient vert après sa vérif. `
+          + 'Vous revenez à la liste une fois la vérif enregistrée.',
+        choices: [{ label: 'Lancer la vérif', value: true, cls: 'primary' }],
+      });
+      if (ok) verifFromList(row.lot);
+    };
+    const box = el('button', { type: 'button', class: 'list-box' + (done ? ' done' : listWantsVerif(list) ? ' by-hand' : ''),
+      'aria-label': done ? `Vérif de ${row.lot_name} faite` : `Lancer la vérif de ${row.lot_name}`,
+      onclick: (event) => { event.stopPropagation(); ask(); } }, done ? '✓' : '');
+    const state = (row.state && row.state.label || '').replace(/^[✔✘⚠] */, '');
+    const sub = done ? `Vérifiée : ${row.lot_name} est vert`
+      : (state ? state + ' · ' : '') + (row.root !== row.lot ? `dans ${row.root_name} · ` : '') + 'à faire avant de partir';
+    return el('li', { class: 'static list-verif-line ' + (done ? 'ok' : 'warn') },
+      el('span', { class: 'list-box-wrap' }, box),
+      el('div', { class: 'main', onclick: ask }, el('div', { class: 'name' }, `Vérif ${row.lot_name}`), el('div', { class: 'sub' }, sub)),
+      done ? el('b', { class: 'list-count done' }, '') : '');
   }
 
   // Quitte la liste pour la vérif du lot ; le compte rendu de la vérif propose de revenir a la liste
@@ -8249,10 +8280,9 @@
   // Lignes a traiter en haut (ordre de la liste a egalite) : a preparer, ce qui n'est pas encore pris ou coche ;
   // sortie, ce qui est pris et pas encore rentre. Un modele ou une liste rentree garde son ordre.
   function listLinesByAttention(list) {
-    // vérif recommandee sur un lot de la ligne : a faire avant de partir, en haut aussi
-    const verif = (line) => !!line.verif_recommended || (line.scans || []).some((scan) => scan.verif_recommended);
+    // (les vérifs a faire ont leurs propres cases, au-dessus de toutes les lignes : listVerifRow)
     const todo = (line) => (list.template ? false
-      : list.status === 'draft' ? (line.kind === 'task' ? !line.scanned : line.scanned < line.quantity || verif(line))
+      : list.status === 'draft' ? (line.kind === 'task' ? !line.scanned : line.scanned < line.quantity)
         : list.status === 'validated' ? line.kind !== 'task' && !!line.scanned
           && (line.kind === 'lot' ? !line.back : line.back < line.scanned) : false);
     return [...list.lines].sort((a, b) => todo(b) - todo(a));
@@ -8270,7 +8300,10 @@
             el('div', { class: 'sub' }, line.scanned ? `Fait ${fmtDateTime(line.done)}${line.done_by ? ' par ' + line.done_by : ''}` : 'Tâche à faire'))))];
     }
     const done = line.scanned >= line.quantity;
-    const title = line.kind === 'lot' ? line.lot_name : line.type_name;
+    // cases « Vérif <lot> » en haut : les lots deviennent « Prendre <lot> »
+    const take = list.status === 'draft' && (list.verifs || []).length && line.kind !== 'type' ? 'Prendre ' : '';
+    const name = line.kind === 'lot' ? line.lot_name : line.type_name;
+    const title = take + name;
     // sac d'un B+ de referentiel (sans etiquette) : chaque sac se coche par son etiquette
     const sub = line.kind === 'lot' ? (line.part_of ? `${line.lot_type_name} · dans ${line.part_of_name}` : `Lot · ${line.lot_type_name}`)
       : line.kind === 'lot_type' ? `${nb(line.quantity, 'lot')} au choix : scannez son étiquette`
@@ -8285,13 +8318,10 @@
     const count = line.kind === 'lot' ? '' : `${line.scanned}/${line.quantity}` + (line.unit ? ' ' + line.unit : '');
     const back = out && line.scanned ? (line.kind === 'lot' ? (line.back ? 'rentré' : 'pas rentré')
       : line.unit ? `${line.back}/${line.scanned} ${line.unit} rentrés` : `${line.back}/${nb(line.scanned, 'rentré')}`) : '';
-    const verifRow = (lot, name) => el('li', { class: 'static list-verif-row' },
-      el('div', { class: 'main' }, el('div', { class: 'sub' }, `⚠ ${name} : vérif recommandée avant de partir`)),
-      listVerifButton(lot, name));
     const rows = [el('li', { class: 'static ' + (out ? (line.kind === 'lot' ? line.back : line.back >= line.scanned) && line.scanned ? 'ok' : ''
       : done ? 'ok' : '') },
       // case visuelle comme pour les taches : cochee quand la ligne est prise, mais on coche en scannant
-      listBox(list, line, done, title),
+      listBox(list, line, done, name),
       el('div', { class: 'main' }, el('div', { class: 'name' }, title), el('div', { class: 'sub' }, sub + (back ? ' · ' + back : ''))),
       el('b', { class: 'list-count' + (done ? ' done' : '') }, count))];
     if (line.kind === 'type') {
@@ -8314,7 +8344,6 @@
             + (out ? ((scan.returned !== undefined ? scan.returned : backLots.has(scan.lot)) ? ' · ✓ rentré' : ' · pas rentré') : ''))),
           list.status === 'draft' ? el('button', { type: 'button', class: 'list-remove', 'aria-label': 'Retirer', title: 'Retirer de la liste',
             onclick: () => listAction('unscan', { lot: scan.lot }) }, '✕') : ''));
-        if (listWantsVerif(list) && scan.verif_recommended) rows.push(verifRow(scan.lot, scan.lot_name));
       }
       if (!done && line.available) {
         rows.push(el('li', { class: 'static list-scan-row' }, el('div', { class: 'main' }, el('div', { class: 'sub' },
@@ -8322,11 +8351,8 @@
             + (lot.state.kind === 'ok' ? '' : ` (${lot.state.label.replace(/^[✔✘⚠] */, '').toLowerCase()})`)).join(', ')
             : 'Aucun lot disponible : tous sont pris ou rangés pour de bon dans un autre lot.'))));
       }
-    } else if (line.kind === 'lot') {
-      // pas de croix ici : on retire un lot (ou un sac d'un B+) dans « Modifier la liste » ; on decoche en touchant
-      // la case cochee
-      if (listWantsVerif(list) && line.verif_recommended) rows.push(verifRow(line.lot, line.lot_name));
     }
+    // lot (ou sac d'un B+) : pas de croix ici, on le retire dans « Modifier la liste » ; on decoche en touchant la case
     return rows;
   }
 
@@ -8441,7 +8467,7 @@
     const parts = [...back,
       el('div', { class: 'row-head' }, el('h3', {}, list.name),
         el('span', { class: 'tag ' + (list.template ? 'gray' : LIST_TAGS[list.status] || 'blue') }, list.status_label)),
-      el('p', { class: 'hint' }, `Par ${list.owner_name} · modifiée ${fmtDateTime(list.updated)}`),
+      el('p', { class: 'hint' }, [list.template ? '' : fmtListDate(list.date), `Par ${list.owner_name}`, `modifiée ${fmtDateTime(list.updated)}`].filter(Boolean).join(' · ')),
       list.note ? el('p', { class: 'list-note' }, list.note) : ''];
     const buttons = [];
     const busy = lists.busy;
@@ -8486,7 +8512,9 @@
           icon('pencil'), 'Modifier la liste') : ''));
     }
     if (returnSplit) { /* liste sortie : ce qui rentre, plus les cases du depart */ } else if (!list.lines.length) parts.push(el('p', { class: 'hint' }, 'Liste vide.' + (list.can_edit ? ' Modifiez-la pour ajouter des lots et du matériel.' : '')));
-    if (!returnSplit) parts.push(el('ul', { class: 'list' }, ...listLinesByAttention(list).flatMap((line) => listLineRows(list, line, backIids))));
+    // a preparer : les vérifs a faire d'abord (une case par lot ou sous-lot qui en a besoin), puis ce qu'il y a a prendre
+    if (!returnSplit) parts.push(el('ul', { class: 'list' }, ...(listWantsVerif(list) ? list.verifs || [] : []).map((row) => listVerifRow(list, row)),
+      ...listLinesByAttention(list).flatMap((line) => listLineRows(list, line, backIids))));
     if (list.status === 'draft' || list.template) {
       const src = listQr(list.url);
       // Partage replie : le bouton de partage, et le QR code qui deplie le reste (QR, explication, lien cliquable)
@@ -8782,6 +8810,9 @@
       el('label', { class: 'field' }, 'Nom',
         el('input', { type: 'text', maxlength: '80', value: edit.name, placeholder: 'Ex : poste de secours du stade',
           oninput: (event) => { edit.name = event.target.value; } })),
+      el('label', { class: 'field' }, 'Date',
+        el('input', { type: 'date', value: edit.date, required: '',
+          oninput: (event) => { edit.date = event.target.value; } })),
       el('label', { class: 'field' }, 'Remarque',
         el('textarea', { rows: '2', maxlength: '500', placeholder: 'Facultatif : rendez-vous, consignes…',
           oninput: (event) => { edit.note = event.target.value; } }, edit.note)),
