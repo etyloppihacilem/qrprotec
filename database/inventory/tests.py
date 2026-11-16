@@ -6030,6 +6030,63 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.chief, f"/api/checklists/{created['id']}/")
         self.assertFalse({line['kind']: line for line in body['lines']}['lot_type']['scans'][0]['verif_recommended'])
 
+    def test_sub_lot_verifs_on_top(self):
+        """Départ avec un VPS dont le sac de soin et le sac O2 sont marqués utilisés : une case « Vérif » par sac en
+        haut (avant de prendre le VPS), cochée quand le sac redevient vert ; VPS lui-même à vérifier : une seule case
+        « Vérif VPS » (Hippolyte, 2026-11-16)."""
+        now = timezone.now()
+        vps_type = LotType.objects.create(type='vpsxxx', name='VPS')
+        soin_type = LotType.objects.create(type='sacsoi', name='Sac de soin')
+        o2_type = LotType.objects.create(type='saco2x', name='Sac O2')
+        made = dict(created_by='M001', last_verif=now, last_verif_by='M001')
+        vps = Lots.objects.create(lot_type=vps_type, name='VPS', name_short='VPS', **made)
+        soin = Lots.objects.create(lot_type=soin_type, name='Sac de soin VPS', name_short='SS', parent=vps, **made)
+        o2 = Lots.objects.create(lot_type=o2_type, name='Sac O2 VPS', name_short='O2', parent=vps, **made)
+        Lots.objects.filter(id__in=[soin.id, o2.id]).update(verif_recommended=True, marked_used=now)
+        code, created = self.as_(self.other, '/api/checklists/departure/', {'lots': [vps.id]})
+        self.assertEqual(code, 201, created)
+        rows = lambda body: [(row['lot'], row['done']) for row in body['verifs']]
+        self.assertEqual(rows(created), [(soin.id, False), (o2.id, False)])
+        self.assertEqual({(row['root'], row['taken']) for row in created['verifs']}, {(vps.id, False)})
+        # vérif du sac de soin faite : sa case se coche, et reste là
+        Lots.objects.filter(id=soin.id).update(verif_recommended=False, marked_used=None)
+        code, body = self.as_(self.other, f"/api/checklists/{created['id']}/")
+        self.assertEqual(rows(body), [(soin.id, True), (o2.id, False)])
+        # le VPS entier marqué utilisé : une seule vérif complète, celle du VPS
+        Lots.objects.filter(id__in=[vps.id, soin.id, o2.id]).update(verif_recommended=True, marked_used=now)
+        code, body = self.as_(self.other, f"/api/checklists/{created['id']}/")
+        self.assertEqual(rows(body), [(vps.id, False)])
+        Lots.objects.filter(id__in=[vps.id, soin.id, o2.id]).update(verif_recommended=False, marked_used=None)
+        code, body = self.as_(self.other, f"/api/checklists/{created['id']}/scan/", {'lot': vps.id})
+        self.assertEqual(code, 200, body)
+        self.assertEqual([(row['lot'], row['done'], row['taken']) for row in body['verifs']],
+                         [(vps.id, True, True)])  # la vérif du VPS couvre ses sacs
+        # un sac de nouveau à vérifier sous le VPS vérifié : sa case revient
+        Lots.objects.filter(id=soin.id).update(verif_recommended=True, marked_used=now)
+        code, body = self.as_(self.other, f"/api/checklists/{created['id']}/")
+        self.assertEqual(rows(body), [(vps.id, True), (soin.id, False)])
+        Lots.objects.filter(id=soin.id).update(verif_recommended=False, marked_used=None)
+        # sortie : plus de cases de vérif
+        code, body = self.as_(self.other, f"/api/checklists/{created['id']}/validate/", {'partial': False})
+        self.assertEqual((code, body['verifs']), (200, []), body)
+
+    def test_list_date_and_order(self):
+        """Date d'une liste (aujourd'hui par défaut, modifiable) ; les listes rangées la date la plus proche en haut."""
+        today = timezone.localdate()
+        first = self.new_list()
+        self.assertEqual(first['date'], today.isoformat())
+        far = self.new_list(name='Loin', date=(today + timedelta(days=10)).isoformat())
+        near = self.new_list(name='Demain', date=(today + timedelta(days=1)).isoformat())
+        past = self.new_list(name='Avant-hier', date=(today - timedelta(days=2)).isoformat())
+        code, body = self.as_(self.chief, f"/api/checklists/{first['id']}/update/",
+                              {'date': (today - timedelta(days=1)).isoformat()})
+        self.assertEqual((code, body['date']), (200, (today - timedelta(days=1)).isoformat()), body)
+        code, body = self.as_(self.chief, '/api/checklists/list/', {'show': 'mine'})
+        self.assertEqual(code, 200, body)
+        self.assertEqual([row['id'] for row in body['lists']], [near['id'], first['id'], past['id'], far['id']])
+        code, body = self.as_(self.chief, '/api/checklists/', {'name': 'X', 'date': 'demain'})
+        self.assertEqual(code, 400, body)
+
     def test_assigned_for_departure(self):
         """Page « Départ » : listes attribuees (members) et pas encore rentrees, pas celles de l'auteur seul."""
         mine = self.new_list()

@@ -242,9 +242,17 @@ la liste, ses équipiers la vérifient en sortant le matériel.
   ouvre le lien ou scanne le QR code de la liste se l'ajoute aussi.
 
 - **Préparer** : téléphone, accueil > **Listes de matériel** > **Nouvelle liste** ; poste, menu
-  Fenêtres > **Listes de matériel** > **Nouvelle liste**. Donnez un nom, une remarque si besoin
-  (rendez-vous, consignes), ajoutez les lots et le matériel : tapez quelques lettres de son nom
-  (« armo 2 », « compr ») ou son code, puis choisissez dans les résultats.
+  Fenêtres > **Listes de matériel** > **Nouvelle liste**. Donnez un nom, la **date** du poste
+  (aujourd'hui par défaut), une remarque si besoin (rendez-vous, consignes), ajoutez les lots et le
+  matériel : tapez quelques lettres de son nom (« armo 2 », « compr ») ou son code, puis choisissez
+  dans les résultats. Les listes sont rangées la date la plus proche d'aujourd'hui en haut.
+- **Vérifs avant de partir** : un lot de la liste qui a besoin d'une vérif (orange : marqué utilisé,
+  rentré d'un poste, réassorti…) ajoute en haut de la liste une case **Vérif …**, avant la ligne
+  **Prendre …** du lot. Si seuls des sous-lots en ont besoin (le sac de soin et le sac O2 du VPS
+  marqués utilisés), une case par sous-lot : **Vérif Sac de soin**, **Vérif Sac O2**, puis **Prendre
+  VPS** ; si le lot lui-même a besoin d'une vérif complète, une seule case **Vérif VPS**. Toucher la
+  case propose de lancer la vérif (retour à la liste ensuite) ; elle se coche toute seule quand le lot
+  redevient vert.
 - **Partager** : la liste a un lien et un QR code (bouton **Partager le lien** au téléphone, le
   bouton QR code à côté affiche le QR code et le lien ; **Copier le lien** au poste). Ouvrir le lien ou scanner le QR code ouvre la liste, connecté.
 - **Vérifier en direct, à plusieurs** : **📷 Scanner** au téléphone, **Scanner vers cette liste** au

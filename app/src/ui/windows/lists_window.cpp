@@ -15,6 +15,8 @@
 #include "imgui_stdlib.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <ctime>
 #include <utility>
 #include <vector>
 
@@ -52,6 +54,69 @@ bool confirm_action(const char *label, const std::string &question, const char *
     ImGui::EndPopup();
   }
   return confirmed;
+}
+
+// Date d'une liste (jour du poste, AAAA-MM-JJ cote serveur) : saisie et affichee en JJ/MM/AAAA au poste
+std::tm local_today(int offset_days = 0) {
+  std::time_t now = std::time(nullptr) + static_cast< std::time_t >(offset_days) * 86400;
+  std::tm     day{};
+#ifdef _WIN32
+  localtime_s(&day, &now);
+#else
+  localtime_r(&now, &day);
+#endif
+  return day;
+}
+
+std::string iso_day(const std::tm &day) {
+  char text[16];
+  std::snprintf(text, sizeof text, "%04d-%02d-%02d", day.tm_year + 1900, day.tm_mon + 1, day.tm_mday);
+  return text;
+}
+
+// « 2026-11-16 » -> « 16/11/2026 » ; vide si ce n'est pas une date
+std::string list_date_fr(const std::string &iso) {
+  int year = 0, month = 0, day = 0;
+  if (std::sscanf(iso.c_str(), "%4d-%2d-%2d", &year, &month, &day) != 3)
+    return "";
+  char text[16];
+  std::snprintf(text, sizeof text, "%02d/%02d/%04d", day, month, year);
+  return text;
+}
+
+// « 16/11/2026 » (ou 16/11/26, 16-11-2026) -> « 2026-11-16 » ; vide si la date n'est pas valide
+std::string list_date_iso(const std::string &text) {
+  int day = 0, month = 0, year = 0;
+  char sep1 = 0, sep2 = 0;
+  if (std::sscanf(text.c_str(), " %d%c%d%c%d", &day, &sep1, &month, &sep2, &year) != 5)
+    return "";
+  if (year < 100)
+    year += 2000;
+  std::tm probe{};
+  probe.tm_year  = year - 1900;
+  probe.tm_mon   = month - 1;
+  probe.tm_mday  = day;
+  probe.tm_hour  = 12;
+  probe.tm_isdst = -1;
+  std::tm checked = probe;
+  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2000 || year > 2100 || std::mktime(&checked) == -1
+      || checked.tm_mday != day || checked.tm_mon != month - 1)
+    return "";
+  return iso_day(probe);
+}
+
+// Date d'une liste a l'affichage : « aujourd'hui », « demain », « hier », sinon JJ/MM/AAAA
+std::string list_date_label(const Json &list) {
+  const std::string iso = list["date"].str();
+  if (iso.empty() || list["template"].boolean())
+    return "";
+  if (iso == iso_day(local_today()))
+    return "aujourd'hui";
+  if (iso == iso_day(local_today(1)))
+    return "demain";
+  if (iso == iso_day(local_today(-1)))
+    return "hier";
+  return list_date_fr(iso);
 }
 
 // « Compresses ×2, Garrot » : noms regroupes, dans l'ordre de la liste
@@ -231,10 +296,12 @@ class ListsWindow final : public AppWindow {
 
       const float table_height = list_id_.empty() ? 0.0f : std::max(ImGui::GetFrameHeightWithSpacing() * 5.0f,
                                                                     ImGui::GetContentRegionAvail().y * 0.28f);
-      if (ImGui::BeginTable("lists", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
+      if (ImGui::BeginTable("lists", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
                             ImVec2(0, table_height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Liste", ImGuiTableColumnFlags_WidthStretch);
+        // jour du poste : les listes sont rangees la date la plus proche en haut (par le serveur)
+        ImGui::TableSetupColumn("Date", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("Par", ImGuiTableColumnFlags_WidthFixed, 160.0f);
         ImGui::TableSetupColumn("Lignes", ImGuiTableColumnFlags_WidthFixed, 150.0f);
@@ -247,6 +314,8 @@ class ListsWindow final : public AppWindow {
           if (ImGui::Selectable(row["name"].str().c_str(), id == list_id_, ImGuiSelectableFlags_SpanAllColumns))
             select(app, id);
           ImGui::PopID();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(list_date_label(row).c_str());
           ImGui::TableNextColumn();
           ImGui::TextColored(status_color(row), "%s", row["status_label"].str().c_str());
           ImGui::TableNextColumn();
@@ -277,7 +346,7 @@ class ListsWindow final : public AppWindow {
           if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns))
             done_open_ = !done_open_;
           ImGui::PopStyleColor();
-          for (int column = 1; column < 4; ++column)
+          for (int column = 1; column < 5; ++column)
             ImGui::TableNextColumn();
           if (done_open_)
             for (const Json *row : done)
@@ -301,7 +370,7 @@ class ListsWindow final : public AppWindow {
       list_ = list;
       for (Json &row : lists_.items())
         if (row["id"].str() == list["id"].str())
-          for (const char *key : { "name", "status", "status_label", "template", "done_count", "line_count", "updated" })
+          for (const char *key : { "name", "date", "status", "status_label", "template", "done_count", "line_count", "updated" })
             row[key] = list[key];
     }
 
@@ -414,7 +483,8 @@ class ListsWindow final : public AppWindow {
       ImGui::SeparatorText(list["name"].str().c_str());
       ImGui::TextColored(status_color(list), "%s", list["status_label"].str().c_str());
       ImGui::SameLine();
-      ImGui::TextDisabled("par %s · modifiée %s", list["owner_name"].str().c_str(),
+      const std::string day = list_date_label(list);
+      ImGui::TextDisabled("%s%spar %s · modifiée %s", day.c_str(), day.empty() ? "" : " · ", list["owner_name"].str().c_str(),
                           display_datetime(list["updated"]).c_str());
       if (!list["note"].str().empty())
         ImGui::TextWrapped("%s", list["note"].str().c_str());
@@ -660,20 +730,65 @@ class ListsWindow final : public AppWindow {
       ImGui::EndChild();
     }
 
-    // Lots de la liste en vérif recommandee (rentres d'un poste, marques utilises, reassortis) : lots fixes (pris ou
-    // non, sauf taken_only) et lots au choix deja pris. Tant que la liste est a preparer, « Lancer la vérif » incite a
-    // la faire avant de partir, dans la liste et dans « Prêt au départ ? », comme sur le web.
+    // Vérifs pas encore faites : cases « Vérif <lot> » du serveur (le lot pris s'il a besoin d'une vérif complete,
+    // sinon ses sous-lots qui en ont besoin). taken_only : seulement pour les lots deja pris (« Prêt au départ ? »).
     static std::vector< std::pair< std::string, std::string > > verif_lots(const Json &list, bool taken_only) {
       std::vector< std::pair< std::string, std::string > > lots;
-      for (const Json &line : list["lines"].items()) {
-        if (line["kind"].str() == "lot" && line["verif_recommended"].boolean() && (!taken_only || line["scanned"].integer() > 0))
-          lots.emplace_back(line["lot"].str(), line["lot_name"].str());
-        if (line["kind"].str() == "lot_type")
-          for (const Json &scan : line["scans"].items())
-            if (scan["verif_recommended"].boolean())
-              lots.emplace_back(scan["lot"].str(), scan["lot_name"].str());
-      }
+      for (const Json &row : list["verifs"].items())
+        if (!row["done"].boolean() && (!taken_only || row["taken"].boolean()))
+          lots.emplace_back(row["lot"].str(), row["lot_name"].str());
       return lots;
+    }
+
+    // Cases « Vérif <lot> » en haut de la liste a preparer, avant « Prendre <lot> » (comme sur le web) : cochees
+    // d'office quand le lot redevient vert apres sa vérif ; cocher une case propose de lancer la vérif.
+    void draw_verif_rows(App &app, const Json &list, bool out) {
+      for (const Json &row : list["verifs"].items()) {
+        const std::string lot_id = row["lot"].str();
+        const std::string name   = row["lot_name"].str();
+        bool              done   = row["done"].boolean();
+        ImGui::PushID(("verif:" + lot_id).c_str());
+        ImGui::TableNextRow();
+        row_color(done ? colors::green : colors::orange, 0.20f);
+        ImGui::TableNextColumn();
+        ImGui::BeginDisabled(done || busy_);
+        if (ImGui::Checkbox(("Vérif " + name).c_str(), &done) && done)
+          ImGui::OpenPopup("start_verif");
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        std::string state = row["state"]["label"].str();
+        for (const char *mark : { "✔ ", "✘ ", "⚠ " })
+          if (state.rfind(mark, 0) == 0)
+            state = state.substr(std::string(mark).size());
+        if (row["done"].boolean())
+          ImGui::TextDisabled("vérifiée : %s est vert", name.c_str());
+        else
+          ImGui::TextColored(colors::orange, "%s%s%s", state.empty() ? "" : (state + " · ").c_str(),
+                             row["root"].str() != lot_id ? ("dans " + row["root_name"].str() + " · ").c_str() : "",
+                             "à faire avant de partir");
+        if (ImGui::BeginPopup("start_verif")) {
+          ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 420.0f);
+          ImGui::Text("Vérif de %s : la case se coche toute seule quand %s redevient vert après sa vérif.", name.c_str(),
+                      name.c_str());
+          ImGui::PopTextWrapPos();
+          if (primary_button("Lancer la vérif") || enter_pressed()) {
+            ImGui::CloseCurrentPopup();
+            verif_from_list(app, lot_id);
+          }
+          ImGui::SameLine();
+          if (button("Annuler"))
+            ImGui::CloseCurrentPopup();
+          ImGui::EndPopup();
+        }
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("vérif");
+        ImGui::TableNextColumn();
+        if (row["done"].boolean())
+          ImGui::TextUnformatted("✓ faite");
+        if (out)
+          ImGui::TableNextColumn();
+        ImGui::PopID();
+      }
     }
 
     // la vérif s'ouvre sur le lot ; les scans ne vont plus vers la liste, qui reste ouverte pour la suite du depart
@@ -853,13 +968,8 @@ class ListsWindow final : public AppWindow {
       const bool validated = list["status"].str() == "validated" && !list["template"].boolean();
       const auto todo      = [&](const Json &line) {
         const int took = line["scanned"].integer();
-        if (draft) {
-          // vérif recommandee sur un lot de la ligne : a faire avant de partir, en haut aussi
-          bool verif = line["verif_recommended"].boolean();
-          for (const Json &scan : line["scans"].items())
-            verif = verif || scan["verif_recommended"].boolean();
-          return line["kind"].str() == "task" ? took == 0 : took < line["quantity"].integer() || verif;
-        }
+        if (draft) // les vérifs a faire ont leurs propres cases, au-dessus (draw_verif_rows)
+          return line["kind"].str() == "task" ? took == 0 : took < line["quantity"].integer();
         if (!validated || line["kind"].str() == "task" || took == 0)
           return false;
         return line["kind"].str() == "lot" ? !line["back"].boolean() : line["back"].integer() < took;
@@ -868,6 +978,10 @@ class ListsWindow final : public AppWindow {
       for (const Json &line : list["lines"].items())
         lines.push_back(&line);
       std::stable_sort(lines.begin(), lines.end(), [&](const Json *a, const Json *b) { return todo(*a) && !todo(*b); });
+      // a preparer : les vérifs a faire d'abord, puis ce qu'il y a a prendre (« Prendre <lot> »)
+      if (draft)
+        draw_verif_rows(app, list, out);
+      const std::string take = draft && list["verifs"].size() > 0 ? "Prendre " : "";
       for (const Json *line_row : lines) {
         const Json &line = *line_row;
         ImGui::PushID(line["id"].integer());
@@ -909,8 +1023,8 @@ class ListsWindow final : public AppWindow {
         const bool lot_type = line["kind"].str() == "lot_type"; // n'importe quel lot de ce type
         // type a unites (200 mL de serum phy) : n'importe lequel de ses sous-types, compte en unites
         const std::string unit = line["unit"].str();
-        ImGui::TextUnformatted(lot ? line["lot_name"].str().c_str()
-                                   : (line["type_name"].str() + (unit.empty() ? "" : " (" + unit + ")")).c_str());
+        ImGui::TextUnformatted(lot ? (take + line["lot_name"].str()).c_str()
+                                   : ((lot_type ? take : "") + line["type_name"].str() + (unit.empty() ? "" : " (" + unit + ")")).c_str());
         if (!unit.empty() && line["subtypes"].size() > 0) {
           std::string subtypes;
           for (const Json &sub : line["subtypes"].items())
@@ -924,12 +1038,6 @@ class ListsWindow final : public AppWindow {
         ImGui::TextDisabled("%s", lot ? (part_of.empty() ? "lot · " + line["lot_type_name"].str()
                                                          : line["lot_type_name"].str() + " · dans " + part_of).c_str()
                                       : lot_type ? "lot au choix" : "matériel");
-        if (lot && draft && line["verif_recommended"].boolean()) {
-          ImGui::TextColored(colors::orange, "⚠ Vérif recommandée avant de partir");
-          ImGui::SameLine();
-          if (primary_button("Lancer la vérif"))
-            verif_from_list(app, line["lot"].str());
-        }
         if (lot_type && !done && line["available"].size() > 0) {
           std::string available;
           for (const Json &row : line["available"].items())
@@ -986,15 +1094,6 @@ class ListsWindow final : public AppWindow {
             ImGui::TableNextColumn();
             ImGui::Indent();
             ImGui::TextDisabled("%s · %s%s", scan["lot_name"].str().c_str(), scan["by"].str("?").c_str(), missing.c_str());
-            if (draft && scan["verif_recommended"].boolean()) {
-              ImGui::SameLine();
-              ImGui::TextColored(colors::orange, "⚠ vérif recommandée");
-              ImGui::SameLine();
-              ImGui::PushID(lot_id.c_str());
-              if (primary_button("Lancer la vérif"))
-                verif_from_list(app, lot_id);
-              ImGui::PopID();
-            }
             ImGui::Unindent();
             ImGui::TableNextColumn();
             ImGui::TableNextColumn();
@@ -1050,6 +1149,8 @@ class ListsWindow final : public AppWindow {
       edit_id_       = list ? (*list)["id"].str() : "";
       edit_name_     = list ? (*list)["name"].str() : "";
       edit_note_     = list ? (*list)["note"].str() : "";
+      edit_date_     = list && !(*list)["date"].str().empty() ? list_date_fr((*list)["date"].str())
+                                                              : list_date_fr(iso_day(local_today()));
       edit_template_ = list ? (*list)["template"].boolean() : show_ == "templates";
       edit_started_  = false;
       edit_lines_    = Json::array();
@@ -1105,6 +1206,22 @@ class ListsWindow final : public AppWindow {
       ImGui::SeparatorText(edit_id_.empty() ? (edit_template_ ? "Nouveau modèle" : "Nouvelle liste") : "Modifier la liste");
       ImGui::SetNextItemWidth(420.0f);
       input_limited("Nom", edit_name_, 80, "Ex : poste de secours du stade");
+      // jour du poste, aujourd'hui par defaut
+      const bool date_ok = !list_date_iso(edit_date_).empty();
+      ImGui::SetNextItemWidth(140.0f);
+      if (!date_ok)
+        ImGui::PushStyleColor(ImGuiCol_Text, colors::red);
+      ImGui::InputTextWithHint("##date", "JJ/MM/AAAA", &edit_date_);
+      if (!date_ok)
+        ImGui::PopStyleColor();
+      ImGui::SameLine();
+      if (small_button("Aujourd'hui"))
+        edit_date_ = list_date_fr(iso_day(local_today()));
+      ImGui::SameLine();
+      if (small_button("Demain"))
+        edit_date_ = list_date_fr(iso_day(local_today(1)));
+      ImGui::SameLine();
+      ImGui::TextUnformatted(date_ok ? "Date" : "Date (JJ/MM/AAAA)");
       ImGui::InputTextMultiline("Remarque", &edit_note_, ImVec2(420.0f, ImGui::GetTextLineHeight() * 3.0f));
       ImGui::BeginDisabled(edit_started_);
       ImGui::Checkbox("Modèle (se duplique, ne se vérifie pas)", &edit_template_);
@@ -1198,7 +1315,7 @@ class ListsWindow final : public AppWindow {
       if (button("Annuler"))
         editing_ = false;
       ImGui::SameLine();
-      ImGui::BeginDisabled(busy_ || edit_name_.empty());
+      ImGui::BeginDisabled(busy_ || edit_name_.empty() || list_date_iso(edit_date_).empty());
       if (primary_button("Enregistrer"))
         save(app);
       ImGui::EndDisabled();
@@ -1286,6 +1403,7 @@ class ListsWindow final : public AppWindow {
       body["user"]     = app.user_ref();
       body["name"]     = edit_name_;
       body["note"]     = edit_note_;
+      body["date"]     = list_date_iso(edit_date_);
       body["template"] = edit_template_;
       Json lines       = Json::array();
       for (const Json &line : edit_lines_.items()) {
@@ -1513,6 +1631,7 @@ class ListsWindow final : public AppWindow {
     std::string edit_id_;
     std::string edit_name_;
     std::string edit_note_;
+    std::string edit_date_; // JJ/MM/AAAA
     bool        edit_template_ = false;
     bool        edit_started_  = false;
     Json        edit_lines_    = Json::array();
