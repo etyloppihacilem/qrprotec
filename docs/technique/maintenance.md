@@ -39,7 +39,7 @@ refuse aussi la clé de développement du dépôt (le paquet génère la sienne 
 2. `python manage.py makemigrations inventory` ; relire la migration, la commiter.
 3. `inventory/serializers.py` : l'exposer dans le `dict` concerné. Attention aux données sensibles :
    `lot_dict(local=False)` est ce que voit un téléphone.
-4. `inventory/views.py` : l'accepter en écriture si besoin (valider le format, message d'erreur en
+4. `inventory/views/` (`public.py` ou `local.py`) : l'accepter en écriture si besoin (valider le format, message d'erreur en
    français).
 5. Fronts : `app/src/ui/windows/…` (lecture tolérante `json["champ"].str()`), `web/app/*.js`.
 6. Si c'est une valeur d'étiquette : voir « Ajouter un placeholder ».
@@ -47,7 +47,7 @@ refuse aussi la clé de développement du dépôt (le paquet génère la sienne 
 
 ## Ajouter une route d'API
 
-1. La vue dans `views.py` avec `@api_view([...])` et `@handle_errors`. Lever `ApiError(message, code)`
+1. La vue dans `views/public.py` (téléphone et poste) ou `views/local.py` (poste seul) avec `@api_view([...])` et `@handle_errors`. Lever `ApiError(message, code)`
    pour une erreur.
 2. La déclarer dans `inventory/urls.py` :
    - `local_patterns` si c'est de la gestion (poste uniquement) ;
@@ -64,7 +64,7 @@ refuse aussi la clé de développement du dépôt (le paquet génère la sienne 
 
 1. `services.py` (`perform_verif`, `assign_items`, `_complete_lots`, `requirements_status`).
 2. **Les deux aperçus** : `plan_verif` dans `app/src/core/verif_plan.cpp` et `App::partial_verif_lots`
-   dans `app/src/app/app.cpp`, `planVerif` / `partialLots` dans `database/inventory/web/app/verif-plan.js` et
+   dans `app/src/app/app_verifs.cpp`, `planVerif` / `partialLots` dans `database/inventory/web/app/verif-plan.js` et
    `actions.js`.
 3. Un scénario dans `tests/verif-scenarios/` (voir son LISEZMOI) : joué par les trois, il montre tout
    de suite un aperçu qui diverge du serveur.
