@@ -143,7 +143,9 @@ L'adresse du site (ou le scan de votre carte avec l'appareil photo) ouvre la **p
   reste à scanner) et les **dernières vérifs** enregistrées. Touchez une vérif terminée pour son
   compte rendu (chaque sous-lot vérifié sous son lot, avec son état), d'où les noms de lots ouvrent
   leur fiche. Pratique pour le chef de poste qui veut
-  confirmer que ses équipiers ont fait leur vérif. Badge demandé.
+  confirmer que ses équipiers ont fait leur vérif. Badge demandé. Une vérif faite sans réseau est
+  datée à l'heure de ses scans ; l'heure où le serveur l'a reçue est donnée à côté (« 📶 Faite hors
+  connexion · reçue par le serveur le … »).
 - **Départ** (pour un poste de secours) : onglet **Ma liste**, les listes de matériel qui vous sont
   attribuées et pas encore rentrées (touchez-la pour scanner le matériel demandé) ; onglet **Lots**, tous
   les lots avec une barre de recherche (nom, type) : **cochez tout ce que vous prenez**, puis « Partir avec N

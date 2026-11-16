@@ -990,7 +990,7 @@ def _with_ancestors(lots):
 
 
 def perform_verif(lot, iids, identity, partial=False, participants=(), places=None, sealed=(), exclude=(),
-                  strict=False, checked=None):
+                  strict=False, checked=None, now=None):
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -1023,10 +1023,13 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
       verifies, ni ouverts ;
     - checked : {lot id: [types]} items a cocher (ItemType.physical faux) coches pendant la vérif. Ceux d'un lot
       verifie qui ne le sont pas manquent jusqu'a sa prochaine vérif (Lots.unchecked). None (ancien front) : rien ne
-      change ; en verif partielle, un lot n'est complet que si ses items a cocher le sont.
+      change ; en verif partielle, un lot n'est complet que si ses items a cocher le sont ;
+    - now : heure de la verif, celle des scans pour une verif faite hors connexion et envoyee plus tard
+      (views.verif_time) : verifs, journal, passages et mouvements y sont dates, les peremptions jugees ce jour-la.
+      L'heure de reception reste sur la verif (Verifs.received).
     """
-    now = timezone.now()
-    today = timezone.localdate()
+    now = now or timezone.now()
+    today = timezone.localdate(now)
     requested = list(dict.fromkeys(iids))
     participants = [value[:64] for value in dict.fromkeys(participants) if value and value != identity]
     threshold = qrprotec_setting('MISSING_AFTER_VERIFS')
@@ -1265,7 +1268,10 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 continue  # ligne ajoutee s'il est valide par ses sous-lots (verify_hidden_parents)
             row = {'id': sub_lot.id, 'name': sub_lot.name, 'parent': sub_lot.parent_id, 'depth': sub_lot.depth,
                    'verified': sub_lot.id in verified_ids, 'restocked': restocked.get(sub_lot.id, 0)}
-            if sub_lot.id in verified_ids:
+            # verif faite hors connexion envoyee apres une verif plus recente du meme lot : elle est enregistree a son
+            # heure, sans ramener l'etat du lot (derniere vérif, reassorts depuis...) en arriere
+            stale = sub_lot.last_verif is not None and sub_lot.last_verif > now
+            if sub_lot.id in verified_ids and not stale:
                 sub_lot.last_verif = now
                 sub_lot.last_verif_by = identity
                 sub_lot.last_verif_while = SeenWhile.VERIF
@@ -1284,6 +1290,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
                 sub_lot.save(update_fields=['last_verif', 'last_verif_by', 'last_verif_while', 'last_used',
                                             'last_used_by', 'verif_recommended', 'restocked_count', 'outings',
                                             'back_from_list', 'marked_used', 'marked_used_by', 'unchecked'])
+            if sub_lot.id in verified_ids:
                 requirements = requirements_status(sub_lot, today, strict=strict)
                 lot_expired = [iid for iid in report['expired'] if target.get(iid) == sub_lot.id]
                 # complet des que le minimum d'items frais est la, meme s'il reste un perime en trop

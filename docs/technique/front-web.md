@@ -163,7 +163,9 @@ partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide
   renvoyée dans l'ordre au retour du réseau (événement `online`, toute requête réussie, essai toutes les 20 s,
   rechargement de la page). Un envoi refusé par le serveur (étiquette clé périmée, scellé brisé entre-temps) sort
   de la file et est signalé, à refaire. Hors connexion, l'étiquette clé et l'étiquette du scellé sont acceptées
-  sur place (`keyAccepted`, `cachedSealLot`) : le serveur les contrôle à l'envoi. La vérif est datée de son envoi.
+  sur place (`keyAccepted`, `cachedSealLot`) : le serveur les contrôle à l'envoi. Chaque envoi porte deux heures du téléphone, `done_at` (validation, juste
+  après les scans, gardée dans la file) et `sent_at` (envoi) : le serveur date la vérif à l'heure des scans et
+  garde l'heure de réception à côté (voir [back.md](back.md), « Vérif faite hors connexion »).
   La page elle-même doit avoir été ouverte avec du réseau (pas de cache hors ligne de l'application).
 - **Lampe et vibreur** : la lampe (🔦) n'est proposée que si la caméra l'expose (Chrome Android ;
   ni Safari iOS ni Firefox ne la donnent aux pages web) et se rallume quand la caméra redémarre.

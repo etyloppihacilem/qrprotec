@@ -1123,7 +1123,11 @@ class VerifResult(models.TextChoices):
 
 class Verifs(models.Model):
     lot = models.ForeignKey(Lots, on_delete=models.CASCADE, null=True, blank=True) # None = verif du stock
+    # heure de la verif : celle des scans, prise sur l'appareil pour une verif faite hors connexion (views.verif_time)
     datetime = models.DateTimeField(default=timezone.now)
+    # heure de reception par le serveur (envoi) : differe de datetime pour une verif envoyee apres coup, hors
+    # connexion ; montree a cote pour reperer un antidatage (None : verifs d'avant ce champ)
+    received = models.DateTimeField(default=timezone.now, null=True, blank=True)
     by = models.CharField(max_length=64)
     # vérif à plusieurs : identites stockees des autres participants (by : celui qui a envoye la verif)
     participants = models.JSONField(default=list, blank=True)

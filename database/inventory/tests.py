@@ -3686,6 +3686,61 @@ class RecentVerifsTests(ApiTestCase):
         self.assertEqual(grouped['present'], 4)
         self.assertEqual(grouped['by'], 'Admin')  # nom court de l'API publique (prenom seul, pas d'homonyme)
 
+    def test_offline_verif_dated_at_scan_time(self):
+        items = self.create(self.compresses, self.today + timedelta(days=200), 2)
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in items]})
+        badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
+        # faite hors connexion il y a 3 h d'apres l'appareil, dont l'horloge avance d'un jour : seul compte l'ecart
+        # entre la validation et l'envoi
+        skew = timedelta(days=1)
+        device_now = timezone.now() + skew
+        code, _ = self.call('POST', '/api/verifs/', {
+            'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items],
+            'done_at': (device_now - timedelta(hours=3)).isoformat(), 'sent_at': device_now.isoformat()})
+        self.assertEqual(code, 200)
+        verif = Verifs.objects.get(lot=self.lot)
+        self.assertAlmostEqual((verif.received - verif.datetime).total_seconds(), 3 * 3600, delta=60)
+        self.lot.refresh_from_db()
+        self.assertEqual(self.lot.last_verif, verif.datetime)
+        operation = Operation.objects.filter(kind=OperationKind.VERIF, lot=self.lot).latest('id')
+        self.assertEqual(operation.at, verif.datetime)
+        _, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
+        self.assertEqual(rows[0]['at'], ser._date(verif.datetime))
+        self.assertEqual(rows[0]['sent'], ser._date(verif.received))
+        _, report = self.call('POST', f'/api/verifs/{verif.id}/report/', {'user': badge}, local=False)
+        self.assertEqual(report['sent'], ser._date(verif.received))
+        self.assertEqual(report['lots'][0]['present_count'], 2)
+        # vérif plus récente faite en ligne, puis une vieille vérif hors connexion du même lot : enregistrée à son
+        # heure, sans ramener la dernière vérif du lot en arrière
+        self.call('POST', '/api/verifs/', {'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items]})
+        self.lot.refresh_from_db()
+        latest = self.lot.last_verif
+        self.call('POST', '/api/verifs/', {
+            'lots': [{'id': self.lot.id}], 'items': [items[0].iid],
+            'done_at': (timezone.now() - timedelta(hours=1)).isoformat(), 'sent_at': timezone.now().isoformat()})
+        self.lot.refresh_from_db()
+        self.assertEqual(self.lot.last_verif, latest)
+        self.assertEqual(Verifs.objects.filter(lot=self.lot).count(), 3)
+
+    def test_verif_sent_right_away_keeps_reception_time(self):
+        items = self.create(self.compresses, self.today + timedelta(days=200), 1)
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [items[0].iid]})
+        badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
+        now = timezone.now()
+        # envoyee tout de suite (ecart sous VERIF_SENT_GAP), heure de l'appareil dans le futur, ou valeurs illisibles :
+        # datee de sa reception, sans heure d'envoi montree
+        for done, sent in ((now - timedelta(seconds=5), now), (now + timedelta(hours=2), now), ('hier', 'demain')):
+            before = timezone.now()
+            self.call('POST', '/api/verifs/', {
+                'lots': [{'id': self.lot.id}], 'items': [items[0].iid],
+                'done_at': done if isinstance(done, str) else done.isoformat(),
+                'sent_at': sent if isinstance(sent, str) else sent.isoformat()})
+            verif = Verifs.objects.filter(lot=self.lot).latest('id')
+            self.assertGreaterEqual(verif.datetime, before)
+            self.assertIsNone(ser.verif_sent(verif))
+        _, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
+        self.assertIsNone(rows[0]['sent'])
+
     def test_recent_verifs_join_the_steps_of_a_cascade(self):
         sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
         sub.save()

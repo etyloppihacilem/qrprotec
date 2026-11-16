@@ -333,17 +333,24 @@
     if (!value && outbox.length) setTimeout(flushOutbox, 0);
   }
 
+  // Heures de l'appareil jointes a une vérif : done_at a la validation (juste apres les scans), sent_at a l'envoi. Le
+  // serveur date la vérif a l'heure des scans, recalee sur son horloge par l'ecart entre les deux, et garde l'heure
+  // de reception a cote (views.verif_time) : une vérif faite hors connexion n'est pas datee de son envoi.
+  const stamped = (body, doneAt) => ({ ...body, done_at: body.done_at || doneAt, sent_at: new Date().toISOString() });
+
   // Vérif (ou etape d'une vérif en cascade) envoyee au serveur. Hors connexion, ou si des envois attendent deja (l'ordre
   // compte : etapes de la cascade), elle est mise en file. Renvoie le compte rendu du serveur, ou null si en attente.
   async function sendVerif(body, label) {
+    const at = new Date().toISOString();
+    body = { ...body, done_at: at };
     if (!outbox.length) {
       try {
-        return await api('verifs/', body);
+        return await api('verifs/', stamped(body, at));
       } catch (e) {
         if (e.status !== 0) throw e;
       }
     }
-    outbox.push({ body, label, at: new Date().toISOString() });
+    outbox.push({ body, label, at });
     saveOutbox();
     showOffline();
     return null;
@@ -360,7 +367,7 @@
       while (outbox.length) {
         const next = outbox[0];
         try {
-          await api('verifs/', next.body);
+          await api('verifs/', stamped(next.body, next.at)); // file d'avant done_at : heure de mise en file
           sent += 1;
         } catch (e) {
           if (e.status === 0) break; // toujours hors connexion : on reessaiera
@@ -4851,6 +4858,10 @@
 
   const timeOf = (value) => new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
+  // Vérif faite hors connexion, envoyee plus tard : datee a l'heure des scans (heure de l'appareil), l'heure de
+  // reception par le serveur est donnee a cote pour reperer un antidatage
+  const sentText = (sent) => `📶 Faite hors connexion · reçue par le serveur ${fmtOn(sent)}`;
+
 
   function liveCard(row) {
     const done = row.done;
@@ -4943,7 +4954,8 @@
           el('div', { class: 'name' }, (row.top || row.lots).map((lot) => lot.name).join(', ')),
           el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${nb(row.present, 'présent')}`
             + (row.missing ? ` · ${nb(row.missing, 'manquant')}` : '') + (row.expired ? ` · ${nb(row.expired, 'périmé')}` : '')
-            + (row.replaced ? ` · ${row.replaced} à jeter` : ''))),
+            + (row.replaced ? ` · ${row.replaced} à jeter` : '')),
+          row.sent ? el('div', { class: 'sub offline-sent' }, sentText(row.sent)) : null),
         el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
     }
     view.replaceChildren(...parts);
@@ -5067,6 +5079,7 @@
         el('div', { class: 'vr-title' }, el('span', { class: 'vr-ico', 'aria-hidden': 'true' },
           kind === 'ok' ? '✓' : kind === 'partial' ? '↷' : '!'), title),
         el('div', { class: 'vr-sub' }, `${cap(fmtDateTime(report.at))} · ${people.length > 1 ? '👥 ' : ''}${people.join(', ')}`),
+        report.sent ? el('div', { class: 'vr-sub offline-sent' }, sentText(report.sent)) : null,
         stats.length ? el('div', { class: 'vr-stats' }, ...stats.map(([count, one, many, tone]) =>
           el('span', { class: tone }, nb(count, one, many)))) : null),
       el('ul', { class: 'vr-lots' }, ...tree.map(lotRow),

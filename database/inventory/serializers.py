@@ -768,11 +768,24 @@ def user_dict(user, local=False):
     return data
 
 
+# Verif envoyee plus de VERIF_SENT_GAP apres son heure (faite hors connexion) : l'heure d'envoi est montree a cote
+VERIF_SENT_GAP = timedelta(minutes=2)
+
+
+def verif_sent(verif):
+    """Heure de reception d'une verif faite hors connexion et envoyee plus tard (montree a cote de l'heure des scans
+    pour reperer un antidatage), None si elle a ete envoyee tout de suite."""
+    if verif.received is None or verif.received - verif.datetime < VERIF_SENT_GAP:
+        return None
+    return _date(verif.received)
+
+
 def verif_dict(verif):
     return {
         'id': verif.id,
         'lot': verif.lot_id,
         'datetime': _date(verif.datetime),
+        'sent': verif_sent(verif),
         'by': _who(verif.by),
         'participants': [_who(value) for value in verif.participants],
         'complete': verif.complete,
