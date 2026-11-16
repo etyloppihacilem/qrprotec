@@ -333,6 +333,13 @@ class ForecastTests(ApiTestCase):
         self.assertEqual(sorted(move['take']), sorted(item.iid for item in soon))
         self.assertTrue(set(move['back']) <= {item.iid for item in late})
         self.assertLess(group['before'], self.today + timedelta(days=45))
+        # en clair, dans l'ordre : sortir celui qui perime, ranger la ou il servira, reprendre un plus recent
+        self.assertEqual(len(move['steps']), 2)
+        self.assertTrue(move['steps'][0].startswith(f"Sortir de « {sealed.name} » 2 "))
+        self.assertIn(f"à ranger dans « {self.lot.name} »", move['steps'][0])
+        self.assertTrue(move['steps'][1].startswith(f"Prendre de « {self.lot.name} » 2 "))
+        self.assertIn(f"à mettre dans « {sealed.name} » à la place", move['steps'][1])
+        self.assertIn('ces items périmeraient sans servir', move['reason'])
         # une fois l'echange fait, plus rien a proposer
         Items.objects.filter(iid__in=move['take']).update(location=self.lot)
         Items.objects.filter(iid__in=move['back']).update(location=sealed)

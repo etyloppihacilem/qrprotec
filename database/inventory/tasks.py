@@ -303,7 +303,9 @@ def _forecast_tasks(today, orders):
     for group in data['transfers']:
         if group['before'] > limit:
             continue
-        moves = [f"{move['type_name']} ×{len(move['take'])} → {move['target']['path']}" for move in group['moves']]
+        moves = [f"{move['type_name']} ×{len(move['take'])} à échanger avec "
+                 + ('le stock' if move['target']['id'] is None else f"« {move['target']['name']} »")
+                 for move in group['moves']]
         source = group['source']
         when = ('scellé, à ouvrir avant le ' if source['sealed'] else 'avant le ') + _day(group['before'])
         tasks.append(task('transfers', 'warn' if source['sealed'] else 'info', f"Échanges dans {source['path']}",

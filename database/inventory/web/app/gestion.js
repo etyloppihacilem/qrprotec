@@ -125,14 +125,15 @@ function renderForecast(parts) {
   const transfers = forecast.transfers || [];
   if (transfers.length) {
     parts.push(el('h3', {}, 'Échanges à faire'));
-    parts.push(el('p', { class: 'hint' }, 'Items qui périmeront là où ils sont : à échanger contre des plus récents du lieu indiqué.'));
+    parts.push(el('p', { class: 'hint' }, 'Items qui périmeraient sans servir là où ils sont. On les met là où ils '
+      + 'seront utilisés avant leur date, et on reprend au même endroit un plus récent pour garder le lot complet.'));
     for (const group of transfers) {
-      const when = (group.source.sealed ? 'scellé, ouvrir avant le ' : 'avant le ') + fmtDate(group.before);
+      const when = (group.source.sealed ? 'scellé, ouvrir avant le ' : 'à faire avant le ') + fmtDate(group.before);
       parts.push(el('div', { class: 'stock-row ' + (group.source.sealed ? 'bad' : 'warn') },
         el('div', { class: 'row-head' }, el('b', {}, group.source.path), el('span', { class: 'hint' }, when)),
-        ...group.moves.map((move) => el('div', { class: 'sub hint' },
-          `${move.type_name} ×${move.take.length} (${fmtDate(move.take_peremption)}) → ${move.target.path}, `
-          + `reprendre ×${move.back.length} (${fmtDate(move.back_peremption)})`))));
+        ...group.moves.map((move) => el('div', { class: 'transfer-move' },
+          el('ol', {}, ...(move.steps || []).map((step) => el('li', {}, step))),
+          el('div', { class: 'sub hint' }, move.reason || '')))));
     }
   }
 }

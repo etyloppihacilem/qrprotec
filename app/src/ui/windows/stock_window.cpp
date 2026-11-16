@@ -834,10 +834,10 @@ class StockWindow final : public AppWindow {
     // ---- Transferts : echanges entre lots pour utiliser les items avant leur peremption ----
     void draw_transfers(App &app) {
       const Json &transfers = app.catalog.forecast["transfers"];
-      ImGui::TextWrapped("Items qui périmeront là où ils sont, avec le lot où ils seront utilisés à temps. Chaque "
-                         "échange garde les deux lots complets : sortez les items indiqués, mettez-les dans le lot "
-                         "d'arrivée, et reprenez en échange ceux de la colonne « Reprendre ». Les déplacements se "
-                         "font comme d'habitude (scan puis « Ajouter au lot ») ; un échange fait disparaît de la liste.");
+      ImGui::TextWrapped("Items qui périmeraient sans servir là où ils sont. On les met là où ils seront utilisés "
+                         "avant leur date, et on reprend au même endroit un plus récent pour garder le lot complet. "
+                         "Les déplacements se font comme d'habitude (scan puis « Ajouter au lot ») ; un échange fait "
+                         "disparaît de la liste.");
       if (transfers.size() == 0) {
         ImGui::TextDisabled("Aucun échange à faire.");
         return;
@@ -854,49 +854,31 @@ class StockWindow final : public AppWindow {
         if (source["sealed"].boolean())
           ImGui::TextColored(colors::red, "· scellé, ouvrir avant le %s", date_text(group["before"]).c_str());
         else
-          ImGui::TextColored(colors::orange, "· avant le %s", date_text(group["before"]).c_str());
+          ImGui::TextColored(colors::orange, "· à faire avant le %s", date_text(group["before"]).c_str());
         if (!source["id"].is_null()) {
           ImGui::SameLine();
           if (small_button("Afficher le lot"))
             app.show_lot(source["id"].str());
         }
-        const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH;
-        if (ImGui::BeginTable("moves", 5, flags)) {
-          ImGui::TableSetupColumn("Sortir", ImGuiTableColumnFlags_WidthStretch);
-          ImGui::TableSetupColumn("Périme", ImGuiTableColumnFlags_WidthFixed, 95.0f);
-          ImGui::TableSetupColumn("Vers", ImGuiTableColumnFlags_WidthStretch);
-          ImGui::TableSetupColumn("Reprendre", ImGuiTableColumnFlags_WidthFixed, 160.0f);
-          ImGui::TableSetupColumn("Avant le", ImGuiTableColumnFlags_WidthFixed, 95.0f);
-          ImGui::TableHeadersRow();
-          int move_index = 0;
-          for (const Json &move : group["moves"].items()) {
-            ImGui::PushID(move_index++);
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            const std::string what = move["type_name"].str() + " ×" + std::to_string(move["take"].size());
-            if (ImGui::TreeNodeEx(what.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth)) {
-              for (const Json &iid : move["take"].items())
-                ImGui::TextDisabled("%s", iid.str().c_str());
-              ImGui::TreePop();
-            }
-            ImGui::TableNextColumn();
-            ImGui::TextColored(colors::red, "%s", date_text(move["take_peremption"]).c_str());
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(move["target"]["path"].str().c_str());
-            ImGui::TableNextColumn();
-            ImGui::Text("×%d (%s)", static_cast< int >(move["back"].size()),
-                        date_text(move["back_peremption"]).c_str());
-            if (ImGui::IsItemHovered()) {
-              std::string iids;
-              for (const Json &iid : move["back"].items())
-                iids += iid.str() + "\n";
-              ImGui::SetTooltip("%s", iids.c_str());
-            }
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(date_text(move["before"]).c_str());
-            ImGui::PopID();
+        int move_index = 0;
+        for (const Json &move : group["moves"].items()) {
+          ImGui::PushID(move_index++);
+          int step_index = 1;
+          for (const Json &step : move["steps"].items())
+            ImGui::TextWrapped("%d. %s", step_index++, step.str().c_str());
+          ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+          ImGui::TextWrapped("%s", move["reason"].str().c_str());
+          ImGui::PopStyleColor();
+          if (ImGui::TreeNode("Items concernés")) {
+            ImGui::TextDisabled("À sortir :");
+            for (const Json &iid : move["take"].items())
+              ImGui::BulletText("%s", iid.str().c_str());
+            ImGui::TextDisabled("À reprendre :");
+            for (const Json &iid : move["back"].items())
+              ImGui::BulletText("%s", iid.str().c_str());
+            ImGui::TreePop();
           }
-          ImGui::EndTable();
+          ImGui::PopID();
         }
         ImGui::PopID();
       }

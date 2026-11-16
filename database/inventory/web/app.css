@@ -155,6 +155,9 @@ dl.facts dd { margin: 0; }
 .row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .row-head button { padding: 6px 10px; font-size: .85rem; }
 .stock-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.transfer-move ol { margin: 6px 0 2px; padding-left: 22px; }
+.transfer-move li { margin: 2px 0; }
+.transfer-move + .transfer-move { margin-top: 8px; }
 .stock-row.warn { border-left: 4px solid var(--orange); padding-left: 8px; background: var(--orange-bg); }
 .stock-row.bad { border-left: 4px solid var(--red); padding-left: 8px; background: var(--red-bg); }
 .row-head .buttons { display: flex; gap: 6px; }
