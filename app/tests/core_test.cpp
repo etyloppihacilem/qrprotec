@@ -433,6 +433,15 @@ int main()
         last.load(file);
         assert(last.size() == 1 && last.front().label == "B+ 1");
         std::filesystem::remove(file);
+
+        // heures jointes a l'envoi : done_at garde (heure des scans), sent_at a l'envoi
+        const std::string now = qrprotec::utc_now_iso();
+        assert(now.size() == 20 && now[4] == '-' && now[10] == 'T' && now.back() == 'Z');
+        const qrprotec::Json queued = qrprotec::Json::parse(R"({"lots": [], "done_at": "2026-11-16T08:00:00Z"})");
+        const qrprotec::Json sent   = qrprotec::verif_stamped(queued);
+        assert(sent["done_at"].str() == "2026-11-16T08:00:00Z" && sent["sent_at"].str().size() == 20);
+        const qrprotec::Json fresh = qrprotec::verif_stamped(qrprotec::Json::parse(R"({"lots": []})"));
+        assert(fresh["done_at"].str() == fresh["sent_at"].str());
     }
 
     {

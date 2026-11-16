@@ -503,7 +503,9 @@ void App::cache_changed(const std::vector< std::string > &keys) {
   }
 }
 
-void App::post_verif(const Json &body, const std::string &label, Json offline, ApiClient::Callback done) {
+void App::post_verif(const Json &request, const std::string &label, Json offline, ApiClient::Callback done) {
+  Json body       = request;
+  body["done_at"] = utc_now_iso(); // heure des scans, gardee si la verif attend dans la file (verif_stamped)
   const auto queue = [this, body, label, offline, done]() {
     outbox.push({ body, label, now_hhmm() });
     offline_ = true;
@@ -518,7 +520,7 @@ void App::post_verif(const Json &body, const std::string &label, Json offline, A
     queue();
     return;
   }
-  api.post("/api/verifs/", body, [this, queue, done](const ApiResult &result) {
+  api.post("/api/verifs/", verif_stamped(body), [this, queue, done](const ApiResult &result) {
     if (!result.ok && result.status == 0) {
       queue();
       return;
@@ -572,7 +574,7 @@ void App::flush_outbox() {
   if (outbox.empty() || outbox_busy_)
     return;
   outbox_busy_ = true;
-  api.post("/api/verifs/", outbox.front().body, [this](const ApiResult &result) {
+  api.post("/api/verifs/", verif_stamped(outbox.front().body), [this](const ApiResult &result) {
     outbox_busy_ = false;
     if (outbox.empty())
       return;

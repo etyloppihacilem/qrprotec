@@ -9,6 +9,7 @@
 #include "verif_cache.hpp"
 #include "system.hpp"
 
+#include <ctime>
 #include <fstream>
 #include <sstream>
 
@@ -105,6 +106,28 @@ Json VerifCache::lot(const std::string &root) const {
     descendants.push_back(with_items(row));
   lot["descendants"] = descendants;
   return lot;
+}
+
+std::string utc_now_iso() {
+  const std::time_t now = std::time(nullptr);
+  std::tm           utc{};
+#ifdef _WIN32
+  gmtime_s(&utc, &now);
+#else
+  gmtime_r(&now, &utc);
+#endif
+  char text[32];
+  std::strftime(text, sizeof(text), "%Y-%m-%dT%H:%M:%SZ", &utc);
+  return text;
+}
+
+Json verif_stamped(const Json &body) {
+  Json stamped = body;
+  const std::string now = utc_now_iso();
+  if (!body.contains("done_at") || body["done_at"].str().empty())
+    stamped["done_at"] = now;
+  stamped["sent_at"] = now;
+  return stamped;
 }
 
 void VerifOutbox::load(const std::filesystem::path &file) {

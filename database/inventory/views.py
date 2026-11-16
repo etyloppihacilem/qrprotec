@@ -30,6 +30,7 @@ from django.db.models import Count, Max, Min, Q
 from django.http import Http404, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -1156,7 +1157,9 @@ def verifs(request):
     "step" : avec "live", la vérif commune continue (les autres participants voient le lot valide) au lieu de se
     terminer.
     "full" : « vérif complète » (bouton gestion et admins du front web) : les items et sous-lots facultatifs sont
-    obligatoires pour cette verif (services.perform_verif strict)."""
+    obligatoires pour cette verif (services.perform_verif strict).
+    "done_at", "sent_at" : heures de l'appareil a la validation et a l'envoi (verif faite hors connexion, envoyee
+    plus tard) : la verif est datee a l'heure des scans (verif_time), l'heure de reception est gardee a cote."""
     entries = request.data.get('lots')
     iids = iid_list(request.data)
     step = bool(request.data.get('step'))
@@ -1175,13 +1178,47 @@ def verifs(request):
     report = services.perform_verif(lots, iids, identity, bool(request.data.get('partial')),
                                     participants, place_map(request.data), sealed, excluded_lots(request.data, lots),
                                     strict=bool(request.data.get('full')) or bool(team and team['full']),
-                                    checked=checked_map(request.data))
+                                    checked=checked_map(request.data), now=verif_time(request.data))
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team and step:
         live.hub.step(team, report, iids, final=bool(request.data.get('finish')))
     elif team:
         live.hub.finish(team, report)
     return Response(report)
+
+
+# Verif faite hors connexion : envoyee moins de VERIF_SENT_GAP apres sa validation, elle est datee de sa reception
+# comme avant ; au-dela, de l'heure des scans (Verifs.received garde l'heure d'envoi, ser.verif_sent l'affiche)
+VERIF_SENT_GAP = ser.VERIF_SENT_GAP
+
+
+def _client_time(value):
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = parse_datetime(value)
+    except ValueError:
+        return None
+    if parsed is None:
+        return None
+    return parsed if timezone.is_aware(parsed) else timezone.make_aware(parsed)
+
+
+def verif_time(data):
+    """Heure de la verif d'apres l'appareil : "done_at" (validation, juste apres les scans) recale sur l'horloge du
+    serveur par "sent_at" (heure de l'appareil a l'envoi) : seul compte le temps ecoule sur l'appareil entre les deux,
+    pas son heure, souvent fausse. Jamais dans le futur ; None (heure de reception) sans "done_at" ou si la verif est
+    envoyee tout de suite."""
+    done = _client_time(data.get('done_at'))
+    if done is None:
+        return None
+    received = timezone.now()
+    sent = _client_time(data.get('sent_at'))
+    if sent is not None:
+        done = received - (sent - done)
+    if received - done < VERIF_SENT_GAP:
+        return None
+    return done
 
 
 RECENT_VERIFS = 30
@@ -1239,9 +1276,11 @@ def verifs_recent(request):
             last = {'_root': roots.pop() if len(roots) == 1 else None, 'by_raw': head.by, 'id': head.id, 'ids': [],
                     'at': ser._date(head.datetime), 'by': ser._who(head.by), 'participants': [], 'lots': [],
                     'complete': True, 'present': 0, 'missing': 0, 'expired': 0,
-                    'replaced': 0}  # replaced : perimes retires du lot, a jeter
+                    'replaced': 0,  # replaced : perimes retires du lot, a jeter
+                    'sent': None}  # faite hors connexion : heure d'envoi (la plus recente des etapes)
             rows.append(last)
         last['_oldest'] = head.datetime
+        last['sent'] = last['sent'] or ser.verif_sent(head)
         last['ids'].append(head.id)
         last['participants'] = list(dict.fromkeys(last['participants'] + [ser._who(value) for value in head.participants]))
         for verif in step:
@@ -1325,6 +1364,7 @@ def verif_report(request, verif_id):
     return Response({
         'id': first.id,
         'at': ser._date(first.datetime),
+        'sent': ser.verif_sent(first),  # faite hors connexion : heure d'envoi, a cote de celle des scans
         'by': ser._who(first.by),
         'participants': [ser._who(value) for value in first.participants],
         'complete': all(verif.complete for verif in verifs),

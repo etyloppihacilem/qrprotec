@@ -52,6 +52,15 @@ class VerifCache {
     bool                                                 loaded_ = false;
 };
 
+// Heure UTC de l'appareil au format ISO 8601 (2026-11-16T18:05:00Z)
+std::string utc_now_iso();
+
+// Heures de l'appareil jointes a une verif : "done_at" a la validation (juste apres les scans, gardee si deja la),
+// "sent_at" a l'envoi. Le serveur date la verif a l'heure des scans, recalee sur son horloge par l'ecart entre les
+// deux, et garde l'heure de reception a cote (views.verif_time) : une verif faite hors connexion n'est pas datee
+// de son envoi.
+Json verif_stamped(const Json &body);
+
 // Envois de verif en attente (hors connexion) : verif finale, etapes de la verif en cascade, scelles intacts. Gardes
 // dans un fichier (redemarrage du poste) et renvoyes dans l'ordre au retour du reseau.
 struct OutboxEntry {

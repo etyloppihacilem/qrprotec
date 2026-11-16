@@ -100,7 +100,9 @@ depuis le cache sans le serveur. Les envois de vérif (`post_verif` : vérif, é
 intacts) partent dans `VerifOutbox` hors connexion, ou si des envois attendent déjà, gardés dans
 `verif-outbox.json` à côté des réglages et renvoyés dans l'ordre (`flush_outbox`, essai toutes les 20 s et
 dès que le cache se recharge) ; la vérif continue avec un compte rendu local (`offline_report`). Un envoi
-refusé par le serveur est retiré de la file et signalé. La barre de menu affiche « Hors connexion » et le
+refusé par le serveur est retiré de la file et signalé. Comme au web, chaque envoi porte `done_at` (heure
+de la validation, gardée dans la file) et `sent_at` (heure de l'envoi, `verif_stamped`) : la vérif est datée à
+l'heure des scans. La barre de menu affiche « Hors connexion » et le
 nombre de vérifs en attente, la fenêtre Vérif le rappelle.
 
 Le signal d'erreur (`Feedback`) : bip et LED orange de la douchette via le SDK, ou bip de
