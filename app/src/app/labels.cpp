@@ -14,6 +14,8 @@
 #include "../core/paths.hpp"
 #include "../core/template_io.hpp"
 
+#include <algorithm>
+
 namespace qrprotec {
 
 namespace {
@@ -111,6 +113,42 @@ Parameters lot_parameters(const Json &lot) {
   parameters["rangement"]       = kind;
   parameters["Rangement"]       = utf8_capitalize(kind);
   parameters["RANGEMENT"]       = utf8_upper(kind);
+  return parameters;
+}
+
+std::vector< std::string > lot_locations(const Json &lot) {
+  std::vector< std::string > locations; // le serveur envoie les attendus dans l'ordre de la TECH
+  for (const Json &row : lot["requirements"].items()) {
+    const std::string location = row["location"].str();
+    if (!location.empty() && std::find(locations.begin(), locations.end(), location) == locations.end())
+      locations.push_back(location);
+  }
+  return locations;
+}
+
+Parameters location_parameters(const Json &lot, const std::string &location) {
+  Parameters parameters             = lot_parameters(lot);
+  parameters["emplacement"]         = location;
+  parameters["Emplacement"]         = utf8_capitalize(location);
+  parameters["EMPLACEMENT"]         = utf8_upper(location);
+  const std::vector< std::string > locations = lot_locations(lot);
+  const auto rank = std::find(locations.begin(), locations.end(), location);
+  parameters["emplacement_numero"] = rank == locations.end() ? std::string()
+                                                              : std::to_string(rank - locations.begin() + 1);
+  // contenu attendu : « 4 × Compresses », une ligne par type (les « dont » d'une ligne a unites restent dans elle)
+  std::string contents;
+  for (const Json &row : lot["requirements"].items()) {
+    if (row["location"].str() != location || !row["within"].str().empty())
+      continue;
+    std::string line = row["unit"].str().empty()
+                       ? std::to_string(row["required"].integer()) + " × " + row["type_name"].str()
+                       : std::to_string(row["required"].integer()) + " " + row["unit"].str() + " de "
+                           + row["type_name"].str();
+    if (row["optional"].boolean())
+      line += " (facultatif)";
+    contents += (contents.empty() ? "" : "\n") + line;
+  }
+  parameters["contenu"] = contents;
   return parameters;
 }
 

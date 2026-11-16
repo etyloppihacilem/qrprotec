@@ -216,6 +216,20 @@ std::vector< CategoryInfo > build_categories() {
   lot_storage.placeholders.push_back({ "RANGEMENT", "Genre du rangement, en majuscules", "ARMOIRE" });
   categories.push_back(lot_storage);
 
+  // emplacement d'un lot (pochette d'un sac...) : etiquette de texte seul, sans code, collee sur l'emplacement
+  CategoryInfo lot_location{ TemplateCategory::LotLocation, "lot_location", "Lot - emplacement",
+                             "Étiquette d'un emplacement du lot (pochette d'un sac, compartiment...) : son nom, sans "
+                             "QR code. Une étiquette par emplacement coché dans l'onglet Étiquettes de la fiche du lot.",
+                             lot_placeholders() };
+  lot_location.placeholders.push_back({ "emplacement", "Nom de l'emplacement, tel que saisi dans le contenu",
+                                        "Pochette rouge" });
+  lot_location.placeholders.push_back({ "Emplacement", "Nom de l'emplacement, avec une majuscule", "Pochette rouge" });
+  lot_location.placeholders.push_back({ "EMPLACEMENT", "Nom de l'emplacement, en majuscules", "POCHETTE ROUGE" });
+  lot_location.placeholders.push_back({ "emplacement_numero", "Rang de l'emplacement dans l'ordre de la vérif", "2" });
+  lot_location.placeholders.push_back(
+    { "contenu", "Contenu attendu dans l'emplacement, une ligne par type d'item", "4 × Compresses stériles\n2 × Bande extensible" });
+  categories.push_back(lot_location);
+
   CategoryInfo user{ TemplateCategory::User, "user", "Badge utilisateur",
                      "Badge de connexion d'un secouriste. Le QR code doit contenir {{badge_url}}.", {} };
   user.placeholders = {

@@ -23,6 +23,10 @@ namespace qrprotec {
 Parameters item_parameters(const Json &item, int index = 1, int count = 1);
 Parameters sealed_pack_parameters(const Json &pack);
 Parameters lot_parameters(const Json &lot);
+// Emplacements du contenu d'un lot (lot["requirements"]), dans l'ordre de la verif, sans « sans emplacement ».
+std::vector< std::string > lot_locations(const Json &lot);
+// Etiquette d'un emplacement du lot : ceux du lot + {{emplacement}}, son rang et son contenu attendu.
+Parameters location_parameters(const Json &lot, const std::string &location);
 Parameters user_parameters(const Json &user);
 
 // Charge le modele et remplit ses placeholders (valeurs par defaut du modele < valeurs fournies).

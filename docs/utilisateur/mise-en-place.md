@@ -165,6 +165,13 @@ permet de les ranger (flèches ↑ ↓) dans l'ordre où les secouristes vérifi
 défaut de la vérif et de la fiche du lot (ce qui demande l'attention passe devant), et celui de la
 fiche PDF.
 
+**Étiquettes d'emplacement** : pour coller le nom de chaque pochette sur le sac, ouvrez la fiche du lot
+(**Gestion des lots > Lots**), onglet **Étiquettes**, partie **Étiquettes d'emplacement**. Les
+emplacements du contenu y sont listés dans l'ordre de la vérif, tous cochés : décochez ceux à ne pas
+imprimer, choisissez le nombre d'**exemplaires de chaque** (un par sac du même type), puis **Aperçu**
+ou **Imprimer directement**. Ces étiquettes n'ont pas de QR code (modèle `emplacement.qr`, usage
+« Lot - emplacement »).
+
 Deux sacs du même type ne sont pas forcément identiques (le sac de soin du VPS et celui du lot A, par
 exemple). Le contenu du type est ce que tous ses lots doivent avoir ; chaque lot peut avoir en plus le
 sien : dans **Gestion des lots > Lots**, sélectionnez le lot puis ouvrez **Personnaliser le contenu de

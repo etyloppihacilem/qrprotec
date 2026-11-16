@@ -1382,6 +1382,7 @@ class LotAdminWindow final : public AppWindow {
         ImGui::SameLine();
         if (small_button("les deux"))
           print_lot(app, lot_, true, true);
+        draw_location_labels(app);
       }
 
       ImGui::SeparatorText("Clé du lot");
@@ -1410,6 +1411,58 @@ class LotAdminWindow final : public AppWindow {
       }
       ImGui::SameLine();
       help_marker("À faire si l'étiquette clé est perdue ou a pu être copiée : l'ancienne ne marche plus.");
+    }
+
+    // Etiquettes d'emplacement (pochettes d'un sac...) : nom de chaque emplacement coche, sans code. Emplacements du
+    // contenu du lot dans l'ordre de la verif, tous coches a l'ouverture de la fiche.
+    void draw_location_labels(App &app) {
+      ImGui::SeparatorText("Étiquettes d'emplacement");
+      const std::vector< std::string > locations = lot_locations(lot_);
+      if (locations.empty()) {
+        ImGui::TextDisabled("Aucun emplacement dans le contenu de ce lot (onglet Modifier le lot ou Types de lots).");
+        return;
+      }
+      if (location_lot_ != selected_lot_) { // autre lot : tout coche
+        location_lot_ = selected_lot_;
+        location_checked_.clear();
+        location_copies_ = 1;
+      }
+      ImGui::TextWrapped("Le nom de chaque emplacement coché, à coller dessus (pochettes d'un sac...). Pas de QR code.");
+      if (small_button("Tout cocher"))
+        location_checked_.clear();
+      ImGui::SameLine();
+      if (small_button("Tout décocher"))
+        for (const std::string &location : locations)
+          location_checked_[location] = false;
+      int checked = 0;
+      for (const std::string &location : locations) {
+        bool on = location_checked_.count(location) == 0 || location_checked_[location];
+        ImGui::PushID(location.c_str());
+        if (ImGui::Checkbox(location.c_str(), &on))
+          location_checked_[location] = on;
+        ImGui::PopID();
+        checked += on ? 1 : 0;
+      }
+      ImGui::SetNextItemWidth(120.0f);
+      if (ImGui::InputInt("Exemplaires de chaque", &location_copies_, 1, 1))
+        location_copies_ = std::clamp(location_copies_, 1, 20);
+      ImGui::SameLine();
+      help_marker("Pour plusieurs sacs du même type : une étiquette par sac et par emplacement coché.");
+      std::vector< Parameters > labels;
+      for (const std::string &location : locations)
+        if (location_checked_.count(location) == 0 || location_checked_[location])
+          for (int copy = 0; copy < location_copies_; ++copy)
+            labels.push_back(location_parameters(lot_, location));
+      const std::string what = "Emplacements " + lot_["name"].str();
+      ImGui::BeginDisabled(labels.empty());
+      if (primary_button(("Aperçu (" + nb(static_cast< int >(labels.size()), "étiquette") + ")###location_preview").c_str()))
+        app.preview_labels(TemplateCategory::LotLocation, labels, what);
+      ImGui::SameLine();
+      if (button("Imprimer directement"))
+        app.print_labels(TemplateCategory::LotLocation, labels, what);
+      ImGui::EndDisabled();
+      if (checked == 0)
+        ImGui::TextDisabled("Cochez au moins un emplacement.");
     }
 
     // Onglet « Modifier le lot » : nom, rangement dans un autre lot, archivage
@@ -2533,6 +2586,10 @@ class LotAdminWindow final : public AppWindow {
     std::string                  content_source_; // lot et type d'ou viennent les lignes (rechargees s'ils changent)
     std::vector< LotContentRow > content_;
     std::vector< std::string >   content_locations_; // ordre des emplacements du lot
+    // Etiquettes d'emplacement de l'onglet Etiquettes : decoches (absent = coche), exemplaires, lot affiche
+    std::map< std::string, bool > location_checked_;
+    int                           location_copies_ = 1;
+    std::string                   location_lot_;
 };
 
 } // namespace

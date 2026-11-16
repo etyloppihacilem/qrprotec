@@ -44,8 +44,13 @@ après chaque clone.
   porte le numéro de l'item sur la planche (`{{code1}}`, `{{type_name1}}`, `{{exp1}}`… `{{code5}}`) :
   le plus grand numéro donne le nombre d'items par planche, et la dernière planche d'une impression
   garde des places vides. `{{code}}` est l'iid court (petit QR), `{{exp}}` la péremption JJ/MM/AAAA.
+- `emplacement.qr` (usage « Lot - emplacement ») : le nom d'un emplacement du lot (pochette d'un sac,
+  compartiment…), **sans QR code**, à coller sur l'emplacement. Fiche du lot, onglet **Étiquettes** :
+  liste à cocher des emplacements du contenu (ordre de la vérif) et nombre d'exemplaires. Placeholders :
+  `{{emplacement}}` (`{{Emplacement}}`, `{{EMPLACEMENT}}`), `{{emplacement_numero}}`, `{{contenu}}` (une ligne
+  par type attendu, ex : « 4 × Compresses stériles ») et ceux du lot (`{{lot_type_name}}`…).
 - `scelle_ouverture.qr` est l'étiquette d'ouverture, imprimée avec celle du scellé et rangée **à
   l'intérieur** du lot : la scanner ouvre le scellé, même sans être connecté.
 
 Modèles fournis (40 × 30 mm) : les 9 étiquettes d'items ci-dessus, `item_planche.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
-`scelle_ouverture.qr`, `rangement.qr`, `badge.qr`.
+`scelle_ouverture.qr`, `rangement.qr`, `emplacement.qr`, `badge.qr`.
