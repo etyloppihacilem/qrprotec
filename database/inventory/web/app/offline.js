@@ -179,53 +179,79 @@ async function flushOutbox() {
 // change depuis (nouveau signalement, contenu du lot modifie par le TECH, item devenu inutilisable). S'il manque du
 // materiel ou si le contenu a change, on propose de reprendre la vérif du lot.
 function sentIssues(entry, report) {
-  const issues = [];
+  const lines = [];
   let resume = '';
-  const shown = new Set();
   const needResume = (id) => { if (!resume && id) resume = id; };
-  for (const row of report.lots || []) {
-    if (!row.verified || row.complete !== false) continue;
-    const lacks = (row.requirements || []).filter((req) => req.present < req.required)
-      .map((req) => `${reqName(req)} (${req.present}/${req.required})`);
-    issues.push(`✘ ${row.name} incomplet${lacks.length ? ' : il manque ' + lacks.join(', ') : ''}.`);
-    needResume(row.id);
-  }
-  if ((report.expired || []).length) {
-    issues.push(`⚠ ${nb(report.expired.length, 'item périmé ou inutilisable', 'items périmés ou inutilisables')} `
-      + 'encore dans le lot : à remplacer.');
-    needResume(((report.lots || []).find((row) => row.verified) || {}).id);
-  }
-  if ((report.unknown || []).length) issues.push(`? ${nb(report.unknown.length, 'code inconnu ignoré', 'codes inconnus ignorés')}.`);
+  // Une ligne par type d'item, qui dit tout (signale, inutilisable, a remplacer, il en manque) : un seul probleme
+  // ne donne qu'une ligne, meme s'il touche le signalement, l'etat de l'item et le compte du lot
+  const types = new Map();
+  const typeOf = (name) => {
+    if (!types.has(name)) types.set(name, { name, comments: [], disabled: false, unusable: 0, lack: null });
+    return types.get(name);
+  };
+  const typeName = (iid) => (vcache.item(iid) || {}).type_name || (vcache.type(iid.slice(0, 6)) || {}).name || iid;
+  const shown = new Set();
   const seen = entry.seen;
+  const verified = (report.lots || []).filter((row) => row.verified);
+  const several = verified.length > 1;
+  for (const row of verified) {
+    if (row.complete !== false) continue;
+    needResume(row.id);
+    for (const req of (row.requirements || []).filter((req) => req.present < req.required)) {
+      typeOf(reqName(req)).lack = { present: req.present, required: req.required, lot: several ? row.name : '' };
+    }
+  }
+  for (const iid of report.expired || []) {
+    typeOf(typeName(iid)).unusable += 1;
+    needResume((verified[0] || {}).id);
+  }
+  for (const [iid, before] of Object.entries((seen && seen.items) || {})) {
+    const item = vcache.item(iid);
+    if (!item) continue;
+    const type = typeOf(item.type_name);
+    for (const fresh of (item.reports || []).filter((report) => !before.reports.includes(report.id))) {
+      if (shown.has(fresh.id)) continue;
+      shown.add(fresh.id);
+      if (fresh.comment) type.comments.push(fresh.comment);
+    }
+    if ((item.unusable || item.disabled) && !before.unusable) {
+      if (item.disabled) type.disabled = true;
+      if (!(report.expired || []).includes(iid)) type.unusable += 1;
+      needResume(item.location);
+    }
+  }
   const tree = seen && seen.root ? vcache.lot(seen.root) : null;
-  const reportText = (report) => (report.type_name ? ` (${report.type_name})` : '') + (report.comment ? ` : « ${report.comment} »` : '');
   for (const lot of tree ? [tree, ...(tree.descendants || [])] : []) {
     const before = seen.lots[lot.id];
     if (!before) continue;
     if (before.version != null && lot.version != null && lot.version !== before.version) {
-      issues.push(`✎ Contenu de ${lot.name} modifié par le TECH depuis la vérif.`);
+      lines.push(`✎ Contenu de ${lot.name} modifié par le TECH depuis la vérif.`);
       needResume(lot.id);
     }
     for (const fresh of (lot.reports || []).filter((report) => !before.reports.includes(report.id))) {
       if (shown.has(fresh.id)) continue;
       shown.add(fresh.id);
-      issues.push(`📪 Nouveau signalement sur ${lot.name}${reportText(fresh)}.`);
+      if (fresh.type_name) { if (fresh.comment) typeOf(fresh.type_name).comments.push(fresh.comment); else typeOf(fresh.type_name); }
+      else lines.push(`📪 ${lot.name} signalé${fresh.comment ? ` : « ${fresh.comment} »` : ''}.`);
     }
   }
-  for (const [iid, before] of Object.entries((seen && seen.items) || {})) {
-    const item = vcache.item(iid);
-    if (!item) continue;
-    for (const fresh of (item.reports || []).filter((report) => !before.reports.includes(report.id))) {
-      if (shown.has(fresh.id)) continue;
-      shown.add(fresh.id);
-      issues.push(`📪 ${item.type_name} signalé${reportText({ ...fresh, type_name: '' })}.`);
-    }
-    if ((item.unusable || item.disabled) && !before.unusable) {
-      issues.push(`✘ ${item.type_name} ${item.disabled ? 'désactivé' : 'devenu inutilisable'} : à remplacer.`);
-      needResume(item.location);
-    }
+  const typeLines = [];
+  for (const type of types.values()) {
+    const parts = [];
+    if (type.disabled) parts.push('désactivé');
+    else if (type.unusable) parts.push(type.unusable > 1 ? `${type.unusable} inutilisables ou périmés` : 'inutilisable');
+    if (type.disabled || type.unusable) parts.push('à remplacer');
+    if (type.lack) parts.push(`il en manque ${type.lack.required - type.lack.present} (${type.lack.present}/${type.lack.required})`
+      + (type.lack.lot ? ` dans ${type.lack.lot}` : ''));
+    const signaled = type.comments.length ? ` signalé (« ${type.comments.join(' », « ')} »)` : '';
+    if (!signaled && !parts.length) continue;
+    typeLines.push(`${parts.length ? '✘' : '📪'} ${type.name}${signaled}${parts.length ? ' : ' + parts.join(', ') : ''}.`);
   }
-  return { issues, resume };
+  // lot incomplet sans manque nomme (cas rare) : on le dit quand meme
+  if (!typeLines.length) for (const row of verified) if (row.complete === false) typeLines.push(`✘ ${row.name} incomplet.`);
+  lines.unshift(...typeLines);
+  if ((report.unknown || []).length) lines.push(`? ${nb(report.unknown.length, 'code inconnu ignoré', 'codes inconnus ignorés')}.`);
+  return { issues: lines, resume };
 }
 
 async function reviewSent(done) {
