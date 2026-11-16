@@ -67,6 +67,7 @@ function listBox(list, line, done, title) {
         : line.kind === 'lot' ? `Scannez l'étiquette du lot « ${title} » ou touchez sa case pour le cocher.`
           : line.kind === 'lot_type' ? `Scannez l'étiquette d'un lot ${title} disponible ou touchez la case pour le choisir.`
           : line.unit ? `Scannez de quoi faire ${line.quantity} ${line.unit} de « ${title} » pris dans le stock pour la cocher.`
+          : line.is_group ? `Scannez ${line.quantity} × « ${title} » (${(line.subtypes || []).map((row) => row.type_name).join(' ou ') || 'ses sous-types'}) pris dans le stock pour la cocher.`
           : `Scannez ${line.quantity > 1 ? `${line.quantity} items` : 'un item'} « ${title} » pris dans le stock pour la cocher.`;
   // lot a preparer : on peut le cocher sans scanner (le VPS dehors pendant qu'on prepare le materiel)
   const byHand = !done && !list.template && list.status === 'draft'
@@ -178,7 +179,10 @@ function listLineRows(list, line, backIids) {
       // type a unites (200 mL de serum phy) : n'importe lequel de ses sous-types, compte en unites
       : line.unit ? `${line.quantity} ${line.unit} demandés` + ((line.subtypes || []).length
         ? ' : ' + line.subtypes.map((row) => `${row.type_name} (${row.fills} ${line.unit})`).join(' ou ') : '')
-        : nb(line.quantity, 'demandé');
+        // type parent sans unite (4 bandes) : n'importe lequel de ses sous-types, un item compte pour 1
+        : line.is_group && (line.subtypes || []).length
+          ? nb(line.quantity, 'demandé') + ' : ' + line.subtypes.map((row) => row.type_name).join(' ou ')
+          : nb(line.quantity, 'demandé');
   // retour par la liste (anciennes listes : sortie, ou rentree avec des scans de retour) ; une liste validee
   // aujourd'hui est terminee sans retour a scanner
   const out = list.status === 'validated' || (list.status === 'returned' && !!(list.back || []).length);

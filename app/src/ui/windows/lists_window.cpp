@@ -1025,11 +1025,12 @@ class ListsWindow final : public AppWindow {
         const std::string unit = line["unit"].str();
         ImGui::TextUnformatted(lot ? (take + line["lot_name"].str()).c_str()
                                    : ((lot_type ? take : "") + line["type_name"].str() + (unit.empty() ? "" : " (" + unit + ")")).c_str());
-        if (!unit.empty() && line["subtypes"].size() > 0) {
+        if (line["is_group"].boolean() && line["subtypes"].size() > 0) { // sans unite (bandes) : L ou S
           std::string subtypes;
           for (const Json &sub : line["subtypes"].items())
-            subtypes += (subtypes.empty() ? "" : " ou ") + sub["type_name"].str() + " ("
-                        + std::to_string(sub["fills"].integer(1)) + " " + unit + ")";
+            subtypes += (subtypes.empty() ? "" : " ou ") + sub["type_name"].str()
+                        + (unit.empty() ? std::string()
+                                        : " (" + std::to_string(sub["fills"].integer(1)) + " " + unit + ")");
           ImGui::SetItemTooltip("%s", subtypes.c_str());
         }
         ImGui::SameLine();

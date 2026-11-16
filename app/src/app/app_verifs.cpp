@@ -204,7 +204,15 @@ std::string display_row(const Json &requirements, const std::string &type) {
 }
 
 bool unit_row(const Json &row) {
-  return !row["unit"].str().empty() && row["within"].str().empty();
+  return row["is_group"].boolean() && row["within"].str().empty();
+}
+
+std::string unit_suffix(const Json &row) {
+  return row["unit"].str().empty() ? std::string() : " " + row["unit"].str();
+}
+
+std::string amount_text(int count, const std::string &unit, const std::string &name) {
+  return unit.empty() ? std::to_string(count) + " × " + name : std::to_string(count) + " " + unit + " de " + name;
 }
 
 int row_items(const Json &row, int units) {
@@ -219,7 +227,7 @@ int row_items(const Json &row, int units) {
 std::string requirement_name(const Json &row) {
   if (!row["within"].str().empty())
     return "dont " + row["type_name"].str();
-  if (unit_row(row))
+  if (unit_row(row) && !row["unit"].str().empty())
     return row["type_name"].str() + " (" + row["unit"].str() + ")";
   return row["type_name"].str();
 }
@@ -227,7 +235,7 @@ std::string requirement_name(const Json &row) {
 std::string lacking_text(const Json &row, int lacking) {
   if (!unit_row(row))
     return std::to_string(lacking) + " × " + row["type_name"].str();
-  std::string text = std::to_string(lacking) + " " + row["unit"].str() + " de " + row["type_name"].str();
+  std::string text = amount_text(lacking, row["unit"].str(), row["type_name"].str());
   // sous-type a prendre : celui propose par le serveur (sous-type par defaut), sinon celui qui en remplit le plus
   const Json *pick = nullptr;
   for (const Json &sub : row["subtypes"].items())

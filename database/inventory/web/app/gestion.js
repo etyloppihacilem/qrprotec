@@ -315,8 +315,8 @@ function stockParts(view) {
       const unit = row.unit ? ' ' + row.unit : ''; // type a unites (serum phy en mL) : ses sous-types en unites
       const details = [`${row.lots_fresh}${unit} dans les lots`];
       const group = row.group && state.stock.find((other) => other.type === row.group);
-      if (group) details.push(`${row.fills} ${group.unit} de ${group.name}`);
-      if (unit) details.push('compte ses sous-types');
+      if (group) details.push(group.unit ? `${row.fills} ${group.unit} de ${group.name}` : `sous-type de ${group.name}`);
+      if (row.is_group) details.push('compte ses sous-types');
       if (row.stock_expired + row.lots_expired) details.push(nb(row.stock_expired + row.lots_expired, 'périmé'));
       if (row.expiring_soon) details.push(`${row.expiring_soon} bientôt ${pl(row.expiring_soon, 'périmé')}`);
       if (row.missing) details.push(nb(row.missing, 'disparu'));

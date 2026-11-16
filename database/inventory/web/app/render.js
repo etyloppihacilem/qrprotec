@@ -92,9 +92,10 @@ function expectedGroups(lot, plan) {
       return { row: requirement, items, scanned: Math.min(scanned, expected), missing: 0, optional: true, expected,
         pending: Math.max(0, expected - scanned), extra: Math.max(0, scanned - expected), fromStock: 0 };
     }
-    if (requirement.unit && !requirement.within) {
+    if (isGroupRow(requirement)) {
       // type a unites (200 mL de serum phy) : comptes en unites a l'affichage (units) ; pour les totaux, une
-      // ligne vaut 1 et ce qui reste a scanner se compte en items (du sous-type qui en remplit le plus)
+      // ligne vaut 1 et ce qui reste a scanner se compte en items (du sous-type qui en remplit le plus). Type parent
+      // sans unite (4 bandes, L ou S) : unites = items, la ligne compte ses items comme une ligne ordinaire
       const fills = Object.values(requirement.fills || {});
       const most = Math.max(1, ...fills);
       const missingUnits = Math.max(0, requirement.required - scanned);
@@ -102,7 +103,8 @@ function expectedGroups(lot, plan) {
         .reduce((sum, item) => sum + ((requirement.fills || {})[item.type] || 0), 0);
       const missing = Math.ceil(missingUnits / most);
       remaining += missing;
-      return { row: requirement, items, unit: requirement.unit, scanned: missingUnits ? 0 : 1, missing, extra: 0,
+      const scannedRow = requirement.unit ? (missingUnits ? 0 : 1) : Math.min(scanned, requirement.required);
+      return { row: requirement, items, isGroup: true, unit: requirement.unit, scanned: scannedRow, missing, extra: 0,
         fromStock: 0, units: { scanned: Math.min(scanned, requirement.required), required: requirement.required,
           missing: missingUnits, extra: Math.max(0, scanned - requirement.required),
           fromStock: Math.max(0, missingUnits - knownUnits) } };
@@ -208,7 +210,7 @@ function lotGroupRows(lot, groups, others, lastScan) {
     .map((type) => (type in lastScan ? lastScan[type] : -1)));
   // facultatif pas encore tout scanne : ni a faire ni un probleme, juste au-dessus des complets
   const rank = (group) => (group.missing === 0 ? (group.pending > 0 ? 1.5 : 2) : group.scanned === 0 ? 1 : 0);
-  const need = (group) => (group.unit ? 1 : group.optional ? group.expected : group.row.required);
+  const need = (group) => (group.isGroup && group.unit ? 1 : group.optional ? group.expected : group.row.required);
   const places = byPlace(groups, (group) => group.row.location);
   const placed = places.some((entry) => entry.place);
   const groupRows = (group) => {
@@ -226,8 +228,9 @@ function lotGroupRows(lot, groups, others, lastScan) {
       el('span', { class: 'count' }, ...countText(group.scanned, need(group), 0)))];
     }
     const expired = group.items.filter((item) => item.expired).length;
-    if (group.unit) {
-      // type a unites : « 150/200 mL », ce qui manque en mL et le sous-type a prendre
+    if (group.isGroup) {
+      // type a unites : « 150/200 mL », ce qui manque en mL et le sous-type a prendre (sans unite : « 3/4 »)
+      const unitText = group.unit ? ' ' + group.unit : '';
       const units = group.units;
       const cls = units.missing ? (units.scanned ? 'partial' : 'bad') : 'ok';
       const suggest = suggestFor(group.row, units.fromStock);
@@ -235,11 +238,11 @@ function lotGroupRows(lot, groups, others, lastScan) {
         el('div', { class: 'main' },
           el('div', { class: 'name' }, reqName(group.row)),
           el('div', { class: 'sub' }, [!placed && group.row.location ? '📍 ' + group.row.location : '',
-            units.missing > 0 ? `encore ${units.missing} ${group.unit} à scanner` : 'complet',
-            units.extra ? `${units.extra} ${group.unit} en plus` : '',
+            units.missing > 0 ? `encore ${units.missing}${unitText} à scanner` : 'complet',
+            units.extra ? `${units.extra}${unitText} en plus` : '',
             expired ? nb(expired, 'périmé') : '',
             suggest ? `stock : ${suggest.count} × ${suggest.type_name}` : ''].filter(Boolean).join(' · '))),
-        el('span', { class: 'count' }, ...countText(units.scanned, units.required, units.extra), ` ${group.unit}`));
+        el('span', { class: 'count' }, ...countText(units.scanned, units.required, units.extra), unitText));
     }
     const cls = { 2: 'ok', 1.5: 'optional', 1: 'bad', 0: 'partial' }[rank(group)];
     return groupHead(`${lot.id}:${group.row.type}`, cls, group.items,

@@ -179,11 +179,11 @@ class InventoryWindow final : public AppWindow {
       ImGui::TextWrapped("Réception d'une commande : choisissez le type, la date de péremption et la quantité. "
                          "Chaque item recoit un identifiant unique et sa propre étiquette.");
       ImGui::TextUnformatted("Type d'item");
-      // un type a unites (serum phy en mL) n'a pas d'etiquette : on receptionne ses sous-types
+      // un type parent (serum phy en mL, bandes) n'a pas d'etiquette : on receptionne ses sous-types
       Json receivable = Json::array();
       const Json types = without_archived(app.catalog.item_types); // temporaire detruit avant la boucle sinon
       for (const Json &item_type : types.items())
-        if (item_type["unit"].str().empty())
+        if (!item_type["is_group"].boolean())
           receivable.push_back(item_type);
       if (search_select("reception_type", receivable, "type", "name", reception_type_,
                         "Tapez le nom ou le code du type…")) {
@@ -597,8 +597,9 @@ class InventoryWindow final : public AppWindow {
       body["revision_tasks"]  = Json::array();
       for (const std::string &task : task_lines(form_revision_tasks_))
         body["revision_tasks"].push_back(task);
-      // type a unites : ni etiquette ni item (pas de peremption, de taches, d'etiquette a dechirer)
+      // type parent (a unites ou non) : ni etiquette ni item (pas de peremption, de taches, d'etiquette a dechirer)
       const bool unit_type = form_unit_on_ && !form_to_check_;
+      body["is_group"]     = unit_type;
       body["unit"]         = unit_type ? form_unit_ : std::string();
       body["group"]        = unit_type || form_to_check_ ? std::string() : form_group_;
       body["fills"]        = form_fills_;
@@ -710,20 +711,24 @@ class InventoryWindow final : public AppWindow {
       ImGui::Unindent();
     }
 
-    // Attentes en quantite (« 200 mL de sérum phy » des recommandations) : type a unites, ou sous-type d'un type a
-    // unites qui en remplit un nombre d'unites (sachet de 5 dosettes de 5 mL : 25)
+    // Attentes en quantite (« 200 mL de sérum phy » des recommandations, « 4 bandes, L ou S ») : type parent, a
+    // unites ou non, ou sous-type d'un type parent qui en remplit un nombre d'unites (sachet de 5 dosettes de 5 mL :
+    // 25 ; sans unite, un item compte pour 1)
     void draw_unit_fields(App &app) {
       ImGui::BeginDisabled(form_to_check_);
-      ImGui::Checkbox("Type à unités (attente en quantité, sans étiquette)", &form_unit_on_);
-      help_marker("Pour une attente en quantité des recommandations, ex : « 200 mL de sérum phy ». Ce type ne "
-                  "s'imprime pas et n'a pas d'items : ce sont ses sous-types (sachet de 5 dosettes de 5 mL, flacon "
-                  "de 50 mL…) qu'on réceptionne et qu'on scanne. Dans un lot, sa quantité est en unités et "
-                  "n'importe lequel de ses sous-types la remplit, chacun pour ses unités. Ajoutez aussi un sous-type "
-                  "dans le lot pour en exiger un minimum compris dedans (« 200 mL, dont 2 sachets »).");
+      ImGui::Checkbox("Type parent (rempli par ses sous-types, sans étiquette)", &form_unit_on_);
+      help_marker("Ce type ne s'imprime pas et n'a pas d'items : ce sont ses sous-types qu'on réceptionne et qu'on "
+                  "scanne, et dans un lot n'importe lequel d'entre eux le remplit. Sans unité, chaque item d'un "
+                  "sous-type compte pour 1, ex : « Bandes » rempli par « Bandes L » et « Bandes S ». Avec une unité, "
+                  "pour une attente en quantité des recommandations, ex : « 200 mL de sérum phy » rempli par des "
+                  "sachets de 25 mL ou des flacons de 50 mL, chacun pour ses unités. Ajoutez aussi un sous-type dans "
+                  "le lot pour en exiger un minimum compris dedans (« 4 bandes, dont 1 L »).");
       if (form_unit_on_) {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(80.0f);
-        input_limited("Unité", form_unit_, 16);
+        input_limited("Unité (facultative)", form_unit_, 16);
+        ImGui::SetItemTooltip("Vide : chaque item d'un sous-type compte pour 1 (bandes L ou S). Une unité (mL) : "
+                              "chaque sous-type en remplit un nombre (flacon de 50 mL).");
         // sous-type par defaut : propose a la reception, a la commande et au reassort
         Json subtypes = Json::array();
         for (const Json &other : app.catalog.item_types.items())
@@ -737,25 +742,26 @@ class InventoryWindow final : public AppWindow {
                       "le stock passe sous le minimum.");
           std::string list;
           for (const Json &sub : subtypes.items())
-            list += (list.empty() ? "" : ", ") + sub["name"].str() + " (" + std::to_string(sub["fills"].integer(1))
-                    + " " + form_unit_ + ")";
+            list += (list.empty() ? "" : ", ") + sub["name"].str()
+                    + (form_unit_.empty() ? std::string()
+                                          : " (" + std::to_string(sub["fills"].integer(1)) + " " + form_unit_ + ")");
           ImGui::TextDisabled("Sous-types : %s", list.c_str());
         } else if (!editing_type_.empty())
           ImGui::TextDisabled("Aucun sous-type : choisissez ce type comme « Sous-type de » sur ses conditionnements.");
       } else {
         Json groups = Json::array();
         for (const Json &other : app.catalog.item_types.items())
-          if (!other["unit"].str().empty() && !other["archived"].boolean() && other["type"].str() != editing_type_)
+          if (other["is_group"].boolean() && !other["archived"].boolean() && other["type"].str() != editing_type_)
             groups.push_back(other);
         if (groups.size() > 0 || !form_group_.empty()) {
           ImGui::TextUnformatted("Sous-type de");
-          search_select("group", groups, "type", "name", form_group_, "Tapez le nom du type à unités…", "Aucun",
+          search_select("group", groups, "type", "name", form_group_, "Tapez le nom du type parent…", "Aucun",
                         320.0f);
           std::string unit;
           for (const Json &group : groups.items())
             if (group["type"].str() == form_group_)
               unit = group["unit"].str();
-          if (!form_group_.empty()) {
+          if (!form_group_.empty() && !unit.empty()) { // sans unite, un item compte pour 1
             ImGui::SameLine();
             ImGui::SetNextItemWidth(110.0f);
             ImGui::InputInt(("Remplit (" + unit + ")").c_str(), &form_fills_);
@@ -819,9 +825,13 @@ class InventoryWindow final : public AppWindow {
     static std::string unit_summary(const App &app, const Json &item_type) {
       if (!item_type["unit"].str().empty())
         return " - en " + item_type["unit"].str() + ", sans étiquette";
+      if (item_type["is_group"].boolean())
+        return " - type parent, sans étiquette";
       if (const Json *group = item_type["group"].str().empty() ? nullptr : find_type(app, item_type["group"].str()))
-        return " - " + std::to_string(item_type["fills"].integer(1)) + " " + (*group)["unit"].str() + " de "
-               + (*group)["name"].str();
+        return (*group)["unit"].str().empty()
+                 ? " - sous-type de " + (*group)["name"].str()
+                 : " - " + std::to_string(item_type["fills"].integer(1)) + " " + (*group)["unit"].str() + " de "
+                     + (*group)["name"].str();
       return "";
     }
 
@@ -854,7 +864,7 @@ class InventoryWindow final : public AppWindow {
         form_revision_tasks_ += (form_revision_tasks_.empty() ? "" : "\n") + task.str();
       editing_type_archived_ = item_type["archived"].boolean();
       form_unit_             = item_type["unit"].str();
-      form_unit_on_          = !form_unit_.empty();
+      form_unit_on_          = item_type["is_group"].boolean() || !form_unit_.empty();
       form_group_            = item_type["group"].str();
       form_fills_            = std::max(1, item_type["fills"].integer(1));
       form_default_subtype_  = item_type["default_subtype"].str();

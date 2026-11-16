@@ -454,8 +454,8 @@ class VerifWindow final : public AppWindow {
               ImGui::TextColored(entry.missing > 0 ? colors::red : colors::green,
                                  entry.missing > 0 ? "à compter, puis cocher" : "coché");
             else if (entry.missing > 0 && entry.row)
-              ImGui::TextColored(entry.done == 0 ? colors::red : colors::orange, "encore %d %s", entry.missing,
-                                 (*entry.row)["unit"].str().c_str());
+              ImGui::TextColored(entry.done == 0 ? colors::red : colors::orange, "encore %d%s", entry.missing,
+                                 unit_suffix(*entry.row).c_str());
             else if (entry.missing > 0)
               ImGui::TextColored(entry.done == 0 ? colors::red : colors::orange, "encore %d", entry.missing);
             else if (entry.required > 0)
@@ -464,7 +464,7 @@ class VerifWindow final : public AppWindow {
               if (entry.missing > 0 || entry.required > 0)
                 ImGui::SameLine();
               if (entry.row)
-                ImGui::TextColored(colors::blue, "%d %s en plus", entry.extra, (*entry.row)["unit"].str().c_str());
+                ImGui::TextColored(colors::blue, "%d%s en plus", entry.extra, unit_suffix(*entry.row).c_str());
               else
                 ImGui::TextColored(colors::blue, "%d en plus", entry.extra);
             }

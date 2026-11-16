@@ -383,9 +383,10 @@ function renderLotFiche(body, lot) {
         .map((entry) => ({ ...entry, rank: Math.min(...entry.rows.map((line) => line.rank)) }))
         .sort((a, b) => a.rank - b.rank);
       for (const { place, rows: list } of placeGroups) {
-        // type a unites (200 mL) : compte pour une ligne, faite ou non
-        const need = (row) => (row.unit && !row.within ? 1 : row.optional ? row.expected || 0 : row.required);
-        const done = (row) => (row.unit && !row.within ? Number(row.present >= row.required) : row.present);
+        // type a unites (200 mL) : compte pour une ligne, faite ou non ; type parent sans unite : en items
+        const units = (row) => isGroupRow(row) && row.unit;
+        const need = (row) => (units(row) ? 1 : row.optional ? row.expected || 0 : row.required);
+        const done = (row) => (units(row) ? Number(row.present >= row.required) : row.present);
         const present = list.reduce((sum, line) => sum + Math.min(done(line.row), need(line.row)), 0);
         const required = list.reduce((sum, line) => sum + need(line.row), 0);
         const lacking = list.some((line) => line.row.present < line.row.required);

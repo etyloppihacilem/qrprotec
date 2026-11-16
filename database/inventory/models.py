@@ -150,9 +150,9 @@ class ItemsPacksManager(models.Manager):
             raise ValueError("La quantite doit etre positive")
         if not item_type.physical:
             raise ValueError(f"{item_type.name} est un item à cocher : il n'a pas d'étiquette, rien à réceptionner")
-        if item_type.unit:
-            raise ValueError(f"{item_type.name} se compte en {item_type.unit} : réceptionnez un de ses sous-types "
-                             "(sachet, flacon…), c'est lui qui a une étiquette")
+        if item_type.is_unit_group:
+            raise ValueError(f"{item_type.name} est rempli par ses sous-types : réceptionnez un de ses sous-types "
+                             "(sachet, flacon, taille…), c'est lui qui a une étiquette")
         if item_type.perissable and peremption is None:
             raise ValueError(f"Le type {item_type.type} est perissable : une date de peremption est obligatoire")
         if not item_type.perissable:
@@ -248,6 +248,9 @@ class ItemType(models.Model):
     # ordinaires, interchangeables, qui remplissent chacun `fills` unites de ses attentes (sachet de 5 dosettes de
     # 5 mL : 25, flacon : 50). Un attendu du type a unites se compte en unites ; un attendu d'un sous-type dans le
     # meme lot est un minimum de ce sous-type compris dedans (« 200 mL, dont 2 sachets »). Un seul niveau.
+    # Type parent sans unite (is_group sans unit, ex : « Bandes » rempli par « Bandes L » et « Bandes S ») : chaque
+    # item d'un sous-type y compte pour 1 (fills = 1). is_group est vrai pour tout type parent, avec ou sans unite.
+    is_group = models.BooleanField(default=False)
     unit = models.CharField(max_length=16, blank=True, default='')
     group = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True, related_name='subtypes')
     fills = models.PositiveIntegerField(default=1)
@@ -260,8 +263,9 @@ class ItemType(models.Model):
 
     @property
     def is_unit_group(self) -> bool:
-        """Type a unites (attentes en mL...) : ni etiquette ni item a lui, rempli par ses sous-types."""
-        return bool(self.unit)
+        """Type parent (attentes en mL, ou sans unite comme « Bandes ») : ni etiquette ni item a lui, rempli par ses
+        sous-types."""
+        return self.is_group or bool(self.unit)
 
     @property
     def has_revision(self) -> bool:
@@ -272,6 +276,11 @@ class ItemType(models.Model):
         """Attendu facultatif d'un type de lot (LotRequirements.optional) : seulement du materiel non consommable sans
         taches a cocher (ex : les casques du VPS). Un sous-lot facultatif (Lots.optional) l'est en entier."""
         return not self.consumable and not self.tasks and self.physical
+
+    def save(self, *args, **kwargs):
+        if self.unit:
+            self.is_group = True  # un type a unites est un type parent
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} ({self.type})"

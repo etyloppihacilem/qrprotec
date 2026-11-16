@@ -61,7 +61,7 @@ def _create_item_type(request, data, code, name):
         revision_usable=bool(data.get('revision_usable', True)),
         lost_object=bool(data.get('lost_object', False)),
     )
-    if any(key in data for key in ('unit', 'group', 'fills', 'default_subtype')):
+    if any(key in data for key in ('is_group', 'unit', 'group', 'fills', 'default_subtype')):
         apply_units(item_type, data)
         item_type.save()
     journal.record(OperationKind.CATALOG, front_identity(request), f"type d'item créé : {item_type}", type=code)
@@ -149,7 +149,7 @@ ITEM_TYPE_FIELDS = {
     'label_style': "style d'étiquette",
     'consumable': 'consommable', 'physical': 'à cocher', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
     'revision_tasks': 'tâches de révision', 'revision_usable': 'utilisable en retard de révision',
-    'archived': 'archivage', 'unit': 'unité', 'group': 'sous-type de', 'fills': 'unités remplies',
+    'archived': 'archivage', 'is_group': 'type parent', 'unit': 'unité', 'group': 'sous-type de', 'fills': 'unités remplies',
     'default_subtype': 'sous-type par défaut', 'lost_object': 'message objet perdu',
 }
 LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rangement', 'unique': 'lot unique',

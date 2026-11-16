@@ -969,3 +969,76 @@ class UnitGroupTests(ApiTestCase):
         # le sac attend aussi 20 mL du type a unites : les dosettes sont comprises dedans, pas ajoutees
         LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.serphy, quantity=20)
         self.assertEqual(services.lot_distribution(bplus)[0]['lines'][0]['placed'], 20)
+
+
+class GroupWithoutUnitTests(ApiTestCase):
+    """Type parent sans unite (« Bandes » rempli par « Bandes L » et « Bandes S ») : chaque item d'un sous-type
+    compte pour 1, n'importe lequel remplit l'attendu du parent."""
+
+    def setUp(self):
+        super().setUp()
+        code, body = self.call('POST', '/api/item-types/', {'type': 'bandes', 'name': 'Bandes', 'is_group': True})
+        self.assertEqual(code, 201, body)
+        self.assertEqual((body['is_group'], body['unit']), (True, ''))
+        for code_, name in (('bandel', 'Bandes L'), ('bandsm', 'Bandes S')):
+            code, body = self.call('POST', '/api/item-types/', {'type': code_, 'name': name, 'group': 'bandes',
+                                                                'fills': 7})
+            self.assertEqual(code, 201, body)
+            self.assertEqual(body['fills'], 1)  # sans unite : un item compte pour 1
+        self.large = ItemType.objects.get(type='bandel')
+        self.small = ItemType.objects.get(type='bandsm')
+        self.group = ItemType.objects.get(type='bandes')
+
+    def require(self, rows):
+        code, body = self.call('PUT', '/api/lot-types/sacpse/requirements/', {'requirements': rows})
+        self.assertEqual(code, 200, body)
+
+    def row(self, body, type_id):
+        return next(row for row in body['requirements'] if row['type'] == type_id)
+
+    def test_rules(self):
+        with self.assertRaises(ValueError):
+            self.create(self.group, None, 1)
+        self.assertEqual(self.call('PATCH', '/api/item-types/bandes/', {'perissable': True})[0], 400)
+        # a des sous-types : reste un type parent ; une unite peut s'ajouter (chaque bande compte 1 unite)
+        self.assertEqual(self.call('PATCH', '/api/item-types/bandes/', {'is_group': False})[0], 400)
+        # un type deja etiquete ne devient pas un type parent
+        self.create(self.garrot, None, 1)
+        self.assertEqual(self.call('PATCH', '/api/item-types/garrot/', {'is_group': True})[0], 400)
+        code, body = self.call('PATCH', '/api/item-types/bandes/', {'unit': 'u'})
+        self.assertEqual((code, body['is_group'], body['unit']), (200, True, 'u'))
+
+    def test_requirement_any_subtype(self):
+        """4 bandes dont 1 bande L : 3 bandes S et 1 L completent ; 4 S ne suffisent pas (il manque la L)."""
+        self.require([{'type': 'compre', 'quantity': 2}, {'type': 'bandes', 'quantity': 4},
+                      {'type': 'bandel', 'quantity': 1}])
+        later = self.today + timedelta(days=200)
+        compresses = self.create(self.compresses, later, 2)
+        large = self.create(self.large, None, 1)
+        small = self.create(self.small, None, 4)
+        url = f'/api/lots/{self.lot.id}/'
+        row = self.row(self.call('GET', url)[1], 'bandes')
+        self.assertEqual((row['is_group'], row['unit'], row['required']), (True, '', 4))
+        self.assertEqual(row['fills'], {'bandel': 1, 'bandsm': 1})
+        self.assertEqual(row['suggest']['count'], 4)
+        report = self.call('POST', f'{url}verif/', {'items': [i.iid for i in compresses + small], 'user': 'M001'})[1]
+        self.assertFalse(report['complete'])
+        self.assertEqual(self.row(report, 'bandes')['present'], 4)
+        report = self.call('POST', f'{url}verif/', {'items': [i.iid for i in compresses + large + small[:3]],
+                                                    'user': 'M001'})[1]
+        self.assertTrue(report['complete'], report)
+        self.assertEqual(services.lacking_text({'type_name': 'Bandes', 'required': 4, 'present': 1, 'is_group': True,
+                                                'unit': ''}), '3 × Bandes')
+
+    def test_stock_and_checklist(self):
+        ItemType.objects.filter(type='bandes').update(min_quantity=5)
+        self.create(self.large, None, 2)
+        smalls = self.create(self.small, None, 1)
+        rows = {row['type']: row for row in services.stock_status()}
+        self.assertEqual((rows['bandes']['stock_fresh'], rows['bandes']['is_group']), (3, True))
+        code, body = self.call('POST', '/api/checklists/', {'user': 'M001', 'name': 'Poste', 'lines': [
+            {'type': 'bandes', 'quantity': 2}]})
+        self.assertEqual(code, 201, body)
+        code, body = self.call('POST', f"/api/checklists/{body['id']}/scan/", {'user': 'M001', 'item': smalls[0].iid})
+        self.assertEqual(code, 200, body)
+        self.assertIn('1/2', body['message'])

@@ -28,6 +28,7 @@ from django.utils import timezone
 from .idendity import ANONYMOUS_OPENING, parse_identity
 from .lot_sheet import CONTENT_WIDTH, GREY_BAND, GREY_TEXT, MARGIN, PAGE_HEIGHT, PAGE_WIDTH, Page, build_pdf, fit, wrap
 from .models import ABSENCE_KINDS, ItemMovement, Items, Operation, OperationKind, Verifs, name_key
+from . import services
 from .services import lot_requirements
 
 WEEKDAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
@@ -300,8 +301,7 @@ class ReportWriter:
                          f'{who(seal.by)}, intact à cette date', size=9.5, step=13)
         for requirement, count in state.lacking:
             self.need(13)
-            what = (f'{count} {requirement.unit} de {requirement.item_type.name}' if requirement.unit
-                    else f'{count} × {requirement.item_type.name}')
+            what = services.amount_text(count, requirement.unit, requirement.item_type.name)
             self.text(x, f'Manque {what}', size=9.5, bold=True, step=13)
         self.items_table(state, x, width)
 

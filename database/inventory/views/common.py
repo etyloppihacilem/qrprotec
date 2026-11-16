@@ -249,45 +249,58 @@ MAX_FILLS = 1_000_000
 
 
 def apply_units(item_type, data):
-    """Attentes en quantite (ItemType.unit, group, fills, default_subtype) d'un type d'item, depuis les champs
-    presents dans data. Un type a unites (unit, ex : mL) n'a ni etiquette ni item a lui : ce sont ses sous-types qu'on
-    receptionne et qu'on imprime ; un seul niveau (un type a unites n'est le sous-type de personne)."""
+    """Attentes en quantite (ItemType.is_group, unit, group, fills, default_subtype) d'un type d'item, depuis les
+    champs presents dans data. Un type parent (is_group : a unites, ex : « Sérum phy » en mL, ou sans unite, ex :
+    « Bandes ») n'a ni etiquette ni item a lui : ce sont ses sous-types qu'on receptionne et qu'on imprime ; un seul
+    niveau (un type parent n'est le sous-type de personne). Une unite fait d'un type un type parent ; sous un type
+    parent sans unite, chaque item d'un sous-type compte pour 1 (fills = 1)."""
+    was_group = item_type.is_unit_group
+    had_unit = item_type.unit
+    if 'is_group' in data:
+        item_type.is_group = bool(data['is_group'])
     if 'unit' in data:
-        unit = ' '.join(str(data['unit'] or '').split())[:16]
-        if unit and not item_type.unit and item_type.pk and ItemsPacks.objects.filter(item_type=item_type).exists():
-            raise ApiError("Des items de ce type ont déjà des étiquettes : créez un nouveau type pour l'unité "
-                           "(ex : « Sérum phy » en mL) et faites de celui-ci un de ses sous-types")
-        if not unit and item_type.unit and item_type.pk and ItemType.objects.filter(group=item_type).exists():
-            raise ApiError("Ce type a des sous-types : retirez-les d'abord")
-        item_type.unit = unit
+        item_type.unit = ' '.join(str(data['unit'] or '').split())[:16]
+        if item_type.unit:
+            item_type.is_group = True
+    if item_type.unit:
+        item_type.is_group = True
+    if item_type.is_group and not was_group and item_type.pk \
+            and ItemsPacks.objects.filter(item_type=item_type).exists():
+        raise ApiError("Des items de ce type ont déjà des étiquettes : créez un nouveau type parent (ex : « Sérum "
+                       "phy » en mL, ou « Bandes ») et faites de celui-ci un de ses sous-types")
+    if (had_unit and not item_type.unit or was_group and not item_type.is_group) and item_type.pk \
+            and ItemType.objects.filter(group=item_type).exists():
+        raise ApiError("Ce type a des sous-types : retirez-les d'abord")
     if 'group' in data:
         code = str(data['group'] or '')
         if not code:
             item_type.group = None
         else:
             group = ItemType.objects.filter(type=code).first()
-            if group is None or not group.unit:
-                raise ApiError("Le type parent doit être un type à unités (ex : « Sérum phy » en mL)")
+            if group is None or not group.is_unit_group:
+                raise ApiError("Le type parent doit être un type parent (ex : « Sérum phy » en mL, ou « Bandes »)")
             if group.pk == item_type.pk:
                 raise ApiError("Un type ne peut pas être son propre sous-type")
             item_type.group = group
     if 'fills' in data:
         item_type.fills = parse_int(data['fills'], 'fills', 1, MAX_FILLS)
+    if item_type.group_id and not item_type.group.unit:
+        item_type.fills = 1  # type parent sans unite : un item compte pour 1
     if 'default_subtype' in data:
         code = str(data['default_subtype'] or '')
         if code and not (item_type.pk and ItemType.objects.filter(type=code, group=item_type).exists()):
             raise ApiError("Le sous-type par défaut doit être un sous-type de ce type")
         item_type.default_subtype_id = code or None
-    if item_type.unit:
+    if item_type.is_group:
         if item_type.group_id:
-            raise ApiError("Un type à unités ne peut pas être lui-même un sous-type (un seul niveau)")
+            raise ApiError("Un type parent ne peut pas être lui-même un sous-type (un seul niveau)")
         if not item_type.physical or item_type.tear_off or item_type.tasks or item_type.perissable:
-            raise ApiError("Un type à unités n'a pas d'étiquette : ni item à cocher, ni péremption, ni étiquette à "
+            raise ApiError("Un type parent n'a pas d'étiquette : ni item à cocher, ni péremption, ni étiquette à "
                            "déchirer, ni tâches (réglez-les sur ses sous-types)")
     else:
         item_type.default_subtype_id = None
     if item_type.group_id and not item_type.physical:
-        raise ApiError("Un item à cocher ne peut pas être le sous-type d'un type à unités")
+        raise ApiError("Un item à cocher ne peut pas être le sous-type d'un type parent")
 
 
 def parse_tasks(value):

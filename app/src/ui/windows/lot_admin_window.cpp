@@ -1283,10 +1283,14 @@ class LotAdminWindow final : public AppWindow {
                   continue;
                 units = static_cast< int >(place["units"].integer());
                 for (const Json &sub : place["subtypes"].items())
-                  ImGui::TextDisabled("%s%d × %s (%d %s)", cell.quantity > 0 ? "dont " : "",
-                                      static_cast< int >(sub["quantity"].integer()), sub["type_name"].str().c_str(),
-                                      static_cast< int >(sub["quantity"].integer() * sub["fills"].integer()),
-                                      unit.c_str());
+                  if (unit.empty()) // type parent sans unite (4 bandes) : un item compte pour 1
+                    ImGui::TextDisabled("%s%d × %s", cell.quantity > 0 ? "dont " : "",
+                                        static_cast< int >(sub["quantity"].integer()), sub["type_name"].str().c_str());
+                  else
+                    ImGui::TextDisabled("%s%d × %s (%d %s)", cell.quantity > 0 ? "dont " : "",
+                                        static_cast< int >(sub["quantity"].integer()), sub["type_name"].str().c_str(),
+                                        static_cast< int >(sub["quantity"].integer() * sub["fills"].integer()),
+                                        unit.c_str());
               }
               if (cell.quantity > 0) {
                 std::vector< std::string > places;

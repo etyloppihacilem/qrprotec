@@ -364,17 +364,22 @@ const displayRow = (rows, type) => {
   const weights = rowWeights(rows, type);
   return weights.some(([row]) => row === type) ? type : mainRow(weights, type)[0];
 };
+// Attendu d'un type parent (rempli par ses sous-types) : a unites (« 200 mL de Sérum phy », row.unit) ou sans unite
+// (« 4 × Bandes », Bandes L ou S, chaque item compte pour 1)
+const isGroupRow = (row) => Boolean(row.is_group && !row.within);
+// « 50 mL de Sérum phy » pour un type a unites, « 3 × Bandes » sinon (services.amount_text)
+const amountText = (count, unit, name) => (unit ? `${count} ${unit} de ${name}` : `${count} × ${name}`);
 // Nom d'un attendu : « Sérum phy (mL) » pour un type a unites, « dont Sachet… » pour le minimum d'un de ses
 // sous-types compris dedans
 const reqName = (row) => (row.within ? 'dont ' : '') + row.type_name + (row.unit && !row.within ? ` (${row.unit})` : '');
 // Items a scanner pour un attendu : sa quantite, ou pour un type a unites le moins d'items qui la remplissent
-const rowItems = (row) => (row.unit && !row.within
+const rowItems = (row) => (isGroupRow(row)
   ? Math.ceil((row.required || 0) / Math.max(1, ...Object.values(row.fills || {}))) : row.required || 0);
 // Ce qui manque : « 3 × Compresses », ou « 50 mL de Sérum phy (2 × Sachet…) » (services.lacking_text)
 function lackingText(row, lacking = row.required - row.present) {
-  if (!row.unit || row.within) return `${lacking} × ${row.type_name}`;
+  if (!isGroupRow(row)) return `${lacking} × ${row.type_name}`;
   const suggest = suggestFor(row, lacking);
-  return `${lacking} ${row.unit} de ${row.type_name}` + (suggest ? ` (${suggest.count} × ${suggest.type_name})` : '');
+  return amountText(lacking, row.unit, row.type_name) + (suggest ? ` (${suggest.count} × ${suggest.type_name})` : '');
 }
 // Sous-type a prendre pour combler un manque en unites : le sous-type par defaut (suggest du serveur), sinon celui
 // qui en remplit le plus

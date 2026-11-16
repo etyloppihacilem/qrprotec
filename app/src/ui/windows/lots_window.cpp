@@ -381,8 +381,8 @@ class LotsWindow final : public AppWindow {
             int present = 0, required = 0;
             for (const Json *requirement : requirements)
               if ((*requirement)["location"].str() == place) {
-                // type a unites (200 mL) : compte pour une ligne, faite ou non
-                const bool units = unit_row(*requirement);
+                // type a unites (200 mL) : compte pour une ligne, faite ou non ; sans unite (4 bandes) : en items
+                const bool units = unit_row(*requirement) && !(*requirement)["unit"].str().empty();
                 const int  need  = units ? 1 : (*requirement)["required"].integer();
                 const int  have  = units ? ((*requirement)["present"].integer() >= (*requirement)["required"].integer())
                                          : (*requirement)["present"].integer();

@@ -132,7 +132,7 @@ def check_stock_levels(type_ids=None):
     low, empty = [], []
     item_types = list(queryset)
     subtypes = {row[0]: (row[1], row[2]) for row in ItemType.objects.filter(
-        group__in=[item_type.type for item_type in item_types if item_type.unit]).values_list('type', 'group_id', 'fills')}
+        group__in=[item_type.type for item_type in item_types if item_type.is_unit_group]).values_list('type', 'group_id', 'fills')}
     # une seule requete groupee par type au lieu d'un COUNT par type (appele a chaque verif)
     in_stock = Q(location__isnull=True) | Q(location__lot_type__storage=True)  # rangements du stock compris
     counts = defaultdict(int, dict(
