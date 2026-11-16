@@ -1,0 +1,36 @@
+{
+  "description": "Gobelets a cocher pas coches : le sac reste incomplet malgre ses compresses.",
+  "types": {
+    "compre": {},
+    "gobele": {
+      "physical": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 1,
+        "gobele": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac"
+    },
+    "complete": [],
+    "discard": []
+  }
+}

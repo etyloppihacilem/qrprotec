@@ -1,0 +1,53 @@
+{
+  "description": "Une seule compresse fraiche et une perimee : la perimee reste a remplacer (pas a jeter), sac incomplet.",
+  "types": {
+    "compre": {},
+    "garrot": {
+      "perissable": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 2,
+        "garrot": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "cx",
+          "type": "compre",
+          "expired": true
+        },
+        {
+          "id": "g1",
+          "type": "garrot"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    },
+    {
+      "item": "cx"
+    },
+    {
+      "item": "g1"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac",
+      "cx": "sac",
+      "g1": "sac"
+    },
+    "complete": [],
+    "discard": []
+  }
+}

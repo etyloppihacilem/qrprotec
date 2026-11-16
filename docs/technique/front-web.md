@@ -65,6 +65,7 @@ Deux règles :
 | `feedback.js` | Bip, vibration, flash, `toast` |
 | `camera.js` | Caméra, lecture dans le viseur, vignette |
 | `scans.js` | `handleCode` et le traitement de chaque scan (items, paquets, étiquettes, scellés) |
+| `verif-plan.js` | `planVerif` : répartition des items entre les lots, fonction pure jouée aussi sous node par les scénarios communs (`tests/verif-scenarios/`) |
 | `cascade.js` | Vérif en cascade, items à cocher, `planSession`, `lotStatus` |
 | `pin-reset.js` | Déblocage d'un PIN par un admin |
 | `actions.js` | `validate`, `partialLots`, réassort, menus de la vérif |

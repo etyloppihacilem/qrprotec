@@ -1,0 +1,42 @@
+{
+  "description": "Gobelets a cocher (item sans etiquette) : coches, le sac est complet.",
+  "types": {
+    "compre": {},
+    "gobele": {
+      "physical": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 1,
+        "gobele": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    },
+    {
+      "check": "gobele",
+      "lot": "sac"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac"
+    },
+    "complete": [
+      "sac"
+    ],
+    "discard": []
+  }
+}

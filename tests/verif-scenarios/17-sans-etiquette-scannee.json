@@ -1,0 +1,68 @@
+{
+  "description": "Compresse du stock scannee sans etiquette de lot avant elle : elle va au premier lot qui en attend encore.",
+  "types": {
+    "compre": {},
+    "masque": {}
+  },
+  "lots": [
+    {
+      "id": "bplus"
+    },
+    {
+      "id": "soin",
+      "parent": "bplus",
+      "requirements": {
+        "compre": 2
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        }
+      ]
+    },
+    {
+      "id": "o2",
+      "parent": "bplus",
+      "requirements": {
+        "masque": 1
+      },
+      "items": [
+        {
+          "id": "m1",
+          "type": "masque"
+        }
+      ]
+    }
+  ],
+  "elsewhere": [
+    {
+      "id": "c9",
+      "type": "compre"
+    }
+  ],
+  "scans": [
+    {
+      "item": "m1"
+    },
+    {
+      "item": "c1"
+    },
+    {
+      "item": "c9"
+    }
+  ],
+  "expected": {
+    "target": {
+      "m1": "o2",
+      "c1": "soin",
+      "c9": "soin"
+    },
+    "complete": [
+      "bplus",
+      "soin",
+      "o2"
+    ],
+    "discard": []
+  }
+}

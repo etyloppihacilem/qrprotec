@@ -1,0 +1,71 @@
+{
+  "description": "Deux compresses du stock pour une place : la fraiche la prend, la perimee va au sac sans compter (a jeter).",
+  "types": {
+    "compre": {},
+    "garrot": {
+      "perissable": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 2,
+        "garrot": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "g1",
+          "type": "garrot"
+        }
+      ]
+    }
+  ],
+  "elsewhere": [
+    {
+      "id": "cx",
+      "type": "compre",
+      "expired": true
+    },
+    {
+      "id": "c9",
+      "type": "compre"
+    }
+  ],
+  "scans": [
+    {
+      "item": "cx",
+      "place": "sac"
+    },
+    {
+      "item": "c1",
+      "place": "sac"
+    },
+    {
+      "item": "g1",
+      "place": "sac"
+    },
+    {
+      "item": "c9",
+      "place": "sac"
+    }
+  ],
+  "expected": {
+    "target": {
+      "cx": "sac",
+      "c1": "sac",
+      "g1": "sac",
+      "c9": "sac"
+    },
+    "complete": [
+      "sac"
+    ],
+    "discard": [
+      "cx"
+    ]
+  }
+}
