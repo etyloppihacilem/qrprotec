@@ -195,6 +195,8 @@ static void test_qr_and_categories() {
   std::remove("/tmp/qrprotec-category.qr");
   assert(category_from_id("lot_private") == TemplateCategory::LotPrivate);
   assert(category_from_id("lot_storage") == TemplateCategory::LotStorage);
+  assert(category_from_id("lot_location") == TemplateCategory::LotLocation);
+  assert(example_parameters(TemplateCategory::LotLocation).count("emplacement") == 1);
 }
 
 static void test_compact_iid() {

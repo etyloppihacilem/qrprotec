@@ -4534,6 +4534,7 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::LotSeal: return "{{seal_url}}";
     case TemplateCategory::LotSealOpen: return "{{seal_open_url}}";
     case TemplateCategory::LotStorage: return "{{lot_private_url}}";
+    case TemplateCategory::LotLocation: return "{{emplacement}}"; // texte seul (qr_only_template)
     case TemplateCategory::User: return "{{badge_url}}";
     case TemplateCategory::TaskItem: return "{{task_url}}";
     case TemplateCategory::ItemTear: return "{{item_url}}";
@@ -4558,6 +4559,13 @@ TemplateDocument App::qr_only_template(TemplateCategory category) const {
   document.media.height_mm  = settings.label_height_mm;
   document.media.orientation = Orientation::Landscape;
   const float margin = 1.5f;
+  if (category == TemplateCategory::LotLocation) { // emplacement : son nom en grand, jamais de code
+    document.name = "Nom seul";
+    TextElement text{ main_qr_payload(category), margin, margin, settings.label_width_mm - 2.0f * margin,
+                      settings.label_height_mm - 2.0f * margin, 4.0f, true, TextAlign::Center };
+    document.elements.push_back({ "emplacement", ElementKind::Text, text });
+    return document;
+  }
   if (category == TemplateCategory::ItemBarcode || category == TemplateCategory::ItemBarcodeTear
       || category == TemplateCategory::TaskItemBarcode) { // code-barres sur toute la largeur
     document.name = "Code-barres seul";
@@ -4648,7 +4656,9 @@ bool App::build_label_jobs(TemplateCategory category, const std::vector< Paramet
     }
     // pas de modele : on imprime simplement le code principal centre sur l'etiquette
     const CategoryInfo &info = category_info(chain.front());
-    notify("Aucun modèle « " + info.label + " » : code seul (Administration > Réglages pour en choisir un).");
+    notify("Aucun modèle « " + info.label + " » : "
+           + (chain.front() == TemplateCategory::LotLocation ? "nom seul" : "code seul")
+           + " (Administration > Réglages pour en choisir un).");
     return &(models[chain.front()] = qr_only_template(chain.front()));
   };
   std::vector< const TemplateDocument * > chosen;

@@ -81,7 +81,7 @@ Menu **Gestion > Gestion des lots** (rôle gestion).
   facultatif. Sur la fiche du lot : places vides, **Assembler** / **Libérer**, **Remplacer…** un lot fixe
   puis **Remettre l'original**.
 - **Fiche d'un lot** : modifier le nom, le parent ou l'**emplacement de l'étiquette clé** (ex : « poche intérieure du couvercle », affiché à qui essaie de valider une vérif sans l'avoir scannée), réimprimer les étiquettes (**publique**,
-  **clé**, **les deux**), **Archiver le lot** quand il est réformé (il disparaît des listes ; il
+  **clé**, **les deux**) et imprimer les **étiquettes d'emplacement** (nom des pochettes cochées, sans QR code), **Archiver le lot** quand il est réformé (il disparaît des listes ; il
   se réactive).
 - **Régénérer la clé** : si l'étiquette clé est perdue ou a pu être copiée. L'ancienne étiquette
   clé ne fonctionne plus ; imprimez la nouvelle. Une clé est valable 1 an par défaut ; la date
