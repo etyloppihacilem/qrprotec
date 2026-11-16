@@ -131,7 +131,7 @@ nom à afficher.
 | Téléphone-douchette | `<base>/scanner?s=SESSION&k=CLÉ` | affiché à l'écran, jamais imprimé |
 
 `<base>` est `QRPROTEC_PUBLIC_BASE_URL` (déduit de `QRPROTEC_DOMAIN` sur la borne). L'analyse côté
-poste est dans `app/src/core/codes.cpp` (`parse_scan`), côté web dans `app.js` (`parseCode`). Les deux
+poste est dans `app/src/core/codes.cpp` (`parse_scan`), côté web dans `web/app/offline.js` (`parseCode`). Les deux
 ignorent le domaine.
 
 ### Format de l'iid

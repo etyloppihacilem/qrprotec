@@ -91,7 +91,7 @@ bool        is_iid(const std::string &code);
 // Forme courte d'un iid, plus courte a imprimer (code-barres, petit QR) et a taper : date « 00000000 » (sans
 // peremption) ecrite D, zeros de tete du compteur remplaces par N quand cela en retire au moins deux.
 //   serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006
-// La base garde l'iid complet ; chaque front deplie la forme courte (meme regle que expandIid de app.js et
+// La base garde l'iid complet ; chaque front deplie la forme courte (meme regle que expandIid de web/app/state.js et
 // scanner.js). Sans ambiguite : un iid complet a 22 caracteres et 8 chiffres de date.
 std::string compact_iid(const std::string &iid);
 // Majuscules d'un texte UTF-8, lettres accentuees du francais comprises (« pièce » → « PIÈCE ») : placeholders
@@ -107,7 +107,7 @@ std::string describe_scan(const ParsedScan &scan);
 bool        is_expired(const ParsedScan &scan, const Date &today);
 
 // Easter egg : un code contenant "douchette" (sans casse) n'est pas un scan, une phrase s'affiche.
-// Meme liste que DOUCHETTE_PHRASES dans database/inventory/web/app.js et scanner.js.
+// Meme liste que PHRASES dans database/inventory/web/douchette.js.
 bool                              is_douchette(const std::string &code);
 const std::vector< std::string > &douchette_phrases();
 

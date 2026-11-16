@@ -40,7 +40,7 @@ def compact_iid(iid: str) -> str:
     """Forme courte d'un iid, imprimee sur les etiquettes (plus courte a coder, plus facile a taper) : date
     « 00000000 » ecrite D, zeros de tete du compteur remplaces par N quand cela en retire au moins deux.
     serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006. La base garde l'iid complet,
-    les fronts deplient la forme courte (codes.cpp expand_iid, expandIid de app.js et scanner.js)."""
+    les fronts deplient la forme courte (codes.cpp expand_iid, expandIid de web/app/state.js et scanner.js)."""
     if len(iid) != IID_LENGTH:
         return iid
     date, counter = iid[TYPE_LENGTH:TYPE_LENGTH + DATE_LENGTH], iid[TYPE_LENGTH + DATE_LENGTH:]

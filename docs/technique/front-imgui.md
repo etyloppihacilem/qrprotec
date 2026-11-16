@@ -302,7 +302,7 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   pas une URL web. `parse_scan` les reconnaît (`ScanKind::PosteAction`, `id` = action, `params`) et
   `App::handle_scan` les exécute tout de suite par `App::handle_poste_action`, sans toucher à la vérif ni à
   la pile, qu'ils viennent de la douchette ou du téléphone utilisé comme douchette. Le front web les
-  ignore (`handleCode` d'`app.js`). Chaque action est une ligne de `kActions` : nom, droits (`Anyone`,
+  ignore (`handleCode` de `web/app/scans.js`). Chaque action est une ligne de `kActions` : nom, droits (`Anyone`,
   `Privileged`, `Admin` : personne connectée), fonction. Une action inconnue (poste pas à jour) est
   signalée sans rien faire. Une action doit rester sans danger si le code est scanné par erreur.
   Première action : `rouleau?t=NOM&w=&h=&s=` déclare le rouleau en place (par son nom, sinon par taille et

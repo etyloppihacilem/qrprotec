@@ -28,17 +28,16 @@ WASM = 'vendor/zxing-reader-3.1.6.wasm'
 
 # Fichiers servis (liste blanche) et leur type
 ASSETS = {
-    'app.js': 'text/javascript; charset=utf-8',
     'app.css': 'text/css; charset=utf-8',
     'vendor/jsQR.js': 'text/javascript; charset=utf-8',
-    'camera-scan.js': 'text/javascript; charset=utf-8',  # lecture limitee au viseur (app.js et scanner.js)
+    'camera-scan.js': 'text/javascript; charset=utf-8',  # lecture limitee au viseur (web/app/ et scanner.js)
     'decoder.js': 'text/javascript; charset=utf-8',  # worker zxing-cpp quand BarcodeDetector manque (Firefox, Safari iOS)
     'vendor/zxing-reader.js': 'text/javascript; charset=utf-8',
     WASM: 'application/wasm',
-    'code128.js': 'text/javascript; charset=utf-8',  # codes-barres des etiquettes d'items (app.js et scanner.js)
+    'code128.js': 'text/javascript; charset=utf-8',  # codes-barres des etiquettes d'items (web/app/ et scanner.js)
     'vendor/qrcode.js': 'text/javascript; charset=utf-8',  # QR code du lien de deblocage du PIN
     'scanner.js': 'text/javascript; charset=utf-8',
-    'douchette.js': 'text/javascript; charset=utf-8',  # easter egg (app.js et scanner.js)
+    'douchette.js': 'text/javascript; charset=utf-8',  # easter egg (web/app/ et scanner.js)
     'manifest.webmanifest': 'application/manifest+json',
     'sw.js': 'text/javascript; charset=utf-8',  # service worker des notifications web (portee web/)
     'favicon.png': 'image/png',
@@ -48,13 +47,15 @@ ASSETS = {
     'icon-maskable-512.png': 'image/png',
     'apple-touch-icon.png': 'image/png',  # iPhone : sans transparence, iOS arrondit lui-meme les coins
 }
-# Icones des boutons (app.js) : un fichier SVG par icone, web/icons/<nom>.svg
+# Front web decoupe en scripts classiques charges dans l'ordre par index.html : web/app/<nom>.js
+ASSETS.update({f'app/{path.name}': 'text/javascript; charset=utf-8' for path in (WEB_DIR / 'app').glob('*.js')})
+# Icones des boutons (web/app/) : un fichier SVG par icone, web/icons/<nom>.svg
 ASSETS.update({f'icons/{path.name}': 'image/svg+xml' for path in (WEB_DIR / 'icons').glob('*.svg')})
 
 
 def _file(request, path, content_type, cache):
     """Fichier statique avec ETag et Last-Modified : le navigateur garde sa copie et la revalide (304, sans corps)
-    au lieu de retelecharger app.js et les autres (~600 Ko) a chaque ouverture. Comparaison a l'egalite (date et
+    au lieu de retelecharger les scripts de web/app/ et les autres (~600 Ko) a chaque ouverture. Comparaison a l'egalite (date et
     taille du fichier) : une mise a jour du paquet est toujours reprise, meme si la date du nouveau fichier est
     plus ancienne."""
     stat = path.stat()
@@ -77,7 +78,7 @@ def _file(request, path, content_type, cache):
 
 def _csp(request):
     """Content-Security-Policy des pages : scripts, styles, images et connexions du site seulement. Les styles
-    en ligne restent permis (attributs style poses par app.js, <style> de scanner.html), les images data: aussi
+    en ligne restent permis (attributs style poses par web/app/, <style> de scanner.html), les images data: aussi
     (QR codes generes par qrcode.js). WebSocket du suivi en direct et de la douchette : meme hote en ws(s)://."""
     host = request.get_host()
     sockets = f'wss://{host}' if request.is_secure() else f'ws://{host} wss://{host}'

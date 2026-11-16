@@ -15,7 +15,7 @@
 #include <vector>
 
 // « de » devant un nom de lot : « de Sac de soin », « d'Armoire 1 », « du Sac O2 » (pour « Le Sac O2 »), « des … »,
-// « de la … », « de l'… ». Meme regle que deName (app.js) et de_name (views.py).
+// « de la … », « de l'… ». Meme regle que deName (web/app/utils.js) et de_name (views.py).
 inline std::string de_name(const std::string &name) {
   auto starts = [&name](const char *prefix) {
     const std::string start(prefix);

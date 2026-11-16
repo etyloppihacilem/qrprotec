@@ -232,7 +232,7 @@ une URL serait trop longue. Encodeur `app/src/core/code128.cpp`, décodeur `web/
 Les étiquettes impriment l'iid en forme courte (`D` : sans date, `N` : zéros de tête du compteur, seulement
 s'il en retire au moins deux, sans quoi `N` + 7 caractères aurait la longueur d'un compteur complet). Plus
 court à coder et à taper ; un iid complet a 22 caractères et 8 chiffres de date, donc aucune ambiguïté.
-Même règle dans `codes.cpp`, `models.py`, `app.js` et `scanner.js`.
+Même règle dans `codes.cpp`, `models.py`, `web/app/state.js` et `scanner.js`.
 
 ## Borne Fedora en RPM, Cage, Caddy
 

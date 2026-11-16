@@ -7,7 +7,7 @@
  * de bord a bord (insensibles a l'etalement de l'encre). Un code n'est rendu que s'il est lu, somme de controle
  * comprise, sur deux lignes au moins.
  *
- * Partage par le front web (app.js) et la page du telephone-douchette (scanner.js). Meme table que
+ * Partage par le front web (web/app/) et la page du telephone-douchette (scanner.js). Meme table que
  * kCode128Patterns dans app/src/core/code128.cpp (encodeur du poste).
  */
 'use strict';

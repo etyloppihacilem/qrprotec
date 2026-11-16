@@ -5,28 +5,28 @@ JavaScript **sans framework ni étape de construction** : on modifie le fichier,
 
 | Fichier | Rôle |
 |---|---|
-| `index.html`, `app.js`, `app.css` | Page unique de vérif et de consultation |
+| `index.html`, `app/*.js`, `app.css` | Page unique de vérif et de consultation (scripts décrits plus bas) |
 | `scanner.html`, `scanner.js` | Page « téléphone comme douchette du poste » |
 | `sw.js` | Service worker, uniquement pour afficher les notifications web |
 | `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`, `favicon.png` | Installation de l'appli « QRprotec » sur l'écran d'accueil (tuto dans Réglages ⚙ > Installer l'appli) ; icônes `any` à coins transparents, `maskable` plein cadre pour les icônes rondes d'Android, `apple-touch-icon` plein cadre pour iOS (`make icon`) |
-| `camera-scan.js` | Lecture à la caméra limitée au viseur, partagée par `app.js` et `scanner.js` |
+| `camera-scan.js` | Lecture à la caméra limitée au viseur, partagée par `app/` et `scanner.js` |
 | `decoder.js`, `vendor/zxing-reader.js`, `vendor/zxing-reader-*.wasm` | Worker zxing-cpp en WebAssembly (zxing-wasm, MIT ; zxing-cpp, Apache 2.0), quand `BarcodeDetector` manque |
 | `vendor/jsQR.js` | Décodeur QR de secours (Apache 2.0), le temps que le worker se charge ou sans WebAssembly |
 | `code128.js` | Décodeur Code 128 (étiquettes d'items à code-barres), quand `BarcodeDetector` ne le lit pas |
 
 Pourquoi pas de framework : la page doit fonctionner hors de tout réseau Internet (réseau local de
 la borne, pas de CDN), rester modifiable dans cinq ans sans chaîne d'outils npm qui aura vieilli, et
-elle tient en un fichier JS lisible. Voir [decisions.md](decisions.md#front-web-sans-framework).
+elle tient en quelques scripts JS lisibles, sans import ni compilation. Voir [decisions.md](decisions.md#front-web-sans-framework).
 
 ## Adresses
 
 La page répond aux adresses mêmes des QR codes : `/`, `/verif?lot=…[&key=…]`, `/badge?m=…&key=…`,
 `/item?id=…`, `/pack?id=…`, `/seal?lot=…&s=…`, `/liste?id=…` (liste de matériel : page `lists` de l'accueil, objet `lists`
-de `app.js`, relue toutes les 3 s ; en mode scan, `handleCode` envoie les lots et items à la liste). Scanner une étiquette avec l'appareil photo natif du téléphone ouvre
+de `app/lists.js`, relue toutes les 3 s ; en mode scan, `handleCode` envoie les lots et items à la liste). Scanner une étiquette avec l'appareil photo natif du téléphone ouvre
 donc directement la bonne vue. `/verif?lot=…` et `/item?id=…` ouvrent une **fiche** sans caméra (`openFiche`,
 section `#fiche`) : « Lancer une vérif » ouvre le lecteur sur le lot (`launchVerif`). La navigation entre fiches
 passe par `history.pushState` (bouton retour du téléphone, `popstate`). La fiche d'un item affiche
-`last_location`, renvoyé par `GET /api/items/<iid>/` seulement (`serializers.item_last_location`). Les fichiers sont référencés en relatif (`web/app.js`) et l'API par
+`last_location`, renvoyé par `GET /api/items/<iid>/` seulement (`serializers.item_last_location`). Les fichiers sont référencés en relatif (`web/app/boot.js`) et l'API par
 `new URL('api/', document.baseURI)` : la page fonctionne aussi sous un sous-chemin.
 
 Les iids et identifiants de lots (et numéros de paquets) ne s'affichent qu'à un administrateur
@@ -40,11 +40,47 @@ fichier au front web = l'ajouter à cette liste**, sinon 404.
 La caméra n'est accessible qu'en HTTPS (ou sur `localhost`) : en production Caddy fournit le
 certificat ; en développement, `manage.py serve --https`.
 
-## Structure de `app.js`
+## Structure du front (`web/app/`)
 
-Un seul module (IIFE) avec un objet `state` et des fonctions `render*` qui reconstruisent les vues à
-partir de l'état (pas de DOM virtuel, des petits morceaux recréés avec l'aide `el(tag, attrs,
-...enfants)`).
+Un objet `state` et des fonctions `render*` qui reconstruisent les vues à partir de l'état (pas de DOM
+virtuel, des petits morceaux recréés avec l'aide `el(tag, attrs, ...enfants)`).
+
+Le code est découpé en **scripts classiques** (pas de modules ES, pas d'étape de construction), chargés
+dans l'ordre par `index.html` (`defer`). Ils partagent leurs déclarations de premier niveau comme les
+morceaux d'un seul fichier : une fonction de `scans.js` appelle directement `render()` de `render.js`.
+Deux règles :
+
+- **au chargement**, un script n'appelle que des fonctions des scripts précédents ou du sien
+  (`addEventListener('click', f)` lit `f` tout de suite : `f` doit déjà exister). Tout le reste passe par
+  des événements, et la page ne démarre qu'à la fin du dernier script, `boot.js` (`boot()`) ;
+- **un nouveau script** s'ajoute à `index.html` avant `boot.js` (le test
+  `WebFrontTests.test_app_scripts_all_loaded` le vérifie). La liste blanche `web_views.ASSETS` prend
+  tout `web/app/*.js`.
+
+| Script | Contenu |
+|---|---|
+| `state.js` | Constantes, objet `state`, `save` / `restore` |
+| `utils.js` | Accords (`pl`, `nb`, `deName`), dates, `el`, icônes |
+| `offline.js` | `api`, hors connexion (`outbox`), cache de vérif (`vcache`), `parseCode` |
+| `feedback.js` | Bip, vibration, flash, `toast` |
+| `camera.js` | Caméra, lecture dans le viseur, vignette |
+| `scans.js` | `handleCode` et le traitement de chaque scan (items, paquets, étiquettes, scellés) |
+| `cascade.js` | Vérif en cascade, items à cocher, `planSession`, `lotStatus` |
+| `pin-reset.js` | Déblocage d'un PIN par un admin |
+| `actions.js` | `validate`, `partialLots`, réassort, menus de la vérif |
+| `render.js` | Onglets À scanner / Scannés / Lot, `render()` |
+| `home.js` | Accueil et navigation entre ses pages |
+| `login.js` | Grande fenêtre de connexion, connexion par nom, web partagé |
+| `live.js` | Suivi en direct (`live`, `watch*`), vérifs récentes, comptes rendus |
+| `notifications.js` | Abonnement aux notifications web |
+| `settings.js` | Réglages ⚙ (installer l'appli, PIN, vérif, web partagé) |
+| `gestion.js` | Gestion de la TECH (tâches, état des stocks, prévisions, étiquettes) |
+| `fiches.js` | Fiches de lot et d'item, ouverture d'un scellé |
+| `reports.js` | Signalements |
+| `lists.js`, `list-detail.js` | Listes de matériel (chargement, scans, détail, éditeur, recherches) |
+| `depart.js` | Page Départ |
+| `debug-codes.js` | Outil de debug des codes (admins) |
+| `boot.js` | `boot()` : lecture de l'URL et démarrage, toujours chargé en dernier |
 
 - **État** : utilisateur (badge), lot en cours et sa clé, lots ajoutés (`extra`, vérif groupée),
   liste des scans, onglet, dernière vérif. Conservé dans `localStorage` (`save`/`restore`) : un

@@ -61,7 +61,7 @@
       <div class="chips">
         <button id="go-home" class="chip icon" type="button" aria-label="Accueil" title="Accueil">🏠</button>
         <button id="user-chip" class="chip" type="button">Non connecté</button>
-        <!-- vérif hors connexion : scans traites depuis le cache de vérif, envois mis en attente (app.js, outbox) -->
+        <!-- vérif hors connexion : scans traites depuis le cache de vérif, envois mis en attente (web/app/offline.js, outbox) -->
         <span id="offline-chip" class="chip offline" role="status" hidden>Hors connexion</span>
       </div>
       <div class="chips">
@@ -412,6 +412,28 @@
   <script src="web/code128.js" defer></script>
   <script src="web/vendor/qrcode.js" defer></script>
   <script src="web/douchette.js" defer></script>
-  <script src="web/app.js" defer></script>
+  <script src="web/app/state.js" defer></script>
+  <script src="web/app/utils.js" defer></script>
+  <script src="web/app/offline.js" defer></script>
+  <script src="web/app/feedback.js" defer></script>
+  <script src="web/app/camera.js" defer></script>
+  <script src="web/app/scans.js" defer></script>
+  <script src="web/app/cascade.js" defer></script>
+  <script src="web/app/pin-reset.js" defer></script>
+  <script src="web/app/actions.js" defer></script>
+  <script src="web/app/render.js" defer></script>
+  <script src="web/app/home.js" defer></script>
+  <script src="web/app/login.js" defer></script>
+  <script src="web/app/live.js" defer></script>
+  <script src="web/app/notifications.js" defer></script>
+  <script src="web/app/settings.js" defer></script>
+  <script src="web/app/gestion.js" defer></script>
+  <script src="web/app/fiches.js" defer></script>
+  <script src="web/app/reports.js" defer></script>
+  <script src="web/app/lists.js" defer></script>
+  <script src="web/app/depart.js" defer></script>
+  <script src="web/app/list-detail.js" defer></script>
+  <script src="web/app/debug-codes.js" defer></script>
+  <script src="web/app/boot.js" defer></script>
 </body>
 </html>

@@ -299,7 +299,7 @@ def notify_pin_blocked(text, url):
 
 def notify_event(field, title, body, url='../', tag='', tab=''):
     """Evenement simple (renouvellement, expiration, signalement) vers les abonnements qui l'ont choisi. tab : page
-    du front web ouverte au clic quand il est deja ouvert (voir app.js)."""
+    du front web ouverte au clic quand il est deja ouvert (voir web/app/settings.js)."""
     message = {'title': title, 'body': body, 'tag': tag or field, 'url': url}
     if tab:
         message['tab'] = tab
