@@ -853,8 +853,8 @@ class VerifWindow final : public AppWindow {
       ImGui::Unindent();
     }
 
-    // Raccourci gestion / admin : sceller tout de suite un lot que la verif vient de trouver complet (ex : un lot a
-    // scelle obligatoire, rouge tant qu'il n'est pas scelle). Memes etiquettes que depuis la Gestion des lots.
+    // Raccourci gestion / admin : sceller tout de suite un lot a scelle obligatoire que la verif vient de trouver
+    // complet (rouge tant qu'il n'est pas scelle). Memes etiquettes que depuis la Gestion des lots.
     void draw_seal_shortcut(App &app, const Json &report) {
       if (!app.privileged())
         return;
@@ -864,14 +864,19 @@ class VerifWindow final : public AppWindow {
         sealed_.clear();
         seal_number_.clear();
       }
-      // lots deja scelles (scelle intact constate, ou scelle depuis) : rien a resceller
-      std::set< std::string > already;
-      for (const Json &lot : app.catalog.lots.items())
+      // lots deja scelles (scelle intact constate, ou scelle depuis) : rien a resceller. Le scelle n'est propose que
+      // pour les lots dont le type a le scelle obligatoire, donc jamais pour les rangements du stock.
+      std::set< std::string > already, sealable;
+      for (const Json &lot : app.catalog.lots.items()) {
         if (lot["is_sealed"].boolean())
           already.insert(lot["id"].str());
+        if (lot["seal_required"].boolean() && !lot["storage"].boolean())
+          sealable.insert(lot["id"].str());
+      }
       std::vector< const Json * > lots;
       for (const Json &row : report["lots"].items())
-        if (row["verified"].boolean() && row["complete"].boolean() && !row["sealed"].boolean()
+        if (sealable.count(row["id"].str()) && row["verified"].boolean() && row["complete"].boolean()
+            && !row["sealed"].boolean()
             && (!already.count(row["id"].str()) || sealed_.count(row["id"].str())))
           lots.push_back(&row);
       if (lots.empty())
