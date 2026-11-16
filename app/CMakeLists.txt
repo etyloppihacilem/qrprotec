@@ -169,6 +169,16 @@ configure_file("${QRPROTEC_ICON_HEADER}.in" "${QRPROTEC_ICON_HEADER}" COPYONLY)
 add_executable(${PROJECT_NAME}
     src/main.cpp
     src/app/app.cpp
+    src/app/app_cascade.cpp
+    src/app/app_data.cpp
+    src/app/app_offline.cpp
+    src/app/app_phone.cpp
+    src/app/app_reports.cpp
+    src/app/app_scans.cpp
+    src/app/app_session.cpp
+    src/app/app_setup.cpp
+    src/app/app_verifs.cpp
+    src/app/app_windows.cpp
     src/app/feedback.cpp
     src/app/label_prints.cpp
     src/app/poste_actions.cpp

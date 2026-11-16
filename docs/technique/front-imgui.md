@@ -71,6 +71,14 @@ rapporte ses résultats par une file lue à chaque image :
 - `verif` : la vérif en cours (lot, clé, lots ajoutés par vérif groupée) ;
 - `windows` : la liste des fenêtres.
 
+Les méthodes de `App` sont réparties par sujet : `app.cpp` (boucle principale, barre de menus, fenêtres),
+`app_offline.cpp` (cache de vérif, envois en attente), `app_windows.cpp` (rangement des fenêtres),
+`app_session.cpp` (connexion, session), `app_setup.cpp` (première configuration), `app_phone.cpp`
+(téléphone-douchette), `app_scans.cpp` (`handle_scan`), `app_verifs.cpp` (vérifs, réassort, scellés),
+`app_cascade.cpp` (vérif en cascade), `app_data.cpp` (données du serveur, impressions),
+`app_reports.cpp` (signalements, révisions). Une aide partagée entre ces fichiers se déclare dans
+`app_internal.hpp` ; la répartition des items est dans `core/verif_plan.cpp`.
+
 ### Traitement d'un scan
 
 Tous les scans (SDK, clavier HID, saisie manuelle, téléphone) arrivent dans
