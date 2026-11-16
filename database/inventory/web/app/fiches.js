@@ -5,7 +5,7 @@
 // integre), ou d'un lot / item touche dans une fiche. Pas de camera : « Lancer une vérif » ouvre le lecteur sur le
 // bon lot (le lot de la fiche, ou le dernier emplacement connu de l'item).
 
-const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set(), contentOpen: null };
+const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set(), contentOpen: null, offline: false };
 
 function ficheOpen() { return !$('#fiche').hidden; }
 
@@ -45,7 +45,7 @@ async function openFiche(kind, id, { key = '', seal = '', push = true, label = f
     if (key) storeFicheKey(id, key); else key = storedFicheKey(id);
   }
   const token = fiche.token + 1;
-  Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set(), contentOpen: null });
+  Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set(), contentOpen: null, offline: false });
   if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id, seal));
   $('#fiche').hidden = false;
   document.body.classList.add('fiche-open');
@@ -75,9 +75,27 @@ async function openFiche(kind, id, { key = '', seal = '', push = true, label = f
     }
   } catch (e) {
     if (fiche.token !== token) return;
-    fiche.error = e.status === 404 ? (kind === 'lot' ? 'Lot introuvable' : 'Item inconnu dans la base') : e.message;
+    const copy = e.status === 0 && !seal ? await offlineFiche(kind, id, key) : null;
+    if (fiche.token !== token) return;
+    if (copy) Object.assign(fiche, copy);
+    else fiche.error = e.status === 404 ? (kind === 'lot' ? 'Lot introuvable' : 'Item inconnu dans la base') : e.message;
   }
   renderFiche();
+}
+
+// Hors connexion (etiquette scannee dans la reserve, appli ouverte sans reseau) : fiche tiree du cache de vérif,
+// pour pouvoir lancer la vérif quand meme. L'etiquette cle est acceptee, le serveur la controle a l'envoi de la
+// vérif (keyAccepted). Le scelle, lui, reste controle par le serveur : pas de fiche hors connexion.
+async function offlineFiche(kind, id, key) {
+  await vcache.ready();
+  if (kind === 'item') {
+    const item = vcache.item(id);
+    return item ? { item, offline: true } : null;
+  }
+  const root = vcache.rootOf(id);
+  const tree = root ? vcache.lot(root) : null;
+  const lot = !tree ? null : root === id ? tree : (tree.descendants || []).find((row) => row.id === id);
+  return lot ? { lot, offline: true, keyCheck: key ? 'valid' : '' } : null;
 }
 
 function closeFiche() {
@@ -188,6 +206,11 @@ function renderFiche() {
   else {
     body.replaceChildren(el('p', { class: 'sub' }, 'Chargement…'));
     launch.disabled = true;
+  }
+  if (fiche.offline && (fiche.lot || fiche.item)) {
+    const when = fmtOn(new Date(vcache.syncedAt()).toISOString());
+    body.prepend(el('div', { class: 'banner warn' }, el('b', {}, 'Hors connexion'),
+      el('div', {}, `Fiche de la dernière mise à jour, ${when}. La vérif peut se faire : elle sera envoyée au retour du réseau.`)));
   }
 }
 

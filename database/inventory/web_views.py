@@ -14,6 +14,8 @@ La page repond aux URLs encodees dans les QR codes (verif?lot=..., badge?m=..., 
 une etiquette avec l'appareil photo du telephone ouvre directement la bonne vue.
 """
 
+import hashlib
+import json
 from pathlib import Path
 
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseNotModified
@@ -142,6 +144,41 @@ def robots_txt(request):
 def favicon(request):
     # demande d'office par les navigateurs a la racine du site
     return _file(request, WEB_DIR / 'favicon.png', 'image/png', 'max-age=86400')
+
+
+# Pages de l'appli (URLs des QR codes) : toutes servent index.html. Hors connexion, le service worker de l'appli
+# (app-sw.js) repond a chacune avec la copie gardee de la page.
+PAGES = ('', 'verif', 'badge', 'item', 'task', 'liste', 'pack', 'seal', 'unseal', 'pinreset')
+
+
+def offline_files():
+    """Fichiers gardes par le telephone pour ouvrir l'appli sans reseau : la page et tout ASSETS (sauf le service
+    worker des notifications). Un nouveau fichier du front n'a qu'a etre ajoute a ASSETS."""
+    return ['./'] + [f'web/{name}' for name in ASSETS if name != 'sw.js']
+
+
+def offline_version():
+    """Empreinte de la version du front (date et taille de chaque fichier, comme l'ETag, et reglage des codes-barres
+    qui change la page) : une mise a jour du paquet change le service worker, qui recharge alors tous les fichiers."""
+    digest = hashlib.sha256(str(ServerSettings.get().web_barcodes).encode())
+    for name in ['index.html', 'app-sw.js', *ASSETS]:
+        stat = (WEB_DIR / name).stat()
+        digest.update(f'{name}:{int(stat.st_mtime)}:{stat.st_size};'.encode())
+    return digest.hexdigest()[:16]
+
+
+def app_service_worker(request):
+    """Service worker de l'appli (web/app-sw.js), a la racine pour que sa portee couvre toutes les pages. Version et
+    liste des fichiers ecrites dedans : le navigateur le relit a chaque ouverture et le voit changer a chaque mise a
+    jour du front."""
+    script = (WEB_DIR / 'app-sw.js').read_text(encoding='utf-8')
+    script = script.replace("'__VERSION__'", json.dumps(offline_version()))
+    script = script.replace("['__FILES__']", json.dumps(offline_files()))
+    script = script.replace("['__PAGES__']", json.dumps(list(PAGES)))
+    response = HttpResponse(script, content_type='text/javascript; charset=utf-8')
+    response['Cache-Control'] = 'no-cache'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 def asset(request, name):

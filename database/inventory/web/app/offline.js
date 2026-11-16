@@ -5,6 +5,7 @@
 // et ce qui doit aller au serveur (vérif, etape de la vérif en cascade, scelle intact) attend dans une file gardee sur
 // le telephone (outbox), renvoyee dans l'ordre des le retour du reseau. Une petite mention le dit en haut du scanner.
 const STORAGE_OUTBOX = 'qrprotec.outbox';
+const APP_CACHE_AGE = 10 * 60 * 1000; // a l'ouverture de l'appli, cache de vérif remis a jour s'il a plus de 10 min
 let offline = false;
 let maintenance = false; // derniere reponse : 503 de la maintenance (mention « Maintenance en cours »)
 let outbox = [];
@@ -126,12 +127,51 @@ async function api(path, body) {
 }
 
 // ------------------------------------------------------------------------------------------------
+// Donnees gardees sur le telephone pour ouvrir l'appli sans reseau (IndexedDB : plus de place que localStorage,
+// sans bloquer la page). Une seule entree : le cache de vérif. Navigation privee ou stockage refuse : rien de garde.
+const savedCache = (() => {
+  const DB = 'qrprotec';
+  const STORE = 'cache';
+  const KEY = 'vcache';
+  let opening = null;
+  function open() {
+    if (!opening) {
+      opening = new Promise((resolve, reject) => {
+        if (!window.indexedDB) { reject(new Error('IndexedDB indisponible')); return; }
+        const request = indexedDB.open(DB, 1);
+        request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      opening.catch(() => { opening = null; });
+    }
+    return opening;
+  }
+  async function run(mode, action) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, mode);
+      const request = action(tx.objectStore(STORE));
+      tx.oncomplete = () => resolve(request.result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+  return {
+    load: () => run('readonly', (store) => store.get(KEY)),
+    save: (value) => run('readwrite', (store) => store.put(value, KEY)),
+  };
+})();
+
+// ------------------------------------------------------------------------------------------------
 // Cache de vérif (verif_cache.py) : une partie de la reserve n'a ni reseau ni wifi. Des l'ouverture du scanner, le
 // detail de tous les lots, de tous les items qu'on peut scanner, des paquets fermes et de tous les types d'items
 // est charge en arriere-plan ; chaque scan se traite aussitot depuis ce cache (bip, signalement, desactivation, lot
 // ou l'item est range), puis le serveur confirme en arriere-plan et seule une difference est signalee. Les
 // enregistrements (« i:iid », « l:lot global », « p:paquet », « t:type ») sont repartis en seaux : on envoie
 // l'empreinte de chaque seau, le serveur ne renvoie que les seaux changes. Jamais de cle de lot ni de code de scelle.
+// Le cache est aussi garde sur le telephone (IndexedDB) : l'appli ouverte sans reseau (service worker app-sw.js)
+// retrouve celui de la derniere mise a jour et la vérif se fait quand meme.
 const vcache = (() => {
   const records = new Map();
   const hashes = {}; // seau -> empreinte
@@ -140,6 +180,18 @@ const vcache = (() => {
   let loading = null;
   let syncedAt = 0;
   const listeners = [];
+  const restoring = savedCache.load().then((saved) => {
+    if (!saved || syncedAt || !saved.records) return;
+    for (const [key, value] of saved.records) records.set(key, value);
+    Object.assign(hashes, saved.hashes || {});
+    Object.assign(keysOf, saved.keysOf || {});
+    syncedAt = saved.syncedAt || 1;
+    lotRoots = null;
+  }).catch(() => {});
+
+  function save() {
+    savedCache.save({ records: [...records], hashes, keysOf, syncedAt }).catch(() => { /* stockage indisponible */ });
+  }
   const clone = (value) => (value == null ? null : JSON.parse(JSON.stringify(value)));
 
   function apply(body) {
@@ -165,11 +217,13 @@ const vcache = (() => {
   function sync() {
     if (loading) return loading;
     loading = (async () => {
+      await restoring;
       const first = !syncedAt;
       try {
         const body = await api('verifs/cache/', { buckets: hashes });
         syncedAt = Date.now();
         const changed = apply(body);
+        save(); // meme sans changement : date de la derniere mise a jour
         if (!first && changed.length) for (const listener of listeners) listener(changed);
         return true;
       } catch (e) {
@@ -204,6 +258,7 @@ const vcache = (() => {
 
   return {
     sync,
+    ready: () => restoring, // cache garde sur le telephone relu (ouverture de l'appli hors connexion)
     // charge au plus toutes les `age` ms (0 : maintenant), sans attendre
     refresh(age = 0) { if (!loading && Date.now() - syncedAt >= age) sync(); },
     loaded: () => syncedAt > 0,

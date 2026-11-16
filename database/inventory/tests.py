@@ -1350,6 +1350,36 @@ class WebFrontTests(ApiTestCase):
             self.assertEqual(self.client.get(url).status_code, 200, url)
         self.assertEqual(self.client.get('/favicon.ico')['Content-Type'], 'image/png')
 
+    def test_app_service_worker_offline(self):
+        """Appli ouverte sans reseau : service worker a la racine (portee = tout le site), version et liste des
+        fichiers ecrites dedans, chaque fichier liste est servi, toutes les pages de l'appli couvertes."""
+        import json
+        import re
+        from .models import ServerSettings
+        from .web_views import ASSETS, PAGES
+        response = self.client.get('/app-sw.js')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['Content-Type'].startswith('text/javascript'))
+        self.assertEqual(response['Cache-Control'], 'no-cache')
+        script = response.content.decode()
+        self.assertNotIn('__VERSION__', script)
+        files = json.loads(re.search(r'^const FILES = (.*);$', script, re.M).group(1))
+        pages = json.loads(re.search(r'^const PAGES = (.*);$', script, re.M).group(1))
+        version = re.search(r'^const VERSION = "([0-9a-f]+)";$', script, re.M).group(1)
+        self.assertEqual(pages, list(PAGES))
+        self.assertIn('./', files)
+        self.assertNotIn('web/sw.js', files)  # service worker des notifications : a part
+        self.assertEqual(set(files), {'./'} | {f'web/{name}' for name in ASSETS if name != 'sw.js'})
+        for path in files:
+            self.assertEqual(self.client.get('/' + path.removeprefix('./')).status_code, 200, path)
+        for page in PAGES:
+            self.assertEqual(self.client.get('/' + page).status_code, 200, page)
+        # reglage qui change la page : nouvelle version, le telephone recharge tout
+        settings = ServerSettings.get()
+        settings.web_barcodes = not settings.web_barcodes
+        settings.save()
+        self.assertNotIn(version, self.client.get('/app-sw.js').content.decode())
+
     def test_robots_no_index(self):
         from pathlib import Path
         response = self.client.get('/robots.txt')
