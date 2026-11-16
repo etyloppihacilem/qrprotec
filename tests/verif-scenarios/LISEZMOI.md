@@ -6,7 +6,7 @@ dossier est un cas de vérif, que les trois jouent et dont ils doivent donner le
 
 | Côté | Code joué | Lancer |
 |---|---|---|
-| Serveur | `services.assign_items`, `services._complete_lots`, `services.perform_verif` | `python manage.py test inventory.tests.VerifScenariosTests` |
+| Serveur | `services.assign_items`, `services._complete_lots`, `services.perform_verif` | `python manage.py test inventory.tests.test_verif_scenarios` |
 | Front web | `planVerif` (`database/inventory/web/app/verif-plan.js`) | `node --test tests/verif-scenarios/web.test.js` (aussi lancé par le test Django si `node` est installé) |
 | Poste | `plan_verif`, `discard_check` (`app/src/core/verif_plan.cpp`) | `ctest` (`QRProtecVerifScenariosTest`) |
 

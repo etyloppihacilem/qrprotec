@@ -44,7 +44,7 @@ ces parties. Une borne installée avec l'ancien paquet unique passe aux nouveaux
 
 ## Ce qui est embarqué
 
-- **Back** : `database/` copié dans `/usr/share/qrprotec/backend` (sans `tests.py`), dépendances
+- **Back** : `database/` copié dans `/usr/share/qrprotec/backend` (sans `inventory/tests/`), dépendances
   Python (Django, DRF, asgiref, sqlparse) dans `/usr/share/qrprotec/vendor`, compilées en `.pyc`. Les
   versions sont celles de `poetry.lock`. `vendor-macros.py` en tire `qrprotec-vendor.macros`
   (Source4), que le spec charge pour ses `Provides: bundled(...)` : rien à changer dans le spec après

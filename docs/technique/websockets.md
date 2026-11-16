@@ -16,7 +16,7 @@ Fichiers concernés :
 | `database/inventory/views/public.py` | `verifs` (`POST /api/verifs/`) : envoi d'une vérif avec `live`, appels à `hub.verif_team`, `hub.step`, `hub.finish` ; `verif_lots`, `key_holders`, `require_label`. |
 | `database/inventory/idendity.py` | `anonymized()`, `identity_name()` : noms courts affichés aux téléphones. |
 | `database/inventory/web/app/live.js` (et `actions.js`) | Client : module `live` (page de scan), `watch*` (page de suivi), `validate`, `teamStep`, `teamReport`, `liveSnapshot`, `allScanned`. |
-| `database/inventory/tests.py` | `LiveHubTests` avec un `FakeSocket`. |
+| `database/inventory/tests/test_live.py` | `LiveHubTests` avec un `FakeSocket`. |
 
 Le **front poste (ImGui) n'utilise pas ces WebSockets** : sa vérif, y compris en cascade, reste
 locale au poste et n'apparaît pas dans le suivi en direct. Seul le front web publie et suit. Le seul
@@ -470,7 +470,7 @@ Le test `test_live_names_are_anonymized` vérifie les deux formes.
 
 ## Tests
 
-`LiveHubTests` (`tests.py`) instancie un `LiveHub` neuf par test et le pilote avec `FakeSocket` (file
+`LiveHubTests` (`tests/test_live.py`) instancie un `LiveHub` neuf par test et le pilote avec `FakeSocket` (file
 de messages à recevoir, liste des messages envoyés ; `None` simule la fermeture), chaque connexion
 dans son thread. `badge_identity` et `public_name` sont remplacés par des faux pour ne pas toucher la
 base de test depuis ces threads ; `mock.patch.object(live, 'hub', self.hub)` branche le hub de test
