@@ -1,5 +1,5 @@
 // Scenarios de vérif communs (tests/verif-scenarios/*.json), joues par le poste : plan_verif et discard_check de
-// src/core/verif_plan.cpp. Le serveur (database/inventory/tests.py, VerifScenariosTests) et le front web
+// src/core/verif_plan.cpp. Le serveur (database/inventory/tests/test_verif_scenarios.py) et le front web
 // (tests/verif-scenarios/web.test.js) jouent les memes fichiers : voir tests/verif-scenarios/LISEZMOI.md.
 #include "../src/core/codes.hpp"
 #include "../src/core/json.hpp"

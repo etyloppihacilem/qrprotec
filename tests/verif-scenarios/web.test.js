@@ -2,7 +2,7 @@
  *
  *   node --test tests/verif-scenarios/web.test.js      (aussi lance par manage.py test : VerifScenariosTests)
  *
- * Le serveur (database/inventory/tests.py, VerifScenariosTests) et le poste (app/tests/verif_scenarios_test.cpp)
+ * Le serveur (database/inventory/tests/test_verif_scenarios.py) et le poste (app/tests/verif_scenarios_test.cpp)
  * jouent les memes fichiers *.json : voir LISEZMOI.md.
  */
 'use strict';

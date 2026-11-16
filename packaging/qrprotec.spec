@@ -231,7 +231,7 @@ fi
 # --- Back : projet Django + dependances embarquees ---------------------------------------------
 install -d %{buildroot}%{appdir}/backend
 cp -a database/manage.py database/qrprotecDB database/inventory %{buildroot}%{appdir}/backend/
-rm -f %{buildroot}%{appdir}/backend/inventory/tests.py
+rm -rf %{buildroot}%{appdir}/backend/inventory/tests
 cp -a vendor %{buildroot}%{appdir}/vendor
 find %{buildroot}%{appdir} -name __pycache__ -type d -prune -exec rm -rf {} +
 # Rien n'est execute directement (manage.py est lance par qrprotec-manage via python3)

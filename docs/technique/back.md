@@ -21,7 +21,7 @@ Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la
 | `inventory/live.py` | Suivi des vérifs en direct (WebSocket) | Protocole décrit en tête de fichier. |
 | `inventory/web_views.py`, `web/` | Front web | Liste blanche des fichiers servis. |
 | `inventory/management/commands/` | `serve`, `createadmin`, `check_alerts` | |
-| `inventory/tests.py` | Tests | `python manage.py test inventory` |
+| `inventory/tests/` | Tests, un fichier `test_*.py` par sujet (aides communes dans `base.py`) | `python manage.py test inventory` |
 
 ## Les trois API
 
@@ -225,7 +225,7 @@ rôles qui le reçoivent et sa valeur par défaut. Un admin coupe des types par 
 et que l'utilisateur puisse le recevoir (`PushSubscription.wants`). `push/devices/` liste les appareils
 de l'utilisateur connecté (nom tiré du User-Agent), `push/devices/<id>/` change leurs alertes ou les
 retire. Un abonnement refusé (404/410) par le service du
-navigateur est supprimé. Tests avec le vecteur de la RFC 8291 dans `tests.py`.
+navigateur est supprimé. Tests avec le vecteur de la RFC 8291 dans `tests/test_notifications.py`.
 
 ## Relais WebSocket (téléphone-douchette)
 

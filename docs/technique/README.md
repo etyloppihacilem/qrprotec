@@ -46,7 +46,7 @@ qrprotec/
 │       ├── web/              front web (HTML/JS/CSS sans framework, zxing-wasm et jsQR fournis)
 │       ├── management/commands/  serve, createadmin, check_alerts
 │       ├── migrations/
-│       └── tests.py
+│       └── tests/            tests du back, un fichier test_*.py par sujet (aides : base.py)
 ├── app/                      front poste ImGui (C++17, CMake)
 │   ├── src/core/             sans interface : JSON, dates et QR codes, modèles d'étiquettes
 │   ├── src/net/              HTTP, client d'API asynchrone, WebSocket

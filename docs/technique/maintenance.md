@@ -43,7 +43,7 @@ refuse aussi la clé de développement du dépôt (le paquet génère la sienne 
    français).
 5. Fronts : `app/src/ui/windows/…` (lecture tolérante `json["champ"].str()`), `web/app/*.js`.
 6. Si c'est une valeur d'étiquette : voir « Ajouter un placeholder ».
-7. Test dans `inventory/tests.py`, puis README racine si c'est visible de l'utilisateur.
+7. Test dans `inventory/tests/` (le fichier `test_*.py` du sujet, aides dans `base.py`), puis README racine si c'est visible de l'utilisateur.
 
 ## Ajouter une route d'API
 
