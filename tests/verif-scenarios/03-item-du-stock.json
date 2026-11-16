@@ -1,0 +1,59 @@
+{
+  "description": "Une compresse manque au sac ; une compresse du stock, scannee apres l'etiquette du sac, le complete.",
+  "types": {
+    "compre": {},
+    "garrot": {
+      "perissable": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 2,
+        "garrot": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "g1",
+          "type": "garrot"
+        }
+      ]
+    }
+  ],
+  "elsewhere": [
+    {
+      "id": "c9",
+      "type": "compre"
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1",
+      "place": "sac"
+    },
+    {
+      "item": "g1",
+      "place": "sac"
+    },
+    {
+      "item": "c9",
+      "place": "sac"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac",
+      "g1": "sac",
+      "c9": "sac"
+    },
+    "complete": [
+      "sac"
+    ],
+    "discard": []
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "description": "Un pansement a etiquette a dechirer non scanne a ete utilise : il ne retient pas le sac.",
+  "types": {
+    "compre": {},
+    "pansdc": {
+      "tear_off": true
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "p1",
+          "type": "pansdc"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac"
+    },
+    "complete": [
+      "sac"
+    ],
+    "discard": []
+  }
+}

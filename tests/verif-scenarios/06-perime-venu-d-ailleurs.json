@@ -1,0 +1,71 @@
+{
+  "description": "Une compresse perimee du stock scannee dans le sac : elle n'y entre pas, a jeter.",
+  "types": {
+    "compre": {},
+    "garrot": {
+      "perissable": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 2,
+        "garrot": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "c2",
+          "type": "compre"
+        },
+        {
+          "id": "g1",
+          "type": "garrot"
+        }
+      ]
+    }
+  ],
+  "elsewhere": [
+    {
+      "id": "cx",
+      "type": "compre",
+      "expired": true
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1",
+      "place": "sac"
+    },
+    {
+      "item": "c2",
+      "place": "sac"
+    },
+    {
+      "item": "g1",
+      "place": "sac"
+    },
+    {
+      "item": "cx",
+      "place": "sac"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac",
+      "c2": "sac",
+      "g1": "sac",
+      "cx": "sac"
+    },
+    "complete": [
+      "sac"
+    ],
+    "discard": [
+      "cx"
+    ]
+  }
+}

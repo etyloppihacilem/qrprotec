@@ -1,0 +1,65 @@
+{
+  "description": "Le sac a ses 2 compresses fraiches plus une perimee : elle est a jeter, le sac est complet sans elle.",
+  "types": {
+    "compre": {},
+    "garrot": {
+      "perissable": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 2,
+        "garrot": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "c2",
+          "type": "compre"
+        },
+        {
+          "id": "cx",
+          "type": "compre",
+          "expired": true
+        },
+        {
+          "id": "g1",
+          "type": "garrot"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    },
+    {
+      "item": "c2"
+    },
+    {
+      "item": "cx"
+    },
+    {
+      "item": "g1"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac",
+      "c2": "sac",
+      "cx": "sac",
+      "g1": "sac"
+    },
+    "complete": [
+      "sac"
+    ],
+    "discard": [
+      "cx"
+    ]
+  }
+}

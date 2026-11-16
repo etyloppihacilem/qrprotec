@@ -3014,27 +3014,6 @@ std::string key_hint(const Json &lot) {
          (location.empty() ? std::string(".") : " (" + location + ").");
 }
 
-std::vector< std::pair< std::string, int > > row_weights(const Json &requirements, const std::string &type) {
-  std::vector< std::pair< std::string, int > > result;
-  for (const Json &row : requirements.items()) {
-    if (row["check"].boolean())
-      continue;
-    if (row["type"].str() == type)
-      result.emplace_back(type, 1);
-    else if (row["fills"].contains(type))
-      result.emplace_back(row["type"].str(), std::max(1, row["fills"][type].integer(1)));
-  }
-  return result;
-}
-
-std::pair< std::string, int > main_row(const std::vector< std::pair< std::string, int > > &weights,
-                                       const std::string                                &type) {
-  for (const auto &weight : weights)
-    if (weight.first != type)
-      return weight;
-  return { type, 1 };
-}
-
 std::string display_row(const Json &requirements, const std::string &type) {
   const auto weights = row_weights(requirements, type);
   for (const auto &weight : weights)
@@ -3275,68 +3254,8 @@ std::vector< VerifPlanLot > App::plan_verif() const {
                               return intact.count((*lot)["id"].str()) > 0 || verif.done.count((*lot)["id"].str()) > 0;
                             }),
              lots.end());
-  std::vector< VerifPlanLot >       plan;
-  std::map< std::string, std::size_t > index;          // id du lot -> position dans plan
-  std::map< std::string, std::string > location_of;    // iid connu -> lot
-  std::map< std::string, std::map< std::string, int > > required, deficit;
-  std::set< std::string >              holding;        // lots dont des items connus n'ont pas ete scannes
-  std::set< std::string >              unticked;       // lots dont un item a cocher ne l'est pas
-  const std::vector< std::string >     scanned = stack.iids();
-  const std::set< std::string >        done(scanned.begin(), scanned.end());
-  std::map< std::string, const Json * > rows_of; // attendus de chaque lot (types a unites : row_weights)
-  for (const Json *lot : lots) {
-    const std::string id = (*lot)["id"].str();
-    rows_of[id]          = &(*lot)["requirements"];
-    index[id]            = plan.size();
-    plan.push_back({ lot, (*lot)["depth"].integer() });
-    for (const char *list : { "items", "missing_items" })
-      for (const Json &item : (*lot)[list].items()) {
-        location_of[item["iid"].str()] = id;
-        // un item a etiquette a dechirer non scanne a ete utilise, un item non consommable non scanne d'un lot
-        // ordinaire passe hors lot (services.leaves_lot), un item facultatif reste ou il etait : ils ne retiennent
-        // pas le lot
-        if (!done.count(item["iid"].str()) && !item["tear_off"].boolean() && !item["optional"].boolean()
-            && (item["consumable"].boolean(true) || (*lot)["storage"].boolean()))
-          holding.insert(id);
-      }
-    for (const Json &row : (*lot)["requirements"].items()) {
-      if (row["check"].boolean()) { // item a cocher : jamais scanne, coche a la main
-        if (row["required"].integer() > 0 && !verif_checked(id, row["type"].str()))
-          unticked.insert(id);
-        continue;
-      }
-      required[id][row["type"].str()] = row["required"].integer();
-    }
-    deficit[id] = required[id];
-  }
-  if (plan.empty())
-    return plan;
-  // attendus du lot que remplit un item de ce type, en unites pour un type a unites (200 mL de serum phy)
-  const auto weights_in = [&](const std::string &id, const std::string &type) {
-    std::vector< std::pair< std::string, int > > result;
-    for (const auto &weight : row_weights(*rows_of[id], type))
-      if (required[id].count(weight.first))
-        result.push_back(weight);
-    return result;
-  };
-  // l'item remplit un manque du lot : il y est compte
-  const auto take = [&](const std::string &id, const std::string &type) {
-    const auto weights = weights_in(id, type);
-    bool       useful  = false;
-    for (const auto &weight : weights)
-      useful = useful || deficit[id][weight.first] > 0;
-    if (!useful)
-      return false;
-    for (const auto &weight : weights)
-      deficit[id][weight.first] -= weight.second;
-    return true;
-  };
-  struct Scanned {
-      std::string iid, type, place;
-      bool        expired = false;
-  };
-  // lot de la derniere etiquette scannee avant chaque item, et lot parent de chaque lot de la verif
-  std::map< std::string, std::string > place_of, parent_of;
+  // lot de la derniere etiquette scannee avant chaque item
+  std::map< std::string, std::string > place_of;
   for (const ScanEntry &entry : stack.entries()) {
     if (entry.place.empty())
       continue;
@@ -3346,23 +3265,7 @@ std::vector< VerifPlanLot > App::plan_verif() const {
       for (const std::string &iid : entry.pack_items)
         place_of.emplace(iid, entry.place);
   }
-  for (const Json *lot : lots) {
-    const Json &path = (*lot)["path"];
-    parent_of[(*lot)["id"].str()] =
-      !(*lot)["parent"].str().empty() ? (*lot)["parent"].str()
-                                      : (path.size() > 0 ? path[path.size() - 1]["id"].str() : std::string());
-  }
-  const auto under = [&](std::string id, const std::string &place) {
-    for (int guard = 0; !id.empty() && guard < 64; ++guard) {
-      if (id == place)
-        return true;
-      const auto found = parent_of.find(id);
-      id               = found == parent_of.end() ? std::string() : found->second;
-    }
-    return false;
-  };
-  const Date              today = this->today();
-  // items signales inutilisables (signalement ouvert) ou desactives : a remplacer comme des perimes
+  // items signales inutilisables (signalement ouvert) ou desactives au scan : a remplacer comme des perimes
   std::set< std::string > unusable;
   for (const ScanEntry &entry : stack.entries()) {
     if (entry.scan.kind == ScanKind::SealedPack) {
@@ -3372,90 +3275,15 @@ std::vector< VerifPlanLot > App::plan_verif() const {
     } else if (entry.data["unusable"].boolean() || entry.data["disabled"].boolean())
       unusable.insert(entry.scan.id);
   }
-  for (const Json *lot : lots)
-    for (const Json &item : (*lot)["items"].items())
-      if (item["unusable"].boolean() || item["disabled"].boolean())
-        unusable.insert(item["iid"].str());
-  std::vector< Scanned >  newcomers;
-  std::map< std::string, std::string > target;
-  std::vector< Scanned >  all;
-  // vérif en cascade : un item scanne hors de son lot (dans un lot qui ne le contient pas) y a ete trouve, il y va
-  const bool cascade = verif_cascade();
-  for (const std::string &iid : scanned) {
+  const Date                   today = this->today();
+  std::vector< VerifPlanScan > scanned;
+  for (const std::string &iid : stack.iids()) {
     const ParsedScan parsed = parse_scan(iid);
-    const auto       place = place_of.find(iid);
-    Scanned item{ iid, parsed.item_type, place == place_of.end() ? std::string() : place->second,
-                  is_expired(parsed, today) || unusable.count(iid) > 0 };
-    all.push_back(item);
-    if (const auto found = location_of.find(iid);
-        found != location_of.end() && (!cascade || item.place.empty() || under(found->second, item.place))) {
-      target[iid] = found->second;
-      if (!item.expired)
-        take(found->second, item.type);
-    } else {
-      newcomers.push_back(item);
-    }
+    const auto       place  = place_of.find(iid);
+    scanned.push_back({ iid, parsed.item_type, place == place_of.end() ? std::string() : place->second,
+                        is_expired(parsed, today) || unusable.count(iid) > 0 });
   }
-  std::sort(newcomers.begin(), newcomers.end(), [](const Scanned &a, const Scanned &b) {
-    return a.expired != b.expired ? !a.expired : a.iid < b.iid;
-  });
-  for (const Scanned &item : newcomers) {
-    const bool                 placed = index.count(item.place) > 0;
-    std::vector< std::string > scope, candidates;
-    for (const VerifPlanLot &row : plan) {
-      const std::string id = (*row.lot)["id"].str();
-      if (placed && !under(id, item.place))
-        continue;
-      scope.push_back(id);
-      if (!weights_in(id, item.type).empty())
-        candidates.push_back(id);
-    }
-    std::string choice;
-    if (!item.expired)
-      for (const std::string &id : candidates)
-        if (take(id, item.type)) {
-          choice = id;
-          break;
-        }
-    if (choice.empty())
-      choice = candidates.empty() ? scope.front() : candidates.front();
-    target[item.iid] = choice;
-  }
-  for (const Scanned &item : all) {
-    const std::string id  = target[item.iid];
-    VerifPlanLot     &row = plan[index[id]];
-    ++row.touched;
-    row.iids.insert(item.iid);
-    const auto found  = location_of.find(item.iid);
-    const bool inside = found != location_of.end() && found->second == id;
-    if (item.expired) {
-      if (!inside)
-        row.outsiders.insert(item.iid);
-      continue;
-    }
-    // par attendu, en unites pour un type a unites (le sous-type compte aussi pour lui-meme)
-    auto weights = weights_in(id, item.type);
-    if (weights.empty())
-      weights.emplace_back(item.type, 1);
-    for (const auto &weight : weights)
-      row.fresh[weight.first] += weight.second;
-    if (!inside) {
-      const auto main = main_row(weights, item.type);
-      row.added[main.first] += main.second;
-    }
-  }
-  for (VerifPlanLot &row : plan) {
-    const std::string id = (*row.lot)["id"].str();
-    row.required         = required[id];
-    // seul compte le minimum d'items frais : un perime en trop ne retient pas le lot (il est retire, a jeter)
-    bool filled = !unticked.count(id);
-    for (const auto &[type, quantity] : required[id])
-      filled = filled && row.fresh[type] >= quantity;
-    // rangement du stock : ses items sont ses attendus, complet seulement si tous sont scannes
-    const bool storage = (*row.lot)["storage"].boolean();
-    row.complete = filled && (storage ? !holding.count(id) : (row.touched > 0 || !holding.count(id)));
-  }
-  return plan;
+  return qrprotec::plan_verif(lots, scanned, verif.checked, verif_cascade());
 }
 
 // Perime, inutilisable ou desactive (pas une revision en retard) : la verif le retire du lot, a jeter, des que le lot
@@ -3464,24 +3292,14 @@ std::vector< VerifPlanLot > App::plan_verif() const {
 std::string App::discard_advice(const Json &item) const {
   if (!item["outdated"].boolean() && !item["unusable"].boolean() && !item["disabled"].boolean())
     return {};
-  const std::string iid  = item["iid"].str();
-  std::string       type = parse_scan(iid).item_type;
-  int               need = 0, have = 0;
-  for (const VerifPlanLot &row : plan_verif())
-    if (row.iids.count(iid)) {
-      if (row.outsiders.count(iid))
-        return item["type_name"].str() + " : ne le mettez pas dans le lot, jetez-le.";
-      // type a unites : besoin et frais en unites de son attendu (200 mL de serum phy)
-      type                = main_row(row_weights((*row.lot)["requirements"], type), type).first;
-      const auto required = row.required.find(type);
-      const auto fresh    = row.fresh.find(type);
-      need                = required == row.required.end() ? 0 : required->second;
-      have                = fresh == row.fresh.end() ? 0 : fresh->second;
-    }
-  if (have >= need)
+  const std::string  iid   = item["iid"].str();
+  const DiscardCheck check = discard_check(plan_verif(), iid, parse_scan(iid).item_type);
+  if (check.outsider)
+    return item["type_name"].str() + " : ne le mettez pas dans le lot, jetez-le.";
+  if (check.have >= check.need)
     return item["type_name"].str() + " : retirez-le du lot et jetez-le, le lot a son compte sans lui.";
   return item["type_name"].str() + " : à remplacer, jetez-le dès qu'un item non périmé le remplace (non "
-         + pl(need, "périmé") + " : " + std::to_string(have) + "/" + std::to_string(need) + ").";
+         + pl(check.need, "périmé") + " : " + std::to_string(check.have) + "/" + std::to_string(check.need) + ").";
 }
 
 std::vector< const Json * > App::partial_verif_lots() const {

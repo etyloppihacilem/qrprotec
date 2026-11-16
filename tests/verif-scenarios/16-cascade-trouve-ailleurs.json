@@ -1,0 +1,68 @@
+{
+  "description": "Compresse du sac de soin scannee pendant le sac O2 : on l'a trouvee la, elle va au sac O2 (en trop) et manque au sac de soin.",
+  "types": {
+    "compre": {},
+    "masque": {}
+  },
+  "lots": [
+    {
+      "id": "bplus"
+    },
+    {
+      "id": "soin",
+      "parent": "bplus",
+      "requirements": {
+        "compre": 2
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "c2",
+          "type": "compre"
+        }
+      ]
+    },
+    {
+      "id": "o2",
+      "parent": "bplus",
+      "requirements": {
+        "masque": 1
+      },
+      "items": [
+        {
+          "id": "m1",
+          "type": "masque"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1",
+      "place": "soin"
+    },
+    {
+      "item": "m1",
+      "place": "o2"
+    },
+    {
+      "item": "c2",
+      "place": "o2"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "soin",
+      "m1": "o2",
+      "c2": "o2"
+    },
+    "complete": [
+      "bplus",
+      "o2"
+    ],
+    "discard": []
+  }
+}

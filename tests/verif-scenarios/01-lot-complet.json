@@ -1,0 +1,54 @@
+{
+  "description": "Un sac et tout son contenu scanne : chaque item reste dans le sac, complet.",
+  "types": {
+    "compre": {},
+    "garrot": {
+      "perissable": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 2,
+        "garrot": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "c2",
+          "type": "compre"
+        },
+        {
+          "id": "g1",
+          "type": "garrot"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    },
+    {
+      "item": "c2"
+    },
+    {
+      "item": "g1"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac",
+      "c2": "sac",
+      "g1": "sac"
+    },
+    "complete": [
+      "sac"
+    ],
+    "discard": []
+  }
+}

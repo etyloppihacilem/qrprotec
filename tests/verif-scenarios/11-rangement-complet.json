@@ -1,0 +1,40 @@
+{
+  "description": "Rangement du stock dont tous les items sont scannes : complet.",
+  "types": {
+    "compre": {}
+  },
+  "lots": [
+    {
+      "id": "tiroir",
+      "storage": true,
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "c2",
+          "type": "compre"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    },
+    {
+      "item": "c2"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "tiroir",
+      "c2": "tiroir"
+    },
+    "complete": [
+      "tiroir"
+    ],
+    "discard": []
+  }
+}

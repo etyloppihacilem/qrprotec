@@ -1,0 +1,42 @@
+{
+  "description": "Des ciseaux (non consommables) non scannes ne retiennent pas le sac : ils passeront hors lot.",
+  "types": {
+    "compre": {},
+    "ciseau": {
+      "perissable": false,
+      "consumable": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "s1",
+          "type": "ciseau"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac"
+    },
+    "complete": [
+      "sac"
+    ],
+    "discard": []
+  }
+}

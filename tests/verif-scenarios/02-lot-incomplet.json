@@ -1,0 +1,48 @@
+{
+  "description": "Une compresse du sac n'est pas scannee : le sac reste incomplet.",
+  "types": {
+    "compre": {},
+    "garrot": {
+      "perissable": false
+    }
+  },
+  "lots": [
+    {
+      "id": "sac",
+      "requirements": {
+        "compre": 2,
+        "garrot": 1
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "c2",
+          "type": "compre"
+        },
+        {
+          "id": "g1",
+          "type": "garrot"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    },
+    {
+      "item": "g1"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "sac",
+      "g1": "sac"
+    },
+    "complete": [],
+    "discard": []
+  }
+}

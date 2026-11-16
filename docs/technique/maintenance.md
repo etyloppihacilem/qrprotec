@@ -63,11 +63,14 @@ refuse aussi la clé de développement du dépôt (le paquet génère la sienne 
 ## Modifier une règle de vérif ou de répartition
 
 1. `services.py` (`perform_verif`, `assign_items`, `_complete_lots`, `requirements_status`).
-2. **Les deux aperçus** : `App::plan_verif` / `App::partial_verif_lots` dans `app/src/app/app.cpp`,
-   et `planSession` / `partialLots` dans `database/inventory/web/app/cascade.js` et `actions.js`.
-3. Si l'état d'un lot change : `serializers.lot_state` / `aggregate_tree` (les fronts affichent
+2. **Les deux aperçus** : `plan_verif` dans `app/src/core/verif_plan.cpp` et `App::partial_verif_lots`
+   dans `app/src/app/app.cpp`, `planVerif` / `partialLots` dans `database/inventory/web/app/verif-plan.js` et
+   `actions.js`.
+3. Un scénario dans `tests/verif-scenarios/` (voir son LISEZMOI) : joué par les trois, il montre tout
+   de suite un aperçu qui diverge du serveur.
+4. Si l'état d'un lot change : `serializers.lot_state` / `aggregate_tree` (les fronts affichent
    `state` et `effective` tels quels).
-4. Tests (`VerifTests`, `SubLotTests`…), puis [regles-de-gestion.md](regles-de-gestion.md) et le
+5. Tests (`VerifTests`, `SubLotTests`…), puis [regles-de-gestion.md](regles-de-gestion.md) et le
    guide utilisateur.
 
 ## Ajouter un placeholder d'étiquette

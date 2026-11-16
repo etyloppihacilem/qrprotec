@@ -1,0 +1,58 @@
+{
+  "description": "B+ (sac de soin + sac O2) : seul le sac O2 est scanne ; le sac de soin, pas ouvert, reste incomplet. Le B+, sans contenu propre, est complet.",
+  "types": {
+    "compre": {},
+    "masque": {}
+  },
+  "lots": [
+    {
+      "id": "bplus"
+    },
+    {
+      "id": "soin",
+      "parent": "bplus",
+      "requirements": {
+        "compre": 2
+      },
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "c2",
+          "type": "compre"
+        }
+      ]
+    },
+    {
+      "id": "o2",
+      "parent": "bplus",
+      "requirements": {
+        "masque": 1
+      },
+      "items": [
+        {
+          "id": "m1",
+          "type": "masque"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "m1",
+      "place": "o2"
+    }
+  ],
+  "expected": {
+    "target": {
+      "m1": "o2"
+    },
+    "complete": [
+      "bplus",
+      "o2"
+    ],
+    "discard": []
+  }
+}

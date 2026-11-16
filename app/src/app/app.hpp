@@ -13,6 +13,7 @@
 #include "../core/json.hpp"
 #include "../core/placeholders.hpp"
 #include "../core/verif_cache.hpp"
+#include "../core/verif_plan.hpp"
 #include "../net/api_client.hpp"
 #include "../net/remote_scanner_link.hpp"
 #include "feedback.hpp"
@@ -191,21 +192,6 @@ struct VerifSession {
     int                                   after_entry = -1; // item scanne qui a lance la validation (popup)
     bool                      loading    = false;
     bool                      submitting = false;
-};
-
-// Repartition des items scannes entre les lots d'une verif (meme regle que le serveur,
-// services.assign_items) : un item deja dans un des lots y reste, un nouvel item va dans le lot de la derniere
-// etiquette scannee avant lui (ou un de ses sous-lots) qui en attend encore, sinon le premier lot qui en attend.
-struct VerifPlanLot {
-    const Json                   *lot = nullptr;
-    int                           depth = 0;
-    std::map< std::string, int >  fresh;      // items frais scannes par type
-    std::map< std::string, int >  required;   // minimum par type (exigences du type de lot)
-    std::map< std::string, int >  added;      // items frais venus d'ailleurs (aucun lot de la verif), par type : « + x »
-    std::set< std::string >       iids;       // items scannes ranges dans ce lot
-    std::set< std::string >       outsiders;  // perimes scannes qui n'etaient pas dans ce lot : a jeter, jamais ranges
-    int                           touched = 0; // items scannes ranges dans ce lot
-    bool                          complete = false; // complet avec ces scans (verif partielle possible)
 };
 
 // Session de telephone-douchette (voir database/inventory/remote_scanner.py)
@@ -759,14 +745,6 @@ void draw_report_replies(const Json &report);
 // Explication de l'etiquette privee d'un lot (QR code dans le lot) et son emplacement s'il est renseigne
 std::string key_hint(const Json &lot);
 
-// Types a unites (attentes en mL, ItemType.unit) : un attendu « Sérum phy » de 200 mL est rempli par ses sous-types
-// (sachet de 25 mL, flacon de 50 mL), chacun pour ses unites (ligne de requirements : unit, fills {sous-type: unites}).
-// Attendus d'un lot que remplit un item de ce type, avec ses unites (services.row_weights) : son propre type (1), et
-// le type a unites dont il est un sous-type.
-std::vector< std::pair< std::string, int > > row_weights(const Json &requirements, const std::string &type);
-// Attendu principal parmi row_weights : le type a unites s'il y en a un, sinon le type lui-meme (services.main_row)
-std::pair< std::string, int >                main_row(const std::vector< std::pair< std::string, int > > &weights,
-                                                      const std::string                                &type);
 // Attendu sous lequel afficher un item de ce type : son type s'il est attendu, sinon son type a unites
 std::string                                  display_row(const Json &requirements, const std::string &type);
 // Ligne d'un type a unites (pas le minimum d'un sous-type « dont ») : compte en unites

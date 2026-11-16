@@ -1,0 +1,34 @@
+{
+  "description": "Rangement du stock : ses items sont ses attendus, il n'est complet que si tous sont scannes.",
+  "types": {
+    "compre": {}
+  },
+  "lots": [
+    {
+      "id": "tiroir",
+      "storage": true,
+      "items": [
+        {
+          "id": "c1",
+          "type": "compre"
+        },
+        {
+          "id": "c2",
+          "type": "compre"
+        }
+      ]
+    }
+  ],
+  "scans": [
+    {
+      "item": "c1"
+    }
+  ],
+  "expected": {
+    "target": {
+      "c1": "tiroir"
+    },
+    "complete": [],
+    "discard": []
+  }
+}

@@ -7,11 +7,19 @@ affiché d'un lot est calculé dans `database/inventory/serializers.py`.
 > **Trois implémentations à garder synchrones.** La répartition des items scannés entre plusieurs
 > lots et le calcul « quels lots seraient complets » existent :
 > - côté serveur : `services.assign_items` et `services._complete_lots` (font foi) ;
-> - côté poste : `App::plan_verif` et `App::partial_verif_lots` (`app/src/app/app.cpp`) ;
-> - côté téléphone : `planSession` (`database/inventory/web/app/cascade.js`) et `partialLots` (`web/app/actions.js`).
+> - côté poste : `plan_verif` (`app/src/core/verif_plan.cpp`, appelé par `App::plan_verif`) et
+>   `App::partial_verif_lots` (`app/src/app/app.cpp`) ;
+> - côté téléphone : `planVerif` (`database/inventory/web/app/verif-plan.js`, appelé par `planSession`) et
+>   `partialLots` (`web/app/actions.js`).
 >
 > Les fronts ne s'en servent que pour l'aperçu et pour proposer les bons boutons, mais un écart
 > donnerait un aperçu faux. Toute modification de ces règles se fait aux trois endroits.
+>
+> Les **scénarios de vérif communs** (`tests/verif-scenarios/*.json`) le vérifient : chacun décrit des
+> lots, des items et des scans, avec le lot attendu de chaque item, les lots complets et les périmés à
+> jeter. Le serveur, le front web et le poste jouent les mêmes fichiers (voir
+> [leur LISEZMOI](../../tests/verif-scenarios/LISEZMOI.md)). Un cas de vérif nouveau ou corrigé
+> s'ajoute d'abord là.
 >
 > De même, l'état d'un lot (`lot_state`, `aggregate_tree`) est calculé par le serveur et renvoyé dans
 > `state` / `effective` ; les fronts l'affichent sans le recalculer.

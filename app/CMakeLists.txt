@@ -106,6 +106,7 @@ add_library(QRProtecCore STATIC
     src/core/template_io.cpp
     src/core/update_check.cpp
     src/core/verif_cache.cpp
+    src/core/verif_plan.cpp
     src/core/print_counter.cpp
     src/net/connection.cpp
     src/net/front_config.cpp
@@ -269,6 +270,13 @@ if(BUILD_TESTING)
     target_compile_definitions(QRProtecCodesTest PRIVATE QRPROTEC_TEMPLATES_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/templates")
     add_test(NAME QRProtecCodesTest COMMAND QRProtecCodesTest)
 
+    # scenarios de vérif communs au serveur, au front web et au poste (tests/verif-scenarios/*.json)
+    add_executable(QRProtecVerifScenariosTest tests/verif_scenarios_test.cpp)
+    target_link_libraries(QRProtecVerifScenariosTest PRIVATE QRProtecCore)
+    target_compile_definitions(QRProtecVerifScenariosTest PRIVATE
+        QRPROTEC_SCENARIOS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../tests/verif-scenarios")
+    add_test(NAME QRProtecVerifScenariosTest COMMAND QRProtecVerifScenariosTest)
+
     add_executable(QRProtecPrinterTest
         tests/printer_test.cpp
         src/printer/niimbot_protocol.cpp
@@ -294,7 +302,7 @@ if(BUILD_TESTING)
     add_test(NAME QRProtecSdkJsonTest COMMAND QRProtecSdkJsonTest)
 
     # Les tests reposent sur assert() (parfois avec effets de bord) : le garder actif en Release
-    foreach(test_target QRProtecCoreTest QRProtecCodesTest QRProtecPrinterTest QRProtecHidClassifierTest QRProtecSdkJsonTest)
+    foreach(test_target QRProtecCoreTest QRProtecCodesTest QRProtecVerifScenariosTest QRProtecPrinterTest QRProtecHidClassifierTest QRProtecSdkJsonTest)
         target_compile_options(${test_target} PRIVATE -UNDEBUG)
     endforeach()
 endif()
