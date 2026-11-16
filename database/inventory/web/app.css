@@ -86,6 +86,12 @@ dl.facts dd { margin: 0; }
 .chip.icon.on { background: #f5c518; color: #000; }
 .chip.offline { background: rgba(70, 70, 70, .85); font-size: .8rem; padding: 5px 10px; align-self: center; }
 .chip.offline.pending { background: rgba(160, 90, 0, .9); }
+.chip.offline.waiting { background: rgba(200, 100, 0, .95); font-weight: 700; }
+.outbox-banner { margin: 0 0 12px; }
+.outbox-banner .sub { color: inherit; font-weight: 400; margin: 4px 0 8px; }
+.outbox-banner button { width: 100%; }
+.sent-review { margin: 0 0 8px; padding-left: 20px; text-align: left; }
+.sent-review li { margin: 6px 0; }
 #topbar .chips { display: flex; gap: 8px; }
 #scan-hint { position: absolute; bottom: 10px; width: 100%; text-align: center; color: #fff;
   text-shadow: 0 1px 3px #000; font-size: .95rem; pointer-events: none; }
