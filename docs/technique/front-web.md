@@ -212,8 +212,9 @@ Deux règles :
 - **Bilan au retour du réseau** (`reviewSent`) : à la mise en file, chaque envoi garde ce que le téléphone savait
   (`offlineSnapshot` : version et signalements des lots du lot global, signalements et état des items scannés). Une
   fois envoyé, le cache de vérif est relu et une popup « Vérif de … envoyée : à revoir » liste ce que le secouriste
-  n'a pas pu voir sur place : lot incomplet d'après le serveur (avec ce qui manque), items à remplacer, codes
-  inconnus, nouveau signalement, contenu du lot modifié par le TECH, item devenu inutilisable ou désactivé. S'il
+  n'a pas pu voir sur place, une ligne par type d'item qui dit tout (« Acide borique signalé (« … ») : inutilisable,
+  à remplacer, il en manque 1 (1/2) ») : signalement, item inutilisable ou désactivé, périmé à remplacer, manque
+  d'après le serveur ; puis contenu du lot modifié par le TECH, signalement du lot lui-même, codes inconnus. S'il
   manque du matériel ou si le contenu a changé, « Reprendre la vérif de … » relance la vérif du lot (avec
   l'étiquette clé de l'envoi). Rien de nouveau : un simple message « vérif envoyée ».
 - **Appli ouverte sans réseau** : le service worker `app-sw.js` garde la page et ses fichiers (voir plus bas), et
