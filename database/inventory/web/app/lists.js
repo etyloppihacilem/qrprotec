@@ -315,7 +315,7 @@ function promptDialog({ title, text = '', value = '', placeholder = '', ok = 'Va
 // Popup de choix (au lieu d'un confirm du navigateur) : { title, text, body, choices: [{ label, value, cls }] } ;
 // body : elements sous le texte (ex : liste de ce qui va se passer). Renvoie la valeur choisie, null si fermee
 // (Echap, Annuler)
-function askDialog({ title, text, body, choices }) {
+function askDialog({ title, text, body, choices, cancel = 'Annuler' }) {
   return new Promise((resolve) => {
     const dialog = el('dialog', { class: 'big-popup ask-dialog' });
     let answered = false;
@@ -329,7 +329,7 @@ function askDialog({ title, text, body, choices }) {
     dialog.append(el('h2', {}, title), text ? el('p', {}, text) : '', body || '',
       el('div', { class: 'dialog-stack' }, ...choices.map((choice) => el('button', { type: 'button',
         class: choice.cls || 'secondary', onclick: () => close(choice.value) }, choice.label)),
-      el('button', { type: 'button', class: 'secondary', onclick: () => close(null) }, 'Annuler')));
+      cancel ? el('button', { type: 'button', class: 'secondary', onclick: () => close(null) }, cancel) : ''));
     dialog.addEventListener('close', () => close(null));
     document.body.append(dialog);
     dialog.showModal();

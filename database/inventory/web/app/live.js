@@ -535,6 +535,10 @@ function ago(value) {
 
 const timeOf = (value) => new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
+// Vérif faite hors connexion, envoyee plus tard : datee a l'heure des scans (heure de l'appareil), l'heure de
+// reception par le serveur est donnee a cote pour reperer un antidatage
+const sentText = (sent) => `📶 Faite hors connexion · reçue par le serveur ${fmtOn(sent)}`;
+
 
 function liveCard(row) {
   const done = row.done;
@@ -627,7 +631,8 @@ function renderLive() {
         el('div', { class: 'name' }, (row.top || row.lots).map((lot) => lot.name).join(', ')),
         el('div', { class: 'sub' }, `${cap(fmtDateTime(row.at))} · ${[row.by || '?', ...(row.participants || [])].join(', ')} · ${nb(row.present, 'présent')}`
           + (row.missing ? ` · ${nb(row.missing, 'manquant')}` : '') + (row.expired ? ` · ${nb(row.expired, 'périmé')}` : '')
-          + (row.replaced ? ` · ${row.replaced} à jeter` : ''))),
+          + (row.replaced ? ` · ${row.replaced} à jeter` : '')),
+        row.sent ? el('div', { class: 'sub offline-sent' }, sentText(row.sent)) : null),
       el('span', { class: 'tag ' + (row.complete ? 'green' : 'red') }, row.complete ? 'complet' : 'incomplet')))));
   }
   view.replaceChildren(...parts);
@@ -751,6 +756,7 @@ function renderVerifReport() {
       el('div', { class: 'vr-title' }, el('span', { class: 'vr-ico', 'aria-hidden': 'true' },
         kind === 'ok' ? '✓' : kind === 'partial' ? '↷' : '!'), title),
       el('div', { class: 'vr-sub' }, `${cap(fmtDateTime(report.at))} · ${people.length > 1 ? '👥 ' : ''}${people.join(', ')}`),
+      report.sent ? el('div', { class: 'vr-sub offline-sent' }, sentText(report.sent)) : null,
       stats.length ? el('div', { class: 'vr-stats' }, ...stats.map(([count, one, many, tone]) =>
         el('span', { class: tone }, nb(count, one, many)))) : null),
     el('ul', { class: 'vr-lots' }, ...tree.map(lotRow),

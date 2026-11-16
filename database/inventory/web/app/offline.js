@@ -16,15 +16,64 @@ function saveOutbox() {
   try { localStorage.setItem(STORAGE_OUTBOX, JSON.stringify(outbox)); } catch (e) { /* stockage indisponible */ }
 }
 
+// Nombre de vérifs en attente (une vérif en cascade compte une fois, meme envoyee en plusieurs etapes)
+const pendingVerifs = () => new Set(outbox.map((entry) => entry.group || entry.at)).size;
+const pendingText = (count) => `${nb(count, 'vérif pas encore envoyée', 'vérifs pas encore envoyées')}`;
+const GO_TO_NETWORK = 'Allez à un endroit avec du réseau (wifi du local, 4G) et gardez QRprotec ouvert quelques '
+  + 'secondes : l\'envoi est automatique.';
+
 function showOffline() {
   const chip = $('#offline-chip');
-  if (!chip) return;
+  const banner = $('#outbox-banner');
   const waiting = outbox.length;
-  chip.hidden = !offline && !waiting;
-  chip.classList.toggle('pending', !offline && waiting > 0);
-  const state = maintenance ? 'Maintenance en cours' : 'Hors connexion';
-  chip.textContent = offline ? (waiting ? `${state} · ${nb(waiting, 'envoi')} en attente` : state)
-    : `Envoi en cours… (${waiting})`;
+  const count = pendingVerifs();
+  if (chip) {
+    chip.hidden = !offline && !waiting;
+    chip.classList.toggle('pending', !offline && waiting > 0);
+    chip.classList.toggle('waiting', offline && waiting > 0);
+    const state = maintenance ? 'Maintenance en cours' : 'Hors connexion';
+    chip.textContent = offline ? (waiting ? `📶 ${nb(count, 'vérif', 'vérifs')} à envoyer` : state)
+      : `Envoi en cours… (${count})`;
+  }
+  // accueil : bandeau tant qu'une vérif attend, pour aller la ou il y a du reseau
+  if (banner) {
+    banner.hidden = !waiting;
+    if (waiting) {
+      banner.replaceChildren(el('div', {}, `📶 ${pendingText(count)}`),
+        el('div', { class: 'sub' }, `Faite hors connexion ${fmtOn(outbox[0].at)}. ${GO_TO_NETWORK}`),
+        el('button', { type: 'button', class: 'secondary', disabled: outboxBusy || null, onclick: sendNow },
+          outboxBusy ? 'Envoi en cours…' : 'Envoyer maintenant'));
+    }
+  }
+}
+
+// « Envoyer maintenant » (bandeau de l'accueil, mention du scanner) : essai tout de suite, et si le reseau manque
+// toujours, on le dit clairement
+async function sendNow() {
+  if (!outbox.length) { if (offline) api('health/').catch(() => {}); return; }
+  await flushOutbox();
+  if (outbox.length && offline) {
+    feedback.warn();
+    toast(`Toujours pas de réseau : ${pendingText(pendingVerifs())}. ${GO_TO_NETWORK}`, true);
+  }
+}
+
+// Mention du scanner touchee : ce qui attend, et comment l'envoyer
+async function explainOutbox() {
+  if (!outbox.length) {
+    await askDialog({ title: maintenance ? 'Maintenance en cours' : 'Hors connexion', cancel: 'OK', choices: [],
+      text: 'Le serveur ne répond pas. La vérif marche quand même : elle est gardée sur ce téléphone et envoyée dès le retour du réseau.' });
+    return;
+  }
+  const labels = [...new Map(outbox.map((entry) => [entry.group || entry.at, entry])).values()];
+  const choice = await askDialog({
+    title: `📶 ${pendingText(labels.length)}`,
+    text: GO_TO_NETWORK,
+    body: el('ul', { class: 'sent-review' }, labels.map((entry) => el('li', {}, `${entry.label} · faite ${fmtOn(entry.at)}`))),
+    choices: [{ label: 'Envoyer maintenant', value: true, cls: 'primary' }],
+    cancel: 'Plus tard',
+  });
+  if (choice) sendNow();
 }
 
 // Reponse (ou non) du serveur a une requete : la mention suit, et le retour du reseau vide la file d'attente
@@ -35,19 +84,55 @@ function setOffline(value) {
   if (!value && outbox.length) setTimeout(flushOutbox, 0);
 }
 
+// Heures de l'appareil jointes a une vérif : done_at a la validation (juste apres les scans), sent_at a l'envoi. Le
+// serveur date la vérif a l'heure des scans, recalee sur son horloge par l'ecart entre les deux, et garde l'heure
+// de reception a cote (views.verif_time) : une vérif faite hors connexion n'est pas datee de son envoi.
+const stamped = (body, doneAt) => ({ ...body, done_at: body.done_at || doneAt, sent_at: new Date().toISOString() });
+
+// Ce que le telephone savait des lots et des items de la vérif au moment de la mettre en file (cache de vérif) : a
+// l'envoi, ce qui a change entre-temps (signalement, contenu du lot, item devenu inutilisable) est signale
+function offlineSnapshot(body) {
+  const first = (body.lots || [])[0];
+  const root = first ? vcache.rootOf(first.id) : '';
+  const tree = root ? vcache.lot(root) : null;
+  const lots = {};
+  for (const lot of tree ? [tree, ...(tree.descendants || [])] : []) {
+    lots[lot.id] = { version: lot.version, reports: (lot.reports || []).map((report) => report.id) };
+  }
+  const items = {};
+  for (const iid of body.items || []) {
+    const item = vcache.item(iid);
+    if (item) items[iid] = { reports: (item.reports || []).map((report) => report.id), unusable: !!(item.unusable || item.disabled) };
+  }
+  return { root, lots, items };
+}
+
 // Vérif (ou etape d'une vérif en cascade) envoyee au serveur. Hors connexion, ou si des envois attendent deja (l'ordre
 // compte : etapes de la cascade), elle est mise en file. Renvoie le compte rendu du serveur, ou null si en attente.
 async function sendVerif(body, label) {
+  const at = new Date().toISOString();
+  body = { ...body, done_at: at };
   if (!outbox.length) {
     try {
-      return await api('verifs/', body);
+      return await api('verifs/', stamped(body, at));
     } catch (e) {
       if (e.status !== 0) throw e;
     }
   }
-  outbox.push({ body, label, at: new Date().toISOString() });
+  const first = !outbox.length;
+  // etapes d'une meme vérif en cascade : un seul groupe (une vérif a envoyer, un seul bilan au retour du reseau)
+  const root = vcache.rootOf(((body.lots || [])[0] || {}).id || '');
+  const previous = outbox[outbox.length - 1];
+  const group = previous && previous.root && previous.root === root ? previous.group : at;
+  outbox.push({ body, label, at, group, root, seen: offlineSnapshot(body) });
   saveOutbox();
   showOffline();
+  if (first) {
+    // premiere vérif en attente : on le dit en grand, une fois (pas a chaque etape de la cascade)
+    feedback.warn();
+    askDialog({ title: '📶 Pas de réseau : vérif pas encore envoyée', cancel: 'Compris', choices: [],
+      text: `La vérif est gardée sur ce téléphone. ${GO_TO_NETWORK} Tant qu'elle n'est pas envoyée, le TECH ne la voit pas.` });
+  }
   return null;
 }
 
@@ -58,11 +143,13 @@ async function flushOutbox() {
   outboxBusy = true;
   showOffline();
   let sent = 0;
+  const done = []; // [{entry, report}] : bilan une fois tout envoye
   try {
     while (outbox.length) {
       const next = outbox[0];
       try {
-        await api('verifs/', next.body);
+        const report = await api('verifs/', stamped(next.body, next.at)); // file d'avant done_at : heure de mise en file
+        done.push({ entry: next, report });
         sent += 1;
       } catch (e) {
         if (e.status === 0) break; // toujours hors connexion : on reessaiera
@@ -79,9 +166,99 @@ async function flushOutbox() {
     showOffline();
   }
   if (sent) {
-    toast(outbox.length ? `${nb(sent, 'vérif envoyée', 'vérifs envoyées')}, ${outbox.length} en attente.`
-      : `Réseau retrouvé : ${nb(sent, 'vérif hors connexion envoyée', 'vérifs hors connexion envoyées')}.`);
-    vcache.refresh(0);
+    const groups = new Set(done.map(({ entry }) => entry.group || entry.at)).size;
+    toast(outbox.length ? `${nb(groups, 'vérif envoyée', 'vérifs envoyées')}, ${pendingText(pendingVerifs())}.`
+      : `Réseau retrouvé : ${nb(groups, 'vérif hors connexion envoyée', 'vérifs hors connexion envoyées')}.`);
+    await vcache.sync(); // etat a jour : ce qui a change depuis la vérif
+    reviewSent(done);
+  }
+}
+
+// Bilan d'une vérif faite hors connexion, une fois envoyee : ce que le secouriste n'a pas pu voir sur place. Le
+// serveur dit si le lot est complet (requirements), les items a remplacer, et le cache de vérif a jour ce qui a
+// change depuis (nouveau signalement, contenu du lot modifie par le TECH, item devenu inutilisable). S'il manque du
+// materiel ou si le contenu a change, on propose de reprendre la vérif du lot.
+function sentIssues(entry, report) {
+  const issues = [];
+  let resume = '';
+  const shown = new Set();
+  const needResume = (id) => { if (!resume && id) resume = id; };
+  for (const row of report.lots || []) {
+    if (!row.verified || row.complete !== false) continue;
+    const lacks = (row.requirements || []).filter((req) => req.present < req.required)
+      .map((req) => `${reqName(req)} (${req.present}/${req.required})`);
+    issues.push(`✘ ${row.name} incomplet${lacks.length ? ' : il manque ' + lacks.join(', ') : ''}.`);
+    needResume(row.id);
+  }
+  if ((report.expired || []).length) {
+    issues.push(`⚠ ${nb(report.expired.length, 'item périmé ou inutilisable', 'items périmés ou inutilisables')} `
+      + 'encore dans le lot : à remplacer.');
+    needResume(((report.lots || []).find((row) => row.verified) || {}).id);
+  }
+  if ((report.unknown || []).length) issues.push(`? ${nb(report.unknown.length, 'code inconnu ignoré', 'codes inconnus ignorés')}.`);
+  const seen = entry.seen;
+  const tree = seen && seen.root ? vcache.lot(seen.root) : null;
+  const reportText = (report) => (report.type_name ? ` (${report.type_name})` : '') + (report.comment ? ` : « ${report.comment} »` : '');
+  for (const lot of tree ? [tree, ...(tree.descendants || [])] : []) {
+    const before = seen.lots[lot.id];
+    if (!before) continue;
+    if (before.version != null && lot.version != null && lot.version !== before.version) {
+      issues.push(`✎ Contenu de ${lot.name} modifié par le TECH depuis la vérif.`);
+      needResume(lot.id);
+    }
+    for (const fresh of (lot.reports || []).filter((report) => !before.reports.includes(report.id))) {
+      if (shown.has(fresh.id)) continue;
+      shown.add(fresh.id);
+      issues.push(`📪 Nouveau signalement sur ${lot.name}${reportText(fresh)}.`);
+    }
+  }
+  for (const [iid, before] of Object.entries((seen && seen.items) || {})) {
+    const item = vcache.item(iid);
+    if (!item) continue;
+    for (const fresh of (item.reports || []).filter((report) => !before.reports.includes(report.id))) {
+      if (shown.has(fresh.id)) continue;
+      shown.add(fresh.id);
+      issues.push(`📪 ${item.type_name} signalé${reportText({ ...fresh, type_name: '' })}.`);
+    }
+    if ((item.unusable || item.disabled) && !before.unusable) {
+      issues.push(`✘ ${item.type_name} ${item.disabled ? 'désactivé' : 'devenu inutilisable'} : à remplacer.`);
+      needResume(item.location);
+    }
+  }
+  return { issues, resume };
+}
+
+async function reviewSent(done) {
+  // une vérif en cascade envoyee en plusieurs etapes : un seul bilan
+  const groups = new Map();
+  for (const { entry, report } of done) {
+    const key = entry.group || entry.at;
+    if (!groups.has(key)) groups.set(key, { label: entry.label, at: entry.at, issues: [], resume: '', keys: [] });
+    const group = groups.get(key);
+    const { issues, resume } = sentIssues(entry, report);
+    group.issues.push(...issues.filter((line) => !group.issues.includes(line)));
+    if (!group.resume) group.resume = resume;
+    group.keys.push(...(entry.body.lots || []), ...(entry.body.keys || []));
+    if (entry.root) group.label = (vcache.lot(entry.root) || {}).name || group.label;
+  }
+  for (const group of groups.values()) {
+    if (!group.issues.length) continue;
+    feedback.warn();
+    const resumeLot = group.resume ? vcache.rootOf(group.resume) && (vcache.lot(vcache.rootOf(group.resume)) || {}) : null;
+    const choice = await askDialog({
+      title: `Vérif de ${group.label} envoyée : à revoir`,
+      text: `Faite hors connexion ${fmtOn(group.at)}. Le serveur l'a reçue ; voici ce que vous n'avez pas pu voir sur place :`,
+      body: el('ul', { class: 'sent-review' }, group.issues.map((line) => el('li', {}, line))),
+      choices: group.resume ? [{ label: `Reprendre la vérif${resumeLot && resumeLot.name ? ' de ' + resumeLot.name : ''}`, value: 'resume', cls: 'primary' }] : [],
+      cancel: group.resume ? 'Plus tard' : 'OK',
+    });
+    if (choice === 'resume') {
+      const key = (group.keys.find((row) => row.id === group.resume && row.key)
+        || group.keys.find((row) => row.key && vcache.rootOf(row.id) === vcache.rootOf(group.resume)) || {}).key || '';
+      if (inHome()) enterScanner(false);
+      await launchVerif(group.resume, key);
+      return;
+    }
   }
 }
 
@@ -92,6 +269,7 @@ setInterval(() => {
 }, 20000);
 window.addEventListener('online', () => { if (outbox.length) flushOutbox(); else if (offline) api('health/').catch(() => {}); });
 window.addEventListener('offline', () => setOffline(true));
+$('#offline-chip').addEventListener('click', explainOutbox);
 setTimeout(() => { showOffline(); flushOutbox(); }, 1500);
 
 async function api(path, body) {

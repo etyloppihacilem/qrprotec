@@ -32,6 +32,8 @@
     </header>
     <div id="home-pages">
       <div class="home-page" data-page="menu">
+        <!-- vérifs faites hors connexion pas encore envoyees : aller la ou il y a du reseau (web/app/offline.js) -->
+        <div id="outbox-banner" class="banner warn outbox-banner" role="status" hidden></div>
         <div class="tiles">
           <button class="tile" type="button" data-go="scan"><span class="tile-icon">📷</span><b>Scanner</b><small>Lancer une vérif</small></button>
           <button class="tile" type="button" data-go="live"><span class="tile-icon">📡</span><b>Suivi des vérifs</b><small>En direct et récentes</small></button>
@@ -62,7 +64,7 @@
         <button id="go-home" class="chip icon" type="button" aria-label="Accueil" title="Accueil">🏠</button>
         <button id="user-chip" class="chip" type="button">Non connecté</button>
         <!-- vérif hors connexion : scans traites depuis le cache de vérif, envois mis en attente (web/app/offline.js, outbox) -->
-        <span id="offline-chip" class="chip offline" role="status" hidden>Hors connexion</span>
+        <button id="offline-chip" class="chip offline" type="button" role="status" hidden>Hors connexion</button>
       </div>
       <div class="chips">
         <button id="torch" class="chip icon" type="button" hidden aria-label="Lampe">🔦</button>

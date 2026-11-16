@@ -34,6 +34,9 @@ La vérif se fait quand même sur le téléphone : la mention « Hors connexion 
 envoyée dès le retour du réseau. L'appli s'ouvre même sans réseau (étiquette scannée avec l'appareil photo,
 ou icône de l'écran d'accueil), à condition de l'avoir ouverte une fois avec du réseau sur ce téléphone et
 de s'être connecté avant d'entrer dans la réserve. La fiche affichée est celle de la dernière mise à jour.
+Tant que la vérif n'est pas envoyée, un bandeau orange le rappelle sur l'accueil : allez là où il y a du réseau
+(wifi du local, 4G). Une fois envoyée, si quelque chose a changé entre-temps (matériel manquant, nouveau
+signalement, contenu du lot modifié), QRprotec l'affiche et propose de reprendre la vérif.
 
 **Le sac est rouge alors que je viens de le vérifier.**
 Lisez le compte rendu : il manque quelque chose, ou un périmé est resté dans le sac sans

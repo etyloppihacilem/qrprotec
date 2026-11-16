@@ -204,6 +204,18 @@ Deux règles :
   sur place (`keyAccepted`, `cachedSealLot`) : le serveur les contrôle à l'envoi. Chaque envoi porte deux heures du téléphone, `done_at` (validation, juste
   après les scans, gardée dans la file) et `sent_at` (envoi) : le serveur date la vérif à l'heure des scans et
   garde l'heure de réception à côté (voir [back.md](back.md), « Vérif faite hors connexion »).
+- **Vérif en attente d'envoi, bien visible** : à la première vérif mise en file, une popup dit « Pas de réseau :
+  vérif pas encore envoyée » et invite à aller là où il y a du réseau. Tant que la file n'est pas vide, un bandeau
+  orange en haut de l'accueil (`#outbox-banner`) et la mention du scanner (`#offline-chip`, « 📶 N vérifs à
+  envoyer ») le rappellent ; « Envoyer maintenant » (bandeau, ou popup ouverte en touchant la mention) réessaie tout
+  de suite (`sendNow`). Les étapes d'une même vérif en cascade comptent pour une vérif (`group`).
+- **Bilan au retour du réseau** (`reviewSent`) : à la mise en file, chaque envoi garde ce que le téléphone savait
+  (`offlineSnapshot` : version et signalements des lots du lot global, signalements et état des items scannés). Une
+  fois envoyé, le cache de vérif est relu et une popup « Vérif de … envoyée : à revoir » liste ce que le secouriste
+  n'a pas pu voir sur place : lot incomplet d'après le serveur (avec ce qui manque), items à remplacer, codes
+  inconnus, nouveau signalement, contenu du lot modifié par le TECH, item devenu inutilisable ou désactivé. S'il
+  manque du matériel ou si le contenu a changé, « Reprendre la vérif de … » relance la vérif du lot (avec
+  l'étiquette clé de l'envoi). Rien de nouveau : un simple message « vérif envoyée ».
 - **Appli ouverte sans réseau** : le service worker `app-sw.js` garde la page et ses fichiers (voir plus bas), et
   le cache de vérif est gardé sur le téléphone (IndexedDB `qrprotec`, `savedCache`), relu à l'ouverture
   (`vcache.ready()`) puis mis à jour en arrière-plan (à l'ouverture de l'appli s'il a plus de 10 min, et comme
