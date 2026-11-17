@@ -89,9 +89,11 @@ function planVerif(lots, entries, { cascade = false, full = false } = {}) {
     if (entry.error) continue;
     const type = entry.kind === 'item' ? entry.iid.slice(0, 6) : entry.info && entry.info.type;
     const iids = entry.kind === 'item' ? [entry.iid] : entry.items || [];
-    // a jeter possible : perime, inutilisable ou desactive (pas une revision en retard seule, services.discardable)
+    // a jeter possible : perime, inutilisable ou desactive (pas une revision ou desinfection en retard seule,
+    // services.discardable)
     const info = entry.info;
-    const discardable = !!entry.expired && !(entry.kind === 'item' && info && info.revision_late && !info.outdated && !info.unusable && !info.disabled);
+    const discardable = !!entry.expired && !(entry.kind === 'item' && info && (info.revision_late || info.disinfection_late)
+      && !info.outdated && !info.unusable && !info.disabled);
     for (const iid of iids) scanned.push({ iid, type, expired: !!entry.expired, discardable, place: entry.place || '' });
     if (type && entry.info && entry.info.type_name) typeNames[type] = entry.info.type_name;
   }

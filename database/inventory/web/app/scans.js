@@ -340,8 +340,9 @@ function showItemInfo(entry) {
     ? `Sorti du stock, compté utilisé le ${fmtDate(info.out_until)} s'il ne revient pas` : 'Sorti du stock (non consommable)')
     : { missing: 'Signalé disparu', deleted: 'Marqué supprimé', replaced: 'Déjà remplacé',
       loose: 'Hors lot (retiré de son lot), pas encore en stock' }[info.status];
-  const revision = info.revision_late ? `⚠ Révision en retard (prévue le ${fmtDate(info.revision_due)})`
-    + (entry.expired ? '' : ', toujours utilisable') : '';
+  const late = [info.revision_late ? `révision (prévue le ${fmtDate(info.revision_due)})` : '',
+    info.disinfection_late ? `désinfection (prévue le ${fmtDate(info.disinfection_due)})` : ''].filter(Boolean);
+  const revision = late.length ? `⚠ ${cap(late.join(' et '))} en retard` + (entry.expired ? '' : ', toujours utilisable') : '';
   showInfo(entry.expired ? 'bad' : status || revision ? 'warn' : 'ok',
     (entry.expired ? badLabel(info) + ' – ' : '') + info.type_name,
     info.peremption ? 'Péremption : ' + fmtDate(info.peremption) : 'Non périssable',

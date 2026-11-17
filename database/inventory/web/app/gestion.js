@@ -191,7 +191,9 @@ function renderTasks(parts) {
     }
     if (category.key === 'orders') renderPlacedOrders(parts, placed);
   });
-  renderUpcoming(parts, data.upcoming || []);
+  parts.push(el('p', { class: 'hint' }, 'Péremptions, révisions et désinfections à venir : ',
+    el('button', { type: 'button', class: 'text-link', onclick: () => { state.homeView = 'events'; renderStock(); } },
+      'À venir ›')));
 }
 
 // Commande suggeree : case « Commandé » (quantite modifiable) pour enregistrer qu'elle est passee. La suggestion
@@ -249,28 +251,90 @@ function renderPlacedOrders(parts, placed) {
   }
 }
 
-// Péremptions à venir (30 jours) : pas des tâches (les secouristes remplacent les périmés pendant la vérif du lot
-// rouge ; commandes et échanges à faire sont déjà des tâches). Repliées tout en bas, hors du compte, ce qui périme
-// en premier en tête : 7 jours en jaune, 2 jours en orange.
-function renderUpcoming(parts, rows) {
-  if (!rows.length) return;
-  const open = !!state.upcomingOpen;
-  parts.push(el('button', { type: 'button', class: 'upcoming-toggle', 'aria-expanded': open ? 'true' : 'false',
-    onclick: () => { state.upcomingOpen = !open; renderStock(); } },
-  el('span', { class: 'fold-box' }, open ? '−' : '+'), `Péremptions à venir (${rows.length})`));
-  if (!open) return;
-  parts.push(el('p', { class: 'hint' }, 'Pour information, ce ne sont pas des tâches : les secouristes remplacent '
-    + 'les items une fois périmés, pendant la vérif du lot. Les commandes et échanges à faire sont dans la liste '
-    + 'ci-dessus.'));
+// Évènements à venir : partie à part des tâches (péremptions, révisions, désinfections, listes prévues, étiquettes
+// clés et badges qui expirent), dans l'ordre des dates, le retard en tête. Une carte par évènement, la date en grand
+// à gauche, un titre par mois. Révisions et désinfections : « Réviser » / « Désinfecter » et « Saisir la date » (cycle
+// recalé à la main) directement depuis la carte.
+const EVENT_HORIZONS = [{ days: 30, label: '30 jours' }, { days: 90, label: '3 mois' }, { days: 365, label: '1 an' }];
+const EVENT_TAGS = { revision: 'blue', disinfection: 'teal', expiry: 'orange', list: 'navy', lot_key: 'gray', badge: 'gray' };
+
+async function loadEvents() {
+  if (!canSeeStock()) return;
+  try {
+    state.events = await api('events/summary/', { user: badge(), days: state.eventsDays || 90 });
+  } catch (e) {
+    toast('À venir : ' + e.message, true);
+  } finally {
+    renderStock();
+  }
+}
+
+function openEvent(row) {
+  if (row.link === 'item' && row.item) openFiche('item', row.item);
+  else if (row.link === 'lot' && row.lot) openFiche('lot', row.lot);
+  else openTask(row);
+}
+
+function eventCard(row) {
+  const date = parseDate(row.date);
+  const clickable = ['lot', 'item', 'lists', 'stock'].includes(row.link) && (row.link !== 'lot' || row.lot);
+  const m = row.maintenance;
+  const pseudo = m ? { iid: m.iid, type_name: m.type_name, status: 'active', maintenance: [m] } : null;
+  const body = el(clickable ? 'button' : 'div', { type: clickable ? 'button' : null, class: 'event-main',
+    onclick: clickable ? () => openEvent(row) : null },
+  el('div', { class: 'event-top' }, el('span', { class: 'tag ' + (EVENT_TAGS[row.kind] || 'gray') }, row.kind_label),
+    el('span', { class: 'event-when' }, row.when), clickable ? el('span', { class: 'hint' }, '›') : ''),
+  el('b', { class: 'event-title' }, row.title),
+  row.detail ? el('div', { class: 'sub' }, row.detail) : '',
+  TASK_LINK_HINTS[row.link] ? el('div', { class: 'sub hint' }, TASK_LINK_HINTS[row.link]) : '');
+  return el('div', { class: 'event-card ' + row.level },
+    el('div', { class: 'event-date' }, row.late
+      ? [el('span', { class: 'event-day' }, '!'), el('span', { class: 'event-month' }, 'retard')]
+      : [el('span', { class: 'event-day' }, date ? String(date.getDate()) : '?'),
+        el('span', { class: 'event-month' }, date ? MONTHS[date.getMonth()] : '')]),
+    el('div', { class: 'event-content' }, body,
+      m ? el('div', { class: 'event-actions' },
+        el('button', { type: 'button', class: 'primary', onclick: () => openRevision(pseudo, m.kind) },
+          icon(MAINTENANCE_ICONS[m.kind] || 'wrench'), m.verb),
+        el('button', { type: 'button', class: 'text-link', onclick: () => openMaintenanceDate(pseudo, m.kind) },
+          'Saisir la date')) : ''));
+}
+
+function renderEvents(parts) {
+  const data = state.events;
+  parts.push(el('p', { class: 'hint' }, 'Ce qui arrive, dans l\'ordre des dates : ce ne sont pas des tâches. '
+    + 'Révisions et désinfections se font ou se recalent directement depuis leur carte.'));
+  const days = state.eventsDays || 90;
+  parts.push(el('div', { class: 'segmented event-horizon', role: 'group', 'aria-label': 'Horizon' },
+    ...EVENT_HORIZONS.map((h) => el('button', { type: 'button', class: h.days === days ? 'active' : '',
+      onclick: () => { state.eventsDays = h.days; loadEvents(); } }, h.label))));
+  if (!data) {
+    parts.push(el('p', { class: 'hint' }, state.loading === 'stock' ? 'Chargement…' : 'Évènements indisponibles.'));
+    return;
+  }
+  const filter = state.eventsKind || '';
+  if (data.kinds.length > 1) {
+    parts.push(el('div', { class: 'event-filters' },
+      el('button', { type: 'button', class: filter ? '' : 'active', onclick: () => { state.eventsKind = ''; renderStock(); } },
+        `Tout (${data.count})`),
+      ...data.kinds.map((kind) => el('button', { type: 'button', class: filter === kind.key ? 'active' : '',
+        onclick: () => { state.eventsKind = kind.key; renderStock(); } }, `${kind.label} (${kind.count})`))));
+  }
+  const rows = data.events.filter((row) => !filter || row.kind === filter);
+  if (!rows.length) {
+    parts.push(el('div', { class: 'banner ok' }, `✔ Rien de prévu dans les ${EVENT_HORIZONS.find((h) => h.days === data.days)?.label || data.days + ' jours'}.`));
+    return;
+  }
+  let section = null;
   for (const row of rows) {
-    const clickable = row.link === 'lot' || row.link === 'stock';
-    parts.push(el(clickable ? 'button' : 'div', {
-      type: clickable ? 'button' : null,
-      class: 'task-row stock-row' + (row.level === 'info' ? '' : ' ' + row.level),
-      onclick: clickable ? () => openTask(row) : null,
-    },
-    el('div', { class: 'row-head' }, el('b', {}, row.title), clickable ? el('span', { class: 'hint' }, '›') : ''),
-    el('div', { class: 'sub' }, row.detail)));
+    const date = parseDate(row.date);
+    const key = row.late ? 'late' : date ? `${date.getFullYear()}-${date.getMonth()}` : '';
+    if (key !== section) {
+      section = key;
+      parts.push(el('h3', { class: 'event-month-head' + (row.late ? ' late' : '') }, row.late ? 'En retard'
+        : date ? cap(date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })) : ''));
+    }
+    parts.push(eventCard(row));
   }
 }
 
@@ -282,12 +346,15 @@ function stockParts(view) {
   const toggle = el('div', { class: 'segmented', role: 'group', 'aria-label': 'Vue' },
     el('button', { type: 'button', class: view === 'tasks' ? 'active' : '', onclick: choose('tasks') },
       'À faire' + (state.tasks && state.tasks.count ? ` (${state.tasks.count})` : '')),
+    el('button', { type: 'button', class: view === 'events' ? 'active' : '', onclick: choose('events') },
+      'À venir' + (state.events && state.events.late ? ` (${state.events.late} en retard)` : '')),
     el('button', { type: 'button', class: view === 'stock' ? 'active' : '',
       onclick: () => { choose('stock')(); debugTap(); } }, 'État des stocks'),
     el('button', { type: 'button', class: forecastMode ? 'active' : '',
       onclick: () => { choose('forecast')(); funTap(); } }, 'Prévisions'));
   const head = el('div', { class: 'row-head' },
-    el('h3', {}, view === 'tasks' ? 'À faire' : forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
+    el('h3', {}, view === 'tasks' ? 'À faire' : view === 'events' ? 'Évènements à venir' : forecastMode ? 'Stock à venir'
+      : 'État des stocks (lecture seule)'),
     el('div', { class: 'buttons' },
       canSeeStock() ? el('button', { type: 'button', onclick: openLabelPrints, title: 'Nouvelles étiquettes d\'items' },
         icon('plus'), 'Étiquettes') : null,
@@ -295,6 +362,10 @@ function stockParts(view) {
   const parts = [toggle, head];
   if (view === 'tasks') {
     renderTasks(parts);
+    return parts;
+  }
+  if (view === 'events') {
+    renderEvents(parts);
     return parts;
   }
   if (forecastMode) {

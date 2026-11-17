@@ -606,8 +606,8 @@ function render() {
   $('#menu-quit').hidden = !state.lot;
   syncScanBubble();
   if ($('#label-needed').open && labelOk()) { $('#label-needed').close(); toast('Étiquette scannée : vous pouvez valider.'); }
-  if (!state.user) { state.stock = null; state.tasks = null; state.push = null; state.pushDevices = null; debug.data = null;
-    fun.data = null; if (fun.slide >= 0) $('#fun-show').close(); }
+  if (!state.user) { state.stock = null; state.tasks = null; state.events = null; state.push = null; state.pushDevices = null;
+    debug.data = null; fun.data = null; if (fun.slide >= 0) $('#fun-show').close(); }
   renderHomePage();
   renderStock();
   const chip = $('#user-chip');

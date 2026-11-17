@@ -535,9 +535,13 @@ ul.tasks input { width: 22px; height: 22px; flex: none; }
 #tasks-ok:disabled { opacity: .45; }
 #replace-item .replace-banner { background: var(--red); color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 8px 0; }
 ul.tasks-facts { margin: 0; padding-left: 18px; }
-#revision-ok:disabled { opacity: .45; }
-#revision .revision-next { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 2px; }
-#revision .revision-next input { font: inherit; padding: 6px 8px; }
+#revision-ok:disabled, #maintenance-ok:disabled { opacity: .45; }
+#revision .revision-next, #maintenance-date .revision-next { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 2px; }
+#revision .revision-next input, #maintenance-date .revision-next input { font: inherit; padding: 6px 8px; }
+#maintenance-date textarea { display: block; width: 100%; font: inherit; padding: 8px; box-sizing: border-box; }
+.maintenance-buttons { margin: 8px 0; }
+.maintenance-row .revise-btn { margin: 8px 0 2px; }
+.maintenance-row .text-link { display: block; margin: 0 0 8px auto; }
 #state-report .state-report-when { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
 #state-report .state-report-antenna { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 2px; }
 #state-report input { font: inherit; padding: 6px 8px; }
@@ -569,6 +573,36 @@ button.task-row.bad { border-left: 4px solid var(--red); background: var(--red-b
 .upcoming-toggle .fold-box { display: inline-block; width: 18px; height: 18px; box-sizing: border-box; border: 1.5px solid var(--muted);
   border-radius: 3px; font-size: 15px; font-weight: 700; line-height: 15px; text-align: center; }
 .revise-btn { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; }
+
+/* ---- Evenements a venir (Gestion de la TECH, onglet « À venir ») : une carte par evenement ---- */
+.event-horizon { max-width: 360px; }
+.event-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.event-filters button { padding: 5px 10px; font-size: .85rem; border-radius: 999px; background: var(--button); }
+.event-filters button.active { background: var(--navy); color: #fff; font-weight: 600; }
+.event-month-head { margin: 18px 0 4px; font-size: 1rem; color: var(--navy); border-bottom: 2px solid var(--line); padding-bottom: 4px; }
+.event-month-head.late { color: var(--red); }
+.event-card { display: flex; gap: 12px; margin: 8px 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line);
+  border-left: 5px solid var(--line); border-radius: 10px; }
+.event-card.soon { border-left-color: var(--yellow); background: var(--yellow-bg); }
+.event-card.warn { border-left-color: var(--orange); background: var(--orange-bg); }
+.event-card.bad { border-left-color: var(--red); background: var(--red-bg); }
+.event-date { flex: none; width: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-right: 1px solid var(--line); padding-right: 10px; }
+.event-day { font-size: 1.5rem; font-weight: 700; line-height: 1.1; color: var(--navy); }
+.event-card.bad .event-day { color: var(--red); }
+.event-month { font-size: .75rem; color: var(--muted); text-transform: uppercase; }
+.event-content { flex: 1; min-width: 0; }
+.event-main { display: block; width: 100%; text-align: left; background: transparent; color: inherit; padding: 0; border-radius: 0; }
+.event-top { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.event-top .hint { margin-left: auto; }
+.event-when { font-size: .85rem; color: var(--muted); }
+.event-card.bad .event-when { color: var(--red); font-weight: 600; }
+.event-title { display: block; overflow-wrap: anywhere; }
+.event-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
+.event-actions .primary { padding: 7px 12px; }
+.event-actions .text-link { padding: 0; }
+.tag.teal { background: #0f8a84; color: #fff; }
+.tag.navy { background: var(--navy); color: #fff; }
 
 /* ---- Signalements de problemes ---- */
 /* signalement reconnaissable sans faire croire a un probleme en cours (meme sur un lot tout vert) : « ⚠ Signaler un
