@@ -1679,8 +1679,8 @@ class LabelPrint(models.Model):
       l'imprimante : « Imprimer » y envoie les images 1 bit des etiquettes (`labels`), que le poste imprime telles
       quelles. `front` : nom de ce front.
 
-    Le poste ouvre la fenetre « Impressions en attente » meme sans personne de connecte. Une demande pas imprimee
-    expire au bout de 24 h (EXPIRY_HOURS). `printed_on` : nom du front qui a imprime, vide pour le poste local.
+    Le poste ouvre la fenetre « Impressions en attente » meme sans personne de connecte, une file par personne qui
+    demande (`queue`). Une demande pas imprimee expire au bout de 24 h (EXPIRY_HOURS). `printed_on` : nom du front qui a imprime, vide pour le poste local.
     """
     EXPIRY_HOURS = 24
 
@@ -1698,6 +1698,17 @@ class LabelPrint(models.Model):
     items = models.JSONField(default=list, blank=True)
     cancelled = models.DateTimeField(null=True, blank=True)
     cancelled_by = models.CharField(max_length=64, blank=True, default='')
+    # « Lancer l'impression » a distance (admin, web ou autre ordinateur) : le poste l'imprime a son prochain passage
+    launch_requested = models.DateTimeField(null=True, blank=True)
+    launch_requested_by = models.CharField(max_length=64, blank=True, default='')
+
+    @property
+    def queue(self) -> str:
+        """File d'impression : une par personne qui demande (identite stockee), sinon par ordinateur d'origine. Avec
+        plusieurs portables qui envoient en meme temps, chacun retrouve son ruban."""
+        if self.by:
+            return self.by
+        return f'front:{self.front}' if self.front else ''
 
     @property
     def expired(self) -> bool:

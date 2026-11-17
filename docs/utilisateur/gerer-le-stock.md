@@ -72,6 +72,24 @@ devient **Envoyer au poste** : les étiquettes partent dans la même fenêtre du
 telles quelles. Si une imprimante est branchée sur cet ordinateur, cochez **Imprimante branchée sur
 cet ordinateur** (Réglages, partie Imprimante).
 
+### Une file d'impression par personne
+
+Quand plusieurs ordinateurs envoient des étiquettes en même temps, chacun doit savoir ce qu'il y a sur
+son ruban. Les demandes sont donc rangées **par personne qui les a envoyées** (ou par ordinateur si
+personne n'y était connecté) :
+
+- **Une seule file** : la fenêtre l'affiche comme avant, avec le nom de la personne (« Impressions de
+  Sophie Bernard »).
+- **Plusieurs files** : choisissez la vôtre dans la liste, ou **scannez votre badge** (même si vous avez
+  un code PIN) : la fenêtre affiche vos impressions sans vous connecter. Le bouton **Se connecter** lance
+  la connexion si vous en avez besoin. **Lancer l'impression** n'imprime que la file affichée.
+- La fenêtre se ferme d'elle-même **15 minutes** après la dernière impression en attente.
+
+Les **administrateurs** gèrent les files de n'importe où : sur le téléphone (Gestion de la TECH,
+**+ Étiquettes**) ou sur un autre ordinateur (menu **Administration**, **Files d'impression du
+poste**). **Lancer l'impression** y fait imprimer la file par le poste dans la minute, sans que personne
+n'y touche ; **Annuler la file** l'annule en entier.
+
 ## Compteur d'impressions et consommables
 
 Menu **Gestion > Impressions et consommables** au poste et sur les autres ordinateurs (gestion et admin) :

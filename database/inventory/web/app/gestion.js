@@ -421,9 +421,12 @@ function renderLabelPrints() {
   const done = data.prints.filter((row) => !row.pending);
   const what = (row) => `${row.count} × ${row.type_name}` + (row.peremption ? `, péremption ${fmtDate(row.peremption)}` : '');
   const parts = [];
-  parts.push(el('h3', {}, pending.length ? `En attente au poste (${pending.length})` : 'En attente au poste'));
-  if (!pending.length) parts.push(el('p', { class: 'hint' }, 'Aucune impression en attente.'));
-  for (const row of pending) {
+  // admins : files d'impression du poste (une par personne qui demande, toutes demandes confondues), gerees et
+  // lancees a distance ; leurs etiquettes d'items y sont, on ne les repete pas plus bas
+  if (data.queues) parts.push(...labelQueueParts(data));
+  else parts.push(el('h3', {}, pending.length ? `En attente au poste (${pending.length})` : 'En attente au poste'));
+  if (!data.queues && !pending.length) parts.push(el('p', { class: 'hint' }, 'Aucune impression en attente.'));
+  for (const row of data.queues ? [] : pending) {
     parts.push(el('div', { class: 'stock-row warn' },
       el('div', { class: 'row-head' }, el('b', {}, what(row)),
         el('button', { type: 'button', class: 'secondary', onclick: () => cancelLabelPrint(row) }, 'Annuler')),
@@ -440,6 +443,52 @@ function renderLabelPrints() {
     }
   }
   list.replaceChildren(...parts);
+}
+
+// Files d'impression du poste (admins) : qui a demande quoi, « Lancer l'impression » a distance (le poste l'imprime
+// dans la minute, sans que personne n'y touche) et « Annuler la file »
+function labelQueueParts(data) {
+  const parts = [el('h3', {}, data.queues.length ? `Files d'impression du poste (${data.queues.length})` : "Files d'impression du poste")];
+  if (!data.queues.length) {
+    parts.push(el('p', { class: 'hint' }, 'Aucune impression en attente au poste.'));
+    return parts;
+  }
+  parts.push(el('p', { class: 'hint' }, 'Une file par personne qui a demandé des étiquettes (web ou autre ordinateur). '
+    + "« Lancer l'impression » : le poste l'imprime dans la minute, sans que personne n'y touche."));
+  for (const queue of data.queues) {
+    const launched = queue.launch_requested
+      ? `lancée ${fmtDateTime(queue.launch_requested)}` + (queue.launch_requested_by ? ` par ${queue.launch_requested_by}` : '') + ', en attente du poste'
+      : '';
+    parts.push(el('div', { class: 'stock-row warn' },
+      el('div', { class: 'row-head' }, el('b', {}, `${queue.name} · ${nb(queue.labels, 'étiquette')}`)),
+      ...queue.prints.map((row) => el('div', { class: 'sub hint' },
+        `${row.what}, ${row.front ? `depuis ${row.front}` : 'depuis le web'} ${fmtDateTime(row.created)}`)),
+      launched ? el('div', { class: 'sub' }, launched) : null,
+      el('div', { class: 'dialog-buttons' },
+        el('button', { type: 'button', class: 'secondary', disabled: labelPrints.busy, onclick: () => labelQueueAction(queue, 'cancel') }, 'Annuler la file'),
+        el('button', { type: 'button', class: 'primary', disabled: labelPrints.busy || !!queue.launch_requested,
+          onclick: () => labelQueueAction(queue, 'launch') }, "Lancer l'impression"))));
+  }
+  return parts;
+}
+
+async function labelQueueAction(queue, action) {
+  if (action === 'cancel' && !await confirmDialog('Annuler la file ?',
+    `Les ${nb(queue.labels, 'étiquette')} de ${queue.name} ne seront pas imprimées.`, 'Annuler la file', 'danger')) return;
+  labelPrints.busy = true;
+  renderLabelPrints();
+  try {
+    await api(`label-prints/queues/${action}/`, { user: badge(), queue: queue.queue });
+    feedback.good();
+    toast(action === 'launch' ? `Impression de ${queue.name} lancée : le poste l'imprime dans la minute.`
+      : `File de ${queue.name} annulée.`);
+    loadStock();
+  } catch (e) {
+    $('#label-print-error').textContent = e.message;
+    if (e.data && e.data.pin_required) { state.user = null; save(); render(); }
+  }
+  labelPrints.busy = false;
+  await loadLabelPrints();
 }
 
 async function sendLabelPrint(event) {

@@ -19,6 +19,11 @@ models.LabelPrint).
   serveur, ou kiosk d'une autre machine dont la cle est marquee poste (FrontKey.poste, back sans kiosk).
 
 La fenetre du poste s'ouvre d'elle-meme, meme sans personne de connecte. Une demande pas imprimee expire en 24 h.
+
+Files d'impression : une par personne qui demande (LabelPrint.queue), pour que chacun retrouve son ruban quand plusieurs
+portables envoient en meme temps. Au poste, on choisit la file (ou on scanne son badge) et on n'imprime qu'elle. Les
+admins voient les files de n'importe ou (web, autre ordinateur), les annulent ou les lancent a distance : le poste
+imprime une file lancee a son prochain passage (toutes les 20 s).
 """
 
 import base64
@@ -32,7 +37,7 @@ from django.utils import timezone
 from . import journal
 from . import notifications
 from . import serializers as ser
-from .idendity import identity_name
+from .idendity import SOURCE_VERIFIED, identity_name
 from .models import ItemsPacks, Items, ItemType, LabelPrint, LabelPrintKind, OperationKind
 
 MAX_COUNT = 200          # etiquettes par demande (rouleau de l'imprimante)
@@ -68,6 +73,35 @@ def what(row):
     return text
 
 
+def queue_name(row):
+    """Nom de la file : la personne qui demande, sinon l'ordinateur d'ou vient l'envoi."""
+    if row.by:
+        return identity_name(row.by)
+    return row.front or 'Demandeur inconnu'
+
+
+def queues(rows, matricules=False):
+    """Demandes en attente groupees par file, la plus ancienne demande d'abord. matricules : avec le matricule de qui
+    demande, pour que le poste retrouve la file d'un badge scanne (fronts seulement)."""
+    groups = {}
+    for row in sorted(rows, key=lambda row: row.created):
+        group = groups.get(row.queue)
+        if group is None:
+            group = groups[row.queue] = {'queue': row.queue, 'name': queue_name(row), 'requests': 0, 'labels': 0,
+                                         'oldest': ser._date(row.created), 'launch_requested': None,
+                                         'launch_requested_by': '', 'ids': []}
+            if matricules:
+                source, _, payload = row.by.partition(':')
+                group['matricule'] = payload if source == SOURCE_VERIFIED else ''
+        group['requests'] += 1
+        group['labels'] += row.count
+        group['ids'].append(row.id)
+        if row.launch_requested is not None:
+            group['launch_requested'] = ser._date(row.launch_requested)
+            group['launch_requested_by'] = identity_name(row.launch_requested_by) if row.launch_requested_by else ''
+    return list(groups.values())
+
+
 def print_dict(row, full=False):
     """full : avec les items crees (etiquettes d'items) ou les images (etiquettes d'un front), pour imprimer."""
     items_kind = row.kind == LabelPrintKind.ITEMS
@@ -89,6 +123,10 @@ def print_dict(row, full=False):
         'cancelled_by': identity_name(row.cancelled_by) if row.cancelled_by else '',
         'expired': row.expired,
         'pending': row.pending,
+        'queue': row.queue,
+        'queue_name': queue_name(row),
+        'launch_requested': ser._date(row.launch_requested),
+        'launch_requested_by': identity_name(row.launch_requested_by) if row.launch_requested_by else '',
     }
     if full and items_kind:
         found = {item.iid: item for item in
@@ -216,8 +254,50 @@ def poste_list():
     plus anciennes d'abord) et impressions des dernieres 24 h."""
     since = timezone.now() - timedelta(hours=RECENT_HOURS)
     recent = LabelPrint.objects.select_related('item_type').filter(printed__gte=since).order_by('-printed')
-    return {'pending': [print_dict(row) for row in pending_rows().order_by('created')],
+    pending = list(pending_rows().order_by('created'))
+    return {'pending': [print_dict(row) for row in pending], 'queues': queues(pending, matricules=True),
             'recent': [print_dict(row) for row in recent], 'expiry_hours': LabelPrint.EXPIRY_HOURS}
+
+
+def admin_queues(matricules=False):
+    """Admins, de n'importe ou (web, autre ordinateur) : files en attente au poste, avec leurs demandes."""
+    pending = list(pending_rows().order_by('created'))
+    listed = queues(pending, matricules)
+    by_queue = {}
+    for row in pending:
+        by_queue.setdefault(row.queue, []).append(print_dict(row))
+    for group in listed:
+        group['prints'] = by_queue.get(group['queue'], [])
+    return {'queues': listed, 'expiry_hours': LabelPrint.EXPIRY_HOURS}
+
+
+def _queue_rows(queue):
+    if not isinstance(queue, str):
+        raise PrintError('queue : file attendue')
+    rows = [row for row in pending_rows().order_by('created') if row.queue == queue]
+    if not rows:
+        raise PrintError("Plus rien en attente dans cette file (déjà imprimée, annulée ou expirée)", 404)
+    return rows
+
+
+def launch_queue(queue, by):
+    """« Lancer l'impression » a distance (admins) : le poste imprime ces demandes a son prochain passage, sans que
+    personne n'appuie sur le bouton. Repond le nombre de demandes lancees."""
+    with transaction.atomic():
+        rows = _queue_rows(queue)
+        now = timezone.now()
+        LabelPrint.objects.filter(id__in=[row.id for row in rows]).update(launch_requested=now,
+                                                                          launch_requested_by=by[:64])
+    return len(rows)
+
+
+def cancel_queue(queue, by):
+    """Annule toute une file (admins, de n'importe ou). Repond le nombre de demandes annulees."""
+    with transaction.atomic():
+        rows = _queue_rows(queue)
+        LabelPrint.objects.filter(id__in=[row.id for row in rows]).update(cancelled=timezone.now(),
+                                                                          cancelled_by=by[:64])
+    return len(rows)
 
 
 def detail(print_id):

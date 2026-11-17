@@ -239,6 +239,66 @@ class LabelPrintTests(ApiTestCase):
         bad['label_type'] = {'name': 'PET', 'width_mm': 40, 'height_mm': 30, 'margin_left_mm': -1}
         self.assertEqual(send([bad]).status_code, 400)
 
+    def test_one_queue_per_requester(self):
+        # plusieurs portables envoient en meme temps : une file par personne qui demande, puis par ordinateur
+        self.user.role = 'gestion'
+        self.user.save()
+        gestion = {'matricule': 'M001', 'key': self.user.new_key}
+        first = self.ask(type='garrot', count=2)[1]
+        second = self.call('POST', '/api/label-prints/', {'user': gestion, 'type': 'garrot', 'count': 3},
+                           local=False)[1]
+        third = self.ask(type='garrot', count=1)[1]
+        _, key = FrontKey.create('Portable 3')
+        sent = self.client.post('/api/label-prints/send/', json.dumps({'title': 'Lot', 'labels': [self.label()]}),
+                                content_type='application/json', **{'qrprotec.role': 'remote',
+                                                                    'HTTP_X_QRPROTEC_KEY': key}).json()
+        self.assertEqual(sent['queue'], 'front:Portable 3')  # personne de connecte sur le portable
+        code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
+        self.assertEqual(code, 200)
+        queues = listing['queues']
+        self.assertEqual([queue['queue'] for queue in queues], ['M:P001', 'M:M001', 'front:Portable 3'])
+        self.assertEqual([queue['matricule'] for queue in queues], ['P001', 'M001', ''])
+        self.assertEqual(queues[0]['ids'], [first['id'], third['id']])
+        self.assertEqual((queues[0]['requests'], queues[0]['labels']), (2, 3))
+        self.assertEqual(queues[1]['ids'], [second['id']])
+        self.assertEqual(queues[2]['name'], 'Portable 3')
+        self.assertEqual({row['queue'] for row in listing['pending']}, {'M:P001', 'M:M001', 'front:Portable 3'})
+
+    def test_admins_manage_queues_remotely(self):
+        self.user.role = 'gestion'
+        self.user.save()
+        gestion = {'matricule': 'M001', 'key': self.user.new_key}
+        mine = self.ask(type='garrot', count=2)[1]
+        other = self.call('POST', '/api/label-prints/', {'user': gestion, 'type': 'garrot', 'count': 3},
+                          local=False)[1]
+        # admins seulement
+        for path in ('/api/label-prints/queues/', '/api/label-prints/queues/launch/'):
+            code, _ = self.call('POST', path, {'user': gestion, 'queue': 'M:M001'}, local=False)
+            self.assertEqual(code, 403)
+        code, web = self.call('POST', '/api/label-prints/list/', {'user': gestion}, local=False)
+        self.assertNotIn('queues', web)
+        code, web = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
+        self.assertEqual([queue['queue'] for queue in web['queues']], ['M:P001', 'M:M001'])
+        self.assertNotIn('matricule', web['queues'][0])  # web : pas besoin du matricule
+        code, body = self.call('POST', '/api/label-prints/queues/', {'user': self.admin()}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual([row['id'] for row in body['queues'][1]['prints']], [other['id']])
+        # lancee a distance : le poste la voit a son prochain passage
+        code, body = self.call('POST', '/api/label-prints/queues/launch/', {'user': self.admin(), 'queue': 'M:M001'},
+                               local=False)
+        self.assertEqual((code, body['launched']), (200, 1))
+        code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
+        launched = {queue['queue']: queue['launch_requested'] for queue in listing['queues']}
+        self.assertIsNone(launched['M:P001'])
+        self.assertIsNotNone(launched['M:M001'])
+        self.assertTrue(listing['queues'][1]['launch_requested_by'])
+        # annulee a distance (aussi depuis le poste d'un admin)
+        code, body = self.call('POST', '/api/label-prints/queues/cancel/', {'queue': 'M:P001'})
+        self.assertEqual((code, body['cancelled']), (200, 1))
+        self.assertFalse(models.LabelPrint.objects.get(id=mine['id']).pending)
+        self.assertEqual(self.call('POST', '/api/label-prints/queues/cancel/', {'queue': 'M:P001'})[0], 404)
+        self.assertEqual(self.call('POST', '/api/label-prints/queues/stop/', {'queue': 'M:M001'})[0], 404)
+
 
 class PrintCountTests(ApiTestCase):
     """Compteur d'impressions : etiquettes envoyees a l'imprimante, par mois et par categorie d'etiquette."""

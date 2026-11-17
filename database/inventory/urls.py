@@ -71,6 +71,9 @@ public_patterns = [
     path('label-prints/', views.label_prints_create),
     path('label-prints/list/', views.label_prints_list),
     path('label-prints/<int:print_id>/cancel/', views.label_print_cancel),
+    # files d'impression du poste, gerees et lancees a distance par les admins (web ou autre ordinateur)
+    path('label-prints/queues/', views.label_print_queues),
+    path('label-prints/queues/<str:action>/', views.label_print_queue_action),
 ]
 
 # Servies uniquement par l'API locale (poste de gestion). Elles doivent preceder les routes publiques

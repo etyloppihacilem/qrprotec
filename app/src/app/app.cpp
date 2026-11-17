@@ -499,7 +499,9 @@ void App::begin_frame() {
     refresh_report_counts();
   // impressions demandees depuis le web ou un autre ordinateur : verifiees meme sans personne de connecte, sur le
   // poste principal seulement (API locale, ou cle marquee poste sur un back sans kiosk)
-  if (main_poste() && !label_prints_.loading && ImGui::GetTime() >= label_prints_.next_poll)
+  // Sur un autre ordinateur, les admins voient les files du poste tant que leur fenetre est ouverte.
+  if ((main_poste() || (label_prints_.open && label_prints_.remote && admin())) && !label_prints_.loading
+      && ImGui::GetTime() >= label_prints_.next_poll)
     refresh_label_prints();
   // cache de vérif tenu a jour toutes les minutes (vérif possible hors connexion), envois en attente reessayes
   sync_cache(60.0);
@@ -657,6 +659,14 @@ void App::draw_menu_bar() {
       for (auto &window : windows)
         if (window->privileged && window->admin_only && can_open(*window))
           window_menu_item(*window);
+      // autre ordinateur que le poste : files d'impression du poste, gerees et lancees a distance
+      if (!main_poste()) {
+        ImGui::Separator();
+        if (ImGui::MenuItem("Files d'impression du poste...")) {
+          label_prints_.next_poll = 0.0;
+          open_label_prints();
+        }
+      }
       ImGui::EndMenu();
     }
     // voyant : lots qui demandent de l'attention (rouge s'il y en a d'incomplets ou perimes, orange sinon)
@@ -688,7 +698,13 @@ void App::draw_menu_bar() {
       const std::string label = "● " + nb(requests, "impression") + " en attente";
       if (bar_item(bar, label.c_str(), bar.blue))
         open_label_prints();
-      ImGui::SetItemTooltip("Étiquettes d'items demandées par le TECH depuis le web : ouvrir pour les imprimer.");
+      if (ImGui::BeginItemTooltip()) {
+        ImGui::TextUnformatted("Étiquettes demandées depuis le web ou un autre ordinateur, une file par personne :");
+        for (const Json &queue : label_prints_.data["queues"].items())
+          ImGui::BulletText("%s : %s", queue["name"].str().c_str(), nb(queue["labels"].integer(), "étiquette").c_str());
+        ImGui::TextDisabled("Cliquer : ouvrir pour les imprimer.");
+        ImGui::EndTooltip();
+      }
     }
     draw_update_menu(tinted);
     if (bar_menu(bar, "Douchette")) {

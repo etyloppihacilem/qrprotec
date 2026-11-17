@@ -17,6 +17,7 @@
 // Sur le poste (le seul front branche sur l'API locale), la fenetre « Impressions en attente » s'ouvre d'elle-meme a
 // chaque nouvelle demande, meme sans personne de connecte. Une demande pas imprimee expire en 24 h (serveur).
 
+#include "../core/codes.hpp"
 #include "../core/json.hpp"
 #include "../core/plural.hpp"
 #include "../core/template_io.hpp"
@@ -38,6 +39,7 @@ namespace {
 constexpr double      kPollSeconds = 20.0;
 constexpr std::size_t kSendBytes   = 1500000; // par envoi au poste (le serveur refuse les requetes de plus de 2,5 Mo)
 constexpr std::size_t kSendLabels  = 200;     // par envoi (label_prints.MAX_COUNT)
+constexpr double      kAutoCloseSeconds = 15 * 60.0; // fenetre fermee apres 15 min sans rien en attente
 
 // Etiquette rendue -> {description, width, height, ppm, bits} : 1 bit par pixel (1 = noir), lignes de gauche a
 // droite, bit de poids fort d'abord (format de label_prints._check_label)
@@ -91,19 +93,24 @@ std::string jobs_title(const std::vector< PrintJob > &jobs) {
   return title;
 }
 
-// Qui a demande, et d'ou : « Sophie Bernard », « Sophie Bernard (Ordi du TECH) », « Ordi du TECH »
-std::string request_who(const Json &request) {
-  const std::string by = request["by"].str(), front = request["front"].str();
-  if (front.empty())
-    return by;
-  return by.empty() ? front : by + " (" + front + ")";
-}
-
 } // namespace
 
 void App::refresh_label_prints() {
   label_prints_.loading   = true;
   label_prints_.next_poll = ImGui::GetTime() + kPollSeconds;
+  if (label_prints_.remote) {
+    // autre ordinateur, admins : files du poste, a gerer et lancer a distance
+    api.post("/api/label-prints/queues/", Json::object(), [this](const ApiResult &result) {
+      label_prints_.loading = false;
+      if (!result.ok) {
+        label_prints_.error = result.error;
+        return;
+      }
+      label_prints_.error = "";
+      label_prints_.data  = result.data;
+    });
+    return;
+  }
   api.get("/api/label-prints/pending/", [this](const ApiResult &result) {
     label_prints_.loading = false;
     if (!result.ok)
@@ -114,6 +121,64 @@ void App::refresh_label_prints() {
       fresh |= label_prints_.seen.insert(request["id"].integer()).second;
     if (fresh)
       open_label_prints();
+    // file lancee a distance par un admin (web ou autre ordinateur) : imprimee sans que personne n'appuie, une file
+    // a la fois ; la suivante part au tour d'apres
+    if (label_prints_.busy)
+      return;
+    for (const Json &queue : result.data["queues"].items()) {
+      if (queue["launch_requested"].str().empty())
+        continue;
+      std::vector< int > ids;
+      for (const Json &id : queue["ids"].items())
+        if (label_prints_.launched.insert(id.integer()).second)
+          ids.push_back(id.integer());
+      if (ids.empty())
+        continue;
+      open_label_prints();
+      label_prints_.queue         = queue["queue"].str();
+      label_prints_.queue_by_user = true;
+      std::string by = queue["launch_requested_by"].str();
+      notify("Impression lancée à distance" + (by.empty() ? std::string() : " par " + by) + " : file de "
+             + queue["name"].str() + ".");
+      launch_label_prints(ids);
+      return;
+    }
+  });
+}
+
+bool App::label_prints_badge(const std::string &code, ScanSource source) {
+  if (!label_prints_.open || label_prints_.remote)
+    return false;
+  const ParsedScan scan = parse_scan(code);
+  if (scan.kind != ScanKind::User)
+    return false;
+  label_prints_.badge_matricule = scan.id;
+  label_prints_.badge_key       = scan.key;
+  label_prints_.badge_source    = static_cast< int >(source);
+  label_prints_.focus           = true;
+  label_prints_.queue.clear();
+  label_prints_.queue_by_user = false;
+  for (const Json &queue : label_prints_.data["queues"].items())
+    if (!queue["matricule"].str().empty() && queue["matricule"].str() == scan.id) {
+      label_prints_.queue         = queue["queue"].str();
+      label_prints_.queue_by_user = true;
+    }
+  return true;
+}
+
+void App::label_queue_action(const std::string &queue, const std::string &action) {
+  Json body     = Json::object();
+  body["queue"] = queue;
+  label_prints_.error = "";
+  api.post("/api/label-prints/queues/" + action + "/", body, [this, action](const ApiResult &result) {
+    if (!result.ok) {
+      label_prints_.error = result.error;
+    } else if (action == "launch") {
+      notify("Impression lancée : le poste l'imprime dans moins d'une minute.");
+    } else {
+      notify(nb(result.data["cancelled"].integer(), "impression annulée", "impressions annulées") + ".");
+    }
+    refresh_label_prints();
   });
 }
 
@@ -202,83 +267,262 @@ void App::launch_label_prints(std::vector< int > ids) {
            });
 }
 
-void App::draw_label_prints() {
-  if (!label_prints_.open)
+namespace {
+
+// D'ou vient une demande : « Web » (etiquettes d'items) ou l'ordinateur qui l'a envoyee
+std::string request_from(const Json &request) {
+  if (!request["front"].str().empty())
+    return request["front"].str();
+  return request["kind"].str() == "labels" ? "Poste" : "Web";
+}
+
+} // namespace
+
+// Demandes d'une file : ce qui sera imprime, d'ou et quand
+void App::draw_label_queue(const Json &queue) {
+  const float base = ImGui::GetStyle().FontSizeBase;
+  std::vector< const Json * > rows;
+  if (label_prints_.remote) {
+    for (const Json &request : queue["prints"].items())
+      rows.push_back(&request);
+  } else {
+    for (const Json &request : label_prints_.data["pending"].items())
+      if (request["queue"].str() == queue["queue"].str())
+        rows.push_back(&request);
+  }
+  if (!ImGui::BeginTable("label_prints_pending", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH))
     return;
+  ImGui::TableSetupColumn("Étiquettes", ImGuiTableColumnFlags_WidthStretch);
+  ImGui::TableSetupColumn("Depuis", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+  ImGui::TableSetupColumn("Quand", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+  ImGui::TableHeadersRow();
+  for (const Json *request : rows) {
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::PushFont(nullptr, base * 1.2f);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted((*request)["what"].str().c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::PopFont();
+    ImGui::TableNextColumn();
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(request_from(*request).c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(display_datetime((*request)["created"]).c_str());
+  }
+  ImGui::EndTable();
+}
+
+void App::draw_label_prints() {
+  LabelPrints &state = label_prints_;
+  // fenetre des files du poste sur un autre ordinateur : admins seulement
+  if (state.open && state.remote && !admin())
+    state.open = false;
+  if (!state.open) {
+    // fermee : la prochaine ouverture repart sans file choisie ni badge
+    state.queue.clear();
+    state.queue_by_user = false;
+    state.badge_matricule.clear();
+    state.badge_key.clear();
+    state.empty_since = -1.0;
+    state.error.clear();
+    return;
+  }
   const ImGuiViewport *viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-  ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, viewport->WorkSize.x * 0.9f), std::min(520.0f, viewport->WorkSize.y * 0.8f)),
+  ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, viewport->WorkSize.x * 0.9f), std::min(560.0f, viewport->WorkSize.y * 0.8f)),
                            ImGuiCond_Appearing);
-  if (label_prints_.focus) {
+  if (state.focus) {
     ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowCollapsed(false);
-    label_prints_.focus = false;
+    state.focus = false;
   }
-  if (!ImGui::Begin("Impressions en attente###label_prints", &label_prints_.open, ImGuiWindowFlags_NoCollapse)) {
+  const char *title = state.remote ? "Files d'impression du poste###label_prints" : "Impressions en attente###label_prints";
+  if (!ImGui::Begin(title, &state.open, ImGuiWindowFlags_NoCollapse)) {
     ImGui::End();
     return;
   }
-  const Json  &pending = label_prints_.data["pending"];
-  const Json  &recent  = label_prints_.data["recent"];
-  const float  base    = ImGui::GetStyle().FontSizeBase;
+  const Json  &queues = state.data["queues"];
+  const Json  &recent = state.data["recent"];
+  const float  base   = ImGui::GetStyle().FontSizeBase;
+  const double now    = ImGui::GetTime();
+
+  // plus rien en attente depuis 15 min : la fenetre se ferme d'elle-meme
+  if (queues.size() == 0 && !state.busy) {
+    if (state.empty_since < 0.0)
+      state.empty_since = now;
+    else if (now - state.empty_since >= kAutoCloseSeconds)
+      state.open = false;
+  } else {
+    state.empty_since = -1.0;
+  }
+
   ImGui::PushTextWrapPos(0.0f);
-  ImGui::TextUnformatted("Étiquettes demandées depuis le web ou un autre ordinateur. Lancez l'impression. Pour de "
-                         "nouvelles étiquettes d'items, collez chacune sur un item de ce type : les items sont ajoutés "
-                         "au stock. Une demande pas imprimée en 24 h disparaît.");
+  if (state.remote)
+    ImGui::TextUnformatted("Impressions en attente au poste, une file par personne qui les a demandées. « Lancer "
+                           "l'impression » : le poste l'imprime dans la minute, sans que personne n'y touche.");
+  else
+    ImGui::TextUnformatted("Étiquettes demandées depuis le web ou un autre ordinateur, une file par personne. "
+                           "Pour de nouvelles étiquettes d'items, collez chacune sur un item de ce type : les items "
+                           "sont ajoutés au stock. Une demande pas imprimée en 24 h disparaît.");
   ImGui::PopTextWrapPos();
   ImGui::Spacing();
 
-  int labels = 0;
-  std::vector< int > ids;
-  for (const Json &request : pending.items()) {
-    labels += request["count"].integer();
-    ids.push_back(request["id"].integer());
+  // file affichee : la seule, celle choisie (a la main ou par badge), sinon celle de la personne connectee
+  const Json *shown = nullptr;
+  for (const Json &queue : queues.items())
+    if (!state.queue.empty() && queue["queue"].str() == state.queue)
+      shown = &queue;
+  if (shown == nullptr && state.queue_by_user) {
+    state.queue.clear(); // imprimee, annulee ou expiree
+    state.queue_by_user = false;
   }
-  if (pending.size() == 0) {
-    ImGui::TextColored(colors::green, "Aucune impression en attente.");
-  } else if (ImGui::BeginTable("label_prints_pending", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
-    ImGui::TableSetupColumn("Étiquettes", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn("Demandé par", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn("Quand", ImGuiTableColumnFlags_WidthFixed, 160.0f);
-    ImGui::TableHeadersRow();
-    for (const Json &request : pending.items()) {
-      ImGui::TableNextRow();
-      ImGui::TableNextColumn();
-      ImGui::PushFont(nullptr, base * 1.2f);
-      ImGui::PushTextWrapPos(0.0f);
-      ImGui::TextUnformatted(request["what"].str().c_str());
-      ImGui::PopTextWrapPos();
-      ImGui::PopFont();
-      ImGui::TableNextColumn();
-      ImGui::PushTextWrapPos(0.0f);
-      ImGui::TextUnformatted(request_who(request).c_str());
-      ImGui::PopTextWrapPos();
-      ImGui::TableNextColumn();
-      ImGui::TextUnformatted(display_datetime(request["created"]).c_str());
+  if (shown == nullptr && queues.size() == 1)
+    shown = &queues[0];
+  if (shown == nullptr && user && state.badge_matricule.empty())
+    for (const Json &queue : queues.items())
+      if (queue["matricule"].str() == user->matricule)
+        shown = &queue;
+
+  // badge scanne fenetre ouverte : ses impressions, et la connexion seulement sur demande
+  if (!state.badge_matricule.empty()) {
+    const bool has_queue = shown != nullptr && !(*shown)["matricule"].str().empty()
+                        && (*shown)["matricule"].str() == state.badge_matricule;
+    ImGui::PushFont(nullptr, base * 1.15f);
+    if (has_queue)
+      ImGui::TextColored(colors::green, "Badge scanné : impressions de %s.", (*shown)["name"].str().c_str());
+    else
+      ImGui::TextColored(colors::orange, "Badge scanné : rien en attente pour ce badge.");
+    ImGui::PopFont();
+    if (!(user && user->matricule == state.badge_matricule)) {
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted("Le badge ne vous a pas connecté. Pour vous connecter :");
+      ImGui::SameLine();
+      if (primary_button("Se connecter", ImVec2(ImGui::GetFontSize() * 9.0f, 0.0f))) {
+        ParsedScan scan;
+        scan.kind = ScanKind::User;
+        scan.id   = state.badge_matricule;
+        scan.key  = state.badge_key;
+        state.badge_matricule.clear();
+        state.badge_key.clear();
+        login_with_badge(scan, static_cast< ScanSource >(state.badge_source));
+      }
     }
-    ImGui::EndTable();
+    ImGui::Spacing();
   }
-  ImGui::Spacing();
-  if (ids.empty() && !label_prints_.busy) {
-    if (button("Fermer") || enter_pressed() || escape_pressed())
-      label_prints_.open = false;
-  } else {
-    ImGui::BeginDisabled(label_prints_.busy);
-    const std::string launch = label_prints_.busy ? std::string("Impression en cours...")
-                                                  : "Lancer l'impression (" + nb(labels, "étiquette") + ")";
+
+  if (queues.size() == 0) {
+    ImGui::TextColored(colors::green, "Aucune impression en attente.");
+    if (!state.remote && state.empty_since >= 0.0)
+      ImGui::TextDisabled("Cette fenêtre se ferme d'elle-même dans %d min.",
+                          std::max(1, static_cast< int >(std::ceil((kAutoCloseSeconds - (now - state.empty_since)) / 60.0))));
+  } else if (queues.size() > 1) {
+    // plusieurs personnes ont envoye : chacune choisit sa file, ou scanne son badge
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(state.remote ? "Plusieurs files en attente :"
+                                        : "Plusieurs personnes ont envoyé des impressions. Choisissez la vôtre, ou "
+                                          "scannez votre badge :");
+    ImGui::PopTextWrapPos();
+    ImGui::PushFont(nullptr, base * 1.15f);
+    for (const Json &queue : queues.items()) {
+      ImGui::PushID(queue["queue"].str().c_str());
+      std::string label = queue["name"].str() + "  ·  " + nb(queue["labels"].integer(), "étiquette");
+      if (!queue["launch_requested"].str().empty())
+        label += "  ·  lancée à distance";
+      if (ImGui::RadioButton(label.c_str(), shown == &queue)) {
+        state.queue         = queue["queue"].str();
+        state.queue_by_user = true;
+        state.badge_matricule.clear();
+        state.badge_key.clear();
+        shown = &queue;
+      }
+      ImGui::PopID();
+    }
+    ImGui::PopFont();
+  }
+
+  std::vector< int > ids;
+  int                labels = 0;
+  if (shown != nullptr) {
+    const Json &queue = *shown;
+    for (const Json &id : queue["ids"].items())
+      ids.push_back(id.integer());
+    labels = queue["labels"].integer();
+    ImGui::Spacing();
     ImGui::PushFont(nullptr, base * 1.3f);
-    if (primary_button(launch.c_str(), ImVec2(-1, ImGui::GetFrameHeight() * 1.6f)) || enter_pressed())
+    ImGui::Text("Impressions de %s", queue["name"].str().c_str());
+    ImGui::PopFont();
+    if (!queue["launch_requested"].str().empty()) {
+      const std::string by = queue["launch_requested_by"].str();
+      ImGui::TextColored(colors::blue, "Lancée à distance%s%s %s.", by.empty() ? "" : " par ", by.c_str(),
+                         display_on(queue["launch_requested"]).c_str());
+    }
+    draw_label_queue(queue);
+  } else if (queues.size() > 1) {
+    ImGui::Spacing();
+    ImGui::TextDisabled("Choisissez une file pour voir ses impressions.");
+  }
+  if (!state.error.empty())
+    ImGui::TextColored(colors::red, "%s", state.error.c_str());
+  ImGui::Spacing();
+
+  const std::string name = shown != nullptr ? (*shown)["name"].str() : std::string();
+  if (state.remote) {
+    if (shown != nullptr) {
+      ImGui::PushFont(nullptr, base * 1.2f);
+      const std::string launch = "Lancer l'impression au poste (" + nb(labels, "étiquette") + ")";
+      if (primary_button(launch.c_str(), ImVec2(-1, ImGui::GetFrameHeight() * 1.5f)))
+        label_queue_action((*shown)["queue"].str(), "launch");
+      ImGui::PopFont();
+    }
+  } else if (queues.size() == 0 && !state.busy) {
+    if (button("Fermer") || (queues.size() == 0 && (enter_pressed() || escape_pressed())))
+      state.open = false;
+  } else {
+    ImGui::BeginDisabled(state.busy || ids.empty());
+    const std::string launch = state.busy    ? std::string("Impression en cours...")
+                             : ids.empty()   ? std::string("Lancer l'impression")
+                                             : "Lancer l'impression de " + name + " (" + nb(labels, "étiquette") + ")";
+    ImGui::PushFont(nullptr, base * 1.3f);
+    if (primary_button(launch.c_str(), ImVec2(-1, ImGui::GetFrameHeight() * 1.6f)) || (!ids.empty() && enter_pressed())) {
+      for (int id : ids)
+        state.launched.insert(id);
       launch_label_prints(ids);
+    }
     ImGui::PopFont();
     ImGui::EndDisabled();
+  }
+  if (!state.remote && (queues.size() > 0 || state.busy)) {
     if (button("Plus tard") || escape_pressed())
-      label_prints_.open = false;
+      state.open = false;
     ImGui::SameLine();
-    ImGui::TextDisabled("La demande reste en attente (bouton bleu de la barre de menu).");
+    ImGui::TextDisabled("Les demandes restent en attente (bouton bleu de la barre de menu).");
+  } else if (state.remote) {
+    if (button("Fermer") || escape_pressed())
+      state.open = false;
+  }
+  // admins : annuler toute une file (sur le poste comme a distance)
+  if (shown != nullptr && admin()) {
+    ImGui::SameLine();
+    if (danger_button("Annuler cette file"))
+      ImGui::OpenPopup("cancel_label_queue");
+    if (ImGui::BeginPopupModal("cancel_label_queue", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
+      ImGui::Text("Annuler les %s de %s ?", nb(labels, "étiquette").c_str(), name.c_str());
+      ImGui::TextDisabled("Elles ne seront pas imprimées.");
+      if (danger_button("Annuler la file")) {
+        label_queue_action((*shown)["queue"].str(), "cancel");
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::SameLine();
+      if (button("Garder") || escape_pressed())
+        ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
   }
 
   // imprimees dans les dernieres 24 h : reimpression si une etiquette a ete abimee ou le rouleau a coince
-  if (recent.size() > 0) {
+  if (!state.remote && recent.size() > 0) {
     ImGui::SeparatorText("Imprimées dans les dernières 24 h");
     for (const Json &request : recent.items()) {
       ImGui::PushID(request["id"].integer());
@@ -294,7 +538,7 @@ void App::draw_label_prints() {
       ImGui::SameLine();
       ImGui::Text("%s", request["what"].str().c_str());
       ImGui::SameLine();
-      ImGui::TextDisabled("imprimées %s", display_on(request["printed"]).c_str());
+      ImGui::TextDisabled("de %s, imprimées %s", request["queue_name"].str().c_str(), display_on(request["printed"]).c_str());
       ImGui::PopID();
     }
   }

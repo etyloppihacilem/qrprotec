@@ -267,15 +267,27 @@ struct ProblemPrompt {
     std::string   error;
 };
 
-// Fenetre « Impressions en attente » (database/inventory/label_prints.py) : demandes du web, imprimees au poste
+// Fenetre « Impressions en attente » (database/inventory/label_prints.py) : demandes du web, imprimees au poste.
+// Une file par personne qui demande (plusieurs portables envoient en meme temps : chacun retrouve son ruban). Sur un
+// autre ordinateur, les admins y gerent les files du poste a distance (remote).
 struct LabelPrints {
-    Json            data = Json::object(); // {"pending": [...], "recent": [...]} de /api/label-prints/pending/
+    Json            data = Json::object(); // {"pending", "queues", "recent"} de /api/label-prints/pending/
     std::set< int > seen;                  // demandes deja vues : seule une nouvelle rouvre la fenetre
+    std::set< int > launched;              // demandes lancees a distance deja parties a l'imprimante
     bool            open    = false;
     bool            focus   = false;
     bool            loading = false;
     bool            busy    = false; // impression lancee, demandes envoyees une par une
+    bool            remote  = false; // autre ordinateur (admins) : files du poste, lancees a distance
     double          next_poll = 0.0;
+    std::string     queue;         // file choisie (vide : pas encore choisie, plusieurs files)
+    bool            queue_by_user = false; // choisie a la main ou par badge : gardee tant qu'elle existe
+    double          empty_since = -1.0;    // plus rien en attente depuis (fermeture au bout de 15 min)
+    // badge scanne fenetre ouverte : on montre ses impressions, la connexion attend « Se connecter »
+    std::string     badge_matricule;
+    std::string     badge_key;
+    int             badge_source = 0;
+    std::string     error;
 };
 
 struct LabelPreviewState {
@@ -471,7 +483,12 @@ class App {
     // Etiquettes d'items demandees depuis le web par un admin : fenetre « Impressions en attente », ouverte d'elle-meme
     // a chaque nouvelle demande, meme sans personne de connecte (voir label_prints.cpp)
     void refresh_label_prints();
-    void open_label_prints() { label_prints_.open = label_prints_.focus = true; }
+    void open_label_prints() {
+      label_prints_.open = label_prints_.focus = true;
+      label_prints_.remote = !main_poste();
+    }
+    // badge scanne fenetre « Impressions en attente » ouverte : file de ce badge, pas de connexion tout de suite
+    bool label_prints_badge(const std::string &code, ScanSource source);
     // front d'un autre ordinateur (cle de front) sans imprimante : « Imprimer » envoie les etiquettes au poste
     // Poste principal : front de l'API locale (meme machine que le back), ou front distant dont la cle est marquee
     // « poste principal » sur le serveur (kiosk sur une autre machine, back sans kiosk). Il imprime les
@@ -658,6 +675,8 @@ class App {
     RollWizard roll_wizard_;
     void       draw_roll_wizard();
     void launch_label_prints(std::vector< int > ids);
+    void label_queue_action(const std::string &queue, const std::string &action); // admins : launch ou cancel
+    void draw_label_queue(const Json &queue);
     void print_label_request(const Json &request); // etiquettes d'une demande (items crees ou images)
     void send_problem();
     void reload_verif_lots(); // contenu a jour des lots de la verif (item signale inutilisable : a remplacer)
