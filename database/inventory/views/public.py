@@ -1173,6 +1173,18 @@ def debug_codes_list(request):
 
 @api_view(['POST'])
 @handle_errors
+def fun_stats_view(request):
+    """Stats fun de l'annee (front web, cache derriere 5 appuis sur « Prévisions ») : {"user", "period"?: "last12" ou
+    une annee}. Roles gestion et admin, verifie ici et pas seulement par le front."""
+    connected_user(request, GESTION)
+    value = request.data.get('period') or 'last12'
+    if value != 'last12':
+        value = parse_int(value, 'period', 2000, 2100)
+    return Response(fun_stats.compute(value))
+
+
+@api_view(['POST'])
+@handle_errors
 def debug_temp_login(request):
     """QR code de connexion de depannage d'un secouriste (outil de debug, admins) : {"user", "matricule"} -> lien
     badge?m=...&t=... valable 1 h, qui ouvre une session de 24 h sur le telephone qui le scanne. Jamais pour un

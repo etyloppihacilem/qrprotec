@@ -284,7 +284,8 @@ function stockParts(view) {
       'À faire' + (state.tasks && state.tasks.count ? ` (${state.tasks.count})` : '')),
     el('button', { type: 'button', class: view === 'stock' ? 'active' : '',
       onclick: () => { choose('stock')(); debugTap(); } }, 'État des stocks'),
-    el('button', { type: 'button', class: forecastMode ? 'active' : '', onclick: choose('forecast') }, 'Prévisions'));
+    el('button', { type: 'button', class: forecastMode ? 'active' : '',
+      onclick: () => { choose('forecast')(); funTap(); } }, 'Prévisions'));
   const head = el('div', { class: 'row-head' },
     el('h3', {}, view === 'tasks' ? 'À faire' : forecastMode ? 'Stock à venir' : 'État des stocks (lecture seule)'),
     el('div', { class: 'buttons' },

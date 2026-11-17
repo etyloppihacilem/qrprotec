@@ -155,6 +155,14 @@ Deux règles :
   `checkSharedIdle` déconnecte après 1 h sans activité (`SHARED_IDLE_MS`, dernière activité
   `qrprotec.activity` : toucher, clavier, douchette, scan caméra), vérifié chaque minute, au retour sur
   la page et avant de compter un nouveau geste. Aucun changement côté serveur.
+- **Stats de l'année** (gestion et admin, pour l'AG) : page cachée `#stats` (`fun-stats.js`), ouverte par
+  5 appuis rapides sur « Prévisions » (`funTap`). `POST api/stats/fun/` (`fun_stats.py`, `period` : `last12`
+  ou une année civile, refusé aux autres rôles par le serveur) rend les chiffres de la période et des cartes :
+  podiums (vérifs, périmés débusqués, duos, coéquipiers, items scannés, scellés, réassorts, signalements,
+  listes, lots chouchous, recrues) et records (marathon du jour, vérif la plus tardive / matinale, périmé le
+  plus ancien, lot oublié, jour et mois préférés). Une vérif en cascade compte une fois, pour chacun de ses
+  participants ; seuls les secouristes connectés entrent dans les podiums, prénoms seulement. « Présenter »
+  les affiche en plein écran une carte à la fois (`#fun-show`, flèches ou toucher pour avancer).
 - **Outil de debug des codes** (admins) : page cachée `#debug`, ouverte par 5 appuis rapides sur
   « État des stocks » (`debugTap`). `POST api/debug/codes/` (`debug_codes.py`, refusé à tout autre rôle
   par le serveur) rend le contenu de toutes les étiquettes imprimables : items (QR de l'URL, ou iid court
