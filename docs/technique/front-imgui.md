@@ -289,6 +289,15 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   1,5 Mo au plus. Le poste la reçoit comme une demande (`kind` labels) et l'imprime telle quelle
   (`PrintJob::image`, recadrée à son étiquette physique par `fit_to_label`). Seul le poste (sans clé
   de front) interroge la file. Une demande pas imprimée expire en 24 h.
+- **Files d'impression** : la réponse de `/api/label-prints/pending/` groupe les demandes en `queues`
+  (une par `LabelPrint.queue` : identité de qui demande, sinon `front:<ordinateur>`), avec le matricule
+  pour retrouver la file d'un badge. Plusieurs files : choix par bouton radio ou par badge
+  (`App::label_prints_badge`, appelé en tête de `handle_scan` tant que la fenêtre est ouverte : pas de
+  connexion, bouton « Se connecter » qui appelle `login_with_badge`). Une file lancée à distance
+  (`launch_requested`, `POST /api/label-prints/queues/launch/` par un admin du web ou d'un autre
+  ordinateur) part à l'imprimante au tour suivant, une file à la fois. Sur un autre ordinateur, les
+  admins ouvrent la même fenêtre en mode `remote` (Administration > Files d'impression du poste), qui
+  interroge `POST /api/label-prints/queues/`. Fenêtre fermée 15 min après la dernière demande.
 - **Compteur d'impressions** (`core/print_counter.cpp`, fenêtre `print_counts_window.cpp`) : le fil
   de `PrintQueue` ajoute chaque étiquette acceptée par l'imprimante (`print` réussi) au `PrintCounter`
   de `App`, par jour et par catégorie : largeur × hauteur du type d'étiquette du modèle (sinon étiquette

@@ -59,6 +59,10 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     handle_poste_action(action, source);
     return;
   }
+  // fenetre « Impressions en attente » ouverte : un badge (meme avec code PIN) montre les impressions de cette
+  // personne, sans la connecter (bouton « Se connecter » dans la fenetre)
+  if (label_prints_badge(code, source))
+    return;
   // popup « Passer a … ? » ignoree : le scan suivant vaut « Passer » (on passe au lot scanne, scans gardes)
   if (verif.leave_prompt.open)
     answer_leave(1);

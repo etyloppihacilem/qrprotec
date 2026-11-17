@@ -46,8 +46,35 @@ def label_prints_create(request):
 def label_prints_list(request):
     """Web, roles gestion et admin : types d'items proposes et demandes d'impression (en attente, puis des 7 derniers
     jours)."""
-    connected_user(request, GESTION)
-    return Response(label_prints.web_list())
+    user = connected_user(request, GESTION)
+    data = label_prints.web_list()
+    if user.role == Role.ADMIN:  # files d'impression du poste, toutes demandes confondues, gerees a distance
+        data['queues'] = label_prints.admin_queues()['queues']
+    return Response(data)
+
+
+@api_view(['POST'])
+@handle_errors
+def label_print_queues(request):
+    """Admins, du web ou d'un autre ordinateur : files d'impression en attente au poste (une par personne qui
+    demande), avec leurs demandes."""
+    connected_user(request, ADMIN)
+    return Response(label_prints.admin_queues(matricules=is_front(request)))
+
+
+@api_view(['POST'])
+@handle_errors
+def label_print_queue_action(request, action):
+    """Admins, du web ou d'un autre ordinateur : {"queue"} → « launch » (le poste imprime la file a son prochain
+    passage, toutes les 20 s) ou « cancel » (toute la file annulee)."""
+    user = connected_user(request, ADMIN)
+    by = f'{SOURCE_VERIFIED}:{user.matricule}'
+    queue = request.data.get('queue')
+    if action == 'launch':
+        return Response({'launched': _label_print_call(label_prints.launch_queue, queue, by)})
+    if action == 'cancel':
+        return Response({'cancelled': _label_print_call(label_prints.cancel_queue, queue, by)})
+    raise ApiError('Action inconnue : launch ou cancel', status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['POST'])
