@@ -97,7 +97,8 @@ const std::filesystem::path &templates_dir() {
 
 std::filesystem::path resolve_template_path(const std::string &path) {
   const std::filesystem::path value(path);
-  if (path.empty() || value.is_absolute())
+  // has_root_directory : « /x » (sans lecteur) est aussi un chemin complet sous Windows
+  if (path.empty() || value.is_absolute() || value.has_root_directory())
     return value;
   return templates_dir() / value;
 }
