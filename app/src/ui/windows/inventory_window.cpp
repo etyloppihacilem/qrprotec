@@ -514,7 +514,7 @@ class InventoryWindow final : public AppWindow {
       // seulement son minimum (en unites)
       ImGui::BeginDisabled(form_to_check_);
       ImGui::SetNextItemWidth(150.0f);
-      ImGui::InputInt(form_unit_on_ ? ("Quantité minimale en stock (" + form_unit_ + ")").c_str()
+      ImGui::InputInt(form_unit_on_ && !form_unit_.empty() ? ("Quantité minimale en stock (" + form_unit_ + ")").c_str()
                                     : "Quantité minimale en stock",
                       &form_min_);
       ImGui::EndDisabled();
@@ -611,8 +611,8 @@ class InventoryWindow final : public AppWindow {
         body["tasks"]      = Json::array();
       }
       if (editing_type_.empty()) {
-        ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty() || name_taken || code_taken || tear_and_tasks
-                             || (form_unit_on_ && form_unit_.empty()));
+        // type parent : l'unite est facultative (sans unite, chaque item d'un sous-type compte pour 1)
+        ImGui::BeginDisabled(form_code_.size() != 6 || form_name_.empty() || name_taken || code_taken || tear_and_tasks);
         if (primary_button("Créer le type")) {
           body["type"] = form_code_;
           app.api.post("/api/item-types/", body, [this, &app](const ApiResult &result) {
@@ -633,7 +633,7 @@ class InventoryWindow final : public AppWindow {
         }
         ImGui::EndDisabled();
       } else {
-        ImGui::BeginDisabled(form_name_.empty() || name_taken || tear_and_tasks || (form_unit_on_ && form_unit_.empty()));
+        ImGui::BeginDisabled(form_name_.empty() || name_taken || tear_and_tasks);
         if (primary_button("Enregistrer")) {
           app.api.patch("/api/item-types/" + url_encode(editing_type_) + "/", body, [&app](const ApiResult &result) {
             app.notify(result.ok ? "Type enregistré." : result.error, !result.ok);
