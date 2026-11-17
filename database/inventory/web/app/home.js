@@ -7,9 +7,10 @@
 
 const badge = credentials;
 const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock', reports: 'signalements', lists: 'listes',
-  depart: 'depart', debug: 'debug' };
+  depart: 'depart', debug: 'debug', stats: 'stats' };
 const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'Gestion de la TECH',
-  reports: 'Signalements', lists: 'Listes de matériel', depart: 'Départ', debug: 'Debug des codes' };
+  reports: 'Signalements', lists: 'Listes de matériel', depart: 'Départ', debug: 'Debug des codes',
+  stats: 'Stats de l\'année' };
 // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
 const hasNotifications = () => !!state.user && (state.user.notifications !== undefined ? !!state.user.notifications : canSeeStock());
 
@@ -38,6 +39,7 @@ function showHome(page = 'menu', push = true) {
   document.body.classList.add('home-mode');
   refreshHome(page);
   if (page === 'debug' && isAdmin() && !debug.data) loadDebug();
+  if (page === 'stats' && canSeeStock() && !fun.data) loadFunStats();
   if (page === 'live') watchStart(); else watchStop();
   if (page === 'lists') listsShown(); else { clearInterval(lists.timer); lists.timer = 0; }
   if (page === 'depart') departShown();

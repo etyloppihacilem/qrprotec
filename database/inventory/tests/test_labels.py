@@ -366,3 +366,59 @@ class PrintCountTests(ApiTestCase):
         self.assertEqual(self.call('GET', '/api/print-counts/', session=False)[0], 403)
         self.assertEqual(self.call('GET', '/api/print-counts/', session=views.session_token(self.user))[0], 403)
         self.assertEqual(self.call('GET', '/api/print-counts/')[0], 200)
+
+
+class FunStatsTests(ApiTestCase):
+    """Stats fun de l'AG (5 appuis sur « Prévisions » du web) : gestion et admin, noms courts, vérifs en sessions."""
+
+    def verif(self, by, at, lot=None, participants=(), present=0, expired_items=()):
+        verif = Verifs.objects.create(lot=lot or self.lot, by=by, datetime=at, received=at,
+                                      participants=list(participants), present_count=present, complete=True)
+        for item in expired_items:
+            models.VerifItem.objects.create(verif=verif, item=item, expired=True)
+        return verif
+
+    def test_fun_stats(self):
+        paul = Secouristes(matricule='M002', nom='Martin', prenom='Paul')
+        paul.save()
+        sub = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test', parent=self.lot)
+        sub.save()
+        now = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        old = self.create(self.compresses, self.today - timedelta(days=400), 1)
+        # cascade : Sac A puis son sous-lot 10 min apres = une seule vérif, a deux
+        self.verif('M:M001', now - timedelta(days=3), participants=['M:M002'], present=4, expired_items=old)
+        self.verif('M:M001', now - timedelta(days=3, minutes=-10), lot=sub, participants=['M:M002'], present=2)
+        self.verif('M:M001', now - timedelta(days=2), participants=['M:M002', 'D:Léo (invité)'])
+        self.verif('M:M002', now - timedelta(days=1), present=1)
+        self.verif('M:M001', now - timedelta(days=500))  # hors des 12 derniers mois
+        # refuse aux secouristes, accepte a la gestion (badge sur l'API publique)
+        code, _ = self.call('POST', '/api/stats/fun/', {'user': {'matricule': 'M001', 'key': self.user.new_key}},
+                            local=False)
+        self.assertEqual(code, 403)
+        self.user.role = 'gestion'
+        self.user.save()
+        code, body = self.call('POST', '/api/stats/fun/', {'user': {'matricule': 'M001', 'key': self.user.new_key}},
+                               local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(body['totals']['verifs'], 3)
+        self.assertEqual(body['totals']['lots'], 4)
+        self.assertEqual(body['totals']['expired'], 1)
+        self.assertEqual(body['totals']['team_verifs'], 2)
+        awards = {award['key']: award for award in body['awards']}
+        self.assertEqual([(row['name'], row['value']) for row in awards['verifs']['podium']],
+                         [('Paul', 3), ('Jeanne', 2)])
+        self.assertEqual(awards['duos']['podium'][0]['name'], 'Jeanne & Paul')
+        self.assertEqual(awards['duos']['podium'][0]['value'], 2)
+        self.assertEqual(awards['expired']['podium'][0]['value'], 1)
+        self.assertIn('Compresses', awards['fossil']['record']['detail'])
+        self.assertEqual(awards['pet']['podium'][0]['name'], 'Sac A')
+        text = json.dumps(body)
+        self.assertNotIn('Dupont', text)  # jamais de nom de famille
+        self.assertNotIn('Martin', text)
+        self.assertNotIn('Léo', text)     # ni invites ni noms declares dans les podiums
+        # annee civile : la vérif d'il y a 500 jours
+        year = timezone.localtime(now - timedelta(days=500)).year
+        self.assertIn(year, body['years'])
+        code, body = self.call('POST', '/api/stats/fun/', {'period': year}, session=views.session_token(self.user))
+        self.assertEqual(code, 200)
+        self.assertEqual(body['period'], str(year))

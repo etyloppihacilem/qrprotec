@@ -35,6 +35,7 @@ public_patterns = [
     path('orders/<int:order_id>/cancel/', views.orders_cancel),
     path('debug/codes/', views.debug_codes_list),  # admins seulement
     path('debug/temp-login/', views.debug_temp_login),  # admins seulement
+    path('stats/fun/', views.fun_stats_view),  # gestion et admin (stats de l'AG)
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/sheet.pdf', views.lot_sheet_pdf),
     path('lots/<str:lot_id>/state-report/', views.lot_state_report),
