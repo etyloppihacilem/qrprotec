@@ -441,7 +441,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::TableSetupColumn("Étiquette", ImGuiTableColumnFlags_WidthFixed, 95.0f);
         ImGui::TableSetupColumn("Consomm.", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableSetupColumn("Tâches", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableSetupColumn("Révision", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+        ImGui::TableSetupColumn("Entretien", ImGuiTableColumnFlags_WidthFixed, 110.0f); // revision, desinfection
         ImGui::TableHeadersRow();
         for (const Json *row : types) {
           const Json       &item_type = *row;
@@ -479,10 +479,21 @@ class InventoryWindow final : public AppWindow {
           else
             ImGui::TextDisabled("-");
           ImGui::TableNextColumn();
-          if (item_type["revision_months"].integer() > 0 && !item_type["consumable"].boolean(true))
-            ImGui::Text("%d mois", item_type["revision_months"].integer());
-          else
-            ImGui::TextDisabled("-");
+          {
+            const bool  tracked      = !item_type["consumable"].boolean(true);
+            const int   revision     = tracked ? item_type["revision_months"].integer() : 0;
+            const int   disinfection = tracked ? item_type["disinfection_months"].integer() : 0;
+            std::string text;
+            if (revision > 0)
+              text = "Rév. " + std::to_string(revision) + " m";
+            if (disinfection > 0)
+              text += (text.empty() ? "" : " · ") + std::string("Dés. ") + std::to_string(disinfection) + " m";
+            if (text.empty())
+              ImGui::TextDisabled("-");
+            else
+              ImGui::TextUnformatted(text.c_str());
+            ImGui::SetItemTooltip("Révision et désinfection : périodicité en mois");
+          }
         }
         ImGui::EndTable();
       }
@@ -573,8 +584,19 @@ class InventoryWindow final : public AppWindow {
         ImGui::TextUnformatted("Tâches de la révision (une par ligne)");
         ImGui::InputTextMultiline("##revision_tasks", &form_revision_tasks_, ImVec2(-FLT_MIN, 70));
       }
+      // desinfection periodique : distincte de la revision (un item peut avoir les deux)
+      ImGui::SetNextItemWidth(150.0f);
+      ImGui::InputInt("Désinfection tous les (mois)", &form_disinfection_months_);
+      help_marker("Ex : BAVU ou attelles désinfectés tous les mois. 0 : pas de désinfection. Suivie à part de la "
+                  "révision, avec sa propre date, ses tâches et le bouton « Désinfecter ».");
+      if (form_disinfection_months_ > 0) {
+        ImGui::Checkbox("Utilisable même si la désinfection est en retard", &form_disinfection_usable_);
+        ImGui::TextUnformatted("Tâches de la désinfection (une par ligne)");
+        ImGui::InputTextMultiline("##disinfection_tasks", &form_disinfection_tasks_, ImVec2(-FLT_MIN, 70));
+      }
       ImGui::EndDisabled();
-      form_revision_months_ = std::clamp(form_revision_months_, 0, 120);
+      form_revision_months_     = std::clamp(form_revision_months_, 0, 120);
+      form_disinfection_months_ = std::clamp(form_disinfection_months_, 0, 120);
       form_min_       = std::max(0, form_min_);
       form_pack_size_ = std::max(1, form_pack_size_);
 
@@ -597,6 +619,11 @@ class InventoryWindow final : public AppWindow {
       body["revision_tasks"]  = Json::array();
       for (const std::string &task : task_lines(form_revision_tasks_))
         body["revision_tasks"].push_back(task);
+      body["disinfection_months"] = form_non_consumable_ && !form_to_check_ ? form_disinfection_months_ : 0;
+      body["disinfection_usable"] = form_disinfection_usable_;
+      body["disinfection_tasks"]  = Json::array();
+      for (const std::string &task : task_lines(form_disinfection_tasks_))
+        body["disinfection_tasks"].push_back(task);
       // type parent (a unites ou non) : ni etiquette ni item (pas de peremption, de taches, d'etiquette a dechirer)
       const bool unit_type = form_unit_on_ && !form_to_check_;
       body["is_group"]     = unit_type;
@@ -862,6 +889,11 @@ class InventoryWindow final : public AppWindow {
       form_revision_tasks_.clear();
       for (const Json &task : item_type["revision_tasks"].items())
         form_revision_tasks_ += (form_revision_tasks_.empty() ? "" : "\n") + task.str();
+      form_disinfection_months_ = item_type["disinfection_months"].integer();
+      form_disinfection_usable_ = item_type["disinfection_usable"].boolean(true);
+      form_disinfection_tasks_.clear();
+      for (const Json &task : item_type["disinfection_tasks"].items())
+        form_disinfection_tasks_ += (form_disinfection_tasks_.empty() ? "" : "\n") + task.str();
       editing_type_archived_ = item_type["archived"].boolean();
       form_unit_             = item_type["unit"].str();
       form_unit_on_          = item_type["is_group"].boolean() || !form_unit_.empty();
@@ -887,6 +919,9 @@ class InventoryWindow final : public AppWindow {
       form_revision_months_ = 0;
       form_revision_usable_ = true;
       form_revision_tasks_.clear();
+      form_disinfection_months_ = 0;
+      form_disinfection_usable_ = true;
+      form_disinfection_tasks_.clear();
       editing_type_archived_ = false;
       form_unit_on_          = false;
       form_unit_.clear();
@@ -1465,6 +1500,9 @@ class InventoryWindow final : public AppWindow {
     int         form_revision_months_ = 0;
     bool        form_revision_usable_ = true;
     std::string form_revision_tasks_;
+    int         form_disinfection_months_ = 0;
+    bool        form_disinfection_usable_ = true;
+    std::string form_disinfection_tasks_;
     bool        editing_type_archived_ = false;
     // attentes en quantite (ItemType.unit, group, fills, default_subtype) : type a unites (« Sérum phy » en mL, sans
     // etiquette) ou sous-type qui en remplit `form_fills_` unites

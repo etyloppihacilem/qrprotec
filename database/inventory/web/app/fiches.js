@@ -635,7 +635,8 @@ const MAINTENANCE_ICONS = { revision: 'wrench', disinfection: 'drop' };
 
 // Periodicite et ou en est le cycle (« tous les 12 mois · mois 8 sur 12 »)
 function cycleText(m) {
-  return `tous les ${nb(m.months, 'mois', 'mois')}` + (m.cycle_month && !m.late ? ` · mois ${m.cycle_month} sur ${m.months} du cycle` : '');
+  return (m.months === 1 ? 'tous les mois' : `tous les ${m.months} mois`)
+    + (m.cycle_month && m.months > 1 && !m.late ? ` · mois ${m.cycle_month} sur ${m.months} du cycle` : '');
 }
 
 // « Réviser », « Désinfecter » (connexion demandee), et pour gestion/admin « Saisir une date » (cycle recale a la main)

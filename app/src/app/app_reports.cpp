@@ -205,14 +205,45 @@ Date add_months(const Date &day, int months) {
 }
 } // namespace
 
-void App::open_revision(const Json &item) {
-  require_login("faire la révision", [this, item]() {
+namespace {
+// Revision ou desinfection d'un item sous la forme du serveur (item["maintenance"], ou objet maintenance d'un
+// evenement a venir) ; repli sur les champs de la revision pour une reponse d'avant la desinfection.
+Json maintenance_of(const Json &item, const std::string &kind) {
+  if (item["kind"].str() == kind && !item["months"].is_null())
+    return item; // l'objet maintenance lui-meme (evenement a venir)
+  if (item["maintenance"].is_object())
+    return item["maintenance"]["kind"].str() == kind ? item["maintenance"] : Json();
+  for (const Json &row : item["maintenance"].items())
+    if (row["kind"].str() == kind)
+      return row;
+  if (kind != "revision" || !item["revision"].boolean())
+    return Json();
+  Json row = Json::object();
+  row["kind"]   = Json(std::string("revision"));
+  row["label"]  = Json(std::string("Révision"));
+  row["noun"]   = Json(std::string("révision"));
+  row["due"]    = item["revision_due"];
+  row["months"] = item["revision_months"];
+  row["tasks"]  = item["revision_tasks"];
+  return row;
+}
+} // namespace
+
+void App::open_revision(const Json &item, const std::string &kind) {
+  const Json m = maintenance_of(item, kind);
+  if (!m.is_object())
+    return;
+  const std::string noun = m["noun"].str("révision");
+  require_login("faire la " + noun, [this, item, m, kind, noun]() {
     revision_           = RevisionPrompt{};
-    revision_.iid       = item["iid"].str();
-    revision_.type_name = item["type_name"].str();
-    revision_.due       = item["revision_due"].str();
-    revision_.months    = std::max(1, item["revision_months"].integer(1));
-    for (const Json &task : item["revision_tasks"].items())
+    revision_.kind      = kind;
+    revision_.label     = m["label"].str("Révision");
+    revision_.noun      = noun;
+    revision_.iid       = item["iid"].str(m["iid"].str());
+    revision_.type_name = item["type_name"].str(m["type_name"].str());
+    revision_.due       = m["due"].str();
+    revision_.months    = std::max(1, m["months"].integer(1));
+    for (const Json &task : m["tasks"].items())
       revision_.tasks.push_back(task.str());
     revision_.checked.assign(revision_.tasks.size(), 0);
     revision_.next_due     = add_months(today(), revision_.months).display();
@@ -238,13 +269,13 @@ void App::draw_revision_modal() {
   }
   const float width = ImGui::GetFontSize() * 26.0f;
   ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
-  ImGui::Text("Révision : %s", revision_.type_name.c_str());
+  ImGui::Text("%s : %s", revision_.label.c_str(), revision_.type_name.c_str());
   ImGui::PopFont();
   ImGui::TextDisabled("%s%s", revision_.iid.c_str(),
                       revision_.due.empty() ? "" : (" · prévue le " + display_date(Json(revision_.due))).c_str());
   ImGui::PushTextWrapPos(width);
   ImGui::TextUnformatted(revision_.tasks.empty() ? "Pas de tâche définie pour ce type."
-                                                 : "Cochez toutes les tâches de la révision.");
+                                                 : ("Cochez toutes les tâches de la " + revision_.noun + ".").c_str());
   ImGui::Separator();
   ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f)); // cases visibles sur le fond blanc
   bool all = true;
@@ -258,7 +289,8 @@ void App::draw_revision_modal() {
   }
   ImGui::Separator();
   ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-  ImGui::InputText("Prochaine révision", &revision_.next_due);
+  const std::string next_label = "Prochaine " + revision_.noun;
+  ImGui::InputText(next_label.c_str(), &revision_.next_due);
   const auto next = parse_user_date(revision_.next_due);
   if (ImGui::IsItemDeactivatedAfterEdit() && next)
     revision_.next_due = next->display();
@@ -280,7 +312,8 @@ void App::draw_revision_modal() {
   ImGui::PopTextWrapPos();
   ImGui::Spacing();
   ImGui::BeginDisabled(revision_.busy || !all || !next_ok);
-  if (primary_button(revision_.busy ? "Envoi..." : "Enregistrer la révision", ImVec2(width * 0.6f, 0)) || enter_pressed())
+  const std::string save_label = revision_.busy ? "Envoi..." : "Enregistrer la " + revision_.noun;
+  if (primary_button(save_label.c_str(), ImVec2(width * 0.6f, 0)) || enter_pressed())
     send_revision();
   ImGui::EndDisabled();
   ImGui::SameLine();
@@ -297,6 +330,7 @@ void App::send_revision() {
     return;
   Json body;
   body["user"]     = user_ref();
+  body["kind"]     = Json(revision_.kind);
   body["tasks"]    = Json::array();
   for (const std::string &task : revision_.tasks)
     body["tasks"].push_back(Json(task));
@@ -304,8 +338,10 @@ void App::send_revision() {
   body["note"]     = revision_.note;
   revision_.busy   = true;
   revision_.error.clear();
-  const std::string iid = revision_.iid;
-  api.post("/api/items/" + iid + "/revision/", body, [this, iid](const ApiResult &result) {
+  const std::string iid  = revision_.iid;
+  const std::string kind = revision_.kind;
+  const std::string label = revision_.label;
+  api.post("/api/items/" + iid + "/revision/", body, [this, iid, kind, label](const ApiResult &result) {
     revision_.busy = false;
     if (!result.ok) {
       identity_refused(result);
@@ -313,11 +349,158 @@ void App::send_revision() {
       return;
     }
     revision_ = RevisionPrompt{}; // ferme la fenetre
-    notify(result.data["type_name"].str() + " : révision enregistrée, prochaine le "
-           + display_date(result.data["revision_due"]) + ".");
-    if (const ScanEntry *entry = stack.find_item(iid))
-      resolve_item(entry->id); // etat relu (plus en retard)
-    refresh_lots(true);
+    notify(result.data["type_name"].str() + " : " + label + " enregistrée, prochaine le "
+           + display_date(result.data[kind + "_due"]) + ".");
+    after_maintenance(iid);
+  });
+}
+
+void App::after_maintenance(const std::string &iid) {
+  if (const ScanEntry *entry = stack.find_item(iid))
+    resolve_item(entry->id); // etat relu (plus en retard)
+  refresh_lots(true);
+  if (privileged()) {
+    refresh_events();
+    refresh_tasks();
+  }
+}
+
+void App::open_maintenance_date(const Json &item, const std::string &kind) {
+  const Json m = maintenance_of(item, kind);
+  if (!m.is_object() || !privileged())
+    return;
+  maintenance_date_           = MaintenanceDatePrompt{};
+  maintenance_date_.kind      = kind;
+  maintenance_date_.label     = m["label"].str("Révision");
+  maintenance_date_.noun      = m["noun"].str("révision");
+  maintenance_date_.iid       = item["iid"].str(m["iid"].str());
+  maintenance_date_.type_name = item["type_name"].str(m["type_name"].str());
+  maintenance_date_.due       = m["due"].str();
+  maintenance_date_.months    = std::max(1, m["months"].integer(1));
+  if (m["cycle_month"].integer() > 0)
+    maintenance_date_.cycle = "mois " + std::to_string(m["cycle_month"].integer()) + " sur "
+                            + std::to_string(maintenance_date_.months) + " du cycle";
+  if (const auto done = Date::parse(m["done_at"].str().substr(0, 10)))
+    maintenance_date_.last_done = done->display();
+  if (const auto due = Date::parse(maintenance_date_.due))
+    maintenance_date_.next_due = due->display();
+  maintenance_date_.open_pending = true;
+}
+
+void App::draw_maintenance_date_modal() {
+  static const char *kTitle = "Date d'entretien###maintenance_date";
+  MaintenanceDatePrompt &p = maintenance_date_;
+  if (p.open_pending) {
+    p.open_pending = false;
+    if (!ImGui::IsPopupOpen(kTitle))
+      ImGui::OpenPopup(kTitle);
+  }
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  if (p.iid.empty()) { // enregistree ou annulee
+    ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return;
+  }
+  const float width = ImGui::GetFontSize() * 28.0f;
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
+  ImGui::Text("Date de %s : %s", p.noun.c_str(), p.type_name.c_str());
+  ImGui::PopFont();
+  std::string sub = p.iid + " · " + (p.due.empty() ? "pas encore prévue" : "prévue le " + display_date(Json(p.due)))
+                  + " · tous les " + std::to_string(p.months) + " mois" + (p.cycle.empty() ? "" : " · " + p.cycle);
+  ImGui::TextDisabled("%s", sub.c_str());
+  ImGui::PushTextWrapPos(width);
+  ImGui::TextUnformatted("Pour du matériel entretenu ailleurs ou un cycle à recaler : indiquez la dernière faite (la "
+                         "prochaine se calcule avec la périodicité), ou directement la prochaine. Aucun entretien "
+                         "n'est enregistré comme fait aujourd'hui.");
+  ImGui::PopTextWrapPos();
+  ImGui::Separator();
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f));
+  const float field = ImGui::GetFontSize() * 10.0f;
+  ImGui::SetNextItemWidth(field);
+  const std::string last_label = "Dernière " + p.noun + " faite le";
+  if (ImGui::InputTextWithHint(last_label.c_str(), "JJ/MM/AAAA", &p.last_done) && !p.next_touched) {
+    if (const auto last = parse_user_date(p.last_done))
+      p.next_due = add_months(*last, p.months).display();
+  }
+  const auto last = parse_user_date(p.last_done);
+  if (ImGui::IsItemDeactivatedAfterEdit() && last)
+    p.last_done = last->display();
+  const bool last_ok = p.last_done.empty() || (last && !(today() < *last));
+  if (!p.last_done.empty() && (!last || !last_ok)) {
+    ImGui::SameLine();
+    ImGui::TextColored(colors::red, "%s", !last ? "date non reconnue" : "pas dans le futur");
+  }
+  ImGui::SetNextItemWidth(field);
+  const std::string next_label = "Prochaine " + p.noun + " le";
+  if (ImGui::InputTextWithHint(next_label.c_str(), "JJ/MM/AAAA", &p.next_due))
+    p.next_touched = true;
+  const auto next = parse_user_date(p.next_due);
+  if (ImGui::IsItemDeactivatedAfterEdit() && next)
+    p.next_due = next->display();
+  const bool next_ok = p.next_due.empty() ? (last && last_ok) : (next && (!last || *last < *next));
+  if (!p.next_due.empty()) {
+    if (!next || (last && !(*last < *next))) {
+      ImGui::SameLine();
+      ImGui::TextColored(colors::red, "%s", !next ? "date non reconnue" : "doit être après la dernière");
+    } else if (*next < today()) {
+      ImGui::SameLine();
+      ImGui::TextColored(colors::orange, "passée : en retard");
+    }
+  }
+  ImGui::PushTextWrapPos(width);
+  ImGui::TextDisabled(p.next_touched ? "La prochaine peut être passée si le retard est constaté."
+                                     : "La prochaine se recalcule depuis la dernière (périodicité du type).");
+  ImGui::InputTextWithHint("##maintenance_note", "Remarque (facultatif)", &p.note);
+  ImGui::PopStyleColor();
+  if (p.note.size() > 256)
+    p.note.resize(256);
+  if (!p.error.empty())
+    ImGui::TextColored(colors::red, "%s", p.error.c_str());
+  ImGui::PopTextWrapPos();
+  ImGui::Spacing();
+  ImGui::BeginDisabled(p.busy || !last_ok || !next_ok || (p.last_done.empty() && p.next_due.empty()));
+  if (primary_button(p.busy ? "Envoi..." : "Enregistrer la date", ImVec2(width * 0.6f, 0)) || enter_pressed())
+    send_maintenance_date();
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (button("Annuler", ImVec2(-1, 0)) || (!p.busy && escape_pressed())) {
+    p = MaintenanceDatePrompt{};
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::EndPopup();
+}
+
+void App::send_maintenance_date() {
+  MaintenanceDatePrompt &p    = maintenance_date_;
+  const auto             last = parse_user_date(p.last_done);
+  const auto             next = parse_user_date(p.next_due);
+  if (!last && !next)
+    return;
+  Json body;
+  body["user"]      = user_ref();
+  body["kind"]      = Json(p.kind);
+  body["last_done"] = last ? Json(last->iso()) : Json();
+  body["next_due"]  = next ? Json(next->iso()) : Json();
+  body["note"]      = p.note;
+  p.busy            = true;
+  p.error.clear();
+  const std::string iid   = p.iid;
+  const std::string kind  = p.kind;
+  const std::string label = p.label;
+  api.post("/api/items/" + iid + "/maintenance/date/", body, [this, iid, kind, label](const ApiResult &result) {
+    maintenance_date_.busy = false;
+    if (!result.ok) {
+      identity_refused(result);
+      maintenance_date_.error = result.error;
+      return;
+    }
+    maintenance_date_ = MaintenanceDatePrompt{}; // ferme la fenetre
+    notify(result.data["type_name"].str() + " : " + label + " prévue le " + display_date(result.data[kind + "_due"])
+           + ".");
+    after_maintenance(iid);
   });
 }
 

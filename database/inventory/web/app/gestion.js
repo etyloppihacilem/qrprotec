@@ -285,6 +285,7 @@ function eventCard(row) {
   el('div', { class: 'event-top' }, el('span', { class: 'tag ' + (EVENT_TAGS[row.kind] || 'gray') }, row.kind_label),
     el('span', { class: 'event-when' }, row.when), clickable ? el('span', { class: 'hint' }, '›') : ''),
   el('b', { class: 'event-title' }, row.title),
+  row.iid && showIds() ? el('div', { class: 'sub hint' }, row.iid) : '',
   row.detail ? el('div', { class: 'sub' }, row.detail) : '',
   TASK_LINK_HINTS[row.link] ? el('div', { class: 'sub hint' }, TASK_LINK_HINTS[row.link]) : '');
   return el('div', { class: 'event-card ' + row.level },
@@ -347,7 +348,8 @@ function stockParts(view) {
     el('button', { type: 'button', class: view === 'tasks' ? 'active' : '', onclick: choose('tasks') },
       'À faire' + (state.tasks && state.tasks.count ? ` (${state.tasks.count})` : '')),
     el('button', { type: 'button', class: view === 'events' ? 'active' : '', onclick: choose('events') },
-      'À venir' + (state.events && state.events.late ? ` (${state.events.late} en retard)` : '')),
+      'À venir', state.events && state.events.late ? el('span', { class: 'late-count',
+        title: nb(state.events.late, 'évènement en retard', 'évènements en retard') }, String(state.events.late)) : ''),
     el('button', { type: 'button', class: view === 'stock' ? 'active' : '',
       onclick: () => { choose('stock')(); debugTap(); } }, 'État des stocks'),
     el('button', { type: 'button', class: forecastMode ? 'active' : '',

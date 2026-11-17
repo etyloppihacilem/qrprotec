@@ -236,10 +236,12 @@ class VerifWindow final : public AppWindow {
         } else if (item["unusable"].boolean() && !item["outdated"].boolean()) {
           ImGui::SameLine();
           ImGui::TextColored(colors::red, "(signalé inutilisable : à remplacer)");
-        } else if (item["revision_late"].boolean() && !item["outdated"].boolean()) {
+        } else if ((item["revision_late"].boolean() || item["disinfection_late"].boolean()) && !item["outdated"].boolean()) {
+          const bool        revision = item["revision_late"].boolean();
+          const std::string text     = std::string(revision ? "(révision en retard" : "(désinfection en retard")
+                                     + (item["expired"].boolean() ? " : inutilisable)" : ")");
           ImGui::SameLine();
-          ImGui::TextColored(item["expired"].boolean() ? colors::red : colors::orange,
-                             item["expired"].boolean() ? "(révision en retard : inutilisable)" : "(révision en retard)");
+          ImGui::TextColored(item["expired"].boolean() ? colors::red : colors::orange, "%s", text.c_str());
         } else if (item["expired"].boolean()) {
           ImGui::SameLine();
           ImGui::TextColored(colors::red, "(périmé : à remplacer)");
