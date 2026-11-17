@@ -13,6 +13,7 @@
 #include "../widgets.hpp"
 #include "imgui_stdlib.h"
 #include "windows.hpp"
+#include <tuple>
 
 namespace qrprotec {
 
@@ -95,7 +96,7 @@ class ScanWindow final : public AppWindow {
       if (ImGui::BeginTable("stack", 3, flags, ImVec2(0, -footer))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Produit", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("INUTILISABLE").x + 4.0f);
+        ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("À DÉSINFECTER").x + 4.0f);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFrameHeight() * 2.2f);
         ImGui::TableHeadersRow();
         // le dernier scan en haut
@@ -114,19 +115,34 @@ class ScanWindow final : public AppWindow {
           ImGui::TextDisabled("%s", describe_scan(entry->scan).c_str());
           if (!entry->detail.empty())
             ImGui::TextWrapped("%s", entry->detail.c_str());
-          // materiel a reviser : prochaine revision, et « Reviser » (taches puis prochaine date)
-          if (entry->scan.kind == ScanKind::Item && entry->state == EntryState::Ok && entry->data["revision"].boolean()) {
-            const bool late = entry->data["revision_late"].boolean();
-            ImGui::PushID(entry->id);
-            if (small_button("Réviser"))
-              app.open_revision(entry->data);
-            ImGui::PopID();
-            const std::string due = "Révision " + std::string(late ? "en retard, prévue le " : "le ")
-                                  + display_date(entry->data["revision_due"]);
-            ImGui::PushStyleColor(ImGuiCol_Text, late ? (entry->expired ? colors::red : colors::orange)
-                                                      : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("%s", due.c_str());
-            ImGui::PopStyleColor();
+          // materiel a reviser ou a desinfecter : prochaine date, « Réviser » / « Désinfecter » (taches puis prochaine
+          // date), et « Saisir la date » pour la gestion et les admins (cycle recale a la main)
+          if (entry->scan.kind == ScanKind::Item && entry->state == EntryState::Ok) {
+            for (const auto &[kind, label, verb] :
+                 { std::tuple< const char *, const char *, const char * >{ "revision", "Révision", "Réviser" },
+                   std::tuple< const char *, const char *, const char * >{ "disinfection", "Désinfection", "Désinfecter" } }) {
+              const std::string key = kind;
+              if (!entry->data[key].boolean())
+                continue;
+              const bool late = entry->data[key + "_late"].boolean();
+              ImGui::PushID(entry->id);
+              ImGui::PushID(kind);
+              if (small_button(verb))
+                app.open_revision(entry->data, key);
+              if (app.privileged()) {
+                ImGui::SameLine();
+                if (small_button("Saisir la date"))
+                  app.open_maintenance_date(entry->data, key);
+              }
+              ImGui::PopID();
+              ImGui::PopID();
+              const std::string due = std::string(label) + (late ? " en retard, prévue le " : " le ")
+                                    + display_date(entry->data[key + "_due"]);
+              ImGui::PushStyleColor(ImGuiCol_Text, late ? (entry->expired ? colors::red : colors::orange)
+                                                        : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+              ImGui::TextWrapped("%s", due.c_str());
+              ImGui::PopStyleColor();
+            }
           }
           ImGui::TableNextColumn();
           if (entry->expired)
@@ -134,6 +150,7 @@ class ScanWindow final : public AppWindow {
                                             : entry->data["disabled"].boolean() ? "DÉSACTIVÉ"
                                             : entry->data["unusable"].boolean() ? "INUTILISABLE"
                                             : entry->data["revision_late"].boolean() ? "À RÉVISER"
+                                            : entry->data["disinfection_late"].boolean() ? "À DÉSINFECTER"
                                                                                 : "PÉRIMÉ");
           else if (entry->state == EntryState::Error)
             ImGui::TextColored(colors::red, "Erreur");

@@ -493,17 +493,18 @@ def _maintenance_events(today, days):
         info = ser.maintenance_dict(item, kind, today)
         late = due < today
         parts = [_place(item)]
-        if info['cycle_month'] and not late:
+        if info['cycle_month'] and info['months'] > 1 and not late:
             parts.append(f"mois {info['cycle_month']} sur {info['months']} du cycle")
-        parts.append(f"tous les {info['months']} mois")
+        parts.append('tous les mois' if info['months'] == 1 else f"tous les {info['months']} mois")
         if info['done_at']:
             parts.append(f"dernière le {_day(datetime.fromisoformat(info['done_at']))}")
         if late:
             parts.insert(0, ('toujours utilisable' if info['usable'] else
                              f"inutilisable tant que pas {'révisé' if kind == 'revision' else 'désinfecté'}"))
         level = ('bad' if late and not info['usable'] else 'warn' if late else None)
-        rows.append(event(kind, due, today, f'{item.pack.item_type.name} {item.iid}', ' · '.join(parts), level,
-                          'item', lot=item.location_id, item=item.iid,
+        # iid a part (le web ne le montre qu'aux admins, le poste toujours)
+        rows.append(event(kind, due, today, item.pack.item_type.name, ' · '.join(parts), level,
+                          'item', lot=item.location_id, item=item.iid, iid=item.iid,
                           maintenance={**info, 'iid': item.iid, 'type_name': item.pack.item_type.name}))
     return rows
 

@@ -219,10 +219,12 @@ struct TaskPopup {
     bool                       open_pending = false;
 };
 
-// Revision d'un item (materiel non consommable a reviser) : taches toutes cochees, prochaine revision (par defaut
-// aujourd'hui + la periodicite du type, modifiable)
+// Revision ou desinfection d'un item (materiel non consommable) : taches toutes cochees, prochaine echeance (par
+// defaut aujourd'hui + la periodicite du type, modifiable)
 struct RevisionPrompt {
     bool                       open_pending = false;
+    std::string                kind = "revision"; // ou "disinfection"
+    std::string                label = "Révision", noun = "révision";
     std::string                iid, type_name, due;
     int                        months = 0;
     std::vector< std::string > tasks;
@@ -230,6 +232,18 @@ struct RevisionPrompt {
     std::string                next_due; // saisie libre (parse_user_date)
     std::string                note, error;
     bool                       busy = false;
+};
+
+// Date de revision ou de desinfection saisie a la main (gestion/admin) : derniere faite et/ou prochaine, pour
+// recaler le cycle sans faire l'entretien dans le logiciel
+struct MaintenanceDatePrompt {
+    bool        open_pending = false;
+    std::string kind, label, noun, iid, type_name, due, cycle;
+    int         months = 0;
+    std::string last_done, next_due; // saisies libres (parse_user_date)
+    bool        next_touched = false; // prochaine modifiee a la main : plus recalculee depuis la derniere
+    std::string note, error;
+    bool        busy = false;
 };
 
 // Signalement d'un probleme : un item, un type d'item d'un lot, ou un lot (fenetre « Signaler un problème »)
@@ -314,10 +328,13 @@ struct Catalog {
     Json stock      = Json::array();
     Json forecast   = Json::object(); // previsions de stock (/api/stock/forecast/)
     Json tasks      = Json::object(); // liste de taches de la gestion (/api/tasks/), fenetre Gestion de la TECH
+    Json events     = Json::object(); // evenements a venir (/api/events/), onglet « À venir » de la meme fenetre
+    int  events_days = 90;            // horizon des evenements a venir (30, 90 ou 365 jours)
     bool loading_lots     = false;
     bool loading_stock    = false;
     bool loading_forecast = false;
     bool loading_tasks    = false;
+    bool loading_events   = false;
     // incrementes a chaque rechargement : les fenetres rechargent alors leur volet de detail
     int item_types_version = 0;
     int lot_types_version  = 0;
@@ -457,7 +474,11 @@ class App {
     // Signalements de problemes : connexion demandee avant la fenetre (pas de nom declare), envoi independant de la
     // verif. Pendant la verif, un item signale compte comme vu (ajoute a la pile).
     void report_problem(const ProblemTarget &target);
-    void open_revision(const Json &item); // « Réviser » (connexion demandee d'abord)
+    // « Réviser » / « Désinfecter » (connexion demandee d'abord) : item (fiche du serveur, ou evenement a venir avec
+    // son objet maintenance) et entretien
+    void open_revision(const Json &item, const std::string &kind = "revision");
+    // « Saisir la date » d'une revision ou d'une desinfection (gestion/admin)
+    void open_maintenance_date(const Json &item, const std::string &kind);
     // popup et bip si l'objet scanne a des signalements ouverts (key : "item:IID" ou "pack:ID")
     void alert_reports(const std::string &key, const std::string &title, const Json &reports, ScanSource source);
     void refresh_report_counts(); // nouveaux signalements (admins) : rappel dans la barre de menu
@@ -477,6 +498,7 @@ class App {
     void refresh_stock();
     void refresh_forecast();
     void refresh_tasks();
+    void refresh_events();
     // Case « Commandé » d'une commande suggeree (taches du TECH) / decocher une commande passee
     void place_order(const std::string &type, const std::string &name, int quantity);
     void cancel_order(long long id, const std::string &name);
@@ -656,6 +678,9 @@ class App {
     void draw_problem_modal();
     void draw_revision_modal();
     void send_revision();
+    void draw_maintenance_date_modal();
+    void send_maintenance_date();
+    void after_maintenance(const std::string &iid);
     void draw_reports_alert();
     void draw_seal_opening_modal();
     void draw_label_prints();
@@ -740,6 +765,7 @@ class App {
     TaskPopup               tasks_;
     ProblemPrompt           problem_;
     RevisionPrompt          revision_;
+    MaintenanceDatePrompt   maintenance_date_;
     ReportsAlert            reports_alert_;
     SealOpening             seal_opening_;
     LabelPrints             label_prints_;

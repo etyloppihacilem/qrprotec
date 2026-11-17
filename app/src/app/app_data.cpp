@@ -110,6 +110,17 @@ void App::refresh_tasks() {
   });
 }
 
+void App::refresh_events() {
+  catalog.loading_events = true;
+  api.get("/api/events/?days=" + std::to_string(catalog.events_days), [this](const ApiResult &result) {
+    catalog.loading_events = false;
+    if (result.ok)
+      catalog.events = result.data;
+    else
+      notify("À venir : " + result.error, true);
+  });
+}
+
 void App::place_order(const std::string &type, const std::string &name, int quantity) {
   Json body = Json::object();
   add_identity(body);

@@ -106,7 +106,10 @@ Conseils :
   révision). Ajoutez les **tâches de la révision** (une par ligne) et choisissez si l'item reste
   **utilisable même si la révision est en retard** : sinon, en retard, il compte comme à remplacer,
   comme un périmé, jusqu'à sa révision. Activer la révision sur un type existant date ses items à
-  aujourd'hui + la périodicité.
+  aujourd'hui + la périodicité (le TECH peut ensuite saisir à la main la date de chaque item).
+- **Désinfection tous les (mois)** (ex : BAVU ou attelles désinfectés tous les mois) : même principe que la
+  révision, suivie à part, avec ses propres tâches et sa case « utilisable même si la désinfection est en
+  retard ». Un item peut avoir les deux.
 - **Tâches à la vérif** (une par ligne, ex : DAE « Voyant vert allumé », « Électrodes dans leur
   date ») : les items de ce type reçoivent une **étiquette de tâches** à la place de l'étiquette
   d'item (modèle `tache.qr`, avec la liste des tâches). À la vérif, la scanner ouvre la liste à

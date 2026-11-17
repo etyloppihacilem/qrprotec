@@ -74,6 +74,7 @@ class StockWindow final : public AppWindow {
 
     void on_open(App &app) override {
       app.refresh_tasks();
+      app.refresh_events();
       app.refresh_stock();
       app.refresh_forecast();
     }
@@ -87,6 +88,7 @@ class StockWindow final : public AppWindow {
       with_consumption_ = true;
       horizon_          = 1;
       select_           = "tasks";
+      event_kind_.clear();
     }
 
     void draw(App &app) override {
@@ -102,7 +104,8 @@ class StockWindow final : public AppWindow {
       help_marker("La barre compare les items non périmés au minimum du type. Par défaut seul le stock est compté : "
                   "items hors lots et items rangés dans un rangement du stock (armoire, tiroir : lots dont le type "
                   "est un rangement).");
-      if (app.catalog.loading_stock || app.catalog.loading_forecast || app.catalog.loading_tasks) {
+      if (app.catalog.loading_stock || app.catalog.loading_forecast || app.catalog.loading_tasks
+          || app.catalog.loading_events) {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");
       }
@@ -119,6 +122,13 @@ class StockWindow final : public AppWindow {
         return;
       if (tab_item(tasks_tab.c_str(), select_ == "tasks" ? ImGuiTabItemFlags_SetSelected : 0)) {
         draw_tasks(app);
+        ImGui::EndTabItem();
+      }
+      const int         late       = app.catalog.events["late"].integer();
+      const std::string events_tab = "À venir" + (late > 0 ? " (" + std::to_string(late) + " en retard)" : std::string())
+                                   + "###events";
+      if (tab_item(events_tab.c_str(), select_ == "events" ? ImGuiTabItemFlags_SetSelected : 0)) {
+        draw_events(app);
         ImGui::EndTabItem();
       }
       if (tab_item("Actuel", select_ == "stock" ? ImGuiTabItemFlags_SetSelected : 0)) {
@@ -143,6 +153,7 @@ class StockWindow final : public AppWindow {
 
   private:
     std::map< std::string, int > order_quantities_; // quantite de la case « Commandé », par type d'item
+    std::string event_kind_; // filtre des evenements a venir ('' : tout)
     std::string select_; // onglet a ouvrir (tache des commandes, des deplacements ou du stock ; tasks : vue par defaut)
 
     // ---- À faire : liste de taches de la gestion, par priorite ----
@@ -182,7 +193,6 @@ class StockWindow final : public AppWindow {
         if (key == "orders")
           draw_placed_orders(app, data["orders_placed"]);
       }
-      draw_upcoming(app, data["upcoming"]);
       ImGui::EndChild();
     }
 
@@ -222,41 +232,136 @@ class StockWindow final : public AppWindow {
       }
     }
 
-    // Peremptions a venir (30 jours) : pas des taches (les secouristes remplacent les perimes pendant la verif du lot
-    // rouge ; commandes et echanges sont deja des taches). Repliees tout en bas, hors du compte, ce qui perime en
-    // premier en tete : 7 jours en jaune, 2 jours en orange.
-    void draw_upcoming(App &app, const Json &rows) {
-      if (!rows.is_array() || rows.size() == 0)
-        return;
-      ImGui::Spacing();
-      ImGui::Separator();
-      const std::string label = "Péremptions à venir (" + std::to_string(rows.size()) + ")###upcoming";
-      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-      const bool open = ImGui::CollapsingHeader(label.c_str()); // replie par defaut
-      ImGui::PopStyleColor();
-      if (!open)
-        return;
-      ImGui::TextDisabled("Pour information, ce ne sont pas des tâches : les secouristes remplacent les items une "
-                          "fois périmés, pendant la vérif du lot.");
-      int index = 0;
-      for (const Json &row : rows.items()) {
-        ImGui::PushID(("upcoming" + std::to_string(index++)).c_str());
-        const std::string level = row["level"].str();
-        const ImVec4 color = level == "warn" ? colors::orange : level == "soon" ? colors::yellow : colors::grey;
-        ImGui::TextColored(color, "●");
+    // ---- À venir : evenements, a part des taches, dans l'ordre des dates (retard en tete) ----
+    // Une carte encadree par evenement, un titre par mois. Revisions et desinfections : « Réviser » /
+    // « Désinfecter » et « Saisir la date » depuis la carte.
+    void draw_events(App &app) {
+      const Json &data = app.catalog.events;
+      static constexpr std::array< int, 3 >          horizons = { 30, 90, 365 };
+      static constexpr std::array< const char *, 3 > labels   = { "30 jours", "3 mois", "1 an" };
+      ImGui::TextWrapped("Ce qui arrive, dans l'ordre des dates : ce ne sont pas des tâches. Révisions et "
+                         "désinfections se font ou se recalent directement depuis leur carte.");
+      ImGui::TextUnformatted("Horizon :");
+      for (std::size_t index = 0; index < horizons.size(); ++index) {
         ImGui::SameLine();
-        ImGui::BeginGroup();
-        ImGui::TextWrapped("%s", row["title"].str().c_str());
-        ImGui::PushStyleColor(ImGuiCol_Text, level == "info" ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : color);
-        ImGui::TextWrapped("%s", row["detail"].str().c_str());
-        ImGui::PopStyleColor();
-        const std::string lot = row["lot"].str();
-        if (!lot.empty() && small_button("Ouvrir le lot"))
-          app.show_lot(lot);
-        ImGui::EndGroup();
-        ImGui::Spacing();
+        const bool active = app.catalog.events_days == horizons[index];
+        if (ImGui::RadioButton(labels[index], active) && !active) {
+          app.catalog.events_days = horizons[index];
+          app.refresh_events();
+        }
+      }
+      if (!data.is_object() || !data["events"].is_array()) {
+        ImGui::TextDisabled(app.catalog.loading_events ? "Chargement..." : "Évènements indisponibles.");
+        return;
+      }
+      if (data["kinds"].size() > 1) {
+        ImGui::TextUnformatted("Afficher :");
+        ImGui::SameLine();
+        if (ImGui::RadioButton(("Tout (" + std::to_string(data["count"].integer()) + ")").c_str(), event_kind_.empty()))
+          event_kind_.clear();
+        for (const Json &kind : data["kinds"].items()) {
+          ImGui::SameLine();
+          const std::string key   = kind["key"].str();
+          const std::string label = kind["label"].str() + " (" + std::to_string(kind["count"].integer()) + ")";
+          if (ImGui::RadioButton(label.c_str(), event_kind_ == key))
+            event_kind_ = key;
+        }
+      }
+      ImGui::BeginChild("events_list");
+      std::string section;
+      int         index = 0, shown = 0;
+      for (const Json &row : data["events"].items()) {
+        if (!event_kind_.empty() && row["kind"].str() != event_kind_)
+          continue;
+        ++shown;
+        const auto        date = Date::parse(row["date"].str());
+        const bool        late = row["late"].boolean();
+        const std::string key  = late ? "late" : date ? std::to_string(date->year * 100 + date->month) : "";
+        if (key != section) {
+          section = key;
+          static const char *months[] = { "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet",
+                                          "Août", "Septembre", "Octobre", "Novembre", "Décembre" };
+          const std::string title = late ? "En retard"
+                                  : date ? std::string(months[(date->month + 11) % 12]) + " " + std::to_string(date->year)
+                                         : "";
+          ImGui::Spacing();
+          if (late)
+            ImGui::PushStyleColor(ImGuiCol_Text, colors::red);
+          ImGui::SeparatorText(title.c_str());
+          if (late)
+            ImGui::PopStyleColor();
+        }
+        ImGui::PushID(("event" + std::to_string(index++)).c_str());
+        draw_event(app, row, date);
         ImGui::PopID();
       }
+      if (shown == 0)
+        status_banner("✔ Rien de prévu sur cet horizon", colors::green);
+      ImGui::EndChild();
+    }
+
+    void draw_event(App &app, const Json &row, const std::optional< Date > &date) {
+      const std::string level = row["level"].str();
+      const ImVec4      color = level == "bad"    ? colors::red
+                              : level == "warn" ? colors::orange
+                              : level == "soon" ? colors::yellow
+                                                : ImGui::GetStyleColorVec4(ImGuiCol_Border);
+      ImGui::PushStyleColor(ImGuiCol_Border, color);
+      ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, level == "info" ? 1.0f : 2.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
+      ImGui::BeginChild("card", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+      // date en grand a gauche
+      ImGui::BeginGroup();
+      ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.5f);
+      const std::string day = row["late"].boolean() ? "!" : date ? std::to_string(date->day) : "?";
+      ImGui::TextColored(row["late"].boolean() ? colors::red : ImGui::GetStyleColorVec4(ImGuiCol_Text), "%s", day.c_str());
+      ImGui::PopFont();
+      static const char *short_months[] = { "janv.", "févr.", "mars", "avr.", "mai", "juin",
+                                            "juil.", "août", "sept.", "oct.", "nov.", "déc." };
+      ImGui::TextDisabled("%s", row["late"].boolean() ? "retard" : date ? short_months[(date->month + 11) % 12] : "");
+      ImGui::EndGroup();
+      ImGui::SameLine(ImGui::GetFontSize() * 4.0f);
+      ImGui::BeginGroup();
+      ImGui::TextColored(level == "info" ? colors::grey : color, "%s",
+                         row["kind_label"].str().c_str());
+      ImGui::SameLine();
+      ImGui::TextDisabled("· %s", row["when"].str().c_str());
+      ImGui::TextWrapped("%s", row["title"].str().c_str());
+      if (!row["iid"].str().empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", row["iid"].str().c_str());
+      }
+      if (!row["detail"].str().empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", row["detail"].str().c_str());
+        ImGui::PopStyleColor();
+      }
+      const Json       &m   = row["maintenance"];
+      const std::string lot = row["lot"].str();
+      bool              any = false;
+      if (m.is_object()) {
+        if (small_button(m["verb"].str("Réviser").c_str()))
+          app.open_revision(m, m["kind"].str());
+        ImGui::SameLine();
+        if (small_button("Saisir la date"))
+          app.open_maintenance_date(m, m["kind"].str());
+        any = true;
+      }
+      if (!lot.empty()) {
+        if (any)
+          ImGui::SameLine();
+        if (small_button("Ouvrir le lot"))
+          app.show_lot(lot);
+      } else if (row["link"].str() == "lists") {
+        if (small_button("Listes de matériel"))
+          app.open_window("lists");
+      } else if (row["link"].str() == "users" || row["link"].str() == "lot_admin") {
+        ImGui::TextDisabled(row["link"].str() == "users" ? "Administration › Utilisateurs" : "Gestion › Gestion des lots");
+      }
+      ImGui::EndGroup();
+      ImGui::EndChild();
+      ImGui::PopStyleVar(2);
+      ImGui::PopStyleColor();
     }
 
     void draw_task(App &app, const Json &row) {

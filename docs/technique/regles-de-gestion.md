@@ -101,7 +101,21 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    l'item est à remplacer comme un périmé (`needs_replacement`, et `revision_blocked_q` dans les
    filtres du scellage, du stock et du stock bas). `_lot_core` donne `next_revision`,
    `revision_late_count` et `revision_soon_count` (30 jours) ; `check_alerts` envoie
-   `revision_daily` (en retard ou dans les 7 jours, `services.revisions_due`).
+   `revision_daily` (en retard ou dans les 7 jours, `services.maintenance_due`).
+   **Désinfection** (`ItemType.disinfection_months` / `disinfection_tasks` / `disinfection_usable`,
+   `Items.disinfection_due` / `disinfected_at` / `disinfected_by`) : mêmes règles que la révision, suivie à
+   part (`models.MAINTENANCE` décrit les deux). `POST items/<iid>/revision/` prend `kind` (`revision` par
+   défaut, `disinfection`), `services.maintain_item` ; `ItemRevision.kind`. `needs_replacement` et
+   `revision_blocked_q` couvrent les deux retards bloquants ; `_lot_core` donne aussi `next_disinfection`,
+   `disinfection_late_count`, `disinfection_soon_count`. **Date saisie à la main** (`POST
+   items/<iid>/maintenance/date/`, gestion/admin, `services.schedule_maintenance`) : `last_done` (passée, pose
+   `*_at`/`*_by` et un `ItemRevision` `manual`) et/ou `next_due` (par défaut `last_done` + la périodicité,
+   peut être passée), opération `revision`/`disinfection` au journal. `item_dict.maintenance` : les deux sous
+   une même forme, avec `cycle_start` et `cycle_month` (mois en cours du cycle).
+   **Évènements à venir** (`tasks.events`, `GET events/?days=` poste, `POST events/summary/` web, gestion/admin,
+   90 jours par défaut) : révisions et désinfections (retard compris), péremptions (`upcoming_expiries`),
+   listes de matériel à préparer datées, étiquettes clés et badges qui expirent ; triés par date puis gravité.
+   Plus de `upcoming` dans `todo()`.
    **Items à tâches** (`ItemType.tasks`, étiquette de tâches `<base>/task?id=IID`) : les fronts
    n'envoient l'item dans les scans de la vérif qu'une fois toutes ses tâches cochées et validées
    (web `openTasks`/`addItem`, poste `ScanEntry.tasks_pending`, hors de `ScanStack::iids`). Le

@@ -590,6 +590,7 @@ void App::draw() {
   draw_tasks_modal();
   draw_problem_modal();
   draw_revision_modal();
+  draw_maintenance_date_modal();
   draw_reports_alert();
   draw_seal_opening_modal();
   draw_label_preview(*this);

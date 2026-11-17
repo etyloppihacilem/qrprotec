@@ -143,7 +143,7 @@ stock, du plus important au moins important :
 2. **Lots à sceller** (scellé obligatoire, ouverts ou vérifiés sans scellé) ;
 3. **Lots invalides** : incomplets (avec ce qui manque), avec des périmés, ou jamais vérifiés ;
 4. **Vérifs recommandées** : lots réassortis, ouverts, rentrés d'une liste ou marqués utilisés ;
-5. **Révisions du matériel** en retard ou dans les 30 jours ;
+5. **Révisions et désinfections** du matériel en retard ou dans les 30 jours ;
 6. **Vérifs du stock** : du matériel est sorti du stock (à la main ou par une liste) depuis sa dernière vérif ;
 7. **Commandes** et **déplacements** recommandés par les prévisions dans les 30 jours ;
 8. **De temps en temps** : étiquettes clés et badges qui expirent, périmés restés dans le stock, listes de
@@ -159,11 +159,22 @@ livraison » (qui l'a cochée, quand, ce qui est déjà reçu). Elle se clôt to
 du type a été réceptionnée. Pas livrée au bout de 30 jours, elle redevient une tâche (relancer le fournisseur).
 Décochez-la si elle ne viendra pas : la suggestion revient si elle tient toujours.
 
-**Péremptions à venir.** Les péremptions des 30 jours ne sont pas des tâches : les secouristes remplacent les
-items une fois périmés, pendant la vérif du lot rouge. Seul compte ce qu'elles demandent au TECH : une commande,
-ou un déplacement pour utiliser plus tôt ce qui va périmer. Le bouton **Péremptions à venir**, tout en bas et
-replié, les liste quand même (hors du compte des tâches), ce qui périme en premier en tête : jaune dans les
-7 jours, orange dans les 2 jours.
+## Évènements à venir
+
+La Gestion de la TECH a une partie à part des tâches : **À venir** (vue du téléphone, onglet du poste). Elle
+liste dans l'ordre des dates ce qui va arriver, une carte par évènement, avec un titre par mois et le retard en
+tête :
+
+- les **péremptions** (une carte par lieu, type et date : jaune dans les 7 jours, orange dans les 2 jours) ;
+- les **révisions** et les **désinfections** du matériel, en retard ou à venir, avec où en est le cycle
+  (« mois 8 sur 12 ») et la dernière faite ;
+- les **listes de matériel** à préparer pour une date à venir ;
+- les **étiquettes clés** des lots et les **badges** qui expirent.
+
+L'horizon se choisit : 30 jours, 3 mois (par défaut) ou 1 an, et un filtre n'affiche qu'un genre d'évènement.
+Ce ne sont pas des tâches : les secouristes remplacent les périmés pendant la vérif du lot rouge, et ce que les
+péremptions demandent au TECH (une commande, un déplacement) est déjà dans les tâches. Une carte de révision ou
+de désinfection a ses boutons **Réviser** / **Désinfecter** et **Saisir la date** (voir plus bas).
 
 ## Consulter l'état des stocks
 
@@ -323,13 +334,15 @@ et au retour (**Retour : scanner**) chaque lot rentré passe en **vérif recomma
 complète de chaque lot non scellé pris, après l'avoir scanné et avant de valider. Jamais pour un lot
 scellé.
 
-## Réviser le matériel
+## Réviser et désinfecter le matériel
 
-Le matériel non consommable dont le type a une révision (voir les types d'items dans la mise en
-place) a une date de **prochaine révision**. Pour le réviser :
+Le matériel non consommable peut avoir une **révision** et une **désinfection** périodiques, réglées sur son
+type (voir les types d'items dans la mise en place). Ce sont deux suivis distincts : chacun a sa périodicité,
+ses tâches, sa date de prochaine échéance et son bouton. Pour réviser (ou désinfecter) un item :
 
-- **téléphone** : scannez l'étiquette de l'item, puis **🔧 Réviser** sur sa fiche ;
-- **poste** : scannez l'item, puis **Réviser** sous sa ligne dans la pile de scans.
+- **téléphone** : scannez l'étiquette de l'item, puis **🔧 Réviser** (ou **Désinfecter**) sur sa fiche ;
+- **poste** : scannez l'item, puis **Réviser** (ou **Désinfecter**) sous sa ligne dans la pile de scans ;
+- depuis sa carte dans **À venir**.
 
 Connectez-vous si besoin, cochez toutes les tâches de la révision, vérifiez la date de prochaine
 révision (par défaut dans la périodicité du type, modifiable) et enregistrez. La fiche de l'item
@@ -340,7 +353,14 @@ révision** (en orange à moins de 30 jours ou en retard), la liste des lots du 
 « N à réviser », et les comptes gestion et admin reçoivent chaque matin le résumé des révisions en
 retard ou de la semaine (notification « Résumé quotidien des révisions de matériel à faire »). En
 retard, l'item porte « révision en retard » : il reste utilisable avec un avertissement, ou compte
-comme à remplacer si son type ne permet pas de l'utiliser en retard.
+comme à remplacer si son type ne permet pas de l'utiliser en retard. La désinfection suit les mêmes règles
+(« désinfection en retard », « N à désinfecter »).
+
+**Saisir la date à la main** (gestion et admin). Pour du matériel révisé ailleurs, ou un cycle à recaler, le
+lien **Saisir la date** (fiche de l'item, carte d'À venir, pile de scans du poste) enregistre la date de la
+**dernière** révision faite (la prochaine se calcule avec la périodicité) ou directement la **prochaine**, même
+passée si le retard est constaté. Aucune révision n'est comptée comme faite aujourd'hui ; le journal garde qui a
+saisi quoi.
 
 ## Remettre du matériel en stock
 
