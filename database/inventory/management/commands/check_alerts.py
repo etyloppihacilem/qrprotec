@@ -45,20 +45,26 @@ class Command(BaseCommand):
                                         'lots contenant des périmés : ' + ', '.join(summary), tag='expired-daily')
         self.stdout.write(f'Stock bas : {", ".join(low) or "aucun"}')
         self.stdout.write(f'Lots avec périmés : {", ".join(summary) or "aucun"}')
-        # materiel a reviser : en retard, ou dans la semaine
-        due = services.revisions_due(today, days=7)
-        late = [item for item in due if item.revision_due < today]
-        week = [item for item in due if item.revision_due >= today]
+        # materiel a reviser ou a desinfecter : en retard, ou dans la semaine
+        due = services.maintenance_due(today, days=7)
         where = lambda item: f'{item.pack.item_type.name} ({item.location.name if item.location_id else "stock"})'
-        parts = []
-        if late:
-            parts.append('en retard : ' + ', '.join(where(item) for item in late))
-        if week:
-            parts.append('cette semaine : ' + ', '.join(where(item) for item in week))
-        if parts:
-            notifications.notify_admins('revision_daily', 'révisions de matériel',
-                                        'révisions à faire, ' + ' ; '.join(parts), tag='revision-daily')
-        self.stdout.write(f'Révisions à faire : {" ; ".join(parts) or "aucune"}')
+        sentences = []
+        for kind, noun in (('revision', 'révisions'), ('disinfection', 'désinfections')):
+            late = [item for row_kind, item, when in due if row_kind == kind and when < today]
+            week = [item for row_kind, item, when in due if row_kind == kind and when >= today]
+            parts = []
+            if late:
+                parts.append('en retard : ' + ', '.join(where(item) for item in late))
+            if week:
+                parts.append('cette semaine : ' + ', '.join(where(item) for item in week))
+            if parts:
+                sentences.append(f'{noun} à faire, ' + ' ; '.join(parts))
+        if sentences:
+            kinds = {row_kind for row_kind, _, _ in due}
+            title = ('révisions et désinfections de matériel' if len(kinds) > 1 else
+                     'révisions de matériel' if 'revision' in kinds else 'désinfections de matériel')
+            notifications.notify_admins('revision_daily', title, ' · '.join(sentences), tag='revision-daily')
+        self.stdout.write(f'Révisions et désinfections à faire : {" · ".join(sentences) or "aucune"}')
         expirations = notifications.check_key_expirations(today)
         self.stdout.write(f'Étiquettes de lot à renouveler : {", ".join(expirations["lot_key_expiring"]) or "aucune"}')
         self.stdout.write(f'Badges à renouveler : {", ".join(expirations["badge_expiring"]) or "aucun"}')

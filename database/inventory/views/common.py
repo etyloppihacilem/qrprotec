@@ -68,7 +68,7 @@ from ..models import (
     SlotMode,
     NotificationSettings, Operation, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
     SCANNER_VOLUMES, LOST_OBJECT_MESSAGE_MAX, ConsumableRef, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
-    storage_kind_value,
+    storage_kind_value, MAINTENANCE,
 )
 
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
@@ -241,9 +241,11 @@ def check_tear_off_tasks(tear_off, tasks):
 
 
 def check_physical(physical, perissable, tear_off, revision_months):
-    """Un item a cocher (sans etiquette) n'a ni date de peremption, ni etiquette a dechirer, ni revision."""
+    """Un item a cocher (sans etiquette) n'a ni date de peremption, ni etiquette a dechirer, ni revision ou
+    desinfection (revision_months : somme des deux periodicites)."""
     if not physical and (perissable or tear_off or revision_months):
-        raise ApiError("Un item à cocher n'a pas d'étiquette : ni péremption, ni étiquette à déchirer, ni révision")
+        raise ApiError("Un item à cocher n'a pas d'étiquette : ni péremption, ni étiquette à déchirer, ni révision "
+                       "ou désinfection")
 
 
 MAX_FILLS = 1_000_000

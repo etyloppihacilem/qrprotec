@@ -764,23 +764,32 @@ class TasksTests(ApiTestCase):
         self.assertIn("étiquette d'ouverture", body['error'])
 
     def test_upcoming_expiries_not_tasks(self):
-        # lot valide dont des items periment dans les 30 jours : pas une tache, seulement « Peremptions a venir »
+        # lot valide dont des items periment dans les 30 jours : pas une tache, seulement un evenement a venir
         items = (self.create(self.compresses, self.today + timedelta(days=20), 1)
                  + self.create(self.compresses, self.today + timedelta(days=1), 1))
         self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
         self.create(self.compresses, self.today + timedelta(days=5), 2)  # stock
-        self.create(self.compresses, self.today + timedelta(days=40), 1)  # trop loin
+        self.create(self.compresses, self.today + timedelta(days=40), 1)  # au-dela de 30 jours
         code, body = self.call('GET', '/api/tasks/')
         self.assertEqual(code, 200)
         self.assertFalse([row for row in body['tasks'] if 'Péremption' in row['title']])
         self.assertEqual(body['count'], len(body['tasks']))
-        upcoming = body['upcoming']
+        self.assertNotIn('upcoming', body)
+        code, body = self.call('GET', '/api/events/?days=30')
+        self.assertEqual(code, 200)
+        upcoming = [row for row in body['events'] if row['kind'] == 'expiry']
         self.assertEqual([(row['days'], row['level'], row['title']) for row in upcoming],
                          [(1, 'warn', '1 × Compresses'), (5, 'soon', '2 × Compresses'), (20, 'info', '1 × Compresses')])
         self.assertEqual(upcoming[0]['lot'], self.lot.id)
-        self.assertIn('demain', upcoming[0]['detail'])
-        self.assertIn('stock', upcoming[1]['detail'])
+        self.assertEqual(upcoming[0]['when'], 'demain')
+        self.assertEqual(upcoming[1]['detail'], 'stock')
         self.assertIsNone(upcoming[1]['lot'])
+        # horizon plus long : la peremption a 40 jours apparait
+        code, body = self.call('GET', '/api/events/?days=90')
+        self.assertIn(40, [row['days'] for row in body['events'] if row['kind'] == 'expiry'])
+        # web : badge gestion/admin, refuse a un secouriste
+        code, _ = self.call('POST', '/api/events/summary/', {'user': self.badge(self.user)}, local=False)
+        self.assertEqual(code, 403)
 
     def test_order_placed(self):
         orders = lambda body: [row for row in body['tasks'] if row['category'] == 'orders']

@@ -38,7 +38,8 @@ def item_types(request):
     ensure_name_free(ItemType.objects.all(), name, "Le type d'item")
     check_tear_off_tasks(bool(data.get('tear_off', False)), parse_tasks(data.get('tasks')))
     check_physical(bool(data.get('physical', True)), bool(data.get('perissable', False)),
-                   bool(data.get('tear_off', False)), parse_int(data.get('revision_months', 0), 'revision_months'))
+                   bool(data.get('tear_off', False)), parse_int(data.get('revision_months', 0), 'revision_months')
+                   + parse_int(data.get('disinfection_months', 0), 'disinfection_months'))
     with transaction.atomic():
         return _create_item_type(request, data, code, name)
 
@@ -59,6 +60,9 @@ def _create_item_type(request, data, code, name):
         revision_months=parse_int(data.get('revision_months', 0), 'revision_months', 0, MAX_REVISION_MONTHS),
         revision_tasks=parse_tasks(data.get('revision_tasks')),
         revision_usable=bool(data.get('revision_usable', True)),
+        disinfection_months=parse_int(data.get('disinfection_months', 0), 'disinfection_months', 0, MAX_REVISION_MONTHS),
+        disinfection_tasks=parse_tasks(data.get('disinfection_tasks')),
+        disinfection_usable=bool(data.get('disinfection_usable', True)),
         lost_object=bool(data.get('lost_object', False)),
     )
     if any(key in data for key in ('is_group', 'unit', 'group', 'fills', 'default_subtype')):
@@ -108,14 +112,22 @@ def item_type_detail(request, type_code):
             if not data['physical'] and ItemsPacks.objects.filter(item_type=item_type).exists():
                 raise ApiError("Des items de ce type ont déjà des étiquettes : il ne peut pas devenir un item à cocher")
             item_type.physical = bool(data['physical'])
-        had_revision = item_type.has_revision
+        had = {kind: item_type.has_maintenance(kind) for kind in MAINTENANCE}
         if 'revision_months' in data:
             item_type.revision_months = parse_int(data['revision_months'], 'revision_months', 0, MAX_REVISION_MONTHS)
         if 'revision_tasks' in data:
             item_type.revision_tasks = parse_tasks(data['revision_tasks'])
         if 'revision_usable' in data:
             item_type.revision_usable = bool(data['revision_usable'])
-        check_physical(item_type.physical, item_type.perissable, item_type.tear_off, item_type.revision_months)
+        if 'disinfection_months' in data:
+            item_type.disinfection_months = parse_int(data['disinfection_months'], 'disinfection_months', 0,
+                                                      MAX_REVISION_MONTHS)
+        if 'disinfection_tasks' in data:
+            item_type.disinfection_tasks = parse_tasks(data['disinfection_tasks'])
+        if 'disinfection_usable' in data:
+            item_type.disinfection_usable = bool(data['disinfection_usable'])
+        check_physical(item_type.physical, item_type.perissable, item_type.tear_off,
+                       item_type.revision_months + item_type.disinfection_months)
         if 'archived' in data:
             archived = bool(data['archived'])
             if archived:
@@ -133,10 +145,12 @@ def item_type_detail(request, type_code):
             item_type.archived = archived
         apply_units(item_type, data)
         item_type.save()
-        if item_type.has_revision and not had_revision:
-            # revision activee : premiere revision des items deja la dans la periodicite, sauf date deja prevue
-            Items.objects.filter(pack__item_type=item_type, revision_due__isnull=True).update(
-                revision_due=add_months(timezone.localdate(), item_type.revision_months))
+        for kind, fields in MAINTENANCE.items():
+            if item_type.has_maintenance(kind) and not had[kind]:
+                # revision ou desinfection activee : premiere echeance des items deja la dans la periodicite, sauf date
+                # deja prevue (le TECH peut ensuite la saisir a la main, item par item)
+                Items.objects.filter(pack__item_type=item_type, **{f'{fields["due"]}__isnull': True}).update(
+                    **{fields['due']: add_months(timezone.localdate(), getattr(item_type, fields['months']))})
         journal.record(OperationKind.CATALOG, front_identity(request),
                        f"type d'item modifié : {item_type} ({changed_fields(data, ITEM_TYPE_FIELDS)})",
                        type=item_type.type, fields=sorted(data.keys()))
@@ -149,6 +163,8 @@ ITEM_TYPE_FIELDS = {
     'label_style': "style d'étiquette",
     'consumable': 'consommable', 'physical': 'à cocher', 'tasks': 'tâches', 'revision_months': 'périodicité de révision',
     'revision_tasks': 'tâches de révision', 'revision_usable': 'utilisable en retard de révision',
+    'disinfection_months': 'périodicité de désinfection', 'disinfection_tasks': 'tâches de désinfection',
+    'disinfection_usable': 'utilisable en retard de désinfection',
     'archived': 'archivage', 'is_group': 'type parent', 'unit': 'unité', 'group': 'sous-type de', 'fills': 'unités remplies',
     'default_subtype': 'sous-type par défaut', 'lost_object': 'message objet perdu',
 }

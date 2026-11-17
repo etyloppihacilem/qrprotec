@@ -18,8 +18,9 @@ en tout dernier le materiel du stock sans rangement a ranger.
 
 Les peremptions des 30 jours ne sont pas des taches (choix d'Hippolyte, 2026-11-11) : les secouristes remplacent les
 items une fois perimes, pendant la verif du lot rouge. Seuls comptent ce qu'elles demandent au TECH : une commande
-(categorie orders) ou un echange pour utiliser plus tot ce qui va perimer (transfers). Elles restent consultables dans
-`upcoming` (« Peremptions a venir », repliee en bas de la liste, hors du compte des taches).
+(categorie orders) ou un echange pour utiliser plus tot ce qui va perimer (transfers). Elles sont dans les evenements
+a venir (`events`, onglet « À venir » de la Gestion de la TECH, separe des taches, 2026-11-17) avec les revisions, les
+desinfections, les listes de materiel prevues et les etiquettes cles et badges qui expirent, dans l'ordre des dates.
 
 Chaque tache : {category, level ('bad' rouge, 'warn' orange, 'info'), title, detail, date, lot, item, report, link}.
 `link` dit ou la traiter : 'lot' (fiche du lot), 'item' (fiche de l'item), 'reports', 'forecast', 'lists', 'users',
@@ -40,7 +41,8 @@ from . import services
 from .idendity import format_identity_verified, identity_name
 from .journal import plural
 from .models import (
-    Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, ProblemReport, ReportStatus,
+    MAINTENANCE, Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, ProblemReport,
+    ReportStatus,
     STOCK_LOT_TYPE, Secouristes, ServerSettings, StockOrder, Verifs, lot_keys_expire, qrprotec_setting,
 )
 from .reports import target_name
@@ -51,7 +53,8 @@ CATEGORIES = [
     ('invalid', 'Lots invalides', 'Lots incomplets, avec des périmés ou jamais vérifiés : les compléter, puis une vérif.'),
     ('recommended', 'Vérifs recommandées', 'Lots réassortis, ouverts, rentrés d\'une liste ou marqués utilisés : une '
                                           'vérif complète les remet au vert.'),
-    ('revisions', 'Révisions du matériel', 'Matériel à réviser en retard ou dans les 30 jours.'),
+    ('revisions', 'Révisions et désinfections', 'Matériel à réviser ou à désinfecter, en retard ou dans les 30 '
+                                                'jours.'),
     ('stock_verif', 'Vérifs du stock', 'Beaucoup de sorties d\'un rangement (ou du stock sans rangement) depuis sa '
                                        'dernière vérif : au retour, chaque item est remis à sa place, une vérif de '
                                        'temps en temps contrôle qu\'il y est bien.'),
@@ -70,9 +73,10 @@ LEVEL_ORDER = {'bad': 0, 'warn': 1, 'info': 2}
 SEAL_ORDER = {'seal_opened': 0, 'must_seal': 1}
 INVALID_ORDER = {'unusable': 0, 'sealed_expired': 1, 'incomplete': 2, 'never': 3}
 ORDER_DELIVERY_DAYS = 30  # commande passee pas livree au bout de 30 jours : de nouveau une tache
-UPCOMING_DAYS = 30  # « Peremptions a venir » : items qui periment dans les 30 jours
+UPCOMING_DAYS = 30  # peremptions a venir : items qui periment dans les 30 jours (horizon par defaut d'upcoming_expiries)
 UPCOMING_YELLOW_DAYS = 7  # jaune dans les 7 jours
 UPCOMING_ORANGE_DAYS = 2  # orange dans les 2 jours
+EVENTS_DAYS = 90  # evenements a venir : horizon par defaut (les fronts proposent 30 jours, 3 mois, 1 an)
 
 
 def _iso(value):
@@ -172,22 +176,29 @@ def _lot_tasks(rows, today):
     return tasks
 
 
+def _place(item):
+    return (item.location.name if item.location_id else 'stock' if item.status == ItemStatus.ACTIVE
+            else item.get_status_display().lower())
+
+
 def _revision_tasks(today):
+    """Revisions et desinfections en retard ou dans les 30 jours (une tache par item et par entretien)."""
     tasks = []
-    for item in services.revisions_due(today, REVISION_WINDOW_DAYS):
-        late = item.revision_due < today
-        place = item.location.name if item.location_id else 'stock' if item.status == ItemStatus.ACTIVE \
-            else item.get_status_display().lower()
+    for kind, item, due in services.maintenance_due(today, REVISION_WINDOW_DAYS):
+        fields = MAINTENANCE[kind]
+        usable = getattr(item.pack.item_type, fields['usable'])
+        late = due < today
         if late:
-            detail = f'en retard depuis le {_day(item.revision_due)}'
-            if not item.pack.item_type.revision_usable:
-                detail += ' : inutilisable tant que pas révisé'
+            detail = f'en retard depuis le {_day(due)}'
+            if not usable:
+                detail += f" : inutilisable tant que pas {'révisé' if kind == 'revision' else 'désinfecté'}"
         else:
-            detail = f'à faire avant le {_day(item.revision_due)}'
-        tasks.append(task('revisions', 'bad' if late and not item.pack.item_type.revision_usable else
-                          'warn' if late else 'info', f'{item.pack.item_type.name} {item.iid}',
-                          f'{detail} · {place}', item.revision_due, 'item', lot=item.location_id, item=item.iid,
-                          sort=item.revision_due.toordinal()))
+            detail = f'à faire avant le {_day(due)}'
+        title = f'{item.pack.item_type.name} {item.iid}' if kind == 'revision' \
+            else f"{fields['label']} : {item.pack.item_type.name} {item.iid}"
+        tasks.append(task('revisions', 'bad' if late and not usable else 'warn' if late else 'info', title,
+                          f'{detail} · {_place(item)}', due, 'item', lot=item.location_id, item=item.iid,
+                          sort=due.toordinal()))
     return tasks
 
 
@@ -389,14 +400,14 @@ def _unsorted_tasks():
                  f"{plural(len(items), 'item')} en stock sans rangement : {summary}", None, 'inventory')]
 
 
-def upcoming_expiries(rows, today):
-    """Peremptions a venir (pas des taches) : items actifs, non desactives, qui periment dans les 30 jours, une ligne
-    par lieu, type et date, ce qui perime en premier en tete. level : 'warn' (orange, 2 jours), 'soon' (jaune,
+def upcoming_expiries(rows, today, days=UPCOMING_DAYS):
+    """Peremptions a venir (pas des taches) : items actifs, non desactives, qui periment dans les `days` jours, une
+    ligne par lieu, type et date, ce qui perime en premier en tete. level : 'warn' (orange, 2 jours), 'soon' (jaune,
     7 jours), 'info'."""
     places = {row['id']: ' › '.join([part['name'] for part in row.get('path', [])] + [row['name']]) for row in rows}
     items = (Items.objects.select_related('pack__item_type')
              .filter(status=ItemStatus.ACTIVE, disabled=False, pack__peremption__gte=today,
-                     pack__peremption__lte=today + timedelta(days=UPCOMING_DAYS))
+                     pack__peremption__lte=today + timedelta(days=days))
              .exclude(location__active=False))
     groups = Counter((item.pack.peremption, item.location_id or '', item.pack.item_type.name) for item in items)
     result = []
@@ -408,7 +419,7 @@ def upcoming_expiries(rows, today):
         place = places.get(lot, '') if lot else 'stock'
         result.append({'level': level, 'title': f'{count} × {name}', 'detail': f'périme {when} ({_day(date)}) · '
                        + (place or 'lot'), 'date': _iso(date), 'days': days, 'link': 'lot' if lot else 'stock',
-                       'lot': lot or None})
+                       'lot': lot or None, 'place': place or 'lot', 'count': count, 'name': name})
     return result
 
 
@@ -437,9 +448,110 @@ def todo(today=None, consumables_tasks=False):
         rows_of = [row for row in tasks if row['category'] == key]
         level = min((row['level'] for row in rows_of), key=LEVEL_ORDER.get, default='')
         categories.append({'key': key, 'title': title, 'help': help_text, 'count': len(rows_of), 'level': level})
-    # peremptions a venir : a part, repliees en bas, hors du compte des taches
+    # peremptions a venir : plus ici, dans les evenements a venir (events)
     # commandes passees en attente de livraison : sous les commandes, hors du compte (sauf en retard : tache)
     placed = sorted((order_dict(order, today) for type_orders in orders.values() for order in type_orders),
                     key=lambda row: row['placed'])
-    return {'today': today, 'count': len(tasks), 'categories': categories, 'tasks': tasks, 'orders_placed': placed,
-            'upcoming': upcoming_expiries(rows, today)}
+    return {'today': today, 'count': len(tasks), 'categories': categories, 'tasks': tasks, 'orders_placed': placed}
+
+
+# ---- Evenements a venir : a part des taches (onglet « À venir »), dans l'ordre des dates ----
+
+EVENT_KINDS = {
+    'revision': 'Révision',
+    'disinfection': 'Désinfection',
+    'expiry': 'Péremption',
+    'list': 'Liste de matériel',
+    'lot_key': 'Étiquette clé',
+    'badge': 'Badge',
+}
+EVENT_LEVEL_ORDER = {'bad': 0, 'warn': 1, 'soon': 2, 'info': 3}
+
+
+def _when(days):
+    if days < 0:
+        return f"en retard de {plural(-days, 'jour')}"
+    return "aujourd'hui" if days == 0 else 'demain' if days == 1 else f'dans {days} jours'
+
+
+def event(kind, date, today, title, detail='', level=None, link='', lot=None, item=None, **extra):
+    days = (date - today).days
+    if level is None:
+        level = ('bad' if days < 0 else 'warn' if days <= UPCOMING_ORANGE_DAYS else
+                 'soon' if days <= UPCOMING_YELLOW_DAYS else 'info')
+    return {'kind': kind, 'kind_label': EVENT_KINDS[kind], 'date': _iso(date), 'days': days, 'when': _when(days),
+            'late': days < 0, 'level': level, 'title': title, 'detail': detail, 'link': link, 'lot': lot,
+            'item': item, **extra}
+
+
+def _maintenance_events(today, days):
+    """Revisions et desinfections en retard ou dans l'horizon, une par item et par entretien, avec de quoi la faire
+    (« Réviser », « Désinfecter ») ou en saisir la date a la main depuis l'evenement."""
+    rows = []
+    for kind, item, due in services.maintenance_due(today, days):
+        fields = MAINTENANCE[kind]
+        info = ser.maintenance_dict(item, kind, today)
+        late = due < today
+        parts = [_place(item)]
+        if info['cycle_month'] and not late:
+            parts.append(f"mois {info['cycle_month']} sur {info['months']} du cycle")
+        parts.append(f"tous les {info['months']} mois")
+        if info['done_at']:
+            parts.append(f"dernière le {_day(datetime.fromisoformat(info['done_at']))}")
+        if late:
+            parts.insert(0, ('toujours utilisable' if info['usable'] else
+                             f"inutilisable tant que pas {'révisé' if kind == 'revision' else 'désinfecté'}"))
+        level = ('bad' if late and not info['usable'] else 'warn' if late else None)
+        rows.append(event(kind, due, today, f'{item.pack.item_type.name} {item.iid}', ' · '.join(parts), level,
+                          'item', lot=item.location_id, item=item.iid,
+                          maintenance={**info, 'iid': item.iid, 'type_name': item.pack.item_type.name}))
+    return rows
+
+
+def _expiry_events(rows, today, days):
+    return [event('expiry', datetime.fromisoformat(row['date']).date(), today, row['title'], row['place'],
+                  row['level'], row['link'], lot=row['lot'])
+            for row in upcoming_expiries(rows, today, days)]
+
+
+def _list_events(today, days):
+    """Listes de materiel a preparer, datees dans l'horizon (depart ou evenement prevu)."""
+    lists = (Checklist.objects.select_related('owner')
+             .filter(is_template=False, status=ChecklistStatus.DRAFT, date__gte=today,
+                     date__lte=today + timedelta(days=days)).order_by('date', 'name'))
+    return [event('list', checklist.date, today, f'« {checklist.name} »',
+                  'à préparer · par ' + identity_name(format_identity_verified(checklist.owner_id)), 'info', 'lists',
+                  checklist=checklist.id)
+            for checklist in lists]
+
+
+def _expiry_key_events(today, days):
+    limit = today + timedelta(days=days)
+    rows = []
+    if lot_keys_expire():
+        for lot in Lots.objects.filter(active=True, verif_key_expires__isnull=False, verif_key_expires__lte=limit):
+            rows.append(event('lot_key', lot.verif_key_expires, today, lot.name,
+                              'à renouveler et réimprimer (Gestion des lots)', None, 'lot_admin', lot=lot.id))
+    for user in Secouristes.objects.filter(active=True, key_expires__isnull=False, key_expires__lte=limit):
+        rows.append(event('badge', user.key_expires, today, identity_name(format_identity_verified(user.matricule)),
+                          'renouveler la clé et réimprimer le badge (Utilisateurs, admin)', None, 'users'))
+    return rows
+
+
+def events(today=None, days=EVENTS_DAYS):
+    """Evenements a venir sur `days` jours, separes des taches : revisions et desinfections (en retard d'abord),
+    peremptions, listes de materiel prevues, etiquettes cles et badges qui expirent. Un evenement par ligne, par
+    date croissante (le retard en tete) ; a date egale, le plus grave d'abord."""
+    today = today or timezone.localdate()
+    lots = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
+    rows = ser.lot_list(lots, today=today)
+    result = (_maintenance_events(today, days) + _expiry_events(rows, today, days) + _list_events(today, days)
+              + _expiry_key_events(today, days))
+    kind_rank = {key: index for index, key in enumerate(EVENT_KINDS)}
+    result.sort(key=lambda row: (row['date'], EVENT_LEVEL_ORDER[row['level']], kind_rank[row['kind']],
+                                 row['title']))
+    counts = Counter(row['kind'] for row in result)
+    return {'today': today, 'days': days, 'count': len(result), 'late': sum(1 for row in result if row['late']),
+            'kinds': [{'key': key, 'label': label, 'count': counts[key]} for key, label in EVENT_KINDS.items()
+                      if counts[key]],
+            'events': result}
