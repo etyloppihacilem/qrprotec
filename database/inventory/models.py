@@ -159,8 +159,10 @@ class ItemsPacksManager(models.Manager):
             peremption = None
         now = now or timezone.now()  # meme instant pour plusieurs paquets fermes : une seule reception
         pack_id = f"{item_type.type}{peremption_code(peremption)}"
-        # materiel a reviser : premiere revision a la reception + la periodicite du type
+        # materiel a reviser ou a desinfecter : premiere echeance a la reception + la periodicite du type
         revision_due = add_months(timezone.localdate(now), item_type.revision_months) if item_type.has_revision else None
+        disinfection_due = (add_months(timezone.localdate(now), item_type.disinfection_months)
+                            if item_type.has_disinfection else None)
 
         with transaction.atomic():
             pack, _ = self.select_for_update().get_or_create(
@@ -181,6 +183,7 @@ class ItemsPacksManager(models.Manager):
                     added=now,
                     added_by=user,
                     revision_due=revision_due,
+                    disinfection_due=disinfection_due,
                 )
                 for i in range(count)
             ]
@@ -239,6 +242,11 @@ class ItemType(models.Model):
     revision_months = models.PositiveIntegerField(default=0)
     revision_tasks = models.JSONField(default=list, blank=True)
     revision_usable = models.BooleanField(default=True)
+    # Desinfection periodique (ex : BAVU, attelles a depression), meme principe que la revision mais distincte : un
+    # item peut avoir les deux, chacune avec sa periodicite, ses taches et sa prochaine date (Items.disinfection_due).
+    disinfection_months = models.PositiveIntegerField(default=0)
+    disinfection_tasks = models.JSONField(default=list, blank=True)
+    disinfection_usable = models.BooleanField(default=True)
     archived = models.BooleanField(default=False) # plus propose (reception, contenu des lots), desarchivable
     # Item physique (par defaut), avec une etiquette. Faux : item « a cocher » (ex : 5 gobelets, 15 sucres, « piles
     # verifiees ») : pas d'etiquette, pas de stock, pas de peremption ; dans un lot, la vérif le coche a la main.
@@ -272,6 +280,14 @@ class ItemType(models.Model):
         return self.revision_months > 0 and not self.consumable
 
     @property
+    def has_disinfection(self) -> bool:
+        return self.disinfection_months > 0 and not self.consumable
+
+    def has_maintenance(self, kind) -> bool:
+        """Revision ou desinfection periodique (MAINTENANCE) activee sur ce type."""
+        return getattr(self, MAINTENANCE[kind]['months']) > 0 and not self.consumable
+
+    @property
     def can_be_optional(self) -> bool:
         """Attendu facultatif d'un type de lot (LotRequirements.optional) : seulement du materiel non consommable sans
         taches a cocher (ex : les casques du VPS). Un sous-lot facultatif (Lots.optional) l'est en entier."""
@@ -286,11 +302,30 @@ class ItemType(models.Model):
         return f"{self.name} ({self.type})"
 
 
+# Entretien periodique du materiel non consommable : revision et desinfection, deux suivis distincts de meme forme.
+# Noms des champs de chacun (ItemType : periodicite, taches, utilisable en retard ; Items : prochaine date, derniere
+# faite et par qui) et libelles des fronts.
+MAINTENANCE = {
+    'revision': {'months': 'revision_months', 'tasks': 'revision_tasks', 'usable': 'revision_usable',
+                 'due': 'revision_due', 'at': 'revised_at', 'by': 'revised_by',
+                 'label': 'Révision', 'noun': 'révision', 'verb': 'Réviser', 'todo': 'à réviser',
+                 'late': 'révision en retard'},
+    'disinfection': {'months': 'disinfection_months', 'tasks': 'disinfection_tasks', 'usable': 'disinfection_usable',
+                     'due': 'disinfection_due', 'at': 'disinfected_at', 'by': 'disinfected_by',
+                     'label': 'Désinfection', 'noun': 'désinfection', 'verb': 'Désinfecter', 'todo': 'à désinfecter',
+                     'late': 'désinfection en retard'},
+}
+
+
 def revision_blocked_q(today, prefix=''):
-    """Items dont la revision en retard les rend inutilisables (meme regle que Items.needs_replacement)."""
+    """Items dont la revision ou la desinfection en retard les rend inutilisables (meme regle que
+    Items.needs_replacement)."""
     type_prefix = f'{prefix}pack__item_type__'
-    return Q(**{f'{prefix}revision_due__lt': today, f'{type_prefix}revision_months__gt': 0,
-                f'{type_prefix}consumable': False, f'{type_prefix}revision_usable': False})
+    query = Q()
+    for fields in MAINTENANCE.values():
+        query |= Q(**{f'{prefix}{fields["due"]}__lt': today, f'{type_prefix}{fields["months"]}__gt': 0,
+                      f'{type_prefix}consumable': False, f'{type_prefix}{fields["usable"]}': False})
+    return query
 
 
 class ItemsPacks(models.Model):
@@ -366,6 +401,10 @@ class Items(models.Model):
     revision_due = models.DateField(blank=True, null=True)
     revised_at = models.DateTimeField(blank=True, null=True)
     revised_by = models.CharField(max_length=64, blank=True, default='')
+    # desinfection (ItemType.disinfection_months) : meme principe que la revision, suivie a part
+    disinfection_due = models.DateField(blank=True, null=True)
+    disinfected_at = models.DateTimeField(blank=True, null=True)
+    disinfected_by = models.CharField(max_length=64, blank=True, default='')
 
     @property
     def item_type(self):
@@ -381,16 +420,27 @@ class Items(models.Model):
             return False
         return peremption < (today or timezone.localdate())
 
+    def maintenance_late(self, kind, today=None) -> bool:
+        """Revision ou desinfection en retard (date prevue passee)."""
+        due = getattr(self, MAINTENANCE[kind]['due'])
+        return self.item_type.has_maintenance(kind) and due is not None and due < (today or timezone.localdate())
+
     def revision_late(self, today=None) -> bool:
         """Revision en retard (date de prochaine revision passee)."""
-        return (self.item_type.has_revision and self.revision_due is not None
-                and self.revision_due < (today or timezone.localdate()))
+        return self.maintenance_late('revision', today)
+
+    def disinfection_late(self, today=None) -> bool:
+        return self.maintenance_late('disinfection', today)
+
+    def maintenance_blocked(self, today=None) -> bool:
+        """Revision ou desinfection en retard sur un type qui ne permet pas de l'utiliser en retard."""
+        return any(self.maintenance_late(kind, today) and not getattr(self.item_type, fields['usable'])
+                   for kind, fields in MAINTENANCE.items())
 
     def needs_replacement(self, today=None) -> bool:
-        """Perime, signale inutilisable, desactive ou revision en retard bloquante : ne compte plus dans son lot et
-        doit etre remplace."""
-        return (self.unusable or self.disabled or self.is_expired(today)
-                or (self.revision_late(today) and not self.item_type.revision_usable))
+        """Perime, signale inutilisable, desactive ou revision/desinfection en retard bloquante : ne compte plus dans
+        son lot et doit etre remplace."""
+        return self.unusable or self.disabled or self.is_expired(today) or self.maintenance_blocked(today)
 
     def touch(self, user, context, now=None):
         self.last_seen = now or timezone.now()
@@ -399,9 +449,12 @@ class Items(models.Model):
 
 
 class ItemRevision(models.Model):
-    """Revision faite sur un item (materiel non consommable, ItemType.revision_months) : taches cochees, prochaine
-    revision prevue."""
+    """Revision ou desinfection faite sur un item (materiel non consommable, ItemType.revision_months ou
+    disinfection_months) : taches cochees, prochaine echeance prevue. `manual` : date saisie a la main par le TECH
+    (cycle recale, pas d'entretien fait dans le logiciel)."""
     item = models.ForeignKey(Items, on_delete=models.CASCADE, related_name='revisions')
+    kind = models.CharField(max_length=16, default='revision')  # cle de MAINTENANCE
+    manual = models.BooleanField(default=False)
     at = models.DateTimeField(default=timezone.now)
     by = models.CharField(max_length=64)
     tasks = models.JSONField(default=list, blank=True)  # taches cochees
@@ -780,6 +833,7 @@ class OperationKind(models.TextChoices):
     SETTINGS = 'settings', 'Réglages'
     REPORT = 'report', 'Signalement'
     REVISION = 'revision', 'Révision de matériel'
+    DISINFECTION = 'disinfection', 'Désinfection de matériel'
     CHECKLIST = 'checklist', 'Liste de matériel'
     LOT_USED = 'lot_used', 'Lot marqué utilisé'
     LOT_REPORT = 'lot_report', "Rapport d'état de lot"
@@ -855,7 +909,8 @@ PUSH_TYPES = {
     'problem_report': ("Signalement d'un problème sur un item ou un lot", _ADMIN_ROLES, True),
     'seal_broken': ("Ouverture d'un lot scellé (étiquette d'ouverture, vérif, ajout ou retrait)", _GESTION_ROLES, True),
     'expired_daily': ('Résumé quotidien des lots contenant des périmés (7 h 45)', _GESTION_ROLES, True),
-    'revision_daily': ('Résumé quotidien des révisions de matériel à faire (7 h 45)', _GESTION_ROLES, True),
+    'revision_daily': ('Résumé quotidien des révisions et désinfections de matériel à faire (7 h 45)',
+                       _GESTION_ROLES, True),
     'verif_problem': ('Vérif de lot incomplète (manquants, périmés, disparus)', _GESTION_ROLES, False),
     # sauvegarde ou envoi sur la machine distante en echec, erreur 500... : le detail est dans les journaux
     'server_problem': ('Problème de serveur (sauvegarde, envoi des sauvegardes, erreur à lire dans les journaux)',

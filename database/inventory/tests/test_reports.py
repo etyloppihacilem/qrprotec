@@ -362,6 +362,95 @@ class RevisionTests(ApiTestCase):
         item.refresh_from_db()
         self.assertEqual(item.revision_due, models.add_months(self.today, 6))
 
+    def test_disinfection_separate_from_revision(self):
+        # un item peut avoir une revision ET une desinfection, chacune avec sa date, ses taches, son retard
+        self.aspi.disinfection_months = 1
+        self.aspi.disinfection_tasks = ['Désinfectant passé']
+        self.aspi.save()
+        item = self.create(self.aspi, None, 1)[0]
+        self.assertEqual(item.disinfection_due, models.add_months(self.today, 1))
+        self.assertEqual(item.revision_due, models.add_months(self.today, 3))
+        code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
+        self.assertEqual([row['kind'] for row in body['maintenance']], ['revision', 'disinfection'])
+        self.assertEqual(body['maintenance'][1]['tasks'], ['Désinfectant passé'])
+        code, _ = self.call('POST', f'/api/items/{item.iid}/revision/', {'kind': 'disinfection', 'tasks': []})
+        self.assertEqual(code, 400)
+        later = (self.today + timedelta(days=10)).isoformat()
+        code, body = self.call('POST', f'/api/items/{item.iid}/revision/',
+                               {'kind': 'disinfection', 'tasks': ['Désinfectant passé'], 'next_due': later})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['disinfection_due'], later)
+        self.assertEqual(body['revision_due'], models.add_months(self.today, 3).isoformat())  # revision intacte
+        self.assertEqual(body['revisions'][0]['kind'], 'disinfection')
+        # desinfection en retard bloquante : a remplacer, revision a l'heure
+        self.aspi.disinfection_usable = False
+        self.aspi.save()
+        Items.objects.filter(iid=item.iid).update(location=self.lot, disinfection_due=self.today - timedelta(days=1))
+        item.refresh_from_db()
+        self.assertTrue(item.disinfection_late())
+        self.assertFalse(item.revision_late())
+        self.assertTrue(item.needs_replacement())
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertEqual((lot['expired_count'], lot['disinfection_late_count'], lot['revision_late_count']), (1, 1, 0))
+        code, body = self.call('GET', '/api/tasks/')
+        titles = [row['title'] for row in body['tasks'] if row['category'] == 'revisions']
+        self.assertIn(f'Désinfection : Aspirateur {item.iid}', titles)
+        # pas de desinfection sur un type qui n'en a pas
+        garrot = self.create(self.garrot, None, 1)[0]
+        code, _ = self.call('POST', f'/api/items/{garrot.iid}/revision/', {'kind': 'disinfection', 'tasks': []})
+        self.assertEqual(code, 400)
+
+    def test_manual_maintenance_date(self):
+        item = self.create(self.aspi, None, 1)[0]
+        url = f'/api/items/{item.iid}/maintenance/date/'
+        # derniere revision faite il y a 2 mois : prochaine dans 1 mois (periodicite 3), cycle au mois 3
+        last = models.add_months(self.today, -2) - timedelta(days=1)
+        code, body = self.call('POST', url, {'kind': 'revision', 'last_done': last.isoformat()})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['revision_due'], models.add_months(last, 3).isoformat())
+        revision = body['maintenance'][0]
+        self.assertEqual(revision['cycle_start'], last.isoformat())
+        self.assertEqual(revision['cycle_month'], 3)
+        self.assertTrue(body['revisions'][0]['manual'])
+        # prochaine saisie directement, meme passee (retard constate)
+        past = (self.today - timedelta(days=3)).isoformat()
+        code, body = self.call('POST', url, {'kind': 'revision', 'next_due': past})
+        self.assertEqual((code, body['revision_due'], body['revision_late']), (200, past, True))
+        # erreurs : rien saisi, derniere dans le futur, prochaine avant la derniere
+        code, _ = self.call('POST', url, {'kind': 'revision'})
+        self.assertEqual(code, 400)
+        code, _ = self.call('POST', url, {'kind': 'revision', 'last_done': (self.today + timedelta(days=1)).isoformat()})
+        self.assertEqual(code, 400)
+        code, _ = self.call('POST', url, {'kind': 'revision', 'last_done': self.today.isoformat(), 'next_due': past})
+        self.assertEqual(code, 400)
+        # reserve a la gestion et aux admins
+        code, _ = self.call('POST', url, {'user': {'matricule': self.user.matricule, 'key': self.user.new_key}, 'kind': 'revision', 'next_due': past},
+                            local=False)
+        self.assertEqual(code, 403)
+
+    def test_events_in_date_order(self):
+        self.aspi.disinfection_months = 1
+        self.aspi.save()
+        late, soon = self.create(self.aspi, None, 2)
+        Items.objects.filter(iid=late.iid).update(revision_due=self.today - timedelta(days=4))
+        Items.objects.filter(iid=soon.iid).update(disinfection_due=self.today + timedelta(days=2),
+                                                  revision_due=self.today + timedelta(days=200))
+        self.create(self.compresses, self.today + timedelta(days=5), 1)
+        code, body = self.call('GET', '/api/events/?days=60')
+        self.assertEqual(code, 200)
+        rows = [(row['kind'], row['days'], row['item']) for row in body['events']]
+        # retard en tete, puis par date ; la desinfection du 1er item (dans 1 mois) aussi, la revision a 200 j non
+        self.assertEqual(rows[0], ('revision', -4, late.iid))
+        self.assertEqual(rows[1], ('disinfection', 2, soon.iid))
+        self.assertEqual(rows[2][:2], ('expiry', 5))
+        self.assertNotIn(('revision', 200, soon.iid), rows)
+        self.assertEqual(body['late'], 1)
+        self.assertTrue(body['events'][0]['late'])
+        self.assertEqual(body['events'][1]['maintenance']['kind'], 'disinfection')
+        self.assertEqual(body['events'][1]['maintenance']['iid'], soon.iid)
+        days = [row['days'] for row in body['events']]
+        self.assertEqual(days, sorted(days))
+
     def test_daily_revision_summary(self):
         from django.core.management import call_command
         late, soon, later = self.create(self.aspi, None, 3)

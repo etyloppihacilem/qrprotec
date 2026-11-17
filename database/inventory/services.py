@@ -12,7 +12,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Count, F, Q
@@ -24,7 +24,7 @@ from .models import (
     ItemMovement, ItemRevision, ItemStatus, Items, ItemsPacks, ItemType, LotContent, LotRequirements, Lots, LotType, LotTypeSlot, MovementKind,
     OperationKind, SlotMode,
     ProblemReport, ReportStatus, STOCK_LOT_TYPE, SeenWhile, ServerSettings, VerifItem, Operation, VerifResult,
-    Verifs, add_months, generate_key, name_key,
+    Verifs, add_months, generate_key, name_key, MAINTENANCE,
     qrprotec_setting, revision_blocked_q,
 )
 
@@ -1935,44 +1935,108 @@ def set_disabled(items, identity, disabled, reason=''):
     return items
 
 
-def revise_item(item, identity, tasks=None, next_due=None, note=''):
-    """Revision d'un item (materiel non consommable a reviser) : toutes ses taches de revision cochees. La prochaine
-    revision est `next_due` (date saisie) ou, par defaut, aujourd'hui + la periodicite du type."""
+def maintain_item(item, identity, kind='revision', tasks=None, next_due=None, note=''):
+    """Revision ou desinfection d'un item (materiel non consommable, MAINTENANCE) : toutes ses taches cochees. La
+    prochaine echeance est `next_due` (date saisie) ou, par defaut, aujourd'hui + la periodicite du type."""
+    fields = MAINTENANCE.get(kind)
+    if fields is None:
+        raise ValueError(f'Entretien inconnu : {kind}')
     item_type = item.pack.item_type
-    if not item_type.has_revision:
-        raise ValueError("Ce type d'item n'a pas de révision")
+    if not item_type.has_maintenance(kind):
+        raise ValueError(f"Ce type d'item n'a pas de {fields['noun']}")
     if item.status in (ItemStatus.DELETED, ItemStatus.REPLACED):
-        raise ValueError("Item supprimé : pas de révision")
-    expected = list(item_type.revision_tasks or [])
+        raise ValueError(f"Item supprimé : pas de {fields['noun']}")
+    expected = list(getattr(item_type, fields['tasks']) or [])
     done = [task for task in expected if task in (tasks or [])]
     if len(done) != len(expected):
-        raise ValueError('Cochez toutes les tâches de la révision')
+        raise ValueError(f"Cochez toutes les tâches de la {fields['noun']}")
     now = timezone.now()
     today = timezone.localdate(now)
-    due = next_due or add_months(today, item_type.revision_months)
+    due = next_due or add_months(today, getattr(item_type, fields['months']))
     if due <= today:
-        raise ValueError('La prochaine révision doit être après aujourd\'hui')
+        raise ValueError(f"La prochaine {fields['noun']} doit être après aujourd'hui")
     note = str(note or '').strip()[:256]
     with transaction.atomic():
-        ItemRevision.objects.create(item=item, at=now, by=identity[:64], tasks=done, next_due=due, note=note)
-        item.revision_due = due
-        item.revised_at = now
-        item.revised_by = identity[:64]
-        item.save(update_fields=['revision_due', 'revised_at', 'revised_by'])
-        journal.record(OperationKind.REVISION, identity, f'{item_type.name} {item.iid} : prochaine révision le '
-                       f'{due.strftime("%d/%m/%Y")}' + (f' ({note})' if note else ''), at=now, items=[item.iid],
-                       next_due=due.isoformat())
+        ItemRevision.objects.create(item=item, kind=kind, at=now, by=identity[:64], tasks=done, next_due=due, note=note)
+        setattr(item, fields['due'], due)
+        setattr(item, fields['at'], now)
+        setattr(item, fields['by'], identity[:64])
+        item.save(update_fields=[fields['due'], fields['at'], fields['by']])
+        journal.record(OperationKind.REVISION if kind == 'revision' else OperationKind.DISINFECTION, identity,
+                       f'{item_type.name} {item.iid} : prochaine {fields["noun"]} le {due.strftime("%d/%m/%Y")}'
+                       + (f' ({note})' if note else ''), at=now, items=[item.iid], next_due=due.isoformat())
     return item
+
+
+def revise_item(item, identity, tasks=None, next_due=None, note=''):
+    return maintain_item(item, identity, 'revision', tasks, next_due, note)
+
+
+def schedule_maintenance(item, identity, kind, next_due=None, last_done=None, note=''):
+    """Date de revision ou de desinfection saisie a la main par le TECH (gestion/admin), sans entretien fait dans le
+    logiciel : materiel deja revise ailleurs, cycle a recaler. `last_done` : date de la derniere faite (passee) ;
+    `next_due` : prochaine echeance (par defaut last_done + la periodicite du type). Au moins l'une des deux. La
+    prochaine peut etre passee (retard constate)."""
+    fields = MAINTENANCE.get(kind)
+    if fields is None:
+        raise ValueError(f'Entretien inconnu : {kind}')
+    item_type = item.pack.item_type
+    if not item_type.has_maintenance(kind):
+        raise ValueError(f"Ce type d'item n'a pas de {fields['noun']}")
+    if item.status in (ItemStatus.DELETED, ItemStatus.REPLACED):
+        raise ValueError(f"Item supprimé : pas de {fields['noun']}")
+    now = timezone.now()
+    today = timezone.localdate(now)
+    if last_done is not None and last_done > today:
+        raise ValueError(f"La dernière {fields['noun']} ne peut pas être dans le futur")
+    if next_due is None:
+        if last_done is None:
+            raise ValueError(f"Date de la dernière ou de la prochaine {fields['noun']} attendue")
+        next_due = add_months(last_done, getattr(item_type, fields['months']))
+    if last_done is not None and next_due <= last_done:
+        raise ValueError(f"La prochaine {fields['noun']} doit être après la dernière")
+    note = str(note or '').strip()[:256]
+    with transaction.atomic():
+        update = [fields['due']]
+        setattr(item, fields['due'], next_due)
+        if last_done is not None:
+            # debut du cycle : la derniere faite, a midi (date seule saisie)
+            done_at = timezone.make_aware(datetime.combine(last_done, datetime.min.time()).replace(hour=12))
+            setattr(item, fields['at'], done_at)
+            setattr(item, fields['by'], identity[:64])
+            update += [fields['at'], fields['by']]
+            ItemRevision.objects.create(item=item, kind=kind, at=done_at, by=identity[:64], tasks=[], next_due=next_due,
+                                        note=note or 'date saisie à la main', manual=True)
+        item.save(update_fields=update)
+        summary = f'{item_type.name} {item.iid} : prochaine {fields["noun"]} le {next_due.strftime("%d/%m/%Y")}'
+        if last_done is not None:
+            summary += f', dernière le {last_done.strftime("%d/%m/%Y")}'
+        journal.record(OperationKind.REVISION if kind == 'revision' else OperationKind.DISINFECTION, identity,
+                       summary + ' (date saisie à la main)' + (f' ({note})' if note else ''), at=now,
+                       items=[item.iid], next_due=next_due.isoformat(), manual=True)
+    return item
+
+
+def maintenance_due(today=None, days=30, kinds=None):
+    """Revisions et desinfections en retard ou dans les `days` jours : liste de (kind, item, date), la plus proche
+    d'abord. Items actifs, sortis ou hors lot (pas supprimes)."""
+    today = today or timezone.localdate()
+    rows = []
+    for kind, fields in MAINTENANCE.items():
+        if kinds and kind not in kinds:
+            continue
+        items = (Items.objects.select_related('pack__item_type', 'location')
+                 .filter(status__in=(ItemStatus.ACTIVE, ItemStatus.OUT, ItemStatus.LOOSE),
+                         **{f'{fields["due"]}__isnull': False, f'{fields["due"]}__lte': today + timedelta(days=days),
+                            f'pack__item_type__{fields["months"]}__gt': 0}, pack__item_type__consumable=False))
+        rows += [(kind, item, getattr(item, fields['due'])) for item in items]
+    rows.sort(key=lambda row: (row[2], row[1].iid, row[0]))
+    return rows
 
 
 def revisions_due(today=None, days=30):
     """Items actifs a reviser en retard ou dans les `days` jours, prochaine revision d'abord."""
-    today = today or timezone.localdate()
-    return list(Items.objects.select_related('pack__item_type', 'location')
-                .filter(status__in=(ItemStatus.ACTIVE, ItemStatus.OUT, ItemStatus.LOOSE), revision_due__isnull=False,
-                        revision_due__lte=today + timedelta(days=days), pack__item_type__revision_months__gt=0,
-                        pack__item_type__consumable=False)
-                .order_by('revision_due', 'iid'))
+    return [item for _, item, _ in maintenance_due(today, days, kinds=('revision',))]
 
 
 def restore(item, identity):
@@ -1999,8 +2063,10 @@ def stock_status(soon_days=30):
     items = 'itemspacks__items'
     active = Q(**{f'{items}__status': ItemStatus.ACTIVE})
     # un item desactive (rappel produit, non-conformite) compte avec les perimes
-    disabled = Q(**{f'{items}__disabled': True}) | Q(**{f'{items}__revision_due__lt': today, 'revision_months__gt': 0,
-                                                         'consumable': False, 'revision_usable': False})
+    disabled = Q(**{f'{items}__disabled': True})
+    for fields in MAINTENANCE.values():  # revision ou desinfection en retard bloquante
+        disabled |= Q(**{f'{items}__{fields["due"]}__lt': today, f'{fields["months"]}__gt': 0, 'consumable': False,
+                         fields['usable']: False})
     fresh = (Q(itemspacks__peremption__isnull=True) | Q(itemspacks__peremption__gte=today)) & ~disabled
     expired = Q(itemspacks__peremption__lt=today) | disabled
     # les rangements du stock (armoires, tiroirs) comptent dans le stock, pas dans les lots

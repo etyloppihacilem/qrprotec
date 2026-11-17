@@ -25,12 +25,14 @@ public_patterns = [
     path('items/out/', views.items_out),         # avant items/<iid>/
     path('items/<str:iid>/', views.item_detail),
     path('items/<str:iid>/revision/', views.item_revision),
+    path('items/<str:iid>/maintenance/date/', views.item_maintenance_date),
     path('lots/summary/', views.lots_summary),
     path('lots/batch/', views.lots_batch),   # avant lots/<id>/
     path('lots/order/', views.lots_order),   # ordre choisi des lots (gestion, admin)
     path('stock/summary/', views.stock_summary),
     path('stock/forecast/summary/', views.stock_forecast_summary),
     path('tasks/summary/', views.tasks_summary),
+    path('events/summary/', views.events_summary),
     path('orders/', views.orders_create),
     path('orders/<int:order_id>/cancel/', views.orders_cancel),
     path('debug/codes/', views.debug_codes_list),  # admins seulement
@@ -104,6 +106,7 @@ local_patterns = [
     path('stock/forecast/', views.stock_forecast),
     path('stock/verif/', views.stock_verif),
     path('tasks/', views.tasks_list),
+    path('events/', views.events_list),
     path('packs/', views.sealed_packs),
     path('packs/<str:pack_id>/open/', views.sealed_pack_open),
     path('packs/<str:pack_id>/close/', views.sealed_pack_close),

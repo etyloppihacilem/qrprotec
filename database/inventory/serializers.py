@@ -10,6 +10,7 @@
 
 """Conversion des modeles en dictionnaires JSON pour les API."""
 
+import calendar
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
@@ -17,7 +18,7 @@ from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
 from .journal import plural
-from .models import PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, STOCK_LOT_TYPE, STORAGE_KIND_DEFAULT, Verifs, compact_iid, custom_order_key, qrprotec_setting
+from .models import MAINTENANCE, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, STOCK_LOT_TYPE, STORAGE_KIND_DEFAULT, Verifs, compact_iid, custom_order_key, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import restock_credit, LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
 
@@ -60,6 +61,10 @@ def item_type_dict(item_type):
         'revision_months': item_type.revision_months,
         'revision_tasks': list(item_type.revision_tasks or []),
         'revision_usable': item_type.revision_usable,
+        # desinfection periodique, distincte de la revision (0 mois : pas de desinfection)
+        'disinfection_months': item_type.disinfection_months,
+        'disinfection_tasks': list(item_type.disinfection_tasks or []),
+        'disinfection_usable': item_type.disinfection_usable,
         'archived': item_type.archived,
         # attentes en quantite : type a unites (unit, ex : mL) rempli par ses sous-types, ou sous-type (group) qui en
         # remplit fills unites ; default_subtype : sous-type propose par defaut (reception, commande, reassort)
@@ -107,6 +112,16 @@ def item_dict(item, today=None):
         'revision_tasks': list(item.pack.item_type.revision_tasks or []) if item.pack.item_type.has_revision else [],
         'revised_at': _date(item.revised_at),
         'revised_by': _who(item.revised_by),
+        # desinfection : memes champs que la revision
+        'disinfection': item.pack.item_type.has_disinfection,
+        'disinfection_due': _date(item.disinfection_due) if item.pack.item_type.has_disinfection else None,
+        'disinfection_late': item.disinfection_late(today),
+        'disinfection_usable': item.pack.item_type.disinfection_usable,
+        'disinfection_months': item.pack.item_type.disinfection_months,
+        'disinfected_at': _date(item.disinfected_at),
+        'disinfected_by': _who(item.disinfected_by),
+        # revision et desinfection sous une meme forme (fiche de l'item, boutons, evenements a venir)
+        'maintenance': maintenance_list(item, today),
         # a remplacer : perime, signale inutilisable ou desactive (ne compte plus dans son lot, voir reports.py)
         'expired': item.needs_replacement(today),
         'outdated': item.is_expired(today),  # perime seulement
@@ -138,8 +153,42 @@ def item_dict(item, today=None):
 
 
 def revision_dict(revision):
-    return {'at': _date(revision.at), 'by': _who(revision.by), 'tasks': list(revision.tasks or []),
-            'next_due': _date(revision.next_due), 'note': revision.note}
+    return {'kind': revision.kind, 'label': MAINTENANCE.get(revision.kind, MAINTENANCE['revision'])['label'],
+            'at': _date(revision.at), 'by': _who(revision.by), 'tasks': list(revision.tasks or []),
+            'next_due': _date(revision.next_due), 'note': revision.note, 'manual': revision.manual}
+
+
+def maintenance_dict(item, kind, today=None):
+    """Revision ou desinfection d'un item sous une forme commune : prochaine date, retard, periodicite, taches, derniere
+    faite, et ou en est le cycle (debut : derniere faite, sinon prochaine - periodicite ; `cycle_month` : mois en
+    cours du cycle, de 1 a `months`)."""
+    today = today or timezone.localdate()
+    fields = MAINTENANCE[kind]
+    item_type = item.pack.item_type
+    months = getattr(item_type, fields['months'])
+    due = getattr(item, fields['due'])
+    done_at = getattr(item, fields['at'])
+    start = timezone.localtime(done_at).date() if done_at else None
+    if due and (start is None or start >= due):
+        index = due.month - 1 - months
+        year, month = due.year + index // 12, index % 12 + 1
+        start = due.replace(year=year, month=month, day=min(due.day, calendar.monthrange(year, month)[1]))
+    cycle_month = None
+    if start and due and months:
+        elapsed = (today.year - start.year) * 12 + today.month - start.month - (1 if today.day < start.day else 0)
+        cycle_month = max(1, min(months, elapsed + 1))
+    return {
+        'kind': kind, 'label': fields['label'], 'noun': fields['noun'], 'verb': fields['verb'],
+        'due': _date(due), 'late': item.maintenance_late(kind, today), 'usable': getattr(item_type, fields['usable']),
+        'months': months, 'tasks': list(getattr(item_type, fields['tasks']) or []),
+        'done_at': _date(done_at), 'done_by': _who(getattr(item, fields['by'])),
+        'cycle_start': _date(start), 'cycle_month': cycle_month,
+    }
+
+
+def maintenance_list(item, today=None):
+    """Revision et desinfection actives sur le type de l'item (vide pour un consommable)."""
+    return [maintenance_dict(item, kind, today) for kind in MAINTENANCE if item.pack.item_type.has_maintenance(kind)]
 
 
 def storage_kind(lot):
@@ -311,6 +360,7 @@ def _lot_core(lot, today, items=None, preload=None):
     soon_limit = today + timedelta(days=30)
     soon = [item for item in items if item.pack.peremption and today <= item.pack.peremption <= soon_limit]
     revised = [item for item in items if item.pack.item_type.has_revision and item.revision_due]
+    disinfected = [item for item in items if item.pack.item_type.has_disinfection and item.disinfection_due]
     data = {
         'id': lot.id,
         'lot_type': lot.lot_type_id,
@@ -361,6 +411,10 @@ def _lot_core(lot, today, items=None, preload=None):
         'next_revision': _date(min((item.revision_due for item in revised), default=None)),
         'revision_late_count': sum(1 for item in revised if item.revision_due < today),
         'revision_soon_count': sum(1 for item in revised if today <= item.revision_due <= soon_limit),
+        # materiel a desinfecter : memes comptes que la revision
+        'next_disinfection': _date(min((item.disinfection_due for item in disinfected), default=None)),
+        'disinfection_late_count': sum(1 for item in disinfected if item.disinfection_due < today),
+        'disinfection_soon_count': sum(1 for item in disinfected if today <= item.disinfection_due <= soon_limit),
         'requirements': requirements,
         # complet des que le minimum d'items frais est la : un perime en trop ne le rend pas incomplet
         # places fixes (lots exiges, LotTypeSlot) vides : le lot est incomplet
@@ -459,7 +513,8 @@ def attention_rank(row):
     kind = (row.get('effective') or row['state'])['kind']
     if kind != 'ok':
         return 3 if kind == 'bad' else 2
-    soon = row.get('expiring_soon_count', 0) + row.get('revision_late_count', 0) + row.get('revision_soon_count', 0)
+    soon = sum(row.get(key, 0) for key in ('expiring_soon_count', 'revision_late_count', 'revision_soon_count',
+                                           'disinfection_late_count', 'disinfection_soon_count'))
     return 1 if soon else 0
 
 
@@ -518,7 +573,7 @@ def lot_global(lot, today):
     summary = aggregate_tree(rows)
     rows = attention_order(rows)  # sous-lots a traiter en haut, sous leur parent
     keep = ('id', 'name', 'name_short', 'lot_type_name', 'storage', 'storage_kind', 'seal_required', 'parent', 'depth', 'is_sealed', 'sealed',
-            'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'complete', 'verif_recommended', 'state', 'effective',
+            'last_verif', 'last_verif_by', 'item_count', 'expired_count', 'revision_late_count', 'disinfection_late_count', 'complete', 'verif_recommended', 'state', 'effective',
             'counted', 'optional', 'unusable', 'slots_missing', 'assembled', 'replaces_name', 'hidden', 'unplaced')
     summary.update({
         'id': root.id,

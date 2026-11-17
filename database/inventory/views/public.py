@@ -414,8 +414,9 @@ def item_detail(request, iid):
 @api_view(['POST'])
 @handle_errors
 def item_revision(request, iid):
-    """Revision d'un item (materiel a reviser) par un utilisateur connecte : {"user", "tasks": taches cochees (toutes),
-    "next_due": date de la prochaine revision (par defaut aujourd'hui + la periodicite du type), "note"}."""
+    """Revision ou desinfection d'un item (materiel non consommable) par un utilisateur connecte : {"user",
+    "kind": "revision" (par defaut) ou "disinfection", "tasks": taches cochees (toutes), "next_due": date de la
+    prochaine (par defaut aujourd'hui + la periodicite du type), "note"}."""
     user = connected_user(request)
     item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location__lot_type'), iid=iid)
     data = request.data
@@ -424,8 +425,29 @@ def item_revision(request, iid):
         raise ApiError('tasks : liste des tâches cochées attendue')
     next_due = parse_date(data['next_due'], 'next_due') if data.get('next_due') else None
     try:
-        services.revise_item(item, f'{SOURCE_VERIFIED}:{user.matricule}', [str(task) for task in tasks], next_due,
-                             data.get('note', ''))
+        services.maintain_item(item, f'{SOURCE_VERIFIED}:{user.matricule}', str(data.get('kind') or 'revision'),
+                               [str(task) for task in tasks], next_due, data.get('note', ''))
+    except ValueError as exc:
+        raise ApiError(str(exc))
+    return Response({**ser.item_dict(item), 'last_location': ser.item_last_location(item),
+                     'revisions': [ser.revision_dict(revision) for revision in item.revisions.all()[:5]]})
+
+
+@api_view(['POST'])
+@handle_errors
+def item_maintenance_date(request, iid):
+    """Date de revision ou de desinfection saisie a la main (roles gestion et admin, web ou poste), sans entretien
+    fait : {"user", "kind", "last_done": derniere faite (facultatif), "next_due": prochaine (par defaut last_done + la
+    periodicite), "note"}. Sert a recaler le cycle (materiel revise ailleurs, date connue)."""
+    connected_user(request, GESTION)
+    identity = operation_identity(request)
+    item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location__lot_type'), iid=iid)
+    data = request.data
+    next_due = parse_date(data['next_due'], 'next_due') if data.get('next_due') else None
+    last_done = parse_date(data['last_done'], 'last_done') if data.get('last_done') else None
+    try:
+        services.schedule_maintenance(item, identity, str(data.get('kind') or 'revision'), next_due, last_done,
+                                      data.get('note', ''))
     except ValueError as exc:
         raise ApiError(str(exc))
     return Response({**ser.item_dict(item), 'last_location': ser.item_last_location(item),
@@ -1212,6 +1234,27 @@ def tasks_list(request):
     """Liste de taches de la gestion pour le poste (fenetre Gestion de la TECH), roles gestion et admin."""
     require_front(request, GESTION)
     return Response(tasks.todo(consumables_tasks=True))
+
+
+def _events_days(value):
+    return parse_int(value if value not in (None, '') else tasks.EVENTS_DAYS, 'days', 1, 400)
+
+
+@api_view(['POST'])
+@handle_errors
+def events_summary(request):
+    """Evenements a venir de la gestion (« Gestion de la TECH » du front web, onglet À venir), roles gestion et admin
+    (badge) : {"user", "days": horizon en jours}."""
+    badge_user(request, GESTION)
+    return Response(tasks.events(days=_events_days(request.data.get('days'))))
+
+
+@api_view(['GET'])
+@handle_errors
+def events_list(request):
+    """Evenements a venir pour le poste (fenetre Gestion de la TECH, onglet À venir), roles gestion et admin."""
+    require_front(request, GESTION)
+    return Response(tasks.events(days=_events_days(request.query_params.get('days'))))
 
 
 # Notifications web (roles gestion et admin, depuis le front web)
