@@ -10,6 +10,7 @@
 
 #include "fonts.hpp"
 #include "../printer/logging.hpp"
+#include "system.hpp"
 
 #include <array>
 #include <cstdio>
@@ -17,9 +18,6 @@
 #include <filesystem>
 #include <vector>
 
-#ifdef __APPLE__
-#include <mach-o/dyld.h>
-#endif
 
 namespace qrprotec {
 
@@ -31,6 +29,9 @@ bool usable(const std::filesystem::path &path) {
 }
 
 std::string fontconfig_match() {
+#ifdef _WIN32
+  return {}; // pas de fontconfig : polices fournies dans fonts/ a cote de l'executable
+#else
   FILE *pipe = popen("fc-match -f '%{file}' 'DejaVu Sans:lang=fr' 2>/dev/null", "r");
   if (!pipe)
     return {};
@@ -40,6 +41,7 @@ std::string fontconfig_match() {
     result += buffer.data();
   pclose(pipe);
   return result;
+#endif
 }
 
 std::string find_font(bool bold) {
@@ -47,17 +49,8 @@ std::string find_font(bool bold) {
   std::vector< std::filesystem::path > candidates;
   if (const char *env = std::getenv(bold ? "QRPROTEC_FONT_BOLD" : "QRPROTEC_FONT"))
     candidates.emplace_back(env);
-#ifdef __APPLE__
-  std::array< char, 4096 > executable_path{};
-  uint32_t                 executable_size = executable_path.size();
-  if (_NSGetExecutablePath(executable_path.data(), &executable_size) == 0)
-    candidates.push_back(std::filesystem::path(executable_path.data()).parent_path() / "fonts" / file);
-#else
-  std::error_code error;
-  const auto      executable = std::filesystem::read_symlink("/proc/self/exe", error);
-  if (!error)
-    candidates.push_back(executable.parent_path() / "fonts" / file);
-#endif
+  if (const std::filesystem::path executable = executable_dir(); !executable.empty())
+    candidates.push_back(executable / "fonts" / file);
 #ifdef QRPROTEC_FONT_DIR
   candidates.push_back(std::filesystem::path(QRPROTEC_FONT_DIR) / file);
 #endif

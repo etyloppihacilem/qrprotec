@@ -23,7 +23,18 @@
 #include <mutex>
 #include <thread>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <commdlg.h>
+#else
 #include <sys/wait.h>
+#endif
 
 namespace qrprotec {
 
@@ -40,9 +51,9 @@ struct FilePicker::NativeState {
 
 namespace {
 
-std::string home_dir() {
-  const char *home = std::getenv("HOME");
-  return home && *home ? std::string(home) : std::string("/");
+std::string home_text() {
+  const fs::path home = home_dir();
+  return home.empty() ? std::string("/") : home.string();
 }
 
 std::string lower(std::string text) {
@@ -77,7 +88,11 @@ bool command_exists(const char *name) {
 std::string native_command(const std::string &title, const std::string &extension) {
   if (std::getenv("FLATPAK_ID") || std::getenv("QRPROTEC_KIOSK"))
     return {};
-#ifdef __APPLE__
+#ifdef _WIN32
+  (void)title;
+  (void)extension;
+  return "GetOpenFileNameW"; // boite de Windows, ouverte dans le fil (pas de commande)
+#elif defined(__APPLE__)
   (void)extension;
   return "osascript -e 'POSIX path of (choose file with prompt \"" + title + "\")' 2>/dev/null";
 #else
@@ -96,7 +111,7 @@ std::string native_command(const std::string &title, const std::string &extensio
 
 // Dossiers de l'utilisateur dans leur langue (~/.config/user-dirs.dirs : XDG_DOWNLOAD_DIR="$HOME/Téléchargements")
 std::string user_dir(const char *key, const char *fallback) {
-  std::ifstream input(home_dir() + "/.config/user-dirs.dirs");
+  std::ifstream input(home_text() + "/.config/user-dirs.dirs");
   std::string   line;
   const std::string prefix = std::string(key) + "=\"";
   while (std::getline(input, line)) {
@@ -104,11 +119,59 @@ std::string user_dir(const char *key, const char *fallback) {
       continue;
     std::string value = line.substr(prefix.size(), line.size() - prefix.size() - 1);
     if (value.rfind("$HOME", 0) == 0)
-      value = home_dir() + value.substr(5);
+      value = home_text() + value.substr(5);
     return value;
   }
-  return home_dir() + "/" + fallback;
+  return home_text() + "/" + fallback;
 }
+
+#ifdef _WIN32
+std::wstring to_wide(const std::string &text) {
+  if (text.empty())
+    return {};
+  const int    size = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast< int >(text.size()), nullptr, 0);
+  std::wstring wide(static_cast< std::size_t >(size), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast< int >(text.size()), wide.data(), size);
+  return wide;
+}
+
+std::string from_wide(const wchar_t *wide) {
+  const int size = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+  if (size <= 1)
+    return {};
+  std::string text(static_cast< std::size_t >(size - 1), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, wide, -1, text.data(), size, nullptr, nullptr);
+  return text;
+}
+
+// Boite « Ouvrir » de Windows. Faux si elle n'a pas pu s'ouvrir ; annulee : vrai, `path` vide.
+bool windows_open_file(const std::string &title, const std::string &extension, std::string &path) {
+  const std::wstring wide_title = to_wide(title);
+  const std::wstring pattern    = L"*" + to_wide(extension);
+  std::wstring       filter     = L"Fichiers de configuration QRProtec (" + pattern + L")";
+  filter += L'\0';
+  filter += pattern;
+  filter += L'\0';
+  filter += L"Tous les fichiers (*.*)";
+  filter += L'\0';
+  filter += L"*.*";
+  filter += L'\0';
+  std::wstring buffer(32768, L'\0');
+  OPENFILENAMEW dialog{};
+  dialog.lStructSize = sizeof(dialog);
+  dialog.lpstrFilter = filter.c_str();
+  dialog.lpstrFile   = buffer.data();
+  dialog.nMaxFile    = static_cast< DWORD >(buffer.size());
+  dialog.lpstrTitle  = wide_title.c_str();
+  dialog.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
+  if (GetOpenFileNameW(&dialog)) {
+    path = from_wide(buffer.c_str());
+    return true;
+  }
+  path.clear();
+  return CommDlgExtendedError() == 0; // 0 : annulee par l'utilisateur
+}
+#endif
 
 } // namespace
 
@@ -143,9 +206,17 @@ bool FilePicker::draw(const char *label, std::string &path) {
       browser_requested_ = true;
     } else {
       native_->running = true;
-      std::thread([state = native_, command]() {
+      std::thread([state = native_, command, title = title_, extension = extension_]() {
         std::string output;
         bool        failed = true;
+#ifdef _WIN32
+        (void)command;
+        failed = !windows_open_file(title, extension, output);
+        if (failed)
+          error_log("Boîte de dialogue de Windows en échec ; navigateur intégré à la place", "choix de fichier");
+#else
+        (void)title;
+        (void)extension;
         if (FILE *pipe = popen(command.c_str(), "r")) {
           char buffer[512];
           while (std::fgets(buffer, sizeof(buffer), pipe))
@@ -162,6 +233,7 @@ bool FilePicker::draw(const char *label, std::string &path) {
         } else {
           error_log("Boîte de dialogue du système non lancée (" + command + ") : " + errno_text(), "choix de fichier");
         }
+#endif
         while (!output.empty() && (output.back() == '\n' || output.back() == '\r'))
           output.pop_back();
         std::lock_guard< std::mutex > lock(state->mutex);
@@ -192,7 +264,7 @@ void FilePicker::open_browser(const std::string &start) {
   if (dir.empty() || !fs::is_directory(dir, code)) {
     dir = user_dir("XDG_DOWNLOAD_DIR", "Downloads");
     if (!fs::is_directory(dir, code))
-      dir = home_dir();
+      dir = home_text();
   }
   selected_.clear();
   change_dir(dir);
@@ -249,7 +321,7 @@ bool FilePicker::draw_browser(std::string &path) {
     { "Téléchargements", user_dir("XDG_DOWNLOAD_DIR", "Downloads") },
     { "Bureau", user_dir("XDG_DESKTOP_DIR", "Desktop") },
     { "Documents", user_dir("XDG_DOCUMENTS_DIR", "Documents") },
-    { "Dossier personnel", home_dir() },
+    { "Dossier personnel", home_text() },
   };
   const char *user = std::getenv("USER");
   for (const std::string &root : { std::string("/run/media/") + (user ? user : ""), std::string("/media/") + (user ? user : ""),
@@ -283,7 +355,7 @@ bool FilePicker::draw_browser(std::string &path) {
   ImGui::SameLine();
   // chemin lisible : « Dossier personnel/Téléchargements » plutot que /home/nom/Téléchargements
   std::string shown_dir = dir_.string();
-  const std::string home = home_dir();
+  const std::string home = home_text();
   if (home != "/" && shown_dir.rfind(home, 0) == 0
       && (shown_dir.size() == home.size() || shown_dir[home.size()] == '/'))
     shown_dir = "Dossier personnel" + shown_dir.substr(home.size());

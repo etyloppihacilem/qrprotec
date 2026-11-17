@@ -8,8 +8,19 @@
 #include <fstream>
 #include <sstream>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
 #endif
 
 namespace qrprotec {
@@ -200,6 +211,46 @@ std::string directory_access_problem(const fs::path &directory, bool need_write)
     return "Impossible d'écrire dans le dossier " + real.string() + " : " + errno_text() + ".";
 #endif
   return {};
+}
+
+fs::path executable_dir() {
+  std::error_code error;
+#ifdef _WIN32
+  std::wstring buffer(32768, L'\0');
+  const DWORD  length = GetModuleFileNameW(nullptr, buffer.data(), static_cast< DWORD >(buffer.size()));
+  if (length == 0 || length >= buffer.size())
+    return {};
+  buffer.resize(length);
+  return fs::path(buffer).parent_path();
+#elif defined(__APPLE__)
+  char     buffer[4096] = {};
+  uint32_t size         = sizeof(buffer);
+  if (_NSGetExecutablePath(buffer, &size) != 0)
+    return {};
+  return fs::path(buffer).parent_path();
+#else
+  const fs::path executable = fs::read_symlink("/proc/self/exe", error);
+  return error ? fs::path() : executable.parent_path();
+#endif
+}
+
+fs::path home_dir() {
+#ifdef _WIN32
+  if (const char *profile = std::getenv("USERPROFILE"); profile && *profile)
+    return profile;
+#endif
+  if (const char *home = std::getenv("HOME"); home && *home)
+    return home;
+  return {};
+}
+
+fs::path user_config_dir() {
+#ifdef _WIN32
+  if (const char *appdata = std::getenv("APPDATA"); appdata && *appdata)
+    return fs::path(appdata) / "QRProtec";
+#endif
+  const fs::path home = home_dir();
+  return home.empty() ? fs::path() : home / ".config" / "qrprotec";
 }
 
 } // namespace qrprotec

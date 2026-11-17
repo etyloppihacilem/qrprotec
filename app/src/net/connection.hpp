@@ -11,6 +11,7 @@
 #pragma once
 
 #include "http.hpp"
+#include "socket_compat.hpp"
 
 #include <cstddef>
 #include <string>
@@ -38,8 +39,8 @@ class Connection {
     bool is_open() const { return fd_ >= 0; }
 
   private:
-    int     fd_  = -1;
-    ssl_st *ssl_ = nullptr;
+    socket_handle fd_  = -1;
+    ssl_st       *ssl_ = nullptr;
 };
 
 } // namespace qrprotec

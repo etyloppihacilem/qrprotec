@@ -22,12 +22,25 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <mmsystem.h>
+#else
 #include <spawn.h>
 #include <sys/wait.h>
+#endif
 #include <thread>
 #include <vector>
 
+#ifndef _WIN32
 extern char **environ;
+#endif
 
 namespace qrprotec {
 
@@ -43,6 +56,7 @@ void write_u16(std::ofstream &output, std::uint16_t value) {
   output.put(static_cast< char >((value >> 8) & 0xff));
 }
 
+#ifndef _WIN32
 // Lance une commande shell sans bloquer l'interface.
 void run_detached(const std::string &command) {
   std::thread([command]() {
@@ -63,6 +77,7 @@ void run_detached(const std::string &command) {
                 "son");
   }).detach();
 }
+#endif
 
 } // namespace
 
@@ -139,6 +154,12 @@ Feedback::Feedback(Inateck &inateck) : inateck_(inateck) {
 void Feedback::play_beep(const AppSettings &settings, const std::string &wav) {
   if (!settings.sound_enabled)
     return;
+#ifdef _WIN32
+  // Windows : le wav est joue directement (pas de commande de bip), sans bloquer l'interface
+  if (wav.empty() || !PlaySoundW(std::filesystem::u8path(wav).wstring().c_str(), nullptr,
+                                 SND_FILENAME | SND_ASYNC | SND_NODEFAULT))
+    MessageBeep(MB_ICONWARNING);
+#else
   std::string command = settings.beep_command;
   if (command.empty()) {
     if (wav.empty()) {
@@ -150,6 +171,7 @@ void Feedback::play_beep(const AppSettings &settings, const std::string &wav) {
   for (std::size_t position = command.find("%f"); position != std::string::npos; position = command.find("%f"))
     command.replace(position, 2, wav);
   run_detached(command);
+#endif
 }
 
 void Feedback::error(ScanSource source, const AppSettings &settings) {

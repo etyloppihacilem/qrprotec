@@ -17,8 +17,13 @@
 
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
+#elif defined(_WIN32)
+#include <GLFW/glfw3.h> // GL/gl.h avec APIENTRY / WINGDIAPI, sans windows.h
 #else
 #include <GL/gl.h>
+#endif
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F // OpenGL 1.2 : absent du GL/gl.h de Windows (1.1)
 #endif
 #include <algorithm>
 #include <vector>

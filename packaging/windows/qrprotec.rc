@@ -1,0 +1,5 @@
+// Ressources de l'executable Windows : icone (celle du site) et manifeste (UTF-8, haute resolution)
+#include <winres.h>
+
+1 ICON "qrprotec.ico"
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "qrprotec.manifest"

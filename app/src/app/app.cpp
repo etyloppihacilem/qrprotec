@@ -21,6 +21,7 @@
 #include "../ui/windows/windows.hpp"
 #include "labels.hpp"
 #include "../core/paths.hpp"
+#include "../core/system.hpp"
 #include "../core/template_io.hpp"
 
 #include "imgui_internal.h"
@@ -288,8 +289,8 @@ bool App::import_front_config(const std::string &path, const std::string &passwo
   if (file.rfind("file://", 0) == 0)
     file.erase(0, 7);
   if (file.rfind("~/", 0) == 0)
-    if (const char *home = std::getenv("HOME"))
-      file = std::string(home) + file.substr(1);
+    if (const std::filesystem::path home = home_dir(); !home.empty())
+      file = (home / file.substr(2)).string();
   FrontConfig config;
   std::string error;
   if (!read_front_config(file, password, config, error)) {
@@ -499,8 +500,9 @@ void App::begin_frame() {
     refresh_report_counts();
   // impressions demandees depuis le web ou un autre ordinateur : verifiees meme sans personne de connecte, sur le
   // poste principal seulement (API locale, ou cle marquee poste sur un back sans kiosk)
-  // Sur un autre ordinateur, les admins voient les files du poste tant que leur fenetre est ouverte.
-  if ((main_poste() || (label_prints_.open && label_prints_.remote && admin())) && !label_prints_.loading
+  // Sur un autre ordinateur, les admins voient les files du poste tant que leur fenetre est ouverte. Le poste
+  // principal n'imprime que sous Linux (kLocalPrinting).
+  if (((kLocalPrinting && main_poste()) || (label_prints_.open && label_prints_.remote && admin())) && !label_prints_.loading
       && ImGui::GetTime() >= label_prints_.next_poll)
     refresh_label_prints();
   // cache de vérif tenu a jour toutes les minutes (vérif possible hors connexion), envois en attente reessayes
@@ -659,8 +661,9 @@ void App::draw_menu_bar() {
       for (auto &window : windows)
         if (window->privileged && window->admin_only && can_open(*window))
           window_menu_item(*window);
-      // autre ordinateur que le poste : files d'impression du poste, gerees et lancees a distance
-      if (!main_poste()) {
+      // autre ordinateur que le poste (ou poste sans impression : Windows, macOS) : files d'impression du poste,
+      // gerees et lancees a distance
+      if (!kLocalPrinting || !main_poste()) {
         ImGui::Separator();
         if (ImGui::MenuItem("Files d'impression du poste...")) {
           label_prints_.next_poll = 0.0;

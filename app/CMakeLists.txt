@@ -8,6 +8,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Windows (front seul, zip portable) : sources en UTF-8 (textes francais), M_PI, pas de macros min/max de windows.h,
+# runtime C++ lie statiquement (vcpkg x64-windows-static : un seul .exe, plus la DLL Inateck)
+if(WIN32)
+    add_compile_definitions(_USE_MATH_DEFINES NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+    if(MSVC)
+        add_compile_options(/utf-8 /bigobj)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+endif()
+
 # -----------------------------------------------------------------------------
 # 1. Recherche des dépendances système (GLFW et OpenGL)
 # -----------------------------------------------------------------------------
@@ -19,8 +29,12 @@ find_package(Threads REQUIRED)
 # HTTPS vers un back distant (fronts sur d'autres machines)
 find_package(OpenSSL REQUIRED)
 
-# macOS : la bibliotheque Inateck existe en dylib (scanner_lib/ble/mac), sans libxdo
-if(APPLE)
+# macOS : la bibliotheque Inateck existe en dylib (scanner_lib/ble/mac), sans libxdo ; Windows : DLL MSVC
+# (scanner_lib/ble/windows) avec sa bibliotheque d'import
+if(WIN32)
+    set(INATECK_SDK_DEFAULT_LIBRARY
+        "${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble/windows/x86_64-pc-windows-msvc/inateck_scanner_ble.dll")
+elseif(APPLE)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
         set(INATECK_SDK_TRIPLE "mac/aarch64-apple-darwin")
     else()
@@ -54,6 +68,10 @@ if(INATECK_SDK_LIBRARY)
             execute_process(COMMAND codesign --force --sign - "${INATECK_SDK_COPY}" COMMAND_ERROR_IS_FATAL ANY)
         endif()
         set_target_properties(InateckScannerBle PROPERTIES IMPORTED_LOCATION "${INATECK_SDK_COPY}")
+    elseif(WIN32)
+        set_target_properties(InateckScannerBle PROPERTIES
+            IMPORTED_LOCATION "${INATECK_SDK_LIBRARY}"
+            IMPORTED_IMPLIB "${INATECK_SDK_LIBRARY}.lib")
     else()
         find_library(INATECK_XDO_LIBRARY NAMES xdo libxdo.so.3)
         if(NOT INATECK_XDO_LIBRARY)
@@ -149,6 +167,10 @@ target_include_directories(QRProtecCore PUBLIC
     third_party/stb
 )
 target_link_libraries(QRProtecCore PUBLIC PNG::PNG Freetype::Freetype Threads::Threads OpenSSL::SSL)
+if(WIN32)
+    # Winsock (HTTP, WebSocket) ; crypt32 : magasin de certificats de Windows (OpenSSL winstore)
+    target_link_libraries(QRProtecCore PUBLIC ws2_32 crypt32)
+endif()
 # Police avec accents fournie avec les sources (copiee aussi a cote de l'executable)
 target_compile_definitions(QRProtecCore PRIVATE
     QRPROTEC_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts"
@@ -236,6 +258,21 @@ add_executable(${PROJECT_NAME}
     src/ui/windows/verif_window.cpp
 )
 
+if(WIN32)
+    # application fenetree (pas de console) qui garde main() ; icone et manifeste (UTF-8) dans les ressources
+    set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE OUTPUT_NAME QRProtec)
+    target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../packaging/windows/qrprotec.rc)
+    # bip (PlaySound), boite « Ouvrir » (GetOpenFileNameW)
+    target_link_libraries(${PROJECT_NAME} PRIVATE winmm comdlg32)
+    if(MSVC)
+        # manifeste du .rc seulement (sinon doublon avec celui de l'editeur de liens)
+        target_link_options(${PROJECT_NAME} PRIVATE /ENTRY:mainCRTStartup /MANIFEST:NO)
+    endif()
+    # modeles fournis a cote de l'executable : copies au premier lancement dans %APPDATA%\QRProtec\templates
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/templates $<TARGET_FILE_DIR:${PROJECT_NAME}>/templates)
+endif()
+
 # Inclusion des dossiers d'en-têtes (headers)
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/scanner_lib/ble
@@ -268,7 +305,12 @@ set_source_files_properties(src/app/updater.cpp PROPERTIES COMPILE_DEFINITIONS
     "QRPROTEC_VERSION=\"${QRPROTEC_VERSION}\";QRPROTEC_UPDATE_REPO=\"${QRPROTEC_UPDATE_REPO}\";QRPROTEC_UPDATE_ASSET=\"${QRPROTEC_UPDATE_ASSET}\"")
 
 if(TARGET InateckScannerBle)
-    if(APPLE)
+    if(WIN32)
+        target_link_libraries(${PROJECT_NAME} PRIVATE InateckScannerBle)
+        # la DLL est copiee a cote de l'executable
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${INATECK_SDK_LIBRARY} $<TARGET_FILE_DIR:${PROJECT_NAME}>)
+    elseif(APPLE)
         target_link_libraries(${PROJECT_NAME} PRIVATE InateckScannerBle)
         # le dylib est copie a cote de l'executable
         set_target_properties(${PROJECT_NAME} PROPERTIES BUILD_RPATH "@executable_path")

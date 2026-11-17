@@ -10,6 +10,14 @@
 
 namespace qrprotec {
 
+// Impression seulement sous Linux (poste principal, bornes, postes avec imprimante). Windows et macOS n'impriment
+// pas : « Imprimer » y envoie toujours les etiquettes au poste principal (« Impressions en attente »).
+#ifdef __linux__
+inline constexpr bool kLocalPrinting = true;
+#else
+inline constexpr bool kLocalPrinting = false;
+#endif
+
 // Modele d'imprimante. La Niimbot B1 reste pour le debug et le secours ; TSPL et ZPL couvrent les
 // imprimantes d'etiquettes de bureau (TSC, IDPRT, Munbyn... / Zebra).
 enum class PrinterKind { NiimbotB1, Tspl, Zpl };

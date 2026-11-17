@@ -127,9 +127,11 @@ class PrintCountsWindow final : public AppWindow {
                   "(par exemple les étiquettes consommables) : pas d'avertissement. Une impression d'un autre type "
                   "s'arrête et demande de changer de rouleau. Plus rapide : scannez à la douchette le QR du rouleau "
                   "(collé sur l'imprimante ou sur la boîte), à imprimer avec le bouton à côté.");
-      ImGui::SameLine();
-      if (button("Changer de rouleau..."))
-        app.open_roll_wizard();
+      if (kLocalPrinting) { // assistant de changement de rouleau : la ou l'on imprime (Linux)
+        ImGui::SameLine();
+        if (button("Changer de rouleau..."))
+          app.open_roll_wizard();
+      }
       ImGui::SameLine();
       if (button("Imprimer le QR d'un rouleau...")) {
         code_roll_  = loaded;

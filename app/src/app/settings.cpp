@@ -66,10 +66,8 @@ AppSettings AppSettings::defaults() {
 }
 
 std::filesystem::path AppSettings::file_path() {
-  const char *home = std::getenv("HOME");
-  if (!home || *home == '\0')
-    return ".qrprotec-app.conf";
-  return std::filesystem::path(home) / ".config" / "qrprotec" / "app.conf";
+  const std::filesystem::path directory = user_config_dir();
+  return directory.empty() ? std::filesystem::path(".qrprotec-app.conf") : directory / "app.conf";
 }
 
 namespace {

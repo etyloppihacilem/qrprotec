@@ -30,4 +30,10 @@ std::string directory_access_problem(const std::filesystem::path &directory, boo
 // sur Silverblue / Kinoite, ou /home est un lien vers /var/home). Sinon le chemin tel quel.
 std::filesystem::path sandbox_visible_path(const std::filesystem::path &path);
 
+// Dossier de l'executable (polices, modeles fournis), vide si introuvable.
+std::filesystem::path executable_dir();
+// Dossier personnel (HOME, USERPROFILE sous Windows), vide si inconnu.
+std::filesystem::path home_dir();
+// Reglages de l'utilisateur : ~/.config/qrprotec (Linux, macOS), %APPDATA%\QRProtec (Windows). Vide si inconnu.
+std::filesystem::path user_config_dir();
 } // namespace qrprotec

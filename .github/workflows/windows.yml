@@ -1,0 +1,137 @@
+# Construit le front (application ImGui, app/) pour Windows 10 et 11 (x64) sur un runner Windows, avec MSVC et
+# vcpkg (glfw, freetype, libpng, openssl en bibliotheques statiques).
+#
+# Artefact : QRProtec-windows-x64.zip, version portable a decompresser n'importe ou : QRProtec.exe, la DLL du SDK
+# Inateck (douchette en Bluetooth) et le runtime MSVC dont elle a besoin, fonts\ et templates\ (modeles copies au
+# premier lancement dans %APPDATA%\QRProtec\templates). Reglages dans %APPDATA%\QRProtec, journal dans
+# %LOCALAPPDATA%\QRProtec\qrprotec.log. Pas d'impression sous Windows : « Imprimer » envoie les etiquettes au poste
+# principal (Linux). Pas de mise a jour automatique ni de signature : au premier lancement, SmartScreen demande
+# « Informations complementaires » > « Executer quand meme ».
+# Sur un tag vX.Y.Z, le zip est aussi joint a la release GitHub.
+name: windows
+
+on:
+  push:
+    tags: ['v*']
+    branches: [main]
+    paths: ['app/**', 'packaging/windows/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['app/**', 'packaging/windows/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VCPKG_TRIPLET: x64-windows-static
+  VCPKG_PACKAGES: glfw3 freetype libpng openssl
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF" == refs/tags/v* && "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || version=0.0.0
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
+          echo "VCPKG_COMMIT=$(git -C "$VCPKG_INSTALLATION_ROOT" rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-cache" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/vcpkg-cache"
+      # paquets vcpkg compiles gardes d'une construction a l'autre (openssl : une dizaine de minutes sinon)
+      - uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/vcpkg-cache
+          key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ env.VCPKG_COMMIT }}-${{ env.VCPKG_PACKAGES }}
+      - name: Dependances (vcpkg)
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET" $VCPKG_PACKAGES
+      - name: Construction
+        run: |
+          cmake -S app -B build -A x64 \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
+            -DQRPROTEC_VERSION="$VERSION"
+          cmake --build build --config Release --parallel
+      - name: Tests
+        run: |
+          # les tests ecrivent dans /tmp (lecteur courant sous Windows)
+          mkdir -p /c/tmp /d/tmp
+          ctest --test-dir build -C Release --output-on-failure
+      - name: Zip portable
+        run: |
+          out=dist/QRProtec
+          mkdir -p "$out"
+          cp build/Release/QRProtec.exe build/Release/inateck_scanner_ble.dll "$out/"
+          cp -r build/Release/fonts build/Release/templates "$out/"
+          # runtime MSVC de la DLL Inateck (compilee en Rust, CRT dynamique), a cote de l'executable
+          cp /c/Windows/System32/vcruntime140.dll "$out/"
+          # l'executable ne depend que de DLL du systeme (et de celle d'Inateck)
+          dumpbin_dir="$(dirname "$(find "/c/Program Files/Microsoft Visual Studio" -name dumpbin.exe -path '*Hostx64/x64*' | head -1)")"
+          "$dumpbin_dir/dumpbin.exe" //dependents "$out/QRProtec.exe" | tee dependances.txt
+          if grep -iE '^\s+(glfw|freetype|libpng|zlib|libssl|libcrypto|msvcp|vcruntime|bz2|brotli)' dependances.txt; then
+            echo "::error::QRProtec.exe depend d'une DLL non fournie"; exit 1
+          fi
+          cat > "$out/LISEZMOI.txt" <<TEXT
+          QRProtec $VERSION pour Windows 10 et 11 (64 bits)
+
+          Lancer QRProtec.exe. Au premier lancement, Windows peut afficher « Windows a protégé votre ordinateur » :
+          cliquer sur « Informations complémentaires » puis « Exécuter quand même ».
+
+          Connexion au serveur : Réglages > Importer un fichier de configuration (.qrprotec, fourni par l'admin).
+          Pas d'impression depuis Windows : « Imprimer » envoie les étiquettes au poste principal.
+          Réglages : %APPDATA%\QRProtec ; journal : %LOCALAPPDATA%\QRProtec\qrprotec.log
+          Nouvelle version : https://github.com/$GITHUB_REPOSITORY/releases
+          TEXT
+          sed -i 's/$/\r/' "$out/LISEZMOI.txt"
+          (cd dist && 7z a -tzip ../QRProtec-windows-x64.zip QRProtec >/dev/null)
+          ls -l QRProtec-windows-x64.zip
+      - name: Lancement (fenetre, sans affichage)
+        shell: pwsh
+        run: |
+          # l'application doit demarrer (DLL trouvees, fenetre OpenGL) et rester ouverte quelques secondes
+          Expand-Archive QRProtec-windows-x64.zip -DestinationPath essai
+          $process = Start-Process -FilePath essai\QRProtec\QRProtec.exe -PassThru
+          Start-Sleep -Seconds 8
+          $log = Join-Path $env:LOCALAPPDATA 'QRProtec\qrprotec.log'
+          if (Test-Path $log) { Get-Content $log }
+          if ($process.HasExited) {
+            Write-Output "::warning::QRProtec.exe s'est arrete (code $($process.ExitCode)) : pas d'OpenGL 3 sur le runner ?"
+          } else {
+            Stop-Process -Id $process.Id
+          }
+          if (-not (Test-Path (Join-Path $env:APPDATA 'QRProtec\templates\item.qr'))) {
+            Write-Output "::error::modeles non copies dans %APPDATA%\QRProtec\templates"; exit 1
+          }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qrprotec-front-windows-x64
+          path: QRProtec-windows-x64.zip
+          if-no-files-found: error
+
+  # Sur un tag vX.Y.Z : zip joint a la release GitHub (creee ici ou par les autres workflows)
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: qrprotec-front-windows-x64
+      - name: Release GitHub
+        run: |
+          gh release upload "$GITHUB_REF_NAME" QRProtec-windows-x64.zip --repo "$GITHUB_REPOSITORY" --clobber \
+            || gh release create "$GITHUB_REF_NAME" QRProtec-windows-x64.zip \
+                 --repo "$GITHUB_REPOSITORY" --title "QRProtec $GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" QRProtec-windows-x64.zip --repo "$GITHUB_REPOSITORY" --clobber

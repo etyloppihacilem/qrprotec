@@ -13,8 +13,13 @@
 #include "widgets.hpp"
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
+#elif defined(_WIN32)
+#include <GLFW/glfw3.h> // GL/gl.h avec APIENTRY / WINGDIAPI, sans windows.h
 #else
 #include <GL/gl.h>
+#endif
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F // OpenGL 1.2 : absent du GL/gl.h de Windows (1.1)
 #endif
 #include <algorithm>
 #include <cctype>
@@ -225,7 +230,7 @@ void Editor::reload_templates() {
   for (auto path : qr_files_) {
     TemplateDocument new_template;
     std::string      error;
-    if (load_template(new_template, path, error)) {
+    if (load_template(new_template, path.string(), error)) {
       new_template.path = path.filename().string(); // relatif au dossier des modeles
       document_list_.push_back(new_template);
     } else {
@@ -1100,11 +1105,13 @@ void Editor::draw_toolbar() {
   ImGui::SameLine();
   ImGui::TextDisabled("|");
   ImGui::SameLine();
-  if (button("Imprimer un test")) {
-    open_print_test();
-    message_.clear();
+  if (kLocalPrinting) { // test direct sur l'imprimante branchee ici (Linux seulement)
+    if (button("Imprimer un test")) {
+      open_print_test();
+      message_.clear();
+    }
+    ImGui::SameLine();
   }
-  ImGui::SameLine();
   if (button("Exporter PNG..."))
     export_requested_ = true;
 

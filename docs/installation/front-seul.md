@@ -216,6 +216,8 @@ Un Flatpak installé avant la version qui a ouvert le dépôt (fichier `.flatpak
 
 ## Poste de bureau sur macOS (Apple Silicon)
 
+Pas d'impression depuis macOS : « Imprimer » envoie les étiquettes au poste principal.
+
 1. Téléchargez `QRProtec-macos-arm64.dmg` dans la
    [dernière release](https://github.com/etyloppihacilem/qrprotec/releases/latest), ouvrez-le et
    glissez **QRProtec** dans **Applications**.
@@ -230,6 +232,22 @@ QRProtec n'est pas dans un dossier modifiable par l'utilisateur, le mot de passe
 du Mac est demandé. Réglages > **Mises à jour** pour désactiver ou chercher tout de suite. macOS peut
 redemander l'accès au Bluetooth (douchette) après une mise à jour. Les versions antérieures à la
 mise à jour automatique se remplacent une dernière fois à la main (étape 1).
+
+## Poste de bureau sous Windows 10 et 11
+
+1. Téléchargez `QRProtec-windows-x64.zip` dans la
+   [dernière release](https://github.com/etyloppihacilem/qrprotec/releases/latest) et décompressez-le où vous
+   voulez (par exemple dans `Documents`).
+2. Lancez `QRProtec.exe`. Premier lancement : si Windows affiche « Windows a protégé votre ordinateur »,
+   cliquez sur **Informations complémentaires** puis **Exécuter quand même** (l'application n'est pas signée).
+3. Configurez le serveur comme pour le [poste de bureau](#poste-de-bureau-sans-kiosk) (étapes 2 à 4), le
+   plus simple étant le fichier `.qrprotec` (Réglages > **Importer un fichier de configuration**).
+
+Pas d'impression depuis Windows : « Imprimer » envoie les étiquettes au poste principal, qui les propose dans
+sa fenêtre « Impressions en attente ». La douchette Inateck se connecte en Bluetooth comme sur les autres
+postes. Pas de mise à jour automatique : pour une nouvelle version, remplacez le dossier par celui du nouveau
+zip (réglages et modèles modifiés sont gardés dans `%APPDATA%\QRProtec`). En cas de problème, le journal est
+dans `%LOCALAPPDATA%\QRProtec\qrprotec.log`.
 
 ## Dépannage de la connexion
 

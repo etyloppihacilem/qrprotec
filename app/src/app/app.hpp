@@ -494,7 +494,7 @@ class App {
     // « poste principal » sur le serveur (kiosk sur une autre machine, back sans kiosk). Il imprime les
     // « Impressions en attente » et gere les ordinateurs connectes. Lu dans /api/health/ (champ poste).
     bool main_poste() const { return settings.api_endpoint().key.empty() || poste_key; }
-    bool prints_to_poste() const { return !settings.print_here && !main_poste(); }
+    bool prints_to_poste() const { return !kLocalPrinting || (!settings.print_here && !main_poste()); }
     void send_to_poste(std::vector< PrintJob > jobs);
     // « Marquer ce lot comme utilisé (demander une vérif) » : tout utilisateur identifie, lot en vérif recommandee
     void mark_lot_used(const std::string &lot_id, const std::string &name);

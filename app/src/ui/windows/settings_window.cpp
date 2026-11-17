@@ -305,145 +305,156 @@ class SettingsWindow final : public AppWindow {
             ImGui::EndCombo();
           }
         }
-        ImGui::SeparatorText("Étiquettes chargées dans l'imprimante");
-        {
-          const std::string loaded  = settings.print.loaded_label_type;
-          const std::string preview = loaded.empty() ? std::string("(format libre, réglé ci-dessous)") : loaded;
-          ImGui::SetNextItemWidth(320.0f);
-          if (ImGui::BeginCombo("Type chargé", preview.c_str())) {
-            if (ImGui::Selectable("(format libre, réglé ci-dessous)", loaded.empty()))
-              app.set_loaded_label_type("");
-            for (const LabelType &type : label_types_) {
-              const std::string label = type.name + "  (" + type.summary() + ")";
-              if (ImGui::Selectable(label.c_str(), type.name == loaded))
-                app.set_loaded_label_type(type.name);
+        // reglages du rouleau et de l'imprimante : seulement la ou l'on imprime (Linux)
+        if (kLocalPrinting) {
+          ImGui::SeparatorText("Étiquettes chargées dans l'imprimante");
+          {
+            const std::string loaded  = settings.print.loaded_label_type;
+            const std::string preview = loaded.empty() ? std::string("(format libre, réglé ci-dessous)") : loaded;
+            ImGui::SetNextItemWidth(320.0f);
+            if (ImGui::BeginCombo("Type chargé", preview.c_str())) {
+              if (ImGui::Selectable("(format libre, réglé ci-dessous)", loaded.empty()))
+                app.set_loaded_label_type("");
+              for (const LabelType &type : label_types_) {
+                const std::string label = type.name + "  (" + type.summary() + ")";
+                if (ImGui::Selectable(label.c_str(), type.name == loaded))
+                  app.set_loaded_label_type(type.name);
+              }
+              ImGui::EndCombo();
             }
-            ImGui::EndCombo();
+            help_marker("Types d'étiquettes des modèles (Éditeur d'étiquettes > Types d'étiquettes). Un modèle d'un "
+                        "autre type met la file en pause jusqu'à ce que son rouleau soit chargé. Un modèle sans "
+                        "type reçoit à sa lecture un type construit d'après l'étiquette réglée ci-dessous.");
+            const bool known = loaded.empty() || std::any_of(label_types_.begin(), label_types_.end(),
+                                                             [&](const LabelType &type) { return type.name == loaded; });
+            if (!known)
+              ImGui::TextColored(colors::orange, "Aucun modèle n'utilise le type « %s ».", loaded.c_str());
           }
-          help_marker("Types d'étiquettes des modèles (Éditeur d'étiquettes > Types d'étiquettes). Un modèle d'un "
-                      "autre type met la file en pause jusqu'à ce que son rouleau soit chargé. Un modèle sans "
-                      "type reçoit à sa lecture un type construit d'après l'étiquette réglée ci-dessous.");
-          const bool known = loaded.empty() || std::any_of(label_types_.begin(), label_types_.end(),
-                                                           [&](const LabelType &type) { return type.name == loaded; });
-          if (!known)
-            ImGui::TextColored(colors::orange, "Aucun modèle n'utilise le type « %s ».", loaded.c_str());
+          ImGui::SetNextItemWidth(150.0f);
+          ImGui::InputFloat("Largeur (mm, sens de la tête)", &settings.label_width_mm, 1.0f, 5.0f, "%.1f");
+          ImGui::SetNextItemWidth(150.0f);
+          ImGui::InputFloat("Hauteur (mm, sens du défilement)", &settings.label_height_mm, 1.0f, 5.0f, "%.1f");
+          settings.label_width_mm =
+              std::clamp(settings.label_width_mm, 5.0f, static_cast< float >(printer_max_width_mm(settings.print.kind)));
+          settings.label_height_mm = std::clamp(settings.label_height_mm, 5.0f, 500.0f);
+          help_marker("La Niimbot B1 imprime au plus 48 mm de large, une imprimante 4 pouces (TSPL / ZPL) 104 mm. Un "
+                      "modèle dessiné dans l'autre sens (portrait / paysage) est tourné d'un quart de tour à "
+                      "l'impression pour tenir sur l'étiquette.");
+          int rotation = settings.rotate_counterclockwise ? 1 : 0;
+          ImGui::SetNextItemWidth(200.0f);
+          if (ImGui::Combo("Sens du quart de tour", &rotation, "Horaire\0Anti-horaire\0"))
+            settings.rotate_counterclockwise = rotation == 1;
+          ImGui::Checkbox("Retourner les étiquettes (180°)", &settings.flip_labels);
         }
-        ImGui::SetNextItemWidth(150.0f);
-        ImGui::InputFloat("Largeur (mm, sens de la tête)", &settings.label_width_mm, 1.0f, 5.0f, "%.1f");
-        ImGui::SetNextItemWidth(150.0f);
-        ImGui::InputFloat("Hauteur (mm, sens du défilement)", &settings.label_height_mm, 1.0f, 5.0f, "%.1f");
-        settings.label_width_mm =
-            std::clamp(settings.label_width_mm, 5.0f, static_cast< float >(printer_max_width_mm(settings.print.kind)));
-        settings.label_height_mm = std::clamp(settings.label_height_mm, 5.0f, 500.0f);
-        help_marker("La Niimbot B1 imprime au plus 48 mm de large, une imprimante 4 pouces (TSPL / ZPL) 104 mm. Un "
-                    "modèle dessiné dans l'autre sens (portrait / paysage) est tourné d'un quart de tour à "
-                    "l'impression pour tenir sur l'étiquette.");
-        int rotation = settings.rotate_counterclockwise ? 1 : 0;
-        ImGui::SetNextItemWidth(200.0f);
-        if (ImGui::Combo("Sens du quart de tour", &rotation, "Horaire\0Anti-horaire\0"))
-          settings.rotate_counterclockwise = rotation == 1;
-        ImGui::Checkbox("Retourner les étiquettes (180°)", &settings.flip_labels);
         ImGui::SeparatorText("Titre des étiquettes");
         ImGui::TextUnformatted("Nom de l'antenne, imprimé par {{titre}} (bouton « Nom de l'antenne » de l'éditeur) :");
         ImGui::InputTextMultiline("##titre", &settings.label_title, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 3.5f));
 
         ImGui::SeparatorText("Imprimante");
-        if (app.main_poste() && !settings.api_endpoint().key.empty()) {
-          ImGui::TextWrapped("Poste principal : les étiquettes s'impriment ici, avec celles demandées depuis le web "
-                             "ou d'autres ordinateurs (« Impressions en attente »).");
-        } else if (!settings.api_endpoint().key.empty()) {
-          ImGui::Checkbox("Imprimante branchée sur cet ordinateur", &settings.print_here);
-          help_marker("Décochée (par défaut) : cet ordinateur se connecte au serveur avec une clé de front, sans "
-                      "imprimante. « Imprimer » envoie les étiquettes au poste, qui les propose dans sa fenêtre « "
-                      "Impressions en attente » (même sans personne de connecté). Cochée : impression ici. La borne "
-                      "avec l'imprimante se déclare plutôt « poste principal » sur le serveur (Utilisateurs > "
-                      "Ordinateurs connectés).");
-        }
-        int kind = static_cast< int >(settings.print.kind);
-        ImGui::SetNextItemWidth(320.0f);
-        if (ImGui::Combo("Modèle", &kind,
-                         "Niimbot B1 (secours, debug)\0TSPL (TSC, IDPRT, Munbyn, Phomemo...)\0ZPL (Zebra)\0"))
-          settings.print.kind = static_cast< PrinterKind >(kind);
-        help_marker("TSPL et ZPL : imprimantes d'étiquettes de bureau. Choisir une tête 203 dpi (8 points/mm), la "
-                    "résolution des modèles d'étiquettes ; en 300 dpi l'étiquette sortirait plus petite. La Niimbot "
-                    "B1 reste utilisable en secours.");
-        if (settings.print.kind == PrinterKind::NiimbotB1) {
-          ImGui::InputText("Port série", &settings.print.serial.device);
-          ImGui::SetNextItemWidth(150.0f);
-          ImGui::InputInt("Débit", &settings.print.serial.baud_rate);
-          ImGui::SetNextItemWidth(150.0f);
-          ImGui::SliderInt("Densité", &settings.print.density, 1, 5);
-          ImGui::SetNextItemWidth(150.0f);
-          ImGui::SliderInt("Type d'étiquette", &settings.print.label_type, 1, 3);
+        if (!kLocalPrinting) {
+          ImGui::TextWrapped("Pas d'impression sur cet ordinateur (Windows ou macOS) : « Imprimer » envoie les "
+                             "étiquettes au poste principal, qui les propose dans sa fenêtre « Impressions en "
+                             "attente ».");
         } else {
-          RawPrinterSettings &raw = settings.print.raw;
-          ImGui::InputTextWithHint("Adresse", "/dev/usb/lp0 ou 192.168.1.50", &raw.address);
-          help_marker("USB : /dev/usb/lp0 (l'utilisateur du poste doit être dans le groupe lp). Réseau : adresse IP "
-                      "de l'imprimante, port 9100 par défaut (192.168.1.50:9100) ; elle peut alors servir à "
-                      "plusieurs ordinateurs.");
-          ImGui::Checkbox("Transfert thermique (ruban)", &raw.ribbon);
-          help_marker("Décoché : thermique direct, sans ruban (étiquettes thermiques). Coché : ruban encreur, pour "
-                      "des étiquettes papier vélin ou synthétiques qui durent.");
-          ImGui::SetNextItemWidth(150.0f);
-          ImGui::SliderInt("Noirceur", &raw.darkness, 0, 15);
-          ImGui::SetNextItemWidth(150.0f);
-          ImGui::SliderInt("Vitesse (pouces/s)", &raw.speed_ips, 2, 6);
-          help_marker("Vitesse d'impression, d'avance et de recul : 2 = 51 mm/s (la plus lente, par défaut), "
-                      "6 = 152 mm/s. Plus lent, l'étiquette est mieux repérée : moins d'impressions coupées en haut "
-                      "dans une série. La GK420t va de 2 à 5. Enregistrée dans l'imprimante au calibrage. "
-                      "ZPL : ^PR ; TSPL : SPEED.");
-          float gap = static_cast< float >(raw.gap_mm);
-          ImGui::SetNextItemWidth(150.0f);
-          if (ImGui::InputFloat("Espace entre étiquettes (mm)", &gap, 0.5f, 1.0f, "%.1f"))
-            raw.gap_mm = std::clamp(gap, 0.0f, 20.0f);
-          ImGui::SeparatorText("Position de l'impression");
-          float offset_x = static_cast< float >(raw.offset_x_mm);
-          ImGui::SetNextItemWidth(150.0f);
-          if (ImGui::InputFloat("Décalage horizontal (mm)", &offset_x, 0.5f, 1.0f, "%.1f"))
-            raw.offset_x_mm = std::clamp(offset_x, -15.0f, 15.0f);
-          help_marker("Déplace toute l'impression sur l'étiquette. Positif : vers la droite ; négatif : vers la "
-                      "gauche. ZPL : origine du format ^LH dans une zone d'impression (^PW) élargie de chaque côté ; TSPL : SHIFT x.");
-          float offset_y = static_cast< float >(raw.offset_y_mm);
-          ImGui::SetNextItemWidth(150.0f);
-          if (ImGui::InputFloat("Décalage vertical (mm)", &offset_y, 0.5f, 1.0f, "%.1f"))
-            raw.offset_y_mm = std::clamp(offset_y, -15.0f, 15.0f);
-          help_marker("Déplace toute l'impression sur l'étiquette. Positif : vers le bas (loin du haut de "
-                      "l'étiquette) ; négatif : vers le haut. ZPL : vers le bas par ^LH (origine du format), vers "
-                      "le haut par ^LT (« Label Top »), 120 points au plus ; la GK420t ignore ^LT à l'impression, "
-                      "le vers-le-haut n'y a donc pas d'effet. TSPL : SHIFT y. Une impression qui déborde de plusieurs millimètres sur l'étiquette "
-                      "suivante ne se règle pas ici : calibrer.");
-          float tear_off = static_cast< float >(raw.tear_off_mm);
-          ImGui::SetNextItemWidth(150.0f);
-          if (ImGui::InputFloat("Position de découpe (mm)", &tear_off, 0.5f, 1.0f, "%.1f"))
-            raw.tear_off_mm = std::clamp(tear_off, -15.0f, 15.0f);
-          help_marker("Où l'étiquette s'arrête après impression, pour la détacher sur la barre de découpe. Positif : "
-                      "elle sort plus loin ; négatif : elle s'arrête plus tôt. Ne déplace pas l'impression sur "
-                      "l'étiquette. ZPL : ~TA (« Tear Off ») ; TSPL : OFFSET.");
-          ImGui::TextDisabled("Imprimer l'étiquette d'étalonnage (ci-dessous) pour lire les valeurs à régler.");
-          draw_printer_maintenance(app, settings);
+          if (app.main_poste() && !settings.api_endpoint().key.empty()) {
+            ImGui::TextWrapped("Poste principal : les étiquettes s'impriment ici, avec celles demandées depuis le web "
+                               "ou d'autres ordinateurs (« Impressions en attente »).");
+          } else if (!settings.api_endpoint().key.empty()) {
+            ImGui::Checkbox("Imprimante branchée sur cet ordinateur", &settings.print_here);
+            help_marker("Décochée (par défaut) : cet ordinateur se connecte au serveur avec une clé de front, sans "
+                        "imprimante. « Imprimer » envoie les étiquettes au poste, qui les propose dans sa fenêtre « "
+                        "Impressions en attente » (même sans personne de connecté). Cochée : impression ici. La borne "
+                        "avec l'imprimante se déclare plutôt « poste principal » sur le serveur (Utilisateurs > "
+                        "Ordinateurs connectés).");
+          }
+          int kind = static_cast< int >(settings.print.kind);
+          ImGui::SetNextItemWidth(320.0f);
+          if (ImGui::Combo("Modèle", &kind,
+                           "Niimbot B1 (secours, debug)\0TSPL (TSC, IDPRT, Munbyn, Phomemo...)\0ZPL (Zebra)\0"))
+            settings.print.kind = static_cast< PrinterKind >(kind);
+          help_marker("TSPL et ZPL : imprimantes d'étiquettes de bureau. Choisir une tête 203 dpi (8 points/mm), la "
+                      "résolution des modèles d'étiquettes ; en 300 dpi l'étiquette sortirait plus petite. La Niimbot "
+                      "B1 reste utilisable en secours.");
+          if (settings.print.kind == PrinterKind::NiimbotB1) {
+            ImGui::InputText("Port série", &settings.print.serial.device);
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::InputInt("Débit", &settings.print.serial.baud_rate);
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::SliderInt("Densité", &settings.print.density, 1, 5);
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::SliderInt("Type d'étiquette", &settings.print.label_type, 1, 3);
+          } else {
+            RawPrinterSettings &raw = settings.print.raw;
+            ImGui::InputTextWithHint("Adresse", "/dev/usb/lp0 ou 192.168.1.50", &raw.address);
+            help_marker("USB : /dev/usb/lp0 (l'utilisateur du poste doit être dans le groupe lp). Réseau : adresse IP "
+                        "de l'imprimante, port 9100 par défaut (192.168.1.50:9100) ; elle peut alors servir à "
+                        "plusieurs ordinateurs.");
+            ImGui::Checkbox("Transfert thermique (ruban)", &raw.ribbon);
+            help_marker("Décoché : thermique direct, sans ruban (étiquettes thermiques). Coché : ruban encreur, pour "
+                        "des étiquettes papier vélin ou synthétiques qui durent.");
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::SliderInt("Noirceur", &raw.darkness, 0, 15);
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::SliderInt("Vitesse (pouces/s)", &raw.speed_ips, 2, 6);
+            help_marker("Vitesse d'impression, d'avance et de recul : 2 = 51 mm/s (la plus lente, par défaut), "
+                        "6 = 152 mm/s. Plus lent, l'étiquette est mieux repérée : moins d'impressions coupées en haut "
+                        "dans une série. La GK420t va de 2 à 5. Enregistrée dans l'imprimante au calibrage. "
+                        "ZPL : ^PR ; TSPL : SPEED.");
+            float gap = static_cast< float >(raw.gap_mm);
+            ImGui::SetNextItemWidth(150.0f);
+            if (ImGui::InputFloat("Espace entre étiquettes (mm)", &gap, 0.5f, 1.0f, "%.1f"))
+              raw.gap_mm = std::clamp(gap, 0.0f, 20.0f);
+            ImGui::SeparatorText("Position de l'impression");
+            float offset_x = static_cast< float >(raw.offset_x_mm);
+            ImGui::SetNextItemWidth(150.0f);
+            if (ImGui::InputFloat("Décalage horizontal (mm)", &offset_x, 0.5f, 1.0f, "%.1f"))
+              raw.offset_x_mm = std::clamp(offset_x, -15.0f, 15.0f);
+            help_marker("Déplace toute l'impression sur l'étiquette. Positif : vers la droite ; négatif : vers la "
+                        "gauche. ZPL : origine du format ^LH dans une zone d'impression (^PW) élargie de chaque côté ; TSPL : SHIFT x.");
+            float offset_y = static_cast< float >(raw.offset_y_mm);
+            ImGui::SetNextItemWidth(150.0f);
+            if (ImGui::InputFloat("Décalage vertical (mm)", &offset_y, 0.5f, 1.0f, "%.1f"))
+              raw.offset_y_mm = std::clamp(offset_y, -15.0f, 15.0f);
+            help_marker("Déplace toute l'impression sur l'étiquette. Positif : vers le bas (loin du haut de "
+                        "l'étiquette) ; négatif : vers le haut. ZPL : vers le bas par ^LH (origine du format), vers "
+                        "le haut par ^LT (« Label Top »), 120 points au plus ; la GK420t ignore ^LT à l'impression, "
+                        "le vers-le-haut n'y a donc pas d'effet. TSPL : SHIFT y. Une impression qui déborde de plusieurs millimètres sur l'étiquette "
+                        "suivante ne se règle pas ici : calibrer.");
+            float tear_off = static_cast< float >(raw.tear_off_mm);
+            ImGui::SetNextItemWidth(150.0f);
+            if (ImGui::InputFloat("Position de découpe (mm)", &tear_off, 0.5f, 1.0f, "%.1f"))
+              raw.tear_off_mm = std::clamp(tear_off, -15.0f, 15.0f);
+            help_marker("Où l'étiquette s'arrête après impression, pour la détacher sur la barre de découpe. Positif : "
+                        "elle sort plus loin ; négatif : elle s'arrête plus tôt. Ne déplace pas l'impression sur "
+                        "l'étiquette. ZPL : ~TA (« Tear Off ») ; TSPL : OFFSET.");
+            ImGui::TextDisabled("Imprimer l'étiquette d'étalonnage (ci-dessous) pour lire les valeurs à régler.");
+            draw_printer_maintenance(app, settings);
+          }
+          const PrintQueueStatus status = app.printer.status();
+          ImGui::Text("File : %zu en attente, %s%s", status.pending, nb(status.printed, "imprimée").c_str(),
+                      status.busy ? " - en cours" : "");
+          if (!status.current.empty())
+            ImGui::Text("En cours : %s", status.current.c_str());
+          if (status.paused) {
+            ImGui::TextColored(colors::red, "Pause : %s", status.error.c_str());
+            if (!status.needed_label_type.empty()) {
+              if (button(("Les étiquettes « " + status.needed_label_type + " » sont chargées").c_str()))
+                app.set_loaded_label_type(status.needed_label_type);
+            } else if (button("Reprendre"))
+              app.printer.resume();
+            ImGui::SameLine();
+          }
+          if (status.pending > 0 && danger_button("Vider la file"))
+            app.printer.cancel();
         }
-        const PrintQueueStatus status = app.printer.status();
-        ImGui::Text("File : %zu en attente, %s%s", status.pending, nb(status.printed, "imprimée").c_str(),
-                    status.busy ? " - en cours" : "");
-        if (!status.current.empty())
-          ImGui::Text("En cours : %s", status.current.c_str());
-        if (status.paused) {
-          ImGui::TextColored(colors::red, "Pause : %s", status.error.c_str());
-          if (!status.needed_label_type.empty()) {
-            if (button(("Les étiquettes « " + status.needed_label_type + " » sont chargées").c_str()))
-              app.set_loaded_label_type(status.needed_label_type);
-          } else if (button("Reprendre"))
-            app.printer.resume();
-          ImGui::SameLine();
-        }
-        if (status.pending > 0 && danger_button("Vider la file"))
-          app.printer.cancel();
       }
 
       if (ImGui::CollapsingHeader("Signal de mauvais scan")) {
         ImGui::Checkbox("Bip sur l'ordinateur (mode HID)", &settings.sound_enabled);
+#ifndef _WIN32 // Windows : le bip est joue directement, sans commande
         ImGui::InputTextWithHint("Commande de bip", "vide = bip intégré (aplay/paplay)", &settings.beep_command);
         help_marker("Commande shell, %f est remplacé par le fichier wav du bip. Ex: paplay %f");
+#endif
         ImGui::Checkbox("Clignotement rouge de l'écran", &settings.flash_enabled);
         ImGui::Checkbox("Clignoter aussi quand la douchette est en mode SDK", &settings.flash_in_sdk_mode);
         ImGui::SeparatorText("Douchette (SDK Inateck)");
