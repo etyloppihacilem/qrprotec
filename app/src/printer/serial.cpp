@@ -2,12 +2,15 @@
 
 #include <cerrno>
 #include <cstring>
+#ifndef _WIN32
 #include <fcntl.h>
 #include <poll.h>
 #include <termios.h>
 #include <unistd.h>
+#endif
 
 namespace qrprotec {
+#ifndef _WIN32
 
 namespace {
 speed_t baud_constant(int baud_rate)
@@ -167,4 +170,36 @@ bool SerialPort::read_packet(std::uint8_t& command, std::vector<std::uint8_t>& p
     return true;
 }
 
+#else
+// Windows : pas d'impression (Linux seulement), les etiquettes partent au poste principal
+SerialPort::~SerialPort() = default;
+
+bool SerialPort::open(const SerialSettings&, std::string& error)
+{
+    error = "Impression non disponible sur Windows : les étiquettes s'impriment depuis le poste principal (Linux).";
+    return false;
+}
+
+void SerialPort::close() { file_descriptor_ = -1; }
+
+bool SerialPort::write_bytes(const std::vector<std::uint8_t>&, std::string& error)
+{
+    error = "Impression non disponible sur Windows : les étiquettes s'impriment depuis le poste principal (Linux).";
+    return false;
+}
+
+bool SerialPort::read_bytes(std::vector<std::uint8_t>&, std::size_t, std::string& error)
+{
+    error = "Impression non disponible sur Windows : les étiquettes s'impriment depuis le poste principal (Linux).";
+    return false;
+}
+
+void SerialPort::discard_input() {}
+
+bool SerialPort::read_packet(std::uint8_t&, std::vector<std::uint8_t>&, std::string& error)
+{
+    error = "Impression non disponible sur Windows : les étiquettes s'impriment depuis le poste principal (Linux).";
+    return false;
+}
+#endif
 } // namespace qrprotec

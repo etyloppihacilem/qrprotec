@@ -53,7 +53,11 @@ std::string trim(const std::string &value) {
 Date Date::today() {
   const std::time_t now = std::time(nullptr);
   std::tm           local{};
+#ifdef _WIN32
+  localtime_s(&local, &now);
+#else
   localtime_r(&now, &local);
+#endif
   return { local.tm_year + 1900, local.tm_mon + 1, local.tm_mday };
 }
 

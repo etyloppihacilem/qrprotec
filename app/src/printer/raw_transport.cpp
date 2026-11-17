@@ -4,11 +4,13 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#ifndef _WIN32
 #include <fcntl.h>
 #include <netdb.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 // macOS (front de bureau) : ni SOCK_CLOEXEC ni MSG_NOSIGNAL, on passe par fcntl et SO_NOSIGPIPE
 #ifndef MSG_NOSIGNAL
@@ -57,6 +59,7 @@ bool RawTransport::split_host_port(const std::string& address, std::string& host
     return true;
 }
 
+#ifndef _WIN32
 bool RawTransport::open(const std::string& address, int timeout_ms, std::string& error)
 {
     close();
@@ -231,5 +234,26 @@ bool RawTransport::write_bytes(const std::vector<std::uint8_t>& bytes, std::stri
     }
     return true;
 }
+
+#else
+// Windows : pas d'impression (Linux seulement), les etiquettes partent au poste principal
+bool RawTransport::open(const std::string&, int, std::string& error)
+{
+    error = "Impression non disponible sur Windows : les étiquettes s'impriment depuis le poste principal (Linux).";
+    return false;
+}
+
+void RawTransport::close() { file_descriptor_ = -1; }
+
+std::vector<std::uint8_t> RawTransport::read_reply(int, std::size_t, int) { return {}; }
+
+void RawTransport::drain() {}
+
+bool RawTransport::write_bytes(const std::vector<std::uint8_t>&, std::string& error)
+{
+    error = "Impression non disponible sur Windows : les étiquettes s'impriment depuis le poste principal (Linux).";
+    return false;
+}
+#endif
 
 } // namespace qrprotec

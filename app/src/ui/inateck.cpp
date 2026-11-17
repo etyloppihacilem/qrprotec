@@ -33,10 +33,8 @@ namespace qrprotec {
 namespace {
 
 std::filesystem::path hid_settings_path() {
-  const char* home = std::getenv("HOME");
-  if (!home || *home == '\0')
-    return ".qrprotec-inateck-hid.conf";
-  return std::filesystem::path(home) / ".config" / "qrprotec" / "inateck-hid.conf";
+  const std::filesystem::path directory = user_config_dir();
+  return directory.empty() ? std::filesystem::path(".qrprotec-inateck-hid.conf") : directory / "inateck-hid.conf";
 }
 
 constexpr int kVolumeFlag = 1001;

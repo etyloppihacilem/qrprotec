@@ -4,7 +4,11 @@
 #include <map>
 #include <mutex>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#else
 #include <syslog.h>
 #include <unistd.h>
 #endif
@@ -41,6 +45,23 @@ void write_log(int priority, const std::string& line)
 {
 #ifdef _WIN32
     (void)priority;
+    // pas de journal systeme ni de console (application fenetree) : %LOCALAPPDATA%\QRProtec\qrprotec.log, repris
+    // a zero quand il depasse 1 Mo
+    static std::ofstream file = [] {
+        std::ofstream output;
+        const char* base = std::getenv("LOCALAPPDATA");
+        if (!base || !*base)
+            return output;
+        std::error_code error;
+        const std::filesystem::path directory = std::filesystem::path(base) / "QRProtec";
+        std::filesystem::create_directories(directory, error);
+        const std::filesystem::path path = directory / "qrprotec.log";
+        const bool large = std::filesystem::file_size(path, error) > 1024 * 1024 && !error;
+        output.open(path, large ? std::ios::trunc : std::ios::app);
+        return output;
+    }();
+    if (file)
+        file << line << std::endl;
     std::cerr << line << std::endl;
 #else
     // syslog arrive dans journalctl quel que soit le devenir de la sortie d'erreur (Cage, bureau...),

@@ -10,24 +10,15 @@
 
 #include "connection.hpp"
 
-#include <cstring>
-#include <arpa/inet.h>
+#include "socket_compat.hpp"
+
 #include <cerrno>
+#include <cstring>
 #include <map>
 #include <mutex>
-#include <netdb.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-
-#ifndef MSG_NOSIGNAL
-// macOS : pas de MSG_NOSIGNAL, SIGPIPE est coupe par SO_NOSIGPIPE a l'ouverture du socket
-#define MSG_NOSIGNAL 0
-#endif
 
 namespace qrprotec {
 
@@ -62,6 +53,12 @@ SSL_CTX *tls_context(const std::string &ca_file, std::string &error) {
   SSL_CTX_set_options(context, SSL_OP_IGNORE_UNEXPECTED_EOF);
 #endif
   SSL_CTX_set_default_verify_paths(context);
+#ifdef _WIN32
+  // Windows : OpenSSL n'a pas de magasin par defaut, celui du systeme (autorites publiques, Let's Encrypt...) est
+  // lu par le fournisseur winstore (OpenSSL 3.2 et suivants)
+  if (SSL_CTX_load_verify_store(context, "org.openssl.winstore://") != 1)
+    ERR_clear_error();
+#endif
   if (!ca_file.empty() && SSL_CTX_load_verify_locations(context, ca_file.c_str(), nullptr) != 1) {
     error = "Certificat d'autorité illisible : " + ca_file + " (" + ssl_error_text() + ")";
     ERR_clear_error();
@@ -85,6 +82,10 @@ Connection::~Connection() {
 
 bool Connection::open(const HttpUrl &url, int timeout_ms, std::string &error) {
   close();
+  if (!sockets_ready()) {
+    error = "Réseau indisponible (Winsock)";
+    return false;
+  }
   addrinfo hints{};
   hints.ai_family   = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
@@ -94,25 +95,27 @@ bool Connection::open(const HttpUrl &url, int timeout_ms, std::string &error) {
     error = "Hôte introuvable : " + url.host + (resolved != 0 ? std::string(" (") + gai_strerror(resolved) + ")" : std::string());
     return false;
   }
-  timeval timeout{ timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
-  int     last_errno = 0;
+  int last_errno = 0;
   for (addrinfo *address = addresses; address && fd_ < 0; address = address->ai_next) {
-    const int fd = ::socket(address->ai_family, address->ai_socktype, address->ai_protocol);
+    const socket_handle fd = static_cast< socket_handle >(::socket(address->ai_family, address->ai_socktype, address->ai_protocol));
     if (fd < 0) {
       last_errno = errno;
       continue;
     }
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    set_socket_timeouts(fd, timeout_ms);
 #ifdef SO_NOSIGPIPE
     const int no_sigpipe = 1;
-    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+    setsockopt(native_socket(fd), SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
 #endif
-    if (::connect(fd, address->ai_addr, address->ai_addrlen) == 0) {
+    if (::connect(native_socket(fd), address->ai_addr, static_cast< int >(address->ai_addrlen)) == 0) {
       fd_ = fd;
     } else {
+#ifdef _WIN32
+      last_errno = last_socket_error() == WSAETIMEDOUT ? ETIMEDOUT : ECONNREFUSED;
+#else
       last_errno = errno;
-      ::close(fd);
+#endif
+      close_socket(fd);
     }
   }
   freeaddrinfo(addresses);
@@ -135,7 +138,7 @@ bool Connection::open(const HttpUrl &url, int timeout_ms, std::string &error) {
     close();
     return false;
   }
-  SSL_set_fd(ssl_, fd_);
+  SSL_set_fd(ssl_, static_cast< int >(fd_));
   if (is_ip_address(url.host)) {
     X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(ssl_), url.host.c_str());
   } else {
@@ -172,7 +175,11 @@ bool Connection::send_all(const std::string &data) {
         return false;
       }
     } else {
+#ifdef _WIN32
+      written = ::send(native_socket(fd_), data.data() + sent, static_cast< int >(data.size() - sent), 0);
+#else
       written = ::send(fd_, data.data() + sent, data.size() - sent, MSG_NOSIGNAL);
+#endif
       if (written < 0 && errno == EINTR)
         continue;
       if (written <= 0)
@@ -184,13 +191,30 @@ bool Connection::send_all(const std::string &data) {
 }
 
 long Connection::receive(char *buffer, std::size_t size) {
+#ifdef _WIN32
+  // Winsock ne passe pas par errno : delai depasse (SO_RCVTIMEO) traduit en EAGAIN, comme sous POSIX
+  if (!ssl_) {
+    const int received = ::recv(native_socket(fd_), buffer, static_cast< int >(size), 0);
+    if (received < 0)
+      errno = socket_timed_out(last_socket_error()) ? EAGAIN : EIO;
+    return received;
+  }
+#else
   if (!ssl_)
     return ::recv(fd_, buffer, size, 0);
+#endif
   const int received = SSL_read(ssl_, buffer, static_cast< int >(size));
   if (received > 0)
     return received;
   const int code = SSL_get_error(ssl_, received);
   ERR_clear_error();
+#ifdef _WIN32
+  if (code == SSL_ERROR_SYSCALL && socket_timed_out(last_socket_error())) {
+    errno = EAGAIN;
+    return -1;
+  }
+  errno = 0;
+#endif
   if (code == SSL_ERROR_ZERO_RETURN)
     return 0;
   if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) {
@@ -208,8 +232,10 @@ long Connection::receive(char *buffer, std::size_t size) {
 int Connection::wait_readable(int timeout_ms) {
   if (ssl_ && SSL_pending(ssl_) > 0)
     return 1; // deja dechiffre, le socket n'a peut-etre plus rien
-  pollfd    descriptor{ fd_, POLLIN, 0 };
-  const int ready = ::poll(&descriptor, 1, timeout_ms);
+  pollfd descriptor{};
+  descriptor.fd     = native_socket(fd_);
+  descriptor.events = POLLIN;
+  const int ready   = socket_poll(&descriptor, 1, timeout_ms);
   return ready < 0 ? (errno == EINTR ? 0 : -1) : ready > 0 ? 1 : 0;
 }
 
@@ -218,10 +244,8 @@ void Connection::close() {
     SSL_free(ssl_);
     ssl_ = nullptr;
   }
-  if (fd_ >= 0) {
-    ::shutdown(fd_, SHUT_RDWR);
-    ::close(fd_);
-  }
+  if (fd_ >= 0)
+    close_socket(fd_);
   fd_ = -1;
 }
 

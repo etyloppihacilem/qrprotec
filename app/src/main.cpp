@@ -7,6 +7,7 @@
 #include "printer/logging.hpp"
 #include "ui/inateck.hpp"
 #include "ui/widgets.hpp"
+#include "core/system.hpp"
 
 #include <GLFW/glfw3.h>
 #include "stb_image.h"
@@ -241,8 +242,35 @@ static void imgui_scroll_callback(GLFWwindow* window, double xoffset, double yof
     ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
 }
 
+#ifdef _WIN32
+// Windows (zip portable) : comme le lanceur qrprotec-front sous Linux / macOS, les modeles fournis (templates\ a
+// cote de l'executable) sont copies au premier lancement dans %APPDATA%\QRProtec\templates, modifiable, sans
+// ecraser ceux deja modifies. Les polices sont lues dans fonts\ a cote de l'executable.
+static void prepare_windows_user_files()
+{
+    namespace fs = std::filesystem;
+    if (const char* forced = std::getenv("QRPROTEC_TEMPLATES_DIR"); forced && *forced)
+        return;
+    const fs::path config = qrprotec::user_config_dir();
+    if (config.empty())
+        return;
+    const fs::path templates = config / "templates";
+    std::error_code error;
+    fs::create_directories(templates, error);
+    const fs::path bundled = qrprotec::executable_dir() / "templates";
+    if (fs::is_directory(bundled, error))
+        fs::copy(bundled, templates, fs::copy_options::recursive | fs::copy_options::skip_existing, error);
+    if (error)
+        qrprotec::error_log("Modèles fournis non copiés dans " + templates.string() + " : " + error.message(), "modèles");
+    _putenv_s("QRPROTEC_TEMPLATES_DIR", templates.string().c_str());
+}
+#endif
+
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    prepare_windows_user_files();
+#endif
     bool verbose = false;
     for (int index = 1; index < argc; ++index) {
         if (std::string(argv[index]) == "--verbose" || std::string(argv[index]) == "-v") {
@@ -295,6 +323,9 @@ int main(int argc, char** argv)
             window_width = mode->width;
             window_height = mode->height;
         }
+    } else {
+        // poste de bureau (Linux, macOS, Windows) : fenetre agrandie a tout l'ecran (pas en plein ecran)
+        glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
     }
     GLFWwindow* window = glfwCreateWindow(window_width, window_height, "QRProtec", nullptr, nullptr);
     if (window == nullptr) {

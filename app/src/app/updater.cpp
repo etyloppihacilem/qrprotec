@@ -22,15 +22,19 @@
 #include <sstream>
 #include <vector>
 
+#ifndef _WIN32
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
 
+#ifndef _WIN32
 extern char **environ;
+#endif
 
 #ifndef QRPROTEC_VERSION
 #define QRPROTEC_VERSION ""
@@ -44,6 +48,7 @@ extern char **environ;
 
 namespace qrprotec {
 
+#ifndef _WIN32
 namespace fs = std::filesystem;
 
 namespace {
@@ -389,5 +394,39 @@ void Updater::on_exit() {
   std::string error;
   install(false, error);
 }
+
+#else
+
+// Windows : pas de mise a jour automatique (zip portable), la nouvelle version se telecharge sur la page des releases
+std::string Updater::current_version() {
+  return QRPROTEC_VERSION;
+}
+
+Updater::Updater() {
+  status_.message = "Pas de mise à jour automatique sous Windows : téléchargez la dernière version "
+                    "(QRProtec-windows-x64.zip) sur https://github.com/" QRPROTEC_UPDATE_REPO "/releases.";
+}
+
+Updater::~Updater() = default;
+
+void Updater::start(bool) {}
+
+void Updater::set_enabled(bool) {}
+
+void Updater::check_now() {}
+
+Updater::Status Updater::status() const {
+  std::lock_guard< std::mutex > lock(mutex_);
+  return status_;
+}
+
+bool Updater::install(bool, std::string &error) {
+  error = "Pas de mise à jour automatique sous Windows";
+  return false;
+}
+
+void Updater::on_exit() {}
+
+#endif
 
 } // namespace qrprotec

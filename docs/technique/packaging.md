@@ -200,6 +200,28 @@ Construction hors tag (version `0.0.0`), RPM et Flatpak : pas de mise à jour pa
 Sans compte développeur Apple, la signature est ad hoc : macOS peut redemander l'autorisation Bluetooth
 (douchette) après une mise à jour. Le CI teste le script de remplacement sur le `.dmg` construit.
 
+## Application Windows (zip portable)
+
+`.github/workflows/windows.yml` construit le front pour Windows 10 et 11 x64 (runner `windows-latest`, MSVC,
+dépendances vcpkg en `x64-windows-static`, paquets vcpkg compilés gardés en cache) dans
+`QRProtec-windows-x64.zip`, joint aux releases sur un tag. Le zip contient `QRProtec.exe` (runtime C++ et
+bibliothèques liés statiquement), `inateck_scanner_ble.dll` (SDK Inateck, `app/scanner_lib/ble/windows`) avec
+`vcruntime140.dll` dont elle a besoin, `fonts\` et `templates\`.
+
+- Modèles copiés au premier lancement dans `%APPDATA%\QRProtec\templates` (comme le lanceur `qrprotec-front`
+  sous Linux et macOS), réglages dans `%APPDATA%\QRProtec`, journal dans `%LOCALAPPDATA%\QRProtec\qrprotec.log`
+  (pas de journal système ni de console).
+- Manifeste (`packaging/windows/qrprotec.manifest`, dans les ressources avec l'icône) : chaînes en UTF-8
+  (chemins avec accents), et pas de gestion de la haute résolution, donc Windows agrandit lui-même
+  l'interface à 125 / 150 %.
+- HTTPS : OpenSSL lit en plus le magasin de certificats de Windows (`org.openssl.winstore://`).
+- Pas d'impression (comme macOS, `kLocalPrinting`) : « Imprimer » envoie les étiquettes au poste principal.
+- Pas de mise à jour automatique ni de signature de code : SmartScreen demande une confirmation au premier
+  lancement.
+
+Le CI vérifie que l'exécutable ne dépend d'aucune DLL non fournie, lance les tests, puis démarre le zip
+décompressé et vérifie la copie des modèles.
+
 ## Publication (CI)
 
 `.github/workflows/rpm.yml` : à chaque push sur `main` touchant le code ou le packaging, construit les
