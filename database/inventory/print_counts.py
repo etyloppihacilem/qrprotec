@@ -35,9 +35,23 @@ class CountError(Exception):
     pass
 
 
+def parse_decimal(value):
+    """Nombre saisi : « 2,5 » comme « 2.5 » (virgule ou point), espaces ignores. Leve InvalidOperation /
+    ValueError / TypeError si ce n'est pas un nombre fini."""
+    if isinstance(value, bool) or value is None:
+        raise TypeError('nombre attendu')
+    text = str(value).strip().replace('\u202f', '').replace('\xa0', '').replace(' ', '')
+    if text.count(',') == 1 and '.' not in text:
+        text = text.replace(',', '.')
+    number = Decimal(text)
+    if not number.is_finite():
+        raise InvalidOperation('nombre fini attendu')
+    return number
+
+
 def _mm(value, field):
     try:
-        number = Decimal(str(value)).quantize(Decimal('0.1'))
+        number = parse_decimal(value).quantize(Decimal('0.1'))
     except (InvalidOperation, ValueError, TypeError):
         raise CountError(f'{field} : nombre attendu')
     if not MIN_MM <= number <= MAX_MM:

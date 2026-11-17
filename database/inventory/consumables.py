@@ -29,7 +29,7 @@ from .idendity import identity_name
 from .models import (
     ConsumableKind, ConsumableMove, ConsumableMoveKind, ConsumableRef, LabelSupport, PrintCount, ServerSettings,
 )
-from .print_counts import category_label, _number
+from .print_counts import category_label, parse_decimal, _number
 
 RIBBON_GAP_MM = Decimal(3)  # espace entre deux etiquettes sur le ruban (etiquettes pre-decoupees)
 RATE_DAYS = 90              # consommation moyenne sur les 90 derniers jours
@@ -99,7 +99,7 @@ def _euros(value):
 
 def _decimal(value, field, minimum, maximum, places='0.1'):
     try:
-        number = Decimal(str(value)).quantize(Decimal(places))
+        number = parse_decimal(value).quantize(Decimal(places))
     except (InvalidOperation, ValueError, TypeError):
         raise ConsumableError(f'{field} : nombre attendu')
     if not minimum <= number <= maximum:
@@ -231,7 +231,7 @@ def _consumption(key, since=None, until=None):
         return int(total)
     width, rest = key.split('x', 1)
     height, support = rest.rsplit('-', 1)
-    return rows.filter(width_mm=Decimal(width.replace(',', '.')), height_mm=Decimal(height.replace(',', '.')),
+    return rows.filter(width_mm=parse_decimal(width), height_mm=parse_decimal(height),
                        support=support).aggregate(total=Sum('count'))['total'] or 0
 
 

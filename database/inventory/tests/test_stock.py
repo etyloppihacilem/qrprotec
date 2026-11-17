@@ -751,6 +751,18 @@ class ConsumableTests(ApiTestCase):
         self.assertEqual(self.call('POST', '/api/consumables/moves/', {'ref': self.vellum['id'], 'kind': 'reception',
                                                                        'boxes': 1})[0], 400)
 
+    def test_decimal_comma_or_point(self):
+        # « 2,5 » comme « 2.5 » : virgule ou point dans tous les champs a virgule
+        ref = self.ref({'kind': 'labels', 'name': 'Vélin 50,5', 'width_mm': '50,5', 'height_mm': '25.5',
+                        'support': 'direct', 'per_roll': 1000, 'per_box': 6, 'box_price': '57,50'})
+        self.assertEqual((ref['width_mm'], ref['height_mm'], ref['box_price']), (50.5, 25.5, 57.5))
+        ribbon = self.ref({'kind': 'ribbon', 'name': 'Ruban 74,5', 'length_m': '74,5', 'per_box': 1,
+                           'box_price': ' 1 062,50 '})
+        self.assertEqual((ribbon['length_m'], ribbon['box_price']), (74.5, 1062.5))
+        for bad in ('NaN', 'Infinity', '1,2,3', 'abc', True):
+            code, body = self.call('PATCH', f"/api/consumables/refs/{self.vellum['id']}/", {'box_price': bad})
+            self.assertEqual(code, 400, (bad, body))
+
     def test_access(self):
         self.assertEqual(self.call('GET', '/api/consumables/', local=False)[0], 404)
         self.assertEqual(self.call('GET', '/api/consumables/', session=False)[0], 403)
