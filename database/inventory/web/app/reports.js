@@ -7,7 +7,7 @@
 // inutilisable, il est a remplacer comme un perime.
 
 const badLabel = (info) => (!info || info.outdated ? 'PÉRIMÉ' : info.disabled ? 'DÉSACTIVÉ' : info.unusable ? 'INUTILISABLE'
-  : info.revision_late ? 'RÉVISION EN RETARD' : 'PÉRIMÉ');
+  : info.revision_late ? 'RÉVISION EN RETARD' : info.disinfection_late ? 'DÉSINFECTION EN RETARD' : 'PÉRIMÉ');
 let loginAction = null; // {action, at} : a lancer une fois connecte
 
 function setLoginAction(action) {

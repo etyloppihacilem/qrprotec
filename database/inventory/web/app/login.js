@@ -184,14 +184,16 @@ async function loadStock() {
   state.loading = 'stock';
   render();
   try {
-    const [stock, forecast, tasks] = await Promise.all([
+    const [stock, forecast, tasks, events] = await Promise.all([
       api('stock/summary/', { user: badge() }),
       api('stock/forecast/summary/', { user: badge(), months: 6 }).catch(() => null),
       api('tasks/summary/', { user: badge() }).catch(() => null),
+      api('events/summary/', { user: badge(), days: state.eventsDays || 90 }).catch(() => null),
     ]);
     state.stock = stock;
     state.forecast = forecast;
     state.tasks = tasks;
+    state.events = events;
   } catch (e) {
     toast('Gestion : ' + e.message, true);
     if (e.data && e.data.pin_required) { state.user = null; save(); } // session expiree : rescanner le badge

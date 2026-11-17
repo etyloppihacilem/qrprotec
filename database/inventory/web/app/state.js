@@ -74,7 +74,10 @@ const state = {
   pinReset: null,    // {matricule, token} : deblocage du PIN d'un utilisateur, en attente d'un admin connecte
   loading: '',       // 'lots' ou 'stock' pendant un chargement
   homePage: 'menu',  // page affichee : 'menu', 'lots', 'live', 'stock' (accueil) ou 'scan' (scanner)
-  homeView: 'tasks', // page « Gestion de la TECH » : 'tasks' (à faire), 'stock' (etat actuel) ou 'forecast'
+  events: null,      // evenements a venir de la gestion (onglet « À venir », separe des taches)
+  eventsDays: 90,    // horizon des evenements a venir (30, 90 ou 365 jours)
+  eventsKind: '',    // filtre des evenements a venir par genre ('' : tout)
+  homeView: 'tasks', // page « Gestion de la TECH » : 'tasks' (à faire), 'events' (à venir), 'stock' (etat actuel) ou 'forecast'
   reports: null,     // signalements : {counts, reports, can_manage}
   reportsShow: 'open', // 'open' (en cours) ou 'all'
   reportsBusy: false,

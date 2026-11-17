@@ -440,8 +440,8 @@ function liveSnapshot(remaining) {
     entries: state.scanned.map(({ code, kind, iid, key, expired, error, items, info, place }) => ({
       code, kind, iid, key, expired, error, items, place,
       info: info ? { type: info.type, type_name: info.type_name, peremption: info.peremption, count: info.count,
-        // revision en retard seule : jamais a jeter (planSession, discard)
-        revision_late: !!info.revision_late, outdated: !!info.outdated, unusable: !!info.unusable, disabled: !!info.disabled } : null,
+        // revision (ou desinfection) en retard seule : jamais a jeter (planSession, discard)
+        revision_late: !!(info.revision_late || info.disinfection_late), outdated: !!info.outdated, unusable: !!info.unusable, disabled: !!info.disabled } : null,
     })),
     keys: sessionEntries(),
     labels: state.labels,

@@ -257,7 +257,7 @@
       <p id="revision-sub" class="hint"></p>
       <p id="revision-intro">Cochez toutes les tâches de la révision.</p>
       <ul id="revision-list" class="tasks"></ul>
-      <label class="revision-next">Prochaine révision le
+      <label class="revision-next"><span id="revision-next-label">Prochaine révision le</span>
         <input type="date" id="revision-next" required></label>
       <p id="revision-next-hint" class="hint"></p>
       <textarea id="revision-note" rows="2" maxlength="256" placeholder="Remarque (facultatif)"></textarea>
@@ -265,6 +265,27 @@
       <div class="dialog-buttons">
         <button type="button" id="revision-cancel" class="secondary">Annuler</button>
         <button type="submit" id="revision-ok" class="primary">Enregistrer la révision</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Date de revision ou de desinfection saisie a la main (gestion/admin) : derniere faite et/ou prochaine -->
+  <dialog id="maintenance-date">
+    <form id="maintenance-form">
+      <h2 id="maintenance-title">Date</h2>
+      <p id="maintenance-sub" class="hint"></p>
+      <p>Pour du matériel entretenu ailleurs ou un cycle à recaler : indiquez la dernière faite, ou directement la
+        prochaine. Aucun entretien n'est enregistré comme fait aujourd'hui.</p>
+      <label class="revision-next"><span id="maintenance-last-label">Dernière faite le</span>
+        <input type="date" id="maintenance-last"></label>
+      <label class="revision-next"><span id="maintenance-next-label">Prochaine le</span>
+        <input type="date" id="maintenance-next"></label>
+      <p id="maintenance-hint" class="hint"></p>
+      <textarea id="maintenance-note" rows="2" maxlength="256" placeholder="Remarque (facultatif)"></textarea>
+      <p id="maintenance-error" class="pin-error"></p>
+      <div class="dialog-buttons">
+        <button type="button" id="maintenance-cancel" class="secondary">Annuler</button>
+        <button type="submit" id="maintenance-ok" class="primary">Enregistrer la date</button>
       </div>
     </form>
   </dialog>
