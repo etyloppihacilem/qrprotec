@@ -49,6 +49,7 @@ class LotPanel {
     virtual void        draw_lot_order(App &app)                      = 0;
     virtual std::string draw_archived(App &app)                       = 0; // id du lot archive choisi, vide sinon
     virtual void        draw_lot_types(App &app)                      = 0;
+    virtual void        select_lot_type(App &app, const std::string &code) = 0; // formulaire de ce type
     virtual void        reset()                                       = 0;
 };
 std::unique_ptr< LotPanel > make_lot_panel();
@@ -59,6 +60,7 @@ class InventoryPanel {
     virtual ~InventoryPanel()              = default;
     virtual void draw_item_types(App &app) = 0;
     virtual void draw_equipment(App &app)  = 0;
+    virtual void select_item_type(App &app, const std::string &code) = 0; // formulaire de ce type
     virtual void reset()                   = 0;
 };
 std::unique_ptr< InventoryPanel > make_inventory_panel();

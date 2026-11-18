@@ -525,6 +525,30 @@ class App {
       item_to_show_ = iid;
       show_stock_tab("items");
     }
+    // Lots ouverts sur un mode de gestion : "new" (nouveau lot), "order" (ordre des lots), "archived"
+    std::string lots_mode_to_open_;
+    void        show_lots_mode(const std::string &mode) {
+      lots_mode_to_open_ = mode;
+      open_window("lots");
+    }
+    // Catalogue ouvert sur un type : "lot:<code>" (type de lot) ou "item:<code>" (type d'item)
+    std::string catalogue_type_to_show_;
+    void        show_catalogue_type(const std::string &key) {
+      catalogue_type_to_show_ = key;
+      open_window("catalogue");
+    }
+    // Hub « Outils » (Ctrl+K, bouton de la barre) : toutes les fenetres en tuiles par question, et recherche
+    // « Aller a... » d'un lot, d'un item, d'un type, d'une fenetre ou d'une action. Par-dessus l'ecran, ferme des
+    // qu'on choisit : il ne prend aucune place en permanence.
+    struct Hub {
+        bool        open    = false;
+        bool        focus   = false;
+        int         cursor  = 0;
+        int         opened_frame = -1; // le Ctrl+K qui l'ouvre ne le referme pas
+        std::string query;
+    } hub_;
+    void open_hub();
+    void draw_hub();
     // Reglages ouverts sur une section (depliee, en haut), depuis le menu qui la concerne
     std::string settings_section_;
     void        open_settings_section(const std::string &label) {

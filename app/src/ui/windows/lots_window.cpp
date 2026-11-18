@@ -90,6 +90,12 @@ class LotsWindow final : public AppWindow {
       // gestion et admins : gestion des lots (ex-fenetre Gestion des lots) depuis la liste des lots
       if (app.privileged()) {
         panel_->sync(app);
+        // mode demande depuis le hub (« Aller a... ») : nouveau lot, ordre, archives
+        if (const std::string mode = std::exchange(app.lots_mode_to_open_, std::string()); !mode.empty()) {
+          if (mode == "new")
+            panel_->start_new();
+          mode_ = mode == "new" ? Mode::New : mode == "order" ? Mode::Order : Mode::Archived;
+        }
         if (button("Nouveau lot...")) {
           panel_->start_new();
           mode_ = Mode::New;

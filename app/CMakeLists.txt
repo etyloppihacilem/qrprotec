@@ -224,6 +224,7 @@ add_executable(${PROJECT_NAME}
     src/app/app_setup.cpp
     src/app/app_verifs.cpp
     src/app/app_windows.cpp
+    src/app/hub.cpp
     src/app/feedback.cpp
     src/app/label_prints.cpp
     src/app/poste_actions.cpp
