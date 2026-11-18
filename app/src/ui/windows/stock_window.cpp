@@ -433,7 +433,7 @@ class StockWindow final : public AppWindow {
             if (small_button((std::string("Ouvrir ") + name).c_str()))
               app.open_window(id);
           } else
-            ImGui::TextDisabled("%s : réservé aux admins", name);
+            ImGui::TextDisabled("%s : à faire par un admin", name);
         }
       }
       ImGui::EndGroup();

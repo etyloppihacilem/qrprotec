@@ -496,13 +496,13 @@ void App::begin_frame() {
   check_inactivity();
   if (!setup_known_ && ImGui::GetTime() >= next_setup_check_)
     check_setup();
-  if (admin() && ImGui::GetTime() >= next_reports_poll_)
+  if (privileged() && ImGui::GetTime() >= next_reports_poll_)
     refresh_report_counts();
   // impressions demandees depuis le web ou un autre ordinateur : verifiees meme sans personne de connecte, sur le
   // poste principal seulement (API locale, ou cle marquee poste sur un back sans kiosk)
   // Sur un autre ordinateur, les admins voient les files du poste tant que leur fenetre est ouverte. Le poste
   // principal n'imprime que sous Linux (kLocalPrinting).
-  if (((kLocalPrinting && main_poste()) || (label_prints_.open && label_prints_.remote && admin())) && !label_prints_.loading
+  if (((kLocalPrinting && main_poste()) || (label_prints_.open && label_prints_.remote && privileged())) && !label_prints_.loading
       && ImGui::GetTime() >= label_prints_.next_poll)
     refresh_label_prints();
   // cache de vérif tenu a jour toutes les minutes (vérif possible hors connexion), envois en attente reessayes
@@ -653,14 +653,9 @@ void App::draw_menu_bar() {
     }
     // Gestion : le stock (roles gestion et admin) ; Administration : ce qui est reserve aux admins
     if (privileged() && bar_menu(bar, "Gestion")) {
+      // paquet ferme : ouvert au scan d'un paquet ou depuis l'Inventaire, vide depuis le menu
       for (auto &window : windows)
-        if (window->privileged && !window->admin_only && can_open(*window))
-          window_menu_item(*window);
-      ImGui::EndMenu();
-    }
-    if (admin() && bar_menu(bar, "Administration")) {
-      for (auto &window : windows)
-        if (window->privileged && window->admin_only && can_open(*window))
+        if (window->privileged && !window->admin_only && window->id != "pack" && can_open(*window))
           window_menu_item(*window);
       // autre ordinateur que le poste (ou poste sans impression : Windows, macOS) : files d'impression du poste,
       // gerees et lancees a distance
@@ -671,6 +666,12 @@ void App::draw_menu_bar() {
           open_label_prints();
         }
       }
+      ImGui::EndMenu();
+    }
+    if (admin() && bar_menu(bar, "Administration")) {
+      for (auto &window : windows)
+        if (window->privileged && window->admin_only && can_open(*window))
+          window_menu_item(*window);
       ImGui::EndMenu();
     }
     // voyant : lots qui demandent de l'attention (rouge s'il y en a d'incomplets ou perimes, orange sinon)
@@ -689,13 +690,13 @@ void App::draw_menu_bar() {
         ImGui::EndTooltip();
       }
     }
-    // admins : signalements pas encore pris en charge
-    const int fresh_reports = admin() ? report_counts["new"].integer() : 0;
+    // gestion et admins : signalements pas encore pris en charge
+    const int fresh_reports = privileged() ? report_counts["new"].integer() : 0;
     if (fresh_reports > 0) {
       const std::string label = "⚠ " + std::to_string(fresh_reports) + " signalement" + (fresh_reports > 1 ? "s" : "");
       if (bar_item(bar, label.c_str(), bar.red))
         open_window("reports");
-      ImGui::SetItemTooltip("Problèmes signalés pas encore pris en charge : ouvrir la gestion des signalements.");
+      ImGui::SetItemTooltip("Problèmes signalés pas encore pris en charge : ouvrir les signalements.");
     }
     // etiquettes demandees depuis le web pas encore imprimees (tout le monde, connecte ou non)
     if (const int requests = static_cast< int >(label_prints_.data["pending"].size()); requests > 0) {

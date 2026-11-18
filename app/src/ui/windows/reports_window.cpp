@@ -8,6 +8,7 @@
 
 ##################################################################################################################### */
 
+#include "../../core/plural.hpp"
 #include "../widgets.hpp"
 #include "windows.hpp"
 
@@ -53,7 +54,7 @@ std::string report_state_text(const Json &report) {
 // inutilisable, vert s'il l'est toujours), resolu (vert). Meme page que « Signalements » sur le front web.
 class ReportsWindow final : public AppWindow {
   public:
-    ReportsWindow() : AppWindow("reports", "Signalements", true, true) { admin_only = true; }
+    ReportsWindow() : AppWindow("reports", "Signalements", true, true) {} // gestion : lecture, admins : traitement
 
     void on_open(App &app) override { load(app); }
 
@@ -77,7 +78,7 @@ class ReportsWindow final : public AppWindow {
       if (button(loading_ ? "Chargement..." : "Actualiser"))
         load(app);
       ImGui::SameLine();
-      ImGui::TextDisabled("%d nouveau(x), %d en cours", app.report_counts["new"].integer(),
+      ImGui::TextDisabled("%s, %d en cours", nb(app.report_counts["new"].integer(), "nouveau", "nouveaux").c_str(),
                           app.report_counts["progress"].integer());
       ImGui::TextDisabled("Rouge : nouveau. Orange : en cours, objet inutilisable (à remplacer). Vert : en cours et "
                           "toujours utilisable, ou résolu.");
@@ -217,6 +218,12 @@ class ReportsWindow final : public AppWindow {
       if (!report["updated"].is_null())
         ImGui::TextDisabled("Mis à jour %s par %s", display_on(report["updated"], true).c_str(),
                             report["updated_by"].str("-").c_str());
+      // gestion : lecture seule, le traitement (statut, reponse, resolution) reste aux admins
+      if (!app.admin()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Lecture seule : un admin prend en charge et résout les signalements.");
+        return;
+      }
       // reponse enregistree par le bouton choisi : « En cours » (remplace la precedente) ou « Résolu » (resolution)
       Json        changes;
       const char *text_key = nullptr;

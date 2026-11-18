@@ -316,8 +316,8 @@ void App::draw_label_queue(const Json &queue) {
 
 void App::draw_label_prints() {
   LabelPrints &state = label_prints_;
-  // fenetre des files du poste sur un autre ordinateur : admins seulement
-  if (state.open && state.remote && !admin())
+  // fenetre des files du poste sur un autre ordinateur : gestion et admins
+  if (state.open && state.remote && !privileged())
     state.open = false;
   if (!state.open) {
     // fermee : la prochaine ouverture repart sans file choisie ni badge
@@ -502,8 +502,8 @@ void App::draw_label_prints() {
     if (button("Fermer") || escape_pressed())
       state.open = false;
   }
-  // admins : annuler toute une file (sur le poste comme a distance)
-  if (shown != nullptr && admin()) {
+  // gestion et admins : annuler toute une file (sur le poste comme a distance)
+  if (shown != nullptr && privileged()) {
     ImGui::SameLine();
     if (danger_button("Annuler cette file"))
       ImGui::OpenPopup("cancel_label_queue");

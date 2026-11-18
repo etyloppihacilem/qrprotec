@@ -56,18 +56,18 @@ def label_prints_list(request):
 @api_view(['POST'])
 @handle_errors
 def label_print_queues(request):
-    """Admins, du web ou d'un autre ordinateur : files d'impression en attente au poste (une par personne qui
-    demande), avec leurs demandes."""
-    connected_user(request, ADMIN)
+    """Gestion et admins, du web ou d'un autre ordinateur : files d'impression en attente au poste (une par personne
+    qui demande), avec leurs demandes."""
+    connected_user(request, GESTION)
     return Response(label_prints.admin_queues(matricules=is_front(request)))
 
 
 @api_view(['POST'])
 @handle_errors
 def label_print_queue_action(request, action):
-    """Admins, du web ou d'un autre ordinateur : {"queue"} → « launch » (le poste imprime la file a son prochain
+    """Gestion et admins, du web ou d'un autre ordinateur : {"queue"} → « launch » (le poste imprime la file a son prochain
     passage, toutes les 20 s) ou « cancel » (toute la file annulee)."""
-    user = connected_user(request, ADMIN)
+    user = connected_user(request, GESTION)
     by = f'{SOURCE_VERIFIED}:{user.matricule}'
     queue = request.data.get('queue')
     if action == 'launch':
