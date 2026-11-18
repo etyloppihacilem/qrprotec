@@ -15,6 +15,8 @@
 #include "../widgets.hpp"
 #include "windows.hpp"
 
+#include <utility>
+
 namespace qrprotec {
 
 namespace {
@@ -35,13 +37,24 @@ class CatalogueWindow final : public AppWindow {
     }
 
     void draw(App &app) override {
+      // type choisi depuis le hub (« Aller a... ») : son onglet et son formulaire
+      std::string select;
+      if (std::string key = std::exchange(app.catalogue_type_to_show_, std::string()); !key.empty()) {
+        const std::size_t colon = key.find(':');
+        select                  = key.substr(0, colon);
+        const std::string code  = colon == std::string::npos ? std::string() : key.substr(colon + 1);
+        if (select == "lot")
+          lots_->select_lot_type(app, code);
+        else
+          items_->select_item_type(app, code);
+      }
       if (!ImGui::BeginTabBar("catalogue_tabs"))
         return;
-      if (tab_item("Types de lots")) {
+      if (tab_item("Types de lots", select == "lot" ? ImGuiTabItemFlags_SetSelected : 0)) {
         lots_->draw_lot_types(app);
         ImGui::EndTabItem();
       }
-      if (tab_item("Types d'items")) {
+      if (tab_item("Types d'items", select == "item" ? ImGuiTabItemFlags_SetSelected : 0)) {
         items_->draw_item_types(app);
         ImGui::EndTabItem();
       }

@@ -2712,6 +2712,12 @@ class LotPanelImpl final : public LotPanel {
       admin_.draw_lot_types(app);
     }
 
+    void select_lot_type(App &app, const std::string &code) override {
+      for (const Json &lot_type : app.catalog.lot_types.items())
+        if (lot_type["type"].str() == code)
+          admin_.edit_lot_type(lot_type);
+    }
+
     void reset() override {
       admin_.selected_lot_.clear();
       admin_.lot_ = Json();

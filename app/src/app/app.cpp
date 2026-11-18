@@ -383,9 +383,10 @@ AppWindow *App::window(const std::string &id) {
 }
 
 // Raccourcis d'ouverture : touches de fonction, F1 a F4 pour les fenetres de tous (pile de scans, lots, listes de
-// materiel, telephone ; la verif s'ouvre d'elle-meme au scan d'un lot) puis F5 a F12 pour celles des
-// menus Gestion puis Administration (dans l'ordre de windows, sauf les paquets fermes, ouverts depuis le scan d'un
-// paquet) : Signalements en F11, Reglages toujours en F12. Elles ne tapent rien dans les champs. Ctrl+chiffre
+// materiel, telephone ; la verif s'ouvre d'elle-meme au scan d'un lot) puis F5 a F12 pour celles de la gestion
+// et de l'administration (dans l'ordre de windows, sauf les paquets fermes, ouverts depuis le scan d'un paquet, et
+// les impressions, dans le menu Impression) : Gestion de la TECH F5, Stock F6, Catalogue F7, Journal F8,
+// Utilisateurs F9, Editeur F10, Signalements F11, Reglages toujours en F12. Toutes sont aussi dans le hub (Ctrl+K). Elles ne tapent rien dans les champs. Ctrl+chiffre
 // choisit l'onglet d'une fenetre (tab_item dans widgets.hpp).
 void App::assign_shortcuts() {
   std::vector< AppWindow * > ordered;
@@ -408,9 +409,14 @@ void App::handle_shortcuts() {
     manual_logout();
     return;
   }
-  // fenetre modale (connexion, PIN...) : elle garde la main
+  // fenetre modale (connexion, PIN...) : elle garde la main (le hub gere lui-meme Ctrl+K pour se fermer)
   if (ImGui::GetTopMostPopupModal() != nullptr)
     return;
+  // Ctrl+K : hub « Outils » (fenetres en tuiles, recherche « Aller a... »), meme pendant une saisie
+  if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_K, ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverActive)) {
+    open_hub();
+    return;
+  }
   for (auto &target : windows)
     if (target->shortcut && can_open(*target) && ImGui::IsKeyChordPressed(target->shortcut)) {
       // deja au premier plan : le meme raccourci la ferme (comme le menu Fenetres)
@@ -578,6 +584,7 @@ void App::draw() {
   handle_shortcuts();
   draw_menu_bar();
   draw_windows();
+  draw_hub();
   draw_label_prints();
   draw_roll_change_modal();
   draw_roll_wizard();
@@ -606,10 +613,28 @@ void App::draw_menu_bar() {
   if (ImGui::BeginMainMenuBar()) {
     const BarColors bar = bar_colors(tinted);
     menu_bar_height_    = ImGui::GetWindowSize().y;
+    // hub « Outils » : toutes les fenetres par question et la recherche « Aller a... » (remplace les menus
+    // Gestion et Administration)
+    if (bar_item(bar, "☰ Outils", bar.text))
+      open_hub();
+    ImGui::SetItemTooltip("Toutes les fenêtres et « Aller à… » (Ctrl+K)");
     if (bar_menu(bar, "Fenêtres")) {
-      for (auto &window : windows)
-        if (!window->privileged)
+      if (ImGui::MenuItem("Outils et recherche...", "Ctrl+K"))
+        open_hub();
+      ImGui::Separator();
+      // toutes les fenetres permises, par groupe (terrain, gestion, administration), comme les tuiles du hub
+      for (int group = 0; group < 3; ++group) {
+        bool any = false;
+        for (auto &window : windows) {
+          const int level = !window->privileged ? 0 : window->admin_only ? 2 : 1;
+          if (level != group || !can_open(*window) || window->id == "pack" || window->id == "print_counts")
+            continue;
+          if (!any && group > 0)
+            ImGui::SeparatorText(group == 1 ? "Gestion" : "Administration");
+          any = true;
           window_menu_item(*window);
+        }
+      }
       ImGui::Separator();
       if (ImGui::MenuItem("Plein écran", "Ctrl+F11", fullscreen_))
         toggle_fullscreen();
@@ -652,22 +677,6 @@ void App::draw_menu_bar() {
       // fenetres ouvertes au demarrage (section des Reglages, admins)
       if (admin() && ImGui::MenuItem("Disposition par défaut..."))
         open_settings_section("Disposition par défaut");
-      ImGui::EndMenu();
-    }
-    // Gestion : le stock (roles gestion et admin) ; Administration : ce qui est reserve aux admins
-    if (privileged() && bar_menu(bar, "Gestion")) {
-      // paquet ferme : ouvert au scan d'un paquet ou depuis l'Inventaire, vide depuis le menu ; impressions et
-      // consommables : dans le menu Impression
-      for (auto &window : windows)
-        if (window->privileged && !window->admin_only && window->id != "pack" && window->id != "print_counts"
-            && can_open(*window))
-          window_menu_item(*window);
-      ImGui::EndMenu();
-    }
-    if (admin() && bar_menu(bar, "Administration")) {
-      for (auto &window : windows)
-        if (window->privileged && window->admin_only && can_open(*window))
-          window_menu_item(*window);
       ImGui::EndMenu();
     }
     // voyant : lots qui demandent de l'attention (rouge s'il y en a d'incomplets ou perimes, orange sinon)

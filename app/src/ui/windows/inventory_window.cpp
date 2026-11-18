@@ -211,6 +211,11 @@ class InventoryWindow final : public AppWindow {
         stock_select_ = tab;
         if (tab == "stock")
           stock_projection_ = false;
+        if (tab == "reception" || tab == "past_receptions") {
+          past_receptions_ = tab == "past_receptions";
+          if (past_receptions_)
+            load_receptions(app);
+        }
       }
       if (std::string iid = std::exchange(app.item_to_show_, std::string()); !iid.empty()) {
         search_text_ = iid;
@@ -233,7 +238,9 @@ class InventoryWindow final : public AppWindow {
       if (!ImGui::BeginTabBar("inventory_tabs"))
         return;
       const bool show_past = show_receptions_;
-      if (tab_item("Réception", (std::exchange(first_tab_, false) || show_past) ? ImGuiTabItemFlags_SetSelected : 0)) {
+      const bool reception = std::exchange(first_tab_, false) || show_past || stock_select_ == "reception"
+                          || stock_select_ == "past_receptions";
+      if (tab_item("Réception", reception ? ImGuiTabItemFlags_SetSelected : 0)) {
         // nouvelle reception ou historique des receptions, dans le meme onglet
         if (show_past)
           past_receptions_ = true;
@@ -2506,6 +2513,12 @@ class InventoryPanelImpl final : public InventoryPanel {
     }
 
     void draw_equipment(App &app) override { inventory_.draw_equipment(app); }
+
+    void select_item_type(App &app, const std::string &code) override {
+      for (const Json &item_type : app.catalog.item_types.items())
+        if (item_type["type"].str() == code)
+          inventory_.edit_type(item_type);
+    }
 
     void reset() override {
       inventory_.clear_type_form();
