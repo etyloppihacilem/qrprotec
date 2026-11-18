@@ -168,9 +168,9 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_lots_window());
   windows.push_back(make_verif_window());
   windows.push_back(make_stock_window());
-  windows.push_back(make_inventory_window());
+  windows.push_back(make_inventory_window()); // Stock
+  windows.push_back(make_catalogue_window());
   windows.push_back(make_pack_window());
-  windows.push_back(make_lot_admin_window());
   windows.push_back(make_journal_window());
   windows.push_back(make_users_window());
   windows.push_back(make_editor_window());

@@ -54,7 +54,7 @@ AppSettings AppSettings::defaults() {
   settings.layout["inventory"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["pack"]      = { false, 0.30f, 0.15f, 0.40f, 0.55f };
   settings.layout["phone"]     = { false, 0.30f, 0.08f, 0.36f, 0.80f };
-  settings.layout["lot_admin"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["catalogue"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["users"]     = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["journal"]   = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["reports"]   = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };

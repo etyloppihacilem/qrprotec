@@ -38,7 +38,9 @@ class StockWindow final : public AppWindow {
     }
 
     void reset_view(App &) override {
-      select_ = "tasks";
+      select_        = "tasks";
+      all_equipment_ = false;
+      equipment_->reset();
       event_kind_.clear();
     }
 
@@ -60,7 +62,19 @@ class StockWindow final : public AppWindow {
       const std::string events_tab = "À venir" + (late > 0 ? " (" + std::to_string(late) + " en retard)" : std::string())
                                    + "###events";
       if (tab_item(events_tab.c_str(), select_ == "events" ? ImGuiTabItemFlags_SetSelected : 0)) {
-        draw_events(app);
+        // par date (evenements) ou tout le materiel suivi, sans horizon (ex-onglet Materiel de l'Inventaire)
+        if (ImGui::RadioButton("Par date", !all_equipment_))
+          all_equipment_ = false;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Tout le matériel suivi", all_equipment_))
+          all_equipment_ = true;
+        ImGui::SameLine();
+        help_marker("Matériel non consommable et lots suivis (révision, désinfection), avec leur cycle. La "
+                    "périodicité se règle sur le type d'item (Catalogue) ou sur la fiche du lot.");
+        if (all_equipment_)
+          equipment_->draw_equipment(app);
+        else
+          draw_events(app);
         ImGui::EndTabItem();
       }
       ImGui::EndTabBar();
@@ -71,6 +85,8 @@ class StockWindow final : public AppWindow {
     std::map< std::string, int > order_quantities_; // quantite de la case « Commandé », par type d'item
     std::string event_kind_; // filtre des evenements a venir ('' : tout)
     std::string select_; // onglet a ouvrir (tasks : vue par defaut)
+    bool        all_equipment_ = false; // À venir : tout le materiel suivi au lieu des evenements par date
+    std::unique_ptr< InventoryPanel > equipment_ = make_inventory_panel();
 
     // ---- À faire : liste de taches de la gestion, par priorite ----
     void draw_tasks(App &app) {
@@ -279,7 +295,7 @@ class StockWindow final : public AppWindow {
         if (small_button("Listes de matériel"))
           app.open_window("lists");
       } else if (row["link"].str() == "users" || row["link"].str() == "lot_admin") {
-        ImGui::TextDisabled(row["link"].str() == "users" ? "Administration › Utilisateurs" : "Gestion › Gestion des lots");
+        ImGui::TextDisabled(row["link"].str() == "users" ? "Administration › Utilisateurs" : "Lots (F2), fiche du lot");
       }
       ImGui::EndGroup();
       ImGui::EndChild();
@@ -339,7 +355,7 @@ class StockWindow final : public AppWindow {
       } else {
         static const std::pair< const char *, const char * > windows[] = {
           { "reports", "Signalements" }, { "lists", "Listes de matériel" }, { "users", "Utilisateurs" },
-          { "inventory", "Stock" }, { "lot_admin", "Gestion des lots" },
+          { "inventory", "Stock" }, { "catalogue", "Catalogue" }, { "lots", "Lots" },
         };
         for (const auto &[id, name] : windows) {
           if (link != id)

@@ -161,7 +161,11 @@ void colored_count(int value, const ImVec4 &color) {
 
 // Stock (ex-Inventaire) : reception des commandes, etat du stock et projection, items, paquets fermes, commandes et
 // transferts. Qu'est-ce que j'ai en reserve, qu'est-ce qui entre et sort ?
+class InventoryPanelImpl;
+
 class InventoryWindow final : public AppWindow {
+    friend class InventoryPanelImpl; // types d'items (Catalogue) et materiel suivi (TECH > À venir)
+
   public:
     InventoryWindow() : AppWindow("inventory", "Stock", true, true) {} // id historique : disposition enregistree
 
@@ -202,12 +206,6 @@ class InventoryWindow final : public AppWindow {
       if (seen_packs_version_ != app.catalog.packs_version) {
         seen_packs_version_ = app.catalog.packs_version;
         load_packs(app);
-      }
-      if (seen_types_version_ != app.catalog.item_types_version) {
-        seen_types_version_ = app.catalog.item_types_version;
-        for (const Json &item_type : app.catalog.item_types.items())
-          if (!editing_type_.empty() && item_type["type"].str() == editing_type_)
-            edit_type(item_type);
       }
       if (std::string tab = std::exchange(app.stock_tab_to_show_, std::string()); !tab.empty()) {
         stock_select_ = tab;
@@ -283,14 +281,6 @@ class InventoryWindow final : public AppWindow {
       if (tab_item(transfers_tab.c_str(), selected("transfers"))) {
         draw_stock_toolbar(app);
         draw_transfers(app);
-        ImGui::EndTabItem();
-      }
-      if (tab_item("Types d'items")) {
-        draw_types(app);
-        ImGui::EndTabItem();
-      }
-      if (tab_item("Matériel")) {
-        draw_equipment(app);
         ImGui::EndTabItem();
       }
       stock_select_.clear();
@@ -1597,7 +1587,7 @@ class InventoryWindow final : public AppWindow {
       const Date today = Date::today();
       ImGui::TextWrapped("Matériel non consommable (lecteurs de glycémie, attelles, bouteilles d'O2...) : prochaines "
                          "révisions et désinfections, la plus proche en haut. Survolez une date pour le cycle. La "
-                         "périodicité se règle sur le type d'item (onglet Types d'items).");
+                         "périodicité se règle sur le type d'item (Catalogue > Types d'items).");
       ImGui::SetNextItemWidth(220.0f);
       ImGui::InputTextWithHint("##equipment_q", "Rechercher (type, iid, lieu)", &equipment_search_);
       ImGui::SameLine();
@@ -1701,7 +1691,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::PopID();
       }
       if (first)
-        ImGui::TextDisabled("Ni révision ni désinfection pour ce type : réglez-les dans l'onglet Types d'items.");
+        ImGui::TextDisabled("Ni révision ni désinfection pour ce type : réglez-les dans Catalogue > Types d'items.");
     }
 
     // Desinfection des lots eux-memes : periodicite par lot (0 : aucune), faite, date saisie a la main
@@ -2501,10 +2491,43 @@ class InventoryWindow final : public AppWindow {
 
 };
 
+// Types d'items dans le Catalogue, materiel suivi dans la Gestion de la TECH (À venir) : memes ecrans que l'ancien
+// Inventaire, chacun dans la fenetre ou on l'attend.
+class InventoryPanelImpl final : public InventoryPanel {
+  public:
+    void draw_item_types(App &app) override {
+      if (inventory_.seen_types_version_ != app.catalog.item_types_version) {
+        inventory_.seen_types_version_ = app.catalog.item_types_version;
+        for (const Json &item_type : app.catalog.item_types.items())
+          if (!inventory_.editing_type_.empty() && item_type["type"].str() == inventory_.editing_type_)
+            inventory_.edit_type(item_type);
+      }
+      inventory_.draw_types(app);
+    }
+
+    void draw_equipment(App &app) override { inventory_.draw_equipment(app); }
+
+    void reset() override {
+      inventory_.clear_type_form();
+      inventory_.show_archived_ = false;
+      inventory_.equipment_item_ = Json();
+      inventory_.equipment_search_.clear();
+      inventory_.equipment_soon_only_ = false;
+    }
+
+  private:
+    InventoryWindow inventory_;
+};
+
 } // namespace
+
+std::unique_ptr< InventoryPanel > make_inventory_panel() {
+  return std::make_unique< InventoryPanelImpl >();
+}
 
 std::unique_ptr< AppWindow > make_inventory_window() {
   return std::make_unique< InventoryWindow >();
 }
 
 } // namespace qrprotec
+
