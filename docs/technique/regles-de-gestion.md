@@ -116,6 +116,13 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    90 jours par défaut) : révisions et désinfections (retard compris), péremptions (`upcoming_expiries`),
    listes de matériel à préparer datées, étiquettes clés et badges qui expirent ; triés par date puis gravité.
    Plus de `upcoming` dans `todo()`.
+   **Désinfection d'un lot** (`Lots.disinfection_months` / `disinfection_due` / `disinfected_at` /
+   `disinfected_by`, cellule du VPS) : jamais bloquante. `POST lots/<id>/disinfection/` (gestion/admin,
+   `services.disinfect_lot`) : `months` (périodicité, 0 retire), `done` (faite maintenant, `next_due`
+   facultatif) ou `last_done` / `next_due` à la main. `_lot_core.lot_disinfection` (même forme que
+   `item_dict.maintenance`, avec `lot` et `lot_name`) ; évènements `disinfection` avec `lot_maintenance`,
+   tâche « Désinfection du lot » à 30 jours, phrase dans `check_alerts`. `GET maintenance/` (poste,
+   gestion) : onglet Matériel de l'Inventaire, `items` (non consommables ou suivis) et `lots` suivis.
    **Items à tâches** (`ItemType.tasks`, étiquette de tâches `<base>/task?id=IID`) : les fronts
    n'envoient l'item dans les scans de la vérif qu'une fois toutes ses tâches cochées et validées
    (web `openTasks`/`addItem`, poste `ScanEntry.tasks_pending`, hors de `ScanStack::iids`). Le
