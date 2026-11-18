@@ -58,7 +58,9 @@ Tout se fait sans souris :
 | Touche | Effet |
 |---|---|
 | `F1` à `F4` | Pile de scans, Lots, Listes de matériel, Téléphone-douchette |
-| `F5` à `F12` | fenêtres des menus Gestion (rôle gestion ou admin) puis Administration (admin), dans l'ordre des menus, sauf Paquet fermé ; Signalements en `F11`, Réglages toujours en `F12` |
+| `F5` à `F12` | mode gestion (rôle gestion ou admin) : Gestion de la TECH, Stock, Items, Types de lots, Réception, Éditeur d'étiquettes (admin), Signalements, Réglages (admin) |
+| `Ctrl+G` | passer du mode normal au mode gestion, et inversement (rôle gestion ou admin) |
+| `Ctrl+K` | « Aller à… » : un lot, un type, un item, une fenêtre ou une action |
 | `Ctrl+1`, `Ctrl+2`… | choisir l'onglet d'une fenêtre à onglets |
 | `Alt` + lettre soulignée | actionner le bouton (ex. `Alt+V` pour **Valider la vérif** si le V est souligné) |
 | `Ctrl+F11` | plein écran : une seule fenêtre visible, sur tout l'écran |

@@ -58,14 +58,14 @@ Imprimez votre badge une seconde fois si le premier était raté : c'est le mêm
 
 ## Étape 3 — Les utilisateurs
 
-Fenêtre **Utilisateurs** (`F9`, ou **☰ Outils** > Utilisateurs) : créez d'abord l'équipe logistique (rôle **gestion**), puis un ou deux
+Fenêtre **Utilisateurs** (menu **Administration › Utilisateurs**) : créez d'abord l'équipe logistique (rôle **gestion**), puis un ou deux
 autres **admins** pour ne jamais dépendre d'une seule personne. Les secouristes peuvent être créés
 plus tard, au fil des besoins. À chaque création, un aperçu du badge s'affiche : imprimez-le et
 remettez-le à la personne.
 
 ## Étape 4 — Les types d'items
 
-Fenêtre **Catalogue** (`F7`, ou **☰ Outils** > Catalogue), onglet **Types d'items**, bouton **Nouveau type**. Partez de votre
+Fenêtre **Items** (`F7`, ou menu **Items › Types d'items**), onglet **Types d'items**, bouton **Nouveau type**. Partez de votre
 tableur : une ligne par produit différent.
 
 | Code | Nom | Périssable | Stock minimum | Taille de paquet |
@@ -150,7 +150,7 @@ Conseils :
 
 ## Étape 5 — Les types de lots et leur contenu
 
-Onglet **Types de lots** du **Catalogue** (`F7`). Pour chaque modèle de sac, créez le type
+Fenêtre **Types de lots** (`F8`, ou menu **Lots › Types de lots**). Pour chaque modèle de sac, créez le type
 et son **contenu attendu**, avec si vous le souhaitez l'emplacement :
 
 **Sac de soin** (`sacsoi`)
