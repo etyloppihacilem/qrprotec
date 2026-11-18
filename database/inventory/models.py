@@ -1007,6 +1007,35 @@ class Secouristes(models.Model):
     # Reglages du front web de l'utilisateur (voir WEB_PREFS) : absents, c'est la valeur par defaut. Modifiables par
     # l'utilisateur (Reglages du web) et par un admin (poste, fenetre Utilisateurs).
     web_prefs = models.JSONField(default=dict, blank=True)
+    # Carte d'invite : secouriste d'une autre antenne, sans compte ni matricule (le matricule est un numero de carte
+    # tire au hasard, INV...). Imprimee a l'avance (poste) ou montree a l'ecran (outil de debug du web), sans nom :
+    # le nom et le prenom sont demandes a la premiere connexion, qui l'active. Role secouriste, jamais de PIN. Elle
+    # vaut `guest_hours` heures apres son activation ; une carte du web doit en plus etre activee avant
+    # `guest_activate_before` (24 h). Un admin la desactive (active), activee ou non.
+    guest = models.BooleanField(default=False)
+    guest_hours = models.PositiveSmallIntegerField(default=48)
+    guest_activated = models.DateTimeField(blank=True, null=True)
+    guest_activate_before = models.DateTimeField(blank=True, null=True)
+    guest_created_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+
+    @property
+    def guest_expires(self):
+        """Fin de validite d'une carte d'invite activee (None : pas une carte d'invite, ou pas encore activee)."""
+        if not self.guest or self.guest_activated is None:
+            return None
+        return self.guest_activated + timedelta(hours=self.guest_hours)
+
+    def guest_state(self, now=None) -> str:
+        """Etat d'une carte d'invite : disabled, unused (a activer), expired_unused (pas activee a temps), active,
+        expired."""
+        now = now or timezone.now()
+        if not self.active:
+            return 'disabled'
+        if self.guest_activated is None:
+            late = (self.guest_activate_before is not None and now > self.guest_activate_before) or (
+                self.key_expires is None or self.key_expires < timezone.localdate())
+            return 'expired_unused' if late else 'unused'
+        return 'active' if now < self.guest_expires else 'expired'
 
     def web_pref(self, name):
         """Valeur d'un reglage du web (WEB_PREFS), sa valeur par defaut s'il n'a jamais ete change."""
@@ -1199,8 +1228,11 @@ class Secouristes(models.Model):
         return self.new_key
 
     def badge_valid(self) -> bool:
-        """Compte actif et badge non expire (la cle elle-meme est verifiee par check_key)."""
-        return self.active and self.key_expires is not None and self.key_expires >= timezone.localdate()
+        """Compte actif et badge non expire (la cle elle-meme est verifiee par check_key). Carte d'invite : en plus,
+        activee a temps et pas plus vieille que sa duree de vie."""
+        if not (self.active and self.key_expires is not None and self.key_expires >= timezone.localdate()):
+            return False
+        return not self.guest or self.guest_state() in ('unused', 'active')
 
     def check_key(self, key) -> bool:
         return (
@@ -1210,6 +1242,10 @@ class Secouristes(models.Model):
         )
 
     def __str__(self):
+        if self.guest:
+            if not self.prenom and not self.nom:
+                return f"Carte d'invité {self.matricule}"
+            return f"{self.prenom} {self.nom} (invité)"
         return f"{self.prenom} {self.nom}"
 
 
@@ -1482,6 +1518,9 @@ class ServerSettings(models.Model):
     # Message « objet perdu », le meme pour tous les types d'items coches ItemType.lost_object : affiche sur la fiche
     # ouverte par le scan de l'etiquette (appareil photo de la personne qui l'a trouve). Modifiable par la gestion.
     lost_object_message = models.TextField(blank=True, default=DEFAULT_LOST_OBJECT_MESSAGE)
+    # Cartes d'invites : duree de vie apres la premiere connexion (heures), reprise par chaque nouvelle carte et
+    # modifiable carte par carte au poste
+    guest_hours = models.PositiveSmallIntegerField(default=48)
 
     @classmethod
     def get(cls):

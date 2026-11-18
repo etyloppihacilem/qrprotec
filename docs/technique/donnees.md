@@ -65,6 +65,13 @@ valable 365 jours, n'est connue qu'à sa création ; `renew_key()` en crée une 
 seule fois et invalide l'ancien badge), PIN haché avec les hacheurs de mots de passe de Django
 (`pin_hash`), compteurs d'échecs, blocage temporaire (`pin_locked_until`), blocage jusqu'à
 intervention d'un admin (`pin_blocked`, `pin_reset_required`) et admin à contacter (`pin_contact`, sinon l'admin coché `default_contact`, un seul ; voir `Secouristes.contact_admin`).
+Cartes d'invités (`guest`, voir `inventory/guests.py`) : matricule tiré au hasard (`INV` + 5 caractères), nom et
+prénom vides jusqu'à la première connexion (`POST /api/auth/` répond `guest_name_required`, le front renvoie
+`guest_nom` et `guest_prenom`), puis valable `guest_hours` heures après `guest_activated` (`ServerSettings.guest_hours`,
+48 par défaut). Une carte créée depuis l'outil de debug du web doit être activée avant `guest_activate_before` (24 h).
+`guest_created_by` : admin qui l'a créée. Rôle secouriste, PIN désactivé ; `badge_valid()` tient compte de la durée.
+Routes : `GET/POST /api/users/guests/` (poste), `PATCH /api/users/<n°>/` (`active`, `guest_hours`, nom),
+`POST /api/debug/guest-cards/` (web, admins : `create`, `disable`, `enable`).
 
 L'API ne renvoie la clé du badge (`key`, `badge_url`) que dans la réponse de création
 (`POST /api/users/`) et de renouvellement (`renew-key/`), le temps d'imprimer le badge. Pour

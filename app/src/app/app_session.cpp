@@ -347,6 +347,10 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
     body["new_pin"]      = new_pin;
     body["pin_at_login"] = pin_.at_login || pin_.at_login_locked;
   }
+  if (pin_.guest && pin_.matricule == matricule) { // carte d'invite : premiere connexion, avec son nom
+    body["guest_nom"]    = pin_.guest_nom;
+    body["guest_prenom"] = pin_.guest_prenom;
+  }
   pin_.busy = true;
   api.post("/api/auth/", body, [this, matricule, key, source](const ApiResult &result) {
     pin_.busy = false;
@@ -361,6 +365,23 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
     }
     if (result.data["pin_blocked"].boolean()) {
       show_pin_blocked(result.data, source);
+      return;
+    }
+    if (result.data["guest_name_required"].boolean()) { // carte d'invite jamais utilisee : nom et prenom
+      const bool first = !pin_.active || !pin_.guest;
+      if (first) {
+        pin_           = PinPrompt{};
+        pin_.active    = true;
+        pin_.guest     = true;
+        pin_.matricule = matricule;
+        pin_.key       = key;
+        pin_.source    = static_cast< int >(source);
+        pin_.guest_hours = static_cast< int >(result.data["guest_hours"].integer(48));
+      }
+      pin_.focus = true;
+      pin_.error = first ? "" : result.error;
+      if (!first)
+        feedback.error(source, settings);
       return;
     }
     const bool setup = result.data["pin_setup_required"].boolean();
@@ -415,7 +436,10 @@ void App::complete_login(const Json &data) {
     inateck.set_user_volume(volume.integer());
   notify("Bonjour " + session.display()
          + (session.admin() ? " : mode administrateur activé." : session.privileged ? " : mode gestion activé." : "."));
-  if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
+  if (data["guest"].boolean()) {
+    if (!data["guest_expires"].str().empty())
+      notify("Carte d'invité valable jusqu'au " + display_datetime(data["guest_expires"].str()) + ".");
+  } else if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
     notify("Votre badge expire le " + expires->display() + ", demandez son renouvellement.", true);
   login_prompt_ = false;
   auto action   = std::move(pending_action_);
@@ -466,6 +490,40 @@ void App::forgot_pin() {
   });
 }
 
+// Carte d'invite scannee pour la premiere fois : prenom et nom de l'invite (secouriste d'une autre antenne), dans
+// la fenetre du PIN. La carte vaut ensuite guest_hours heures.
+void App::draw_guest_name() {
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
+  ImGui::TextUnformatted("Carte d'invité");
+  ImGui::PopFont();
+  ImGui::TextDisabled("Carte %s", pin_.matricule.c_str());
+  ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+  ImGui::TextWrapped("Bienvenue ! Indiquez votre prénom et votre nom : vos vérifs seront à votre nom. La carte vaut "
+                     "%d h à partir de maintenant.", pin_.guest_hours);
+  ImGui::PopTextWrapPos();
+  ImGui::SetNextItemWidth(260.0f);
+  if (pin_.focus) {
+    ImGui::SetKeyboardFocusHere();
+    pin_.focus = false;
+  }
+  input_limited("Prénom##guest", pin_.guest_prenom, 32);
+  ImGui::SetNextItemWidth(260.0f);
+  input_limited("Nom##guest", pin_.guest_nom, 32);
+  if (!pin_.error.empty())
+    ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "%s", pin_.error.c_str());
+  const auto filled = [](const std::string &text) { return text.find_first_not_of(" \t") != std::string::npos; };
+  const bool valid  = filled(pin_.guest_prenom) && filled(pin_.guest_nom);
+  ImGui::BeginDisabled(!valid || pin_.busy);
+  if (button(pin_.busy ? "Vérification..." : "Se connecter", ImVec2(150, 0)) || (valid && !pin_.busy && enter_pressed()))
+    send_auth(pin_.matricule, pin_.key, "", "", static_cast< ScanSource >(pin_.source));
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (button("Annuler", ImVec2(150, 0)) || escape_pressed()) {
+    pin_            = PinPrompt{};
+    pending_action_ = nullptr;
+  }
+}
+
 void App::draw_pin_modal() {
   if (!pin_.active)
     return;
@@ -475,6 +533,13 @@ void App::draw_pin_modal() {
   ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
   if (!ImGui::BeginPopupModal("Code PIN", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     return;
+  if (pin_.guest) {
+    draw_guest_name();
+    if (!pin_.active)
+      ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return;
+  }
   ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
   ImGui::TextUnformatted(pin_.setup ? "Choisissez votre code PIN" : "Code PIN");
   ImGui::PopFont();

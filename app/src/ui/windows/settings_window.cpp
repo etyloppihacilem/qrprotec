@@ -880,6 +880,32 @@ class SettingsWindow final : public AppWindow {
                     "vérif, de 1 (à chaque sortie) à 100. Une sortie = les items sortis ensemble (liste ou sortie à "
                     "la main).");
       }
+      {
+        // cartes d'invites : duree de validite apres la premiere connexion, reprise par chaque nouvelle carte
+        static int  guest_hours   = 48;
+        static bool guest_editing = false;
+        if (!guest_editing)
+          guest_hours = server_rules_["guest_hours"].integer(48);
+        ImGui::SetNextItemWidth(120.0f);
+        ImGui::InputInt("Durée des cartes d'invités (heures)", &guest_hours, 0, 0);
+        guest_editing = ImGui::IsItemActive();
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+          Json body;
+          body["guest_hours"] = std::clamp(guest_hours, 1, 720);
+          app.api.patch("/api/server-settings/", body, [this, &app](const ApiResult &result) {
+            if (!result.ok) {
+              app.notify("Règles du serveur : " + result.error, true);
+              return;
+            }
+            server_rules_ = result.data;
+            app.notify("Nouvelles cartes d'invités valables " + std::to_string(server_rules_["guest_hours"].integer(48))
+                       + " h après leur première connexion.");
+          });
+        }
+        help_marker("Une carte d'invité (secouriste d'une autre antenne sans compte, Utilisateurs > Cartes d'invités ou "
+                    "outil de debug du web) vaut ce nombre d'heures après sa première connexion, de 1 à 720. Change les "
+                    "nouvelles cartes ; celle d'une carte déjà créée se modifie dans Utilisateurs.");
+      }
       const int volume = server_rules_["scanner_volume_default"].integer(4);
       const ScannerSettingInfo volume_info = scanner_setting_info(1001, "volume");
       std::string preview = "Valeur " + std::to_string(volume);

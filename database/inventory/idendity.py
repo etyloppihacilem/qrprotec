@@ -134,7 +134,12 @@ def short_names(people) -> dict:
 def public_names() -> dict:
     """{matricule: nom court} de tous les secouristes, anciens compris (ils restent dans l'historique)."""
     from .models import Secouristes
-    return short_names(Secouristes.objects.values_list('matricule', 'prenom', 'nom'))
+    rows = Secouristes.objects.values_list('matricule', 'prenom', 'nom', 'guest')
+    names = short_names((matricule, prenom, nom) for matricule, prenom, nom, _ in rows)
+    for matricule, prenom, nom, guest in rows:  # carte d'invite : « Jean M. (invité) », « Carte d'invité » sans nom
+        if guest:
+            names[matricule] = names[matricule] + GUEST_SUFFIX if prenom else "Carte d'invité"
+    return names
 
 
 @contextmanager

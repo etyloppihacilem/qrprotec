@@ -115,6 +115,11 @@ struct PinPrompt {
     std::string confirm;
     std::string error;
     int         source = 0; // ScanSource du badge
+    // carte d'invite jamais utilisee : nom et prenom de l'invite au lieu du PIN (guest_name_required)
+    bool        guest       = false;
+    int         guest_hours = 48;
+    std::string guest_prenom;
+    std::string guest_nom;
 };
 
 // Connexion sans badge (nom, prenom et code PIN) dans la fenetre « Connexion requise »
@@ -726,6 +731,7 @@ class App {
     void show_pin_blocked(const Json &data, ScanSource source);
     void forgot_pin();
     void draw_pin_modal();
+    void draw_guest_name();
     void scan_lot(const ParsedScan &scan, ScanSource source);
     void join_verif(const std::string &lot_id, const std::string &key, ScanSource source);
     void scan_lot_seal(const ParsedScan &scan, ScanSource source);

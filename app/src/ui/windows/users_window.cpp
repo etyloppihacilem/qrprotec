@@ -158,6 +158,7 @@ class UsersWindow final : public AppWindow {
     void on_open(App &app) override {
       app.refresh_users();
       load_computers(app);
+      load_guests(app);
     }
 
     void reset_view(App &) override { select(Json()); }
@@ -166,6 +167,10 @@ class UsersWindow final : public AppWindow {
       if (ImGui::BeginTabBar("users_tabs")) {
         if (tab_item("Secouristes")) {
           draw_users(app);
+          ImGui::EndTabItem();
+        }
+        if (tab_item("Cartes d'invités")) {
+          draw_guests(app);
           ImGui::EndTabItem();
         }
         if (tab_item("Ordinateurs connectés")) {
@@ -179,6 +184,173 @@ class UsersWindow final : public AppWindow {
   private:
     Json computers_;
     bool computers_loading_ = false;
+    // Cartes d'invites (GET/POST /api/users/guests/) : imprimees a l'avance, sans nom
+    Json guests_;
+    bool guests_loading_  = false;
+    bool guests_creating_ = false;
+    int  guest_count_     = 3;
+    int  guest_hours_     = 48; // duree de la prochaine carte : celle des Regles du serveur, au chargement
+    std::string guest_edit_;    // carte dont on change la duree
+    int  guest_edit_hours_ = 48;
+
+    void load_guests(App &app) {
+      guests_loading_ = true;
+      app.api.get("/api/users/guests/", [this, &app](const ApiResult &result) {
+        guests_loading_ = false;
+        if (!result.ok) {
+          app.notify("Cartes d'invités : " + result.error, true);
+          return;
+        }
+        guests_      = result.data["cards"];
+        guest_hours_ = static_cast< int >(result.data["hours"].integer(guest_hours_));
+      });
+    }
+
+    void patch_guest(App &app, const std::string &matricule, const Json &body, const std::string &done) {
+      app.api.patch("/api/users/" + url_encode(matricule) + "/", body, [this, &app, done](const ApiResult &result) {
+        app.notify(result.ok ? done : result.error, !result.ok);
+        load_guests(app);
+      });
+    }
+
+    static std::string guest_when(const Json &card, const Date &today) {
+      const std::string state = card["state"].str();
+      if (state == "active")
+        return "jusqu'au " + relative_datetime(card["expires"].str(), today);
+      if (state == "unused")
+        return card["activate_before"].is_null()
+                 ? "à utiliser avant le " + display_date(card["key_expires"])
+                 : "à activer avant " + relative_datetime(card["activate_before"].str(), today);
+      if (state == "expired")
+        return "le " + relative_datetime(card["expires"].str(), today);
+      return "";
+    }
+
+    void draw_guests(App &app) {
+      ImGui::TextWrapped("Pour les secouristes d'une autre antenne sans compte : imprimez quelques cartes à l'avance "
+                         "et laissez-les aux équipes. L'invité scanne la carte, donne son nom et son prénom à la première "
+                         "connexion ; elle vaut ensuite la durée choisie. Rôle secouriste, sans code PIN. Une carte se "
+                         "désactive à tout moment, même déjà activée (l'invité est déconnecté).");
+      ImGui::SeparatorText("Nouvelles cartes");
+      ImGui::SetNextItemWidth(120.0f);
+      ImGui::InputInt("Nombre de cartes", &guest_count_);
+      guest_count_ = std::clamp(guest_count_, 1, 20);
+      ImGui::SetNextItemWidth(120.0f);
+      ImGui::InputInt("Durée (heures)", &guest_hours_, 12, 24);
+      guest_hours_ = std::clamp(guest_hours_, 1, 720);
+      help_marker("Durée de validité après la première connexion. Par défaut, celle de Réglages > Règles du serveur "
+                  "(48 h) ; elle se change aussi carte par carte ci-dessous.");
+      ImGui::BeginDisabled(guests_creating_);
+      if (primary_button("Créer et voir les cartes")) {
+        Json body;
+        body["count"]       = guest_count_;
+        body["guest_hours"] = guest_hours_;
+        guests_creating_    = true;
+        app.api.post("/api/users/guests/", body, [this, &app](const ApiResult &result) {
+          guests_creating_ = false;
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          std::vector< Parameters > labels;
+          for (const Json &card : result.data["cards"].items())
+            labels.push_back(guest_card_parameters(card));
+          app.notify(labels.size() > 1 ? std::to_string(labels.size()) + " cartes d'invités créées."
+                                       : "Carte d'invité créée.");
+          app.preview_labels(TemplateCategory::GuestCard, labels, "Cartes d'invités");
+          load_guests(app);
+        });
+      }
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::TextDisabled("Leur clé n'est affichée qu'à la création : imprimez-les tout de suite.");
+
+      ImGui::SeparatorText("Cartes");
+      ImGui::BeginDisabled(guests_loading_);
+      if (button("Rafraîchir##guests"))
+        load_guests(app);
+      ImGui::EndDisabled();
+      if (guests_.size() == 0) {
+        ImGui::TextDisabled("Aucune carte d'invité.");
+        return;
+      }
+      const Date today = app.today();
+      if (!ImGui::BeginTable("guests", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY))
+        return;
+      ImGui::TableSetupScrollFreeze(0, 1);
+      ImGui::TableSetupColumn("Carte", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+      ImGui::TableSetupColumn("Invité", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+      ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+      ImGui::TableSetupColumn("Créée par", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+      ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 230.0f);
+      ImGui::TableHeadersRow();
+      for (const Json &card : guests_.items()) {
+        const std::string matricule = card["matricule"].str();
+        const std::string state     = card["state"].str();
+        ImGui::PushID(matricule.c_str());
+        ImGui::TableNextRow();
+        if (state == "active")
+          row_color(colors::green, 0.25f);
+        else if (state != "unused")
+          row_color(colors::grey, 0.35f);
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(matricule.c_str());
+        ImGui::TableNextColumn();
+        if (card["name"].str().empty())
+          ImGui::TextDisabled("(nom à la 1re connexion)");
+        else
+          ImGui::TextUnformatted(card["name"].str().c_str());
+        ImGui::TableNextColumn();
+        const std::string when = guest_when(card, today);
+        ImGui::Text("%s%s%s", card["state_label"].str().c_str(), when.empty() ? "" : ", ", when.c_str());
+        ImGui::TextDisabled("%d h après la 1re connexion", static_cast< int >(card["hours"].integer(48)));
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(card["created_by"].str("-").c_str());
+        ImGui::TextDisabled("%s", relative_datetime(card["created"].str(), today, false, true).c_str());
+        ImGui::TableNextColumn();
+        if (state == "disabled") {
+          if (small_button("Réactiver")) {
+            Json body;
+            body["active"] = true;
+            patch_guest(app, matricule, body, "Carte réactivée.");
+          }
+        } else if (state == "active" || state == "unused") {
+          if (confirm_button("Désactiver",
+                             state == "active" ? "Désactiver cette carte ? L'invité est déconnecté tout de suite."
+                                               : "Désactiver cette carte ? Elle ne marchera plus.",
+                             "disable_guest")) {
+            Json body;
+            body["active"] = false;
+            patch_guest(app, matricule, body, "Carte désactivée.");
+          }
+        }
+        if (state != "disabled" && state != "expired_unused") {
+          ImGui::SameLine();
+          if (small_button("Durée…")) {
+            guest_edit_       = matricule;
+            guest_edit_hours_ = static_cast< int >(card["hours"].integer(48));
+            ImGui::OpenPopup("guest_hours");
+          }
+        }
+        if (ImGui::BeginPopup("guest_hours")) {
+          ImGui::SetNextItemWidth(120.0f);
+          ImGui::InputInt("heures après la 1re connexion", &guest_edit_hours_, 12, 24);
+          guest_edit_hours_ = std::clamp(guest_edit_hours_, 1, 720);
+          if (primary_button("Enregistrer")) {
+            Json body;
+            body["guest_hours"] = guest_edit_hours_;
+            patch_guest(app, guest_edit_, body, "Durée de la carte enregistrée.");
+            ImGui::CloseCurrentPopup();
+          }
+          ImGui::SameLine();
+          if (button("Annuler"))
+            ImGui::CloseCurrentPopup();
+          ImGui::EndPopup();
+        }
+        ImGui::PopID();
+      }
+      ImGui::EndTable();
+    }
 
     void load_computers(App &app) {
       if (!app.main_poste())

@@ -825,7 +825,12 @@ def user_dict(user, local=False):
         'pin_reset_required': user.pin_reset_required,
         'default_contact': user.default_contact,
         'web_prefs': user.web_prefs_full(),  # reglages du front web (models.WEB_PREFS), valeurs par defaut comprises
+        'guest': user.guest,  # carte d'invite (secouriste d'une autre antenne, sans matricule)
     }
+    if user.guest:
+        expires = user.guest_expires
+        data['guest_expires'] = _date(expires)  # fin de la carte, une fois activee
+        data['guest_hours'] = user.guest_hours
     if local:
         data['nom'] = user.nom  # pas de nom de famille sur l'API publique (front web)
         contact = user.pin_contact
@@ -934,6 +939,7 @@ def server_settings_dict(settings_row):
         'restock_credit_outings': settings_row.restock_credit_outings,
         'restock_credit_days': settings_row.restock_credit_days,
         'storage_verif_outings': settings_row.storage_verif_outings,
+        'guest_hours': settings_row.guest_hours,  # duree de vie des cartes d'invites (heures apres activation)
         'lost_object_message': settings_row.lost_object_message,
     }
 

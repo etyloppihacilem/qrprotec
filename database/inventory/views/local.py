@@ -1633,7 +1633,7 @@ def users(request):
     if not first_admin:
         require_front(request, ADMIN)
     if request.method == 'GET':
-        users_list = (Secouristes.objects.select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions'))
+        users_list = (Secouristes.objects.filter(guest=False).select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions'))
                       .order_by('nom', 'prenom'))
         settings_row = ServerSettings.get()  # lu une fois pour toute la liste
         for user in users_list:
@@ -1680,6 +1680,8 @@ def users(request):
 def user_detail(request, matricule):
     require_front(request, ADMIN)
     user = get_object_or_404(Secouristes, matricule=matricule)
+    if request.method == 'PATCH' and user.guest:
+        return guest_card_patch(request, user)
     if request.method == 'PATCH':
         data = request.data
         for field in ('nom', 'prenom'):
@@ -1718,6 +1720,65 @@ def user_detail(request, matricule):
                            f'compte modifié : {user} ({user.matricule}) : {user_changes(data, user)}',
                            matricule=user.matricule, fields=sorted(data.keys()))
     return Response(ser.user_dict(user, local=True))
+
+
+def guest_card_patch(request, card):
+    """Carte d'invite : seulement active (desactivee, activee ou non : plus de connexion, sessions coupees), duree de
+    vie (heures apres l'activation) et nom/prenom corriges. Toujours role secouriste, jamais de PIN."""
+    data = request.data
+    changes = []
+    if 'active' in data:
+        card.active = bool(data['active'])
+        changes.append('réactivée' if card.active else 'désactivée')
+    if 'guest_hours' in data:
+        try:
+            card.guest_hours = guests.parse_guest_hours(data['guest_hours'])
+        except ValueError as exc:
+            raise ApiError(str(exc))
+        changes.append(f'durée {card.guest_hours} h')
+    for field in ('nom', 'prenom'):
+        if field in data and card.guest_activated is not None:
+            value = ' '.join(str(data[field] or '').split())[:32]
+            if not value:
+                raise ApiError('Nom et prénom obligatoires')
+            setattr(card, field, value)
+            changes.append(USER_FIELDS[field])
+    unknown = set(data) - {'active', 'guest_hours', 'nom', 'prenom'}
+    if unknown:
+        raise ApiError("Carte d'invité : seuls l'état, la durée et le nom se modifient")
+    card.save()
+    journal.record(OperationKind.USER, front_identity(request),
+                   f"carte d'invité {card.matricule} ({card}) modifiée : {', '.join(changes) or 'aucun changement'}",
+                   matricule=card.matricule, fields=sorted(data.keys()))
+    return Response(guests.card_row(card))
+
+
+@api_view(['GET', 'POST'])
+@handle_errors
+def guest_cards(request):
+    """Cartes d'invites (poste, admins). GET : toutes les cartes. POST {"count", "guest_hours"?} : nouvelles cartes a
+    imprimer, avec leur cle en clair (badge_url) dans cette reponse seulement."""
+    require_front(request, ADMIN)
+    if request.method == 'GET':
+        return Response({'cards': guests.cards(), 'hours': ServerSettings.get().guest_hours})
+    count = parse_int(request.data.get('count', 1), 'count', 1, guests.GUEST_MAX_CARDS)
+    try:
+        hours = (guests.parse_guest_hours(request.data['guest_hours'])
+                 if request.data.get('guest_hours') not in (None, '') else None)
+    except ValueError as exc:
+        raise ApiError(str(exc))
+    admin = front_user(request)
+    rows = []
+    with transaction.atomic():
+        for _ in range(count):
+            card = guests.create_guest_card(admin, hours)
+            journal.record(OperationKind.USER, front_identity(request),
+                           f"carte d'invité {card.matricule} créée par {admin}, valable {card.guest_hours} h "
+                           "après sa première connexion", matricule=card.matricule)
+            row = guests.card_row(card)
+            row['badge_url'] = ser.public_url('badge', m=card.matricule, key=card.new_key)
+            rows.append(row)
+    return Response({'cards': rows}, status=status.HTTP_201_CREATED)
 
 
 def parse_fonction(value):

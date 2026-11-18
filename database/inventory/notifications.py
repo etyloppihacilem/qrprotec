@@ -217,7 +217,7 @@ def check_key_expirations(today=None):
          if lot_keys_expire() else Lots.objects.none(),
          'verif_key_expires', lambda lot: lot.name),
         ('badge_expiring', 'badge', 'badges', 'expirés',
-         Secouristes.objects.filter(active=True, key_expires__isnull=False, key_expires__lte=limit)
+         Secouristes.objects.filter(active=True, guest=False, key_expires__isnull=False, key_expires__lte=limit)
          .order_by('key_expires', 'nom', 'prenom'),
          'key_expires', lambda user: short_name(user.matricule)),
     )

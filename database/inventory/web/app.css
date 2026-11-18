@@ -33,7 +33,7 @@ button:disabled { opacity: .45; }
 .primary { background: var(--green); color: #fff; font-weight: 600; }
 .warning { background: var(--orange); color: #fff; font-weight: 600; }
 .warning[hidden], .secondary[hidden] { display: none; }
-#pin h2, #name-login h2 { margin: 0 0 6px; font-size: 1.2rem; }
+#pin h2, #name-login h2, #guest-name h2 { margin: 0 0 6px; font-size: 1.2rem; }
 #pin input { display: block; width: 100%; font-size: 1.4rem; letter-spacing: .3em; text-align: center; padding: 10px;
   margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; }
 #pin input[hidden] { display: none; }
@@ -415,8 +415,8 @@ a.field, button.field { color: var(--blue); text-decoration: underline; backgrou
 /* fenetre de connexion par nom (et du PIN) : calee en haut de la partie visible quand le clavier est ouvert (web/app/cascade.js, keepAboveKeyboard),
    et en haut de l'ecran sur un telephone pour que les champs restent au-dessus du clavier qui s'ouvre */
 dialog.above-keyboard { margin-top: 0; margin-bottom: auto; bottom: auto; overflow-y: auto; }
-@media (max-width: 600px) { #name-login, #pin { margin-top: calc(12px + env(safe-area-inset-top)); } }
-#name-login input { display: block; width: 100%; margin: 6px 0; font-size: 1.05rem; padding: 10px;
+@media (max-width: 600px) { #name-login, #pin, #guest-name { margin-top: calc(12px + env(safe-area-inset-top)); } }
+#name-login input, #guest-name input { display: block; width: 100%; margin: 6px 0; font-size: 1.05rem; padding: 10px;
   border: 1px solid var(--line); border-radius: 8px; }
 :is(body.home-mode, body.fiche-open).login-reader #reader-close { display: block; position: absolute; top: 6px; right: 6px; z-index: 2;
   background: rgba(0, 0, 0, .6); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: .9rem; }
@@ -835,6 +835,12 @@ button > .icon { vertical-align: -0.2em; margin-right: 6px; }
   border-radius: 10px; background: var(--panel); }
 .debug-lot { padding: 6px 0 6px calc(var(--depth, 0) * 14px); border-bottom: 1px solid var(--line); }
 .debug-lot.off { opacity: .7; }
+/* cartes d'invites de l'outil de debug : une ligne par carte, bouton Désactiver a droite */
+.guest-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; margin: 6px 0;
+  border: 1px solid var(--line, #d9dde3); border-left: 4px solid var(--line, #d9dde3); border-radius: 8px; }
+.guest-card.ok { border-left-color: var(--green); }
+.guest-card.muted { opacity: .6; }
+.guest-card button { padding: 6px 10px; font-size: .85rem; flex: none; }
 button.debug-name { display: block; width: 100%; text-align: left; background: none; padding: 2px 0; color: inherit; }
 .page h3 button.debug-name { font-weight: 700; }
 .debug-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }

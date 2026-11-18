@@ -353,6 +353,21 @@
     </form>
   </dialog>
 
+  <!-- Carte d'invite scannee pour la premiere fois : nom et prenom de l'invite (secouriste d'une autre antenne) -->
+  <dialog id="guest-name">
+    <form id="guest-name-form">
+      <h2>Carte d'invité</h2>
+      <p id="guest-name-text" class="hint">Bienvenue ! Indiquez votre prénom et votre nom : vos vérifs seront à votre nom.</p>
+      <input id="guest-name-prenom" type="text" enterkeyhint="next" autocomplete="given-name" maxlength="32" placeholder="Prénom">
+      <input id="guest-name-nom" type="text" enterkeyhint="go" autocomplete="family-name" maxlength="32" placeholder="Nom">
+      <p id="guest-name-error" class="pin-error"></p>
+      <div class="dialog-buttons">
+        <button type="button" id="guest-name-cancel" class="secondary">Annuler</button>
+        <button type="submit" class="primary">Se connecter</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- PIN bloque apres trop d'essais : lien de deblocage a envoyer a un administrateur -->
   <dialog id="pin-blocked">
     <h2 id="pin-blocked-title">Code PIN bloqué</h2>

@@ -195,7 +195,8 @@ std::string main_qr_payload(TemplateCategory category) {
     case TemplateCategory::LotSealOpen: return "{{seal_open_url}}";
     case TemplateCategory::LotStorage: return "{{lot_private_url}}";
     case TemplateCategory::LotLocation: return "{{emplacement}}"; // texte seul (qr_only_template)
-    case TemplateCategory::User: return "{{badge_url}}";
+    case TemplateCategory::User:
+    case TemplateCategory::GuestCard: return "{{badge_url}}";
     case TemplateCategory::TaskItem: return "{{task_url}}";
     case TemplateCategory::ItemTear: return "{{item_url}}";
     case TemplateCategory::ItemSmall:

@@ -97,7 +97,7 @@ def lot_tree():
 
 def rescuers():
     """Secouristes qui peuvent recevoir un QR code de connexion temporaire : actifs, badge valide, pas admin."""
-    users = list(Secouristes.objects.filter(active=True, key_expires__gte=timezone.localdate())
+    users = list(Secouristes.objects.filter(active=True, guest=False, key_expires__gte=timezone.localdate())
                  .exclude(role=Role.ADMIN))
     names = short_names((user.matricule, user.prenom, user.nom) for user in Secouristes.objects.all())
     rows = [{'matricule': user.matricule, 'name': names.get(user.matricule, user.prenom), 'fonction': user.fonction,

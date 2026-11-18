@@ -48,6 +48,7 @@ function fmtDateTime(value, { long = false, on = false } = {}) {
   const diff = Math.round((today() - day) / 86400000);
   if (diff === 0) return "aujourd'hui" + time;
   if (diff === 1) return 'hier' + time;
+  if (diff === -1) return 'demain' + time; // fin de validite (carte d'invite)
   const date = (long ? d.toLocaleDateString('fr-FR', { weekday: 'long' }) + ' ' : '') + d.toLocaleDateString('fr-FR');
   return (on ? 'le ' : '') + date + time;
 }

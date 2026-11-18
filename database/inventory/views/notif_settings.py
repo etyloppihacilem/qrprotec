@@ -96,6 +96,12 @@ def server_settings(request):
                 return Response({'error': 'Vérif des rangements : de 1 à 100 sorties'}, status=400)
             settings_row.storage_verif_outings = value
             changes.append(f'vérif d\'un rangement du stock proposée toutes les {value} sorties')
+        if 'guest_hours' in request.data:
+            try:
+                settings_row.guest_hours = guests.parse_guest_hours(request.data['guest_hours'])
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=400)
+            changes.append(f"cartes d'invités valables {settings_row.guest_hours} h après leur première connexion")
         if 'antenna_name' in request.data:
             settings_row.antenna_name = ' '.join(str(request.data['antenna_name'] or '').split())[:64]
             changes.append(f"nom de l'antenne : {settings_row.antenna_name or '(vide)'}")
@@ -276,6 +282,8 @@ def my_pin(request):
     `pin_at_login` (case « Demander a chaque connexion ») accompagne le PIN choisi, ou se change seul, sans PIN."""
     user = badge_user(request, ALL_ROLES)  # badge ou jeton de session, PIN deja verifie s'il est demande
     data = request.data
+    if user.guest:
+        raise ApiError("Pas de code PIN pour une carte d'invité", status.HTTP_403_FORBIDDEN)
     if 'pin_at_login' in data and not data.get('pin') and not data.get('disable'):
         if not user.has_pin:
             raise ApiError("Vous n'avez pas de code PIN")

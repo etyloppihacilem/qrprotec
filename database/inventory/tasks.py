@@ -355,7 +355,7 @@ def _periodic_tasks(today):
                           + ' : la renouveler et la réimprimer (fiche du lot, onglet Étiquettes)', lot.verif_key_expires,
                           'lot_admin', lot=lot.id, sort=(0, lot.verif_key_expires.toordinal())))
     # badges qui expirent
-    for user in Secouristes.objects.filter(active=True, key_expires__isnull=False,
+    for user in Secouristes.objects.filter(active=True, guest=False, key_expires__isnull=False,
                                            key_expires__lte=today + warning).order_by('key_expires'):
         expired = user.key_expires < today
         tasks.append(task('periodic', 'warn' if expired else 'info', f'Badge : {identity_name(format_identity_verified(user.matricule))}',
@@ -555,7 +555,7 @@ def _expiry_key_events(today, days):
         for lot in Lots.objects.filter(active=True, verif_key_expires__isnull=False, verif_key_expires__lte=limit):
             rows.append(event('lot_key', lot.verif_key_expires, today, lot.name,
                               'à renouveler et réimprimer (fiche du lot, onglet Étiquettes)', None, 'lot_admin', lot=lot.id))
-    for user in Secouristes.objects.filter(active=True, key_expires__isnull=False, key_expires__lte=limit):
+    for user in Secouristes.objects.filter(active=True, guest=False, key_expires__isnull=False, key_expires__lte=limit):
         rows.append(event('badge', user.key_expires, today, identity_name(format_identity_verified(user.matricule)),
                           'renouveler la clé et réimprimer le badge (Utilisateurs, admin)', None, 'users'))
     return rows
