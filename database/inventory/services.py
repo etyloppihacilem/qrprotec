@@ -12,7 +12,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Count, F, Q
@@ -2032,6 +2032,80 @@ def maintenance_due(today=None, days=30, kinds=None):
         rows += [(kind, item, getattr(item, fields['due'])) for item in items]
     rows.sort(key=lambda row: (row[2], row[1].iid, row[0]))
     return rows
+
+
+def disinfect_lot(lot, identity, months=None, done=False, next_due=None, last_done=None, note=''):
+    """Desinfection du lot lui-meme (cellule du VPS...), roles gestion et admin :
+    - months : periodicite (0 : plus de desinfection ; activee sans date : aujourd'hui + months) ;
+    - done : desinfection faite maintenant, prochaine = next_due (apres aujourd'hui) ou aujourd'hui + months ;
+    - sinon last_done et/ou next_due : dates saisies a la main (cycle recale, la prochaine peut etre passee)."""
+    now = timezone.now()
+    today = timezone.localdate(now)
+    note = str(note or '').strip()[:256]
+    with transaction.atomic():
+        if months is not None:
+            lot.disinfection_months = months
+            if not months:
+                lot.disinfection_due = None
+            elif lot.disinfection_due is None:
+                lot.disinfection_due = add_months(today, months)
+            lot.save(update_fields=['disinfection_months', 'disinfection_due'])
+            journal.record(OperationKind.LOT, identity, f'{lot.name} : désinfection '
+                           + (f'tous les {months} mois' if months else 'retirée'), lot=lot, months=months)
+            if not done and next_due is None and last_done is None:
+                return lot
+        if not lot.disinfection_months:
+            raise ValueError("Ce lot n'a pas de désinfection : réglez sa périodicité d'abord")
+        if done:
+            due = next_due or add_months(today, lot.disinfection_months)
+            if due <= today:
+                raise ValueError("La prochaine désinfection doit être après aujourd'hui")
+            lot.disinfected_at, lot.disinfected_by, lot.disinfection_due = now, identity[:64], due
+            summary = f'{lot.name} : désinfection faite, prochaine le {due.strftime("%d/%m/%Y")}'
+        else:
+            if last_done is not None and last_done > today:
+                raise ValueError('La dernière désinfection ne peut pas être dans le futur')
+            if next_due is None:
+                if last_done is None:
+                    raise ValueError('Date de la dernière ou de la prochaine désinfection attendue')
+                next_due = add_months(last_done, lot.disinfection_months)
+            if last_done is not None and next_due <= last_done:
+                raise ValueError('La prochaine désinfection doit être après la dernière')
+            if last_done is not None:
+                lot.disinfected_at = timezone.make_aware(datetime.combine(last_done, datetime.min.time()).replace(hour=12))
+                lot.disinfected_by = identity[:64]
+            lot.disinfection_due = next_due
+            summary = (f'{lot.name} : prochaine désinfection le {next_due.strftime("%d/%m/%Y")}'
+                       + (f', dernière le {last_done.strftime("%d/%m/%Y")}' if last_done else '') + ' (date saisie à la main)')
+        lot.save(update_fields=['disinfected_at', 'disinfected_by', 'disinfection_due'])
+        journal.record(OperationKind.DISINFECTION, identity, summary + (f' ({note})' if note else ''), at=now, lot=lot,
+                       next_due=lot.disinfection_due.isoformat(), manual=not done)
+    return lot
+
+
+def lots_disinfection_due(today=None, days=30):
+    """Lots actifs dont la desinfection est en retard ou dans les `days` jours, la plus proche d'abord."""
+    today = today or timezone.localdate()
+    return list(Lots.objects.filter(active=True, disinfection_months__gt=0, disinfection_due__isnull=False,
+                                    disinfection_due__lte=today + timedelta(days=days)).order_by('disinfection_due'))
+
+
+def maintenance_overview(today=None):
+    """Onglet Materiel de l'Inventaire (poste) : tout le materiel non consommable suivi (revision ou desinfection),
+    pas supprime, la prochaine echeance d'abord, et les lots a desinfecter."""
+    today = today or timezone.localdate()
+    tracked = Q(pack__item_type__revision_months__gt=0) | Q(pack__item_type__disinfection_months__gt=0)
+    items = list(Items.objects.select_related('pack__item_type', 'location__lot_type')
+                 .filter(tracked, pack__item_type__consumable=False)
+                 .exclude(status__in=(ItemStatus.DELETED, ItemStatus.REPLACED)))
+    far = date.max
+    def next_date(item):
+        dates = [getattr(item, MAINTENANCE[kind]['due']) for kind in MAINTENANCE
+                 if item.pack.item_type.has_maintenance(kind) and getattr(item, MAINTENANCE[kind]['due'])]
+        return min(dates, default=far)
+    items.sort(key=lambda item: (next_date(item), item.pack.item_type.name, item.iid))
+    lots = list(Lots.objects.filter(active=True, disinfection_months__gt=0).order_by('disinfection_due', 'name'))
+    return items, lots
 
 
 def revisions_due(today=None, days=30):

@@ -186,6 +186,32 @@ def maintenance_dict(item, kind, today=None):
     }
 
 
+def cycle_month(start, due, months, today):
+    """Mois en cours d'un cycle d'entretien (de 1 a months), debut = derniere faite, sinon prochaine - periodicite."""
+    if due and (start is None or start >= due):
+        index = due.month - 1 - months
+        year, month = due.year + index // 12, index % 12 + 1
+        start = due.replace(year=year, month=month, day=min(due.day, calendar.monthrange(year, month)[1]))
+    if not (start and due and months):
+        return start, None
+    elapsed = (today.year - start.year) * 12 + today.month - start.month - (1 if today.day < start.day else 0)
+    return start, max(1, min(months, elapsed + 1))
+
+
+def lot_disinfection(lot, today=None):
+    """Desinfection periodique du lot lui-meme (Lots.disinfection_months), meme forme que maintenance_dict, ou None."""
+    if not lot.disinfection_months:
+        return None
+    today = today or timezone.localdate()
+    due = lot.disinfection_due
+    start, month = cycle_month(timezone.localtime(lot.disinfected_at).date() if lot.disinfected_at else None, due,
+                               lot.disinfection_months, today)
+    return {'kind': 'disinfection', 'label': 'Désinfection', 'noun': 'désinfection', 'verb': 'Désinfecter',
+            'lot': lot.id, 'lot_name': lot.name, 'due': _date(due), 'late': bool(due and due < today),
+            'usable': True, 'months': lot.disinfection_months, 'tasks': [], 'done_at': _date(lot.disinfected_at),
+            'done_by': _who(lot.disinfected_by), 'cycle_start': _date(start), 'cycle_month': month}
+
+
 def maintenance_list(item, today=None):
     """Revision et desinfection actives sur le type de l'item (vide pour un consommable)."""
     return [maintenance_dict(item, kind, today) for kind in MAINTENANCE if item.pack.item_type.has_maintenance(kind)]
@@ -411,6 +437,8 @@ def _lot_core(lot, today, items=None, preload=None):
         'next_revision': _date(min((item.revision_due for item in revised), default=None)),
         'revision_late_count': sum(1 for item in revised if item.revision_due < today),
         'revision_soon_count': sum(1 for item in revised if today <= item.revision_due <= soon_limit),
+        # desinfection du lot lui-meme (cellule du VPS...), None si aucune
+        'lot_disinfection': lot_disinfection(lot, today),
         # materiel a desinfecter : memes comptes que la revision
         'next_disinfection': _date(min((item.disinfection_due for item in disinfected), default=None)),
         'disinfection_late_count': sum(1 for item in disinfected if item.disinfection_due < today),

@@ -1236,6 +1236,42 @@ def tasks_list(request):
     return Response(tasks.todo(consumables_tasks=True))
 
 
+@api_view(['POST'])
+@handle_errors
+def lot_disinfection(request, lot_id):
+    """Desinfection d'un lot lui-meme (cellule du VPS...), roles gestion et admin, web ou poste : {"user", "months"
+    (periodicite, 0 : aucune), "done": true (faite maintenant, "next_due" facultatif), ou "last_done" / "next_due"
+    (dates saisies a la main), "note"}. Repond la desinfection du lot (serializers.lot_disinfection)."""
+    connected_user(request, GESTION)
+    identity = operation_identity(request)
+    lot = get_object_or_404(Lots, id=lot_id)
+    data = request.data
+    months = parse_int(data['months'], 'months', 0, 120) if data.get('months') not in (None, '') else None
+    next_due = parse_date(data['next_due'], 'next_due') if data.get('next_due') else None
+    last_done = parse_date(data['last_done'], 'last_done') if data.get('last_done') else None
+    try:
+        services.disinfect_lot(lot, identity, months, bool(data.get('done')), next_due, last_done, data.get('note', ''))
+    except ValueError as exc:
+        raise ApiError(str(exc))
+    return Response({'id': lot.id, 'name': lot.name, 'disinfection': ser.lot_disinfection(lot),
+                     'disinfection_months': lot.disinfection_months})
+
+
+@api_view(['GET'])
+@handle_errors
+def maintenance_overview(request):
+    """Onglet Materiel de l'Inventaire du poste (gestion, admin) : materiel non consommable suivi (revision,
+    desinfection) et lots a desinfecter."""
+    require_front(request, GESTION)
+    today = timezone.localdate()
+    items, lots = services.maintenance_overview(today)
+    return Response({'items': [ser.item_dict(item, today) for item in items],
+                     'lots': [{'id': lot.id, 'name': lot.name, 'lot_type_name': lot.lot_type.name,
+                               'disinfection': ser.lot_disinfection(lot, today)}
+                              for lot in Lots.objects.select_related('lot_type').filter(id__in=[l.id for l in lots])
+                              .order_by('disinfection_due', 'name')]})
+
+
 def _events_days(value):
     return parse_int(value if value not in (None, '') else tasks.EVENTS_DAYS, 'days', 1, 400)
 

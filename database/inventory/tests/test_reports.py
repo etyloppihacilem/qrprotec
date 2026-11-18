@@ -456,6 +456,41 @@ class RevisionTests(ApiTestCase):
         days = [row['days'] for row in body['events']]
         self.assertEqual(days, sorted(days))
 
+    def test_lot_disinfection(self):
+        url = f'/api/lots/{self.lot.id}/disinfection/'
+        code, _ = self.call('POST', url, {'done': True})
+        self.assertEqual(code, 400)  # pas de periodicite
+        code, body = self.call('POST', url, {'months': 2})
+        self.assertEqual(code, 200)
+        self.assertEqual(body['disinfection']['due'], models.add_months(self.today, 2).isoformat())
+        code, body = self.call('POST', url, {'done': True})
+        self.assertEqual(body['disinfection']['done_at'][:10], self.today.isoformat())
+        past = (self.today - timedelta(days=2)).isoformat()
+        code, body = self.call('POST', url, {'next_due': past})
+        self.assertTrue(body['disinfection']['late'])
+        code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
+        self.assertTrue(lot['lot_disinfection']['late'])
+        code, body = self.call('GET', '/api/events/?days=30')
+        row = next(row for row in body['events'] if row['kind'] == 'disinfection' and row['lot'] == self.lot.id)
+        self.assertEqual((row['late'], row['lot_maintenance']['lot']), (True, self.lot.id))
+        code, body = self.call('GET', '/api/tasks/')
+        self.assertIn('Désinfection du lot : Sac A', [row['title'] for row in body['tasks']])
+        code, _ = self.call('POST', url, {'user': {'matricule': self.user.matricule, 'key': self.user.new_key},
+                                          'done': True}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('GET', '/api/maintenance/')
+        self.assertEqual([lot['id'] for lot in body['lots']], [self.lot.id])
+
+    def test_maintenance_overview(self):
+        late, ok = self.create(self.aspi, None, 2)
+        Items.objects.filter(iid=late.iid).update(revision_due=self.today - timedelta(days=1))
+        self.create(self.garrot, None, 1)  # consommable : absent
+        code, body = self.call('GET', '/api/maintenance/')
+        self.assertEqual(code, 200)
+        self.assertEqual([item['iid'] for item in body['items']], [late.iid, ok.iid])
+        code, _ = self.call('GET', '/api/maintenance/', session=False)
+        self.assertEqual(code, 403)
+
     def test_daily_revision_summary(self):
         from django.core.management import call_command
         late, soon, later = self.create(self.aspi, None, 3)

@@ -50,6 +50,7 @@ public_patterns = [
     path('lots/<str:lot_id>/unseal/', views.lot_unseal),
     path('lots/<str:lot_id>/seal-open/', views.lot_seal_open),
     path('lots/<str:lot_id>/used/', views.lot_used),
+    path('lots/<str:lot_id>/disinfection/', views.lot_disinfection),  # desinfection du lot lui-meme (gestion, admin)
     path('lots/<str:lot_id>/return/', views.lot_return),
     path('lots/<str:lot_id>/slots/<str:action>/', views.lot_slot_action),
     path('packs/<str:pack_id>/', views.sealed_pack_detail),
@@ -107,6 +108,7 @@ local_patterns = [
     path('stock/verif/', views.stock_verif),
     path('tasks/', views.tasks_list),
     path('events/', views.events_list),
+    path('maintenance/', views.maintenance_overview),  # onglet Materiel de l'Inventaire du poste
     path('packs/', views.sealed_packs),
     path('packs/<str:pack_id>/open/', views.sealed_pack_open),
     path('packs/<str:pack_id>/close/', views.sealed_pack_close),
