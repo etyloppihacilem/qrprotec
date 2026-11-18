@@ -576,9 +576,21 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
 
   // liste deroulante des resultats, au premier plan sous le champ
   if (!changed && (now_active || state.popup_hovered)) {
-    ImGui::SetNextWindowPos(ImVec2(min.x, max.y + 2.0f));
+    // sous le champ, ou au-dessus quand le bas de l'ecran manque de place (champ en bas d'une fenetre : sinon les
+    // resultats sortent de l'ecran)
+    const float          line     = ImGui::GetTextLineHeightWithSpacing();
+    const float          max_h    = line * 12.0f;
+    const float          wanted   = std::min(max_h, line * static_cast< float >(std::max< std::size_t >(matches.size(), 1) + 1)
+                                                      + ImGui::GetStyle().WindowPadding.y * 2.0f);
+    const ImGuiViewport *viewport = ImGui::GetWindowViewport();
+    const float          below    = viewport->WorkPos.y + viewport->WorkSize.y - (max.y + 2.0f);
+    const float          above    = min.y - 2.0f - viewport->WorkPos.y;
+    const bool           up       = below < wanted && above > below;
+    ImGui::SetNextWindowPos(ImVec2(min.x, up ? min.y - 2.0f : max.y + 2.0f), ImGuiCond_Always,
+                            ImVec2(0.0f, up ? 1.0f : 0.0f));
     ImGui::SetNextWindowSizeConstraints(ImVec2(std::max(max.x - min.x, 240.0f), 0.0f),
-                                        ImVec2(std::max(max.x - min.x, 420.0f), ImGui::GetTextLineHeightWithSpacing() * 12.0f));
+                                        ImVec2(std::max(max.x - min.x, 420.0f),
+                                               std::min(max_h, std::max(line * 3.0f, up ? above : below))));
     const std::string popup = std::string("##search_results_") + std::to_string(input_id);
     ImGui::Begin(popup.c_str(), nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
