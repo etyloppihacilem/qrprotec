@@ -513,6 +513,12 @@ class App {
     // Etiquettes d'items demandees depuis le web par un admin : fenetre « Impressions en attente », ouverte d'elle-meme
     // a chaque nouvelle demande, meme sans personne de connecte (voir label_prints.cpp)
     void refresh_label_prints();
+    // Reglages ouverts sur une section (depliee, en haut), depuis le menu qui la concerne
+    std::string settings_section_;
+    void        open_settings_section(const std::string &label) {
+      settings_section_ = label;
+      open_window("settings");
+    }
     void open_label_prints() {
       label_prints_.open = label_prints_.focus = true;
       label_prints_.remote = !main_poste();
@@ -664,6 +670,7 @@ class App {
     void scan_lot_seal_open(const ParsedScan &scan, ScanSource source);
     void entry_error(int entry_id, const std::string &message, ScanSource source);
     void draw_menu_bar();
+    void draw_print_menu(bool dark_bar, const PrintQueueStatus &print); // menu Impression de la barre
     void draw_update_menu(bool dark_bar); // barre de menu : mise a jour prete a installer
     void window_menu_item(AppWindow &window);
     void handle_shortcuts();

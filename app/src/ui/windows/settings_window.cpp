@@ -169,6 +169,20 @@ void draw_update_settings(App &app) {
   }
 }
 
+// Section des Reglages ouverte et amenee en haut quand un menu la demande (Impression > Reglages d'impression,
+// Douchette > Signal de mauvais scan, Fenetres > Disposition par defaut) : App::open_settings_section.
+bool settings_section(App &app, const char *label) {
+  const bool wanted = app.settings_section_ == label;
+  if (wanted)
+    ImGui::SetNextItemOpen(true);
+  const bool open = ImGui::CollapsingHeader(label);
+  if (wanted) {
+    ImGui::SetScrollHereY(0.0f);
+    app.settings_section_.clear();
+  }
+  return open;
+}
+
 class SettingsWindow final : public AppWindow {
   public:
     SettingsWindow() : AppWindow("settings", "Réglages", true, true) {
@@ -242,7 +256,7 @@ class SettingsWindow final : public AppWindow {
           ImGui::TextColored(colors::orange, "Options de débug actives sur ce poste.");
       }
 
-      if (ImGui::CollapsingHeader("Disposition par défaut")) {
+      if (settings_section(app, "Disposition par défaut")) {
         ImGui::TextWrapped("Fenêtres ouvertes au démarrage et après une réinitialisation. La pile de scans est "
                            "toujours ouverte.");
         for (auto &window : app.windows) {
@@ -267,7 +281,7 @@ class SettingsWindow final : public AppWindow {
       if (ImGui::CollapsingHeader("Notifications"))
         draw_notifications(app);
 
-      if (ImGui::CollapsingHeader("Étiquettes et impression")) {
+      if (settings_section(app, "Étiquettes et impression")) {
         ImGui::TextUnformatted("Dossier des modèles (fichiers .qr et images, à commiter avec le dépôt) :");
         ImGui::SetNextItemWidth(-FLT_MIN);
         // applique a Entree comme en quittant le champ (sinon le dossier tape n'etait jamais pris en compte)
@@ -449,7 +463,7 @@ class SettingsWindow final : public AppWindow {
         }
       }
 
-      if (ImGui::CollapsingHeader("Signal de mauvais scan")) {
+      if (settings_section(app, "Signal de mauvais scan")) {
         ImGui::Checkbox("Bip sur l'ordinateur (mode HID)", &settings.sound_enabled);
 #ifndef _WIN32 // Windows : le bip est joue directement, sans commande
         ImGui::InputTextWithHint("Commande de bip", "vide = bip intégré (aplay/paplay)", &settings.beep_command);
