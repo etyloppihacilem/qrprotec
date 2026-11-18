@@ -135,8 +135,19 @@ que le fait de recocher « Machine partagée ».
 
 Chaque fenêtre est une classe dérivée d'`AppWindow` (`draw`, `on_open`), créée par une fonction
 `make_*_window()` (`ui/windows/windows.hpp`) et enregistrée dans le constructeur d'`App`. Drapeaux :
-`privileged` (menu Gestion, rôles gestion/admin), `admin_only` en plus (menu Administration : Utilisateurs,
-Éditeur, Réglages, Signalements).
+`privileged` (rôles gestion/admin), `admin_only` en plus (admins : Utilisateurs, Éditeur, Réglages). Une fenêtre
+répond à une question du gestionnaire, et chaque objet n'a qu'une fiche : celle d'un lot est dans Lots pour tout le
+monde, la gestion y a ses onglets en plus. Il n'y a plus de menus Gestion ni Administration : le **hub « Outils »**
+(`app/hub.cpp`, bouton « ☰ Outils » de la barre ou `Ctrl+K`, popup modal) montre les fenêtres en tuiles par
+groupe (`kGroups`), avec leur touche F et un compteur coloré, et sa recherche « Aller à… » trouve fenêtres,
+actions, lots (attention d'abord), types et fiche d'un item par son iid. Le menu Fenêtres liste aussi toutes les
+fenêtres permises, par groupe.
+
+Écrans partagés entre fenêtres (`windows.hpp`) : `LotPanel` (`lot_admin_window.cpp`, l'ancienne Gestion des lots
+sans fenêtre à elle : onglets de gestion de la fiche du lot, nouveau lot, ordre, archives, types de lots) et
+`InventoryPanel` (`inventory_window.cpp` : types d'items, matériel suivi). Pour ouvrir une fenêtre sur un onglet ou
+un objet : `show_lot`, `show_stock_tab`, `show_item`, `show_lots_mode`, `show_catalogue_type`,
+`open_settings_section`.
 
 | Fenêtre | Fichier | Mode |
 |---|---|---|
@@ -144,11 +155,13 @@ Chaque fenêtre est une classe dérivée d'`AppWindow` (`draw`, `on_open`), cré
 | Lots | `lots_window.cpp` | normal |
 | Vérif | `verif_window.cpp` | normal |
 | Téléphone comme douchette | `phone_window.cpp` | normal |
-| Gestion de la TECH (À faire, À venir, stock, prévisions) | `stock_window.cpp` | privilégié |
-| Inventaire (réception, types, recherche, matériel suivi et désinfection des lots, paquets) | `inventory_window.cpp` | privilégié |
-| Paquet fermé | `pack_window.cpp` | privilégié |
-| Gestion des lots | `lot_admin_window.cpp` | privilégié |
-| Journal des opérations | `journal_window.cpp` | privilégié |
+| Gestion de la TECH `F5` (À faire, À venir par date ou tout le matériel suivi) | `stock_window.cpp` | privilégié |
+| Stock `F6` (réception, état du stock et projection, items, paquets, commandes, transferts) | `inventory_window.cpp` | privilégié |
+| Catalogue `F7` (types de lots, types d'items) | `catalogue_window.cpp` | privilégié |
+| Paquet fermé (au scan d'un paquet) | `pack_window.cpp` | privilégié |
+| Journal des opérations `F8` | `journal_window.cpp` | privilégié |
+| Signalements `F11` (lecture pour la gestion, traitement admin) | `reports_window.cpp` | privilégié |
+| Impressions et consommables (menu Impression) | `print_counts_window.cpp` | privilégié |
 | Utilisateurs | `users_window.cpp` | admin |
 | Éditeur d'étiquettes | `ui/editor.cpp` | admin |
 | Réglages | `settings_window.cpp` | admin |
@@ -294,9 +307,9 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   pour retrouver la file d'un badge. Plusieurs files : choix par bouton radio ou par badge
   (`App::label_prints_badge`, appelé en tête de `handle_scan` tant que la fenêtre est ouverte : pas de
   connexion, bouton « Se connecter » qui appelle `login_with_badge`). Une file lancée à distance
-  (`launch_requested`, `POST /api/label-prints/queues/launch/` par un admin du web ou d'un autre
-  ordinateur) part à l'imprimante au tour suivant, une file à la fois. Sur un autre ordinateur, les
-  admins ouvrent la même fenêtre en mode `remote` (Administration > Files d'impression du poste), qui
+  (`launch_requested`, `POST /api/label-prints/queues/launch/` par la gestion ou un admin du web ou d'un autre
+  ordinateur) part à l'imprimante au tour suivant, une file à la fois. Sur un autre ordinateur, la
+  gestion et les admins ouvrent la même fenêtre en mode `remote` (Impression > Files d'impression du poste), qui
   interroge `POST /api/label-prints/queues/`. Fenêtre fermée 15 min après la dernière demande.
 - **Compteur d'impressions** (`core/print_counter.cpp`, fenêtre `print_counts_window.cpp`) : le fil
   de `PrintQueue` ajoute chaque étiquette acceptée par l'imprimante (`print` réussi) au `PrintCounter`

@@ -54,7 +54,7 @@ Ouvrez le pare-feu (`--open-firewall`) : seuls les ports 80 et 443 sont nécessa
 
 Le premier administrateur est créé par l'assistant, ou plus tard :
 `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821`. Comme il n'y a pas d'écran, imprimez
-son badge depuis la borne, une fois connectée (scanner ou saisir l'URL affichée, puis **Administration >
+son badge depuis la borne, une fois connectée (scanner ou saisir l'URL affichée, puis **Outils >
 Utilisateurs**).
 
 ## 3. Créer une clé par poste
@@ -67,7 +67,7 @@ Sans kiosk sur le serveur, la **borne** (le kiosk avec l'imprimante et la douche
 - Elle **imprime les « Impressions en attente »** : étiquettes demandées depuis le web (Gestion de
   la TECH) ou envoyées par les postes de bureau sans imprimante. Sans poste principal, ces demandes
   ne s'imprimeraient nulle part.
-- Elle **gère les ordinateurs connectés** (Administration > Utilisateurs > Ordinateurs connectés) :
+- Elle **gère les ordinateurs connectés** (Utilisateurs > Ordinateurs connectés) :
   créer le fichier d'un nouveau poste, révoquer, réactiver, supprimer. Elle ne peut pas se révoquer
   ni se retirer ses propres droits (à faire sur le serveur ou depuis un autre poste principal).
 

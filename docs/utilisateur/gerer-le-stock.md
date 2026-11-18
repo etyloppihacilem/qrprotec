@@ -1,14 +1,33 @@
 # Gérer le stock
 
 Cette page concerne les rôles **gestion** et **admin**. Scannez votre badge au poste : la barre des menus
-en haut de l'écran passe en bleu foncé et le menu **Gestion** apparaît.
+en haut de l'écran passe en bleu foncé et les fenêtres de gestion apparaissent dans **☰ Outils**.
+
+## Se repérer au poste
+
+Chaque fenêtre répond à une question, et chaque lot n'a qu'une fiche :
+
+| Touche | Fenêtre | La question |
+|---|---|---|
+| `F2` | **Lots** | Dans quel état sont mes lots ? La fiche d'un lot a, pour la gestion, les onglets Scellé, Étiquettes, Répartition et Modifier le lot ; **Nouveau lot…**, **Ordre des lots…** et **Lots archivés…** sont au-dessus de la liste. |
+| `F5` | **Gestion de la TECH** | Qu'est-ce que je dois faire ? **À faire** et **À venir**. |
+| `F6` | **Stock** | Qu'est-ce que j'ai, qu'est-ce qui entre et sort ? Réception, état du stock, items, paquets, commandes, transferts. |
+| `F7` | **Catalogue** | Comment le matériel est-il défini ? Types de lots et types d'items. |
+| `F8` | **Journal des opérations** | Qui a fait quoi, et quand ? |
+| `F11` | **Signalements** | Les problèmes signalés (la gestion les lit, un admin les traite). |
+
+**☰ Outils** (tout à gauche de la barre) ou `Ctrl+K` ouvre le hub : toutes les fenêtres en tuiles, avec leur
+touche et un compteur coloré (rouge à traiter, orange à surveiller, bleu en attente, vert rien à faire). Tapez
+quelques lettres pour **aller directement** à un lot, un type, un item (son iid) ou une action (« récep » pour une
+nouvelle réception, « rouleau » pour changer de rouleau) ; flèches pour choisir, `Entrée` pour ouvrir, `Échap` pour
+fermer. Le menu **Impression** regroupe l'imprimante, les impressions demandées et les consommables.
 
 ## Recevoir une commande
 
 Exemple : la commande du mois arrive avec 200 compresses (8 boîtes de 25, péremption 03/2029),
 40 sérums phy (péremption 31/12/2027) et 2 garrots.
 
-Menu **Gestion > Inventaire**, onglet **Réception**, une ligne de commande à la fois :
+Fenêtre **Stock** (`F6`, ou **☰ Outils** > Stock), onglet **Réception**, une ligne de commande à la fois :
 
 1. **Type d'item** : tapez une partie du nom ou du code (« ser ph » trouve « Sérum phy 10 ml »,
    sans se soucier des accents), validez avec Entrée ou Tab. La description du type compte aussi :
@@ -85,14 +104,14 @@ personne n'y était connecté) :
   la connexion si vous en avez besoin. **Lancer l'impression** n'imprime que la file affichée.
 - La fenêtre se ferme d'elle-même **15 minutes** après la dernière impression en attente.
 
-Les **administrateurs** gèrent les files de n'importe où : sur le téléphone (Gestion de la TECH,
-**+ Étiquettes**) ou sur un autre ordinateur (menu **Administration**, **Files d'impression du
+La **gestion** et les **administrateurs** gèrent les files de n'importe où : sur le téléphone (Gestion de la TECH,
+**+ Étiquettes**, administrateurs) ou sur un autre ordinateur (menu **Impression**, **Files d'impression du
 poste**). **Lancer l'impression** y fait imprimer la file par le poste dans la minute, sans que personne
 n'y touche ; **Annuler la file** l'annule en entier.
 
 ## Compteur d'impressions et consommables
 
-Menu **Gestion > Impressions et consommables** au poste et sur les autres ordinateurs (gestion et admin) :
+Menu **Impression > Impressions et consommables** au poste et sur les autres ordinateurs (gestion et admin) :
 nombre d'étiquettes imprimées **par mois** et **par catégorie d'étiquette** (taille et support :
 thermique direct ou transfert thermique), avec le **total de l'année** et la **moyenne par mois**
 (mois finis), pour suivre la consommation de bobines et de ruban et prévoir les commandes. Le choix
@@ -135,7 +154,7 @@ dans la Gestion de la TECH du poste (pas sur le téléphone).
 
 ## Gestion de la TECH : la liste de tâches
 
-Menu **Gestion > Gestion de la TECH** au poste, tuile **Gestion de la TECH** de l'accueil sur le téléphone
+Fenêtre **Gestion de la TECH** au poste (`F5`, ou **☰ Outils**), tuile **Gestion de la TECH** de l'accueil sur le téléphone
 (badge gestion ou admin). Le premier onglet, **À faire**, liste tout ce qu'il y a à faire pour tenir le
 stock, du plus important au moins important :
 
@@ -178,7 +197,7 @@ de désinfection a ses boutons **Réviser** / **Désinfecter** et **Saisir la da
 
 ## Consulter l'état des stocks
 
-Menu **Gestion > Gestion de la TECH**, onglet **Actuel** : une barre par type d'item, verte au-dessus du minimum, orange en
+Fenêtre **Stock** (`F6`), onglet **État du stock**, vue **Aujourd'hui** : une barre par type d'item, verte au-dessus du minimum, orange en
 dessous, rouge à zéro, avec « quantité / minimum » (ex : `32/100`). Colonnes : dans les lots,
 périmés, bientôt périmés (30 jours), disparus. Options : **Sous le minimum uniquement**, **Compter
 les lots** (inclure ce qui est dans les sacs).
@@ -196,10 +215,9 @@ d'un sous-lot). Le champ de recherche accepte un nom, un iid ou un code scanné.
 
 ## Anticiper les péremptions et les commandes
 
-La fenêtre **Gestion de la TECH** a, après **À faire**, quatre onglets :
+La fenêtre **Stock** a, en plus de l'état d'aujourd'hui (ci-dessus) :
 
-- **Actuel** : l'état d'aujourd'hui (ci-dessus).
-- **Projection** : le stock tel qu'il sera **aujourd'hui, à M+1, M+3 ou M+6**. Avec **Avec
+- **Projection** (onglet **État du stock**, vue **Projection**) : le stock tel qu'il sera **aujourd'hui, à M+1, M+3 ou M+6**. Avec **Avec
   consommation**, chaque lieu utilise d'abord ses items les plus proches de leur date, au rythme mesuré
   sur les derniers mois ; sans, on ne voit que ce qui sera encore valide. Colonnes : péremptions d'ici
   là, **perdus** (items qui périmeront sans avoir été utilisés), consommation par mois, date de
@@ -362,7 +380,7 @@ lien **Saisir la date** (fiche de l'item, carte d'À venir, pile de scans du pos
 passée si le retard est constaté. Aucune révision n'est comptée comme faite aujourd'hui ; le journal garde qui a
 saisi quoi.
 
-**Onglet Matériel de l'inventaire** (poste, gestion et admin). **Inventaire › Matériel** regroupe tout le
+**Tout le matériel suivi** (poste, gestion et admin). **Gestion de la TECH › À venir › Tout le matériel suivi** regroupe tout le
 matériel non consommable : type, iid, emplacement, prochaine révision et prochaine désinfection (rouge en
 retard, orange dans les 30 jours ; survolez une date pour la périodicité, le mois du cycle et la dernière faite).
 La plus proche est en haut ; la case « En retard ou dans les 30 jours » et la recherche filtrent la liste.

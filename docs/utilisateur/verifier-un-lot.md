@@ -83,7 +83,7 @@ tape toujours `@`, `#` ou `{`.
    Une fois connecté, une fenêtre rappelle la vérif en 3 points (scanner tout le contenu en suivant
    la liste, monter le son pour entendre le bip, scanner le même lot à plusieurs, chacun avec son téléphone). Cochez **Ne plus afficher ce
    message** pour ne plus la voir : un admin peut la faire réapparaître depuis le poste
-   (**Administration > Utilisateurs > Réglages du web**), et vous dans les réglages ⚙.
+   (fenêtre **Utilisateurs** > **Réglages du web**), et vous dans les réglages ⚙.
 3. **Scannez chaque objet.** Onglets en bas : **À scanner** (ce qui reste, par produit : en cours en
    haut, rien de scanné ensuite, complets en bas ; connecté en administrateur, touchez un produit
    pour déplier les codes de ses items, les périmés en rouge),

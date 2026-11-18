@@ -369,7 +369,7 @@ def order_tasks(today=None):
         detail = f"stock estimé {pool['stock_text']}"
         if pool['monthly_text']:
             detail += f" · {pool['monthly_text']} par mois"
-        detail += ' · fenêtre Gestion > Impressions et consommables'
+        detail += ' · menu Impression > Impressions et consommables'
         tasks.append({'level': pool['level'], 'title': f"Commander : {pool['label']}", 'detail': detail,
                       'autonomy': pool['autonomy_days'] if pool['autonomy_days'] is not None else -1})
     return tasks

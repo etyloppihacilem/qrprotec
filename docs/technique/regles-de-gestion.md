@@ -80,7 +80,7 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    compter comme utilisé ni manquant (`services.leaves_lot`). Hors lot, il n'est ni dans les lots ni
    dans le stock (`stock_status` le compte dans `loose`) et une vérif du stock qui ne le voit pas ne
    le signale pas. Il entre en stock quand il est scanné (vérif du stock ou d'un rangement) ou remis
-   en stock à la main (`items/to-stock`, fenêtre Inventaire du poste). Il ne retient pas non plus son
+   en stock à la main (`items/to-stock`, fenêtre Stock du poste). Il ne retient pas non plus son
    lot en vérif partielle. Dans un rangement du stock il manque comme les autres. Sorti du stock
    sans lot, il reste `out` jusqu'à son retour (`out_deadline` vaut `None`).
    Un item **facultatif** (attendu `LotRequirements.optional`, seulement du non consommable sans tâches :
@@ -122,7 +122,7 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    facultatif) ou `last_done` / `next_due` à la main. `_lot_core.lot_disinfection` (même forme que
    `item_dict.maintenance`, avec `lot` et `lot_name`) ; évènements `disinfection` avec `lot_maintenance`,
    tâche « Désinfection du lot » à 30 jours, phrase dans `check_alerts`. `GET maintenance/` (poste,
-   gestion) : onglet Matériel de l'Inventaire, `items` (non consommables ou suivis) et `lots` suivis.
+   gestion) : Gestion de la TECH > À venir > Tout le matériel suivi, `items` (non consommables ou suivis) et `lots` suivis.
    **Items à tâches** (`ItemType.tasks`, étiquette de tâches `<base>/task?id=IID`) : les fronts
    n'envoient l'item dans les scans de la vérif qu'une fois toutes ses tâches cochées et validées
    (web `openTasks`/`addItem`, poste `ScanEntry.tasks_pending`, hors de `ScanStack::iids`). Le

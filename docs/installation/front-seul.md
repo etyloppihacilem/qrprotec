@@ -19,7 +19,7 @@ Deux paquets :
 Un administrateur, sur le **poste principal** (le kiosk de la machine du serveur, ou la borne
 déclarée « poste principal » quand le serveur n'a pas de kiosk, voir [back seul](back-seul.md#la-borne--poste-principal)) :
 
-1. **Administration > Utilisateurs** (F9), onglet **Ordinateurs connectés**.
+1. **Utilisateurs** (`F9`, ou **☰ Outils** > Utilisateurs), onglet **Ordinateurs connectés**.
 2. Donnez un **nom** à l'ordinateur (`accueil`, `portable-chef`... sans espace ni accent). Laissez
    le mot de passe vide : un mot de passe facile à recopier est choisi (`tf3t-bhr3-4spt`). Cochez
    **Poste principal** pour une autre borne avec imprimante.

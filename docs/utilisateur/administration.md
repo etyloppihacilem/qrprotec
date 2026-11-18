@@ -4,7 +4,7 @@ Cette page concerne le rôle **admin** (sauf « Lots » et « Scellés », acces
 
 ## Utilisateurs et badges
 
-Menu **Administration > Utilisateurs**.
+Fenêtre **Utilisateurs** (`F9`, ou **☰ Outils** > Utilisateurs).
 
 - **Nouvel utilisateur** : matricule (1 à 16 lettres, chiffres, `-` ou `_`, définitif), prénom, nom,
   rôle, PIN éventuel. **Créer et voir le badge** affiche l'aperçu ; imprimez-le.
@@ -68,7 +68,7 @@ Chaque action est notée dans le journal.
 
 ## Lots
 
-Menu **Gestion > Gestion des lots** (rôle gestion).
+Fenêtre **Lots** (`F2`) pour les lots eux-mêmes (fiche complète, **Nouveau lot…**, **Ordre des lots…**, **Lots archivés…**), fenêtre **Catalogue** (`F7`) pour les types de lots (rôle gestion).
 
 - **Types de lots** : contenu attendu (type d'item, quantité, emplacement proposé parmi ceux déjà
   donnés, ordre des emplacements pour la vérif), case **Rangement du
@@ -163,15 +163,15 @@ Réservé aux admins, au poste. Un item désactivé est invalide comme s'il éta
 dans son lot ni dans le stock, s'affiche **DÉSACTIVÉ** et le remplaçant le sort du lot à la vérif. Une
 raison est obligatoire ; tout se réactive de la même façon.
 
-- **Un item** : **Gestion > Inventaire**, onglet Items, sélectionnez l'item, **Actions avancées** ;
-- **Toute une réception** : onglet **Réceptions passées** (filtrable par type, ou « Voir les réceptions
+- **Un item** : fenêtre **Stock** (`F6`), onglet Items (ou **Fiche de l'item** dans la pile de scans), sélectionnez l'item, **Actions avancées** ;
+- **Toute une réception** : onglet **Réception**, vue **Réceptions passées** (filtrable par type, ou « Voir les réceptions
   de ce type » depuis un item). Une réception regroupe les items reçus ensemble : utile pour un paquet
   ouvert dès la réception, ou un rappel de lot du fabricant ;
 - **Un paquet fermé** : scannez son étiquette, fenêtre **Paquet fermé**, **Désactiver le paquet**.
 
 ## Journal des opérations
 
-Menu **Gestion > Journal des opérations** (rôles gestion et admin) : toutes les opérations, de la plus
+Fenêtre **Journal des opérations** (`F8`, rôles gestion et admin) : toutes les opérations, de la plus
 récente à la plus ancienne, avec qui, quand, quoi et sur quel lot. Vérifs (complètes en vert,
 incomplètes en rouge), réassorts, retraits vers le stock, scellages et ouvertures de scellé, réceptions,
 paquets ouverts, suppressions d'items, et modifications des lots, des types, des utilisateurs et des
@@ -184,7 +184,7 @@ réglages.
   ouverture ou d'une suppression.
 - Un nom en orange n'a pas été vérifié par un badge : nom déclaré, ou ouverture anonyme par l'étiquette
   intérieure jamais signée.
-- Bouton **Journal du lot** dans la fiche d'un lot (Gestion des lots) : le journal filtré sur ce lot.
+- Bouton **Journal du lot** dans la fiche d'un lot (fenêtre Lots, gestion et admin) : le journal filtré sur ce lot.
 
 Les opérations faites avant la mise à jour sont reconstituées depuis l'historique (en gris) : vérifs,
 réassorts, réceptions, paquets ouverts, et seulement le **dernier** scellage et la **dernière**
@@ -192,7 +192,7 @@ ouverture de chaque lot.
 
 ## Étiquettes
 
-Menu **Administration > Éditeur d'étiquettes** (admin). Chaque modèle a un **usage** (item, paquet, lot
+Fenêtre **Éditeur d'étiquettes** (`F10`, admin). Chaque modèle a un **usage** (item, paquet, lot
 public, lot clé, scellé, ouverture du scellé, badge, étiquette de tâches) qui détermine les informations disponibles,
 listées dans l'onglet **Placeholders** (`{{type_name}}`, `{{peremption}}`, `{{lot_name}}`…).
 Un texte entre crochets autour du nom ne s'imprime que si la valeur n'est pas vide, devant
@@ -225,7 +225,7 @@ sens est tourné automatiquement (**Retourner les étiquettes (180°)** si elles
 
 ## Réglages du poste
 
-Menu **Administration > Réglages** (admin). À l'ouverture, seules **Règles du serveur** et **Session et affichage**
+Fenêtre **Réglages** (`F12`, admin). À l'ouverture, seules **Règles du serveur** et **Session et affichage**
 sont dépliées ; cliquez sur le titre d'une autre section pour la déplier.
 
 | Section | Contenu |
