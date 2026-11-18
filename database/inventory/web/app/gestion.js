@@ -141,7 +141,7 @@ function renderForecast(parts) {
 // Liste de taches de la gestion, par priorite : signalements, lots a sceller, lots invalides, vérifs recommandees,
 // revisions, vérifs du stock, commandes et deplacements, puis les taches de temps en temps. Toucher une tache ouvre
 // ce qui permet de la traiter (fiche du lot ou de l'item, signalements, prévisions, listes).
-const TASK_LINK_HINTS = { users: 'Au poste : Utilisateurs (F9)', inventory: 'Au poste : Stock (F6)',
+const TASK_LINK_HINTS = { users: 'Au poste : Administration › Utilisateurs', inventory: 'Au poste : Items (F7)',
   lot_admin: 'Au poste : fiche du lot (Lots, F2)', label_prints: 'Au poste : fenêtre « Impressions en attente »' };
 
 function openTask(row) {

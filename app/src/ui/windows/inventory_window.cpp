@@ -159,23 +159,34 @@ void colored_count(int value, const ImVec4 &color) {
     ImGui::TextUnformatted("0");
 }
 
-// Stock (ex-Inventaire) : reception des commandes, etat du stock et projection, items, paquets fermes, commandes et
-// transferts. Qu'est-ce que j'ai en reserve, qu'est-ce qui entre et sort ?
-class InventoryPanelImpl;
-
+// Trois fenetres de gestion faites du meme code (l'ancien Inventaire), une par domaine :
+// - Stock (F6) : qu'est-ce que j'ai en reserve ? Etat du stock (aujourd'hui, projection), commandes, transferts.
+// - Items (F7) : comment le materiel est defini et suivi. Types d'items, items, entretien (revisions et
+//   desinfections), paquets fermes.
+// - Reception (F9) : une commande arrive. Nouvelle reception, receptions passees.
+// Chacune peut etre ouverte a cote d'une autre (Lots d'un cote, Types d'items de l'autre).
 class InventoryWindow final : public AppWindow {
-    friend class InventoryPanelImpl; // types d'items (Catalogue) et materiel suivi (TECH > À venir)
-
   public:
-    InventoryWindow() : AppWindow("inventory", "Stock", true, true) {} // id historique : disposition enregistree
+    enum class View { Stock, Items, Reception };
+
+    InventoryWindow(View view, const char *id, const char *title) : AppWindow(id, title, true, true), view_(view) {}
 
     void on_open(App &app) override {
       app.refresh_item_types();
-      search(app);
-      load_packs(app);
-      load_receptions(app);
-      app.refresh_stock();
-      app.refresh_forecast();
+      switch (view_) {
+        case View::Stock:
+          app.refresh_stock();
+          app.refresh_forecast();
+          break;
+        case View::Items:
+          search(app);
+          load_packs(app);
+          break;
+        case View::Reception:
+          app.refresh_lots(true); // rangements du stock ou ranger la reception
+          load_receptions(app);
+          break;
+      }
     }
 
     void reset_view(App &) override {
@@ -187,7 +198,6 @@ class InventoryWindow final : public AppWindow {
       with_consumption_  = true;
       horizon_           = 1;
       stock_projection_  = false;
-      past_receptions_   = false;
       clear_type_form();
       show_archived_ = false;
       search_text_.clear();
@@ -203,63 +213,107 @@ class InventoryWindow final : public AppWindow {
     }
 
     void draw(App &app) override {
-      if (seen_packs_version_ != app.catalog.packs_version) {
-        seen_packs_version_ = app.catalog.packs_version;
-        load_packs(app);
+      // onglet demande d'ailleurs (menu, bouton d'une autre fenetre) : seulement s'il est dans cette fenetre
+      static const char *const kStockTabs[]     = { "stock", "projection", "orders", "transfers" };
+      static const char *const kItemsTabs[]     = { "types", "items", "equipment", "packs" };
+      static const char *const kReceptionTabs[] = { "reception", "past_receptions" };
+      const auto mine = [this](const std::string &tab) {
+        const auto in = [&tab](const auto &list) {
+          return std::find(std::begin(list), std::end(list), tab) != std::end(list);
+        };
+        return view_ == View::Stock ? in(kStockTabs) : view_ == View::Items ? in(kItemsTabs) : in(kReceptionTabs);
+      };
+      if (!app.stock_tab_to_show_.empty() && mine(app.stock_tab_to_show_)) {
+        stock_select_ = std::exchange(app.stock_tab_to_show_, std::string());
+        if (stock_select_ == "stock" || stock_select_ == "projection")
+          stock_projection_ = stock_select_ == "projection";
+        if (stock_select_ == "past_receptions")
+          load_receptions(app);
       }
-      if (std::string tab = std::exchange(app.stock_tab_to_show_, std::string()); !tab.empty()) {
-        stock_select_ = tab;
-        if (tab == "stock")
-          stock_projection_ = false;
-        if (tab == "reception" || tab == "past_receptions") {
-          past_receptions_ = tab == "past_receptions";
-          if (past_receptions_)
-            load_receptions(app);
+      if (view_ == View::Reception) {
+        if (std::string type = std::exchange(app.receptions_type_to_show_, std::string()); !type.empty()) {
+          receptions_type_ = type;
+          load_receptions(app);
         }
       }
-      if (std::string iid = std::exchange(app.item_to_show_, std::string()); !iid.empty()) {
-        search_text_ = iid;
-        search_type_.clear();
-        search_status_         = 0;
-        search_stock_only_     = false;
-        selected_item_         = Json::object();
-        selected_item_["iid"] = iid; // choisi des que la recherche revient
-        search(app);
+      if (view_ == View::Items) {
+        if (seen_packs_version_ != app.catalog.packs_version) {
+          seen_packs_version_ = app.catalog.packs_version;
+          load_packs(app);
+        }
+        if (seen_types_version_ != app.catalog.item_types_version) {
+          seen_types_version_ = app.catalog.item_types_version;
+          for (const Json &item_type : app.catalog.item_types.items())
+            if (!editing_type_.empty() && item_type["type"].str() == editing_type_)
+              edit_type(item_type);
+        }
+        if (app.type_to_show_.rfind("item:", 0) == 0) {
+          const std::string code = std::exchange(app.type_to_show_, std::string()).substr(5);
+          for (const Json &item_type : app.catalog.item_types.items())
+            if (item_type["type"].str() == code)
+              edit_type(item_type);
+        }
+        if (std::string iid = std::exchange(app.item_to_show_, std::string()); !iid.empty()) {
+          search_text_ = iid;
+          search_type_.clear();
+          search_status_         = 0;
+          search_stock_only_     = false;
+          selected_item_         = Json::object();
+          selected_item_["iid"] = iid; // choisi des que la recherche revient
+          search(app);
+        }
       }
+      const auto selected = [this](const char *key) {
+        return stock_select_ == key ? ImGuiTabItemFlags_SetSelected : 0;
+      };
+      const bool first = std::exchange(first_tab_, false);
+      if (ImGui::BeginTabBar("inventory_tabs")) {
+        switch (view_) {
+          case View::Stock: draw_stock_tabs(app, selected); break;
+          case View::Items:
+            if (tab_item("Types d'items", first ? ImGuiTabItemFlags_SetSelected : selected("types"))) {
+              draw_types(app);
+              ImGui::EndTabItem();
+            }
+            if (tab_item("Items", selected("items"))) {
+              draw_items(app);
+              ImGui::EndTabItem();
+            }
+            if (tab_item("Entretien", selected("equipment"))) {
+              draw_equipment(app);
+              ImGui::EndTabItem();
+            }
+            if (tab_item("Paquets fermés", selected("packs"))) {
+              draw_packs(app);
+              ImGui::EndTabItem();
+            }
+            break;
+          case View::Reception:
+            if (tab_item("Nouvelle réception", first ? ImGuiTabItemFlags_SetSelected : selected("reception"))) {
+              draw_reception(app);
+              ImGui::EndTabItem();
+            }
+            if (tab_item("Réceptions passées", selected("past_receptions"))) {
+              draw_receptions(app);
+              ImGui::EndTabItem();
+            }
+            break;
+        }
+        ImGui::EndTabBar();
+      }
+      stock_select_.clear();
+    }
+
+  private:
+    template < typename Selected > void draw_stock_tabs(App &app, const Selected &selected) {
       const Json &forecast = app.catalog.forecast;
       int         orders   = 0;
       for (const Json &row : forecast["types"].items())
         orders += row["order"].is_object() ? 1 : 0;
       const std::string orders_tab    = "Commandes (" + std::to_string(orders) + ")###orders";
       const std::string transfers_tab = "Transferts (" + std::to_string(forecast["transfers"].size()) + ")###transfers";
-      const auto        selected      = [this](const char *key) {
-        return stock_select_ == key ? ImGuiTabItemFlags_SetSelected : 0;
-      };
-      if (!ImGui::BeginTabBar("inventory_tabs"))
-        return;
-      const bool show_past = show_receptions_;
-      const bool reception = std::exchange(first_tab_, false) || show_past || stock_select_ == "reception"
-                          || stock_select_ == "past_receptions";
-      if (tab_item("Réception", reception ? ImGuiTabItemFlags_SetSelected : 0)) {
-        // nouvelle reception ou historique des receptions, dans le meme onglet
-        if (show_past)
-          past_receptions_ = true;
-        if (ImGui::RadioButton("Nouvelle réception", !past_receptions_))
-          past_receptions_ = false;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Réceptions passées", past_receptions_)) {
-          past_receptions_ = true;
-          load_receptions(app);
-        }
-        ImGui::Separator();
-        if (past_receptions_)
-          draw_receptions(app);
-        else
-          draw_reception(app);
-        ImGui::EndTabItem();
-      }
-      show_receptions_ = false;
-      if (tab_item("État du stock", selected("stock"))) {
+      const ImGuiTabItemFlags stock_flags = selected("stock") | selected("projection");
+      if (tab_item("État du stock", stock_flags)) {
         draw_stock_toolbar(app);
         if (ImGui::RadioButton("Aujourd'hui", !stock_projection_))
           stock_projection_ = false;
@@ -272,14 +326,6 @@ class InventoryWindow final : public AppWindow {
           draw_current(app);
         ImGui::EndTabItem();
       }
-      if (tab_item("Items", selected("items"))) {
-        draw_items(app);
-        ImGui::EndTabItem();
-      }
-      if (tab_item("Paquets fermés")) {
-        draw_packs(app);
-        ImGui::EndTabItem();
-      }
       if (tab_item(orders_tab.c_str(), selected("orders"))) {
         draw_stock_toolbar(app);
         draw_orders(app);
@@ -290,11 +336,10 @@ class InventoryWindow final : public AppWindow {
         draw_transfers(app);
         ImGui::EndTabItem();
       }
-      stock_select_.clear();
-      ImGui::EndTabBar();
     }
 
-  private:
+    View view_;
+
     // ---------------------------------------------------------------------------------------------------------------
     // Reception : creation des items et impression des etiquettes en serie
     void draw_reception(App &app) {
@@ -1337,11 +1382,8 @@ class InventoryWindow final : public AppWindow {
                                  + ")").c_str()
                               : (" (paquet fermé " + item_reception_["sealed_pack"].str() + ")").c_str());
         ImGui::SameLine();
-        if (small_button("Voir les réceptions de ce type")) {
-          receptions_type_ = selected_item_["type"].str();
-          show_receptions_ = true;
-          load_receptions(app);
-        }
+        if (small_button("Voir les réceptions de ce type"))
+          app.show_receptions(selected_item_["type"].str());
       }
       if (!app.admin()) {
         ImGui::TextDisabled("La désactivation d'un item est réservée aux administrateurs.");
@@ -1594,7 +1636,7 @@ class InventoryWindow final : public AppWindow {
       const Date today = Date::today();
       ImGui::TextWrapped("Matériel non consommable (lecteurs de glycémie, attelles, bouteilles d'O2...) : prochaines "
                          "révisions et désinfections, la plus proche en haut. Survolez une date pour le cycle. La "
-                         "périodicité se règle sur le type d'item (Catalogue > Types d'items).");
+                         "périodicité se règle sur le type d'item (Items › Types d'items).");
       ImGui::SetNextItemWidth(220.0f);
       ImGui::InputTextWithHint("##equipment_q", "Rechercher (type, iid, lieu)", &equipment_search_);
       ImGui::SameLine();
@@ -1698,7 +1740,7 @@ class InventoryWindow final : public AppWindow {
         ImGui::PopID();
       }
       if (first)
-        ImGui::TextDisabled("Ni révision ni désinfection pour ce type : réglez-les dans Catalogue > Types d'items.");
+        ImGui::TextDisabled("Ni révision ni désinfection pour ce type : réglez-les dans Items › Types d'items.");
     }
 
     // Desinfection des lots eux-memes : periodicite par lot (0 : aucune), faite, date saisie a la main
@@ -1896,8 +1938,6 @@ class InventoryWindow final : public AppWindow {
     std::string selected_reception_;
     std::string store_place_; // rangement ou ranger une reception passee
     bool        storing_ = false;
-    bool        show_receptions_ = false; // onglet Receptions a selectionner (bouton d'un item)
-    bool        past_receptions_ = false; // onglet Reception : historique au lieu d'une nouvelle reception
     bool        first_tab_       = false; // onglet Reception a selectionner (vue par defaut)
     // Paquets
     Json packs_       = Json::array();
@@ -2498,48 +2538,18 @@ class InventoryWindow final : public AppWindow {
 
 };
 
-// Types d'items dans le Catalogue, materiel suivi dans la Gestion de la TECH (À venir) : memes ecrans que l'ancien
-// Inventaire, chacun dans la fenetre ou on l'attend.
-class InventoryPanelImpl final : public InventoryPanel {
-  public:
-    void draw_item_types(App &app) override {
-      if (inventory_.seen_types_version_ != app.catalog.item_types_version) {
-        inventory_.seen_types_version_ = app.catalog.item_types_version;
-        for (const Json &item_type : app.catalog.item_types.items())
-          if (!inventory_.editing_type_.empty() && item_type["type"].str() == inventory_.editing_type_)
-            inventory_.edit_type(item_type);
-      }
-      inventory_.draw_types(app);
-    }
-
-    void draw_equipment(App &app) override { inventory_.draw_equipment(app); }
-
-    void select_item_type(App &app, const std::string &code) override {
-      for (const Json &item_type : app.catalog.item_types.items())
-        if (item_type["type"].str() == code)
-          inventory_.edit_type(item_type);
-    }
-
-    void reset() override {
-      inventory_.clear_type_form();
-      inventory_.show_archived_ = false;
-      inventory_.equipment_item_ = Json();
-      inventory_.equipment_search_.clear();
-      inventory_.equipment_soon_only_ = false;
-    }
-
-  private:
-    InventoryWindow inventory_;
-};
-
 } // namespace
 
-std::unique_ptr< InventoryPanel > make_inventory_panel() {
-  return std::make_unique< InventoryPanelImpl >();
+std::unique_ptr< AppWindow > make_inventory_window() { // id historique : disposition enregistree
+  return std::make_unique< InventoryWindow >(InventoryWindow::View::Stock, "inventory", "Stock");
 }
 
-std::unique_ptr< AppWindow > make_inventory_window() {
-  return std::make_unique< InventoryWindow >();
+std::unique_ptr< AppWindow > make_items_window() {
+  return std::make_unique< InventoryWindow >(InventoryWindow::View::Items, "items", "Items");
+}
+
+std::unique_ptr< AppWindow > make_reception_window() {
+  return std::make_unique< InventoryWindow >(InventoryWindow::View::Reception, "reception", "Réception");
 }
 
 } // namespace qrprotec

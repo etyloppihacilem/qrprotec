@@ -100,7 +100,7 @@ class LotsWindow final : public AppWindow {
           panel_->start_new();
           mode_ = Mode::New;
         }
-        ImGui::SetItemTooltip("Créer un lot ou une série de lots d'un type (Catalogue pour les types).");
+        ImGui::SetItemTooltip("Créer un lot ou une série de lots d'un type (menu Lots › Types de lots pour les types).");
         ImGui::SameLine();
         if (button("Ordre des lots..."))
           mode_ = Mode::Order;

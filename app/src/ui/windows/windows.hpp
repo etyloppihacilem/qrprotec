@@ -23,11 +23,13 @@ std::unique_ptr< AppWindow > make_verif_window(); // verif en cours : items atte
 std::unique_ptr< AppWindow > make_phone_window(); // telephone utilise comme douchette (QR de connexion)
 std::unique_ptr< AppWindow > make_lists_window(); // listes de materiel a prendre (verif, retour)
 
-// Mode privilegie
-std::unique_ptr< AppWindow > make_stock_window();
-std::unique_ptr< AppWindow > make_inventory_window();
+// Mode gestion : une fenetre par domaine
+std::unique_ptr< AppWindow > make_stock_window();     // Gestion de la TECH : a faire, a venir
+std::unique_ptr< AppWindow > make_inventory_window(); // Stock : etat, projection, commandes, transferts
+std::unique_ptr< AppWindow > make_items_window();     // Items : types d'items, items, entretien, paquets fermes
+std::unique_ptr< AppWindow > make_lot_types_window(); // Types de lots
+std::unique_ptr< AppWindow > make_reception_window(); // Reception : nouvelle, passees
 std::unique_ptr< AppWindow > make_pack_window(); // fiche d'un paquet ferme, ouverture
-std::unique_ptr< AppWindow > make_catalogue_window(); // types de lots et types d'items
 std::unique_ptr< AppWindow > make_users_window();
 std::unique_ptr< AppWindow > make_journal_window(); // journal des operations (qui fait quoi et quand)
 std::unique_ptr< AppWindow > make_reports_window(); // signalements de problemes (admins)
@@ -35,9 +37,8 @@ std::unique_ptr< AppWindow > make_editor_window();
 std::unique_ptr< AppWindow > make_print_counts_window(); // compteur d'impressions par mois et categorie d'etiquette
 std::unique_ptr< AppWindow > make_settings_window();
 
-// Panneaux partages entre fenetres : une seule fiche par objet, montree la ou on l'attend.
-// Gestion des lots (fiche complete d'un lot, creation, ordre, types de lots) : fiche du lot dans Lots (F2), types
-// de lots dans le Catalogue (F7).
+// Gestion des lots sans fenetre a elle : la fiche complete d'un lot (onglets de gestion, creation, ordre, archives)
+// vit dans Lots (F2), les types de lots dans leur fenetre (F8). Une instance par fenetre.
 class LotPanel {
   public:
     virtual ~LotPanel() = default;
@@ -53,17 +54,6 @@ class LotPanel {
     virtual void        reset()                                       = 0;
 };
 std::unique_ptr< LotPanel > make_lot_panel();
-
-// Inventaire : types d'items (Catalogue) et materiel suivi (Gestion de la TECH > À venir)
-class InventoryPanel {
-  public:
-    virtual ~InventoryPanel()              = default;
-    virtual void draw_item_types(App &app) = 0;
-    virtual void draw_equipment(App &app)  = 0;
-    virtual void select_item_type(App &app, const std::string &code) = 0; // formulaire de ce type
-    virtual void reset()                   = 0;
-};
-std::unique_ptr< InventoryPanel > make_inventory_panel();
 
 // Connexion au back (URL, cle de front, autorite HTTPS, jeton) avec bouton de test : fenetre Reglages, et
 // fenetre « Connexion au serveur » accessible sans badge tant que l'API est injoignable. save_on_success :

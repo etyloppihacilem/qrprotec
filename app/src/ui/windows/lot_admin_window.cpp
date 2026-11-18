@@ -175,7 +175,7 @@ class LotAdminWindow final : public AppWindow {
       }
     }
 
-  public: // le reste sert aussi a LotPanelImpl (fiche du lot dans Lots, types de lots dans le Catalogue)
+  public: // le reste sert aussi a LotPanelImpl (fiche du lot dans Lots, types de lots dans leur fenetre)
     // ---------------------------------------------------------------------------------------------------------------
     void draw_lots(App &app) {
       ImGui::BeginChild("lots_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.4f, 0), ImGuiChildFlags_Borders);
@@ -2603,7 +2603,7 @@ class LotAdminWindow final : public AppWindow {
 };
 
 // Gestion des lots sans fenetre a elle : la fiche complete d'un lot vit dans la fenetre Lots (onglets de gestion,
-// creation, ordre, lots archives), les types de lots dans le Catalogue.
+// creation, ordre, lots archives), les types de lots dans leur fenetre (F8).
 class LotPanelImpl final : public LotPanel {
   public:
     void sync(App &app) override { admin_.sync(app); }
