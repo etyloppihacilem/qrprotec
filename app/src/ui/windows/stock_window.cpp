@@ -25,48 +25,6 @@ namespace qrprotec {
 
 namespace {
 
-// Horizons proposes : index dans "points" des previsions (un point par mois)
-constexpr std::array< int, 4 >          horizon_months = { 0, 1, 3, 6 };
-constexpr std::array< const char *, 4 > horizon_labels = { "Aujourd'hui", "M+1", "M+3", "M+6" };
-
-const ImVec4 stock_color(0.11f, 0.31f, 0.57f, 1.0f);
-const ImVec4 lots_color(0.42f, 0.61f, 0.85f, 1.0f);
-const ImVec4 sealed_color(0.78f, 0.35f, 0.0f, 1.0f);
-
-std::string date_text(const Json &value) {
-  const auto date = Date::parse(value.str());
-  return date ? date->display() : std::string("-");
-}
-
-std::string short_date(const Json &value) {
-  const auto date = Date::parse(value.str());
-  if (!date)
-    return "-";
-  char buffer[8];
-  std::snprintf(buffer, sizeof(buffer), "%02d/%02d", date->day, date->month);
-  return buffer;
-}
-
-std::string month_label(const Json &value) {
-  static const char *names[] = { "janv.", "févr.", "mars", "avr.", "mai", "juin",
-                                 "juil.", "août", "sept.", "oct.", "nov.", "déc." };
-  const auto date = Date::parse(value.str());
-  return date && date->month >= 1 && date->month <= 12 ? names[date->month - 1] : "?";
-}
-
-// Nombre avec decimales seulement si utile (consommation par mois)
-std::string rate_text(double value) {
-  char buffer[32];
-  std::snprintf(buffer, sizeof(buffer), value >= 10 || value == static_cast< int >(value) ? "%.0f" : "%.1f", value);
-  return buffer;
-}
-
-void colored_count(int value, const ImVec4 &color) {
-  if (value > 0)
-    ImGui::TextColored(color, "%d", value);
-  else
-    ImGui::TextUnformatted("0");
-}
 
 class StockWindow final : public AppWindow {
   public:
@@ -76,47 +34,21 @@ class StockWindow final : public AppWindow {
       app.refresh_tasks();
       app.refresh_events();
       app.refresh_stock();
-      app.refresh_forecast();
+      app.refresh_forecast(); // commandes suggerees : taches de la categorie « orders »
     }
 
     void reset_view(App &) override {
-      filter_.clear();
-      selected_.clear();
-      only_low_         = false;
-      zero_open_        = false;
-      include_lots_     = false;
-      with_consumption_ = true;
-      horizon_          = 1;
-      select_           = "tasks";
+      select_ = "tasks";
       event_kind_.clear();
     }
 
     void draw(App &app) override {
       if (button("Rafraîchir"))
         on_open(app);
-      ImGui::SameLine();
-      ImGui::SetNextItemWidth(200.0f);
-      ImGui::InputTextWithHint("##filter", "Filtrer", &filter_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Sous le minimum uniquement", &only_low_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Compter les lots", &include_lots_);
-      help_marker("La barre compare les items non périmés au minimum du type. Par défaut seul le stock est compté : "
-                  "items hors lots et items rangés dans un rangement du stock (armoire, tiroir : lots dont le type "
-                  "est un rangement).");
-      if (app.catalog.loading_stock || app.catalog.loading_forecast || app.catalog.loading_tasks
-          || app.catalog.loading_events) {
+      if (app.catalog.loading_tasks || app.catalog.loading_events) {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");
       }
-
-      const Json &forecast = app.catalog.forecast;
-      int         orders   = 0;
-      for (const Json &row : forecast["types"].items())
-        orders += row["order"].is_object() ? 1 : 0;
-      const std::string orders_tab    = "Commandes (" + std::to_string(orders) + ")###orders";
-      const std::string transfers_tab = "Transferts (" + std::to_string(forecast["transfers"].size()) + ")###transfers";
-
       const std::string tasks_tab = "À faire (" + std::to_string(app.catalog.tasks["count"].integer()) + ")###tasks";
       if (!ImGui::BeginTabBar("stock_tabs"))
         return;
@@ -131,22 +63,6 @@ class StockWindow final : public AppWindow {
         draw_events(app);
         ImGui::EndTabItem();
       }
-      if (tab_item("Actuel", select_ == "stock" ? ImGuiTabItemFlags_SetSelected : 0)) {
-        draw_current(app);
-        ImGui::EndTabItem();
-      }
-      if (tab_item("Projection")) {
-        draw_projection(app);
-        ImGui::EndTabItem();
-      }
-      if (tab_item(orders_tab.c_str(), select_ == "orders" ? ImGuiTabItemFlags_SetSelected : 0)) {
-        draw_orders(app);
-        ImGui::EndTabItem();
-      }
-      if (tab_item(transfers_tab.c_str(), select_ == "transfers" ? ImGuiTabItemFlags_SetSelected : 0)) {
-        draw_transfers(app);
-        ImGui::EndTabItem();
-      }
       ImGui::EndTabBar();
       select_.clear();
     }
@@ -154,7 +70,7 @@ class StockWindow final : public AppWindow {
   private:
     std::map< std::string, int > order_quantities_; // quantite de la case « Commandé », par type d'item
     std::string event_kind_; // filtre des evenements a venir ('' : tout)
-    std::string select_; // onglet a ouvrir (tache des commandes, des deplacements ou du stock ; tasks : vue par defaut)
+    std::string select_; // onglet a ouvrir (tasks : vue par defaut)
 
     // ---- À faire : liste de taches de la gestion, par priorite ----
     void draw_tasks(App &app) {
@@ -401,7 +317,7 @@ class StockWindow final : public AppWindow {
         }
       } else if (link == "forecast") {
         if (small_button(row["category"].str() == "orders" ? "Voir les commandes" : "Voir les transferts"))
-          select_ = row["category"].str() == "orders" ? "orders" : "transfers";
+          app.show_stock_tab(row["category"].str() == "orders" ? "orders" : "transfers");
         // case « Commandé » d'une commande suggeree (quantite modifiable) : la suggestion attend la livraison
         const std::string type = row["type"].str();
         if (!type.empty() && row["quantity"].integer() > 0) {
@@ -418,12 +334,12 @@ class StockWindow final : public AppWindow {
             found->second = std::max(1, found->second);
         }
       } else if (link == "stock") {
-        if (small_button("Voir l'état actuel"))
-          select_ = "stock";
+        if (small_button("Voir l'état du stock"))
+          app.show_stock_tab("stock");
       } else {
         static const std::pair< const char *, const char * > windows[] = {
           { "reports", "Signalements" }, { "lists", "Listes de matériel" }, { "users", "Utilisateurs" },
-          { "inventory", "Inventaire" }, { "lot_admin", "Gestion des lots" },
+          { "inventory", "Stock" }, { "lot_admin", "Gestion des lots" },
         };
         for (const auto &[id, name] : windows) {
           if (link != id)
@@ -440,570 +356,7 @@ class StockWindow final : public AppWindow {
       ImGui::Spacing();
     }
 
-    // filtre par nom, code ou description du type (ex: nom commercial d'un medicament generique)
-    bool filter_matches(const App &app, const Json &row) const {
-      const std::string type = row["type"].str();
-      return search_matches(filter_, row["name"].str() + " " + type + " " + app.catalog.item_type_description(type));
-    }
 
-    // ---- Actuel : etat du stock aujourd'hui ----
-    void draw_current(App &app) {
-      std::vector< const Json * > rows;
-      for (const Json &row : app.catalog.stock.items())
-        rows.push_back(&row);
-      // les plus critiques en premier
-      std::stable_sort(rows.begin(), rows.end(), [this](const Json *a, const Json *b) {
-        return ratio(*a) < ratio(*b);
-      });
-
-      const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
-                                  | ImGuiTableFlags_Resizable;
-      if (!ImGui::BeginTable("stock", 7, flags))
-        return;
-      ImGui::TableSetupScrollFreeze(0, 1);
-      ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 220.0f);
-      ImGui::TableSetupColumn("Quantité / minimum", ImGuiTableColumnFlags_WidthStretch);
-      ImGui::TableSetupColumn("Dans les lots", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-      ImGui::TableSetupColumn("Périmés", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-      ImGui::TableSetupColumn("Bientôt périmés", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-      ImGui::TableSetupColumn("Disparus", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-      ImGui::TableSetupColumn("Sortis / hors lot", ImGuiTableColumnFlags_WidthFixed, 140.0f);
-      ImGui::TableHeadersRow();
-      // types sans minimum attendu (x/0, 0/0) replies sous une ligne en bas, sauf pendant une recherche
-      std::vector< const Json * > shown, zero;
-      for (const Json *row_ptr : rows) {
-        const Json &row      = *row_ptr;
-        const int   quantity = count(row);
-        const int   minimum  = row["min_quantity"].integer();
-        if (!filter_matches(app, row))
-          continue;
-        if (only_low_ && quantity >= minimum && (quantity > 0 || minimum == 0))
-          continue;
-        (minimum <= 0 && filter_.empty() ? zero : shown).push_back(row_ptr);
-      }
-      for (const Json *row_ptr : shown)
-        draw_current_row(*row_ptr);
-      if (zero_fold_row(zero.size(), 7))
-        for (const Json *row_ptr : zero)
-          draw_current_row(*row_ptr);
-      ImGui::EndTable();
-    }
-
-    // Ligne repliable des types sans minimum attendu, fermee par defaut ; vrai si depliee
-    bool zero_fold_row(std::size_t hidden, int columns) {
-      if (hidden == 0)
-        return false;
-      ImGui::TableNextRow();
-      ImGui::TableNextColumn();
-      const int         n     = static_cast< int >(hidden);
-      const std::string label = std::string(zero_open_ ? "[−] " : "[+] ") + (n > 1 ? "Types" : "Type")
-                              + " sans minimum attendu (" + std::to_string(n) + ")##zero_fold";
-      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-      if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns))
-        zero_open_ = !zero_open_;
-      ImGui::PopStyleColor();
-      for (int column = 1; column < columns; ++column)
-        ImGui::TableNextColumn();
-      return zero_open_;
-    }
-
-    void draw_current_row(const Json &row) {
-      const int quantity = count(row);
-      const int minimum  = row["min_quantity"].integer();
-      ImGui::TableNextRow();
-      ImGui::TableNextColumn();
-      ImGui::TextUnformatted(stock_name(row).c_str());
-      ImGui::TextDisabled("%s", row["type"].str().c_str());
-      ImGui::TableNextColumn();
-      stock_bar(quantity, minimum, ImVec2(-1, ImGui::GetFrameHeight() * 1.3f));
-      ImGui::TableNextColumn();
-      ImGui::Text("%d", row["lots_fresh"].integer());
-      ImGui::TableNextColumn();
-      colored_count(row["stock_expired"].integer() + row["lots_expired"].integer(), colors::red);
-      ImGui::TableNextColumn();
-      colored_count(row["expiring_soon"].integer(), colors::orange);
-      ImGui::TableNextColumn();
-      ImGui::Text("%d", row["missing"].integer());
-      ImGui::TableNextColumn();
-      ImGui::Text("%d", row["out"].integer());
-      ImGui::SetItemTooltip("Sortis du stock sans lot : comptés utilisés s'ils ne reviennent pas à une vérif.");
-      if (row["loose"].integer() > 0) {
-        ImGui::SameLine();
-        ImGui::TextColored(colors::orange, "+%d hors lot", row["loose"].integer());
-        ImGui::SetItemTooltip("Non consommables retirés de leur lot, pas encore remis en stock.");
-      }
-    }
-
-    int count(const Json &row) const {
-      return row["stock_fresh"].integer() + (include_lots_ ? row["lots_fresh"].integer() : 0);
-    }
-
-    // sous le minimum, puis bientot sous le minimum ou vide, puis 0/0, puis complets, puis x/0 tout en bas
-    float ratio(const Json &row) const {
-      const int soon = row["stock_expiring_soon"].integer() + (include_lots_ ? row["lots_expiring_soon"].integer() : 0);
-      return stock_order(count(row), row["min_quantity"].integer(), soon);
-    }
-
-    // ---- Projection : stock a M+k, graphes du type selectionne ----
-    const Json &point(const Json &row) const {
-      const Json &points = row["points"];
-      const int   index  = std::min(horizon_months[horizon_], static_cast< int >(points.size()) - 1);
-      return points[std::max(0, index)];
-    }
-
-    int projected(const Json &row) const {
-      const Json &at = point(row);
-      if (with_consumption_)
-        return at["stock"].integer() + (include_lots_ ? at["lots"].integer() : 0);
-      return at["stock_static"].integer() + (include_lots_ ? at["lots_static"].integer() : 0);
-    }
-
-    void draw_projection(App &app) {
-      const Json &forecast = app.catalog.forecast;
-      if (!forecast["types"].is_array()) {
-        ImGui::TextDisabled(app.catalog.loading_forecast ? "Chargement des prévisions..." : "Prévisions non chargées.");
-        return;
-      }
-      ImGui::TextUnformatted("Horizon :");
-      for (std::size_t index = 0; index < horizon_labels.size(); ++index) {
-        ImGui::SameLine();
-        if (ImGui::RadioButton(horizon_labels[index], horizon_ == static_cast< int >(index)))
-          horizon_ = static_cast< int >(index);
-      }
-      const Json *any = forecast["types"].size() ? &forecast["types"][0] : nullptr;
-      if (any) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("→ %s", date_text(point(*any)["date"]).c_str());
-      }
-      ImGui::SameLine();
-      ImGui::Checkbox("Avec consommation", &with_consumption_);
-      help_marker("Avec consommation : chaque lieu utilise ses items les plus anciens en premier, au rythme mesuré "
-                  "sur l'historique (items absents aux vérifs). Sans : seuls les items encore valides à la date.\n"
-                  "Les items manqués à la dernière vérif ne comptent pas ; ils reviennent s'ils sont retrouvés.");
-      ImGui::SameLine();
-      ImGui::TextDisabled("(historique : %d j)", forecast["history_days"].integer());
-
-      std::vector< const Json * > rows;
-      for (const Json &row : forecast["types"].items()) {
-        if (!filter_matches(app, row))
-          continue;
-        const int minimum = row["min_quantity"].integer();
-        if (only_low_ && projected(row) >= minimum && projected(row) > 0 && row["below_min"].is_null())
-          continue;
-        rows.push_back(&row);
-      }
-      std::stable_sort(rows.begin(), rows.end(), [this](const Json *a, const Json *b) {
-        const bool a_below = !(*a)["below_min"].is_null(), b_below = !(*b)["below_min"].is_null();
-        if (a_below != b_below)
-          return a_below;
-        if (a_below)
-          return (*a)["below_min"].str() < (*b)["below_min"].str();
-        return projected_ratio(*a) < projected_ratio(*b);
-      });
-      // rien de selectionne : graphe de tout le stock (types affiches) ; re-clic sur la ligne ou Echap pour y revenir
-      if (!selected_.empty() && escape_pressed() && !ImGui::GetIO().WantTextInput)
-        selected_.clear();
-
-      const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
-                                  | ImGuiTableFlags_Resizable;
-      const float left = ImGui::GetContentRegionAvail().x * 0.55f;
-      if (ImGui::BeginChild("projection_table", ImVec2(left, 0), ImGuiChildFlags_ResizeX)) {
-        const std::string valid = "Valide au " + (any ? short_date(point(*any)["date"]) : std::string()) + " / minimum";
-        if (ImGui::BeginTable("projection", 6, flags)) {
-          ImGui::TableSetupScrollFreeze(0, 1);
-          ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 180.0f);
-          ImGui::TableSetupColumn(valid.c_str(), ImGuiTableColumnFlags_WidthStretch);
-          ImGui::TableSetupColumn("Périment", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-          ImGui::TableSetupColumn("Perdus", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-          ImGui::TableSetupColumn("Conso / mois", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-          ImGui::TableSetupColumn("Sous le min.", ImGuiTableColumnFlags_WidthFixed, 95.0f);
-          ImGui::TableHeadersRow();
-          // types sans minimum attendu replies en bas, sauf commande a passer, sous le minimum ou recherche
-          std::vector< const Json * > shown, zero;
-          for (const Json *row_ptr : rows) {
-            const Json &row  = *row_ptr;
-            const bool  fold = row["min_quantity"].integer() <= 0 && row["below_min"].is_null()
-                           && !row["order"].is_object() && filter_.empty() && selected_ != row["type"].str();
-            (fold ? zero : shown).push_back(row_ptr);
-          }
-          auto draw_row = [&](const Json &row) {
-            const Json       &at   = point(row);
-            const std::string type = row["type"].str();
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::PushID(type.c_str());
-            if (ImGui::Selectable(stock_name(row).c_str(), selected_ == type, ImGuiSelectableFlags_SpanAllColumns))
-              selected_ = selected_ == type ? std::string() : type; // re-clic : retour a tout le stock
-            ImGui::PopID();
-            ImGui::TextDisabled("%s", type.c_str());
-            ImGui::TableNextColumn();
-            stock_bar(projected(row), row["min_quantity"].integer(), ImVec2(-1, ImGui::GetFrameHeight() * 1.3f));
-            ImGui::TableNextColumn();
-            colored_count(at["expiring"].integer(), colors::orange);
-            ImGui::TableNextColumn();
-            colored_count(at["lost"].integer(), colors::red);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(rate_text(row["per_month"].num()).c_str());
-            ImGui::TableNextColumn();
-            if (row["below_min"].is_null())
-              ImGui::TextColored(colors::green, "non");
-            else
-              ImGui::TextColored(colors::orange, "%s", date_text(row["below_min"]).c_str());
-          };
-          for (const Json *row_ptr : shown)
-            draw_row(*row_ptr);
-          if (zero_fold_row(zero.size(), 6))
-            for (const Json *row_ptr : zero)
-              draw_row(*row_ptr);
-          ImGui::EndTable();
-        }
-      }
-      ImGui::EndChild();
-      ImGui::SameLine();
-      if (ImGui::BeginChild("projection_detail", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
-        const Json *shown = nullptr;
-        for (const Json &row : forecast["types"].items())
-          if (row["type"].str() == selected_)
-            shown = &row;
-        if (shown) {
-          if (small_button("← Tout le stock"))
-            selected_.clear();
-          ImGui::SameLine();
-          ImGui::TextDisabled("(ou re-cliquer sur la ligne, Échap)");
-          draw_type_detail(app, *shown);
-        }
-        else
-          draw_all_stock(rows);
-      }
-      ImGui::EndChild();
-    }
-
-    // Aucun type selectionne : peremptions de tous les types affiches (filtre et case « sous le minimum » compris)
-    void draw_all_stock(const std::vector< const Json * > &rows) {
-      ImGui::TextUnformatted("Tout le stock");
-      ImGui::SameLine();
-      ImGui::TextDisabled("· %s", nb(static_cast< int >(rows.size()), "type").c_str());
-      ImGui::TextDisabled("Cliquez sur une ligne pour le détail d'un type.");
-      int expired = 0, below = 0, orders = 0;
-      for (const Json *row : rows) {
-        expired += (*row)["expired_now"].integer();
-        below += (*row)["below_min"].is_null() ? 0 : 1;
-        orders += (*row)["order"].is_object() ? 1 : 0;
-      }
-      if (expired > 0)
-        ImGui::TextColored(colors::red, "%s aujourd'hui (stock et lots)", nb(expired, "périmé").c_str());
-      if (below > 0)
-        ImGui::TextColored(colors::orange, "%s sous le minimum d'ici 6 mois", nb(below, "type").c_str());
-      if (orders > 0)
-        ImGui::TextColored(colors::orange, "%s à commander", nb(orders, "type").c_str());
-      draw_expiry_plot(rows, 320.0f);
-    }
-
-    float projected_ratio(const Json &row) const {
-      return stock_order(projected(row), row["min_quantity"].integer());
-    }
-
-    // Nom d'une ligne de stock : « Sérum phy (mL) » pour un type a unites (ses sous-types comptes en unites)
-    static std::string stock_name(const Json &row) {
-      return row["name"].str() + (row["unit"].str().empty() ? std::string() : " (" + row["unit"].str() + ")");
-    }
-
-    // Commande d'un type a unites : en items de son sous-type par defaut (« 8 × Sachet… »)
-    static std::string order_text(const Json &row) {
-      const Json &order = row["order"];
-      return order["subtype_name"].str().empty()
-               ? std::to_string(order["quantity"].integer())
-               : std::to_string(order["quantity"].integer()) + " × " + order["subtype_name"].str();
-    }
-
-    void draw_type_detail(App &app, const Json &row) {
-      ImGui::TextUnformatted(stock_name(row).c_str());
-      ImGui::SameLine();
-      ImGui::TextDisabled("· conso %s / mois", rate_text(row["per_month"].num()).c_str());
-      if (row["unconfirmed"].integer() > 0) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("· %d non %s", row["unconfirmed"].integer(), pl(row["unconfirmed"].integer(), "confirmé").c_str());
-        help_marker("Items manqués à la dernière vérif : ils ne comptent pas dans les prévisions. S'ils sont "
-                    "retrouvés (vérif, ajout à un lot), ils reviennent et ne comptent plus comme utilisés.");
-      }
-      const Json &order = row["order"];
-      if (order.is_object()) {
-        const ImVec4 color = order["urgent"].boolean() ? colors::red : colors::orange;
-        ImGui::TextColored(color, "Commander %s avant le %s (sous le minimum le %s)", order_text(row).c_str(),
-                           date_text(order["before"]).c_str(), date_text(order["below_min"]).c_str());
-      }
-      if (row["expired_now"].integer() > 0)
-        ImGui::TextColored(colors::red, "%s aujourd'hui (stock et lots)", nb(row["expired_now"].integer(), "périmé").c_str());
-
-      draw_projection_plot(row);
-      draw_expiry_plot({ &row });
-
-      if (ImGui::CollapsingHeader("Dates de péremption et emplacements")) {
-        const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH;
-        if (ImGui::BeginTable("batches", 5, flags)) {
-          ImGui::TableSetupColumn("Péremption", ImGuiTableColumnFlags_WidthFixed, 95.0f);
-          ImGui::TableSetupColumn("Où", ImGuiTableColumnFlags_WidthStretch);
-          ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-          ImGui::TableSetupColumn("Utilisés", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-          ImGui::TableSetupColumn("Perdus", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-          ImGui::TableHeadersRow();
-          for (const Json &batch : row["batches"].items()) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(batch["peremption"].is_null() ? "aucune" : date_text(batch["peremption"]).c_str());
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(batch["path"].str().c_str());
-            if (batch["sealed"].boolean()) {
-              ImGui::SameLine();
-              ImGui::TextDisabled("(scellé)");
-            }
-            ImGui::TableNextColumn();
-            ImGui::Text("%d", batch["count"].integer());
-            ImGui::TableNextColumn();
-            ImGui::Text("%d", batch["used"].integer());
-            ImGui::TableNextColumn();
-            colored_count(batch["lost"].integer(), colors::red);
-          }
-          ImGui::EndTable();
-        }
-      }
-      if (ImGui::CollapsingHeader("Consommation par lot")) {
-        ImGui::BulletText("Stock (sorties directes) : %s / mois", rate_text(row["stock_per_month"].num()).c_str());
-        for (const Json &lot : row["lots_consumption"].items()) {
-          ImGui::BulletText("%s : %s / mois", lot["path"].str().c_str(), rate_text(lot["per_month"].num()).c_str());
-          if (!lot["id"].is_null()) {
-            ImGui::SameLine();
-            ImGui::PushID(lot["id"].str().c_str());
-            if (small_button("Afficher"))
-              app.show_lot(lot["id"].str());
-            ImGui::PopID();
-          }
-        }
-      }
-    }
-
-    void draw_projection_plot(const Json &row) {
-      const Json         &points = row["points"];
-      const int           n      = static_cast< int >(points.size());
-      std::vector< double > xs, stock, still_valid;
-      std::vector< std::string > labels;
-      for (int index = 0; index < n; ++index) {
-        const Json &at = points[index];
-        xs.push_back(index);
-        stock.push_back(at["stock"].integer() + (include_lots_ ? at["lots"].integer() : 0));
-        still_valid.push_back(at["stock_static"].integer() + (include_lots_ ? at["lots_static"].integer() : 0));
-        labels.push_back(index == 0 ? "auj." : short_date(at["date"]));
-      }
-      std::vector< const char * > label_ptrs;
-      for (const std::string &label : labels)
-        label_ptrs.push_back(label.c_str());
-      if (!ImPlot::BeginPlot("##projection", ImVec2(-1, 220), ImPlotFlags_NoMouseText))
-        return;
-      const double minimum = row["min_quantity"].integer();
-      double       top     = minimum;
-      for (int index = 0; index < n; ++index)
-        top = std::max({ top, stock[index], still_valid[index] });
-      ImPlot::SetupAxes(nullptr, include_lots_ ? "stock + lots" : "stock");
-      ImPlot::SetupAxisLimits(ImAxis_X1, -0.2, std::max(1, n - 1) + 0.2, ImPlotCond_Always);
-      ImPlot::SetupAxisLimits(ImAxis_Y1, 0, top * 1.15 + 1, ImPlotCond_Always);
-      if (n > 0)
-        ImPlot::SetupAxisTicks(ImAxis_X1, xs.data(), n, label_ptrs.data());
-      ImPlot::SetupLegend(ImPlotLocation_North, ImPlotLegendFlags_Outside | ImPlotLegendFlags_Horizontal);
-      if (n > 0) {
-        ImPlot::PlotShaded("##stock_fill", xs.data(), stock.data(), n, 0.0,
-                           ImPlotSpec(ImPlotProp_FillColor, stock_color, ImPlotProp_FillAlpha, 0.15f,
-                                      ImPlotProp_Flags, ImPlotItemFlags_NoLegend));
-        ImPlot::PlotLine("Stock projeté", xs.data(), stock.data(), n,
-                         ImPlotSpec(ImPlotProp_LineColor, stock_color, ImPlotProp_LineWeight, 2.0f, ImPlotProp_Marker,
-                                    ImPlotMarker_Circle));
-        ImPlot::PlotLine("Sans consommation", xs.data(), still_valid.data(), n,
-                         ImPlotSpec(ImPlotProp_LineColor, lots_color, ImPlotProp_LineWeight, 1.0f));
-        if (minimum > 0)
-          ImPlot::PlotInfLines("Minimum", &minimum, 1,
-                               ImPlotSpec(ImPlotProp_LineColor, colors::red, ImPlotProp_Flags,
-                                          ImPlotInfLinesFlags_Horizontal));
-        const double horizon = std::min(horizon_months[horizon_], n - 1);
-        if (horizon > 0)
-          ImPlot::PlotInfLines("##horizon", &horizon, 1,
-                               ImPlotSpec(ImPlotProp_LineColor, colors::grey, ImPlotProp_Flags, ImPlotItemFlags_NoLegend));
-      }
-      ImPlot::EndPlot();
-    }
-
-    // Peremptions par mois, sommees sur les types donnes (un seul : detail du type ; tous : tout le stock)
-    void draw_expiry_plot(const std::vector< const Json * > &rows, float height = 200.0f) {
-      const int n = rows.empty() ? 0 : static_cast< int >((*rows.front())["calendar"].size());
-      std::vector< double >      xs(n), stock(n), lots(n), sealed(n), lost(n);
-      std::vector< std::string > labels;
-      for (int index = 0; index < n; ++index) {
-        xs[index] = index;
-        labels.push_back(month_label((*rows.front())["calendar"][index]["start"]));
-      }
-      for (const Json *row : rows) {
-        const Json &months = (*row)["calendar"];
-        for (int index = 0; index < n && index < static_cast< int >(months.size()); ++index) {
-          const Json &expiring = months[index]["expiring"];
-          const Json &gone     = months[index]["lost"];
-          stock[index] += expiring["stock"].integer();
-          lots[index] += expiring["lots"].integer();
-          sealed[index] += expiring["sealed"].integer();
-          lost[index] += gone["stock"].integer() + gone["lots"].integer() + gone["sealed"].integer();
-        }
-      }
-      for (int index = 0; index < n; ++index) { // cumuls pour les barres empilees
-        lots[index] += stock[index];
-        sealed[index] += lots[index];
-      }
-      std::vector< const char * > label_ptrs;
-      for (const std::string &label : labels)
-        label_ptrs.push_back(label.c_str());
-      if (!ImPlot::BeginPlot("Péremptions par mois", ImVec2(-1, 200), ImPlotFlags_NoMouseText))
-        return;
-      double top = 1;
-      for (int index = 0; index < n; ++index)
-        top = std::max(top, sealed[index]);
-      ImPlot::SetupAxes(nullptr, "items");
-      ImPlot::SetupAxisLimits(ImAxis_X1, -0.6, std::max(1, n) - 0.4, ImPlotCond_Always);
-      ImPlot::SetupAxisLimits(ImAxis_Y1, 0, top * 1.15 + 1, ImPlotCond_Always);
-      if (n > 0)
-        ImPlot::SetupAxisTicks(ImAxis_X1, xs.data(), n, label_ptrs.data());
-      ImPlot::SetupLegend(ImPlotLocation_North, ImPlotLegendFlags_Outside | ImPlotLegendFlags_Horizontal);
-      if (n > 0) {
-        // barres empilees : chaque serie est dessinee avec le cumul, de la plus haute a la plus basse
-        ImPlot::PlotBars("Scellés", xs.data(), sealed.data(), n, 0.6, ImPlotSpec(ImPlotProp_FillColor, sealed_color));
-        ImPlot::PlotBars("Lots", xs.data(), lots.data(), n, 0.6, ImPlotSpec(ImPlotProp_FillColor, lots_color));
-        ImPlot::PlotBars("Stock", xs.data(), stock.data(), n, 0.6, ImPlotSpec(ImPlotProp_FillColor, stock_color));
-        ImPlot::PlotBars("Perdus (pas utilisés à temps)", xs.data(), lost.data(), n, 0.25,
-                         ImPlotSpec(ImPlotProp_FillColor, colors::red, ImPlotProp_FillAlpha, 0.85f));
-      }
-      ImPlot::EndPlot();
-    }
-
-    // ---- Commandes ----
-    void draw_orders(App &app) {
-      const Json &forecast = app.catalog.forecast;
-      std::vector< const Json * > rows;
-      for (const Json &row : forecast["types"].items())
-        if (row["order"].is_object() && filter_matches(app, row))
-          rows.push_back(&row);
-      std::stable_sort(rows.begin(), rows.end(), [](const Json *a, const Json *b) {
-        return (*a)["order"]["before"].str() < (*b)["order"]["before"].str();
-      });
-      ImGui::TextDisabled("Types qui passeront sous leur minimum dans les 6 mois. Délai de livraison : %d j "
-                          "(Réglages).",
-                          forecast["lead_days"].integer());
-      if (!rows.empty()) {
-        ImGui::SameLine();
-        if (button("Copier la liste")) {
-          std::ostringstream text;
-          for (const Json *row : rows)
-            text << (*row)["name"].str() << " : " << order_text(*row) << " (avant le "
-                 << date_text((*row)["order"]["before"]) << ")\n";
-          ImGui::SetClipboardText(text.str().c_str());
-          app.notify("Liste des commandes copiée.");
-        }
-      }
-      const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY;
-      if (!ImGui::BeginTable("orders", 6, flags))
-        return;
-      ImGui::TableSetupScrollFreeze(0, 1);
-      ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
-      ImGui::TableSetupColumn("À commander", ImGuiTableColumnFlags_WidthFixed, 170.0f);
-      ImGui::TableSetupColumn("Avant le", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-      ImGui::TableSetupColumn("Sous le minimum le", ImGuiTableColumnFlags_WidthFixed, 140.0f);
-      ImGui::TableSetupColumn("Stock / minimum", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-      ImGui::TableSetupColumn("Conso / mois", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-      ImGui::TableHeadersRow();
-      for (const Json *row_ptr : rows) {
-        const Json &row   = *row_ptr;
-        const Json &order = row["order"];
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(stock_name(row).c_str());
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(order_text(row).c_str());
-        if (row["pack_size"].integer() > 1 && !row["is_group"].boolean()) {
-          ImGui::SameLine();
-          ImGui::TextDisabled("(%d paquets)", order["quantity"].integer() / row["pack_size"].integer());
-        }
-        ImGui::TableNextColumn();
-        if (order["urgent"].boolean())
-          ImGui::TextColored(colors::red, "%s", date_text(order["before"]).c_str());
-        else
-          ImGui::TextColored(colors::orange, "%s", date_text(order["before"]).c_str());
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(date_text(order["below_min"]).c_str());
-        ImGui::TableNextColumn();
-        ImGui::Text("%d / %d", row["stock_now"].integer(), row["min_quantity"].integer());
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(rate_text(row["per_month"].num()).c_str());
-      }
-      ImGui::EndTable();
-      if (rows.empty())
-        ImGui::TextDisabled("Rien à commander.");
-    }
-
-    // ---- Transferts : echanges entre lots pour utiliser les items avant leur peremption ----
-    void draw_transfers(App &app) {
-      const Json &transfers = app.catalog.forecast["transfers"];
-      ImGui::TextWrapped("Items qui périmeraient sans servir là où ils sont. On les met là où ils seront utilisés "
-                         "avant leur date, et on reprend au même endroit un plus récent pour garder le lot complet. "
-                         "Les déplacements se font comme d'habitude (scan puis « Ajouter au lot ») ; un échange fait "
-                         "disparaît de la liste.");
-      if (transfers.size() == 0) {
-        ImGui::TextDisabled("Aucun échange à faire.");
-        return;
-      }
-      if (!ImGui::BeginChild("transfers"))
-        return ImGui::EndChild();
-      int group_index = 0;
-      for (const Json &group : transfers.items()) {
-        ImGui::PushID(group_index++);
-        const Json &source = group["source"];
-        ImGui::Separator();
-        ImGui::TextUnformatted(source["path"].str().c_str());
-        ImGui::SameLine();
-        if (source["sealed"].boolean())
-          ImGui::TextColored(colors::red, "· scellé, ouvrir avant le %s", date_text(group["before"]).c_str());
-        else
-          ImGui::TextColored(colors::orange, "· à faire avant le %s", date_text(group["before"]).c_str());
-        if (!source["id"].is_null()) {
-          ImGui::SameLine();
-          if (small_button("Afficher le lot"))
-            app.show_lot(source["id"].str());
-        }
-        int move_index = 0;
-        for (const Json &move : group["moves"].items()) {
-          ImGui::PushID(move_index++);
-          int step_index = 1;
-          for (const Json &step : move["steps"].items())
-            ImGui::TextWrapped("%d. %s", step_index++, step.str().c_str());
-          ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-          ImGui::TextWrapped("%s", move["reason"].str().c_str());
-          ImGui::PopStyleColor();
-          if (ImGui::TreeNode("Items concernés")) {
-            ImGui::TextDisabled("À sortir :");
-            for (const Json &iid : move["take"].items())
-              ImGui::BulletText("%s", iid.str().c_str());
-            ImGui::TextDisabled("À reprendre :");
-            for (const Json &iid : move["back"].items())
-              ImGui::BulletText("%s", iid.str().c_str());
-            ImGui::TreePop();
-          }
-          ImGui::PopID();
-        }
-        ImGui::PopID();
-      }
-      ImGui::EndChild();
-    }
-
-    std::string filter_;
-    std::string selected_;
-    bool        only_low_         = false;
-    bool        zero_open_        = false; // types sans minimum attendu deplies (actuel et projection)
-    bool        include_lots_     = false;
-    bool        with_consumption_ = true;
-    int         horizon_          = 1;
 };
 
 } // namespace

@@ -79,7 +79,7 @@ class ScanWindow final : public AppWindow {
     }
 
     void draw_entries(App &app) {
-      const float footer = ImGui::GetFrameHeightWithSpacing() * (app.privileged() ? 5.5f : 3.5f);
+      const float footer = ImGui::GetFrameHeightWithSpacing() * (app.privileged() ? 6.6f : 3.5f);
       const auto &entries = app.stack.entries();
       ImGui::Text("%s, %s", nb(entries.size(), "scan").c_str(), nb(app.stack.iids().size(), "item").c_str());
       if (ImGui::GetTime() - app.last_duplicate_time_ < 3.0) {
@@ -162,6 +162,13 @@ class ScanWindow final : public AppWindow {
             ImGui::TextColored(colors::orange, "Tâches");
           else
             ImGui::TextColored(colors::green, "OK");
+          // gestion et admins : fiche de l'item (Stock > Items : remettre en stock, decouper, desactiver...)
+          if (entry->scan.kind == ScanKind::Item && entry->state == EntryState::Ok && app.privileged()) {
+            ImGui::PushID(entry->id);
+            if (small_button("Fiche de l'item"))
+              app.show_item(entry->scan.id);
+            ImGui::PopID();
+          }
           ImGui::TableNextColumn();
           ImGui::PushID(entry->id);
           if (small_button("X"))
@@ -245,6 +252,8 @@ class ScanWindow final : public AppWindow {
       }
 
       if (app.privileged()) {
+        // actions de gestion sur les items scannes, a part des boutons de la pile
+        ImGui::SeparatorText("Items scannés");
         ImGui::BeginDisabled(empty);
         if (button("Vérif du stock", ImVec2(third, 0)))
           app.stock_verif();

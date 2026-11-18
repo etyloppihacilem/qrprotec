@@ -513,6 +513,18 @@ class App {
     // Etiquettes d'items demandees depuis le web par un admin : fenetre « Impressions en attente », ouverte d'elle-meme
     // a chaque nouvelle demande, meme sans personne de connecte (voir label_prints.cpp)
     void refresh_label_prints();
+    // Stock (fenetre « inventory ») ouvert sur un onglet : stock (etat du stock), orders, transfers
+    std::string stock_tab_to_show_;
+    void        show_stock_tab(const std::string &tab) {
+      stock_tab_to_show_ = tab;
+      open_window("inventory");
+    }
+    // fiche d'un item : Stock > Items, recherche sur son iid et item choisi
+    std::string item_to_show_;
+    void        show_item(const std::string &iid) {
+      item_to_show_ = iid;
+      show_stock_tab("items");
+    }
     // Reglages ouverts sur une section (depliee, en haut), depuis le menu qui la concerne
     std::string settings_section_;
     void        open_settings_section(const std::string &label) {
