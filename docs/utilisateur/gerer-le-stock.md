@@ -1,33 +1,40 @@
 # Gérer le stock
 
-Cette page concerne les rôles **gestion** et **admin**. Scannez votre badge au poste : la barre des menus
-en haut de l'écran passe en bleu foncé et les fenêtres de gestion apparaissent dans **☰ Outils**.
+Cette page concerne les rôles **gestion** et **admin**. Scannez votre badge au poste : il passe en **mode
+gestion**, la barre des menus en haut de l'écran devient bleu foncé et affiche un menu par domaine.
 
 ## Se repérer au poste
 
-Chaque fenêtre répond à une question, et chaque lot n'a qu'une fiche :
+Le poste a deux modes, selon pourquoi vous êtes devant. La bascule **Normal | Gestion** est tout à gauche de la
+barre (ou `Ctrl+G`) :
 
-| Touche | Fenêtre | La question |
-|---|---|---|
-| `F2` | **Lots** | Dans quel état sont mes lots ? La fiche d'un lot a, pour la gestion, les onglets Scellé, Étiquettes, Répartition et Modifier le lot ; **Nouveau lot…**, **Ordre des lots…** et **Lots archivés…** sont au-dessus de la liste. |
-| `F5` | **Gestion de la TECH** | Qu'est-ce que je dois faire ? **À faire** et **À venir**. |
-| `F6` | **Stock** | Qu'est-ce que j'ai, qu'est-ce qui entre et sort ? Réception, état du stock, items, paquets, commandes, transferts. |
-| `F7` | **Catalogue** | Comment le matériel est-il défini ? Types de lots et types d'items. |
-| `F8` | **Journal des opérations** | Qui a fait quoi, et quand ? |
-| `F11` | **Signalements** | Les problèmes signalés (la gestion les lit, un admin les traite). |
+- **Normal** : ce que fait un secouriste ou un chef (pile de scans, lots, vérif, listes de matériel,
+  téléphone-douchette). Pratique pour faire une vérif ou préparer un départ sans le reste à l'écran.
+- **Gestion** : tout le mode normal, plus un menu par domaine. Chaque domaine a sa fenêtre et sa touche, toujours
+  la même ; chaque fenêtre peut être mise à côté d'une autre (les lots d'un côté, les types de lots de l'autre).
 
-**☰ Outils** (tout à gauche de la barre) ou `Ctrl+K` ouvre le hub : toutes les fenêtres en tuiles, avec leur
-touche et un compteur coloré (rouge à traiter, orange à surveiller, bleu en attente, vert rien à faire). Tapez
-quelques lettres pour **aller directement** à un lot, un type, un item (son iid) ou une action (« récep » pour une
-nouvelle réception, « rouleau » pour changer de rouleau) ; flèches pour choisir, `Entrée` pour ouvrir, `Échap` pour
-fermer. Le menu **Impression** regroupe l'imprimante, les impressions demandées et les consommables.
+| Menu | Touche | Fenêtre | Ce qu'on y fait |
+|---|---|---|---|
+| **TECH** | `F5` | **Gestion de la TECH** | Savoir quoi faire : **À faire** et **À venir** ; aussi **Signalements** (`F11`, la gestion les lit, un admin les traite) et **Journal des opérations**. |
+| **Lots** | `F2` | **Lots** | État des lots et fiche de chaque lot, avec pour la gestion les onglets Scellé, Étiquettes, Répartition et Modifier le lot ; **Nouveau lot…**, **Ordre des lots…**, **Lots archivés…**. |
+| **Lots** | `F8` | **Types de lots** | Contenu, emplacements, scellé, référentiels. |
+| **Items** | `F7` | **Items** | **Types d'items**, **Items** (recherche, fiche, réimpression), **Entretien** (révisions et désinfections du matériel et des lots), **Paquets fermés**. |
+| **Stock** | `F6` | **Stock** | **État du stock** (aujourd'hui ou projection), **Commandes**, **Transferts**. |
+| **Réception** | `F9` | **Réception** | **Nouvelle réception** d'une commande, **Réceptions passées**. |
+| **Étiquettes** | `F10` | **Éditeur d'étiquettes** (admin) | Modèles et types d'étiquettes ; étiquettes demandées depuis le web. |
+| **Impression** | | | Imprimante, rouleau, files d'impression, consommables, réglages d'impression. |
+
+Chaque entrée d'un menu ouvre la fenêtre sur le bon onglet. `Ctrl+K` (ou **Fenêtres › Aller à…**) cherche un lot,
+un type, un item (son iid), une fenêtre ou une action : tapez quelques lettres (« récep » pour une nouvelle
+réception, « rouleau » pour changer de rouleau), flèches pour choisir, `Entrée` pour ouvrir ; `Échap` ou un clic à
+côté ferme. Les fenêtres communes (Lots, pile de scans…) gardent leur place dans chaque mode.
 
 ## Recevoir une commande
 
 Exemple : la commande du mois arrive avec 200 compresses (8 boîtes de 25, péremption 03/2029),
 40 sérums phy (péremption 31/12/2027) et 2 garrots.
 
-Fenêtre **Stock** (`F6`, ou **☰ Outils** > Stock), onglet **Réception**, une ligne de commande à la fois :
+Fenêtre **Réception** (`F9`, ou menu **Réception › Nouvelle réception**), une ligne de commande à la fois :
 
 1. **Type d'item** : tapez une partie du nom ou du code (« ser ph » trouve « Sérum phy 10 ml »,
    sans se soucier des accents), validez avec Entrée ou Tab. La description du type compte aussi :
@@ -154,7 +161,7 @@ dans la Gestion de la TECH du poste (pas sur le téléphone).
 
 ## Gestion de la TECH : la liste de tâches
 
-Fenêtre **Gestion de la TECH** au poste (`F5`, ou **☰ Outils**), tuile **Gestion de la TECH** de l'accueil sur le téléphone
+Fenêtre **Gestion de la TECH** au poste (`F5`, ou menu **TECH**), tuile **Gestion de la TECH** de l'accueil sur le téléphone
 (badge gestion ou admin). Le premier onglet, **À faire**, liste tout ce qu'il y a à faire pour tenir le
 stock, du plus important au moins important :
 
@@ -380,7 +387,8 @@ lien **Saisir la date** (fiche de l'item, carte d'À venir, pile de scans du pos
 passée si le retard est constaté. Aucune révision n'est comptée comme faite aujourd'hui ; le journal garde qui a
 saisi quoi.
 
-**Tout le matériel suivi** (poste, gestion et admin). **Gestion de la TECH › À venir › Tout le matériel suivi** regroupe tout le
+**Entretien** (poste, gestion et admin). Fenêtre **Items**, onglet **Entretien** (menu **Items › Entretien**, ou le lien
+**Tout le matériel suivi** de la Gestion de la TECH › À venir) regroupe tout le
 matériel non consommable : type, iid, emplacement, prochaine révision et prochaine désinfection (rouge en
 retard, orange dans les 30 jours ; survolez une date pour la périodicité, le mois du cycle et la dernière faite).
 La plus proche est en haut ; la case « En retard ou dans les 30 jours » et la recherche filtrent la liste.

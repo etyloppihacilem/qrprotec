@@ -135,19 +135,23 @@ que le fait de recocher « Machine partagée ».
 
 Chaque fenêtre est une classe dérivée d'`AppWindow` (`draw`, `on_open`), créée par une fonction
 `make_*_window()` (`ui/windows/windows.hpp`) et enregistrée dans le constructeur d'`App`. Drapeaux :
-`privileged` (rôles gestion/admin), `admin_only` en plus (admins : Utilisateurs, Éditeur, Réglages). Une fenêtre
-répond à une question du gestionnaire, et chaque objet n'a qu'une fiche : celle d'un lot est dans Lots pour tout le
-monde, la gestion y a ses onglets en plus. Il n'y a plus de menus Gestion ni Administration : le **hub « Outils »**
-(`app/hub.cpp`, bouton « ☰ Outils » de la barre ou `Ctrl+K`, popup modal) montre les fenêtres en tuiles par
-groupe (`kGroups`), avec leur touche F et un compteur coloré, et sa recherche « Aller à… » trouve fenêtres,
-actions, lots (attention d'abord), types et fiche d'un item par son iid. Le menu Fenêtres liste aussi toutes les
-fenêtres permises, par groupe.
+`privileged` (rôles gestion/admin), `admin_only` en plus (admins : Utilisateurs, Éditeur, Réglages).
 
-Écrans partagés entre fenêtres (`windows.hpp`) : `LotPanel` (`lot_admin_window.cpp`, l'ancienne Gestion des lots
-sans fenêtre à elle : onglets de gestion de la fiche du lot, nouveau lot, ordre, archives, types de lots) et
-`InventoryPanel` (`inventory_window.cpp` : types d'items, matériel suivi). Pour ouvrir une fenêtre sur un onglet ou
-un objet : `show_lot`, `show_stock_tab`, `show_item`, `show_lots_mode`, `show_catalogue_type`,
-`open_settings_section`.
+Deux modes, selon pourquoi on est devant le poste : **normal** (secouriste, chef) et **gestion**. `App::manager()`
+dit si le rôle permet la gestion ; `privileged()` et `admin()` suivent en plus le mode choisi (`gestion_mode_`,
+bascule Normal | Gestion à gauche de la barre ou `Ctrl+G`, `set_gestion_mode`), si bien qu'un gestionnaire en
+mode normal voit exactement le poste d'un chef. Chaque mode garde la place des fenêtres communes (`mode_places_`).
+En mode gestion, la barre a un menu par domaine (`draw_gestion_menus` dans `app.cpp` : TECH, Lots, Items, Stock,
+Réception, Étiquettes, puis Impression et Administration) ; chaque domaine a sa fenêtre et sa touche F fixe
+(`assign_shortcuts`). « Aller à… » (`app/hub.cpp`, `Ctrl+K`, popup simple fermée par un clic à côté ou `Échap`)
+cherche fenêtres, actions, lots (attention d'abord), types et fiche d'un item par son iid.
+
+Écrans partagés : `LotPanel` (`windows.hpp`, `lot_admin_window.cpp`, l'ancienne Gestion des lots sans fenêtre à
+elle) donne les onglets de gestion de la fiche du lot, le nouveau lot, l'ordre et les archives à Lots, et les types
+de lots à leur fenêtre (une instance par fenêtre). `inventory_window.cpp` fait trois fenêtres du même code
+(`InventoryWindow::View` : Stock, Items, Réception). Pour ouvrir une fenêtre sur un onglet ou un objet :
+`show_lot`, `show_stock_tab` (aiguille vers Stock, Items ou Réception selon l'onglet), `show_item`,
+`show_receptions`, `show_tech_tab`, `show_lots_mode`, `show_type`, `open_settings_section`.
 
 | Fenêtre | Fichier | Mode |
 |---|---|---|
@@ -155,13 +159,15 @@ un objet : `show_lot`, `show_stock_tab`, `show_item`, `show_lots_mode`, `show_ca
 | Lots | `lots_window.cpp` | normal |
 | Vérif | `verif_window.cpp` | normal |
 | Téléphone comme douchette | `phone_window.cpp` | normal |
-| Gestion de la TECH `F5` (À faire, À venir par date ou tout le matériel suivi) | `stock_window.cpp` | privilégié |
-| Stock `F6` (réception, état du stock et projection, items, paquets, commandes, transferts) | `inventory_window.cpp` | privilégié |
-| Catalogue `F7` (types de lots, types d'items) | `catalogue_window.cpp` | privilégié |
-| Paquet fermé (au scan d'un paquet) | `pack_window.cpp` | privilégié |
-| Journal des opérations `F8` | `journal_window.cpp` | privilégié |
-| Signalements `F11` (lecture pour la gestion, traitement admin) | `reports_window.cpp` | privilégié |
-| Impressions et consommables (menu Impression) | `print_counts_window.cpp` | privilégié |
+| Gestion de la TECH `F5` (À faire, À venir) | `stock_window.cpp` | gestion |
+| Stock `F6` (état du stock et projection, commandes, transferts) | `inventory_window.cpp` | gestion |
+| Items `F7` (types d'items, items, entretien, paquets fermés) | `inventory_window.cpp` | gestion |
+| Types de lots `F8` | `lot_types_window.cpp` | gestion |
+| Réception `F9` (nouvelle, passées) | `inventory_window.cpp` | gestion |
+| Paquet fermé (au scan d'un paquet) | `pack_window.cpp` | gestion |
+| Journal des opérations (menu TECH) | `journal_window.cpp` | gestion |
+| Signalements `F11` (lecture pour la gestion, traitement admin) | `reports_window.cpp` | gestion |
+| Impressions et consommables (menu Impression) | `print_counts_window.cpp` | gestion |
 | Utilisateurs | `users_window.cpp` | admin |
 | Éditeur d'étiquettes | `ui/editor.cpp` | admin |
 | Réglages | `settings_window.cpp` | admin |

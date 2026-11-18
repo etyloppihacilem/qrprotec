@@ -19,7 +19,7 @@ Deux paquets :
 Un administrateur, sur le **poste principal** (le kiosk de la machine du serveur, ou la borne
 déclarée « poste principal » quand le serveur n'a pas de kiosk, voir [back seul](back-seul.md#la-borne--poste-principal)) :
 
-1. **Utilisateurs** (`F9`, ou **☰ Outils** > Utilisateurs), onglet **Ordinateurs connectés**.
+1. **Utilisateurs** (menu **Administration › Utilisateurs** en mode gestion), onglet **Ordinateurs connectés**.
 2. Donnez un **nom** à l'ordinateur (`accueil`, `portable-chef`... sans espace ni accent). Laissez
    le mot de passe vide : un mot de passe facile à recopier est choisi (`tf3t-bhr3-4spt`). Cochez
    **Poste principal** pour une autre borne avec imprimante.
@@ -117,7 +117,7 @@ L'assistant demande aussi le clavier, l'extinction de l'écran et les sauvegarde
 réglages du front : sur une borne, l'adresse du serveur ne se change pas depuis l'écran.
 
 - Revenir à un back sur la même machine : `sudo qrprotec-setup --local-api`.
-- Vérifier : en haut à droite du front, « API en ligne » ; sur le serveur,
+- Vérifier : en haut à droite du front, « En ligne » ; sur le serveur,
   `sudo qrprotec-manage frontkey list` montre la dernière connexion du poste.
 
 Les sauvegardes d'un kiosk relié à un back distant contiennent ses réglages et ses modèles

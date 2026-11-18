@@ -89,7 +89,8 @@ refuse aussi la clé de développement du dépôt (le paquet génère la sienne 
 2. La déclarer dans `windows.hpp`, l'ajouter dans `CMakeLists.txt` et dans le constructeur d'`App`
    (`windows.push_back(...)`).
 3. `privileged=true` pour une fenêtre de gestion, `admin_only=true` en plus si elle est réservée aux admins ; ajouter son id
-   à un groupe des tuiles du hub (`kGroups` dans `app/hub.cpp`) avec sa ligne d'aide (`kHints`) et ses mots de recherche (`kWords`).
+   au menu de son domaine (`draw_gestion_menus` dans `app/app.cpp`), à `assign_shortcuts` si elle mérite une touche F,
+   et ses mots de recherche à « Aller à… » (`kWords` dans `app/hub.cpp`).
 4. Disposition par défaut : dans `AppSettings::defaults()` (`settings.cpp`).
 5. Requêtes : toujours `app.api.get/post(..., callback)`, jamais de réseau bloquant dans `draw`.
 

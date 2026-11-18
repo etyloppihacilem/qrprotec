@@ -429,12 +429,12 @@ appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). R
 | `admin` | tout, dont Réglages (serveur, étiquettes, notifications…), Utilisateurs et éditeur d'étiquettes | + **État des stocks** de l'accueil |
 
 **Code PIN** (4 à 8 chiffres, haché) : demandé après le badge à chaque connexion, obligatoire pour les
-administrateurs, facultatif pour les autres rôles (défini dans la fenêtre **Utilisateurs** (`F9`)). Un
+administrateurs, facultatif pour les autres rôles (défini dans la fenêtre **Utilisateurs** (menu Administration)). Un
 administrateur sans PIN (compte existant, ou créé par `createadmin` sans `--pin`) le choisit à sa
 connexion suivante. Après 5 PIN faux, le PIN est bloqué 5 minutes. Sur le téléphone, `auth/` renvoie
 un jeton de session (12 h) utilisé pour l'état des stocks à la place du PIN.
 
-Le rôle se choisit dans la fenêtre **Utilisateurs** (`F9`) (admin). La migration `0003_roles` transforme les
+Le rôle se choisit dans la fenêtre **Utilisateurs** (menu Administration) (admin). La migration `0003_roles` transforme les
 anciens responsables en administrateurs ; `createadmin` crée ou répare un administrateur.
 
 Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), `items/batch/`
@@ -642,10 +642,10 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   temps restant avant la fermeture de la session (délai réglable). « Nouveau QR code » et « Fermer la
   session » sont dans la même fenêtre.
 - **Clavier** : tout se fait sans souris. Chaque fenêtre a sa touche de fonction : `F1` Pile de scans,
-  `F2` Lots, `F3` Listes de matériel, `F4` Téléphone-douchette (la Vérif s'ouvre d'elle-même au scan d'un lot), puis `F5` à `F12` pour la gestion et l'administration
-  (Gestion de la TECH, Stock, Catalogue, Journal des opérations, Utilisateurs, Éditeur d'étiquettes, Signalements,
-  Réglages). `Ctrl+K` (ou **☰ Outils** dans la barre) ouvre le hub : toutes les fenêtres en tuiles et la recherche
-  « Aller à… » d'un lot, d'un type, d'un item ou d'une action. La touche d'une fenêtre déjà au premier plan la ferme.
+  `F2` Lots, `F3` Listes de matériel, `F4` Téléphone-douchette (la Vérif s'ouvre d'elle-même au scan d'un lot), puis en
+  mode gestion `F5` Gestion de la TECH, `F6` Stock, `F7` Items, `F8` Types de lots, `F9` Réception, `F10` Éditeur
+  d'étiquettes, `F11` Signalements, `F12` Réglages. `Ctrl+K` ouvre « Aller à… » : un lot, un type, un item, une
+  fenêtre ou une action. `Ctrl+G` passe du mode normal au mode gestion et inversement (rôles gestion et admin). La touche d'une fenêtre déjà au premier plan la ferme.
   Dans une fenêtre à onglets, `Ctrl+1`, `Ctrl+2`… choisissent l'onglet. `Ctrl+F11` met les fenêtres en
   plein écran (une seule visible à la fois, sur toute la zone sous la barre de menu), `Ctrl+Tab` passe
   à la fenêtre suivante, `Ctrl+W` ferme celle qui a le focus, `Ctrl+Espace` remet les fenêtres en place, `Super+L` déconnecte. Chaque bouton a une lettre soulignée :
@@ -659,17 +659,22 @@ disposition par défaut des fenêtres, signal de mauvais scan.
 - **Inactivité** : après 15 min (réglable), la pile est vidée, l'utilisateur déconnecté, le plein
   écran quitté et les fenêtres remises à leur place par défaut.
 
-### Mode privilégié (badge gestion ou admin)
+### Mode gestion (badge gestion ou admin)
 
-Barre des menus bleu foncé. Fenêtres de gestion dans **☰ Outils** (Réglages, Utilisateurs et Éditeur
-d'étiquettes réservés au rôle admin) :
+Le poste a deux modes, selon pourquoi on est devant : **Normal** (ce que fait un secouriste ou un chef) et
+**Gestion** (le mode normal plus un menu par domaine), avec la bascule tout à gauche de la barre ou `Ctrl+G`. En
+mode gestion, la barre des menus est bleu foncé et a les menus **TECH**, **Lots**, **Items**, **Stock**,
+**Réception**, **Étiquettes**, **Impression** et **Administration** (admins). Une fenêtre par domaine (Réglages,
+Utilisateurs et Éditeur d'étiquettes réservés au rôle admin) :
 
-- **Gestion de la TECH** : À faire, À venir (par date ou tout le matériel suivi).
-- **Stock** : réception d'une commande (type, péremption, quantité, paquet fermé) avec impression des
-  étiquettes en série, état du stock (barre par type, verte au-dessus du minimum, orange en dessous, rouge à 0,
-  « quantité/minimum ») et projection, recherche d'items, réimpression d'une étiquette, suppression
-  exceptionnelle, paquets fermés, commandes, transferts.
-- **Catalogue** : types de lots et types d'items.
+- **Gestion de la TECH** : À faire, À venir.
+- **Stock** : état du stock (barre par type, verte au-dessus du minimum, orange en dessous, rouge à 0,
+  « quantité/minimum ») et projection, commandes, transferts.
+- **Items** : types d'items, recherche d'items, réimpression d'une étiquette, suppression exceptionnelle,
+  entretien (révisions et désinfections du matériel et des lots), paquets fermés.
+- **Réception** : réception d'une commande (type, péremption, quantité, paquet fermé) avec impression des
+  étiquettes en série, réceptions passées.
+- **Types de lots** : contenu, emplacements, scellé, référentiels.
 - **Paquet fermé** : fiche d'un paquet (ouverte en scannant son étiquette, depuis la dernière
   réception ou la liste des paquets) et ouverture avec impression de toutes ses étiquettes.
 - **Lots** (fiche d'un lot, onglets de gestion) : création de lots, étiquettes publique et clé,

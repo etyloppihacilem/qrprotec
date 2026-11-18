@@ -4,7 +4,7 @@ Cette page concerne le rôle **admin** (sauf « Lots » et « Scellés », acces
 
 ## Utilisateurs et badges
 
-Fenêtre **Utilisateurs** (`F9`, ou **☰ Outils** > Utilisateurs).
+Fenêtre **Utilisateurs** (menu **Administration › Utilisateurs**, en mode gestion).
 
 - **Nouvel utilisateur** : matricule (1 à 16 lettres, chiffres, `-` ou `_`, définitif), prénom, nom,
   rôle, PIN éventuel. **Créer et voir le badge** affiche l'aperçu ; imprimez-le.
@@ -68,7 +68,7 @@ Chaque action est notée dans le journal.
 
 ## Lots
 
-Fenêtre **Lots** (`F2`) pour les lots eux-mêmes (fiche complète, **Nouveau lot…**, **Ordre des lots…**, **Lots archivés…**), fenêtre **Catalogue** (`F7`) pour les types de lots (rôle gestion).
+Fenêtre **Lots** (`F2`) pour les lots eux-mêmes (fiche complète, **Nouveau lot…**, **Ordre des lots…**, **Lots archivés…**), fenêtre **Types de lots** (`F8`) pour les types de lots (rôle gestion).
 
 - **Types de lots** : contenu attendu (type d'item, quantité, emplacement proposé parmi ceux déjà
   donnés, ordre des emplacements pour la vérif), case **Rangement du
@@ -171,7 +171,7 @@ raison est obligatoire ; tout se réactive de la même façon.
 
 ## Journal des opérations
 
-Fenêtre **Journal des opérations** (`F8`, rôles gestion et admin) : toutes les opérations, de la plus
+Fenêtre **Journal des opérations** (menu **TECH › Journal des opérations**, rôles gestion et admin) : toutes les opérations, de la plus
 récente à la plus ancienne, avec qui, quand, quoi et sur quel lot. Vérifs (complètes en vert,
 incomplètes en rouge), réassorts, retraits vers le stock, scellages et ouvertures de scellé, réceptions,
 paquets ouverts, suppressions d'items, et modifications des lots, des types, des utilisateurs et des
