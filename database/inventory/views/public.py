@@ -414,10 +414,10 @@ def item_detail(request, iid):
 @api_view(['POST'])
 @handle_errors
 def item_revision(request, iid):
-    """Revision ou desinfection d'un item (materiel non consommable) par un utilisateur connecte : {"user",
+    """Revision ou desinfection d'un item (materiel non consommable), roles gestion et admin seulement : {"user",
     "kind": "revision" (par defaut) ou "disinfection", "tasks": taches cochees (toutes), "next_due": date de la
     prochaine (par defaut aujourd'hui + la periodicite du type), "note"}."""
-    user = connected_user(request)
+    user = connected_user(request, GESTION)
     item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location__lot_type'), iid=iid)
     data = request.data
     tasks = data.get('tasks') or []

@@ -125,17 +125,17 @@ class ScanWindow final : public AppWindow {
               if (!entry->data[key].boolean())
                 continue;
               const bool late = entry->data[key + "_late"].boolean();
-              ImGui::PushID(entry->id);
-              ImGui::PushID(kind);
-              if (small_button(verb))
-                app.open_revision(entry->data, key);
-              if (app.privileged()) {
+              if (app.privileged()) { // gestion et admins seulement, les autres voient la date
+                ImGui::PushID(entry->id);
+                ImGui::PushID(kind);
+                if (small_button(verb))
+                  app.open_revision(entry->data, key);
                 ImGui::SameLine();
                 if (small_button("Saisir la date"))
                   app.open_maintenance_date(entry->data, key);
+                ImGui::PopID();
+                ImGui::PopID();
               }
-              ImGui::PopID();
-              ImGui::PopID();
               const std::string due = std::string(label) + (late ? " en retard, prévue le " : " le ")
                                     + display_date(entry->data[key + "_due"]);
               ImGui::PushStyleColor(ImGuiCol_Text, late ? (entry->expired ? colors::red : colors::orange)

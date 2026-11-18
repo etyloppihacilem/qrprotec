@@ -94,7 +94,7 @@ puis valide. `services.perform_verif(lot, iids, identity, partial)` :
    **Révision** (`ItemType.revision_months` > 0, non consommable seulement : `has_revision`) : chaque
    item a `revision_due`, posée à la réception (`add_items`) et à l'activation sur le type, à
    aujourd'hui + la périodicité (`add_months`, dernier jour du mois s'il n'existe pas). Une révision
-   (`POST items/<iid>/revision/`, utilisateur connecté, `services.revise_item`) exige toutes les
+   (`POST items/<iid>/revision/`, gestion et admin, `services.revise_item`) exige toutes les
    `revision_tasks` cochées, enregistre un `ItemRevision` et l'opération `revision`, et pose la
    prochaine date (saisie, après aujourd'hui, ou par défaut aujourd'hui + la périodicité). En retard
    (`revision_due` < aujourd'hui, `Items.revision_late`) : avertissement si `revision_usable`, sinon

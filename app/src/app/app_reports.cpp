@@ -231,7 +231,7 @@ Json maintenance_of(const Json &item, const std::string &kind) {
 
 void App::open_revision(const Json &item, const std::string &kind) {
   const Json m = maintenance_of(item, kind);
-  if (!m.is_object())
+  if (!m.is_object() || !privileged()) // gestion et admins seulement
     return;
   const std::string noun = m["noun"].str("révision");
   require_login("faire la " + noun, [this, item, m, kind, noun]() {

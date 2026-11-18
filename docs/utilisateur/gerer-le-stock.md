@@ -344,7 +344,7 @@ ses tâches, sa date de prochaine échéance et son bouton. Pour réviser (ou d�
 - **poste** : scannez l'item, puis **Réviser** (ou **Désinfecter**) sous sa ligne dans la pile de scans ;
 - depuis sa carte dans **À venir**.
 
-Connectez-vous si besoin, cochez toutes les tâches de la révision, vérifiez la date de prochaine
+Réservé aux rôles gestion et admin (les secouristes voient seulement la date sur la fiche). Connectez-vous si besoin, cochez toutes les tâches de la révision, vérifiez la date de prochaine
 révision (par défaut dans la périodicité du type, modifiable) et enregistrez. La fiche de l'item
 garde la dernière révision et qui l'a faite.
 
