@@ -529,7 +529,7 @@ function renderLot() {
     el('div', { class: 'banner ' + (groupStatus(lot) || lotStatus(lot)).kind }, (groupStatus(lot) || lotStatus(lot)).label),
     // lot d'un referentiel (B+) : lignes de la liste dans aucun de ses sacs, a repartir au poste
     (lot.unplaced || []).length ? el('p', { class: 'hint' }, `Dans aucun sac : ${lot.unplaced.map((row) => row.type_name).join(', ')}`
-      + (canSeeStock() ? ' (à répartir au poste, Gestion des lots, onglet Répartition).' : '.')) : '',
+      + (canSeeStock() ? ' (à répartir au poste : fiche du lot, onglet Répartition).' : '.')) : '',
     el('p', {}, ficheLink('lot', lot.id, 'Fiche du lot : contenu et emplacement des items')),
     reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
     lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed)}` +

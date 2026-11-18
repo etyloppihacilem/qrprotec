@@ -943,7 +943,7 @@ class VerifWindow final : public AppWindow {
         std::string names;
         for (const Json &name : report["unsealed_lots"].items())
           names += (names.empty() ? "" : ", ") + name.str();
-        ImGui::TextColored(colors::orange, "Scellé brisé (%s) : resceller depuis la Gestion des lots.",
+        ImGui::TextColored(colors::orange, "Scellé brisé (%s) : resceller depuis la fiche du lot, onglet Scellé.",
                            names.empty() ? "lot" : names.c_str());
       }
       if (report["present"].size() > 0 || report["sealed_lots"].size() == 0) // scelle seul : rien de scanne

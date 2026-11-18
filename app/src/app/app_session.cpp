@@ -406,6 +406,9 @@ void App::complete_login(const Json &data) {
   session.role        = data["role"].str(session.privileged ? "admin" : "normal");
   session.fonction    = data["fonction"].str();
   user                = session;
+  gestion_mode_       = true; // un gestionnaire arrive en mode gestion, il peut passer en mode normal
+  mode_places_[0].clear();
+  mode_places_[1].clear();
   api.set_session(data["session"].str());
   // volume de la douchette propre a l'utilisateur (sinon celui par defaut du serveur)
   if (const Json &volume = data["scanner_volume"]; volume.is_number())

@@ -369,8 +369,22 @@ class App {
 
     // Session
     bool        logged_in() const { return user.has_value(); }
-    bool        privileged() const { return user && user->privileged; }
-    bool        admin() const { return user && user->admin(); } // reglages du front, utilisateurs
+    // Deux modes, selon pourquoi on est devant le poste. Mode normal : ce que fait un secouriste ou un chef (scans,
+    // lots, verif, listes). Mode gestion (roles gestion et admin, bascule dans la barre ou Ctrl+G) : le mode normal
+    // plus la gestion de la TECH, des lots, des items, du stock, des receptions, des etiquettes et de l'impression.
+    // privileged() et admin() suivent le mode : en mode normal, un gestionnaire voit le poste comme un chef.
+    bool        manager() const { return user && user->privileged; } // role gestion ou admin, quel que soit le mode
+    bool        privileged() const { return manager() && gestion_mode_; }
+    bool        admin() const { return user && user->admin() && gestion_mode_; } // reglages du front, utilisateurs
+    bool        gestion_mode_ = true; // remis a chaque connexion
+    // place des fenetres communes aux deux modes (lots, pile de scans...) dans chaque mode : chacun garde sa disposition
+    struct ModePlace {
+        ImVec2 pos, size;
+        int    snap_h = 0, snap_v = 0;
+        ImVec2 restore_pos, restore_size;
+    };
+    std::map< std::string, ModePlace > mode_places_[2];
+    void        set_gestion_mode(bool on);
     // options de debug du poste (reglage), pour un admin seulement : le serveur verifie aussi le role
     bool        debug_options() const { return settings.debug_options && admin(); }
     void        notify_refused(const Json &refused, const std::string &prefix);
@@ -513,17 +527,27 @@ class App {
     // Etiquettes d'items demandees depuis le web par un admin : fenetre « Impressions en attente », ouverte d'elle-meme
     // a chaque nouvelle demande, meme sans personne de connecte (voir label_prints.cpp)
     void refresh_label_prints();
-    // Stock (fenetre « inventory ») ouvert sur un onglet : stock (etat du stock), orders, transfers
+    // Fenetres de gestion ouvertes sur un onglet : stock, orders, transfers (Stock) ; types, items, equipment, packs
+    // (Items) ; reception, past_receptions (Reception). La fenetre concernee le prend au prochain affichage.
     std::string stock_tab_to_show_;
-    void        show_stock_tab(const std::string &tab) {
-      stock_tab_to_show_ = tab;
-      open_window("inventory");
+    void        show_stock_tab(const std::string &tab);
+    // Gestion de la TECH ouverte sur un onglet : tasks (a faire) ou events (a venir)
+    std::string tech_tab_to_show_;
+    void        show_tech_tab(const std::string &tab) {
+      tech_tab_to_show_ = tab;
+      open_window("stock");
     }
-    // fiche d'un item : Stock > Items, recherche sur son iid et item choisi
+    // fiche d'un item : Items > Items, recherche sur son iid et item choisi
     std::string item_to_show_;
     void        show_item(const std::string &iid) {
       item_to_show_ = iid;
       show_stock_tab("items");
+    }
+    // receptions passees d'un type d'item (bouton d'un item)
+    std::string receptions_type_to_show_;
+    void        show_receptions(const std::string &type) {
+      receptions_type_to_show_ = type;
+      show_stock_tab("past_receptions");
     }
     // Lots ouverts sur un mode de gestion : "new" (nouveau lot), "order" (ordre des lots), "archived"
     std::string lots_mode_to_open_;
@@ -531,20 +555,22 @@ class App {
       lots_mode_to_open_ = mode;
       open_window("lots");
     }
-    // Catalogue ouvert sur un type : "lot:<code>" (type de lot) ou "item:<code>" (type d'item)
-    std::string catalogue_type_to_show_;
-    void        show_catalogue_type(const std::string &key) {
-      catalogue_type_to_show_ = key;
-      open_window("catalogue");
+    // Type ouvert dans sa fenetre : "lot:<code>" (Types de lots) ou "item:<code>" (Items > Types d'items)
+    std::string type_to_show_;
+    void        show_type(const std::string &key) {
+      type_to_show_ = key;
+      if (key.rfind("lot:", 0) == 0)
+        open_window("lot_types");
+      else
+        show_stock_tab("types");
     }
-    // Hub « Outils » (Ctrl+K, bouton de la barre) : toutes les fenetres en tuiles par question, et recherche
-    // « Aller a... » d'un lot, d'un item, d'un type, d'une fenetre ou d'une action. Par-dessus l'ecran, ferme des
-    // qu'on choisit : il ne prend aucune place en permanence.
+    // « Aller a... » (Ctrl+K) : recherche d'un lot, d'un item, d'un type, d'une fenetre ou d'une action, par-dessus
+    // l'ecran. Fermee des qu'on choisit, qu'on clique a cote ou qu'on tape Echap : aucune place prise en permanence.
     struct Hub {
         bool        open    = false;
         bool        focus   = false;
+        bool        close   = false; // Ctrl+K de nouveau
         int         cursor  = 0;
-        int         opened_frame = -1; // le Ctrl+K qui l'ouvre ne le referme pas
         std::string query;
     } hub_;
     void open_hub();
@@ -707,6 +733,8 @@ class App {
     void entry_error(int entry_id, const std::string &message, ScanSource source);
     void draw_menu_bar();
     void draw_print_menu(bool dark_bar, const PrintQueueStatus &print); // menu Impression de la barre
+    void draw_gestion_menus(bool dark_bar); // mode gestion : un menu par domaine (TECH, Lots, Items, Stock...)
+    void draw_mode_switch(bool dark_bar);   // bascule Normal / Gestion (roles gestion et admin)
     void draw_update_menu(bool dark_bar); // barre de menu : mise a jour prete a installer
     void window_menu_item(AppWindow &window);
     void handle_shortcuts();

@@ -277,7 +277,7 @@ function renderLotFiche(body, lot) {
     sealIntact ? '' : full ? el('div', { class: 'banner ' + status.kind }, status.label) : shortBanner(lot, status),
     // lot d'un referentiel (B+) : lignes de la liste dans aucun de ses sacs, a repartir au poste
     (lot.unplaced || []).length ? el('p', { class: 'warn-text' }, `Dans aucun sac : ${lot.unplaced.map((row) => row.type_name).join(', ')}`
-      + (canSeeStock() ? ' (à répartir au poste : Gestion des lots, onglet Répartition).' : '.')) : '',
+      + (canSeeStock() ? ' (à répartir au poste : fiche du lot, onglet Répartition).' : '.')) : '',
     lotReportsBlock(lot),
     reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
     departButton(lot),

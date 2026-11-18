@@ -93,6 +93,14 @@ bool bar_item(const BarColors &bar, const char *label, const ImVec4 &text) {
   return clicked;
 }
 
+// Bouton de la barre allume quand il est choisi (bascule Normal / Gestion)
+bool bar_toggle(const BarColors &bar, const char *label, bool selected) {
+  const int  pushed  = push_bar_item(bar, bar.text);
+  const bool clicked = ImGui::MenuItem(label, nullptr, selected);
+  ImGui::PopStyleColor(pushed);
+  return clicked;
+}
+
 void bar_separator(const BarColors &bar) {
   const int pushed = push_bar_item(bar, bar.text);
   ImGui::Separator();
@@ -169,7 +177,9 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_verif_window());
   windows.push_back(make_stock_window());
   windows.push_back(make_inventory_window()); // Stock
-  windows.push_back(make_catalogue_window());
+  windows.push_back(make_items_window());
+  windows.push_back(make_lot_types_window());
+  windows.push_back(make_reception_window());
   windows.push_back(make_pack_window());
   windows.push_back(make_journal_window());
   windows.push_back(make_users_window());
@@ -382,25 +392,21 @@ AppWindow *App::window(const std::string &id) {
   return nullptr;
 }
 
-// Raccourcis d'ouverture : touches de fonction, F1 a F4 pour les fenetres de tous (pile de scans, lots, listes de
-// materiel, telephone ; la verif s'ouvre d'elle-meme au scan d'un lot) puis F5 a F12 pour celles de la gestion
-// et de l'administration (dans l'ordre de windows, sauf les paquets fermes, ouverts depuis le scan d'un paquet, et
-// les impressions, dans le menu Impression) : Gestion de la TECH F5, Stock F6, Catalogue F7, Journal F8,
-// Utilisateurs F9, Editeur F10, Signalements F11, Reglages toujours en F12. Toutes sont aussi dans le hub (Ctrl+K). Elles ne tapent rien dans les champs. Ctrl+chiffre
-// choisit l'onglet d'une fenetre (tab_item dans widgets.hpp).
+// Raccourcis d'ouverture : touches de fonction, toujours les memes. F1 a F4 pour les fenetres de tous (pile de scans,
+// lots, listes de materiel, telephone ; la verif s'ouvre d'elle-meme au scan d'un lot), puis en mode gestion une
+// touche par domaine : Gestion de la TECH F5, Stock F6, Items F7, Types de lots F8, Reception F9, Editeur
+// d'etiquettes F10, Signalements F11, Reglages F12. Les autres (journal, utilisateurs, impressions, paquet ferme) sont
+// dans les menus et dans « Aller a... » (Ctrl+K). Elles ne tapent rien dans les champs. Ctrl+chiffre choisit l'onglet
+// d'une fenetre (tab_item dans widgets.hpp).
 void App::assign_shortcuts() {
-  std::vector< AppWindow * > ordered;
-  for (const char *id : { "scan", "lots", "lists", "phone" })
-    if (AppWindow *target = window(id))
-      ordered.push_back(target);
-  for (auto &target : windows)
-    if (target->privileged && target->id != "pack" && target->id != "print_counts") // F1 a F12 deja pris
-      ordered.push_back(target.get());
-  for (std::size_t index = 0; index < ordered.size() && index < 12; ++index) {
-    const ImGuiKey key         = static_cast< ImGuiKey >(ImGuiKey_F1 + index);
-    ordered[index]->shortcut       = key;
-    ordered[index]->shortcut_label = ImGui::GetKeyName(key);
-  }
+  static const char *const kOrder[] = { "scan",      "lots",   "lists",     "phone",  "stock",   "inventory",
+                                        "items",     "lot_types", "reception", "editor", "reports", "settings" };
+  for (std::size_t index = 0; index < std::size(kOrder); ++index)
+    if (AppWindow *target = window(kOrder[index])) {
+      const ImGuiKey key         = static_cast< ImGuiKey >(ImGuiKey_F1 + index);
+      target->shortcut       = key;
+      target->shortcut_label = ImGui::GetKeyName(key);
+    }
 }
 
 void App::handle_shortcuts() {
@@ -409,14 +415,24 @@ void App::handle_shortcuts() {
     manual_logout();
     return;
   }
-  // fenetre modale (connexion, PIN...) : elle garde la main (le hub gere lui-meme Ctrl+K pour se fermer)
+  // fenetre modale (connexion, PIN...) : elle garde la main
   if (ImGui::GetTopMostPopupModal() != nullptr)
     return;
-  // Ctrl+K : hub « Outils » (fenetres en tuiles, recherche « Aller a... »), meme pendant une saisie
+  // Ctrl+K : « Aller a... » (lot, item, type, fenetre, action), meme pendant une saisie ; de nouveau : ferme
   if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_K, ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverActive)) {
-    open_hub();
+    if (hub_.open)
+      hub_.close = true;
+    else
+      open_hub();
     return;
   }
+  // Ctrl+G : mode gestion / mode normal (roles gestion et admin)
+  if (manager() && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_G, ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverActive)) {
+    set_gestion_mode(!gestion_mode_);
+    return;
+  }
+  if (hub_.open)
+    return; // fleches, Entree et touches F a la recherche
   for (auto &target : windows)
     if (target->shortcut && can_open(*target) && ImGui::IsKeyChordPressed(target->shortcut)) {
       // deja au premier plan : le meme raccourci la ferme (comme le menu Fenetres)
@@ -461,6 +477,53 @@ void App::open_window(const std::string &id) {
   if (AppWindow *target = window(id)) {
     target->open          = true;
     target->focus_pending = true;
+  }
+}
+
+// Onglet d'une fenetre de gestion : chaque onglet a sa fenetre (Stock, Items, Reception)
+void App::show_stock_tab(const std::string &tab) {
+  stock_tab_to_show_ = tab;
+  if (tab == "reception" || tab == "past_receptions")
+    open_window("reception");
+  else if (tab == "types" || tab == "items" || tab == "equipment" || tab == "packs")
+    open_window("items");
+  else
+    open_window("inventory");
+}
+
+void App::set_gestion_mode(bool on) {
+  if (!manager() || gestion_mode_ == on)
+    return;
+  // fenetres communes : on garde leur place dans le mode quitte, on reprend celle du mode choisi (sinon la
+  // disposition par defaut : en mode normal, le poste comme pour un secouriste)
+  for (auto &target : windows) {
+    if (target->privileged)
+      continue;
+    mode_places_[gestion_mode_ ? 1 : 0][target->id] = { target->last_pos, target->last_size, target->snap_h,
+                                                       target->snap_v, target->snap_restore_pos, target->snap_restore_size };
+    const auto &places = mode_places_[on ? 1 : 0];
+    if (const auto found = places.find(target->id); found != places.end() && found->second.size.x > 0.0f) {
+      target->last_pos          = found->second.pos;
+      target->last_size         = found->second.size;
+      target->snap_h            = found->second.snap_h;
+      target->snap_v            = found->second.snap_v;
+      target->snap_restore_pos  = found->second.restore_pos;
+      target->snap_restore_size = found->second.restore_size;
+      target->resize_pending    = true;
+    } else {
+      target->place_pending = true;
+    }
+  }
+  gestion_mode_ = on;
+  if (on) {
+    refresh_item_types();
+    refresh_lot_types();
+    refresh_lots(); // avec les cles des lots (etiquettes privees)
+    refresh_report_counts();
+    refresh_tasks();
+    notify("Mode gestion : TECH, lots, items, stock, réception, étiquettes et impression dans la barre.");
+  } else {
+    notify("Mode normal : le poste comme pour un secouriste ou un chef. Ctrl+G pour revenir en gestion.");
   }
 }
 
@@ -613,27 +676,34 @@ void App::draw_menu_bar() {
   if (ImGui::BeginMainMenuBar()) {
     const BarColors bar = bar_colors(tinted);
     menu_bar_height_    = ImGui::GetWindowSize().y;
-    // hub « Outils » : toutes les fenetres par question et la recherche « Aller a... » (remplace les menus
-    // Gestion et Administration)
-    if (bar_item(bar, "☰ Outils", bar.text))
-      open_hub();
-    ImGui::SetItemTooltip("Toutes les fenêtres et « Aller à… » (Ctrl+K)");
+    const auto douchette_items = [this]() {
+      if (ImGui::MenuItem("Téléphone comme douchette...", nullptr, remote.active))
+        open_window("phone");
+      ImGui::Separator();
+      inateck.draw_menu();
+      // bip de l'ordinateur sur un mauvais scan (section des Reglages, admins)
+      if (admin()) {
+        ImGui::Separator();
+        if (ImGui::MenuItem("Signal de mauvais scan..."))
+          open_settings_section("Signal de mauvais scan");
+      }
+    };
+    draw_mode_switch(tinted);
     if (bar_menu(bar, "Fenêtres")) {
-      if (ImGui::MenuItem("Outils et recherche...", "Ctrl+K"))
+      if (ImGui::MenuItem("Aller à…", "Ctrl+K"))
         open_hub();
       ImGui::Separator();
-      // toutes les fenetres permises, par groupe (terrain, gestion, administration), comme les tuiles du hub
-      for (int group = 0; group < 3; ++group) {
-        bool any = false;
-        for (auto &window : windows) {
-          const int level = !window->privileged ? 0 : window->admin_only ? 2 : 1;
-          if (level != group || !can_open(*window) || window->id == "pack" || window->id == "print_counts")
-            continue;
-          if (!any && group > 0)
-            ImGui::SeparatorText(group == 1 ? "Gestion" : "Administration");
-          any = true;
-          window_menu_item(*window);
-        }
+      // fenetres du mode normal ; en mode gestion, celles des domaines sont dans leurs menus
+      std::vector< AppWindow * > common;
+      for (auto &window : windows)
+        if (!window->privileged && window->id != "verif" && can_open(*window))
+          common.push_back(window.get());
+      std::sort(common.begin(), common.end(), [](const AppWindow *a, const AppWindow *b) { return a->shortcut < b->shortcut; });
+      for (AppWindow *window : common)
+        window_menu_item(*window);
+      if (privileged() && ImGui::BeginMenu("Douchette")) {
+        douchette_items();
+        ImGui::EndMenu();
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Plein écran", "Ctrl+F11", fullscreen_))
@@ -679,9 +749,20 @@ void App::draw_menu_bar() {
         open_settings_section("Disposition par défaut");
       ImGui::EndMenu();
     }
+    if (privileged())
+      draw_gestion_menus(tinted);
+    draw_update_menu(tinted);
+    const PrintQueueStatus print = printer.status();
+    draw_print_menu(tinted, print);
+    // mode gestion : la douchette est dans Fenetres (place pour les menus des domaines)
+    if (!privileged() && bar_menu(bar, "Douchette")) {
+      douchette_items();
+      ImGui::EndMenu();
+    }
     // voyant : lots qui demandent de l'attention (rouge s'il y en a d'incomplets ou perimes, orange sinon)
     if (const LotsAttention lots = lots_attention(); lots.total > 0) {
-      const std::string label = "● " + std::to_string(lots.total) + " lot" + (lots.total > 1 ? "s" : "") + " à traiter";
+      // mode gestion : libelle court, les menus des domaines prennent la place
+      const std::string label = "● " + std::to_string(lots.total) + (privileged() ? "" : lots.total > 1 ? " lots" : " lot") + " à traiter";
       if (bar_item(bar, label.c_str(), lots.red > 0 ? bar.red : bar.orange))
         show_lots_to_treat();
       if (ImGui::BeginItemTooltip()) {
@@ -698,7 +779,8 @@ void App::draw_menu_bar() {
     // gestion et admins : signalements pas encore pris en charge
     const int fresh_reports = privileged() ? report_counts["new"].integer() : 0;
     if (fresh_reports > 0) {
-      const std::string label = "⚠ " + std::to_string(fresh_reports) + " signalement" + (fresh_reports > 1 ? "s" : "");
+      // libelle court : le menu TECH les compte aussi
+      const std::string label = "⚠ " + std::to_string(fresh_reports) + (fresh_reports > 1 ? " signalés" : " signalé");
       if (bar_item(bar, label.c_str(), bar.red))
         open_window("reports");
       ImGui::SetItemTooltip("Problèmes signalés pas encore pris en charge : ouvrir les signalements.");
@@ -716,34 +798,20 @@ void App::draw_menu_bar() {
         ImGui::EndTooltip();
       }
     }
-    draw_update_menu(tinted);
-    const PrintQueueStatus print = printer.status();
-    draw_print_menu(tinted, print);
-    if (bar_menu(bar, "Douchette")) {
-      if (ImGui::MenuItem("Téléphone comme douchette...", nullptr, remote.active))
-        open_window("phone");
-      ImGui::Separator();
-      inateck.draw_menu();
-      // bip de l'ordinateur sur un mauvais scan (section des Reglages, admins)
-      if (admin()) {
-        ImGui::Separator();
-        if (ImGui::MenuItem("Signal de mauvais scan..."))
-          open_settings_section("Signal de mauvais scan");
-      }
-      ImGui::EndMenu();
-    }
 
     // Partie droite : etat de l'API et utilisateur connecte (l'impression est dans son menu, a gauche)
     // vérif hors connexion : envois gardes sur le poste, renvoyes au retour du reseau
     const std::string waiting = outbox.empty() ? std::string()
                               : " · " + nb(static_cast< int >(outbox.size()), "vérif en attente", "vérifs en attente");
-    const std::string status  = api.online() ? (outbox.empty() ? "API en ligne" : "Envoi en cours" + waiting)
+    const std::string status  = api.online() ? (outbox.empty() ? "En ligne" : "Envoi en cours" + waiting)
                                              : "Hors connexion" + waiting;
     const std::string phone  = !remote.active          ? ""
                              : remote.phone_connected ? "Téléphone connecté"
                              : remote.phone_seen      ? "Téléphone déconnecté"
                                                       : "Téléphone en attente";
-    const std::string who    = logged_in() ? user->display() + user->role_suffix() : "Non connecté : scannez votre badge";
+    // role entre parenthèses, sauf pour un gestionnaire : la bascule Normal / Gestion le montre deja
+    const std::string who    = logged_in() ? user->display() + (manager() ? std::string() : user->role_suffix())
+                                           : "Non connecté : scannez votre badge";
     const float       button = logged_in() ? ImGui::CalcTextSize("Se déconnecter").x + ImGui::GetStyle().FramePadding.x * 2 : 0.0f;
     const float       width  = ImGui::CalcTextSize((phone + status + who).c_str()).x + button + 80.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - width));
@@ -775,6 +843,129 @@ void App::draw_menu_bar() {
   }
   if (tinted)
     ImGui::PopStyleColor();
+}
+
+// Bascule Normal / Gestion, a gauche de la barre, pour les roles gestion et admin : on choisit pourquoi on est devant
+// le poste. Mode normal : ce que fait un secouriste ou un chef. Mode gestion : en plus, un menu par domaine.
+void App::draw_mode_switch(bool dark_bar) {
+  if (!manager())
+    return;
+  const BarColors bar = bar_colors(dark_bar);
+  if (bar_toggle(bar, "Normal", !gestion_mode_))
+    set_gestion_mode(false);
+  ImGui::SetItemTooltip("Mode normal : vérifs, lots, listes, comme un secouriste ou un chef (Ctrl+G)");
+  if (bar_toggle(bar, "Gestion", gestion_mode_))
+    set_gestion_mode(true);
+  ImGui::SetItemTooltip("Mode gestion : le mode normal, plus la TECH, les lots, les items, le stock, la réception, "
+                        "les étiquettes et l'impression (Ctrl+G)");
+  bar_separator(bar);
+}
+
+namespace {
+
+// Entree de menu qui ouvre une fenetre a un onglet ; touche F de la fenetre a droite
+bool tab_menu_item(App &app, const char *label, const char *window_id, bool show_key = false) {
+  const AppWindow *target = app.window(window_id);
+  if (target == nullptr || !app.can_open(*target))
+    return false;
+  const char *key = show_key && !target->shortcut_label.empty() ? target->shortcut_label.c_str() : nullptr;
+  return ImGui::MenuItem(label, key);
+}
+
+} // namespace
+
+// Mode gestion : un menu par domaine, dans l'ordre de la journee du TECH. Chaque domaine a sa fenetre et sa touche F,
+// chaque entree ouvre la fenetre sur le bon onglet.
+void App::draw_gestion_menus(bool dark_bar) {
+  const BarColors bar = bar_colors(dark_bar);
+  // TECH : savoir quoi faire
+  if (bar_menu(bar, "TECH")) {
+    ImGui::TextDisabled("Savoir quoi faire");
+    if (tab_menu_item(*this, "À faire", "stock", true))
+      show_tech_tab("tasks");
+    if (tab_menu_item(*this, "À venir (péremptions, révisions, désinfections)", "stock"))
+      show_tech_tab("events");
+    const int         fresh   = report_counts["new"].integer();
+    const std::string reports = "Signalements" + (fresh > 0 ? " (" + nb(fresh, "nouveau", "nouveaux") + ")" : std::string());
+    if (tab_menu_item(*this, reports.c_str(), "reports", true))
+      open_window("reports");
+    if (tab_menu_item(*this, "Journal des opérations", "journal"))
+      open_window("journal");
+    ImGui::EndMenu();
+  }
+  if (bar_menu(bar, "Lots")) {
+    if (tab_menu_item(*this, "État des lots et fiches", "lots", true))
+      open_window("lots");
+    if (ImGui::MenuItem("Lots à traiter"))
+      show_lots_to_treat();
+    ImGui::Separator();
+    if (ImGui::MenuItem("Nouveau lot..."))
+      show_lots_mode("new");
+    if (ImGui::MenuItem("Ordre des lots..."))
+      show_lots_mode("order");
+    if (ImGui::MenuItem("Lots archivés..."))
+      show_lots_mode("archived");
+    ImGui::Separator();
+    if (tab_menu_item(*this, "Types de lots", "lot_types", true))
+      open_window("lot_types");
+    ImGui::EndMenu();
+  }
+  if (bar_menu(bar, "Items")) {
+    if (tab_menu_item(*this, "Types d'items", "items", true))
+      show_stock_tab("types");
+    if (tab_menu_item(*this, "Items (recherche, fiche)", "items"))
+      show_stock_tab("items");
+    if (tab_menu_item(*this, "Entretien : révisions et désinfections", "items"))
+      show_stock_tab("equipment");
+    if (tab_menu_item(*this, "Paquets fermés", "items"))
+      show_stock_tab("packs");
+    ImGui::EndMenu();
+  }
+  if (bar_menu(bar, "Stock")) {
+    if (tab_menu_item(*this, "État du stock", "inventory", true))
+      show_stock_tab("stock");
+    if (tab_menu_item(*this, "Projection", "inventory"))
+      show_stock_tab("projection");
+    if (tab_menu_item(*this, "Commandes à passer", "inventory"))
+      show_stock_tab("orders");
+    if (tab_menu_item(*this, "Transferts entre lots", "inventory"))
+      show_stock_tab("transfers");
+    ImGui::EndMenu();
+  }
+  if (bar_menu(bar, "Réception")) {
+    if (tab_menu_item(*this, "Nouvelle réception", "reception", true))
+      show_stock_tab("reception");
+    if (tab_menu_item(*this, "Réceptions passées", "reception"))
+      show_stock_tab("past_receptions");
+    ImGui::EndMenu();
+  }
+  if (bar_menu(bar, "Étiquettes")) {
+    if (const AppWindow *editor = window("editor"); editor && can_open(*editor)) {
+      if (ImGui::MenuItem("Éditeur d'étiquettes", editor->shortcut_label.c_str()))
+        open_window("editor");
+    } else {
+      ImGui::MenuItem("Éditeur d'étiquettes (admins)", nullptr, false, false);
+    }
+    ImGui::TextDisabled("Étiquettes d'un lot : sa fiche, onglet Étiquettes.");
+    ImGui::TextDisabled("Étiquette d'un item : Items, ou la pile de scans.");
+    ImGui::Separator();
+    const int requests = static_cast< int >(label_prints_.data["pending"].size());
+    const std::string queues = "Étiquettes demandées (web, autres ordinateurs)"
+                             + (requests > 0 ? " : " + std::to_string(requests) : std::string()) + "...";
+    if (ImGui::MenuItem(queues.c_str())) {
+      label_prints_.next_poll = 0.0;
+      open_label_prints();
+    }
+    ImGui::EndMenu();
+  }
+  // Impression (imprimante, files, consommables) : draw_print_menu ; Administration : admins
+  if (admin() && bar_menu(bar, "Administration")) {
+    if (const AppWindow *users = window("users"); users && can_open(*users))
+      window_menu_item(*window("users"));
+    if (const AppWindow *settings_window = window("settings"); settings_window && can_open(*settings_window))
+      window_menu_item(*window("settings"));
+    ImGui::EndMenu();
+  }
 }
 
 // Menu Impression : tout ce qui touche a l'imprimante et aux etiquettes au meme endroit (file en cours, rouleau,

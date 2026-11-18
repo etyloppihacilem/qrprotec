@@ -14,6 +14,8 @@
 #include "implot.h"
 #include "windows.hpp"
 
+#include <utility>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -39,8 +41,6 @@ class StockWindow final : public AppWindow {
 
     void reset_view(App &) override {
       select_        = "tasks";
-      all_equipment_ = false;
-      equipment_->reset();
       event_kind_.clear();
     }
 
@@ -51,6 +51,8 @@ class StockWindow final : public AppWindow {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");
       }
+      if (std::string tab = std::exchange(app.tech_tab_to_show_, std::string()); !tab.empty())
+        select_ = tab;
       const std::string tasks_tab = "À faire (" + std::to_string(app.catalog.tasks["count"].integer()) + ")###tasks";
       if (!ImGui::BeginTabBar("stock_tabs"))
         return;
@@ -62,19 +64,14 @@ class StockWindow final : public AppWindow {
       const std::string events_tab = "À venir" + (late > 0 ? " (" + std::to_string(late) + " en retard)" : std::string())
                                    + "###events";
       if (tab_item(events_tab.c_str(), select_ == "events" ? ImGuiTabItemFlags_SetSelected : 0)) {
-        // par date (evenements) ou tout le materiel suivi, sans horizon (ex-onglet Materiel de l'Inventaire)
-        if (ImGui::RadioButton("Par date", !all_equipment_))
-          all_equipment_ = false;
+        // tout le materiel suivi, avec son cycle, et les dates a modifier : Items > Entretien
+        if (small_button("Tout le matériel suivi (Items › Entretien)"))
+          app.show_stock_tab("equipment");
         ImGui::SameLine();
-        if (ImGui::RadioButton("Tout le matériel suivi", all_equipment_))
-          all_equipment_ = true;
-        ImGui::SameLine();
-        help_marker("Matériel non consommable et lots suivis (révision, désinfection), avec leur cycle. La "
-                    "périodicité se règle sur le type d'item (Catalogue) ou sur la fiche du lot.");
-        if (all_equipment_)
-          equipment_->draw_equipment(app);
-        else
-          draw_events(app);
+        help_marker("Items › Entretien : matériel non consommable et lots suivis (révision, désinfection), avec leur "
+                    "cycle, pour réviser, désinfecter ou corriger une date. La périodicité se règle sur le type "
+                    "d'item (Items › Types d'items) ou sur la fiche du lot.");
+        draw_events(app);
         ImGui::EndTabItem();
       }
       ImGui::EndTabBar();
@@ -85,8 +82,6 @@ class StockWindow final : public AppWindow {
     std::map< std::string, int > order_quantities_; // quantite de la case « Commandé », par type d'item
     std::string event_kind_; // filtre des evenements a venir ('' : tout)
     std::string select_; // onglet a ouvrir (tasks : vue par defaut)
-    bool        all_equipment_ = false; // À venir : tout le materiel suivi au lieu des evenements par date
-    std::unique_ptr< InventoryPanel > equipment_ = make_inventory_panel();
 
     // ---- À faire : liste de taches de la gestion, par priorite ----
     void draw_tasks(App &app) {
@@ -295,7 +290,7 @@ class StockWindow final : public AppWindow {
         if (small_button("Listes de matériel"))
           app.open_window("lists");
       } else if (row["link"].str() == "users" || row["link"].str() == "lot_admin") {
-        ImGui::TextDisabled(row["link"].str() == "users" ? "Utilisateurs (F9)" : "Lots (F2), fiche du lot");
+        ImGui::TextDisabled(row["link"].str() == "users" ? "Utilisateurs (menu Administration)" : "Lots (F2), fiche du lot");
       }
       ImGui::EndGroup();
       ImGui::EndChild();
@@ -318,14 +313,14 @@ class StockWindow final : public AppWindow {
       // ou traiter la tache : fiche du lot, fenetre ou onglet du poste
       const std::string link = row["link"].str();
       const std::string lot  = row["lot"].str();
-      if (link == "lot" && !lot.empty()) {
+      if ((link == "lot" || link == "lot_admin") && !lot.empty()) {
         if (small_button("Ouvrir le lot"))
           app.show_lot(lot);
       } else if (link == "item") {
         if (!lot.empty() && small_button("Ouvrir le lot"))
           app.show_lot(lot);
-        else if (lot.empty())
-          ImGui::TextDisabled("Item %s : scannez-le pour le réviser", row["item"].str().c_str());
+        else if (lot.empty() && small_button("Ouvrir l'entretien"))
+          app.show_stock_tab("equipment");
       } else if (link == "consumables") {
         if (small_button("Voir les consommables")) {
           app.show_consumables = true;
@@ -355,15 +350,21 @@ class StockWindow final : public AppWindow {
       } else {
         static const std::pair< const char *, const char * > windows[] = {
           { "reports", "Signalements" }, { "lists", "Listes de matériel" }, { "users", "Utilisateurs" },
-          { "inventory", "Stock" }, { "catalogue", "Catalogue" }, { "lots", "Lots" },
+          { "items", "Items" }, { "lots", "Lots" },
         };
-        for (const auto &[id, name] : windows) {
-          if (link != id)
+        for (const auto &[window_id, name] : windows) {
+          // materiel perime, hors lot ou sans rangement dans le stock : recherche des items
+          const std::string id = window_id;
+          if (id != (link == "inventory" ? std::string("items") : link))
             continue;
           const AppWindow *window = app.window(id);
           if (window && app.can_open(*window)) {
-            if (small_button((std::string("Ouvrir ") + name).c_str()))
-              app.open_window(id);
+            if (small_button((std::string("Ouvrir ") + name).c_str())) {
+              if (id == "items")
+                app.show_stock_tab("items");
+              else
+                app.open_window(id);
+            }
           } else
             ImGui::TextDisabled("%s : à faire par un admin", name);
         }
