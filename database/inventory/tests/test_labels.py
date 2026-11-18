@@ -271,10 +271,17 @@ class LabelPrintTests(ApiTestCase):
         mine = self.ask(type='garrot', count=2)[1]
         other = self.call('POST', '/api/label-prints/', {'user': gestion, 'type': 'garrot', 'count': 3},
                           local=False)[1]
-        # admins seulement
+        # gestion et admins (poste : menu Impression > Files d'impression), pas les secouristes
+        code, body = self.call('POST', '/api/label-prints/queues/', {'user': gestion}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual([queue['queue'] for queue in body['queues']], ['M:P001', 'M:M001'])
+        self.user.role = 'normal'
+        self.user.save()
         for path in ('/api/label-prints/queues/', '/api/label-prints/queues/launch/'):
             code, _ = self.call('POST', path, {'user': gestion, 'queue': 'M:M001'}, local=False)
             self.assertEqual(code, 403)
+        self.user.role = 'gestion'
+        self.user.save()
         code, web = self.call('POST', '/api/label-prints/list/', {'user': gestion}, local=False)
         self.assertNotIn('queues', web)
         code, web = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
