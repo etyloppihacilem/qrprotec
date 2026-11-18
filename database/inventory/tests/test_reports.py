@@ -332,6 +332,11 @@ class RevisionTests(ApiTestCase):
         self.assertEqual(code, 400)
         code, _ = self.call('POST', f'/api/items/{item.iid}/revision/', {'tasks': []}, session=False)
         self.assertEqual(code, 403)
+        # reserve a la gestion et aux admins : un secouriste connecte est refuse
+        secouriste = {'matricule': self.user.matricule, 'key': self.user.new_key}
+        code, _ = self.call('POST', f'/api/items/{item.iid}/revision/',
+                            {'user': secouriste, 'tasks': ['Batterie chargée', 'Tuyau propre']}, local=False)
+        self.assertEqual(code, 403)
         garrot = self.create(self.garrot, None, 1)[0]
         code, _ = self.call('POST', f'/api/items/{garrot.iid}/revision/', {'tasks': []})
         self.assertEqual(code, 400)

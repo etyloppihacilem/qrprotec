@@ -639,16 +639,17 @@ function cycleText(m) {
     + (m.cycle_month && m.months > 1 && !m.late ? ` · mois ${m.cycle_month} sur ${m.months} du cycle` : '');
 }
 
-// « Réviser », « Désinfecter » (connexion demandee), et pour gestion/admin « Saisir une date » (cycle recale a la main)
+// « Réviser », « Désinfecter » et « Saisir la date » (cycle recale a la main) : roles gestion et admin seulement
+// (Hippolyte, 2026-11-18) ; les secouristes voient seulement la date sur la fiche
 function maintenanceButtons(item) {
-  if (['deleted', 'replaced'].includes(item.status)) return '';
+  if (['deleted', 'replaced'].includes(item.status) || !canSeeStock()) return '';
   const rows = maintenanceList(item);
   if (!rows.length) return '';
   return el('div', { class: 'maintenance-buttons' }, ...rows.map((m) => el('div', { class: 'maintenance-row' },
     el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(item, m.kind) },
       icon(MAINTENANCE_ICONS[m.kind] || 'wrench'), m.verb),
-    canSeeStock() ? el('button', { type: 'button', class: 'text-link', onclick: () => openMaintenanceDate(item, m.kind) },
-      `Saisir la date de ${m.noun}`) : '')));
+    el('button', { type: 'button', class: 'text-link', onclick: () => openMaintenanceDate(item, m.kind) },
+      `Saisir la date de ${m.noun}`))));
 }
 
 function openRevision(item, kind = 'revision') {
