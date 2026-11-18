@@ -649,23 +649,19 @@ void App::draw_menu_bar() {
         ImGui::TextDisabled("Ou glissez la fenêtre sur un bord (moitié)\nou dans un coin de l'écran (quart).");
         ImGui::EndMenu();
       }
+      // fenetres ouvertes au demarrage (section des Reglages, admins)
+      if (admin() && ImGui::MenuItem("Disposition par défaut..."))
+        open_settings_section("Disposition par défaut");
       ImGui::EndMenu();
     }
     // Gestion : le stock (roles gestion et admin) ; Administration : ce qui est reserve aux admins
     if (privileged() && bar_menu(bar, "Gestion")) {
-      // paquet ferme : ouvert au scan d'un paquet ou depuis l'Inventaire, vide depuis le menu
+      // paquet ferme : ouvert au scan d'un paquet ou depuis l'Inventaire, vide depuis le menu ; impressions et
+      // consommables : dans le menu Impression
       for (auto &window : windows)
-        if (window->privileged && !window->admin_only && window->id != "pack" && can_open(*window))
+        if (window->privileged && !window->admin_only && window->id != "pack" && window->id != "print_counts"
+            && can_open(*window))
           window_menu_item(*window);
-      // autre ordinateur que le poste (ou poste sans impression : Windows, macOS) : files d'impression du poste,
-      // gerees et lancees a distance
-      if (!kLocalPrinting || !main_poste()) {
-        ImGui::Separator();
-        if (ImGui::MenuItem("Files d'impression du poste...")) {
-          label_prints_.next_poll = 0.0;
-          open_label_prints();
-        }
-      }
       ImGui::EndMenu();
     }
     if (admin() && bar_menu(bar, "Administration")) {
@@ -712,21 +708,23 @@ void App::draw_menu_bar() {
       }
     }
     draw_update_menu(tinted);
+    const PrintQueueStatus print = printer.status();
+    draw_print_menu(tinted, print);
     if (bar_menu(bar, "Douchette")) {
       if (ImGui::MenuItem("Téléphone comme douchette...", nullptr, remote.active))
         open_window("phone");
       ImGui::Separator();
       inateck.draw_menu();
+      // bip de l'ordinateur sur un mauvais scan (section des Reglages, admins)
+      if (admin()) {
+        ImGui::Separator();
+        if (ImGui::MenuItem("Signal de mauvais scan..."))
+          open_settings_section("Signal de mauvais scan");
+      }
       ImGui::EndMenu();
     }
 
-    // Partie droite : file d'impression, etat de l'API et utilisateur connecte
-    const PrintQueueStatus print  = printer.status();
-    std::string            printing;
-    if (print.paused)
-      printing = "Impression en pause";
-    else if (print.pending > 0)
-      printing = "Impression : " + std::to_string(print.pending) + " en attente";
+    // Partie droite : etat de l'API et utilisateur connecte (l'impression est dans son menu, a gauche)
     // vérif hors connexion : envois gardes sur le poste, renvoyes au retour du reseau
     const std::string waiting = outbox.empty() ? std::string()
                               : " · " + nb(static_cast< int >(outbox.size()), "vérif en attente", "vérifs en attente");
@@ -738,31 +736,8 @@ void App::draw_menu_bar() {
                                                       : "Téléphone en attente";
     const std::string who    = logged_in() ? user->display() + user->role_suffix() : "Non connecté : scannez votre badge";
     const float       button = logged_in() ? ImGui::CalcTextSize("Se déconnecter").x + ImGui::GetStyle().FramePadding.x * 2 : 0.0f;
-    const float       width  = ImGui::CalcTextSize((printing + phone + status + who).c_str()).x + button + 100.0f;
+    const float       width  = ImGui::CalcTextSize((phone + status + who).c_str()).x + button + 80.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - width));
-    if (!printing.empty()) {
-      if (bar_menu(bar, printing.c_str(), print.paused ? bar.red : bar.grey)) {
-        if (print.paused)
-          ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", print.error.c_str());
-        if (!print.current.empty())
-          ImGui::Text("En cours : %s", print.current.c_str());
-        if (print.paused && !print.needed_label_type.empty()) {
-          if (ImGui::MenuItem("Changer de rouleau (pas à pas)..."))
-            open_roll_wizard(print.needed_label_type);
-          if (ImGui::MenuItem(("Les étiquettes « " + print.needed_label_type + " » sont chargées").c_str()))
-            set_loaded_label_type(print.needed_label_type);
-        } else if (print.paused) {
-          if (ImGui::MenuItem("Reprendre l'impression"))
-            printer.resume();
-          if (ImGui::MenuItem("Changer de rouleau (pas à pas)..."))
-            open_roll_wizard();
-        }
-        if (ImGui::MenuItem("Annuler les impressions en attente"))
-          printer.cancel();
-        ImGui::EndMenu();
-      }
-      bar_separator(bar);
-    }
     if (!phone.empty()) {
       if (bar_item(bar, phone.c_str(), remote.phone_connected ? bar.green : bar.red))
         open_window("phone");
@@ -791,6 +766,61 @@ void App::draw_menu_bar() {
   }
   if (tinted)
     ImGui::PopStyleColor();
+}
+
+// Menu Impression : tout ce qui touche a l'imprimante et aux etiquettes au meme endroit (file en cours, rouleau,
+// files demandees depuis le web, compteur et consommables, reglages). Visible en gestion et admin, et pour tout le
+// monde des qu'une impression attend ou que l'imprimante est en pause. Gris au repos, bleu quand des etiquettes
+// attendent, rouge en pause.
+void App::draw_print_menu(bool dark_bar, const PrintQueueStatus &print) {
+  const BarColors bar = bar_colors(dark_bar);
+  const int  requests = static_cast< int >(label_prints_.data["pending"].size());
+  if (!privileged() && !print.paused && print.pending == 0)
+    return;
+  std::string label = "Impression";
+  if (print.paused)
+    label = "Impression en pause";
+  else if (print.pending > 0)
+    label = "Impression : " + std::to_string(print.pending) + " en cours";
+  const ImVec4 color = print.paused ? bar.red : print.pending > 0 ? bar.blue : bar.text;
+  if (!bar_menu(bar, (label + "###print_menu").c_str(), color))
+    return;
+  if (print.paused)
+    ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", print.error.c_str());
+  if (!print.current.empty())
+    ImGui::Text("En cours : %s", print.current.c_str());
+  if (print.paused && !print.needed_label_type.empty()) {
+    if (ImGui::MenuItem("Changer de rouleau (pas à pas)..."))
+      open_roll_wizard(print.needed_label_type);
+    if (ImGui::MenuItem(("Les étiquettes « " + print.needed_label_type + " » sont chargées").c_str()))
+      set_loaded_label_type(print.needed_label_type);
+  } else if (print.paused) {
+    if (ImGui::MenuItem("Reprendre l'impression"))
+      printer.resume();
+    if (ImGui::MenuItem("Changer de rouleau (pas à pas)..."))
+      open_roll_wizard();
+  } else if (kLocalPrinting && privileged() && ImGui::MenuItem("Changer de rouleau (pas à pas)..."))
+    open_roll_wizard();
+  if (print.pending > 0 && ImGui::MenuItem("Annuler les impressions en cours"))
+    printer.cancel();
+  if (privileged()) {
+    ImGui::Separator();
+    // demandes du web ou d'un autre ordinateur : sur le poste, la fenetre qui les imprime ; ailleurs, les files du
+    // poste gerees a distance
+    const std::string queues = main_poste() && kLocalPrinting
+                               ? "Impressions demandées" + (requests > 0 ? " (" + std::to_string(requests) + ")" : std::string()) + "..."
+                               : std::string("Files d'impression du poste...");
+    if (ImGui::MenuItem(queues.c_str())) {
+      label_prints_.next_poll = 0.0;
+      open_label_prints();
+    }
+    if (const AppWindow *counts = window("print_counts"); counts && can_open(*counts)
+        && ImGui::MenuItem("Impressions et consommables...", nullptr, counts->open))
+      open_window("print_counts");
+  }
+  if (admin() && ImGui::MenuItem("Réglages d'impression..."))
+    open_settings_section("Étiquettes et impression");
+  ImGui::EndMenu();
 }
 
 // Mise a jour telechargee (macOS) : installee a la fermeture, ou tout de suite d'ici (tout le monde, connecte ou non :
