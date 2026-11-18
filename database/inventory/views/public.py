@@ -154,7 +154,11 @@ def auth(request):
         return Response(login_response(request, matricule_login(request, matricule)))
     user = Secouristes.objects.filter(matricule=matricule).first()
     if user is None or not user.check_key(request.data.get('key')):
+        if user is not None and user.guest and keys_match(user.key_hash, hash_key(str(request.data.get('key') or ''))):
+            raise ApiError(guest_refusal(user), status.HTTP_403_FORBIDDEN, guest=True)
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
+    if user.guest:
+        activate_guest_card(request, user)
     verify_pin(user, request.data)
     if user.name_login_failures or user.name_login_locked_until:
         # le badge prouve que c'est bien lui : la connexion par nom et PIN redevient possible
@@ -162,6 +166,36 @@ def auth(request):
         user.name_login_locked_until = None
         user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
     return Response(login_response(request, user))
+
+
+def guest_refusal(card):
+    """Message d'une carte d'invite qui ne connecte plus personne."""
+    state = card.guest_state()
+    if state == 'disabled':
+        return "Carte d'invité désactivée : demandez une autre carte au TECH"
+    if state == 'expired_unused':
+        return "Carte d'invité pas activée à temps : demandez une autre carte au TECH"
+    return "Carte d'invité expirée : demandez une autre carte au TECH"
+
+
+def activate_guest_card(request, card):
+    """Premiere connexion avec une carte d'invite : {"guest_nom", "guest_prenom"} la nomment et lancent sa duree de
+    vie. Sans eux, erreur `guest_name_required` : le front demande le nom et le prenom puis renvoie la connexion."""
+    if card.guest_activated is not None:
+        return
+    nom = request.data.get('guest_nom')
+    prenom = request.data.get('guest_prenom')
+    if not str(nom or '').strip() and not str(prenom or '').strip():
+        raise ApiError("Carte d'invité : indiquez votre prénom et votre nom", status.HTTP_403_FORBIDDEN,
+                       guest_name_required=True, guest_hours=card.guest_hours)
+    try:
+        activated = guests.activate(card, nom, prenom)
+    except ValueError as exc:
+        raise ApiError(str(exc), status.HTTP_400_BAD_REQUEST, guest_name_required=True, guest_hours=card.guest_hours)
+    if activated:
+        journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{card.matricule}',
+                       f"carte d'invité {card.matricule} activée par {card.prenom} {card.nom}, "
+                       f"valable {card.guest_hours} h", matricule=card.matricule)
 
 
 def login_response(request, user, temporary=False):
@@ -219,7 +253,7 @@ def name_login_candidates(nom, prenom):
 def name_login_candidates_queryset():
     """Secouristes qui peuvent se connecter sans badge (nom ou matricule seul, puis PIN) : PIN defini et utilisable,
     badge valide, connexion sans badge pas en pause."""
-    queryset = Secouristes.objects.filter(active=True, key_expires__gte=timezone.localdate()).exclude(pin_hash='')
+    queryset = Secouristes.objects.filter(active=True, guest=False, key_expires__gte=timezone.localdate()).exclude(pin_hash='')
     return [user for user in queryset if name_login_allowed(user)]
 
 
@@ -1226,6 +1260,40 @@ def debug_temp_login(request):
         'url': ser.public_url('badge', m=user.matricule, t=temp_login_token(user)),
         'expires': (timezone.now() + timedelta(seconds=TEMP_LOGIN_MAX_AGE)).isoformat(),
     })
+
+
+@api_view(['POST'])
+@handle_errors
+def debug_guest_cards(request):
+    """Cartes d'invites depuis l'outil de debug du web (admins) : {"user", "action"?}.
+    - sans action (ou "list") : toutes les cartes, avec l'admin qui a cree chacune ;
+    - "create" : nouvelle carte montree a l'ecran (lien badge?m=...&key=... en QR code), a activer dans les 24 h,
+      puis valable la duree des cartes d'invites (48 h par defaut) ;
+    - "disable" / "enable" {"matricule"} : desactive une carte (activee ou non, sessions coupees) ou la reactive.
+    Chaque carte creee ou modifiee est notee au journal."""
+    admin = connected_user(request, ADMIN)
+    action = str(request.data.get('action') or 'list')
+    by = f'{SOURCE_VERIFIED}:{admin.matricule}'
+    if action == 'create':
+        card = guests.create_guest_card(admin, activate_within_hours=guests.WEB_ACTIVATION_HOURS)
+        journal.record(OperationKind.USER, by,
+                       f"carte d'invité {card.matricule} créée par {admin} depuis le web : à activer dans les "
+                       f"{guests.WEB_ACTIVATION_HOURS} h, valable {card.guest_hours} h ensuite",
+                       matricule=card.matricule)
+        row = guests.card_row(card, public=True)
+        row['url'] = ser.public_url('badge', m=card.matricule, key=card.new_key)
+        return Response({'card': row, 'cards': guests.cards(public=True)})
+    if action in ('disable', 'enable'):
+        card = Secouristes.objects.filter(matricule=str(request.data.get('matricule', ''))[:16], guest=True).first()
+        if card is None:
+            raise ApiError("Carte d'invité inconnue", status.HTTP_404_NOT_FOUND)
+        card.active = action == 'enable'
+        card.save(update_fields=['active'])
+        journal.record(OperationKind.USER, by, f"carte d'invité {card.matricule} ({card}) "
+                       + ('réactivée' if card.active else 'désactivée') + f' par {admin}', matricule=card.matricule)
+    elif action != 'list':
+        raise ApiError('action : list, create, disable ou enable')
+    return Response({'cards': guests.cards(public=True)})
 
 
 @api_view(['GET'])

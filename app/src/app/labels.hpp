@@ -28,6 +28,7 @@ std::vector< std::string > lot_locations(const Json &lot);
 // Etiquette d'un emplacement du lot : ceux du lot + {{emplacement}}, son rang et son contenu attendu.
 Parameters location_parameters(const Json &lot, const std::string &location);
 Parameters user_parameters(const Json &user);
+Parameters guest_card_parameters(const Json &card); // carte d'invite (POST /api/users/guests/)
 
 // Charge le modele et remplit ses placeholders (valeurs par defaut du modele < valeurs fournies).
 bool build_label(

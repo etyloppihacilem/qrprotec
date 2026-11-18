@@ -243,6 +243,20 @@ std::vector< CategoryInfo > build_categories() {
     { "key_expires", "Date d'expiration du badge JJ/MM/AAAA", "29/09/2027" },
   };
   categories.push_back(user);
+
+  // carte d'invite : imprimee a l'avance, sans nom (demande a la premiere connexion), valable guest_hours heures
+  // apres sa premiere connexion
+  CategoryInfo guest{ TemplateCategory::GuestCard, "guest_card", "Carte d'invité",
+                      "Carte de connexion d'un secouriste d'une autre antenne, sans compte : imprimée à l'avance, "
+                      "sans nom (il le donne à la première connexion). Le QR code doit contenir {{badge_url}}.",
+                      {} };
+  guest.placeholders = {
+    { "matricule", "Numéro de la carte (pas un matricule)", "INV7K2QX" },
+    { "badge_url", "URL de la carte (contenu du QR code)", "https://example.com/badge?m=INV7K2QX&key=a1B2c3D4e5F6g7H8" },
+    { "guest_hours", "Durée de validité après la première connexion, en heures", "48" },
+    { "key_expires", "Date limite de première utilisation JJ/MM/AAAA", "29/09/2027" },
+  };
+  categories.push_back(guest);
   return categories;
 }
 

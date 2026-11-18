@@ -52,6 +52,7 @@ from .. import consumables
 from .. import notifications
 from .. import print_counts
 from .. import reports
+from .. import guests
 from .. import serializers as ser
 from .. import services
 from .. import tasks
@@ -69,6 +70,7 @@ from ..models import (
     SlotMode,
     NotificationSettings, Operation, OperationChange, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
     SCANNER_VOLUMES, LOST_OBJECT_MESSAGE_MAX, ConsumableRef, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
+    hash_key, keys_match,
     storage_kind_value, MAINTENANCE,
 )
 

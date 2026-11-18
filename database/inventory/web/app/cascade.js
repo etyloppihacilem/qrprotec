@@ -519,6 +519,11 @@ async function login(matricule, key, extra = {}) {
       showPinBlocked(e.data.pin_reset || {});
       return;
     }
+    if (e.data && e.data.guest_name_required) { // carte d'invite jamais utilisee : nom et prenom
+      if (extra.guest_nom) feedback.bad(); else feedback.info();
+      askGuestName(matricule, key, e.data.guest_hours, extra.guest_nom ? e.message : '');
+      return;
+    }
     if (e.data && (e.data.pin_required || e.data.pin_setup_required)) {
       const retry = extra.pin || extra.new_pin || e.data.pin_locked;
       if (retry) feedback.bad(); else feedback.info();
@@ -528,6 +533,26 @@ async function login(matricule, key, extra = {}) {
     feedback.bad();
     showInfo('bad', 'Badge refusé', e.message);
   }
+}
+
+// Carte d'invite scannee pour la premiere fois (secouriste d'une autre antenne, sans compte) : son prenom et son
+// nom, enregistres sur la carte a cette connexion ; la carte vaut ensuite `hours` heures (48 h par defaut)
+function askGuestName(matricule, key, hours, errorMessage) {
+  const dialog = $('#guest-name');
+  $('#guest-name-text').textContent = 'Bienvenue ! Indiquez votre prénom et votre nom : vos vérifs seront à votre nom. '
+    + `La carte vaut ${hours || 48} h à partir de maintenant.`;
+  $('#guest-name-error').textContent = errorMessage || '';
+  $('#guest-name-form').onsubmit = (event) => {
+    event.preventDefault();
+    const prenom = $('#guest-name-prenom').value.trim();
+    const nom = $('#guest-name-nom').value.trim();
+    if (!prenom || !nom) { $('#guest-name-error').textContent = 'Saisissez votre prénom et votre nom.'; return; }
+    dialog.close();
+    login(matricule, key, { guest_nom: nom, guest_prenom: prenom });
+  };
+  $('#guest-name-cancel').onclick = () => { dialog.close(); nameLoginCancelled(); };
+  if (!dialog.open) dialog.showModal();
+  setTimeout(() => $('#guest-name-prenom').focus(), 50);
 }
 
 // Fenetre avec des champs a remplir au-dessus du clavier du telephone : le clavier ne reduit que la partie visible
@@ -563,6 +588,7 @@ function keepAboveKeyboard(dialog) {
 }
 keepAboveKeyboard($('#name-login'));
 keepAboveKeyboard($('#pin'));
+keepAboveKeyboard($('#guest-name'));
 
 // Connexion de depannage : QR code temporaire (1 h) montre par un admin depuis l'outil de debug, pour un secouriste
 // qui a oublie sa carte. Pas de PIN (l'admin s'en porte garant) ; la session du telephone vaut 24 h.
@@ -630,7 +656,7 @@ function loggedIn(user) {
   state.pushDevices = null;
   feedback.info();
   showInfo('ok', `Bonjour ${user.prenom}`,
-    canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : la gestion de la TECH est sur l'accueil.` : 'Vous êtes connecté.');
+    user.guest && user.guest_expires ? `Carte d'invité valable jusqu'à ${fmtDateTime(user.guest_expires)}.` : canSeeStock() ? `Rôle ${ROLE_LABELS[user.role] || 'gestion'} : la gestion de la TECH est sur l'accueil.` : 'Vous êtes connecté.');
   save();
   render();
   loadLots();

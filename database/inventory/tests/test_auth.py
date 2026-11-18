@@ -554,3 +554,129 @@ class TempLoginTests(ApiTestCase):
         forged = views.temp_login_token(self.operator)
         code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'P001', 'token': forged}, local=False)
         self.assertEqual(code, 403)
+
+
+class GuestCardTests(ApiTestCase):
+    """Cartes d'invites : sans nom ni matricule, nom et prenom a la premiere connexion, 48 h ensuite (modifiable),
+    desactivables meme activees ; creees au poste (impression) ou depuis l'outil de debug du web (24 h pour l'activer)."""
+
+    def key_of(self, url):
+        from urllib.parse import parse_qs, urlparse
+        query = parse_qs(urlparse(url).query)
+        return query['m'][0], query['key'][0]
+
+    def auth(self, matricule, key, **extra):
+        return self.call('POST', '/api/auth/', {'matricule': matricule, 'key': key, **extra}, local=False)
+
+    def admin(self):
+        return {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
+
+    def test_printed_card_named_at_first_login_then_expires(self):
+        from datetime import timedelta
+        from unittest import mock
+        code, body = self.call('POST', '/api/users/guests/', {'count': 3})
+        self.assertEqual(code, 201)
+        self.assertEqual(len(body['cards']), 3)
+        card = body['cards'][0]
+        self.assertTrue(card['matricule'].startswith('INV'))
+        self.assertEqual((card['state'], card['hours'], card['created_by']), ('unused', 48, 'Admin Poste'))
+        matricule, key = self.key_of(card['badge_url'])
+        # pas dans la liste des secouristes, mais dans celle des cartes (sans cle)
+        self.assertNotIn(matricule, [user['matricule'] for user in self.call('GET', '/api/users/')[1]])
+        code, listed = self.call('GET', '/api/users/guests/')
+        self.assertEqual((len(listed['cards']), listed['hours']), (3, 48))
+        self.assertNotIn('badge_url', listed['cards'][0])
+        # premiere connexion : nom et prenom demandes, pas de PIN
+        code, body = self.auth(matricule, key)
+        self.assertEqual((code, body.get('guest_name_required')), (403, True))
+        code, body = self.auth(matricule, key, guest_nom=' Martin ', guest_prenom='Léa')
+        self.assertEqual(code, 200)
+        self.assertTrue(body['guest'])
+        self.assertEqual(body['prenom'], 'Léa')
+        self.assertFalse(body['pin_required'])
+        self.assertIsNotNone(body['guest_expires'])
+        stored = Secouristes.objects.get(matricule=matricule)
+        self.assertEqual((stored.nom, stored.role, str(stored)), ('Martin', 'normal', 'Léa Martin (invité)'))
+        # deuxieme connexion : plus de nom demande, le nom ne change pas
+        code, body = self.auth(matricule, key, guest_nom='Autre', guest_prenom='Nom')
+        self.assertEqual((code, body['prenom']), (200, 'Léa'))
+        session = body['session']
+        # pas de PIN a choisir dans les reglages
+        code, _ = self.call('POST', '/api/me/pin/', {'user': {'matricule': matricule, 'session': session},
+                                                    'pin': '1234'}, local=False)
+        self.assertEqual(code, 403)
+        # 48 h plus tard : carte et session expirees
+        later = timezone.now() + timedelta(hours=48, minutes=1)
+        with mock.patch('django.utils.timezone.now', return_value=later):
+            code, body = self.auth(matricule, key)
+            self.assertEqual(code, 403)
+            self.assertIn('expirée', body['error'])
+            self.assertIsNone(views.session_user(session))
+        # duree allongee par un admin : de nouveau valable
+        code, row = self.call('PATCH', f'/api/users/{matricule}/', {'guest_hours': 72})
+        self.assertEqual((code, row['hours']), (200, 72))
+        with mock.patch('django.utils.timezone.now', return_value=later):
+            self.assertEqual(self.auth(matricule, key)[0], 200)
+        # jamais de role ni de PIN sur une carte d'invite
+        self.assertEqual(self.call('PATCH', f'/api/users/{matricule}/', {'role': 'admin'})[0], 400)
+
+    def test_disable_activated_card_cuts_session(self):
+        code, body = self.call('POST', '/api/users/guests/', {'count': 1, 'guest_hours': 12})
+        matricule, key = self.key_of(body['cards'][0]['badge_url'])
+        self.assertEqual(body['cards'][0]['hours'], 12)
+        code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa')
+        session = body['session']
+        self.assertIsNotNone(views.session_user(session))
+        code, row = self.call('PATCH', f'/api/users/{matricule}/', {'active': False})
+        self.assertEqual(row['state'], 'disabled')
+        self.assertIsNone(views.session_user(session))
+        code, body = self.auth(matricule, key)
+        self.assertEqual(code, 403)
+        self.assertIn('désactivée', body['error'])
+        # une carte jamais utilisee se desactive aussi
+        code, body = self.call('POST', '/api/users/guests/', {'count': 1})
+        other, other_key = self.key_of(body['cards'][0]['badge_url'])
+        self.call('PATCH', f'/api/users/{other}/', {'active': False})
+        self.assertEqual(self.auth(other, other_key, guest_nom='A', guest_prenom='B')[0], 403)
+        self.assertEqual(self.call('POST', '/api/users/guests/', {'count': 1, 'guest_hours': 0})[0], 400)
+        # reserve aux admins
+        code, _ = self.call('GET', '/api/users/guests/', session=views.session_token(self.user))
+        self.assertEqual(code, 403)
+
+    def test_web_debug_card_must_be_activated_within_24h(self):
+        from datetime import timedelta
+        from unittest import mock
+        code, _ = self.call('POST', '/api/debug/guest-cards/',
+                            {'user': {'matricule': 'M001', 'key': self.user.new_key}, 'action': 'create'}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', '/api/debug/guest-cards/', {'user': self.admin(), 'action': 'create'},
+                               local=False)
+        self.assertEqual(code, 200)
+        card = body['card']
+        self.assertEqual(card['created_by'], 'Admin')  # web : jamais de nom de famille
+        self.assertIsNotNone(card['activate_before'])
+        matricule, key = self.key_of(card['url'])
+        late = timezone.now() + timedelta(hours=24, minutes=1)
+        with mock.patch('django.utils.timezone.now', return_value=late):
+            code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa')
+            self.assertEqual(code, 403)
+            self.assertIn('pas activée à temps', body['error'])
+        code, body = self.call('POST', '/api/debug/guest-cards/', {'user': self.admin(), 'action': 'create'},
+                               local=False)
+        matricule, key = self.key_of(body['card']['url'])
+        soon = timezone.now() + timedelta(hours=23)
+        with mock.patch('django.utils.timezone.now', return_value=soon):
+            code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa')
+            self.assertEqual(code, 200)
+        # activee : 48 h a partir de l'activation, plus la limite de 24 h
+        with mock.patch('django.utils.timezone.now', return_value=soon + timedelta(hours=47)):
+            self.assertEqual(self.auth(matricule, key)[0], 200)
+        code, body = self.call('POST', '/api/debug/guest-cards/', {'user': self.admin()}, local=False)
+        names = [row['name'] for row in body['cards']]
+        self.assertIn('Léa (invité)', names)
+        self.assertTrue(all(row['nom'] == '' for row in body['cards']))
+        # desactivation depuis le web
+        code, body = self.call('POST', '/api/debug/guest-cards/',
+                               {'user': self.admin(), 'action': 'disable', 'matricule': matricule}, local=False)
+        self.assertEqual(code, 200)
+        self.assertEqual(self.auth(matricule, key)[0], 403)

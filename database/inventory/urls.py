@@ -37,6 +37,7 @@ public_patterns = [
     path('orders/<int:order_id>/cancel/', views.orders_cancel),
     path('debug/codes/', views.debug_codes_list),  # admins seulement
     path('debug/temp-login/', views.debug_temp_login),  # admins seulement
+    path('debug/guest-cards/', views.debug_guest_cards),  # cartes d'invites, admins seulement
     path('stats/fun/', views.fun_stats_view),  # gestion et admin (stats de l'AG)
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/sheet.pdf', views.lot_sheet_pdf),
@@ -128,6 +129,7 @@ local_patterns = [
     path('operations/<int:operation_id>/cancel/', views.operation_cancel),
     path('setup/', views.setup),
     path('users/', views.users),
+    path('users/guests/', views.guest_cards),  # cartes d'invites (admins)
     path('users/<str:matricule>/', views.user_detail),
     path('users/<str:matricule>/renew-key/', views.user_renew_key),
     path('server-settings/', views.server_settings),

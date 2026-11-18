@@ -49,8 +49,13 @@ après chaque clone.
   liste à cocher des emplacements du contenu (ordre de la vérif) et nombre d'exemplaires. Placeholders :
   `{{emplacement}}` (`{{Emplacement}}`, `{{EMPLACEMENT}}`), `{{emplacement_numero}}`, `{{contenu}}` (une ligne
   par type attendu, ex : « 4 × Compresses stériles ») et ceux du lot (`{{lot_type_name}}`…).
+- `carte_invite.qr` (usage « Carte d'invité ») : carte de connexion d'un secouriste d'une autre antenne,
+  imprimée à l'avance **sans nom** (Administration > Utilisateurs, onglet **Cartes d'invités**). L'invité
+  donne son nom et son prénom à la première connexion ; la carte vaut ensuite `{{guest_hours}}` heures.
+  Placeholders : `{{matricule}}` (numéro de la carte, INV…), `{{badge_url}}`, `{{guest_hours}}`,
+  `{{key_expires}}` (date limite de première connexion).
 - `scelle_ouverture.qr` est l'étiquette d'ouverture, imprimée avec celle du scellé et rangée **à
   l'intérieur** du lot : la scanner ouvre le scellé, même sans être connecté.
 
 Modèles fournis (40 × 30 mm) : les 9 étiquettes d'items ci-dessus, `item_planche.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
-`scelle_ouverture.qr`, `rangement.qr`, `emplacement.qr`, `badge.qr`.
+`scelle_ouverture.qr`, `rangement.qr`, `emplacement.qr`, `badge.qr`, `carte_invite.qr`.

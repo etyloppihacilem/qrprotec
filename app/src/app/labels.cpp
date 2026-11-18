@@ -165,6 +165,15 @@ Parameters user_parameters(const Json &user) {
   return parameters;
 }
 
+Parameters guest_card_parameters(const Json &card) {
+  Parameters parameters;
+  parameters["matricule"]   = card["matricule"].str();
+  parameters["badge_url"]   = card["badge_url"].str();
+  parameters["guest_hours"] = std::to_string(card["hours"].integer(48));
+  parameters["key_expires"] = label_date(card["key_expires"]);
+  return parameters;
+}
+
 bool build_label(const std::string &template_path, const Parameters &values, TemplateDocument &out, std::string &error) {
   if (template_path.empty()) {
     error = "aucun modèle configuré";

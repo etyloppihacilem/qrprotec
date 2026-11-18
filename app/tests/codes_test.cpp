@@ -197,6 +197,8 @@ static void test_qr_and_categories() {
   assert(category_from_id("lot_storage") == TemplateCategory::LotStorage);
   assert(category_from_id("lot_location") == TemplateCategory::LotLocation);
   assert(example_parameters(TemplateCategory::LotLocation).count("emplacement") == 1);
+  assert(category_from_id("guest_card") == TemplateCategory::GuestCard);
+  assert(example_parameters(TemplateCategory::GuestCard).count("guest_hours") == 1);
 }
 
 static void test_compact_iid() {

@@ -52,6 +52,24 @@ Plus aucun administrateur ne peut se connecter ? Sur le serveur :
 `sudo qrprotec-manage createadmin M001 Nom Prénom --pin 4821` (crée le compte ou donne un nouveau
 badge et le rôle admin à un compte existant).
 
+### Cartes d'invités
+
+Pour les secouristes d'une autre antenne qui n'ont pas de carte : **Administration > Utilisateurs**,
+onglet **Cartes d'invités**. Choisissez le nombre de cartes et leur durée, puis **Créer et voir les
+cartes** : elles s'impriment avec le modèle « Carte d'invité » (`carte_invite.qr`), **sans nom**.
+Laissez-en 2 ou 3 aux équipes qui peuvent recevoir des secouristes non enregistrés.
+
+- À la première connexion, l'invité scanne la carte et donne son **prénom et son nom** : ses vérifs
+  sont à son nom (« Léa Martin (invité) »). Il n'a pas de matricule, ni de code PIN, et a les droits
+  d'un secouriste.
+- La carte vaut **48 h après cette première connexion** (Réglages > Règles du serveur, « Durée des
+  cartes d'invités », et carte par carte avec **Durée…**). Avant, elle reste utilisable un an.
+- **Désactiver** coupe une carte, même déjà activée : l'invité est déconnecté tout de suite.
+- Une carte sert à un seul invité : pour le suivant, imprimez-en une nouvelle.
+- La liste dit qui a créé chaque carte et quand. Depuis le web, un admin crée aussi une carte à
+  montrer à l'écran (outil de debug des codes, « Créer une carte ») : à activer dans les 24 h, puis
+  valable 48 h.
+
 ### Ordinateurs connectés
 
 Onglet **Ordinateurs connectés** de la même fenêtre, au poste du serveur : les autres ordinateurs

@@ -48,7 +48,10 @@ async function loadDebug() {
   debug.error = '';
   renderDebugPage();
   try {
-    debug.data = await api('debug/codes/', { user: badge() });
+    const [data, guests] = await Promise.all([api('debug/codes/', { user: badge() }),
+      api('debug/guest-cards/', { user: badge() }).catch(() => null)]);
+    debug.data = data;
+    debug.guests = guests ? guests.cards : null;
     debugIndex();
   } catch (e) {
     debug.error = e.message;
@@ -344,9 +347,90 @@ async function showTempLogin(user) {
 }
 $('#temp-login-close').addEventListener('click', () => $('#temp-login').close());
 
+// Cartes d'invites (secouristes d'une autre antenne sans compte) : une carte creee ici s'affiche en QR code a scanner
+// avec le telephone de l'invite, qui donne son nom et son prenom ; a activer dans les 24 h, valable 48 h ensuite.
+// Chaque carte dit l'admin qui l'a creee ; une carte se desactive, activee ou non.
+const GUEST_STATE_CLASS = { active: 'ok', unused: '', expired: 'muted', expired_unused: 'muted', disabled: 'muted' };
+
+function guestCardLine(card) {
+  const name = card.name || 'Pas encore utilisée';
+  const when = card.state === 'active' ? `valable jusqu'à ${fmtDateTime(card.expires)}`
+    : card.state === 'unused' && card.activate_before ? `à activer avant ${fmtDateTime(card.activate_before)}`
+      : card.state === 'unused' ? `valable ${card.hours} h après la première connexion`
+        : card.state === 'expired' ? `expirée ${fmtDateTime(card.expires, { on: true })}` : card.state_label.toLowerCase();
+  const on = !['disabled'].includes(card.state);
+  const action = card.state === 'disabled'
+    ? el('button', { type: 'button', class: 'secondary', onclick: () => guestCardAction('enable', card) }, 'Réactiver')
+    : ['active', 'unused'].includes(card.state)
+      ? el('button', { type: 'button', class: 'danger', onclick: () => guestCardAction('disable', card) }, 'Désactiver') : '';
+  return el('div', { class: `guest-card ${GUEST_STATE_CLASS[card.state] || ''}` },
+    el('div', {}, el('b', {}, name), ' ', el('span', { class: 'hint' }, `· carte ${card.matricule}`),
+      el('div', { class: 'hint' }, `${on ? card.state_label + ', ' : ''}${when}`),
+      el('div', { class: 'hint' }, `Créée ${fmtDateTime(card.created, { on: true })}${card.created_by ? ' par ' + card.created_by : ''}`)),
+    action);
+}
+
+function debugGuestParts() {
+  if (debug.guests == null) return [];
+  const live = debug.guests.filter((card) => ['active', 'unused'].includes(card.state));
+  const old = debug.guests.filter((card) => !live.includes(card));
+  const parts = [el('div', { class: 'row-head' }, el('h3', {}, "Cartes d'invités"),
+    el('button', { type: 'button', class: 'primary', onclick: createGuestCard }, icon('badge'), 'Créer une carte')),
+  el('p', { class: 'hint' }, "Pour un secouriste d'une autre antenne sans compte : il scanne le QR code avec son "
+    + 'téléphone et donne son nom et son prénom. La carte est à activer dans les 24 h, puis vaut 48 h.')];
+  if (!live.length) parts.push(el('p', { class: 'hint' }, 'Aucune carte en cours.'));
+  live.forEach((card) => parts.push(guestCardLine(card)));
+  if (old.length) {
+    const key = 'guests:old';
+    const open = debug.open.has(key);
+    parts.push(el('button', { type: 'button', class: 'debug-name', onclick: () => debugToggle(key) },
+      open ? '▾ ' : '▸ ', 'Cartes terminées', el('span', { class: 'hint' }, ` ${nb(old.length, 'carte')}`)));
+    if (open) old.forEach((card) => parts.push(guestCardLine(card)));
+  }
+  return parts;
+}
+
+async function createGuestCard() {
+  const dialog = $('#temp-login');
+  const body = $('#temp-login-body');
+  body.replaceChildren(el('h2', {}, "Carte d'invité"), el('p', { class: 'hint' }, 'Création de la carte…'));
+  if (!dialog.open) dialog.showModal();
+  try {
+    const data = await api('debug/guest-cards/', { user: badge(), action: 'create' });
+    debug.guests = data.cards;
+    const card = data.card;
+    body.replaceChildren(
+      el('h2', {}, `Carte d'invité ${card.matricule}`),
+      debugQr(card.url),
+      el('p', {}, el('b', {}, "Scannez ce QR code avec le téléphone de l'invité"),
+        ' (dans QRprotec, ou avec l\'appareil photo) : il donne son nom et son prénom.'),
+      el('p', { class: 'hint' }, `À activer avant ${fmtDateTime(card.activate_before)}, puis valable ${card.hours} h. `
+        + 'Vous pouvez la désactiver à tout moment dans cette page.'));
+    debug.built = '';
+    renderDebugResults();
+  } catch (e) {
+    body.replaceChildren(el('h2', {}, "Carte d'invité"), el('p', { class: 'pin-error' }, e.message));
+  }
+}
+
+async function guestCardAction(action, card) {
+  const who = card.name || `la carte ${card.matricule}`;
+  if (action === 'disable' && !await confirmDialog(`Désactiver ${who} ?`,
+    card.state === 'active' ? "L'invité est déconnecté tout de suite et la carte ne marche plus." : 'La carte ne marchera plus.',
+    'Désactiver')) return;
+  try {
+    const data = await api('debug/guest-cards/', { user: badge(), action, matricule: card.matricule });
+    debug.guests = data.cards;
+    toast(action === 'disable' ? 'Carte désactivée.' : 'Carte réactivée.');
+  } catch (e) {
+    toast(e.message, true);
+  }
+  renderDebugResults();
+}
+
 function debugBrowseParts() {
   const data = debug.data;
-  const parts = [...debugUsersParts(data.users || []), el('h3', {}, 'Lots et rangements')];
+  const parts = [...debugGuestParts(), ...debugUsersParts(data.users || []), el('h3', {}, 'Lots et rangements')];
   data.lots.filter((lot) => lot.active).forEach((lot) => parts.push(debugLotRow(lot)));
   const loose = debug.byLot.get('') || [];
   parts.push(el('h3', {}, 'Stock hors rangement'));
