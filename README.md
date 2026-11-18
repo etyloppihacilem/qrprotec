@@ -429,12 +429,12 @@ appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). R
 | `admin` | tout, dont Réglages (serveur, étiquettes, notifications…), Utilisateurs et éditeur d'étiquettes | + **État des stocks** de l'accueil |
 
 **Code PIN** (4 à 8 chiffres, haché) : demandé après le badge à chaque connexion, obligatoire pour les
-administrateurs, facultatif pour les autres rôles (défini dans **Administration > Utilisateurs**). Un
+administrateurs, facultatif pour les autres rôles (défini dans la fenêtre **Utilisateurs** (`F9`)). Un
 administrateur sans PIN (compte existant, ou créé par `createadmin` sans `--pin`) le choisit à sa
 connexion suivante. Après 5 PIN faux, le PIN est bloqué 5 minutes. Sur le téléphone, `auth/` renvoie
 un jeton de session (12 h) utilisé pour l'état des stocks à la place du PIN.
 
-Le rôle se choisit dans **Administration > Utilisateurs** (admin). La migration `0003_roles` transforme les
+Le rôle se choisit dans la fenêtre **Utilisateurs** (`F9`) (admin). La migration `0003_roles` transforme les
 anciens responsables en administrateurs ; `createadmin` crée ou répare un administrateur.
 
 Locales uniquement : `item-types/`, `item-types/<type>/`, `items/` (recherche), `items/batch/`
@@ -599,7 +599,7 @@ son badge (ou utiliser `manage.py createadmin` sur le serveur).
 La police DejaVu Sans (accents) est fournie dans `app/third_party/fonts/` et copiée à côté de
 l'exécutable ; une autre police peut être imposée avec la variable `QRPROTEC_FONT`.
 
-Les réglages sont dans `~/.config/qrprotec/app.conf` (`0600`) et s'éditent depuis **Administration > Réglages** :
+Les réglages sont dans `~/.config/qrprotec/app.conf` (`0600`) et s'éditent depuis la fenêtre **Réglages** (`F12`) :
 serveur (URL de l'API locale, ou `https://...` d'un back distant avec la clé du front et, si besoin,
 le certificat de l'autorité ; `QRPROTEC_API_URL`, `QRPROTEC_API_KEY`, `QRPROTEC_API_CA_FILE` et
 `QRPROTEC_API_TOKEN` priment), modèle d'étiquette par usage, imprimante, délai de réinitialisation,
@@ -642,9 +642,10 @@ disposition par défaut des fenêtres, signal de mauvais scan.
   temps restant avant la fermeture de la session (délai réglable). « Nouveau QR code » et « Fermer la
   session » sont dans la même fenêtre.
 - **Clavier** : tout se fait sans souris. Chaque fenêtre a sa touche de fonction : `F1` Pile de scans,
-  `F2` Lots, `F3` Listes de matériel, `F4` Téléphone-douchette (la Vérif s'ouvre d'elle-même au scan d'un lot), puis `F5` à `F12` pour celles des menus Gestion (État
-  des stocks, Inventaire, Paquet fermé, Gestion des lots, Journal des opérations) puis Administration
-  (Utilisateurs, Éditeur d'étiquettes, Réglages). La touche d'une fenêtre déjà au premier plan la ferme.
+  `F2` Lots, `F3` Listes de matériel, `F4` Téléphone-douchette (la Vérif s'ouvre d'elle-même au scan d'un lot), puis `F5` à `F12` pour la gestion et l'administration
+  (Gestion de la TECH, Stock, Catalogue, Journal des opérations, Utilisateurs, Éditeur d'étiquettes, Signalements,
+  Réglages). `Ctrl+K` (ou **☰ Outils** dans la barre) ouvre le hub : toutes les fenêtres en tuiles et la recherche
+  « Aller à… » d'un lot, d'un type, d'un item ou d'une action. La touche d'une fenêtre déjà au premier plan la ferme.
   Dans une fenêtre à onglets, `Ctrl+1`, `Ctrl+2`… choisissent l'onglet. `Ctrl+F11` met les fenêtres en
   plein écran (une seule visible à la fois, sur toute la zone sous la barre de menu), `Ctrl+Tab` passe
   à la fenêtre suivante, `Ctrl+W` ferme celle qui a le focus, `Ctrl+Espace` remet les fenêtres en place, `Super+L` déconnecte. Chaque bouton a une lettre soulignée :
@@ -660,18 +661,20 @@ disposition par défaut des fenêtres, signal de mauvais scan.
 
 ### Mode privilégié (badge gestion ou admin)
 
-Fond orange. Menu **Gestion** (Réglages, Utilisateurs et Éditeur d'étiquettes réservés au rôle admin) :
+Barre des menus bleu foncé. Fenêtres de gestion dans **☰ Outils** (Réglages, Utilisateurs et Éditeur
+d'étiquettes réservés au rôle admin) :
 
-- **État des stocks** : barre par type, verte au-dessus du minimum, orange en dessous, rouge à 0,
-  avec « quantité/minimum » (ex : `32/100`).
-- **Inventaire** : réception d'une commande (type, péremption, quantité, paquet fermé) avec
-  impression des étiquettes en série, types d'items, recherche d'items, réimpression d'une étiquette,
-  suppression exceptionnelle, liste des paquets fermés.
+- **Gestion de la TECH** : À faire, À venir (par date ou tout le matériel suivi).
+- **Stock** : réception d'une commande (type, péremption, quantité, paquet fermé) avec impression des
+  étiquettes en série, état du stock (barre par type, verte au-dessus du minimum, orange en dessous, rouge à 0,
+  « quantité/minimum ») et projection, recherche d'items, réimpression d'une étiquette, suppression
+  exceptionnelle, paquets fermés, commandes, transferts.
+- **Catalogue** : types de lots et types d'items.
 - **Paquet fermé** : fiche d'un paquet (ouverte en scannant son étiquette, depuis la dernière
   réception ou la liste des paquets) et ouverture avec impression de toutes ses étiquettes.
-- **Gestion des lots** : types de lots et contenu attendu (avec emplacement), création de lots,
-  étiquettes publique et clé, régénération de la clé, scellage (numéro du scellé, étiquette du
-  scellé) et bris du scellé.
+- **Lots** (fiche d'un lot, onglets de gestion) : création de lots, étiquettes publique et clé,
+  régénération de la clé, scellage (numéro du scellé, étiquette du scellé) et bris du scellé, contenu
+  propre au lot.
 - **Utilisateurs** (admin) : création, rôle (secouriste, gestion, admin), renouvellement et impression
   des badges.
 - **Éditeur d'étiquettes** (admin) : modèles avec usage (item, paquet, lot public, lot clé, scellé, badge),

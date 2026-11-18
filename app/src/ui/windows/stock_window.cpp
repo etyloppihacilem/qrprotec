@@ -295,7 +295,7 @@ class StockWindow final : public AppWindow {
         if (small_button("Listes de matériel"))
           app.open_window("lists");
       } else if (row["link"].str() == "users" || row["link"].str() == "lot_admin") {
-        ImGui::TextDisabled(row["link"].str() == "users" ? "Administration › Utilisateurs" : "Lots (F2), fiche du lot");
+        ImGui::TextDisabled(row["link"].str() == "users" ? "Utilisateurs (F9)" : "Lots (F2), fiche du lot");
       }
       ImGui::EndGroup();
       ImGui::EndChild();

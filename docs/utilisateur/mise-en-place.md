@@ -33,7 +33,7 @@ administrateur sur le serveur : `sudo qrprotec-manage createadmin M001 Nom Prén
 
 ## Étape 2 — Régler l'impression
 
-Menu **Administration > Réglages** (admin), section **Étiquettes et impression** :
+Menu **Impression > Réglages d'impression…** (admin), qui ouvre la section **Étiquettes et impression** des Réglages :
 
 1. **Imprimante** : le **Modèle** (TSPL pour TSC, IDPRT, Munbyn… ; ZPL pour Zebra ; Niimbot B1 en
    secours), puis l'**Adresse** (`/dev/usb/lp0` en USB, ou l'adresse IP de l'imprimante réseau) ou le
@@ -58,14 +58,14 @@ Imprimez votre badge une seconde fois si le premier était raté : c'est le mêm
 
 ## Étape 3 — Les utilisateurs
 
-Menu **Administration > Utilisateurs** : créez d'abord l'équipe logistique (rôle **gestion**), puis un ou deux
+Fenêtre **Utilisateurs** (`F9`, ou **☰ Outils** > Utilisateurs) : créez d'abord l'équipe logistique (rôle **gestion**), puis un ou deux
 autres **admins** pour ne jamais dépendre d'une seule personne. Les secouristes peuvent être créés
 plus tard, au fil des besoins. À chaque création, un aperçu du badge s'affiche : imprimez-le et
 remettez-le à la personne.
 
 ## Étape 4 — Les types d'items
 
-Menu **Gestion > Inventaire**, onglet **Types d'items**, bouton **Nouveau type**. Partez de votre
+Fenêtre **Catalogue** (`F7`, ou **☰ Outils** > Catalogue), onglet **Types d'items**, bouton **Nouveau type**. Partez de votre
 tableur : une ligne par produit différent.
 
 | Code | Nom | Périssable | Stock minimum | Taille de paquet |
@@ -93,7 +93,7 @@ Conseils :
 - **Non consommable** : pour du matériel réutilisable (ex : lecteur de glycémie, oxymètre). S'il
   manque à la vérif d'un lot, il a été retiré du lot : il est indiqué **hors lot** (ni dans un lot,
   ni en stock) au lieu d'être compté comme utilisé ou perdu. Il rejoint le stock quand il est scanné
-  à une vérif du stock, ou avec « Remettre en stock » dans l'Inventaire. Sorti du stock sans lot, il
+  à une vérif du stock, ou avec « Remettre en stock » dans la fenêtre Stock (onglet Items). Sorti du stock sans lot, il
   reste « sorti » jusqu'à son retour.
 - **Message objet perdu sur sa fiche** (ex : ordinateur, tablette) : scanner l'étiquette d'un objet
   de ce type avec l'appareil photo d'un téléphone ouvre une fiche avec le **message objet perdu**,
@@ -130,7 +130,7 @@ Conseils :
     étiquette à lui (style QR code réduit).
 
   Un item d'un sous-type (sachet de 5 dosettes d'un type à unités) se **découpe** en items d'un
-  sous-type plus petit du même type (5 dosettes) : **Gestion > Inventaire > Items**, choisir l'item puis
+  sous-type plus petit du même type (5 dosettes) : **Stock > Items**, choisir l'item puis
   **Découper**. Les nouveaux items gardent sa péremption et sa place (lot ou rangement), leurs étiquettes
   s'ouvrent en aperçu à imprimer ; l'étiquette du sachet est à jeter. Le découpage est proposé quand le
   sous-type plus petit remplit une part entière du gros (25 mL = 5 × 5 mL).
@@ -150,7 +150,7 @@ Conseils :
 
 ## Étape 5 — Les types de lots et leur contenu
 
-Onglet **Types de lots** de **Gestion > Gestion des lots**. Pour chaque modèle de sac, créez le type
+Onglet **Types de lots** du **Catalogue** (`F7`). Pour chaque modèle de sac, créez le type
 et son **contenu attendu**, avec si vous le souhaitez l'emplacement :
 
 **Sac de soin** (`sacsoi`)
@@ -169,7 +169,7 @@ défaut de la vérif et de la fiche du lot (ce qui demande l'attention passe dev
 fiche PDF.
 
 **Étiquettes d'emplacement** : pour coller le nom de chaque pochette sur le sac, ouvrez la fiche du lot
-(**Gestion des lots > Lots**), onglet **Étiquettes**, partie **Étiquettes d'emplacement**. Les
+(fenêtre **Lots**, `F2`, fiche du lot), onglet **Étiquettes**, partie **Étiquettes d'emplacement**. Les
 emplacements du contenu y sont listés dans l'ordre de la vérif, tous cochés : décochez ceux à ne pas
 imprimer, choisissez le nombre d'**exemplaires de chaque** (un par sac du même type), puis **Aperçu**
 ou **Imprimer directement**. Ces étiquettes n'ont pas de QR code (modèle `emplacement.qr`, usage
@@ -177,7 +177,7 @@ ou **Imprimer directement**. Ces étiquettes n'ont pas de QR code (modèle `empl
 
 Deux sacs du même type ne sont pas forcément identiques (le sac de soin du VPS et celui du lot A, par
 exemple). Le contenu du type est ce que tous ses lots doivent avoir ; chaque lot peut avoir en plus le
-sien : dans **Gestion des lots > Lots**, sélectionnez le lot puis ouvrez **Personnaliser le contenu de
+sien : dans **Lots** (`F2`), sélectionnez le lot puis, onglet **Modifier le lot**, ouvrez **Personnaliser le contenu de
 ce lot**. On y ajoute des items en plus de ceux du type (une quantité en plus d'un attendu du type, ou
 un item que seul ce lot contient), on change l'emplacement d'un attendu dans ce lot, et on range ses
 emplacements dans son propre ordre. Un lot ne peut pas retirer ce que son type exige. Ce contenu vaut
@@ -189,7 +189,7 @@ Le lot se valide sans lui, mais on peut le scanner pour savoir où il est. Penda
 affiché en gris avec un bord en tirets (ni orange ni rouge : rien ne manque), et passe au vert une fois
 tout scanné. Non scanné, il reste là où il était : ni manquant, ni hors lot. Sur une ligne, seul le
 matériel **non consommable sans tâches** peut être facultatif. Un **sous-lot** entier peut l'être aussi,
-quel que soit son contenu (case **Sous-lot facultatif à la vérif** dans **Gestion des lots > Lots**,
+quel que soit son contenu (case **Sous-lot facultatif à la vérif** de l'onglet **Modifier le lot** de la fiche,
 ex : la caisse des lampes du VPS) : le lot qui le contient se valide sans lui, il ne compte pas dans
 l'état du lot global, et on peut y entrer pendant la vérif pour scanner ce qu'il contient.
 
@@ -236,7 +236,7 @@ est :
   moment d'assembler (le B+ d'un lot C). Une place vide n'est pas un manque : la fiche du lot dit combien
   de lots sont disponibles et valides, et **Assembler** en range un. **Libérer** le rend indépendant.
 
-Sur la fiche d'un lot (Gestion des lots), **Remplacer…** met un autre lot à la place d'un lot fixe qui a
+Sur la fiche d'un lot (fenêtre **Lots**, onglet **Modifier le lot**), **Remplacer…** met un autre lot à la place d'un lot fixe qui a
 un problème : un lot d'un type accepté qui ne tient pas lui-même une place fixe (un sac de soin de
 réserve, ou celui d'un B+ libre). L'original sort du lot, et le remplaçant est affiché « remplace … »
 (sur le web aussi). **Remettre l'original** remet l'original à sa place et renvoie le remplaçant dans
@@ -272,7 +272,7 @@ définition (un sac complet peut donc repasser rouge si on ajoute une ligne).
 
 ## Étape 6 — Les lots et leurs étiquettes
 
-Toujours dans **Gestion des lots**, bouton **Nouveau lot**. Créez les lots **du plus grand au plus
+Dans la fenêtre **Lots** (`F2`), bouton **Nouveau lot…** au-dessus de la liste. Créez les lots **du plus grand au plus
 petit**, pour pouvoir choisir le lot parent :
 
 1. `VPS 1` (type VPS, aucun parent) ;
@@ -296,7 +296,7 @@ pris. L'aperçu propose ensuite toutes les étiquettes ensemble : les publiques 
 
 Le nom d'un lot doit être unique parmi les lots actifs : le formulaire le signale pendant la saisie.
 Un lot archivé se retrouve avec la case **Afficher les lots archivés** (bouton **Désarchiver le lot**).
-Les rangements du stock sont masqués des listes de lots (fenêtres **Lots** et **Gestion des lots**,
+Les rangements du stock sont masqués des listes de lots (fenêtre **Lots**,
 accueil du front web) : cochez **Afficher les rangements du stock** pour les voir. Dans la fenêtre
 **Lots** et sur la page **État des lots** du front web, la case est cochée par défaut pour les rôles
 gestion et admin.
@@ -314,7 +314,7 @@ C'est l'étape la plus longue. On la fait **lot par lot**, en commençant par le
 (le VPS), puis les sacs, et la réserve en dernier. Pour un sac :
 
 1. **Vider le sac** sur une table et regrouper le matériel par produit **et par date de péremption**.
-2. Pour chaque groupe, menu **Gestion > Inventaire**, onglet **Réception** : type, date de péremption
+2. Pour chaque groupe, fenêtre **Stock** (`F6`), onglet **Réception** : type, date de péremption
    (on peut taper `09/2027` ou `0927` pour « fin septembre 2027 »), quantité. Bouton **Créer N
    item(s) et voir les étiquettes**, puis **Imprimer**.
 3. **Coller** chaque étiquette sur son objet. Les objets trop petits (un comprimé, un pansement) se
@@ -345,7 +345,7 @@ faire.
 
 ## Étape 8 — Sceller les lots de réserve
 
-Pour la malle catastrophe, une fois sa vérif complète : **Gestion des lots**, fiche du lot, numéro du
+Pour la malle catastrophe, une fois sa vérif complète : fenêtre **Lots**, fiche du lot, onglet **Scellé**, numéro du
 scellé physique, **Sceller le lot et imprimer les étiquettes**. Rangez l'étiquette d'ouverture dans la
 malle, posez le scellé et collez l'étiquette du scellé à côté. La malle reste verte sans vérif jusqu'à la première péremption de son contenu.
 

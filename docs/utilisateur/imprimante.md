@@ -35,7 +35,7 @@ Ce qu'elle accepte :
 1. Branchez l'imprimante **en USB** (prise carrée à l'arrière). Les prises série et parallèle
    servent aux anciens ordinateurs : laissez-les vides. Le modèle avec prise réseau peut aussi
    se brancher sur le réseau.
-2. Dans **Administration > Réglages > Étiquettes et impression**, choisissez le modèle
+2. Dans **Impression > Réglages d'impression…** (section **Étiquettes et impression** des Réglages), choisissez le modèle
    **ZPL (Zebra)** et l'adresse `/dev/usb/lp0`. En réseau, mettez l'adresse IP de l'imprimante
    (port 9100). Sur le poste, l'utilisateur doit faire partie du groupe `lp`, ce que l'installation
    fait déjà.
@@ -154,8 +154,8 @@ Le bouton est là où on en a besoin :
 
 - dans la fenêtre **Changez de rouleau** qui s'ouvre quand l'impression attend un autre rouleau
   (**Me guider pas à pas**) ;
-- dans le menu de l'impression, dans la barre du haut, quand la file est en pause ;
-- dans **Gestion > Impressions et consommables**, à côté du rouleau en place ;
+- dans le menu **Impression** de la barre du haut (en rouge quand la file est en pause) ;
+- dans **Impression > Impressions et consommables**, à côté du rouleau en place ;
 - dans **Réglages > Étiquettes et impression > Maintenance de l'imprimante**.
 
 Le détail des étapes, pour le faire à la main. À suivre dans l'ordre, à chaque rouleau. Les
