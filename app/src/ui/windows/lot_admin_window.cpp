@@ -133,7 +133,15 @@ class LotAdminWindow final : public AppWindow {
     }
 
     void draw(App &app) override {
-      // listes rechargees : on recharge aussi le lot et le type de lot affiches
+      sync(app);
+      if (!ImGui::BeginTabBar("lot_tabs"))
+        return;
+      draw_tabs(app);
+      ImGui::EndTabBar();
+    }
+
+    // listes rechargees : on recharge aussi le lot et le type de lot affiches
+    void sync(App &app) {
       if (seen_lots_version_ != app.catalog.lots_version) {
         seen_lots_version_ = app.catalog.lots_version;
         if (!selected_lot_.empty())
@@ -147,8 +155,9 @@ class LotAdminWindow final : public AppWindow {
           if (!editing_lot_type_.empty() && lot_type["type"].str() == editing_lot_type_)
             edit_lot_type(lot_type);
       }
-      if (!ImGui::BeginTabBar("lot_tabs"))
-        return;
+    }
+
+    void draw_tabs(App &app) {
       // « Voir le lot » depuis un type de lot unique : bascule sur l'onglet des lots
       const ImGuiTabItemFlags lots_flags = focus_lots_tab_ ? ImGuiTabItemFlags_SetSelected : 0;
       focus_lots_tab_                    = false;
@@ -164,10 +173,9 @@ class LotAdminWindow final : public AppWindow {
         draw_lot_types(app);
         ImGui::EndTabItem();
       }
-      ImGui::EndTabBar();
     }
 
-  private:
+  public: // le reste sert aussi a LotPanelImpl (fiche du lot dans Lots, types de lots dans le Catalogue)
     // ---------------------------------------------------------------------------------------------------------------
     void draw_lots(App &app) {
       ImGui::BeginChild("lots_list", ImVec2(ImGui::GetContentRegionAvail().x * 0.4f, 0), ImGuiChildFlags_Borders);
@@ -2035,10 +2043,8 @@ class LotAdminWindow final : public AppWindow {
       if (type_unique_ && !type_lot_.empty()) {
         ImGui::TextDisabled("Lot :");
         ImGui::SameLine();
-        if (small_button("Voir le lot")) {
-          select_lot(app, type_lot_);
-          focus_lots_tab_ = true;
-        }
+        if (small_button("Voir le lot"))
+          app.show_lot(type_lot_); // fiche du lot dans la fenetre Lots
       }
       ImGui::BeginDisabled(type_name_.empty() || name_taken);
       if (button("Enregistrer")) {
@@ -2596,10 +2602,133 @@ class LotAdminWindow final : public AppWindow {
     std::string                   location_lot_;
 };
 
+// Gestion des lots sans fenetre a elle : la fiche complete d'un lot vit dans la fenetre Lots (onglets de gestion,
+// creation, ordre, lots archives), les types de lots dans le Catalogue.
+class LotPanelImpl final : public LotPanel {
+  public:
+    void sync(App &app) override { admin_.sync(app); }
+
+    void draw_state(App &app, const std::string &lot_id) override {
+      if (admin_.selected_lot_ != lot_id)
+        admin_.select_lot(app, lot_id);
+      if (admin_.lot_.is_null()) {
+        ImGui::TextDisabled("Chargement...");
+        return;
+      }
+      admin_.draw_distribution_hint(app);
+      admin_.draw_lot_state(app);
+    }
+
+    void draw_sheet_tabs(App &app, const std::string &lot_id) override {
+      if (admin_.selected_lot_ != lot_id)
+        admin_.select_lot(app, lot_id);
+      if (admin_.lot_.is_null())
+        return;
+      const bool storage = admin_.lot_["storage"].boolean();
+      if (!storage && tab_item("Scellé")) {
+        ImGui::BeginChild("lot_seal_tab");
+        admin_.draw_seal(app);
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+      }
+      if (tab_item("Étiquettes")) {
+        ImGui::BeginChild("lot_labels_tab");
+        admin_.draw_lot_labels(app);
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+      }
+      // lot global dont les sacs sont des rangements d'un referentiel (le B+) : ou va chaque ligne de la liste
+      if (admin_.lot_["distribution"].size() > 0) {
+        const ImGuiTabItemFlags flags = std::exchange(admin_.focus_distribution_tab_, false) ? ImGuiTabItemFlags_SetSelected : 0;
+        if (tab_item("Répartition", flags)) {
+          ImGui::BeginChild("lot_distribution_tab");
+          admin_.draw_distribution(app);
+          ImGui::EndChild();
+          ImGui::EndTabItem();
+        }
+      }
+      if (tab_item("Modifier le lot")) {
+        ImGui::BeginChild("lot_edit_tab");
+        if (!admin_.lot_["active"].boolean(true)) {
+          ImGui::TextColored(colors::orange, "Lot archivé : il n'apparaît plus dans les listes et ne se vérifie plus.");
+          if (primary_button("Désarchiver le lot")) {
+            Json body;
+            body["active"] = true;
+            admin_.update_lot(app, body);
+          }
+          ImGui::Spacing();
+        }
+        admin_.draw_lot_info(app);
+        if (!storage) {
+          ImGui::Spacing();
+          admin_.draw_lot_content(app);
+        }
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+      }
+    }
+
+    void start_new() override { // formulaire de creation : plus de lot choisi
+      admin_.selected_lot_.clear();
+      admin_.lot_ = Json();
+    }
+
+    std::string draw_new_lot(App &app) override {
+      // lot cree (un seul) : la fenetre Lots ouvre sa fiche
+      if (!admin_.selected_lot_.empty())
+        return admin_.selected_lot_;
+      admin_.draw_new_lot(app);
+      return {};
+    }
+
+    void draw_lot_order(App &app) override { admin_.draw_lot_order(app); }
+
+    std::string draw_archived(App &app) override {
+      if (!archived_loaded_ || seen_lots_version_ != app.catalog.lots_version) {
+        archived_loaded_   = true;
+        seen_lots_version_ = app.catalog.lots_version;
+        admin_.load_all_lots(app);
+      }
+      std::string chosen;
+      int         shown = 0;
+      for (const Json &lot : admin_.all_lots_.items()) {
+        if (lot["active"].boolean(true))
+          continue;
+        ++shown;
+        ImGui::PushID(lot["id"].str().c_str());
+        if (ImGui::Selectable(lot["name"].str().c_str()))
+          chosen = lot["id"].str();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", lot["lot_type_name"].str().c_str());
+        ImGui::PopID();
+      }
+      if (shown == 0)
+        ImGui::TextDisabled("Aucun lot archivé.");
+      return chosen;
+    }
+
+    void draw_lot_types(App &app) override {
+      admin_.sync(app);
+      admin_.draw_lot_types(app);
+    }
+
+    void reset() override {
+      admin_.selected_lot_.clear();
+      admin_.lot_ = Json();
+      admin_.edit_lot_type(Json());
+      archived_loaded_ = false;
+    }
+
+  private:
+    LotAdminWindow admin_;
+    bool           archived_loaded_   = false;
+    int            seen_lots_version_ = -1;
+};
+
 } // namespace
 
-std::unique_ptr< AppWindow > make_lot_admin_window() {
-  return std::make_unique< LotAdminWindow >();
+std::unique_ptr< LotPanel > make_lot_panel() {
+  return std::make_unique< LotPanelImpl >();
 }
 
 } // namespace qrprotec

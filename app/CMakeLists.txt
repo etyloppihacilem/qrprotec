@@ -254,6 +254,7 @@ add_executable(${PROJECT_NAME}
     src/ui/windows/scan_window.cpp
     src/ui/windows/settings_window.cpp
     src/ui/windows/stock_window.cpp
+    src/ui/windows/catalogue_window.cpp
     src/ui/windows/users_window.cpp
     src/ui/windows/verif_window.cpp
 )

@@ -51,6 +51,9 @@ class LotsWindow final : public AppWindow {
       filter_.clear();
       only_problems_   = false;
       seen_privileged_ = -1; // rangements du stock : de nouveau selon le role, au prochain affichage
+      mode_            = Mode::List;
+      wide_            = false;
+      panel_->reset();
     }
 
     void draw(App &app) override {
@@ -84,11 +87,45 @@ class LotsWindow final : public AppWindow {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");
       }
+      // gestion et admins : gestion des lots (ex-fenetre Gestion des lots) depuis la liste des lots
+      if (app.privileged()) {
+        panel_->sync(app);
+        if (button("Nouveau lot...")) {
+          panel_->start_new();
+          mode_ = Mode::New;
+        }
+        ImGui::SetItemTooltip("Créer un lot ou une série de lots d'un type (Catalogue pour les types).");
+        ImGui::SameLine();
+        if (button("Ordre des lots..."))
+          mode_ = Mode::Order;
+        ImGui::SetItemTooltip("Ordre des lots de même couleur, ici, sur le web et dans les vérifs.");
+        ImGui::SameLine();
+        if (button("Lots archivés..."))
+          mode_ = Mode::Archived;
+      } else
+        mode_ = Mode::List;
+      if (mode_ != Mode::List) {
+        draw_mode(app);
+        return;
+      }
 
-      // Echap (hors saisie du filtre) : ferme la fiche de droite
-      if (!selected_.empty() && escape_pressed() && !ImGui::GetIO().WantTextInput)
-        selected_.clear();
-      const float details_width = selected_.empty() ? 0.0f : ImGui::GetContentRegionAvail().x * 0.45f;
+      // Echap (hors saisie du filtre) : remet la fiche agrandie a cote de la liste, sinon ferme la fiche de droite
+      if (!selected_.empty() && escape_pressed() && !ImGui::GetIO().WantTextInput) {
+        if (wide_)
+          wide_ = false;
+        else
+          selected_.clear();
+      }
+      // fiche agrandie (onglets de gestion) : elle prend toute la fenetre, Echap ou ⤡ la remet a cote de la liste
+      const bool  wide          = wide_ && !selected_.empty();
+      const float details_width = selected_.empty() ? 0.0f
+                                : ImGui::GetContentRegionAvail().x * (app.privileged() ? 0.55f : 0.45f);
+      if (wide) {
+        ImGui::BeginChild("details", ImVec2(0, 0), ImGuiChildFlags_Borders);
+        draw_details(app);
+        ImGui::EndChild();
+        return;
+      }
       ImGui::BeginChild("list", ImVec2(selected_.empty() ? 0.0f : -details_width, 0));
       // rangements du stock dans leur propre tableau, sous celui des lots, seulement si la case est cochee
       if (show_storage_) {
@@ -251,11 +288,20 @@ class LotsWindow final : public AppWindow {
 
     void draw_details(App &app) {
       // croix en haut a droite (comme re-cliquer sur le lot ou Echap) : ferme la fiche
-      const float close_width = ImGui::CalcTextSize("✕").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+      const float pad         = ImGui::GetStyle().FramePadding.x * 2.0f;
+      const float close_width = ImGui::CalcTextSize("✕").x + pad;
+      const float wide_width  = app.privileged() ? ImGui::CalcTextSize("Agrandir").x + pad + ImGui::GetStyle().ItemSpacing.x : 0.0f;
       const float line_y      = ImGui::GetCursorPosY();
-      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - close_width);
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - close_width - wide_width);
+      if (app.privileged()) { // gestion : fiche complete sur toute la fenetre, pour les onglets de gestion
+        if (small_button(wide_ ? "Réduire##wide" : "Agrandir##wide"))
+          wide_ = !wide_;
+        ImGui::SetItemTooltip(wide_ ? "Remettre la fiche à côté de la liste (Échap)" : "Fiche sur toute la fenêtre");
+        ImGui::SameLine();
+      }
       if (small_button("✕##close")) {
         selected_.clear();
+        wide_ = false;
         return;
       }
       ImGui::SetItemTooltip("Fermer la fiche (ou re-cliquer sur le lot, Échap)");
@@ -296,7 +342,7 @@ class LotsWindow final : public AppWindow {
         else
           ImGui::TextUnformatted(text.c_str());
       }
-      // desinfection du lot lui-meme (cellule du VPS...) : reglee dans Inventaire > Materiel
+      // desinfection du lot lui-meme (cellule du VPS...) : reglee dans TECH > À venir > Tout le materiel suivi
       if (const Json &own = details_["lot_disinfection"]; own.is_object()) {
         const auto        due  = Date::parse(own["due"].str());
         const bool        late = own["late"].boolean();
@@ -343,7 +389,10 @@ class LotsWindow final : public AppWindow {
       const std::size_t sub_lots = details_["descendants"].size();
       const std::string with     = sub_lots == 1 ? " avec son sous-lot"
                                  : sub_lots > 1 ? " avec ses " + nb(sub_lots, "sous-lot") : "";
-      if (details_["is_sealed"].boolean()) {
+      if (!details_["active"].boolean(true)) {
+        ImGui::TextColored(colors::orange, "Lot archivé : il n'apparaît plus dans les listes et ne se vérifie plus "
+                                           "(onglet Modifier le lot pour le désarchiver).");
+      } else if (details_["is_sealed"].boolean()) {
         if (button(("Lancer une vérif" + with + " (brise le scellé)").c_str(), ImVec2(-1, 0)))
           app.start_verif(details_["id"].str(), "", app.lot_label_scanned(details_["id"].str()));
       } else if (primary_button(("Lancer une vérif" + with).c_str(), ImVec2(-1, 0)))
@@ -365,6 +414,26 @@ class LotsWindow final : public AppWindow {
           if (button("Annuler", ImVec2(-1, 0)))
             confirm_used_ = false;
         }
+      }
+      // gestion et admins : fiche complete, l'etat et le contenu dans le premier onglet, puis les onglets de gestion
+      // (scelle, etiquettes, repartition, modifier). Les autres gardent la fiche simple d'avant.
+      const bool sheet = app.privileged();
+      if (sheet) {
+        if (button("Journal du lot", ImVec2(-1, 0)))
+          app.show_journal(details_["id"].str());
+        if (!ImGui::BeginTabBar("lot_sheet_tabs"))
+          return;
+        // etat et contenu de la gestion : attendu par emplacement, items ranges (ex-fiche de la Gestion des lots)
+        if (tab_item("État et contenu")) {
+          ImGui::BeginChild("lot_content_tab");
+          draw_global(app);
+          panel_->draw_state(app, details_["id"].str());
+          ImGui::EndChild();
+          ImGui::EndTabItem();
+        }
+        panel_->draw_sheet_tabs(app, details_["id"].str());
+        ImGui::EndTabBar();
+        return;
       }
       if (button("Fermer", ImVec2(-1, 0)))
         selected_.clear();
@@ -536,6 +605,32 @@ class LotsWindow final : public AppWindow {
       }
     }
 
+    // Nouveau lot, ordre des lots, lots archives (gestion, admins) : a la place de la liste, retour par Echap
+    void draw_mode(App &app) {
+      if (button("← Retour aux lots") || (escape_pressed() && !ImGui::GetIO().WantTextInput)) {
+        mode_ = Mode::List;
+        return;
+      }
+      ImGui::BeginChild("lot_mode", ImVec2(0, 0), ImGuiChildFlags_Borders);
+      if (mode_ == Mode::New) {
+        if (const std::string created = panel_->draw_new_lot(app); !created.empty()) {
+          mode_ = Mode::List;
+          select(app, created);
+        }
+      } else if (mode_ == Mode::Order) {
+        panel_->draw_lot_order(app);
+      } else if (mode_ == Mode::Archived) {
+        ImGui::TextWrapped("Lots archivés : ils n'apparaissent plus dans les listes. Choisissez-en un pour voir sa "
+                           "fiche (onglet Modifier le lot pour le désarchiver).");
+        if (const std::string chosen = panel_->draw_archived(app); !chosen.empty()) {
+          mode_ = Mode::List;
+          wide_ = true;
+          select(app, chosen);
+        }
+      }
+      ImGui::EndChild();
+    }
+
     // Lot global (depuis n'importe lequel de ses lots) : etat de l'ensemble et de chaque lot
     // Signalements en cours du lot et de ses sous-lots (sur le lot, un type d'item ou un item qu'il contient) :
     // toujours visibles sur la fiche, les inutilisables en haut
@@ -642,6 +737,10 @@ class LotsWindow final : public AppWindow {
     bool        confirm_used_      = false; // « Marquer ce lot comme utilisé » : confirmation affichee
     Json        details_;
     std::string seal_check_; // resultat du QR de scelle scanne ("valid", "wrong", "unsealed")
+    enum class Mode { List, New, Order, Archived };
+    Mode                        mode_   = Mode::List; // gestion : nouveau lot, ordre ou archives a la place de la liste
+    bool                        wide_   = false;      // fiche sur toute la fenetre
+    std::unique_ptr< LotPanel > panel_  = make_lot_panel(); // onglets de gestion de la fiche (ex-Gestion des lots)
 };
 
 } // namespace
