@@ -638,6 +638,12 @@ class Lots(models.Model):
     # Sorties depuis la derniere verif complete (liste de depart validee avec le lot, lot marque utilise) : credit de
     # confiance du reassort quand le reglage restock_verif_recommended est decoche (ServerSettings.restock_credit_*)
     outings = models.PositiveIntegerField(default=0)
+    # Desinfection periodique du lot lui-meme (ex : la cellule du VPS), reglee lot par lot (0 mois : aucune) : date
+    # prevue, derniere faite et par qui. En retard : avertissement seulement, le lot reste utilisable.
+    disinfection_months = models.PositiveIntegerField(default=0)
+    disinfection_due = models.DateField(blank=True, null=True)
+    disinfected_at = models.DateTimeField(blank=True, null=True)
+    disinfected_by = models.CharField(max_length=64, blank=True, default='')
     active = models.BooleanField(default=True)
     name = models.CharField(max_length=64)
     name_short = models.CharField(max_length=16)

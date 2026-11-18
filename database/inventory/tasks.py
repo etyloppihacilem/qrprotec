@@ -199,6 +199,13 @@ def _revision_tasks(today):
         tasks.append(task('revisions', 'bad' if late and not usable else 'warn' if late else 'info', title,
                           f'{detail} · {_place(item)}', due, 'item', lot=item.location_id, item=item.iid,
                           sort=due.toordinal()))
+    # desinfection des lots eux-memes (cellule du VPS) : jamais bloquante
+    for lot in services.lots_disinfection_due(today, REVISION_WINDOW_DAYS):
+        due = lot.disinfection_due
+        late = due < today
+        tasks.append(task('revisions', 'warn' if late else 'info', f'Désinfection du lot : {lot.name}',
+                          f'en retard depuis le {_day(due)}' if late else f'à faire avant le {_day(due)}', due, 'lot',
+                          lot=lot.id, sort=due.toordinal()))
     return tasks
 
 
@@ -509,6 +516,21 @@ def _maintenance_events(today, days):
     return rows
 
 
+def _lot_disinfection_events(today, days):
+    rows = []
+    for lot in services.lots_disinfection_due(today, days):
+        info = ser.lot_disinfection(lot, today)
+        parts = ['lot entier']
+        if info['cycle_month'] and info['months'] > 1 and not info['late']:
+            parts.append(f"mois {info['cycle_month']} sur {info['months']} du cycle")
+        parts.append('tous les mois' if info['months'] == 1 else f"tous les {info['months']} mois")
+        if info['done_at']:
+            parts.append(f"dernière le {_day(datetime.fromisoformat(info['done_at']))}")
+        rows.append(event('disinfection', lot.disinfection_due, today, lot.name, ' · '.join(parts),
+                          'warn' if info['late'] else None, 'lot', lot=lot.id, lot_maintenance=info))
+    return rows
+
+
 def _expiry_events(rows, today, days):
     return [event('expiry', datetime.fromisoformat(row['date']).date(), today, row['title'], row['place'],
                   row['level'], row['link'], lot=row['lot'])
@@ -546,7 +568,7 @@ def events(today=None, days=EVENTS_DAYS):
     today = today or timezone.localdate()
     lots = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     rows = ser.lot_list(lots, today=today)
-    result = (_maintenance_events(today, days) + _expiry_events(rows, today, days) + _list_events(today, days)
+    result = (_maintenance_events(today, days) + _lot_disinfection_events(today, days) + _expiry_events(rows, today, days) + _list_events(today, days)
               + _expiry_key_events(today, days))
     kind_rank = {key: index for index, key in enumerate(EVENT_KINDS)}
     result.sort(key=lambda row: (row['date'], EVENT_LEVEL_ORDER[row['level']], kind_rank[row['kind']],

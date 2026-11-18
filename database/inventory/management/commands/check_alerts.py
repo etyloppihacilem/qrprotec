@@ -59,8 +59,12 @@ class Command(BaseCommand):
                 parts.append('cette semaine : ' + ', '.join(where(item) for item in week))
             if parts:
                 sentences.append(f'{noun} à faire, ' + ' ; '.join(parts))
+        lots = services.lots_disinfection_due(today, days=7)
+        if lots:
+            sentences.append('lots à désinfecter : ' + ', '.join(
+                lot.name + (' (en retard)' if lot.disinfection_due < today else '') for lot in lots))
         if sentences:
-            kinds = {row_kind for row_kind, _, _ in due}
+            kinds = {row_kind for row_kind, _, _ in due} | ({'disinfection'} if lots else set())
             title = ('révisions et désinfections de matériel' if len(kinds) > 1 else
                      'révisions de matériel' if 'revision' in kinds else 'désinfections de matériel')
             notifications.notify_admins('revision_daily', title, ' · '.join(sentences), tag='revision-daily')
