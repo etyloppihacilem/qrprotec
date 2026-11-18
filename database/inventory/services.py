@@ -2091,12 +2091,12 @@ def lots_disinfection_due(today=None, days=30):
 
 
 def maintenance_overview(today=None):
-    """Onglet Materiel de l'Inventaire (poste) : tout le materiel non consommable suivi (revision ou desinfection),
-    pas supprime, la prochaine echeance d'abord, et les lots a desinfecter."""
+    """Onglet Materiel de l'Inventaire (poste) : tout le materiel non consommable ou suivi (revision, desinfection),
+    pas supprime, la prochaine echeance d'abord (sans echeance a la fin), et les lots a desinfecter."""
     today = today or timezone.localdate()
     tracked = Q(pack__item_type__revision_months__gt=0) | Q(pack__item_type__disinfection_months__gt=0)
     items = list(Items.objects.select_related('pack__item_type', 'location__lot_type')
-                 .filter(tracked, pack__item_type__consumable=False)
+                 .filter(tracked | Q(pack__item_type__consumable=False))
                  .exclude(status__in=(ItemStatus.DELETED, ItemStatus.REPLACED)))
     far = date.max
     def next_date(item):

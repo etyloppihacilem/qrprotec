@@ -278,8 +278,9 @@ function openEvent(row) {
 function eventCard(row) {
   const date = parseDate(row.date);
   const clickable = ['lot', 'item', 'lists', 'stock'].includes(row.link) && (row.link !== 'lot' || row.lot);
-  const m = row.maintenance;
-  const pseudo = m ? { iid: m.iid, type_name: m.type_name, status: 'active', maintenance: [m] } : null;
+  const m = row.maintenance || row.lot_maintenance; // entretien d'un item, ou desinfection du lot lui-meme
+  const pseudo = !m ? null : row.lot_maintenance ? lotPseudoItem(m)
+    : { iid: m.iid, type_name: m.type_name, status: 'active', maintenance: [m] };
   const body = el(clickable ? 'button' : 'div', { type: clickable ? 'button' : null, class: 'event-main',
     onclick: clickable ? () => openEvent(row) : null },
   el('div', { class: 'event-top' }, el('span', { class: 'tag ' + (EVENT_TAGS[row.kind] || 'gray') }, row.kind_label),

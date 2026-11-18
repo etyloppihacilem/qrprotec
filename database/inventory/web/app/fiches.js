@@ -293,6 +293,7 @@ function renderLotFiche(body, lot) {
       + `jusqu'au ${fmtDate(lot.restock_credit.until)}.`),
     expiryLine(lot),
     full ? revisionLine(lot) : '',
+    full ? lotDisinfectionLine(lot) : '',
     !lot.verif_recommended || !full ? '' : el('p', {}, lot.restocked_count
       ? `⚠ Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
       : lot.back_from_list ? `⚠ Sorti avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
@@ -499,6 +500,27 @@ function expiryLine(lot) {
     expired ? ` · ${nb(expired, 'item déjà périmé', 'items déjà périmés')}` : '');
 }
 
+// Desinfection du lot lui-meme (cellule du VPS...), reglee au poste (Inventaire > Materiel) : date, et pour la
+// gestion et les admins « Désinfecter » et « Saisir la date »
+function lotPseudoItem(m) {
+  return { iid: null, lot: m.lot, type_name: m.lot_name, status: 'active', maintenance: [m] };
+}
+
+function lotDisinfectionLine(lot) {
+  const m = lot.lot_disinfection;
+  if (!m) return '';
+  const soon = m.late || (m.due && parseDate(m.due) - today() <= 30 * 86400000);
+  const pseudo = lotPseudoItem(m);
+  return el('div', {},
+    el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Désinfection du lot : ',
+      el('b', {}, m.due ? fmtDate(m.due) : 'pas prévue'), m.late ? ' (en retard)' : '', ` · ${cycleText(m)}`),
+    canSeeStock() ? el('div', { class: 'maintenance-row' },
+      el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(pseudo, 'disinfection') },
+        icon('drop'), 'Désinfecter'),
+      el('button', { type: 'button', class: 'text-link', onclick: () => openMaintenanceDate(pseudo, 'disinfection') },
+        'Saisir la date de désinfection')) : '');
+}
+
 // Prochaine revision et prochaine desinfection du materiel d'un lot et de ses sous-lots (rien si le lot n'a pas de
 // materiel a reviser ou a desinfecter), une ligne par entretien
 function revisionLine(lot) {
@@ -667,8 +689,8 @@ function showRevision(item, m) {
   const dialog = $('#revision');
   const tasks = m.tasks || [];
   $('#revision-title').textContent = `${m.label} : ${item.type_name}`;
-  $('#revision-sub').textContent = [idText(item.iid), m.due ? `prévue le ${fmtDate(m.due)}` : ''].filter(Boolean).join(' · ');
-  $('#revision-intro').textContent = tasks.length ? `Cochez toutes les tâches de la ${m.noun}.` : 'Pas de tâche définie pour ce type.';
+  $('#revision-sub').textContent = [item.lot ? 'Lot' : idText(item.iid), m.due ? `prévue le ${fmtDate(m.due)}` : ''].filter(Boolean).join(' · ');
+  $('#revision-intro').textContent = item.lot ? 'Désinfection du lot lui-même (cellule, caisson...), faite aujourd\'hui.' : tasks.length ? `Cochez toutes les tâches de la ${m.noun}.` : 'Pas de tâche définie pour ce type.';
   $('#revision-next-label').textContent = `Prochaine ${m.noun} le`;
   setLabel($('#revision-ok'), 'check', `Enregistrer la ${m.noun}`);
   const boxes = tasks.map(() => el('input', { type: 'checkbox' }));
@@ -680,7 +702,7 @@ function showRevision(item, m) {
   next.min = isoDay(tomorrow);
   next.value = isoDay(addMonths(today(), m.months || 1));
   next.oninput = update;
-  $('#revision-next-hint').textContent = `Par défaut dans ${nb(m.months, 'mois', 'mois')} (périodicité du type).`;
+  $('#revision-next-hint').textContent = `Par défaut dans ${nb(m.months, 'mois', 'mois')} (périodicité du ${item.lot ? 'lot' : 'type'}).`;
   $('#revision-note').value = '';
   $('#revision-error').textContent = '';
   update();
@@ -688,8 +710,13 @@ function showRevision(item, m) {
     event.preventDefault();
     $('#revision-ok').disabled = true;
     try {
-      await api(`items/${encodeURIComponent(item.iid)}/revision/`, { user: credentials(), kind: m.kind, tasks,
-        next_due: next.value, note: $('#revision-note').value });
+      if (item.lot) {
+        await api(`lots/${encodeURIComponent(item.lot)}/disinfection/`, { user: credentials(), done: true,
+          next_due: next.value, note: $('#revision-note').value });
+      } else {
+        await api(`items/${encodeURIComponent(item.iid)}/revision/`, { user: credentials(), kind: m.kind, tasks,
+          next_due: next.value, note: $('#revision-note').value });
+      }
       dialog.close();
       feedback.info();
       toast(`${m.label} enregistrée : prochaine le ${fmtDate(next.value)}.`);
@@ -717,7 +744,7 @@ function showMaintenanceDate(item, m) {
   const last = $('#maintenance-last');
   const next = $('#maintenance-next');
   $('#maintenance-title').textContent = `Date de ${m.noun} : ${item.type_name}`;
-  $('#maintenance-sub').textContent = [idText(item.iid), m.due ? `prévue le ${fmtDate(m.due)}` : 'pas encore prévue',
+  $('#maintenance-sub').textContent = [item.lot ? 'Lot' : idText(item.iid), m.due ? `prévue le ${fmtDate(m.due)}` : 'pas encore prévue',
     cycleText(m)].filter(Boolean).join(' · ');
   $('#maintenance-last-label').textContent = `Dernière ${m.noun} faite le`;
   $('#maintenance-next-label').textContent = `Prochaine ${m.noun} le`;
@@ -742,10 +769,13 @@ function showMaintenanceDate(item, m) {
     event.preventDefault();
     $('#maintenance-ok').disabled = true;
     try {
-      const body = await api(`items/${encodeURIComponent(item.iid)}/maintenance/date/`, { user: credentials(), kind: m.kind,
-        last_done: last.value || null, next_due: next.value || null, note: $('#maintenance-note').value });
+      const dates = { user: credentials(), last_done: last.value || null, next_due: next.value || null,
+        note: $('#maintenance-note').value };
+      const body = item.lot
+        ? await api(`lots/${encodeURIComponent(item.lot)}/disinfection/`, dates)
+        : await api(`items/${encodeURIComponent(item.iid)}/maintenance/date/`, { ...dates, kind: m.kind });
       dialog.close();
-      toast(`${m.label} : prochaine le ${fmtDate(body[m.kind + '_due'])}.`);
+      toast(`${m.label} : prochaine le ${fmtDate(item.lot ? body.disinfection.due : body[m.kind + '_due'])}.`);
       afterMaintenance();
     } catch (e) {
       update();

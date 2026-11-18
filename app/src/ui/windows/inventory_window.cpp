@@ -130,6 +130,9 @@ class InventoryWindow final : public AppWindow {
       search_status_     = 0;
       search_stock_only_ = false;
       selected_item_     = Json();
+      equipment_item_    = Json();
+      equipment_search_.clear();
+      equipment_soon_only_ = false;
       first_tab_         = true;
       reload_pending     = true; // recherche refaite sans filtre au prochain affichage
     }
@@ -157,6 +160,10 @@ class InventoryWindow final : public AppWindow {
       }
       if (tab_item("Items")) {
         draw_items(app);
+        ImGui::EndTabItem();
+      }
+      if (tab_item("Matériel")) {
+        draw_equipment(app);
         ImGui::EndTabItem();
       }
       if (tab_item("Paquets fermés")) {
@@ -1417,6 +1424,235 @@ class InventoryWindow final : public AppWindow {
       });
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Materiel : items non consommables ou suivis (revision, desinfection), dates et cycle, et desinfection des
+    // lots eux-memes (cellule du VPS...). Gestion et admins (fenetre privilegiee).
+    void load_equipment(App &app) {
+      equipment_loading_ = true;
+      seen_maintenance_version_ = app.catalog.maintenance_version;
+      app.api.get("/api/maintenance/", [this](const ApiResult &result) {
+        equipment_loading_ = false;
+        if (result.ok) {
+          equipment_ = result.data;
+          for (const Json &item : equipment_["items"].items()) // selection relue (nouvelles dates)
+            if (equipment_item_.is_object() && item["iid"].str() == std::as_const(equipment_item_)["iid"].str())
+              equipment_item_ = item;
+        }
+      });
+    }
+
+    // Revision ou desinfection d'un item, objet du serveur (item["maintenance"]), Json() si le type n'en a pas
+    static Json maintenance_kind(const Json &item, const std::string &kind) {
+      for (const Json &row : item["maintenance"].items())
+        if (row["kind"].str() == kind)
+          return row;
+      return Json();
+    }
+
+    // Echeance : date, rouge en retard, orange dans les 30 jours, et ou on en est dans le cycle
+    static void draw_due(const Json &m, const Date &today) {
+      if (!m.is_object()) {
+        ImGui::TextDisabled("—");
+        return;
+      }
+      const auto due = Date::parse(m["due"].str());
+      if (!due) {
+        ImGui::TextDisabled("pas prévue");
+      } else {
+        const ImVec4 color = m["late"].boolean() ? colors::red
+                           : *due <= today.plus_days(30) ? colors::orange : ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        ImGui::TextColored(color, "%s%s", due->display().c_str(), m["late"].boolean() ? " (en retard)" : "");
+      }
+      const int months = m["months"].integer();
+      std::string tip = months == 1 ? "Tous les mois" : "Tous les " + std::to_string(months) + " mois";
+      if (m["cycle_month"].integer() > 0 && months > 1)
+        tip += ", mois " + std::to_string(m["cycle_month"].integer()) + " sur " + std::to_string(months);
+      if (!m["done_at"].str().empty())
+        tip += "\nDernière le " + display_date(Json(m["done_at"].str().substr(0, 10)))
+             + (m["done_by"].str().empty() ? "" : " par " + m["done_by"].str());
+      ImGui::SetItemTooltip("%s", tip.c_str());
+    }
+
+    void draw_equipment(App &app) {
+      if (!equipment_loading_ && (equipment_.is_null() || seen_maintenance_version_ != app.catalog.maintenance_version))
+        load_equipment(app);
+      const Date today = Date::today();
+      ImGui::TextWrapped("Matériel non consommable (lecteurs de glycémie, attelles, bouteilles d'O2...) : prochaines "
+                         "révisions et désinfections, la plus proche en haut. Survolez une date pour le cycle. La "
+                         "périodicité se règle sur le type d'item (onglet Types d'items).");
+      ImGui::SetNextItemWidth(220.0f);
+      ImGui::InputTextWithHint("##equipment_q", "Rechercher (type, iid, lieu)", &equipment_search_);
+      ImGui::SameLine();
+      ImGui::Checkbox("En retard ou dans les 30 jours", &equipment_soon_only_);
+      ImGui::SameLine();
+      if (button(equipment_loading_ ? "Chargement..." : "Rafraîchir"))
+        load_equipment(app);
+
+      const float min_list = ImGui::GetTextLineHeightWithSpacing() * 6;
+      const float list_h   = std::max(min_list, ImGui::GetContentRegionAvail().y - equipment_bottom_h_);
+      if (ImGui::BeginTable("equipment", 5,
+                            ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
+                              | ImGuiTableFlags_Resizable,
+                            ImVec2(0, list_h))) {
+        const float date_w = ImGui::CalcTextSize("00/00/0000 (en retard)").x;
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("iid", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+        ImGui::TableSetupColumn("Emplacement", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Révision", ImGuiTableColumnFlags_WidthFixed, date_w);
+        ImGui::TableSetupColumn("Désinfection", ImGuiTableColumnFlags_WidthFixed, date_w);
+        ImGui::TableHeadersRow();
+        const std::string needle = normalize_search(equipment_search_);
+        int shown = 0;
+        for (const Json &item : equipment_["items"].items()) {
+          const std::string iid   = item["iid"].str();
+          const std::string place = item["status"].str() == "loose" ? "Hors lot"
+                                  : item["location"].is_null()      ? "Sans rangement"
+                                                                    : item["location_name"].str();
+          if (!needle.empty() && normalize_search(item["type_name"].str() + " " + iid + " " + place).find(needle)
+                                   == std::string::npos)
+            continue;
+          const Json revision     = maintenance_kind(item, "revision");
+          const Json disinfection = maintenance_kind(item, "disinfection");
+          bool late = false, soon = false;
+          for (const Json *m : { &revision, &disinfection }) {
+            if (!m->is_object())
+              continue;
+            late |= (*m)["late"].boolean();
+            if (const auto due = Date::parse((*m)["due"].str()))
+              soon |= *due <= today.plus_days(30);
+          }
+          if (equipment_soon_only_ && !late && !soon)
+            continue;
+          ++shown;
+          ImGui::TableNextRow();
+          if (late)
+            row_color(colors::red, 0.2f);
+          else if (item["status"].str() != "active")
+            row_color(colors::grey, 0.3f);
+          ImGui::TableNextColumn();
+          ImGui::PushID(iid.c_str());
+          if (ImGui::Selectable(item["type_name"].str().c_str(), std::as_const(equipment_item_)["iid"].str() == iid,
+                                ImGuiSelectableFlags_SpanAllColumns))
+            equipment_item_ = item;
+          ImGui::PopID();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(iid.c_str());
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(place.c_str());
+          if (item["disabled"].boolean()) {
+            ImGui::SameLine();
+            ImGui::TextColored(colors::red, "désactivé");
+          }
+          ImGui::TableNextColumn();
+          draw_due(revision, today);
+          ImGui::TableNextColumn();
+          draw_due(disinfection, today);
+        }
+        ImGui::EndTable();
+        if (shown == 0 && !equipment_loading_)
+          ImGui::TextDisabled(equipment_soon_only_ || !needle.empty() ? "Rien ne correspond."
+                                                                       : "Aucun matériel non consommable.");
+      }
+      const float bottom_start = ImGui::GetCursorPosY();
+      draw_equipment_actions(app);
+      draw_lot_disinfections(app, today);
+      equipment_bottom_h_ = ImGui::GetCursorPosY() - bottom_start;
+    }
+
+    void draw_equipment_actions(App &app) {
+      if (!equipment_item_.is_object()) {
+        ImGui::TextDisabled("Choisissez un matériel pour le réviser, le désinfecter ou saisir une date.");
+        return;
+      }
+      ImGui::Text("%s · %s", equipment_item_["type_name"].str().c_str(), equipment_item_["iid"].str().c_str());
+      bool first = true;
+      for (const char *kind : { "revision", "disinfection" }) {
+        const Json m = maintenance_kind(equipment_item_, kind);
+        if (!m.is_object())
+          continue;
+        ImGui::PushID(kind);
+        if (!std::exchange(first, false))
+          ImGui::SameLine();
+        if (button(m["verb"].str(std::string(kind) == "revision" ? "Réviser" : "Désinfecter").c_str()))
+          app.open_revision(equipment_item_, kind);
+        ImGui::SameLine();
+        const std::string date_label = "Date de " + m["noun"].str() + "...";
+        if (button(date_label.c_str()))
+          app.open_maintenance_date(equipment_item_, kind);
+        ImGui::PopID();
+      }
+      if (first)
+        ImGui::TextDisabled("Ni révision ni désinfection pour ce type : réglez-les dans l'onglet Types d'items.");
+    }
+
+    // Desinfection des lots eux-memes : periodicite par lot (0 : aucune), faite, date saisie a la main
+    void draw_lot_disinfections(App &app, const Date &today) {
+      ImGui::Spacing();
+      ImGui::SeparatorText("Désinfection des lots");
+      ImGui::TextWrapped("Pour un lot désinfecté lui-même (cellule du VPS, caisson...) : choisissez le lot et sa "
+                         "périodicité. Ses désinfections arrivent dans « À venir » et les tâches de la Gestion de la "
+                         "TECH.");
+      if (equipment_["lots"].size() > 0
+          && ImGui::BeginTable("lot_disinfections", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("Lot", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Prochaine", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::CalcTextSize("00/00/0000 (en retard)").x);
+        ImGui::TableSetupColumn("Tous les", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 7.0f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::CalcTextSize("DésinfecterDate...FicheRetirer").x
+                                  + ImGui::GetStyle().FramePadding.x * 8 + ImGui::GetStyle().ItemSpacing.x * 3);
+        ImGui::TableHeadersRow();
+        for (const Json &lot : equipment_["lots"].items()) {
+          const std::string id = lot["id"].str();
+          const Json       &m  = lot["disinfection"];
+          ImGui::PushID(id.c_str());
+          ImGui::TableNextRow();
+          if (m["late"].boolean())
+            row_color(colors::red, 0.2f);
+          ImGui::TableNextColumn();
+          ImGui::Text("%s", lot["name"].str().c_str());
+          ImGui::SameLine();
+          ImGui::TextDisabled("%s", lot["lot_type_name"].str().c_str());
+          ImGui::TableNextColumn();
+          draw_due(m, today);
+          ImGui::TableNextColumn();
+          int months = m["months"].integer(1);
+          ImGui::SetNextItemWidth(ImGui::GetFontSize() * 4.0f);
+          ImGui::InputInt("mois", &months, 0);
+          if (ImGui::IsItemDeactivatedAfterEdit() && months >= 1 && months <= 120 && months != m["months"].integer())
+            app.set_lot_disinfection_months(id, months);
+          ImGui::TableNextColumn();
+          if (small_button("Désinfecter"))
+            app.open_lot_disinfection(m);
+          ImGui::SameLine();
+          if (small_button("Date..."))
+            app.open_lot_disinfection_date(m);
+          ImGui::SameLine();
+          if (small_button("Fiche"))
+            app.show_lot(id);
+          ImGui::SameLine();
+          if (small_button("Retirer"))
+            app.set_lot_disinfection_months(id, 0);
+          ImGui::PopID();
+        }
+        ImGui::EndTable();
+      }
+      search_select("lot_disinfection_add", app.catalog.lots, "id", "name", add_disinfection_lot_, "Ajouter un lot…",
+                    nullptr, 240.0f);
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(ImGui::GetFontSize() * 4.0f);
+      ImGui::InputInt("mois##add", &add_disinfection_months_, 0);
+      add_disinfection_months_ = std::clamp(add_disinfection_months_, 1, 120);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(add_disinfection_lot_.empty());
+      if (button("Ajouter la désinfection")) {
+        app.set_lot_disinfection_months(add_disinfection_lot_, add_disinfection_months_);
+        add_disinfection_lot_.clear();
+      }
+      ImGui::EndDisabled();
+    }
+
     void draw_packs(App &app) {
       ImGui::TextWrapped("Paquets fermés reçus en stock. À l'ouverture, les étiquettes individuelles des items "
                          "sont imprimées. Scanner l'étiquette d'un paquet ouvre directement sa fiche.");
@@ -1465,6 +1701,17 @@ class InventoryWindow final : public AppWindow {
       }
       ImGui::EndTable();
     }
+
+    // Materiel
+    Json        equipment_;                   // /api/maintenance/ : {"items", "lots"}
+    Json        equipment_item_;              // item choisi (actions sous la liste)
+    bool        equipment_loading_ = false;
+    int         seen_maintenance_version_ = -1;
+    std::string equipment_search_;
+    bool        equipment_soon_only_ = false;
+    float       equipment_bottom_h_  = 0.0f; // hauteur du bas mesuree (voir items_bottom_h_)
+    std::string add_disinfection_lot_;
+    int         add_disinfection_months_ = 12;
 
     // Reception
     std::string reception_type_;

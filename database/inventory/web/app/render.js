@@ -538,6 +538,7 @@ function renderLot() {
       el('br'), labelLine(lot)),
     expiryLine(lot),
     revisionLine(lot),
+    lotDisinfectionLine(lot),
     el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
     lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
       + "Scannez l'étiquette d'un autre lot du même lot global pour l'ajouter.") : '',

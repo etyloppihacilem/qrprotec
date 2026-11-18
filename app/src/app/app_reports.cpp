@@ -260,9 +260,10 @@ void App::draw_revision_modal() {
   }
   const ImGuiViewport *viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-  if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+  const std::string title = revision_.label + "###revision"; // meme id : « Révision » ou « Désinfection »
+  if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     return;
-  if (revision_.iid.empty()) { // enregistree ou annulee
+  if (revision_.iid.empty() && revision_.lot.empty()) { // enregistree ou annulee
     ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
     return;
@@ -271,10 +272,11 @@ void App::draw_revision_modal() {
   ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
   ImGui::Text("%s : %s", revision_.label.c_str(), revision_.type_name.c_str());
   ImGui::PopFont();
-  ImGui::TextDisabled("%s%s", revision_.iid.c_str(),
+  ImGui::TextDisabled("%s%s", revision_.lot.empty() ? revision_.iid.c_str() : "Lot",
                       revision_.due.empty() ? "" : (" · prévue le " + display_date(Json(revision_.due))).c_str());
   ImGui::PushTextWrapPos(width);
-  ImGui::TextUnformatted(revision_.tasks.empty() ? "Pas de tâche définie pour ce type."
+  ImGui::TextUnformatted(!revision_.lot.empty() ? "Désinfection du lot lui-même (cellule, caisson...), faite aujourd'hui."
+                         : revision_.tasks.empty() ? "Pas de tâche définie pour ce type."
                                                  : ("Cochez toutes les tâches de la " + revision_.noun + ".").c_str());
   ImGui::Separator();
   ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.88f, 0.88f, 0.88f, 1.0f)); // cases visibles sur le fond blanc
@@ -302,7 +304,8 @@ void App::draw_revision_modal() {
     ImGui::TextColored(colors::red, "doit être après aujourd'hui");
   else
     ImGui::TextColored(colors::green, "→ %s", next->display().c_str());
-  ImGui::TextDisabled("Par défaut dans %d mois (périodicité du type).", revision_.months);
+  ImGui::TextDisabled("Par défaut dans %d mois (périodicité du %s).", revision_.months,
+                      revision_.lot.empty() ? "type" : "lot");
   ImGui::InputTextWithHint("##note", "Remarque (facultatif)", &revision_.note);
   ImGui::PopStyleColor();
   if (revision_.note.size() > 256)
@@ -341,6 +344,22 @@ void App::send_revision() {
   const std::string iid  = revision_.iid;
   const std::string kind = revision_.kind;
   const std::string label = revision_.label;
+  if (!revision_.lot.empty()) {
+    body["done"] = Json(true);
+    api.post("/api/lots/" + revision_.lot + "/disinfection/", body, [this](const ApiResult &result) {
+      revision_.busy = false;
+      if (!result.ok) {
+        identity_refused(result);
+        revision_.error = result.error;
+        return;
+      }
+      revision_ = RevisionPrompt{};
+      notify(result.data["name"].str() + " : désinfection enregistrée, prochaine le "
+             + display_date(result.data["disinfection"]["due"]) + ".");
+      after_maintenance("");
+    });
+    return;
+  }
   api.post("/api/items/" + iid + "/revision/", body, [this, iid, kind, label](const ApiResult &result) {
     revision_.busy = false;
     if (!result.ok) {
@@ -356,7 +375,8 @@ void App::send_revision() {
 }
 
 void App::after_maintenance(const std::string &iid) {
-  if (const ScanEntry *entry = stack.find_item(iid))
+  ++catalog.maintenance_version;
+  if (const ScanEntry *entry = iid.empty() ? nullptr : stack.find_item(iid))
     resolve_item(entry->id); // etat relu (plus en retard)
   refresh_lots(true);
   if (privileged()) {
@@ -387,6 +407,51 @@ void App::open_maintenance_date(const Json &item, const std::string &kind) {
   maintenance_date_.open_pending = true;
 }
 
+void App::open_lot_disinfection(const Json &info) {
+  if (!info.is_object() || info["lot"].is_null() || !privileged())
+    return;
+  require_login("faire la désinfection", [this, info]() {
+    revision_           = RevisionPrompt{};
+    revision_.kind      = "disinfection";
+    revision_.label     = "Désinfection";
+    revision_.noun      = "désinfection";
+    revision_.lot       = info["lot"].str();
+    revision_.type_name = info["lot_name"].str();
+    revision_.due       = info["due"].str();
+    revision_.months    = std::max(1, info["months"].integer(1));
+    revision_.next_due  = add_months(today(), revision_.months).display();
+    revision_.open_pending = true;
+  }, false);
+}
+
+void App::open_lot_disinfection_date(const Json &info) {
+  if (!info.is_object() || info["lot"].is_null() || !privileged())
+    return;
+  open_maintenance_date(info, "disinfection");
+  maintenance_date_.lot       = info["lot"].str();
+  maintenance_date_.iid.clear();
+  maintenance_date_.type_name = info["lot_name"].str();
+}
+
+void App::set_lot_disinfection_months(const std::string &lot, int months) {
+  if (lot.empty() || !privileged())
+    return;
+  Json body;
+  body["user"]   = user_ref();
+  body["months"] = Json(months);
+  api.post("/api/lots/" + lot + "/disinfection/", body, [this, months](const ApiResult &result) {
+    if (!result.ok) {
+      identity_refused(result);
+      notify(result.error, true);
+      return;
+    }
+    notify(result.data["name"].str() + (months ? " : désinfection tous les " + std::to_string(months) + " mois, "
+                                                    "prochaine le " + display_date(result.data["disinfection"]["due"]) + "."
+                                               : " : plus de désinfection du lot."));
+    after_maintenance("");
+  });
+}
+
 void App::draw_maintenance_date_modal() {
   static const char *kTitle = "Date d'entretien###maintenance_date";
   MaintenanceDatePrompt &p = maintenance_date_;
@@ -399,7 +464,7 @@ void App::draw_maintenance_date_modal() {
   ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
   if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     return;
-  if (p.iid.empty()) { // enregistree ou annulee
+  if (p.iid.empty() && p.lot.empty()) { // enregistree ou annulee
     ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
     return;
@@ -408,7 +473,7 @@ void App::draw_maintenance_date_modal() {
   ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.4f);
   ImGui::Text("Date de %s : %s", p.noun.c_str(), p.type_name.c_str());
   ImGui::PopFont();
-  std::string sub = p.iid + " · " + (p.due.empty() ? "pas encore prévue" : "prévue le " + display_date(Json(p.due)))
+  std::string sub = (p.lot.empty() ? p.iid : std::string("Lot")) + " · " + (p.due.empty() ? "pas encore prévue" : "prévue le " + display_date(Json(p.due)))
                   + " · tous les " + std::to_string(p.months) + " mois" + (p.cycle.empty() ? "" : " · " + p.cycle);
   ImGui::TextDisabled("%s", sub.c_str());
   ImGui::PushTextWrapPos(width);
@@ -452,7 +517,8 @@ void App::draw_maintenance_date_modal() {
   }
   ImGui::PushTextWrapPos(width);
   ImGui::TextDisabled(p.next_touched ? "La prochaine peut être passée si le retard est constaté."
-                                     : "La prochaine se recalcule depuis la dernière (périodicité du type).");
+                      : p.lot.empty() ? "La prochaine se recalcule depuis la dernière (périodicité du type)."
+                                      : "La prochaine se recalcule depuis la dernière (périodicité du lot).");
   ImGui::InputTextWithHint("##maintenance_note", "Remarque (facultatif)", &p.note);
   ImGui::PopStyleColor();
   if (p.note.size() > 256)
@@ -490,6 +556,21 @@ void App::send_maintenance_date() {
   const std::string iid   = p.iid;
   const std::string kind  = p.kind;
   const std::string label = p.label;
+  if (!p.lot.empty()) {
+    api.post("/api/lots/" + p.lot + "/disinfection/", body, [this](const ApiResult &result) {
+      maintenance_date_.busy = false;
+      if (!result.ok) {
+        identity_refused(result);
+        maintenance_date_.error = result.error;
+        return;
+      }
+      maintenance_date_ = MaintenanceDatePrompt{};
+      notify(result.data["name"].str() + " : désinfection prévue le "
+             + display_date(result.data["disinfection"]["due"]) + ".");
+      after_maintenance("");
+    });
+    return;
+  }
   api.post("/api/items/" + iid + "/maintenance/date/", body, [this, iid, kind, label](const ApiResult &result) {
     maintenance_date_.busy = false;
     if (!result.ok) {

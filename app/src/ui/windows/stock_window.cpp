@@ -346,6 +346,13 @@ class StockWindow final : public AppWindow {
         if (small_button("Saisir la date"))
           app.open_maintenance_date(m, m["kind"].str());
         any = true;
+      } else if (row["lot_maintenance"].is_object()) { // desinfection du lot lui-meme
+        if (small_button("Désinfecter"))
+          app.open_lot_disinfection(row["lot_maintenance"]);
+        ImGui::SameLine();
+        if (small_button("Saisir la date"))
+          app.open_lot_disinfection_date(row["lot_maintenance"]);
+        any = true;
       }
       if (!lot.empty()) {
         if (any)

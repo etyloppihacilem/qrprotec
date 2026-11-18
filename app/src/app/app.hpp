@@ -226,6 +226,7 @@ struct RevisionPrompt {
     std::string                kind = "revision"; // ou "disinfection"
     std::string                label = "Révision", noun = "révision";
     std::string                iid, type_name, due;
+    std::string                lot; // desinfection d'un lot lui-meme (iid vide, type_name = nom du lot)
     int                        months = 0;
     std::vector< std::string > tasks;
     std::vector< char >        checked;
@@ -239,6 +240,7 @@ struct RevisionPrompt {
 struct MaintenanceDatePrompt {
     bool        open_pending = false;
     std::string kind, label, noun, iid, type_name, due, cycle;
+    std::string lot; // desinfection d'un lot lui-meme (iid vide, type_name = nom du lot)
     int         months = 0;
     std::string last_done, next_due; // saisies libres (parse_user_date)
     bool        next_touched = false; // prochaine modifiee a la main : plus recalculee depuis la derniere
@@ -341,6 +343,7 @@ struct Catalog {
     int lots_version       = 0;
     int users_version      = 0;
     int packs_version      = 0; // paquet ouvert : listes a recharger
+    int maintenance_version = 0; // revision, desinfection ou date enregistree : onglet Materiel a recharger
 
     std::string item_type_name(const std::string &type) const;
     std::string item_type_description(const std::string &type) const;
@@ -479,6 +482,11 @@ class App {
     void open_revision(const Json &item, const std::string &kind = "revision");
     // « Saisir la date » d'une revision ou d'une desinfection (gestion/admin)
     void open_maintenance_date(const Json &item, const std::string &kind);
+    // desinfection d'un lot lui-meme (lot_disinfection du serveur : {"lot", "lot_name", "due", "months"...})
+    void open_lot_disinfection(const Json &info);
+    void open_lot_disinfection_date(const Json &info);
+    // periodicite de desinfection d'un lot (0 : plus de desinfection), gestion/admin
+    void set_lot_disinfection_months(const std::string &lot, int months);
     // popup et bip si l'objet scanne a des signalements ouverts (key : "item:IID" ou "pack:ID")
     void alert_reports(const std::string &key, const std::string &title, const Json &reports, ScanSource source);
     void refresh_report_counts(); // nouveaux signalements (admins) : rappel dans la barre de menu

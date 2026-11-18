@@ -362,6 +362,19 @@ lien **Saisir la date** (fiche de l'item, carte d'À venir, pile de scans du pos
 passée si le retard est constaté. Aucune révision n'est comptée comme faite aujourd'hui ; le journal garde qui a
 saisi quoi.
 
+**Onglet Matériel de l'inventaire** (poste, gestion et admin). **Inventaire › Matériel** regroupe tout le
+matériel non consommable : type, iid, emplacement, prochaine révision et prochaine désinfection (rouge en
+retard, orange dans les 30 jours ; survolez une date pour la périodicité, le mois du cycle et la dernière faite).
+La plus proche est en haut ; la case « En retard ou dans les 30 jours » et la recherche filtrent la liste.
+Choisissez une ligne pour **Réviser**, **Désinfecter** ou saisir une date.
+
+**Désinfection d'un lot** (cellule du VPS, caisson...). En bas du même onglet, **Désinfection des lots** :
+choisissez le lot, sa périodicité en mois, puis **Ajouter la désinfection**. Chaque lot suivi a ses boutons
+**Désinfecter** (faite aujourd'hui), **Date...** (dernière ou prochaine saisie à la main), **Fiche** et
+**Retirer**. La désinfection du lot apparaît sur sa fiche (web et poste, avec les mêmes boutons pour la
+gestion et les admins), dans **À venir** et dans les tâches de la Gestion de la TECH quand elle est en retard
+ou proche. Elle ne rend jamais le lot inutilisable.
+
 ## Remettre du matériel en stock
 
 Un objet sorti d'un sac et remis en réserve (sac réformé, surplus) : scannez-le, puis **En stock**

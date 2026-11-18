@@ -142,7 +142,9 @@ class LotsWindow final : public AppWindow {
         const int         expired = lot["expired_count"].integer();
         const int         soon    = lot["expiring_soon_count"].integer();
         const int         revisions = lot["revision_late_count"].integer() + lot["revision_soon_count"].integer();
-        const int         disinfections = lot["disinfection_late_count"].integer() + lot["disinfection_soon_count"].integer();
+        const auto        own_due = Date::parse(lot["lot_disinfection"]["due"].str()); // le lot lui-meme
+        const int         disinfections = lot["disinfection_late_count"].integer() + lot["disinfection_soon_count"].integer()
+                                        + (own_due && *own_due <= Date::today().plus_days(30) ? 1 : 0);
         const LotStatus   status   = lot_status(lot);
         const int         depth    = lot["depth"].integer();
         // lot global : son etat est celui de l'ensemble de ses lots (tous valides, verif la plus ancienne)
@@ -293,6 +295,25 @@ class LotsWindow final : public AppWindow {
           ImGui::TextColored(colors::orange, "⚠ %s", text.c_str());
         else
           ImGui::TextUnformatted(text.c_str());
+      }
+      // desinfection du lot lui-meme (cellule du VPS...) : reglee dans Inventaire > Materiel
+      if (const Json &own = details_["lot_disinfection"]; own.is_object()) {
+        const auto        due  = Date::parse(own["due"].str());
+        const bool        late = own["late"].boolean();
+        const bool        warn = late || (due && *due <= Date::today().plus_days(30));
+        const std::string text = "Désinfection du lot : " + (due ? display_date(own["due"]) : std::string("pas prévue"))
+                               + (late ? " (en retard)" : "");
+        ImGui::PushStyleColor(ImGuiCol_Text, warn ? (late ? colors::red : colors::orange)
+                                                  : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+        ImGui::TextWrapped("%s%s", warn ? "⚠ " : "", text.c_str());
+        ImGui::PopStyleColor();
+        if (app.privileged()) { // fiche etroite : boutons sous la ligne
+          if (small_button("Désinfecter##lot_disinfection"))
+            app.open_lot_disinfection(own);
+          ImGui::SameLine();
+          if (small_button("Date...##lot_disinfection"))
+            app.open_lot_disinfection_date(own);
+        }
       }
       const LotStatus status = lot_status(details_);
       // QR code de scelle scanne : resultat du controle
