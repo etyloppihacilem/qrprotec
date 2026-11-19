@@ -476,6 +476,7 @@ def cancel(operation, identity, reason):
         if others:
             verb = 'dépendaient' if len(others) > 1 else 'dépendait'
             summary += f" (et {journal.plural(len(others), 'opération')} qui en {verb})"
+        summary = summary[:1].upper() + summary[1:]
         line = journal.record(OperationKind.CANCEL, identity, f'{summary} : {reason}', lot=operation.lot,
                               target=operation.id, reason=reason, cancels=[op.id for op in cancelled],
                               undone=done, kept=kept)

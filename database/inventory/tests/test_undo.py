@@ -63,7 +63,7 @@ class UndoTests(ApiTestCase):
         cancel_line = Operation.objects.get(id=line['id'])
         code, again = self.cancel(cancel_line, 'Finalement utilisé')
         self.assertEqual(code, 200, again)
-        self.assertIn('annulation annulée', again['summary'])
+        self.assertTrue(again['summary'].startswith('Annulation annulée'))
         self.lot.refresh_from_db()
         self.assertTrue(self.lot.verif_recommended)
         self.assertEqual(self.lot.outings, 1)
