@@ -1517,7 +1517,7 @@ def operations(request):
     facets=1 ajoute les personnes presentes dans le journal et les types d'operations (listes des filtres)."""
     require_front(request, GESTION)
     params = request.query_params
-    queryset = Operation.objects.order_by('-at', '-id')
+    queryset = Operation.objects.select_related('cancelled_by').order_by('-at', '-id')
     if params.get('kind'):
         kinds = [kind for kind in params['kind'].split(',') if kind]
         unknown = sorted(set(kinds) - set(OperationKind.values))
@@ -1549,8 +1549,11 @@ def operations(request):
             queryset = queryset.filter(Q(at__lt=last.at) | Q(at=last.at, id__lt=last.id))
     limit = parse_int(params.get('limit', 200), 'limit', 1, 1000)
     rows = list(queryset[:limit + 1])
-    names = journal.names(row.by for row in rows)
-    response = {'operations': [ser.operation_dict(row, names) for row in rows[:limit]], 'more': len(rows) > limit}
+    names = journal.names([row.by for row in rows] + [row.cancelled_by.by for row in rows if row.cancelled_by])
+    batches = set(OperationChange.objects.filter(batch__in={row.batch for row in rows if row.batch})
+                  .values_list('batch', flat=True).distinct())
+    response = {'operations': [ser.operation_dict(row, names, row.batch in batches) for row in rows[:limit]],
+                'more': len(rows) > limit}
     if params.get('facets') == '1':
         identities = set(Operation.objects.exclude(by='').values_list('by', flat=True).distinct())
         everyone = journal.names(identities)
@@ -1561,6 +1564,31 @@ def operations(request):
         )
         response['kinds'] = [{'kind': value, 'label': label} for value, label in OperationKind.choices]
     return Response(response)
+
+
+@api_view(['GET', 'POST'])
+@handle_errors
+def operation_cancel(request, operation_id):
+    """Annuler une operation du journal (admins, page Journal du poste), voir undo.py.
+
+    GET : ce qui sera annule avec elle {"operation": ligne, "together": [operations de la meme requete],
+    "dependents": [operations posterieures qui en dependent, annulees aussi]} ou une erreur si elle ne peut pas
+    l'etre. POST {"reason"} (motif obligatoire) : annule, renvoie la ligne d'annulation du journal. Une annulation
+    s'annule de la meme facon (l'operation annulee est retablie)."""
+    user = require_front(request, ADMIN)
+    operation = get_object_or_404(Operation.objects.select_related('cancelled_by'), id=operation_id)
+    if request.method == 'GET':
+        own, others = undo.preview(operation)
+        rows = own + others
+        names = journal.names([row.by for row in rows])
+        return Response({
+            'operation': ser.operation_dict(operation, names, True),
+            'together': [ser.operation_dict(row, names, True) for row in own if row.id != operation.id],
+            'dependents': [ser.operation_dict(row, names, True) for row in others],
+        })
+    line = undo.cancel(operation, format_identity_verified(user.matricule), request.data.get('reason', ''))
+    line = Operation.objects.select_related('cancelled_by').get(id=line.id)
+    return Response(ser.operation_dict(line, journal.names([line.by]), True))
 
 
 def lot_and_sub_lot_ids(lot):

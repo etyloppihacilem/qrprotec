@@ -171,6 +171,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'inventory.middleware.NoIndexMiddleware',
     'inventory.middleware.ApiRoleMiddleware',
+    'inventory.undo.CaptureMiddleware',  # ecritures des requetes, pour annuler leurs operations (journal)
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',

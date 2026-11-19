@@ -879,8 +879,11 @@ def verif_dict(verif):
     }
 
 
-def operation_dict(operation, names):
-    """Ligne du journal des operations. `names` : noms affiches des identites (journal.names)."""
+def operation_dict(operation, names, undoable=False):
+    """Ligne du journal des operations. `names` : noms affiches des identites (journal.names). `undoable` : lot
+    d'operations qui a garde ses ecritures (voir undo.py) ; annulee, la ligne d'annulation (cancelled_by) doit etre
+    chargee avec (select_related)."""
+    cancel = operation.cancelled_by
     return {
         'id': operation.id,
         'at': _date(operation.at),
@@ -894,6 +897,12 @@ def operation_dict(operation, names):
         'summary': operation.summary,
         'details': operation.details,
         'reconstructed': operation.reconstructed,
+        # annulation (admins, page Journal du poste) : annulable, annulee par quelle ligne, quand, par qui, motif
+        'undoable': undoable,
+        'cancelled': None if cancel is None else {
+            'id': cancel.id, 'at': _date(cancel.at), 'by': cancel.by, 'by_name': names.get(cancel.by, cancel.by),
+            'reason': cancel.details.get('reason', ''),
+        },
     }
 
 

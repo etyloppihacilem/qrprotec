@@ -526,7 +526,7 @@ class LiveHub:
     def save_unattended(self, session):
         """Enregistre la verif commune comme si son dernier participant l'avait envoyee : scans de tous, cles des lots
         gardees par le serveur, au nom de celui qui a valide (sinon du premier participant). False si impossible."""
-        from . import services
+        from . import services, undo
         from .views import ApiError, is_verified, require_label, sealed_targets, verif_lots
         with self.lock:
             participants = list(session.participants.values())
@@ -554,8 +554,9 @@ class LiveHub:
             targets = verif_lots(lots, False, verified=is_verified(identities[0]))
             sealed_lots = sealed_targets({'sealed': sealed}, targets)
             require_label(targets, {}, sealed=sealed_lots, extra=labels)
-            report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places, sealed_lots,
-                                            strict=session.full, checked=checked)
+            with undo.capture():  # verif annulable depuis le journal, comme une verif envoyee par une requete
+                report = services.perform_verif(targets, iids, identities[0], partial, identities[1:], places,
+                                                sealed_lots, strict=session.full, checked=checked)
         except Exception as exc:  # cle expiree, etiquette d'aucun lot scannee, lot archive... : la verif est abandonnee
             if isinstance(exc, (ApiError, ValueError)):
                 logger.warning('Verif commune %s abandonnee : %s', session.id, getattr(exc, 'message', exc))

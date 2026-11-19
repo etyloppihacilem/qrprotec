@@ -125,6 +125,7 @@ local_patterns = [
     path('lots/<str:lot_id>/seal/', views.lot_seal),
     path('lots/<str:lot_id>/verifs/', views.lot_verifs),
     path('operations/', views.operations),
+    path('operations/<int:operation_id>/cancel/', views.operation_cancel),
     path('setup/', views.setup),
     path('users/', views.users),
     path('users/<str:matricule>/', views.user_detail),
