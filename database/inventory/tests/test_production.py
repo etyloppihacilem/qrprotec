@@ -200,6 +200,8 @@ class QueryCountTests(ApiTestCase):
         manager.save()
         badge = {'user': {'matricule': manager.matricule, 'key': manager.new_key}}
         self.add_lots(2)
+        # premiere requete d'ecriture de la connexion : verifie la capture des ecritures (undo.py) d'un test precedent
+        self.count('POST', '/api/lots/summary/', {}, local=False)
         before = [self.count('POST', '/api/lots/summary/', {}, local=False), self.count('GET', '/api/lots/'),
                   self.count('POST', '/api/tasks/summary/', badge, local=False)]
         self.add_lots(6)

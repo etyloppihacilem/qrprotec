@@ -26,7 +26,7 @@ from django.utils import timezone
 from django.core.management.base import BaseCommand
 
 from inventory.models import (
-    Checklist, ChecklistScan, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, Operation, OperationKind,
+    Checklist, ChecklistScan, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, Operation, OperationChange, OperationKind,
     ProblemReport, ReportStatus, SealedPacks, VerifItem, Verifs, qrprotec_setting,
 )
 
@@ -43,6 +43,7 @@ def purge(years, now=None, dry_run=False):
     verifs = Verifs.objects.filter(datetime__lt=cutoff).exclude(id__in=keep_verifs)
     moves = ItemMovement.objects.filter(at__lt=cutoff).exclude(id__in=keep_moves)
     operations = Operation.objects.filter(at__lt=cutoff).exclude(kind=OperationKind.UNSEAL, at__in=seals)
+    changes = OperationChange.objects.filter(at__lt=cutoff)  # ecritures gardees pour annuler (undo.py)
     reports = ProblemReport.objects.filter(status=ReportStatus.RESOLVED).filter(
         Q(resolved__lt=cutoff) | Q(resolved__isnull=True, created__lt=cutoff))
     checklists = Checklist.objects.filter(is_template=False).filter(
@@ -65,7 +66,7 @@ def purge(years, now=None, dry_run=False):
         # approximation : les items references seulement par l'historique purge ne sont pas comptes
         return {'verifs': verifs.count(), 'mouvements': moves.count(), 'operations': operations.count(),
                 'signalements': reports.count(), 'listes': checklists.count(), 'items': old_items().count(),
-                'paquets': old_packs().count()}
+                'paquets': old_packs().count(), 'écritures annulables': changes.count()}
     with transaction.atomic():
         counts = {'verifs': verifs.delete()[1].get('inventory.Verifs', 0),
                   'mouvements': moves.delete()[0], 'operations': operations.delete()[0],
@@ -73,6 +74,7 @@ def purge(years, now=None, dry_run=False):
                   'listes': checklists.delete()[1].get('inventory.Checklist', 0)}
         counts['items'] = old_items().delete()[1].get('inventory.Items', 0)
         counts['paquets'] = old_packs().delete()[0]
+        counts['écritures annulables'] = changes.delete()[0]
     return counts
 
 

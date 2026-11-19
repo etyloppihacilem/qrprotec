@@ -844,6 +844,7 @@ class OperationKind(models.TextChoices):
     LOT_USED = 'lot_used', 'Lot marqué utilisé'
     LOT_REPORT = 'lot_report', "Rapport d'état de lot"
     ORDER = 'order', 'Commande'
+    CANCEL = 'cancel', 'Annulation'
 
 
 class Operation(models.Model):
@@ -860,9 +861,36 @@ class Operation(models.Model):
     summary = models.CharField(max_length=255, blank=True, default='')
     details = models.JSONField(default=dict, blank=True)
     reconstructed = models.BooleanField(default=False)
+    # Operations enregistrees par la meme requete (ex : une verif en cascade, ses reassorts et ses retraits) : elles
+    # s'annulent ensemble. Leurs ecritures dans la base sont gardees dans OperationChange (voir undo.py). None :
+    # operation d'avant l'annulation (ou faite hors requete), qui ne peut pas etre annulee.
+    batch = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    # Ligne d'annulation (kind CANCEL) qui a annule cette operation ; remis a vide si l'annulation est annulee
+    cancelled_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name='cancelled_operations')
 
     class Meta:
         indexes = [models.Index(fields=['lot', 'at'])]
+
+
+class OperationChange(models.Model):
+    """Une ligne de la base ecrite par un lot d'operations (Operation.batch) : de quoi l'annuler (voir undo.py).
+
+    act : I (ligne ajoutee, `new` = toute la ligne), D (supprimee, `old` = toute la ligne) ou U (modifiee : `old` et
+    `new` = colonnes changees, `written` = colonnes ecrites, meme sans changer de valeur).
+    """
+    batch = models.PositiveIntegerField(db_index=True)
+    seq = models.PositiveIntegerField()
+    at = models.DateTimeField(default=timezone.now)
+    table = models.CharField(max_length=64)
+    row = models.CharField(max_length=64)  # valeur de la cle primaire de la ligne
+    act = models.CharField(max_length=1)
+    old = models.JSONField(null=True, blank=True)
+    new = models.JSONField(null=True, blank=True)
+    written = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['table', 'row'])]
 
 
 PIN_RE = re.compile(r'^\d{4,8}$')
