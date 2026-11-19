@@ -142,6 +142,20 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
   ensuite, est réattribuée dans le journal aussi. `GET /api/operations/` (API locale et distante, rôles
   gestion et admin) filtre par `kind`, `by`, `lot` (avec ses sous-lots, archivés compris, sauf `sub=0`),
   `since` / `until` et `q`, pagine avec `before` et donne avec `facets=1` les personnes et les types.
+- Annulation des opérations (`undo.py`, modèle `OperationChange`) : le middleware `CaptureMiddleware`
+  enregistre les écritures de chaque requête qui n'est pas un GET (et la vérif commune enregistrée par le
+  serveur, `live.py`). Des déclencheurs SQLite **temporaires** (propres à la connexion, créés à la première
+  écriture de chaque table : une requête qui ne fait que lire ne paie rien) notent chaque ligne ajoutée,
+  modifiée ou supprimée ; un `execute_wrapper` note les colonnes écrites par chaque UPDATE. Si la requête a
+  ajouté des lignes au journal, ses écritures sont gardées sous un numéro de lot (`Operation.batch`).
+  `operations/<id>/cancel/` (admins) défait le lot de la dernière écriture à la première : ligne ajoutée
+  supprimée, supprimée remise, colonne remise à l'ancienne valeur sauf si une opération postérieure encore
+  valable l'a écrite depuis ou si elle a changé autrement. Les opérations postérieures qui modifient une
+  ligne ajoutée (réponse à un signalement) ou y font référence sont annulées avec elle (`ItemMovement`
+  exclu : la vérif suivante qui retrouve un item ne dépend pas de celle qui l'a noté absent). L'annulation
+  est une opération `cancel` enregistrée pareil : l'annuler rétablit l'opération (et efface
+  `cancelled_by`). Compteurs (`Sequence`, `ItemsPacks.last_sequence`), échecs de PIN et réglages créés à
+  leur première lecture ne sont jamais remis. Purgées avec l'historique (`purge_history`).
 - `Lots.descendants()` charge **tous** les lots actifs ayant un parent en une requête puis parcourt en
   mémoire : volontaire, le nombre de lots reste petit (centaines) et cela évite N requêtes.
 

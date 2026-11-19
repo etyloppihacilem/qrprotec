@@ -91,7 +91,8 @@ class JournalWindow final : public AppWindow {
       draw_filters(app);
       ImGui::Separator();
       draw_table(app);
-      draw_details();
+      draw_details(app);
+      draw_cancel_popup(app);
     }
 
   private:
@@ -246,6 +247,10 @@ class JournalWindow final : public AppWindow {
 
     static ImVec4 kind_color(const Json &operation) {
       const std::string kind = operation["kind"].str();
+      if (!operation["cancelled"].is_null())
+        return colors::grey;
+      if (kind == "cancel")
+        return colors::orange;
       if (kind == "verif" || kind == "stock_verif")
         return operation["details"]["complete"].boolean(true) ? colors::green : colors::red;
       if (kind == "unseal" || kind == "item_delete")
@@ -256,7 +261,7 @@ class JournalWindow final : public AppWindow {
     }
 
     void draw_table(App &app) {
-      const float details_height = selected_ >= 0 ? ImGui::GetTextLineHeightWithSpacing() * 9.0f : 0.0f;
+      const float details_height = selected_ >= 0 ? ImGui::GetTextLineHeightWithSpacing() * 11.0f : 0.0f;
       const float footer         = ImGui::GetFrameHeightWithSpacing() + details_height;
       if (ImGui::BeginTable("journal", 5,
                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY
@@ -287,7 +292,14 @@ class JournalWindow final : public AppWindow {
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(operation["lot_name"].str().c_str());
           ImGui::TableNextColumn();
-          if (operation["reconstructed"].boolean()) {
+          if (!operation["cancelled"].is_null()) {
+            // operation annulee : marquee sur sa ligne, avec le motif ; l'annulation a aussi sa propre ligne
+            ImGui::TextColored(colors::orange, "ANNULÉE");
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", operation["summary"].str().c_str());
+            if (ImGui::IsItemHovered())
+              ImGui::SetTooltip("%s", cancelled_text(operation).c_str());
+          } else if (operation["reconstructed"].boolean()) {
             ImGui::TextDisabled("%s", operation["summary"].str().c_str());
             if (ImGui::IsItemHovered())
               ImGui::SetTooltip("Reconstitué depuis l'historique enregistré avant le journal.");
@@ -311,11 +323,19 @@ class JournalWindow final : public AppWindow {
       }
     }
 
-    void draw_details() {
+    static std::string cancelled_text(const Json &operation) {
+      const Json &cancel = operation["cancelled"];
+      return "Annulée le " + display_datetime(cancel["at"], true) + " par " + cancel["by_name"].str() + " : "
+             + cancel["reason"].str();
+    }
+
+    void draw_details(App &app) {
       if (selected_ < 0 || selected_ >= static_cast< int >(operations_.size()))
         return;
       const Json &operation = operations_[selected_];
       ImGui::BeginChild("journal_details", ImVec2(0, 0), ImGuiChildFlags_Borders);
+      if (!operation["cancelled"].is_null())
+        ImGui::TextColored(colors::orange, "%s", cancelled_text(operation).c_str());
       ImGui::Text("%s — %s, %s", operation["kind_label"].str().c_str(), operation["by_name"].str().c_str(),
                   display_datetime(operation["at"], true).c_str());
       if (!operation["verified"].boolean())
@@ -323,6 +343,7 @@ class JournalWindow final : public AppWindow {
       if (!operation["lot_name"].str().empty())
         ImGui::Text("Lot : %s (%s)", operation["lot_name"].str().c_str(), operation["lot"].str("supprimé").c_str());
       ImGui::TextWrapped("%s", operation["summary"].str().c_str());
+      draw_cancel_button(app, operation);
       const Json &details = operation["details"];
       for (const Json &row : details["lacking"].items())
         ImGui::TextColored(colors::red, "Manque %d %s (%d/%d)", row["required"].integer() - row["present"].integer(),
@@ -335,6 +356,136 @@ class JournalWindow final : public AppWindow {
       }
       ImGui::EndChild();
     }
+
+    // Annuler une operation (admins) : bouton du detail, puis confirmation avec ce qui sera annule et un motif
+    void draw_cancel_button(App &app, const Json &operation) {
+      if (!app.admin() || !operation["cancelled"].is_null())
+        return;
+      const bool        is_cancel = operation["kind"].str() == "cancel";
+      const std::string label     = is_cancel ? "Annuler cette annulation…" : "Annuler cette opération…";
+      if (!operation["undoable"].boolean()) {
+        ImGui::BeginDisabled();
+        small_button(label.c_str());
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Opération enregistrée avant l'annulation des opérations (ou qui n'a rien changé) : "
+                              "elle ne peut pas être annulée.");
+      } else if (small_button(label.c_str())) {
+        cancel_id_ = operation["id"].integer();
+        cancel_reason_.clear();
+        cancel_preview_ = Json();
+        cancel_error_.clear();
+        cancel_loading_ = true;
+        open_cancel_    = true;
+        app.api.get("/api/operations/" + std::to_string(cancel_id_) + "/cancel/",
+                    [this, id = cancel_id_](const ApiResult &result) {
+                      if (id != cancel_id_)
+                        return;
+                      cancel_loading_ = false;
+                      if (result.ok) {
+                        cancel_preview_ = result.data;
+                        focus_reason_   = true;
+                      }
+                      else
+                        cancel_error_ = result.error;
+                    });
+      }
+    }
+
+    static void operation_line(const Json &operation) {
+      ImGui::BulletText("%s — %s%s%s : %s", display_datetime(operation["at"]).c_str(),
+                        operation["kind_label"].str().c_str(), operation["lot_name"].str().empty() ? "" : ", ",
+                        operation["lot_name"].str().c_str(), operation["summary"].str().c_str());
+    }
+
+    void draw_cancel_popup(App &app) {
+      if (open_cancel_) {
+        ImGui::OpenPopup("Annuler une opération");
+        open_cancel_ = false;
+      }
+      ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+      if (!ImGui::BeginPopupModal("Annuler une opération", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+      bool close = false;
+      if (cancel_loading_) {
+        ImGui::TextDisabled("Chargement…");
+      } else if (!cancel_error_.empty()) {
+        ImGui::TextColored(colors::red, "%s", cancel_error_.c_str());
+      } else {
+        const Json &operation = cancel_preview_["operation"];
+        const bool  is_cancel = operation["kind"].str() == "cancel";
+        ImGui::PushTextWrapPos(700.0f);
+        ImGui::TextUnformatted(is_cancel ? "Annuler cette annulation rétablit l'opération qu'elle avait annulée :"
+                                         : "Tous les effets de cette opération seront défaits :");
+        operation_line(operation);
+        if (cancel_preview_["together"].size() > 0) {
+          ImGui::TextUnformatted("Enregistrées en même temps, annulées avec elle :");
+          for (const Json &other : cancel_preview_["together"].items())
+            operation_line(other);
+        }
+        if (cancel_preview_["dependents"].size() > 0) {
+          ImGui::TextColored(colors::orange, "Opérations faites depuis qui en dépendent, annulées aussi :");
+          for (const Json &other : cancel_preview_["dependents"].items())
+            operation_line(other);
+        }
+        ImGui::TextDisabled("Ce qui a été changé depuis par d'autres opérations est gardé (une vérif faite après "
+                            "reste valable). L'annulation aura sa propre ligne dans le journal et pourra être annulée "
+                            "à son tour.");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (focus_reason_) {
+          ImGui::SetKeyboardFocusHere();
+          focus_reason_ = false;
+        }
+        input_limited("##cancel_reason", cancel_reason_, 200, "Motif (obligatoire), ex : vérif bâclée");
+        ImGui::BeginDisabled(trim(cancel_reason_).empty() || cancel_sending_);
+        if (danger_button(is_cancel ? "Annuler l'annulation" : "Annuler l'opération")) {
+          Json body;
+          body["user"]    = app.user_ref();
+          body["reason"]  = trim(cancel_reason_);
+          cancel_sending_ = true;
+          app.api.post("/api/operations/" + std::to_string(cancel_id_) + "/cancel/", body,
+                       [this, &app](const ApiResult &result) {
+                         cancel_sending_ = false;
+                         if (!result.ok) {
+                           cancel_error_ = result.error;
+                           return;
+                         }
+                         app.notify("Annulé : " + result.data["summary"].str());
+                         app.refresh_lots();
+                         cancel_done_ = true;
+                         load(app, true);
+                       });
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+      }
+      if (button("Fermer") || cancel_done_)
+        close = true;
+      if (close) {
+        cancel_done_ = false;
+        cancel_id_   = 0;
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::EndPopup();
+    }
+
+    static std::string trim(const std::string &text) {
+      const auto first = text.find_first_not_of(" \t\n");
+      if (first == std::string::npos)
+        return "";
+      return text.substr(first, text.find_last_not_of(" \t\n") - first + 1);
+    }
+
+    int         cancel_id_ = 0;
+    std::string cancel_reason_;
+    std::string cancel_error_;
+    Json        cancel_preview_;
+    bool        cancel_loading_ = false;
+    bool        cancel_sending_ = false;
+    bool        cancel_done_    = false;
+    bool        open_cancel_    = false;
+    bool        focus_reason_   = false;
 
     Json        operations_ = Json::array();
     Json        people_     = Json::array();

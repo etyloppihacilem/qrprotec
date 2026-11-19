@@ -186,6 +186,29 @@ réglages.
   intérieure jamais signée.
 - Bouton **Journal du lot** dans la fiche d'un lot (fenêtre Lots, gestion et admin) : le journal filtré sur ce lot.
 
+### Annuler une opération (admins)
+
+Une vérif bâclée ou validée par erreur, un signalement en double, un lot marqué utilisé par erreur... :
+un admin l'annule depuis le journal. Cliquez la ligne, puis **Annuler cette opération…** sous son
+détail. La fenêtre de confirmation montre ce qui sera annulé, et un **motif** est obligatoire.
+
+- L'annulation défait **tous les effets** de l'opération : une vérif annulée disparaît des vérifs du
+  lot, le lot reprend son état d'avant (date de dernière vérif, vérif recommandée...), les items
+  retrouvent leur place et leur compteur d'absences, les réassorts faits pendant la vérif rendent leurs
+  items au stock.
+- Les opérations enregistrées **en même temps** (une vérif en cascade, ses réassorts et ses retraits)
+  sont annulées ensemble.
+- Ses **conséquences** aussi : les opérations faites depuis qui en dépendent sont annulées avec elle,
+  et listées avant de confirmer (un signalement annulé emporte les réponses du TECH à ce signalement).
+- Ce qui a été changé depuis par une autre opération reste : annuler une vérif ne défait pas la vérif
+  faite après elle.
+- La ligne annulée reste dans le journal, en gris, marquée **ANNULÉE** (motif, qui et quand dans son
+  détail et au survol), et l'annulation a sa propre ligne **Annulation**.
+- Une annulation s'annule à son tour (**Annuler cette annulation…**, avec un motif) : l'opération est
+  rétablie.
+
+Seules les opérations enregistrées depuis cette mise à jour peuvent être annulées (bouton grisé sinon).
+
 Les opérations faites avant la mise à jour sont reconstituées depuis l'historique (en gris) : vérifs,
 réassorts, réceptions, paquets ouverts, et seulement le **dernier** scellage et la **dernière**
 ouverture de chaque lot.
