@@ -155,6 +155,9 @@ def auth(request):
     user = Secouristes.objects.filter(matricule=matricule).first()
     if user is None or not user.check_key(request.data.get('key')):
         if user is not None and user.guest and keys_match(user.key_hash, hash_key(str(request.data.get('key') or ''))):
+            if user.guest_activated is not None:  # deja activee par un invite : jamais pour une autre personne
+                raise ApiError(guest_used_message(user), status.HTTP_403_FORBIDDEN, guest=True, guest_used=True,
+                               prenom=user.prenom, antenna=user.guest_antenna)
             raise ApiError(guest_refusal(user), status.HTTP_403_FORBIDDEN, guest=True)
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
     if user.guest:
@@ -166,6 +169,14 @@ def auth(request):
         user.name_login_locked_until = None
         user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
     return Response(login_response(request, user))
+
+
+def guest_used_message(card):
+    """Carte d'invite deja activee qui ne marche plus (expiree ou desactivee) : elle n'est qu'a son invite. Prenom
+    seul (jamais de nom de famille sur le web)."""
+    antenna = f' de {card.guest_antenna}' if card.guest_antenna else ''
+    return (f"Cette carte a déjà été activée par {card.prenom}{antenna}, elle n'est plus utilisable par une autre "
+            "personne. Utilisez une autre carte d'invité.")
 
 
 def guest_refusal(card):
