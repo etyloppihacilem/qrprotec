@@ -170,3 +170,47 @@ class UndoTests(ApiTestCase):
         count = OperationChange.objects.count()
         self.call('POST', '/api/lots/summary/', {}, local=False)
         self.assertEqual(OperationChange.objects.count(), count)
+
+
+@override_settings(QRPROTEC={**settings.QRPROTEC, 'NOTIFY_SYNC': True})
+class GuestActivationUndoTests(ApiTestCase):
+    """Annuler l'activation d'une carte d'invite annule tout ce que l'invite a fait ensuite, jusqu'a la reactivation."""
+
+    def setUp(self):
+        super().setUp()
+        from .. import webpush
+        original = webpush.notify_event
+        webpush.notify_event = lambda *args, **kwargs: 1
+        self.addCleanup(setattr, webpush, 'notify_event', original)
+
+    def test_cancel_activation_cancels_guest_actions(self):
+        from urllib.parse import parse_qs, urlparse
+        code, body = self.call('POST', '/api/users/guests/', {'count': 1})
+        query = parse_qs(urlparse(body['cards'][0]['badge_url']).query)
+        matricule, key = query['m'][0], query['key'][0]
+        code, _ = self.call('POST', '/api/auth/', {'matricule': matricule, 'key': key, 'guest_nom': 'Martin',
+                                                   'guest_prenom': 'Léa', 'guest_antenne': 'Lyon 3'}, local=False)
+        self.assertEqual(code, 200)
+        badge = {'matricule': matricule, 'key': key}
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/used/', {'user': badge}, local=False)
+        self.assertEqual(code, 200)
+        used = Operation.objects.filter(kind='lot_used').latest('id')
+        self.assertEqual(used.by, f'M:{matricule}')
+        # une operation d'un autre secouriste ne depend pas de l'invite
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/used/',
+                            {'user': {'matricule': 'M001', 'key': self.user.new_key}}, local=False)
+        other = Operation.objects.filter(kind='lot_used').latest('id')
+        activation = Operation.objects.filter(kind='user', details__guest_activation=True).latest('id')
+        code, body = self.call('GET', f'/api/operations/{activation.id}/cancel/')
+        self.assertEqual(code, 200, body)
+        self.assertIn(used.id, [row['id'] for row in body['dependents']])
+        self.assertNotIn(other.id, [row['id'] for row in body['dependents']])
+        code, line = self.call('POST', f'/api/operations/{activation.id}/cancel/', {'reason': 'Carte prêtée par erreur'})
+        self.assertEqual(code, 200, line)
+        used.refresh_from_db()
+        other.refresh_from_db()
+        self.assertIsNotNone(used.cancelled_by_id)
+        self.assertIsNone(other.cancelled_by_id)
+        card = Secouristes.objects.get(matricule=matricule)
+        self.assertIsNone(card.guest_activated)  # de nouveau a activer
+        self.assertEqual((card.nom, card.prenom, card.guest_antenna), ('', '', ''))

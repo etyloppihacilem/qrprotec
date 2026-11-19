@@ -59,13 +59,21 @@ onglet **Cartes d'invités**. Choisissez le nombre de cartes et leur durée, pui
 cartes** : elles s'impriment avec le modèle « Carte d'invité » (`carte_invite.qr`), **sans nom**.
 Laissez-en 2 ou 3 aux équipes qui peuvent recevoir des secouristes non enregistrés.
 
-- À la première connexion, l'invité scanne la carte et donne son **prénom et son nom** : ses vérifs
-  sont à son nom (« Léa Martin (invité) »). Il n'a pas de matricule, ni de code PIN, et a les droits
-  d'un secouriste.
+- À la première connexion, l'invité scanne la carte et donne son **prénom, son nom et son antenne** :
+  ses vérifs sont à son nom (« Léa Martin (invité) »), et son antenne apparaît dans les rapports d'état
+  d'un lot à une date donnée. Il n'a pas de matricule, ni de code PIN, et a les droits d'un secouriste.
 - La carte vaut **48 h après cette première connexion** (Réglages > Règles du serveur, « Durée des
   cartes d'invités », et carte par carte avec **Durée…**). Avant, elle reste utilisable un an.
 - **Désactiver** coupe une carte, même déjà activée : l'invité est déconnecté tout de suite.
-- Une carte sert à un seul invité : pour le suivant, imprimez-en une nouvelle.
+- Une carte sert à un seul invité. Le numéro d'une carte **jamais activée** se reprend (**Reprendre le
+  numéro**) : nouvelle carte à imprimer, l'ancienne ne marche plus.
+- Un invité qui revient (une semaine plus tard…) se **réactive** pour une durée à choisir, sous le même
+  numéro : son historique reste à son nom. Cochez « Imprimer une carte à son nom » pour lui imprimer une
+  carte avec son nom, son prénom et la mention INVITÉ.
+- Les cartes pas encore activées apparaissent dans **À venir** de la Gestion de la TECH, à leur date
+  limite de première connexion, sans attendre qu'elle approche.
+- Dans le Journal, annuler la ligne « carte d'invité activée » (ou réactivée) annule aussi tout ce que
+  l'invité a fait ensuite, jusqu'à la réactivation suivante.
 - La liste dit qui a créé chaque carte et quand. Depuis le web, un admin crée aussi une carte à
   montrer à l'écran (outil de debug des codes, « Créer une carte ») : à activer dans les 24 h, puis
   valable 48 h.

@@ -841,6 +841,7 @@ button > .icon { vertical-align: -0.2em; margin-right: 6px; }
 .guest-card.ok { border-left-color: var(--green); }
 .guest-card.muted { opacity: .6; }
 .guest-card button { padding: 6px 10px; font-size: .85rem; flex: none; }
+.guest-card-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
 button.debug-name { display: block; width: 100%; text-align: left; background: none; padding: 2px 0; color: inherit; }
 .page h3 button.debug-name { font-weight: 700; }
 .debug-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }

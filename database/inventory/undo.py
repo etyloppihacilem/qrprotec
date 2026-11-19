@@ -295,12 +295,13 @@ def _dependents(batch, excluded):
     """Lots posterieurs encore valables qui dependent d'une ligne ajoutee par `batch` : ils l'ont modifiee ou
     supprimee, ou ils ont ajoute ou modifie une ligne qui y fait reference."""
     from .models import OperationChange
+    guest = _guest_dependents(batch, excluded)
     inserted = defaultdict(list)  # table -> lignes ajoutees (completes)
     for name, row in OperationChange.objects.filter(batch=batch, act='I').values_list('table', 'new'):
         if name in tables() and tables()[name].model.__name__ not in NO_DEPENDENCY:
             inserted[name].append(row)
     if not inserted:
-        return set()
+        return guest
     later = OperationChange.objects.filter(batch__gt=batch).exclude(batch__in=excluded)
     candidates = set()
     for name, rows in inserted.items():
@@ -325,7 +326,27 @@ def _dependents(batch, excluded):
             if value is not None and str(value) in targets[target]:
                 candidates.add(change.batch)
                 break
-    return _active_ordinary(candidates - {batch})
+    return _active_ordinary(candidates - {batch}) | guest
+
+
+def _guest_dependents(batch, excluded):
+    """Activation (ou reactivation) d'une carte d'invite dans `batch` : toutes les operations faites ensuite par cet
+    invite, jusqu'a la prochaine activation de la carte, en dependent. Annuler l'activation les annule avec elle."""
+    from .models import Operation, OperationKind
+    activations = Operation.objects.filter(batch=batch, kind=OperationKind.USER, details__guest_activation=True)
+    found = set()
+    for activation in activations:
+        matricule = activation.details.get('matricule')
+        if not matricule:
+            continue
+        operations = Operation.objects.filter(by=f'M:{matricule}', batch__gt=batch).exclude(batch__in=excluded)
+        following = (Operation.objects.filter(kind=OperationKind.USER, details__guest_activation=True,
+                                              details__matricule=matricule, batch__gt=batch)
+                     .exclude(cancelled_by__isnull=False).order_by('batch').first())
+        if following is not None:
+            operations = operations.filter(batch__lt=following.batch)
+        found |= set(operations.values_list('batch', flat=True))
+    return _active_ordinary(found - {batch}) if found else set()
 
 
 def plan(operation):

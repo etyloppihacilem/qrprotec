@@ -120,6 +120,7 @@ struct PinPrompt {
     int         guest_hours = 48;
     std::string guest_prenom;
     std::string guest_nom;
+    std::string guest_antenne;
 };
 
 // Connexion sans badge (nom, prenom et code PIN) dans la fenetre « Connexion requise »

@@ -831,6 +831,7 @@ def user_dict(user, local=False):
         expires = user.guest_expires
         data['guest_expires'] = _date(expires)  # fin de la carte, une fois activee
         data['guest_hours'] = user.guest_hours
+        data['guest_antenna'] = user.guest_antenna
     if local:
         data['nom'] = user.nom  # pas de nom de famille sur l'API publique (front web)
         contact = user.pin_contact

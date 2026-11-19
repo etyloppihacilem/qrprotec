@@ -254,7 +254,16 @@ std::vector< CategoryInfo > build_categories() {
     { "matricule", "Numéro de la carte (pas un matricule)", "INV7K2QX" },
     { "badge_url", "URL de la carte (contenu du QR code)", "https://example.com/badge?m=INV7K2QX&key=a1B2c3D4e5F6g7H8" },
     { "guest_hours", "Durée de validité après la première connexion, en heures", "48" },
-    { "key_expires", "Date limite de première utilisation JJ/MM/AAAA", "29/09/2027" },
+    { "key_expires", "Date limite de première connexion JJ/MM/AAAA", "29/09/2027" },
+    { "date_limite", "Date limite de première connexion, vide sur une carte réimprimée à un nom : "
+                     "{[À activer avant le ]{date_limite}}", "" },
+    { "full_name", "Prénom et nom de l'invité (vide sur une carte neuve, rempli quand on réimprime sa carte)",
+      "Léa Martin" },
+    { "prenom", "Prénom de l'invité (vide sur une carte neuve)", "Léa" },
+    { "nom", "Nom de l'invité (vide sur une carte neuve)", "Martin" },
+    { "antenne", "Antenne de l'invité (vide sur une carte neuve)", "Lyon 3" },
+    { "validite", "« Valable 48 h après la 1re connexion » sur une carte neuve, l'antenne et la fin de validité sur une "
+                  "carte réimprimée", "Antenne Lyon 3 · fin le 21/11 à 10:45" },
   };
   categories.push_back(guest);
   return categories;

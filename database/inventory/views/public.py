@@ -178,6 +178,27 @@ def guest_refusal(card):
     return "Carte d'invité expirée : demandez une autre carte au TECH"
 
 
+def guest_card_action(card, action, data, admin, by, web=False):
+    """Reprise du numero d'une carte jamais activee (`reuse`) ou nouvelle periode pour un invite qui revient
+    (`reactivate` {"guest_hours", "new_card"}), notees au journal. Depuis le web, toujours une nouvelle cle (QR code a
+    l'ecran) et 24 h pour activer une carte reprise."""
+    try:
+        if action == 'reuse':
+            guests.reuse(card, guests.WEB_ACTIVATION_HOURS if web else None)
+            journal.record(OperationKind.USER, by, f"carte d'invité {card.matricule} reprise par {admin} "
+                           "(jamais activée : nouvelle carte, l'ancienne ne marche plus)", matricule=card.matricule)
+        else:
+            hours = data.get('guest_hours') or card.guest_hours
+            guests.reactivate(card, hours, new_card=web or bool(data.get('new_card')))
+            # une reactivation ouvre une nouvelle periode : l'annuler annule ce que l'invite a fait depuis
+            journal.record(OperationKind.USER, by, f"carte d'invité {card.matricule} ({card}) réactivée par {admin} "
+                           f"pour {card.guest_hours} h" + (', nouvelle carte imprimée' if getattr(card, 'new_key', None)
+                                                           else ''),
+                           matricule=card.matricule, guest_activation=True)
+    except ValueError as exc:
+        raise ApiError(str(exc))
+
+
 def activate_guest_card(request, card):
     """Premiere connexion avec une carte d'invite : {"guest_nom", "guest_prenom"} la nomment et lancent sa duree de
     vie. Sans eux, erreur `guest_name_required` : le front demande le nom et le prenom puis renvoie la connexion."""
@@ -185,17 +206,20 @@ def activate_guest_card(request, card):
         return
     nom = request.data.get('guest_nom')
     prenom = request.data.get('guest_prenom')
-    if not str(nom or '').strip() and not str(prenom or '').strip():
-        raise ApiError("Carte d'invité : indiquez votre prénom et votre nom", status.HTTP_403_FORBIDDEN,
+    antenna = request.data.get('guest_antenne')
+    if not any(str(value or '').strip() for value in (nom, prenom, antenna)):
+        raise ApiError("Carte d'invité : indiquez votre prénom, votre nom et votre antenne", status.HTTP_403_FORBIDDEN,
                        guest_name_required=True, guest_hours=card.guest_hours)
     try:
-        activated = guests.activate(card, nom, prenom)
+        activated = guests.activate(card, nom, prenom, antenna)
     except ValueError as exc:
         raise ApiError(str(exc), status.HTTP_400_BAD_REQUEST, guest_name_required=True, guest_hours=card.guest_hours)
     if activated:
+        # guest_activation : annuler cette ligne du journal annule aussi tout ce que l'invite a fait ensuite (undo.py)
         journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{card.matricule}',
-                       f"carte d'invité {card.matricule} activée par {card.prenom} {card.nom}, "
-                       f"valable {card.guest_hours} h", matricule=card.matricule)
+                       f"carte d'invité {card.matricule} activée par {card.prenom} {card.nom} "
+                       f"(antenne {card.guest_antenna}), valable {card.guest_hours} h",
+                       matricule=card.matricule, guest_activation=True)
 
 
 def login_response(request, user, temporary=False):
@@ -1283,16 +1307,23 @@ def debug_guest_cards(request):
         row = guests.card_row(card, public=True)
         row['url'] = ser.public_url('badge', m=card.matricule, key=card.new_key)
         return Response({'card': row, 'cards': guests.cards(public=True)})
-    if action in ('disable', 'enable'):
+    if action in ('disable', 'enable', 'reuse', 'reactivate'):
         card = Secouristes.objects.filter(matricule=str(request.data.get('matricule', ''))[:16], guest=True).first()
         if card is None:
             raise ApiError("Carte d'invité inconnue", status.HTTP_404_NOT_FOUND)
-        card.active = action == 'enable'
-        card.save(update_fields=['active'])
-        journal.record(OperationKind.USER, by, f"carte d'invité {card.matricule} ({card}) "
-                       + ('réactivée' if card.active else 'désactivée') + f' par {admin}', matricule=card.matricule)
+        if action in ('disable', 'enable'):
+            card.active = action == 'enable'
+            card.save(update_fields=['active'])
+            journal.record(OperationKind.USER, by, f"carte d'invité {card.matricule} ({card}) "
+                           + ('remise en service' if card.active else 'désactivée') + f' par {admin}',
+                           matricule=card.matricule)
+        else:  # nouveau QR code a l'ecran : numero repris (24 h pour l'activer) ou invite qui revient
+            guest_card_action(card, action, request.data, admin, by, web=True)
+            row = guests.card_row(card, public=True)
+            row['url'] = ser.public_url('badge', m=card.matricule, key=card.new_key)
+            return Response({'card': row, 'cards': guests.cards(public=True)})
     elif action != 'list':
-        raise ApiError('action : list, create, disable ou enable')
+        raise ApiError('action : list, create, disable, enable, reuse ou reactivate')
     return Response({'cards': guests.cards(public=True)})
 
 

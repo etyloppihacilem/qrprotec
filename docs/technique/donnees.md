@@ -69,7 +69,10 @@ Cartes d'invités (`guest`, voir `inventory/guests.py`) : matricule tiré au has
 prénom vides jusqu'à la première connexion (`POST /api/auth/` répond `guest_name_required`, le front renvoie
 `guest_nom` et `guest_prenom`), puis valable `guest_hours` heures après `guest_activated` (`ServerSettings.guest_hours`,
 48 par défaut). Une carte créée depuis l'outil de debug du web doit être activée avant `guest_activate_before` (24 h).
-`guest_created_by` : admin qui l'a créée. Rôle secouriste, PIN désactivé ; `badge_valid()` tient compte de la durée.
+`guest_created_by` : admin qui l'a créée ; `guest_antenna` : antenne donnée à la première connexion (rapport d'état).
+`POST /api/users/guests/<n°>/` : `reuse` (numéro jamais activé repris, nouvelle clé) ou `reactivate` (`guest_hours`,
+`new_card`). Activation et réactivation sont notées au journal avec `guest_activation` : les annuler annule les
+opérations faites ensuite par l'invité (`undo._guest_dependents`). Rôle secouriste, PIN désactivé ; `badge_valid()` tient compte de la durée.
 Routes : `GET/POST /api/users/guests/` (poste), `PATCH /api/users/<n°>/` (`active`, `guest_hours`, nom),
 `POST /api/debug/guest-cards/` (web, admins : `create`, `disable`, `enable`).
 

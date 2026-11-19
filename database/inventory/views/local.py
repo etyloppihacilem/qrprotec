@@ -1736,14 +1736,14 @@ def guest_card_patch(request, card):
         except ValueError as exc:
             raise ApiError(str(exc))
         changes.append(f'durée {card.guest_hours} h')
-    for field in ('nom', 'prenom'):
+    for field, length, label in (('nom', 32, 'nom'), ('prenom', 32, 'prénom'), ('guest_antenna', 64, 'antenne')):
         if field in data and card.guest_activated is not None:
-            value = ' '.join(str(data[field] or '').split())[:32]
+            value = ' '.join(str(data[field] or '').split())[:length]
             if not value:
-                raise ApiError('Nom et prénom obligatoires')
+                raise ApiError('Nom, prénom et antenne obligatoires')
             setattr(card, field, value)
-            changes.append(USER_FIELDS[field])
-    unknown = set(data) - {'active', 'guest_hours', 'nom', 'prenom'}
+            changes.append(label)
+    unknown = set(data) - {'active', 'guest_hours', 'nom', 'prenom', 'guest_antenna'}
     if unknown:
         raise ApiError("Carte d'invité : seuls l'état, la durée et le nom se modifient")
     card.save()
@@ -1751,6 +1751,24 @@ def guest_card_patch(request, card):
                    f"carte d'invité {card.matricule} ({card}) modifiée : {', '.join(changes) or 'aucun changement'}",
                    matricule=card.matricule, fields=sorted(data.keys()))
     return Response(guests.card_row(card))
+
+
+@api_view(['POST'])
+@handle_errors
+def guest_card_actions(request, matricule):
+    """Carte d'invite (poste, admins) : {"action": "reuse"} reprend le numero d'une carte jamais activee (nouvelle
+    carte a imprimer), {"action": "reactivate", "guest_hours", "new_card"?} rouvre une periode pour un invite qui
+    revient (carte a son nom a imprimer si new_card). La cle en clair (badge_url) n'est que dans cette reponse."""
+    require_front(request, ADMIN)
+    card = get_object_or_404(Secouristes, matricule=matricule, guest=True)
+    action = str(request.data.get('action') or '')
+    if action not in ('reuse', 'reactivate'):
+        raise ApiError('action : reuse ou reactivate')
+    guest_card_action(card, action, request.data, front_user(request), front_identity(request))
+    row = guests.card_row(card)
+    if getattr(card, 'new_key', None):
+        row['badge_url'] = ser.public_url('badge', m=card.matricule, key=card.new_key)
+    return Response(row)
 
 
 @api_view(['GET', 'POST'])

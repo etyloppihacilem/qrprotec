@@ -65,19 +65,60 @@ def create_guest_card(created_by, hours=None, activate_within_hours=None):
     return card
 
 
-def activate(card, nom, prenom):
-    """Premiere connexion avec la carte : nom et prenom de l'invite, debut de sa duree de vie. Deux telephones qui
-    scannent la meme carte en meme temps : seul le premier la nomme, le second se connecte sous ce nom. Retourne
-    True si cette connexion a active la carte."""
-    nom = ' '.join(str(nom or '').split())[:32]
-    prenom = ' '.join(str(prenom or '').split())[:32]
-    if not nom or not prenom:
-        raise ValueError('Saisissez votre prénom et votre nom.')
+def _clean(value, length):
+    return ' '.join(str(value or '').split())[:length]
+
+
+def activate(card, nom, prenom, antenna):
+    """Premiere connexion avec la carte : nom, prenom et antenne de l'invite, debut de sa duree de vie. Deux
+    telephones qui scannent la meme carte en meme temps : seul le premier la nomme, le second se connecte sous ce
+    nom. Retourne True si cette connexion a active la carte."""
+    nom, prenom, antenna = _clean(nom, 32), _clean(prenom, 32), _clean(antenna, 64)
+    if not nom or not prenom or not antenna:
+        raise ValueError('Saisissez votre prénom, votre nom et votre antenne.')
     with transaction.atomic():
         done = Secouristes.objects.filter(pk=card.pk, guest=True, guest_activated__isnull=True).update(
-            nom=nom, prenom=prenom, guest_activated=timezone.now())
+            nom=nom, prenom=prenom, guest_antenna=antenna, guest_activated=timezone.now())
     card.refresh_from_db()
     return bool(done)
+
+
+def reuse(card, activate_within_hours=None):
+    """Numero d'une carte jamais activee repris pour une nouvelle carte : nouvelle cle (l'ancienne carte imprimee ne
+    marche plus), de nouveau utilisable un an (ou `activate_within_hours`), reactivee si elle etait desactivee. Rien
+    dans l'historique ne porte ce numero : il peut resservir."""
+    if card.guest_activated is not None:
+        raise ValueError("Carte déjà activée : réactivez-la pour son invité plutôt que de reprendre son numéro")
+    card.renew_key()
+    card.active = True
+    card.guest_activate_before = (timezone.now() + timedelta(hours=activate_within_hours)
+                                  if activate_within_hours else None)
+    card.save()
+    return card
+
+
+def reactivate(card, hours, new_card=False):
+    """Invite qui revient (carte deja activee, expiree ou non, desactivee ou non) : nouvelle periode de `hours`
+    heures a partir de maintenant, sous le meme numero (son historique reste a son nom). `new_card` : nouvelle cle,
+    pour lui imprimer une carte a son nom (l'ancienne ne marche plus)."""
+    if card.guest_activated is None:
+        raise ValueError("Carte jamais activée : elle s'active à sa première connexion")
+    card.guest_hours = parse_guest_hours(hours)
+    card.guest_activated = timezone.now()
+    card.active = True
+    if new_card:
+        card.renew_key()
+    elif card.key_expires is None or card.key_expires < timezone.localdate() + timedelta(days=1):
+        card.renew_key()  # carte imprimee il y a plus d'un an : nouvelle cle obligatoire
+    card.save()
+    return card
+
+
+def activation_deadline(card):
+    """Date limite de premiere connexion d'une carte jamais activee (24 h des cartes du web, sinon un an)."""
+    if card.guest_activate_before is not None:
+        return timezone.localtime(card.guest_activate_before).date()
+    return card.key_expires
 
 
 def card_row(card, public=False):
@@ -90,6 +131,7 @@ def card_row(card, public=False):
     named = bool(card.prenom or card.nom)
     return {
         'matricule': card.matricule,
+        'antenna': card.guest_antenna,
         'prenom': card.prenom,
         'nom': '' if public else card.nom,
         'name': (short_name(card.matricule) if public else f'{card.prenom} {card.nom}') if named else '',

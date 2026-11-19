@@ -165,12 +165,30 @@ Parameters user_parameters(const Json &user) {
   return parameters;
 }
 
+// Carte d'invite : neuve (sans nom, nom donne a la premiere connexion) ou reimprimee pour un invite qui revient
+// (son nom, son antenne et la fin de sa periode, toujours avec la mention invite)
 Parameters guest_card_parameters(const Json &card) {
   Parameters parameters;
+  const std::string hours = std::to_string(card["hours"].integer(48));
+  const std::string name  = card["prenom"].str() + (card["nom"].str().empty() ? "" : " " + card["nom"].str());
   parameters["matricule"]   = card["matricule"].str();
   parameters["badge_url"]   = card["badge_url"].str();
-  parameters["guest_hours"] = std::to_string(card["hours"].integer(48));
+  parameters["guest_hours"] = hours;
   parameters["key_expires"] = label_date(card["key_expires"]);
+  parameters["prenom"]      = card["prenom"].str();
+  parameters["nom"]         = card["nom"].str();
+  parameters["full_name"]   = card["prenom"].str().empty() ? "" : name;
+  parameters["antenne"]     = card["antenna"].str();
+  std::string until;
+  if (const std::string expires = card["expires"].str(); card["state"].str() == "active" && expires.size() >= 16)
+    until = "fin le " + label_date(card["expires"]).substr(0, 5) + " à " + expires.substr(11, 5);
+  // date limite de premiere connexion : seulement sur une carte neuve
+  parameters["date_limite"] = parameters["full_name"].empty() ? parameters["key_expires"] : "";
+  if (parameters["full_name"].empty())
+    parameters["validite"] = "Valable " + hours + " h après la 1re connexion";
+  else
+    parameters["validite"] = (parameters["antenne"].empty() ? std::string() : "Antenne " + parameters["antenne"])
+                           + (!parameters["antenne"].empty() && !until.empty() ? " · " : "") + until;
   return parameters;
 }
 

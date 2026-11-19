@@ -357,17 +357,19 @@ function guestCardLine(card) {
   const when = card.state === 'active' ? `valable jusqu'à ${fmtDateTime(card.expires)}`
     : card.state === 'unused' && card.activate_before ? `à activer avant ${fmtDateTime(card.activate_before)}`
       : card.state === 'unused' ? `valable ${card.hours} h après la première connexion`
-        : card.state === 'expired' ? `expirée ${fmtDateTime(card.expires, { on: true })}` : card.state_label.toLowerCase();
-  const on = !['disabled'].includes(card.state);
-  const action = card.state === 'disabled'
-    ? el('button', { type: 'button', class: 'secondary', onclick: () => guestCardAction('enable', card) }, 'Réactiver')
-    : ['active', 'unused'].includes(card.state)
-      ? el('button', { type: 'button', class: 'danger', onclick: () => guestCardAction('disable', card) }, 'Désactiver') : '';
+        : card.state === 'expired' ? fmtDateTime(card.expires, { on: true }) : '';
+  const button = (label, cls, onclick) => el('button', { type: 'button', class: cls, onclick }, label);
+  const actions = [];
+  // carte jamais activee : son numero se reprend (nouveau QR code) ; invite deja venu : nouvelle periode
+  if (!card.activated && card.state !== 'unused') actions.push(button('Reprendre le numéro', 'secondary', () => showGuestCard('reuse', card)));
+  if (card.activated && card.state !== 'active') actions.push(button('Réactiver…', 'secondary', () => reactivateGuestCard(card)));
+  if (['active', 'unused'].includes(card.state)) actions.push(button('Désactiver', 'danger', () => guestCardAction('disable', card)));
   return el('div', { class: `guest-card ${GUEST_STATE_CLASS[card.state] || ''}` },
     el('div', {}, el('b', {}, name), ' ', el('span', { class: 'hint' }, `· carte ${card.matricule}`),
-      el('div', { class: 'hint' }, `${on ? card.state_label + ', ' : ''}${when}`),
+      card.antenna ? el('div', { class: 'hint' }, `Antenne ${card.antenna}`) : '',
+      el('div', { class: 'hint' }, card.state_label + (when ? `, ${when}` : '')),
       el('div', { class: 'hint' }, `Créée ${fmtDateTime(card.created, { on: true })}${card.created_by ? ' par ' + card.created_by : ''}`)),
-    action);
+    actions.length ? el('div', { class: 'guest-card-actions' }, ...actions) : '');
 }
 
 function debugGuestParts() {
@@ -377,7 +379,8 @@ function debugGuestParts() {
   const parts = [el('div', { class: 'row-head' }, el('h3', {}, "Cartes d'invités"),
     el('button', { type: 'button', class: 'primary', onclick: createGuestCard }, icon('badge'), 'Créer une carte')),
   el('p', { class: 'hint' }, "Pour un secouriste d'une autre antenne sans compte : il scanne le QR code avec son "
-    + 'téléphone et donne son nom et son prénom. La carte est à activer dans les 24 h, puis vaut 48 h.')];
+    + 'téléphone et donne son nom, son prénom et son antenne. La carte est à activer dans les 24 h, puis vaut 48 h. '
+    + "Le numéro d'une carte jamais activée se reprend ; un invité qui revient se réactive.")];
   if (!live.length) parts.push(el('p', { class: 'hint' }, 'Aucune carte en cours.'));
   live.forEach((card) => parts.push(guestCardLine(card)));
   if (old.length) {
@@ -390,21 +393,38 @@ function debugGuestParts() {
   return parts;
 }
 
-async function createGuestCard() {
+const createGuestCard = () => showGuestCard('create');
+
+// Invite qui revient : nouvelle periode (duree a choisir), nouvelle carte a l'ecran, son historique garde
+async function reactivateGuestCard(card) {
+  const value = await promptDialog({ title: `Réactiver ${card.name}`, ok: 'Réactiver',
+    text: "Durée en heures à partir de maintenant. Un nouveau QR code s'affiche : l'ancienne carte ne marchera plus.",
+    value: String(card.hours || 48), maxlength: 3 });
+  if (value == null) return;
+  const hours = parseInt(value, 10);
+  if (!(hours >= 1 && hours <= 720)) { toast('Durée : de 1 à 720 heures.', true); return; }
+  showGuestCard('reactivate', card, hours);
+}
+
+// Carte creee, numero repris ou carte reactivee : son QR code a scanner avec le telephone de l'invite
+async function showGuestCard(action, target = null, hours = null) {
   const dialog = $('#temp-login');
   const body = $('#temp-login-body');
   body.replaceChildren(el('h2', {}, "Carte d'invité"), el('p', { class: 'hint' }, 'Création de la carte…'));
   if (!dialog.open) dialog.showModal();
   try {
-    const data = await api('debug/guest-cards/', { user: badge(), action: 'create' });
+    const data = await api('debug/guest-cards/', { user: badge(), action,
+      ...(target ? { matricule: target.matricule } : {}), ...(hours ? { guest_hours: hours } : {}) });
     debug.guests = data.cards;
     const card = data.card;
+    const back = card.state === 'active';
     body.replaceChildren(
-      el('h2', {}, `Carte d'invité ${card.matricule}`),
+      el('h2', {}, back ? `Carte de ${card.name}` : `Carte d'invité ${card.matricule}`),
       debugQr(card.url),
       el('p', {}, el('b', {}, "Scannez ce QR code avec le téléphone de l'invité"),
-        ' (dans QRprotec, ou avec l\'appareil photo) : il donne son nom et son prénom.'),
-      el('p', { class: 'hint' }, `À activer avant ${fmtDateTime(card.activate_before)}, puis valable ${card.hours} h. `
+        ' (dans QRprotec, ou avec l\'appareil photo)', back ? '.' : ' : il donne son nom, son prénom et son antenne.'),
+      el('p', { class: 'hint' }, (back ? `Valable jusqu'à ${fmtDateTime(card.expires)}. `
+        : `À activer avant ${fmtDateTime(card.activate_before)}, puis valable ${card.hours} h. `)
         + 'Vous pouvez la désactiver à tout moment dans cette page.'));
     debug.built = '';
     renderDebugResults();
@@ -421,7 +441,7 @@ async function guestCardAction(action, card) {
   try {
     const data = await api('debug/guest-cards/', { user: badge(), action, matricule: card.matricule });
     debug.guests = data.cards;
-    toast(action === 'disable' ? 'Carte désactivée.' : 'Carte réactivée.');
+    toast(action === 'disable' ? 'Carte désactivée.' : 'Carte remise en service.');
   } catch (e) {
     toast(e.message, true);
   }

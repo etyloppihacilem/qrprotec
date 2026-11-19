@@ -471,6 +471,7 @@ EVENT_KINDS = {
     'list': 'Liste de matériel',
     'lot_key': 'Étiquette clé',
     'badge': 'Badge',
+    'guest_card': "Carte d'invité",
 }
 EVENT_LEVEL_ORDER = {'bad': 0, 'warn': 1, 'soon': 2, 'info': 3}
 
@@ -558,6 +559,22 @@ def _expiry_key_events(today, days):
     for user in Secouristes.objects.filter(active=True, guest=False, key_expires__isnull=False, key_expires__lte=limit):
         rows.append(event('badge', user.key_expires, today, identity_name(format_identity_verified(user.matricule)),
                           'renouveler la clé et réimprimer le badge (Utilisateurs, admin)', None, 'users'))
+    return rows + _guest_card_events(today)
+
+
+def _guest_card_events(today):
+    """Cartes d'invites jamais activees, quelle que soit leur echeance (pas seulement a l'approche de la date limite)
+    : a la date limite de premiere connexion. Une carte pas activee a temps reste listee (en retard) tant qu'elle
+    n'est pas desactivee : son numero peut etre repris pour une nouvelle carte."""
+    from . import guests
+    rows = []
+    for card in Secouristes.objects.filter(guest=True, active=True, guest_activated__isnull=True):
+        deadline = guests.activation_deadline(card) or today
+        late = card.guest_state() == 'expired_unused'
+        rows.append(event('guest_card', deadline, today, f"Carte d'invité {card.matricule}",
+                          'pas activée à temps : reprendre son numéro ou la désactiver (Utilisateurs, admin)' if late
+                          else 'pas encore activée : à remettre à une équipe, ou à désactiver (Utilisateurs, admin)',
+                          'bad' if late else 'info', 'users', guest_card=card.matricule))
     return rows
 
 

@@ -190,8 +190,21 @@ class UsersWindow final : public AppWindow {
     bool guests_creating_ = false;
     int  guest_count_     = 3;
     int  guest_hours_     = 48; // duree de la prochaine carte : celle des Regles du serveur, au chargement
-    std::string guest_edit_;    // carte dont on change la duree
+    std::string guest_edit_;    // carte dont on change la duree, ou qu'on reactive
     int  guest_edit_hours_ = 48;
+    bool guest_new_card_   = true; // reactivation : carte a son nom a imprimer
+
+    // Reprise du numero d'une carte jamais activee, ou nouvelle periode pour un invite qui revient : la carte a
+    // imprimer (nouvelle cle) s'affiche en apercu
+    void guest_action(App &app, const std::string &matricule, const Json &body, const std::string &done) {
+      app.api.post("/api/users/guests/" + url_encode(matricule) + "/", body, [this, &app, done](const ApiResult &result) {
+        app.notify(result.ok ? done : result.error, !result.ok);
+        if (result.ok && !result.data["badge_url"].str().empty())
+          app.preview_labels(TemplateCategory::GuestCard, { guest_card_parameters(result.data) },
+                             "Carte d'invité " + result.data["matricule"].str());
+        load_guests(app);
+      });
+    }
 
     void load_guests(App &app) {
       guests_loading_ = true;
@@ -229,8 +242,10 @@ class UsersWindow final : public AppWindow {
     void draw_guests(App &app) {
       ImGui::TextWrapped("Pour les secouristes d'une autre antenne sans compte : imprimez quelques cartes à l'avance "
                          "et laissez-les aux équipes. L'invité scanne la carte, donne son nom et son prénom à la première "
-                         "connexion ; elle vaut ensuite la durée choisie. Rôle secouriste, sans code PIN. Une carte se "
-                         "désactive à tout moment, même déjà activée (l'invité est déconnecté).");
+                         "connexion, avec son antenne ; elle vaut ensuite la durée choisie. Rôle secouriste, sans code "
+                         "PIN. Une carte se désactive à tout moment, même déjà activée (l'invité est déconnecté). Le "
+                         "numéro d'une carte jamais activée se reprend ; un invité qui revient se réactive, avec une "
+                         "carte à son nom si besoin.");
       ImGui::SeparatorText("Nouvelles cartes");
       ImGui::SetNextItemWidth(120.0f);
       ImGui::InputInt("Nombre de cartes", &guest_count_);
@@ -279,7 +294,7 @@ class UsersWindow final : public AppWindow {
         return;
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableSetupColumn("Carte", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-      ImGui::TableSetupColumn("Invité", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+      ImGui::TableSetupColumn("Invité", ImGuiTableColumnFlags_WidthStretch, 1.2f);
       ImGui::TableSetupColumn("État", ImGuiTableColumnFlags_WidthStretch, 1.4f);
       ImGui::TableSetupColumn("Créée par", ImGuiTableColumnFlags_WidthStretch, 1.2f);
       ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 230.0f);
@@ -300,6 +315,8 @@ class UsersWindow final : public AppWindow {
           ImGui::TextDisabled("(nom à la 1re connexion)");
         else
           ImGui::TextUnformatted(card["name"].str().c_str());
+        if (!card["antenna"].str().empty())
+          ImGui::TextDisabled("Antenne %s", card["antenna"].str().c_str());
         ImGui::TableNextColumn();
         const std::string when = guest_when(card, today);
         ImGui::Text("%s%s%s", card["state_label"].str().c_str(), when.empty() ? "" : ", ", when.c_str());
@@ -308,13 +325,45 @@ class UsersWindow final : public AppWindow {
         ImGui::TextUnformatted(card["created_by"].str("-").c_str());
         ImGui::TextDisabled("%s", relative_datetime(card["created"].str(), today, false, true).c_str());
         ImGui::TableNextColumn();
-        if (state == "disabled") {
-          if (small_button("Réactiver")) {
+        const bool activated = !card["activated"].is_null();
+        if (!activated && state != "unused") { // jamais activee : son numero se reprend pour une nouvelle carte
+          if (small_button("Reprendre le numéro")) {
             Json body;
-            body["active"] = true;
-            patch_guest(app, matricule, body, "Carte réactivée.");
+            body["action"] = "reuse";
+            guest_action(app, matricule, body, "Numéro repris : imprimez la nouvelle carte, l'ancienne ne marche plus.");
           }
-        } else if (state == "active" || state == "unused") {
+          if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Carte jamais activée : nouvelle carte sous ce numéro (rien dans l'historique ne le porte).");
+        } else if (activated && state != "active") { // invite qui revient : nouvelle periode, historique garde
+          if (small_button("Réactiver…")) {
+            guest_edit_       = matricule;
+            guest_edit_hours_ = static_cast< int >(card["hours"].integer(48));
+            guest_new_card_   = true;
+            ImGui::OpenPopup("guest_reactivate");
+          }
+        }
+        if (ImGui::BeginPopup("guest_reactivate")) {
+          ImGui::TextUnformatted("Nouvelle période à partir de maintenant");
+          ImGui::SetNextItemWidth(120.0f);
+          ImGui::InputInt("heures", &guest_edit_hours_, 12, 24);
+          guest_edit_hours_ = std::clamp(guest_edit_hours_, 1, 720);
+          ImGui::Checkbox("Imprimer une carte à son nom", &guest_new_card_);
+          help_marker("Nouvelle carte avec son nom, son prénom et la mention invité ; l'ancienne ne marchera plus. "
+                      "Décochée, il garde sa carte.");
+          if (primary_button("Réactiver")) {
+            Json body;
+            body["action"]      = "reactivate";
+            body["guest_hours"] = guest_edit_hours_;
+            body["new_card"]    = guest_new_card_;
+            guest_action(app, guest_edit_, body, "Carte réactivée pour " + std::to_string(guest_edit_hours_) + " h.");
+            ImGui::CloseCurrentPopup();
+          }
+          ImGui::SameLine();
+          if (button("Annuler"))
+            ImGui::CloseCurrentPopup();
+          ImGui::EndPopup();
+        }
+        if (state == "active" || state == "unused") {
           if (confirm_button("Désactiver",
                              state == "active" ? "Désactiver cette carte ? L'invité est déconnecté tout de suite."
                                                : "Désactiver cette carte ? Elle ne marchera plus.",
@@ -324,7 +373,7 @@ class UsersWindow final : public AppWindow {
             patch_guest(app, matricule, body, "Carte désactivée.");
           }
         }
-        if (state != "disabled" && state != "expired_unused") {
+        if (state == "active" || state == "unused") {
           ImGui::SameLine();
           if (small_button("Durée…")) {
             guest_edit_       = matricule;

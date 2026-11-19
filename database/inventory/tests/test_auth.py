@@ -589,7 +589,7 @@ class GuestCardTests(ApiTestCase):
         # premiere connexion : nom et prenom demandes, pas de PIN
         code, body = self.auth(matricule, key)
         self.assertEqual((code, body.get('guest_name_required')), (403, True))
-        code, body = self.auth(matricule, key, guest_nom=' Martin ', guest_prenom='Léa')
+        code, body = self.auth(matricule, key, guest_nom=' Martin ', guest_prenom='Léa', guest_antenne='Lyon 3')
         self.assertEqual(code, 200)
         self.assertTrue(body['guest'])
         self.assertEqual(body['prenom'], 'Léa')
@@ -624,7 +624,7 @@ class GuestCardTests(ApiTestCase):
         code, body = self.call('POST', '/api/users/guests/', {'count': 1, 'guest_hours': 12})
         matricule, key = self.key_of(body['cards'][0]['badge_url'])
         self.assertEqual(body['cards'][0]['hours'], 12)
-        code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa')
+        code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa', guest_antenne='Lyon 3')
         session = body['session']
         self.assertIsNotNone(views.session_user(session))
         code, row = self.call('PATCH', f'/api/users/{matricule}/', {'active': False})
@@ -637,7 +637,7 @@ class GuestCardTests(ApiTestCase):
         code, body = self.call('POST', '/api/users/guests/', {'count': 1})
         other, other_key = self.key_of(body['cards'][0]['badge_url'])
         self.call('PATCH', f'/api/users/{other}/', {'active': False})
-        self.assertEqual(self.auth(other, other_key, guest_nom='A', guest_prenom='B')[0], 403)
+        self.assertEqual(self.auth(other, other_key, guest_nom='A', guest_prenom='B', guest_antenne='C')[0], 403)
         self.assertEqual(self.call('POST', '/api/users/guests/', {'count': 1, 'guest_hours': 0})[0], 400)
         # reserve aux admins
         code, _ = self.call('GET', '/api/users/guests/', session=views.session_token(self.user))
@@ -658,7 +658,7 @@ class GuestCardTests(ApiTestCase):
         matricule, key = self.key_of(card['url'])
         late = timezone.now() + timedelta(hours=24, minutes=1)
         with mock.patch('django.utils.timezone.now', return_value=late):
-            code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa')
+            code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa', guest_antenne='Lyon 3')
             self.assertEqual(code, 403)
             self.assertIn('pas activée à temps', body['error'])
         code, body = self.call('POST', '/api/debug/guest-cards/', {'user': self.admin(), 'action': 'create'},
@@ -666,7 +666,7 @@ class GuestCardTests(ApiTestCase):
         matricule, key = self.key_of(body['card']['url'])
         soon = timezone.now() + timedelta(hours=23)
         with mock.patch('django.utils.timezone.now', return_value=soon):
-            code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa')
+            code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa', guest_antenne='Lyon 3')
             self.assertEqual(code, 200)
         # activee : 48 h a partir de l'activation, plus la limite de 24 h
         with mock.patch('django.utils.timezone.now', return_value=soon + timedelta(hours=47)):
@@ -680,3 +680,77 @@ class GuestCardTests(ApiTestCase):
                                {'user': self.admin(), 'action': 'disable', 'matricule': matricule}, local=False)
         self.assertEqual(code, 200)
         self.assertEqual(self.auth(matricule, key)[0], 403)
+
+
+class GuestCardReuseTests(ApiTestCase):
+    """Numero d'une carte jamais activee repris, invite qui revient (reactivation), cartes a activer dans « À venir »,
+    antenne dans le rapport d'etat."""
+
+    def key_of(self, url):
+        from urllib.parse import parse_qs, urlparse
+        query = parse_qs(urlparse(url).query)
+        return query['m'][0], query['key'][0]
+
+    def auth(self, matricule, key, **extra):
+        return self.call('POST', '/api/auth/', {'matricule': matricule, 'key': key, **extra}, local=False)
+
+    def new_card(self):
+        code, body = self.call('POST', '/api/users/guests/', {'count': 1})
+        return self.key_of(body['cards'][0]['badge_url'])
+
+    def test_antenna_required_and_in_report(self):
+        matricule, key = self.new_card()
+        code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa')
+        self.assertEqual((code, body.get('guest_name_required')), (400, True))
+        code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa', guest_antenne='Lyon 3')
+        self.assertEqual((code, body['guest_antenna']), (200, 'Lyon 3'))
+        from .. import lot_report
+        self.assertEqual(lot_report.who(f'M:{matricule}'), f"Léa Martin, invité de l'antenne Lyon 3, carte {matricule}")
+        self.assertEqual(lot_report.who('M:M001'), 'Jeanne Dupont, M001')
+
+    def test_unused_card_number_reused_and_listed_in_upcoming(self):
+        matricule, key = self.new_card()
+        code, body = self.call('GET', '/api/events/')
+        rows = [row for row in body['events'] if row['kind'] == 'guest_card']
+        self.assertEqual([row['title'] for row in rows], [f"Carte d'invité {matricule}"])
+        code, row = self.call('POST', f'/api/users/guests/{matricule}/', {'action': 'reuse'})
+        self.assertEqual(code, 200, row)
+        same, new_key = self.key_of(row['badge_url'])
+        self.assertEqual(same, matricule)
+        self.assertEqual(self.auth(matricule, key, guest_nom='A', guest_prenom='B', guest_antenne='C')[0], 403)
+        self.assertEqual(self.auth(matricule, new_key, guest_nom='A', guest_prenom='B', guest_antenne='C')[0], 200)
+        # activee : plus de reprise du numero, plus dans « À venir »
+        self.assertEqual(self.call('POST', f'/api/users/guests/{matricule}/', {'action': 'reuse'})[0], 400)
+        code, body = self.call('GET', '/api/events/')
+        self.assertFalse([row for row in body['events'] if row['kind'] == 'guest_card'])
+
+    def test_returning_guest_reactivated_with_new_card(self):
+        from datetime import timedelta
+        from unittest import mock
+        matricule, key = self.new_card()
+        self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa', guest_antenne='Lyon 3')
+        week = timezone.now() + timedelta(days=7)
+        with mock.patch('django.utils.timezone.now', return_value=week):
+            self.assertEqual(self.auth(matricule, key)[0], 403)
+            code, row = self.call('POST', f'/api/users/guests/{matricule}/',
+                                  {'action': 'reactivate', 'guest_hours': 24, 'new_card': True})
+            self.assertEqual(code, 200, row)
+            self.assertEqual((row['state'], row['hours'], row['name']), ('active', 24, 'Léa Martin'))
+            _, new_key = self.key_of(row['badge_url'])
+            self.assertEqual(self.auth(matricule, key)[0], 403)  # ancienne carte remplacee
+            code, body = self.auth(matricule, new_key)
+            self.assertEqual((code, body['prenom']), (200, 'Léa'))
+        with mock.patch('django.utils.timezone.now', return_value=week + timedelta(hours=25)):
+            self.assertEqual(self.auth(matricule, new_key)[0], 403)
+        # sans nouvelle carte : la meme carte remarche
+        with mock.patch('django.utils.timezone.now', return_value=week + timedelta(days=1)):
+            code, row = self.call('POST', f'/api/users/guests/{matricule}/', {'action': 'reactivate', 'guest_hours': 48})
+            self.assertNotIn('badge_url', row)
+            self.assertEqual(self.auth(matricule, new_key)[0], 200)
+        # depuis le web : nouvelle carte a l'ecran
+        admin = {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
+        code, body = self.call('POST', '/api/debug/guest-cards/',
+                               {'user': admin, 'action': 'reactivate', 'matricule': matricule, 'guest_hours': 48},
+                               local=False)
+        self.assertEqual(code, 200, body)
+        self.assertIn('/badge?', body['card']['url'])
