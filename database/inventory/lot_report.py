@@ -51,12 +51,28 @@ def short_date(value):
     return value.strftime('%d/%m/%Y') if value else ''
 
 
+def guest_label(info):
+    """Invite (carte d'invite) : « Léa Martin, invitée de l'antenne Lyon 3, carte INVK7Q2X »."""
+    if not info['verified']:
+        return ''
+    from .models import Secouristes
+    card = Secouristes.objects.filter(matricule=info['matricule'], guest=True).first()
+    if card is None:
+        return ''
+    name = f'{card.prenom} {card.nom}'.strip() or "Carte d'invité"
+    antenna = f" de l'antenne {card.guest_antenna}" if card.guest_antenna else ''
+    return f'{name}, invité{antenna}, carte {card.matricule}'
+
+
 def who(identity):
     """Nom complet et matricule (« Jeanne Dupont, M001 ») : le rapport est un document certifie, imprime et signe, et
     fait exception a la regle des prenoms seuls du front web (choix d'Hippolyte). Nom declare : « (nom déclaré) »."""
     if not identity:
         return '?'
     info = parse_identity(identity)
+    guest = guest_label(info)
+    if guest:
+        return guest
     if info['verified']:
         return f"{info['display_name']}, {info['matricule']}" if not info['display_name'].endswith(')') \
             else info['display_name']

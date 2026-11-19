@@ -539,16 +539,17 @@ async function login(matricule, key, extra = {}) {
 // nom, enregistres sur la carte a cette connexion ; la carte vaut ensuite `hours` heures (48 h par defaut)
 function askGuestName(matricule, key, hours, errorMessage) {
   const dialog = $('#guest-name');
-  $('#guest-name-text').textContent = 'Bienvenue ! Indiquez votre prénom et votre nom : vos vérifs seront à votre nom. '
+  $('#guest-name-text').textContent = 'Bienvenue ! Indiquez votre prénom, votre nom et votre antenne : vos vérifs seront à votre nom. '
     + `La carte vaut ${hours || 48} h à partir de maintenant.`;
   $('#guest-name-error').textContent = errorMessage || '';
   $('#guest-name-form').onsubmit = (event) => {
     event.preventDefault();
     const prenom = $('#guest-name-prenom').value.trim();
     const nom = $('#guest-name-nom').value.trim();
-    if (!prenom || !nom) { $('#guest-name-error').textContent = 'Saisissez votre prénom et votre nom.'; return; }
+    const antenne = $('#guest-name-antenne').value.trim();
+    if (!prenom || !nom || !antenne) { $('#guest-name-error').textContent = 'Saisissez votre prénom, votre nom et votre antenne.'; return; }
     dialog.close();
-    login(matricule, key, { guest_nom: nom, guest_prenom: prenom });
+    login(matricule, key, { guest_nom: nom, guest_prenom: prenom, guest_antenne: antenne });
   };
   $('#guest-name-cancel').onclick = () => { dialog.close(); nameLoginCancelled(); };
   if (!dialog.open) dialog.showModal();

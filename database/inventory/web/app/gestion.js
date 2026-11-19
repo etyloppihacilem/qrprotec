@@ -256,7 +256,7 @@ function renderPlacedOrders(parts, placed) {
 // à gauche, un titre par mois. Révisions et désinfections : « Réviser » / « Désinfecter » et « Saisir la date » (cycle
 // recalé à la main) directement depuis la carte.
 const EVENT_HORIZONS = [{ days: 30, label: '30 jours' }, { days: 90, label: '3 mois' }, { days: 365, label: '1 an' }];
-const EVENT_TAGS = { revision: 'blue', disinfection: 'teal', expiry: 'orange', list: 'navy', lot_key: 'gray', badge: 'gray' };
+const EVENT_TAGS = { revision: 'blue', disinfection: 'teal', expiry: 'orange', list: 'navy', lot_key: 'gray', badge: 'gray', guest_card: 'gray' };
 
 async function loadEvents() {
   if (!canSeeStock()) return;

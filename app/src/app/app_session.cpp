@@ -350,6 +350,7 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
   if (pin_.guest && pin_.matricule == matricule) { // carte d'invite : premiere connexion, avec son nom
     body["guest_nom"]    = pin_.guest_nom;
     body["guest_prenom"] = pin_.guest_prenom;
+    body["guest_antenne"] = pin_.guest_antenne;
   }
   pin_.busy = true;
   api.post("/api/auth/", body, [this, matricule, key, source](const ApiResult &result) {
@@ -498,8 +499,8 @@ void App::draw_guest_name() {
   ImGui::PopFont();
   ImGui::TextDisabled("Carte %s", pin_.matricule.c_str());
   ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
-  ImGui::TextWrapped("Bienvenue ! Indiquez votre prénom et votre nom : vos vérifs seront à votre nom. La carte vaut "
-                     "%d h à partir de maintenant.", pin_.guest_hours);
+  ImGui::TextWrapped("Bienvenue ! Indiquez votre prénom, votre nom et votre antenne : vos vérifs seront à votre nom. "
+                     "La carte vaut %d h à partir de maintenant.", pin_.guest_hours);
   ImGui::PopTextWrapPos();
   ImGui::SetNextItemWidth(260.0f);
   if (pin_.focus) {
@@ -509,10 +510,12 @@ void App::draw_guest_name() {
   input_limited("Prénom##guest", pin_.guest_prenom, 32);
   ImGui::SetNextItemWidth(260.0f);
   input_limited("Nom##guest", pin_.guest_nom, 32);
+  ImGui::SetNextItemWidth(260.0f);
+  input_limited("Antenne##guest", pin_.guest_antenne, 64, "ex : Lyon 3");
   if (!pin_.error.empty())
     ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "%s", pin_.error.c_str());
   const auto filled = [](const std::string &text) { return text.find_first_not_of(" \t") != std::string::npos; };
-  const bool valid  = filled(pin_.guest_prenom) && filled(pin_.guest_nom);
+  const bool valid  = filled(pin_.guest_prenom) && filled(pin_.guest_nom) && filled(pin_.guest_antenne);
   ImGui::BeginDisabled(!valid || pin_.busy);
   if (button(pin_.busy ? "Vérification..." : "Se connecter", ImVec2(150, 0)) || (valid && !pin_.busy && enter_pressed()))
     send_auth(pin_.matricule, pin_.key, "", "", static_cast< ScanSource >(pin_.source));

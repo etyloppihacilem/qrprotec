@@ -1014,7 +1014,8 @@ class Secouristes(models.Model):
     # `guest_activate_before` (24 h). Un admin la desactive (active), activee ou non.
     guest = models.BooleanField(default=False)
     guest_hours = models.PositiveSmallIntegerField(default=48)
-    guest_activated = models.DateTimeField(blank=True, null=True)
+    guest_activated = models.DateTimeField(blank=True, null=True)  # debut de la periode en cours (reactivation)
+    guest_antenna = models.CharField(max_length=64, blank=True, default='')  # antenne d'origine de l'invite
     guest_activate_before = models.DateTimeField(blank=True, null=True)
     guest_created_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
 

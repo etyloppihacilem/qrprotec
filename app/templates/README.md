@@ -53,7 +53,10 @@ après chaque clone.
   imprimée à l'avance **sans nom** (Administration > Utilisateurs, onglet **Cartes d'invités**). L'invité
   donne son nom et son prénom à la première connexion ; la carte vaut ensuite `{{guest_hours}}` heures.
   Placeholders : `{{matricule}}` (numéro de la carte, INV…), `{{badge_url}}`, `{{guest_hours}}`,
-  `{{key_expires}}` (date limite de première connexion).
+  `{{key_expires}}` (date limite de première connexion), `{{date_limite}}` (la même, vide sur une carte à un
+  nom). Carte réimprimée pour un invité qui revient : `{{full_name}}`, `{{prenom}}`, `{{nom}}`, `{{antenne}}`,
+  et `{{validite}}` (« Valable 48 h après la 1re connexion » sur une carte neuve, l'antenne et la fin de
+  validité sur une carte à un nom).
 - `scelle_ouverture.qr` est l'étiquette d'ouverture, imprimée avec celle du scellé et rangée **à
   l'intérieur** du lot : la scanner ouvre le scellé, même sans être connecté.
 

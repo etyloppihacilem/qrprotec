@@ -130,6 +130,7 @@ local_patterns = [
     path('setup/', views.setup),
     path('users/', views.users),
     path('users/guests/', views.guest_cards),  # cartes d'invites (admins)
+    path('users/guests/<str:matricule>/', views.guest_card_actions),  # reprise, reactivation
     path('users/<str:matricule>/', views.user_detail),
     path('users/<str:matricule>/renew-key/', views.user_renew_key),
     path('server-settings/', views.server_settings),

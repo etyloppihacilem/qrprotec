@@ -357,9 +357,10 @@
   <dialog id="guest-name">
     <form id="guest-name-form">
       <h2>Carte d'invité</h2>
-      <p id="guest-name-text" class="hint">Bienvenue ! Indiquez votre prénom et votre nom : vos vérifs seront à votre nom.</p>
+      <p id="guest-name-text" class="hint">Bienvenue ! Indiquez votre prénom, votre nom et votre antenne : vos vérifs seront à votre nom.</p>
       <input id="guest-name-prenom" type="text" enterkeyhint="next" autocomplete="given-name" maxlength="32" placeholder="Prénom">
-      <input id="guest-name-nom" type="text" enterkeyhint="go" autocomplete="family-name" maxlength="32" placeholder="Nom">
+      <input id="guest-name-nom" type="text" enterkeyhint="next" autocomplete="family-name" maxlength="32" placeholder="Nom">
+      <input id="guest-name-antenne" type="text" enterkeyhint="go" autocomplete="off" maxlength="64" placeholder="Antenne (ex : Lyon 3)">
       <p id="guest-name-error" class="pin-error"></p>
       <div class="dialog-buttons">
         <button type="button" id="guest-name-cancel" class="secondary">Annuler</button>
