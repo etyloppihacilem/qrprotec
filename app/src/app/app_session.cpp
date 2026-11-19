@@ -414,7 +414,8 @@ void App::send_auth(const std::string &matricule, const std::string &key, const 
     if (result.status != 0 && matricule == last_login_.matricule && key == last_login_.key)
       forget_login();
     feedback.error(source, settings);
-    notify("Badge refusé : " + result.error, true);
+    // carte d'invite deja activee par un autre invite : le message dit par qui et de prendre une autre carte
+    notify(result.data["guest_used"].boolean() ? result.error : "Badge refusé : " + result.error, true);
   });
 }
 

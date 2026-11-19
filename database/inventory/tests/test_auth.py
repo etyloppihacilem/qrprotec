@@ -610,7 +610,7 @@ class GuestCardTests(ApiTestCase):
         with mock.patch('django.utils.timezone.now', return_value=later):
             code, body = self.auth(matricule, key)
             self.assertEqual(code, 403)
-            self.assertIn('expirée', body['error'])
+            self.assertIn('déjà été activée par Léa de Lyon 3', body['error'])
             self.assertIsNone(views.session_user(session))
         # duree allongee par un admin : de nouveau valable
         code, row = self.call('PATCH', f'/api/users/{matricule}/', {'guest_hours': 72})
@@ -632,7 +632,10 @@ class GuestCardTests(ApiTestCase):
         self.assertIsNone(views.session_user(session))
         code, body = self.auth(matricule, key)
         self.assertEqual(code, 403)
-        self.assertIn('désactivée', body['error'])
+        # deja activee : elle n'est qu'a son invite, quelle que soit la raison du refus
+        self.assertTrue(body['guest_used'])
+        self.assertEqual(body['error'], "Cette carte a déjà été activée par Léa de Lyon 3, elle n'est plus "
+                                        "utilisable par une autre personne. Utilisez une autre carte d'invité.")
         # une carte jamais utilisee se desactive aussi
         code, body = self.call('POST', '/api/users/guests/', {'count': 1})
         other, other_key = self.key_of(body['cards'][0]['badge_url'])

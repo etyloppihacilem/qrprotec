@@ -531,6 +531,11 @@ async function login(matricule, key, extra = {}) {
       return;
     }
     feedback.bad();
+    if (e.data && e.data.guest_used) { // carte d'invite deja activee par quelqu'un d'autre : page en grand
+      showInfo('bad', "Carte d'invité déjà utilisée", e.message);
+      askDialog({ title: "Carte d'invité déjà utilisée", text: e.message, choices: [{ label: 'OK', value: true, cls: 'primary' }], cancel: '' });
+      return;
+    }
     showInfo('bad', 'Badge refusé', e.message);
   }
 }
