@@ -269,7 +269,8 @@ function teamStep(message) {
   if (!inCascade()) return;
   const at = new Date().toISOString();
   for (const row of message.lots || []) {
-    if (lotById(row.id)) state.done[row.id] = { at, by: message.by || '', complete: !!row.complete, sealed: !!row.sealed };
+    if (lotById(row.id)) state.done[row.id] = { at, by: message.by || '', complete: !!row.complete, sealed: !!row.sealed,
+      verif: message.verif || null };
   }
   stepDone({ lots: [] }, message.items || []);
   state.scanned = state.scanned.filter((entry) => !(entry.kind === 'seal' && (message.items || []).includes(entry.iid)));
@@ -645,12 +646,13 @@ function renderLive() {
 // ids : une vérif, ou les étapes d'une vérif en cascade terminée (suivi en direct), réunies en un compte rendu
 const reportView = { report: null, open: new Set() };
 
-async function openVerifReport(ids) {
+// quiet : fin d'une vérif en cascade, le compte rendu n'est qu'un plus (rien a dire s'il ne vient pas)
+async function openVerifReport(ids, quiet = false) {
   let reports;
   try {
     reports = await Promise.all([].concat(ids).map((id) => api(`verifs/${id}/report/`, { user: badge() })));
   } catch (e) {
-    toast('Compte rendu : ' + e.message, true);
+    if (!quiet) toast('Compte rendu : ' + e.message, true);
     return;
   }
   const last = reports[reports.length - 1];

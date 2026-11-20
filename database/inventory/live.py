@@ -865,7 +865,7 @@ class LiveHub:
                                        and not (entry['kind'] == 'check' and entry['iid'] in done)]
             session.updated = timezone.now()
             sockets = [p.socket for p in session.participants.values() if p.id != team['pid'] and p.socket is not None]
-        message = {'type': 'step', 'by': who, 'items': sorted(sent),
+        message = {'type': 'step', 'by': who, 'items': sorted(sent), 'verif': report.get('verif_id'),
                    'lots': [{'id': row['id'], 'name': row['name'], 'complete': bool(row.get('complete')),
                              'sealed': bool(row.get('sealed'))} for row in rows]}
         for websocket in sockets:

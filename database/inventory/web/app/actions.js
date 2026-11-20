@@ -212,7 +212,8 @@ function entriesPayload(entries) {
 function stepDone(report, sent, by = '') {
   const at = new Date().toISOString();
   for (const row of report.lots || []) {
-    if (row.verified || row.sealed) state.done[row.id] = { at, by, complete: !!row.complete, sealed: !!row.sealed };
+    if (row.verified || row.sealed) state.done[row.id] = { at, by, complete: !!row.complete, sealed: !!row.sealed,
+      verif: row.verif_id || report.verif_id || null }; // compte rendu commun a la fin de la cascade
   }
   const gone = new Set(sent);
   state.scanned = state.scanned.filter((entry) => !(entry.kind === 'pack' ? (entry.items || []).some((iid) => gone.has(iid))
@@ -444,6 +445,9 @@ async function flushSeals() {
 // participants continuent la leur
 function finishCascade(report = null, message = '') {
   const done = Object.values(state.done).length;
+  // compte rendu de toute la vérif (chaque etape validee, par soi ou un autre participant), a chaque fois : sans lui,
+  // une cascade toute complete ne montrait rien (seule une etape incomplete ouvrait le sien)
+  const verifs = [...new Set(Object.values(state.done).map((row) => row.verif).filter(Boolean))];
   const name = state.lot ? state.lot.name : '';
   const left = state.scanned.length;
   live.quit();
@@ -452,6 +456,10 @@ function finishCascade(report = null, message = '') {
   forgetLot(message || `Vérif de ${name} terminée : ${nb(done, 'lot validé', 'lots validés')}` + (left ? `, ${nb(left, 'scan non validé oublié', 'scans non validés oubliés')}.` : '.'));
   if (!report) feedback.good();
   backToList();
+  if (verifs.length && !(report && report.offline)) {
+    if ($('#report').open) $('#report').close(); // celui de la derniere etape est dans le compte rendu commun
+    openVerifReport(verifs, true);
+  }
 }
 
 // Vérif lancee depuis une liste de depart (« Lancer la vérif ») : une fois enregistree (ou quittee), retour a la
