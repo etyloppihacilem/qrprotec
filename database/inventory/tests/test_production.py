@@ -106,7 +106,7 @@ class ConcurrencyTests(TransactionTestCase):
     def test_parallel_wrong_pins_are_all_counted(self):
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
         admin.renew_key()
-        admin.set_pin('4821')
+        admin.set_pin('482100')
         admin.save()
         attempts = 12
         data = {'matricule': 'A001', 'key': admin.new_key}
@@ -119,12 +119,12 @@ class ConcurrencyTests(TransactionTestCase):
         self.assertEqual(admin.pin_failures_total, models.PIN_MAX_FAILURES)
         self.assertTrue(admin.pin_locked())
         # le bon PIN est refuse pendant le blocage
-        code, _ = self.parallel([('POST', '/api/auth/', {**data, 'pin': '4821'}, {})])[0]
+        code, _ = self.parallel([('POST', '/api/auth/', {**data, 'pin': '482100'}, {})])[0]
         self.assertEqual(code, 403)
 
     def test_parallel_name_logins_are_all_counted(self):
         cache.clear()
-        self.user.set_pin('2468')
+        self.user.set_pin('246800')
         self.user.save()
         attempts = 8
         requests = [('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': f'{1000 + number}'},
@@ -138,7 +138,7 @@ class ConcurrencyTests(TransactionTestCase):
     def test_parallel_name_logins_respect_address_limit(self):
         cache.clear()
         attempts = views.NAME_LOGIN_ADDRESS_LIMIT + 4
-        requests = [('POST', '/api/auth/name/', {'nom': 'Inconnu', 'prenom': 'Personne', 'pin': '1234'},
+        requests = [('POST', '/api/auth/name/', {'nom': 'Inconnu', 'prenom': 'Personne', 'pin': '123400'},
                      {'REMOTE_ADDR': '10.0.0.1'}) for _ in range(attempts)]
         codes = sorted(code for code, _ in self.parallel(requests))
         self.assertEqual(codes, [403] * views.NAME_LOGIN_ADDRESS_LIMIT + [429] * 4)

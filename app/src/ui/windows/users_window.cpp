@@ -756,14 +756,15 @@ class UsersWindow final : public AppWindow {
         ImGui::Checkbox("Compte actif", &active_);
       const ImGuiInputTextFlags pin_flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal;
       ImGui::SetNextItemWidth(160.0f);
-      input_limited(creating ? "Code PIN" : "Nouveau PIN", pin_, 8, "4 à 8 chiffres", pin_flags);
+      input_limited(creating ? "Code PIN" : "Nouveau PIN", pin_, static_cast< int >(kPinMaxLength), "6 chiffres ou plus",
+                    pin_flags);
       help_marker("Demandé après le badge si « Demander à chaque connexion » est cochée, et sert à la connexion sans "
                   "badge. Obligatoire pour un administrateur (s'il n'en a pas, il le choisit à sa prochaine "
                   "connexion) ; pour les autres rôles, selon le réglage du rôle (Règles du serveur) ou le choix fait "
                   "plus bas (obligatoire ou désactivé).");
-      const bool pin_valid = pin_.empty() || (pin_.size() >= 4 && pin_.size() <= 8);
+      const bool pin_valid = pin_.empty() || new_pin_valid(pin_);
       if (!pin_valid)
-        ImGui::TextColored(colors::orange, "Le PIN doit comporter 4 à 8 chiffres.");
+        ImGui::TextColored(colors::orange, "Le PIN doit comporter au moins 6 chiffres.");
       draw_contact(app);
 
       Json body;

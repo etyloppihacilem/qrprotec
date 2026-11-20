@@ -893,7 +893,14 @@ class OperationChange(models.Model):
         indexes = [models.Index(fields=['table', 'row'])]
 
 
-PIN_RE = re.compile(r'^\d{4,8}$')
+# PIN tape a la connexion : 4 chiffres au moins (codes choisis avant le passage a 6 chiffres, toujours valables)
+PIN_RE = re.compile(r'^\d{4,64}$')
+# Nouveau PIN : 6 chiffres au moins (Hippolyte, 2026-11-20). Pas de vraie limite haute : le PIN est hache (PBKDF2,
+# sans troncature) ; 64 chiffres au plus seulement pour ne pas hacher n'importe quoi.
+PIN_MIN_LENGTH = 6
+PIN_MAX_LENGTH = 64
+NEW_PIN_RE = re.compile(r'^\d{%d,%d}$' % (PIN_MIN_LENGTH, PIN_MAX_LENGTH))
+NEW_PIN_ERROR = f'Le PIN doit comporter au moins {PIN_MIN_LENGTH} chiffres'
 PIN_MAX_FAILURES = 5              # essais faux consecutifs avant blocage
 PIN_LOCK_DURATION = timedelta(minutes=5)
 # Etat du PIN relu sous verrou avant de compter un essai (essais simultanes, voir Secouristes.check_pin)
@@ -961,6 +968,9 @@ WEB_PREFS = {
     'verif_help_hidden': ("Explication de la vérif masquée", False),
     # bouton ↘ de l'ecran de scan : camera reduite dans un coin (sinon la camera reste en haut)
     'scan_bubble': ('Bulle de scan', False),
+    # passkey deja proposee a la premiere connexion au web : plus de proposition, elle reste dans ⚙ Reglages. Decocher
+    # (poste, Utilisateurs) la repropose a sa prochaine connexion.
+    'passkey_offered': ('Passkey déjà proposée', False),
 }
 
 
@@ -977,7 +987,7 @@ class Secouristes(models.Model):
     fonction = models.CharField(max_length=32, default=DEFAULT_FONCTION)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(default=timezone.now)
-    # PIN de connexion (4 a 8 chiffres, hache) : obligatoire pour les admins, facultatif sinon
+    # PIN de connexion (6 chiffres ou plus, hache ; les anciens codes de 4 ou 5 chiffres restent valables) : obligatoire pour les admins, facultatif sinon
     pin_hash = models.CharField(max_length=128, blank=True, default='')
     pin_failures = models.PositiveIntegerField(default=0)
     pin_locked_until = models.DateTimeField(blank=True, null=True)
@@ -1141,8 +1151,8 @@ class Secouristes(models.Model):
             if self.role == Role.ADMIN:
                 raise ValueError('Le PIN est obligatoire pour un administrateur')
             self.pin_hash = ''
-        elif not PIN_RE.match(pin):
-            raise ValueError('Le PIN doit comporter 4 à 8 chiffres')
+        elif not NEW_PIN_RE.match(pin):
+            raise ValueError(NEW_PIN_ERROR)
         else:
             self.pin_hash = make_password(pin)
         self._clear_pin_failures()

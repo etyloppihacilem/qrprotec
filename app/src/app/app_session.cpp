@@ -154,8 +154,7 @@ void App::draw_name_login() {
   const bool enter = ImGui::InputTextWithHint("##name_pin", "code PIN", &name_login_.pin,
                                               ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal
                                                   | ImGuiInputTextFlags_EnterReturnsTrue);
-  const bool ready  = filled(name_login_.prenom) && filled(name_login_.nom) && name_login_.pin.size() >= 4
-                     && name_login_.pin.size() <= 8;
+  const bool ready  = filled(name_login_.prenom) && filled(name_login_.nom) && login_pin_valid(name_login_.pin);
   if (!name_login_.error.empty())
     ImGui::TextColored(colors::red, "%s", name_login_.error.c_str());
   ImGui::BeginDisabled(!ready || name_login_.busy);
@@ -572,7 +571,7 @@ void App::draw_pin_modal() {
   ImGui::PopFont();
   ImGui::TextDisabled("Badge %s", pin_.matricule.c_str());
   if (pin_.setup)
-    ImGui::TextWrapped("Nouveau PIN de 4 à 8 chiffres (obligatoire pour vous, ou après une réinitialisation). Il "
+    ImGui::TextWrapped("Nouveau PIN d'au moins 6 chiffres (obligatoire pour vous, ou après une réinitialisation). Il "
                        "permet aussi de vous connecter sans badge, avec votre nom et votre prénom.");
   const ImGuiInputTextFlags flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal
                                   | ImGuiInputTextFlags_EnterReturnsTrue;
@@ -581,7 +580,7 @@ void App::draw_pin_modal() {
     ImGui::SetKeyboardFocusHere();
     pin_.focus = false;
   }
-  bool submit = ImGui::InputTextWithHint("##pin", "4 à 8 chiffres", &pin_.pin, flags);
+  bool submit = ImGui::InputTextWithHint("##pin", pin_.setup ? "6 chiffres ou plus" : "code PIN", &pin_.pin, flags);
   if (pin_.setup) {
     ImGui::SetNextItemWidth(220.0f);
     submit = ImGui::InputTextWithHint("##pin_confirm", "confirmez le PIN", &pin_.confirm, flags) || submit;
@@ -597,7 +596,8 @@ void App::draw_pin_modal() {
   }
   if (!pin_.error.empty())
     ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1.0f), "%s", pin_.error.c_str());
-  const bool valid = pin_.pin.size() >= 4 && pin_.pin.size() <= 8 && (!pin_.setup || pin_.confirm == pin_.pin);
+  const bool valid = (pin_.setup ? new_pin_valid(pin_.pin) : login_pin_valid(pin_.pin))
+                     && (!pin_.setup || pin_.confirm == pin_.pin);
   if (pin_.setup && !pin_.confirm.empty() && pin_.confirm != pin_.pin)
     ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.0f, 1.0f), "Les deux PIN sont différents.");
   ImGui::BeginDisabled(!valid || pin_.busy);

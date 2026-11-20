@@ -317,8 +317,8 @@ def my_pin(request):
         summary = 'code PIN supprimé'
     else:
         pin = str(data.get('pin', '') or '').strip()
-        if not PIN_RE.match(pin):
-            raise ApiError('Le PIN doit comporter 4 à 8 chiffres')
+        if not NEW_PIN_RE.match(pin):
+            raise ApiError(NEW_PIN_ERROR)
         summary = 'code PIN modifié' if user.has_pin else 'code PIN choisi'
         user.set_pin(pin)
         if 'pin_at_login' in data:

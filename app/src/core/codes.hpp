@@ -82,6 +82,18 @@ struct ParsedScan {
 // utilise comme douchette du poste). Chaque action est declaree dans app/poste_actions.cpp (nom, droits, effet) ;
 // une action inconnue (poste pas a jour) est signalee sans rien faire. Actions :
 //   rouleau?t=NOM&w=LARGEUR&h=HAUTEUR&s=direct|transfer : rouleau d'etiquettes en place dans l'imprimante
+// Code PIN (meme regle que le serveur, models.PIN_RE / NEW_PIN_RE) : 6 chiffres au moins pour un nouveau code, pas de
+// vraie limite haute (64) ; a la connexion, les anciens codes de 4 ou 5 chiffres restent valables
+inline constexpr std::size_t kPinLoginMinLength = 4;
+inline constexpr std::size_t kPinMinLength      = 6;
+inline constexpr std::size_t kPinMaxLength      = 64;
+inline bool                  new_pin_valid(const std::string &pin) {
+  return pin.size() >= kPinMinLength && pin.size() <= kPinMaxLength;
+}
+inline bool login_pin_valid(const std::string &pin) {
+  return pin.size() >= kPinLoginMinLength && pin.size() <= kPinMaxLength;
+}
+
 inline constexpr const char *kPosteActionPrefix = "qrprotec:poste/";
 std::string poste_action_code(const std::string &action, const std::vector< std::pair< std::string, std::string > > &params);
 

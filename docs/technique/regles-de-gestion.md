@@ -451,7 +451,7 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
   badge avec `{{fonction}}`.
 - Le **badge** (QR avec matricule et clé) identifie. Il expire au bout d'un an ; le renouveler
   invalide l'ancien.
-- Le **PIN** (4 à 8 chiffres) authentifie : obligatoire pour les admins. Pour les autres, selon
+- Le **PIN** (6 chiffres ou plus pour un nouveau code, sans vraie limite haute ; les anciens codes de 4 ou 5 chiffres restent valables) authentifie : obligatoire pour les admins. Pour les autres, selon
   `pin_mode` du secouriste : `required` (obligatoire), `login` (obligatoire à chaque connexion, voir
   plus bas), `disabled` (jamais de PIN, le PIN existant est
   supprimé ; refusé pour un admin) ou vide, le réglage du serveur `pin_required_roles`

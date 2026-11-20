@@ -174,9 +174,9 @@ void App::draw_setup_modal() {
     ImGui::InputText("Prénom", &setup_prenom_);
     ImGui::InputText("Nom", &setup_nom_);
     const ImGuiInputTextFlags pin_flags = ImGuiInputTextFlags_Password | ImGuiInputTextFlags_CharsDecimal;
-    ImGui::InputTextWithHint("Code PIN", "4 à 8 chiffres", &setup_pin_, pin_flags);
+    ImGui::InputTextWithHint("Code PIN", "6 chiffres ou plus", &setup_pin_, pin_flags);
     ImGui::InputTextWithHint("Confirmation", "le même PIN", &setup_pin_confirm_, pin_flags);
-    const bool pin_ok = setup_pin_.size() >= 4 && setup_pin_.size() <= 8 && setup_pin_ == setup_pin_confirm_;
+    const bool pin_ok = new_pin_valid(setup_pin_) && setup_pin_ == setup_pin_confirm_;
     ImGui::TextDisabled("Le PIN sera demandé à chaque connexion, après le badge.");
     ImGui::PopStyleColor();
     ImGui::BeginDisabled(setup_busy_ || setup_matricule_.empty() || setup_nom_.empty() || setup_prenom_.empty() || !pin_ok);
