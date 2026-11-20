@@ -3,7 +3,7 @@
   "name": "Item - planche de 5",
   "category": "item_sheet",
   "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
-  "label_type": {"name": "40 x 30 mm", "width_mm": 40, "height_mm": 30, "rotation": 0, "support": "direct", "margin_top_mm": 0, "margin_bottom_mm": 2, "margin_left_mm": 1, "margin_right_mm": 0},
+  "label_type": {"name": "40 x 30 mm no limit", "width_mm": 40, "height_mm": 30, "rotation": 0, "support": "direct", "margin_mm": 0},
   "parameters": {"code": "QRProtec default", "code1": "code1", "code2": "code2", "code3": "code3", "code4": "code4", "code5": "code5", "code6": "code6", "codet": "codet", "exp1": "12/09/2028", "exp2": "12/09/2028", "exp3": "12/09/2028", "exp4": "12/09/2028", "exp5": "12/09/2028", "iid": "serphy20271231000000A1", "iid1": "iid1", "iid2": "iid2", "iid3": "iid3", "iid4": "iid4", "iid5": "iid5", "titre": "PROTECTION CIVILE\nPARIS CENTRE", "type_name": "Compresses stériles", "type_name1": "Serum phy", "type_name2": "Serum phy", "type_name3": "Serum phy", "type_name4": "Serum phy", "type_name5": "Serum phy"},
   "elements": [
     {"id": "qr", "kind": "qr", "payload": "{{code5}}", "x_mm": 1, "y_mm": 0, "size_mm": 7, "ecc": 0, "quiet_zone": 0, "rotation": 90},

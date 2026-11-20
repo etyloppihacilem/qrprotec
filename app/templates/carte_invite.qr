@@ -3,17 +3,17 @@
   "name": "Carte d'invité",
   "category": "guest_card",
   "media": {"width_mm": 40, "height_mm": 30, "pixels_per_mm": 8, "orientation": "landscape"},
-  "label_type": {"name": "40 x 30 mm", "width_mm": 40, "height_mm": 30, "rotation": 0, "support": "direct", "margin_top_mm": 0, "margin_bottom_mm": 2, "margin_left_mm": 1, "margin_right_mm": 0},
-  "parameters": {"badge_url": "https://example.com/badge?m=INV7K2QX&key=a1B2c3D4e5F6g7H8", "guest_hours": "48", "key_expires": "29/09/2027", "date_limite": "", "matricule": "INV7K2QX", "titre": "PROTECTION CIVILE\nPARIS CENTRE", "full_name": "Léa Martin", "prenom": "Léa", "nom": "Martin", "antenne": "Lyon 3", "validite": "Antenne Lyon 3 · fin le 21/11 à 10:45"},
+  "label_type": {"name": "40 x 30 mm", "width_mm": 40, "height_mm": 30, "rotation": 0, "support": "direct", "margin_top_mm": 1, "margin_bottom_mm": 2, "margin_left_mm": 1, "margin_right_mm": 1},
+  "parameters": {"antenne": "Lyon 3", "badge_url": "https://example.com/badge?m=INV7K2QX&key=a1B2c3D4e5F6g7H8", "date_limite": "12/11/2027", "full_name": "Léa Martin", "guest_hours": "48", "key_expires": "29/09/2027", "matricule": "INV7K2QX", "nom": "Martin", "prenom": "Léa", "titre": "PROTECTION CIVILE\nPARIS CENTRE", "validite": "Antenne Lyon 3 · fin le 21/11 à 10:45"},
   "elements": [
-    {"id": "logo", "kind": "image", "path": "images/protection-civile.png", "x_mm": 1, "y_mm": 0, "width_mm": 18, "height_mm": 13, "dither": 0, "threshold": 129},
-    {"id": "qr", "kind": "qr", "payload": "{{badge_url}}", "x_mm": 19, "y_mm": 0, "size_mm": 18.5, "ecc": 1, "quiet_zone": 0},
+    {"id": "logo", "kind": "image", "path": "images/protection-civile.png", "x_mm": 1, "y_mm": 1, "width_mm": 18, "height_mm": 12, "dither": 0, "threshold": 129},
+    {"id": "qr", "kind": "qr", "payload": "{{badge_url}}", "x_mm": 19, "y_mm": 1, "size_mm": 17, "ecc": 1, "quiet_zone": 0},
     {"id": "titre", "kind": "text", "text": "{{titre}}", "x_mm": 1, "y_mm": 13.5, "width_mm": 18, "height_mm": 4, "font_size_mm": 1.6, "bold": 1, "align": "center"},
     {"id": "invite", "kind": "text", "text": "INVITÉ", "x_mm": 1, "y_mm": 17.6, "width_mm": 36.5, "height_mm": 3.9, "font_size_mm": 3.4, "bold": 1, "align": "left"},
     {"id": "nom", "kind": "text", "text": "{{full_name}![Nom au 1er scan]}", "x_mm": 1, "y_mm": 21.4, "width_mm": 36.5, "height_mm": 2.8, "font_size_mm": 2.3, "bold": 1, "align": "left"},
-    {"id": "validite", "kind": "text", "text": "{{validite}}", "x_mm": 1, "y_mm": 24.1, "width_mm": 36.5, "height_mm": 2.2, "font_size_mm": 1.7, "bold": 0, "align": "left"},
-    {"id": "texte", "kind": "text", "text": "Carte d'invité QRProtec", "x_mm": 1, "y_mm": 26.2, "width_mm": 22, "height_mm": 1.8, "font_size_mm": 1.4, "bold": 0, "align": "left"},
-    {"id": "numero", "kind": "text", "text": "{{matricule}}", "x_mm": 22, "y_mm": 26.3, "width_mm": 14.5, "height_mm": 1.6, "font_size_mm": 1.3, "bold": 0, "align": "right"},
-    {"id": "exp", "kind": "text", "text": "{[À activer avant le ]{date_limite}}", "x_mm": 37.5, "y_mm": 0, "width_mm": 26, "height_mm": 2.4, "font_size_mm": 1.65, "bold": 0, "align": "left", "rotation": 270}
+    {"id": "validite", "kind": "text", "text": "{{validite}}", "x_mm": 1, "y_mm": 24, "width_mm": 36.5, "height_mm": 2.5, "font_size_mm": 1.7, "bold": 0, "align": "left"},
+    {"id": "texte", "kind": "text", "text": "Carte d'invité QRProtec", "x_mm": 1, "y_mm": 26, "width_mm": 22, "height_mm": 2, "font_size_mm": 1.4, "bold": 0, "align": "left"},
+    {"id": "numero", "kind": "text", "text": "{{matricule}}", "x_mm": 24.5, "y_mm": 26.5, "width_mm": 14.5, "height_mm": 1.6, "font_size_mm": 1.3, "bold": 0, "align": "right"},
+    {"id": "exp", "kind": "text", "text": "{[À activer avant le ]{date_limite}}", "x_mm": 36.5, "y_mm": 1, "width_mm": 25, "height_mm": 2.4, "font_size_mm": 1.65, "bold": 0, "align": "left", "rotation": 270}
   ]
 }
