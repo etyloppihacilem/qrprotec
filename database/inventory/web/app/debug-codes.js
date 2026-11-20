@@ -357,7 +357,7 @@ async function debugPasskeysPart(user) {
     if (!rows.length) { box.append(el('p', { class: 'hint' }, 'Aucune passkey : connexion par carte, ou nom et code PIN.')); return; }
     rows.forEach((row) => box.append(el('p', { class: 'hint' }, `${row.device || 'Passkey'} · créée ${fmtDateTime(row.created, { on: true })}`
       + (row.last_used ? `, utilisée ${fmtDateTime(row.last_used, { on: true })}` : ''))));
-    box.append(el('p', { class: 'hint' }, 'Avec une passkey, le nom et le code PIN ne marchent plus pour ce secouriste ; sa carte, si.'),
+    box.append(el('p', { class: 'hint' }, 'Avec une passkey, le nom et le code PIN ne marchent plus pour ce secouriste sur le web (au poste, si) ; sa carte, si.'),
       el('button', { type: 'button', class: 'danger', onclick: async () => {
         if (!await confirmDialog(`Supprimer ${rows.length > 1 ? 'les passkeys' : 'la passkey'} de ${user.name} ?`,
           'Il se connectera de nouveau avec sa carte, ou son nom et son code PIN.', 'Supprimer', 'danger')) return;

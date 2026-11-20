@@ -22,7 +22,9 @@ Fichiers concernés :
   secouriste sans carte, la passkey lui est proposée tout de suite. Aussi dans ⚙ Réglages > Passkey.
 - **Une passkey coupe la connexion par nom (ou matricule) et PIN** pour cette personne
   (`name_login_candidates_queryset`). Le refus le dit seulement si le PIN tapé est juste
-  (`passkey_required`) : un inconnu n'apprend rien. **La carte reste valable**, avec son PIN s'il est
+  (`passkey_required`) : un inconnu n'apprend rien. **Seulement sur le front web** : un poste (kiosk sur
+  l'API locale, ou poste distant authentifié par sa clé de front, `is_front`) garde la connexion par nom
+  et PIN, la clé du poste suffisant à protéger le code. **La carte reste valable**, avec son PIN s'il est
   demandé à chaque connexion. Le QR code de dépannage du TECH marche toujours.
 - **Suppression** : par l'utilisateur (⚙ Réglages), par un admin dans l'outil de debug du web (toucher
   le nom du secouriste dans « Cartes des secouristes ») ou au poste (Utilisateurs > Passkeys). Sans

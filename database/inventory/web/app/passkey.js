@@ -2,7 +2,8 @@
 'use strict';
 
 // Passkey : cle gardee par le telephone (empreinte, visage ou code du telephone), verifiee par le serveur
-// (inventory/passkeys.py). Une fois creee, la connexion par nom et PIN ne marche plus pour cette personne ; la carte
+// (inventory/passkeys.py). Une fois creee, la connexion par nom et PIN ne marche plus pour cette personne sur le web
+// (les postes la gardent : leur cle de front protege le code) ; la carte
 // reste valable. Proposee apres une connexion (surtout la premiere, par le QR code de depannage du TECH), jamais sur
 // un web partage (tablette du local).
 //
@@ -113,7 +114,7 @@ async function offerPasskey(user, always = false) {
     title: 'Créer une passkey sur ce téléphone ?',
     body: el('div', {},
       el('p', {}, 'Vous vous connecterez ensuite avec l\'empreinte, le visage ou le code de votre téléphone, sans carte ni code PIN.'),
-      el('p', { class: 'hint' }, 'La connexion avec le nom et le code PIN ne marchera plus pour vous. Votre carte reste valable. '
+      el('p', { class: 'hint' }, 'Sur le web, la connexion avec le nom et le code PIN ne marchera plus pour vous (au poste, si). Votre carte reste valable. '
         + 'Le TECH peut supprimer la passkey si vous changez de téléphone.')),
     choices: [{ label: 'Créer une passkey', value: true, cls: 'primary' }],
     cancel: 'Plus tard',
@@ -149,9 +150,9 @@ function renderPasskeySettings() {
     parts.push(el('p', { class: 'hint' }, 'Chargement…'));
   } else if (!rows.length) {
     parts.push(el('p', { class: 'hint' }, 'Connectez-vous avec l\'empreinte, le visage ou le code de votre téléphone. '
-      + 'Avec une passkey, la connexion par nom et code PIN ne marche plus pour vous ; votre carte, si.'));
+      + 'Avec une passkey, la connexion par nom et code PIN ne marche plus pour vous sur le web (au poste, si) ; votre carte, si.'));
   } else {
-    parts.push(el('p', { class: 'hint' }, 'Connexion par nom et code PIN désactivée : passkey ou carte.'));
+    parts.push(el('p', { class: 'hint' }, 'Sur le web, connexion par nom et code PIN désactivée : passkey ou carte. Au poste, le nom et le code marchent toujours.'));
     rows.forEach((row) => parts.push(el('div', { class: 'passkey-row' },
       el('div', {}, el('b', {}, row.device || 'Passkey'),
         el('div', { class: 'hint' }, `Créée ${fmtDateTime(row.created, { on: true })}`

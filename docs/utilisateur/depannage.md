@@ -87,7 +87,8 @@ Si les notifications sont activées, le TECH reçoit déjà le lien (une seule f
 **Se connecter avec une passkey.**
 Après une connexion sur votre téléphone (carte, ou QR code de dépannage du TECH), QRprotec propose de
 créer une passkey : ensuite, **Se connecter avec une passkey** suffit, avec l'empreinte, le visage ou
-le code du téléphone. Le nom et le code PIN ne marchent alors plus pour vous ; votre carte, si.
+le code du téléphone. Sur le web, le nom et le code PIN ne marchent alors plus pour vous ; votre carte, si.
+Au poste, le nom et le code PIN marchent toujours.
 Téléphone perdu ou changé : le TECH supprime la passkey (poste, Utilisateurs), le nom et le PIN
 remarchent.
 

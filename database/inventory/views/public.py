@@ -300,12 +300,17 @@ def name_login_candidates_queryset(passkey=False):
 
 
 PASSKEY_INSTEAD_ERROR = ("Vous avez une passkey : connectez-vous avec elle (« Se connecter avec une passkey ») ou "
-                         "avec votre carte. Le nom et le code PIN ne marchent plus pour vous.")
+                         "avec votre carte. Sur le web, le nom et le code PIN ne marchent plus pour vous (au poste, si).")
 
 
 def pin_login_or_passkey_hint(request, candidates, passkey_candidates, pin, error, **extra):
     """pin_login ; s'il echoue mais que le PIN est celui d'un secouriste qui a une passkey, le refus le lui dit (le
-    PIN juste prouve deja que c'est lui : on ne revele rien a un inconnu)."""
+    PIN juste prouve deja que c'est lui : on ne revele rien a un inconnu).
+
+    Seulement sur le front web : un poste (kiosk, ou poste distant authentifie par sa cle de front) garde la connexion
+    par nom et PIN meme avec une passkey, la cle du poste suffisant a proteger le code (Hippolyte, 2026-11-20)."""
+    if is_front(request):
+        candidates, passkey_candidates = candidates + passkey_candidates, []
     try:
         return pin_login(request, candidates, pin, error, **extra)
     except ApiError as exc:
