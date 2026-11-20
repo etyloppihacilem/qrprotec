@@ -151,7 +151,7 @@ def auth(request):
     matricule = str(request.data.get('matricule', ''))
     if not request.data.get('key'):
         # matricule seul (code sans l'URL du badge, ou tape) : rien ne prouve le badge, le PIN est obligatoire
-        return Response(login_response(request, matricule_login(request, matricule)))
+        return Response(login_response(request, matricule_login(request, matricule), method='matricule_pin'))
     user = Secouristes.objects.filter(matricule=matricule).first()
     if user is None or not user.check_key(request.data.get('key')):
         if user is not None and user.guest and keys_match(user.key_hash, hash_key(str(request.data.get('key') or ''))):
@@ -160,6 +160,7 @@ def auth(request):
                                prenom=user.prenom, antenna=user.guest_antenna)
             raise ApiError(guest_refusal(user), status.HTTP_403_FORBIDDEN, guest=True)
         raise ApiError("Badge invalide ou expire", status.HTTP_403_FORBIDDEN)
+    request.qrprotec_auth = 'card_pin' if user.pin_required else 'card'
     if user.guest:
         activate_guest_card(request, user)
     verify_pin(user, request.data)
@@ -168,7 +169,7 @@ def auth(request):
         user.name_login_failures = 0
         user.name_login_locked_until = None
         user.save(update_fields=['name_login_failures', 'name_login_locked_until'])
-    return Response(login_response(request, user))
+    return Response(login_response(request, user, method=request.qrprotec_auth))
 
 
 def guest_used_message(card):
@@ -233,11 +234,13 @@ def activate_guest_card(request, card):
                        matricule=card.matricule, guest_activation=True)
 
 
-def login_response(request, user, temporary=False, passkey=False):
+def login_response(request, user, temporary=False, passkey=False, method=''):
+    """Reponse d'une connexion reussie. `method` : moyen de connexion (sessions.AUTH_METHODS), garde dans le jeton de
+    session pour que le journal des operations dise comment la personne s'est connectee."""
     data = ser.user_dict(user)
     if is_front(request):
         data['nom'] = user.nom  # le poste l'affiche ; jamais sur le front web
-    data['session'] = session_token(user, temporary, passkey=passkey)
+    data['session'] = session_token(user, temporary, passkey=passkey, method=method)
     if passkey:
         data['passkey_session'] = True  # le web montre le bouton du QR code de connexion au poste
     # le web propose d'en creer une apres la connexion (jamais pour une carte d'invite)
@@ -336,7 +339,7 @@ def auth_name(request):
         raise ApiError("Saisissez votre nom, votre prénom et votre code PIN")
     user = pin_login_or_passkey_hint(request, name_login_candidates(nom, prenom),
                                      name_login_candidates(nom, prenom, passkey=True), pin, NAME_LOGIN_ERROR)
-    return Response(login_response(request, user))
+    return Response(login_response(request, user, method='name_pin'))
 
 
 @api_view(['POST'])
@@ -359,16 +362,17 @@ def auth_temp(request):
         raise ApiError("QR code de connexion expiré ou invalide : affichez-en un nouveau sur votre téléphone"
                        if from_passkey else "QR code de connexion expiré ou invalide : demandez-en un nouveau au TECH",
                        status.HTTP_403_FORBIDDEN)
+    request.qrprotec_auth = 'passkey_qr' if from_passkey else 'temp_qr'
     if from_passkey:
         # le secouriste montre lui-meme le QR code depuis sa session passkey : session normale sur le poste
         journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
                        f'connexion de {user} ({user.matricule}) au poste par le QR code de son téléphone (passkey)',
                        matricule=user.matricule)
-        return Response(login_response(request, user))
+        return Response(login_response(request, user, method='passkey_qr'))
     journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
                    f'connexion de dépannage de {user} ({user.matricule}) par QR code temporaire',
                    matricule=user.matricule)
-    return Response(login_response(request, user, temporary=True))
+    return Response(login_response(request, user, temporary=True, method='temp_qr'))
 
 
 def check_login_address(request):

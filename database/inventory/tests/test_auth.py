@@ -782,3 +782,47 @@ class PinLengthTests(ApiTestCase):
                                local=False)
         self.assertEqual(code, 400)
         self.assertIn('6 chiffres', body['error'])
+
+
+class AuthJournalTests(ApiTestCase):
+    """Journal des operations : moyen d'authentification de chaque operation (details.auth). Web : moyen de connexion ;
+    poste principal : carte ou PIN ; poste distant : en plus le nom de sa cle API."""
+
+    def report(self, extra, credentials=None, local=True, session=None):
+        body = {'lot': self.lot.id, 'comment': 'test', 'usable': True}
+        if credentials:
+            body['user'] = credentials
+        if extra:
+            response = self.client.post('/api/reports/', body, content_type='application/json', **extra)
+            self.assertEqual(response.status_code, 201, response.content)
+        else:
+            code, data = self.call('POST', '/api/reports/', body, local=local, session=session)
+            self.assertEqual(code, 201, data)
+        return Operation.objects.filter(kind='report').latest('id').details.get('auth')
+
+    def test_auth_method_in_journal(self):
+        from ..models import FrontKey
+        self.user.set_pin('482100')
+        self.user.pin_at_login = False
+        self.user.save()
+        # web : carte seule (cle envoyee avec la requete), puis nom + PIN (jeton de session)
+        self.assertEqual(self.report(None, {'matricule': 'M001', 'key': self.user.new_key}, local=False), 'Web : carte')
+        _, user = self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '482100'},
+                            local=False)
+        self.assertEqual(self.report(None, {'matricule': 'M001', 'session': user['session']}, local=False),
+                         'Web : nom + PIN')
+        # poste principal (kiosk) : carte
+        _, poste = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, session=False)
+        self.assertEqual(self.report(None, session=poste['session']), 'Poste principal : carte')
+        # poste distant : nom de la cle API en plus, connexion par nom + PIN
+        _, key = FrontKey.create('Borne B')
+        remote = {'qrprotec.role': 'remote', 'HTTP_X_QRPROTEC_KEY': key}
+        response = self.client.post('/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '482100'},
+                                    content_type='application/json', **remote)
+        session = response.json()['session']
+        self.assertEqual(self.report({**remote, 'HTTP_X_QRPROTEC_SESSION': session}),
+                         'Poste distant (clé API « Borne B ») : nom + PIN')
+        # operation ecrite pendant la connexion elle-meme : QR code de depannage du TECH
+        token = views.temp_login_token(self.user)
+        self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, local=False)
+        self.assertEqual(Operation.objects.latest('id').details.get('auth'), 'Web : QR code de dépannage du TECH')

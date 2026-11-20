@@ -197,12 +197,15 @@ def error(message, code=status.HTTP_400_BAD_REQUEST, **extra):
 
 def handle_errors(view):
     def wrapper(request, *args, **kwargs):
+        previous = journal.set_request(request)  # moyen d'authentification note au journal des operations
         try:
             return view(request, *args, **kwargs)
         except ApiError as exc:
             return error(exc.message, exc.code, **exc.extra)
         except ValueError as exc:
             return error(str(exc))
+        finally:
+            journal.set_request(previous)  # vue appelee depuis une autre : on rend la requete exterieure
     wrapper.__name__ = view.__name__
     wrapper.__doc__ = view.__doc__
     return wrapper

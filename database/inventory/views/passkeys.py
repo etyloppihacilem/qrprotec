@@ -85,7 +85,7 @@ def passkey_login(request):
             sign_count=count, last_used=timezone.now())
     if not updated:  # deux connexions simultanees avec la meme signature
         raise ApiError(PASSKEY_LOGIN_ERROR, status.HTTP_403_FORBIDDEN)
-    return Response(login_response(request, user, passkey=True))
+    return Response(login_response(request, user, passkey=True, method='passkey'))
 
 
 @api_view(['POST'])

@@ -340,6 +340,9 @@ class JournalWindow final : public AppWindow {
                   display_datetime(operation["at"], true).c_str());
       if (!operation["verified"].boolean())
         ImGui::TextColored(colors::orange, "Identité non vérifiée par un badge (%s)", operation["by"].str().c_str());
+      // moyen d'authentification de l'operation (web : connexion ; poste : carte ou PIN, et cle API d'un poste distant)
+      if (const std::string auth = operation["details"]["auth"].str(); !auth.empty())
+        ImGui::TextDisabled("Connexion : %s", auth.c_str());
       if (!operation["lot_name"].str().empty())
         ImGui::Text("Lot : %s (%s)", operation["lot_name"].str().c_str(), operation["lot"].str("supprimé").c_str());
       ImGui::TextWrapped("%s", operation["summary"].str().c_str());

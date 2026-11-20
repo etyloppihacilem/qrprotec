@@ -142,6 +142,10 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
   ensuite, est réattribuée dans le journal aussi. `GET /api/operations/` (API locale et distante, rôles
   gestion et admin) filtre par `kind`, `by`, `lot` (avec ses sous-lots, archivés compris, sauf `sub=0`),
   `since` / `until` et `q`, pagine avec `before` et donne avec `facets=1` les personnes et les types.
+  `details.auth` dit comment la personne s'est authentifiée (`sessions.auth_label`, requête posée par
+  `handle_errors`) : « Web : passkey », « Poste principal : carte + PIN », « Poste distant (clé API
+  « Borne B ») : nom + PIN ». Le moyen de connexion est gardé dans le jeton de session (`a`,
+  `sessions.AUTH_METHODS`).
 - Annulation des opérations (`undo.py`, modèle `OperationChange`) : le middleware `CaptureMiddleware`
   enregistre les écritures de chaque requête qui n'est pas un GET (et la vérif commune enregistrée par le
   serveur, `live.py`). Des déclencheurs SQLite **temporaires** (propres à la connexion, créés à la première

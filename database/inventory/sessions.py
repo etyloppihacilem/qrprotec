@@ -31,13 +31,63 @@ TEMP_SESSION_MAX_AGE = 24 * 3600
 PASSKEY_POSTE_LOGIN_MAX_AGE = 300
 
 
-def session_token(user, temporary=False, passkey=False):
+# Moyens de connexion, gardes dans le jeton de session (`a`) et notes au journal des operations (details.auth)
+AUTH_METHODS = {
+    'card': 'carte',
+    'card_pin': 'carte + PIN',
+    'name_pin': 'nom + PIN',
+    'matricule_pin': 'matricule + PIN',
+    'temp_qr': 'QR code de dépannage du TECH',
+    'passkey': 'passkey',
+    'passkey_qr': 'QR code du téléphone (passkey)',
+    'setup': 'création du premier administrateur',
+}
+
+
+def session_token(user, temporary=False, passkey=False, method=''):
     # lie au badge courant : renouveler le badge invalide les sessions. `pk` : session ouverte avec une passkey (le
-    # web propose alors le QR code de connexion au poste)
+    # web propose alors le QR code de connexion au poste). `a` : moyen de connexion (AUTH_METHODS), pour le journal
     data = {'m': user.matricule, 'k': user.key_hash[-8:]}
     if passkey:
         data['pk'] = 1
+    if method:
+        data['a'] = method
     return signing.dumps(data, salt=TEMP_SESSION_SALT if temporary else SESSION_SALT)
+
+
+def session_method(token):
+    """Moyen de connexion d'un jeton de session valide ('' : jeton d'avant ce suivi), None si le jeton est invalide."""
+    data = _session_data(token)
+    return None if data is None else str(data.get('a') or '')
+
+
+def auth_label(request):
+    """Moyen d'authentification d'une requete, pour le journal des operations : « Web : passkey », « Poste principal :
+    carte + PIN », « Poste distant (clé API « Borne B ») : nom + PIN ». '' sans requete ni personne connectee."""
+    if request is None:
+        return ''
+    method = getattr(request, 'qrprotec_auth', None)  # connexion en cours (journal ecrit pendant /api/auth/...)
+    front = getattr(request, 'qrprotec_local', False)
+    if method is None:
+        if front:
+            method = session_method(request.META.get('HTTP_X_QRPROTEC_SESSION', ''))
+        else:
+            try:
+                credentials = request.data.get('user') if hasattr(request, 'data') else None
+            except Exception:  # corps illisible : pas de moyen de connexion  # noqa: BLE001
+                credentials = None
+            if isinstance(credentials, dict):
+                token = credentials.get('session')
+                method = session_method(token) if token else None
+                if not method and credentials.get('key'):
+                    method = 'card'  # cle du badge envoyee avec la requete
+    if method is None:
+        return ''
+    label = AUTH_METHODS.get(method, 'session ouverte avant le suivi des connexions')
+    if not front:
+        return f'Web : {label}'
+    name = getattr(request, 'qrprotec_front', '')
+    return f'Poste distant (clé API « {name} ») : {label}' if name else f'Poste principal : {label}'
 
 
 def passkey_session(user, token) -> bool:
