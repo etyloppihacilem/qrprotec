@@ -120,7 +120,7 @@ def my_passkeys(request):
         device = webpush.device_name(request.META.get('HTTP_USER_AGENT'))
         Passkey.objects.create(user=user, device=device, **created)
         journal.record(OperationKind.USER, by, f'passkey créée par {user} ({user.matricule}) sur {device} : plus de '
-                       'connexion par nom et PIN', matricule=user.matricule)
+                       'connexion par nom et PIN sur le web', matricule=user.matricule)
     elif action == 'delete':
         passkey = user.passkeys.filter(pk=parse_int(request.data.get('id'), 'id', 1)).first()
         if passkey is None:

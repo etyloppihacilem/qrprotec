@@ -163,6 +163,13 @@ class PasskeyTests(ApiTestCase):
         code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'pin': '4321'}, local=False)
         self.assertEqual(code, 403)
         self.assertTrue(body.get('passkey_required'))
+        # au poste (kiosk ou poste distant avec sa cle de front), le nom et le PIN marchent toujours
+        code, body = self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '4321'},
+                               session=False)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body['matricule'], 'M001')
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'pin': '4321'}, session=False)
+        self.assertEqual(code, 200, body)
         # la carte marche toujours
         code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '4321'},
                             local=False)

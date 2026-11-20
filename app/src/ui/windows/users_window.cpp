@@ -629,7 +629,7 @@ class UsersWindow final : public AppWindow {
       if (count == 0)
         return;
       ImGui::SeparatorText("Passkeys");
-      ImGui::Text("%d passkey%s : connexion par nom et PIN désactivée (la carte marche).", count, count > 1 ? "s" : "");
+      ImGui::Text("%d passkey%s : connexion par nom et PIN désactivée sur le web (au poste et avec la carte, ça marche).", count, count > 1 ? "s" : "");
       if (confirm_button(count > 1 ? "Supprimer les passkeys" : "Supprimer la passkey",
                          "Il se connectera de nouveau au web avec sa carte, ou son nom et son PIN. Continuer ?",
                          "passkeys_delete")) {
