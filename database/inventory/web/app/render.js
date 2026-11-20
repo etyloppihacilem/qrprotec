@@ -537,7 +537,7 @@ function renderLot() {
     el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
       el('br'), labelLine(lot)),
     expiryLine(lot),
-    revisionLine(lot),
+    ...revisionLine(lot), // une ligne par entretien (tableau) : replaceChildren ne deplie pas les tableaux
     lotDisinfectionLine(lot),
     el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
     lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
