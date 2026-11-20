@@ -1551,6 +1551,23 @@ class PushKeys(models.Model):
     created = models.DateTimeField(default=timezone.now)
 
 
+class Passkey(models.Model):
+    """Passkey (WebAuthn) d'un secouriste pour se connecter au front web sans badge (voir passkeys.py). Seule la cle
+    publique est gardee. Tant qu'il en a une, la connexion par nom (ou matricule) et PIN lui est refusee ; la carte
+    reste valable. Un admin la supprime (poste, fenetre Utilisateurs, ou outil de debug du web)."""
+    user = models.ForeignKey(Secouristes, on_delete=models.CASCADE, related_name='passkeys')
+    credential_id = models.CharField(max_length=1400, unique=True)  # identifiant de l'authentificateur (base64url)
+    public_key = models.BinaryField()                               # cle publique COSE
+    sign_count = models.PositiveBigIntegerField(default=0)          # compteur de signatures (0 : pas de compteur)
+    transports = models.JSONField(default=list, blank=True)
+    device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme a la creation
+    created = models.DateTimeField(default=timezone.now)
+    last_used = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f'passkey {self.device or self.pk} de {self.user}'
+
+
 class PushSubscription(models.Model):
     """Abonnement d'un navigateur aux notifications web (roles gestion et admin), un par appareil."""
     user = models.ForeignKey(Secouristes, on_delete=models.CASCADE, related_name='push_subscriptions')

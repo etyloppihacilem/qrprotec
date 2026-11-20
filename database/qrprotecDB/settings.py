@@ -95,6 +95,9 @@ QRPROTEC = {
     # Base des URLs encodees dans les QR codes (lots, badges, paquets). Changer ici (ou via la variable
     # d'environnement) suffit : le front reconnait les QR codes quel que soit le domaine.
     'PUBLIC_BASE_URL': os.environ.get('QRPROTEC_PUBLIC_BASE_URL', 'https://example.com/'),
+    # Domaine des passkeys du front web (RP ID WebAuthn) : vide, le nom d'hote de PUBLIC_BASE_URL (localhost en
+    # developpement). Le changer rend inutilisables les passkeys deja creees (voir inventory/passkeys.py).
+    'PASSKEY_RP_ID': os.environ.get('QRPROTEC_PASSKEY_RP_ID', ''),
     # Certificats de Caddy (/etc/qrprotec/qrprotec.conf) : avec « internal », le fichier de configuration d'un
     # front cree au poste contient l'autorite interne de Caddy (voir inventory.front_config.server_ca_pem).
     # QRPROTEC_FRONT_CA_FILE : un autre certificat PEM a y mettre a la place.

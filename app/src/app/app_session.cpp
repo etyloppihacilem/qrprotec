@@ -331,7 +331,30 @@ void App::require_login(const std::string &what, std::function< void() > action,
 
 void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
   pin_ = PinPrompt{};
+  if (!scan.temp.empty() && scan.key.empty()) {
+    send_temp_login(scan.id, scan.temp, source);
+    return;
+  }
   send_auth(scan.id, scan.key, "", "", source);
+}
+
+// QR code de connexion temporaire (badge?m=...&t=...) : celui du TECH pour un secouriste qui a oublie sa carte, ou
+// celui qu'affiche le telephone d'un secouriste connecte au web avec sa passkey (5 min, une seule fois). Ni cle ni
+// PIN : le serveur verifie le jeton. La connexion n'est pas gardee au redemarrage (pas de carte a rescanner).
+void App::send_temp_login(const std::string &matricule, const std::string &token, ScanSource source) {
+  Json body;
+  body["matricule"] = matricule;
+  body["token"]     = token;
+  pin_.busy         = true;
+  api.post("/api/auth/temp/", body, [this, source](const ApiResult &result) {
+    pin_.busy = false;
+    if (result.ok) {
+      complete_login(result.data);
+      return;
+    }
+    feedback.error(source, settings);
+    notify("QR code de connexion refusé : " + result.error, true);
+  });
 }
 
 // Le serveur verifie la cle du badge puis, si besoin, le PIN : une erreur pin_required (ou

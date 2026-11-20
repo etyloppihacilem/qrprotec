@@ -1633,7 +1633,8 @@ def users(request):
     if not first_admin:
         require_front(request, ADMIN)
     if request.method == 'GET':
-        users_list = (Secouristes.objects.filter(guest=False).select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions'))
+        users_list = (Secouristes.objects.filter(guest=False).select_related('pin_contact').annotate(push_device_count=Count('push_subscriptions', distinct=True),
+                                passkey_count=Count('passkeys', distinct=True))
                       .order_by('nom', 'prenom'))
         settings_row = ServerSettings.get()  # lu une fois pour toute la liste
         for user in users_list:
@@ -1716,6 +1717,8 @@ def user_detail(request, matricule):
         with transaction.atomic():
             apply_default_contact(user, data)
             user.save()
+            if data.get('delete_passkeys'):  # la connexion par nom et PIN redevient possible
+                user.passkeys.all().delete()
             journal.record(OperationKind.USER, front_identity(request),
                            f'compte modifié : {user} ({user.matricule}) : {user_changes(data, user)}',
                            matricule=user.matricule, fields=sorted(data.keys()))
@@ -1806,7 +1809,7 @@ def parse_fonction(value):
 
 USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'fonction': 'rôle', 'pin': 'PIN', 'pin_reset': 'PIN réinitialisé', 'pin_mode': 'mode du PIN', 'pin_at_login': 'PIN demandé à chaque connexion',
                'pin_contact': 'admin à contacter', 'push_disabled': 'notifications', 'default_contact': 'contact par défaut',
-               'web_prefs': 'réglages du web',
+               'web_prefs': 'réglages du web', 'delete_passkeys': 'passkeys supprimées (nom + PIN rétabli)',
                'scanner_volume': 'volume de la douchette'}
 
 

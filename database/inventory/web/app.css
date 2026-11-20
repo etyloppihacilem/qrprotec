@@ -434,6 +434,12 @@ dialog.above-keyboard { margin-top: 0; margin-bottom: auto; bottom: auto; overfl
 #login-gate-cam { flex: 1 1 auto; width: min(86vw, 360px); min-height: 220px; max-height: 420px; }
 #login-gate .login-gate-help { color: var(--muted); font-size: .95rem; }
 #login-gate-name { width: min(100%, 420px); padding: 14px; font-size: 1.05rem; background: var(--navy); color: #fff; font-weight: 600; }
+#login-gate-passkey { width: min(100%, 420px); padding: 14px; font-size: 1.05rem; background: var(--navy); color: #fff; font-weight: 600; }
+#login-gate-passkey[hidden], #name-login-passkey[hidden] { display: none; }
+.passkey-login { display: block; width: 100%; margin: 8px 0 4px; padding: 12px; }
+.passkey-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+#home-poste-qr > .icon { margin-right: 0; }
+#home-poste-qr[hidden] { display: none; }
 #login-gate-later { width: min(100%, 420px); padding: 12px; background: none; border: 1px solid var(--line); color: var(--text); }
 body.login-gate #camera { display: block !important; position: fixed; z-index: 47; left: var(--gate-left, 7vw);
   top: var(--gate-top, 120px); width: var(--gate-width, 86vw); height: var(--gate-height, 40dvh); border-radius: 18px;
@@ -895,7 +901,7 @@ dialog.big-popup p { font-size: 1.05rem; }
 .settings-check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
 .settings-check input { margin-top: 3px; }
 /* QR code de connexion temporaire (outil de debug) : dans la fenetre */
-#temp-login .debug-qr { width: min(100%, 52dvh, 420px); margin: 0 auto; }
+#temp-login .debug-qr, #poste-qr .debug-qr { width: min(100%, 52dvh, 420px); margin: 0 auto; }
 /* page « Départ » : recherche des lots */
 #home-depart .depart-search { width: 100%; box-sizing: border-box; font: inherit; font-size: 1rem; padding: 10px 12px; margin: 8px 0 2px;
   border: 1px solid var(--line); border-radius: 10px; background: #fff; }

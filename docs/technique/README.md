@@ -17,6 +17,8 @@ Lire dans l'ordre :
    notifications, le relais WebSocket, les tests.
 5. [WebSockets des vérifs](websockets.md) : le suivi en direct et les vérifs à plusieurs (protocole,
    sessions en mémoire, fusion, envoi de la vérif commune, cascade, anonymisation des noms).
+   [Passkeys du front web](passkeys.md) : connexion sans carte ni PIN, QR code de connexion au poste,
+   domaine des passkeys et débogage.
 6. [Front poste (ImGui, C++)](front-imgui.md) : organisation de `app/`, threads, fenêtres, pile de
    scans, impression des étiquettes, douchette.
 7. [Front web (téléphone)](front-web.md) : la page unique servie aux adresses des QR codes.

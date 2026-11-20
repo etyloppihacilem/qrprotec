@@ -503,6 +503,7 @@ ParsedScan parse_scan(const std::string &input) {
     scan.kind = ScanKind::User;
     scan.id   = params["m"];
     scan.key  = params["key"];
+    scan.temp = params["t"];
   } else if (route == "seal" && !params["lot"].empty() && !params["s"].empty()) {
     scan.kind = ScanKind::LotSeal;
     scan.id   = params["lot"];

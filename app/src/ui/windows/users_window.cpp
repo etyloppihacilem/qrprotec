@@ -621,6 +621,26 @@ class UsersWindow final : public AppWindow {
       }
     }
 
+    // Passkeys du front web (connexion sans carte ni PIN depuis son telephone) : tant qu'il en a une, la connexion par
+    // nom et PIN lui est refusee, la carte reste valable. Les supprimer (telephone perdu ou change) retablit le nom et
+    // le PIN.
+    void draw_passkeys(App &app) {
+      const int count = static_cast< int >(user_["passkeys"].integer());
+      if (count == 0)
+        return;
+      ImGui::SeparatorText("Passkeys");
+      ImGui::Text("%d passkey%s : connexion par nom et PIN désactivée (la carte marche).", count, count > 1 ? "s" : "");
+      if (confirm_button(count > 1 ? "Supprimer les passkeys" : "Supprimer la passkey",
+                         "Il se connectera de nouveau au web avec sa carte, ou son nom et son PIN. Continuer ?",
+                         "passkeys_delete")) {
+        Json body;
+        body["delete_passkeys"] = Json(true);
+        patch_user(app, body, "Passkeys supprimées : connexion par nom et PIN rétablie.");
+      }
+      help_marker("Créées par l'utilisateur sur son téléphone, dans le front web. Elles remplacent le nom et le PIN ; "
+                  "les supprimer si le téléphone est perdu ou changé.");
+    }
+
     // Reglages personnels de l'utilisateur (ceux qu'il regle lui-meme au poste ou dans le ⚙ du web) : un admin les
     // modifie ici pour lui, par exemple pour remettre un message qu'il a choisi de ne plus afficher.
     void draw_user_settings(App &app) {
@@ -887,6 +907,7 @@ class UsersWindow final : public AppWindow {
                     "peut aussi se connecter sans badge, avec son nom, son prénom et son PIN.");
       }
 
+      draw_passkeys(app);
       draw_user_settings(app);
       draw_notifications(app);
 

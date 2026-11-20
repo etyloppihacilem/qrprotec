@@ -27,6 +27,8 @@
       <h1 id="home-title">QRProtec</h1>
       <div class="bar-buttons">
         <button id="home-settings" class="bar-button" type="button" aria-label="Réglages" title="Réglages (installer l'appli, code PIN, notifications)">⚙</button>
+        <!-- QR code de connexion au poste : seulement pour une session ouverte avec une passkey (web/app/passkey.js) -->
+        <button id="home-poste-qr" class="bar-button" type="button" aria-label="QR code pour se connecter au poste" title="QR code pour se connecter au poste" hidden></button>
         <button id="home-user" class="login-button" type="button">Se connecter</button>
       </div>
     </header>
@@ -217,6 +219,7 @@
     <p id="login-gate-text"></p>
     <div id="login-gate-cam"></div>
     <p class="login-gate-help">Montrez le QR code de votre carte de secouriste à la caméra, comme une étiquette.</p>
+    <button type="button" id="login-gate-passkey" class="secondary" hidden>🔑 Se connecter avec une passkey</button>
     <button type="button" id="login-gate-name" class="secondary">Pas de carte ? Connexion avec nom et prénom</button>
     <button type="button" id="login-gate-later" class="secondary">Annuler</button>
   </div>
@@ -340,6 +343,7 @@
   <dialog id="name-login">
     <form id="name-login-form">
       <h2>Connexion sans badge</h2>
+      <button type="button" id="name-login-passkey" class="primary passkey-login" hidden>🔑 Se connecter avec une passkey</button>
       <p class="hint">Si vous avez un code PIN : votre nom, votre prénom et votre code.</p>
       <input id="name-login-prenom" type="text" enterkeyhint="next" autocomplete="given-name" maxlength="32" placeholder="Prénom">
       <input id="name-login-nom" type="text" enterkeyhint="next" autocomplete="family-name" maxlength="32" placeholder="Nom">
@@ -404,6 +408,7 @@
     </div>
     <div id="settings-install" class="push-box"></div>
     <div id="settings-pin" class="push-box"></div>
+    <div id="settings-passkey" class="push-box" hidden></div>
     <div id="settings-scan" class="push-box"></div>
     <div id="settings-verif" class="push-box"></div>
     <h3 id="notifications-title" hidden>Notifications</h3>
@@ -442,6 +447,8 @@
   <dialog id="fun-show"></dialog>
   <!-- QR code de connexion temporaire d'un secouriste (outil de debug des admins) -->
   <dialog id="temp-login"><div id="temp-login-body"></div><button type="button" class="primary" id="temp-login-close">Fermer</button></dialog>
+  <!-- QR code de connexion au poste montre par un secouriste connecte avec sa passkey (5 min, une seule fois) -->
+  <dialog id="poste-qr"><div id="poste-qr-body"></div><button type="button" class="primary" id="poste-qr-close">Fermer</button></dialog>
   <dialog id="report"><div id="report-body"></div><button type="button" class="primary" id="report-close">OK</button></dialog>
   <!-- compte rendu d'une vérif passée (liste « Vérifs récentes ») -->
   <dialog id="verif-report"><div id="verif-report-body"></div><button type="button" class="primary" id="verif-report-close" autofocus>Fermer</button></dialog>
@@ -470,6 +477,7 @@
   <script src="web/app/live.js" defer></script>
   <script src="web/app/notifications.js" defer></script>
   <script src="web/app/settings.js" defer></script>
+  <script src="web/app/passkey.js" defer></script>
   <script src="web/app/gestion.js" defer></script>
   <script src="web/app/fiches.js" defer></script>
   <script src="web/app/reports.js" defer></script>

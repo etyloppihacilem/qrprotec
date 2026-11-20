@@ -21,6 +21,7 @@ Deux familles de vues :
 
 import functools
 from collections import Counter, defaultdict
+import hashlib
 import hmac
 import re
 from datetime import date, datetime, timedelta
@@ -62,13 +63,13 @@ from .. import webpush
 from ..idendity import SOURCE_VERIFIED, format_identity_verified, guest_identity, identity_from_request, identity_name, short_name
 from ..remote_scanner import hub as scanner_hub
 from ..sessions import (  # noqa: F401 (tests)
-    TEMP_LOGIN_MAX_AGE, TEMP_SESSION_MAX_AGE, credentials_user, session_token, session_user, session_valid,
-    temp_login_token, temp_login_user,
+    PASSKEY_POSTE_LOGIN_MAX_AGE, TEMP_LOGIN_MAX_AGE, TEMP_SESSION_MAX_AGE, credentials_user, passkey_session,
+    session_token, session_user, session_valid, temp_login_data, temp_login_token, temp_login_user,
 )
 from ..models import (
     DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType, LotTypeSlot,
     SlotMode,
-    NotificationSettings, Operation, OperationChange, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
+    NotificationSettings, Operation, Passkey, OperationChange, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
     SCANNER_VOLUMES, LOST_OBJECT_MESSAGE_MAX, ConsumableRef, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
     hash_key, keys_match,
     storage_kind_value, MAINTENANCE,

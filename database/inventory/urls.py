@@ -18,9 +18,13 @@ public_patterns = [
     path('auth/', views.auth),
     path('auth/name/', views.auth_name),
     path('auth/temp/', views.auth_temp),         # QR code de connexion temporaire (outil de debug des admins)
+    path('auth/passkey/options/', views.passkey_login_options),
+    path('auth/passkey/', views.passkey_login),
     path('pin-reset/', views.pin_reset),
     path('pin-forgot/', views.pin_forgot),
     path('me/pin/', views.my_pin),               # PIN choisi, change ou supprime dans les reglages web
+    path('me/passkeys/', views.my_passkeys),     # passkeys de l'utilisateur (liste, creation, suppression)
+    path('me/poste-login/', views.my_poste_login),  # QR code de connexion au poste (session passkey)
     path('me/prefs/', views.my_prefs),           # reglages du front web (ligne d'info, explication de la vérif)
     path('items/out/', views.items_out),         # avant items/<iid>/
     path('items/<str:iid>/', views.item_detail),
@@ -37,6 +41,7 @@ public_patterns = [
     path('orders/<int:order_id>/cancel/', views.orders_cancel),
     path('debug/codes/', views.debug_codes_list),  # admins seulement
     path('debug/temp-login/', views.debug_temp_login),  # admins seulement
+    path('debug/passkeys/', views.debug_passkeys),  # passkeys d'un secouriste, admins seulement
     path('debug/guest-cards/', views.debug_guest_cards),  # cartes d'invites, admins seulement
     path('stats/fun/', views.fun_stats_view),  # gestion et admin (stats de l'AG)
     path('lots/<str:lot_id>/', views.lot_detail),

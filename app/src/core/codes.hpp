@@ -55,7 +55,9 @@ enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Checkli
 //   item      : iid seul (TYPE 6 + AAAAMMJJ + compteur base62 8), complet ou en forme courte (compact_iid)
 //   taches    : <base>/task?id=IID (etiquette de taches : item dont les taches sont a cocher a la verif)
 //   lot       : <base>/verif?lot=ID[&key=CLE]
-//   user      : <base>/badge?m=MATRICULE&key=CLE, ou le matricule seul (sans cle : PIN obligatoire)
+//   user      : <base>/badge?m=MATRICULE&key=CLE, ou le matricule seul (sans cle : PIN obligatoire) ;
+//               <base>/badge?m=MATRICULE&t=JETON : QR code de connexion temporaire (depannage du TECH, ou montre par
+//               un secouriste connecte au web avec sa passkey), envoye a /api/auth/temp/
 //   sealed    : <base>/pack?id=ID
 //   lot seal  : <base>/seal?lot=ID&s=CODE (lot scelle : valide sans verif)
 //   seal open : <base>/unseal?lot=ID&c=CODE (etiquette d'ouverture, dans le lot : son scan ouvre le scelle)
@@ -68,6 +70,7 @@ struct ParsedScan {
     std::string           raw;
     std::string           id;  // iid, id de lot, matricule, id de paquet ou de liste
     std::string           key; // cle du lot (etiquette privee), du badge ou code du scelle (ou de son etiquette d'ouverture)
+    std::string           temp; // badge : jeton du QR code de connexion temporaire (badge?m=...&t=...)
     std::string           item_type;
     std::optional< Date > peremption; // items dates uniquement
     bool                  task = false; // item scanne par son etiquette de taches (TaskItem)

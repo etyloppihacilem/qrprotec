@@ -721,6 +721,7 @@ class App {
     bool   outbox_busy_     = false;
     double next_outbox_try_ = 0.0;
     void login_with_badge(const ParsedScan &scan, ScanSource source);
+    void send_temp_login(const std::string &matricule, const std::string &token, ScanSource source);
     void send_auth(const std::string &matricule, const std::string &key, const std::string &pin,
                    const std::string &new_pin, ScanSource source);
     void complete_login(const Json &data);
