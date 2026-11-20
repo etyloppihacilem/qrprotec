@@ -557,9 +557,12 @@ class VerifWindow final : public AppWindow {
           for (const PlaceRow &row : place_rows) {
             const std::string key  = lot["id"].str() + "@" + row.place;
             const auto        fold = place_folds_.find(key);
-            const bool open = fold != place_folds_.end() && fold->second.second == (row.missing == 0)
-                              ? fold->second.first
-                              : row.missing > 0 || (row.pending > 0 && !row.only_optional); // que du facultatif : replie
+            // que du facultatif : replie tant qu'on n'y scanne rien, deplie des qu'un de ses items est scanne. Plie
+            // ou deplie a la main, il le reste jusqu'a ce qu'il change d'etat ou qu'un nouveau scan tombe dedans
+            const bool open = fold != place_folds_.end() && fold->second.complete == (row.missing == 0)
+                                      && fold->second.last_scan == row.last_scan
+                              ? fold->second.open
+                              : row.missing > 0 || (row.pending > 0 && (!row.only_optional || row.done > 0));
             ImGui::TableNextRow();
             row_color(row.rank == 3   ? colors::green
                       : row.rank == 2 ? colors::grey
@@ -572,7 +575,7 @@ class VerifWindow final : public AppWindow {
                                                               | ImGuiTreeNodeFlags_NoTreePushOnOpen,
                                                "%s", row.place.empty() ? "Sans emplacement" : row.place.c_str());
             if (now != open)
-              place_folds_[key] = { now, row.missing == 0 };
+              place_folds_[key] = { now, row.missing == 0, row.last_scan };
             ImGui::TableNextColumn();
             ImGui::TableNextColumn();
             ImGui::Text("%d / %d", row.done, row.required);
@@ -918,8 +921,14 @@ class VerifWindow final : public AppWindow {
       });
     }
 
-    // emplacements (pochettes) deplies ou replies a la main, tant qu'ils ne changent pas d'etat : {ouvert, complet}
-    std::map< std::string, std::pair< bool, bool > > place_folds_;
+    // emplacements (pochettes) deplies ou replies a la main, tant qu'ils ne changent pas d'etat et qu'aucun nouveau
+    // scan n'y tombe
+    struct PlaceFold {
+        bool open      = false;
+        bool complete  = false;
+        int  last_scan = -1;
+    };
+    std::map< std::string, PlaceFold > place_folds_;
     std::string             seal_report_; // verif du compte rendu affiche (remise a zero du raccourci)
     std::string             seal_number_;
     std::set< std::string > sealed_;

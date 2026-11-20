@@ -285,15 +285,19 @@ function lotGroupRows(lot, groups, others, lastScan) {
       order: scanned && (missing || pending) ? 0 : !missing ? (pending ? 1.5 : 2) : 1 };
   });
   placeRows.sort((a, b) => a.order - b.order || (a.order === 0 ? b.last - a.last : 0));
-  for (const { place, list, scanned, missing, pending, extra, required, rank: placeRank } of placeRows) {
+  for (const { place, list, scanned, missing, pending, extra, required, rank: placeRank, last } of placeRows) {
     const key = `${lot.id}@${place}`;
     const fold = placeFolds.get(key);
-    // un emplacement qui ne contient que du facultatif est replie (sauf en vérif complete, ou il est obligatoire) ;
-    // avec aussi de l'obligatoire, il reste deplie tant que le facultatif n'est pas tout vu
+    // un emplacement qui ne contient que du facultatif est replie (sauf en vérif complete, ou il est obligatoire)
+    // tant qu'on n'y scanne rien : des qu'un de ses items est scanne, il se deplie ; avec aussi de l'obligatoire, il
+    // reste deplie tant que le facultatif n'est pas tout vu. Plie ou deplie a la main, il le reste jusqu'a ce qu'il
+    // change d'etat ou qu'un nouveau scan tombe dedans
     const onlyOptional = list.every((group) => group.optional);
-    const open = fold && fold.complete === !missing ? fold.open : missing > 0 || (pending > 0 && !onlyOptional);
+    const open = fold && fold.complete === !missing && fold.last === last ? fold.open
+      : missing > 0 || (pending > 0 && (!onlyOptional || scanned > 0));
     rows.push(el('li', { class: 'place-head ' + { 0: 'partial', 1: 'bad', 1.5: 'optional', 2: 'ok' }[placeRank],
-      'aria-expanded': String(open), onclick: () => { placeFolds.set(key, { open: !open, complete: !missing }); renderTodo(); } },
+      'aria-expanded': String(open),
+      onclick: () => { placeFolds.set(key, { open: !open, complete: !missing, last }); renderTodo(); } },
     el('span', { class: 'chevron' }, open ? '▾' : '▸'),
     el('div', { class: 'main name' }, '📍 ' + (place || 'Sans emplacement')),
     el('span', { class: 'count' }, ...countText(scanned, required, extra))));
