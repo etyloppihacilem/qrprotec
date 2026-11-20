@@ -12,7 +12,8 @@
 
 L'etat est reconstitue depuis le journal des mouvements d'items (ItemMovement) : l'emplacement d'un item a la date T
 est le lot d'origine (from_lot) de son premier mouvement apres T, ou son emplacement actuel s'il n'a pas bouge depuis.
-Une absence notee a une verif avant T et pas encore annulee a T (item retrouve plus tard) le marque « absent ». La
+Le rapport prouve ce qui etait dans le lot a T : un item note absent a une verif avant T et pas encore retrouve a T
+n'y figure pas. Un type d'item attendu en nombre insuffisant a T a sa propre ligne « manquant » dans le tableau. La
 derniere verif est la plus recente avant T ; le scelle, le dernier scellage ou ouverture du journal avant T.
 
 Le contenu attendu et l'arborescence des sous-lots sont ceux d'aujourd'hui (le journal ne garde pas leur historique).
@@ -28,7 +29,6 @@ from django.utils import timezone
 from .idendity import ANONYMOUS_OPENING, parse_identity
 from .lot_sheet import CONTENT_WIDTH, GREY_BAND, GREY_TEXT, MARGIN, PAGE_HEIGHT, PAGE_WIDTH, Page, build_pdf, fit, wrap
 from .models import ABSENCE_KINDS, ItemMovement, Items, Operation, OperationKind, Verifs, name_key
-from . import services
 from .services import lot_requirements
 
 WEEKDAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
@@ -86,7 +86,6 @@ def who(identity):
 @dataclass
 class ItemState:
     item: Items
-    absent: bool = False     # note absent a une verif avant T, pas encore retrouve a T
     expired: bool = False    # perime a la date du rapport
     disabled: bool = False   # desactive (rappel produit...) a la date du rapport
 
@@ -168,13 +167,15 @@ def state_at(root, at):
     states = {lot.id: LotState(lot, lot.depth, lot_requirements(lot), last_verif=verifs.get(lot.id),
                                sealed=sealed.get(lot.id)) for lot in lots}
     for iid, (item, location) in located.items():
+        if iid in absent:  # note absent a une verif avant T, pas encore retrouve : il n'etait pas dans le lot
+            continue
         states[location].items.append(ItemState(
-            item, absent=iid in absent, expired=item.is_expired(day),
+            item, expired=item.is_expired(day),
             disabled=item.disabled and item.disabled_at is not None and item.disabled_at <= at))
     for state in states.values():
         good = defaultdict(int)
         for row in state.items:
-            if not (row.absent or row.expired or row.disabled):
+            if not (row.expired or row.disabled):
                 good[row.item.pack.item_type_id] += 1
         state.lacking = []
         for requirement in state.requirements:
@@ -196,9 +197,14 @@ COLUMNS = [  # (titre, largeur relative a la place restante)
 ]
 
 
+def missing_remark(requirement, count):
+    """Colonne « État » d'une ligne de type manquant : « manquant », « 2 manquants », « manquant : 50 mL »."""
+    if requirement.unit:
+        return f'manquant : {count} {requirement.unit}'
+    return 'manquant' if count == 1 else f'{count} manquants'
+
+
 def item_remark(row):
-    if row.absent:
-        return 'absent à la dernière vérif'
     if row.disabled:
         return 'désactivé'
     if row.expired:
@@ -285,7 +291,7 @@ class ReportWriter:
         self.page.text(x + 6, self.y + 14, fit(name, width - 100, 12, True), size=12, bold=True)
         self.page.text(PAGE_WIDTH - MARGIN - 6, self.y + 14, verdict, size=10.5, bold=True, align='right')
         self.y += 26
-        good = sum(1 for row in state.items if not (row.absent or row.expired or row.disabled))
+        good = sum(1 for row in state.items if not (row.expired or row.disabled))
         children = sum(1 for other in self.states if other.lot.parent_id == lot.id)
         if not state.counted and not state.items:
             # lot de regroupement : ses sous-lots suivent, rien a verifier en lui-meme
@@ -315,14 +321,10 @@ class ReportWriter:
             number = seal.details.get('seal_number') or ''
             self.text(x, f"Scellé{' n°' + number if number else ''} posé le {long_datetime(seal.at)} par "
                          f'{who(seal.by)}, intact à cette date', size=9.5, step=13)
-        for requirement, count in state.lacking:
-            self.need(13)
-            what = services.amount_text(count, requirement.unit, requirement.item_type.name)
-            self.text(x, f'Manque {what}', size=9.5, bold=True, step=13)
         self.items_table(state, x, width)
 
     def items_table(self, state, x, width):
-        if not state.items:
+        if not state.items and not state.lacking:
             if state.counted:
                 self.need(14)
                 self.text(x, 'Aucun item dans ce lot à cette date.', size=9.5, grey=GREY_TEXT, step=14)
@@ -331,9 +333,17 @@ class ReportWriter:
         widths = [column_width or width - fixed for _, column_width in COLUMNS]
         places = {requirement.item_type_id: requirement.location for requirement in state.requirements}
         order = {requirement.item_type_id: index for index, requirement in enumerate(state.requirements)}
-        rows = sorted(state.items, key=lambda row: (
-            order.get(row.item.pack.item_type_id, len(order)), name_key(row.item.pack.item_type.name),
-            str(row.item.pack.peremption or '9999'), row.item.iid))
+        # (type, cle de tri, [valeurs des colonnes], en gras) : items presents a cette date, puis une ligne par type manquant
+        rows = [(row.item.pack.item_type, (
+            order.get(row.item.pack.item_type_id, len(order)), name_key(row.item.pack.item_type.name), 0,
+            str(row.item.pack.peremption or '9999'), row.item.iid),
+            [row.item.pack.item_type.name, row.item.iid, short_date(row.item.pack.peremption) or '—', item_remark(row)],
+            row.expired or row.disabled) for row in state.items]
+        rows += [(requirement.item_type,
+                  (order[requirement.item_type_id], name_key(requirement.item_type.name), 1, '', ''),
+                  [requirement.item_type.name, '—', '—', missing_remark(requirement, count)], True)
+                 for requirement, count in state.lacking]
+        rows.sort(key=lambda row: row[1])
 
         def header():
             self.y += 4
@@ -347,9 +357,8 @@ class ReportWriter:
         self.need(4 + 11 + ROW * 2)
         header()
         location = None
-        for row in rows:
-            item = row.item
-            type_id = item.pack.item_type_id
+        for item_type, _, values, bad in rows:
+            type_id = item_type.pk
             place = places.get(type_id, None)
             place = (place or NO_LOCATION) if type_id in places else 'Hors contenu attendu'
             band = place != location and (any(places.values()) or place == 'Hors contenu attendu')
@@ -359,9 +368,7 @@ class ReportWriter:
                 self.page.text(x + 2, self.y + 10, fit(place, width - 4, 8.5, True), size=8.5, bold=True)
                 self.y += ROW
             location = place
-            values = [item.pack.item_type.name, item.iid, short_date(item.pack.peremption) or '—', item_remark(row)]
             column_x = x
-            bad = row.absent or row.expired or row.disabled
             for index, (value, column_width) in enumerate(zip(values, widths)):
                 self.page.text(column_x + 2, self.y + 9.5, fit(value, column_width - 6, 8.5, bad and index == 3),
                                size=8.5, bold=bad and index == 3)

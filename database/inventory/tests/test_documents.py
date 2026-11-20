@@ -292,8 +292,11 @@ class LotStateReportTests(LotSheetTests.__base__):
     def test_absent_and_moved_items(self):
         i1, i2, i3 = self.items
         text = self.text(self.report(3.5))  # i2 absent (pas encore retrouve), i1 encore dans le sac
-        self.assertIn('absent \xe0 la derni\xe8re v\xe9rif', text)
-        self.assertIn('Manque 1 \xd7 Compresses', text)
+        # le rapport prouve ce qui etait dans le lot : i2 n'y figure pas, son type a une ligne « manquant »
+        self.assertNotIn(i2.iid, text)
+        self.assertIn(i1.iid, text)
+        self.assertNotIn('absent', text)
+        self.assertIn('(manquant)', text)
         self.assertIn('Incomplet \xe0 cette date : Sac A', text)
         text = self.text(self.report())  # maintenant : i2 retrouve, i3 ajoute, i1 sorti
         self.assertNotIn(i1.iid, text)
