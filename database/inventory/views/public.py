@@ -235,8 +235,14 @@ def activate_guest_card(request, card):
 
 
 def login_response(request, user, temporary=False, passkey=False, method=''):
-    """Reponse d'une connexion reussie. `method` : moyen de connexion (sessions.AUTH_METHODS), garde dans le jeton de
-    session pour que le journal des operations dise comment la personne s'est connectee."""
+    """Reponse d'une connexion reussie, notee au journal des operations (type « Connexion », jamais annulable : voir
+    l'historique des connexions de la page Utilisateurs du poste). `method` : moyen de connexion (sessions.AUTH_METHODS),
+    garde dans le jeton de session pour que le journal dise aussi comment la personne a fait chaque operation."""
+    if method:
+        request.qrprotec_auth = method  # moyen de connexion vu par le journal (sessions.auth_label)
+    journal.record(OperationKind.LOGIN, f'{SOURCE_VERIFIED}:{user.matricule}',
+                   f'Connexion de {user} ({user.matricule})' + (' (dépannage)' if temporary else ''),
+                   matricule=user.matricule)
     data = ser.user_dict(user)
     if is_front(request):
         data['nom'] = user.nom  # le poste l'affiche ; jamais sur le front web

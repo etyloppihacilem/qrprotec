@@ -35,6 +35,10 @@ Fenêtre **Utilisateurs** (menu **Administration › Utilisateurs**, en mode ges
 - **Matricule seul** : un code qui ne contient que le matricule (carte d'un autre système, code tapé à
   la douchette) est lu comme un badge sans sa clé : le PIN est alors toujours demandé, avec les mêmes
   limites que la connexion par nom. Sans PIN défini, il faut le vrai badge.
+- **Historique des connexions** (en bas de la fiche) : chaque connexion réussie, de la plus récente à
+  la plus ancienne, avec la date, l'heure et le moyen utilisé (web : carte, nom + PIN, passkey, QR code
+  de dépannage ; poste principal : carte ou carte + PIN ; poste distant : en plus le nom de sa clé
+  API). 50 lignes, puis **Connexions plus anciennes**.
 - **PIN bloqué** (50 PIN faux) : la fiche l'indique en rouge. **Réinitialiser le PIN** le débloque ;
   l'utilisateur en choisit un nouveau à sa prochaine connexion. L'utilisateur peut aussi envoyer le
   lien affiché sur son téléphone : l'admin le scanne avec le front web, se connecte et confirme.
@@ -200,8 +204,9 @@ raison est obligatoire ; tout se réactive de la même façon.
 Fenêtre **Journal des opérations** (menu **TECH › Journal des opérations**, rôles gestion et admin) : toutes les opérations, de la plus
 récente à la plus ancienne, avec qui, quand, quoi et sur quel lot. Vérifs (complètes en vert,
 incomplètes en rouge), réassorts, retraits vers le stock, scellages et ouvertures de scellé, réceptions,
-paquets ouverts, suppressions d'items, et modifications des lots, des types, des utilisateurs et des
-réglages.
+paquets ouverts, suppressions d'items, modifications des lots, des types, des utilisateurs et des
+réglages, et connexions (type **Connexion**, qu'on ne peut pas annuler ; filtre **Quoi** pour les
+masquer ou ne voir qu'elles).
 
 - Filtres : **Qui**, **Quoi**, **Lot** (avec ses sous-lots, case à décocher), **Quand** (dates libres
   comme pour la péremption, ou **Aujourd'hui**, **7 jours**, **30 jours**) et un **texte** cherché dans

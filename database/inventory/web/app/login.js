@@ -10,6 +10,12 @@ const gateOpen = () => document.body.classList.contains('login-gate');
 function openGate(after = '', action = null) {
   pendingAfterLogin = after;
   setLoginAction(action);
+  // derniere connexion de ce telephone par passkey (pas sur un web partage) : la passkey d'abord (web/app/passkey.js)
+  if (passkeyFirst()) { tryPasskeyFirst(() => showGate(after)); return; }
+  showGate(after);
+}
+
+function showGate(after) {
   // vérif : la connexion est conseillee, pas imposee (secouriste d'une autre antenne sans compte, supervise par un
   // secouriste connecte) ; il peut continuer en invite
   const verif = after === 'verif' || (!inHome() && !ficheOpen());

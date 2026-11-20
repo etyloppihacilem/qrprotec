@@ -845,6 +845,7 @@ class OperationKind(models.TextChoices):
     LOT_REPORT = 'lot_report', "Rapport d'état de lot"
     ORDER = 'order', 'Commande'
     CANCEL = 'cancel', 'Annulation'
+    LOGIN = 'login', 'Connexion'
 
 
 class Operation(models.Model):
