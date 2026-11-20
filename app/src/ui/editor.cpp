@@ -661,18 +661,40 @@ bool Editor::save_to(const std::string &name) {
   return true;
 }
 
+void Editor::base_on(const TemplateDocument &source) {
+  document_.elements = source.elements;
+  // valeurs d'exemple des placeholders du design importe (apercu), sans ecraser celles deja saisies
+  for (const auto &[name, value] : source.parameters)
+    document_.parameters.emplace(name, value);
+  selected_element_ = -1;
+  preview_dirty_    = true;
+  refresh_placeholders();
+  message_ = "Design de « " + source.name + " » importé (" + nb(static_cast< long long >(source.elements.size()), "élément")
+             + "), réglages du modèle inchangés. Ctrl+Z pour revenir en arrière.";
+  show_editor_tab_ = true;
+}
+
 void Editor::draw_open_popup() {
-  const char *title = "Ouvrir un modèle";
-  if (open_requested_) {
+  // une seule liste pour « Ouvrir » et « Baser sur... » (jamais ouvertes en meme temps)
+  if (open_requested_ || base_requested_) {
+    open_for_base_ = base_requested_;
     reload_templates();
     open_filter_.clear();
-    ImGui::OpenPopup(title);
+    ImGui::OpenPopup(open_for_base_ ? "Baser sur un autre modèle" : "Ouvrir un modèle");
     open_requested_ = false;
+    base_requested_ = false;
   }
-  const float font = ImGui::GetFontSize();
+  const bool  base  = open_for_base_;
+  const char *title = base ? "Baser sur un autre modèle" : "Ouvrir un modèle";
+  const float font  = ImGui::GetFontSize();
   ImGui::SetNextWindowSize(ImVec2(font * 38.0f, font * 24.0f), ImGuiCond_Appearing);
   if (!ImGui::BeginPopupModal(title, nullptr))
     return;
+  if (base) {
+    ImGui::TextWrapped("Les éléments du modèle choisi remplacent ceux de « %s ». Le nom, l'usage, le format, le type "
+                       "d'étiquette et le fichier restent ceux du modèle en cours. Ctrl+Z pour revenir en arrière.",
+                       document_.name.c_str());
+  }
   ImGui::TextDisabled("Dossier des modèles : %s", templates_dir().string().c_str());
   draw_templates_dir_problem();
   ImGui::SetNextItemWidth(-FLT_MIN);
@@ -693,14 +715,19 @@ void Editor::draw_open_popup() {
       if (!filter.empty() && lowercase(candidate.name).find(filter) == std::string::npos
           && lowercase(candidate.path).find(filter) == std::string::npos)
         continue;
+      if (base && !template_path_.empty() && candidate.path == template_path_)
+        continue; // pas sur lui-meme
       if (first_match < 0)
         first_match = index;
       ImGui::PushID(index);
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
-      if (ImGui::Selectable(candidate.name.c_str(), candidate.path == template_path_, ImGuiSelectableFlags_SpanAllColumns)) {
+      if (ImGui::Selectable(candidate.name.c_str(), !base && candidate.path == template_path_, ImGuiSelectableFlags_SpanAllColumns)) {
         ImGui::CloseCurrentPopup();
-        request(PendingAction::Open, index);
+        if (base)
+          base_on(candidate);
+        else
+          request(PendingAction::Open, index);
       }
       ImGui::TableNextColumn();
       ImGui::TextUnformatted(candidate.path.c_str());
@@ -715,7 +742,10 @@ void Editor::draw_open_popup() {
   ImGui::EndChild();
   if (first_match >= 0 && enter_pressed(false)) {
     ImGui::CloseCurrentPopup();
-    request(PendingAction::Open, first_match);
+    if (base)
+      base_on(document_list_[static_cast< std::size_t >(first_match)]);
+    else
+      request(PendingAction::Open, first_match);
   }
   if (button("Annuler") || escape_pressed())
     ImGui::CloseCurrentPopup();
@@ -1088,6 +1118,12 @@ void Editor::draw_toolbar() {
   if (button("Enregistrer sous..."))
     save_as_requested_ = true;
   ImGui::SetItemTooltip("Enregistrer sous un autre nom de fichier, par ex. pour partir d'un modèle existant (Ctrl+Maj+S)");
+  ImGui::SameLine();
+  if (button("Baser sur..."))
+    base_requested_ = true;
+  ImGui::SetItemTooltip("Reprendre tout le design (les éléments) d'un autre modèle, sans toucher au nom, à l'usage, "
+                        "au format ni au type d'étiquette de celui-ci.\nPar ex. faire « item à déchirer » à partir "
+                        "de item.qr. Ctrl+Z pour revenir en arrière.");
   ImGui::SameLine();
   ImGui::TextDisabled("|");
   ImGui::SameLine();

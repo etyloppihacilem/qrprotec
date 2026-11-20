@@ -108,6 +108,9 @@ private:
     bool save();
     bool save_to(const std::string &file);
     void load_document(const TemplateDocument &document);
+    // « Baser sur... » : remplace le design (elements) par celui d'un autre modele, sans toucher au nom, a
+    // l'usage, au format, au type d'etiquette ni au fichier du modele en cours. Annulable (Ctrl+Z).
+    void base_on(const TemplateDocument &source);
 
     // Historique (annuler / retablir) et etat "modifie"
     void reset_history();
@@ -197,6 +200,8 @@ private:
 
     // Dialogues
     bool open_requested_ = false;
+    bool base_requested_ = false; // meme liste que « Ouvrir », pour « Baser sur... »
+    bool open_for_base_ = false;  // la liste ouverte est celle de « Baser sur... »
     bool save_as_requested_ = false;
     bool unsaved_requested_ = false;
     bool export_requested_ = false;
