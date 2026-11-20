@@ -38,6 +38,12 @@ function requireLogin(reason, action) {
     openNameLogin();
   };
   $('#login-needed-cancel').onclick = () => { dialog.close(); loginAction = null; };
+  if (passkeyFirst()) { // derniere connexion par passkey : elle d'abord, puis le choix carte / nom + PIN
+    pendingAfterLogin = '';
+    setLoginAction(action);
+    tryPasskeyFirst(() => { loginAction = null; if (!dialog.open) dialog.showModal(); });
+    return;
+  }
   if (!dialog.open) dialog.showModal();
 }
 

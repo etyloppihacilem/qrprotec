@@ -826,3 +826,44 @@ class AuthJournalTests(ApiTestCase):
         token = views.temp_login_token(self.user)
         self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, local=False)
         self.assertEqual(Operation.objects.latest('id').details.get('auth'), 'Web : QR code de dépannage du TECH')
+
+
+class LoginJournalTests(ApiTestCase):
+    """Chaque connexion reussie est notee au journal (type « Connexion »), avec son moyen d'authentification : c'est
+    l'historique des connexions de la page Utilisateurs du poste. Jamais annulable."""
+
+    def logins(self):
+        return list(Operation.objects.filter(kind='login', by='M:M001').order_by('id'))
+
+    def test_logins_recorded_with_method(self):
+        from ..models import FrontKey
+        self.user.set_pin('482100')
+        self.user.pin_at_login = False
+        self.user.save()
+        code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
+        self.assertEqual(code, 200)
+        self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '482100'}, local=False)
+        self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, session=False)
+        _, key = FrontKey.create('Borne B')
+        self.client.post('/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '482100'},
+                         content_type='application/json', **{'qrprotec.role': 'remote', 'HTTP_X_QRPROTEC_KEY': key})
+        # refusee : pas notee
+        self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '999999'}, local=False)
+        self.assertEqual([row.details.get('auth') for row in self.logins()], [
+            'Web : carte', 'Web : nom + PIN', 'Poste principal : carte', 'Poste distant (clé API « Borne B ») : nom + PIN',
+        ])
+        # historique d'un utilisateur au poste : journal filtre par type et par personne
+        code, data = self.call('GET', '/api/operations/?kind=login&by=M:M001&limit=2')
+        self.assertEqual(code, 200, data)
+        self.assertEqual(len(data['operations']), 2)
+        self.assertTrue(data['more'])
+        self.assertEqual(data['operations'][0]['details']['auth'], 'Poste distant (clé API « Borne B ») : nom + PIN')
+        self.assertFalse(data['operations'][0]['undoable'])
+
+    def test_login_never_cancellable(self):
+        from .. import undo
+        self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
+        login = self.logins()[-1]
+        self.assertIsNone(login.batch)
+        with self.assertRaisesMessage(ValueError, "Une connexion ne s'annule pas"):
+            undo.plan(login)

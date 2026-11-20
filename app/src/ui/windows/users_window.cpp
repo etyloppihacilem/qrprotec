@@ -569,6 +569,12 @@ class UsersWindow final : public AppWindow {
   private:
     void select(const Json &user) {
       pin_.clear();
+      if (user["matricule"].str() != selected_) { // autre utilisateur : son historique des connexions sera recharge
+        logins_         = Json::array();
+        logins_for_.clear();
+        logins_loading_ = false;
+        logins_more_    = false;
+      }
       selected_   = user["matricule"].str();
       user_       = user;
       matricule_  = selected_;
@@ -936,6 +942,78 @@ class UsersWindow final : public AppWindow {
       }
       if (user_["badge_url"].str().empty())
         ImGui::TextDisabled("Pour réimprimer un badge, renouvelez-le : sa clé n'est affichée qu'à sa création.");
+
+      draw_logins(app);
+    }
+
+    // Historique des connexions de l'utilisateur affiche (web, poste principal, postes distants) : lignes « Connexion »
+    // du journal des operations, avec le moyen d'authentification (details.auth), 50 par page.
+    void draw_logins(App &app) {
+      ImGui::SeparatorText("Historique des connexions");
+      if (logins_for_ != selected_ && !logins_loading_)
+        load_logins(app, false);
+      if (logins_.size() == 0) {
+        ImGui::TextDisabled(logins_loading_ ? "Chargement…" : "Aucune connexion enregistrée.");
+        return;
+      }
+      const float row    = ImGui::GetTextLineHeightWithSpacing();
+      const float height = std::min(static_cast< float >(logins_.size()) + 1.5f, 12.0f) * row;
+      if (ImGui::BeginTable("logins", 2,
+                            ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
+                            ImVec2(0, height))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Date et heure", ImGuiTableColumnFlags_WidthFixed, 260.0f);
+        ImGui::TableSetupColumn("Moyen d'authentification", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+        for (const Json &login : logins_.items()) {
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(display_datetime(login["at"], true).c_str());
+          ImGui::TableNextColumn();
+          const std::string auth = login["details"]["auth"].str();
+          if (auth.empty())
+            ImGui::TextDisabled("(non noté)");
+          else
+            ImGui::TextUnformatted(auth.c_str());
+        }
+        ImGui::EndTable();
+      }
+      ImGui::BeginDisabled(logins_loading_);
+      if (logins_more_) {
+        if (button("Connexions plus anciennes"))
+          load_logins(app, true);
+        ImGui::SameLine();
+      }
+      if (button("Actualiser##logins"))
+        load_logins(app, false);
+      ImGui::EndDisabled();
+      help_marker("Chaque connexion réussie, notée aussi au journal des opérations (type « Connexion », jamais "
+                  "annulable). Web : passkey, carte, nom + PIN, QR code de dépannage… Poste principal : carte ou PIN. "
+                  "Poste distant : en plus le nom de sa clé API.");
+    }
+
+    void load_logins(App &app, bool older) {
+      logins_for_     = selected_;
+      logins_loading_ = true;
+      if (!older) {
+        logins_      = Json::array();
+        logins_more_ = false;
+      }
+      std::string path = "/api/operations/?kind=login&limit=50&by=" + url_encode("M:" + selected_);
+      if (older && logins_.size() > 0)
+        path += "&before=" + std::to_string(logins_[logins_.size() - 1]["id"].integer());
+      app.api.get(path, [this, &app, matricule = selected_](const ApiResult &result) {
+        if (matricule != logins_for_)
+          return; // autre utilisateur choisi entre-temps
+        logins_loading_ = false;
+        if (!result.ok) {
+          app.notify(result.error, true);
+          return;
+        }
+        for (const Json &login : result.data["operations"].items())
+          logins_.push_back(login);
+        logins_more_ = result.data["more"].boolean();
+      });
     }
 
     void update_pin_mode(App &app, const std::string &mode) {
@@ -966,6 +1044,11 @@ class UsersWindow final : public AppWindow {
       pin_.clear();
     }
 
+    // historique des connexions de l'utilisateur affiche (logins_for_ : son matricule)
+    Json        logins_ = Json::array();
+    std::string logins_for_;
+    bool        logins_loading_ = false;
+    bool        logins_more_    = false;
     std::string pin_;
     std::string contact_;
     bool        default_contact_ = false;

@@ -31,6 +31,10 @@ Fichiers concernés :
   passkey, le nom et le PIN remarchent. Le journal note chaque création et suppression. Les passkeys
   ne passent pas par l'annulation du journal (`undo.IGNORED_MODELS`) : une passkey supprimée ne revient
   jamais.
+- **Passkey d'abord** : sur un téléphone dont la dernière connexion était une passkey (localStorage
+  `qrprotec.last-login`, jamais sur un web partagé), toute demande de connexion essaie la passkey
+  avant d'ouvrir la fenêtre des autres moyens (carte, nom + PIN). Annulée ou refusée, la fenêtre
+  s'ouvre comme d'habitude ; une passkey inconnue du serveur (supprimée) n'est plus essayée d'abord.
 - **QR code de connexion au poste** : le petit bouton ▦ à côté du nom, sur l'accueil, n'apparaît que
   pour une session **ouverte avec une passkey** (jeton de session marqué `pk`). Il affiche
   `badge?m=…&t=…`, valable 5 min, une seule fois, accepté seulement par un poste (douchette). Le poste

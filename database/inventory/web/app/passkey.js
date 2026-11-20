@@ -34,8 +34,37 @@ function passkeyBrowserError(e) {
   return (e && e.message) || 'Passkey impossible.';
 }
 
-async function passkeyLogin() {
-  if (!passkeySupported()) { toast('Ce navigateur ne gère pas les passkeys.', true); return; }
+// Dernier moyen de connexion de ce telephone (Hippolyte, 2026-11-20) : 'passkey' ou 'other', jamais garde sur un web
+// partage. Apres une connexion par passkey, la prochaine demande de connexion essaie la passkey d'abord.
+const STORAGE_LAST_LOGIN = 'qrprotec.last-login';
+
+function rememberLoginMethod(user) {
+  try {
+    if (sharedWeb() || !user || user.guest) localStorage.removeItem(STORAGE_LAST_LOGIN);
+    else localStorage.setItem(STORAGE_LAST_LOGIN, user.passkey_session ? 'passkey' : 'other');
+  } catch (e) { /* stockage bloque : on propose simplement tous les moyens */ }
+}
+
+function passkeyFirst() {
+  if (!passkeySupported() || sharedWeb()) return false;
+  try { return localStorage.getItem(STORAGE_LAST_LOGIN) === 'passkey'; } catch (e) { return false; }
+}
+
+// Demande de connexion sur un telephone dont la derniere connexion etait une passkey : la passkey d'abord, puis
+// `fallback` (fenetre des autres moyens : carte, nom + PIN) si la personne l'annule ou si elle est refusee.
+let passkeyFirstBusy = false;
+async function tryPasskeyFirst(fallback) {
+  if (passkeyFirstBusy) return;
+  passkeyFirstBusy = true;
+  let done = false;
+  try { done = await passkeyLogin({ quiet: true }); } finally { passkeyFirstBusy = false; }
+  if (!done && !state.user) fallback();
+}
+
+// true si la connexion a reussi. quiet : essai automatique (passkeyFirst), pas de message si la personne annule ;
+// les autres moyens de connexion s'affichent ensuite.
+async function passkeyLogin({ quiet = false } = {}) {
+  if (!passkeySupported()) { if (!quiet) toast('Ce navigateur ne gère pas les passkeys.', true); return false; }
   let credential;
   try {
     const { publicKey } = await api('auth/passkey/options/', {});
@@ -44,7 +73,7 @@ async function passkeyLogin() {
   } catch (e) {
     const message = e && e.status !== undefined ? e.message : passkeyBrowserError(e);
     if (message) toast(message, true);
-    return;
+    return false;
   }
   try {
     const user = await api('auth/passkey/', { credential: {
@@ -58,9 +87,12 @@ async function passkeyLogin() {
     } });
     if ($('#name-login').open) $('#name-login').close();
     loggedIn({ ...user, loginAt: Date.now() });
+    return true;
   } catch (e) {
     feedback.bad();
     toast(e.message, true);
+    if (e.data && e.data.passkey_unknown) rememberLoginMethod(null); // supprimee : ne plus l'essayer d'abord
+    return false;
   }
 }
 
@@ -218,7 +250,7 @@ $('#poste-qr-close').addEventListener('click', () => $('#poste-qr').close());
 $('#poste-qr').addEventListener('close', () => clearInterval(posteQrTimer));
 $('#home-poste-qr').addEventListener('click', showPosteQr);
 
-$('#login-gate-passkey').addEventListener('click', passkeyLogin);
-$('#name-login-passkey').addEventListener('click', passkeyLogin);
+$('#login-gate-passkey').addEventListener('click', () => passkeyLogin());
+$('#name-login-passkey').addEventListener('click', () => passkeyLogin());
 $('#login-gate-passkey').hidden = !passkeySupported();
 $('#name-login-passkey').hidden = !passkeySupported();

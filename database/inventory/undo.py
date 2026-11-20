@@ -249,9 +249,12 @@ def _finish():
         else:
             changes.append((seq, name, row[table.pk], act, old and dict(zip(table.columns, old)),
                             new and dict(zip(table.columns, new)), []))
+    from .models import Operation, OperationChange, OperationKind, Sequence
+    if operation_ids:  # une connexion ne s'annule pas : ses ecritures (compteurs du PIN...) ne sont pas gardees
+        operation_ids = list(Operation.objects.filter(id__in=operation_ids).exclude(kind=OperationKind.LOGIN)
+                             .values_list('id', flat=True))
     if not operation_ids:
         return
-    from .models import Operation, OperationChange, Sequence
     batch = Sequence.next('operation_batch')
     now = timezone.now()
     OperationChange.objects.bulk_create([
@@ -354,9 +357,11 @@ def _guest_dependents(batch, excluded):
 def plan(operation):
     """Lots d'operations a annuler pour annuler `operation` (le sien et ceux qui en dependent), du plus recent au
     plus ancien. ValueError si elle ne peut pas l'etre."""
-    from .models import OperationChange
+    from .models import OperationChange, OperationKind
     if operation.cancelled_by_id is not None:
         raise ValueError('Opération déjà annulée')
+    if operation.kind == OperationKind.LOGIN:
+        raise ValueError("Une connexion ne s'annule pas")
     if operation.batch is None:
         raise ValueError("Opération enregistrée avant l'annulation des opérations : elle ne peut pas être annulée")
     if not OperationChange.objects.filter(batch=operation.batch).exists():

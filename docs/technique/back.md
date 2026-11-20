@@ -145,7 +145,10 @@ Voir [regles-de-gestion.md](regles-de-gestion.md) pour le détail fonctionnel. P
   `details.auth` dit comment la personne s'est authentifiée (`sessions.auth_label`, requête posée par
   `handle_errors`) : « Web : passkey », « Poste principal : carte + PIN », « Poste distant (clé API
   « Borne B ») : nom + PIN ». Le moyen de connexion est gardé dans le jeton de session (`a`,
-  `sessions.AUTH_METHODS`).
+  `sessions.AUTH_METHODS`). Chaque connexion réussie (`login_response`) ajoute une ligne `kind=login`
+  (« Connexion ») : c'est l'historique des connexions de la page Utilisateurs du poste
+  (`?kind=login&by=M:<matricule>`). Elle ne s'annule jamais : `undo._finish` ne lui donne pas de lot
+  d'écritures et `undo.plan` la refuse.
 - Annulation des opérations (`undo.py`, modèle `OperationChange`) : le middleware `CaptureMiddleware`
   enregistre les écritures de chaque requête qui n'est pas un GET (et la vérif commune enregistrée par le
   serveur, `live.py`). Des déclencheurs SQLite **temporaires** (propres à la connexion, créés à la première

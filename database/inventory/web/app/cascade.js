@@ -656,6 +656,7 @@ function loggedIn(user) {
   noteActivity(); // web partage : l'heure d'inactivite part de la connexion
   state.user = user;
   state.guest = null; // connecte : plus invite
+  rememberLoginMethod(user); // passkey ? essayee d'abord a la prochaine connexion (web/app/passkey.js)
   rememberScanBubble();
   state.lots = null;
   state.stock = null;
