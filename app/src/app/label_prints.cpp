@@ -150,7 +150,7 @@ bool App::label_prints_badge(const std::string &code, ScanSource source) {
   if (!label_prints_.open || label_prints_.remote)
     return false;
   const ParsedScan scan = parse_scan(code);
-  if (scan.kind != ScanKind::User)
+  if (scan.kind != ScanKind::User || !scan.temp.empty()) // QR code de connexion temporaire : connexion normale
     return false;
   label_prints_.badge_matricule = scan.id;
   label_prints_.badge_key       = scan.key;

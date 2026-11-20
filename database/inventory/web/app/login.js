@@ -243,6 +243,10 @@ function renderHomePage() {
   const userButton = $('#home-user');
   userButton.textContent = state.user ? `👤 ${state.user.prenom}` : readerOpen() ? 'Annuler' : 'Se connecter';
   userButton.classList.toggle('ok', !!state.user);
+  // connecte avec une passkey : petit bouton du QR code de connexion au poste (web/app/passkey.js)
+  const posteQr = $('#home-poste-qr');
+  posteQr.hidden = typeof posteQrAllowed !== 'function' || !posteQrAllowed();
+  if (!posteQr.hidden && !posteQr.firstChild) posteQr.append(icon('qr'));
   const stockTile = $('#tile-stock');
   stockTile.classList.toggle('disabled', !!state.user && !canSeeStock());
   stockTile.setAttribute('aria-disabled', String(!!state.user && !canSeeStock()));

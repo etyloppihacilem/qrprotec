@@ -601,7 +601,8 @@ keepAboveKeyboard($('#guest-name'));
 async function tempLogin(matricule, token) {
   try {
     const user = await api('auth/temp/', { matricule, token });
-    loggedIn({ ...user, loginAt: Date.now(), sessionMs: (user.session_hours || 24) * 3600 * 1000 - 5 * 60 * 1000 });
+    loggedIn({ ...user, loginAt: Date.now(), sessionMs: (user.session_hours || 24) * 3600 * 1000 - 5 * 60 * 1000 },
+      { offerPasskey: 'always' }); // premiere connexion d'un secouriste sans carte : passkey proposee aussitot
   } catch (e) {
     feedback.bad();
     showInfo('bad', 'QR code refusé', e.message);
@@ -649,7 +650,8 @@ function nameLoginCancelled() {
 }
 $('#name-login').addEventListener('cancel', nameLoginCancelled);
 
-function loggedIn(user) {
+// options.offerPasskey : 'always' pour proposer une passkey meme apres « Plus tard » (web/app/passkey.js)
+function loggedIn(user, options = {}) {
   const action = takeLoginAction(); // action qui attendait la connexion (signalement)
   activityAt = 0;
   noteActivity(); // web partage : l'heure d'inactivite part de la connexion
@@ -673,4 +675,5 @@ function loggedIn(user) {
   state.reports = null;
   if (state.user) loadReports(true);
   if (action) setTimeout(action, 0);
+  else if (!state.pinReset) setTimeout(() => offerPasskey(state.user, options.offerPasskey === 'always'), 800);
 }

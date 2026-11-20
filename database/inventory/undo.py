@@ -34,9 +34,11 @@ from . import journal
 LOG = 'qrp_undo_log'
 FLAG = 'qrp_undo_on'
 SAFE_METHODS = ('GET', 'HEAD', 'OPTIONS', 'TRACE')
-# compteurs et traces techniques : jamais remis en arriere (un numero d'item ou de lot ne doit pas resservir)
+# compteurs et traces techniques : jamais remis en arriere (un numero d'item ou de lot ne doit pas resservir). Passkey :
+# un identifiant de connexion, jamais recree ni supprime par une annulation (une passkey supprimee par un admin ne doit
+# pas revenir)
 IGNORED_MODELS = ('Sequence', 'LotSequence', 'PushKeys', 'PushSubscription', 'ServerProblem', 'FrontConfigDownload',
-                  'OperationChange')
+                  'OperationChange', 'Passkey')
 # lignes ajoutees dont les modifications posterieures ne font pas dependre l'operation qui les fait : une absence
 # notee par une verif (ItemMovement) est « annulee » par la verif suivante qui retrouve l'item, cette verif ne depend
 # pas de la premiere

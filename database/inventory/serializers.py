@@ -847,6 +847,9 @@ def user_dict(user, local=False):
                               for name in user.push_role_types()]
         count = getattr(user, 'push_device_count', None)
         data['push_devices'] = user.push_subscriptions.count() if count is None else count
+        # passkeys du front web : tant qu'il en a une, plus de connexion par nom et PIN (un admin peut les supprimer)
+        passkeys = getattr(user, 'passkey_count', None)
+        data['passkeys'] = user.passkeys.count() if passkeys is None else passkeys
         # reglages du front web avec leur libelle, pour les cases de la fenetre Utilisateurs du poste
         data['web_prefs_list'] = [{'name': name, 'label': label, 'value': user.web_pref(name)}
                                   for name, (label, _) in WEB_PREFS.items()]

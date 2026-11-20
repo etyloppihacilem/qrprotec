@@ -320,7 +320,8 @@ function debugUsersParts(users, title = 'Cartes des secouristes (dépannage)') {
   if (!users.length) return [];
   return [el('h3', {}, title),
     el('p', { class: 'hint' }, 'Un secouriste a oublié sa carte : touchez son nom et faites-lui scanner le QR code. '
-      + 'Il vaut 1 h ; le téléphone qui le scanne reste connecté 24 h. Pas de QR code pour les administrateurs.'),
+      + 'Il vaut 1 h ; le téléphone qui le scanne reste connecté 24 h. Pas de QR code pour les administrateurs. '
+      + 'Ses passkeys s\'y affichent aussi, pour les supprimer.'),
     el('div', { class: 'debug-chips' }, ...users.map((user) => el('button', { type: 'button',
       disabled: user.pin_blocked ? '' : null, title: user.pin_blocked ? 'PIN bloqué : réinitialisez-le d\'abord' : '',
       onclick: () => showTempLogin(user) }, icon('badge'), user.name)))];
@@ -344,6 +345,34 @@ async function showTempLogin(user) {
   } catch (e) {
     body.replaceChildren(el('h2', {}, user.name), el('p', { class: 'pin-error' }, e.message));
   }
+  body.append(await debugPasskeysPart(user));
+}
+
+// Passkeys du secouriste (connexion web sans carte ni PIN) : les supprimer retablit la connexion par nom et PIN
+// (telephone perdu ou change, passkey a recreer)
+async function debugPasskeysPart(user) {
+  const box = el('div', { class: 'push-box' });
+  const fill = (rows) => {
+    box.replaceChildren(el('h3', {}, 'Passkeys'));
+    if (!rows.length) { box.append(el('p', { class: 'hint' }, 'Aucune passkey : connexion par carte, ou nom et code PIN.')); return; }
+    rows.forEach((row) => box.append(el('p', { class: 'hint' }, `${row.device || 'Passkey'} · créée ${fmtDateTime(row.created, { on: true })}`
+      + (row.last_used ? `, utilisée ${fmtDateTime(row.last_used, { on: true })}` : ''))));
+    box.append(el('p', { class: 'hint' }, 'Avec une passkey, le nom et le code PIN ne marchent plus pour ce secouriste ; sa carte, si.'),
+      el('button', { type: 'button', class: 'danger', onclick: async () => {
+        if (!await confirmDialog(`Supprimer ${rows.length > 1 ? 'les passkeys' : 'la passkey'} de ${user.name} ?`,
+          'Il se connectera de nouveau avec sa carte, ou son nom et son code PIN.', 'Supprimer', 'danger')) return;
+        try {
+          fill((await api('debug/passkeys/', { user: badge(), matricule: user.matricule, action: 'delete' })).passkeys);
+          toast('Passkey supprimée : connexion par nom et PIN rétablie.');
+        } catch (e) { toast(e.message, true); }
+      } }, icon('trash'), rows.length > 1 ? `Supprimer les ${rows.length} passkeys` : 'Supprimer la passkey'));
+  };
+  try {
+    fill((await api('debug/passkeys/', { user: badge(), matricule: user.matricule })).passkeys);
+  } catch (e) {
+    box.replaceChildren(el('p', { class: 'pin-error' }, e.message));
+  }
+  return box;
 }
 $('#temp-login-close').addEventListener('click', () => $('#temp-login').close());
 

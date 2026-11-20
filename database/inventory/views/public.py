@@ -233,11 +233,15 @@ def activate_guest_card(request, card):
                        matricule=card.matricule, guest_activation=True)
 
 
-def login_response(request, user, temporary=False):
+def login_response(request, user, temporary=False, passkey=False):
     data = ser.user_dict(user)
     if is_front(request):
         data['nom'] = user.nom  # le poste l'affiche ; jamais sur le front web
-    data['session'] = session_token(user, temporary)
+    data['session'] = session_token(user, temporary, passkey=passkey)
+    if passkey:
+        data['passkey_session'] = True  # le web montre le bouton du QR code de connexion au poste
+    # le web propose d'en creer une apres la connexion (jamais pour une carte d'invite)
+    data['has_passkey'] = user.passkeys.exists()
     if temporary:
         data['temporary'] = True  # connexion de depannage : la session du telephone vaut 24 h
         data['session_hours'] = TEMP_SESSION_MAX_AGE // 3600
@@ -278,18 +282,36 @@ def login_name_key(name):
     return ''.join(character for character in name_key(name) if character.isalnum())
 
 
-def name_login_candidates(nom, prenom):
-    """Secouristes de ce nom (sans accents, casse ni separateurs) qui peuvent se connecter par nom et PIN."""
+def name_login_candidates(nom, prenom, passkey=False):
+    """Secouristes de ce nom (sans accents, casse ni separateurs) qui peuvent se connecter par nom et PIN (passkey :
+    ceux qui ne le peuvent plus parce qu'ils ont une passkey)."""
     key = (login_name_key(nom), login_name_key(prenom))
-    return [user for user in name_login_candidates_queryset()
+    return [user for user in name_login_candidates_queryset(passkey)
             if (login_name_key(user.nom), login_name_key(user.prenom)) == key]
 
 
-def name_login_candidates_queryset():
+def name_login_candidates_queryset(passkey=False):
     """Secouristes qui peuvent se connecter sans badge (nom ou matricule seul, puis PIN) : PIN defini et utilisable,
-    badge valide, connexion sans badge pas en pause."""
+    badge valide, connexion sans badge pas en pause, pas de passkey (elle remplace le nom et le PIN ; la carte reste).
+    passkey=True : les memes, mais qui ont une passkey."""
     queryset = Secouristes.objects.filter(active=True, guest=False, key_expires__gte=timezone.localdate()).exclude(pin_hash='')
+    queryset = queryset.filter(passkeys__isnull=False).distinct() if passkey else queryset.filter(passkeys__isnull=True)
     return [user for user in queryset if name_login_allowed(user)]
+
+
+PASSKEY_INSTEAD_ERROR = ("Vous avez une passkey : connectez-vous avec elle (« Se connecter avec une passkey ») ou "
+                         "avec votre carte. Le nom et le code PIN ne marchent plus pour vous.")
+
+
+def pin_login_or_passkey_hint(request, candidates, passkey_candidates, pin, error, **extra):
+    """pin_login ; s'il echoue mais que le PIN est celui d'un secouriste qui a une passkey, le refus le lui dit (le
+    PIN juste prouve deja que c'est lui : on ne revele rien a un inconnu)."""
+    try:
+        return pin_login(request, candidates, pin, error, **extra)
+    except ApiError as exc:
+        if exc.code == status.HTTP_403_FORBIDDEN and any(check_password(pin, user.pin_hash) for user in passkey_candidates):
+            raise ApiError(PASSKEY_INSTEAD_ERROR, status.HTTP_403_FORBIDDEN, passkey_required=True) from None
+        raise
 
 
 @api_view(['POST'])
@@ -307,7 +329,8 @@ def auth_name(request):
     nom, prenom, pin = (str(data.get(field, '') or '').strip() for field in ('nom', 'prenom', 'pin'))
     if not nom or not prenom or not PIN_RE.match(pin):
         raise ApiError("Saisissez votre nom, votre prénom et votre code PIN (4 à 8 chiffres)")
-    user = pin_login(request, name_login_candidates(nom, prenom), pin, NAME_LOGIN_ERROR)
+    user = pin_login_or_passkey_hint(request, name_login_candidates(nom, prenom),
+                                     name_login_candidates(nom, prenom, passkey=True), pin, NAME_LOGIN_ERROR)
     return Response(login_response(request, user))
 
 
@@ -318,11 +341,25 @@ def auth_temp(request):
     a un secouriste qui a oublie sa carte. Le QR code vaut 1 h ; la session ouverte (sans cle de badge ni PIN, l'admin
     s'en porte garant) vaut 24 h."""
     check_login_address(request)
-    user = temp_login_user(request.data.get('matricule'), request.data.get('token'))
-    if user is None or user.role == Role.ADMIN:
+    token = request.data.get('token')
+    user = temp_login_user(request.data.get('matricule'), token)
+    data = temp_login_data(token) or {}
+    from_passkey = data.get('pk') == 1
+    if from_passkey and user is not None and not is_front(request):
+        raise ApiError("Ce QR code se scanne avec la douchette d'un poste", status.HTTP_403_FORBIDDEN)
+    if (user is None or user.role == Role.ADMIN
+            or (from_passkey and not cache.add('qrprotec.poste-login.' + hashlib.sha256(str(token).encode()).hexdigest(),
+                                               1, PASSKEY_POSTE_LOGIN_MAX_AGE + 60))):
         reserve_login_attempt(login_address_key(request))
-        raise ApiError("QR code de connexion expiré ou invalide : demandez-en un nouveau au TECH",
+        raise ApiError("QR code de connexion expiré ou invalide : affichez-en un nouveau sur votre téléphone"
+                       if from_passkey else "QR code de connexion expiré ou invalide : demandez-en un nouveau au TECH",
                        status.HTTP_403_FORBIDDEN)
+    if from_passkey:
+        # le secouriste montre lui-meme le QR code depuis sa session passkey : session normale sur le poste
+        journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
+                       f'connexion de {user} ({user.matricule}) au poste par le QR code de son téléphone (passkey)',
+                       matricule=user.matricule)
+        return Response(login_response(request, user))
     journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
                    f'connexion de dépannage de {user} ({user.matricule}) par QR code temporaire',
                    matricule=user.matricule)
@@ -369,7 +406,9 @@ def matricule_login(request, matricule):
     if not PIN_RE.match(pin):
         raise ApiError(MATRICULE_LOGIN_ERROR, status.HTTP_403_FORBIDDEN, pin_required=True)
     candidates = [user for user in name_login_candidates_queryset() if user.matricule == matricule]
-    return pin_login(request, candidates, pin, MATRICULE_LOGIN_ERROR, pin_required=True)
+    passkey_candidates = [user for user in name_login_candidates_queryset(True) if user.matricule == matricule]
+    return pin_login_or_passkey_hint(request, candidates, passkey_candidates, pin, MATRICULE_LOGIN_ERROR,
+                                     pin_required=True)
 
 
 def name_login_allowed(user):

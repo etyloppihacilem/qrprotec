@@ -19,4 +19,5 @@ from .notif_settings import *  # noqa: F401,F403
 from .douchette import *  # noqa: F401,F403
 from .lists import *  # noqa: F401,F403
 from .prints import *  # noqa: F401,F403
+from .passkeys import *  # noqa: F401,F403
 from .common import _checklist_call  # noqa: F401

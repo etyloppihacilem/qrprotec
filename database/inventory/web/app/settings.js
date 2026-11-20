@@ -9,6 +9,9 @@ function openNotifications() {
   renderScanSettings();
   $('#settings-pin').hidden = !state.user;
   renderPinSettings();
+  state.passkeys = null;
+  renderPasskeySettings();
+  if (state.user) loadPasskeys();
   $('#settings-verif').hidden = !state.user;
   renderVerifSettings();
   const notifications = hasNotifications();

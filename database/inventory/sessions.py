@@ -26,12 +26,24 @@ TEMP_LOGIN_SALT = 'qrprotec.temp-login'
 TEMP_LOGIN_MAX_AGE = 3600
 TEMP_SESSION_SALT = 'qrprotec.temp-session'
 TEMP_SESSION_MAX_AGE = 24 * 3600
+# QR code de connexion au poste montre par un secouriste connecte au web avec sa passkey : 5 min seulement (il est a
+# l'ecran du telephone, on le scanne tout de suite), il ouvre une session normale sur le poste
+PASSKEY_POSTE_LOGIN_MAX_AGE = 300
 
 
-def session_token(user, temporary=False):
-    # lie au badge courant : renouveler le badge invalide les sessions
-    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]},
-                         salt=TEMP_SESSION_SALT if temporary else SESSION_SALT)
+def session_token(user, temporary=False, passkey=False):
+    # lie au badge courant : renouveler le badge invalide les sessions. `pk` : session ouverte avec une passkey (le
+    # web propose alors le QR code de connexion au poste)
+    data = {'m': user.matricule, 'k': user.key_hash[-8:]}
+    if passkey:
+        data['pk'] = 1
+    return signing.dumps(data, salt=TEMP_SESSION_SALT if temporary else SESSION_SALT)
+
+
+def passkey_session(user, token) -> bool:
+    """Jeton de session valide de cet utilisateur, ouvert avec une passkey ?"""
+    data = _session_data(token)
+    return data is not None and data.get('pk') == 1 and session_valid(user, token)
 
 
 def _session_data(token):
@@ -44,16 +56,30 @@ def _session_data(token):
     return None
 
 
-def temp_login_token(user):
-    """Jeton du QR code de connexion de depannage (1 h), lie au badge courant comme les sessions."""
-    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]}, salt=TEMP_LOGIN_SALT)
+def temp_login_token(user, passkey=False):
+    """Jeton du QR code de connexion de depannage (1 h), lie au badge courant comme les sessions. `passkey` : QR code
+    de connexion au poste montre par le secouriste lui-meme, connecte avec sa passkey (5 min)."""
+    data = {'m': user.matricule, 'k': user.key_hash[-8:]}
+    if passkey:
+        data['pk'] = 1
+    return signing.dumps(data, salt=TEMP_LOGIN_SALT)
+
+
+def temp_login_data(token):
+    """Contenu d'un jeton de QR code de connexion valide (1 h, 5 min s'il vient d'une passkey), None sinon."""
+    try:
+        data = signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=TEMP_LOGIN_MAX_AGE)
+        if data.get('pk') == 1:
+            signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=PASSKEY_POSTE_LOGIN_MAX_AGE)
+    except signing.BadSignature:
+        return None
+    return data
 
 
 def temp_login_user(matricule, token):
     """Secouriste d'un QR code de depannage valide (moins d'1 h, meme badge, PIN non bloque), None sinon."""
-    try:
-        data = signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=TEMP_LOGIN_MAX_AGE)
-    except signing.BadSignature:
+    data = temp_login_data(token)
+    if data is None:
         return None
     user = Secouristes.objects.filter(matricule=str(data.get('m', ''))[:16]).first()
     if (user is None or user.matricule != str(matricule or '') or data.get('k') != user.key_hash[-8:]
