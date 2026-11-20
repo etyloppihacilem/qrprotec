@@ -1672,7 +1672,7 @@ def users(request):
                        matricule=user.matricule, role=user.role)
     data = ser.user_dict(user, local=True)
     if first_admin:
-        data['session'] = session_token(user)  # le poste connecte directement le nouvel administrateur
+        data['session'] = session_token(user, method='setup')  # le poste connecte directement le nouvel administrateur
     return Response(data, status=status.HTTP_201_CREATED)
 
 

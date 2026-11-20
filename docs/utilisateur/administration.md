@@ -207,7 +207,9 @@ réglages.
   comme pour la péremption, ou **Aujourd'hui**, **7 jours**, **30 jours**) et un **texte** cherché dans
   le résumé (numéro de scellé, iid, nom de type...), le nom du lot et le nom de la personne.
 - Cliquez une ligne pour son détail : items concernés, ce qui manquait à une vérif, raison d'une
-  ouverture ou d'une suppression.
+  ouverture ou d'une suppression, et **Connexion** : comment la personne s'était connectée (sur le web :
+  carte, nom + PIN, passkey, QR code de dépannage ; au poste principal : carte ou carte + PIN ; sur un
+  poste distant, en plus le nom de sa clé API).
 - Un nom en orange n'a pas été vérifié par un badge : nom déclaré, ou ouverture anonyme par l'étiquette
   intérieure jamais signée.
 - Bouton **Journal du lot** dans la fiche d'un lot (fenêtre Lots, gestion et admin) : le journal filtré sur ce lot.

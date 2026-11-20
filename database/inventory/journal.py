@@ -10,6 +10,7 @@
 
 """Journal des operations : qui fait quoi et quand (verifs, scelles, reassorts, receptions, gestion...)."""
 
+import threading
 from collections import Counter
 
 from django.utils import timezone
@@ -20,8 +21,26 @@ from .models import Operation, Secouristes
 MAX_LISTED_ITEMS = 500  # iids gardes dans le detail d'une operation
 
 
+# Requete API en cours (posee par views.handle_errors) : le journal y lit le moyen d'authentification
+_current = threading.local()
+
+
+def set_request(request):
+    """Pose la requete en cours et rend la precedente (a remettre a la fin)."""
+    previous = getattr(_current, 'request', None)
+    _current.request = request
+    return previous
+
+
 def record(kind, by, summary='', lot=None, at=None, **details):
-    """Ajoute une operation au journal. `lot` : le lot concerne (son nom est garde tel qu'il etait)."""
+    """Ajoute une operation au journal. `lot` : le lot concerne (son nom est garde tel qu'il etait). `details.auth` :
+    moyen d'authentification de la requete en cours (web : moyen de connexion ; poste principal : carte, PIN... ;
+    poste distant : en plus le nom de sa cle API), voir sessions.auth_label."""
+    if 'auth' not in details:
+        from .sessions import auth_label  # sessions importe les modeles, comme ce module
+        label = auth_label(getattr(_current, 'request', None))
+        if label:
+            details['auth'] = label
     return Operation.objects.create(
         at=at or timezone.now(), by=(by or '')[:64], kind=kind, lot=lot, lot_name=lot.name if lot else '',
         summary=summary[:255], details=details,
