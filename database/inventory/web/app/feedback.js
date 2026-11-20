@@ -85,7 +85,7 @@ function showInfo(kind, title, ...lines) {
 
 // Reglages du web de l'utilisateur (models.WEB_PREFS, modifiables aussi par un admin au poste) : valeur par defaut
 // sans utilisateur connecte, ou si la session date d'avant le reglage
-const WEB_PREF_DEFAULTS = { verif_help_hidden: false, scan_bubble: false };
+const WEB_PREF_DEFAULTS = { verif_help_hidden: false, scan_bubble: false, passkey_offered: false };
 function webPref(name) {
   const prefs = state.user && state.user.web_prefs;
   return prefs && name in prefs ? !!prefs[name] : WEB_PREF_DEFAULTS[name];

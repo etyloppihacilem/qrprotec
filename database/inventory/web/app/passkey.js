@@ -11,8 +11,6 @@
 // environment », authentificateur « internal », « Supports resident keys » et « Supports user verification » coches.
 // Le site doit etre en HTTPS avec un certificat valide, ou sur http://localhost (voir docs/technique/passkeys.md).
 
-const PASSKEY_OFFER_KEY = 'qrprotec.passkey-offer'; // derniere fois que « Plus tard » a ete touche
-const PASSKEY_OFFER_PAUSE_MS = 30 * 24 * 3600 * 1000;
 
 const passkeySupported = () => !!(window.PublicKeyCredential && navigator.credentials && window.isSecureContext);
 
@@ -102,14 +100,14 @@ async function createPasskey() {
   }
 }
 
-// Apres une connexion : proposer une passkey a qui n'en a pas. always : connexion par le QR code de depannage du TECH
-// (premiere connexion d'un secouriste sans carte), proposee meme apres « Plus tard ».
-async function offerPasskey(user, always = false) {
+// Premiere connexion au web (Hippolyte, 2026-11-20) : passkey proposee une seule fois par compte (reglage web
+// passkey_offered, note quelle que soit la reponse), ensuite seulement dans ⚙ Reglages > Passkey. Souvent la connexion
+// par le QR code de depannage du TECH, pour un secouriste sans carte.
+async function offerPasskey(user) {
   if (!passkeySupported() || !user || user.guest || user.has_passkey || user.passkey_session || sharedWeb()) return;
   if (verifInProgress() || user !== state.user) return; // pas au milieu d'une vérif, ni apres une deconnexion
-  let last = 0;
-  try { last = Number(localStorage.getItem(PASSKEY_OFFER_KEY) || 0); } catch (e) { /* stockage indisponible */ }
-  if (!always && Date.now() - last < PASSKEY_OFFER_PAUSE_MS) return;
+  if (webPref('passkey_offered')) return;
+  setWebPrefs({ passkey_offered: true }).catch(() => {}); // une seule proposition, meme sans reponse
   const choice = await askDialog({
     title: 'Créer une passkey sur ce téléphone ?',
     body: el('div', {},
@@ -119,8 +117,8 @@ async function offerPasskey(user, always = false) {
     choices: [{ label: 'Créer une passkey', value: true, cls: 'primary' }],
     cancel: 'Plus tard',
   });
-  if (choice) { await createPasskey(); return; }
-  try { localStorage.setItem(PASSKEY_OFFER_KEY, String(Date.now())); } catch (e) { /* stockage indisponible */ }
+  if (choice) await createPasskey();
+  else toast('Vous pourrez créer une passkey plus tard dans ⚙ Réglages.');
 }
 
 // Reglages : passkeys de l'utilisateur, creer, supprimer

@@ -512,12 +512,12 @@ class WebPrefsTests(ApiTestCase):
 
     def test_defaults_user_and_admin(self):
         code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
-        self.assertEqual(body['web_prefs'], {'verif_help_hidden': False, 'scan_bubble': False})
+        self.assertEqual(body['web_prefs'], {'verif_help_hidden': False, 'scan_bubble': False, 'passkey_offered': False})
         # l'utilisateur coche « ne plus afficher ce message » : les autres reglages restent tels quels
         code, body = self.my_prefs({'verif_help_hidden': True})
-        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': True, 'scan_bubble': False}))
+        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': True, 'scan_bubble': False, 'passkey_offered': False}))
         code, body = self.my_prefs({'scan_bubble': True})
-        self.assertEqual(body['web_prefs'], {'verif_help_hidden': True, 'scan_bubble': True})
+        self.assertEqual(body['web_prefs'], {'verif_help_hidden': True, 'scan_bubble': True, 'passkey_offered': False})
         # l'ancien reglage « ligne d'info pendant la vérif » n'existe plus : refuse, et ignore s'il est deja en base
         self.assertEqual(self.my_prefs({'verif_info_line': True})[0], 400)
         # l'ancien reglage « Bulle de connexion » non plus (la grande fenetre de connexion est toujours utilisee)
@@ -531,7 +531,7 @@ class WebPrefsTests(ApiTestCase):
         self.assertEqual(self.call('POST', '/api/me/prefs/', {'web_prefs': {'scan_bubble': True}}, local=False)[0], 403)
         # un admin reaffiche l'explication depuis le poste (fenetre Utilisateurs), journalise
         code, body = self.call('PATCH', '/api/users/M001/', {'web_prefs': {'verif_help_hidden': False}})
-        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': False, 'scan_bubble': True}))
+        self.assertEqual((code, body['web_prefs']), (200, {'verif_help_hidden': False, 'scan_bubble': True, 'passkey_offered': False}))
         self.assertEqual(self.call('PATCH', '/api/users/M001/', {'web_prefs': ['x']})[0], 400)
 
 

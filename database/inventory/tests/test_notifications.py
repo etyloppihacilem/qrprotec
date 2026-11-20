@@ -61,7 +61,7 @@ class AlertTests(ApiTestCase):
         Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')  # homonyme : debut du nom
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
         Secouristes.objects.filter(pk=self.user.pk).update(pin_failures_total=49)
-        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '0000'},
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '000000'},
                                local=False)
         self.assertTrue(body['pin_blocked'])
         self.assertFalse(body['pin_reset']['forgotten'])
@@ -182,7 +182,7 @@ class WebPushTests(ApiTestCase):
         self.addCleanup(setattr, webpush, 'post_push', original)
         self.admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
         self.admin.renew_key()
-        self.admin.set_pin('4821')
+        self.admin.set_pin('482100')
         self.admin.save()
         self.badge = {'matricule': 'A001', 'key': self.admin.new_key, 'session': views.session_token(self.admin)}
         self.browser_key = ec.generate_private_key(ec.SECP256R1())

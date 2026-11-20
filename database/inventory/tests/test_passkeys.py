@@ -98,7 +98,7 @@ class PasskeyTests(ApiTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()  # essais de connexion comptes par adresse (limite de 10)
-        self.user.set_pin('4321')
+        self.user.set_pin('432100')
         self.user.save()
         self.phone = FakeAuthenticator()
 
@@ -126,7 +126,7 @@ class PasskeyTests(ApiTestCase):
                          local=False)
 
     def name_login(self):
-        return self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '4321'}, local=False)
+        return self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '432100'}, local=False)
 
     def test_register_then_login(self):
         code, body = self.register()
@@ -155,23 +155,23 @@ class PasskeyTests(ApiTestCase):
         self.assertTrue(body['passkey_required'])
         self.assertIn('passkey', body['error'])
         # PIN faux : refus general, qui ne dit rien de la passkey
-        code, body = self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '0000'},
+        code, body = self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '000000'},
                                local=False)
         self.assertEqual(code, 403)
         self.assertNotIn('passkey_required', body)
         # matricule seul + PIN : coupe aussi
-        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'pin': '4321'}, local=False)
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'pin': '432100'}, local=False)
         self.assertEqual(code, 403)
         self.assertTrue(body.get('passkey_required'))
         # au poste (kiosk ou poste distant avec sa cle de front), le nom et le PIN marchent toujours
-        code, body = self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '4321'},
+        code, body = self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '432100'},
                                session=False)
         self.assertEqual(code, 200, body)
         self.assertEqual(body['matricule'], 'M001')
-        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'pin': '4321'}, session=False)
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'pin': '432100'}, session=False)
         self.assertEqual(code, 200, body)
         # la carte marche toujours
-        code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '4321'},
+        code, _ = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '432100'},
                             local=False)
         self.assertEqual(code, 200)
         # sans passkey (supprimee par l'utilisateur), le nom et le PIN remarchent

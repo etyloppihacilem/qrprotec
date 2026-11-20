@@ -119,7 +119,7 @@ def verify_pin(user, data):
     if not user.has_pin:
         new_pin = str(data.get('new_pin', '') or '')
         if not new_pin:
-            raise ApiError("Choisissez votre code PIN (4 à 8 chiffres)", status.HTTP_403_FORBIDDEN,
+            raise ApiError(f"Choisissez votre code PIN (au moins {PIN_MIN_LENGTH} chiffres)", status.HTTP_403_FORBIDDEN,
                            **pin_setup_extra(user))
         try:
             user.set_pin(new_pin)
@@ -333,7 +333,7 @@ def auth_name(request):
     check_login_address(request)
     nom, prenom, pin = (str(data.get(field, '') or '').strip() for field in ('nom', 'prenom', 'pin'))
     if not nom or not prenom or not PIN_RE.match(pin):
-        raise ApiError("Saisissez votre nom, votre prénom et votre code PIN (4 à 8 chiffres)")
+        raise ApiError("Saisissez votre nom, votre prénom et votre code PIN")
     user = pin_login_or_passkey_hint(request, name_login_candidates(nom, prenom),
                                      name_login_candidates(nom, prenom, passkey=True), pin, NAME_LOGIN_ERROR)
     return Response(login_response(request, user))

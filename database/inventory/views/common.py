@@ -69,7 +69,7 @@ from ..sessions import (  # noqa: F401 (tests)
 from ..models import (
     DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType, LotTypeSlot,
     SlotMode,
-    NotificationSettings, Operation, Passkey, OperationChange, OperationKind, PIN_RE, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
+    NotificationSettings, Operation, Passkey, OperationChange, OperationKind, PIN_RE, NEW_PIN_RE, NEW_PIN_ERROR, PIN_MIN_LENGTH, PinMode, PushSubscription, SealedPacks, Role, Secouristes, SeenWhile, StockOrder,
     SCANNER_VOLUMES, LOST_OBJECT_MESSAGE_MAX, ConsumableRef, ServerSettings, FrontConfigDownload, FrontKey, VerifItem, VerifResult, Verifs, add_months, custom_order_key, name_key, qrprotec_setting,
     hash_key, keys_match,
     storage_kind_value, MAINTENANCE,

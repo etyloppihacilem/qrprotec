@@ -182,7 +182,7 @@ function renderPinSettings() {
   const user = state.user;
   if (!box || !user) return;
   const pinInput = (id, placeholder) => el('input', { id, class: 'pin', type: 'text', inputmode: 'numeric',
-    pattern: '[0-9]*', maxlength: 8, autocomplete: 'off', placeholder });
+    pattern: '[0-9]*', maxlength: 64, autocomplete: 'off', placeholder });
   const hasPin = !!user.has_pin;
   const parts = [el('h3', {}, 'Code PIN')];
   const atLogin = !!user.pin_at_login;
@@ -202,7 +202,7 @@ function renderPinSettings() {
       ? 'Toujours demandé pour les administrateurs.' : 'Toujours demandé : le TECH l\'a rendu obligatoire.')
       : 'Décochée : le code ne sert qu\'à vous connecter sans badge.'))));
   if (hasPin) parts.push(pinInput('settings-pin-current', 'PIN actuel'));
-  parts.push(pinInput('settings-pin-new', hasPin ? 'Nouveau PIN (4 à 8 chiffres)' : 'PIN (4 à 8 chiffres)'));
+  parts.push(pinInput('settings-pin-new', hasPin ? 'Nouveau PIN (6 chiffres ou plus)' : 'PIN (6 chiffres ou plus)'));
   parts.push(pinInput('settings-pin-confirm', 'Confirmez le PIN'));
   parts.push(el('p', { id: 'settings-pin-error', class: 'pin-error' }));
   const buttons = [el('button', { type: 'button', class: 'primary', onclick: () => savePin(false) }, icon('key'),
@@ -314,7 +314,7 @@ async function savePin(disable) {
     const warning = user.key ? '' : ' Sans PIN, vous ne pourrez plus vous connecter sans badge.';
     if (!await confirmDialog('Supprimer votre code PIN ?', 'Le badge suffira pour vous connecter.' + warning, 'Supprimer', 'danger')) return;
   } else {
-    if (!/^\d{4,8}$/.test(pin)) { error('Le PIN doit comporter 4 à 8 chiffres.'); return; }
+    if (!NEW_PIN_RE.test(pin)) { error(NEW_PIN_ERROR); return; }
     if (pin !== value('#settings-pin-confirm')) { error('Les deux PIN sont différents.'); return; }
   }
   try {

@@ -38,6 +38,11 @@ const STORAGE_SESSION = 'qrprotec.session';
 const STORAGE_SHARED_WEB = 'qrprotec.shared-web';
 const STORAGE_ACTIVITY = 'qrprotec.activity'; // derniere activite de la personne connectee (web partage)
 const SHARED_IDLE_MS = 60 * 60 * 1000;
+// PIN : 6 chiffres au moins pour un nouveau code, pas de maximum (64 au plus) ; a la connexion, les anciens codes de
+// 4 ou 5 chiffres restent valables (models.PIN_RE / NEW_PIN_RE)
+const PIN_LOGIN_RE = /^\d{4,64}$/;
+const NEW_PIN_RE = /^\d{6,64}$/;
+const NEW_PIN_ERROR = 'Le PIN doit comporter au moins 6 chiffres.';
 const STORAGE_PIN_RESET = 'qrprotec.pin-reset';  // lien de deblocage en attente du badge de l'admin
 const STORAGE_NAME = 'qrprotec.declared-name';   // nom declare (sans badge), si le serveur l'autorise
 const STORAGE_FICHE_KEY = 'qrprotec.fiche-key';

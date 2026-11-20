@@ -25,9 +25,9 @@ class SetupTests(ApiTestCase):
         self.assertNotEqual(Secouristes.objects.get(matricule='R001').key_hash, old_hash)
         # PIN lu sur l'entree standard (qrprotec-setup) : jamais dans la ligne de commande
         from unittest import mock
-        with mock.patch('sys.stdin', StringIO('4821\n')):
+        with mock.patch('sys.stdin', StringIO('482100\n')):
             call_command('createadmin', 'R001', '--pin-stdin', stdout=StringIO())
-        self.assertTrue(Secouristes.objects.get(matricule='R001').check_pin('4821'))
+        self.assertTrue(Secouristes.objects.get(matricule='R001').check_pin('482100'))
 
 
 # PIN haches avec un algorithme rapide : les tests de blocage font une cinquantaine d'essais
@@ -45,12 +45,12 @@ class PinTests(ApiTestCase):
         self.assertTrue(body['pin_setup_required'])
         code, body = self.auth(admin, new_pin='12')
         self.assertEqual(code, 400)
-        code, body = self.auth(admin, new_pin='4821')
+        code, body = self.auth(admin, new_pin='482100')
         self.assertEqual(code, 200)
         self.assertTrue(body['has_pin'])
         code, body = self.auth(admin)
         self.assertEqual((code, body.get('pin_required')), (403, True))
-        code, body = self.auth(admin, pin='4821')
+        code, body = self.auth(admin, pin='482100')
         self.assertEqual(code, 200)
         self.assertNotIn('nom', body)  # front web : jamais de nom de famille, le poste l'a
         # le jeton de session ouvre l'etat des stocks sans redemander le PIN
@@ -89,7 +89,7 @@ class PinTests(ApiTestCase):
     def test_pin_blocked_after_failures_until_admin_reset(self):
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
         admin.renew_key()
-        admin.set_pin('4821')
+        admin.set_pin('482100')
         admin.save()
         code, _ = self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'M001'})
         self.assertEqual(code, 400)  # l'admin a contacter doit etre un administrateur
@@ -127,7 +127,7 @@ class PinTests(ApiTestCase):
         admin_badge = {'matricule': 'A001', 'key': admin.new_key}
         code, body = self.call('POST', '/api/pin-reset/', {**request, 'user': admin_badge}, local=False)
         self.assertEqual((code, body.get('pin_required')), (403, True))
-        code, login = self.auth(admin, pin='4821')
+        code, login = self.auth(admin, pin='482100')
         admin_badge['session'] = login['session']
         code, _ = self.call('POST', '/api/pin-reset/', {'matricule': 'M001', 'token': 'faux', 'user': admin_badge},
                             local=False)
@@ -144,10 +144,10 @@ class PinTests(ApiTestCase):
         code, body = self.auth(self.user)
         self.assertEqual(code, 403)
         self.assertTrue(body['pin_setup_required'])
-        code, body = self.auth(self.user, new_pin='2468')
+        code, body = self.auth(self.user, new_pin='246800')
         self.assertEqual(code, 200)
         self.assertFalse(body['pin_reset_required'])
-        self.assertEqual(self.auth(self.user, pin='2468')[0], 200)
+        self.assertEqual(self.auth(self.user, pin='246800')[0], 200)
 
     def test_local_pin_reset(self):
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
@@ -199,7 +199,7 @@ class PinModeTests(ApiTestCase):
         self.assertEqual((code, body['pin_mode'], body['pin_required']), (200, 'required', True))
         code, body = self.auth(self.user)
         self.assertEqual((code, body.get('pin_setup_required')), (403, True))
-        self.assertEqual(self.auth(self.user, new_pin='2468')[0], 200)
+        self.assertEqual(self.auth(self.user, new_pin='246800')[0], 200)
         self.assertEqual(self.auth(self.user)[0], 403)
         # desactive : PIN supprime, plus demande
         code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
@@ -209,7 +209,7 @@ class PinModeTests(ApiTestCase):
         self.assertEqual(self.call('PATCH', '/api/users/P001/', {'pin_mode': 'disabled'})[0], 400)
         self.assertEqual(self.call('PATCH', '/api/users/M001/', {'pin_mode': 'parfois'})[0], 400)
         # un PIN choisi par un admin reactive le PIN
-        code, body = self.call('PATCH', '/api/users/M001/', {'pin': '1357'})
+        code, body = self.call('PATCH', '/api/users/M001/', {'pin': '135700'})
         self.assertEqual((body['pin_mode'], body['pin_required']), ('', True))
 
     def test_server_roles(self):
@@ -235,11 +235,11 @@ class PinModeTests(ApiTestCase):
     def test_pin_at_login(self):
         """Code obligatoire mais pas demande a chaque connexion : il ne sert qu'a la connexion sans badge."""
         self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['normal']})
-        code, body = self.auth(self.user, new_pin='2468', pin_at_login=False)
+        code, body = self.auth(self.user, new_pin='246800', pin_at_login=False)
         self.assertEqual((code, body['has_pin'], body['pin_at_login'], body['pin_required']), (200, True, False, False))
         self.assertEqual(self.auth(self.user)[0], 200)  # badge seul
         cache.clear()
-        response = self.client.post('/api/auth/name/', json.dumps({'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '2468'}),
+        response = self.client.post('/api/auth/name/', json.dumps({'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '246800'}),
                                     content_type='application/json', REMOTE_ADDR='10.0.0.9')
         self.assertEqual(response.status_code, 200)
         # coche par un admin : redemande apres le badge
@@ -247,13 +247,13 @@ class PinModeTests(ApiTestCase):
         self.assertEqual((body['pin_at_login'], body['pin_required']), (True, True))
         self.assertEqual(self.auth(self.user)[0], 403)
         # admin : toujours demande, case imposee
-        self.operator.set_pin('4821')
+        self.operator.set_pin('482100')
         self.operator.save()
         code, body = self.call('PATCH', '/api/users/P001/', {'pin_at_login': False})
         self.assertEqual((body['pin_at_login'], body['pin_at_login_locked'], body['pin_required']), (True, True, True))
         # sans la case (ancien front) : demande a chaque connexion, comme avant
         self.call('PATCH', '/api/users/M001/', {'pin_reset': True})
-        self.assertEqual(self.auth(self.user, new_pin='1357')[0], 200)
+        self.assertEqual(self.auth(self.user, new_pin='135700')[0], 200)
         self.assertEqual(self.auth(self.user)[0], 403)
 
     def test_defaults(self):
@@ -265,7 +265,7 @@ class PinModeTests(ApiTestCase):
             code, body = self.auth(self.user)  # premiere connexion : code a choisir, case cochee mais decochable
             self.assertEqual((code, body.get('pin_setup_required'), body.get('pin_at_login_default'),
                               body.get('pin_at_login_locked')), (403, True, True, False))
-            code, body = self.auth(self.user, new_pin='2468', pin_at_login=False)
+            code, body = self.auth(self.user, new_pin='246800', pin_at_login=False)
             self.assertEqual((code, body['pin_mandatory'], body['pin_can_disable'], body['pin_required']),
                              (200, True, False, False))
             self.assertEqual(self.auth(self.user)[0], 200)  # badge seul
@@ -282,11 +282,11 @@ class PinModeTests(ApiTestCase):
         code, body = self.auth(self.user)
         self.assertEqual((code, body.get('pin_setup_required'), body.get('pin_at_login_locked')), (403, True, True))
         # la case decochee est ignoree
-        code, body = self.auth(self.user, new_pin='2468', pin_at_login=False)
+        code, body = self.auth(self.user, new_pin='246800', pin_at_login=False)
         self.assertEqual((code, body['pin_at_login'], body['pin_at_login_locked'], body['pin_mandatory']),
                          (200, True, True, True))
         self.assertEqual(self.auth(self.user)[0], 403)
-        self.assertEqual(self.auth(self.user, pin='2468')[0], 200)
+        self.assertEqual(self.auth(self.user, pin='246800')[0], 200)
         # ni decochable, ni supprimable par l'utilisateur
         credentials = {'matricule': 'M001', 'key': self.user.new_key, 'session': views.session_token(self.user)}
         code, body = self.call('POST', '/api/me/pin/', {'user': credentials, 'pin_at_login': False}, local=False)
@@ -310,7 +310,7 @@ class PinModeTests(ApiTestCase):
         self.assertEqual((code, body['pin_mode'], body['pin_required'], body['pin_at_login_locked']),
                          (200, 'login', True, True))
         self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
-        self.assertEqual(self.auth(self.user, new_pin='2468', pin_at_login=False)[0], 200)
+        self.assertEqual(self.auth(self.user, new_pin='246800', pin_at_login=False)[0], 200)
         self.assertEqual(self.auth(self.user)[0], 403)
         code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': ''})
         self.assertEqual((body['pin_at_login_locked'], body['pin_mandatory']), (False, False))
@@ -329,55 +329,55 @@ class MyPinTests(ApiTestCase):
     def test_set_change_then_disable(self):
         code, body = self.my_pin(self.user, pin='12')
         self.assertEqual(code, 400)
-        code, body = self.my_pin(self.user, pin='2468')
+        code, body = self.my_pin(self.user, pin='246800')
         self.assertEqual((code, body['has_pin'], body['pin_required'], body['pin_can_disable']), (200, True, True, True))
         self.assertEqual(self.auth(self.user)[0], 403)
-        self.assertEqual(self.auth(self.user, pin='2468')[0], 200)
+        self.assertEqual(self.auth(self.user, pin='246800')[0], 200)
         # changer ou supprimer : PIN actuel exige, essais faux comptes
-        self.assertEqual(self.my_pin(self.user, pin='1357')[0], 403)
-        self.assertEqual(self.my_pin(self.user, current_pin='0000', pin='1357')[0], 403)
+        self.assertEqual(self.my_pin(self.user, pin='135700')[0], 403)
+        self.assertEqual(self.my_pin(self.user, current_pin='000000', pin='135700')[0], 403)
         self.user.refresh_from_db()
         self.assertEqual(self.user.pin_failures, 2)
-        self.assertEqual(self.my_pin(self.user, current_pin='2468', pin='1357')[0], 200)
-        self.assertEqual(self.auth(self.user, pin='1357')[0], 200)
-        code, body = self.my_pin(self.user, current_pin='1357', disable=True)
+        self.assertEqual(self.my_pin(self.user, current_pin='246800', pin='135700')[0], 200)
+        self.assertEqual(self.auth(self.user, pin='135700')[0], 200)
+        code, body = self.my_pin(self.user, current_pin='135700', disable=True)
         self.assertEqual((code, body['has_pin'], body['pin_required'], body['pin_mode']), (200, False, False, ''))
         self.assertEqual(self.auth(self.user)[0], 200)
         self.assertEqual(self.my_pin(self.user, disable=True)[0], 400)
         self.assertTrue(Operation.objects.filter(summary__contains='code PIN supprimé').exists())
         # case « Demander a chaque connexion » : avec le PIN choisi, ou seule
-        code, body = self.my_pin(self.user, pin='2468', pin_at_login=False)
+        code, body = self.my_pin(self.user, pin='246800', pin_at_login=False)
         self.assertEqual((code, body['pin_at_login'], body['pin_required']), (200, False, False))
         self.assertEqual(self.auth(self.user)[0], 200)
         code, body = self.my_pin(self.user, pin_at_login=True)
         self.assertEqual((code, body['pin_required']), (200, True))
         self.assertEqual(self.auth(self.user)[0], 403)
-        self.operator.set_pin('4821')
+        self.operator.set_pin('482100')
         self.operator.save()
         self.assertEqual(self.my_pin(self.operator, pin_at_login=False)[0], 403)
-        self.assertEqual(self.call('POST', '/api/me/pin/', {'pin': '2468'}, local=False)[0], 403)
+        self.assertEqual(self.call('POST', '/api/me/pin/', {'pin': '246800'}, local=False)[0], 403)
 
     def test_disable_refused_when_mandatory(self):
         # admin : PIN obligatoire
-        self.operator.set_pin('4821')
+        self.operator.set_pin('482100')
         self.operator.save()
-        code, body = self.my_pin(self.operator, current_pin='4821', disable=True)
+        code, body = self.my_pin(self.operator, current_pin='482100', disable=True)
         self.assertEqual(code, 403)
-        self.assertEqual(self.my_pin(self.operator, current_pin='4821', pin='9753')[0], 200)
+        self.assertEqual(self.my_pin(self.operator, current_pin='482100', pin='975300')[0], 200)
         # PIN rendu obligatoire par un admin, pour ce secouriste ou pour tous
-        self.my_pin(self.user, pin='2468')
+        self.my_pin(self.user, pin='246800')
         self.call('PATCH', '/api/users/M001/', {'pin_mode': 'required'})
         self.user.refresh_from_db()
-        self.assertEqual(self.my_pin(self.user, current_pin='2468', disable=True)[0], 403)
+        self.assertEqual(self.my_pin(self.user, current_pin='246800', disable=True)[0], 403)
         self.call('PATCH', '/api/users/M001/', {'pin_mode': ''})
         self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['normal']})
-        code, body = self.auth(self.user, pin='2468')
+        code, body = self.auth(self.user, pin='246800')
         self.assertFalse(body['pin_can_disable'])
-        self.assertEqual(self.my_pin(self.user, current_pin='2468', disable=True)[0], 403)
+        self.assertEqual(self.my_pin(self.user, current_pin='246800', disable=True)[0], 403)
         # desactive par un admin : l'utilisateur peut en choisir un, puis le retirer
         self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
         self.user.refresh_from_db()
-        code, body = self.my_pin(self.user, pin='1357')
+        code, body = self.my_pin(self.user, pin='135700')
         self.assertEqual((code, body['pin_mode'], body['pin_can_disable']), (200, '', False))
 
 
@@ -387,10 +387,10 @@ class NameLoginTests(ApiTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
-        self.user.set_pin('2468')
+        self.user.set_pin('246800')
         self.user.save()
 
-    def login(self, nom='Dupont', prenom='Jeanne', pin='2468', address='10.0.0.1'):
+    def login(self, nom='Dupont', prenom='Jeanne', pin='246800', address='10.0.0.1'):
         response = self.client.post('/api/auth/name/', json.dumps({'nom': nom, 'prenom': prenom, 'pin': pin}),
                                     content_type='application/json', REMOTE_ADDR=address)
         return response.status_code, response.json()
@@ -407,11 +407,11 @@ class NameLoginTests(ApiTestCase):
             code, body = self.matricule_login(matricule)
             self.assertEqual(code, 403)
             self.assertTrue(body['pin_required'])
-        code, body = self.matricule_login(pin='2468')
+        code, body = self.matricule_login(pin='246800')
         self.assertEqual((code, body['matricule']), (200, 'M001'))
         self.assertTrue(body['session'])
-        code, wrong = self.matricule_login(pin='1111')
-        code_unknown, unknown = self.matricule_login('X999', pin='1111')
+        code, wrong = self.matricule_login(pin='111100')
+        code_unknown, unknown = self.matricule_login('X999', pin='111100')
         self.assertEqual((code, wrong['error']), (code_unknown, unknown['error']))
         self.assertTrue(wrong['pin_required'])
         self.user.refresh_from_db()
@@ -420,7 +420,7 @@ class NameLoginTests(ApiTestCase):
         # sans PIN defini : impossible sans badge (il se choisit seulement avec la cle du badge)
         self.user.reset_pin()
         self.user.save()
-        self.assertEqual(self.matricule_login(pin='2468')[0], 403)
+        self.assertEqual(self.matricule_login(pin='246800')[0], 403)
 
     def test_login_and_session_as_badge(self):
         code, body = self.login(nom='DUPONT', prenom='jeanne')
@@ -442,7 +442,7 @@ class NameLoginTests(ApiTestCase):
 
     def test_refusals_look_the_same(self):
         unknown = self.login(nom='Personne')
-        wrong = self.login(pin='1111')
+        wrong = self.login(pin='111100')
         self.assertEqual(unknown, wrong)
         self.assertEqual(unknown[0], 403)
         # sans PIN, ou PIN desactive : meme refus
@@ -451,14 +451,14 @@ class NameLoginTests(ApiTestCase):
 
     def test_failures_pause_without_blocking_badge_pin(self):
         for _ in range(5):
-            self.login(pin='1111', address='10.0.0.2')
+            self.login(pin='111100', address='10.0.0.2')
         self.user.refresh_from_db()
         self.assertIsNotNone(self.user.name_login_locked_until)
         self.assertEqual(self.user.pin_failures, 0)  # le PIN du badge n'est pas touche
         self.assertEqual(self.login(address='10.0.0.3')[0], 403)  # en pause, meme avec le bon PIN
         # une connexion avec le badge leve la pause
         self.assertEqual(self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key,
-                                                          'pin': '2468'}, local=False)[0], 200)
+                                                          'pin': '246800'}, local=False)[0], 200)
         self.assertEqual(self.login(address='10.0.0.3')[0], 200)
 
     def test_address_limit(self):
@@ -603,7 +603,7 @@ class GuestCardTests(ApiTestCase):
         session = body['session']
         # pas de PIN a choisir dans les reglages
         code, _ = self.call('POST', '/api/me/pin/', {'user': {'matricule': matricule, 'session': session},
-                                                    'pin': '1234'}, local=False)
+                                                    'pin': '123400'}, local=False)
         self.assertEqual(code, 403)
         # 48 h plus tard : carte et session expirees
         later = timezone.now() + timedelta(hours=48, minutes=1)
@@ -757,3 +757,28 @@ class GuestCardReuseTests(ApiTestCase):
                                local=False)
         self.assertEqual(code, 200, body)
         self.assertIn('/badge?', body['card']['url'])
+
+
+class PinLengthTests(ApiTestCase):
+    """PIN : 6 chiffres au moins pour un nouveau code, pas de vraie limite haute ; les anciens codes de 4 chiffres
+    restent valables a la connexion."""
+
+    def test_new_pin_six_digits_or_more_old_pins_still_work(self):
+        from django.contrib.auth.hashers import make_password
+        with self.assertRaises(ValueError):
+            self.user.set_pin('12345')
+        self.user.set_pin('12345678901234567890')  # plus de limite a 8 chiffres
+        self.user.save()
+        self.assertTrue(self.user.check_pin('12345678901234567890'))
+        # ancien code de 4 chiffres (choisi avant le passage a 6) : la connexion par nom l'accepte toujours
+        self.user.pin_hash = make_password('4821')
+        self.user.save()
+        code, body = self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '4821'},
+                               local=False)
+        self.assertEqual(code, 200, body)
+        # mais on ne peut plus en choisir un de 4 chiffres
+        credentials = {'matricule': 'M001', 'session': body['session']}
+        code, body = self.call('POST', '/api/me/pin/', {'user': credentials, 'current_pin': '4821', 'pin': '1357'},
+                               local=False)
+        self.assertEqual(code, 400)
+        self.assertIn('6 chiffres', body['error'])

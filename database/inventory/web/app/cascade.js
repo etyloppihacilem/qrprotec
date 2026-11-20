@@ -470,9 +470,10 @@ function askPin(matricule, key, setup, errorMessage) {
   const dialog = $('#pin');
   $('#pin-title').textContent = setup ? 'Choisissez votre code PIN' : 'Code PIN';
   $('#pin-text').textContent = setup
-    ? 'Choisissez votre code de 4 à 8 chiffres. Il permet aussi de vous connecter sans badge (nom, prénom et code).'
+    ? 'Choisissez votre code d\'au moins 6 chiffres. Il permet aussi de vous connecter sans badge (nom, prénom et code).'
     : `Badge ${matricule} : saisissez votre code PIN.`;
   $('#pin-input').value = '';
+  $('#pin-input').placeholder = setup ? '6 chiffres ou plus' : 'Code PIN';
   $('#pin-confirm').value = '';
   $('#pin-confirm').hidden = !setup;
   const atLogin = $('#pin-at-login');
@@ -486,7 +487,7 @@ function askPin(matricule, key, setup, errorMessage) {
   $('#pin-form').onsubmit = (event) => {
     event.preventDefault();
     const pin = $('#pin-input').value.trim();
-    if (!/^\d{4,8}$/.test(pin)) { $('#pin-error').textContent = 'Le PIN doit comporter 4 à 8 chiffres.'; return; }
+    if (!(setup ? NEW_PIN_RE : PIN_LOGIN_RE).test(pin)) { $('#pin-error').textContent = setup ? NEW_PIN_ERROR : 'Code PIN incorrect.'; return; }
     if (setup && pin !== $('#pin-confirm').value.trim()) { $('#pin-error').textContent = 'Les deux PIN sont différents.'; return; }
     dialog.close();
     login(matricule, key, setup ? { new_pin: pin, pin_at_login: atLogin.checked } : { pin });
@@ -601,8 +602,7 @@ keepAboveKeyboard($('#guest-name'));
 async function tempLogin(matricule, token) {
   try {
     const user = await api('auth/temp/', { matricule, token });
-    loggedIn({ ...user, loginAt: Date.now(), sessionMs: (user.session_hours || 24) * 3600 * 1000 - 5 * 60 * 1000 },
-      { offerPasskey: 'always' }); // premiere connexion d'un secouriste sans carte : passkey proposee aussitot
+    loggedIn({ ...user, loginAt: Date.now(), sessionMs: (user.session_hours || 24) * 3600 * 1000 - 5 * 60 * 1000 });
   } catch (e) {
     feedback.bad();
     showInfo('bad', 'QR code refusé', e.message);
@@ -625,7 +625,7 @@ function openNameLogin() {
     const nom = $('#name-login-nom').value.trim();
     const pin = $('#name-login-pin').value.trim();
     if (!prenom || !nom) { $('#name-login-error').textContent = 'Saisissez votre prénom et votre nom.'; return; }
-    if (!/^\d{4,8}$/.test(pin)) { $('#name-login-error').textContent = 'Le PIN doit comporter 4 à 8 chiffres.'; return; }
+    if (!PIN_LOGIN_RE.test(pin)) { $('#name-login-error').textContent = 'Saisissez votre code PIN (chiffres seulement).'; return; }
     try {
       const user = await api('auth/name/', { nom, prenom, pin });
       dialog.close();
@@ -650,8 +650,7 @@ function nameLoginCancelled() {
 }
 $('#name-login').addEventListener('cancel', nameLoginCancelled);
 
-// options.offerPasskey : 'always' pour proposer une passkey meme apres « Plus tard » (web/app/passkey.js)
-function loggedIn(user, options = {}) {
+function loggedIn(user) {
   const action = takeLoginAction(); // action qui attendait la connexion (signalement)
   activityAt = 0;
   noteActivity(); // web partage : l'heure d'inactivite part de la connexion
@@ -675,5 +674,5 @@ function loggedIn(user, options = {}) {
   state.reports = null;
   if (state.user) loadReports(true);
   if (action) setTimeout(action, 0);
-  else if (!state.pinReset) setTimeout(() => offerPasskey(state.user, options.offerPasskey === 'always'), 800);
+  else if (!state.pinReset) setTimeout(() => offerPasskey(state.user), 800); // premiere connexion (web/app/passkey.js)
 }

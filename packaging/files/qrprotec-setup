@@ -596,7 +596,7 @@ if [[ $admin == yes ]]; then
     ask matricule "Matricule" ""
     ask nom "Nom" ""
     ask prenom "Prenom" ""
-    read -r -s -p "Code PIN (4 a 8 chiffres, vide = choisi a la premiere connexion) : " pin
+    read -r -s -p "Code PIN (6 chiffres ou plus, vide = choisi a la premiere connexion) : " pin
     echo
     [[ -n $matricule ]] || die "matricule obligatoire"
     args=(createadmin "$matricule")

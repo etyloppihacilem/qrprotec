@@ -12,8 +12,8 @@
 
     python manage.py createadmin M001 Dupont Jeanne
     python manage.py createadmin M001            # compte existant : repasse administrateur, nouvelle cle
-    python manage.py createadmin M001 --pin 4821 # fixe aussi le PIN (sinon demande a la connexion)
-    echo 4821 | python manage.py createadmin M001 --pin-stdin   # PIN lu sur l'entree standard, absent de `ps`
+    python manage.py createadmin M001 --pin 482193 # fixe aussi le PIN (sinon demande a la connexion)
+    echo 482193 | python manage.py createadmin M001 --pin-stdin   # PIN lu sur l'entree standard, absent de `ps`
 
 Utile a la premiere installation ou si tous les badges administrateur sont perdus ou expires. Le front
 propose aussi de creer le premier administrateur quand il n'y en a aucun.
@@ -35,7 +35,7 @@ class Command(BaseCommand):
         parser.add_argument('matricule')
         parser.add_argument('nom', nargs='?')
         parser.add_argument('prenom', nargs='?')
-        parser.add_argument('--pin', help="Code PIN (4 a 8 chiffres) ; sinon demande a la premiere connexion")
+        parser.add_argument('--pin', help="Code PIN (6 chiffres ou plus) ; sinon demande a la premiere connexion")
         parser.add_argument('--pin-stdin', action='store_true',
                             help="Lit le PIN sur l'entree standard (une ligne) : il n'apparait pas dans la liste des "
                                  "processus, contrairement a --pin")
@@ -73,4 +73,4 @@ class Command(BaseCommand):
         self.stdout.write(f"URL du badge (a encoder dans un QR code) :\n{data['badge_url']}")
         self.stdout.write("Scannez cette URL (ou le badge imprime) sur le poste pour passer en mode privilegie.")
         if not user.has_pin:
-            self.stdout.write("Aucun PIN : il sera demande (4 a 8 chiffres) a la premiere connexion.")
+            self.stdout.write("Aucun PIN : il sera demande (6 chiffres ou plus) a la premiere connexion.")
