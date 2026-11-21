@@ -883,7 +883,7 @@ void App::draw_gestion_menus(bool dark_bar) {
     ImGui::TextDisabled("Savoir quoi faire");
     if (tab_menu_item(*this, "À faire", "stock", true))
       show_tech_tab("tasks");
-    if (tab_menu_item(*this, "À venir (péremptions, révisions, désinfections)", "stock"))
+    if (tab_menu_item(*this, "À venir (péremptions, révisions, commandes...)", "stock"))
       show_tech_tab("events");
     const int         fresh   = report_counts["new"].integer();
     const std::string reports = "Signalements" + (fresh > 0 ? " (" + nb(fresh, "nouveau", "nouveaux") + ")" : std::string());

@@ -184,8 +184,9 @@ def consumption(places, since, now):
     return {key: count / days for key, count in counts.items()}, days
 
 
-def forecast(months=6, lead_days=None, history_months=None):
-    """Previsions par type d'item et echanges suggeres, sur `months` mois."""
+def forecast(months=6, lead_days=None, history_months=None, weekly=False):
+    """Previsions par type d'item et echanges suggeres, sur `months` mois. weekly : les types a commander ont aussi
+    leur projection semaine par semaine (`weekly`, detail d'une recommandation de commande, voir order_explain)."""
     if lead_days is None:
         lead_days = qrprotec_setting('ORDER_LEAD_DAYS')
     if history_months is None:
@@ -223,7 +224,7 @@ def forecast(months=6, lead_days=None, history_months=None):
         for held in by_place.values():
             held.sort(key=lambda unit: (unit[0], unit[1].iid))
         row = _type_forecast(item_type, by_place, rates, places, today, horizon, month_starts, points, lead_days,
-                             unconfirmed[item_type.type])
+                             unconfirmed[item_type.type], weekly)
         if item_type.is_unit_group:
             _unit_order(row, item_type, item_types)
         types.append(row)
@@ -278,7 +279,8 @@ def _lot_rates(rates, type_id, places):
     return {place: rate for (place, rate_type), rate in rates.items() if rate_type == type_id and place != 'stock'}
 
 
-def _type_forecast(item_type, by_place, rates, places, today, horizon, month_starts, points, lead_days, unconfirmed):
+def _type_forecast(item_type, by_place, rates, places, today, horizon, month_starts, points, lead_days, unconfirmed,
+                   weekly=False):
     type_id = item_type.type
     lot_rates = _lot_rates(rates, type_id, places)
     stock_rate = rates.get(('stock', type_id), 0.0) + sum(lot_rates.values())
@@ -307,12 +309,11 @@ def _type_forecast(item_type, by_place, rates, places, today, horizon, month_sta
     def in_window(value, start, stop):
         return start < value <= stop
 
-    projection = []
-    for day in points:
+    def point(day):
         when = (day - today).days
         stock = sum(1 for limit, fate in zip(stock_limits, stock_fates) if present_at(fate, limit, when))
         missing = sum(1 for at in shortages if at <= when)
-        projection.append({
+        return {
             'date': day,
             'stock': stock,
             'lots': max(0, lots_now - missing),
@@ -323,7 +324,9 @@ def _type_forecast(item_type, by_place, rates, places, today, horizon, month_sta
             'lost': sum(1 for fate in stock_fates if fate[0] == 'lost' and in_window(fate[1], 0, when))
                     + sum(1 for _, fate, _ in lot_units if fate[0] == 'lost' and in_window(fate[1], 0, when)),
             'shortage': missing,
-        })
+        }
+
+    projection = [point(day) for day in points]
 
     calendar_months = []
     for index in range(len(month_starts) - 1):
@@ -410,6 +413,9 @@ def _type_forecast(item_type, by_place, rates, places, today, horizon, month_sta
         'below_min': today + timedelta(days=int(below)) if below is not None and below <= horizon else None,
         'order': order,
         'batches': detail,
+        # detail d'une recommandation de commande : semaine par semaine jusqu'a l'horizon
+        'weekly': [point(today + timedelta(days=7 * week)) for week in range(horizon // 7 + 1)]
+        if weekly and order else None,
     }
 
 

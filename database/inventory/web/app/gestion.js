@@ -191,14 +191,15 @@ function renderTasks(parts) {
     }
     if (category.key === 'orders') renderPlacedOrders(parts, placed);
   });
-  parts.push(el('p', { class: 'hint' }, 'Péremptions, révisions et désinfections à venir : ',
+  parts.push(el('p', { class: 'hint' }, 'Péremptions, révisions, désinfections et commandes à venir : ',
     el('button', { type: 'button', class: 'text-link', onclick: () => { state.homeView = 'events'; renderStock(); } },
       'À venir ›')));
 }
 
 // Commande suggeree : case « Commandé » (quantite modifiable) pour enregistrer qu'elle est passee. La suggestion
-// disparait tant que la commande n'est pas livree (receptions de ce type) ou decochee.
-function orderTaskRow(row) {
+// disparait tant que la commande n'est pas livree (receptions de ce type) ou decochee. Depuis « À venir », la liste
+// des evenements est rechargee ensuite.
+function orderCheck(row, after) {
   const quantity = el('input', { type: 'number', min: '1', step: '1', value: String(row.quantity), class: 'order-qty',
     'aria-label': 'Quantité commandée' });
   const box = el('input', { type: 'checkbox', class: 'order-box' });
@@ -209,18 +210,171 @@ function orderTaskRow(row) {
     try {
       state.tasks = await api('orders/', { user: badge(), type: row.type, quantity: count });
       toast(`Commande de ${count} × ${row.name || ''} enregistrée : en attente de livraison.`);
+      if (after) after();
     } catch (e) {
       box.checked = false;
       toast('Commande : ' + e.message, true);
     } finally {
+      box.disabled = false;
       renderStock();
     }
   });
+  return el('label', { class: 'order-check' }, box, 'Commandé :', quantity);
+}
+
+function orderTaskRow(row) {
   return el('div', { class: 'task-row stock-row order-row' + (row.level === 'info' ? '' : ' ' + row.level) },
     el('div', { class: 'row-head' }, el('b', {}, row.title),
-      el('button', { type: 'button', class: 'text-link', onclick: () => openTask(row) }, 'Prévisions ›')),
+      row.explain
+        ? el('button', { type: 'button', class: 'text-link', onclick: () => openOrderExplain(row) }, 'Pourquoi ? ›')
+        : el('button', { type: 'button', class: 'text-link', onclick: () => openTask(row) }, 'Prévisions ›')),
     row.detail ? el('div', { class: 'sub' }, row.detail) : '',
-    el('label', { class: 'order-check' }, box, 'Commandé :', quantity));
+    orderCheck(row));
+}
+
+// ---- « Pourquoi cette commande ? » : ce qui a provoque la recommandation et pourquoi elle serait une bonne idee.
+// Phrases faites par le serveur (les memes au poste), graphe du stock prevu semaine par semaine (minimum en stock,
+// stock avec la commande, items dans les lots et besoin des lots) et graphe de la consommation mois par mois.
+const svgNode = (tag, attrs, text) => {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [key, value] of Object.entries(attrs)) if (value != null) node.setAttribute(key, value);
+  if (text != null) node.textContent = text;
+  return node;
+};
+
+function orderStockChart(x) {
+  const points = x.points || [];
+  const n = points.length;
+  const W = 320, H = 150, left = 26, right = 6, top0 = 8, bottom = 16;
+  const plot = H - top0 - bottom;
+  const top = Math.max(1, x.min_quantity, x.lots_need, ...points.map((p) => Math.max(p.stock, p.with_order, p.lots)))
+    * 1.1;
+  const step = (W - left - right) / Math.max(1, n - 1);
+  const X = (i) => left + i * step;
+  const Y = (v) => top0 + plot - (v / top) * plot;
+  const svg = svgNode('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart order-chart', role: 'img',
+    'aria-label': 'Stock prévu semaine par semaine' });
+  for (const v of [0, Math.round(top / 2), Math.floor(top)]) {
+    svg.append(svgNode('line', { x1: left, x2: W - right, y1: Y(v), y2: Y(v), class: 'grid' }));
+    svg.append(svgNode('text', { x: left - 4, y: Y(v) + 3, 'text-anchor': 'end' }, v));
+  }
+  // dates cles : commander avant, passage sous le minimum
+  const dayIndex = (iso) => {
+    const d = parseDate(iso), d0 = parseDate(points[0] && points[0].date);
+    return d && d0 ? (d - d0) / (7 * 86400000) : null;
+  };
+  // « commander » a gauche de sa ligne, « sous le min. » a droite : lisibles meme quand les deux dates sont proches
+  for (const [iso, cls, label, end] of [[x.before, 'o-before', 'commander', true], [x.below_min, 'o-below', 'sous le min.', false]]) {
+    const i = dayIndex(iso);
+    if (i == null || i < 0 || i > n - 1) continue;
+    const atLeft = end && X(i) - left > 44;
+    svg.append(svgNode('line', { x1: X(i), x2: X(i), y1: top0, y2: top0 + plot, class: cls }));
+    svg.append(svgNode('text', { x: X(i) + (atLeft ? -2 : 2), y: top0 + (end && !atLeft ? 16 : 7),
+      'text-anchor': atLeft ? 'end' : 'start', class: cls + '-text' }, label));
+  }
+  const hline = (v, cls) => { if (v > 0) svg.append(svgNode('line', { x1: left, x2: W - right, y1: Y(v), y2: Y(v), class: cls })); };
+  hline(x.lots_need, 'o-need');
+  hline(x.min_quantity, 'o-min');
+  const path = (key, cls) => svg.append(svgNode('polyline', { class: cls,
+    points: points.map((p, i) => `${X(i).toFixed(1)},${Y(p[key]).toFixed(1)}`).join(' ') }));
+  if (x.lots_need || points.some((p) => p.lots)) path('lots', 'o-lots');
+  path('with_order', 'o-with');
+  path('stock', 'o-stock');
+  // mois en abscisse : la premiere semaine de chaque mois
+  let month = -1;
+  points.forEach((p, i) => {
+    const d = parseDate(p.date);
+    if (d && d.getMonth() !== month) {
+      month = d.getMonth();
+      // mois en cours entame : pas d'etiquette si le mois suivant commence dans moins de 3 semaines
+      const crowded = i === 0 && points.slice(1, 3).some((q) => { const e = parseDate(q.date); return e && e.getMonth() !== month; });
+      if (i < n - 1 && !crowded) svg.append(svgNode('text', { x: X(i), y: H - 3, 'text-anchor': i ? 'middle' : 'start' }, MONTHS[month]));
+    }
+    const text = `Semaine du ${fmtDate(p.date)} : stock ${p.stock}${x.unit ? ' ' + x.unit : ''}`
+      + (p.with_order !== p.stock ? `, ${p.with_order} avec la commande` : '')
+      + (x.lots_need || p.lots ? ` · dans les lots ${p.lots}/${x.lots_need}` : '')
+      + (p.lost ? ` · ${p.lost} périmé${p.lost > 1 ? 's' : ''} sans servir depuis aujourd'hui` : '');
+    const hit = svgNode('rect', { x: X(i) - step / 2, y: 0, width: step, height: H, class: 'hit' });
+    hit.append(svgNode('title', {}, text));
+    const show = () => {
+      detail.textContent = text;
+      svg.querySelectorAll('.hit.active').forEach((node) => node.classList.remove('active'));
+      hit.classList.add('active');
+    };
+    hit.addEventListener('pointerenter', show);
+    hit.addEventListener('click', show);
+    svg.insertBefore(hit, svg.firstChild);
+  });
+  const detail = el('p', { class: 'hint chart-detail' }, 'Survolez ou touchez une semaine pour le détail.');
+  const legend = [['o-stock', 'stock prévu'], ['o-with', 'avec la commande'], ['o-min', 'minimum en stock']];
+  if (x.lots_need || points.some((p) => p.lots)) legend.push(['o-lots', 'dans les lots'], ['o-need', 'besoin des lots']);
+  return el('figure', { class: 'chart-box' }, svg,
+    el('figcaption', { class: 'legend' }, ...legend.map(([cls, label]) => el('span', {}, el('i', { class: 'l ' + cls }), label))),
+    detail);
+}
+
+const rateText = (value) => (value < 10 ? value.toFixed(1).replace(/\.0$/, '').replace('.', ',') : String(Math.round(value)));
+
+function orderUseChart(x) {
+  const months = x.monthly || [];
+  const W = 320, H = 110, left = 26, bottom = 16, top0 = 6, plot = H - top0 - bottom;
+  const top = Math.max(1, x.per_month, ...months.map((m) => m.used + m.discarded)) * 1.15;
+  const step = (W - left) / Math.max(1, months.length);
+  const Y = (v) => top0 + plot - (v / top) * plot;
+  const svg = svgNode('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart order-chart', role: 'img',
+    'aria-label': 'Consommation par mois' });
+  for (const v of [0, Math.round(top / 2)]) {
+    svg.append(svgNode('line', { x1: left, x2: W, y1: Y(v), y2: Y(v), class: 'grid' }));
+    svg.append(svgNode('text', { x: left - 4, y: Y(v) + 3, 'text-anchor': 'end' }, v));
+  }
+  months.forEach((m, i) => {
+    const bx = left + i * step + step * 0.2, w = step * 0.6;
+    if (m.used) svg.append(svgNode('rect', { x: bx, y: Y(m.used), width: w, height: Y(0) - Y(m.used), class: 's-stock' }));
+    if (m.discarded) {
+      svg.append(svgNode('rect', { x: bx, y: Y(m.used + m.discarded), width: w, height: Y(0) - Y(m.discarded),
+        class: 's-lost' }));
+    }
+    const d = parseDate(m.start);
+    svg.append(svgNode('text', { x: bx + w / 2, y: H - 3, 'text-anchor': 'middle' }, d ? MONTHS[d.getMonth()] : ''));
+    if (m.used || m.discarded) {
+      svg.append(svgNode('text', { x: bx + w / 2, y: Y(m.used + m.discarded) - 2, 'text-anchor': 'middle' },
+        m.used + m.discarded));
+    }
+  });
+  if (x.per_month > 0) svg.append(svgNode('line', { x1: left, x2: W, y1: Y(x.per_month), y2: Y(x.per_month), class: 'o-rate' }));
+  return el('figure', { class: 'chart-box' }, svg,
+    el('figcaption', { class: 'legend' },
+      el('span', {}, el('i', { class: 's-stock' }), 'utilisés'),
+      el('span', {}, el('i', { class: 's-lost' }), 'jetés périmés'),
+      el('span', {}, el('i', { class: 'l o-rate' }), `consommation estimée (${rateText(x.per_month)}/mois)`)));
+}
+
+function openOrderExplain(row) {
+  const x = row.explain;
+  if (!x) { openTask(row); return; }
+  const dialog = el('dialog', { class: 'order-explain' });
+  const close = () => { if (dialog.open) dialog.close(); };
+  dialog.addEventListener('close', () => dialog.remove());
+  const when = x.urgent ? 'dès que possible' : `avant le ${fmtDate(x.before)}`;
+  dialog.append(
+    el('div', { class: 'dialog-head' }, el('h2', { tabindex: '-1' }, 'Pourquoi cette commande ?'),
+      el('button', { type: 'button', class: 'dialog-x', 'aria-label': 'Fermer', onclick: close }, '✕')),
+    el('p', { class: 'order-explain-title' }, el('b', {}, `Commander ${x.quantity} × ${x.ordered_name}`), ` ${when}`),
+    el('p', {}, el('span', { class: 'tag ' + (x.trigger === 'below' ? 'red' : x.trigger === 'expiry' ? 'orange' : 'violet') },
+      x.trigger_label)),
+    el('ul', { class: 'order-why' }, ...x.why.map((line) => el('li', {}, line))),
+    el('h3', {}, 'Stock prévu'),
+    orderStockChart(x),
+    el('h3', {}, 'Consommation par mois'),
+    orderUseChart(x),
+    el('p', { class: 'hint' }, x.quantity_text),
+    el('div', { class: 'order-explain-actions' },
+      orderCheck(row, () => { close(); if (state.homeView === 'events') loadEvents(); }),
+      el('button', { type: 'button', class: 'text-link', onclick: () => { close(); openTask({ link: 'forecast' }); } },
+        'Toutes les prévisions ›')),
+    el('div', { class: 'dialog-buttons' }, el('button', { type: 'button', class: 'secondary', onclick: close }, 'Fermer')));
+  document.body.append(dialog);
+  dialog.showModal();
 }
 
 // Commandes passees en attente de livraison : sous les commandes, hors du compte des taches (sauf en retard).
@@ -256,7 +410,8 @@ function renderPlacedOrders(parts, placed) {
 // à gauche, un titre par mois. Révisions et désinfections : « Réviser » / « Désinfecter » et « Saisir la date » (cycle
 // recalé à la main) directement depuis la carte.
 const EVENT_HORIZONS = [{ days: 30, label: '30 jours' }, { days: 90, label: '3 mois' }, { days: 365, label: '1 an' }];
-const EVENT_TAGS = { revision: 'blue', disinfection: 'teal', expiry: 'orange', list: 'navy', lot_key: 'gray', badge: 'gray' };
+const EVENT_TAGS = { revision: 'blue', disinfection: 'teal', expiry: 'orange', list: 'navy', lot_key: 'gray', badge: 'gray',
+  order: 'violet' };
 
 async function loadEvents() {
   if (!canSeeStock()) return;
@@ -270,14 +425,15 @@ async function loadEvents() {
 }
 
 function openEvent(row) {
-  if (row.link === 'item' && row.item) openFiche('item', row.item);
+  if (row.kind === 'order') openOrderExplain(row);
+  else if (row.link === 'item' && row.item) openFiche('item', row.item);
   else if (row.link === 'lot' && row.lot) openFiche('lot', row.lot);
   else openTask(row);
 }
 
 function eventCard(row) {
   const date = parseDate(row.date);
-  const clickable = ['lot', 'item', 'lists', 'stock'].includes(row.link) && (row.link !== 'lot' || row.lot);
+  const clickable = row.kind === 'order' || (['lot', 'item', 'lists', 'stock'].includes(row.link) && (row.link !== 'lot' || row.lot));
   const m = row.maintenance || row.lot_maintenance; // entretien d'un item, ou desinfection du lot lui-meme
   const pseudo = !m ? null : row.lot_maintenance ? lotPseudoItem(m)
     : { iid: m.iid, type_name: m.type_name, status: 'active', maintenance: [m] };
@@ -299,7 +455,10 @@ function eventCard(row) {
         el('button', { type: 'button', class: 'primary', onclick: () => openRevision(pseudo, m.kind) },
           icon(MAINTENANCE_ICONS[m.kind] || 'wrench'), m.verb),
         el('button', { type: 'button', class: 'text-link', onclick: () => openMaintenanceDate(pseudo, m.kind) },
-          'Saisir la date')) : ''));
+          'Saisir la date')) : '',
+      row.kind === 'order' ? el('div', { class: 'event-actions' },
+        el('button', { type: 'button', class: 'secondary', onclick: () => openOrderExplain(row) }, 'Pourquoi ?'),
+        orderCheck(row, loadEvents)) : ''));
 }
 
 function renderEvents(parts) {

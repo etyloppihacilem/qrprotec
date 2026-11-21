@@ -132,7 +132,7 @@ Deux règles :
   {lots: [ids]}` (liste à préparer, lignes lot, l'utilisateur attribué) ouverte pour scanner ; `{blocked: true}`
   donne les lots non cochables (pris par une liste, place fixe dans leur lot) ; onglet Lots
   par défaut sans liste attribuée ou sans connexion) et Listes de matériel, puis en larges tuiles Signalements,
-  État des lots et, tout en bas, **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, À venir `renderEvents` via `POST api/events/summary/` (horizon `state.eventsDays`, filtre `state.eventsKind`), état des stocks, prévisions ; badge gestion/admin, grisée sinon).
+  État des lots et, tout en bas, **Gestion de la TECH** (`stockParts` : vues À faire `renderTasks` via `POST api/tasks/summary/`, À venir `renderEvents` via `POST api/events/summary/` (horizon `state.eventsDays`, filtre `state.eventsKind` ; commandes recommandées : `openOrderExplain`, détail `explain` calculé par `order_explain.py`), état des stocks, prévisions ; badge gestion/admin, grisée sinon).
   Chaque page a son ancre (`#lots`, `#suivi`, `#depart`, `#stock`, `#scan`) : le bouton retour du téléphone
   ramène à l'accueil. Le bouton ⚙ (**réglages**, dès qu'un utilisateur est connecté)
   ouvre la case **Bulle de scan** (`renderScanSettings`, réglage `scan_bubble` de `web_prefs` ;

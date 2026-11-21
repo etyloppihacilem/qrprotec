@@ -27,6 +27,7 @@ Chaque tache : {category, level ('bad' rouge, 'warn' orange, 'info'), title, det
 'inventory', 'lot_admin', 'label_prints' (fenetres du poste ou pages du web), 'consumables' (poste seulement).
 """
 
+import math
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
@@ -36,6 +37,7 @@ from django.utils import timezone
 from . import consumables
 from . import forecast as stock_forecast
 from . import label_prints
+from . import order_explain
 from . import serializers as ser
 from . import services
 from .idendity import format_identity_verified, identity_name
@@ -283,9 +285,12 @@ def order_dict(order, today):
 
 
 def _forecast_tasks(today, orders):
-    data = stock_forecast.forecast(months=6)
+    data = stock_forecast.forecast(months=6, weekly=True)
     limit = today + timedelta(days=ORDER_WINDOW_DAYS)
     tasks = []
+    shown = [row for row in data['types'] if row['order'] and row['order']['before'] <= limit
+             and (row['order'].get('subtype') or row['type']) not in orders]
+    explained = order_explain.for_rows(data, shown, today)
     for row in data['types']:
         order = row['order']
         # deja commande (case « Commandé ») : la commande attend sa livraison, pas de nouvelle suggestion
@@ -304,7 +309,8 @@ def _forecast_tasks(today, orders):
             else f" · stock {row['stock_now']}, minimum {row['min_quantity']}"
         row_task = task('orders', 'warn' if order['urgent'] else 'info', f"Commander {order['quantity']} × {ordered_name}",
                         detail, order['before'], 'forecast', sort=order['before'].toordinal())
-        row_task.update(type=ordered_type, name=ordered_name, quantity=order['quantity'])  # case « Commandé »
+        row_task.update(type=ordered_type, name=ordered_name, quantity=order['quantity'],  # case « Commandé »
+                        explain=explained.get(row['type']))  # « Pourquoi cette commande ? »
         tasks.append(row_task)
     # commandes passees pas livrees au bout de 30 jours : relancer le fournisseur, ou la decocher
     for type_orders in orders.values():
@@ -471,6 +477,7 @@ EVENT_KINDS = {
     'list': 'Liste de matériel',
     'lot_key': 'Étiquette clé',
     'badge': 'Badge',
+    'order': 'Commande',
 }
 EVENT_LEVEL_ORDER = {'bad': 0, 'warn': 1, 'soon': 2, 'info': 3}
 
@@ -596,17 +603,43 @@ def _expiry_key_events(today, days):
     return rows
 
 
+def _order_events(today, days):
+    """Commandes recommandees par les previsions dont la date limite tombe dans l'horizon (anticipables : on les voit
+    venir), sauf celles deja commandees (case « Commandé »). Chacune avec son detail (« Pourquoi cette commande ? »)
+    et de quoi la cocher « Commandé ». Date de l'evenement : la date limite pour commander."""
+    months = min(24, max(6, math.ceil(days / 30) + 2))
+    data = stock_forecast.forecast(months=months, weekly=True)
+    orders = open_orders()
+    limit = today + timedelta(days=days)
+    rows = [row for row in data['types'] if row['order'] and row['order']['before'] <= limit
+            and (row['order'].get('subtype') or row['type']) not in orders]
+    explained = order_explain.for_rows(data, rows, today)
+    result = []
+    for row in rows:
+        order = row['order']
+        ordered_type, ordered_name = order.get('subtype') or row['type'], order.get('subtype_name') or row['name']
+        unit = f" {row['unit']}" if row.get('unit') else ''
+        detail = (f"stock {row['stock_now']}{unit}, minimum {row['min_quantity']}{unit}"
+                  + (f" · sous le minimum le {_day(order['below_min'])}" if order['below_min'] > today else
+                     ' · déjà sous le minimum'))
+        level = 'bad' if order['below_min'] <= today else 'warn' if order['urgent'] else None
+        result.append(event('order', order['before'], today, f"Commander {order['quantity']} × {ordered_name}",
+                            detail, level, 'forecast', type=ordered_type, name=ordered_name,
+                            quantity=order['quantity'], explain=explained.get(row['type'])))
+    return result
+
+
 def events(today=None, days=EVENTS_DAYS):
     """Evenements a venir sur `days` jours, separes des taches : revisions et desinfections (en retard d'abord),
-    listes de materiel prevues, etiquettes cles et badges qui expirent. Un evenement par ligne, par date croissante
-    (le retard en tete) ; a date egale, le plus grave d'abord. Pas les cartes d'invites : ce ne sont pas des
+    listes de materiel prevues, etiquettes cles et badges qui expirent, commandes recommandees. Un evenement par
+    ligne, par date croissante (le retard en tete) ; a date egale, le plus grave d'abord. Pas les cartes d'invites : ce ne sont pas des
     echeances (onglet Cartes d'invités des Utilisateurs).
     groups : a la fin, replies, les peremptions par mois (« Péremptions de décembre : 34 »)."""
     today = today or timezone.localdate()
     lots = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     rows = ser.lot_list(lots, today=today)
     result = (_maintenance_events(today, days) + _lot_disinfection_events(today, days) + _list_events(today, days)
-              + _expiry_key_events(today, days))
+              + _expiry_key_events(today, days) + _order_events(today, days))
     kind_rank = {key: index for index, key in enumerate(EVENT_KINDS)}
     result.sort(key=lambda row: (row['date'], EVENT_LEVEL_ORDER[row['level']], kind_rank[row['kind']],
                                  row['title']))
