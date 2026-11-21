@@ -485,6 +485,9 @@ async function editList(list = null) {
       : line.kind === 'lot_type' ? { lot_types: line.lot_types, label: line.type_name, sub: 'Lot au choix', quantity: line.quantity }
       : { type: line.type, label: line.type_name, quantity: line.quantity, unit: line.unit || '' }) : [],
   };
+  // une entree d'historique pour l'editeur : le retour arriere du navigateur (ou du telephone) le ferme comme
+  // « ← Toutes les listes » / « ← Retour à la liste », au lieu de quitter la page des listes
+  history.pushState({ listEdit: lists.edit.key }, '', location.href);
   renderListsPage(true);
   if (!lists.options) {
     try {
@@ -494,6 +497,23 @@ async function editList(list = null) {
     }
     renderListsPage(true);
   }
+}
+
+const listEditorInHistory = () => !!(lists.edit && history.state && history.state.listEdit === lists.edit.key);
+
+// Retour arriere du navigateur pendant l'edition (voir le popstate de login.js) : l'editeur se ferme, la page
+// des listes (ou la liste modifiee) revient, rien n'est enregistre
+function listEditorPopped() {
+  if (!lists.edit || listEditorInHistory()) return false;
+  lists.edit = null;
+  return true;
+}
+
+// « Annuler », « ← Toutes les listes », « ← Retour à la liste » : comme le retour arriere
+function closeListEditor() {
+  if (listEditorInHistory()) { history.back(); return; }
+  lists.edit = null;
+  renderListsPage();
 }
 
 async function saveList() {
@@ -506,10 +526,19 @@ async function saveList() {
   lists.busy = true;
   try {
     const result = await api(edit.id ? `checklists/${encodeURIComponent(edit.id)}/update/` : 'checklists/', body);
+    const inHistory = listEditorInHistory();
     lists.edit = null;
     lists.busy = false;
-    toast('Liste enregistrée.');
-    if (edit.id) { lists.list = result; renderListsPage(); } else openList(result.id);
+    toast(edit.template ? 'Modèle enregistré.' : 'Liste enregistrée.');
+    if (edit.id) {
+      lists.list = result;
+      // l'entree de l'editeur quitte l'historique : retour arriere ensuite = avant l'edition
+      if (inHistory) history.back(); else renderListsPage();
+    } else if (inHistory) {
+      // l'entree de l'editeur devient celle de la nouvelle liste
+      history.replaceState(null, '', listUrl(result.id));
+      openList(result.id, false);
+    } else openList(result.id);
   } catch (e) {
     lists.busy = false;
     toast(e.message, true);

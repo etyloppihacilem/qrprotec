@@ -295,7 +295,7 @@ la liste, ses équipiers la vérifient en sortant le matériel.
   d'homonyme). La liste apparaît dans **Listes de matériel** chez ces secouristes. Un secouriste qui
   ouvre le lien ou scanne le QR code de la liste se l'ajoute aussi.
 
-- **Préparer** : téléphone, accueil > **Listes de matériel** > **Nouvelle liste** ; poste, menu
+- **Préparer** : téléphone, accueil > **Listes de matériel** > **Créer une liste** ; poste, menu
   Fenêtres > **Listes de matériel** > **Nouvelle liste**. Donnez un nom, la **date** du poste
   (aujourd'hui par défaut), une remarque si besoin (rendez-vous, consignes), ajoutez les lots et le
   matériel : tapez quelques lettres de son nom (« armo 2 », « compr ») ou son code, puis choisissez
@@ -329,11 +329,15 @@ la liste, ses équipiers la vérifient en sortant le matériel.
 
 Pour une liste qui revient souvent (poste de secours du stade, match du dimanche), faites-en un
 **modèle** : il ne se vérifie pas, **Utiliser ce modèle** en fait une nouvelle liste à vérifier.
+Au téléphone, un modèle se crée depuis l'onglet **Modèles** > **Créer un modèle** (le formulaire
+précise si c'est une liste ou un modèle). Pendant la création, le retour arrière du téléphone revient
+aux listes sans rien enregistrer, comme **← Toutes les listes**.
 **Dupliquer** refait une liste déjà sortie ou rentrée.
 
 **Ajouter à la liste** : un seul champ de recherche propose tout ce qui se scanne. Chaque résultat
 porte son genre : **Lot** (ce lot-là précisément), **Lot au choix** (un type de lot, n'importe
-lequel) ou **Matériel** (un type d'item, avec sa quantité). Les tâches s'ajoutent à part.
+lequel) ou **Matériel** (un type d'item, avec sa quantité). Les tâches s'ajoutent à part, dans le
+champ **Ajouter une tâche à cocher** juste dessous.
 
 **Lot au choix** : une ligne peut demander « 1 B+ » sans dire lequel (résultat **Lot au choix** de
 la recherche). On la coche en scannant l'étiquette de n'importe quel lot de ce type, sauf un lot rangé

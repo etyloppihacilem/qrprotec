@@ -129,6 +129,8 @@ document.querySelectorAll('.tile').forEach((tile) => tile.addEventListener('clic
 }));
 // bouton retour du telephone : l'adresse dit quoi afficher (fiche d'un lot ou d'un item, lecteur, page de l'accueil)
 window.addEventListener('popstate', () => {
+  // editeur de liste ouvert : le retour arriere le ferme (comme « ← Toutes les listes »), la page sous lui revient
+  listEditorPopped();
   const route = location.pathname.replace(/\/+$/, '').split('/').pop();
   const params = new URLSearchParams(location.search);
   if (route === 'verif' && params.get('lot')) { openFiche('lot', params.get('lot'), { push: false }); return; }
