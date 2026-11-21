@@ -447,7 +447,8 @@ class RevisionTests(ApiTestCase):
         # retard en tete, puis par date ; la desinfection du 1er item (dans 1 mois) aussi, la revision a 200 j non
         self.assertEqual(rows[0], ('revision', -4, late.iid))
         self.assertEqual(rows[1], ('disinfection', 2, soon.iid))
-        self.assertEqual(rows[2][:2], ('expiry', 5))
+        self.assertNotIn('expiry', [row[0] for row in rows])
+        self.assertEqual([(group['kind'], group['count']) for group in body['groups']], [('expiry', 1)])
         self.assertNotIn(('revision', 200, soon.iid), rows)
         self.assertEqual(body['late'], 1)
         self.assertTrue(body['events'][0]['late'])

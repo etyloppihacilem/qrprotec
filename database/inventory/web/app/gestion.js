@@ -323,7 +323,8 @@ function renderEvents(parts) {
         onclick: () => { state.eventsKind = kind.key; renderStock(); } }, `${kind.label} (${kind.count})`))));
   }
   const rows = data.events.filter((row) => !filter || row.kind === filter);
-  if (!rows.length) {
+  const groups = (data.groups || []).filter((group) => !filter || group.kind === filter);
+  if (!rows.length && !groups.length) {
     parts.push(el('div', { class: 'banner ok' }, `✔ Rien de prévu dans les ${EVENT_HORIZONS.find((h) => h.days === data.days)?.label || data.days + ' jours'}.`));
     return;
   }
@@ -338,6 +339,35 @@ function renderEvents(parts) {
     }
     parts.push(eventCard(row));
   }
+  groups.forEach((group, index) => eventGroup(parts, group, index === 0));
+}
+
+// Groupes replies a la fin des evenements : peremptions par mois (« Péremptions de décembre : 34 », trop nombreuses
+// pour une carte chacune) et cartes d'invites a activer apres l'horizon. Deplie : liste compacte, triee par lot,
+// puis type, puis date, un intertitre par lot (cliquable : fiche du lot).
+function eventGroup(parts, group, first) {
+  state.eventGroupsOpen = state.eventGroupsOpen || {};
+  const open = !!state.eventGroupsOpen[group.key];
+  parts.push(el('button', { type: 'button', class: 'upcoming-toggle event-group-toggle' + (first ? '' : ' next')
+    + (group.level === 'info' ? '' : ' ' + group.level), 'aria-expanded': open ? 'true' : 'false',
+  onclick: () => { state.eventGroupsOpen[group.key] = !open; renderStock(); } },
+  el('span', { class: 'fold-box' }, open ? '−' : '+'), `${group.title} : ${group.count}`));
+  if (!open) return;
+  const list = el('div', { class: 'event-group' });
+  let section = null;
+  for (const row of group.rows) {
+    if (row.section && row.section !== section) {
+      section = row.section;
+      const lot = row.lot;
+      list.append(el(lot ? 'button' : 'div', { type: lot ? 'button' : null, class: 'event-group-head',
+        onclick: lot ? () => openFiche('lot', lot) : null }, row.section, lot ? el('span', { class: 'hint' }, ' ›') : ''));
+    }
+    list.append(el('div', { class: 'event-group-row' + (row.level === 'info' ? '' : ' ' + row.level) },
+      el('span', {}, row.text), el('span', { class: 'event-group-when' }, row.when)));
+  }
+  if (group.kind === 'guest_card') list.append(el('div', { class: 'sub hint' }, 'Utilisateurs (admin, au poste) : '
+    + 'à remettre à une équipe, ou à désactiver.'));
+  parts.push(list);
 }
 
 // Gestion de la TECH : page de l'accueil (roles gestion et admin) : à faire, état des stocks, prévisions

@@ -713,9 +713,16 @@ class GuestCardReuseTests(ApiTestCase):
 
     def test_unused_card_number_reused_and_listed_in_upcoming(self):
         matricule, key = self.new_card()
+        # date limite dans un an : pas « dans 364 jours » au milieu des 3 mois, regroupee a la fin
         code, body = self.call('GET', '/api/events/')
-        rows = [row for row in body['events'] if row['kind'] == 'guest_card']
-        self.assertEqual([row['title'] for row in rows], [f"Carte d'invité {matricule}"])
+        self.assertFalse([row for row in body['events'] if row['kind'] == 'guest_card'])
+        rows = [row for group in body['groups'] if group['kind'] == 'guest_card' for row in group['rows']]
+        self.assertEqual([row['text'] for row in rows], [f"Carte d'invité {matricule}"])
+        self.assertTrue(rows[0]['when'].startswith('à activer avant le '))
+        # sur un an, carte datee comme les autres evenements
+        code, body = self.call('GET', '/api/events/?days=365')
+        self.assertEqual([row['title'] for row in body['events'] if row['kind'] == 'guest_card'],
+                         [f"Carte d'invité {matricule}"])
         code, row = self.call('POST', f'/api/users/guests/{matricule}/', {'action': 'reuse'})
         self.assertEqual(code, 200, row)
         same, new_key = self.key_of(row['badge_url'])
@@ -726,6 +733,7 @@ class GuestCardReuseTests(ApiTestCase):
         self.assertEqual(self.call('POST', f'/api/users/guests/{matricule}/', {'action': 'reuse'})[0], 400)
         code, body = self.call('GET', '/api/events/')
         self.assertFalse([row for row in body['events'] if row['kind'] == 'guest_card'])
+        self.assertFalse([group for group in body['groups'] if group['kind'] == 'guest_card'])
 
     def test_returning_guest_reactivated_with_new_card(self):
         from datetime import timedelta

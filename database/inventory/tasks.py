@@ -532,10 +532,45 @@ def _lot_disinfection_events(today, days):
     return rows
 
 
-def _expiry_events(rows, today, days):
-    return [event('expiry', datetime.fromisoformat(row['date']).date(), today, row['title'], row['place'],
-                  row['level'], row['link'], lot=row['lot'])
-            for row in upcoming_expiries(rows, today, days)]
+MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre',
+               'novembre', 'décembre']
+SHORT_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
+
+
+def _month_name(date, today):
+    """« décembre », avec l'annee seulement si ce n'est pas celle d'aujourd'hui (« janvier 2027 »)."""
+    name = MONTH_NAMES[date.month - 1]
+    return name if date.year == today.year else f'{name} {date.year}'
+
+
+def _month_of(name):
+    """« Péremptions de décembre », « Péremptions d'avril », « Péremptions d'août »."""
+    return f"d'{name}" if name[0] in 'aeiouéèêâàîôûœ' else f'de {name}'
+
+
+def _expiry_groups(rows, today, days):
+    """Peremptions a venir regroupees par mois, a la fin de la liste (pas une carte par peremption : trop nombreuses).
+    Un groupe par mois, compte en items, avec le detail compact trie par lot, puis par type, puis par date (le stock
+    apres les lots)."""
+    months = defaultdict(list)
+    for row in upcoming_expiries(rows, today, days):
+        date = datetime.fromisoformat(row['date']).date()
+        months[(date.year, date.month)].append((date, row))
+    groups = []
+    for (year, month), entries in sorted(months.items()):
+        name = _month_name(entries[0][0], today)
+        entries.sort(key=lambda pair: (pair[1]['lot'] is None, pair[1]['place'].lower(), pair[1]['name'].lower(),
+                                       pair[0]))
+        level = min((row['level'] for _, row in entries), key=EVENT_LEVEL_ORDER.get)
+        count = sum(row['count'] for _, row in entries)
+        groups.append({
+            'key': f'expiry-{year}-{month:02d}', 'kind': 'expiry', 'title': f'Péremptions {_month_of(name)}',
+            'count': count, 'level': level,
+            'rows': [{'section': row['place'] if row['lot'] else 'Stock', 'lot': row['lot'], 'link': row['link'],
+                      'text': row['title'], 'name': row['name'], 'count': row['count'], 'date': row['date'],
+                      'days': row['days'], 'when': f'{date.day} {SHORT_MONTHS[date.month - 1]}',
+                      'level': row['level']} for date, row in entries]})
+    return groups
 
 
 def _list_events(today, days):
@@ -559,7 +594,7 @@ def _expiry_key_events(today, days):
     for user in Secouristes.objects.filter(active=True, guest=False, key_expires__isnull=False, key_expires__lte=limit):
         rows.append(event('badge', user.key_expires, today, identity_name(format_identity_verified(user.matricule)),
                           'renouveler la clé et réimprimer le badge (Utilisateurs, admin)', None, 'users'))
-    return rows + _guest_card_events(today)
+    return rows
 
 
 def _guest_card_events(today):
@@ -578,20 +613,41 @@ def _guest_card_events(today):
     return rows
 
 
+def _guest_card_group(cards):
+    """Cartes d'invites pas encore activees dont la date limite tombe apres l'horizon (un an apres leur creation au
+    poste) : regroupees a la fin plutot que datees « dans 364 jours » au milieu des evenements proches."""
+    if not cards:
+        return []
+    return [{'key': 'guest_card', 'kind': 'guest_card', 'title': "Cartes d'invités pas encore activées",
+             'count': len(cards), 'level': 'info',
+             'rows': [{'section': '', 'lot': None, 'link': 'users', 'text': card['title'], 'count': 1,
+                       'date': card['date'], 'days': card['days'],
+                       'when': 'à activer avant le ' + _day(datetime.fromisoformat(card['date']).date()),
+                       'level': 'info'} for card in cards]}]
+
+
 def events(today=None, days=EVENTS_DAYS):
     """Evenements a venir sur `days` jours, separes des taches : revisions et desinfections (en retard d'abord),
-    peremptions, listes de materiel prevues, etiquettes cles et badges qui expirent. Un evenement par ligne, par
-    date croissante (le retard en tete) ; a date egale, le plus grave d'abord."""
+    listes de materiel prevues, etiquettes cles et badges qui expirent, cartes d'invites a activer. Un evenement par
+    ligne, par date croissante (le retard en tete) ; a date egale, le plus grave d'abord.
+    groups : a la fin, replies, les peremptions par mois (« Péremptions de décembre : 34 ») et les cartes d'invites
+    pas encore activees dont la date limite est au-dela de l'horizon."""
     today = today or timezone.localdate()
     lots = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     rows = ser.lot_list(lots, today=today)
-    result = (_maintenance_events(today, days) + _lot_disinfection_events(today, days) + _expiry_events(rows, today, days) + _list_events(today, days)
-              + _expiry_key_events(today, days))
+    guest_cards = _guest_card_events(today)
+    far_cards = [card for card in guest_cards if card['days'] > days]
+    result = (_maintenance_events(today, days) + _lot_disinfection_events(today, days) + _list_events(today, days)
+              + _expiry_key_events(today, days) + [card for card in guest_cards if card['days'] <= days])
     kind_rank = {key: index for index, key in enumerate(EVENT_KINDS)}
     result.sort(key=lambda row: (row['date'], EVENT_LEVEL_ORDER[row['level']], kind_rank[row['kind']],
                                  row['title']))
+    groups = _expiry_groups(rows, today, days) + _guest_card_group(far_cards)
     counts = Counter(row['kind'] for row in result)
-    return {'today': today, 'days': days, 'count': len(result), 'late': sum(1 for row in result if row['late']),
+    for group in groups:
+        counts[group['kind']] += group['count']
+    return {'today': today, 'days': days, 'count': sum(counts.values()),
+            'late': sum(1 for row in result if row['late']),
             'kinds': [{'key': key, 'label': label, 'count': counts[key]} for key, label in EVENT_KINDS.items()
                       if counts[key]],
-            'events': result}
+            'events': result, 'groups': groups}

@@ -777,16 +777,23 @@ class TasksTests(ApiTestCase):
         self.assertNotIn('upcoming', body)
         code, body = self.call('GET', '/api/events/?days=30')
         self.assertEqual(code, 200)
-        upcoming = [row for row in body['events'] if row['kind'] == 'expiry']
-        self.assertEqual([(row['days'], row['level'], row['title']) for row in upcoming],
+        # plus une carte par peremption : regroupees par mois a la fin, repliees
+        self.assertFalse([row for row in body['events'] if row['kind'] == 'expiry'])
+        upcoming = [row for group in body['groups'] if group['kind'] == 'expiry' for row in group['rows']]
+        self.assertEqual(sorted((row['days'], row['level'], row['text']) for row in upcoming),
                          [(1, 'warn', '1 × Compresses'), (5, 'soon', '2 × Compresses'), (20, 'info', '1 × Compresses')])
-        self.assertEqual(upcoming[0]['lot'], self.lot.id)
-        self.assertEqual(upcoming[0]['when'], 'demain')
-        self.assertEqual(upcoming[1]['detail'], 'stock')
-        self.assertIsNone(upcoming[1]['lot'])
+        self.assertEqual(sum(group['count'] for group in body['groups'] if group['kind'] == 'expiry'), 4)
+        self.assertEqual({row['key']: row['count'] for row in body['kinds']}['expiry'], 4)
+        # par lot, puis type, puis date : le lot avant le stock
+        group = body['groups'][0]
+        self.assertTrue(group['title'].startswith('Péremptions d'))
+        lots = [row['lot'] for row in group['rows']]
+        self.assertEqual(lots, sorted(lots, key=lambda lot: lot is None))
+        stock = next(row for row in upcoming if row['lot'] is None)
+        self.assertEqual((stock['section'], stock['link']), ('Stock', 'stock'))
         # horizon plus long : la peremption a 40 jours apparait
         code, body = self.call('GET', '/api/events/?days=90')
-        self.assertIn(40, [row['days'] for row in body['events'] if row['kind'] == 'expiry'])
+        self.assertIn(40, [row['days'] for group in body['groups'] for row in group['rows']])
         # web : badge gestion/admin, refuse a un secouriste
         code, _ = self.call('POST', '/api/events/summary/', {'user': self.badge(self.user)}, local=False)
         self.assertEqual(code, 403)
