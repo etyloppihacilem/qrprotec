@@ -70,6 +70,7 @@ void App::refresh_server_rules() {
     const Json &restock = result.data["restock_verif_recommended"];
     restock_verif_recommended = !restock.is_bool() || restock.boolean();
     poste_key         = result.data["poste"].boolean();
+    server_version    = result.data["version"].str();
     const Json &volume = result.data["scanner_volume_default"];
     scanner_volume_default = volume.is_number() ? volume.integer() : -1;
     if (!logged_in())

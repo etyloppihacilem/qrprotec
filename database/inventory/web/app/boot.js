@@ -11,6 +11,8 @@ async function boot() {
     state.declaredAllowed = !!health.declared_identity;
     state.antennaName = health.antenna_name || ''; // case « Certifié par le TECH ... » des rapports d'etat
     state.restockRecommends = health.restock_verif_recommended !== false;
+    state.serverVersion = health.version || '';
+    renderVersion();
     render();
     if (fiche.lot) renderFiche(); // encadre de l'etiquette cle
   }).catch(() => {});

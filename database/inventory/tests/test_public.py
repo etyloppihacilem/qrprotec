@@ -27,6 +27,22 @@ class IidTests(ApiTestCase):
 
 
 class PublicApiTests(ApiTestCase):
+    def test_health_release_version(self):
+        """Version de release ecrite par le RPM dans inventory/VERSION, vide sans le fichier (Reglages web et poste)."""
+        import tempfile
+        from pathlib import Path
+
+        from inventory import version
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'VERSION'
+            with mock.patch.object(version, 'VERSION_FILE', path):
+                version.release_version.cache_clear()
+                self.assertEqual(self.call('GET', '/api/health/', local=False)[1]['version'], '')
+                path.write_text('1.4.0\n', encoding='utf-8')
+                version.release_version.cache_clear()
+                self.assertEqual(self.call('GET', '/api/health/', local=False)[1]['version'], '1.4.0')
+            version.release_version.cache_clear()
+
     def test_management_routes_are_local_only(self):
         code, _ = self.call('GET', '/api/item-types/', local=False)
         self.assertEqual(code, 404)

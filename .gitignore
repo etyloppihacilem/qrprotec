@@ -78,3 +78,7 @@ secrets.json
 
 # Certificats HTTPS de developpement (manage.py serve --https)
 .dev-certs/
+
+# Versions de release ecrites au moment de l'empaquetage (RPM : back, Flatpak : front)
+database/inventory/VERSION
+packaging/flatpak/VERSION

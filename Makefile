@@ -166,6 +166,8 @@ flatpak: flatpak-umount
 		echo "Conteneur detecte : flatpak-builder lance sur l'hote ($(FLATPAK_HOST))"; \
 	fi
 	git submodule update --init app/imgui app/implot app/scanner_lib
+	@# version affichee dans les Reglages du front (lue par packaging/flatpak/build-front.sh)
+	packaging/version.sh >packaging/flatpak/VERSION
 	$(FLATPAK_HOST) flatpak remote-add --user --if-not-exists flathub $(FLATHUB)
 	@# bwrap monte /etc/resolv.conf dans chaque bac a sable : absent ou lien casse sur la machine qui construit,
 	@# le build echoue. Voir aussi packaging/flatpak/build-front.sh.

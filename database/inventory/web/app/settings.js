@@ -25,6 +25,14 @@ function renderSettings() {
   if (notifications) renderNotifications();
   renderSharedSettings();
   if (notifications) loadPush();
+  renderVersion();
+}
+
+// Version de release du serveur (tag du paquet), en bas de la page des reglages
+function renderVersion() {
+  const version = state.serverVersion;
+  $('#settings-version').textContent = version === null ? ''
+    : `QRprotec ${version ? `version ${version}` : 'version de développement'}`;
 }
 
 // Installer l'appli sur l'ecran d'accueil. Chrome et Edge (Android, ordinateur) proposent leur fenetre
