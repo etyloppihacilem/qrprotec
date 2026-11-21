@@ -1054,3 +1054,33 @@ body.lot-pick #scan-hint { font-size: 1.1rem; font-weight: 600; }
 .fun-slide .fun-total b { font-size: clamp(1.6rem, 6vw, 3rem); }
 .fun-show-nav { display: flex; gap: 8px; }
 .fun-show-nav button { flex: 1; }
+
+/* « Pourquoi cette commande ? » (Gestion de la TECH, commande recommandee) : phrases et deux graphes */
+.tag.violet { background: #6b4fa3; color: #fff; }
+dialog.order-explain { width: min(96vw, 680px); max-height: 92dvh; }
+.order-explain-title { margin: 4px 0; font-size: 1.05rem; }
+.order-why { margin: 6px 0 10px; padding-left: 1.2em; }
+.order-why li { margin: 3px 0; }
+dialog.order-explain h3 { margin: 12px 0 2px; font-size: 1rem; }
+dialog.order-explain .legend { row-gap: 2px; }
+.order-explain-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 12px; }
+.order-explain-actions .order-check { margin-top: 0; }
+.order-chart polyline { fill: none; stroke-width: 2; stroke-linejoin: round; pointer-events: none; }
+.order-chart line { pointer-events: none; }
+.order-chart .o-stock { stroke: var(--blue); }
+.order-chart .o-with { stroke: var(--green); stroke-dasharray: 5 3; }
+.order-chart .o-lots { stroke: #7ea6dc; stroke-width: 1.5; }
+.order-chart .o-min { stroke: var(--red); stroke-dasharray: 4 3; stroke-width: 1.5; }
+.order-chart .o-need { stroke: #7ea6dc; stroke-dasharray: 2 3; stroke-width: 1.5; }
+.order-chart .o-rate { stroke: var(--orange); stroke-dasharray: 4 3; stroke-width: 1.5; }
+.order-chart .o-before { stroke: var(--orange); stroke-width: 1; }
+.order-chart .o-below { stroke: var(--red); stroke-width: 1; }
+.order-chart .o-before-text { fill: var(--orange); }
+.order-chart .o-below-text { fill: var(--red); }
+.legend i.l { width: 14px; height: 0; border-top: 2px solid; border-radius: 0; background: none; vertical-align: middle; }
+.legend i.l.o-stock { border-color: var(--blue); }
+.legend i.l.o-with { border-top-style: dashed; border-color: var(--green); }
+.legend i.l.o-lots { border-color: #7ea6dc; }
+.legend i.l.o-min { border-top-style: dashed; border-color: var(--red); }
+.legend i.l.o-need { border-top-style: dotted; border-color: #7ea6dc; }
+.legend i.l.o-rate { border-top-style: dashed; border-color: var(--orange); }

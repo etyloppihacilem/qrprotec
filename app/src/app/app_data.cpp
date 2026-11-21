@@ -134,6 +134,7 @@ void App::place_order(const std::string &type, const std::string &name, int quan
       return;
     }
     catalog.tasks = result.data;
+    refresh_events(); // la commande recommandee quitte « À venir »
     notify("Commande de " + std::to_string(quantity) + " × " + name + " enregistrée : en attente de livraison.");
   });
 }

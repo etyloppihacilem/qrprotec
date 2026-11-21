@@ -443,6 +443,7 @@ class RevisionTests(ApiTestCase):
         self.create(self.compresses, self.today + timedelta(days=5), 1)
         code, body = self.call('GET', '/api/events/?days=60')
         self.assertEqual(code, 200)
+        body['events'] = [row for row in body['events'] if row['kind'] != 'order']  # commandes : test_stock
         rows = [(row['kind'], row['days'], row['item']) for row in body['events']]
         # retard en tete, puis par date ; la desinfection du 1er item (dans 1 mois) aussi, la revision a 200 j non
         self.assertEqual(rows[0], ('revision', -4, late.iid))

@@ -2,6 +2,8 @@
 
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
+from .. import tasks
+from ..models import StockOrder
 
 
 class LostObjectTests(ApiTestCase):
@@ -307,6 +309,52 @@ class ForecastTests(ApiTestCase):
         months = row['calendar']
         self.assertEqual(len(months), 3)
         self.assertEqual(sum(month['expiring']['stock'] for month in months), 6)
+
+    def test_order_explained_in_events_and_tasks(self):
+        """Commande recommandee : dans « À venir » (anticipable) et dans les taches, avec son detail : pourquoi,
+        consommation mois par mois, stock semaine par semaine avec et sans la commande, besoin des lots."""
+        self.compresses.min_quantity = 10
+        self.compresses.default_pack_size = 5
+        self.compresses.save()
+        self.create(self.compresses, self.today + timedelta(days=300), 14)
+        self.used(self.compresses, 6 * 6)
+        data = tasks.events(days=90)
+        rows = [row for row in data['events'] if row['kind'] == 'order' and row['type'] == 'compre']
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['type'], 'compre')
+        self.assertTrue(row['title'].startswith(f"Commander {row['quantity']} × "))
+        explain = row['explain']
+        self.assertEqual(explain['trigger'], 'consumption')
+        self.assertEqual(explain['min_quantity'], 10)
+        self.assertEqual(explain['lots_need'], 2)  # le Sac A attend 2 compresses
+        self.assertTrue(any('passera sous le minimum' in line for line in explain['why']))
+        self.assertTrue(any('Consommation estimée' in line for line in explain['why']))
+        self.assertIn('2 mois de consommation', explain['quantity_text'])
+        self.assertEqual(sum(month['used'] for month in explain['monthly']), 36)
+        points = explain['points']
+        self.assertEqual(points[0]['stock'], 14)
+        # la commande arrivee, le stock remonte au-dessus du minimum
+        after = [point for point in points if point['date'] >= explain['arrival']]
+        self.assertTrue(after and all(point['with_order'] >= point['stock'] for point in after))
+        self.assertGreaterEqual(after[0]['with_order'], 10)
+        self.assertIn('order', [kind['key'] for kind in data['kinds']])
+        # cochee « Commandé » : plus recommandee
+        StockOrder.objects.create(item_type=self.compresses, quantity=20, placed_by='test')
+        self.assertFalse([row for row in tasks.events(days=90)['events']
+                          if row['kind'] == 'order' and row['type'] == 'compre'])
+
+    def test_order_explained_already_below(self):
+        self.compresses.min_quantity = 10
+        self.compresses.save()
+        self.create(self.compresses, self.today + timedelta(days=300), 3)
+        data = tasks.todo()
+        row = next(row for row in data['tasks'] if row.get('quantity') and row['type'] == 'compre')
+        self.assertEqual(row['explain']['trigger'], 'below')
+        self.assertIn('déjà sous le minimum', row['explain']['why'][0])
+        event = next(row for row in tasks.events(days=30)['events']
+                     if row['kind'] == 'order' and row['type'] == 'compre')
+        self.assertEqual(event['level'], 'bad')
 
     def test_lot_consumption_and_sealed_transfer(self):
         sealed = Lots(lot_type=self.lot_type, name='Scellé', name_short='S', created_by='test', is_sealed=True)

@@ -194,7 +194,16 @@ tête :
 - les **révisions** et les **désinfections** du matériel, en retard ou à venir, avec où en est le cycle
   (« mois 8 sur 12 ») et la dernière faite ;
 - les **listes de matériel** à préparer pour une date à venir ;
-- les **étiquettes clés** des lots et les **badges** qui expirent.
+- les **étiquettes clés** des lots et les **badges** qui expirent ;
+- les **commandes recommandées** par les prévisions, à la date limite pour commander (on les voit venir de
+  loin), tant qu'elles ne sont pas cochées **Commandé**.
+
+**Pourquoi cette commande ?** Une commande recommandée (dans À venir ou dans les tâches) explique ce qui l'a
+provoquée (consommation, péremptions, stock déjà sous le minimum) et pourquoi la passer : la consommation
+estimée et qui consomme le plus, la date où le stock passera sous le minimum, ce que les lots doivent contenir
+et ce qu'ils ont, le délai de livraison et le calcul de la quantité. Deux graphes : le stock prévu semaine par
+semaine (avec la ligne du minimum en stock, le stock si la commande est passée à temps, les items dans les lots
+et la ligne du besoin des lots), et la consommation mois par mois avec la consommation estimée.
 
 Les **péremptions**, trop nombreuses pour une carte chacune, sont regroupées par mois à la fin de la liste,
 repliées : « Péremptions de décembre : 34 ». Le carré **[+]** déplie une liste compacte, triée par lot, puis

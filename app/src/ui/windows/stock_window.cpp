@@ -20,12 +20,187 @@
 #include <array>
 #include <cctype>
 #include <map>
+#include <set>
+#include <cmath>
+#include <optional>
+#include <cstdio>
 #include <sstream>
 #include <vector>
 
 namespace qrprotec {
 
 namespace {
+
+// Jours depuis le 1er janvier 1970 (calendrier civil), pour placer une date sur l'axe des semaines
+int civil_days(const Date &date) {
+  const int y   = date.year - (date.month <= 2 ? 1 : 0);
+  const int era = (y >= 0 ? y : y - 399) / 400;
+  const int yoe = y - era * 400;
+  const int doy = (153 * (date.month + (date.month > 2 ? -3 : 9)) + 2) / 5 + date.day - 1;
+  const int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + doe - 719468;
+}
+
+std::string rate_label(double value) {
+  char buffer[32];
+  std::snprintf(buffer, sizeof(buffer), value >= 10 || value == static_cast< int >(value) ? "%.0f" : "%.1f", value);
+  std::string text = buffer;
+  std::replace(text.begin(), text.end(), '.', ',');
+  return text;
+}
+
+const ImVec4 explain_stock(0.11f, 0.31f, 0.57f, 1.0f);
+const ImVec4 explain_lots(0.42f, 0.61f, 0.85f, 1.0f);
+
+// « Pourquoi cette commande ? » : ce qui a provoque la recommandation (phrases du serveur, les memes qu'au web),
+// stock prevu semaine par semaine (minimum en stock, stock avec la commande, lots et besoin des lots), consommation
+// mois par mois avec la consommation estimee.
+void draw_order_explain(const Json &x) {
+  if (!x.is_object())
+    return;
+  ImGui::Indent();
+  const std::string trigger = x["trigger"].str();
+  ImGui::TextColored(trigger == "below" ? colors::red : trigger == "expiry" ? colors::orange : explain_stock, "%s",
+                     x["trigger_label"].str().c_str());
+  for (const Json &line : x["why"].items()) {
+    ImGui::Bullet();
+    ImGui::TextWrapped("%s", line.str().c_str());
+  }
+  const Json &points = x["points"];
+  const int   n      = static_cast< int >(points.size());
+  const auto  first  = n > 0 ? Date::parse(points[0]["date"].str()) : std::nullopt;
+  std::vector< double > xs, stock, with_order, lots;
+  std::vector< double > ticks;
+  std::vector< std::string > tick_labels;
+  static const char *short_months[] = { "janv.", "févr.", "mars", "avr.", "mai", "juin",
+                                        "juil.", "août", "sept.", "oct.", "nov.", "déc." };
+  int month = -1;
+  bool any_lots = x["lots_need"].integer() > 0;
+  for (int index = 0; index < n; ++index) {
+    const Json &at = points[index];
+    xs.push_back(index);
+    stock.push_back(at["stock"].integer());
+    with_order.push_back(at["with_order"].integer());
+    lots.push_back(at["lots"].integer());
+    any_lots = any_lots || at["lots"].integer() > 0;
+    const auto date = Date::parse(at["date"].str());
+    if (date && date->month != month) {
+      month = date->month;
+      if (index > 0 || n < 3) {
+        ticks.push_back(index);
+        tick_labels.push_back(short_months[(date->month + 11) % 12]);
+      }
+    }
+  }
+  auto week_of = [&](const std::string &iso) -> std::optional< double > {
+    const auto date = Date::parse(iso);
+    if (!date || !first)
+      return std::nullopt;
+    return (civil_days(*date) - civil_days(*first)) / 7.0;
+  };
+  ImGui::Spacing();
+  ImGui::TextUnformatted("Stock prévu");
+  if (n > 0 && ImPlot::BeginPlot("##order_stock", ImVec2(-1, 220), ImPlotFlags_NoMouseText)) {
+    const double minimum = x["min_quantity"].integer();
+    const double need    = x["lots_need"].integer();
+    double       top     = std::max({ 1.0, minimum, need });
+    for (int index = 0; index < n; ++index)
+      top = std::max({ top, stock[index], with_order[index], any_lots ? lots[index] : 0.0 });
+    std::vector< const char * > label_ptrs;
+    for (const std::string &label : tick_labels)
+      label_ptrs.push_back(label.c_str());
+    ImPlot::SetupAxes(nullptr, x["unit"].str().empty() ? "items" : x["unit"].str().c_str());
+    ImPlot::SetupAxisLimits(ImAxis_X1, -0.3, std::max(1, n - 1) + 0.3, ImPlotCond_Always);
+    ImPlot::SetupAxisLimits(ImAxis_Y1, 0, top * 1.15 + 1, ImPlotCond_Always);
+    if (!ticks.empty())
+      ImPlot::SetupAxisTicks(ImAxis_X1, ticks.data(), static_cast< int >(ticks.size()), label_ptrs.data());
+    ImPlot::SetupLegend(ImPlotLocation_North, ImPlotLegendFlags_Outside | ImPlotLegendFlags_Horizontal);
+    ImPlot::PlotLine("Stock", xs.data(), stock.data(), n,
+                     ImPlotSpec(ImPlotProp_LineColor, explain_stock, ImPlotProp_LineWeight, 2.0f));
+    ImPlot::PlotLine("Avec la commande", xs.data(), with_order.data(), n,
+                     ImPlotSpec(ImPlotProp_LineColor, colors::green, ImPlotProp_LineWeight, 2.0f));
+    if (minimum > 0)
+      ImPlot::PlotInfLines("Minimum", &minimum, 1,
+                           ImPlotSpec(ImPlotProp_LineColor, colors::red, ImPlotProp_LineWeight, 2.0f, ImPlotProp_Flags,
+                                      ImPlotInfLinesFlags_Horizontal));
+    if (any_lots) {
+      ImPlot::PlotLine("Lots", xs.data(), lots.data(), n,
+                       ImPlotSpec(ImPlotProp_LineColor, explain_lots, ImPlotProp_LineWeight, 1.5f));
+      if (need > 0)
+        ImPlot::PlotInfLines("Besoin des lots", &need, 1,
+                             ImPlotSpec(ImPlotProp_LineColor, ImVec4(0.42f, 0.61f, 0.85f, 0.6f), ImPlotProp_LineWeight,
+                                        3.0f, ImPlotProp_Flags, ImPlotInfLinesFlags_Horizontal));
+    }
+    // dates cles, etiquetees en haut : « commander » a gauche de sa ligne, « sous le min. » a droite
+    if (const auto before = week_of(x["before"].str()); before && *before >= 0 && *before <= n - 1) {
+      ImPlot::PlotInfLines("##before", &*before, 1,
+                           ImPlotSpec(ImPlotProp_LineColor, colors::orange, ImPlotProp_Flags, ImPlotItemFlags_NoLegend));
+      ImPlot::Annotation(*before, top * 1.08, colors::orange, ImVec2(-4, 0), true, "commander");
+    }
+    if (const auto below = week_of(x["below_min"].str()); below && *below >= 0 && *below <= n - 1) {
+      const ImVec4 faded(0.82f, 0.12f, 0.12f, 0.6f);
+      ImPlot::PlotInfLines("##below", &*below, 1,
+                           ImPlotSpec(ImPlotProp_LineColor, faded, ImPlotProp_Flags, ImPlotItemFlags_NoLegend));
+      ImPlot::Annotation(*below, top * 1.08, faded, ImVec2(4, 0), true, "sous le min.");
+    }
+    // survol : la semaine sous la souris
+    if (ImPlot::IsPlotHovered()) {
+      const int index = static_cast< int >(std::lround(ImPlot::GetPlotMousePos().x));
+      if (index >= 0 && index < n) {
+        const Json &at   = points[index];
+        std::string text = "Semaine du " + Date::parse(at["date"].str()).value_or(Date{}).display() + " : stock "
+                         + std::to_string(at["stock"].integer());
+        if (at["with_order"].integer() != at["stock"].integer())
+          text += ", " + std::to_string(at["with_order"].integer()) + " avec la commande";
+        if (any_lots)
+          text += "\nDans les lots : " + std::to_string(at["lots"].integer()) + " / "
+                + std::to_string(x["lots_need"].integer());
+        if (at["lost"].integer() > 0)
+          text += "\n" + nb(at["lost"].integer(), "périmé", "périmés") + " sans servir depuis aujourd'hui";
+        ImGui::SetTooltip("%s", text.c_str());
+      }
+    }
+    ImPlot::EndPlot();
+  }
+  ImGui::TextUnformatted("Consommation par mois");
+  const Json &months = x["monthly"];
+  const int   m      = static_cast< int >(months.size());
+  if (m > 0 && ImPlot::BeginPlot("##order_use", ImVec2(-1, 170), ImPlotFlags_NoMouseText)) {
+    std::vector< double >      mx(m), used(m), total(m);
+    std::vector< std::string > labels;
+    double                     top  = std::max(1.0, x["per_month"].num());
+    for (int index = 0; index < m; ++index) {
+      mx[index]    = index;
+      used[index]  = months[index]["used"].integer();
+      total[index] = used[index] + months[index]["discarded"].integer();
+      top          = std::max(top, total[index]);
+      const auto date = Date::parse(months[index]["start"].str());
+      labels.push_back(date ? short_months[(date->month + 11) % 12] : "?");
+    }
+    std::vector< const char * > label_ptrs;
+    for (const std::string &label : labels)
+      label_ptrs.push_back(label.c_str());
+    ImPlot::SetupAxes(nullptr, x["unit"].str().empty() ? "items" : x["unit"].str().c_str());
+    ImPlot::SetupAxisLimits(ImAxis_X1, -0.6, m - 0.4, ImPlotCond_Always);
+    ImPlot::SetupAxisLimits(ImAxis_Y1, 0, top * 1.2 + 1, ImPlotCond_Always);
+    ImPlot::SetupAxisTicks(ImAxis_X1, mx.data(), m, label_ptrs.data());
+    ImPlot::SetupLegend(ImPlotLocation_North, ImPlotLegendFlags_Outside | ImPlotLegendFlags_Horizontal);
+    // barres empilees : le total (jetes perimes) dessine d'abord, les utilises par-dessus
+    ImPlot::PlotBars("Jetés périmés", mx.data(), total.data(), m, 0.6, ImPlotSpec(ImPlotProp_FillColor, colors::red));
+    ImPlot::PlotBars("Utilisés", mx.data(), used.data(), m, 0.6, ImPlotSpec(ImPlotProp_FillColor, explain_stock));
+    const double rate = x["per_month"].num();
+    const std::string rate_name = "Consommation estimée (" + rate_label(rate) + "/mois)";
+    if (rate > 0)
+      ImPlot::PlotInfLines(rate_name.c_str(), &rate, 1,
+                           ImPlotSpec(ImPlotProp_LineColor, colors::orange, ImPlotProp_LineWeight, 2.0f, ImPlotProp_Flags,
+                                      ImPlotInfLinesFlags_Horizontal));
+    ImPlot::EndPlot();
+  }
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+  ImGui::TextWrapped("%s", x["quantity_text"].str().c_str());
+  ImGui::PopStyleColor();
+  ImGui::Unindent();
+}
 
 
 class StockWindow final : public AppWindow {
@@ -42,6 +217,7 @@ class StockWindow final : public AppWindow {
     void reset_view(App &) override {
       select_        = "tasks";
       event_kind_.clear();
+      explained_.clear();
     }
 
     void draw(App &app) override {
@@ -80,6 +256,37 @@ class StockWindow final : public AppWindow {
 
   private:
     std::map< std::string, int > order_quantities_; // quantite de la case « Commandé », par type d'item
+    std::set< std::string >      explained_;        // commandes dont « Pourquoi cette commande ? » est deplie
+
+    // « Pourquoi cette commande ? » (deplie le detail sous la commande) et case « Commandé » (quantite modifiable)
+    void draw_order_controls(App &app, const Json &row, const char *where) {
+      const std::string type = row["type"].str();
+      if (type.empty() || row["quantity"].integer() <= 0)
+        return;
+      const std::string key  = std::string(where) + type;
+      const bool        open = explained_.count(key) > 0;
+      if (row["explain"].is_object()) {
+        if (small_button(open ? "Masquer le détail" : "Pourquoi cette commande ?")) {
+          if (open)
+            explained_.erase(key);
+          else
+            explained_.insert(key);
+        }
+        ImGui::SameLine();
+      }
+      auto found = order_quantities_.find(type);
+      if (found == order_quantities_.end())
+        found = order_quantities_.emplace(type, row["quantity"].integer()).first;
+      bool ordered = false;
+      if (ImGui::Checkbox("Commandé :", &ordered) && ordered && found->second > 0)
+        app.place_order(type, row["name"].str(), found->second);
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(110.0f);
+      if (ImGui::InputInt("##qty", &found->second))
+        found->second = std::max(1, found->second);
+      if (open)
+        draw_order_explain(row["explain"]);
+    }
     std::string event_kind_; // filtre des evenements a venir ('' : tout)
     std::string select_; // onglet a ouvrir (tasks : vue par defaut)
 
@@ -338,7 +545,12 @@ class StockWindow final : public AppWindow {
           app.open_lot_disinfection_date(row["lot_maintenance"]);
         any = true;
       }
-      if (!lot.empty()) {
+      if (row["kind"].str() == "order") {
+        if (small_button("Voir les commandes"))
+          app.show_stock_tab("orders");
+        ImGui::SameLine();
+        draw_order_controls(app, row, "event");
+      } else if (!lot.empty()) {
         if (any)
           ImGui::SameLine();
         if (small_button("Ouvrir le lot"))
@@ -387,19 +599,9 @@ class StockWindow final : public AppWindow {
         if (small_button(row["category"].str() == "orders" ? "Voir les commandes" : "Voir les transferts"))
           app.show_stock_tab(row["category"].str() == "orders" ? "orders" : "transfers");
         // case « Commandé » d'une commande suggeree (quantite modifiable) : la suggestion attend la livraison
-        const std::string type = row["type"].str();
-        if (!type.empty() && row["quantity"].integer() > 0) {
-          auto found = order_quantities_.find(type);
-          if (found == order_quantities_.end())
-            found = order_quantities_.emplace(type, row["quantity"].integer()).first;
+        if (!row["type"].str().empty() && row["quantity"].integer() > 0) {
           ImGui::SameLine();
-          bool ordered = false;
-          if (ImGui::Checkbox("Commandé :", &ordered) && ordered && found->second > 0)
-            app.place_order(type, row["name"].str(), found->second);
-          ImGui::SameLine();
-          ImGui::SetNextItemWidth(110.0f);
-          if (ImGui::InputInt("##qty", &found->second))
-            found->second = std::max(1, found->second);
+          draw_order_controls(app, row, "task");
         }
       } else if (link == "stock") {
         if (small_button("Voir l'état du stock"))
