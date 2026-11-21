@@ -97,9 +97,22 @@ def pin_blocked_error(user):
 
 def pin_setup_extra(user):
     """Champs de l'erreur « choisissez votre code » : la case « Demander a chaque connexion » est cochee par defaut
-    quand le code est obligatoire, et imposee pour un admin."""
+    quand le code est obligatoire, et imposee pour un admin. `passkey_offer` : premiere connexion au web, le front
+    ouvre l'ecran de bienvenue (passkey d'abord, puis le code ; web/app/welcome.js)."""
     return {'pin_setup_required': True, 'pin_at_login_default': user.pin_mandatory,
-            'pin_at_login_locked': user.pin_at_login_locked}
+            'pin_at_login_locked': user.pin_at_login_locked, 'passkey_offer': passkey_offer(user),
+            'prenom': user.prenom}
+
+
+def passkey_offer(user):
+    """Passkey a proposer a la connexion : jamais proposee a ce compte (reglage web passkey_offered), aucune passkey,
+    pas une carte d'invite."""
+    return not user.guest and not user.web_pref('passkey_offered') and not user.passkeys.exists()
+
+
+def pin_setup_pending(user):
+    """Connexion par la carte qui n'attend plus que le code PIN obligatoire a choisir (pas de code bloque)."""
+    return user.pin_required and not user.has_pin and not user.pin_blocked and not user.pin_locked()
 
 
 def verify_pin(user, data):

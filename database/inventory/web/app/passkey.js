@@ -96,12 +96,14 @@ async function passkeyLogin({ quiet = false } = {}) {
   }
 }
 
-// Creation : true si la passkey est enregistree
-async function createPasskey() {
-  if (!state.user || !passkeySupported()) return false;
+// Creation : true si la passkey est enregistree. `card` : {matricule, key} de la carte quand la connexion attend
+// encore le code PIN obligatoire a choisir (ecran de premiere connexion, web/app/welcome.js), sinon l'utilisateur connecte
+async function createPasskey(card = null) {
+  const user = card || (state.user ? credentials() : null);
+  if (!user || !passkeySupported()) return false;
   let credential;
   try {
-    const { publicKey } = await api('me/passkeys/', { user: credentials(), action: 'options' });
+    const { publicKey } = await api('me/passkeys/', { user, action: 'options' });
     publicKey.challenge = b64urlToBuffer(publicKey.challenge);
     publicKey.user.id = b64urlToBuffer(publicKey.user.id);
     publicKey.excludeCredentials = (publicKey.excludeCredentials || []).map((row) => ({ ...row, id: b64urlToBuffer(row.id) }));
@@ -112,7 +114,7 @@ async function createPasskey() {
     return false;
   }
   try {
-    const data = await api('me/passkeys/', { user: credentials(), action: 'create', credential: {
+    const data = await api('me/passkeys/', { user, action: 'create', credential: {
       id: credential.id, type: credential.type,
       response: {
         clientDataJSON: bufferToB64url(credential.response.clientDataJSON),
@@ -120,9 +122,11 @@ async function createPasskey() {
         transports: credential.response.getTransports ? credential.response.getTransports() : [],
       },
     } });
-    state.user.has_passkey = true;
-    state.passkeys = data.passkeys;
-    save();
+    if (state.user && !card) {
+      state.user.has_passkey = true;
+      state.passkeys = data.passkeys;
+      save();
+    }
     feedback.info();
     toast('Passkey créée : la prochaine fois, « Se connecter avec une passkey ». Votre carte marche toujours.');
     return true;
@@ -132,26 +136,8 @@ async function createPasskey() {
   }
 }
 
-// Premiere connexion au web (Hippolyte, 2026-11-20) : passkey proposee une seule fois par compte (reglage web
-// passkey_offered, note quelle que soit la reponse), ensuite seulement dans ⚙ Reglages > Passkey. Souvent la connexion
-// par le QR code de depannage du TECH, pour un secouriste sans carte.
-async function offerPasskey(user) {
-  if (!passkeySupported() || !user || user.guest || user.has_passkey || user.passkey_session || sharedWeb()) return;
-  if (verifInProgress() || user !== state.user) return; // pas au milieu d'une vérif, ni apres une deconnexion
-  if (webPref('passkey_offered')) return;
-  setWebPrefs({ passkey_offered: true }).catch(() => {}); // une seule proposition, meme sans reponse
-  const choice = await askDialog({
-    title: 'Créer une passkey sur ce téléphone ?',
-    body: el('div', {},
-      el('p', {}, 'Vous vous connecterez ensuite avec l\'empreinte, le visage ou le code de votre téléphone, sans carte ni code PIN.'),
-      el('p', { class: 'hint' }, 'Sur le web, la connexion avec le nom et le code PIN ne marchera plus pour vous (au poste, si). Votre carte reste valable. '
-        + 'Le TECH peut supprimer la passkey si vous changez de téléphone.')),
-    choices: [{ label: 'Créer une passkey', value: true, cls: 'primary' }],
-    cancel: 'Plus tard',
-  });
-  if (choice) await createPasskey();
-  else toast('Vous pourrez créer une passkey plus tard dans ⚙ Réglages.');
-}
+// Premiere connexion au web : passkey proposee une seule fois par compte (reglage web passkey_offered), par l'ecran
+// de premiere connexion (web/app/welcome.js), ensuite seulement dans ⚙ Reglages > Passkey.
 
 // Reglages : passkeys de l'utilisateur, creer, supprimer
 async function loadPasskeys() {

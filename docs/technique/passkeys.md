@@ -16,10 +16,14 @@ Fichiers concernés :
 
 ## Règles
 
-- **Création** : proposée après une connexion à qui n'en a pas (pas sur un web partagé, pas pour une
-  carte d'invité, pas au milieu d'une vérif). « Plus tard » la repousse de 30 jours, sauf après une
-  connexion par le **QR code de dépannage** du TECH : c'est le parcours de la première connexion d'un
-  secouriste sans carte, la passkey lui est proposée tout de suite. Aussi dans ⚙ Réglages > Passkey.
+- **Création** : proposée une seule fois par compte (`web_prefs.passkey_offered`) par l'**écran de
+  première connexion** (`web/app/welcome.js`, en grand, par étapes) : la passkey d'abord, puis le code
+  PIN s'il est obligatoire et pas encore choisi. Jamais sur un web partagé, pour une carte d'invité ou au
+  milieu d'une vérif. Carte scannée alors que le serveur attend le code à choisir (`pin_setup_required`
+  avec `passkey_offer`) : la passkey se crée avec la carte seule (`first_login_user`, actions `options`
+  et `create` de `me/passkeys/`, seulement tant que le code n'est pas choisi), puis le code termine la
+  connexion comme avant (`new_pin`). Connexion sans code (QR code de dépannage du TECH) : la passkey,
+  puis le code obligatoire par `me/pin/`. Ensuite, seulement dans ⚙ Réglages > Passkey.
 - **Une passkey coupe la connexion par nom (ou matricule) et PIN** pour cette personne
   (`name_login_candidates_queryset`). Le refus le dit seulement si le PIN tapé est juste
   (`passkey_required`) : un inconnu n'apprend rien. **Seulement sur le front web** : un poste (kiosk sur

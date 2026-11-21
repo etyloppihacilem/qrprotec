@@ -450,6 +450,37 @@ body.login-gate #viewfinder span { width: min(62%, 220px); }
 body.login-gate #scan-hint { font-size: 1.1rem; font-weight: 600; }
 body.login-gate #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 
+/* Premiere connexion au web : passkey d'abord, puis le code PIN obligatoire, en grand (web/app/welcome.js) */
+dialog#welcome { width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border-radius: 0;
+  border-top: 4px solid var(--pc-orange); background: var(--panel); }
+dialog#welcome::backdrop { background: var(--panel); }
+#welcome-body { box-sizing: border-box; min-height: 100%; display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: calc(20px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom)); text-align: center; }
+#welcome-body > :first-child { margin-top: auto; }
+#welcome-body > :last-child { margin-bottom: auto; }
+#welcome-body > * { max-width: 420px; }
+#welcome-body p { margin: 0; font-size: 1.05rem; }
+#welcome-body p.hint { font-size: .92rem; }
+#welcome-body h2 { margin: 2px 0 0; font-size: 1.6rem; color: var(--navy); text-wrap: balance; }
+.welcome-hello { color: var(--muted); font-weight: 600; }
+.welcome-steps { display: flex; gap: 18px; list-style: none; margin: 4px 0 6px; padding: 0; font-size: .9rem; color: var(--muted); }
+.welcome-steps li { display: flex; align-items: center; gap: 6px; }
+.welcome-steps li span { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  border-radius: 50%; border: 2px solid var(--line); font-weight: 700; }
+.welcome-steps li.current { color: var(--navy); font-weight: 700; }
+.welcome-steps li.current span { border-color: var(--navy); background: var(--navy); color: #fff; }
+.welcome-steps li.done span { border-color: var(--green); background: var(--green); color: #fff; }
+.welcome-icon { display: flex; align-items: center; justify-content: center; width: 84px; height: 84px; border-radius: 50%;
+  background: var(--navy); color: #fff; font-size: 2.6rem; }
+.welcome-done { color: var(--green); font-weight: 700; }
+.welcome-buttons { display: flex; flex-direction: column; gap: 10px; width: min(100vw - 32px, 420px); margin-top: 6px; }
+.welcome-buttons button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; font-size: 1.05rem; }
+.welcome-buttons button.secondary { background: none; border: 1px solid var(--line); color: var(--text); }
+.welcome-pin-form { width: min(100vw - 32px, 420px); text-align: left; }
+.welcome-pin-form input.pin { display: block; box-sizing: border-box; width: 100%; font-size: 1.4rem; letter-spacing: .3em;
+  text-align: center; padding: 10px; margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; }
+.welcome-pin-form input.pin::placeholder { letter-spacing: normal; font-size: 1rem; }
+
 /* Suivi des verifs */
 .live-status { font-size: .8rem; color: var(--muted); font-weight: normal; }
 .live-status i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; background: #aaa; }

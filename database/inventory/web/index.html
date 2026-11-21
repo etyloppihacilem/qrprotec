@@ -339,6 +339,11 @@
     </form>
   </dialog>
 
+  <!-- Premiere connexion au web : passkey d'abord, puis le code PIN obligatoire, en grand (web/app/welcome.js) -->
+  <dialog id="welcome" aria-labelledby="welcome-title">
+    <div id="welcome-body"></div>
+  </dialog>
+
   <!-- Connexion sans badge : nom, prenom et code PIN (secouristes qui ont un PIN) -->
   <dialog id="name-login">
     <form id="name-login-form">
@@ -478,6 +483,7 @@
   <script src="web/app/notifications.js" defer></script>
   <script src="web/app/settings.js" defer></script>
   <script src="web/app/passkey.js" defer></script>
+  <script src="web/app/welcome.js" defer></script>
   <script src="web/app/gestion.js" defer></script>
   <script src="web/app/fiches.js" defer></script>
   <script src="web/app/reports.js" defer></script>
