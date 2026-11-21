@@ -77,7 +77,8 @@ tape toujours `@`, `#` ou `{`.
 ## Au téléphone
 
 1. Ouvrez l'appareil photo et **scannez l'étiquette clé** du sac : la **fiche du lot** s'ouvre
-   (état de la vérif, contenu, emplacement de l'étiquette clé). Touchez **Lancer une vérif** : le
+   (état de la vérif, contenu, emplacement de l'étiquette clé). Touchez **Faire la vérif** (tout en bas, avec
+   « Une vérif est nécessaire » dessous si le lot est orange ou rouge) : le
    lecteur s'ouvre sur ce lot, étiquette clé déjà scannée (autorisez la caméra la première fois).
 2. **Scannez votre badge** si ce n'est pas déjà fait (le téléphone s'en souvient). Saisissez votre PIN
    si demandé. Si le TECH l'a autorisé, vous pouvez à la place toucher **Non connecté** et
@@ -123,10 +124,11 @@ sans caméra :
   le contenu est replié sous **Contenu** quand tout est valide (touchez-le pour le déplier) ; les
   rôles gestion et admin voient en plus le détail (qui a vérifié, prochaine révision, lot global,
   raison d'une vérif recommandée). Le petit bouton **📄 Fiche PDF** en haut imprime la fiche
-  d'inventaire. **Lancer une vérif** ouvre le lecteur.
+  d'inventaire. **Faire la vérif**, en bas de l'écran, ouvre le lecteur ; juste dessous, **Partir avec
+  ce lot** et **J'ai utilisé du matériel de ce lot**.
 - **étiquette clé** : la même fiche, étiquette clé déjà scannée.
 - **étiquette d'un item** : produit, péremption, état et **dernier emplacement connu** (le lot où il
-  est, ou celui qu'il a quitté s'il a été utilisé, sorti ou signalé disparu). **Lancer une vérif**
+  est, ou celui qu'il a quitté s'il a été utilisé, sorti ou signalé disparu). **Faire la vérif**
   lance la vérif de ce lot. Pendant une vérif, un bouton ajoute l'item aux scans en cours.
 
 Dans une fiche, les lots et les items sont cliquables : touchez un sous-lot, le lot global ou un item
@@ -183,7 +185,7 @@ cascade » plus bas). Dans le lot où vous êtes :
   de la vérif).
 - Sans vérif en cours et sans rien dans la liste des scans, scanner l'étiquette d'un item ou d'un lot
   dans le scanner ouvre sa **fiche** en grand, comme le lien ouvert avec l'appareil photo du
-  téléphone. **Lancer une vérif** y commence la vérif du lot (pour un item, celle du lot où il est
+  téléphone. **Faire la vérif** y commence la vérif du lot (pour un item, celle du lot où il est
   rangé, avec l'item déjà compté comme scanné).
 
 ## Vérifier à plusieurs
@@ -375,8 +377,9 @@ imprimée et laissée dans le lot.
 
 ## Marquer un lot comme utilisé
 
-Vous avez pris du matériel dans un lot sans faire de vérif ? Sur la fiche du lot (téléphone, ou fenêtre
-**Lots** du poste), **Marquer ce lot comme utilisé (demander une vérif)**. Le lot (et ses sous-lots) passe
+Vous avez pris du matériel dans un lot sans faire de vérif ? Sur la fiche du lot au téléphone, **J'ai
+utilisé du matériel de ce lot** (sous **Faire la vérif**) ; au poste, fenêtre **Lots**, **Marquer ce lot comme
+utilisé (demander une vérif)**. Le lot (et ses sous-lots) passe
 en orange « Vérif recommandée, lot utilisé » pour les suivants, jusqu'à la prochaine vérif complète. Il faut
 être connecté (badge, ou nom si le serveur l'accepte). Un lot scellé s'ouvre avec son étiquette d'ouverture,
 pas avec ce bouton.
@@ -384,7 +387,7 @@ pas avec ce bouton.
 ## Lot scellé
 
 Scanner l'étiquette du **scellé** (avec l'appareil photo ou le scanner, hors vérif) affiche la fiche
-du lot, sans bouton « Lancer une vérif » : un lot scellé ne se vérifie pas.
+du lot, sans bouton « Faire la vérif » : un lot scellé ne se vérifie pas.
 
 - **Scellé intact** (vert) : rien à faire, le lot est bon jusqu'à la date indiquée ;
 - **Ancien scellé** (orange) : l'étiquette ne correspond plus au scellé en cours ; un nouveau scellé a

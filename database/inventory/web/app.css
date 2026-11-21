@@ -552,6 +552,14 @@ body.fiche-open #toast { bottom: calc(90px + env(safe-area-inset-bottom)); }
 #fiche-actions { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line); }
 #fiche-actions button[hidden] { display: none; }
+/* indication sous le titre du bouton de la vérif (« Une vérif est nécessaire ») */
+#fiche-launch.with-sub { padding-top: 12px; padding-bottom: 12px; display: flex; align-items: center; justify-content: center; }
+#fiche-launch .launch-text { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.2; }
+#fiche-launch .launch-sub { font-weight: 400; font-size: .8em; color: #ffd27a; }
+/* depart et lot utilise sous la vérif, plus compacts qu'au milieu de la fiche pour garder de la place a la liste */
+#fiche-more { display: flex; flex-direction: column; gap: 6px; }
+#fiche-more:empty { display: none; }
+#fiche-more .used-btn { margin: 0; padding: 6px 12px; }
 .title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .pdf-links { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
 /* fiche d'inventaire PDF : discrete (pas l'action principale) mais visible */

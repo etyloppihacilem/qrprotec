@@ -59,8 +59,8 @@ function reportButton(target) {
 function usedButton(lot) {
   return el('button', { type: 'button', class: 'used-btn', onclick: () => markUsed(lot) },
     icon('used'),
-    el('span', { class: 'used-text' }, el('span', {}, 'Marquer ce lot comme utilisé'),
-      el('span', { class: 'used-sub' }, '(demander une vérif)')));
+    el('span', { class: 'used-text' }, el('span', {}, "J'ai utilisé du matériel de ce lot"),
+      el('span', { class: 'used-sub' }, '(une vérif sera demandée pour les suivants)')));
 }
 
 // « Partir avec ce lot » : meme depart que la page « Départ » avec ce seul lot coche (liste de depart a son nom,
@@ -83,7 +83,7 @@ function departButton(lot) {
     return button('🎒', 'Continuer le départ', `(liste « ${taken.name} »)`,
       () => requireLogin('continuer le départ', () => openList(taken.id)));
   }
-  return button('🎒', 'Partir avec ce lot', '(liste de départ à scanner)', () => departWithLot(lot));
+  return button('🎒', 'Partir avec ce lot', '(noter sa sortie en poste de secours)', () => departWithLot(lot));
 }
 
 // « Retour de ce lot » : le lot en poste est scanne rentre sur sa liste (vérif recommandee) ; tout rentre, le

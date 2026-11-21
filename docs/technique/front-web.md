@@ -25,7 +25,7 @@ La page répond aux adresses mêmes des QR codes : `/`, `/verif?lot=…[&key=…
 `/item?id=…`, `/pack?id=…`, `/seal?lot=…&s=…`, `/liste?id=…` (liste de matériel : page `lists` de l'accueil, objet `lists`
 de `app/lists.js`, relue toutes les 3 s ; en mode scan, `handleCode` envoie les lots et items à la liste). Scanner une étiquette avec l'appareil photo natif du téléphone ouvre
 donc directement la bonne vue. `/verif?lot=…` et `/item?id=…` ouvrent une **fiche** sans caméra (`openFiche`,
-section `#fiche`) : « Lancer une vérif » ouvre le lecteur sur le lot (`launchVerif`). La navigation entre fiches
+section `#fiche`) : « Faire la vérif » (bas de l'écran, `#fiche-actions`, sous-titre « Une vérif est nécessaire » si `verifNeeded`, puis « Partir avec ce lot » et « J'ai utilisé du matériel de ce lot » dans `#fiche-more`) ouvre le lecteur sur le lot (`launchVerif`). La navigation entre fiches
 passe par `history.pushState` (bouton retour du téléphone, `popstate`). La fiche d'un item affiche
 `last_location`, renvoyé par `GET /api/items/<iid>/` seulement (`serializers.item_last_location`). Les fichiers sont référencés en relatif (`web/app/boot.js`) et l'API par
 `new URL('api/', document.baseURI)` : la page fonctionne aussi sous un sous-chemin.
@@ -230,7 +230,7 @@ Deux règles :
   (`vcache.ready()`) puis mis à jour en arrière-plan (à l'ouverture de l'appli s'il a plus de 10 min, et comme
   plus haut). Une étiquette de lot ou d'item ouverte hors connexion (appareil photo, scanner au repos) affiche
   sa fiche tirée de ce cache, avec le bandeau « Hors connexion » et la date de la dernière mise à jour
-  (`offlineFiche`) ; « Lancer une vérif » y marche. L'étiquette du scellé et la connexion par badge restent en
+  (`offlineFiche`) ; « Faire la vérif » y marche. L'étiquette du scellé et la connexion par badge restent en
   ligne : la personne doit s'être connectée avant (session gardée sur le téléphone). Il faut avoir ouvert l'appli
   une fois avec du réseau sur ce téléphone, en HTTPS avec un certificat reconnu (sinon le navigateur refuse le
   service worker et rien n'est gardé).
