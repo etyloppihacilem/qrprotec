@@ -471,7 +471,6 @@ EVENT_KINDS = {
     'list': 'Liste de matériel',
     'lot_key': 'Étiquette clé',
     'badge': 'Badge',
-    'guest_card': "Carte d'invité",
 }
 EVENT_LEVEL_ORDER = {'bad': 0, 'warn': 1, 'soon': 2, 'info': 3}
 
@@ -597,52 +596,21 @@ def _expiry_key_events(today, days):
     return rows
 
 
-def _guest_card_events(today):
-    """Cartes d'invites jamais activees, quelle que soit leur echeance (pas seulement a l'approche de la date limite)
-    : a la date limite de premiere connexion. Une carte pas activee a temps reste listee (en retard) tant qu'elle
-    n'est pas desactivee : son numero peut etre repris pour une nouvelle carte."""
-    from . import guests
-    rows = []
-    for card in Secouristes.objects.filter(guest=True, active=True, guest_activated__isnull=True):
-        deadline = guests.activation_deadline(card) or today
-        late = card.guest_state() == 'expired_unused'
-        rows.append(event('guest_card', deadline, today, f"Carte d'invité {card.matricule}",
-                          'pas activée à temps : reprendre son numéro ou la désactiver (Utilisateurs, admin)' if late
-                          else 'pas encore activée : à remettre à une équipe, ou à désactiver (Utilisateurs, admin)',
-                          'bad' if late else 'info', 'users', guest_card=card.matricule))
-    return rows
-
-
-def _guest_card_group(cards):
-    """Cartes d'invites pas encore activees dont la date limite tombe apres l'horizon (un an apres leur creation au
-    poste) : regroupees a la fin plutot que datees « dans 364 jours » au milieu des evenements proches."""
-    if not cards:
-        return []
-    return [{'key': 'guest_card', 'kind': 'guest_card', 'title': "Cartes d'invités pas encore activées",
-             'count': len(cards), 'level': 'info',
-             'rows': [{'section': '', 'lot': None, 'link': 'users', 'text': card['title'], 'count': 1,
-                       'date': card['date'], 'days': card['days'],
-                       'when': 'à activer avant le ' + _day(datetime.fromisoformat(card['date']).date()),
-                       'level': 'info'} for card in cards]}]
-
-
 def events(today=None, days=EVENTS_DAYS):
     """Evenements a venir sur `days` jours, separes des taches : revisions et desinfections (en retard d'abord),
-    listes de materiel prevues, etiquettes cles et badges qui expirent, cartes d'invites a activer. Un evenement par
-    ligne, par date croissante (le retard en tete) ; a date egale, le plus grave d'abord.
-    groups : a la fin, replies, les peremptions par mois (« Péremptions de décembre : 34 ») et les cartes d'invites
-    pas encore activees dont la date limite est au-dela de l'horizon."""
+    listes de materiel prevues, etiquettes cles et badges qui expirent. Un evenement par ligne, par date croissante
+    (le retard en tete) ; a date egale, le plus grave d'abord. Pas les cartes d'invites : ce ne sont pas des
+    echeances (onglet Cartes d'invités des Utilisateurs).
+    groups : a la fin, replies, les peremptions par mois (« Péremptions de décembre : 34 »)."""
     today = today or timezone.localdate()
     lots = Lots.objects.select_related('lot_type').filter(active=True).order_by('lot_type__name', 'name')
     rows = ser.lot_list(lots, today=today)
-    guest_cards = _guest_card_events(today)
-    far_cards = [card for card in guest_cards if card['days'] > days]
     result = (_maintenance_events(today, days) + _lot_disinfection_events(today, days) + _list_events(today, days)
-              + _expiry_key_events(today, days) + [card for card in guest_cards if card['days'] <= days])
+              + _expiry_key_events(today, days))
     kind_rank = {key: index for index, key in enumerate(EVENT_KINDS)}
     result.sort(key=lambda row: (row['date'], EVENT_LEVEL_ORDER[row['level']], kind_rank[row['kind']],
                                  row['title']))
-    groups = _expiry_groups(rows, today, days) + _guest_card_group(far_cards)
+    groups = _expiry_groups(rows, today, days)
     counts = Counter(row['kind'] for row in result)
     for group in groups:
         counts[group['kind']] += group['count']

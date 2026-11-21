@@ -222,7 +222,7 @@ class StockWindow final : public AppWindow {
         draw_event(app, row, date);
         ImGui::PopID();
       }
-      // a la fin, replies : peremptions par mois et cartes d'invites a activer apres l'horizon
+      // a la fin, replies : peremptions par mois
       int group_index = 0;
       for (const Json &group : data["groups"].items()) {
         if (!event_kind_.empty() && group["kind"].str() != event_kind_)
@@ -281,8 +281,6 @@ class StockWindow final : public AppWindow {
         ImGui::Unindent();
         ++index;
       }
-      if (group["kind"].str() == "guest_card")
-        ImGui::TextDisabled("Utilisateurs (menu Administration) : à remettre à une équipe, ou à désactiver.");
       ImGui::TreePop();
     }
 

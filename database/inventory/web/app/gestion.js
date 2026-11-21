@@ -256,7 +256,7 @@ function renderPlacedOrders(parts, placed) {
 // à gauche, un titre par mois. Révisions et désinfections : « Réviser » / « Désinfecter » et « Saisir la date » (cycle
 // recalé à la main) directement depuis la carte.
 const EVENT_HORIZONS = [{ days: 30, label: '30 jours' }, { days: 90, label: '3 mois' }, { days: 365, label: '1 an' }];
-const EVENT_TAGS = { revision: 'blue', disinfection: 'teal', expiry: 'orange', list: 'navy', lot_key: 'gray', badge: 'gray', guest_card: 'gray' };
+const EVENT_TAGS = { revision: 'blue', disinfection: 'teal', expiry: 'orange', list: 'navy', lot_key: 'gray', badge: 'gray' };
 
 async function loadEvents() {
   if (!canSeeStock()) return;
@@ -343,7 +343,7 @@ function renderEvents(parts) {
 }
 
 // Groupes replies a la fin des evenements : peremptions par mois (« Péremptions de décembre : 34 », trop nombreuses
-// pour une carte chacune) et cartes d'invites a activer apres l'horizon. Deplie : liste compacte, triee par lot,
+// pour une carte chacune). Deplie : liste compacte, triee par lot,
 // puis type, puis date, un intertitre par lot (cliquable : fiche du lot).
 function eventGroup(parts, group, first) {
   state.eventGroupsOpen = state.eventGroupsOpen || {};
@@ -365,8 +365,6 @@ function eventGroup(parts, group, first) {
     list.append(el('div', { class: 'event-group-row' + (row.level === 'info' ? '' : ' ' + row.level) },
       el('span', {}, row.text), el('span', { class: 'event-group-when' }, row.when)));
   }
-  if (group.kind === 'guest_card') list.append(el('div', { class: 'sub hint' }, 'Utilisateurs (admin, au poste) : '
-    + 'à remettre à une équipe, ou à désactiver.'));
   parts.push(list);
 }
 

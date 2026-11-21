@@ -686,7 +686,7 @@ class GuestCardTests(ApiTestCase):
 
 
 class GuestCardReuseTests(ApiTestCase):
-    """Numero d'une carte jamais activee repris, invite qui revient (reactivation), cartes a activer dans « À venir »,
+    """Numero d'une carte jamais activee repris, invite qui revient (reactivation), cartes jamais dans « À venir »,
     antenne dans le rapport d'etat."""
 
     def key_of(self, url):
@@ -711,18 +711,13 @@ class GuestCardReuseTests(ApiTestCase):
         self.assertEqual(lot_report.who(f'M:{matricule}'), f"Léa Martin, invité de l'antenne Lyon 3, carte {matricule}")
         self.assertEqual(lot_report.who('M:M001'), 'Jeanne Dupont, M001')
 
-    def test_unused_card_number_reused_and_listed_in_upcoming(self):
+    def test_unused_card_number_reused_not_in_upcoming(self):
         matricule, key = self.new_card()
-        # date limite dans un an : pas « dans 364 jours » au milieu des 3 mois, regroupee a la fin
-        code, body = self.call('GET', '/api/events/')
-        self.assertFalse([row for row in body['events'] if row['kind'] == 'guest_card'])
-        rows = [row for group in body['groups'] if group['kind'] == 'guest_card' for row in group['rows']]
-        self.assertEqual([row['text'] for row in rows], [f"Carte d'invité {matricule}"])
-        self.assertTrue(rows[0]['when'].startswith('à activer avant le '))
-        # sur un an, carte datee comme les autres evenements
-        code, body = self.call('GET', '/api/events/?days=365')
-        self.assertEqual([row['title'] for row in body['events'] if row['kind'] == 'guest_card'],
-                         [f"Carte d'invité {matricule}"])
+        # une carte d'invite n'est pas une echeance : jamais dans « À venir », quel que soit l'horizon
+        for days in (30, 90, 365):
+            code, body = self.call('GET', f'/api/events/?days={days}')
+            self.assertFalse([row for row in body['events'] if 'guest' in row['kind']])
+            self.assertFalse(body['groups'])
         code, row = self.call('POST', f'/api/users/guests/{matricule}/', {'action': 'reuse'})
         self.assertEqual(code, 200, row)
         same, new_key = self.key_of(row['badge_url'])
@@ -731,9 +726,6 @@ class GuestCardReuseTests(ApiTestCase):
         self.assertEqual(self.auth(matricule, new_key, guest_nom='A', guest_prenom='B', guest_antenne='C')[0], 200)
         # activee : plus de reprise du numero, plus dans « À venir »
         self.assertEqual(self.call('POST', f'/api/users/guests/{matricule}/', {'action': 'reuse'})[0], 400)
-        code, body = self.call('GET', '/api/events/')
-        self.assertFalse([row for row in body['events'] if row['kind'] == 'guest_card'])
-        self.assertFalse([group for group in body['groups'] if group['kind'] == 'guest_card'])
 
     def test_returning_guest_reactivated_with_new_card(self):
         from datetime import timedelta
