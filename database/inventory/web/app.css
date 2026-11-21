@@ -800,6 +800,16 @@ body.list-scan #reader-name { display: none !important; }
 #home-lists .list-add-task input { flex: 1; min-width: 0; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
 #home-lists .picker, #label-prints .picker { position: relative; }
 #home-lists .member-picker { margin-top: 8px; }
+/* titres des deux champs d'ajout de l'editeur (lot ou materiel, tache) */
+#home-lists .list-add-label { display: block; margin: 14px 0 0; font-size: .85rem; font-weight: 600; color: var(--muted); }
+#home-lists .list-add-label + .list-add, #home-lists .list-add-label + .list-add-task { margin-top: 4px; }
+#home-lists .list-kind { margin: 0 0 8px; }
+/* croix au bout d'un champ de recherche : visible pendant la saisie, ferme les suggestions et le clavier */
+#home-lists .picker-close, #label-prints .picker-close { display: none; position: absolute; right: 4px; top: 4px; width: 30px; height: 30px;
+  padding: 0; border-radius: 8px; background: #eee; color: var(--text); font-size: 1rem; line-height: 1; }
+#home-lists .picker.picker-focus .picker-close, #label-prints .picker.picker-focus .picker-close { display: block; }
+#home-lists .picker.picker-focus .picker-input, #label-prints .picker.picker-focus .picker-input { padding-right: 40px; }
+#home-lists .picker-input::-webkit-search-cancel-button, #label-prints .picker-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 #home-lists .picker-input, #label-prints .picker-input { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 #home-lists .picker-results, #label-prints .picker-results { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 0; list-style: none;
   background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .15); max-height: 50vh; overflow-y: auto; }

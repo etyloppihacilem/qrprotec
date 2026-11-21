@@ -16,7 +16,7 @@ function listIndex() {
       data.can_see_all
         ? el('button', { type: 'button', class: lists.show === 'all' ? 'active' : '', onclick: () => choose('all') }, 'Toutes') : '') : '',
     canCreate ? el('button', { type: 'button', class: 'primary list-new', onclick: () => editList() },
-      lists.show === 'templates' ? '＋ Nouveau modèle' : '＋ Nouvelle liste') : '',
+      lists.show === 'templates' ? '＋ Créer un modèle' : '＋ Créer une liste') : '',
     // tout le monde : liste de depart generee depuis un type de lot (un lot C, un B+…)
     lists.show === 'templates' ? '' : el('button', { type: 'button', class: 'secondary list-new', onclick: openDeparture },
       '🚑 Partir avec un lot'),
@@ -477,6 +477,17 @@ function pickerTouch(input, results) {
   if (viewport) viewport.addEventListener('resize', fit);
 }
 
+// Croix au bout d'un champ de recherche, visible pendant la saisie : ferme les suggestions et le clavier du telephone
+// pour sortir du champ facilement. L'appui ne retire pas le focus (sinon la croix disparaitrait avant le click).
+function pickerClose(input, onClose) {
+  const button = el('button', { type: 'button', class: 'picker-close', 'aria-label': 'Fermer la recherche', title: 'Fermer',
+    tabindex: '-1', onmousedown: (event) => event.preventDefault(),
+    onclick: () => { input.value = ''; onClose(); input.blur(); } }, '✕');
+  input.addEventListener('focus', () => { if (input.parentElement) input.parentElement.classList.add('picker-focus'); });
+  input.addEventListener('blur', () => { if (input.parentElement) input.parentElement.classList.remove('picker-focus'); });
+  return button;
+}
+
 // Element d'une liste de suggestions : choisi au « click » (souris ou doigt), que le navigateur n'envoie pas quand
 // le doigt a fait defiler la liste ; choisir au relache aurait laisse le click tomber sur ce qui est dessous apres le
 // nouveau rendu (une croix). L'appui ne vole pas le focus du champ : le clavier reste ouvert pendant le defilement.
@@ -529,6 +540,7 @@ function memberPicker(taken, onPick) {
   input.addEventListener('input', () => { highlighted = 0; clearTimeout(timer); timer = setTimeout(search, 200); });
   input.addEventListener('blur', () => { results.hidden = true; });
   pickerTouch(input, results);
+  const close = pickerClose(input, () => { clearTimeout(timer); request += 1; draw([], ''); });
   input.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
@@ -542,7 +554,7 @@ function memberPicker(taken, onPick) {
       input.blur();
     }
   });
-  return el('div', { class: 'picker member-picker' }, input, results);
+  return el('div', { class: 'picker member-picker' }, input, close, results);
 }
 
 // Champ de recherche avec resultats en direct (sans accents ni casse, debut de mots ou code), comme la recherche des
@@ -600,6 +612,7 @@ function searchPicker(placeholder, items, onPick, limit = 8) {
   input.addEventListener('focus', update);
   input.addEventListener('blur', () => { results.hidden = true; });
   pickerTouch(input, results);
+  const close = pickerClose(input, () => { results.hidden = true; });
   input.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
@@ -613,7 +626,7 @@ function searchPicker(placeholder, items, onPick, limit = 8) {
       input.blur();
     }
   });
-  return el('div', { class: 'picker' }, input, results);
+  return el('div', { class: 'picker' }, input, close, results);
 }
 
 // Quantite d'une ligne de l'editeur : petits − et + de part et d'autre du chiffre, qui reste modifiable au clavier
@@ -639,7 +652,7 @@ function listEditor(edit) {
   const options = lists.options;
   const taken = new Set(edit.lines.map((line) => line.task ? 'task:' + line.task : line.lot_types ? 'lots:' + line.lot_types.join('+')
     : line.lot || 'type:' + line.type));
-  const taskInput = el('input', { type: 'text', maxlength: '200', placeholder: "Ex : prendre des bonbons",
+  const taskInput = el('input', { type: 'text', id: 'list-add-task', maxlength: '200', placeholder: 'Ex : prendre des bonbons',
     onkeydown: (event) => { if (event.key === 'Enter') { event.preventDefault(); addTask(); } } });
   const addTask = () => {
     const task = taskInput.value.trim().replace(/\s+/g, ' ');
@@ -652,7 +665,7 @@ function listEditor(edit) {
   const KIND_LOT_TYPE = { id: 'lot-type', label: 'Lot au choix', order: 0 };
   const KIND_LOT = { id: 'lot', label: 'Lot', order: 1 };
   const KIND_TYPE = { id: 'type', label: 'Matériel', order: 2 };
-  const addSelect = searchPicker('＋ Ajouter un lot ou du matériel : rechercher…', [
+  const addSelect = searchPicker('Rechercher un lot ou du matériel…', [
     ...(options ? options.lot_types || [] : []).filter((type) => !taken.has('lots:' + type.type))
       .map((type) => ({ key: type.type, label: type.name, kind: KIND_LOT_TYPE, description: type.description, row: type })),
     ...(options ? options.lots : []).filter((lot) => !taken.has(lot.id))
@@ -674,23 +687,28 @@ function listEditor(edit) {
     else edit.lines.push({ type: pick.row.type, label: pick.row.name, quantity: 1, unit: pick.row.unit || '' });
     redraw();
   }, 12);
+  addSelect.querySelector('input').id = 'list-add-search';
   return [
     // retour en haut a gauche, comme « ← Toutes les listes » de la fiche d'une liste (= Annuler)
-    el('button', { type: 'button', class: 'text-link', onclick: () => { lists.edit = null; renderListsPage(); } },
-      edit.id ? '← Retour à la liste' : '← Toutes les listes'),
-    el('h3', {}, edit.id ? 'Modifier la liste' : edit.template ? 'Nouveau modèle' : 'Nouvelle liste'),
+    el('button', { type: 'button', class: 'text-link', onclick: closeListEditor },
+      edit.id ? `← Retour ${edit.template ? 'au modèle' : 'à la liste'}` : '← Toutes les listes'),
+    el('h3', {}, edit.id ? `Modifier ${edit.template ? 'le modèle' : 'la liste'}` : edit.template ? 'Nouveau modèle' : 'Nouvelle liste'),
+    // liste ou modele : choisi par le bouton qui a ouvert l'editeur (« Créer une liste » / « Créer un modèle »)
+    el('p', { class: 'hint list-kind' }, edit.template
+      ? "C'est un modèle : il ne se vérifie pas et ne sort pas de matériel. On le duplique pour créer une liste, "
+        + 'pour les postes qui reviennent souvent.'
+      : "C'est une liste pour un poste : elle se partage par lien ou QR code et se vérifie en direct, à plusieurs."
+        + (edit.id ? '' : ' Pour un modèle réutilisable, utilisez « Créer un modèle » dans l\'onglet Modèles.')),
     el('label', { class: 'field' }, 'Nom',
       el('input', { type: 'text', maxlength: '80', value: edit.name, placeholder: 'Ex : poste de secours du stade',
         oninput: (event) => { edit.name = event.target.value; } })),
-    el('label', { class: 'field' }, 'Date',
+    // un modele n'a pas de date (celle du poste se donne a la liste creee depuis le modele)
+    edit.template ? '' : el('label', { class: 'field' }, 'Date',
       el('input', { type: 'date', value: edit.date, required: '',
         oninput: (event) => { edit.date = event.target.value; } })),
     el('label', { class: 'field' }, 'Remarque',
       el('textarea', { rows: '2', maxlength: '500', placeholder: 'Facultatif : rendez-vous, consignes…',
         oninput: (event) => { edit.note = event.target.value; } }, edit.note)),
-    el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: edit.template ? '' : null, disabled: edit.started ? '' : null,
-      onchange: (event) => { edit.template = event.target.checked; } }),
-    edit.started ? 'Modèle (impossible : liste déjà commencée)' : 'Modèle (se duplique, ne se vérifie pas)'),
     el('h3', {}, 'À prendre'),
     edit.lines.length ? '' : el('p', { class: 'hint' }, 'Ajoutez des lots (sacs, armoires), du matériel avec sa quantité et des tâches à cocher.'),
     el('ul', { class: 'list' }, ...edit.lines.flatMap((line, index) => [el('li', { class: 'static' },
@@ -709,11 +727,14 @@ function listEditor(edit) {
             toast(`${line.label} séparé : ${part.label} retiré.`);
             redraw();
           } }, '✕'))) : [])])),
+    // deux champs d'ajout bien separes, chacun avec son titre : ce qui se scanne, puis les taches a cocher
+    el('label', { class: 'list-add-label', for: 'list-add-search' }, 'Ajouter un lot ou du matériel'),
     options ? el('div', { class: 'list-add' }, addSelect) : el('p', { class: 'hint' }, 'Chargement des lots et du matériel…'),
+    el('label', { class: 'list-add-label', for: 'list-add-task' }, 'Ajouter une tâche à cocher'),
     el('div', { class: 'list-add-task' }, taskInput, el('button', { type: 'button', onclick: addTask }, '＋ Tâche')),
-    el('p', { class: 'hint' }, 'Une tâche se coche pendant la vérif de la liste (ni lot ni matériel).'),
+    el('p', { class: 'hint' }, 'Une tâche se coche pendant la vérif de la liste : ni lot ni matériel, par exemple une consigne.'),
     el('div', { class: 'list-buttons' },
-      el('button', { type: 'button', class: 'secondary', onclick: () => { lists.edit = null; renderListsPage(); } }, 'Annuler'),
+      el('button', { type: 'button', class: 'secondary', onclick: closeListEditor }, 'Annuler'),
       el('button', { type: 'button', class: 'primary', disabled: lists.busy ? '' : null, onclick: saveList }, icon('save'), 'Enregistrer')),
   ];
 }
