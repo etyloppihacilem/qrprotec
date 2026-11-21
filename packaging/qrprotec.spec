@@ -223,7 +223,8 @@ fi
 %build
 %if %{with kiosk}
 # CMAKE_SKIP_BUILD_RPATH : pas de RUNPATH vers l'arborescence de compilation dans l'executable
-%cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_SKIP_BUILD_RPATH=ON
+# QRPROTEC_VERSION : version affichee dans les Reglages du poste
+%cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_SKIP_BUILD_RPATH=ON -DQRPROTEC_VERSION=%{version}
 %cmake_build
 %endif
 
@@ -232,6 +233,8 @@ fi
 install -d %{buildroot}%{appdir}/backend
 cp -a database/manage.py database/qrprotecDB database/inventory %{buildroot}%{appdir}/backend/
 rm -rf %{buildroot}%{appdir}/backend/inventory/tests
+# version de release lue par inventory/version.py (Reglages du web et du poste, /api/health/)
+echo '%{version}' >%{buildroot}%{appdir}/backend/inventory/VERSION
 cp -a vendor %{buildroot}%{appdir}/vendor
 find %{buildroot}%{appdir} -name __pycache__ -type d -prune -exec rm -rf {} +
 # Rien n'est execute directement (manage.py est lance par qrprotec-manage via python3)

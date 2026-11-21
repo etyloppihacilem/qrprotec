@@ -46,6 +46,11 @@ jobs:
           rm -rf /var/lib/flatpak
           mv /var/lib/flatpak.copie /var/lib/flatpak
           flatpak --system list
+      # Version affichee dans les Reglages du front, lue par packaging/flatpak/build-front.sh (hors tag : aucune,
+      # construction de developpement, comme macOS et Windows)
+      - name: Version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "${GITHUB_REF_NAME#v}" > packaging/flatpak/VERSION
       - uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
         with:
           manifest-path: packaging/flatpak/io.github.etyloppihacilem.QRProtec.yml

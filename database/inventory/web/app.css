@@ -148,6 +148,7 @@ dl.facts dd { margin: 0; }
 .page h3:first-child { margin-top: 2px; }
 .page p { margin: 4px 0; }
 .page .hint { color: var(--muted); font-size: .85rem; }
+#settings-version { text-align: center; margin: 16px 0 4px; }
 .page .list { margin: 0 -12px; }
 .page .list li { cursor: pointer; }
 .page .list li.bad { border-left: 5px solid var(--red); }

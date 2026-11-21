@@ -14,8 +14,13 @@ set -eu
 : "${FLATPAK_ARCH:=$(uname -m)}"
 PREFIX=$FLATPAK_DEST
 
+# Version affichee dans les Reglages : packaging/flatpak/VERSION, ecrit par la CI (tag) ou make flatpak (.git n'est
+# pas copie dans le bac a sable). Absent : construction de developpement.
+VERSION=
+[ -f packaging/flatpak/VERSION ] && VERSION=$(cat packaging/flatpak/VERSION)
+
 cmake -S app -B _build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DCMAKE_SKIP_BUILD_RPATH=ON
+    -DCMAKE_SKIP_BUILD_RPATH=ON -DQRPROTEC_VERSION="$VERSION"
 cmake --build _build
 ctest --test-dir _build --output-on-failure
 

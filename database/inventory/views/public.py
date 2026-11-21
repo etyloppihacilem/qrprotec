@@ -12,6 +12,7 @@
 
 from .common import *  # noqa: F401,F403
 from .common import _checklist_call
+from ..version import release_version
 
 
 # Vues publiques (disponibles sur les deux API)
@@ -41,6 +42,8 @@ def health(request):
         'antenna_name': ServerSettings.get().antenna_name,
         # reassort : le lot passe en verif recommandee (reglage du serveur, coche par defaut)
         'restock_verif_recommended': ServerSettings.get().restock_verif_recommended,
+        # version de release du serveur (tag du RPM), vide hors paquet : affichee dans les Reglages
+        'version': release_version(),
     })
 
 

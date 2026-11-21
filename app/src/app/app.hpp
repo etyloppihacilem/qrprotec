@@ -678,6 +678,7 @@ class App {
     bool                         restock_verif_recommended = true; // reglage du serveur : reassort → verif recommandee
     // reglage du serveur (/api/health/) : volume de la douchette des utilisateurs qui n'en ont pas choisi (-1 : inconnu)
     int                          scanner_volume_default = -1;
+    std::string                  server_version; // version de release du serveur (/api/health/), vide hors paquet
     VerifSession                 verif;
     Json                         last_report; // dernier compte rendu de verif
     // Vérif hors connexion (une partie de la reserve n'a ni reseau ni wifi) : cache de tout ce qu'une verif lit au

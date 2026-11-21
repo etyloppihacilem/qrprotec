@@ -169,6 +169,15 @@ void draw_update_settings(App &app) {
   }
 }
 
+// Versions de release du poste (-DQRPROTEC_VERSION, tag) et du serveur (/api/health/), toujours visibles en haut
+void draw_versions(const App &app) {
+  const auto shown = [](const std::string &version) {
+    return version.empty() ? std::string("version de développement") : "version " + version;
+  };
+  ImGui::TextDisabled("QRProtec %s · serveur %s", shown(Updater::current_version()).c_str(),
+                      app.api.online() ? shown(app.server_version).c_str() : "injoignable");
+}
+
 // Section des Reglages ouverte et amenee en haut quand un menu la demande (Impression > Reglages d'impression,
 // Douchette > Signal de mauvais scan, Fenetres > Disposition par defaut) : App::open_settings_section.
 bool settings_section(App &app, const char *label) {
@@ -204,6 +213,7 @@ class SettingsWindow final : public AppWindow {
       }
       ImGui::SameLine();
       ImGui::TextDisabled("%s", AppSettings::file_path().string().c_str());
+      draw_versions(app);
 
       if (ImGui::CollapsingHeader("Serveur")) {
         draw_server_settings(app);

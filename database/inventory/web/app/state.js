@@ -92,6 +92,7 @@ const state = {
   pushDevices: null, // gestionnaire des notifications : {types, devices} de l'utilisateur connecte
   pushError: '',
   declaredAllowed: false, // reglage du serveur : verif et ajout possibles sans badge, sous un nom declare
+  serverVersion: null, // version de release du serveur (/api/health/) : null inconnue, '' hors paquet
   restockRecommends: true, // reglage du serveur : un reassort passe le lot en verif recommandee (coche par defaut)
   declaredName: '',       // nom declare sur ce navigateur (non verifie)
   guest: null,            // vérif à plusieurs sans compte : prenom de l'invite ('' : « Invité »), null sinon
