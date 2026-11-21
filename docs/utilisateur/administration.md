@@ -74,8 +74,9 @@ Laissez-en 2 ou 3 aux équipes qui peuvent recevoir des secouristes non enregist
 - Un invité qui revient (une semaine plus tard…) se **réactive** pour une durée à choisir, sous le même
   numéro : son historique reste à son nom. Cochez « Imprimer une carte à son nom » pour lui imprimer une
   carte avec son nom, son prénom et la mention INVITÉ.
-- Les cartes pas encore activées apparaissent dans **À venir** de la Gestion de la TECH, à leur date
-  limite de première connexion, sans attendre qu'elle approche.
+- Les cartes pas encore activées apparaissent dans **À venir** de la Gestion de la TECH, sans attendre que
+  leur date limite de première connexion approche : à leur date si elle tombe dans l'horizon choisi, sinon
+  regroupées à la fin (« Cartes d'invités pas encore activées : 2 »).
 - Dans le Journal, annuler la ligne « carte d'invité activée » (ou réactivée) annule aussi tout ce que
   l'invité a fait ensuite, jusqu'à la réactivation suivante.
 - La liste dit qui a créé chaque carte et quand. Depuis le web, un admin crée aussi une carte à

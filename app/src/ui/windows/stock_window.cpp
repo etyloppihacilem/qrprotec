@@ -222,9 +222,68 @@ class StockWindow final : public AppWindow {
         draw_event(app, row, date);
         ImGui::PopID();
       }
+      // a la fin, replies : peremptions par mois et cartes d'invites a activer apres l'horizon
+      int group_index = 0;
+      for (const Json &group : data["groups"].items()) {
+        if (!event_kind_.empty() && group["kind"].str() != event_kind_)
+          continue;
+        ++shown;
+        if (group_index == 0) {
+          ImGui::Spacing();
+          ImGui::Separator();
+        }
+        ImGui::PushID(("group" + std::to_string(group_index++)).c_str());
+        draw_event_group(app, group);
+        ImGui::PopID();
+      }
       if (shown == 0)
         status_banner("✔ Rien de prévu sur cet horizon", colors::green);
       ImGui::EndChild();
+    }
+
+    // Groupe replie (« Péremptions de décembre : 34 ») : deplie, liste compacte triee par lot, puis type, puis date,
+    // un intertitre par lot (bouton : ouvre le lot).
+    void draw_event_group(App &app, const Json &group) {
+      const std::string level = group["level"].str();
+      const std::string title = group["title"].str() + " : " + std::to_string(group["count"].integer()) + "###"
+                              + group["key"].str();
+      if (level == "warn")
+        ImGui::PushStyleColor(ImGuiCol_Text, colors::orange);
+      const bool open = ImGui::TreeNodeEx(title.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth);
+      if (level == "warn")
+        ImGui::PopStyleColor();
+      if (!open)
+        return;
+      std::string section;
+      int         index = 0;
+      for (const Json &row : group["rows"].items()) {
+        const std::string place = row["section"].str();
+        if (!place.empty() && place != section) {
+          section = place;
+          const std::string lot = row["lot"].str();
+          ImGui::PushID(("section" + std::to_string(index)).c_str());
+          if (!lot.empty()) {
+            if (ImGui::Selectable((place + " ›").c_str(), false, ImGuiSelectableFlags_None))
+              app.show_lot(lot);
+          } else {
+            ImGui::TextColored(colors::grey, "%s", place.c_str());
+          }
+          ImGui::PopID();
+        }
+        const std::string row_level = row["level"].str();
+        const ImVec4      color     = row_level == "warn"   ? colors::orange
+                                    : row_level == "soon" ? colors::yellow
+                                                          : ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        ImGui::Indent();
+        ImGui::TextColored(color, "%s", row["text"].str().c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("· %s", row["when"].str().c_str());
+        ImGui::Unindent();
+        ++index;
+      }
+      if (group["kind"].str() == "guest_card")
+        ImGui::TextDisabled("Utilisateurs (menu Administration) : à remettre à une équipe, ou à désactiver.");
+      ImGui::TreePop();
     }
 
     void draw_event(App &app, const Json &row, const std::optional< Date > &date) {
