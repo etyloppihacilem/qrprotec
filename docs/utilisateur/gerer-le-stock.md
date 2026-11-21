@@ -194,14 +194,12 @@ tête :
 - les **révisions** et les **désinfections** du matériel, en retard ou à venir, avec où en est le cycle
   (« mois 8 sur 12 ») et la dernière faite ;
 - les **listes de matériel** à préparer pour une date à venir ;
-- les **étiquettes clés** des lots et les **badges** qui expirent ;
-- les **cartes d'invités** pas encore activées, à leur date limite de première connexion.
+- les **étiquettes clés** des lots et les **badges** qui expirent.
 
 Les **péremptions**, trop nombreuses pour une carte chacune, sont regroupées par mois à la fin de la liste,
 repliées : « Péremptions de décembre : 34 ». Le carré **[+]** déplie une liste compacte, triée par lot, puis
 par type, puis par date (le stock après les lots) ; un mois dont des items périment dans les 2 jours est en
-orange. Les cartes d'invités dont la date limite tombe après l'horizon (un an après leur création au poste)
-sont aussi regroupées à la fin : « Cartes d'invités pas encore activées : 2 ».
+orange.
 
 L'horizon se choisit : 30 jours, 3 mois (par défaut) ou 1 an, et un filtre n'affiche qu'un genre d'évènement.
 Ce ne sont pas des tâches : les secouristes remplacent les périmés pendant la vérif du lot rouge, et ce que les
