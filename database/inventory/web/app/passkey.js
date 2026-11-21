@@ -150,7 +150,7 @@ async function loadPasskeys() {
   } catch (e) {
     state.passkeys = null;
   }
-  if ($('#notifications').open) renderPasskeySettings();
+  if (settingsOpen()) renderPasskeySettings();
 }
 
 function renderPasskeySettings() {

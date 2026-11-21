@@ -2,8 +2,13 @@
 'use strict';
 
 // Reglages : installer l'appli (tout le monde, connecte ou non), code PIN (connectes), notifications web (s'il peut
-// en recevoir)
+// en recevoir). Page de l'accueil en plein ecran (#reglages) : le retour du telephone et ‹ ramenent a l'accueil.
 function openNotifications() {
+  showHome('settings');
+}
+
+// contenu de la page des reglages, rendu a chaque ouverture (et apres une connexion ou une deconnexion)
+function renderSettings() {
   installGuideShown = false;
   renderInstallSettings();
   renderScanSettings();
@@ -19,7 +24,6 @@ function openNotifications() {
   $('#notifications-body').hidden = !notifications;
   if (notifications) renderNotifications();
   renderSharedSettings();
-  $('#notifications').showModal();
   if (notifications) loadPush();
 }
 
@@ -28,12 +32,12 @@ function openNotifications() {
 let installPrompt = null;
 window.addEventListener('beforeinstallprompt', (event) => {
   installPrompt = event; // sans preventDefault : le navigateur garde aussi sa propre proposition
-  if ($('#notifications').open) renderInstallSettings();
+  if (settingsOpen()) renderInstallSettings();
 });
 window.addEventListener('appinstalled', () => {
   installPrompt = null;
   toast('QRprotec est installée.');
-  if ($('#notifications').open) renderInstallSettings();
+  if (settingsOpen()) renderInstallSettings();
 });
 
 const installedApp = () => window.matchMedia('(display-mode: standalone)').matches
@@ -327,10 +331,10 @@ async function savePin(disable) {
     renderPinSettings();
   } catch (e) {
     if (e.data && e.data.pin_blocked) {
-      $('#notifications').close();
       state.user = null; // un PIN bloque coupe la session
       save();
       render();
+      renderSettings();
       showPinBlocked(e.data.pin_reset || {});
       return;
     }

@@ -630,8 +630,6 @@ $('#restock').addEventListener('click', async () => {
   if (isMulti()) validate(true); else addToLot();
 });
 $('#more').addEventListener('click', () => $('#menu').showModal());
-$('#notifications-close').addEventListener('click', () => $('#notifications').close());
-$('#notifications-x').addEventListener('click', () => $('#notifications').close());
 $('#menu').addEventListener('click', async (event) => {
   const action = event.target.dataset && event.target.dataset.action;
   if (!action) return;
