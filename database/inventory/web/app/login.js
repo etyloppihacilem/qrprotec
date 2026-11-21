@@ -87,6 +87,7 @@ function logout(message) {
   lists.list = null;
   Object.assign(depart, { lists: null, tab: 'lots' });
   if (inHome() && ['live', 'stock', 'reports', 'lists'].includes(state.homePage)) showHome('menu', false);
+  else if (settingsOpen()) renderSettings(); // reglages ouverts : sections des connectes masquees
   render();
 }
 
@@ -246,6 +247,7 @@ function renderHomePage() {
   document.querySelectorAll('.home-page').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
   $('#home-title').textContent = HOME_TITLES[page] || 'QRProtec';
   $('#home-back').hidden = page === 'menu';
+  $('#home-settings').hidden = page === 'settings';
   const userButton = $('#home-user');
   userButton.textContent = state.user ? `👤 ${state.user.prenom}` : readerOpen() ? 'Annuler' : 'Se connecter';
   userButton.classList.toggle('ok', !!state.user);

@@ -7,16 +7,18 @@
 
 const badge = credentials;
 const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock', reports: 'signalements', lists: 'listes',
-  depart: 'depart', debug: 'debug', stats: 'stats' };
+  depart: 'depart', debug: 'debug', stats: 'stats', settings: 'reglages' };
 const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'Gestion de la TECH',
   reports: 'Signalements', lists: 'Listes de matériel', depart: 'Départ', debug: 'Debug des codes',
-  stats: 'Stats de l\'année' };
+  stats: 'Stats de l\'année', settings: 'Réglages' };
 // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
 const hasNotifications = () => !!state.user && (state.user.notifications !== undefined ? !!state.user.notifications : canSeeStock());
 
 let pendingAfterLogin = '';  // page a ouvrir une fois le badge scanne dans le petit lecteur
 
 const inHome = () => document.body.classList.contains('home-mode');
+// Reglages : une page de l'accueil en plein ecran (avant : une popup)
+const settingsOpen = () => inHome() && state.homePage === 'settings';
 // petit lecteur de badge : sur l'accueil, ou sur une fiche (connexion avant un signalement)
 const readerOpen = () => (inHome() || ficheOpen()) && document.body.classList.contains('login-reader');
 
@@ -43,6 +45,7 @@ function showHome(page = 'menu', push = true) {
   if (page === 'live') watchStart(); else watchStop();
   if (page === 'lists') listsShown(); else { clearInterval(lists.timer); lists.timer = 0; }
   if (page === 'depart') departShown();
+  if (page === 'settings') renderSettings();
   renderHomePage();
   $('#home-pages').scrollTop = 0;
 }

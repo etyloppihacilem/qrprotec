@@ -75,7 +75,7 @@ Deux règles :
 | `login.js` | Grande fenêtre de connexion, connexion par nom, web partagé |
 | `live.js` | Suivi en direct (`live`, `watch*`), vérifs récentes, comptes rendus |
 | `notifications.js` | Abonnement aux notifications web |
-| `settings.js` | Réglages ⚙ (installer l'appli, PIN, vérif, web partagé) |
+| `settings.js` | Réglages ⚙, page plein écran de l'accueil (`#reglages`, `renderSettings`) : installer l'appli, PIN, passkey, vérif, notifications, web partagé |
 | `gestion.js` | Gestion de la TECH (tâches, état des stocks, prévisions, étiquettes) |
 | `fiches.js` | Fiches de lot et d'item, ouverture d'un scellé |
 | `reports.js` | Signalements |
