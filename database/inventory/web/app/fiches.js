@@ -188,6 +188,7 @@ function renderFiche() {
   const launch = $('#fiche-launch');
   const add = $('#fiche-add');
   add.hidden = true;
+  $('#fiche-more').replaceChildren();
   launch.hidden = false;
   $('#fiche-actions').hidden = false;
   launch.disabled = false;
@@ -249,18 +250,34 @@ function shortBanner(lot, status) {
     at ? el('span', { class: 'when' }, ` (${fmtDateTime(at, { long: true })})`) : '');
 }
 
+// Bouton de la vérif de la fiche : titre et, en dessous, une indication (« Une vérif est nécessaire »)
+function launchLabel(launch, title, hint) {
+  setLabel(launch, 'verif', hint ? el('span', { class: 'launch-text' }, el('span', {}, title), el('span', { class: 'launch-sub' }, hint)) : title);
+  launch.classList.toggle('with-sub', !!hint);
+}
+
+// Le lot est a verifier : orange ou rouge (vérif recommandee, incomplet, jamais verifie, scelle ouvert ou perime…),
+// sauf un lot verifie et complet qui n'attend plus que son scelle
+function verifNeeded(lot, status) {
+  if (status.kind === 'ok') return false;
+  return !(lot.seal_required && !lot.is_sealed && lot.last_verif && lot.complete && !lot.verif_recommended && !lot.unusable);
+}
+
 function renderLotFiche(body, lot) {
   const status = groupStatus(lot) || lotStatus(lot);
   const full = detailed();
   const current = state.lotId === lot.id && verifInProgress();
   const launch = $('#fiche-launch');
-  setLabel(launch, 'verif', current ? 'Reprendre la vérif' : 'Lancer une vérif');
+  launchLabel(launch, current ? 'Reprendre la vérif' : 'Faire la vérif', !current && verifNeeded(lot, status) ? 'Une vérif est nécessaire' : '');
   // etiquette du scelle scannee : le lot reste ferme, pas de vérif a lancer tant qu'il est scelle (etiquette d'un
   // ancien scelle comprise : un scelle plus recent a ete pose depuis)
   const sealIntact = !!fiche.seal && lot.seal_check === 'valid';
   const noVerif = !!fiche.seal && lot.is_sealed;
   if (noVerif && !current) launch.hidden = true;
-  $('#fiche-actions').hidden = launch.hidden && $('#fiche-add').hidden;
+  // depart et lot utilise sous le bouton de la vérif, en bas de l'ecran : il remonte et se voit mieux
+  const more = $('#fiche-more');
+  more.replaceChildren(departButton(lot), lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot));
+  $('#fiche-actions').hidden = launch.hidden && $('#fiche-add').hidden && !more.childElementCount;
   const parts = [
     el('div', { class: 'title-row' },
       el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, withId(lotKind(lot), lot.id))),
@@ -280,8 +297,6 @@ function renderLotFiche(body, lot) {
       + (canSeeStock() ? ' (à répartir au poste : fiche du lot, onglet Répartition).' : '.')) : '',
     lotReportsBlock(lot),
     reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
-    departButton(lot),
-    lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot),
     current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${nb(state.scanned.length, 'scan')}.`) : '',
     lot.is_sealed && !sealIntact && full ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
       + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
@@ -402,7 +417,7 @@ function renderLotFiche(body, lot) {
     if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) content.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
   }
   // contenu replie par defaut pour tout le monde, titre discret avec un petit carre [+] : la liste ne doit pas
-  // servir a une verif « a la main » ; la verif passe par « Lancer une vérif ». Deplie s'il manque quelque chose
+  // servir a une verif « a la main » ; la verif passe par « Faire la vérif ». Deplie s'il manque quelque chose
   if (fiche.contentOpen === null) fiche.contentOpen = shortage;
   parts.push(el('details', { class: 'fiche-content', open: fiche.contentOpen ? '' : null,
     ontoggle: (event) => { fiche.contentOpen = event.target.open; } }, el('summary', {}, 'Contenu'), ...content));
@@ -581,7 +596,7 @@ function renderItemFiche(body, item) {
   if (item.lost_object) { renderLostObjectFiche(body, item); return; }
   const where = item.last_location;
   const launch = $('#fiche-launch');
-  setLabel(launch, 'verif', where ? `Lancer une vérif de ${where.name}` : 'Lancer une vérif');
+  launchLabel(launch, where ? `Faire la vérif de ${where.name}` : 'Faire la vérif', '');
   launch.disabled = !where;
   const add = $('#fiche-add');
   add.hidden = !verifInProgress();
