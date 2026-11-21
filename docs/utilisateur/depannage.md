@@ -85,8 +85,8 @@ connecte et touche **Réinitialiser le PIN**. À votre prochaine connexion, choi
 Si les notifications sont activées, le TECH reçoit déjà le lien (une seule fois).
 
 **Se connecter avec une passkey.**
-Après une connexion sur votre téléphone (carte, ou QR code de dépannage du TECH), QRprotec propose de
-créer une passkey : ensuite, **Se connecter avec une passkey** suffit, avec l'empreinte, le visage ou
+À votre première connexion sur votre téléphone (carte, ou QR code de dépannage du TECH), un écran
+propose d'abord de créer une passkey, puis de choisir votre code PIN s'il est obligatoire : ensuite, **Se connecter avec une passkey** suffit, avec l'empreinte, le visage ou
 le code du téléphone. Une fois connecté avec la passkey, le téléphone la propose d'abord à chaque
 connexion suivante (annulez pour scanner votre carte). Sur le web, le nom et le code PIN ne marchent
 alors plus pour vous ; votre carte, si.

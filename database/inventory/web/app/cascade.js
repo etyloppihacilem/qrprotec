@@ -514,6 +514,14 @@ async function login(matricule, key, extra = {}) {
     askPin.lastSetup = null;
     loggedIn({ ...user, key });
   } catch (e) {
+    if (welcomeOpen()) { // code choisi sur l'ecran de premiere connexion (web/app/welcome.js)
+      if (e.data && e.data.pin_setup_required) { feedback.bad(); welcomePinError(e.message); return; }
+      closeWelcome();
+    }
+    if (e.data && e.data.pin_setup_required && !extra.new_pin && openWelcomeBeforeLogin(matricule, key, e.data)) {
+      feedback.info(); // premiere connexion : passkey d'abord, puis le code
+      return;
+    }
     if (e.data && e.data.pin_blocked) {
       feedback.bad();
       showInfo('bad', 'Code PIN bloqué', e.message);
@@ -674,6 +682,8 @@ function loggedIn(user) {
   if (state.pinReset) openPinReset();
   state.reports = null;
   if (state.user) loadReports(true);
+  const fromWelcome = welcomeOpen(); // code choisi sur l'ecran de premiere connexion : il se ferme
+  if (fromWelcome) welcomeAfterLogin(state.user);
   if (action) setTimeout(action, 0);
-  else if (!state.pinReset) setTimeout(() => offerPasskey(state.user), 800); // premiere connexion (web/app/passkey.js)
+  else if (!state.pinReset && !fromWelcome) setTimeout(() => welcomeAfterLogin(state.user), 800); // premiere connexion (web/app/welcome.js)
 }

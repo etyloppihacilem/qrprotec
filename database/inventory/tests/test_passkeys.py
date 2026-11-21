@@ -292,6 +292,47 @@ class PasskeyTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual(row['passkeys'], 0)
 
+    def test_first_login_passkey_before_pin(self):
+        """Premiere connexion au web : passkey creee avec la carte seule tant que le code obligatoire n'est pas
+        choisi, puis le code (Hippolyte, 2026-11-21)."""
+        self.user.pin_hash = ''
+        self.user.set_pin_mode('required')
+        self.user.save()
+        card = {'matricule': 'M001', 'key': self.user.new_key}
+        code, body = self.call('POST', '/api/auth/', card, local=False)
+        self.assertEqual(code, 403)
+        self.assertTrue(body['pin_setup_required'])
+        self.assertTrue(body['passkey_offer'])
+        # la carte seule : options et creation, rien d'autre (ni la liste, ni la suppression)
+        code, body = self.call('POST', '/api/me/passkeys/', {'user': card, 'action': 'list'}, local=False)
+        self.assertEqual(code, 403)
+        code, body = self.call('POST', '/api/me/passkeys/', {'user': card, 'action': 'options'}, local=False)
+        self.assertEqual(code, 200, body)
+        credential = self.phone.create(body['publicKey'])
+        code, body = self.call('POST', '/api/me/passkeys/', {'user': card, 'action': 'create',
+                                                             'credential': credential}, local=False)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(len(body['passkeys']), 1)
+        # ensuite le code obligatoire, avec la carte, comme avant ; plus de passkey a proposer
+        code, body = self.call('POST', '/api/auth/', card, local=False)
+        self.assertEqual(code, 403)
+        self.assertFalse(body['passkey_offer'])
+        code, body = self.call('POST', '/api/auth/', {**card, 'new_pin': '135790'}, local=False)
+        self.assertEqual(code, 200, body)
+        self.assertTrue(body['has_passkey'])
+        # code choisi : la carte seule ne suffit plus pour creer une passkey
+        code, _ = self.call('POST', '/api/me/passkeys/', {'user': card, 'action': 'options'}, local=False)
+        self.assertEqual(code, 403)
+
+    def test_first_login_passkey_offer_once(self):
+        self.user.pin_hash = ''
+        self.user.set_pin_mode('required')
+        self.user.web_prefs = {'passkey_offered': True}
+        self.user.save()
+        code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
+        self.assertEqual(code, 403)
+        self.assertFalse(body['passkey_offer'])
+
 
 class CborTests(ApiTestCase):
 

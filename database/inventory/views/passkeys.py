@@ -88,6 +88,19 @@ def passkey_login(request):
     return Response(login_response(request, user, passkey=True, method='passkey'))
 
 
+def first_login_user(request):
+    """Premiere connexion au web (Hippolyte, 2026-11-21) : la passkey est proposee avant le choix du code PIN
+    obligatoire. La connexion attend encore ce code : la carte seule ({"user": {"matricule", "key"}}, sans jeton de
+    session) suffit alors pour creer la passkey, comme elle suffit pour choisir le code. None dans tout autre cas."""
+    credentials = request.data.get('user')
+    if not isinstance(credentials, dict) or credentials.get('session') or not credentials.get('key'):
+        return None
+    if str(request.data.get('action') or '') not in ('options', 'create'):
+        return None
+    user = credentials_user(credentials)
+    return user if user is not None and pin_setup_pending(user) else None
+
+
 @api_view(['POST'])
 @handle_errors
 def my_passkeys(request):
@@ -96,8 +109,9 @@ def my_passkeys(request):
     - "options" : options de navigator.credentials.create() ;
     - "create" {"credential"} : enregistre la passkey creee (la connexion par nom et PIN ne marche plus) ;
     - "delete" {"id"} : supprime une passkey (sans passkey, le nom et le PIN remarchent).
-    Jamais pour une carte d'invite."""
-    user = badge_user(request, ALL_ROLES)
+    Jamais pour une carte d'invite. "options" et "create" marchent aussi avec la carte seule tant que le code PIN
+    obligatoire n'est pas choisi (premiere connexion : passkey d'abord, voir first_login_user)."""
+    user = first_login_user(request) or badge_user(request, ALL_ROLES)
     if user.guest:
         raise ApiError("Pas de passkey pour une carte d'invité", status.HTTP_403_FORBIDDEN)
     action = str(request.data.get('action') or 'list')
