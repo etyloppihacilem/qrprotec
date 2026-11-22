@@ -171,6 +171,18 @@ function scopeOf(top, exclude = excludedFor(top)) {
   return new Set(subtreeIds(top).filter((id) => !out.has(id)));
 }
 
+// Pourquoi des items d'un lot sont a remplacer (expired_count compte tout ce qui ne compte plus dans le lot) :
+// « périmés », « signalé », « à remplacer » (desactive, revision bloquante), ensemble au besoin. Meme regle que
+// serializers.replace_reason. Serveur d'avant outdated_count : tout est compte comme perime.
+function replaceReason(lot) {
+  const total = lot.expired_count || 0;
+  const outdated = lot.outdated_count ?? total;
+  const unusable = lot.unusable_count || 0;
+  return [outdated ? pl(outdated, 'périmé', 'périmés') : '', unusable ? pl(unusable, 'signalé', 'signalés') : '',
+    total - outdated - unusable > 0 ? 'à remplacer' : ''].filter(Boolean).join(', ');
+}
+const onlyOutdated = (lot) => (lot.outdated_count ?? lot.expired_count) >= lot.expired_count;
+
 // Lot qui ne fait que regrouper des sous-lots (rien d'attendu, rien dedans)
 const ownContent = (lot) => !!((lot.requirements || []).length || (lot.items || []).length || (lot.missing_items || []).length);
 
@@ -383,11 +395,13 @@ function lotStatus(lot) {
   if (lot.unusable) return make('bad', '✘ Non utilisable (signalé)');
   // lot d'un referentiel (B+) : des lignes de la liste dans aucun de ses sacs (serializers.lot_state)
   if ((lot.unplaced || []).length) return make('bad', '✘ Liste pas toute dans les sacs');
-  if (lot.is_sealed && lot.expired_count) return make('bad', '✘ Scellé, contient des périmés');
+  if (lot.is_sealed && lot.expired_count) {
+    return make('bad', onlyOutdated(lot) ? '✘ Scellé, contient des périmés' : `✘ Scellé, à ouvrir (${replaceReason(lot)})`);
+  }
   if (lot.is_sealed) return make('ok', '✔ Scellé' + (lot.valid_until ? `, valide jusqu'au ${fmtDate(lot.valid_until)}` : ''));
   // sous-lot facultatif : son lot parent se valide sans lui (meme regle que serializers.lot_state)
   if (!lot.last_verif) return lot.optional ? make('ok', '✔ Facultatif, jamais vérifié') : make('bad', '✘ Jamais vérifié');
-  if (!lot.complete) return make('bad', lot.expired_count ? '✘ Incomplet (périmés)' : '✘ Incomplet');
+  if (!lot.complete) return make('bad', lot.expired_count ? `✘ Incomplet (${replaceReason(lot)})` : '✘ Incomplet');
   if (lot.seal_required) {
     return make('bad', lot.verif_recommended ? '✘ Scellé ouvert, vérif complète puis scellé requis' : '✘ Vérifié, doit être scellé');
   }
