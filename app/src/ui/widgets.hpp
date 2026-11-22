@@ -141,8 +141,22 @@ void note_enter_key();
 
 void help_marker(const char *text);
 
-// Bandeau pleine largeur de couleur vive, texte blanc agrandi (etat d'un lot, resultat d'une verif)
-void status_banner(const std::string &text, const ImVec4 &color, float scale = 1.25f);
+// Code d'etat d'un lot, le meme que le front web : petite bulle a fond blanc, contour et icone de la couleur de
+// l'etat. Ok : coche verte (valide) ; Warn : fleche en cercle avec une horloge, orange (vérif recommandee) ; Bad :
+// croix rouge (perimes, incomplet, signale...). None : pas de bulle (sous-lot facultatif, gris).
+enum class StateKind { None, Ok, Warn, Bad };
+StateKind state_kind(const std::string &kind); // "ok", "warn", "bad" de l'API
+StateKind state_kind_of(const ImVec4 &color);   // couleur d'un etat (colors::green / orange / red)
+// Bulle dessinee centree en `center` (rayon en pixels), sans toucher au curseur
+void draw_state_badge(ImDrawList *draw, const ImVec2 &center, float radius, StateKind kind);
+// Bulle a la place d'un element, a la hauteur d'une ligne de texte (SameLine() ensuite pour ecrire a cote)
+void state_badge(StateKind kind, const char *tooltip = nullptr);
+// Texte d'un etat sans son symbole de tete (✔ ✘ ⚠ ! ○) : la bulle le remplace
+std::string state_text(const std::string &label);
+
+// Bandeau pleine largeur de couleur vive, texte blanc agrandi (etat d'un lot, resultat d'une verif). badge : bulle
+// d'etat en tete du bandeau (le symbole de tete du texte est alors retire)
+void status_banner(const std::string &text, const ImVec4 &color, float scale = 1.25f, StateKind badge = StateKind::None);
 
 // Etat d'un lot (objet JSON de l'API) : jamais verifie, incomplet (ou perimes), verifie et complet
 // Scelle : valide sans verif ; SealedExpired : scelle mais contient des perimes (a ouvrir)
@@ -154,6 +168,7 @@ bool        lot_ok(LotStatus status); // vert
 LotStatus   lot_status(const Json &lot);
 ImVec4      lot_status_color(LotStatus status);
 const char *lot_status_label(LotStatus status);
+StateKind   lot_state_kind(LotStatus status); // bulle d'etat du lot (aucune pour un sous-lot facultatif)
 std::string lot_status_banner(const Json &lot); // texte du bandeau de la fiche d'un lot
 // Lot qui ne fait que regrouper des sous-lots (rien d'attendu, rien dedans, ex : un B+) : son etat est celui
 // de ses sous-lots. group_banner : bandeau d'etat de l'ensemble de ses sous-lots (couleur dans color, all_ok :

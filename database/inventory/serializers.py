@@ -392,6 +392,8 @@ def _lot_core(lot, today, items=None, preload=None):
         'lot_type': lot.lot_type_id,
         'lot_type_name': lot.lot_type.name,
         'storage': lot.lot_type.storage,
+        # lot unique (un VPS, une de ses armoires) : le web ecrit son nom en plus grand, sans le type dessous
+        'unique': lot.lot_type.unique,
         # genre d'un rangement du stock (pièce, armoire...), vide pour un lot ordinaire et pour le stock lui-meme
         'storage_kind': storage_kind(lot),
         'seal_required': lot.lot_type.seal_required,

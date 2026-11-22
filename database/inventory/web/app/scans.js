@@ -533,7 +533,7 @@ async function joinVerif(scan) {
   state.current = scan.id;
   state.askPlace = false;
   feedback.info();
-  showInfo('ok', `Vérif groupée : ${sessionLots().filter((sub) => !sub.depth || sub.id === lot.id).map((sub) => sub.name).join(' + ')}`,
+  showInfo('ok', `${lot.name} ajouté à la vérif`,
     covered ? `${lot.name} faisait déjà partie de la vérif : son étiquette clé est enregistrée.`
       : `Les items attendus de ${lot.name} s'ajoutent à la vérif en cours.`,
     scan.key ? `🔑 Étiquette clé de ${lot.name} scannée`

@@ -212,21 +212,49 @@
     </div>
   </dialog>
 
-  <!-- Explication de la vérif, apres la connexion (sauf « ne plus afficher ce message ») -->
-  <dialog id="verif-help" class="big-popup">
-    <h2>Comment faire la vérif</h2>
-    <ol class="verif-help-steps">
-      <li><span aria-hidden="true">📋</span><div><b>Scannez tout le contenu du lot</b> en suivant la liste à l'écran
-        (dans l'ordre que vous voulez !)</div></li>
-      <li><span aria-hidden="true">🔊</span><div><b>Montez le son</b> : le bip du téléphone vous indique quand vous
-        avez scanné</div></li>
-      <li><span aria-hidden="true">👥</span><div><b>Vérifiez à plusieurs</b> : d'autres secouristes peuvent scanner le
-        même lot avec leur propre téléphone, la liste est partagée</div></li>
-    </ol>
-    <label class="verif-help-hide"><input type="checkbox" id="verif-help-hide"> Ne plus afficher ce message</label>
-    <div class="dialog-stack">
-      <button type="button" id="verif-help-ok" class="primary">OK</button>
+  <!-- Explication de la vérif, apres la connexion (sauf « ne plus afficher ce message ») : 3 pages plein ecran,
+       passees avec le bouton du bas. L'essentiel en grand, le detail en dessous, plus petit. -->
+  <dialog id="verif-help" class="slides" aria-labelledby="verif-help-title-0">
+    <div class="slides-track">
+      <section class="slide" data-slide="0">
+        <div class="slide-icon" aria-hidden="true">🔊</div>
+        <h2 id="verif-help-title-0">Montez le son</h2>
+        <p class="slide-lead">Chaque scan fait un bip : vous savez qu'il est compté sans regarder l'écran.</p>
+        <button type="button" id="verif-help-sound" class="slide-test">Tester le son</button>
+        <ul class="slide-details">
+          <li><b>Bip aigu</b> : l'item est compté.</li>
+          <li><b>Bip grave</b> et écran rouge : regardez l'écran (item périmé, pas de ce lot…).</li>
+          <li>Pas de son ? Vérifiez que le téléphone n'est pas en silencieux.</li>
+        </ul>
+      </section>
+      <section class="slide" data-slide="1">
+        <div class="slide-icon" aria-hidden="true">📋</div>
+        <h2>Scannez tout le contenu du lot</h2>
+        <p class="slide-lead">Suivez la liste « À scanner » : elle se vide au fur et à mesure, dans l'ordre que vous
+          voulez.</p>
+        <ul class="slide-details">
+          <li>Ce qui manque reste en rouge, en haut de la liste.</li>
+          <li>Le lot contient des sacs ? Scannez l'étiquette d'un sac pour entrer dedans.</li>
+          <li>À la fin, touchez <b>Valider</b> en bas : ce qui n'a pas été scanné est noté manquant.</li>
+        </ul>
+      </section>
+      <section class="slide" data-slide="2">
+        <div class="slide-icon" aria-hidden="true">👥</div>
+        <h2>Vérifiez à plusieurs</h2>
+        <p class="slide-lead">D'autres secouristes peuvent scanner le même lot avec leur téléphone : la liste est
+          partagée.</p>
+        <ul class="slide-details">
+          <li>Ils scannent l'étiquette du lot : leur téléphone propose de rejoindre votre vérif.</li>
+          <li>On peut aussi la rejoindre depuis « Suivi des vérifs », sur l'accueil.</li>
+          <li>Chacun valide sa partie, la vérif est enregistrée quand tout le monde a validé.</li>
+        </ul>
+        <label class="verif-help-hide"><input type="checkbox" id="verif-help-hide"> Ne plus afficher ces explications</label>
+      </section>
     </div>
+    <footer class="slides-foot">
+      <div class="slides-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+      <button type="button" id="verif-help-ok" class="primary big">Suivant</button>
+    </footer>
   </dialog>
   <!-- Grande fenetre de connexion (« Bulle de connexion » decochee dans les reglages, le defaut) : la camera du
        lecteur vient se placer sur #login-gate-cam -->

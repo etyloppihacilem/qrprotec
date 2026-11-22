@@ -287,7 +287,6 @@ function renderHomePage() {
 // sans retrait ni depli, le lot parent ecrit en dessous. pick (page « Départ ») : { lead(lot), click(lot),
 // note(lot), cls(lot) } case devant le lot, toucher la ligne, ligne d'explication et classe en plus.
 function lotRows(rerender, pick = null) {
-  const tags = { ok: 'green', warn: 'orange', bad: 'red' };
   // lot global : son etat est celui de l'ensemble de ses lots
   const statusOf = (lot) => (!lot.depth && lot.global ? { kind: lot.global.kind, label: lot.global.label } : lotStatus(lot));
   // sous-lots replies par defaut sous un lot valide (lui et tous ses sous-lots en vert), deplies sinon ;
@@ -305,7 +304,8 @@ function lotRows(rerender, pick = null) {
     }
     return valid.get(lot.id);
   };
-  const folded = (lot) => (state.lotFolds.has(lot.id) ? state.lotFolds.get(lot.id) : allValid(lot));
+  // rangements du stock : deplies par defaut (on les affiche pour voir ce qu'ils contiennent)
+  const folded = (lot) => (state.lotFolds.has(lot.id) ? state.lotFolds.get(lot.id) : !lot.storage && allValid(lot));
   const byId = new Map(state.lots.map((lot) => [lot.id, lot]));
   const hidden = (lot) => {
     for (let parent = byId.get(lot.parent); parent; parent = byId.get(parent.parent)) {
@@ -335,7 +335,7 @@ function lotRows(rerender, pick = null) {
           + `${top ? ' · lot global' : ''} · vérif${top ? ' la plus ancienne' : ''} : ` + (verif ? fmtDateTime(verif) : 'jamais')),
         lot.out_with ? el('div', { class: 'sub out-with', title: `Liste « ${lot.out_with} »` }, '🚑 En poste') : null,
         note ? el('div', { class: 'sub pick-note' }, note) : null),
-      el('span', { class: 'tag ' + tags[status.kind] }, status.label.replace(/^[✔✘⚠] /, '').split(',')[0]),
+      el('span', { class: 'lot-state ' + status.kind }, stateBadge(status.kind), stateText(status.label).split(',')[0]),
       pick ? el('button', { type: 'button', class: 'pick-fiche', title: 'Ouvrir la fiche du lot', 'aria-label': 'Ouvrir la fiche du lot',
         onclick: (event) => { event.stopPropagation(); openLot(lot.id); } }, '›') : null);
   };

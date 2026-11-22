@@ -94,6 +94,16 @@ function icon(name) {
   return span;
 }
 
+// Code d'etat d'un lot, le meme partout (web et poste) : petite bulle a fond blanc, contour et icone de la couleur de
+// l'etat. Coche verte : valide ; fleche en cercle avec une horloge, orange : vérif recommandee ; croix rouge : a
+// traiter (perimes, incomplet, signale...). Seule la ou il y a peu de place ; ailleurs elle precede le texte de l'etat.
+const STATE_WORDS = { ok: 'Valide', warn: 'Vérif recommandée', bad: 'À traiter' };
+function stateBadge(kind, title = '') {
+  const known = STATE_WORDS[kind] ? kind : 'bad';
+  return el('span', { class: 'state-badge ' + known, role: 'img', 'aria-label': title || STATE_WORDS[known], title: title || STATE_WORDS[known] },
+    icon('state-' + known));
+}
+
 // Texte d'un bouton precede de son icone (name vide : texte seul)
 function setLabel(button, name, text) {
   button.replaceChildren(...(name ? [icon(name)] : []), text);

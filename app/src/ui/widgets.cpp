@@ -833,16 +833,84 @@ bool confirm_button(const char *label, const char *question, const char *popup_i
   return confirmed;
 }
 
-void status_banner(const std::string &text, const ImVec4 &color, float scale) {
+StateKind state_kind(const std::string &kind) {
+  return kind == "ok" ? StateKind::Ok : kind == "warn" ? StateKind::Warn : kind == "bad" ? StateKind::Bad : StateKind::None;
+}
+
+StateKind state_kind_of(const ImVec4 &color) {
+  const auto same = [&color](const ImVec4 &other) {
+    return color.x == other.x && color.y == other.y && color.z == other.z;
+  };
+  return same(colors::green) ? StateKind::Ok : same(colors::orange) ? StateKind::Warn : same(colors::red) ? StateKind::Bad
+                                                                                                          : StateKind::None;
+}
+
+void draw_state_badge(ImDrawList *draw, const ImVec2 &center, float radius, StateKind kind) {
+  if (kind == StateKind::None)
+    return;
+  const ImVec4 &color = kind == StateKind::Ok ? colors::green : kind == StateKind::Warn ? colors::orange : colors::red;
+  const ImU32   ink   = ImGui::GetColorU32(color);
+  const float   line  = std::max(1.5f, radius * 0.16f);
+  draw->AddCircleFilled(center, radius, IM_COL32(255, 255, 255, 255), 24);
+  draw->AddCircle(center, radius - line * 0.5f, ink, 24, line);
+  const auto at = [&center, radius](float x, float y) { return ImVec2(center.x + x * radius, center.y + y * radius); };
+  const float stroke = std::max(1.6f, radius * 0.2f);
+  if (kind == StateKind::Ok) {
+    const ImVec2 points[] = { at(-0.42f, 0.02f), at(-0.12f, 0.32f), at(0.42f, -0.28f) };
+    draw->AddPolyline(points, 3, ink, ImDrawFlags_None, stroke);
+  } else if (kind == StateKind::Bad) {
+    draw->AddLine(at(-0.32f, -0.32f), at(0.32f, 0.32f), ink, stroke);
+    draw->AddLine(at(0.32f, -0.32f), at(-0.32f, 0.32f), ink, stroke);
+  } else {
+    // fleche en cercle (partie de 3 h, tour dans le sens des aiguilles, pointe vers 1 h) et horloge au centre
+    const float thin = std::max(1.3f, radius * 0.13f);
+    const float r    = radius * 0.56f;
+    const float a0 = 0.0f, a1 = 5.35f;
+    draw->PathArcTo(center, r, a0, a1, 24);
+    draw->PathStroke(ink, ImDrawFlags_None, thin);
+    const ImVec2 end(center.x + std::cos(a1) * r, center.y + std::sin(a1) * r);
+    const ImVec2 tangent(-std::sin(a1), std::cos(a1)); // sens de la fleche
+    const ImVec2 normal(std::cos(a1), std::sin(a1));
+    const float  head = radius * 0.24f;
+    draw->AddTriangleFilled(ImVec2(end.x + tangent.x * head * 1.3f, end.y + tangent.y * head * 1.3f),
+                            ImVec2(end.x + normal.x * head, end.y + normal.y * head),
+                            ImVec2(end.x - normal.x * head, end.y - normal.y * head), ink);
+    draw->AddLine(center, at(0.0f, -0.3f), ink, thin);
+    draw->AddLine(center, at(0.22f, 0.1f), ink, thin);
+  }
+}
+
+void state_badge(StateKind kind, const char *tooltip) {
+  const float  size   = ImGui::GetTextLineHeight();
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  ImGui::Dummy(ImVec2(size, size));
+  draw_state_badge(ImGui::GetWindowDrawList(), ImVec2(origin.x + size * 0.5f, origin.y + size * 0.5f), size * 0.5f, kind);
+  if (tooltip && *tooltip)
+    ImGui::SetItemTooltip("%s", tooltip);
+}
+
+std::string state_text(const std::string &label) {
+  for (const char *symbol : { "✔ ", "✘ ", "⚠ ", "! ", "○ ", "↷ " })
+    if (label.rfind(symbol, 0) == 0)
+      return label.substr(std::char_traits< char >::length(symbol));
+  return label;
+}
+
+void status_banner(const std::string &raw, const ImVec4 &color, float scale, StateKind badge) {
   ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * scale);
+  const std::string text = badge == StateKind::None ? raw : state_text(raw);
   const ImVec2 padding(ImGui::GetStyle().FramePadding.x * 2.0f, ImGui::GetStyle().FramePadding.y * 2.0f);
   const float  width  = ImGui::GetContentRegionAvail().x;
-  const ImVec2 size   = ImGui::CalcTextSize(text.c_str(), nullptr, false, width - padding.x * 2.0f);
+  const float  line   = ImGui::GetTextLineHeight();
+  const float  lead   = badge == StateKind::None ? 0.0f : line * 1.15f + padding.x * 0.6f; // place de la bulle
+  const ImVec2 size   = ImGui::CalcTextSize(text.c_str(), nullptr, false, width - padding.x * 2.0f - lead);
   const ImVec2 origin = ImGui::GetCursorScreenPos();
   const ImVec2 end(origin.x + width, origin.y + size.y + padding.y * 2.0f);
   ImDrawList  *draw = ImGui::GetWindowDrawList();
   draw->AddRectFilled(origin, end, ImGui::GetColorU32(color), 6.0f);
-  ImGui::SetCursorScreenPos(ImVec2(origin.x + padding.x, origin.y + padding.y));
+  if (badge != StateKind::None)
+    draw_state_badge(draw, ImVec2(origin.x + padding.x + line * 0.575f, origin.y + padding.y + line * 0.5f), line * 0.575f, badge);
+  ImGui::SetCursorScreenPos(ImVec2(origin.x + padding.x + lead, origin.y + padding.y));
   ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
   ImGui::PushTextWrapPos(origin.x + width - padding.x - ImGui::GetWindowPos().x);
   ImGui::TextUnformatted(text.c_str());
@@ -874,6 +942,14 @@ LotStatus lot_status(const Json &lot) {
 
 bool lot_ok(LotStatus status) {
   return status == LotStatus::Verified || status == LotStatus::Sealed || status == LotStatus::Optional;
+}
+
+StateKind lot_state_kind(LotStatus status) {
+  if (status == LotStatus::Recommended)
+    return StateKind::Warn;
+  if (status == LotStatus::Optional)
+    return StateKind::None;
+  return lot_ok(status) ? StateKind::Ok : StateKind::Bad;
 }
 
 ImVec4 lot_status_color(LotStatus status) {

@@ -47,18 +47,37 @@ function maybeVerifHelp() {
   if (shown === key || document.querySelector('dialog[open]')) return;
   try { sessionStorage.setItem(STORAGE_HELP, key); } catch (e) { /* stockage indisponible */ }
   $('#verif-help-hide').checked = false;
+  helpSlide(0);
   $('#verif-help').showModal();
 }
 // nouvelle vérif (vérif quittee ou enregistree, « Lancer une vérif ») : le rappel s'affiche de nouveau, meme lot compris
 function resetVerifHelp() {
   try { sessionStorage.removeItem(STORAGE_HELP); } catch (e) { /* stockage indisponible */ }
 }
+// Pages de l'explication : une seule visible, les points du bas suivent, le bouton dit « Suivant » puis « C'est parti »
+let helpPage = 0;
+function helpSlide(index) {
+  helpPage = index;
+  const slides = [...document.querySelectorAll('#verif-help .slide')];
+  slides.forEach((slide, i) => { slide.hidden = i !== index; });
+  document.querySelectorAll('#verif-help .slides-dots span').forEach((dot, i) => dot.classList.toggle('on', i === index));
+  $('#verif-help-ok').textContent = index < slides.length - 1 ? 'Suivant' : "C'est parti";
+  $('#verif-help .slides-track').scrollTop = 0;
+}
 $('#verif-help-ok').addEventListener('click', async () => {
+  if (helpPage < document.querySelectorAll('#verif-help .slide').length - 1) { helpSlide(helpPage + 1); return; }
   $('#verif-help').close();
   if (!$('#verif-help-hide').checked || !state.user) return;
   try {
     await setWebPrefs({ verif_help_hidden: true });
   } catch (e) { toast(e.message, true); }
+});
+// « Tester le son » : les deux bips de la vérif (compté, puis probleme), sans l'ecran rouge
+setLabel($('#verif-help-sound'), 'volume', 'Tester le son');
+$('#verif-help-sound').addEventListener('click', () => {
+  tone(1320, 0, 0.08, 'sine', 0.2);
+  tone(880, 0.6, 0.18);
+  tone(440, 0.82, 0.3);
 });
 
 // partial : verif partielle, seuls les lots rendus complets par les scans sont verifies (les autres items
@@ -629,7 +648,23 @@ $('#restock').addEventListener('click', async () => {
   if (!await confirmDialog('Réassort ?', 'Les items scannés sont ajoutés sans vérif complète. ' + restockNote(state.lot), 'Ajouter au lot')) return;
   if (isMulti()) validate(true); else addToLot();
 });
-$('#more').addEventListener('click', () => $('#menu').showModal());
+// Menu ⋯ de la vérif : une icone par action
+for (const [action, name] of [['add', 'restock'], ['manual', 'keypad'], ['quit-verif', 'logout'], ['close', 'close']]) {
+  const button = document.querySelector(`#menu [data-action="${action}"]`);
+  if (button) button.prepend(icon(name));
+}
+$('#more').addEventListener('click', () => { menuAddLabel(); $('#menu').showModal(); });
+// « Ajouter les items scannés au lot » ne parlait a personne : c'est un reassort, les items scannes vont dans le lot
+// sans faire toute la vérif
+function menuAddLabel() {
+  const button = document.querySelector('#menu [data-action="add"]');
+  button.hidden = !state.lot;
+  if (!state.lot) return;
+  const name = state.lot.name_short || state.lot.name;
+  button.replaceChildren(icon('restock'), el('span', { class: 'menu-text' },
+    el('span', {}, `Réassort : ajouter mes scans à ${name}`),
+    el('small', {}, 'Sans faire toute la vérif. ' + (state.lot.restock_credit ? 'Le lot reste vérifié.' : 'Une vérif complète sera recommandée.'))));
+}
 $('#menu').addEventListener('click', async (event) => {
   const action = event.target.dataset && event.target.dataset.action;
   if (!action) return;

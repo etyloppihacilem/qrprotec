@@ -448,12 +448,18 @@ class LotAdminWindow final : public AppWindow {
         select_lot(app, id);
       if (!top && ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", archived ? "Archivé" : lot_status_label(lot_status(lot)));
-      // pastille de l'etat (gris si archive), par-dessus la ligne (meme selectionnee)
-      ImGui::GetWindowDrawList()->AddCircleFilled(
-        ImVec2(cursor.x + radius + 2.0f, cursor.y + ImGui::GetTextLineHeight() * 0.5f), radius,
-        ImGui::GetColorU32(color));
+      // bulle de l'etat (code commun web et poste), par-dessus la ligne (meme selectionnee) ; pastille grise si archive
+      // ou facultatif
+      const StateKind state = archived ? StateKind::None : top ? state_kind(kind) : lot_state_kind(lot_status(lot));
+      if (state == StateKind::None)
+        ImGui::GetWindowDrawList()->AddCircleFilled(
+          ImVec2(cursor.x + radius + 2.0f, cursor.y + ImGui::GetTextLineHeight() * 0.5f), radius,
+          ImGui::GetColorU32(color));
+      else
+        draw_state_badge(ImGui::GetWindowDrawList(), ImVec2(cursor.x + radius * 1.6f + 2.0f, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
+                         radius * 1.6f, state);
       ImGui::SameLine();
-      ImGui::SetCursorScreenPos(ImVec2(cursor.x + radius * 2.0f + 8.0f, cursor.y));
+      ImGui::SetCursorScreenPos(ImVec2(cursor.x + radius * 3.2f + 8.0f, cursor.y));
       if (archived)
         ImGui::TextDisabled("%s", lot["name"].str().c_str());
       else
@@ -990,9 +996,9 @@ class LotAdminWindow final : public AppWindow {
       if (lot_is_group(lot_)) {
         ImVec4            color;
         const std::string banner = group_banner(lot_, color);
-        status_banner(banner, color, 1.1f);
+        status_banner(banner, color, 1.1f, state_kind_of(color));
       } else {
-        status_banner(lot_status_banner(lot_), lot_status_color(status), 1.1f);
+        status_banner(lot_status_banner(lot_), lot_status_color(status), 1.1f, lot_state_kind(status));
       }
       // lot global : sa derniere verif est celle de ses sous-lots (bandeau), pas la sienne
       if (!lot_["last_verif"].is_null() || !lot_is_group(lot_))

@@ -5,7 +5,7 @@
 // integre), ou d'un lot / item touche dans une fiche. Pas de camera : « Lancer une vérif » ouvre le lecteur sur le
 // bon lot (le lot de la fiche, ou le dernier emplacement connu de l'item).
 
-const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set(), contentOpen: null, offline: false };
+const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set(), subFolds: new Map(), contentOpen: null, offline: false };
 
 function ficheOpen() { return !$('#fiche').hidden; }
 
@@ -45,7 +45,7 @@ async function openFiche(kind, id, { key = '', seal = '', push = true, label = f
     if (key) storeFicheKey(id, key); else key = storedFicheKey(id);
   }
   const token = fiche.token + 1;
-  Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set(), contentOpen: null, offline: false });
+  Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set(), subFolds: new Map(), contentOpen: null, offline: false });
   if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id, seal));
   $('#fiche').hidden = false;
   document.body.classList.add('fiche-open');
@@ -264,7 +264,7 @@ function verifNeeded(lot, status) {
 }
 
 function renderLotFiche(body, lot) {
-  const status = groupStatus(lot) || lotStatus(lot);
+  const status = lotHeadStatus(lot);
   const full = detailed();
   const current = state.lotId === lot.id && verifInProgress();
   const launch = $('#fiche-launch');
@@ -278,44 +278,45 @@ function renderLotFiche(body, lot) {
   const more = $('#fiche-more');
   more.replaceChildren(departButton(lot), lot.is_sealed || lot.storage || !lot.active ? '' : usedButton(lot));
   $('#fiche-actions').hidden = launch.hidden && $('#fiche-add').hidden && !more.childElementCount;
+  // lot unique (un VPS, une de ses armoires) : son nom en plus grand, sans le type dessous (c'est le meme)
+  const single = !!lot.unique && !showIds();
   const parts = [
-    el('div', { class: 'title-row' },
-      el('div', {}, el('h2', {}, lot.name), el('div', { class: 'sub' }, withId(lotKind(lot), lot.id))),
-      el('div', { class: 'pdf-links' },
+    // en-tete colle en haut pendant le defilement : le nom du lot et, quand le cadre d'etat est passe dessous, sa
+    // bulle d'etat a droite du nom (ficheHeadScroll) ; le type et les liens PDF dessous defilent avec le reste
+    el('div', { class: 'fiche-head' + (single ? ' single' : '') },
+      el('h2', {}, lot.name),
+      sealIntact ? '' : el('span', { class: 'head-state' }, stateBadge(status.kind, stateText(full ? status.label : shortStatus(lot, status).word)))),
+    single && !full ? '' : el('div', { class: 'fiche-subrow' },
+      single ? el('span', {}) : el('div', { class: 'sub' }, withId(lotKind(lot), lot.id)),
+      // fiche PDF et rapport date : gestion et admin seulement
+      full ? el('div', { class: 'pdf-links' },
         el('a', { class: 'pdf-link', href: new URL(`lots/${encodeURIComponent(lot.id)}/sheet.pdf`, API).href,
           target: '_blank', rel: 'noopener', title: "Fiche d'inventaire papier (PDF)" }, '📄 Fiche PDF'),
         // admins : rapport d'etat du lot a une date donnee (PDF a certifier et signer)
         isAdmin() ? el('a', { class: 'pdf-link', href: '#', title: "État du lot à une date donnée (PDF A4 à certifier)",
-          onclick: (event) => { event.preventDefault(); openStateReport(lot); } }, '📋 Rapport daté') : '')),
+          onclick: (event) => { event.preventDefault(); openStateReport(lot); } }, '📋 Rapport daté') : '') : ''),
     (lot.path || []).length ? el('p', { class: 'sub' }, 'Dans : ',
       ...lot.path.filter((parent) => !parent.hidden) // lot cache dans la hierarchie (B+ du VPS) : saute
         .flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
     fiche.seal ? sealBanner(lot) : '',
-    sealIntact ? '' : full ? el('div', { class: 'banner ' + status.kind }, status.label) : shortBanner(lot, status),
+    sealIntact ? '' : stateCard(lot, status),
     // lot d'un referentiel (B+) : lignes de la liste dans aucun de ses sacs, a repartir au poste
     (lot.unplaced || []).length ? el('p', { class: 'warn-text' }, `Dans aucun sac : ${lot.unplaced.map((row) => row.type_name).join(', ')}`
       + (canSeeStock() ? ' (à répartir au poste : fiche du lot, onglet Répartition).' : '.')) : '',
     lotReportsBlock(lot),
     reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
     current ? el('p', {}, `▶ Vérif en cours sur ce téléphone : ${nb(state.scanned.length, 'scan')}.`) : '',
-    lot.is_sealed && !sealIntact && full ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed, { long: true })}`
-      + (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
-    !full ? '' : el('p', {}, 'Dernière vérif : ' + (lot.last_verif
-      ? fmtDateTime(lot.last_verif, { long: true }) + (lot.last_verif_by ? ' par ' + lot.last_verif_by : '') : 'jamais')),
+    lot.is_sealed && !sealIntact && full ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''}`
+      + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
     // credit de confiance du reassort (reglage du serveur decoche) : reassorts sans vérif encore possibles
     !full || !lot.restock_credit || lot.verif_recommended ? '' : el('p', { class: 'hint' },
       `Réassort sans vérif complète : encore ${nb(lot.restock_credit.outings_left, 'sortie')}, `
       + `jusqu'au ${fmtDate(lot.restock_credit.until)}.`),
     lotDatesLines(lot, full),
-    !lot.verif_recommended || !full ? '' : el('p', {}, lot.restocked_count
-      ? `⚠ Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
-      : lot.back_from_list ? `⚠ Sorti avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
-      : lot.marked_used ? `⚠ Marqué utilisé ${fmtOn(lot.marked_used, { long: true })}${lot.marked_used_by ? ' par ' + lot.marked_used_by : ''} : vérif complète recommandée.`
-      : `⚠ Scellé ouvert${lot.unsealed ? ' ' + fmtOn(lot.unsealed, { long: true }) : ''}${lot.unsealed_by ? ' par ' + lot.unsealed_by : ''} : vérif complète recommandée.`),
     lot.seal_required && !lot.is_sealed && full
       ? el('p', {}, '🔒 Scellé obligatoire pour ce type de lot : il reste à traiter tant qu\'un nouveau scellé n\'est pas posé.') : '',
     lot.global && lot.global.id !== lot.id && full
-      ? el('p', {}, 'Lot global : ', ficheLink('lot', lot.global.id, lot.global.name), ` · ${lot.global.label}`) : '',
+      ? el('p', { class: 'global-line' }, 'Lot global : ', ficheLink('lot', lot.global.id, lot.global.name), ' ', stateBadge(lot.global.kind, stateText(lot.global.label))) : '',
     // lots exiges : place fixe vide (rouge), lot qui en remplace un autre
     (lot.slots_missing || []).length
       ? el('p', { class: 'danger-text' }, `✘ Lot manquant : ${lot.slots_missing.join(', ')}`) : '',
@@ -336,90 +337,133 @@ function renderLotFiche(body, lot) {
   if (!noVerif && state.declaredAllowed) parts.push(el('h3', {}, 'Étiquette clé'),
     el('div', { class: 'key-box' + (fiche.keyCheck && fiche.keyCheck !== 'valid' ? ' bad' : '') }, ...keyBox));
 
-  // contenu : le lot puis chacun de ses sous-lots (attendus, puis items enregistres), ce qui est a traiter en haut
-  // secouristes et chefs : contenu dans une liste deroulante, repliee par defaut quand tout est valide
-  const content = [];
-  // contenu deplie d'office si un item manque ou est en rouge (perime, inutilisable, disparu), dans le lot ou un
-  // sous-lot ; pas pour une simple vérif recommandee
-  let shortage = false;
-  const lots = [lot, ...attentionTree(lot.descendants || [])];
-  const tags = { ok: 'green', warn: 'orange', bad: 'red' };
-  for (const sub of lots) {
-    const requirements = sub.requirements || [];
-    // emplacement d'un item dans le lot : celui prevu pour son type (ex. « pochette bleue »)
-    const places = new Map(requirements.filter((row) => row.location).map((row) => [row.type, row.location]));
-    const place = (item) => places.get(item.type) || '';
-    const items = [...(sub.items || [])].sort((a, b) => place(a).localeCompare(place(b), 'fr')
-      || a.type_name.localeCompare(b.type_name, 'fr')
-      || String(a.peremption || '9').localeCompare(String(b.peremption || '9')));
-    const missing = sub.missing_items || [];
-    if (sub !== lot) {
-      if (!requirements.length && !items.length && !missing.length && !(sub.descendants || []).length) continue;
-      const subStatus = lotStatus(sub);
-      content.push(el('ul', { class: 'list' }, el('li', { class: 'lot-head ' + subStatus.kind,
-        style: `padding-left:${12 + Math.max(0, (sub.depth || 1) - 1) * 14}px`, onclick: () => openFiche('lot', sub.id) },
-      el('div', { class: 'main' }, el('div', { class: 'name' }, '📦 ', ficheLink('lot', sub.id, sub.name)),
-        el('div', { class: 'sub' }, full ? `${lotKind(sub)} · ${nb(sub.item_count, 'item')}` : lotKind(sub))),
-      el('span', { class: 'tag ' + tags[subStatus.kind] }, subStatus.label.replace(/^[✔✘⚠] /, '').split(',')[0]))));
+  // contenu, comme la liste du lecteur : les sous-lots (ce qui est a traiter en haut), chacun replie sous sa ligne et
+  // depliable a part, puis le contenu propre du lot sous « Contenu de <lot> »
+  const ordered = attentionTree(lot.descendants || []);
+  const kids = (id) => ordered.filter((row) => row.parent === id && row.id !== id);
+  const block = (sub, depth) => {
+    const nodes = [];
+    let shortage = false;
+    const children = kids(sub.id);
+    for (const child of children) {
+      const inner = block(child, depth + 1);
+      if (!(child.requirements || []).length && !inner.nodes.length) continue;
+      shortage = shortage || inner.shortage;
+      // sous-lot replie par defaut, deplie d'office s'il y manque quelque chose (ou qu'un item y est en rouge)
+      const open = fiche.subFolds.has(child.id) ? fiche.subFolds.get(child.id) : inner.shortage;
+      const subStatus = lotStatus(child);
+      const toggle = () => { fiche.subFolds.set(child.id, !open); renderFiche(); };
+      nodes.push(el('ul', { class: 'list' }, el('li', { class: 'lot-head ' + subStatus.kind + (open ? ' open' : ''),
+        style: `padding-left:${12 + depth * 14}px`, onclick: toggle },
+      el('button', { type: 'button', class: 'lot-fold' + (open ? ' open' : ''), 'aria-expanded': String(open),
+        'aria-label': open ? `Replier ${child.name}` : `Afficher le contenu de ${child.name}`,
+        onclick: (event) => { event.stopPropagation(); toggle(); } }),
+      el('div', { class: 'main' }, el('div', { class: 'name' }, ficheLink('lot', child.id, child.name)),
+        el('div', { class: 'sub' }, full ? `${lotKind(child)} · ${nb(child.item_count, 'item')}` : lotKind(child))),
+      stateBadge(subStatus.kind, stateText(subStatus.label)))));
+      if (open) nodes.push(el('div', { class: 'sub-block' }, ...inner.nodes));
     }
-    // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption (a remplacer en haut)
-    const pairs = [...items.map((item) => [item, '']), ...missing.map((item) => [item, 'disparu'])];
-    // un item d'un sous-type va sous son type a unites (200 mL de serum phy) quand son type n'est pas attendu
-    const ofType = (type) => pairs.filter(([item]) => displayRow(requirements, item.type) === type)
-      .sort((a, b) => iidAttention(a) - iidAttention(b));
-    const flagged = (rows) => rows.some((pair) => iidAttention(pair) < 3);
-    if (pairs.some((pair) => iidAttention(pair) < 2) || requirements.some((row) => row.present < row.required)) shortage = true;
-    // types incomplets en haut, puis ceux qui ont un item a remplacer ou signale, puis 0/0, puis les complets
-    // avec des emplacements (pochettes) : un titre par emplacement, dans l'ordre choisi par la TECH, le meme tri dedans
-    const placed = requirements.some((row) => row.location);
-    const lines = [];
-    for (const row of requirements) {
-      const rows = ofType(row.type);
-      const none = row.present <= 0 && row.required <= 0 && !row.optional;
-      lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : row.optional && row.present < row.expected ? 2.5 : 3,
-        row, rows: ficheFold(`${sub.id}:${row.type}`, rows,
-          (arrow) => requirementLine(reqName(row) + (!placed && row.location ? ` (${row.location})` : ''), row.present, row, arrow)) });
+    const own = ownLines(sub);
+    shortage = shortage || own.shortage;
+    if (own.nodes.length) {
+      if (nodes.length) nodes.push(el('div', { class: 'content-own' }, `Contenu de ${sub.name}`));
+      nodes.push(...own.nodes);
     }
-    // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
-    const known = new Set(requirements.map((row) => row.type));
-    const extra = [...new Set(pairs.filter(([item]) => !known.has(displayRow(requirements, item.type))).map(([item]) => item.type))];
-    const extraLines = [];
-    for (const type of extra) {
-      const rows = ofType(type);
-      const label = rows[0][0].type_name + (requirements.length ? ' (hors définition)' : '');
-      extraLines.push({ rank: flagged(rows) ? 1 : 3, rows: ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
-        el('span', { class: 'label' }, label), el('span', { class: 'req-count' }, String(rows.filter(([, tag]) => !tag).length)), arrow)) });
-    }
-    const byRank = (list) => list.sort((a, b) => a.rank - b.rank);
-    if (placed) {
-      // emplacements a traiter en haut (meme rang que leurs types), l'ordre de la TECH a egalite
-      const placeGroups = byPlace(lines, (line) => line.row.location)
-        .map((entry) => ({ ...entry, rank: Math.min(...entry.rows.map((line) => line.rank)) }))
-        .sort((a, b) => a.rank - b.rank);
-      for (const { place, rows: list } of placeGroups) {
-        // type a unites (200 mL) : compte pour une ligne, faite ou non ; type parent sans unite : en items
-        const units = (row) => isGroupRow(row) && row.unit;
-        const need = (row) => (units(row) ? 1 : row.optional ? row.expected || 0 : row.required);
-        const done = (row) => (units(row) ? Number(row.present >= row.required) : row.present);
-        const present = list.reduce((sum, line) => sum + Math.min(done(line.row), need(line.row)), 0);
-        const required = list.reduce((sum, line) => sum + need(line.row), 0);
-        const lacking = list.some((line) => line.row.present < line.row.required);
-        content.push(el('div', { class: 'place-title' + (lacking ? ' incomplete' : '') },
-          el('span', {}, '📍 ' + (place || 'Sans emplacement')), el('span', { class: 'count' }, `${present}/${required}`)));
-        for (const line of byRank(list)) content.push(...line.rows);
-      }
-      for (const line of byRank(extraLines)) content.push(...line.rows);
-    } else {
-      for (const line of byRank([...lines, ...extraLines])) content.push(...line.rows);
-    }
-    if (!pairs.length && !requirements.length && sub === lot && lots.length === 1) content.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
-  }
+    return { nodes, shortage };
+  };
+  const { nodes: content, shortage } = block(lot, 1);
+  if (!content.length) content.push(el('p', { class: 'sub' }, 'Aucun item enregistré.'));
   // contenu replie par defaut pour tout le monde, titre discret avec un petit carre [+] : la liste ne doit pas
   // servir a une verif « a la main » ; la verif passe par « Faire la vérif ». Deplie s'il manque quelque chose
   if (fiche.contentOpen === null) fiche.contentOpen = shortage;
   parts.push(el('details', { class: 'fiche-content', open: fiche.contentOpen ? '' : null,
     ontoggle: (event) => { fiche.contentOpen = event.target.open; } }, el('summary', {}, 'Contenu'), ...content));
   body.replaceChildren(...parts);
+  ficheHeadScroll();
+}
+
+// En-tete de la fiche pendant le defilement : quand le cadre d'etat passe sous le nom du lot (colle en haut), la bulle
+// d'etat apparait a droite du nom, progressivement, au rythme du defilement. L'en-tete garde sa hauteur (pas de saut).
+function ficheHeadScroll() {
+  const body = $('#fiche-body');
+  const head = body.querySelector('.fiche-head');
+  if (!head) return;
+  const card = body.querySelector('.state-card, #fiche-body > .banner');
+  let progress = 1;
+  if (card) {
+    // part du cadre d'etat deja passee sous l'en-tete
+    const under = head.getBoundingClientRect().bottom - card.getBoundingClientRect().top;
+    progress = Math.min(1, Math.max(0, under / Math.max(1, card.offsetHeight * 0.8)));
+  }
+  head.style.setProperty('--collapse', progress.toFixed(3));
+  head.classList.toggle('stuck', body.scrollTop > 2);
+}
+$('#fiche-body').addEventListener('scroll', ficheHeadScroll, { passive: true });
+
+// Contenu propre d'un lot (ou d'un sous-lot) dans sa fiche : une jauge par type attendu, rangee par emplacement,
+// ce qui est a traiter en haut. shortage : un item y manque ou y est en rouge (perime, inutilisable, disparu).
+function ownLines(sub) {
+  const content = [];
+  let shortage = false;
+  const requirements = sub.requirements || [];
+  // emplacement d'un item dans le lot : celui prevu pour son type (ex. « pochette bleue »)
+  const places = new Map(requirements.filter((row) => row.location).map((row) => [row.type, row.location]));
+  const place = (item) => places.get(item.type) || '';
+  const items = [...(sub.items || [])].sort((a, b) => place(a).localeCompare(place(b), 'fr')
+    || a.type_name.localeCompare(b.type_name, 'fr')
+    || String(a.peremption || '9').localeCompare(String(b.peremption || '9')));
+  const missing = sub.missing_items || [];
+  // une jauge par type attendu ; la fleche au bout deplie ses iids avec leur peremption (a remplacer en haut)
+  const pairs = [...items.map((item) => [item, '']), ...missing.map((item) => [item, 'disparu'])];
+  // un item d'un sous-type va sous son type a unites (200 mL de serum phy) quand son type n'est pas attendu
+  const ofType = (type) => pairs.filter(([item]) => displayRow(requirements, item.type) === type)
+    .sort((a, b) => iidAttention(a) - iidAttention(b));
+  const flagged = (rows) => rows.some((pair) => iidAttention(pair) < 3);
+  if (pairs.some((pair) => iidAttention(pair) < 2) || requirements.some((row) => row.present < row.required)) shortage = true;
+  // types incomplets en haut, puis ceux qui ont un item a remplacer ou signale, puis 0/0, puis les complets
+  // avec des emplacements (pochettes) : un titre par emplacement, dans l'ordre choisi par la TECH, le meme tri dedans
+  const placed = requirements.some((row) => row.location);
+  const lines = [];
+  for (const row of requirements) {
+    const rows = ofType(row.type);
+    const none = row.present <= 0 && row.required <= 0 && !row.optional;
+    lines.push({ rank: row.present < row.required ? 0 : flagged(rows) ? 1 : none ? 2 : row.optional && row.present < row.expected ? 2.5 : 3,
+      row, rows: ficheFold(`${sub.id}:${row.type}`, rows,
+        (arrow) => requirementLine(reqName(row) + (!placed && row.location ? ` (${row.location})` : ''), row.present, row, arrow)) });
+  }
+  // items hors definition (ou d'un rangement) : une ligne par type, sans jauge
+  const known = new Set(requirements.map((row) => row.type));
+  const extra = [...new Set(pairs.filter(([item]) => !known.has(displayRow(requirements, item.type))).map(([item]) => item.type))];
+  const extraLines = [];
+  for (const type of extra) {
+    const rows = ofType(type);
+    const label = rows[0][0].type_name + (requirements.length ? ' (hors définition)' : '');
+    extraLines.push({ rank: flagged(rows) ? 1 : 3, rows: ficheFold(`${sub.id}:${type}`, rows, (arrow) => el('div', { class: 'req' },
+      el('span', { class: 'label' }, label), el('span', { class: 'req-count' }, String(rows.filter(([, tag]) => !tag).length)), arrow)) });
+  }
+  const byRank = (list) => list.sort((a, b) => a.rank - b.rank);
+  if (placed) {
+    // emplacements a traiter en haut (meme rang que leurs types), l'ordre de la TECH a egalite
+    const placeGroups = byPlace(lines, (line) => line.row.location)
+      .map((entry) => ({ ...entry, rank: Math.min(...entry.rows.map((line) => line.rank)) }))
+      .sort((a, b) => a.rank - b.rank);
+    for (const { place: where, rows: list } of placeGroups) {
+      // type a unites (200 mL) : compte pour une ligne, faite ou non ; type parent sans unite : en items
+      const units = (row) => isGroupRow(row) && row.unit;
+      const need = (row) => (units(row) ? 1 : row.optional ? row.expected || 0 : row.required);
+      const done = (row) => (units(row) ? Number(row.present >= row.required) : row.present);
+      const present = list.reduce((sum, line) => sum + Math.min(done(line.row), need(line.row)), 0);
+      const required = list.reduce((sum, line) => sum + need(line.row), 0);
+      const lacking = list.some((line) => line.row.present < line.row.required);
+      content.push(el('div', { class: 'place-title' + (lacking ? ' incomplete' : '') },
+        el('span', {}, '📍 ' + (where || 'Sans emplacement')), el('span', { class: 'count' }, `${present}/${required}`)));
+      for (const line of byRank(list)) content.push(...line.rows);
+    }
+    for (const line of byRank(extraLines)) content.push(...line.rows);
+  } else {
+    for (const line of byRank([...lines, ...extraLines])) content.push(...line.rows);
+  }
+  return { nodes: content, shortage };
 }
 
 // Ce qu'un lot demande comme attention (meme regle que serializers.attention_rank) : 3 rouge, 2 orange, 1 une
@@ -494,80 +538,125 @@ function iidRow(item, missingTag) {
     missingTag ? el('span', { class: 'tag orange' }, missingTag) : null);
 }
 
-// Prochaine peremption d'un lot et de ses sous-lots : la plus proche parmi les items pas encore perimes
-// Lignes de dates d'un lot, communes a la fiche et a la vue de vérif : prochaine peremption, et en vue complete
-// (gestion/admin) prochaines revision et desinfection du materiel puis desinfection du lot lui-meme. Un seul noeud
-// (fragment) : on peut le passer a el() comme a replaceChildren(), qui ne deplie pas les tableaux.
+// Dates d'un lot, communes a la fiche et a l'onglet Lot de la vérif : des mini-cartes cote a cote (prochaine
+// peremption, et en vue complete prochaines revision et desinfection du materiel puis desinfection du lot lui-meme).
+// Un seul noeud : on peut le passer a el() comme a replaceChildren(), qui ne deplie pas les tableaux.
 function lotDatesLines(lot, full = true) {
-  const fragment = document.createDocumentFragment();
-  fragment.append(expiryLine(lot));
-  if (full) fragment.append(...revisionLines(lot), lotDisinfectionLine(lot));
-  return fragment;
+  const cards = [expiryCard(lot)];
+  if (full) cards.push(...revisionCards(lot), lotDisinfectionCard(lot));
+  return el('div', { class: 'date-cards' }, ...cards);
 }
 
-// Echeance dans les 30 jours (ou depassee) : ligne en orange avec ⚠
+// Echeance dans les 30 jours (ou depassee) : carte au contour orange
 const dueSoon = (date) => parseDate(date) - today() <= 30 * 86400000;
 
-function expiryLine(lot) {
-  let next = null;
+// Mini-carte d'une date : petit sur-titre (« Prochaine péremption »), la date en grand avec son icone, en sous-titre
+// le premier concerne « et N autres » ; touchee, elle s'agrandit sur la liste. Fond blanc, contour gris, orange
+// discret quand l'echeance approche : moins voyante que l'etat du lot et le signalement.
+function dateCard({ icon: name, over, main, sub, soon, rows = [], extra = null }) {
+  const more = rows.length > 1 || extra;
+  const card = el('div', { class: 'date-card' + (soon ? ' soon' : '') + (more ? ' more' : '') });
+  const head = el(more ? 'button' : 'div', { class: 'date-card-head', ...(more ? { type: 'button', 'aria-expanded': 'false',
+    onclick: () => { const open = card.classList.toggle('open'); head.setAttribute('aria-expanded', String(open)); } } : {}) },
+  icon(name),
+  el('span', { class: 'date-card-text' },
+    el('span', { class: 'date-card-over' }, over),
+    el('span', { class: 'date-card-main' }, main),
+    sub ? el('span', { class: 'date-card-sub' }, sub) : ''),
+  more ? el('span', { class: 'date-card-arrow', 'aria-hidden': 'true' }) : '');
+  card.append(head);
+  if (more) {
+    card.append(el('div', { class: 'date-card-body' },
+      rows.length ? el('ul', {}, ...rows.map((row) => el('li', { class: row.cls || '' },
+        el('span', { class: 'when' }, row.when), el('span', { class: 'what' }, row.what,
+          row.where ? el('span', { class: 'where' }, ' · ' + row.where) : '')))) : '',
+      extra || ''));
+  }
+  return card;
+}
+
+// Lignes d'une liste de dates (type, sous-lot, date) regroupees par type et date, triees : « 2 × Gants nitrile M »
+function dateRows(entries, multi) {
+  const groups = new Map();
+  for (const entry of entries) {
+    const key = `${entry.date || ''}|${entry.type}|${entry.lot}`;
+    if (!groups.has(key)) groups.set(key, { ...entry, count: 0 });
+    groups.get(key).count += 1;
+  }
+  return [...groups.values()].sort((a, b) => (a.late === b.late ? 0 : a.late ? -1 : 1) || String(a.date || '').localeCompare(String(b.date || '')))
+    .map((row) => ({ when: row.label || (row.date ? fmtDate(row.date) : '–'), what: (row.count > 1 ? `${row.count} × ` : '') + row.type,
+      where: multi ? row.lot : '', cls: row.cls || '' }));
+}
+
+const othersText = (count) => (count > 0 ? ` et ${count} ${pl(count, 'autre', 'autres')}` : '');
+
+// Prochaine peremption d'un lot et de ses sous-lots : la plus proche parmi les items pas encore perimes
+function expiryCard(lot) {
+  const lots = [lot, ...(lot.descendants || [])];
+  const entries = [];
   let expired = 0;
-  for (const sub of [lot, ...(lot.descendants || [])]) {
+  for (const sub of lots) {
     for (const item of sub.items || []) {
-      if (item.expired) { expired += 1; continue; }
-      if (!item.peremption) continue;
-      if (!next || item.peremption < next.date) next = { date: item.peremption, names: new Set() };
-      if (item.peremption === next.date) next.names.add(item.type_name);
+      if (item.expired) {
+        expired += 1;
+        entries.push({ type: item.type_name, lot: sub.name, late: true, label: 'Périmé', cls: 'late' });
+      } else if (item.peremption) entries.push({ type: item.type_name, lot: sub.name, date: item.peremption });
     }
   }
-  const soon = next && dueSoon(next.date);
-  return el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Prochaine péremption : ',
-    el('b', {}, next ? fmtDate(next.date) : 'aucune'),
-    next ? ` (${[...next.names].join(', ')})` : ' (aucun item périssable)',
-    expired ? ` · ${nb(expired, 'item déjà périmé', 'items déjà périmés')}` : '');
+  const upcoming = entries.filter((entry) => !entry.late).sort((a, b) => a.date.localeCompare(b.date));
+  const next = upcoming[0];
+  const rows = dateRows(entries, lots.length > 1);
+  const firstTypes = new Set(upcoming.map((entry) => entry.type));
+  return dateCard({ icon: 'hourglass', over: 'Prochaine péremption', soon: !!expired || (next && dueSoon(next.date)),
+    main: next ? fmtDate(next.date) : 'Aucune',
+    sub: next ? next.type + othersText(firstTypes.size - 1) + (expired ? ` · ${nb(expired, 'déjà périmé', 'déjà périmés')}` : '')
+      : expired ? nb(expired, 'item déjà périmé', 'items déjà périmés') : 'aucun item périssable',
+    rows });
 }
 
 // Desinfection du lot lui-meme (cellule du VPS...), reglee au poste (Inventaire > Materiel) : date, et pour la
-// gestion et les admins « Désinfecter » et « Saisir la date »
+// gestion et les admins « Désinfecter » et « Saisir la date » dans la carte depliee
 function lotPseudoItem(m) {
   return { iid: null, lot: m.lot, type_name: m.lot_name, status: 'active', maintenance: [m] };
 }
 
-function lotDisinfectionLine(lot) {
+function lotDisinfectionCard(lot) {
   const m = lot.lot_disinfection;
   if (!m) return '';
-  const soon = m.late || (m.due && dueSoon(m.due));
   const pseudo = lotPseudoItem(m);
-  return el('div', {},
-    el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Désinfection du lot : ',
-      el('b', {}, m.due ? fmtDate(m.due) : 'pas prévue'), m.late ? ' (en retard)' : '', ` · ${cycleText(m)}`),
-    canSeeStock() ? el('div', { class: 'maintenance-row' },
+  return dateCard({ icon: 'drop', over: 'Désinfection du lot', soon: m.late || (m.due && dueSoon(m.due)),
+    main: m.due ? fmtDate(m.due) : 'Pas prévue', sub: (m.late ? 'En retard · ' : '') + cycleText(m),
+    extra: canSeeStock() ? el('div', { class: 'maintenance-row' },
       el('button', { type: 'button', class: 'primary revise-btn', onclick: () => openRevision(pseudo, 'disinfection') },
         icon('drop'), 'Désinfecter'),
       el('button', { type: 'button', class: 'text-link', onclick: () => openMaintenanceDate(pseudo, 'disinfection') },
-        'Saisir la date de désinfection')) : '');
+        'Saisir la date de désinfection')) : null });
 }
 
 // Prochaine revision et prochaine desinfection du materiel d'un lot et de ses sous-lots (rien si le lot n'a pas de
-// materiel a reviser ou a desinfecter), une ligne par entretien
-function revisionLines(lot) {
-  return [['revision', 'révision'], ['disinfection', 'désinfection']].map(([kind, noun]) => {
-    let next = null;
-    let late = 0;
-    for (const sub of [lot, ...(lot.descendants || [])]) {
+// materiel a reviser ou a desinfecter), une carte par entretien
+function revisionCards(lot) {
+  const lots = [lot, ...(lot.descendants || [])];
+  return [['revision', 'révision', 'wrench'], ['disinfection', 'désinfection', 'drop']].map(([kind, noun, name]) => {
+    const entries = [];
+    for (const sub of lots) {
       for (const item of sub.items || []) {
         if (!item[kind] || !item[kind + '_due']) continue;
-        if (item[kind + '_late']) { late += 1; continue; }
-        const due = item[kind + '_due'];
-        if (!next || due < next.date) next = { date: due, names: new Set() };
-        if (due === next.date) next.names.add(item.type_name);
+        const late = !!item[kind + '_late'];
+        entries.push({ type: item.type_name, lot: sub.name, date: item[kind + '_due'], late, cls: late ? 'late' : '',
+          label: late ? `En retard (${fmtDate(item[kind + '_due'])})` : '' });
       }
     }
-    if (!next && !late) return '';
-    const soon = late || (next && dueSoon(next.date));
-    return el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + `Prochaine ${noun} : `,
-      el('b', {}, next ? fmtDate(next.date) : '–'),
-      next ? ` (${[...next.names].join(', ')})` : '',
-      late ? ` · ${nb(late, noun)} en retard` : '');
+    if (!entries.length) return '';
+    // en retard : c'est l'information principale ; sinon la prochaine date
+    const late = entries.filter((entry) => entry.late).sort((a, b) => a.date.localeCompare(b.date));
+    const upcoming = entries.filter((entry) => !entry.late).sort((a, b) => a.date.localeCompare(b.date));
+    const first = late.length ? late : upcoming;
+    const types = new Set(first.map((entry) => entry.type));
+    return dateCard({ icon: name, over: `Prochaine ${noun}`, soon: late.length > 0 || dueSoon(upcoming[0].date),
+      main: late.length ? 'En retard' : fmtDate(upcoming[0].date),
+      sub: first[0].type + othersText(types.size - 1),
+      rows: dateRows(entries, lots.length > 1) });
   });
 }
 
