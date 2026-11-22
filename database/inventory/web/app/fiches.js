@@ -229,8 +229,9 @@ function sealBanner(lot) {
       sealed ? el('div', { style: 'font-weight:400' }, sealed) : '');
   }
   if (lot.seal_check === 'valid') {
-    return el('div', { class: 'banner bad' }, el('b', {}, '✘ Scellé intact mais périmés'),
-      el('div', {}, `${nb(lot.expired_count, 'item périmé', 'items périmés')} : lot à ouvrir`), sealed ? el('div', { style: 'font-weight:400' }, sealed) : '');
+    return el('div', { class: 'banner bad' }, el('b', {}, onlyOutdated(lot) ? '✘ Scellé intact mais périmés' : '✘ Scellé intact mais items à remplacer'),
+      el('div', {}, onlyOutdated(lot) ? `${nb(lot.expired_count, 'item périmé', 'items périmés')} : lot à ouvrir`
+        : `${nb(lot.expired_count, 'item')} à remplacer (${replaceReason(lot)}) : lot à ouvrir`), sealed ? el('div', { style: 'font-weight:400' }, sealed) : '');
   }
   if (lot.seal_check === 'wrong') {
     return el('div', { class: 'banner warn' }, el('b', {}, "⚠ Étiquette d'un ancien scellé"),
@@ -597,7 +598,8 @@ function expiryCard(lot) {
   let expired = 0;
   for (const sub of lots) {
     for (const item of sub.items || []) {
-      if (item.expired) {
+      // perime par la date seulement : un item signale inutilisable (expired aussi) n'est pas « déjà périmé »
+      if (item.outdated ?? item.expired) {
         expired += 1;
         entries.push({ type: item.type_name, lot: sub.name, late: true, label: 'Périmé', cls: 'late' });
       } else if (item.peremption) entries.push({ type: item.type_name, lot: sub.name, date: item.peremption });

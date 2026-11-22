@@ -370,7 +370,27 @@ def lot_state(data):
     else:
         code = 'verified'
     kind = 'ok' if code in ('sealed', 'verified', 'optional') else 'warn' if code in ('recommended', 'opened', 'list_back', 'used') else 'bad'
-    return {'kind': kind, 'code': code, 'label': STATE_LABELS[code]}
+    label = STATE_LABELS[code]
+    if code == 'sealed_expired' and data.get('outdated_count', data['expired_count']) < data['expired_count']:
+        # pas (seulement) des perimes : items signales inutilisables, desactives... (meme texte que le web)
+        label = f'✘ Scellé, à ouvrir ({replace_reason(data)})'
+    return {'kind': kind, 'code': code, 'label': label}
+
+
+def replace_reason(data):
+    """Pourquoi des items d'un lot sont a remplacer, en quelques mots (« périmés », « signalé », « à remplacer ») :
+    meme regle que replaceReason du web."""
+    total = data['expired_count']
+    outdated = data.get('outdated_count', total)
+    unusable = data.get('unusable_count', 0)
+    parts = []
+    if outdated:
+        parts.append('périmé' if outdated == 1 else 'périmés')
+    if unusable:
+        parts.append('signalé' if unusable == 1 else 'signalés')
+    if total - outdated - unusable > 0:
+        parts.append('à remplacer')
+    return ', '.join(parts)
 
 
 def _credit_dict(credit):
@@ -434,6 +454,10 @@ def _lot_core(lot, today, items=None, preload=None):
         'restock_credit': _credit_dict(restock_credit(lot, preload.settings if preload else None)),
         'item_count': len(items),
         'expired_count': len(expired),
+        # pourquoi ces items sont a remplacer (le web l'ecrit dans l'etat : « Incomplet (signalé) » plutot que
+        # « (périmés) ») : perimes par la date, signales inutilisables, le reste (desactives, revision bloquante)
+        'outdated_count': sum(1 for item in expired if item.is_expired(today)),
+        'unusable_count': sum(1 for item in expired if item.unusable and not item.is_expired(today)),
         'expiring_soon_count': len(soon),
         # materiel a reviser : prochaine revision, revisions en retard et dans les 30 jours
         'next_revision': _date(min((item.revision_due for item in revised), default=None)),

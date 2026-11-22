@@ -564,7 +564,9 @@ async function scanSeal(scan) {
       'Lot valide sans vérif' + (lot.valid_until ? ` jusqu'au ${fmtDate(lot.valid_until)}` : ''), sealInfo);
   } else if (lot.seal_check === 'valid') {
     feedback.bad();
-    showInfo('bad', `✘ Scellé intact mais périmés – ${lot.name}`, `${nb(lot.expired_count, 'item périmé', 'items périmés')} : lot à ouvrir`, sealInfo);
+    showInfo('bad', `✘ Scellé intact mais ${onlyOutdated(lot) ? 'périmés' : 'items à remplacer'} – ${lot.name}`,
+      onlyOutdated(lot) ? `${nb(lot.expired_count, 'item périmé', 'items périmés')} : lot à ouvrir`
+        : `${nb(lot.expired_count, 'item')} à remplacer (${replaceReason(lot)}) : lot à ouvrir`, sealInfo);
   } else {
     feedback.bad();
     showInfo('bad', `✘ ${lot.seal_check === 'wrong' ? "Étiquette d'un ancien scellé" : 'Scellé brisé'} – ${lot.name}`,
@@ -599,7 +601,7 @@ async function sealDuringVerif(scan) {
     feedback.bad();
     showInfo('bad', lot.seal_check !== 'valid'
       ? `✘ ${lot.seal_check === 'wrong' ? "Étiquette d'un ancien scellé" : 'Scellé brisé'} – ${lot.name}`
-      : `✘ Scellé intact mais périmés – ${lot.name}`, 'Ouvrez le lot et scannez son contenu.');
+      : `✘ Scellé intact mais ${onlyOutdated(lot) ? 'périmés' : 'items à remplacer'} – ${lot.name}`, 'Ouvrez le lot et scannez son contenu.');
     return true;
   }
   // scelle d'un lot hors de celui ou l'on est, alors que celui-ci est complet : il est valide automatiquement
