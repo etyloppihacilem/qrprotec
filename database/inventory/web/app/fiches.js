@@ -306,9 +306,7 @@ function renderLotFiche(body, lot) {
     !full || !lot.restock_credit || lot.verif_recommended ? '' : el('p', { class: 'hint' },
       `Réassort sans vérif complète : encore ${nb(lot.restock_credit.outings_left, 'sortie')}, `
       + `jusqu'au ${fmtDate(lot.restock_credit.until)}.`),
-    expiryLine(lot),
-    ...(full ? revisionLine(lot) : []), // une ligne par entretien (tableau) : replaceChildren ne deplie pas les tableaux
-    full ? lotDisinfectionLine(lot) : '',
+    lotDatesLines(lot, full),
     !lot.verif_recommended || !full ? '' : el('p', {}, lot.restocked_count
       ? `⚠ Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
       : lot.back_from_list ? `⚠ Sorti avec la liste « ${lot.back_from_list} » ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
@@ -497,6 +495,19 @@ function iidRow(item, missingTag) {
 }
 
 // Prochaine peremption d'un lot et de ses sous-lots : la plus proche parmi les items pas encore perimes
+// Lignes de dates d'un lot, communes a la fiche et a la vue de vérif : prochaine peremption, et en vue complete
+// (gestion/admin) prochaines revision et desinfection du materiel puis desinfection du lot lui-meme. Un seul noeud
+// (fragment) : on peut le passer a el() comme a replaceChildren(), qui ne deplie pas les tableaux.
+function lotDatesLines(lot, full = true) {
+  const fragment = document.createDocumentFragment();
+  fragment.append(expiryLine(lot));
+  if (full) fragment.append(...revisionLines(lot), lotDisinfectionLine(lot));
+  return fragment;
+}
+
+// Echeance dans les 30 jours (ou depassee) : ligne en orange avec ⚠
+const dueSoon = (date) => parseDate(date) - today() <= 30 * 86400000;
+
 function expiryLine(lot) {
   let next = null;
   let expired = 0;
@@ -508,7 +519,7 @@ function expiryLine(lot) {
       if (item.peremption === next.date) next.names.add(item.type_name);
     }
   }
-  const soon = next && parseDate(next.date) - today() <= 30 * 86400000;
+  const soon = next && dueSoon(next.date);
   return el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Prochaine péremption : ',
     el('b', {}, next ? fmtDate(next.date) : 'aucune'),
     next ? ` (${[...next.names].join(', ')})` : ' (aucun item périssable)',
@@ -524,7 +535,7 @@ function lotPseudoItem(m) {
 function lotDisinfectionLine(lot) {
   const m = lot.lot_disinfection;
   if (!m) return '';
-  const soon = m.late || (m.due && parseDate(m.due) - today() <= 30 * 86400000);
+  const soon = m.late || (m.due && dueSoon(m.due));
   const pseudo = lotPseudoItem(m);
   return el('div', {},
     el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + 'Désinfection du lot : ',
@@ -538,7 +549,7 @@ function lotDisinfectionLine(lot) {
 
 // Prochaine revision et prochaine desinfection du materiel d'un lot et de ses sous-lots (rien si le lot n'a pas de
 // materiel a reviser ou a desinfecter), une ligne par entretien
-function revisionLine(lot) {
+function revisionLines(lot) {
   return [['revision', 'révision'], ['disinfection', 'désinfection']].map(([kind, noun]) => {
     let next = null;
     let late = 0;
@@ -552,7 +563,7 @@ function revisionLine(lot) {
       }
     }
     if (!next && !late) return '';
-    const soon = late || (next && parseDate(next.date) - today() <= 30 * 86400000);
+    const soon = late || (next && dueSoon(next.date));
     return el('p', { class: soon ? 'warn-text' : '' }, (soon ? '⚠ ' : '') + `Prochaine ${noun} : `,
       el('b', {}, next ? fmtDate(next.date) : '–'),
       next ? ` (${[...next.names].join(', ')})` : '',
