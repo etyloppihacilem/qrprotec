@@ -262,8 +262,11 @@ const labelOk = () => !labelMissing();
 function labelLine(lot) {
   if (!keyOk()) return '🔒 Scannez l\'étiquette clé pour pouvoir valider. ' + keyHint(lot);
   if (!labelOk()) return `🏷️ Scannez l'étiquette ${labelTarget(labelMissing())} pour pouvoir valider.`;
-  return state.lotKey ? '🔑 Étiquette clé scannée' : '🏷️ Étiquette du lot scannée';
+  return state.lotKey && keysUsed() ? '🔑 Étiquette clé scannée' : '🏷️ Étiquette du lot scannée';
 }
+// Etiquette cle (privee) : elle ne sert que si le nom declare est autorise (vérif sans badge). Badge obligatoire : elle
+// vaut l'etiquette publique, on n'en parle pas (comme l'encadre « Étiquette clé » de la fiche)
+const keysUsed = () => !!state.declaredAllowed;
 
 // Lots de la vérif dont le scelle a ete constate intact (etiquette du scelle scannee), avec leurs sous-lots : ni
 // attendus ni ouverts (services.perform_verif). Un lot dont un item a ete scanne a ete ouvert.
@@ -500,7 +503,7 @@ function shortStatus(lot, status) {
 function showLotInfo() {
   const lot = state.lot;
   if (!lot) return;
-  if (keyOk() && labelOk()) showInfo('ok', lot.name, state.lotKey ? "✔ L'étiquette clé est scannée" : "✔ L'étiquette est scannée");
+  if (keyOk() && labelOk()) showInfo('ok', lot.name, state.lotKey && keysUsed() ? "✔ L'étiquette clé est scannée" : "✔ L'étiquette est scannée");
   else showInfo('warn', lot.name, labelLine(lot));
 }
 

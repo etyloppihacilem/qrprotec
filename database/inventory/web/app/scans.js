@@ -492,7 +492,7 @@ async function joinVerif(scan) {
       : lot.id === state.lotId ? `Scannez l'étiquette ${childrenDe(lot.id)} pour y entrer.`
         : `Scannez son contenu, puis validez-le pour revenir à ${(lotById(parentIdOf(lot)) || state.lot).name}.`,
     closed.length ? `✔ ${closed.join(', ')} : validé.` : '',
-    scan.key ? `🔑 Étiquette clé de ${lot.name} scannée` : '');
+    scan.key && keysUsed() ? `🔑 Étiquette clé de ${lot.name} scannée` : '');
     save();
     render();
     if (!state.scanned.length) switchTab('todo');
@@ -534,9 +534,9 @@ async function joinVerif(scan) {
   state.askPlace = false;
   feedback.info();
   showInfo('ok', `${lot.name} ajouté à la vérif`,
-    covered ? `${lot.name} faisait déjà partie de la vérif : son étiquette clé est enregistrée.`
+    covered ? `${lot.name} faisait déjà partie de la vérif${keysUsed() ? ' : son étiquette clé est enregistrée' : ''}.`
       : `Les items attendus de ${lot.name} s'ajoutent à la vérif en cours.`,
-    scan.key ? `🔑 Étiquette clé de ${lot.name} scannée`
+    scan.key && keysUsed() ? `🔑 Étiquette clé de ${lot.name} scannée`
       : keyOk() ? '' : `Scannez l'étiquette clé de ${lot.name} (ou d'un autre lot de la vérif) pour valider.`);
   save();
   render();
