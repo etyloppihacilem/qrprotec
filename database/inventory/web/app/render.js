@@ -384,21 +384,8 @@ function renderCascade(list) {
   const chain = [state.lot, ...state.path.map(lotById).filter(Boolean)];
   const parent = chain.length > 1 ? chain[chain.length - 2] : null;
   const rows = [];
-  const crumbs = [];
-  chain.forEach((lot, index) => {
-    if (index) crumbs.push(el('span', { class: 'sep' }, ' › '));
-    crumbs.push(index < chain.length - 1
-      ? el('button', { type: 'button', class: 'text-link', onclick: () => { state.path = chainTo(lot.id); state.current = levelId(); save(); render(); } }, lot.name)
-      : el('b', {}, lot.name));
-  });
-  rows.push(el('li', { class: 'cascade-path' },
-    el('div', { class: 'main' }, el('div', { class: 'crumbs' }, ...crumbs),
-      el('div', { class: 'sub' }, sealWaiting(level) ? `Scannez l'étiquette du scellé : ${level.name} est validé sans l'ouvrir.`
-        : sealNextLevel() ? `Validez ${level.name} : la vérif s'arrête là, le lot est ensuite à resceller.`
-        : parent ? `Validez ${level.name} pour revenir à ${parent.name}.`
-        : childrenOf(level.id).length ? `Scannez l'étiquette ${childrenDe(level.id)} pour y entrer.` : '')),
-    parent ? el('button', { type: 'button', class: 'secondary', title: `Revenir à ${parent.name} en validant ${level.name} (incomplet s'il manque des items)`,
-      onclick: leaveUp }, '← ' + (parent.name_short || parent.name)) : null));
+  // pas de barre « fil d'Ariane » au-dessus de la liste : elle deroutait ; le lot en cours est dans le bandeau du
+  // lecteur et sur le bouton de validation. Lot scelle : on demande l'etiquette du scelle (sealRows).
   if (sealWaiting(level)) {
     rows.push(...sealRows(level));
     list.replaceChildren(...rows);
@@ -432,7 +419,12 @@ function renderCascade(list) {
       if (who.length) { cls = 'partial'; sub = `En cours · ${who.join(', ')}`; }
       else if (touched(child.id)) { cls = 'partial'; sub = `Commencé · ${nb(scanned, 'scanné')}, pas encore validé`; }
       else if (sealWaiting(child)) { cls = 'todo'; sub = "🔒 Scellé : scannez l'étiquette du scellé"; }
-      else { cls = 'todo'; const status = childStatus(child); sub = el('span', {}, 'À faire · état actuel : ', el('span', { class: 'state-' + (status.kind || (status.ok ? 'ok' : 'bad')) }, status.label)); }
+      else {
+        cls = 'todo';
+        const status = childStatus(child);
+        const kind = status.kind || (status.ok ? 'ok' : 'bad');
+        sub = el('span', { class: 'state-now' }, 'À faire · état actuel : ', stateBadge(kind), ' ' + stateText(status.label));
+      }
     }
     // dernier scan dans ce sous-lot (ou ses sous-lots) : le plus recent monte, s'il n'est pas vert
     let last = -1;
@@ -456,7 +448,8 @@ function renderCascade(list) {
     : { groups: [], others: [], remaining: 0 };
   let ownRows = [];
   if (groups.length || loose.length) {
-    if (childrenOf(level.id).length) ownRows.push(el('li', { class: 'cascade-own' }, `Contenu de ${level.name}`));
+    // « Contenu de <lot> » : separe le contenu propre des sous-lots, et dit dans quel sous-lot on est entre
+    if (childrenOf(level.id).length || level.id !== state.lotId) ownRows.push(el('li', { class: 'cascade-own' }, `Contenu de ${level.name}`));
     ownRows.push(...lotGroupRows(level, groups, loose, lastScanRanks()));
     const started = groups.some((group) => group.scanned > 0 && (group.missing > 0 || group.pending > 0));
     if (started && subRows.length) {
@@ -469,11 +462,11 @@ function renderCascade(list) {
   subRows.sort((a, b) => a.rank - b.rank || b.last - a.last);
   rows.push(...subRows.flatMap((entry) => entry.rows || [entry.row]), ...ownRows);
   if (!left && !remaining) {
-    rows.splice(1, 0, el('li', { class: 'group ok' }, `✅ Tout est fait : validez ${level.name}`
+    rows.unshift(el('li', { class: 'group ok' }, `✅ Tout est fait : validez ${level.name}`
       + (sealNextLevel() ? ', puis rescellez-le.' : parent ? ` pour revenir à ${parent.name}.` : ' pour terminer la vérif.')));
   }
   const full = fullVerifRow();
-  if (full) rows.splice(1, 0, full);
+  if (full) rows.unshift(full);
   list.replaceChildren(...rows);
   return remaining + left;
 }
@@ -523,27 +516,24 @@ function renderLot() {
   }
   const plan = planSession();
   const fresh = (plan.lots.find((row) => row.lot.id === lot.id) || { fresh: {} }).fresh;
-  const lots = sessionLots();
+  const status = lotHeadStatus(lot);
   view.replaceChildren(
-    el('h2', {}, lot.name),
-    el('div', { class: 'sub' }, withId(lotKind(lot), lot.id)),
+    el('h2', { class: lot.unique && !showIds() ? 'single' : '' }, lot.name),
+    lot.unique && !showIds() ? '' : el('div', { class: 'sub' }, withId(lotKind(lot), lot.id)),
     (lot.path || []).length ? el('div', { class: 'sub' }, 'Dans : ',
       ...lot.path.filter((parent) => !parent.hidden) // lot cache dans la hierarchie (B+ du VPS) : saute
         .flatMap((parent, index) => [index ? ' › ' : '', lotLink(parent)])) : '',
-    el('div', { class: 'banner ' + (groupStatus(lot) || lotStatus(lot)).kind }, (groupStatus(lot) || lotStatus(lot)).label),
+    stateCard(lot, status),
     // lot d'un referentiel (B+) : lignes de la liste dans aucun de ses sacs, a repartir au poste
     (lot.unplaced || []).length ? el('p', { class: 'hint' }, `Dans aucun sac : ${lot.unplaced.map((row) => row.type_name).join(', ')}`
       + (canSeeStock() ? ' (à répartir au poste : fiche du lot, onglet Répartition).' : '.')) : '',
     el('p', {}, ficheLink('lot', lot.id, 'Fiche du lot : contenu et emplacement des items')),
     reportButton({ lot: lot.id, lotName: lot.name, label: lot.name }),
-    lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} ${fmtOn(lot.sealed)}` +
-      (lot.sealed_by ? ` par ${lot.sealed_by}` : '') + ' : pas de vérif nécessaire tant que le scellé est intact.') : '',
-    el('p', {}, 'Dernière vérif : ' + (lot.last_verif ? `${fmtDateTime(lot.last_verif)} par ${lot.last_verif_by || '?'}` : 'jamais'),
-      el('br'), labelLine(lot)),
+    lot.is_sealed ? el('p', {}, `🔒 Scellé${lot.seal_number ? ' n°' + lot.seal_number : ''} : pas de vérif nécessaire tant que le scellé est intact.`) : '',
+    el('p', {}, labelLine(lot)),
     lotDatesLines(lot),
-    el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')),
-    lots.length > 1 ? el('p', {}, `Vérif groupée : ${lots.filter((sub) => (sub.requirements || []).length || (sub.items || []).length).map((sub) => sub.name).join(', ')}. `
-      + "Scannez l'étiquette d'un autre lot du même lot global pour l'ajouter.") : '',
+    // fiche PDF : gestion et admin seulement
+    canSeeStock() ? el('p', {}, sheetLink(lot.id, (lot.descendants || []).length ? 'Fiche du lot en PDF (une page par sous-lot)' : 'Fiche du lot en PDF')) : '',
     ...renderGlobal(lot),
     // types incomplets en haut
     el('h3', {}, 'Scannés / attendus'),
@@ -568,16 +558,25 @@ function sheetLink(id, label) {
     target: '_blank', rel: 'noopener' }, '📄 ' + label);
 }
 
-// Lot global (depuis n'importe lequel de ses sous-lots) : etat de l'ensemble et de chaque lot
+// Lot global (depuis n'importe lequel de ses sous-lots) : etat de l'ensemble et de chaque lot. Vu depuis le lot global
+// lui-meme, son etat est deja dans le cadre du haut : seulement l'arborescence. La vérif la plus ancienne dit de quel
+// sous-lot il s'agit.
 function renderGlobal(lot) {
   const global = lot.global;
   if (!global) return [];
-  const tags = { ok: 'green', warn: 'orange', bad: 'red' };
+  const self = global.id === lot.id;
+  const counted = withoutHidden(global.lots).filter((row) => row.counted && row.effective.code !== 'covered');
+  const never = counted.find((row) => !row.last_verif && !row.is_sealed);
+  const oldest = never || counted.reduce((best, row) => {
+    const at = row.last_verif || row.sealed;
+    return at && (!best || at < (best.last_verif || best.sealed)) ? row : best;
+  }, null);
   return [
-    el('h3', {}, `Lot global : ${global.name}`),
-    el('div', { class: 'banner ' + global.kind }, global.label),
-    global.id !== lot.id ? el('p', {}, sheetLink(global.id, 'Fiche du lot global en PDF (une page par sous-lot)')) : '',
-    el('p', { class: 'hint' }, 'Vérif la plus ancienne : ' + (global.last_verif ? fmtDateTime(global.last_verif) : 'jamais')),
+    el('h3', {}, self ? 'Lots de ' + global.name : `Lot global : ${global.name}`),
+    self ? '' : el('div', { class: 'banner state-card ' + global.kind }, el('div', { class: 'state-main' }, ...stateLine(global.kind, global.label))),
+    !self && canSeeStock() ? el('p', {}, sheetLink(global.id, 'Fiche du lot global en PDF (une page par sous-lot)')) : '',
+    oldest ? el('p', { class: 'hint' }, 'Vérif la plus ancienne : ' + (never ? `${oldest.name}, jamais vérifié`
+      : `${oldest.name}, ${fmtDateTime(oldest.last_verif || oldest.sealed)}` + (oldest.last_verif_by ? ` par ${oldest.last_verif_by}` : ''))) : '',
     el('ul', { class: 'list tree' }, withoutHidden(global.lots).map((row) => el('li', {
       class: (row.counted ? row.effective.kind : 'group-lot') + (row.id === lot.id ? ' current' : ''),
       style: `padding-left:${12 + row.depth * 16}px;cursor:pointer`,
@@ -588,7 +587,7 @@ function renderGlobal(lot) {
       el('div', { class: 'sub' }, row.counted
         ? `${lotKind(row)} · vérif : ${row.last_verif ? fmtDateTime(row.last_verif) : 'jamais'}`
         : `${lotKind(row)} · regroupement`)),
-    row.counted ? el('span', { class: 'tag ' + tags[row.effective.kind] }, row.effective.label.replace(/^[✔✘⚠] /, '').split(',')[0]) : null))),
+    row.counted ? stateBadge(row.effective.kind, stateText(row.effective.label)) : null))),
   ];
 }
 

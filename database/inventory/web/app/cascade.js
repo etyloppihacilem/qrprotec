@@ -131,30 +131,6 @@ function goUp() {
   render();
 }
 
-// Bouton « ← parent » de la vérif en cascade : le lot en cours est validé en le quittant, complet ou non (les non
-// scannés passent manquants). Sans rien scanné dedans, on remonte simplement. Incomplet alors qu'un autre
-// participant y est encore, ou étiquette du lot manquante : on remonte sans valider, scans gardés.
-async function leaveUp() {
-  if (state.busy || levelId() === state.lotId) return;
-  const level = levelLot();
-  const scope = scopeOf(level.id);
-  if (!scopeEntries(scope).length) { goUp(); return; }
-  const complete = levelComplete();
-  if (!complete && othersLevels()[level.id]) {
-    toast(`${level.name} n'est pas validé : un autre participant y est encore (scans gardés).`);
-    goUp();
-    return;
-  }
-  const missing = blockers(false);
-  if (missing.length) {
-    feedback.warn();
-    toast(`${level.name} n'est pas validé (${missing.join(', ')}) : scans gardés.`, true);
-    goUp();
-    return;
-  }
-  await validateStep(false, true);
-}
-
 // Lots ou se trouvent les autres participants de la vérif commune : {id du lot: [noms]}
 function othersLevels() {
   const result = {};
@@ -429,7 +405,7 @@ function groupStatus(lot) {
   if (index < 0 || rows[index].counted) return null;
   let problems = 0; let warn = 0; let counted = 0;
   // vérif la plus ancienne des sous-lots (date du scelle pour un lot scelle jamais verifie), null si l'un ne l'a jamais ete
-  let at; let never = false;
+  let at; let never = false; let oldest = null;
   for (const row of rows.slice(index + 1)) {
     if (row.depth <= rows[index].depth) break;
     if (!row.counted) continue;
@@ -438,12 +414,62 @@ function groupStatus(lot) {
     if (row.effective.kind === 'warn') warn += 1;
     if (row.effective.code === 'covered') continue;
     const stamp = row.last_verif || (row.is_sealed ? row.sealed : null);
-    if (!stamp) never = true; else if (!at || stamp < at) at = stamp;
+    if (!stamp) { if (!never) oldest = row; never = true; } else if (!never && (!at || stamp < at)) { at = stamp; oldest = row; }
   }
   at = never ? null : at || null;
-  if (!problems) return { ok: true, kind: 'ok', label: `✔ Sous-lots tous valides (${counted})`, short: '✔ Vérifié', at };
+  if (!problems) return { ok: true, kind: 'ok', label: `✔ Sous-lots tous valides (${counted})`, short: '✔ Vérifié', at, oldest };
   return { ok: false, kind: warn === problems ? 'warn' : 'bad', label: `✘ ${nb(problems, 'sous-lot')} à traiter sur ${counted}`,
-    short: `${warn === problems ? '⚠' : '✘'} ${pl(problems, 'Un sous-lot', 'Des sous-lots')} à traiter`, at };
+    short: `${warn === problems ? '⚠' : '✘'} ${pl(problems, 'Un sous-lot', 'Des sous-lots')} à traiter`, at, oldest };
+}
+
+// Texte d'un etat sans son signe (✔ ✘ ⚠) : la bulle d'etat (stateBadge) le remplace
+const stateText = (label) => String(label || '').replace(/^[✔✘⚠↷🔒] */u, '');
+// Etat precede de sa bulle, la ou il y a la place d'ecrire le detail
+const stateLine = (kind, label) => [stateBadge(kind), el('span', { class: 'state-text' }, stateText(label))];
+const KIND_ORDER = { ok: 0, warn: 1, bad: 2 };
+
+// Etat d'un lot pour sa fiche et la vérif : celui de ses sous-lots pour un simple regroupement, celui de l'ensemble
+// pour le lot global qui a aussi son propre contenu (B+ avec des couvertures et ses sacs) quand un sous-lot est pire,
+// le sien sinon
+function lotHeadStatus(lot) {
+  const group = groupStatus(lot);
+  if (group) return group;
+  const own = lotStatus(lot);
+  const global = lot.global;
+  if (global && global.id === lot.id && KIND_ORDER[global.kind] > KIND_ORDER[own.kind]) {
+    return { ok: false, kind: global.kind, label: global.label, short: global.label, global: true };
+  }
+  return own;
+}
+
+// Sous-titre du cadre d'etat : de quand date l'etat, et qui (« hier à 19:42 · Camille »), sans « Dernière vérif » :
+// la vérif (la plus ancienne des sous-lots pour un regroupement), le scelle, ou ce qui a rendu la vérif recommandee
+// (reassort, retour de liste, lot marque utilise, scelle ouvert)
+function stateWhen(lot, status) {
+  const line = (at, by, before = '') => (at ? before + fmtDateTime(at, { long: true }) + (by ? ' · ' + by : '') : '');
+  if (status.oldest) {
+    const row = status.oldest;
+    const at = row.last_verif || (row.is_sealed ? row.sealed : null);
+    return at ? line(at, row.last_verif ? row.last_verif_by : row.sealed_by) + ` (${row.name})` : `${row.name} jamais vérifié`;
+  }
+  if (lot.is_sealed) return line(lot.sealed, lot.sealed_by);
+  if (lot.verif_recommended && status.kind === 'warn') {
+    if (lot.restocked_count) return line(lot.restocked, lot.restocked_by, detailed() ? `${nb(lot.restocked_count, 'item')} · ` : '');
+    if (lot.back_from_list) return line(lot.restocked, lot.restocked_by, `« ${lot.back_from_list} » · `);
+    if (lot.marked_used) return line(lot.marked_used, lot.marked_used_by);
+    return line(lot.unsealed, lot.unsealed_by);
+  }
+  return line(lot.last_verif, lot.last_verif_by);
+}
+
+// Cadre d'etat d'un lot (fiche, onglet Lot de la vérif) : la bulle, l'etat (detaille en gestion/admin, en un mot
+// sinon) et en sous-titre de quand il date
+function stateCard(lot, status = lotHeadStatus(lot)) {
+  const label = detailed() ? status.label : shortStatus(lot, status).word;
+  const when = stateWhen(lot, status);
+  return el('div', { class: 'banner state-card ' + status.kind },
+    el('div', { class: 'state-main' }, ...stateLine(status.kind, label)),
+    when ? el('div', { class: 'state-sub' }, when) : '');
 }
 
 // Etat d'un lot en un mot (« Vérifié », « Incomplet »…) et date de sa derniere vérif (la plus ancienne de ses

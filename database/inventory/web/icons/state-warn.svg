@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- etat d'un lot : vérif recommandee (fleche en cercle, horloge dedans, orange) -->
+  <path d="M20 12a8 8 0 1 1-2.6-5.9"/>
+  <path d="M18.2 2.6v3.9h-3.9"/>
+  <path d="M12 8v4.2l2.8 1.7"/>
+</svg>

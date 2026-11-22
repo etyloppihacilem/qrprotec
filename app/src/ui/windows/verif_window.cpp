@@ -703,6 +703,7 @@ class VerifWindow final : public AppWindow {
         ImVec4      color;
         int         rank = 2; // 0 rouge, 1 commencé, 2 à faire, 3 facultatif, 4 vert
         int         last = -1; // dernier scan dedans (id de la pile), -1 pour les verts
+        StateKind   state = StateKind::None; // sous-lot a faire : bulle de son etat d'avant la verif, au bout de la ligne
     };
 
     // Dernier scan (id de la pile) range dans l'un de ces lots, -1 sinon
@@ -746,7 +747,8 @@ class VerifWindow final : public AppWindow {
         const auto        done = verif.done.find(id);
         std::string       text = std::string((*child)["is_sealed"].boolean() ? "[scellé] " : "") + (*child)["name"].str();
         ImVec4            color;
-        int               rank = 2;
+        int               rank  = 2;
+        StateKind         state = StateKind::None;
         if (done != verif.done.end()) {
           const bool ok = done->second.complete || done->second.sealed;
           color = ok ? colors::green : colors::red;
@@ -771,12 +773,13 @@ class VerifWindow final : public AppWindow {
           text += "  –  facultatif : validable sans, cliquez pour y scanner";
         } else {
           color = colors::grey;
-          text += std::string("  –  à faire · état actuel : ") + lot_status_label(lot_status(*child));
+          state = lot_state_kind(lot_status(*child));
+          text += "  –  à faire · état actuel : " + state_text(lot_status_label(lot_status(*child)));
         }
         const std::size_t subs = app.verif_children(id).size();
         if (subs)
           text += " · " + nb(subs, "sous-lot");
-        rows.push_back({ id, text, color, rank, rank == 4 ? -1 : last_scan_in(app, app.verif_subtree(id)) });
+        rows.push_back({ id, text, color, rank, rank == 4 ? -1 : last_scan_in(app, app.verif_subtree(id)), state });
       }
       std::stable_sort(rows.begin(), rows.end(), [](const CascadeRow &a, const CascadeRow &b) {
         return a.rank != b.rank ? a.rank < b.rank : a.last > b.last;
@@ -800,6 +803,12 @@ class VerifWindow final : public AppWindow {
         if (ImGui::Selectable(row.text.c_str(), true)) {
           app.enter_level(row.id);
           moved = true;
+        }
+        if (row.state != StateKind::None) { // bulle d'etat au bout de la ligne (code commun web et poste)
+          const ImVec2 max    = ImGui::GetItemRectMax();
+          const float  radius = ImGui::GetTextLineHeight() * 0.5f;
+          draw_state_badge(ImGui::GetWindowDrawList(), ImVec2(max.x - radius - 4.0f, (ImGui::GetItemRectMin().y + max.y) * 0.5f),
+                           radius, row.state);
         }
         ImGui::PopStyleColor(2);
         ImGui::PopID();

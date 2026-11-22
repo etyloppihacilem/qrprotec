@@ -125,7 +125,7 @@ function listVerifRow(list, row) {
     onclick: (event) => { event.stopPropagation(); ask(); } }, done ? '✓' : '');
   const state = (row.state && row.state.label || '').replace(/^[✔✘⚠] */, '');
   const sub = done ? `Vérifiée : ${row.lot_name} est vert`
-    : (state ? state + ' · ' : '') + (row.root !== row.lot ? `dans ${row.root_name} · ` : '') + 'à faire avant de partir';
+    : [state ? [stateBadge(row.state.kind), ' ' + state + ' · '] : '', (row.root !== row.lot ? `dans ${row.root_name} · ` : '') + 'à faire avant de partir'];
   return el('li', { class: 'static list-verif-line ' + (done ? 'ok' : 'warn') },
     el('span', { class: 'list-box-wrap' }, box),
     el('div', { class: 'main', onclick: ask }, el('div', { class: 'name' }, `Vérif ${row.lot_name}`), el('div', { class: 'sub' }, sub)),

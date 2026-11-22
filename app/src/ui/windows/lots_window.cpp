@@ -257,10 +257,13 @@ class LotsWindow final : public AppWindow {
         // cellule d'etat en couleur pleine
         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(color));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+        // bulle d'etat (code commun web et poste) puis l'etat en clair
+        state_badge(top ? state_kind(lot["global"]["kind"].str()) : lot_state_kind(status));
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
         if (top)
           ImGui::TextUnformatted(short_label(lot["global"]["label"].str()).c_str());
         else
-          ImGui::TextUnformatted(lot_status_label(status));
+          ImGui::TextUnformatted(state_text(lot_status_label(status)).c_str());
         ImGui::PopStyleColor();
         if (top)
           ImGui::SetItemTooltip("Lot global : valide si tous ses lots le sont.\nPropre état : %s",
@@ -371,7 +374,7 @@ class LotsWindow final : public AppWindow {
       // QR code de scelle scanne : resultat du controle
       if (!seal_check_.empty()) {
         if (seal_check_ == "valid")
-          status_banner("✔ SCELLÉ INTACT : pas de vérif nécessaire", colors::green);
+          status_banner("✔ SCELLÉ INTACT : pas de vérif nécessaire", colors::green, 1.25f, StateKind::Ok);
         else if (seal_check_ == "wrong")
           status_banner("✘ ÉTIQUETTE D'UN ANCIEN SCELLÉ", colors::red);
         else
@@ -380,9 +383,9 @@ class LotsWindow final : public AppWindow {
       if (lot_is_group(details_)) {
         ImVec4            color;
         const std::string banner = group_banner(details_, color);
-        status_banner(banner, color);
+        status_banner(banner, color, 1.25f, state_kind_of(color));
       } else {
-        status_banner(lot_status_banner(details_), lot_status_color(status));
+        status_banner(lot_status_banner(details_), lot_status_color(status), 1.25f, lot_state_kind(status));
       }
       draw_reports();
       if (details_["is_sealed"].boolean()) {
@@ -698,7 +701,7 @@ class LotsWindow final : public AppWindow {
       if (global.is_null())
         return;
       ImGui::SeparatorText(("Lot global : " + global["name"].str()).c_str());
-      status_banner(global["label"].str(), kind_color(global["kind"].str()), 1.0f);
+      status_banner(global["label"].str(), kind_color(global["kind"].str()), 1.0f, state_kind(global["kind"].str()));
       ImGui::TextWrapped("Vérif la plus ancienne : %s", global["never_verified"].boolean()
                                                           ? "jamais (un lot n'a jamais été vérifié)"
                                                           : display_datetime(global["last_verif"], true).c_str());
@@ -722,7 +725,9 @@ class LotsWindow final : public AppWindow {
           ImGui::Unindent(row["depth"].integer() * 16.0f + 1.0f);
           ImGui::TableNextColumn();
           if (counted) {
-            ImGui::TextColored(kind_color(state["kind"].str()), "%s", state["label"].str().c_str());
+            state_badge(state_kind(state["kind"].str()));
+            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+            ImGui::TextColored(kind_color(state["kind"].str()), "%s", state_text(state["label"].str()).c_str());
             ImGui::TextDisabled("vérif : %s", display_datetime(row["last_verif"]).c_str());
           } else {
             ImGui::TextDisabled("regroupement");
