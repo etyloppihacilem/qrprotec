@@ -589,6 +589,14 @@ function dateRows(entries, multi) {
       where: multi ? row.lot : '', cls: row.cls || '' }));
 }
 
+// Seulement les prochaines echeances : la premiere et celles du mois qui la suit (30 jours), pas les suivantes
+function nextWindow(entries) {
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  if (!sorted.length) return sorted;
+  const limit = parseDate(sorted[0].date).getTime() + 30 * 86400000;
+  return sorted.filter((entry) => parseDate(entry.date).getTime() <= limit);
+}
+
 const othersText = (count) => (count > 0 ? ` et ${count} ${pl(count, 'autre', 'autres')}` : '');
 
 // Prochaine peremption d'un lot et de ses sous-lots : la plus proche parmi les items pas encore perimes
@@ -605,9 +613,9 @@ function expiryCard(lot) {
       } else if (item.peremption) entries.push({ type: item.type_name, lot: sub.name, date: item.peremption });
     }
   }
-  const upcoming = entries.filter((entry) => !entry.late).sort((a, b) => a.date.localeCompare(b.date));
+  const upcoming = nextWindow(entries.filter((entry) => !entry.late));
   const next = upcoming[0];
-  const rows = dateRows(entries, lots.length > 1);
+  const rows = dateRows([...entries.filter((entry) => entry.late), ...upcoming], lots.length > 1);
   const firstTypes = new Set(upcoming.map((entry) => entry.type));
   return dateCard({ icon: 'hourglass', over: 'Prochaine péremption', soon: !!expired || (next && dueSoon(next.date)),
     main: next ? fmtDate(next.date) : 'Aucune',
@@ -652,13 +660,13 @@ function revisionCards(lot) {
     if (!entries.length) return '';
     // en retard : c'est l'information principale ; sinon la prochaine date
     const late = entries.filter((entry) => entry.late).sort((a, b) => a.date.localeCompare(b.date));
-    const upcoming = entries.filter((entry) => !entry.late).sort((a, b) => a.date.localeCompare(b.date));
+    const upcoming = nextWindow(entries.filter((entry) => !entry.late));
     const first = late.length ? late : upcoming;
     const types = new Set(first.map((entry) => entry.type));
     return dateCard({ icon: name, over: `Prochaine ${noun}`, soon: late.length > 0 || dueSoon(upcoming[0].date),
       main: late.length ? 'En retard' : fmtDate(upcoming[0].date),
       sub: first[0].type + othersText(types.size - 1),
-      rows: dateRows(entries, lots.length > 1) });
+      rows: dateRows([...late, ...upcoming], lots.length > 1) });
   });
 }
 
