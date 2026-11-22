@@ -845,14 +845,17 @@ StateKind state_kind_of(const ImVec4 &color) {
                                                                                                           : StateKind::None;
 }
 
-void draw_state_badge(ImDrawList *draw, const ImVec2 &center, float radius, StateKind kind) {
+void draw_state_badge(ImDrawList *draw, const ImVec2 &center, float radius, StateKind kind, bool on_color) {
   if (kind == StateKind::None)
     return;
   const ImVec4 &color = kind == StateKind::Ok ? colors::green : kind == StateKind::Warn ? colors::orange : colors::red;
-  const ImU32   ink   = ImGui::GetColorU32(color);
+  const ImU32   state = ImGui::GetColorU32(color);
+  const ImU32   white = IM_COL32(255, 255, 255, 255);
+  const ImU32   ink   = on_color ? state : white;
   const float   line  = std::max(1.5f, radius * 0.16f);
-  draw->AddCircleFilled(center, radius, IM_COL32(255, 255, 255, 255), 24);
-  draw->AddCircle(center, radius - line * 0.5f, ink, 24, line);
+  draw->AddCircleFilled(center, radius, on_color ? white : state, 24);
+  if (on_color)
+    draw->AddCircle(center, radius - line * 0.5f, state, 24, line);
   const auto at = [&center, radius](float x, float y) { return ImVec2(center.x + x * radius, center.y + y * radius); };
   const float stroke = std::max(1.6f, radius * 0.2f);
   if (kind == StateKind::Ok) {
@@ -880,11 +883,11 @@ void draw_state_badge(ImDrawList *draw, const ImVec2 &center, float radius, Stat
   }
 }
 
-void state_badge(StateKind kind, const char *tooltip) {
+void state_badge(StateKind kind, const char *tooltip, bool on_color) {
   const float  size   = ImGui::GetTextLineHeight();
   const ImVec2 origin = ImGui::GetCursorScreenPos();
   ImGui::Dummy(ImVec2(size, size));
-  draw_state_badge(ImGui::GetWindowDrawList(), ImVec2(origin.x + size * 0.5f, origin.y + size * 0.5f), size * 0.5f, kind);
+  draw_state_badge(ImGui::GetWindowDrawList(), ImVec2(origin.x + size * 0.5f, origin.y + size * 0.5f), size * 0.5f, kind, on_color);
   if (tooltip && *tooltip)
     ImGui::SetItemTooltip("%s", tooltip);
 }
@@ -909,7 +912,7 @@ void status_banner(const std::string &raw, const ImVec4 &color, float scale, Sta
   ImDrawList  *draw = ImGui::GetWindowDrawList();
   draw->AddRectFilled(origin, end, ImGui::GetColorU32(color), 6.0f);
   if (badge != StateKind::None)
-    draw_state_badge(draw, ImVec2(origin.x + padding.x + line * 0.575f, origin.y + padding.y + line * 0.5f), line * 0.575f, badge);
+    draw_state_badge(draw, ImVec2(origin.x + padding.x + line * 0.575f, origin.y + padding.y + line * 0.5f), line * 0.575f, badge, true);
   ImGui::SetCursorScreenPos(ImVec2(origin.x + padding.x + lead, origin.y + padding.y));
   ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
   ImGui::PushTextWrapPos(origin.x + width - padding.x - ImGui::GetWindowPos().x);

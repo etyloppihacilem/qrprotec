@@ -1105,9 +1105,13 @@ dialog.order-explain .legend { row-gap: 2px; }
    Coche verte = valide, fleche en cercle avec horloge orange = vérif recommandee, croix rouge = a traiter. */
 .state-badge { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.45em; height: 1.45em;
   border-radius: 50%; background: #fff; border: 2px solid currentColor; box-sizing: border-box; vertical-align: -0.35em; }
-.state-badge.ok { color: var(--green); }
-.state-badge.warn { color: var(--orange); }
-.state-badge.bad { color: var(--red); }
+/* sur fond blanc ou neutre : cercle plein de la couleur de l'etat, icone blanche ; sur un fond de couleur (bandeau
+   d'etat) : cercle blanc, icone de la couleur (.banner .state-badge) */
+.state-badge.ok { --state: var(--green); }
+.state-badge.warn { --state: var(--orange); }
+.state-badge.bad { --state: var(--red); }
+.state-badge { background: var(--state); border-color: var(--state); color: #fff; }
+.banner .state-badge { background: #fff; color: var(--state); }
 .state-badge > .icon { width: 72%; height: 72%; margin: 0; }
 .list li > .state-badge { font-size: 1.05rem; }
 /* etat d'un lot dans une liste (etat des lots, départ) : bulle et premier mot, couleur de l'etat */
