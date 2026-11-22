@@ -307,7 +307,7 @@ function renderLotFiche(body, lot) {
       `Réassort sans vérif complète : encore ${nb(lot.restock_credit.outings_left, 'sortie')}, `
       + `jusqu'au ${fmtDate(lot.restock_credit.until)}.`),
     expiryLine(lot),
-    full ? revisionLine(lot) : '',
+    ...(full ? revisionLine(lot) : []), // une ligne par entretien (tableau) : replaceChildren ne deplie pas les tableaux
     full ? lotDisinfectionLine(lot) : '',
     !lot.verif_recommended || !full ? '' : el('p', {}, lot.restocked_count
       ? `⚠ Réassort de ${nb(lot.restocked_count, 'item')} ${fmtOn(lot.restocked, { long: true })}${lot.restocked_by ? ' par ' + lot.restocked_by : ''} : vérif complète recommandée.`
