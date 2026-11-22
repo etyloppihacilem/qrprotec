@@ -258,7 +258,7 @@ class LotsWindow final : public AppWindow {
         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(color));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
         // bulle d'etat (code commun web et poste) puis l'etat en clair
-        state_badge(top ? state_kind(lot["global"]["kind"].str()) : lot_state_kind(status));
+        state_badge(top ? state_kind(lot["global"]["kind"].str()) : lot_state_kind(status), nullptr, true); // cellule coloree
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
         if (top)
           ImGui::TextUnformatted(short_label(lot["global"]["label"].str()).c_str());

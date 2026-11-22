@@ -147,10 +147,12 @@ void help_marker(const char *text);
 enum class StateKind { None, Ok, Warn, Bad };
 StateKind state_kind(const std::string &kind); // "ok", "warn", "bad" de l'API
 StateKind state_kind_of(const ImVec4 &color);   // couleur d'un etat (colors::green / orange / red)
-// Bulle dessinee centree en `center` (rayon en pixels), sans toucher au curseur
-void draw_state_badge(ImDrawList *draw, const ImVec2 &center, float radius, StateKind kind);
+// Bulle dessinee centree en `center` (rayon en pixels), sans toucher au curseur. on_color : posee sur un fond de la
+// couleur d'un etat (bandeau, cellule coloree) : cercle blanc, icone de la couleur ; sinon (fond blanc ou neutre)
+// cercle plein de la couleur, icone blanche
+void draw_state_badge(ImDrawList *draw, const ImVec2 &center, float radius, StateKind kind, bool on_color = false);
 // Bulle a la place d'un element, a la hauteur d'une ligne de texte (SameLine() ensuite pour ecrire a cote)
-void state_badge(StateKind kind, const char *tooltip = nullptr);
+void state_badge(StateKind kind, const char *tooltip = nullptr, bool on_color = false);
 // Texte d'un etat sans son symbole de tete (✔ ✘ ⚠ ! ○) : la bulle le remplace
 std::string state_text(const std::string &label);
 
