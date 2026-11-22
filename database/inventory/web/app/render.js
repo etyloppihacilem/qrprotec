@@ -511,7 +511,7 @@ function renderLot() {
   const view = $('#lot-view');
   const lot = state.lot;
   if (!lot) {
-    view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette publique ou clé d'un lot" + (showIds() ? ', ou saisissez son identifiant (menu ⋯).' : '.')));
+    view.replaceChildren(el('p', {}, "Aucun lot sélectionné. Scannez l'étiquette d'un lot" + (showIds() ? ', ou saisissez son identifiant (menu ⋯).' : '.')));
     return;
   }
   const plan = planSession();
