@@ -30,6 +30,7 @@ finit par une case « Certifié par le TECH <antenne> » avec un espace pour la 
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import timedelta
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -44,7 +45,7 @@ from .models import (ABSENCE_KINDS, ItemMovement, ItemRevision, Items, MovementK
 from .services import lot_requirements
 
 if TYPE_CHECKING:
-    from datetime import date, datetime, timedelta
+    from datetime import date, datetime
     from inventory.models import Lots, Secouristes
     from inventory.services import Requirement
 
@@ -174,6 +175,9 @@ class LotState:
     last_verif: Verifs | None = None
     sealed: Operation | None = None                     # Operation SEAL en vigueur a T
     lacking: list[tuple[Requirement, int]] = field(default_factory=list)  # (attendu, manquants)
+    # debut de la vérif en cascade dont la derniere vérif du lot est la fin (lot parent : debut de la 1re etape, celle
+    # d'un de ses sous-lots), son debut a lui pour un lot sans sous-lot ; None : pas d'heure de debut enregistree
+    verif_start: datetime | None = None
     content_change: Operation | None = None             # derniere modification du contenu attendu avant T
     changed_since: bool = False                         # contenu attendu modifie apres T
 
@@ -273,6 +277,31 @@ def seals(lots: list[Lots], at: datetime) -> dict[str | None, Operation]:
     return {lot_id: operation for lot_id, operation in last.items() if operation.kind == OperationKind.SEAL}
 
 
+# etapes d'une meme vérif en cascade : chacune a moins de CASCADE_GAP de la suivante (comme views.public, fun_stats)
+CASCADE_GAP = timedelta(minutes=30)
+CASCADE_MAX = timedelta(hours=12)  # au-dela : jamais la meme vérif
+
+
+def cascade_start(verif: Verifs, sub_lots: list[str]) -> datetime | None:
+    """Debut de la vérif en cascade qui finit par verif (lot parent valide apres ses sous-lots, ex : VPS > armoires >
+    sacs) : en remontant le temps, les vérifs de ses sous-lots faites avant elle, chacune a moins de CASCADE_GAP de
+    l'etape suivante, et le debut de la plus ancienne. None si la vérif n'a pas d'heure de debut (vérif d'avant le
+    chronometrage)."""
+    if verif.started is None:
+        return None
+    start = verif.started
+    if not sub_lots:
+        return start
+    steps = (Verifs.objects.filter(lot_id__in=sub_lots, datetime__lte=verif.datetime,
+                                   datetime__gte=verif.datetime - CASCADE_MAX)
+             .exclude(id=verif.id).order_by('-datetime', '-id').only('datetime', 'started'))
+    for step in steps:
+        if start - step.datetime > CASCADE_GAP:
+            break
+        start = min(start, step.started or step.datetime)
+    return start
+
+
 def content_changes(lot: Lots) -> Q:
     """Operations du journal qui fixent le contenu attendu du lot : creation ou modification du contenu de son type,
     modification de son contenu propre."""
@@ -321,10 +350,21 @@ def state_at(root: Lots, at: datetime) -> list[LotState]:
     verifs = last_verifs(lots, at)
     sealed = seals(lots, at)
     states: dict[str, LotState] = {}
+    parent_of = {lot.id: lot.parent_id for lot in lots}
+    below: defaultdict[str | None, list[str]] = defaultdict(list)  # lot -> tous ses sous-lots (en profondeur)
+    for lot in lots:
+        parent = parent_of.get(lot.id)
+        seen: set[str] = set()
+        while parent is not None and parent in parent_of and parent not in seen:
+            seen.add(parent)
+            below[parent].append(lot.id)
+            parent = parent_of[parent]
     for lot in lots:
         change, since = content_change(lot, at)
         states[lot.id] = LotState(lot, lot.depth, lot_requirements(lot), last_verif=verifs.get(lot.id),
                                   sealed=sealed.get(lot.id), content_change=change, changed_since=since)
+        verif = verifs.get(lot.id)
+        states[lot.id].verif_start = cascade_start(verif, below[lot.id]) if verif is not None else None
     present = [item for iid, (item, _) in located.items() if iid not in absent]
     scans, tasks = last_scans(present, at)
     revisions = last_revisions(present, at)
@@ -516,15 +556,18 @@ class ReportWriter:
             self.text(MARGIN + 10, line, size=7.5, grey=GREY_TEXT, step=10)
         self.y = top + height + 4
 
-    def verif_line(self, verif: Verifs) -> str:
+    def verif_line(self, verif: Verifs, started: datetime | None) -> str:
+        """started : debut de la vérif, celui de la 1re etape pour un lot parent valide en cascade (cascade_start)."""
         others = [who(identity) for identity in verif.participants if identity and identity != verif.by]
         names = join_names([who(verif.by), *others])
-        if verif.started is not None and verif.started < verif.datetime:
-            start, end = timezone.localtime(verif.started), timezone.localtime(verif.datetime)
-            when = (f'{long_datetime(verif.started, seconds=True)}, terminée '
+        if started is not None and started < verif.datetime:
+            start, end = timezone.localtime(started), timezone.localtime(verif.datetime)
+            whole = verif.started is not None and started < verif.started  # sous-lots compris
+            when = (f'{long_datetime(started, seconds=True)}, terminée '
                     + (f"à {end.strftime('%H:%M:%S')}" if start.date() == end.date()
                        else f'le {long_datetime(verif.datetime, seconds=True)}')
-                    + f' (durée {duration(verif.datetime - verif.started)})')
+                    + f' (durée {duration(verif.datetime - started)}'
+                    + (', sous-lots compris)' if whole else ')'))
             line = f'Dernière vérif : commencée le {when}, par {names}'
         else:
             line = f'Dernière vérif : {long_datetime(verif.datetime, seconds=True)}, par {names}'
@@ -579,7 +622,7 @@ class ReportWriter:
         self.text(x, f'{lot.lot_type.name} · {lot.id} · {what}', size=9, grey=GREY_TEXT, step=13)
         verif = state.last_verif
         if verif is not None:  # noms complets : la ligne peut deborder, elle passe a la ligne au lieu d'etre coupee
-            self.paragraph(x, self.verif_line(verif), 9, 12, max_lines=4)
+            self.paragraph(x, self.verif_line(verif, state.verif_start), 9, 12, max_lines=4)
         elif state.counted or state.items:
             self.text(x, 'Dernière vérif : aucune avant cette date', size=9, step=12)
         if state.sealed is not None:
