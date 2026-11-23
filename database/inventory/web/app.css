@@ -1115,11 +1115,13 @@ dialog.order-explain .legend { row-gap: 2px; }
 .state-badge > .icon { width: 72%; height: 72%; margin: 0; }
 .list li > .state-badge { font-size: 1.05rem; }
 /* etat d'un lot dans une liste (etat des lots, départ) : bulle et premier mot, couleur de l'etat */
-.lot-state { display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: .75rem; font-weight: 700; white-space: nowrap; }
-.lot-state.ok { color: var(--green); }
-.lot-state.warn { color: var(--orange); }
-.lot-state.bad { color: var(--red); }
-.lot-state .state-badge { font-size: 1rem; }
+/* dans un cadre plein de la couleur, texte blanc, comme l'ancienne pastille : bulle blanche, icone de la couleur */
+.lot-state { display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: .75rem; font-weight: 700; white-space: nowrap;
+  padding: 3px 8px 3px 3px; border-radius: 999px; background: var(--state); color: #fff; }
+.lot-state.ok { --state: var(--green); }
+.lot-state.warn { --state: var(--orange); }
+.lot-state.bad { --state: var(--red); }
+.lot-state .state-badge { font-size: 1rem; background: #fff; color: var(--state); }
 
 /* Cadre d'etat d'un lot (fiche, onglet Lot) : bulle + etat, de quand il date en sous-titre */
 .banner.state-card { padding: 9px 12px; }
