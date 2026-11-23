@@ -371,6 +371,35 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         self.assertIn('\\(dur\xe9e 7 min 02 s, sous-lots compris\\)', text)  # B+ 1 : toute la cascade
         self.assertIn('\\(dur\xe9e 2 min 00 s\\)', text)  # Sac O2 1 : son etape seule
 
+    def test_revision_and_disinfection_at_report_date(self) -> None:
+        # garrot revise tous les mois (inutilisable en retard), desinfecte tous les 6 mois ; recu il y a 100 jours
+        ItemType.objects.filter(type='garrot').update(consumable=False, revision_months=1, revision_usable=False,
+                                                      revision_tasks=['Sangle intacte'], disinfection_months=6)
+        garrot = self.create(ItemType.objects.get(type='garrot'), None, 1)[0]
+        Items.objects.filter(iid=garrot.iid).update(location=self.lot, added=self.ago(100))
+        due = self.today + timedelta(days=20)
+        models.ItemRevision.objects.create(item=garrot, kind='revision', at=self.ago(10), by='M:M001',
+                                           tasks=['Sangle intacte'], next_due=due)
+        Operation.objects.create(kind=OperationKind.REVISION, by='M:M001', at=self.ago(10),
+                                 details={'items': [garrot.iid], 'next_due': due.isoformat()})
+        Lots.objects.filter(id=self.lot.id).update(disinfection_months=6)
+        lot_due = self.today + timedelta(days=170)
+        Operation.objects.create(kind=OperationKind.DISINFECTION, by='M:P001', at=self.ago(9), lot=self.lot,
+                                 details={'next_due': lot_due.isoformat(), 'manual': False})
+        text = ' '.join(self.text(self.report()).split())
+        done = timezone.localdate(self.ago(10)).strftime('%d/%m/%Y')
+        self.assertIn(f"(R\xe9vision : derni\xe8re le {done} \\(t\xe2ches coch\xe9es : Sangle intacte\\), prochaine le "
+                      f"{due.strftime('%d/%m/%Y')})", text)
+        # desinfection jamais faite : premiere echeance a la reception + 6 mois
+        self.assertIn('D\xe9sinfection : aucune enregistr\xe9e avant cette date, prochaine le', text)
+        self.assertIn(f"(D\xe9sinfection du lot : derni\xe8re le {timezone.localdate(self.ago(9)).strftime('%d/%m/%Y')}, "
+                      f"prochaine le {lot_due.strftime('%d/%m/%Y')})", text)
+        # il y a 20 jours : revision du mois en retard depuis la reception, le garrot est inutilisable a cette date
+        text = ' '.join(self.text(self.report(20)).split())
+        self.assertIn('EN RETARD \xe0 cette date', text)
+        self.assertIn('(r\xe9vision en retard)', text)
+        self.assertNotIn('Désinfection du lot : dernière', text)
+
     def test_admins_only_and_past_dates(self) -> None:
         badge = {'matricule': 'M001', 'key': self.user.new_key}
         response = self.client.post(f'/api/lots/{self.root.id}/state-report/', json.dumps({'user': badge}),
