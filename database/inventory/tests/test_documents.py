@@ -354,6 +354,23 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         self.assertIn('0.12 0.56 0.23 rg BT /F1 7.5 Tf', text)
         self.assertIn('0.14 0.39 0.7 rg BT /F2 7.5 Tf', text)
 
+    def test_cascade_duration_on_parent(self) -> None:
+        # vérif en cascade : Sac A (12:00 -> 12:05), Sac O2 1 (12:05 -> 12:07), puis B+ 1 valide a 12:07:02
+        end = self.ago(1)
+        sac_a = Verifs.objects.get(lot=self.lot)
+        Verifs.objects.filter(id=sac_a.id).update(started=end - timedelta(minutes=7, seconds=2),
+                                                  datetime=end - timedelta(minutes=2, seconds=2))
+        Verifs.objects.create(lot=self.o2, by='M:M001', datetime=end - timedelta(seconds=2),
+                              started=end - timedelta(minutes=2, seconds=2), complete=True)
+        Verifs.objects.create(lot=self.root, by='M:M001', datetime=end, started=end - timedelta(seconds=1),
+                              complete=True)
+        # vérif plus ancienne du Sac O2, hors de cette cascade : ne compte pas
+        Verifs.objects.create(lot=self.o2, by='M:M001', datetime=end - timedelta(hours=3),
+                              started=end - timedelta(hours=4), complete=True)
+        text = ' '.join(self.text(self.report(0.5)).split())
+        self.assertIn('\\(dur\xe9e 7 min 02 s, sous-lots compris\\)', text)  # B+ 1 : toute la cascade
+        self.assertIn('\\(dur\xe9e 2 min 00 s\\)', text)  # Sac O2 1 : son etape seule
+
     def test_admins_only_and_past_dates(self) -> None:
         badge = {'matricule': 'M001', 'key': self.user.new_key}
         response = self.client.post(f'/api/lots/{self.root.id}/state-report/', json.dumps({'user': badge}),
