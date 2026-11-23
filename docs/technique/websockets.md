@@ -19,9 +19,11 @@ Fichiers concernés :
 | `database/inventory/tests/test_live.py` | `LiveHubTests` avec un `FakeSocket`. |
 
 Le **front poste (ImGui) n'utilise pas ces WebSockets** : sa vérif, y compris en cascade, reste
-locale au poste et n'apparaît pas dans le suivi en direct. Seul le front web publie et suit. Le seul
-WebSocket du poste est celui du téléphone-douchette (`/ws/scanner/front`), sans rapport avec ce qui
-suit.
+locale au poste et n'apparaît pas dans le suivi en direct. Seul le front web publie et suit. Le poste
+n'ouvre que deux WebSockets, sans rapport avec ce qui suit : celui du téléphone-douchette
+(`/ws/scanner/front`) et celui des impressions en attente (`/ws/label-prints`, poste principal
+seulement, ouvert 15 min après chaque nouvelle impression ; voir `inventory/print_live.py` et
+[back.md](back.md)).
 
 ## Vue d'ensemble
 

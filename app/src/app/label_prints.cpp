@@ -16,6 +16,9 @@
 //   etiquette en image 1 bit et l'envoie (send_to_poste) ; le poste l'imprime telle quelle.
 // Sur le poste (le seul front branche sur l'API locale), la fenetre « Impressions en attente » s'ouvre d'elle-meme a
 // chaque nouvelle demande, meme sans personne de connecte. Une demande pas imprimee expire en 24 h (serveur).
+// Le poste interroge la file toutes les 20 s. Des qu'il y voit une nouvelle demande, il ouvre un WebSocket
+// (/ws/label-prints, database/inventory/print_live.py) : chaque changement de la file lui est signale et il la relit
+// aussitot, sans attendre. 15 min sans nouvelle impression : le WebSocket se ferme, l'interrogation reprend.
 
 #include "../core/codes.hpp"
 #include "../core/json.hpp"
@@ -24,6 +27,7 @@
 #include "../render/raster.hpp"
 #include "../ui/widgets.hpp"
 #include "app.hpp"
+#include "app_internal.hpp"
 #include "labels.hpp"
 
 #include "imgui.h"
@@ -40,6 +44,7 @@ constexpr double      kPollSeconds = 20.0;
 constexpr std::size_t kSendBytes   = 1500000; // par envoi au poste (le serveur refuse les requetes de plus de 2,5 Mo)
 constexpr std::size_t kSendLabels  = 200;     // par envoi (label_prints.MAX_COUNT)
 constexpr double      kAutoCloseSeconds = 15 * 60.0; // fenetre fermee apres 15 min sans rien en attente
+constexpr double      kLiveSeconds = 15 * 60.0; // en direct jusqu'a 15 min apres la derniere impression
 
 // Etiquette rendue -> {description, width, height, ppm, bits} : 1 bit par pixel (1 = noir), lignes de gauche a
 // droite, bit de poids fort d'abord (format de label_prints._check_label)
@@ -95,32 +100,82 @@ std::string jobs_title(const std::vector< PrintJob > &jobs) {
 
 } // namespace
 
+void App::request_label_prints_refresh() {
+  if (label_prints_.loading)
+    label_prints_.again = true; // la lecture en cours a pu partir avant le changement
+  else
+    refresh_label_prints();
+}
+
+void App::update_label_prints_live() {
+  LabelPrints &state = label_prints_;
+  if (label_prints_link_.session_gone()) {
+    // 404 : serveur d'avant ce WebSocket, on s'en tient a l'interrogation toutes les 20 s
+    label_prints_link_.stop();
+    state.live_unsupported = true;
+  }
+  const bool wanted = kLocalPrinting && main_poste() && !state.live_unsupported && ImGui::GetTime() < state.live_until;
+  if (!wanted) {
+    if (label_prints_link_.running())
+      label_prints_link_.stop(); // 15 min sans impression : l'interrogation reprend
+    return;
+  }
+  if (!label_prints_link_.running()) {
+    label_prints_link_.start(settings.api_endpoint(), "/ws/label-prints", "impressions en direct");
+    return;
+  }
+  for (const std::string &text : label_prints_link_.take_messages()) {
+    std::string error;
+    const Json  message = Json::parse(text, &error);
+    if (!error.empty() || !message.is_object())
+      continue;
+    // hello : (re)connecte, rien n'a ete rate entre-temps ; changed : nouvelle demande, file lancee ou annulee
+    const std::string type = message["type"].str();
+    if (type == "hello" || type == "changed")
+      request_label_prints_refresh();
+  }
+}
+
 void App::refresh_label_prints() {
   label_prints_.loading   = true;
+  label_prints_.again     = false;
   label_prints_.next_poll = ImGui::GetTime() + kPollSeconds;
   if (label_prints_.remote) {
     // autre ordinateur, admins : files du poste, a gerer et lancer a distance
     api.post("/api/label-prints/queues/", Json::object(), [this](const ApiResult &result) {
       label_prints_.loading = false;
+      if (label_prints_.again) {
+        refresh_label_prints();
+        return;
+      }
       if (!result.ok) {
         label_prints_.error = result.error;
         return;
       }
-      label_prints_.error = "";
-      label_prints_.data  = result.data;
+      label_prints_.error   = "";
+      label_prints_.data    = result.data;
+      label_prints_.checked = now_hhmm();
     });
     return;
   }
   api.get("/api/label-prints/pending/", [this](const ApiResult &result) {
     label_prints_.loading = false;
+    if (label_prints_.again) {
+      refresh_label_prints(); // changement signale pendant la lecture : on relit
+      return;
+    }
     if (!result.ok)
       return; // serveur injoignable ou ancien serveur : rien a montrer, on reessaie au prochain tour
-    label_prints_.data = result.data;
-    bool fresh         = false;
+    label_prints_.data    = result.data;
+    label_prints_.checked = now_hhmm();
+    bool fresh            = false;
     for (const Json &request : result.data["pending"].items())
       fresh |= label_prints_.seen.insert(request["id"].integer()).second;
-    if (fresh)
+    if (fresh) {
       open_label_prints();
+      // nouvelle impression : les suivantes arrivent en direct pendant 15 min
+      label_prints_.live_until = ImGui::GetTime() + kLiveSeconds;
+    }
     // file lancee a distance par un admin (web ou autre ordinateur) : imprimee sans que personne n'appuie, une file
     // a la fois ; la suivante part au tour d'apres
     if (label_prints_.busy)
@@ -254,8 +309,9 @@ void App::launch_label_prints(std::vector< int > ids) {
     refresh_label_prints();
     return;
   }
-  label_prints_.busy = true;
-  const int id       = ids.front();
+  label_prints_.busy       = true;
+  label_prints_.live_until = std::max(label_prints_.live_until, ImGui::GetTime() + kLiveSeconds);
+  const int id             = ids.front();
   ids.erase(ids.begin());
   api.post("/api/label-prints/" + std::to_string(id) + "/print/", Json::object(),
            [this, ids](const ApiResult &result) {
@@ -367,6 +423,17 @@ void App::draw_label_prints() {
                            "Pour de nouvelles étiquettes d'items, collez chacune sur un item de ce type : les items "
                            "sont ajoutés au stock. Une demande pas imprimée en 24 h disparaît.");
   ImGui::PopTextWrapPos();
+  // nouvelles demandes : vues aussitot en direct, sinon au prochain tour (20 s) ou a la main
+  ImGui::BeginDisabled(state.loading);
+  if (small_button(state.loading ? "Rafraîchissement..." : "Rafraîchir"))
+    request_label_prints_refresh();
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (!state.remote && label_prints_link_.connected())
+    ImGui::TextColored(colors::green, "En direct : les nouvelles impressions arrivent aussitôt.");
+  else
+    ImGui::TextDisabled("Nouvelles impressions vérifiées toutes les %d s%s.", static_cast< int >(kPollSeconds),
+                        state.checked.empty() ? "" : (", dernière fois à " + state.checked).c_str());
   ImGui::Spacing();
 
   // file affichee : la seule, celle choisie (a la main ou par badge), sinon celle de la personne connectee

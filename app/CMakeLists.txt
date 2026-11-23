@@ -154,7 +154,7 @@ add_library(QRProtecCore STATIC
     src/net/front_config.cpp
     src/net/http.cpp
     src/net/api_client.cpp
-    src/net/remote_scanner_link.cpp
+    src/net/websocket_link.cpp
     src/net/websocket.cpp
     src/printer/logging.cpp
     src/render/image_loader.cpp

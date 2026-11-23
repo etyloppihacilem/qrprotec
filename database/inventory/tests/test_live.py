@@ -32,7 +32,7 @@ class RemoteScannerTests(TransactionTestCase):
         hub.enabled = True
         application = get_internal_wsgi_application()
         cls.ports = {}
-        for role in ('public', 'local'):
+        for role in ('public', 'local', 'remote'):
             port = cls._free_port()
             cls.ports[role] = port
             threading.Thread(target=run_server, daemon=True,
@@ -47,7 +47,7 @@ class RemoteScannerTests(TransactionTestCase):
             sock.bind(('127.0.0.1', 0))
             return sock.getsockname()[1]
 
-    def http(self, role: str, method: str, path: str, body: dict[str, int] | None = None) -> tuple[int, Any]:
+    def http(self, role: str, method: str, path: str, body: dict[str, Any] | None = None) -> tuple[int, Any]:
         import http.client
         connection = http.client.HTTPConnection('127.0.0.1', self.ports[role], timeout=5)
         connection.request(method, path, json.dumps(body) if body is not None else None,
@@ -57,8 +57,8 @@ class RemoteScannerTests(TransactionTestCase):
         is_json = response.getheader('Content-Type', '').startswith('application/json')
         return response.status, (json.loads(data) if is_json and data else None)
 
-    def ws(self, role: str, path: str) -> RawWebSocket:
-        return RawWebSocket('127.0.0.1', self.ports[role], path)
+    def ws(self, role: str, path: str, headers: dict[str, str] | None = None) -> RawWebSocket:
+        return RawWebSocket('127.0.0.1', self.ports[role], path, headers)
 
     def create_session(self, minutes: int = 5) -> tuple[dict[str, Any], str, str]:
         code, body = self.http('local', 'POST', '/api/remote-scanner/', {'timeout_minutes': minutes})
@@ -99,6 +99,43 @@ class RemoteScannerTests(TransactionTestCase):
         # les requetes HTTP ordinaires passent toujours
         code, health = self.http('public', 'GET', '/api/health/')
         self.assertTrue(health['remote_scanner'])
+
+    def test_label_prints_live(self) -> None:
+        # poste principal : chaque changement de la file d'impression lui est signale aussitot
+        import base64
+        from ..print_live import hub as print_hub
+        poste = self.ws('local', '/ws/label-prints')
+        self.assertEqual(poste.status, 101)
+        self.assertEqual(poste.receive(), {'type': 'hello'})
+        poste.send({'type': 'ping'})
+        self.assertEqual(poste.receive(), {'type': 'pong'})
+        label = {'description': 'Lot 1/1', 'width': 8, 'height': 1, 'ppm': 8, 'bits': base64.b64encode(b'\0').decode()}
+        code, sent = self.http('local', 'POST', '/api/label-prints/send/', {'title': 'Lot', 'labels': [label]})
+        self.assertEqual(code, 201)
+        self.assertEqual(poste.receive(), {'type': 'changed'})
+        code, _ = self.http('local', 'POST', f"/api/label-prints/{sent['id']}/print/", {})
+        self.assertEqual(code, 200)
+        self.assertEqual(poste.receive(), {'type': 'changed'})
+        poste.close()
+        import time
+        deadline = time.monotonic() + 5
+        while print_hub.count() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertEqual(print_hub.count(), 0)
+
+    def test_label_prints_live_access(self) -> None:
+        # pas sur l'API publique ; sur l'API distante, seulement la cle du poste principal
+        from ..models import FrontKey
+        self.assertEqual(self.ws('public', '/ws/label-prints').status, 404)
+        self.assertEqual(self.ws('remote', '/ws/label-prints').status, 401)
+        front, key = FrontKey.create('Ordi du TECH')
+        self.assertEqual(self.ws('remote', '/ws/label-prints', {'X-QRProtec-Key': key}).status, 403)
+        front.poste = True
+        front.save(update_fields=['poste'])
+        kiosk = self.ws('remote', '/ws/label-prints', {'X-QRProtec-Key': key})
+        self.assertEqual(kiosk.status, 101)
+        self.assertEqual(kiosk.receive(), {'type': 'hello'})
+        kiosk.close()
 
     def test_session_expires_after_disconnection(self) -> None:
         import time
@@ -731,14 +768,16 @@ class LiveHubTests(ApiTestCase):
 class RawWebSocket:
     """Client WebSocket minimal pour les tests (trames texte masquees)."""
 
-    def __init__(self, host: str, port: int, path: str) -> None:
+    def __init__(self, host: str, port: int, path: str, headers: dict[str, str] | None = None) -> None:
         import base64
         import os
         import socket
         self.sock = socket.create_connection((host, port), timeout=5)
         key = base64.b64encode(os.urandom(16)).decode()
+        extra = ''.join(f'{name}: {value}\r\n' for name, value in (headers or {}).items())
         self.sock.sendall((f'GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n'
-                           f'Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n').encode())
+                           f'Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n'
+                           f'{extra}\r\n').encode())
         head = b''
         while b'\r\n\r\n' not in head:
             chunk = self.sock.recv(1)
