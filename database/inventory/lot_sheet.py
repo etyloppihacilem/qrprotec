@@ -148,6 +148,23 @@ def _num(value: int | float) -> str:
     return f'{value:.2f}'.rstrip('0').rstrip('.')
 
 
+# Teinte d'un trace : niveau de gris (0 noir, 1 blanc) ou couleur RVB (0..1)
+Shade = float | tuple[float, float, float]
+
+
+def _shade(shade: Shade, stroke: bool = False) -> bytes:
+    """Operateur de couleur de remplissage (g / rg) ou de trait (G / RG)."""
+    if isinstance(shade, tuple):
+        return b'%s %s %s %s' % (*(_num(value).encode() for value in shade), b'RG' if stroke else b'rg')
+    return b'%s %s' % (_num(shade).encode(), b'G' if stroke else b'g')
+
+
+def rgb(hex_color: str) -> tuple[float, float, float]:
+    """« #d11d1d » -> (r, v, b) entre 0 et 1."""
+    value = hex_color.lstrip('#')
+    return (int(value[0:2], 16) / 255, int(value[2:4], 16) / 255, int(value[4:6], 16) / 255)
+
+
 class Page:
     """Operations de dessin d'une page, en coordonnees « depuis le haut » (y croit vers le bas)."""
 
@@ -155,30 +172,32 @@ class Page:
         self.ops: list[bytes] = []
 
     def text(self, x: int | float, y: int | float, text: str, size: int | float = 10, bold: bool = False,
-             grey: float = 0.0, align: str = 'left') -> None:
+             grey: Shade = 0.0, align: str = 'left') -> None:
         if align == 'right':
             x -= text_width(text, size, bold)
         elif align == 'center':
             x -= text_width(text, size, bold) / 2
         font = b'/F2' if bold else b'/F1'
-        self.ops.append(b'%s g BT %s %s Tf %s %s Td %s Tj ET' % (
-            _num(grey).encode(), font, _num(size).encode(), _num(x).encode(), _num(PAGE_HEIGHT - y).encode(),
+        self.ops.append(b'%s BT %s %s Tf %s %s Td %s Tj ET' % (
+            _shade(grey), font, _num(size).encode(), _num(x).encode(), _num(PAGE_HEIGHT - y).encode(),
             _pdf_string(text)))
 
-    def rect(self, x: int | float, y: int | float, width: float, height: int | float, fill: float | None = None,
-             stroke: bool = True, line_width: int | float = 0.6, dash: tuple[int, int] | None = None) -> None:
-        """Rectangle de coin superieur gauche (x, y). fill : niveau de gris, ou None. dash : (trait, espace)."""
+    def rect(self, x: int | float, y: int | float, width: float, height: int | float, fill: Shade | None = None,
+             stroke: bool = True, line_width: int | float = 0.6, dash: tuple[int, int] | None = None,
+             stroke_shade: Shade = 0.0) -> None:
+        """Rectangle de coin superieur gauche (x, y). fill : niveau de gris ou couleur, ou None. dash : (trait,
+        espace). stroke_shade : teinte du trait."""
         ops = [b'%s w' % _num(line_width).encode()]
         if dash:
             ops.append(b'[%s %s] 0 d' % (_num(dash[0]).encode(), _num(dash[1]).encode()))
         if fill is not None:
-            ops.append(b'%s g' % _num(fill).encode())
+            ops.append(_shade(fill))
         ops.append(b'%s %s %s %s re' % (_num(x).encode(), _num(PAGE_HEIGHT - y - height).encode(),
                                         _num(width).encode(), _num(height).encode()))
         ops.append(b'B' if fill is not None and stroke else b'f' if fill is not None else b'S')
         if dash:
             ops.append(b'[] 0 d')
-        self.ops.append(b'0 G ' + b' '.join(ops))
+        self.ops.append(_shade(stroke_shade, stroke=True) + b' ' + b' '.join(ops))
 
     def qr(self, x: float, y: int, size: float, text: str) -> None:
         """QR code de text, carre de cote size depuis (x, y), modules noirs fusionnes par ligne."""
@@ -200,9 +219,9 @@ class Page:
         self.ops.append(b' '.join(ops))
 
     def line(self, x1: int | float, y1: int | float, x2: float, y2: int | float, line_width: float = 0.6,
-             grey: float = 0.0) -> None:
-        self.ops.append(b'%s G %s w %s %s m %s %s l S' % (
-            _num(grey).encode(), _num(line_width).encode(), _num(x1).encode(), _num(PAGE_HEIGHT - y1).encode(),
+             grey: Shade = 0.0) -> None:
+        self.ops.append(b'%s %s w %s %s m %s %s l S' % (
+            _shade(grey, stroke=True), _num(line_width).encode(), _num(x1).encode(), _num(PAGE_HEIGHT - y1).encode(),
             _num(x2).encode(), _num(PAGE_HEIGHT - y2).encode()))
 
     def stream(self) -> bytes:

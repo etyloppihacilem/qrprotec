@@ -281,13 +281,16 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         self.assertNotIn(i3.iid, text)  # ajoute apres la date du rapport
         self.assertIn('(Complet \xe0 cette date \\(tous les sous-lots\\))', text)
         self.assertIn('Derni\xe8re v\xe9rif : ', text)
-        self.assertIn('par Jeanne Dupont, M001 \\(avec Admin Poste, P001\\)', text)
+        self.assertIn('par Jeanne Dupont et Admin Poste', text)
+        # secouristes cites une fois avec leur matricule, en tete ; le nom seul ensuite
+        self.assertIn('(Jeanne Dupont \\(M001\\) et Admin Poste \\(P001\\).)', text)
+        self.assertEqual(text.count('M001'), 1)
         self.assertNotIn('hors connexion', text)
         self.assertIn('Sous-lot \xb7 Sac A', text)
         self.assertIn('Sous-lot \xb7 Sac O2 1', text)
         self.assertIn('(Certifi\xe9 par le TECH Paris 15)', text)
         self.assertIn('Signature :', text)
-        self.assertIn('par Admin Poste, P001', text)  # qui a edite le rapport : nom complet et matricule
+        self.assertIn('par Admin Poste)', text)  # qui a edite le rapport
         self.assertEqual(models.ServerSettings.get().antenna_name, 'Paris 15')
         op = Operation.objects.get(kind='lot_report')
         self.assertEqual((op.lot_id, op.by), (self.root.id, 'M:P001'))
@@ -296,7 +299,8 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         # vérif faite hors connexion il y a 7 jours, reçue par le serveur il y a 6 jours
         Verifs.objects.filter(lot=self.lot).update(received=self.ago(6))
         text = self.text(self.report(5))
-        self.assertIn('faite hors connexion, re\xe7ue par le serveur le', ' '.join(text.split()))
+        self.assertIn('faite hors', text)
+        self.assertIn('re\xe7ue par le serveur le', text)
 
     def test_absent_and_moved_items(self) -> None:
         i1, i2, i3 = self.items
@@ -322,6 +326,33 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         self.assertNotIn('(p\xe9rim\xe9)', text)  # encore bon il y a 5 jours
         text = self.text(self.report())
         self.assertIn('(p\xe9rim\xe9)', text)
+
+    def test_scan_times_duration_tasks_and_extra(self) -> None:
+        i1, i2, i3 = self.items
+        verif = Verifs.objects.get(lot=self.lot)
+        Verifs.objects.filter(id=verif.id).update(started=verif.datetime - timedelta(minutes=12, seconds=30))
+        VerifItem.objects.create(verif=verif, item=i2, scanned_at=verif.datetime - timedelta(minutes=3, seconds=7),
+                                 tasks=['Sachet intact', 'Rangé à plat'])
+        # 2 compresses attendues : la 3e (ajoutee il y a 1 jour) est en plus
+        LotRequirements.objects.filter(lot_type=self.lot.lot_type, item_type=self.compresses).update(quantity=2)
+        Items.objects.filter(iid=i1.iid).update(location=self.lot)
+        ItemMovement.objects.filter(item=i1, from_lot=self.lot, to_lot=None).delete()
+        Operation.objects.create(kind=OperationKind.CATALOG, by='M:P001', at=self.ago(20),
+                                 summary=f'contenu attendu modifié : {self.lot.lot_type}',
+                                 details={'type': self.lot.lot_type_id})
+        text = self.text(self.report())
+        local = timezone.localtime(verif.datetime)
+        self.assertIn(f"terminée à {local.strftime('%H:%M:%S')} \\(durée 12 min 30 s\\)", text)
+        scan = timezone.localtime(verif.datetime - timedelta(minutes=3, seconds=7)).strftime('%d/%m/%Y %H:%M:%S')
+        self.assertIn(f'({scan})', text)
+        self.assertIn('(Tâches cochées au dernier scan : Sachet intact · Rangé à plat)', text)
+        self.assertIn('(présent, en plus)', text)
+        self.assertIn('dont 1 en plus des attendus', text)
+        self.assertIn('Contenu attendu modifié pour la dernière fois le', text)
+        self.assertIn('par Admin Poste', text)
+        # couleurs du web : vert pour present, bleu pour en plus
+        self.assertIn('0.12 0.56 0.23 rg BT /F1 7.5 Tf', text)
+        self.assertIn('0.14 0.39 0.7 rg BT /F2 7.5 Tf', text)
 
     def test_admins_only_and_past_dates(self) -> None:
         badge = {'matricule': 'M001', 'key': self.user.new_key}

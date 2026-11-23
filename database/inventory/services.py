@@ -1017,7 +1017,8 @@ def _with_ancestors(lots: list[Lots] | QuerySet) -> list[Lots]:
 
 
 def perform_verif(lot: Lots | list[Lots] | None, iids: list[str], identity: str, partial: bool = False, participants: tuple[()] | list[str] = (), places: dict[str, str] | None = None, sealed: list[Lots] | tuple[()] = (), exclude: list[Lots] | tuple[()] = (),
-                  strict: bool = False, checked: dict[str, list[str]] | None = None, now: datetime | None = None) -> dict[str, Any]:
+                  strict: bool = False, checked: dict[str, list[str]] | None = None, now: datetime | None = None,
+                  started: datetime | None = None, scan_times: dict[str, datetime] | None = None) -> dict[str, Any]:
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -1054,8 +1055,14 @@ def perform_verif(lot: Lots | list[Lots] | None, iids: list[str], identity: str,
     - now : heure de la verif, celle des scans pour une verif faite hors connexion et envoyee plus tard
       (views.verif_time) : verifs, journal, passages et mouvements y sont dates, les peremptions jugees ce jour-la.
       L'heure de reception reste sur la verif (Verifs.received).
+    - started : debut de la verif (Verifs.started), scan_times : {iid: heure du scan} (VerifItem.scanned_at, et
+      dernier passage de l'item), heures de l'appareil recalees (views.device_times). Jamais apres now ; un scan
+      plus tot que started avance le debut.
     """
     now = now or timezone.now()
+    scan_times = {iid: min(at, now) for iid, at in (scan_times or {}).items()}
+    if started is not None or scan_times:
+        started = min([value for value in (started, *scan_times.values()) if value is not None] + [now])
     today = timezone.localdate(now)
     requested = list(dict.fromkeys(iids))
     participants = [value[:64] for value in dict.fromkeys(participants) if value and value != identity]
@@ -1195,9 +1202,10 @@ def perform_verif(lot: Lots | list[Lots] | None, iids: list[str], identity: str,
 
         verifs: dict[str | None, Verifs] = {}
         if group is None:
-            verifs[None] = Verifs.objects.create(lot=None, datetime=now, by=identity, participants=participants)
+            verifs[None] = Verifs.objects.create(lot=None, datetime=now, by=identity, participants=participants,
+                                                 started=started)
         for lot_id in verified_ids:
-            verifs[lot_id] = Verifs.objects.create(lot=by_id[lot_id], datetime=now, by=identity,
+            verifs[lot_id] = Verifs.objects.create(lot=by_id[lot_id], datetime=now, by=identity, started=started,
                                                    participants=participants,
                                                    lot_type_version=by_id[lot_id].lot_type.version,
                                                    lot_version=by_id[lot_id].version)
@@ -1227,7 +1235,10 @@ def perform_verif(lot: Lots | list[Lots] | None, iids: list[str], identity: str,
                 item.location = by_id[destination]
                 continue
             verif = verifs[destination if group is not None else None]
-            item.touch(identity, SeenWhile.VERIF, now)
+            seen_at = scan_times.get(item.iid)
+            item.touch(identity, SeenWhile.VERIF, seen_at or now)
+            # item a taches : compte seulement une fois toutes ses taches cochees (front), gardees comme ce jour-la
+            done_tasks = list(item.pack.item_type.tasks or [])
             item.missed_verifs = 0
             if item.status != ItemStatus.ACTIVE:
                 report['reactivated'].append(item.iid)
@@ -1236,7 +1247,8 @@ def perform_verif(lot: Lots | list[Lots] | None, iids: list[str], identity: str,
                 item.location = None
                 report['replaced'].append(item.iid)
                 counts[destination]['replaced'] += 1
-                entries.append(VerifItem(verif=verif, item=item, result=VerifResult.REPLACED, expired=expired))
+                entries.append(VerifItem(verif=verif, item=item, result=VerifResult.REPLACED, expired=expired,
+                                         scanned_at=seen_at, tasks=done_tasks))
             else:
                 item.status = ItemStatus.ACTIVE
                 if group is not None:
@@ -1251,7 +1263,8 @@ def perform_verif(lot: Lots | list[Lots] | None, iids: list[str], identity: str,
                 if item.unusable or item.disabled:
                     # signale inutilisable ou desactive : a remplacer (compte aussi dans expired)
                     report['unusable'].append(item.iid)
-                entries.append(VerifItem(verif=verif, item=item, result=VerifResult.PRESENT, expired=expired))
+                entries.append(VerifItem(verif=verif, item=item, result=VerifResult.PRESENT, expired=expired,
+                                         scanned_at=seen_at, tasks=done_tasks))
         for item in not_seen:
             expired = item.needs_replacement(today)
             verif = verifs[item.location_id if group is not None else None]

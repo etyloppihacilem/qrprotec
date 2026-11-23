@@ -683,7 +683,7 @@ def lot_state_report(request: Request, lot_id: str) -> HttpResponse:
             settings_row.save(update_fields=['antenna_name'])
     identity = format_identity_verified(user.matricule)
     now = timezone.now()
-    pdf = lot_report.lot_report_pdf(lot, at, lot_report.who(identity), settings_row.antenna_name, edited=now)
+    pdf = lot_report.lot_report_pdf(lot, at, identity, settings_row.antenna_name, edited=now)
     journal.record(OperationKind.LOT_REPORT, identity,
                    f"rapport d'état au {timezone.localtime(at).strftime('%d/%m/%Y %H:%M')}", lot=lot, at=now,
                    state_at=ser._date(at))
@@ -960,7 +960,9 @@ def verifs(request: Request) -> Response:
     "full" : « vérif complète » (bouton gestion et admins du front web) : les items et sous-lots facultatifs sont
     obligatoires pour cette verif (services.perform_verif strict).
     "done_at", "sent_at" : heures de l'appareil a la validation et a l'envoi (verif faite hors connexion, envoyee
-    plus tard) : la verif est datee a l'heure des scans (verif_time), l'heure de reception est gardee a cote."""
+    plus tard) : la verif est datee a l'heure des scans (verif_time), l'heure de reception est gardee a cote.
+    "started_at", "scanned_at" : {iid: heure} : heures de l'appareil au debut de la verif et a chaque scan, recalees
+    de meme (device_times) : duree de la verif et heure du scan de chaque item (rapport d'etat, statistiques)."""
     entries = request.data.get('lots')
     iids = iid_list(request.data)
     step = bool(request.data.get('step'))
@@ -976,10 +978,13 @@ def verifs(request: Request) -> Response:
     if not is_local(request):
         require_label(lots, request.data, holders, sealed, team['labels'] if team else ())
     participants = [value for value in team['identities'] if value != identity] if team else []
+    when = verif_time(request.data)
+    started, scan_times = device_times(request.data, when or timezone.now())
     report = services.perform_verif(lots, iids, identity, bool(request.data.get('partial')),
                                     participants, place_map(request.data), sealed, excluded_lots(request.data, lots),
                                     strict=bool(request.data.get('full')) or bool(team and team['full']),
-                                    checked=checked_map(request.data), now=verif_time(request.data))
+                                    checked=checked_map(request.data), now=when,
+                                    started=started, scan_times=scan_times)
     report['participants'] = [ser._who(value) for value in [identity, *participants]]
     if team and step:
         live.hub.step(team, report, iids, final=bool(request.data.get('finish')))
@@ -1020,6 +1025,38 @@ def verif_time(data: dict[str, Any]) -> datetime | None:
     if received - done < VERIF_SENT_GAP:
         return None
     return done
+
+
+# heures de scan plus anciennes que cela avant la validation : ignorees (horloge folle, donnee abimee)
+SCAN_MAX_AGE = timedelta(hours=12)
+
+
+def device_times(data: dict[str, Any], done: datetime) -> tuple[datetime | None, dict[str, datetime]]:
+    """("started_at", "scanned_at") d'une verif : heures de l'appareil recalees sur l'horloge du serveur par
+    "sent_at" (comme verif_time : seul compte le temps ecoule sur l'appareil jusqu'a l'envoi). Jamais apres done
+    (heure de la verif), jamais plus de SCAN_MAX_AGE avant ; sans "sent_at", rien (heures de l'appareil non
+    recalables)."""
+    sent = _client_time(data.get('sent_at'))
+    if sent is None:
+        return None, {}
+    received = timezone.now()
+
+    def server_time(value: Any) -> datetime | None:
+        moment = _client_time(value)
+        if moment is None:
+            return None
+        moment = min(received - (sent - moment), done)
+        return moment if done - moment <= SCAN_MAX_AGE else None
+
+    started = server_time(data.get('started_at'))
+    raw = data.get('scanned_at')
+    scans: dict[str, datetime] = {}
+    if isinstance(raw, dict):
+        for iid, value in raw.items():
+            moment = server_time(value)
+            if moment is not None:
+                scans[str(iid)[:32]] = moment
+    return started, scans
 
 
 RECENT_VERIFS = 30

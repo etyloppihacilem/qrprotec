@@ -190,6 +190,9 @@ struct VerifSession {
     // scan d'un item, d'une etiquette ou d'un scelle d'un lot hors du lot en cours, alors que celui-ci est complet : il
     // est valide automatiquement, puis on continue vers ce lot (on y entre si after_enter)
     std::string                           started_in; // sous-lot dont on a lance la verif (ex : un kit du VPS)
+    // debut de la verif, ou de l'etape en cours d'une vérif en cascade (UTC ISO) : envoye avec la verif (started_at),
+    // pour sa duree (rapport d'etat, statistiques)
+    std::string                           started_at;
     std::set< std::string >               open_seals; // lots scelles dont on a choisi de verifier le contenu
     // items a cocher (gobelets, sucres : sans etiquette) coches a la main, par lot (services.perform_verif checked)
     std::map< std::string, std::set< std::string > > checked;
@@ -461,6 +464,7 @@ class App {
     bool verif_checked(const std::string &lot, const std::string &type) const;
     void toggle_verif_check(const std::string &lot, const std::string &type);
     Json verif_checked_body(const std::set< std::string > *scope = nullptr) const;
+    void verif_timing(Json &body) const;
     std::string                   discard_advice(const Json &item) const; // perime scanne : a jeter ou a remplacer
     std::set< std::string >       verif_intact() const; // lots scelles intacts de la verif et leurs sous-lots
     std::vector< const Json * >   partial_verif_lots() const; // lots complets d'une verif groupee incomplete

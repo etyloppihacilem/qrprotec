@@ -200,6 +200,13 @@ compte rendu et `lots/<id>/verifs/` (« 📶 Faite hors connexion · reçue par 
 « Dernière vérif » du rapport d'état PDF (« faite hors connexion, reçue par le serveur le … »). Un écart inattendu
 (heure de l'appareil modifiée entre la vérif et l'envoi) se voit ainsi d'un coup d'œil.
 
+Les fronts joignent aussi le début de la vérif (`started_at` : étiquette du lot scannée, ou fin de l'étape précédente
+d'une vérif en cascade) et l'heure de chaque scan (`scanned_at` : `{iid: heure}`). `views.device_times` les recale de
+la même façon (*réception − (sent_at − heure)*), jamais après la vérif ni plus de 12 h avant. Ils sont gardés dans
+`Verifs.started` et `VerifItem.scanned_at` (vides pour un front d'avant ces champs ou le scan d'un autre participant) :
+durée de la vérif et dernier scan de chaque item dans le rapport d'état, et de quoi faire des statistiques (durée des
+vérifs, items scannés par minute). Un item à tâches scanné garde ses tâches cochées dans `VerifItem.tasks`.
+
 ## Notifications
 
 ### Alertes (`notifications.py`)

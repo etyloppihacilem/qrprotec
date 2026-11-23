@@ -717,8 +717,11 @@ class GuestCardReuseTests(ApiTestCase):
         code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa', guest_antenne='Lyon 3')
         self.assertEqual((code, body['guest_antenna']), (200, 'Lyon 3'))
         from .. import lot_report
-        self.assertEqual(lot_report.who(f'M:{matricule}'), f"Léa Martin, invité de l'antenne Lyon 3, carte {matricule}")
-        self.assertEqual(lot_report.who('M:M001'), 'Jeanne Dupont, M001')
+        self.assertEqual(lot_report.cited(f'M:{matricule}'), f"Léa Martin (carte {matricule}, invité de l'antenne Lyon 3)")
+        self.assertEqual(lot_report.cited('M:M001'), 'Jeanne Dupont (M001)')
+        # dans la suite du rapport : le nom seul
+        self.assertEqual(lot_report.who(f'M:{matricule}'), 'Léa Martin')
+        self.assertEqual(lot_report.who('M:M001'), 'Jeanne Dupont')
 
     def test_unused_card_number_reused_not_in_upcoming(self) -> None:
         matricule, key = self.new_card()

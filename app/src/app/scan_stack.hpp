@@ -37,6 +37,7 @@ struct ScanEntry {
     // item a taches (etiquette de taches) : hors des iids tant que ses taches ne sont pas toutes cochees
     bool                       tasks_pending = false;
     bool                       tasks_done    = false;
+    std::string                at;               // heure du scan (UTC ISO) : envoyee avec la verif (scanned_at)
     Json                       data;             // reponse de l'API
 };
 

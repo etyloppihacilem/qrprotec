@@ -94,9 +94,10 @@ void App::pack_opened(const std::string &pack_id) {
 // La connexion n'est demandee qu'a la validation de la verif (submit_verif).
 void App::start_verif(const std::string &lot_id, const std::string &key, bool label) {
   {
-    verif         = {};
-    verif.active  = true;
-    verif.lot_id  = lot_id;
+    verif            = {};
+    verif.active     = true;
+    verif.started_at = utc_now_iso();
+    verif.lot_id     = lot_id;
     verif.key     = key;
     verif.current = lot_id;
     verif.loading = true;
@@ -431,6 +432,39 @@ Json App::verif_checked_body(const std::set< std::string > *scope) const {
     body[lot] = list;
   }
   return body;
+}
+
+// Heures de la verif envoyees au serveur (recalees comme done_at, voir views.device_times) : debut ("started_at",
+// lancement de la verif ou fin de l'etape precedente d'une vérif en cascade, plus tot si un item a ete scanne avant) et
+// heure du scan de chaque item envoye ("scanned_at" : {iid: heure}). Duree de la verif et dernier scan de chaque item
+// dans le rapport d'etat du lot.
+void App::verif_timing(Json &body) const {
+  std::set< std::string > sent;
+  for (const Json &iid : body["items"].items())
+    sent.insert(iid.str());
+  Json        scanned = Json::object();
+  std::string first;
+  const auto  note = [&](const std::string &iid, const std::string &at) {
+    if (!sent.count(iid) || scanned.contains(iid))
+      return;
+    scanned[iid] = at;
+    if (first.empty() || at < first)
+      first = at;
+  };
+  for (const ScanEntry &entry : stack.entries()) {
+    if (entry.at.empty() || entry.state == EntryState::Error || entry.tasks_pending)
+      continue;
+    if (entry.scan.kind == ScanKind::Item)
+      note(entry.scan.id, entry.at);
+    else if (entry.scan.kind == ScanKind::SealedPack)
+      for (const std::string &iid : entry.pack_items)
+        note(iid, entry.at);
+  }
+  const std::string started = !verif.started_at.empty() && (first.empty() || verif.started_at < first)
+                                  ? verif.started_at : first;
+  if (!started.empty())
+    body["started_at"] = started;
+  body["scanned_at"] = scanned;
 }
 
 std::vector< VerifPlanLot > App::plan_verif() const {

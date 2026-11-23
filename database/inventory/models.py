@@ -1283,6 +1283,10 @@ class Verifs(models.Model):
     # heure de reception par le serveur (envoi) : differe de datetime pour une verif envoyee apres coup, hors
     # connexion ; montree a cote pour reperer un antidatage (None : verifs d'avant ce champ)
     received = models.DateTimeField(default=timezone.now, null=True, blank=True)
+    # debut de la verif (etiquette du lot scannee, ou fin de l'etape precedente d'une vérif en cascade), heure de
+    # l'appareil recalee comme datetime : duree de la verif (rapport d'etat, statistiques). None : front d'avant ce
+    # champ, ou verif sans scan (scelle intact enregistre seul)
+    started = models.DateTimeField(null=True, blank=True)
     by = models.CharField(max_length=64)
     # vérif à plusieurs : identites stockees des autres participants (by : celui qui a envoye la verif)
     participants = models.JSONField(default=list, blank=True)
@@ -1313,6 +1317,12 @@ class VerifItem(models.Model):
     item = models.ForeignKey(Items, on_delete=models.CASCADE)
     result = models.CharField(max_length=8, choices=VerifResult.choices, default=VerifResult.PRESENT)
     expired = models.BooleanField(default=False)
+    # heure du scan de l'item pendant la verif (heure de l'appareil recalee comme Verifs.datetime), None : heure de la
+    # verif (front d'avant ce champ, scan d'un autre participant)
+    scanned_at = models.DateTimeField(null=True, blank=True)
+    # item a taches scanne : taches cochees (le front ne compte l'item qu'une fois toutes ses taches cochees), gardees
+    # telles qu'elles etaient ce jour-la (rapport d'etat)
+    tasks = models.JSONField(default=list, blank=True)
 
 
 class MovementKind(models.TextChoices):

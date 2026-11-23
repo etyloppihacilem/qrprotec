@@ -182,6 +182,7 @@ async function validate(partial = false, auto = false) {
       // etiquettes de scelle scannees : lots scelles intacts, comptes comme verifies
       sealed: allScanned().filter((entry) => entry.kind === 'seal' && !entry.error).map((entry) => ({ id: entry.iid, code: entry.key })),
       checked: checkedMap(allScanned()),
+      ...scanTiming(allScanned()),
       partial,
       full: state.full,
       ...(credentials ? { live: credentials } : {}),
@@ -224,7 +225,21 @@ function entriesPayload(entries) {
       if (entry.place) places[iid] = entry.place;
     }
   }
-  return { items: [...items], places, sealed, checked: checkedMap(entries) };
+  return { items: [...items], places, sealed, checked: checkedMap(entries), ...scanTiming(entries) };
+}
+
+// Heures de l'appareil envoyees avec la vérif : debut ("started_at", etiquette du lot ou fin de l'etape precedente) et
+// heure du scan de chaque item ("scanned_at" : {iid: heure}), recalees par le serveur comme done_at (duree de la vérif
+// et dernier scan de chaque item dans le rapport d'etat). Scans d'un autre participant : sans heure ici.
+function scanTiming(entries) {
+  const scanned = {};
+  for (const entry of entries) {
+    if (!entry.at || entry.error || entry.kind === 'seal' || entry.kind === 'check') continue;
+    for (const iid of entry.kind === 'item' ? [entry.iid] : entry.items || []) scanned[iid] = entry.at;
+  }
+  const first = Object.values(scanned).sort()[0] || '';
+  const started = state.startedAt && (!first || state.startedAt < first) ? state.startedAt : first;
+  return started ? { started_at: started, scanned_at: scanned } : { scanned_at: scanned };
 }
 
 // Lots valides par une validation de la vérif en cascade (compte rendu du serveur) : notes, et leurs scans retires
@@ -376,6 +391,7 @@ async function validateStep(partial = false, confirmed = false) {
       ...(credentials ? { live: credentials } : {}),
     }, top.name)) || offlineReport(verified, plan, payload.sealed);
     stepDone(report, [...payload.items, ...payload.sealed.map((row) => row.id)]);
+    state.startedAt = new Date().toISOString(); // l'etape suivante de la vérif en cascade commence
     state.scanned = state.scanned.filter((entry) => !(entry.kind === 'seal' && payload.sealed.some((row) => row.id === entry.iid)));
     const done = (report.lots || []).filter((row) => row.verified);
     const incomplete = done.filter((row) => !row.complete);
@@ -629,6 +645,7 @@ function showReport(report) {
 function forgetLot(message = "Scannez l'étiquette d'un lot.") {
   state.lot = null; state.lotId = ''; state.lotKey = ''; state.extra = []; resetCascade();
   state.lastVerif = null; state.launched = ''; state.current = ''; state.askPlace = false; state.full = false;
+  state.startedAt = '';
   resetVerifHelp();
   showInfo('empty', message);
   save(); render();

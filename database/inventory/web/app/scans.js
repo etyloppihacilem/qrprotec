@@ -102,7 +102,7 @@ async function scanItem(scan) {
   // cache de vérif : l'item est connu tout de suite, le serveur confirme ensuite (confirmItem)
   const cached = vcache.item(scan.id);
   const entry = { code: scan.code, kind: 'item', iid: scan.id, expired: expired || !!(cached && cached.expired), info: cached,
-                  error: '', place: state.lot ? currentPlace() : '' };
+                  error: '', place: state.lot ? currentPlace() : '', at: new Date().toISOString() };
   if (scan.task) {
     // etiquette de taches : l'item n'est compte qu'une fois ses taches validees (fenetre des taches)
     feedback.task();
@@ -387,7 +387,7 @@ async function scanPack(scan) {
     scannedAgain();
     state.lastVerif = null;
     const entry = { code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items,
-                    place: state.lot ? currentPlace() : '' };
+                    place: state.lot ? currentPlace() : '', at: new Date().toISOString() };
     state.scanned.push(entry);
     if (cached) confirmPack(entry, scan.id);
     if (expired) feedback.bad(); else feedback.good();
@@ -776,7 +776,10 @@ async function loadLot(id, seal, fresh = false) {
       vcache.refresh(15000);
     }
     const target = root || id;
-    if (state.lotId !== target) { state.extra = []; resetCascade(); state.startedIn = root ? id : ''; }
+    if (state.lotId !== target) {
+      state.extra = []; resetCascade(); state.startedIn = root ? id : '';
+      state.startedAt = new Date().toISOString(); // debut de la vérif (duree : rapport d'etat, statistiques)
+    }
     state.lot = lot;
     state.lotId = target;
     // chemin vers le sous-lot demande, ou chemin garde (rechargement) tant qu'il existe encore

@@ -64,7 +64,8 @@ const state = {
   lotId: '',
   lotKey: '',
   extra: [],         // autres lots du meme lot global ajoutes a la verif par leur etiquette privee : [{id, key, lot}]
-  scanned: [],       // [{code, kind, iid, info, expired, error, items: [iids d'un paquet]}]
+  scanned: [],       // [{code, kind, iid, info, expired, error, items: [iids d'un paquet], at: heure du scan}]
+  startedAt: '',     // debut de la vérif (etiquette du lot scannee) ou de l'etape en cours d'une vérif en cascade
   tab: 'todo',
   busy: false,
   lastVerif: null,   // {lotId, at, complete, present} : derniere verif validee (affichee tant qu'on ne rescanne pas)
@@ -163,9 +164,9 @@ function save() {
       lotId: state.lotId, lotKey: state.lotKey, lastVerif: state.lastVerif,
       launched: state.launched, current: state.current, full: state.full, fullHidden: state.fullHidden,
       path: state.path, done: state.done, keys: state.keys, entered: state.entered, reopened: state.reopened, startedIn: state.startedIn,
-      labels: state.labels, openSeals: state.openSeals,
+      labels: state.labels, openSeals: state.openSeals, startedAt: state.startedAt,
       extra: state.extra.map(({ id, key }) => ({ id, key })),
-      scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place }) => ({ code, kind, iid, key, info, expired, error, items, place })),
+      scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place, at }) => ({ code, kind, iid, key, info, expired, error, items, place, at })),
     }));
     // web partage : la connexion reste dans l'onglet, jamais dans les donnees gardees de l'appareil
     const kept = sharedWeb() ? sessionStorage : localStorage;
@@ -207,6 +208,7 @@ function restore() {
       state.entered = Array.isArray(session.entered) ? session.entered : [];
       state.reopened = session.reopened && typeof session.reopened === 'object' ? session.reopened : {};
       state.startedIn = typeof session.startedIn === 'string' ? session.startedIn : '';
+      state.startedAt = typeof session.startedAt === 'string' ? session.startedAt : '';
       state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
       state.lastVerif = session.lastVerif || null;
       state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];
